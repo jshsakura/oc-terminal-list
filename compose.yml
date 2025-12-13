@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # FastAPI 백엔드
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: iterminal-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # 개발 모드: 코드 변경 시 자동 재시작
+      - ./backend:/app
+      # SQLite 데이터베이스 (외부 경로)
+      - /home/ubuntu/app/iterm/data:/data
+      # 워크스페이스 (사용자 작업 공간)
+      - /home/ubuntu/app/iterm/workspace:/workspace
+      # PTY 장치 마운트
+      - /dev/pts:/dev/pts
+    privileged: true
+    networks:
+      - iterminal-network
+    command: >
+      uvicorn main:app
+      --host 0.0.0.0
+      --port 8000
+      --reload
+      --log-level info
+
+  # React 프론트엔드 (개발 모드)
+  frontend-dev:
+    image: node:18-alpine
+    container_name: iterminal-frontend-dev
+    restart: unless-stopped
+    ports:
+      - "23232:5173"
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    networks:
+      - iterminal-network
+    depends_on:
+      - backend
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    profiles:
+      - dev
+
+  # React 프론트엔드 (프로덕션 모드)
+  frontend-prod:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: iterminal-frontend-prod
+    restart: unless-stopped
+    ports:
+      - "23232:80"
+    networks:
+      - iterminal-network
+    depends_on:
+      - backend
+    profiles:
+      - prod
+
+networks:
+  iterminal-network:
+    driver: bridge

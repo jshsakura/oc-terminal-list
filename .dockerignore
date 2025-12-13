@@ -1,0 +1,51 @@
+# Git
+.git
+.gitignore
+
+# Node modules
+**/node_modules
+**/dist
+**/.vite
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info
+**/.pytest_cache
+
+# Environment
+.env
+.env.local
+**/.env.*
+
+# IDEs
+.vscode
+.idea
+**/.DS_Store
+
+# Logs
+*.log
+
+# Data
+**/data/*.db
+**/sessions.db
+
+# Documentation
+*.md
+!README.md
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Build artifacts
+backend/static
+
+# Claude
+.claude

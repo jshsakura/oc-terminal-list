@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # FastAPI 백엔드
+  backend:
+    build: ./backend
+    container_name: iterminallist-backend-dev
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - NVM_DIR=/root/.nvm
+      - PYENV_ROOT=/root/.pyenv
+    privileged: true
+    volumes:
+      - /dev/pts:/dev/pts
+      - ./backend:/app  # 개발 시 코드 변경 실시간 반영
+      - workspace-data:/workspace  # 작업 디렉토리 전체 유지
+      - root-home:/root  # 홈 디렉토리 전체 유지 (nvm, pyenv, bashrc 등)
+      - usr-local:/usr/local  # 전역 설치 패키지 유지
+    networks:
+      - iterminal-network
+    depends_on:
+      - redis
+
+  # React 프론트엔드 (개발 모드)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: iterminallist-frontend-dev
+    restart: unless-stopped
+    ports:
+      - "5173:5173"  # Vite 개발 서버 포트
+    volumes:
+      - ./frontend:/app  # 소스 코드 실시간 반영
+      - /app/node_modules  # node_modules는 컨테이너 것 사용
+    environment:
+      - CHOKIDAR_USEPOLLING=true  # 파일 변경 감지 (Docker에서 필요)
+    depends_on:
+      - backend
+    networks:
+      - iterminal-network
+
+  # Redis (내부 네트워크만)
+  redis:
+    image: redis:7-alpine
+    container_name: iterminallist-redis-dev
+    restart: unless-stopped
+    volumes:
+      - redis-data-dev:/data
+    command: >
+      redis-server
+      --save 60 1
+      --loglevel warning
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+    networks:
+      - iterminal-network
+
+volumes:
+  redis-data-dev:
+    driver: local
+  workspace-data:
+    driver: local
+  root-home:
+    driver: local
+  usr-local:
+    driver: local
+
+networks:
+  iterminal-network:
+    driver: bridge

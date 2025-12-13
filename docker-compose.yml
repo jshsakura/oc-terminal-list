@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  # Redis for session storage
+  redis:
+    image: redis:7-alpine
+    container_name: iterminallist-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - iterminal-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+
+  # MariaDB for persistent data
+  mariadb:
+    image: mariadb:11
+    container_name: iterminallist-mariadb
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-iterminallist}
+      MYSQL_USER: ${MYSQL_USER:-iterminal}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-iterminalpass}
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    networks:
+      - iterminal-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # iTerminalList application (frontend + backend)
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${DOCKER_IMAGE:-iterminallist:latest}
+    container_name: iterminallist-app
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      - DB_PATH=/app/data/iterminallist.db
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MYSQL_HOST=mariadb
+      - MYSQL_PORT=3306
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-iterminallist}
+      - MYSQL_USER=${MYSQL_USER:-iterminal}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-iterminalpass}
+    volumes:
+      - app-data:/app/data
+      - /dev/pts:/dev/pts
+    privileged: true
+    networks:
+      - iterminal-network
+    depends_on:
+      redis:
+        condition: service_healthy
+      mariadb:
+        condition: service_healthy
+
+networks:
+  iterminal-network:
+    driver: bridge
+
+volumes:
+  redis-data:
+  mariadb-data:
+  app-data:
