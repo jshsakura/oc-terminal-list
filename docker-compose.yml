@@ -4,7 +4,7 @@ services:
   # Redis for session storage
   redis:
     image: redis:7-alpine
-    container_name: iterminallist-redis
+    container_name: oc-terminal-list-redis
     restart: unless-stopped
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
     volumes:
@@ -20,11 +20,11 @@ services:
   # MariaDB for persistent data
   mariadb:
     image: mariadb:11
-    container_name: iterminallist-mariadb
+    container_name: oc-terminal-list-mariadb
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-iterminallist}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-octerminallist}
       MYSQL_USER: ${MYSQL_USER:-iterminal}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-iterminalpass}
     volumes:
@@ -37,23 +37,23 @@ services:
       timeout: 5s
       retries: 3
 
-  # iTerminalList application (frontend + backend)
+  # OC Terminal List application (frontend + backend)
   app:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ${DOCKER_IMAGE:-iterminallist:latest}
-    container_name: iterminallist-app
+    image: ${DOCKER_IMAGE:-jshsakura/oc-terminal-list:latest}
+    container_name: oc-terminal-list-app
     restart: unless-stopped
     ports:
       - "${APP_PORT:-8000}:8000"
     environment:
-      - DB_PATH=/app/data/iterminallist.db
+      - DB_PATH=/app/data/octerminallist.db
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - MYSQL_HOST=mariadb
       - MYSQL_PORT=3306
-      - MYSQL_DATABASE=${MYSQL_DATABASE:-iterminallist}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-octerminallist}
       - MYSQL_USER=${MYSQL_USER:-iterminal}
       - MYSQL_PASSWORD=${MYSQL_PASSWORD:-iterminalpass}
     volumes:

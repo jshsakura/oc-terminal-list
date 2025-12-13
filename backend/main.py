@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # FastAPI 앱 생성
 app = FastAPI(
-    title="iTerminaLlist",
+    title="OC Terminal List",
     description="영속적 세션 지원 웹 터미널 에뮬레이터",
     version="1.0.0"
 )

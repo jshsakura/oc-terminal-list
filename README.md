@@ -1,4 +1,4 @@
-# iTerminalList
+# OC Terminal List
 
 **웹 기반 터미널 에뮬레이터 with 영속적 세션 및 파일 브라우저**
 
@@ -19,8 +19,8 @@
 
 ```bash
 # 저장소 클론
-git clone https://github.com/yourusername/iterminallist.git
-cd iterminallist
+git clone https://github.com/jshsakura/oc-terminal-list.git
+cd oc-terminal-list
 
 # 환경 변수 설정
 cp .env.example .env
@@ -36,8 +36,8 @@ open http://localhost:8000
 
 ```bash
 # docker-compose.yml 다운로드
-wget https://raw.githubusercontent.com/yourusername/iterminallist/main/docker-compose.yml
-wget https://raw.githubusercontent.com/yourusername/iterminallist/main/.env.example
+wget https://raw.githubusercontent.com/jshsakura/oc-terminal-list/main/docker-compose.yml
+wget https://raw.githubusercontent.com/jshsakura/oc-terminal-list/main/.env.example
 
 # .env 설정
 cp .env.example .env
@@ -145,17 +145,17 @@ npm run dev -- --port 23232
 
 ```bash
 # 이미지 빌드
-docker build -t yourusername/iterminallist:latest .
+docker build -t jshsakura/oc-terminal-list:latest .
 
 # 버전 태그 추가
-docker tag yourusername/iterminallist:latest yourusername/iterminallist:1.0.0
+docker tag jshsakura/oc-terminal-list:latest jshsakura/oc-terminal-list:1.0.0
 
 # Docker Hub 로그인
 docker login
 
 # 푸시
-docker push yourusername/iterminallist:latest
-docker push yourusername/iterminallist:1.0.0
+docker push jshsakura/oc-terminal-list:latest
+docker push jshsakura/oc-terminal-list:1.0.0
 ```
 
 ### Makefile 사용
@@ -165,7 +165,7 @@ docker push yourusername/iterminallist:1.0.0
 make build
 
 # Docker Hub에 푸시
-make push TAG=yourusername/iterminallist:1.0.0
+make push TAG=jshsakura/oc-terminal-list:1.0.0
 
 # 배포
 make deploy
