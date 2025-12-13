@@ -5,7 +5,7 @@
 export const locales = {
   en: {
     // Header
-    appName: 'OC Terminal List',
+    appName: 'Terminal List',
     session: 'Session',
     newSession: 'New Session',
     settings: 'Settings',
@@ -98,7 +98,7 @@ export const locales = {
 
   ko: {
     // 헤더
-    appName: 'OC Terminal List',
+    appName: 'Terminal List',
     session: '세션',
     newSession: '새로운 세션',
     settings: '설정',
