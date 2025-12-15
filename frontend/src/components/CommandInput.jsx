@@ -59,6 +59,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
         onClick={onClose}
       />
 
+      {/* Placeholder 스타일 */}
+      <style>{`
+        .command-input-textarea::placeholder {
+          color: ${currentTheme.ui.fgMuted};
+          opacity: 0.7;
+        }
+      `}</style>
+
       {/* Modal */}
       <div style={{
         ...styles.modal,
@@ -96,6 +104,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t?.('commandInputPlaceholder') || '명령어를 입력하세요... (Ctrl+Enter로 전송)'}
+            className="command-input-textarea"
             style={{
               ...styles.textarea,
               backgroundColor: currentTheme.ui.bgSecondary,
@@ -135,7 +144,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
               ...styles.button,
               ...styles.clearButton,
               backgroundColor: command.trim() ? currentTheme.ui.bgTertiary : currentTheme.ui.bgSecondary,
-              color: command.trim() ? currentTheme.cyan : currentTheme.ui.fgMuted,
+              color: command.trim() ? (currentTheme.brightCyan || currentTheme.cyan || '#8be9fd') : currentTheme.ui.fgMuted,
               opacity: command.trim() ? 1 : 0.5,
             }}
             title={t?.('clearInput') || '내용 지우기'}
@@ -150,7 +159,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
               ...styles.button,
               ...styles.sendButton,
               backgroundColor: command.trim() ? currentTheme.ui.accent : currentTheme.ui.bgTertiary,
-              color: command.trim() ? currentTheme.ui.bg : currentTheme.ui.fgMuted,
+              color: command.trim() ? (currentTheme.brightWhite || '#ffffff') : currentTheme.ui.fgMuted,
               opacity: command.trim() ? 1 : 0.5,
             }}
           >
