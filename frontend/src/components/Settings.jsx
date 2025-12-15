@@ -84,11 +84,15 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
               onChange={(e) => handleChange('theme', e.target.value)}
               style={{ ...styles.select, backgroundColor: currentTheme.ui.bgTertiary, color: currentTheme.ui.text, borderColor: currentTheme.ui.border }}
             >
-              {themeNames.map((name) => (
-                <option key={name} value={name}>
-                  {name.charAt(0).toUpperCase() + name.slice(1).replace(/([A-Z])/g, ' $1')}
-                </option>
-              ))}
+              {themeNames.map((name) => {
+                // 테마 이름을 번역 키로 변환 (예: catppuccin → themeCatppuccin)
+                const themeKey = `theme${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+                return (
+                  <option key={name} value={name}>
+                    {t(themeKey)}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

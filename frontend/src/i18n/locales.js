@@ -30,10 +30,11 @@ export const locales = {
     reset: 'Reset to Default',
 
     // Themes
+    themeCatppuccin: 'Catppuccin',
     themeDracula: 'Dracula',
     themeMonokai: 'Monokai',
     themeSolarizedDark: 'Solarized Dark',
-    themeGitHub: 'GitHub Dark',
+    themeGithub: 'GitHub Dark',
 
     // Languages
     languageEnglish: 'English',
@@ -127,10 +128,11 @@ export const locales = {
     reset: '기본값으로 재설정',
 
     // 테마
+    themeCatppuccin: 'Catppuccin',
     themeDracula: 'Dracula',
     themeMonokai: 'Monokai',
     themeSolarizedDark: 'Solarized Dark',
-    themeGitHub: 'GitHub Dark',
+    themeGithub: 'GitHub Dark',
 
     // 언어
     languageEnglish: 'English',
