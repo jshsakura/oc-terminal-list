@@ -80,7 +80,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
         }}>
           <h3 style={{
             ...styles.title,
-            color: currentTheme.ui.fg,
+            color: currentTheme.foreground || currentTheme.ui.fg || '#cdd6f4',
           }}>
             {t?.('commandInput') || '명령어 입력'}
           </h3>
@@ -149,8 +149,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             }}
             title={t?.('clearInput') || '내용 지우기'}
           >
-            <Eraser size={14} />
-            <span>{t?.('clear') || '지우기'}</span>
+            <Eraser size={16} />
           </button>
           <button
             onClick={handleSend}
@@ -270,7 +269,9 @@ const styles = {
     minWidth: '80px',
   },
   clearButton: {
-    flex: 1,
+    flex: '0 0 auto',
+    minWidth: '44px',
+    padding: '10px',
   },
   sendButton: {
     flex: 1,
