@@ -62,8 +62,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
       {/* Placeholder 스타일 */}
       <style>{`
         .command-input-textarea::placeholder {
-          color: ${currentTheme.ui.fgMuted};
-          opacity: 0.7;
+          color: ${currentTheme.foreground || currentTheme.white || '#a6adc8'};
+          opacity: 0.5;
         }
       `}</style>
 
@@ -88,7 +88,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             onClick={onClose}
             style={{
               ...styles.closeButton,
-              color: currentTheme.ui.fgMuted,
+              color: currentTheme.foreground || currentTheme.white || '#bac2de',
             }}
             title={t?.('close') || '닫기'}
           >
@@ -108,14 +108,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             style={{
               ...styles.textarea,
               backgroundColor: currentTheme.ui.bgSecondary,
-              color: currentTheme.ui.fg,
+              color: currentTheme.foreground || currentTheme.white || '#cdd6f4',
               borderColor: currentTheme.ui.border,
             }}
             autoFocus
           />
           <div style={{
             ...styles.hint,
-            color: currentTheme.ui.fgMuted,
+            color: currentTheme.foreground || currentTheme.white || '#a6adc8',
           }}>
             {t?.('commandInputHint') || '💡 Enter로 줄바꿈, Ctrl+Enter로 전송'}
           </div>
@@ -132,7 +132,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
               ...styles.button,
               ...styles.cancelButton,
               backgroundColor: currentTheme.ui.bgSecondary,
-              color: currentTheme.ui.fg,
+              color: currentTheme.foreground || currentTheme.white || '#cdd6f4',
             }}
           >
             {t?.('cancel') || '취소'}
@@ -144,7 +144,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
               ...styles.button,
               ...styles.clearButton,
               backgroundColor: command.trim() ? currentTheme.ui.bgTertiary : currentTheme.ui.bgSecondary,
-              color: command.trim() ? (currentTheme.brightCyan || currentTheme.cyan || '#8be9fd') : currentTheme.ui.fgMuted,
+              color: command.trim() ? (currentTheme.brightCyan || currentTheme.cyan || '#8be9fd') : (currentTheme.brightBlack || '#6c7086'),
               opacity: command.trim() ? 1 : 0.5,
             }}
             title={t?.('clearInput') || '내용 지우기'}
@@ -158,7 +158,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
               ...styles.button,
               ...styles.sendButton,
               backgroundColor: command.trim() ? currentTheme.ui.accent : currentTheme.ui.bgTertiary,
-              color: command.trim() ? (currentTheme.brightWhite || '#ffffff') : currentTheme.ui.fgMuted,
+              color: command.trim() ? (currentTheme.brightWhite || '#ffffff') : (currentTheme.foreground || currentTheme.white || '#a6adc8'),
               opacity: command.trim() ? 1 : 0.5,
             }}
           >
