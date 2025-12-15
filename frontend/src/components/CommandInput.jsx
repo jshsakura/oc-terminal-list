@@ -27,6 +27,10 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
   };
 
   const handleClear = () => {
+    const confirmMessage = t?.('confirmClearInput') || '입력한 내용을 모두 지우시겠습니까?';
+    if (command.trim() && !confirm(confirmMessage)) {
+      return;
+    }
     setCommand('');
     textareaRef.current?.focus();
   };
@@ -72,28 +76,16 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
           }}>
             {t?.('commandInput') || '명령어 입력'}
           </h3>
-          <div style={styles.headerButtons}>
-            <button
-              onClick={handleClear}
-              style={{
-                ...styles.headerButton,
-                color: currentTheme.ui.fgMuted,
-              }}
-              title={t?.('clearInput') || '내용 지우기'}
-            >
-              <Eraser size={16} />
-            </button>
-            <button
-              onClick={onClose}
-              style={{
-                ...styles.headerButton,
-                color: currentTheme.ui.fgMuted,
-              }}
-              title={t?.('close') || '닫기'}
-            >
-              <X size={18} />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            style={{
+              ...styles.closeButton,
+              color: currentTheme.ui.fgMuted,
+            }}
+            title={t?.('close') || '닫기'}
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {/* Input Area */}
@@ -135,6 +127,21 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             }}
           >
             {t?.('cancel') || '취소'}
+          </button>
+          <button
+            onClick={handleClear}
+            disabled={!command.trim()}
+            style={{
+              ...styles.button,
+              ...styles.clearButton,
+              backgroundColor: command.trim() ? currentTheme.ui.bgTertiary : currentTheme.ui.bgSecondary,
+              color: command.trim() ? currentTheme.cyan : currentTheme.ui.fgMuted,
+              opacity: command.trim() ? 1 : 0.5,
+            }}
+            title={t?.('clearInput') || '내용 지우기'}
+          >
+            <Eraser size={14} />
+            <span>{t?.('clear') || '지우기'}</span>
           </button>
           <button
             onClick={handleSend}
@@ -194,12 +201,7 @@ const styles = {
     fontSize: '16px',
     fontWeight: '600',
   },
-  headerButtons: {
-    display: 'flex',
-    gap: '8px',
-    alignItems: 'center',
-  },
-  headerButton: {
+  closeButton: {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
@@ -257,6 +259,9 @@ const styles = {
   cancelButton: {
     flex: '0 0 auto',
     minWidth: '80px',
+  },
+  clearButton: {
+    flex: 1,
   },
   sendButton: {
     flex: 1,
