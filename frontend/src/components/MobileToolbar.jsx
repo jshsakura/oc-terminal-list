@@ -3,10 +3,10 @@
  * 모바일(iOS)에서 ESC, Tab, 방향키 등 특수키 입력 지원
  */
 import { useRef } from 'react';
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronsDown, ClipboardPaste, Eraser } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ChevronsDown, ClipboardPaste, Eraser, MessageSquare } from 'lucide-react';
 import useVisualViewport from '../hooks/useVisualViewport';
 
-const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId }) => {
+const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenCommandInput }) => {
   const toolbarRef = useRef(null);
 
   // Visual Viewport로 키보드 위에 툴바 고정
@@ -45,7 +45,19 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId }) => {
       }}
     >
       <div style={styles.buttonGroup}>
-        {/* ESC (맨 좌측) */}
+        {/* Command Input (한글 입력) */}
+        <button
+          onTouchEnd={(e) => {
+            e.preventDefault();
+            onOpenCommandInput?.();
+          }}
+          style={{ ...styles.button, ...styles.primary }}
+          title="명령어 입력 (한글 지원)"
+        >
+          <MessageSquare size={13} strokeWidth={2} />
+        </button>
+
+        {/* ESC */}
         <button
           onTouchEnd={(e) => {
             e.preventDefault();
@@ -201,6 +213,10 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  primary: {
+    backgroundColor: '#89b4fa',
+    color: '#1e1e2e',
   },
   secondary: {
     backgroundColor: '#313244',

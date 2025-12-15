@@ -6,6 +6,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Plus, Settings as SettingsIcon, Power, Menu, X, PanelLeftClose, PanelLeft } from 'lucide-react';
 import Terminal from './components/Terminal';
 import MobileToolbar from './components/MobileToolbar';
+import CommandInput from './components/CommandInput';
 import Settings from './components/Settings';
 import Sidebar from './components/Sidebar';
 import ConfirmModal from './components/ConfirmModal';
@@ -105,6 +106,7 @@ function App() {
   });
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
+  const [commandInputOpen, setCommandInputOpen] = useState(false);
   const terminalRef = useRef(null);
 
   // 설정 관리
@@ -362,6 +364,14 @@ function App() {
   const handleSendKey = (key) => {
     if (window.terminalSessions && activeSessionId && window.terminalSessions[activeSessionId]) {
       window.terminalSessions[activeSessionId].sendData(key);
+    }
+  };
+
+  // 명령어 입력창에서 명령어 전송
+  const handleSendCommand = (command) => {
+    if (window.terminalSessions && activeSessionId && window.terminalSessions[activeSessionId]) {
+      // 명령어 전송 후 Enter 추가
+      window.terminalSessions[activeSessionId].sendData(command + '\n');
     }
   };
 
@@ -736,7 +746,23 @@ function App() {
       )}
 
       {/* 모바일 툴바 */}
-      {isMobile && <MobileToolbar onSendKey={handleSendKey} isVisible={true} activeSessionId={activeSessionId} />}
+      {isMobile && (
+        <MobileToolbar
+          onSendKey={handleSendKey}
+          isVisible={true}
+          activeSessionId={activeSessionId}
+          onOpenCommandInput={() => setCommandInputOpen(true)}
+        />
+      )}
+
+      {/* 명령어 입력 모달 */}
+      <CommandInput
+        isOpen={commandInputOpen}
+        onClose={() => setCommandInputOpen(false)}
+        onSend={handleSendCommand}
+        theme={currentTheme}
+        t={t}
+      />
 
       {/* 사이드바 */}
       <Sidebar

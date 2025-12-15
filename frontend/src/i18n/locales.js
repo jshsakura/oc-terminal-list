@@ -41,6 +41,10 @@ export const locales = {
 
     // Toolbar
     paste: 'Paste',
+    commandInput: 'Command Input',
+    commandInputPlaceholder: 'Enter command... (Ctrl+Enter to send)',
+    commandInputHint: '💡 Enter for new line, Ctrl+Enter to send',
+    send: 'Send',
 
     // Messages
     settingsSaved: 'Settings saved successfully',
@@ -134,6 +138,10 @@ export const locales = {
 
     // 툴바
     paste: '붙여넣기',
+    commandInput: '명령어 입력',
+    commandInputPlaceholder: '명령어를 입력하세요... (Ctrl+Enter로 전송)',
+    commandInputHint: '💡 Enter로 줄바꿈, Ctrl+Enter로 전송',
+    send: '전송',
 
     // 메시지
     settingsSaved: '설정이 저장되었습니다',
