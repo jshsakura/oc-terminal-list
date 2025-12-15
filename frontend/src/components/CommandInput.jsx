@@ -131,24 +131,25 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             disabled={!command.trim()}
             style={{
               ...styles.button,
-              ...styles.clearButton,
-              backgroundColor: command.trim() ? currentTheme.ui.bgTertiary : currentTheme.ui.bgSecondary,
-              color: command.trim() ? (currentTheme.brightCyan || currentTheme.cyan || '#8be9fd') : (currentTheme.brightBlack || '#6c7086'),
+              backgroundColor: command.trim() ? (currentTheme.red || '#f38ba8') : currentTheme.ui.bgSecondary,
+              color: command.trim() ? '#ffffff' : (currentTheme.brightBlack || '#6c7086'),
               opacity: command.trim() ? 1 : 0.5,
+              borderColor: command.trim() ? (currentTheme.red || '#f38ba8') : 'transparent',
             }}
             title={t?.('clearInput') || '내용 지우기'}
           >
-            <Eraser size={16} />
+            <Eraser size={14} />
+            <span>{t?.('clear') || '지우기'}</span>
           </button>
           <button
             onClick={handleSend}
             disabled={!command.trim()}
             style={{
               ...styles.button,
-              ...styles.sendButton,
-              backgroundColor: command.trim() ? currentTheme.ui.accent : currentTheme.ui.bgTertiary,
-              color: command.trim() ? (currentTheme.brightWhite || '#ffffff') : (currentTheme.foreground || currentTheme.white || '#a6adc8'),
+              backgroundColor: command.trim() ? currentTheme.ui.accent : currentTheme.ui.bgSecondary,
+              color: command.trim() ? '#ffffff' : (currentTheme.brightBlack || '#6c7086'),
               opacity: command.trim() ? 1 : 0.5,
+              borderColor: command.trim() ? currentTheme.ui.accent : 'transparent',
             }}
           >
             <Send size={14} />
@@ -244,22 +245,14 @@ const styles = {
     padding: '10px 16px',
     fontSize: '14px',
     fontWeight: '500',
-    border: 'none',
-    borderRadius: '4px',
+    border: '2px solid',
+    borderRadius: '6px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     gap: '6px',
-    transition: 'opacity 0.2s',
-  },
-  clearButton: {
-    flex: '0 0 auto',
-    minWidth: '44px',
-    padding: '10px',
-  },
-  sendButton: {
-    flex: 1,
+    transition: 'all 0.2s ease',
   },
 };
 
