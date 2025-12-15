@@ -1,5 +1,9 @@
 # OC Terminal List
 
+[![Docker Build](https://github.com/jshsakura/oc-terminal-list/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/jshsakura/oc-terminal-list/actions/workflows/docker-publish.yml)
+[![Docker Pulls](https://img.shields.io/docker/pulls/jshsakura/oc-terminal-list)](https://hub.docker.com/r/jshsakura/oc-terminal-list)
+[![Docker Image Version](https://img.shields.io/docker/v/jshsakura/oc-terminal-list?sort=semver)](https://hub.docker.com/r/jshsakura/oc-terminal-list/tags)
+
 **웹 기반 터미널 에뮬레이터 with 영속적 세션 및 파일 브라우저**
 
 ## ✨ 주요 기능

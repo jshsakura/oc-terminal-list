@@ -1,0 +1,104 @@
+name: Docker Build and Push
+
+on:
+  push:
+    branches:
+      - main
+      - oc
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (leave empty for auto-increment)'
+        required: false
+        type: string
+
+env:
+  DOCKER_IMAGE: jshsakura/oc-terminal-list
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get latest tag and calculate next version
+        id: version
+        run: |
+          # Get latest tag, if none exists, start with 1.0.0
+          latest_tag=$(git tag -l "v*" | sort -V | tail -n 1)
+
+          if [ -z "$latest_tag" ]; then
+            # No tags exist, start with 1.0.0
+            new_version="1.0.0"
+          elif [ -n "${{ github.event.inputs.version }}" ]; then
+            # Manual version provided
+            new_version="${{ github.event.inputs.version }}"
+          else
+            # Auto-increment minor version
+            latest_version=${latest_tag#v}
+            IFS='.' read -r major minor patch <<< "$latest_version"
+            new_version="$major.$minor.$((patch + 1))"
+          fi
+
+          echo "version=$new_version" >> $GITHUB_OUTPUT
+          echo "tag=v$new_version" >> $GITHUB_OUTPUT
+          echo "Next version: $new_version"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.DOCKER_IMAGE }}:latest
+            ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
+          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache
+          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }}:buildcache,mode=max
+
+      - name: Create and push git tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a ${{ steps.version.outputs.tag }} -m "Release ${{ steps.version.outputs.version }}"
+          git push origin ${{ steps.version.outputs.tag }}
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          release_name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## Docker Image
+
+            ```bash
+            docker pull ${{ env.DOCKER_IMAGE }}:${{ steps.version.outputs.version }}
+            ```
+
+            ## Supported Architectures
+            - linux/amd64 (x86_64)
+            - linux/arm64 (Raspberry Pi, Apple Silicon)
+
+            ## Changes
+            See commit history for details.
+          draft: false
+          prerelease: false
