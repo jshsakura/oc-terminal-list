@@ -127,17 +127,6 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
           borderTopColor: currentTheme.ui.border,
         }}>
           <button
-            onClick={onClose}
-            style={{
-              ...styles.button,
-              ...styles.cancelButton,
-              backgroundColor: currentTheme.ui.bgSecondary,
-              color: currentTheme.foreground || currentTheme.white || '#cdd6f4',
-            }}
-          >
-            {t?.('cancel') || '취소'}
-          </button>
-          <button
             onClick={handleClear}
             disabled={!command.trim()}
             style={{
@@ -263,10 +252,6 @@ const styles = {
     justifyContent: 'center',
     gap: '6px',
     transition: 'opacity 0.2s',
-  },
-  cancelButton: {
-    flex: '0 0 auto',
-    minWidth: '80px',
   },
   clearButton: {
     flex: '0 0 auto',
