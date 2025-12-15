@@ -107,6 +107,7 @@ function App() {
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [commandInputOpen, setCommandInputOpen] = useState(false);
+  const [commandText, setCommandText] = useState('');
   const terminalRef = useRef(null);
 
   // 설정 관리
@@ -760,6 +761,8 @@ function App() {
         isOpen={commandInputOpen}
         onClose={() => setCommandInputOpen(false)}
         onSend={handleSendCommand}
+        command={commandText}
+        setCommand={setCommandText}
         theme={currentTheme}
         t={t}
       />

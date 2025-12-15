@@ -46,6 +46,7 @@ export const locales = {
     commandInputPlaceholder: 'Enter command... (Ctrl+Enter to send)',
     commandInputHint: '💡 Enter for new line, Ctrl+Enter to send',
     send: 'Send',
+    clearInput: 'Clear input',
 
     // Messages
     settingsSaved: 'Settings saved successfully',
@@ -144,6 +145,7 @@ export const locales = {
     commandInputPlaceholder: '명령어를 입력하세요... (Ctrl+Enter로 전송)',
     commandInputHint: '💡 Enter로 줄바꿈, Ctrl+Enter로 전송',
     send: '전송',
+    clearInput: '내용 지우기',
 
     // 메시지
     settingsSaved: '설정이 저장되었습니다',

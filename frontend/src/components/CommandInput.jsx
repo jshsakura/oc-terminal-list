@@ -3,11 +3,10 @@
  * 모바일에서 한글 입력을 위한 별도 입력창
  * 자소 분리 문제 해결을 위해 일반 textarea 사용
  */
-import { useState, useEffect, useRef } from 'react';
-import { Send, X } from 'lucide-react';
+import { useEffect, useRef } from 'react';
+import { Send, X, Eraser } from 'lucide-react';
 
-const CommandInput = ({ isOpen, onClose, onSend, theme, t }) => {
-  const [command, setCommand] = useState('');
+const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }) => {
   const textareaRef = useRef(null);
 
   useEffect(() => {
@@ -25,6 +24,11 @@ const CommandInput = ({ isOpen, onClose, onSend, theme, t }) => {
       setCommand('');
       onClose();
     }
+  };
+
+  const handleClear = () => {
+    setCommand('');
+    textareaRef.current?.focus();
   };
 
   const handleKeyDown = (e) => {
@@ -68,15 +72,28 @@ const CommandInput = ({ isOpen, onClose, onSend, theme, t }) => {
           }}>
             {t?.('commandInput') || '명령어 입력'}
           </h3>
-          <button
-            onClick={onClose}
-            style={{
-              ...styles.closeButton,
-              color: currentTheme.ui.fgMuted,
-            }}
-          >
-            <X size={18} />
-          </button>
+          <div style={styles.headerButtons}>
+            <button
+              onClick={handleClear}
+              style={{
+                ...styles.headerButton,
+                color: currentTheme.ui.fgMuted,
+              }}
+              title={t?.('clearInput') || '내용 지우기'}
+            >
+              <Eraser size={16} />
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                ...styles.headerButton,
+                color: currentTheme.ui.fgMuted,
+              }}
+              title={t?.('close') || '닫기'}
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
 
         {/* Input Area */}
@@ -177,7 +194,12 @@ const styles = {
     fontSize: '16px',
     fontWeight: '600',
   },
-  closeButton: {
+  headerButtons: {
+    display: 'flex',
+    gap: '8px',
+    alignItems: 'center',
+  },
+  headerButton: {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
@@ -185,6 +207,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
+    transition: 'opacity 0.2s',
   },
   body: {
     flex: 1,
