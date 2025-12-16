@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Terminal List" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+    <title>Terminal List</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html, body, #root {
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        position: fixed;
+        background: #1e1e2e;
+        scrollbar-width: none; /* Firefox */
+        -ms-overflow-style: none; /* IE/Edge */
+      }
+
+      html::-webkit-scrollbar, body::-webkit-scrollbar, #root::-webkit-scrollbar {
+        display: none; /* Chrome, Safari */
+      }
+
+      body {
+        font-family: "JetBrains Mono", monospace;
+        font-weight: 400;
+        font-style: normal;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      * {
+        font-family: "JetBrains Mono", monospace !important;
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/index-DqcDFUo8.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // 백스페이스로 뒤로가기 방지
+      document.addEventListener('keydown', function(e) {
+        if (e.key === 'Backspace' || e.keyCode === 8) {
+          const target = e.target;
+          const isEditable = target.tagName === 'INPUT' ||
+                           target.tagName === 'TEXTAREA' ||
+                           target.isContentEditable;
+
+          // 입력 필드가 아니면 백스페이스 막기
+          if (!isEditable) {
+            e.preventDefault();
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

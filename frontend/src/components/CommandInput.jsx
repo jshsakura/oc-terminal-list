@@ -4,7 +4,7 @@
  * 자소 분리 문제 해결을 위해 일반 textarea 사용
  */
 import { useEffect, useRef } from 'react';
-import { Send, X, Eraser } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste } from 'lucide-react';
 
 const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }) => {
   const textareaRef = useRef(null);
@@ -33,6 +33,21 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
     }
     setCommand('');
     textareaRef.current?.focus();
+  };
+
+  const handlePaste = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      setCommand(command + text);
+      textareaRef.current?.focus();
+    } catch (err) {
+      // Clipboard API 실패 시 prompt 사용
+      const text = prompt(t?.('paste') || '붙여넣을 텍스트:');
+      if (text) {
+        setCommand(command + text);
+        textareaRef.current?.focus();
+      }
+    }
   };
 
   const handleKeyDown = (e) => {
@@ -113,12 +128,6 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             }}
             autoFocus
           />
-          <div style={{
-            ...styles.hint,
-            color: currentTheme.foreground || currentTheme.white || '#a6adc8',
-          }}>
-            {t?.('commandInputHint') || '💡 Enter로 줄바꿈, Ctrl+Enter로 전송'}
-          </div>
         </div>
 
         {/* Footer */}
@@ -127,29 +136,38 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
           borderTopColor: currentTheme.ui.border,
         }}>
           <button
+            onClick={handlePaste}
+            style={{
+              ...styles.clearButton,
+              backgroundColor: currentTheme.ui.bgTertiary,
+              color: currentTheme.foreground || currentTheme.white || '#cdd6f4',
+              opacity: 1,
+            }}
+            title={t?.('paste') || '붙여넣기'}
+          >
+            <ClipboardPaste size={16} />
+          </button>
+          <button
             onClick={handleClear}
             disabled={!command.trim()}
             style={{
-              ...styles.button,
-              backgroundColor: command.trim() ? (currentTheme.red || '#f38ba8') : currentTheme.ui.bgSecondary,
-              color: command.trim() ? '#ffffff' : (currentTheme.brightBlack || '#6c7086'),
+              ...styles.clearButton,
+              backgroundColor: command.trim() ? (currentTheme.cyan || currentTheme.teal || '#94e2d5') : currentTheme.ui.bgSecondary,
+              color: command.trim() ? '#1e1e2e' : (currentTheme.brightBlack || '#6c7086'),
               opacity: command.trim() ? 1 : 0.5,
-              borderColor: command.trim() ? (currentTheme.red || '#f38ba8') : 'transparent',
             }}
             title={t?.('clearInput') || '내용 지우기'}
           >
-            <Eraser size={14} />
-            <span>{t?.('clear') || '지우기'}</span>
+            <Eraser size={16} />
           </button>
           <button
             onClick={handleSend}
             disabled={!command.trim()}
             style={{
-              ...styles.button,
+              ...styles.sendButton,
               backgroundColor: command.trim() ? currentTheme.ui.accent : currentTheme.ui.bgSecondary,
               color: command.trim() ? '#ffffff' : (currentTheme.brightBlack || '#6c7086'),
               opacity: command.trim() ? 1 : 0.5,
-              borderColor: command.trim() ? currentTheme.ui.accent : 'transparent',
             }}
           >
             <Send size={14} />
@@ -182,7 +200,6 @@ const styles = {
     maxHeight: '80vh',
     borderRadius: '8px',
     border: '1px solid',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
     zIndex: 10001,
     display: 'flex',
     flexDirection: 'column',
@@ -214,7 +231,6 @@ const styles = {
     padding: '16px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
     overflow: 'auto',
   },
   textarea: {
@@ -230,22 +246,32 @@ const styles = {
     outline: 'none',
     lineHeight: '1.5',
   },
-  hint: {
-    fontSize: '12px',
-    fontStyle: 'italic',
-  },
   footer: {
     display: 'flex',
     gap: '8px',
     padding: '16px',
     borderTop: '1px solid',
   },
-  button: {
+  clearButton: {
+    padding: '10px',
+    fontSize: '14px',
+    fontWeight: '500',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transition: 'all 0.2s ease',
+    minWidth: '44px',
+    minHeight: '44px',
+  },
+  sendButton: {
     flex: 1,
     padding: '10px 16px',
     fontSize: '14px',
     fontWeight: '500',
-    border: '2px solid',
+    border: 'none',
     borderRadius: '6px',
     cursor: 'pointer',
     display: 'flex',

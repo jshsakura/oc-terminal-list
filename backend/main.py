@@ -6,13 +6,15 @@ import logging
 import os
 import shutil
 from pathlib import Path
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Query
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Query, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
+from starlette.types import Scope, Receive, Send
 
 from pty_manager import pty_manager
 from sqlite_storage import storage
@@ -40,6 +42,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Gzip 압축 미들웨어 (성능 향상)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+
+# 캐시 헤더를 추가하는 커스텀 StaticFiles
+class CachedStaticFiles(StaticFiles):
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        # 응답 헤더에 캐시 추가
+        async def send_wrapper(message):
+            if message['type'] == 'http.response.start':
+                headers = dict(message.get('headers', []))
+                # JS, CSS 파일은 1년 캐시 (immutable)
+                if scope['path'].endswith(('.js', '.css')):
+                    headers[b'cache-control'] = b'public, max-age=31536000, immutable'
+                # 기타 정적 파일은 1시간 캐시
+                else:
+                    headers[b'cache-control'] = b'public, max-age=3600'
+                message['headers'] = list(headers.items())
+            await send(message)
+
+        await super().__call__(scope, receive, send_wrapper)
 
 
 # Pydantic 모델
@@ -77,6 +101,11 @@ class FileCreateRequest(BaseModel):
     """파일/폴더 생성 요청"""
     path: str
     type: str  # "file" or "directory"
+
+
+class SessionNameRequest(BaseModel):
+    """세션 이름 변경 요청"""
+    name: str
 
 
 # Workspace 루트 디렉토리
@@ -425,6 +454,34 @@ async def resize_terminal(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.patch("/api/sessions/{session_id}/name")
+async def update_session_name(
+    session_id: str,
+    request: SessionNameRequest,
+    username: str = Depends(verify_auth_token)
+):
+    """
+    세션 이름 변경
+
+    Args:
+        session_id: 세션 ID
+        request: 새 이름
+
+    Returns:
+        업데이트 결과
+    """
+    try:
+        await storage.update_session_name(session_id, request.name)
+        return {
+            "session_id": session_id,
+            "name": request.name,
+            "status": "updated"
+        }
+    except Exception as e:
+        logger.error(f"세션 이름 변경 실패 ({session_id}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/sessions/{session_id}/history")
 async def get_session_history(session_id: str, username: str = Depends(verify_auth_token)):
     """
@@ -688,7 +745,7 @@ async def global_exception_handler(request, exc):
 # 정적 파일이 존재하는 경우에만 마운트
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
-    app.mount("/assets", StaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
+    app.mount("/assets", CachedStaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
 
     @app.get("/")
     async def serve_frontend():

@@ -12,11 +12,11 @@ export default defineConfig({
     ],
     proxy: {
       '/api': {
-        target: 'http://backend:8000',
+        target: 'http://iterminal-backend:8000',
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://backend:8000',
+        target: 'ws://iterminal-backend:8000',
         ws: true,
       },
     },

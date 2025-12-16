@@ -2,20 +2,23 @@
  * App 컴포넌트
  * 메인 애플리케이션 - 멀티 터미널 세션 관리
  */
-import { useState, useEffect, useRef } from 'react';
-import { Plus, Settings as SettingsIcon, Power, Menu, X, PanelLeftClose, PanelLeft } from 'lucide-react';
-import Terminal from './components/Terminal';
-import MobileToolbar from './components/MobileToolbar';
-import CommandInput from './components/CommandInput';
-import Settings from './components/Settings';
-import Sidebar from './components/Sidebar';
-import ConfirmModal from './components/ConfirmModal';
-import InitialSetup from './components/InitialSetup';
-import Login from './components/Login';
-import FileEditor from './components/FileEditor';
+import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { Plus, Settings as SettingsIcon, Power, Menu, X, PanelLeftClose, PanelLeft, ChevronsDown } from 'lucide-react';
 import useSettings from './hooks/useSettings';
 import useTranslation from './hooks/useTranslation';
 import themes from './styles/themes';
+
+// Lazy load components
+const Terminal = lazy(() => import('./components/Terminal'));
+const MobileToolbar = lazy(() => import('./components/MobileToolbar'));
+const CommandInput = lazy(() => import('./components/CommandInput'));
+const Settings = lazy(() => import('./components/Settings'));
+const Sidebar = lazy(() => import('./components/Sidebar'));
+const ConfirmModal = lazy(() => import('./components/ConfirmModal'));
+const NotificationModal = lazy(() => import('./components/NotificationModal'));
+const InitialSetup = lazy(() => import('./components/InitialSetup'));
+const Login = lazy(() => import('./components/Login'));
+const FileEditor = lazy(() => import('./components/FileEditor'));
 
 // UUID 생성 함수
 const generateUUID = () => {
@@ -30,8 +33,12 @@ const generateUUID = () => {
 const fetchSessionsFromAPI = async () => {
   try {
     const token = localStorage.getItem('auth_token');
-    if (!token) return [];
+    if (!token) {
+      console.log('[DEBUG] fetchSessions: 토큰 없음');
+      return [];
+    }
 
+    console.log('[DEBUG] fetchSessions: API 호출 시작');
     const response = await fetch('/api/sessions', {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -39,15 +46,19 @@ const fetchSessionsFromAPI = async () => {
     });
 
     if (!response.ok) {
-      console.error('Failed to fetch sessions:', response.status);
+      console.error('[DEBUG] fetchSessions 실패:', response.status);
       return [];
     }
 
     const sessions = await response.json();
+    console.log('[DEBUG] fetchSessions API 응답:', sessions);
+
     // API 응답 형식을 앱 형식으로 변환
-    return sessions.map(s => ({ id: s.id }));
+    const mapped = sessions.map(s => ({ id: s.id, name: s.name }));
+    console.log('[DEBUG] fetchSessions 매핑 결과:', mapped);
+    return mapped;
   } catch (error) {
-    console.error('Failed to load sessions:', error);
+    console.error('[DEBUG] fetchSessions 에러:', error);
     return [];
   }
 };
@@ -76,6 +87,11 @@ function App() {
 
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
+
+  // 디버깅: sessions 변경 감지
+  useEffect(() => {
+    console.log('[DEBUG] sessions 변경됨:', sessions.length, sessions);
+  }, [sessions]);
   const [isMobile, setIsMobile] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
@@ -103,6 +119,10 @@ function App() {
     title: '',
     message: '',
     isLogout: false,
+  });
+  const [notification, setNotification] = useState({
+    isOpen: false,
+    message: '',
   });
   const [fileEditorOpen, setFileEditorOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -284,17 +304,33 @@ function App() {
     setConfirmModal({ isOpen: false, sessionId: null, title: '', message: '', isLogout: false });
   };
 
+  // 세션 목록 새로고침 함수
+  const refreshSessions = async () => {
+    console.log('[DEBUG] refreshSessions 호출됨');
+    const loadedSessions = await fetchSessionsFromAPI();
+    console.log('[DEBUG] refreshSessions - 로드된 세션:', loadedSessions);
+    setSessions(loadedSessions);
+    console.log('[DEBUG] refreshSessions - setSessions 호출 완료');
+    return loadedSessions;
+  };
+
   // 인증 완료 시 세션 목록 로드
   useEffect(() => {
+    console.log('[DEBUG] 인증 상태 변경:', authState);
     if (authState.isAuthenticated) {
-      fetchSessionsFromAPI().then((loadedSessions) => {
-        setSessions(loadedSessions);
+      console.log('[DEBUG] 인증됨 - refreshSessions 호출');
+      refreshSessions().then((loadedSessions) => {
+        console.log('[DEBUG] 로드된 세션 목록:', loadedSessions);
         // 활성 세션 설정 (localStorage에서 복원 또는 첫 번째 세션)
         const storedActiveId = localStorage.getItem('active_session_id');
         if (storedActiveId && loadedSessions.some(s => s.id === storedActiveId)) {
+          console.log('[DEBUG] localStorage에서 활성 세션 복원:', storedActiveId);
           setActiveSessionId(storedActiveId);
         } else if (loadedSessions.length > 0) {
+          console.log('[DEBUG] 첫 번째 세션 활성화:', loadedSessions[0].id);
           setActiveSessionId(loadedSessions[0].id);
+        } else {
+          console.log('[DEBUG] 세션 없음');
         }
       });
     }
@@ -368,6 +404,20 @@ function App() {
     }
   };
 
+  // 스크롤 버튼 애니메이션 상태
+  const [scrollBtnClicked, setScrollBtnClicked] = useState(false);
+
+  // 맨 아래로 스크롤
+  const handleScrollToBottom = () => {
+    if (window.terminalSessions && activeSessionId && window.terminalSessions[activeSessionId]) {
+      // 버튼 클릭 애니메이션
+      setScrollBtnClicked(true);
+      setTimeout(() => setScrollBtnClicked(false), 300);
+
+      window.terminalSessions[activeSessionId].scrollToBottom();
+    }
+  };
+
   // 명령어 입력창에서 명령어 전송
   const handleSendCommand = (command) => {
     if (window.terminalSessions && activeSessionId && window.terminalSessions[activeSessionId]) {
@@ -376,10 +426,18 @@ function App() {
     }
   };
 
+  // 선택된 폴더 경로 상태
+  const [selectedFolderPath, setSelectedFolderPath] = useState('');
+
   // 파일 선택 (파일 에디터 열기)
   const handleFileSelect = (filePath) => {
     setSelectedFile(filePath);
     setFileEditorOpen(true);
+  };
+
+  // 폴더 선택 (새 터미널 시작 경로로 사용)
+  const handleFolderSelect = (folderPath) => {
+    setSelectedFolderPath(folderPath);
   };
 
   // 파일 에디터 닫기
@@ -413,6 +471,16 @@ function App() {
       const newSession = { id: newSessionId };
       setSessions((prev) => [...prev, newSession]);
       setActiveSessionId(newSessionId);
+
+      // 선택된 폴더가 있으면 해당 경로로 이동
+      if (selectedFolderPath) {
+        setTimeout(() => {
+          if (window.terminalSessions && window.terminalSessions[newSessionId]) {
+            const targetPath = `/workspace/${selectedFolderPath}`;
+            window.terminalSessions[newSessionId].sendData(`cd "${targetPath}"\n`);
+          }
+        }, 1000);
+      }
     } catch (error) {
       console.error('Failed to create new session:', error);
     }
@@ -487,12 +555,64 @@ function App() {
   // 설정 저장
   const handleSaveSettings = (newSettings) => {
     updateSettings(newSettings);
-    alert(t('settingsSaved'));
+    setNotification({
+      isOpen: true,
+      message: t('settingsSaved'),
+    });
   };
 
   // 사이드바 토글
   const toggleSidebar = () => {
+    console.log('[DEBUG] 사이드바 토글 전:', { isSidebarOpen, sessionsCount: sessions.length, activeSessionId });
     setIsSidebarOpen((prev) => !prev);
+    console.log('[DEBUG] 사이드바 토글 후');
+  };
+
+  // 세션 이름 변경
+  const handleRenameSession = async (sessionId, newName) => {
+    const token = localStorage.getItem('auth_token');
+    try {
+      const response = await fetch(`/api/sessions/${sessionId}/name`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ name: newName }),
+      });
+
+      if (response.ok) {
+        // 세션 목록만 업데이트 (로컬 상태 수정)
+        setSessions(prevSessions =>
+          prevSessions.map(s =>
+            s.id === sessionId ? { ...s, name: newName } : s
+          )
+        );
+      } else {
+        console.error('Failed to rename session');
+      }
+    } catch (error) {
+      console.error('Failed to rename session:', error);
+    }
+  };
+
+  // 세션 재연결
+  const handleReconnectSession = (sessionId) => {
+    console.log('재연결 시도:', sessionId);
+
+    // Terminal 컴포넌트를 언마운트했다가 다시 마운트하여 WebSocket 재연결
+    const wasActive = activeSessionId === sessionId;
+
+    if (wasActive) {
+      // 활성 세션이면 null로 만들었다가 다시 설정
+      setActiveSessionId(null);
+      setTimeout(() => {
+        setActiveSessionId(sessionId);
+      }, 50);
+    } else {
+      // 활성 세션이 아니면 해당 세션으로 전환 (자동으로 재연결됨)
+      setActiveSessionId(sessionId);
+    }
   };
 
   // 사이드바 리사이즈
@@ -567,7 +687,7 @@ function App() {
           {/* 사이드바 토글 */}
           <button onClick={toggleSidebar} style={{
             ...styles.hamburgerBtn,
-            backgroundColor: isSidebarOpen ? currentTheme.ui.bgTertiary : 'transparent',
+            backgroundColor: 'transparent',
             color: currentTheme.ui.iconColor,
           }} title={isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}>
             {isSidebarOpen ? <PanelLeftClose size={20} strokeWidth={2} /> : <PanelLeft size={20} strokeWidth={2} />}
@@ -594,17 +714,35 @@ function App() {
           )}
           {isMobile ? (
             /* 모바일: 드롭다운 메뉴 */
-            <div style={{ position: 'relative' }}>
+            <>
+              {/* 맨 아래로 스크롤 버튼 */}
               <button
-                onClick={() => setIsMenuOpen(!isMenuOpen)}
+                onClick={handleScrollToBottom}
+                disabled={sessions.length === 0}
                 style={{
                   ...styles.hamburgerBtn,
-                  backgroundColor: isMenuOpen ? currentTheme.ui.bgTertiary : 'transparent',
-                  color: currentTheme.ui.iconColor
+                  backgroundColor: scrollBtnClicked ? currentTheme.ui.bgTertiary : 'transparent',
+                  color: sessions.length === 0 ? currentTheme.ui.textSecondary + '60' : currentTheme.ui.iconColor,
+                  transition: 'background-color 0.15s ease',
+                  cursor: sessions.length === 0 ? 'not-allowed' : 'pointer',
+                  opacity: sessions.length === 0 ? 0.5 : 1
                 }}
+                title={sessions.length === 0 ? 'No terminal open' : 'Scroll to bottom'}
               >
-                <Menu size={20} strokeWidth={2} />
+                <ChevronsDown size={20} strokeWidth={2} />
               </button>
+
+              <div style={{ position: 'relative', height: '100%' }}>
+                <button
+                  onClick={() => setIsMenuOpen(!isMenuOpen)}
+                  style={{
+                    ...styles.hamburgerBtn,
+                    backgroundColor: isMenuOpen ? currentTheme.ui.bgTertiary : 'transparent',
+                    color: currentTheme.ui.iconColor
+                  }}
+                >
+                  <Menu size={20} strokeWidth={2} />
+                </button>
 
               {isMenuOpen && (
                 <>
@@ -656,7 +794,8 @@ function App() {
                   </div>
                 </>
               )}
-            </div>
+              </div>
+            </>
           ) : (
             /* PC: 기존 버튼들 */
             <>
@@ -696,7 +835,7 @@ function App() {
               <h2 style={{ ...styles.emptyTitle, color: currentTheme.ui.text }}>
                 {t('noTerminals') || 'No Terminals Open'}
               </h2>
-              <p style={{ ...styles.emptyMessage, color: currentTheme.ui.textSecondary }}>
+              <p style={{ ...styles.emptyMessage, color: currentTheme.ui.textSecondary, opacity: 0.95 }}>
                 {t('createFirstTerminal') || 'Create a new terminal to get started'}
               </p>
               <button onClick={handleNewSession} style={{ ...styles.emptyButton, backgroundColor: currentTheme.ui.accent, color: currentTheme.ui.bg }}>
@@ -770,18 +909,24 @@ function App() {
       {/* 사이드바 */}
       <Sidebar
         isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
+        onClose={() => {
+          console.log('[DEBUG] Sidebar onClose 호출됨:', { sessionsCount: sessions.length, activeSessionId });
+          setIsSidebarOpen(false);
+        }}
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={handleSelectSession}
         onNewSession={handleNewSession}
         onCloseSession={handleCloseSessionRequest}
+        onRenameSession={handleRenameSession}
+        onReconnectSession={handleReconnectSession}
         language={settings.language}
         theme={currentTheme}
         isMobile={isMobile}
         width={sidebarWidth}
         onResizeStart={handleResizeStart}
         onFileSelect={handleFileSelect}
+        onFolderSelect={handleFolderSelect}
       />
 
       {/* 설정 모달 */}
@@ -805,6 +950,14 @@ function App() {
         onCancel={handleCancelModal}
         language={settings.language}
         danger={true}
+        theme={currentTheme}
+      />
+
+      {/* 알림 토스트 */}
+      <NotificationModal
+        isOpen={notification.isOpen}
+        message={notification.message}
+        onClose={() => setNotification({ isOpen: false, message: '' })}
         theme={currentTheme}
       />
     </div>
@@ -881,7 +1034,6 @@ const styles = {
   hamburgerBtn: {
     background: 'none',
     border: 'none',
-    borderRight: '1px solid #313244',
     cursor: 'pointer',
     padding: '0 10px',
     display: 'flex',
@@ -895,12 +1047,10 @@ const styles = {
     margin: 0,
     fontSize: '13px',
     fontWeight: '600',
-    color: '#89b4fa',
     textTransform: 'uppercase',
     padding: '0 12px',
     display: 'flex',
     alignItems: 'center',
-    borderRight: '1px solid #313244',
     height: '100%',
   },
   sessionInfo: {
@@ -997,6 +1147,9 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
+    width: '100%',
+    height: '100vh',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     zIndex: 9998,
   },
   dropdown: {

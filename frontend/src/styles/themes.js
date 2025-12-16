@@ -30,7 +30,7 @@ export const draculaTheme = {
     bg: '#282a36',
     bgSecondary: '#21222c',
     bgTertiary: '#44475a',
-    border: '#44475a',
+    border: '#2f3142',
     text: '#f8f8f2',
     textSecondary: '#6272a4',
     accent: '#bd93f9',
@@ -66,7 +66,7 @@ export const monokaiTheme = {
     bg: '#272822',
     bgSecondary: '#1e1f1c',
     bgTertiary: '#49483e',
-    border: '#49483e',
+    border: '#32332b',
     text: '#f8f8f2',
     textSecondary: '#75715e',
     accent: '#66d9ef',
@@ -74,39 +74,39 @@ export const monokaiTheme = {
   }
 };
 
-// Solarized Dark Theme
+// Solarized Dark Theme (정확한 Solarized 색상 체계)
 export const solarizedDarkTheme = {
-  background: '#002b36',
-  foreground: '#839496',
+  background: '#002b36',    // base03
+  foreground: '#839496',    // base0
   cursor: '#839496',
   cursorAccent: '#002b36',
   selection: 'rgba(7, 54, 66, 0.5)',
-  black: '#073642',
+  black: '#073642',         // base02
   red: '#dc322f',
   green: '#859900',
   yellow: '#b58900',
   blue: '#268bd2',
   magenta: '#d33682',
   cyan: '#2aa198',
-  white: '#eee8d5',
-  brightBlack: '#002b36',
+  white: '#eee8d5',         // base2
+  brightBlack: '#002b36',   // base03
   brightRed: '#cb4b16',
-  brightGreen: '#586e75',
-  brightYellow: '#657b83',
-  brightBlue: '#839496',
+  brightGreen: '#586e75',   // base01
+  brightYellow: '#657b83',  // base00
+  brightBlue: '#839496',    // base0
   brightMagenta: '#6c71c4',
-  brightCyan: '#93a1a1',
-  brightWhite: '#fdf6e3',
+  brightCyan: '#93a1a1',    // base1
+  brightWhite: '#fdf6e3',   // base3
   // UI Colors
   ui: {
-    bg: '#002b36',
-    bgSecondary: '#073642',
-    bgTertiary: '#586e75',
-    border: '#073642',
-    text: '#839496',
-    textSecondary: '#586e75',
+    bg: '#002b36',          // base03
+    bgSecondary: '#073642', // base02
+    bgTertiary: '#0d4450',  // base02보다 밝게
+    border: '#0a3c47',      // 더 은은하게
+    text: '#93a1a1',        // base1 (더 밝은 텍스트)
+    textSecondary: '#839496', // base0 (더 밝게)
     accent: '#268bd2',
-    iconColor: '#93a1a1',
+    iconColor: '#93a1a1',   // base1
   }
 };
 
@@ -137,12 +137,12 @@ export const githubDarkTheme = {
   ui: {
     bg: '#0d1117',
     bgSecondary: '#010409',
-    bgTertiary: '#161b22',
-    border: '#30363d',
-    text: '#c9d1d9',
-    textSecondary: '#8b949e',
+    bgTertiary: '#21262d', // 더 밝게 (기존: #161b22)
+    border: '#181b20',
+    text: '#e6edf3', // 더 밝게 (기존: #c9d1d9)
+    textSecondary: '#7d8590', // 약간 어둡게 (기존: #8b949e)
     accent: '#58a6ff',
-    iconColor: '#c9d1d9',
+    iconColor: '#e6edf3',
   }
 };
 
@@ -174,7 +174,7 @@ export const catppuccinTheme = {
     bg: '#1e1e2e',
     bgSecondary: '#181825',
     bgTertiary: '#313244',
-    border: '#313244',
+    border: '#25263a',
     text: '#cdd6f4',
     textSecondary: '#6c7086',
     accent: '#89b4fa',

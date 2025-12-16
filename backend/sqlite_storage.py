@@ -50,6 +50,7 @@ class SQLiteStorage:
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
                 username TEXT NOT NULL,
+                name TEXT,
                 created_at TEXT NOT NULL,
                 last_active TEXT NOT NULL
             )
@@ -76,6 +77,14 @@ class SQLiteStorage:
             CREATE INDEX IF NOT EXISTS idx_sessions_username
             ON sessions(username)
         """)
+
+        # Migration: name 컬럼 추가 (기존 테이블 호환)
+        try:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN name TEXT")
+            conn.commit()
+        except sqlite3.OperationalError:
+            # 컬럼이 이미 존재하면 무시
+            pass
 
         # 시스템 설정 테이블 (JWT SECRET_KEY 저장용)
         cursor.execute("""
@@ -244,7 +253,7 @@ class SQLiteStorage:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT session_id, created_at, last_active FROM sessions WHERE username = ? ORDER BY last_active DESC",
+                "SELECT session_id, name, created_at, last_active FROM sessions WHERE username = ? ORDER BY last_active DESC",
                 (username,)
             )
             rows = cursor.fetchall()
@@ -253,6 +262,7 @@ class SQLiteStorage:
             return [
                 {
                     "id": row["session_id"],
+                    "name": row["name"],
                     "created_at": row["created_at"],
                     "last_active": row["last_active"]
                 }
@@ -269,6 +279,20 @@ class SQLiteStorage:
             cursor.execute(
                 "UPDATE sessions SET last_active = ? WHERE session_id = ?",
                 (datetime.utcnow().isoformat(), session_id)
+            )
+            conn.commit()
+            conn.close()
+
+        await asyncio.to_thread(_update)
+
+    async def update_session_name(self, session_id: str, name: str):
+        """세션 이름 업데이트"""
+        def _update():
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE sessions SET name = ? WHERE session_id = ?",
+                (name, session_id)
             )
             conn.commit()
             conn.close()

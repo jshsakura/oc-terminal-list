@@ -169,7 +169,6 @@ const styles = {
     width: '90%',
     maxWidth: '420px',
     padding: '40px',
-    boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
     border: '1px solid #44475a',
     margin: '20px auto',
     maxHeight: 'calc(100vh - 40px)',

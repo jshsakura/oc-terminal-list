@@ -2,18 +2,19 @@
  * Sidebar 컴포넌트
  * 터미널 세션 목록 및 관리
  */
-import { useState } from 'react';
-import { X, ChevronLeft, Terminal, Cpu, FolderTree } from 'lucide-react';
+import { useState, useRef, useEffect, memo, useCallback } from 'react';
+import { X, ChevronLeft, Terminal, Cpu, FolderTree, RefreshCw } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 
-const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect }) => {
+const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, onRenameSession, onReconnectSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect, onFolderSelect }) => {
   const { t } = useTranslation(language);
   const [hoveredSessionId, setHoveredSessionId] = useState(null);
   const [isCloseBtnHovered, setIsCloseBtnHovered] = useState(false);
   const [activeTab, setActiveTab] = useState('sessions'); // 'sessions' | 'files'
-
-  if (!isOpen) return null;
+  const [editingSessionId, setEditingSessionId] = useState(null);
+  const [editingName, setEditingName] = useState('');
+  const editInputRef = useRef(null);
 
   // 기본 테마 (theme prop이 없을 경우 Catppuccin 사용)
   const currentTheme = theme || {
@@ -31,13 +32,45 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
     red: '#f38ba8',
   };
 
-  const formatSessionName = (sessionId, index) => {
-    return `Terminal ${index + 1}`;
+  const formatSessionName = (session, index) => {
+    return session.name || `Terminal ${index + 1}`;
   };
 
   const formatSessionId = (sessionId) => {
     return sessionId.substring(0, 8);
   };
+
+  // 편집 시작
+  const handleStartEdit = (session, index) => {
+    setEditingSessionId(session.id);
+    setEditingName(session.name || `Terminal ${index + 1}`);
+  };
+
+  // 편집 완료
+  const handleFinishEdit = async () => {
+    if (editingSessionId && editingName.trim() && onRenameSession) {
+      await onRenameSession(editingSessionId, editingName.trim());
+    }
+    setEditingSessionId(null);
+    setEditingName('');
+  };
+
+  // 편집 취소
+  const handleCancelEdit = () => {
+    setEditingSessionId(null);
+    setEditingName('');
+  };
+
+  // 편집 input 포커스
+  useEffect(() => {
+    if (editingSessionId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingSessionId]);
+
+  // 사이드바가 닫혀있으면 렌더링하지 않음 (훅 호출 후에 체크)
+  if (!isOpen) return null;
 
   return (
     <>
@@ -52,7 +85,8 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         width: isMobile ? 'min(80vw, 250px)' : `${width}px`,
         maxWidth: isMobile ? '80vw' : '400px',
         minWidth: isMobile ? undefined : '180px',
-        top: isMobile ? '0' : '36px',
+        top: isMobile ? '0' : '33px',
+        height: isMobile ? '100vh' : 'auto',
       }}>
         {/* 헤더 (모바일에서만) */}
         {isMobile && (
@@ -77,13 +111,14 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         )}
 
         {/* 탭 헤더 (세션/파일) */}
-        <div style={{ ...styles.tabHeader, borderBottomColor: currentTheme.ui.border }}>
+        <div style={{ ...styles.tabHeader, borderBottomColor: currentTheme.ui.border, backgroundColor: currentTheme.ui.bgSecondary }}>
           <button
             onClick={() => setActiveTab('sessions')}
             style={{
               ...styles.tab,
               color: activeTab === 'sessions' ? currentTheme.ui.accent : currentTheme.ui.textSecondary,
               borderBottomColor: activeTab === 'sessions' ? currentTheme.ui.accent : 'transparent',
+              borderRightColor: currentTheme.ui.border,
             }}
           >
             <Terminal size={14} strokeWidth={2} />
@@ -95,6 +130,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
               ...styles.tab,
               color: activeTab === 'files' ? currentTheme.ui.accent : currentTheme.ui.textSecondary,
               borderBottomColor: activeTab === 'files' ? currentTheme.ui.accent : 'transparent',
+              borderRightColor: currentTheme.ui.border,
             }}
           >
             <FolderTree size={14} strokeWidth={2} />
@@ -118,7 +154,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
             {sessions.length === 0 ? (
               <div style={styles.emptyState}>
                 <p style={{ ...styles.emptyText, color: currentTheme.ui.textSecondary }}>{t('noTerminals')}</p>
-                <p style={{ ...styles.emptyHint, color: currentTheme.ui.border }}>{t('createFirstTerminal')}</p>
+                <p style={{ ...styles.emptyHint, color: currentTheme.ui.textSecondary, opacity: 0.9 }}>{t('createFirstTerminal')}</p>
               </div>
             ) : (
               sessions.map((session, index) => {
@@ -151,14 +187,62 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
                         <Terminal size={14} strokeWidth={2} />
                       </div>
                       <div style={styles.sessionDetails}>
-                        <div style={{ ...styles.sessionName, color: currentTheme.ui.text }}>
-                          {formatSessionName(session.id, index)}
-                        </div>
+                        {editingSessionId === session.id ? (
+                          <input
+                            ref={editInputRef}
+                            type="text"
+                            value={editingName}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onBlur={handleFinishEdit}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleFinishEdit();
+                              } else if (e.key === 'Escape') {
+                                handleCancelEdit();
+                              }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{
+                              ...styles.sessionNameInput,
+                              backgroundColor: currentTheme.ui.bgTertiary,
+                              color: currentTheme.ui.text,
+                              borderColor: currentTheme.ui.accent,
+                            }}
+                          />
+                        ) : (
+                          <div
+                            style={{ ...styles.sessionName, color: currentTheme.ui.text }}
+                            onDoubleClick={(e) => {
+                              e.stopPropagation();
+                              handleStartEdit(session, index);
+                            }}
+                          >
+                            {formatSessionName(session, index)}
+                          </div>
+                        )}
                         <div style={{ ...styles.sessionId, color: currentTheme.ui.textSecondary }}>
                           {formatSessionId(session.id)}
                         </div>
                       </div>
                     </div>
+
+                    {/* 재연결 버튼 */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onReconnectSession) {
+                          onReconnectSession(session.id);
+                        }
+                      }}
+                      style={{
+                        ...styles.sessionActionBtn,
+                        color: currentTheme.ui.accent,
+                        opacity: isMobile ? 1 : 0.7,
+                      }}
+                      title="재연결"
+                    >
+                      <RefreshCw size={14} strokeWidth={2} />
+                    </button>
 
                     {/* 닫기 버튼 */}
                     <button
@@ -187,6 +271,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
           <FileTree
             theme={currentTheme}
             onFileSelect={onFileSelect}
+            onFolderSelect={onFolderSelect}
             language={language}
           />
         )}
@@ -222,27 +307,27 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
+    width: '100%',
+    height: '100vh',
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     zIndex: 9998,
     animation: 'fadeIn 0.2s ease',
   },
   sidebar: {
     position: 'fixed',
-    top: '36px',
+    top: '32px',
     left: 0,
     bottom: 0,
     width: '250px',
     maxWidth: '80vw',
-    backgroundColor: '#1e1e2e',
     zIndex: 9999,
     display: 'flex',
     flexDirection: 'column',
-    borderRight: '1px solid #313244',
+    borderRight: '1px solid',
   },
   tabHeader: {
     display: 'flex',
-    borderBottom: '1px solid #313244',
-    backgroundColor: '#181825',
+    borderBottom: '1px solid',
     gap: '1px',
   },
   tab: {
@@ -256,7 +341,7 @@ const styles = {
     fontWeight: '500',
     background: 'none',
     border: 'none',
-    borderRight: '1px solid #313244',
+    borderRight: '1px solid',
     borderBottom: '2px solid transparent',
     cursor: 'pointer',
     transition: 'color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease',
@@ -267,14 +352,12 @@ const styles = {
     justifyContent: 'center',
     alignItems: 'center',
     padding: '0',
-    borderBottom: '1px solid #313244',
-    backgroundColor: '#181825',
+    borderBottom: '1px solid',
     height: '32px',
     boxSizing: 'border-box',
   },
   title: {
     margin: 0,
-    color: '#89b4fa',
     fontSize: '13px',
     fontWeight: '600',
   },
@@ -283,7 +366,6 @@ const styles = {
     right: '8px',
     background: 'none',
     border: 'none',
-    color: '#cdd6f4',
     cursor: 'pointer',
     padding: '6px',
     display: 'flex',
@@ -294,13 +376,11 @@ const styles = {
   },
   newSessionContainer: {
     padding: '8px',
-    borderBottom: '1px solid #313244',
+    borderBottom: '1px solid',
   },
   newSessionBtn: {
     width: '100%',
     padding: '10px 12px',
-    backgroundColor: '#a6e3a1',
-    color: '#1e1e2e',
     border: 'none',
     borderRadius: '2px',
     fontSize: '13px',
@@ -326,12 +406,10 @@ const styles = {
     padding: '40px 20px',
   },
   emptyText: {
-    color: '#6c7086',
     fontSize: '14px',
     margin: '0 0 8px 0',
   },
   emptyHint: {
-    color: '#45475a',
     fontSize: '12px',
     margin: 0,
   },
@@ -342,18 +420,15 @@ const styles = {
     padding: '8px',
     marginBottom: '8px',
     borderRadius: '2px',
-    backgroundColor: '#181825',
     border: '1px solid transparent',
     cursor: 'pointer',
     transition: 'background-color 0.15s ease, border 0.15s ease',
   },
   sessionItemActive: {
-    backgroundColor: '#313244',
-    borderColor: '#89b4fa',
+    border: '1px solid transparent',
   },
   sessionItemHover: {
-    backgroundColor: '#262637',
-    borderColor: '#45475a',
+    border: '1px solid transparent',
   },
   sessionInfo: {
     flex: 1,
@@ -364,7 +439,6 @@ const styles = {
   },
   sessionIcon: {
     fontSize: '12px',
-    color: '#a6e3a1',
     width: '16px',
     textAlign: 'center',
   },
@@ -373,23 +447,43 @@ const styles = {
     minWidth: 0,
   },
   sessionName: {
-    color: '#cdd6f4',
     fontSize: '12px',
     fontWeight: '500',
     marginBottom: '2px',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    cursor: 'default',
+  },
+  sessionNameInput: {
+    width: '100%',
+    fontSize: '12px',
+    fontWeight: '500',
+    padding: '2px 4px',
+    border: '1px solid',
+    borderRadius: '2px',
+    outline: 'none',
+    marginBottom: '2px',
   },
   sessionId: {
-    color: '#6c7086',
     fontSize: '10px',
     fontFamily: 'monospace',
+  },
+  sessionActionBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '4px',
+    borderRadius: '2px',
+    transition: 'background-color 0.15s ease, opacity 0.15s ease',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: '4px',
   },
   sessionCloseBtn: {
     background: 'none',
     border: 'none',
-    color: '#f38ba8',
     cursor: 'pointer',
     padding: '4px',
     borderRadius: '2px',
@@ -400,8 +494,7 @@ const styles = {
   },
   footer: {
     padding: '8px 12px',
-    borderTop: '1px solid #313244',
-    backgroundColor: '#181825',
+    borderTop: '1px solid',
   },
   footerInfo: {
     display: 'flex',
@@ -414,11 +507,9 @@ const styles = {
     gap: '6px',
   },
   footerLabel: {
-    color: '#6c7086',
     fontSize: '12px',
   },
   footerValue: {
-    color: '#a6e3a1',
     fontSize: '13px',
     fontWeight: '600',
   },
@@ -459,4 +550,4 @@ if (!document.getElementById('sidebar-animations')) {
   document.head.appendChild(styleSheet);
 }
 
-export default Sidebar;
+export default memo(Sidebar);

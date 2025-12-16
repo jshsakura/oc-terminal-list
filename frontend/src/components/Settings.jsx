@@ -76,37 +76,38 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
             </div>
           )}
 
-          {/* 테마 선택 */}
-          <div style={styles.section}>
-            <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('theme')}</label>
-            <select
-              value={localSettings.theme}
-              onChange={(e) => handleChange('theme', e.target.value)}
-              style={{ ...styles.select, backgroundColor: currentTheme.ui.bgTertiary, color: currentTheme.ui.text, borderColor: currentTheme.ui.border }}
-            >
-              {themeNames.map((name) => {
-                // 테마 이름을 번역 키로 변환 (예: catppuccin → themeCatppuccin)
-                const themeKey = `theme${name.charAt(0).toUpperCase()}${name.slice(1)}`;
-                return (
-                  <option key={name} value={name}>
-                    {t(themeKey)}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+          {/* 테마와 언어를 한 줄로 */}
+          <div style={styles.row}>
+            <div style={styles.rowItem}>
+              <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('theme')}</label>
+              <select
+                value={localSettings.theme}
+                onChange={(e) => handleChange('theme', e.target.value)}
+                style={{ ...styles.select, backgroundColor: currentTheme.ui.bgTertiary, color: currentTheme.ui.text, borderColor: currentTheme.ui.border }}
+              >
+                {themeNames.map((name) => {
+                  // 테마 이름을 번역 키로 변환 (예: catppuccin → themeCatppuccin)
+                  const themeKey = `theme${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+                  return (
+                    <option key={name} value={name}>
+                      {t(themeKey)}
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
 
-          {/* 언어 선택 */}
-          <div style={styles.section}>
-            <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('language')}</label>
-            <select
-              value={localSettings.language}
-              onChange={(e) => handleChange('language', e.target.value)}
-              style={{ ...styles.select, backgroundColor: currentTheme.ui.bgTertiary, color: currentTheme.ui.text, borderColor: currentTheme.ui.border }}
-            >
-              <option value="en">{t('languageEnglish')}</option>
-              <option value="ko">{t('languageKorean')}</option>
-            </select>
+            <div style={styles.rowItem}>
+              <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('language')}</label>
+              <select
+                value={localSettings.language}
+                onChange={(e) => handleChange('language', e.target.value)}
+                style={{ ...styles.select, backgroundColor: currentTheme.ui.bgTertiary, color: currentTheme.ui.text, borderColor: currentTheme.ui.border }}
+              >
+                <option value="en">{t('languageEnglish')}</option>
+                <option value="ko">{t('languageKorean')}</option>
+              </select>
+            </div>
           </div>
 
           {/* 폰트 크기 */}
@@ -237,6 +238,14 @@ const styles = {
   section: {
     marginBottom: '20px',
   },
+  row: {
+    display: 'flex',
+    gap: '12px',
+    marginBottom: '20px',
+  },
+  rowItem: {
+    flex: 1,
+  },
   userSection: {
     paddingBottom: '20px',
     borderBottom: '1px solid #313244',
@@ -257,7 +266,7 @@ const styles = {
   },
   select: {
     width: '100%',
-    padding: '8px 12px',
+    padding: '8px 32px 8px 12px',
     backgroundColor: '#313244',
     color: '#cdd6f4',
     border: '1px solid #45475a',
