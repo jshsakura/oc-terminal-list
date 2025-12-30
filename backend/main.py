@@ -169,8 +169,8 @@ async def verify_auth_token_ws(token: str) -> str:
 
 
 # 헬스 체크
-@app.get("/")
-async def root():
+@app.get("/api/health")
+async def health_check():
     """헬스 체크 엔드포인트"""
     return {
         "service": "iTerminaLlist",
