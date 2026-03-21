@@ -58,7 +58,7 @@ const AppStyles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: '0',
+    borderRadius: '2px',
     transition: 'background-color 0.15s ease',
     height: '100%',
   },
@@ -69,6 +69,8 @@ const AppStyles = {
     display: 'flex',
     alignItems: 'center',
     height: '100%',
+    letterSpacing: '1px',
+    fontWeight: '800',
   },
   sessionInfo: {
     fontSize: '12px',
@@ -77,6 +79,7 @@ const AppStyles = {
     gap: '4px',
     padding: '0 12px',
     height: '100%',
+    fontWeight: '600',
   },
   headerBtn: {
     padding: '0 10px',
@@ -131,6 +134,7 @@ const AppStyles = {
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     marginTop: '12px',
+    borderRadius: '4px',
   },
   menuOverlay: {
     position: 'fixed',
@@ -150,6 +154,7 @@ const AppStyles = {
     minWidth: '200px',
     zIndex: 9999,
     overflow: 'hidden',
+    borderRadius: '4px',
   },
   dropdownItem: {
     padding: '8px 12px',
@@ -177,6 +182,7 @@ const AppStyles = {
     transition: 'all 0.15s ease',
     textAlign: 'left',
     lineHeight: '1',
+    borderRadius: '2px',
   },
   statusBar: {
     position: 'fixed',
@@ -192,6 +198,7 @@ const AppStyles = {
     fontSize: '11px',
     fontFamily: '"JetBrains Mono", monospace',
     scrollbarWidth: 'none',
+    borderRadius: '4px',
   },
   statusTab: {
     padding: '0 10px',
@@ -201,6 +208,7 @@ const AppStyles = {
     whiteSpace: 'nowrap',
     cursor: 'pointer',
     transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+    borderRadius: '2px',
   }
 };
 

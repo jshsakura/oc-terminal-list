@@ -4,6 +4,7 @@
  */
 import { useState } from 'react';
 import useTranslation from '../hooks/useTranslation';
+import Button from './common/Button';
 
 const InitialSetup = ({ onComplete, language = 'en' }) => {
   const { t } = useTranslation(language);
@@ -12,6 +13,17 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // 기본 테마 객체 (Setup 단계에서는 앱 설정이 아직 없으므로)
+  const setupTheme = {
+    ui: {
+      accent: '#89b4fa',
+      bg: '#1e1e2e',
+      bgSecondary: '#181825',
+      radiusSmall: '12px',
+    },
+    red: '#f38ba8',
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -115,9 +127,16 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
 
           {error && <div style={styles.error}>{error}</div>}
 
-          <button type="submit" style={styles.submitBtn} disabled={isLoading}>
+          <Button 
+            variant="primary" 
+            fullWidth 
+            size="large" 
+            onClick={handleSubmit} 
+            theme={setupTheme}
+            disabled={isLoading}
+          >
             {isLoading ? t('creating') : t('createAccount')}
-          </button>
+          </Button>
         </form>
 
         <div style={styles.footer}>
@@ -213,18 +232,6 @@ const styles = {
     textAlign: 'center',
     border: '1px solid rgba(243, 139, 168, 0.2)',
     fontWeight: '600',
-  },
-  submitBtn: {
-    padding: '14px 24px',
-    backgroundColor: '#89b4fa',
-    color: '#1e1e2e',
-    border: 'none',
-    borderRadius: '12px',
-    fontSize: '16px',
-    fontWeight: '800',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    boxShadow: '0 4px 15px rgba(137, 180, 250, 0.3)',
   },
   footer: {
     marginTop: '32px',

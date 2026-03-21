@@ -3,6 +3,7 @@
  * 공통 확인 모달 (터미널 닫기, 세션 삭제 등)
  */
 import useTranslation from '../hooks/useTranslation';
+import Button from './common/Button';
 
 const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmText, cancelText, language = 'en', danger = false, theme }) => {
   const { t } = useTranslation(language);
@@ -31,26 +32,19 @@ const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmText
         </div>
 
         <div style={{ ...styles.footer, borderTopColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
-          <button onClick={onCancel} style={{ 
-            ...styles.cancelBtn, 
-            backgroundColor: currentTheme.ui.bgTertiary, 
-            color: currentTheme.ui.text,
-            borderRadius: currentTheme.ui.radiusSmall
-          }}>
+          <Button 
+            onClick={onCancel} 
+            theme={currentTheme}
+          >
             {cancelText || t('cancel')}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant={danger ? 'danger' : 'primary'}
             onClick={onConfirm}
-            style={{ 
-              ...(danger ? styles.dangerBtn : styles.confirmBtn), 
-              backgroundColor: danger ? currentTheme.red : currentTheme.ui.accent, 
-              color: currentTheme.ui.bg,
-              borderRadius: currentTheme.ui.radiusSmall,
-              boxShadow: danger ? `0 4px 15px ${currentTheme.red}44` : `0 4px 15px ${currentTheme.ui.accent}44`
-            }}
+            theme={currentTheme}
           >
             {confirmText || t('confirm')}
-          </button>
+          </Button>
         </div>
       </div>
     </div>
@@ -100,33 +94,9 @@ const styles = {
   footer: {
     display: 'flex',
     gap: '10px',
-    padding: '16px 20px',
+    padding: '12px 20px',
     borderTop: '1px solid',
     justifyContent: 'flex-end',
-  },
-  cancelBtn: {
-    padding: '10px 20px',
-    border: 'none',
-    fontSize: '14px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-  },
-  confirmBtn: {
-    padding: '10px 20px',
-    border: 'none',
-    fontSize: '14px',
-    fontWeight: '700',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-  },
-  dangerBtn: {
-    padding: '10px 20px',
-    border: 'none',
-    fontSize: '14px',
-    fontWeight: '700',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
   },
 };
 

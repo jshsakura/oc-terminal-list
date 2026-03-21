@@ -4,9 +4,9 @@
  */
 
 const commonUI = {
-  radius: '12px',
-  radiusSmall: '8px',
-  radiusLarge: '20px',
+  radius: '4px',
+  radiusSmall: '2px',
+  radiusLarge: '8px',
   padding: '12px',
   gap: '8px',
 };

@@ -6,12 +6,12 @@ import { useRef, useState, useEffect } from 'react';
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ClipboardPaste, Eraser, MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import useVisualViewport from '../hooks/useVisualViewport';
 import useTranslation from '../hooks/useTranslation';
+import Button from './common/Button';
 
-const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenCommandInput, language = 'en' }) => {
+const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenCommandInput, language = 'en', theme }) => {
   const { t } = useTranslation(language);
   const toolbarRef = useRef(null);
   const scrollContainerRef = useRef(null);
-  const [activeButton, setActiveButton] = useState(null);
   const [showLeftScroll, setShowLeftScroll] = useState(false);
   const [showRightScroll, setShowRightScroll] = useState(false);
 
@@ -22,25 +22,36 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
   // Visual Viewport로 키보드 위에 툴바 고정
   useVisualViewport(toolbarRef);
 
+  const currentTheme = theme || {
+    ui: {
+      bg: '#1e1e2e',
+      bgSecondary: '#181825',
+      bgTertiary: '#313244',
+      accent: '#89b4fa',
+      radiusSmall: '2px',
+    },
+    yellow: '#f9e2af',
+    red: '#f38ba8',
+  };
+
   // 키 전송 로직 개선 (Ctrl/Alt 조합 지원)
   const handleKeyWithModifiers = (key) => {
     let finalKey = key;
 
     // Ctrl 조합 처리
     if (ctrlActive) {
-      // 대문자 A-Z 대응 (ASCII 1-26)
       if (key.length === 1 && key >= 'a' && key <= 'z') {
         finalKey = String.fromCharCode(key.charCodeAt(0) - 96);
       } else if (key.length === 1 && key >= 'A' && key <= 'Z') {
         finalKey = String.fromCharCode(key.charCodeAt(0) - 64);
       }
-      setCtrlActive(false); // 전송 후 해제 (Sticky)
+      setCtrlActive(false);
     }
 
     // Alt 조합 처리 (ESC + key)
     if (altActive) {
       finalKey = '\x1b' + finalKey;
-      setAltActive(false); // 전송 후 해제 (Sticky)
+      setAltActive(false);
     }
 
     onSendKey(finalKey);
@@ -49,7 +60,6 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
   // 스크롤 위치 체크
   const checkScroll = () => {
     if (!scrollContainerRef.current) return;
-
     const { scrollLeft, scrollWidth, clientWidth } = scrollContainerRef.current;
     setShowLeftScroll(scrollLeft > 10);
     setShowRightScroll(scrollLeft < scrollWidth - clientWidth - 10);
@@ -65,13 +75,11 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
   }, []);
 
   useEffect(() => {
-    // 화면 크기 변경 시 스크롤 체크
     const handleResize = () => checkScroll();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // 좌우 스크롤
   const handleScrollLeft = () => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollBy({ left: -150, behavior: 'smooth' });
@@ -84,28 +92,20 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
     }
   };
 
-  // 클립보드 붙여넣기
   const handlePaste = () => {
-    // iOS에서는 prompt로 입력받기 (clipboard API가 제한적)
     const text = prompt('Paste text here:');
     if (text && onSendKey) {
       onSendKey(text);
     }
   };
 
-  // 현재 라인 클리어
   const handleClear = () => {
     if (onSendKey) {
-      onSendKey('\x15'); // Ctrl+U: 현재 라인 클리어
+      onSendKey('\x15'); // Ctrl+U
     }
   };
 
-  // 버튼 클릭 효과
-  const handleButtonPress = (key, action) => {
-    setActiveButton(key);
-    action();
-    setTimeout(() => setActiveButton(null), 150);
-  };
+  if (!isVisible) return null;
 
   return (
     <>
@@ -118,16 +118,17 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
         ref={toolbarRef}
         style={{
           ...styles.toolbar,
+          backgroundColor: currentTheme.ui.glassBg || 'rgba(24, 24, 37, 0.8)',
           transform: isVisible ? 'translateY(0)' : 'translateY(100%)',
           opacity: isVisible ? 1 : 0,
+          borderRadius: currentTheme.ui.radius || '4px',
         }}
       >
         {/* 왼쪽 스크롤 버튼 */}
         {showLeftScroll && (
           <button
             onClick={handleScrollLeft}
-            style={styles.scrollButton}
-            aria-label="Scroll left"
+            style={{ ...styles.scrollButton, color: currentTheme.ui.textSecondary }}
           >
             <ChevronLeft size={16} strokeWidth={2.5} />
           </button>
@@ -141,184 +142,95 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
         >
           <div style={styles.buttonGroup}>
             {/* Ctrl (Sticky Toggle) */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                setCtrlActive(!ctrlActive);
-              }}
+            <Button 
+              size="small" 
+              onClick={() => setCtrlActive(!ctrlActive)} 
+              theme={currentTheme}
               style={{
-                ...styles.button,
-                ...(ctrlActive ? styles.active : styles.secondary),
+                backgroundColor: ctrlActive ? currentTheme.yellow : currentTheme.ui.bgTertiary,
+                color: ctrlActive ? currentTheme.ui.bg : currentTheme.ui.text,
+                minWidth: '44px',
               }}
-              title="CTRL (Sticky)"
             >
               CTRL
-            </button>
+            </Button>
 
             {/* Alt (Sticky Toggle) */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                setAltActive(!altActive);
-              }}
+            <Button 
+              size="small" 
+              onClick={() => setAltActive(!altActive)} 
+              theme={currentTheme}
               style={{
-                ...styles.button,
-                ...(altActive ? styles.active : styles.secondary),
+                backgroundColor: altActive ? currentTheme.yellow : currentTheme.ui.bgTertiary,
+                color: altActive ? currentTheme.ui.bg : currentTheme.ui.text,
+                minWidth: '40px',
               }}
-              title="ALT (Sticky)"
             >
               ALT
-            </button>
+            </Button>
+
+            <div style={{ width: '1px', height: '20px', backgroundColor: currentTheme.ui.borderLight, margin: '0 2px' }} />
 
             {/* Command Input (한글 입력) */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('cmd', () => onOpenCommandInput?.());
-              }}
-              style={{
-                ...styles.button,
-                ...styles.primary,
-                transform: activeButton === 'cmd' ? 'scale(0.9)' : 'scale(1)',
-              }}
+            <Button 
+              variant="primary" 
+              size="icon" 
+              onClick={() => onOpenCommandInput?.()} 
+              theme={currentTheme}
+              icon={MessageSquare}
               title={t('commandInput')}
-            >
-              <MessageSquare size={13} strokeWidth={2} />
-            </button>
+            />
 
             {/* ESC */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('esc', () => handleKeyWithModifiers('\x1b'));
-              }}
-              style={{
-                ...styles.button,
-                ...styles.secondary,
-                transform: activeButton === 'esc' ? 'scale(0.9)' : 'scale(1)',
-              }}
+            <Button 
+              size="small" 
+              onClick={() => handleKeyWithModifiers('\x1b')} 
+              theme={currentTheme}
             >
               ESC
-            </button>
+            </Button>
 
             {/* TAB */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('tab', () => handleKeyWithModifiers('\t'));
-              }}
-              style={{
-                ...styles.button,
-                ...styles.secondary,
-                transform: activeButton === 'tab' ? 'scale(0.9)' : 'scale(1)',
-              }}
+            <Button 
+              size="small" 
+              onClick={() => handleKeyWithModifiers('\t')} 
+              theme={currentTheme}
             >
               TAB
-            </button>
+            </Button>
 
             {/* Ctrl+C (직통) */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('ctrlc', () => onSendKey('\x03'));
-              }}
-              style={{
-                ...styles.button,
-                ...styles.warning,
-                transform: activeButton === 'ctrlc' ? 'scale(0.9)' : 'scale(1)',
-              }}
-              title="Ctrl+C (Stop)"
+            <Button 
+              variant="danger" 
+              size="small" 
+              onClick={() => onSendKey('\x03')} 
+              theme={currentTheme}
+              style={{ fontWeight: '800' }}
             >
               ^C
-            </button>
+            </Button>
 
             {/* Arrow Keys */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('up', () => handleKeyWithModifiers('\x1b[A'));
-              }}
-              style={{
-                ...styles.button,
-                ...styles.secondary,
-                transform: activeButton === 'up' ? 'scale(0.9)' : 'scale(1)',
-              }}
-            >
-              <ArrowUp size={13} strokeWidth={2} />
-            </button>
+            <Button size="icon" onClick={() => handleKeyWithModifiers('\x1b[A')} theme={currentTheme} icon={ArrowUp} />
+            <Button size="icon" onClick={() => handleKeyWithModifiers('\x1b[B')} theme={currentTheme} icon={ArrowDown} />
+            <Button size="icon" onClick={() => handleKeyWithModifiers('\x1b[D')} theme={currentTheme} icon={ArrowLeft} />
+            <Button size="icon" onClick={() => handleKeyWithModifiers('\x1b[C')} theme={currentTheme} icon={ArrowRight} />
 
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('down', () => handleKeyWithModifiers('\x1b[B'));
-              }}
-              style={{
-                ...styles.button,
-                ...styles.secondary,
-                transform: activeButton === 'down' ? 'scale(0.9)' : 'scale(1)',
-              }}
-            >
-              <ArrowDown size={13} strokeWidth={2} />
-            </button>
-
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('left', () => handleKeyWithModifiers('\x1b[D'));
-              }}
-              style={{
-                ...styles.button,
-                ...styles.secondary,
-                transform: activeButton === 'left' ? 'scale(0.9)' : 'scale(1)',
-              }}
-            >
-              <ArrowLeft size={13} strokeWidth={2} />
-            </button>
-
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('right', () => handleKeyWithModifiers('\x1b[C'));
-              }}
-              style={{
-                ...styles.button,
-                ...styles.secondary,
-                transform: activeButton === 'right' ? 'scale(0.9)' : 'scale(1)',
-              }}
-            >
-              <ArrowRight size={13} strokeWidth={2} />
-            </button>
+            <div style={{ width: '1px', height: '20px', backgroundColor: currentTheme.ui.borderLight, margin: '0 2px' }} />
 
             {/* Paste */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('paste', handlePaste);
-              }}
-              style={{
-                ...styles.button,
-                ...styles.secondary,
-                transform: activeButton === 'paste' ? 'scale(0.9)' : 'scale(1)',
-              }}
-            >
-              <ClipboardPaste size={13} strokeWidth={2} />
-            </button>
+            <Button size="icon" onClick={handlePaste} theme={currentTheme} icon={ClipboardPaste} title={t('paste')} />
 
             {/* Clear */}
-            <button
-              onTouchEnd={(e) => {
-                e.preventDefault();
-                handleButtonPress('clear', handleClear);
-              }}
-              style={{
-                ...styles.button,
-                ...styles.clear,
-                transform: activeButton === 'clear' ? 'scale(0.9)' : 'scale(1)',
-              }}
-              title={t('clearInput')}
-            >
-              <Eraser size={13} strokeWidth={2} />
-            </button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleClear} 
+              theme={currentTheme} 
+              style={{ color: currentTheme.ui.textSecondary }}
+              icon={Eraser} 
+              title={t('clearInput')} 
+            />
           </div>
         </div>
 
@@ -326,8 +238,7 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
         {showRightScroll && (
           <button
             onClick={handleScrollRight}
-            style={styles.scrollButton}
-            aria-label="Scroll right"
+            style={{ ...styles.scrollButton, color: currentTheme.ui.textSecondary }}
           >
             <ChevronRight size={16} strokeWidth={2.5} />
           </button>
@@ -343,7 +254,6 @@ const styles = {
     left: '12px',
     right: '12px',
     bottom: '12px',
-    backgroundColor: 'rgba(24, 24, 37, 0.6)',
     backdropFilter: 'blur(20px) saturate(160%)',
     padding: '6px',
     zIndex: 9999,
@@ -351,7 +261,6 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
-    borderRadius: '20px',
     border: '1px solid rgba(255, 255, 255, 0.08)',
     boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
   },
@@ -381,58 +290,10 @@ const styles = {
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     border: 'none',
-    borderRadius: '14px',
-    color: '#cdd6f4',
+    borderRadius: '50%',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
     WebkitTapHighlightColor: 'transparent',
-  },
-  button: {
-    flex: '0 0 auto',
-    padding: '0 10px',
-    fontSize: '11px',
-    fontWeight: '700',
-    border: 'none',
-    borderRadius: '10px',
-    cursor: 'pointer',
-    userSelect: 'none',
-    WebkitTapHighlightColor: 'transparent',
-    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-    minWidth: '34px',
-    height: '32px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
-    willChange: 'transform, opacity',
-  },
-  primary: {
-    backgroundColor: '#89b4fa',
-    color: '#1e1e2e',
-  },
-  secondary: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    color: '#cdd6f4',
-  },
-  active: {
-    backgroundColor: '#f9e2af',
-    color: '#1e1e2e',
-    boxShadow: '0 0 15px rgba(249, 226, 175, 0.4)',
-  },
-  danger: {
-    backgroundColor: 'rgba(243, 139, 168, 0.2)',
-    color: '#f38ba8',
-    border: '1px solid rgba(243, 139, 168, 0.3)',
-  },
-  warning: {
-    backgroundColor: 'rgba(250, 179, 135, 0.2)',
-    color: '#fab387',
-    border: '1px solid rgba(250, 179, 135, 0.3)',
-  },
-  clear: {
-    backgroundColor: 'rgba(148, 226, 213, 0.2)',
-    color: '#94e2d5',
-    border: '1px solid rgba(148, 226, 213, 0.3)',
   },
 };
 

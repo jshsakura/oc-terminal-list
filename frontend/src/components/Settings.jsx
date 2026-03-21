@@ -5,6 +5,8 @@
 import { useState } from 'react';
 import { themeNames } from '../styles/themes';
 import useTranslation from '../hooks/useTranslation';
+import Button from './common/Button';
+import { X } from 'lucide-react';
 
 const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
   const { t } = useTranslation(settings.language);
@@ -12,23 +14,7 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
 
   if (!isOpen) return null;
 
-  // 기본 테마 (theme prop이 없을 경우 Catppuccin 사용)
-  const currentTheme = theme || {
-    ui: {
-      bg: '#1e1e2e',
-      bgSecondary: '#181825',
-      bgTertiary: '#313244',
-      border: '#313244',
-      text: '#cdd6f4',
-      textSecondary: '#6c7086',
-      accent: '#89b4fa',
-      radius: '12px',
-      radiusSmall: '8px',
-    },
-    green: '#a6e3a1',
-    red: '#f38ba8',
-    brightBlack: '#585b70',
-  };
+  const currentTheme = theme;
 
   const handleChange = (key, value) => {
     setLocalSettings((prev) => ({
@@ -85,9 +71,7 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
       }} onClick={(e) => e.stopPropagation()}>
         <div style={{ ...styles.header, borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
           <h2 style={{ ...styles.title, color: currentTheme.ui.accent }}>{t('settingsTitle')}</h2>
-          <button onClick={onClose} style={{ ...styles.closeBtn, color: currentTheme.ui.text }}>
-            ✕
-          </button>
+          <Button variant="ghost" size="icon" onClick={onClose} theme={currentTheme} icon={X} />
         </div>
 
         <div style={styles.content}>
@@ -201,33 +185,28 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
         </div>
 
         <div style={{ ...styles.footer, borderTopColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
-          <button onClick={handleReset} style={{ 
-            ...styles.resetBtn, 
-            backgroundColor: 'rgba(243, 139, 168, 0.1)', 
-            color: currentTheme.red,
-            border: `1px solid ${currentTheme.red}44`,
-            borderRadius: currentTheme.ui.radiusSmall
-          }}>
+          <Button 
+            variant="danger" 
+            size="small" 
+            onClick={handleReset} 
+            theme={currentTheme}
+          >
             {t('reset')}
-          </button>
+          </Button>
           <div style={styles.buttonGroup}>
-            <button onClick={onClose} style={{ 
-              ...styles.cancelBtn, 
-              backgroundColor: currentTheme.ui.bgTertiary, 
-              color: currentTheme.ui.text,
-              borderRadius: currentTheme.ui.radiusSmall
-            }}>
+            <Button 
+              onClick={onClose} 
+              theme={currentTheme}
+            >
               {t('cancel')}
-            </button>
-            <button onClick={handleSave} style={{ 
-              ...styles.saveBtn, 
-              backgroundColor: currentTheme.ui.accent, 
-              color: currentTheme.ui.bg,
-              borderRadius: currentTheme.ui.radiusSmall,
-              boxShadow: `0 4px 15px ${currentTheme.ui.accent}44`
-            }}>
+            </Button>
+            <Button 
+              variant="primary" 
+              onClick={handleSave} 
+              theme={currentTheme}
+            >
               {t('save')}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -261,96 +240,87 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '16px 24px',
+    padding: '12px 20px',
     borderBottom: '1px solid',
   },
   title: {
     margin: 0,
-    fontSize: '18px',
-    fontWeight: '700',
+    fontSize: '16px',
+    fontWeight: '800',
     letterSpacing: '0.5px',
-  },
-  closeBtn: {
-    background: 'none',
-    border: 'none',
-    fontSize: '20px',
-    cursor: 'pointer',
-    padding: '4px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.7,
+    textTransform: 'uppercase',
   },
   content: {
-    padding: '24px',
+    padding: '20px',
     overflowY: 'auto',
   },
   section: {
-    marginBottom: '20px',
+    marginBottom: '16px',
   },
   row: {
     display: 'flex',
-    gap: '16px',
-    marginBottom: '20px',
+    gap: '12px',
+    marginBottom: '16px',
   },
   rowItem: {
     flex: 1,
   },
   userSection: {
-    paddingBottom: '20px',
+    paddingBottom: '16px',
     borderBottom: '1px solid',
   },
   userValue: {
-    padding: '10px 14px',
-    fontSize: '14px',
+    padding: '8px 12px',
+    fontSize: '13px',
     fontWeight: '700',
     border: '1px solid',
     fontFamily: '"JetBrains Mono", monospace',
   },
   label: {
     display: 'block',
-    marginBottom: '8px',
-    fontSize: '13px',
-    fontWeight: '600',
-    opacity: 0.9,
+    marginBottom: '6px',
+    fontSize: '12px',
+    fontWeight: '700',
+    opacity: 0.8,
+    textTransform: 'uppercase',
   },
   select: {
     width: '100%',
-    padding: '10px 12px',
+    padding: '8px 10px',
     border: '1px solid',
-    fontSize: '14px',
+    fontSize: '13px',
     outline: 'none',
     cursor: 'pointer',
     appearance: 'none',
   },
   input: {
     width: '100%',
-    padding: '10px 12px',
+    padding: '8px 10px',
     border: '1px solid',
-    fontSize: '14px',
+    fontSize: '13px',
     outline: 'none',
   },
   checkboxLabel: {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    fontSize: '14px',
-    fontWeight: '500',
+    fontSize: '13px',
+    fontWeight: '600',
     cursor: 'pointer',
   },
   checkbox: {
-    width: '18px',
-    height: '18px',
+    width: '16px',
+    height: '16px',
     cursor: 'pointer',
   },
   slider: {
     width: '100%',
-    marginTop: '10px',
+    marginTop: '8px',
     cursor: 'pointer',
   },
   hint: {
     display: 'block',
-    marginTop: '6px',
+    marginTop: '4px',
     fontSize: '11px',
     opacity: 0.7,
   },
@@ -358,35 +328,12 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '16px 24px',
+    padding: '12px 20px',
     borderTop: '1px solid',
   },
   buttonGroup: {
     display: 'flex',
-    gap: '10px',
-  },
-  saveBtn: {
-    padding: '10px 20px',
-    border: 'none',
-    fontSize: '14px',
-    fontWeight: '700',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-  },
-  cancelBtn: {
-    padding: '10px 20px',
-    border: 'none',
-    fontSize: '14px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-  },
-  resetBtn: {
-    padding: '8px 16px',
-    fontSize: '13px',
-    fontWeight: '600',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
+    gap: '8px',
   },
 };
 

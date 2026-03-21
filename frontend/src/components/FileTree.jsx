@@ -475,11 +475,10 @@ const FileTreeNode = ({ item, depth, expanded, onToggle, onSelect, onFolderSelec
       <div
         style={{
           ...styles.treeItem,
-          paddingLeft: '8px', // wrapper가 들여쓰기를 처리하므로 고정값 사용
-          backgroundColor: isSelected ? theme.ui.bgTertiary : (isHovered ? theme.ui.bgTertiary : 'transparent'),
-          color: theme.ui.text,
-          borderLeft: isSelected ? `3px solid ${theme.ui.accent}` : '3px solid transparent', // 더 두꺼운 선택 표시
-          opacity: isHovered || isSelected ? 1 : 0.8,
+          paddingLeft: '8px',
+          backgroundColor: isSelected ? `${theme.ui.accent}22` : (isHovered ? `${theme.ui.bgTertiary}88` : 'transparent'),
+          color: isSelected ? theme.ui.accent : theme.ui.text,
+          fontWeight: isSelected ? '700' : '500',
         }}
         onClick={handleClick}
         onMouseEnter={() => setIsHovered(true)}

@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef } from 'react';
 import { Send, X, Eraser, ClipboardPaste } from 'lucide-react';
+import Button from './common/Button';
 
 const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }) => {
   const textareaRef = useRef(null);
@@ -102,16 +103,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
           }}>
             {t?.('commandInput') || '명령어 입력'}
           </h3>
-          <button
-            onClick={onClose}
-            style={{
-              ...styles.closeButton,
-              color: currentTheme.ui.text,
-            }}
-            title={t?.('close') || '닫기'}
-          >
-            <X size={20} strokeWidth={2.5} />
-          </button>
+          <Button variant="ghost" size="icon" onClick={onClose} theme={currentTheme} icon={X} />
         </div>
 
         {/* Input Area */}
@@ -142,48 +134,36 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
           ...styles.footer,
           borderTopColor: currentTheme.ui.borderLight || currentTheme.ui.border,
         }}>
-          <button
-            onClick={handlePaste}
-            style={{
-              ...styles.clearButton,
-              backgroundColor: currentTheme.ui.bgTertiary,
-              color: currentTheme.ui.text,
-              borderRadius: currentTheme.ui.radiusSmall,
-            }}
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={handlePaste} 
+            theme={currentTheme} 
+            icon={ClipboardPaste} 
             title={t?.('paste')}
-          >
-            <ClipboardPaste size={18} strokeWidth={2.5} />
-          </button>
-          <button
-            onClick={handleClear}
+          />
+          
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={handleClear} 
             disabled={!command.trim()}
-            style={{
-              ...styles.clearButton,
-              backgroundColor: command.trim() ? 'rgba(243, 139, 168, 0.1)' : currentTheme.ui.bgSecondary,
-              color: command.trim() ? currentTheme.red : currentTheme.ui.textSecondary,
-              border: command.trim() ? `1px solid ${currentTheme.red}44` : 'none',
-              borderRadius: currentTheme.ui.radiusSmall,
-              opacity: command.trim() ? 1 : 0.5,
-            }}
+            theme={currentTheme} 
+            style={{ color: command.trim() ? currentTheme.red : currentTheme.ui.textSecondary }}
+            icon={Eraser} 
             title={t?.('clearInput')}
-          >
-            <Eraser size={18} strokeWidth={2.5} />
-          </button>
-          <button
-            onClick={handleSend}
+          />
+
+          <Button 
+            variant="primary" 
+            fullWidth
+            onClick={handleSend} 
             disabled={!command.trim()}
-            style={{
-              ...styles.sendButton,
-              backgroundColor: command.trim() ? currentTheme.ui.accent : currentTheme.ui.bgSecondary,
-              color: command.trim() ? currentTheme.ui.bg : currentTheme.ui.textSecondary,
-              borderRadius: currentTheme.ui.radiusSmall,
-              opacity: command.trim() ? 1 : 0.5,
-              boxShadow: command.trim() ? `0 4px 15px ${currentTheme.ui.accent}44` : 'none',
-            }}
+            theme={currentTheme} 
+            icon={Send}
           >
-            <Send size={16} strokeWidth={2.5} />
-            <span>{t?.('send')}</span>
-          </button>
+            {t?.('send')}
+          </Button>
         </div>
       </div>
     </>
@@ -218,7 +198,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '16px 20px',
+    padding: '12px 20px',
     borderBottom: '1px solid',
   },
   title: {
@@ -227,16 +207,6 @@ const styles = {
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: '1px',
-  },
-  closeButton: {
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    padding: '4px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.7,
   },
   body: {
     flex: 1,
@@ -260,32 +230,8 @@ const styles = {
   footer: {
     display: 'flex',
     gap: '10px',
-    padding: '16px 20px',
+    padding: '12px 20px',
     borderTop: '1px solid',
-  },
-  clearButton: {
-    padding: '10px',
-    border: 'none',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'all 0.2s ease',
-    minWidth: '48px',
-    minHeight: '48px',
-  },
-  sendButton: {
-    flex: 1,
-    padding: '10px 16px',
-    fontSize: '14px',
-    fontWeight: '700',
-    border: 'none',
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '10px',
-    transition: 'all 0.2s ease',
   },
 };
 

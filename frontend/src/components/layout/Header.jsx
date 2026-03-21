@@ -1,5 +1,6 @@
 import { PanelLeftClose, PanelLeft, ChevronsDown, Menu, Plus, Settings as SettingsIcon, Power } from 'lucide-react';
 import AppStyles from '../../styles/AppStyles';
+import Button from '../common/Button';
 
 const Header = ({ 
   isSidebarOpen, 
@@ -32,13 +33,14 @@ const Header = ({
       height: '40px',
     }}>
       <div style={styles.headerLeft}>
-        <button onClick={toggleSidebar} style={{
-          ...styles.hamburgerBtn,
-          backgroundColor: 'transparent',
-          color: currentTheme.ui.iconColor,
-        }} title={isSidebarOpen ? t('closeSidebar') : t('sessions')}>
-          {isSidebarOpen ? <PanelLeftClose size={18} strokeWidth={2} /> : <PanelLeft size={18} strokeWidth={2} />}
-        </button>
+        <Button 
+          variant="ghost" 
+          size="icon" 
+          onClick={toggleSidebar} 
+          theme={currentTheme}
+          title={isSidebarOpen ? t('closeSidebar') : t('sessions')}
+          icon={isSidebarOpen ? PanelLeftClose : PanelLeft}
+        />
 
         <h1 style={{
           ...styles.title,
@@ -74,33 +76,30 @@ const Header = ({
         
         {isMobile ? (
           <>
-            <button
-              onClick={handleScrollToBottom}
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleScrollToBottom} 
               disabled={sessions.length === 0}
+              theme={currentTheme}
               style={{
-                ...styles.hamburgerBtn,
                 backgroundColor: scrollBtnClicked ? currentTheme.ui.accentMuted : 'transparent',
                 color: sessions.length === 0 ? currentTheme.ui.textSecondary + '60' : currentTheme.ui.iconColor,
-                transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                cursor: sessions.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: sessions.length === 0 ? 0.4 : 1
               }}
-            >
-              <ChevronsDown size={20} strokeWidth={2.5} />
-            </button>
+              icon={ChevronsDown}
+            />
 
-            <div style={{ position: 'relative', height: '100%' }}>
-              <button
-                onClick={() => setIsMenuOpen(!isMenuOpen)}
+            <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setIsMenuOpen(!isMenuOpen)} 
+                theme={currentTheme}
                 style={{
-                  ...styles.hamburgerBtn,
                   backgroundColor: isMenuOpen ? currentTheme.ui.accentMuted : 'transparent',
-                  color: currentTheme.ui.iconColor,
-                  transition: 'all 0.2s ease',
                 }}
-              >
-                <Menu size={20} strokeWidth={2.5} />
-              </button>
+                icon={Menu}
+              />
 
               {isMenuOpen && (
                 <>
@@ -177,18 +176,40 @@ const Header = ({
           </>
         ) : (
           <div style={styles.desktopButtons}>
-            <button onClick={handleScrollToBottom} disabled={sessions.length === 0} style={{ ...styles.headerBtn, color: currentTheme.ui.iconColor, opacity: sessions.length === 0 ? 0.4 : 1 }} title={t('scrollToBottom')}>
-              <ChevronsDown size={18} strokeWidth={2.5} />
-            </button>
-            <button onClick={handleNewSession} style={{ ...styles.headerBtn, color: currentTheme.ui.iconColor }} title={t('newSession')}>
-              <Plus size={18} strokeWidth={2.5} />
-            </button>
-            <button onClick={() => setIsSettingsOpen(true)} style={{ ...styles.headerBtn, color: currentTheme.ui.iconColor }} title={t('settings')}>
-              <SettingsIcon size={18} strokeWidth={2.5} />
-            </button>
-            <button onClick={handleLogoutRequest} style={{ ...styles.headerBtn, color: currentTheme.red }} title={t('logout')}>
-              <Power size={18} strokeWidth={2.5} />
-            </button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleScrollToBottom} 
+              disabled={sessions.length === 0}
+              theme={currentTheme}
+              icon={ChevronsDown}
+              title={t('scrollToBottom')}
+            />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleNewSession} 
+              theme={currentTheme}
+              icon={Plus}
+              title={t('newSession')}
+            />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setIsSettingsOpen(true)} 
+              theme={currentTheme}
+              icon={SettingsIcon}
+              title={t('settings')}
+            />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleLogoutRequest} 
+              theme={currentTheme}
+              style={{ color: currentTheme.red }}
+              icon={Power}
+              title={t('logout')}
+            />
           </div>
         )}
       </div>

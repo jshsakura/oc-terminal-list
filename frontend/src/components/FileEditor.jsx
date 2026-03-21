@@ -1,16 +1,17 @@
 /**
  * FileEditor 컴포넌트
- * 파일 내용 표시 및 편집
+ * 파일 내용 표시 및 즉시 편집 지원
  */
 import { useState, useEffect } from 'react';
-import { File, X, Edit2, Save, XCircle } from 'lucide-react';
+import { File, X, Save, XCircle, RefreshCw } from 'lucide-react';
+import Button from './common/Button';
 
 const FileEditor = ({ filePath, onClose, theme }) => {
   const [content, setContent] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
+  const [hasChanges, setHasChanges] = useState(false);
 
   // 파일 로드
   useEffect(() => {
@@ -22,6 +23,7 @@ const FileEditor = ({ filePath, onClose, theme }) => {
   const loadFile = async () => {
     setLoading(true);
     setError(null);
+    setHasChanges(false);
 
     try {
       const token = localStorage.getItem('auth_token');
@@ -45,6 +47,7 @@ const FileEditor = ({ filePath, onClose, theme }) => {
   };
 
   const saveFile = async () => {
+    if (!hasChanges) return;
     setSaving(true);
     setError(null);
 
@@ -64,7 +67,7 @@ const FileEditor = ({ filePath, onClose, theme }) => {
         throw new Error(errorData.detail || 'Failed to save file');
       }
 
-      setIsEditing(false);
+      setHasChanges(false);
     } catch (error) {
       console.error('Failed to save file:', error);
       setError(error.message);
@@ -73,9 +76,17 @@ const FileEditor = ({ filePath, onClose, theme }) => {
     }
   };
 
-  const handleCancel = () => {
-    loadFile();
-    setIsEditing(false);
+  const handleContentChange = (e) => {
+    setContent(e.target.value);
+    setHasChanges(true);
+  };
+
+  const handleKeyDown = (e) => {
+    // Ctrl+S 또는 Cmd+S로 저장
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      saveFile();
+    }
   };
 
   if (!filePath) return null;
@@ -89,72 +100,46 @@ const FileEditor = ({ filePath, onClose, theme }) => {
       {/* 헤더 */}
       <div style={{ 
         ...styles.header, 
-        backgroundColor: theme.ui.glassBg || theme.ui.bgSecondary, 
-        backdropFilter: 'blur(12px)',
+        backgroundColor: theme.ui.bgSecondary, 
         borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}`,
-        height: '44px',
+        height: '40px',
       }}>
         <div style={styles.headerLeft}>
-          <File size={16} style={{ color: theme.ui.accent }} strokeWidth={2.5} />
+          <File size={14} style={{ color: theme.ui.accent }} strokeWidth={2.5} />
           <span style={{ ...styles.filePath, color: theme.ui.text }}>{filePath}</span>
+          {hasChanges && <span style={{ color: theme.yellow, fontSize: '10px', marginLeft: '8px' }}>● Modified</span>}
         </div>
         <div style={styles.headerRight}>
-          {!isEditing ? (
-            <button
-              onClick={() => setIsEditing(true)}
-              style={{ 
-                ...styles.button, 
-                backgroundColor: theme.ui.bgTertiary, 
-                color: theme.ui.text,
-                borderRadius: '8px',
-              }}
-              disabled={loading}
-            >
-              <Edit2 size={14} strokeWidth={2.5} />
-              <span>Edit</span>
-            </button>
-          ) : (
-            <>
-              <button
-                onClick={saveFile}
-                disabled={saving}
-                style={{ 
-                  ...styles.button, 
-                  backgroundColor: theme.ui.accent, 
-                  color: theme.ui.bg,
-                  borderRadius: '8px',
-                  boxShadow: `0 4px 12px ${theme.ui.accent}44`,
-                }}
-              >
-                <Save size={14} strokeWidth={2.5} />
-                <span>{saving ? '...' : 'Save'}</span>
-              </button>
-              <button
-                onClick={handleCancel}
-                disabled={saving}
-                style={{ 
-                  ...styles.button, 
-                  backgroundColor: theme.ui.bgTertiary, 
-                  color: theme.ui.text,
-                  borderRadius: '8px',
-                }}
-              >
-                Cancel
-              </button>
-            </>
-          )}
-          <div style={{ width: '1px', height: '20px', backgroundColor: theme.ui.borderLight, margin: '0 4px' }} />
-          <button
-            onClick={onClose}
-            style={{ 
-              ...styles.button, 
-              backgroundColor: 'rgba(243, 139, 168, 0.1)', 
-              color: theme.red,
-              borderRadius: '8px',
-            }}
+          <Button 
+            variant="primary" 
+            size="small" 
+            onClick={saveFile} 
+            disabled={!hasChanges || saving || loading}
+            theme={theme}
+            icon={Save}
           >
-            <X size={18} strokeWidth={2.5} />
-          </button>
+            {saving ? 'Saving...' : 'Save'}
+          </Button>
+          
+          <Button 
+            variant="ghost" 
+            size="small" 
+            onClick={loadFile} 
+            disabled={loading}
+            theme={theme}
+            icon={RefreshCw}
+            title="Reload"
+          />
+
+          <div style={{ width: '1px', height: '16px', backgroundColor: theme.ui.borderLight, margin: '0 4px' }} />
+          
+          <Button 
+            variant="danger" 
+            size="small" 
+            onClick={onClose} 
+            theme={theme}
+            icon={X}
+          />
         </div>
       </div>
 
@@ -163,25 +148,27 @@ const FileEditor = ({ filePath, onClose, theme }) => {
         {loading ? (
           <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
             <div className="terminal-loader" style={{ borderColor: theme.ui.accent, marginBottom: '12px' }}></div>
-            Loading...
+            Loading file...
           </div>
         ) : error ? (
           <div style={{ ...styles.message, color: theme.red }}>
             <XCircle size={32} style={{ marginBottom: '12px' }} />
             {error}
+            <Button theme={theme} onClick={loadFile} style={{ marginTop: '16px' }}>Retry</Button>
           </div>
         ) : (
           <textarea
             style={{
               ...styles.textarea,
-              backgroundColor: theme.ui.bgSecondary,
+              backgroundColor: theme.ui.bg,
               color: theme.ui.text,
               borderColor: 'transparent',
             }}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
-            readOnly={!isEditing}
+            onChange={handleContentChange}
+            onKeyDown={handleKeyDown}
             spellCheck={false}
+            placeholder="File is empty"
           />
         )}
       </div>
@@ -192,7 +179,7 @@ const FileEditor = ({ filePath, onClose, theme }) => {
 const styles = {
   container: {
     position: 'absolute',
-    top: '40px', // Header height
+    top: 0,
     left: 0,
     right: 0,
     bottom: 0,
@@ -204,40 +191,30 @@ const styles = {
     display: 'flex',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '0 16px',
+    padding: '0 12px',
     gap: '12px',
   },
   headerLeft: {
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
+    gap: '8px',
     flex: 1,
     minWidth: 0,
   },
   filePath: {
-    fontSize: '13px',
+    fontSize: '12px',
     fontWeight: '700',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
     fontFamily: '"JetBrains Mono", monospace',
+    opacity: 0.9,
   },
   headerRight: {
     display: 'flex',
-    gap: '8px',
+    gap: '6px',
     alignItems: 'center',
     flexShrink: 0,
-  },
-  button: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '6px 12px',
-    fontSize: '12px',
-    fontWeight: '700',
-    border: 'none',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
   },
   content: {
     flex: 1,
@@ -248,13 +225,14 @@ const styles = {
   textarea: {
     flex: 1,
     width: '100%',
-    padding: '20px',
+    padding: '16px',
     outline: 'none',
     fontFamily: '"JetBrains Mono", monospace',
-    fontSize: '14px',
-    lineHeight: '1.7',
+    fontSize: '13px',
+    lineHeight: '1.6',
     resize: 'none',
     overflow: 'auto',
+    border: 'none',
   },
   message: {
     flex: 1,

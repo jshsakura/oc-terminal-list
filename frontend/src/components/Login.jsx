@@ -4,6 +4,7 @@
  */
 import { useState } from 'react';
 import useTranslation from '../hooks/useTranslation';
+import Button from './common/Button';
 
 const Login = ({ onLogin, language = 'en' }) => {
   const { t } = useTranslation(language);
@@ -11,6 +12,17 @@ const Login = ({ onLogin, language = 'en' }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // 기본 테마 객체
+  const loginTheme = {
+    ui: {
+      accent: '#89b4fa',
+      bg: '#1e1e2e',
+      bgSecondary: '#181825',
+      radiusSmall: '12px',
+    },
+    red: '#f38ba8',
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -94,9 +106,16 @@ const Login = ({ onLogin, language = 'en' }) => {
 
           {error && <div style={styles.error}>{error}</div>}
 
-          <button type="submit" style={styles.submitBtn} disabled={isLoading}>
+          <Button 
+            variant="primary" 
+            fullWidth 
+            size="large" 
+            onClick={handleSubmit} 
+            theme={loginTheme}
+            disabled={isLoading}
+          >
             {isLoading ? t('signingIn') : t('signIn')}
-          </button>
+          </Button>
         </form>
       </div>
     </div>
@@ -188,18 +207,6 @@ const styles = {
     textAlign: 'center',
     border: '1px solid rgba(243, 139, 168, 0.2)',
     fontWeight: '600',
-  },
-  submitBtn: {
-    padding: '14px 24px',
-    backgroundColor: '#89b4fa',
-    color: '#1e1e2e',
-    border: 'none',
-    borderRadius: '12px',
-    fontSize: '16px',
-    fontWeight: '800',
-    cursor: 'pointer',
-    transition: 'all 0.2s ease',
-    boxShadow: '0 4px 15px rgba(137, 180, 250, 0.3)',
   },
 };
 
