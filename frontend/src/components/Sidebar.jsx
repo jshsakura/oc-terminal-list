@@ -3,7 +3,7 @@
  * 터미널 세션 목록 및 관리
  */
 import { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { X, ChevronLeft, Terminal, Cpu, FolderTree, RefreshCw } from 'lucide-react';
+import { X, ChevronLeft, Terminal, Cpu, FolderTree, RefreshCw, Plus } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 
