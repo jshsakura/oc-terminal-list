@@ -186,8 +186,10 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
                     key={session.id}
                     style={{
                       ...styles.sessionItem,
-                      backgroundColor: isActive ? `${currentTheme.ui.accent}15` : (isHovered ? currentTheme.ui.bgSecondary : 'transparent'),
-                      borderRadius: currentTheme.ui.radiusSmall || '2px',
+                      backgroundColor: isActive ? `${currentTheme.ui.accent}22` : (isHovered ? `${currentTheme.ui.bgTertiary}` : 'transparent'),
+                      borderRadius: '2px', // 아주 사각사각하게
+                      border: 'none', // 테두리 제거
+                      marginBottom: '1px',
                     }}
                     onMouseEnter={() => setHoveredSessionId(session.id)}
                     onMouseLeave={() => setHoveredSessionId(null)}
@@ -221,7 +223,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
                               backgroundColor: currentTheme.ui.bgTertiary,
                               color: currentTheme.ui.text,
                               borderColor: currentTheme.ui.accent,
-                              borderRadius: currentTheme.ui.radiusSmall || '2px',
+                              borderRadius: '2px',
                             }}
                           />
                         ) : (
@@ -235,7 +237,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
                             {formatSessionName(session, index)}
                           </div>
                         )}
-                        <div style={{ ...styles.sessionId, color: currentTheme.ui.textSecondary, opacity: 0.6 }}>
+                        <div style={{ ...styles.sessionId, color: currentTheme.ui.textSecondary, opacity: 0.5 }}>
                           {formatSessionId(session.id)}
                         </div>
                       </div>

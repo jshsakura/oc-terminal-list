@@ -476,9 +476,10 @@ const FileTreeNode = ({ item, depth, expanded, onToggle, onSelect, onFolderSelec
         style={{
           ...styles.treeItem,
           paddingLeft: '8px',
-          backgroundColor: isSelected ? `${theme.ui.accent}22` : (isHovered ? `${theme.ui.bgTertiary}88` : 'transparent'),
+          backgroundColor: isSelected ? `${theme.ui.accent}22` : (isHovered ? theme.ui.bgTertiary : 'transparent'),
           color: isSelected ? theme.ui.accent : theme.ui.text,
           fontWeight: isSelected ? '700' : '500',
+          borderRadius: '2px', // 사각 통일
         }}
         onClick={handleClick}
         onMouseEnter={() => setIsHovered(true)}
