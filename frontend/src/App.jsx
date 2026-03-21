@@ -159,6 +159,10 @@ function App() {
         handleLogoutRequest={handleLogoutRequest}
         hoveredDropdownItem={hoveredDropdownItem}
         setHoveredDropdownItem={setHoveredDropdownItem}
+        style={{
+          marginLeft: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
+          transition: isResizing ? 'none' : 'margin-left 0.3s ease',
+        }}
       />
 
       <div 

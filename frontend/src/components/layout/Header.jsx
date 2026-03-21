@@ -18,7 +18,8 @@ const Header = ({
   setIsSettingsOpen,
   handleLogoutRequest,
   hoveredDropdownItem,
-  setHoveredDropdownItem
+  setHoveredDropdownItem,
+  style = {} // 추가
 }) => {
   const styles = AppStyles;
 
@@ -30,6 +31,7 @@ const Header = ({
       borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
       boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
       height: '40px',
+      ...style // 전달받은 스타일 적용
     }}>
       <div style={styles.headerLeft}>
         <button onClick={toggleSidebar} style={{

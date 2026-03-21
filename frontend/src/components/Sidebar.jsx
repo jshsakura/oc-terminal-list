@@ -85,17 +85,17 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         width: isMobile ? 'min(80vw, 250px)' : `${width}px`,
         maxWidth: isMobile ? '80vw' : '400px',
         minWidth: isMobile ? undefined : '180px',
-        top: isMobile ? '0' : '33px',
-        height: isMobile ? '100vh' : 'auto',
+        top: 0,
+        height: '100vh',
+        zIndex: 10000,
       }}>
-        {/* 헤더 (모바일에서만) */}
-        {isMobile && (
-          <div style={{ 
-            ...styles.header, 
-            backgroundColor: currentTheme.ui.bgSecondary, 
-            borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
-            height: '44px',
-          }}>
+        {/* 헤더 */}
+        <div style={{ 
+          ...styles.header, 
+          backgroundColor: currentTheme.ui.bgSecondary, 
+          borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
+          height: '40px',
+        }}>
             <h2 style={{ ...styles.title, color: currentTheme.ui.accent, fontSize: '14px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>
               {t('sessions')}
             </h2>
