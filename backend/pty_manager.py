@@ -76,20 +76,26 @@ class PtyManager:
             # 시작 디렉토리 결정
             start_dir = workspace_root
             if cwd:
-                # 전달된 cwd가 절대 경로가 아니면 workspace_root 기준으로 합침
                 if os.path.isabs(cwd):
                     temp_dir = cwd
                 else:
                     temp_dir = os.path.join(workspace_root, cwd)
                 
-                # 경로가 존재하고 디렉토리인 경우에만 사용
                 if os.path.exists(temp_dir) and os.path.is_dir(temp_dir):
                     start_dir = temp_dir
                 else:
                     logger.warning(f"요청된 디렉토리가 존재하지 않음: {temp_dir}, 기본값 사용: {start_dir}")
 
-            # PTY 프로세스 생성 - bash 실행
-            shell = os.environ.get("SHELL", "/bin/bash")
+            # 지능형 셸 감지 (zsh -> bash -> sh)
+            shell = os.environ.get("SHELL")
+            if not shell:
+                for s in ["/bin/zsh", "/usr/bin/zsh", "/bin/bash", "/bin/sh"]:
+                    if os.path.exists(s):
+                        shell = s
+                        break
+            
+            if not shell:
+                shell = "/bin/sh"
 
             process = ptyprocess.PtyProcess.spawn(
                 [shell],

@@ -2,8 +2,7 @@ FROM python:3.11-slim
 
 # 작업 디렉토리 설정
 WORKDIR /app
-
-# 시스템 패키지 설치 (한글 지원, 빌드 도구, pyenv/nvm 의존성)
+# 시스템 패키지 설치 (한글 지원, 빌드 도구, pyenv/nvm 의존성, zsh 추가)
 RUN apt-get update && apt-get install -y \
     locales \
     curl \
@@ -15,6 +14,8 @@ RUN apt-get update && apt-get install -y \
     libbz2-dev \
     libreadline-dev \
     libsqlite3-dev \
+    llvm \
+    libncurses5-dev \
     libncursesw5-dev \
     xz-utils \
     tk-dev \
@@ -22,7 +23,16 @@ RUN apt-get update && apt-get install -y \
     libxmlsec1-dev \
     libffi-dev \
     liblzma-dev \
+    zsh \
+    fonts-powerline \
     && rm -rf /var/lib/apt/lists/*
+
+# Oh My Zsh 및 플러그인 설치
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended && \
+    git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions && \
+    git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting && \
+    sed -i 's/plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/' ~/.zshrc && \
+    sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' ~/.zshrc
 
 # Docker CLI 설치 (호스트 도커 제어용)
 RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh
