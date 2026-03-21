@@ -1,6 +1,6 @@
 /**
  * InitialSetup 컴포넌트
- * 초기 관리자 계정 설정 (Portainer 스타일)
+ * 초기 관리자 계정 설정
  */
 import { useState } from 'react';
 import useTranslation from '../hooks/useTranslation';
@@ -17,19 +17,18 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
     e.preventDefault();
     setError('');
 
-    // 유효성 검사
     if (username.length < 3) {
-      setError(t('usernameMinLength') || 'Username must be at least 3 characters');
+      setError(t('usernameMinLength'));
       return;
     }
 
     if (password.length < 8) {
-      setError(t('passwordMinLength') || 'Password must be at least 8 characters');
+      setError(t('passwordMinLength'));
       return;
     }
 
     if (password !== confirmPassword) {
-      setError(t('passwordMismatch') || 'Passwords do not match');
+      setError(t('passwordMismatch'));
       return;
     }
 
@@ -50,7 +49,6 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
         throw new Error(data.detail || 'Setup failed');
       }
 
-      // 설정 완료
       onComplete();
     } catch (err) {
       setError(err.message || 'Failed to create admin account');
@@ -60,34 +58,29 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
   };
 
   return (
-    <>
-      <style>{`
-        .initial-setup-overlay::-webkit-scrollbar,
-        .initial-setup-container::-webkit-scrollbar {
-          display: none;
-        }
-      `}</style>
-      <div style={styles.overlay} className="initial-setup-overlay">
-        <div style={styles.container} className="initial-setup-container">
-          <div style={styles.header}>
-            <div style={styles.icon}>
-              <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="2" y="4" width="20" height="16" rx="2" />
-                <path d="M7 10l3 3-3 3" />
-                <line x1="13" y1="16" x2="17" y2="16" />
-              </svg>
-            </div>
+    <div style={styles.overlay}>
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <div style={styles.icon}>
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M7 10l3 3-3 3" />
+              <line x1="13" y1="16" x2="17" y2="16" />
+            </svg>
           </div>
+          <h1 style={styles.title}>{t('initialSetup')}</h1>
+          <p style={styles.description}>{t('initialSetupDescription')}</p>
+        </div>
 
-          <form onSubmit={handleSubmit} style={styles.form}>
+        <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.formGroup}>
-            <label style={styles.label}>{t('username') || 'Username'}</label>
+            <label style={styles.label}>{t('username')}</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               style={styles.input}
-              placeholder={t('usernamePlaceholder') || 'Enter username'}
+              placeholder={t('usernamePlaceholder')}
               disabled={isLoading}
               autoFocus
               required
@@ -95,54 +88,43 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
           </div>
 
           <div style={styles.formGroup}>
-            <label style={styles.label}>{t('password') || 'Password'}</label>
+            <label style={styles.label}>{t('password')}</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               style={styles.input}
-              placeholder={t('passwordPlaceholder') || 'Enter password (min 8 characters)'}
+              placeholder={t('passwordPlaceholder')}
               disabled={isLoading}
               required
             />
           </div>
 
           <div style={styles.formGroup}>
-            <label style={styles.label}>{t('confirmPassword') || 'Confirm Password'}</label>
+            <label style={styles.label}>{t('confirmPassword')}</label>
             <input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               style={styles.input}
-              placeholder={t('confirmPasswordPlaceholder') || 'Re-enter password'}
+              placeholder={t('confirmPasswordPlaceholder')}
               disabled={isLoading}
               required
             />
           </div>
 
-          {error && (
-            <div style={styles.error}>
-              {error}
-            </div>
-          )}
+          {error && <div style={styles.error}>{error}</div>}
 
-          <button
-            type="submit"
-            style={styles.submitBtn}
-            disabled={isLoading}
-          >
-            {isLoading ? (t('creating') || 'Creating...') : (t('createAccount') || 'Create Administrator')}
+          <button type="submit" style={styles.submitBtn} disabled={isLoading}>
+            {isLoading ? t('creating') : t('createAccount')}
           </button>
         </form>
 
         <div style={styles.footer}>
-          <p style={styles.footerText}>
-            {t('setupFooter') || 'This account will have full access to all terminals and settings.'}
-          </p>
+          <p style={styles.footerText}>{t('setupFooter')}</p>
         </div>
       </div>
     </div>
-    </>
   );
 };
 
@@ -153,37 +135,46 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#282a36',
+    backgroundColor: '#1e1e2e',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10000,
-    overflow: 'auto',
-    // 스크롤바 숨기기
-    scrollbarWidth: 'none', // Firefox
-    msOverflowStyle: 'none', // IE/Edge
+    backdropFilter: 'blur(10px)',
   },
   container: {
-    backgroundColor: '#1e1f29',
-    borderRadius: '12px',
+    backgroundColor: 'rgba(30, 30, 46, 0.7)',
+    backdropFilter: 'blur(20px)',
+    borderRadius: '24px',
     width: '90%',
-    maxWidth: '420px',
+    maxWidth: '400px',
     padding: '40px',
-    border: '1px solid #44475a',
-    margin: '20px auto',
-    maxHeight: 'calc(100vh - 40px)',
-    overflowY: 'auto',
-    // 스크롤바 숨기기
-    scrollbarWidth: 'none', // Firefox
-    msOverflowStyle: 'none', // IE/Edge
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)',
   },
   header: {
     textAlign: 'center',
     marginBottom: '32px',
   },
   icon: {
-    color: '#bd93f9',
-    margin: '0 auto',
+    color: '#89b4fa',
+    marginBottom: '16px',
+    display: 'flex',
+    justifyContent: 'center',
+  },
+  title: {
+    margin: '0 0 8px 0',
+    fontSize: '22px',
+    fontWeight: '800',
+    color: '#cdd6f4',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+  },
+  description: {
+    margin: 0,
+    fontSize: '14px',
+    color: '#6c7086',
+    lineHeight: '1.5',
   },
   form: {
     display: 'flex',
@@ -196,51 +187,56 @@ const styles = {
     gap: '8px',
   },
   label: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#f8f8f2',
+    fontSize: '13px',
+    fontWeight: '700',
+    color: '#cdd6f4',
+    textTransform: 'uppercase',
+    opacity: 0.8,
   },
   input: {
-    padding: '12px 16px',
+    padding: '14px 16px',
     fontSize: '14px',
-    backgroundColor: '#282a36',
-    color: '#f8f8f2',
-    border: '1px solid #44475a',
-    borderRadius: '6px',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    color: '#cdd6f4',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '12px',
     outline: 'none',
-    transition: 'border-color 0.2s',
+    transition: 'all 0.2s ease',
+    fontFamily: '"JetBrains Mono", monospace',
   },
   error: {
-    padding: '12px 16px',
-    backgroundColor: '#ff5555',
-    color: '#f8f8f2',
-    borderRadius: '6px',
-    fontSize: '14px',
+    padding: '12px',
+    backgroundColor: 'rgba(243, 139, 168, 0.1)',
+    color: '#f38ba8',
+    borderRadius: '12px',
+    fontSize: '13px',
     textAlign: 'center',
+    border: '1px solid rgba(243, 139, 168, 0.2)',
+    fontWeight: '600',
   },
   submitBtn: {
     padding: '14px 24px',
-    backgroundColor: '#50fa7b',
-    color: '#282a36',
+    backgroundColor: '#89b4fa',
+    color: '#1e1e2e',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '12px',
     fontSize: '16px',
-    fontWeight: '700',
+    fontWeight: '800',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    marginTop: '8px',
+    boxShadow: '0 4px 15px rgba(137, 180, 250, 0.3)',
   },
   footer: {
-    marginTop: '24px',
-    paddingTop: '24px',
-    borderTop: '1px solid #44475a',
+    marginTop: '32px',
+    textAlign: 'center',
   },
   footerText: {
     margin: 0,
-    fontSize: '12px',
-    color: '#6272a4',
-    textAlign: 'center',
-    lineHeight: '1.6',
+    fontSize: '11px',
+    color: '#6c7086',
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
   },
 };
 

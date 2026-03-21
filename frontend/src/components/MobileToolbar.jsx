@@ -5,8 +5,10 @@
 import { useRef, useState, useEffect } from 'react';
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ClipboardPaste, Eraser, MessageSquare, ChevronLeft, ChevronRight } from 'lucide-react';
 import useVisualViewport from '../hooks/useVisualViewport';
+import useTranslation from '../hooks/useTranslation';
 
-const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenCommandInput }) => {
+const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenCommandInput, language = 'en' }) => {
+  const { t } = useTranslation(language);
   const toolbarRef = useRef(null);
   const scrollContainerRef = useRef(null);
   const [activeButton, setActiveButton] = useState(null);
@@ -179,7 +181,7 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
                 ...styles.primary,
                 transform: activeButton === 'cmd' ? 'scale(0.9)' : 'scale(1)',
               }}
-              title="명령어 입력 (한글 지원)"
+              title={t('commandInput')}
             >
               <MessageSquare size={13} strokeWidth={2} />
             </button>
@@ -313,7 +315,7 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
                 ...styles.clear,
                 transform: activeButton === 'clear' ? 'scale(0.9)' : 'scale(1)',
               }}
-              title="Clear current line (Ctrl+U)"
+              title={t('clearInput')}
             >
               <Eraser size={13} strokeWidth={2} />
             </button>

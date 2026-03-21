@@ -41,7 +41,7 @@ class PtyManager:
         """세션 존재 여부 확인"""
         return session_id in self.sessions
 
-    async def create_session(self, session_id: str, cols: int = 80, rows: int = 24) -> SessionInfo:
+    async def create_session(self, session_id: str, cols: int = 80, rows: int = 24, cwd: Optional[str] = None) -> SessionInfo:
         """
         새 PTY 세션 생성
 
@@ -49,6 +49,7 @@ class PtyManager:
             session_id: 세션 ID
             cols: 터미널 너비 (컬럼)
             rows: 터미널 높이 (행)
+            cwd: 시작 디렉토리 (선택 사항)
 
         Returns:
             SessionInfo 객체
@@ -68,22 +69,36 @@ class PtyManager:
             })
 
             # 워크스페이스 디렉토리 설정
-            workspace_dir = "/workspace"
-            if not os.path.exists(workspace_dir):
-                workspace_dir = "/app"  # fallback
+            workspace_root = os.getenv("WORKSPACE_ROOT", "/workspace")
+            if not os.path.exists(workspace_root):
+                workspace_root = "/app"  # fallback
+
+            # 시작 디렉토리 결정
+            start_dir = workspace_root
+            if cwd:
+                # 전달된 cwd가 절대 경로가 아니면 workspace_root 기준으로 합침
+                if os.path.isabs(cwd):
+                    temp_dir = cwd
+                else:
+                    temp_dir = os.path.join(workspace_root, cwd)
+                
+                # 경로가 존재하고 디렉토리인 경우에만 사용
+                if os.path.exists(temp_dir) and os.path.is_dir(temp_dir):
+                    start_dir = temp_dir
+                else:
+                    logger.warning(f"요청된 디렉토리가 존재하지 않음: {temp_dir}, 기본값 사용: {start_dir}")
 
             # PTY 프로세스 생성 - bash 실행
-            # 사용자의 기본 셸을 사용하거나 bash를 fallback으로
             shell = os.environ.get("SHELL", "/bin/bash")
 
             process = ptyprocess.PtyProcess.spawn(
                 [shell],
                 dimensions=(rows, cols),
                 env=env,
-                cwd=workspace_dir  # 워크스페이스에서 시작
+                cwd=start_dir
             )
 
-            logger.info(f"PTY 프로세스 생성됨: {session_id} (pid={process.pid}, shell={shell})")
+            logger.info(f"PTY 프로세스 생성됨: {session_id} (pid={process.pid}, shell={shell}, cwd={start_dir})")
 
             # 세션 정보 저장
             session_info = SessionInfo(process, session_id)

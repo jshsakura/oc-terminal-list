@@ -12,6 +12,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 
 const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true }) => {
+  const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);

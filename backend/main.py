@@ -77,6 +77,7 @@ class SessionCreateRequest(BaseModel):
     """세션 생성 요청"""
     cols: int = 80
     rows: int = 24
+    cwd: Optional[str] = None
 
 
 class SetupRequest(BaseModel):
@@ -292,7 +293,8 @@ async def terminal_websocket(
     session_id: str,
     token: Optional[str] = Query(None),
     cols: int = Query(80),
-    rows: int = Query(24)
+    rows: int = Query(24),
+    cwd: Optional[str] = Query(None)
 ):
     """
     터미널 WebSocket 연결 핸들러
@@ -310,13 +312,13 @@ async def terminal_websocket(
             pass  # 토큰 실패해도 기본 사용자로 진행
 
     await websocket.accept()
-    logger.info(f"WebSocket 연결 요청: {session_id} (사용자: {username})")
+    logger.info(f"WebSocket 연결 요청: {session_id} (사용자: {username}, cwd: {cwd})")
 
     try:
         # 1. 세션 복원 또는 생성 (DB에 저장)
         if not pty_manager.session_exists(session_id):
-            logger.info(f"새 세션 생성: {session_id} (cols={cols}, rows={rows})")
-            await pty_manager.create_session(session_id, cols=cols, rows=rows)
+            logger.info(f"새 세션 생성: {session_id} (cols={cols}, rows={rows}, cwd={cwd})")
+            await pty_manager.create_session(session_id, cols=cols, rows=rows, cwd=cwd)
             await storage.create_session(session_id, username)
         else:
             logger.info(f"기존 세션 복원: {session_id}")
@@ -374,7 +376,7 @@ async def create_session(
 
     Args:
         session_id: 세션 ID
-        request: 터미널 크기 정보
+        request: 터미널 크기 및 시작 디렉토리 정보
 
     Returns:
         생성된 세션 정보
@@ -383,13 +385,19 @@ async def create_session(
         raise HTTPException(status_code=409, detail="세션이 이미 존재합니다")
 
     try:
-        await pty_manager.create_session(session_id, cols=request.cols, rows=request.rows)
+        await pty_manager.create_session(
+            session_id, 
+            cols=request.cols, 
+            rows=request.rows, 
+            cwd=request.cwd
+        )
         await storage.create_session(session_id, username)
         return {
             "session_id": session_id,
             "status": "created",
             "cols": request.cols,
-            "rows": request.rows
+            "rows": request.rows,
+            "cwd": request.cwd
         }
     except Exception as e:
         logger.error(f"세션 생성 실패 ({session_id}): {e}")

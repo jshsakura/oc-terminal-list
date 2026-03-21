@@ -7,7 +7,7 @@ import { X, ChevronLeft, Terminal, Cpu, FolderTree, RefreshCw } from 'lucide-rea
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 
-const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, onRenameSession, onReconnectSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect, onFolderSelect }) => {
+const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, onRenameSession, onReconnectSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect, onFolderSelect, onOpenTerminalAtFolder }) => {
   const { t } = useTranslation(language);
   const [hoveredSessionId, setHoveredSessionId] = useState(null);
   const [isCloseBtnHovered, setIsCloseBtnHovered] = useState(false);
@@ -90,9 +90,14 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
       }}>
         {/* 헤더 (모바일에서만) */}
         {isMobile && (
-          <div style={{ ...styles.header, backgroundColor: currentTheme.ui.bgSecondary, borderBottomColor: currentTheme.ui.border }}>
-            <h2 style={{ ...styles.title, color: currentTheme.ui.accent }}>
-              {t('sessions') || 'Sessions'}
+          <div style={{ 
+            ...styles.header, 
+            backgroundColor: currentTheme.ui.bgSecondary, 
+            borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
+            height: '44px',
+          }}>
+            <h2 style={{ ...styles.title, color: currentTheme.ui.accent, fontSize: '14px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>
+              {t('sessions')}
             </h2>
             <button
               onClick={onClose}
@@ -102,48 +107,63 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
                 ...styles.closeBtn,
                 color: currentTheme.ui.text,
                 backgroundColor: isCloseBtnHovered ? currentTheme.ui.bgTertiary : 'transparent',
+                borderRadius: '8px',
               }}
               title={t('closeSidebar')}
             >
-              <X size={20} strokeWidth={2} />
+              <X size={20} strokeWidth={2.5} />
             </button>
           </div>
         )}
 
         {/* 탭 헤더 (세션/파일) */}
-        <div style={{ ...styles.tabHeader, borderBottomColor: currentTheme.ui.border, backgroundColor: currentTheme.ui.bgSecondary }}>
+        <div style={{ 
+          ...styles.tabHeader, 
+          borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, 
+          backgroundColor: currentTheme.ui.bgSecondary,
+          padding: '6px',
+          gap: '6px',
+        }}>
           <button
             onClick={() => setActiveTab('sessions')}
             style={{
               ...styles.tab,
+              backgroundColor: activeTab === 'sessions' ? currentTheme.ui.cardBg : 'transparent',
               color: activeTab === 'sessions' ? currentTheme.ui.accent : currentTheme.ui.textSecondary,
-              borderBottomColor: activeTab === 'sessions' ? currentTheme.ui.accent : 'transparent',
-              borderRightColor: currentTheme.ui.border,
+              borderRadius: '8px',
+              fontWeight: activeTab === 'sessions' ? '800' : '600',
             }}
           >
-            <Terminal size={14} strokeWidth={2} />
-            <span>세션</span>
+            <Cpu size={14} strokeWidth={2.5} />
+            <span>{t('sessions')}</span>
           </button>
           <button
             onClick={() => setActiveTab('files')}
             style={{
               ...styles.tab,
+              backgroundColor: activeTab === 'files' ? currentTheme.ui.cardBg : 'transparent',
               color: activeTab === 'files' ? currentTheme.ui.accent : currentTheme.ui.textSecondary,
-              borderBottomColor: activeTab === 'files' ? currentTheme.ui.accent : 'transparent',
-              borderRightColor: currentTheme.ui.border,
+              borderRadius: '8px',
+              fontWeight: activeTab === 'files' ? '800' : '600',
             }}
           >
-            <FolderTree size={14} strokeWidth={2} />
-            <span>파일</span>
+            <FolderTree size={14} strokeWidth={2.5} />
+            <span>{t('files')}</span>
           </button>
         </div>
 
         {/* 새 터미널 버튼 (세션 탭일 때만) */}
         {activeTab === 'sessions' && (
-          <div style={{ ...styles.newSessionContainer, borderBottomColor: currentTheme.ui.border }}>
-            <button onClick={onNewSession} style={{ ...styles.newSessionBtn, backgroundColor: currentTheme.ui.accent, color: currentTheme.ui.bg }}>
-              <span style={styles.plusIcon}>+</span>
-              {t('newSession')}
+          <div style={{ ...styles.newSessionContainer, borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, padding: '12px' }}>
+            <button onClick={onNewSession} style={{ 
+              ...styles.newSessionBtn, 
+              backgroundColor: currentTheme.ui.accent, 
+              color: currentTheme.ui.bg,
+              borderRadius: '8px',
+              boxShadow: `0 4px 12px ${currentTheme.ui.accent}44`,
+            }}>
+              <Plus size={18} strokeWidth={3} />
+              <span style={{ fontWeight: '800' }}>{t('newSession')}</span>
             </button>
           </div>
         )}
@@ -272,18 +292,19 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
             theme={currentTheme}
             onFileSelect={onFileSelect}
             onFolderSelect={onFolderSelect}
+            onOpenTerminalAtFolder={onOpenTerminalAtFolder}
             language={language}
           />
         )}
 
         {/* 푸터 정보 */}
-        <div style={{ ...styles.footer, backgroundColor: currentTheme.ui.bgSecondary, borderTopColor: currentTheme.ui.border }}>
+        <div style={{ ...styles.footer, backgroundColor: currentTheme.ui.bgSecondary, borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, padding: '12px' }}>
           <div style={styles.footerInfo}>
             <div style={styles.footerLeft}>
-              <Cpu size={14} strokeWidth={2} style={{ color: currentTheme.ui.accent }} />
-              <span style={{ ...styles.footerLabel, color: currentTheme.ui.textSecondary }}>{t('activeTerminals')}:</span>
+              <Cpu size={14} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
+              <span style={{ ...styles.footerLabel, color: currentTheme.ui.textSecondary, fontSize: '11px', fontWeight: '700' }}>{t('activeTerminals')}:</span>
             </div>
-            <span style={{ ...styles.footerValue, color: currentTheme.ui.accent }}>{sessions.length}</span>
+            <span style={{ ...styles.footerValue, color: currentTheme.ui.accent, fontSize: '12px', fontWeight: '800' }}>{sessions.length}</span>
           </div>
         </div>
 

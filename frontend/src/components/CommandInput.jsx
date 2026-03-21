@@ -77,7 +77,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
       {/* Placeholder 스타일 */}
       <style>{`
         .command-input-textarea::placeholder {
-          color: ${currentTheme.foreground || currentTheme.white || '#a6adc8'};
+          color: ${currentTheme.ui.textSecondary};
           opacity: 0.5;
         }
       `}</style>
@@ -85,17 +85,20 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
       {/* Modal */}
       <div style={{
         ...styles.modal,
-        backgroundColor: currentTheme.ui.bg,
-        borderColor: currentTheme.ui.border,
+        backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bg,
+        backdropFilter: 'blur(20px) saturate(180%)',
+        borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
+        borderRadius: currentTheme.ui.radius,
+        boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
       }}>
         {/* Header */}
         <div style={{
           ...styles.header,
-          borderBottomColor: currentTheme.ui.border,
+          borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border,
         }}>
           <h3 style={{
             ...styles.title,
-            color: currentTheme.foreground || currentTheme.ui.fg || '#cdd6f4',
+            color: currentTheme.ui.accent,
           }}>
             {t?.('commandInput') || '명령어 입력'}
           </h3>
@@ -103,11 +106,11 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             onClick={onClose}
             style={{
               ...styles.closeButton,
-              color: currentTheme.foreground || currentTheme.white || '#bac2de',
+              color: currentTheme.ui.text,
             }}
             title={t?.('close') || '닫기'}
           >
-            <X size={18} />
+            <X size={20} strokeWidth={2.5} />
           </button>
         </div>
 
@@ -118,47 +121,53 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={t?.('commandInputPlaceholder') || '명령어를 입력하세요... (Ctrl+Enter로 전송)'}
+            placeholder={t?.('commandInputPlaceholder')}
             className="command-input-textarea"
             style={{
               ...styles.textarea,
-              backgroundColor: currentTheme.ui.bgSecondary,
-              color: currentTheme.foreground || currentTheme.white || '#cdd6f4',
-              borderColor: currentTheme.ui.border,
+              backgroundColor: currentTheme.ui.cardBg || currentTheme.ui.bgSecondary,
+              color: currentTheme.ui.text,
+              borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
+              borderRadius: currentTheme.ui.radiusSmall,
             }}
             autoFocus
           />
+          <div style={{ marginTop: '8px', fontSize: '11px', color: currentTheme.ui.textSecondary, textAlign: 'center' }}>
+            {t?.('commandInputHint')}
+          </div>
         </div>
 
         {/* Footer */}
         <div style={{
           ...styles.footer,
-          borderTopColor: currentTheme.ui.border,
+          borderTopColor: currentTheme.ui.borderLight || currentTheme.ui.border,
         }}>
           <button
             onClick={handlePaste}
             style={{
               ...styles.clearButton,
               backgroundColor: currentTheme.ui.bgTertiary,
-              color: currentTheme.foreground || currentTheme.white || '#cdd6f4',
-              opacity: 1,
+              color: currentTheme.ui.text,
+              borderRadius: currentTheme.ui.radiusSmall,
             }}
-            title={t?.('paste') || '붙여넣기'}
+            title={t?.('paste')}
           >
-            <ClipboardPaste size={16} />
+            <ClipboardPaste size={18} strokeWidth={2.5} />
           </button>
           <button
             onClick={handleClear}
             disabled={!command.trim()}
             style={{
               ...styles.clearButton,
-              backgroundColor: command.trim() ? (currentTheme.cyan || currentTheme.teal || '#94e2d5') : currentTheme.ui.bgSecondary,
-              color: command.trim() ? '#1e1e2e' : (currentTheme.brightBlack || '#6c7086'),
+              backgroundColor: command.trim() ? 'rgba(243, 139, 168, 0.1)' : currentTheme.ui.bgSecondary,
+              color: command.trim() ? currentTheme.red : currentTheme.ui.textSecondary,
+              border: command.trim() ? `1px solid ${currentTheme.red}44` : 'none',
+              borderRadius: currentTheme.ui.radiusSmall,
               opacity: command.trim() ? 1 : 0.5,
             }}
-            title={t?.('clearInput') || '내용 지우기'}
+            title={t?.('clearInput')}
           >
-            <Eraser size={16} />
+            <Eraser size={18} strokeWidth={2.5} />
           </button>
           <button
             onClick={handleSend}
@@ -166,12 +175,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             style={{
               ...styles.sendButton,
               backgroundColor: command.trim() ? currentTheme.ui.accent : currentTheme.ui.bgSecondary,
-              color: command.trim() ? '#ffffff' : (currentTheme.brightBlack || '#6c7086'),
+              color: command.trim() ? currentTheme.ui.bg : currentTheme.ui.textSecondary,
+              borderRadius: currentTheme.ui.radiusSmall,
               opacity: command.trim() ? 1 : 0.5,
+              boxShadow: command.trim() ? `0 4px 15px ${currentTheme.ui.accent}44` : 'none',
             }}
           >
-            <Send size={14} />
-            <span>{t?.('send') || '전송'}</span>
+            <Send size={16} strokeWidth={2.5} />
+            <span>{t?.('send')}</span>
           </button>
         </div>
       </div>
@@ -188,7 +199,7 @@ const styles = {
     bottom: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     zIndex: 10000,
-    backdropFilter: 'blur(2px)',
+    backdropFilter: 'blur(8px)',
   },
   modal: {
     position: 'fixed',
@@ -198,23 +209,24 @@ const styles = {
     width: '90%',
     maxWidth: '500px',
     maxHeight: '80vh',
-    borderRadius: '8px',
-    border: '1px solid',
     zIndex: 10001,
     display: 'flex',
     flexDirection: 'column',
+    border: '1px solid',
   },
   header: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '16px',
+    padding: '16px 20px',
     borderBottom: '1px solid',
   },
   title: {
     margin: 0,
     fontSize: '16px',
-    fontWeight: '600',
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
   },
   closeButton: {
     background: 'none',
@@ -224,11 +236,11 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    transition: 'opacity 0.2s',
+    opacity: 0.7,
   },
   body: {
     flex: 1,
-    padding: '16px',
+    padding: '20px',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'auto',
@@ -237,47 +249,42 @@ const styles = {
     width: '100%',
     minHeight: '150px',
     maxHeight: '300px',
-    padding: '12px',
+    padding: '14px',
     fontSize: '14px',
-    fontFamily: 'monospace',
+    fontFamily: '"JetBrains Mono", monospace',
     border: '1px solid',
-    borderRadius: '4px',
     resize: 'vertical',
     outline: 'none',
-    lineHeight: '1.5',
+    lineHeight: '1.6',
   },
   footer: {
     display: 'flex',
-    gap: '8px',
-    padding: '16px',
+    gap: '10px',
+    padding: '16px 20px',
     borderTop: '1px solid',
   },
   clearButton: {
     padding: '10px',
-    fontSize: '14px',
-    fontWeight: '500',
     border: 'none',
-    borderRadius: '6px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     transition: 'all 0.2s ease',
-    minWidth: '44px',
-    minHeight: '44px',
+    minWidth: '48px',
+    minHeight: '48px',
   },
   sendButton: {
     flex: 1,
     padding: '10px 16px',
     fontSize: '14px',
-    fontWeight: '500',
+    fontWeight: '700',
     border: 'none',
-    borderRadius: '6px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '6px',
+    gap: '10px',
     transition: 'all 0.2s ease',
   },
 };

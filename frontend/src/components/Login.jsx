@@ -17,7 +17,7 @@ const Login = ({ onLogin, language = 'en' }) => {
     setError('');
 
     if (!username || !password) {
-      setError(t('fillAllFields') || 'Please fill in all fields');
+      setError(t('fillAllFields'));
       return;
     }
 
@@ -38,49 +38,41 @@ const Login = ({ onLogin, language = 'en' }) => {
         throw new Error(data.detail || 'Login failed');
       }
 
-      // 로그인 성공 - 토큰 저장
       localStorage.setItem('auth_token', data.access_token);
       localStorage.setItem('username', data.username);
-
-      // 부모 컴포넌트에 알림
       onLogin(data.access_token, data.username);
     } catch (err) {
-      setError(err.message || 'Invalid username or password');
-      setPassword(''); // 비밀번호 필드 초기화
+      setError(err.message);
+      setPassword('');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <>
-      <style>{`
-        .login-overlay::-webkit-scrollbar,
-        .login-container::-webkit-scrollbar {
-          display: none;
-        }
-      `}</style>
-      <div style={styles.overlay} className="login-overlay">
-        <div style={styles.container} className="login-container">
-          <div style={styles.header}>
-            <div style={styles.icon}>
-              <svg width="120" height="120" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="2" y="4" width="20" height="16" rx="2" />
-                <path d="M7 10l3 3-3 3" />
-                <line x1="13" y1="16" x2="17" y2="16" />
-              </svg>
-            </div>
+    <div style={styles.overlay}>
+      <div style={styles.container}>
+        <div style={styles.header}>
+          <div style={styles.icon}>
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M7 10l3 3-3 3" />
+              <line x1="13" y1="16" x2="17" y2="16" />
+            </svg>
           </div>
+          <h1 style={styles.title}>{t('login')}</h1>
+          <p style={styles.description}>{t('loginDescription')}</p>
+        </div>
 
-          <form onSubmit={handleSubmit} style={styles.form}>
+        <form onSubmit={handleSubmit} style={styles.form}>
           <div style={styles.formGroup}>
-            <label style={styles.label}>{t('username') || 'Username'}</label>
+            <label style={styles.label}>{t('username')}</label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               style={styles.input}
-              placeholder={t('usernamePlaceholder') || 'Enter username'}
+              placeholder={t('usernamePlaceholder')}
               disabled={isLoading}
               autoFocus
               required
@@ -88,35 +80,26 @@ const Login = ({ onLogin, language = 'en' }) => {
           </div>
 
           <div style={styles.formGroup}>
-            <label style={styles.label}>{t('password') || 'Password'}</label>
+            <label style={styles.label}>{t('password')}</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               style={styles.input}
-              placeholder={t('passwordPlaceholder') || 'Enter password'}
+              placeholder={t('passwordPlaceholder')}
               disabled={isLoading}
               required
             />
           </div>
 
-          {error && (
-            <div style={styles.error}>
-              {error}
-            </div>
-          )}
+          {error && <div style={styles.error}>{error}</div>}
 
-          <button
-            type="submit"
-            style={styles.submitBtn}
-            disabled={isLoading}
-          >
-            {isLoading ? (t('signingIn') || 'Signing in...') : (t('signIn') || 'Sign In')}
+          <button type="submit" style={styles.submitBtn} disabled={isLoading}>
+            {isLoading ? t('signingIn') : t('signIn')}
           </button>
         </form>
       </div>
     </div>
-    </>
   );
 };
 
@@ -127,35 +110,46 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: '#282a36',
+    backgroundColor: '#1e1e2e',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10000,
-    overflow: 'auto',
-    scrollbarWidth: 'none',
-    msOverflowStyle: 'none',
+    backdropFilter: 'blur(10px)',
   },
   container: {
-    backgroundColor: '#1e1f29',
-    borderRadius: '12px',
+    backgroundColor: 'rgba(30, 30, 46, 0.7)',
+    backdropFilter: 'blur(20px)',
+    borderRadius: '24px',
     width: '90%',
-    maxWidth: '380px',
+    maxWidth: '400px',
     padding: '40px',
-    border: '1px solid #44475a',
-    margin: '20px auto',
-    maxHeight: 'calc(100vh - 40px)',
-    overflowY: 'auto',
-    scrollbarWidth: 'none',
-    msOverflowStyle: 'none',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)',
   },
   header: {
     textAlign: 'center',
     marginBottom: '32px',
   },
   icon: {
-    color: '#bd93f9',
-    margin: '0 auto',
+    color: '#89b4fa',
+    marginBottom: '16px',
+    display: 'flex',
+    justifyContent: 'center',
+  },
+  title: {
+    margin: '0 0 8px 0',
+    fontSize: '22px',
+    fontWeight: '800',
+    color: '#cdd6f4',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+  },
+  description: {
+    margin: 0,
+    fontSize: '14px',
+    color: '#6c7086',
+    lineHeight: '1.5',
   },
   form: {
     display: 'flex',
@@ -168,39 +162,44 @@ const styles = {
     gap: '8px',
   },
   label: {
-    fontSize: '14px',
-    fontWeight: '600',
-    color: '#f8f8f2',
+    fontSize: '13px',
+    fontWeight: '700',
+    color: '#cdd6f4',
+    textTransform: 'uppercase',
+    opacity: 0.8,
   },
   input: {
-    padding: '12px 16px',
+    padding: '14px 16px',
     fontSize: '14px',
-    backgroundColor: '#282a36',
-    color: '#f8f8f2',
-    border: '1px solid #44475a',
-    borderRadius: '6px',
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    color: '#cdd6f4',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '12px',
     outline: 'none',
-    transition: 'border-color 0.2s',
+    transition: 'all 0.2s ease',
+    fontFamily: '"JetBrains Mono", monospace',
   },
   error: {
-    padding: '12px 16px',
-    backgroundColor: '#ff5555',
-    color: '#f8f8f2',
-    borderRadius: '6px',
-    fontSize: '14px',
+    padding: '12px',
+    backgroundColor: 'rgba(243, 139, 168, 0.1)',
+    color: '#f38ba8',
+    borderRadius: '12px',
+    fontSize: '13px',
     textAlign: 'center',
+    border: '1px solid rgba(243, 139, 168, 0.2)',
+    fontWeight: '600',
   },
   submitBtn: {
     padding: '14px 24px',
-    backgroundColor: '#50fa7b',
-    color: '#282a36',
+    backgroundColor: '#89b4fa',
+    color: '#1e1e2e',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '12px',
     fontSize: '16px',
-    fontWeight: '700',
+    fontWeight: '800',
     cursor: 'pointer',
     transition: 'all 0.2s ease',
-    marginTop: '8px',
+    boxShadow: '0 4px 15px rgba(137, 180, 250, 0.3)',
   },
 };
 

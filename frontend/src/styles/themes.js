@@ -1,7 +1,15 @@
 /**
  * 터미널 테마 모음
- * modern UI를 위한 glassBg, cardBg, borderLight 등의 속성을 포함합니다.
+ * modern UI를 위한 glassBg, cardBg, borderLight, radius 등의 속성을 포함합니다.
  */
+
+const commonUI = {
+  radius: '12px',
+  radiusSmall: '8px',
+  radiusLarge: '20px',
+  padding: '12px',
+  gap: '8px',
+};
 
 // 1. Catppuccin Mocha (기본 테마)
 export const catppuccinTheme = {
@@ -27,6 +35,7 @@ export const catppuccinTheme = {
   brightCyan: '#94e2d5',
   brightWhite: '#a6adc8',
   ui: {
+    ...commonUI,
     bg: '#1e1e2e',
     bgSecondary: '#181825',
     bgTertiary: '#313244',
@@ -42,7 +51,7 @@ export const catppuccinTheme = {
   }
 };
 
-// 2. Tokyo Night (인기 테마)
+// 2. Tokyo Night
 export const tokyoNightTheme = {
   background: '#1a1b26',
   foreground: '#c0caf5',
@@ -66,6 +75,7 @@ export const tokyoNightTheme = {
   brightCyan: '#7dcfff',
   brightWhite: '#c0caf5',
   ui: {
+    ...commonUI,
     bg: '#1a1b26',
     bgSecondary: '#16161e',
     bgTertiary: '#24283b',
@@ -81,7 +91,7 @@ export const tokyoNightTheme = {
   }
 };
 
-// 3. Nord (깔끔한 블루 테마)
+// 3. Nord
 export const nordTheme = {
   background: '#2e3440',
   foreground: '#d8dee9',
@@ -105,6 +115,7 @@ export const nordTheme = {
   brightCyan: '#8fbcbb',
   brightWhite: '#eceff4',
   ui: {
+    ...commonUI,
     bg: '#2e3440',
     bgSecondary: '#242933',
     bgTertiary: '#3b4252',
@@ -120,7 +131,7 @@ export const nordTheme = {
   }
 };
 
-// 4. Rose Pine (세련된 핑크/퍼플)
+// 4. Rose Pine
 export const rosePineTheme = {
   background: '#191724',
   foreground: '#e0def4',
@@ -144,6 +155,7 @@ export const rosePineTheme = {
   brightCyan: '#ebbcba',
   brightWhite: '#e0def4',
   ui: {
+    ...commonUI,
     bg: '#191724',
     bgSecondary: '#1f1d2e',
     bgTertiary: '#26233a',
@@ -183,6 +195,7 @@ export const draculaTheme = {
   brightCyan: '#a4ffff',
   brightWhite: '#ffffff',
   ui: {
+    ...commonUI,
     bg: '#282a36',
     bgSecondary: '#21222c',
     bgTertiary: '#44475a',
@@ -222,6 +235,7 @@ export const oneDarkTheme = {
   brightCyan: '#56b6c2',
   brightWhite: '#ffffff',
   ui: {
+    ...commonUI,
     bg: '#282c34',
     bgSecondary: '#21252b',
     bgTertiary: '#2c313a',
@@ -261,6 +275,7 @@ export const everforestTheme = {
   brightCyan: '#83c092',
   brightWhite: '#d3c6aa',
   ui: {
+    ...commonUI,
     bg: '#2d353b',
     bgSecondary: '#232a2e',
     bgTertiary: '#3d484d',
@@ -300,6 +315,7 @@ export const githubDarkTheme = {
   brightCyan: '#56d4dd',
   brightWhite: '#f0f6fc',
   ui: {
+    ...commonUI,
     bg: '#0d1117',
     bgSecondary: '#010409',
     bgTertiary: '#21262d',

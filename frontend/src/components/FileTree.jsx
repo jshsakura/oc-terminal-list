@@ -5,7 +5,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Folder, File, ChevronRight, ChevronDown, FolderOpen, FilePlus, FolderPlus, X, Trash2, Edit3, Copy, Terminal } from 'lucide-react';
 
-const FileTree = ({ theme, onFileSelect, onFolderSelect, language = 'en' }) => {
+const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder, language = 'en' }) => {
   const [expandedDirs, setExpandedDirs] = useState(new Set([''])); // 루트는 기본 확장
   const [rootItems, setRootItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -180,12 +180,12 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, language = 'en' }) => {
 
   // 터미널에서 열기
   const handleOpenInTerminal = (item) => {
-    if (item.type === 'directory') {
-      onFolderSelect(item.path);
-    } else {
-      // 파일이면 부모 디렉토리로 이동
-      const parentPath = item.path.substring(0, item.path.lastIndexOf('/'));
-      onFolderSelect(parentPath);
+    const path = item.type === 'directory' ? item.path : item.path.substring(0, item.path.lastIndexOf('/'));
+    
+    if (onOpenTerminalAtFolder) {
+      onOpenTerminalAtFolder(path);
+    } else if (onFolderSelect) {
+      onFolderSelect(path);
     }
   };
 

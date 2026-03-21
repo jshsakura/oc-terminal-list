@@ -17,18 +17,7 @@ const NotificationModal = ({ isOpen, message, onClose, theme, duration = 3000 })
 
   if (!isOpen) return null;
 
-  const currentTheme = theme || {
-    ui: {
-      bg: '#1e1e2e',
-      bgSecondary: '#181825',
-      bgTertiary: '#313244',
-      border: '#2a2b3d',
-      text: '#cdd6f4',
-      textSecondary: '#6c7086',
-      accent: '#89b4fa',
-    },
-    green: '#a6e3a1',
-  };
+  const currentTheme = theme;
 
   return (
     <>
@@ -47,19 +36,22 @@ const NotificationModal = ({ isOpen, message, onClose, theme, duration = 3000 })
       <div
         style={{
           ...styles.toast,
-          backgroundColor: currentTheme.ui.bgTertiary,
-          borderColor: currentTheme.ui.border,
-          animation: 'slideInUp 0.3s ease',
+          backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bgTertiary,
+          backdropFilter: 'blur(20px)',
+          borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
+          borderRadius: currentTheme.ui.radiusSmall,
+          boxShadow: '0 10px 30px rgba(0,0,0,0.4)',
+          animation: 'slideInUp 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
         }}
       >
         <div style={styles.content}>
           <div
             style={{
               ...styles.iconCircle,
-              backgroundColor: currentTheme.green + '25',
+              backgroundColor: currentTheme.green + '20',
             }}
           >
-            <Check size={18} color={currentTheme.green} strokeWidth={2.5} />
+            <Check size={18} color={currentTheme.green} strokeWidth={3} />
           </div>
           <span style={{ ...styles.message, color: currentTheme.ui.text }}>
             {message}
@@ -71,14 +63,8 @@ const NotificationModal = ({ isOpen, message, onClose, theme, duration = 3000 })
             ...styles.closeBtn,
             color: currentTheme.ui.textSecondary,
           }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.color = currentTheme.ui.text;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.color = currentTheme.ui.textSecondary;
-          }}
         >
-          <X size={16} />
+          <X size={18} strokeWidth={2.5} />
         </button>
       </div>
     </>
@@ -92,16 +78,14 @@ const styles = {
     left: '50%',
     transform: 'translateX(-50%)',
     zIndex: 10001,
-    backgroundColor: '#313244',
-    borderRadius: '8px',
-    padding: '14px 16px',
+    padding: '12px 16px',
     border: '1px solid',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: '12px',
-    minWidth: '320px',
-    maxWidth: '400px',
+    minWidth: '280px',
+    maxWidth: '90vw',
   },
   content: {
     display: 'flex',
@@ -120,7 +104,7 @@ const styles = {
   },
   message: {
     fontSize: '14px',
-    fontWeight: '500',
+    fontWeight: '700',
     lineHeight: '1.4',
   },
   closeBtn: {
@@ -131,8 +115,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: '4px',
-    transition: 'color 0.15s ease',
+    transition: 'all 0.2s ease',
     flexShrink: 0,
   },
 };
