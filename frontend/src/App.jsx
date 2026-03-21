@@ -643,6 +643,31 @@ function App() {
     document.body.style.userSelect = 'none';
   };
 
+  // 터치 스와이프 제스처 핸들링
+  const touchStartX = useRef(null);
+  const handleTouchStart = (e) => {
+    touchStartX.current = e.touches[0].clientX;
+  };
+
+  const handleTouchEnd = (e) => {
+    if (touchStartX.current === null) return;
+    const touchEndX = e.changedTouches[0].clientX;
+    const diff = touchStartX.current - touchEndX;
+    const threshold = 70; // 스와이프 임계값
+
+    if (Math.abs(diff) > threshold) {
+      const currentIndex = sessions.findIndex(s => s.id === activeSessionId);
+      if (diff > 0 && currentIndex < sessions.length - 1) {
+        // 왼쪽으로 스와이프 -> 다음 세션
+        setActiveSessionId(sessions[currentIndex + 1].id);
+      } else if (diff < 0 && currentIndex > 0) {
+        // 오른쪽으로 스와이프 -> 이전 세션
+        setActiveSessionId(sessions[currentIndex - 1].id);
+      }
+    }
+    touchStartX.current = null;
+  };
+
   // 로딩 중
   if (authState.isLoading) {
     const loadingTheme = themes[settings.theme] || themes.catppuccin;
@@ -680,8 +705,11 @@ function App() {
       {/* 헤더 */}
       <div style={{
         ...styles.header,
-        backgroundColor: currentTheme.ui.bgSecondary,
-        borderBottomColor: currentTheme.ui.border,
+        backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bgSecondary,
+        backdropFilter: 'blur(12px)',
+        borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
+        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.2)',
+        height: '36px',
       }}>
         <div style={styles.headerLeft}>
           {/* 사이드바 토글 */}
@@ -690,23 +718,33 @@ function App() {
             backgroundColor: 'transparent',
             color: currentTheme.ui.iconColor,
           }} title={isSidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}>
-            {isSidebarOpen ? <PanelLeftClose size={20} strokeWidth={2} /> : <PanelLeft size={20} strokeWidth={2} />}
+            {isSidebarOpen ? <PanelLeftClose size={18} strokeWidth={2} /> : <PanelLeft size={18} strokeWidth={2} />}
           </button>
 
           <h1 style={{
             ...styles.title,
-            color: currentTheme.ui.accent
+            color: currentTheme.ui.accent,
+            letterSpacing: '0.5px',
           }}>{t('appName')}</h1>
         </div>
 
         <div style={styles.headerRight}>
           {/* 세션 정보 */}
           {sessions.length > 0 && (
-            <div style={{ ...styles.sessionInfo, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border }}>
-              <span style={{ color: currentTheme.ui.accent, fontWeight: '600' }}>
+            <div style={{
+              ...styles.sessionInfo,
+              color: currentTheme.ui.text,
+              backgroundColor: currentTheme.ui.cardBg || currentTheme.ui.bgTertiary,
+              borderColor: 'transparent',
+              borderRadius: '6px',
+              height: '24px',
+              marginRight: '8px',
+              padding: '0 10px',
+            }}>
+              <span style={{ color: currentTheme.ui.accent, fontWeight: '700' }}>
                 {sessions.findIndex((s) => s.id === activeSessionId) + 1}
               </span>
-              <span style={{ color: currentTheme.ui.textSecondary }}> / </span>
+              <span style={{ color: currentTheme.ui.textSecondary, fontSize: '10px', margin: '0 4px' }}> / </span>
               <span style={{ color: currentTheme.ui.textSecondary }}>
                 {sessions.length}
               </span>
@@ -721,13 +759,12 @@ function App() {
                 disabled={sessions.length === 0}
                 style={{
                   ...styles.hamburgerBtn,
-                  backgroundColor: scrollBtnClicked ? currentTheme.ui.bgTertiary : 'transparent',
+                  backgroundColor: scrollBtnClicked ? currentTheme.ui.accentMuted : 'transparent',
                   color: sessions.length === 0 ? currentTheme.ui.textSecondary + '60' : currentTheme.ui.iconColor,
-                  transition: 'background-color 0.15s ease',
+                  transition: 'all 0.2s ease',
                   cursor: sessions.length === 0 ? 'not-allowed' : 'pointer',
-                  opacity: sessions.length === 0 ? 0.5 : 1
+                  opacity: sessions.length === 0 ? 0.4 : 1
                 }}
-                title={sessions.length === 0 ? 'No terminal open' : 'Scroll to bottom'}
               >
                 <ChevronsDown size={20} strokeWidth={2} />
               </button>
@@ -737,8 +774,9 @@ function App() {
                   onClick={() => setIsMenuOpen(!isMenuOpen)}
                   style={{
                     ...styles.hamburgerBtn,
-                    backgroundColor: isMenuOpen ? currentTheme.ui.bgTertiary : 'transparent',
-                    color: currentTheme.ui.iconColor
+                    backgroundColor: isMenuOpen ? currentTheme.ui.accentMuted : 'transparent',
+                    color: currentTheme.ui.iconColor,
+                    transition: 'all 0.2s ease',
                   }}
                 >
                   <Menu size={20} strokeWidth={2} />
@@ -747,11 +785,21 @@ function App() {
               {isMenuOpen && (
                 <>
                   <div style={styles.menuOverlay} onClick={() => setIsMenuOpen(false)} />
-                  <div style={{ ...styles.dropdown, backgroundColor: currentTheme.ui.bgSecondary, borderColor: currentTheme.ui.border }}>
-                    <div style={{ ...styles.dropdownItem, borderBottomColor: currentTheme.ui.border }}>
+                  <div style={{
+                    ...styles.dropdown,
+                    backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bgSecondary,
+                    backdropFilter: 'blur(20px)',
+                    borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
+                    borderRadius: '12px',
+                    boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                    padding: '8px',
+                    marginTop: '4px',
+                  }}>
+                    <div style={{ ...styles.dropdownItem, borderBottom: 'none', padding: '10px 12px' }}>
                       <span style={{ ...styles.dropdownLabel, color: currentTheme.ui.textSecondary }}>{t('user')}</span>
                       <span style={{ ...styles.dropdownValue, color: currentTheme.ui.accent }}>{authState.username}</span>
                     </div>
+                    <div style={{ height: '1px', backgroundColor: currentTheme.ui.borderLight, margin: '4px 8px' }} />
                     <button
                       onClick={() => { handleNewSession(); setIsMenuOpen(false); }}
                       onMouseEnter={() => setHoveredDropdownItem('new')}
@@ -759,7 +807,8 @@ function App() {
                       style={{
                         ...styles.dropdownButton,
                         color: currentTheme.ui.text,
-                        backgroundColor: hoveredDropdownItem === 'new' ? currentTheme.ui.bgTertiary : 'transparent'
+                        backgroundColor: hoveredDropdownItem === 'new' ? currentTheme.ui.cardBg : 'transparent',
+                        borderRadius: '8px',
                       }}
                     >
                       <Plus size={16} strokeWidth={2} />
@@ -772,7 +821,8 @@ function App() {
                       style={{
                         ...styles.dropdownButton,
                         color: currentTheme.ui.text,
-                        backgroundColor: hoveredDropdownItem === 'settings' ? currentTheme.ui.bgTertiary : 'transparent'
+                        backgroundColor: hoveredDropdownItem === 'settings' ? currentTheme.ui.cardBg : 'transparent',
+                        borderRadius: '8px',
                       }}
                     >
                       <SettingsIcon size={16} strokeWidth={2} />
@@ -785,7 +835,8 @@ function App() {
                       style={{
                         ...styles.dropdownButton,
                         color: currentTheme.red,
-                        backgroundColor: hoveredDropdownItem === 'logout' ? currentTheme.ui.bgTertiary : 'transparent'
+                        backgroundColor: hoveredDropdownItem === 'logout' ? currentTheme.ui.cardBg : 'transparent',
+                        borderRadius: '8px',
                       }}
                     >
                       <Power size={16} strokeWidth={2} />
@@ -814,9 +865,11 @@ function App() {
       {!fileEditorOpen && (
         <div
           ref={terminalRef}
+          onTouchStart={isMobile ? handleTouchStart : undefined}
+          onTouchEnd={isMobile ? handleTouchEnd : undefined}
           style={{
             ...styles.terminalContainer,
-            paddingBottom: isMobile ? '45px' : '0',
+            paddingBottom: isMobile ? '80px' : '0', // 툴바 + 상태바 공간
             backgroundColor: currentTheme.ui.bg,
             marginLeft: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
             transition: isResizing ? 'none' : 'margin-left 0.3s ease',
@@ -873,7 +926,7 @@ function App() {
             top: '36px',
             left: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
             right: 0,
-            bottom: isMobile ? '45px' : 0,
+            bottom: isMobile ? '80px' : 0,
             transition: isResizing ? 'none' : 'left 0.3s ease',
           }}
         >
@@ -882,6 +935,61 @@ function App() {
             onClose={handleCloseEditor}
             theme={currentTheme}
           />
+        </div>
+      )}
+
+      {/* 모바일 하단 상태바 (tmux 스타일 세션 탭 - 최신형 플로팅 도크 디자인) */}
+      {isMobile && sessions.length > 0 && (
+        <div style={{
+          position: 'fixed',
+          bottom: '52px', // MobileToolbar 바로 위 (간격 확대)
+          left: '12px',
+          right: '12px',
+          height: '32px',
+          backgroundColor: currentTheme.ui.glassBg || '#00000088',
+          backdropFilter: 'blur(16px) saturate(180%)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          padding: '0 10px',
+          overflowX: 'auto',
+          zIndex: 9997,
+          border: `1px solid ${currentTheme.ui.borderLight || 'rgba(255,255,255,0.1)'}`,
+          borderRadius: '16px', // 완전 라운드
+          fontSize: '11px',
+          fontFamily: '"JetBrains Mono", monospace',
+          scrollbarWidth: 'none',
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+        }}>
+          <style>{`
+            div::-webkit-scrollbar { display: none; }
+          `}</style>
+          {sessions.map((s, idx) => {
+            const isActive = s.id === activeSessionId;
+            return (
+              <div
+                key={s.id}
+                onClick={() => setActiveSessionId(s.id)}
+                style={{
+                  padding: '0 10px',
+                  height: '22px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  backgroundColor: isActive ? currentTheme.ui.accent : 'transparent',
+                  color: isActive ? currentTheme.ui.bg : currentTheme.ui.textSecondary,
+                  borderRadius: '11px', // 캡슐형 탭
+                  whiteSpace: 'nowrap',
+                  cursor: 'pointer',
+                  fontWeight: isActive ? '700' : '500',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: isActive ? `0 4px 12px ${currentTheme.ui.accent}66` : 'none',
+                }}
+              >
+                <span style={{ opacity: 0.7, marginRight: '4px' }}>{idx}</span>
+                {s.name || 'bash'}{isActive ? ' ●' : ''}
+              </div>
+            );
+          })}
         </div>
       )}
 

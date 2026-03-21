@@ -48,7 +48,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
     // xterm.js 인스턴스 생성 (성능 최적화)
     const term = new Terminal({
       theme: currentTheme,
-      fontFamily: '"JetBrains Mono", monospace',
+      fontFamily: '"MesloLGS NF", "MesloLGS Nerd Font", "FiraCode Nerd Font", "JetBrainsMono Nerd Font", "JetBrains Mono", monospace',
       fontSize: settings.fontSize,
       lineHeight: 1.2,
       letterSpacing: 0,

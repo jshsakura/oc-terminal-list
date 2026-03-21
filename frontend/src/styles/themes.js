@@ -1,152 +1,9 @@
 /**
  * 터미널 테마 모음
+ * modern UI를 위한 glassBg, cardBg, borderLight 등의 속성을 포함합니다.
  */
 
-// Dracula Theme
-export const draculaTheme = {
-  background: '#282a36',
-  foreground: '#f8f8f2',
-  cursor: '#f8f8f2',
-  cursorAccent: '#282a36',
-  selection: 'rgba(68, 71, 90, 0.5)',
-  black: '#21222c',
-  red: '#ff5555',
-  green: '#50fa7b',
-  yellow: '#f1fa8c',
-  blue: '#bd93f9',
-  magenta: '#ff79c6',
-  cyan: '#8be9fd',
-  white: '#f8f8f2',
-  brightBlack: '#6272a4',
-  brightRed: '#ff6e6e',
-  brightGreen: '#69ff94',
-  brightYellow: '#ffffa5',
-  brightBlue: '#d6acff',
-  brightMagenta: '#ff92df',
-  brightCyan: '#a4ffff',
-  brightWhite: '#ffffff',
-  // UI Colors
-  ui: {
-    bg: '#282a36',
-    bgSecondary: '#21222c',
-    bgTertiary: '#44475a',
-    border: '#2f3142',
-    text: '#f8f8f2',
-    textSecondary: '#6272a4',
-    accent: '#bd93f9',
-    iconColor: '#f8f8f2',
-  }
-};
-
-// Monokai Theme
-export const monokaiTheme = {
-  background: '#272822',
-  foreground: '#f8f8f2',
-  cursor: '#f8f8f0',
-  cursorAccent: '#272822',
-  selection: 'rgba(73, 72, 62, 0.5)',
-  black: '#272822',
-  red: '#f92672',
-  green: '#a6e22e',
-  yellow: '#f4bf75',
-  blue: '#66d9ef',
-  magenta: '#ae81ff',
-  cyan: '#a1efe4',
-  white: '#f8f8f2',
-  brightBlack: '#75715e',
-  brightRed: '#f92672',
-  brightGreen: '#a6e22e',
-  brightYellow: '#f4bf75',
-  brightBlue: '#66d9ef',
-  brightMagenta: '#ae81ff',
-  brightCyan: '#a1efe4',
-  brightWhite: '#f9f8f5',
-  // UI Colors
-  ui: {
-    bg: '#272822',
-    bgSecondary: '#1e1f1c',
-    bgTertiary: '#49483e',
-    border: '#32332b',
-    text: '#f8f8f2',
-    textSecondary: '#75715e',
-    accent: '#66d9ef',
-    iconColor: '#f8f8f2',
-  }
-};
-
-// Solarized Dark Theme (정확한 Solarized 색상 체계)
-export const solarizedDarkTheme = {
-  background: '#002b36',    // base03
-  foreground: '#839496',    // base0
-  cursor: '#839496',
-  cursorAccent: '#002b36',
-  selection: 'rgba(7, 54, 66, 0.5)',
-  black: '#073642',         // base02
-  red: '#dc322f',
-  green: '#859900',
-  yellow: '#b58900',
-  blue: '#268bd2',
-  magenta: '#d33682',
-  cyan: '#2aa198',
-  white: '#eee8d5',         // base2
-  brightBlack: '#002b36',   // base03
-  brightRed: '#cb4b16',
-  brightGreen: '#586e75',   // base01
-  brightYellow: '#657b83',  // base00
-  brightBlue: '#839496',    // base0
-  brightMagenta: '#6c71c4',
-  brightCyan: '#93a1a1',    // base1
-  brightWhite: '#fdf6e3',   // base3
-  // UI Colors
-  ui: {
-    bg: '#002b36',          // base03
-    bgSecondary: '#073642', // base02
-    bgTertiary: '#0d4450',  // base02보다 밝게
-    border: '#0a3c47',      // 더 은은하게
-    text: '#93a1a1',        // base1 (더 밝은 텍스트)
-    textSecondary: '#839496', // base0 (더 밝게)
-    accent: '#268bd2',
-    iconColor: '#93a1a1',   // base1
-  }
-};
-
-// GitHub Dark Theme
-export const githubDarkTheme = {
-  background: '#0d1117',
-  foreground: '#c9d1d9',
-  cursor: '#c9d1d9',
-  cursorAccent: '#0d1117',
-  selection: 'rgba(56, 139, 253, 0.3)',
-  black: '#484f58',
-  red: '#ff7b72',
-  green: '#3fb950',
-  yellow: '#d29922',
-  blue: '#58a6ff',
-  magenta: '#bc8cff',
-  cyan: '#39c5cf',
-  white: '#b1bac4',
-  brightBlack: '#6e7681',
-  brightRed: '#ffa198',
-  brightGreen: '#56d364',
-  brightYellow: '#e3b341',
-  brightBlue: '#79c0ff',
-  brightMagenta: '#d2a8ff',
-  brightCyan: '#56d4dd',
-  brightWhite: '#f0f6fc',
-  // UI Colors
-  ui: {
-    bg: '#0d1117',
-    bgSecondary: '#010409',
-    bgTertiary: '#21262d', // 더 밝게 (기존: #161b22)
-    border: '#181b20',
-    text: '#e6edf3', // 더 밝게 (기존: #c9d1d9)
-    textSecondary: '#7d8590', // 약간 어둡게 (기존: #8b949e)
-    accent: '#58a6ff',
-    iconColor: '#e6edf3',
-  }
-};
-
-// Catppuccin Mocha Theme
+// 1. Catppuccin Mocha (기본 테마)
 export const catppuccinTheme = {
   background: '#1e1e2e',
   foreground: '#cdd6f4',
@@ -169,25 +26,304 @@ export const catppuccinTheme = {
   brightMagenta: '#f5c2e7',
   brightCyan: '#94e2d5',
   brightWhite: '#a6adc8',
-  // UI Colors
   ui: {
     bg: '#1e1e2e',
     bgSecondary: '#181825',
     bgTertiary: '#313244',
+    glassBg: 'rgba(30, 30, 46, 0.7)',
+    cardBg: 'rgba(49, 50, 68, 0.4)',
     border: '#25263a',
+    borderLight: 'rgba(205, 214, 244, 0.1)',
     text: '#cdd6f4',
     textSecondary: '#6c7086',
     accent: '#89b4fa',
+    accentMuted: 'rgba(137, 180, 250, 0.2)',
     iconColor: '#cdd6f4',
+  }
+};
+
+// 2. Tokyo Night (인기 테마)
+export const tokyoNightTheme = {
+  background: '#1a1b26',
+  foreground: '#c0caf5',
+  cursor: '#c0caf5',
+  cursorAccent: '#1a1b26',
+  selection: 'rgba(51, 70, 121, 0.5)',
+  black: '#15161e',
+  red: '#f7768e',
+  green: '#9ece6a',
+  yellow: '#e0af68',
+  blue: '#7aa2f7',
+  magenta: '#bb9af7',
+  cyan: '#7dcfff',
+  white: '#a9b1d6',
+  brightBlack: '#414868',
+  brightRed: '#f7768e',
+  brightGreen: '#9ece6a',
+  brightYellow: '#e0af68',
+  brightBlue: '#7aa2f7',
+  brightMagenta: '#bb9af7',
+  brightCyan: '#7dcfff',
+  brightWhite: '#c0caf5',
+  ui: {
+    bg: '#1a1b26',
+    bgSecondary: '#16161e',
+    bgTertiary: '#24283b',
+    glassBg: 'rgba(26, 27, 38, 0.75)',
+    cardBg: 'rgba(36, 40, 59, 0.4)',
+    border: '#1f2335',
+    borderLight: 'rgba(192, 202, 245, 0.1)',
+    text: '#c0caf5',
+    textSecondary: '#565f89',
+    accent: '#7aa2f7',
+    accentMuted: 'rgba(122, 162, 247, 0.2)',
+    iconColor: '#c0caf5',
+  }
+};
+
+// 3. Nord (깔끔한 블루 테마)
+export const nordTheme = {
+  background: '#2e3440',
+  foreground: '#d8dee9',
+  cursor: '#d8dee9',
+  cursorAccent: '#2e3440',
+  selection: 'rgba(67, 76, 94, 0.5)',
+  black: '#3b4252',
+  red: '#bf616a',
+  green: '#a3be8c',
+  yellow: '#ebcb8b',
+  blue: '#81a1c1',
+  magenta: '#b48ead',
+  cyan: '#88c0d0',
+  white: '#e5e9f0',
+  brightBlack: '#4c566a',
+  brightRed: '#bf616a',
+  brightGreen: '#a3be8c',
+  brightYellow: '#ebcb8b',
+  brightBlue: '#81a1c1',
+  brightMagenta: '#b48ead',
+  brightCyan: '#8fbcbb',
+  brightWhite: '#eceff4',
+  ui: {
+    bg: '#2e3440',
+    bgSecondary: '#242933',
+    bgTertiary: '#3b4252',
+    glassBg: 'rgba(46, 52, 64, 0.8)',
+    cardBg: 'rgba(67, 76, 94, 0.3)',
+    border: '#3b4252',
+    borderLight: 'rgba(216, 222, 233, 0.1)',
+    text: '#eceff4',
+    textSecondary: '#616e88',
+    accent: '#88c0d0',
+    accentMuted: 'rgba(136, 192, 208, 0.2)',
+    iconColor: '#d8dee9',
+  }
+};
+
+// 4. Rose Pine (세련된 핑크/퍼플)
+export const rosePineTheme = {
+  background: '#191724',
+  foreground: '#e0def4',
+  cursor: '#524f67',
+  cursorAccent: '#e0def4',
+  selection: 'rgba(64, 61, 82, 0.5)',
+  black: '#26233a',
+  red: '#eb6f92',
+  green: '#31748f',
+  yellow: '#f6c177',
+  blue: '#9ccfd8',
+  magenta: '#c4a7e7',
+  cyan: '#ebbcba',
+  white: '#e0def4',
+  brightBlack: '#6e6a86',
+  brightRed: '#eb6f92',
+  brightGreen: '#31748f',
+  brightYellow: '#f6c177',
+  brightBlue: '#9ccfd8',
+  brightMagenta: '#c4a7e7',
+  brightCyan: '#ebbcba',
+  brightWhite: '#e0def4',
+  ui: {
+    bg: '#191724',
+    bgSecondary: '#1f1d2e',
+    bgTertiary: '#26233a',
+    glassBg: 'rgba(25, 23, 36, 0.7)',
+    cardBg: 'rgba(38, 35, 58, 0.4)',
+    border: '#26233a',
+    borderLight: 'rgba(224, 222, 244, 0.1)',
+    text: '#e0def4',
+    textSecondary: '#908caa',
+    accent: '#ebbcba',
+    accentMuted: 'rgba(235, 188, 186, 0.2)',
+    iconColor: '#e0def4',
+  }
+};
+
+// 5. Dracula
+export const draculaTheme = {
+  background: '#282a36',
+  foreground: '#f8f8f2',
+  cursor: '#f8f8f2',
+  cursorAccent: '#282a36',
+  selection: 'rgba(68, 71, 90, 0.5)',
+  black: '#21222c',
+  red: '#ff5555',
+  green: '#50fa7b',
+  yellow: '#f1fa8c',
+  blue: '#bd93f9',
+  magenta: '#ff79c6',
+  cyan: '#8be9fd',
+  white: '#f8f8f2',
+  brightBlack: '#6272a4',
+  brightRed: '#ff6e6e',
+  brightGreen: '#69ff94',
+  brightYellow: '#ffffa5',
+  brightBlue: '#d6acff',
+  brightMagenta: '#ff92df',
+  brightCyan: '#a4ffff',
+  brightWhite: '#ffffff',
+  ui: {
+    bg: '#282a36',
+    bgSecondary: '#21222c',
+    bgTertiary: '#44475a',
+    glassBg: 'rgba(40, 42, 54, 0.7)',
+    cardBg: 'rgba(68, 71, 90, 0.4)',
+    border: '#2f3142',
+    borderLight: 'rgba(248, 248, 242, 0.1)',
+    text: '#f8f8f2',
+    textSecondary: '#6272a4',
+    accent: '#bd93f9',
+    accentMuted: 'rgba(189, 147, 249, 0.2)',
+    iconColor: '#f8f8f2',
+  }
+};
+
+// 6. One Dark
+export const oneDarkTheme = {
+  background: '#282c34',
+  foreground: '#abb2bf',
+  cursor: '#528bff',
+  cursorAccent: '#282c34',
+  selection: 'rgba(61, 67, 80, 0.5)',
+  black: '#1e2127',
+  red: '#e06c75',
+  green: '#98c379',
+  yellow: '#d19a66',
+  blue: '#61afef',
+  magenta: '#c678dd',
+  cyan: '#56b6c2',
+  white: '#abb2bf',
+  brightBlack: '#5c6370',
+  brightRed: '#e06c75',
+  brightGreen: '#98c379',
+  brightYellow: '#d19a66',
+  brightBlue: '#61afef',
+  brightMagenta: '#c678dd',
+  brightCyan: '#56b6c2',
+  brightWhite: '#ffffff',
+  ui: {
+    bg: '#282c34',
+    bgSecondary: '#21252b',
+    bgTertiary: '#2c313a',
+    glassBg: 'rgba(40, 44, 52, 0.7)',
+    cardBg: 'rgba(44, 49, 58, 0.4)',
+    border: '#181a1f',
+    borderLight: 'rgba(171, 178, 191, 0.1)',
+    text: '#abb2bf',
+    textSecondary: '#5c6370',
+    accent: '#61afef',
+    accentMuted: 'rgba(97, 175, 239, 0.2)',
+    iconColor: '#abb2bf',
+  }
+};
+
+// 7. Everforest
+export const everforestTheme = {
+  background: '#2d353b',
+  foreground: '#d3c6aa',
+  cursor: '#d3c6aa',
+  cursorAccent: '#2d353b',
+  selection: 'rgba(86, 102, 114, 0.5)',
+  black: '#475258',
+  red: '#e67e80',
+  green: '#a7c080',
+  yellow: '#dbbc7f',
+  blue: '#7fbbb3',
+  magenta: '#d699b6',
+  cyan: '#83c092',
+  white: '#d3c6aa',
+  brightBlack: '#475258',
+  brightRed: '#e67e80',
+  brightGreen: '#a7c080',
+  brightYellow: '#dbbc7f',
+  brightBlue: '#7fbbb3',
+  brightMagenta: '#d699b6',
+  brightCyan: '#83c092',
+  brightWhite: '#d3c6aa',
+  ui: {
+    bg: '#2d353b',
+    bgSecondary: '#232a2e',
+    bgTertiary: '#3d484d',
+    glassBg: 'rgba(45, 53, 59, 0.7)',
+    cardBg: 'rgba(61, 72, 77, 0.4)',
+    border: '#343f44',
+    borderLight: 'rgba(211, 198, 170, 0.1)',
+    text: '#d3c6aa',
+    textSecondary: '#859289',
+    accent: '#a7c080',
+    accentMuted: 'rgba(167, 192, 128, 0.2)',
+    iconColor: '#d3c6aa',
+  }
+};
+
+// 8. GitHub Dark
+export const githubDarkTheme = {
+  background: '#0d1117',
+  foreground: '#c9d1d9',
+  cursor: '#c9d1d9',
+  cursorAccent: '#0d1117',
+  selection: 'rgba(56, 139, 253, 0.3)',
+  black: '#484f58',
+  red: '#ff7b72',
+  green: '#3fb950',
+  yellow: '#d29922',
+  blue: '#58a6ff',
+  magenta: '#bc8cff',
+  cyan: '#39c5cf',
+  white: '#b1bac4',
+  brightBlack: '#6e7681',
+  brightRed: '#ffa198',
+  brightGreen: '#56d364',
+  brightYellow: '#e3b341',
+  brightBlue: '#79c0ff',
+  brightMagenta: '#d2a8ff',
+  brightCyan: '#56d4dd',
+  brightWhite: '#f0f6fc',
+  ui: {
+    bg: '#0d1117',
+    bgSecondary: '#010409',
+    bgTertiary: '#21262d',
+    glassBg: 'rgba(13, 17, 23, 0.7)',
+    cardBg: 'rgba(33, 38, 45, 0.4)',
+    border: '#181b20',
+    borderLight: 'rgba(201, 209, 217, 0.1)',
+    text: '#e6edf3',
+    textSecondary: '#7d8590',
+    accent: '#58a6ff',
+    accentMuted: 'rgba(88, 166, 255, 0.2)',
+    iconColor: '#e6edf3',
   }
 };
 
 // 테마 맵핑
 export const themes = {
   catppuccin: catppuccinTheme,
+  tokyoNight: tokyoNightTheme,
+  nord: nordTheme,
+  rosePine: rosePineTheme,
   dracula: draculaTheme,
-  monokai: monokaiTheme,
-  solarizedDark: solarizedDarkTheme,
+  oneDark: oneDarkTheme,
+  everforest: everforestTheme,
   github: githubDarkTheme,
 };
 

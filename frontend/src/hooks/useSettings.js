@@ -22,7 +22,7 @@ const DEFAULT_SETTINGS = {
   theme: 'catppuccin',
   language: detectBrowserLanguage(), // 브라우저 언어 자동 감지
   fontSize: 14,
-  fontFamily: '"JetBrains Mono", Menlo, Monaco, "Courier New", monospace',
+  fontFamily: '"MesloLGS NF", "MesloLGS Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace',
   autoScroll: 'smart', // 'always' | 'smart' | 'never'
   smoothScroll: true,
   scrollSensitivity: 0.8, // AI 스트리밍 대응 (0~1, 높을수록 민감)

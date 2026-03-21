@@ -13,8 +13,36 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
   const [showLeftScroll, setShowLeftScroll] = useState(false);
   const [showRightScroll, setShowRightScroll] = useState(false);
 
+  // Ctrl, Alt 토글 상태 관리
+  const [ctrlActive, setCtrlActive] = useState(false);
+  const [altActive, setAltActive] = useState(false);
+
   // Visual Viewport로 키보드 위에 툴바 고정
   useVisualViewport(toolbarRef);
+
+  // 키 전송 로직 개선 (Ctrl/Alt 조합 지원)
+  const handleKeyWithModifiers = (key) => {
+    let finalKey = key;
+
+    // Ctrl 조합 처리
+    if (ctrlActive) {
+      // 대문자 A-Z 대응 (ASCII 1-26)
+      if (key.length === 1 && key >= 'a' && key <= 'z') {
+        finalKey = String.fromCharCode(key.charCodeAt(0) - 96);
+      } else if (key.length === 1 && key >= 'A' && key <= 'Z') {
+        finalKey = String.fromCharCode(key.charCodeAt(0) - 64);
+      }
+      setCtrlActive(false); // 전송 후 해제 (Sticky)
+    }
+
+    // Alt 조합 처리 (ESC + key)
+    if (altActive) {
+      finalKey = '\x1b' + finalKey;
+      setAltActive(false); // 전송 후 해제 (Sticky)
+    }
+
+    onSendKey(finalKey);
+  };
 
   // 스크롤 위치 체크
   const checkScroll = () => {
@@ -110,179 +138,185 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
           onScroll={checkScroll}
         >
           <div style={styles.buttonGroup}>
-        {/* Command Input (한글 입력) */}
-        <button
-          onTouchStart={() => setActiveButton('cmd')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('cmd', () => onOpenCommandInput?.());
-          }}
-          style={{
-            ...styles.button,
-            ...styles.primary,
-            transform: activeButton === 'cmd' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'cmd' ? 0.7 : 1,
-          }}
-          title="명령어 입력 (한글 지원)"
-        >
-          <MessageSquare size={13} strokeWidth={2} />
-        </button>
+            {/* Ctrl (Sticky Toggle) */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setCtrlActive(!ctrlActive);
+              }}
+              style={{
+                ...styles.button,
+                ...(ctrlActive ? styles.active : styles.secondary),
+              }}
+              title="CTRL (Sticky)"
+            >
+              CTRL
+            </button>
 
-        {/* ESC */}
-        <button
-          onTouchStart={() => setActiveButton('esc')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('esc', () => onSendKey('\x1b'));
-          }}
-          style={{
-            ...styles.button,
-            ...styles.secondary,
-            transform: activeButton === 'esc' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'esc' ? 0.7 : 1,
-          }}
-        >
-          ESC
-        </button>
+            {/* Alt (Sticky Toggle) */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                setAltActive(!altActive);
+              }}
+              style={{
+                ...styles.button,
+                ...(altActive ? styles.active : styles.secondary),
+              }}
+              title="ALT (Sticky)"
+            >
+              ALT
+            </button>
 
-        {/* TAB */}
-        <button
-          onTouchStart={() => setActiveButton('tab')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('tab', () => onSendKey('\t'));
-          }}
-          style={{
-            ...styles.button,
-            ...styles.secondary,
-            transform: activeButton === 'tab' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'tab' ? 0.7 : 1,
-          }}
-        >
-          TAB
-        </button>
+            {/* Command Input (한글 입력) */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('cmd', () => onOpenCommandInput?.());
+              }}
+              style={{
+                ...styles.button,
+                ...styles.primary,
+                transform: activeButton === 'cmd' ? 'scale(0.9)' : 'scale(1)',
+              }}
+              title="명령어 입력 (한글 지원)"
+            >
+              <MessageSquare size={13} strokeWidth={2} />
+            </button>
 
-        {/* Ctrl+C */}
-        <button
-          onTouchStart={() => setActiveButton('ctrlc')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('ctrlc', () => onSendKey('\x03'));
-          }}
-          style={{
-            ...styles.button,
-            ...styles.warning,
-            transform: activeButton === 'ctrlc' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'ctrlc' ? 0.7 : 1,
-          }}
-          title="Ctrl+C (Stop)"
-        >
-          ^C
-        </button>
+            {/* ESC */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('esc', () => handleKeyWithModifiers('\x1b'));
+              }}
+              style={{
+                ...styles.button,
+                ...styles.secondary,
+                transform: activeButton === 'esc' ? 'scale(0.9)' : 'scale(1)',
+              }}
+            >
+              ESC
+            </button>
 
-        {/* Arrow Keys (상하좌우 순) */}
-        {/* Arrow Up */}
-        <button
-          onTouchStart={() => setActiveButton('up')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('up', () => onSendKey('\x1b[A'));
-          }}
-          style={{
-            ...styles.button,
-            ...styles.secondary,
-            transform: activeButton === 'up' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'up' ? 0.7 : 1,
-          }}
-        >
-          <ArrowUp size={13} strokeWidth={2} />
-        </button>
+            {/* TAB */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('tab', () => handleKeyWithModifiers('\t'));
+              }}
+              style={{
+                ...styles.button,
+                ...styles.secondary,
+                transform: activeButton === 'tab' ? 'scale(0.9)' : 'scale(1)',
+              }}
+            >
+              TAB
+            </button>
 
-        {/* Arrow Down */}
-        <button
-          onTouchStart={() => setActiveButton('down')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('down', () => onSendKey('\x1b[B'));
-          }}
-          style={{
-            ...styles.button,
-            ...styles.secondary,
-            transform: activeButton === 'down' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'down' ? 0.7 : 1,
-          }}
-        >
-          <ArrowDown size={13} strokeWidth={2} />
-        </button>
+            {/* Ctrl+C (직통) */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('ctrlc', () => onSendKey('\x03'));
+              }}
+              style={{
+                ...styles.button,
+                ...styles.warning,
+                transform: activeButton === 'ctrlc' ? 'scale(0.9)' : 'scale(1)',
+              }}
+              title="Ctrl+C (Stop)"
+            >
+              ^C
+            </button>
 
-        {/* Arrow Left */}
-        <button
-          onTouchStart={() => setActiveButton('left')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('left', () => onSendKey('\x1b[D'));
-          }}
-          style={{
-            ...styles.button,
-            ...styles.secondary,
-            transform: activeButton === 'left' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'left' ? 0.7 : 1,
-          }}
-        >
-          <ArrowLeft size={13} strokeWidth={2} />
-        </button>
+            {/* Arrow Keys */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('up', () => handleKeyWithModifiers('\x1b[A'));
+              }}
+              style={{
+                ...styles.button,
+                ...styles.secondary,
+                transform: activeButton === 'up' ? 'scale(0.9)' : 'scale(1)',
+              }}
+            >
+              <ArrowUp size={13} strokeWidth={2} />
+            </button>
 
-        {/* Arrow Right */}
-        <button
-          onTouchStart={() => setActiveButton('right')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('right', () => onSendKey('\x1b[C'));
-          }}
-          style={{
-            ...styles.button,
-            ...styles.secondary,
-            transform: activeButton === 'right' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'right' ? 0.7 : 1,
-          }}
-        >
-          <ArrowRight size={13} strokeWidth={2} />
-        </button>
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('down', () => handleKeyWithModifiers('\x1b[B'));
+              }}
+              style={{
+                ...styles.button,
+                ...styles.secondary,
+                transform: activeButton === 'down' ? 'scale(0.9)' : 'scale(1)',
+              }}
+            >
+              <ArrowDown size={13} strokeWidth={2} />
+            </button>
 
-        {/* Paste */}
-        <button
-          onTouchStart={() => setActiveButton('paste')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('paste', handlePaste);
-          }}
-          style={{
-            ...styles.button,
-            ...styles.secondary,
-            transform: activeButton === 'paste' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'paste' ? 0.7 : 1,
-          }}
-        >
-          <ClipboardPaste size={13} strokeWidth={2} />
-        </button>
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('left', () => handleKeyWithModifiers('\x1b[D'));
+              }}
+              style={{
+                ...styles.button,
+                ...styles.secondary,
+                transform: activeButton === 'left' ? 'scale(0.9)' : 'scale(1)',
+              }}
+            >
+              <ArrowLeft size={13} strokeWidth={2} />
+            </button>
 
-        {/* Clear (맨 우측) */}
-        <button
-          onTouchStart={() => setActiveButton('clear')}
-          onTouchEnd={(e) => {
-            e.preventDefault();
-            handleButtonPress('clear', handleClear);
-          }}
-          style={{
-            ...styles.button,
-            ...styles.clear,
-            transform: activeButton === 'clear' ? 'scale(0.9)' : 'scale(1)',
-            opacity: activeButton === 'clear' ? 0.7 : 1,
-          }}
-          title="Clear current line (Ctrl+U)"
-        >
-          <Eraser size={13} strokeWidth={2} />
-        </button>
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('right', () => handleKeyWithModifiers('\x1b[C'));
+              }}
+              style={{
+                ...styles.button,
+                ...styles.secondary,
+                transform: activeButton === 'right' ? 'scale(0.9)' : 'scale(1)',
+              }}
+            >
+              <ArrowRight size={13} strokeWidth={2} />
+            </button>
+
+            {/* Paste */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('paste', handlePaste);
+              }}
+              style={{
+                ...styles.button,
+                ...styles.secondary,
+                transform: activeButton === 'paste' ? 'scale(0.9)' : 'scale(1)',
+              }}
+            >
+              <ClipboardPaste size={13} strokeWidth={2} />
+            </button>
+
+            {/* Clear */}
+            <button
+              onTouchEnd={(e) => {
+                e.preventDefault();
+                handleButtonPress('clear', handleClear);
+              }}
+              style={{
+                ...styles.button,
+                ...styles.clear,
+                transform: activeButton === 'clear' ? 'scale(0.9)' : 'scale(1)',
+              }}
+              title="Clear current line (Ctrl+U)"
+            >
+              <Eraser size={13} strokeWidth={2} />
+            </button>
           </div>
         </div>
 
@@ -304,16 +338,20 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
 const styles = {
   toolbar: {
     position: 'fixed',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'transparent',
-    padding: '4px',
+    left: '12px',
+    right: '12px',
+    bottom: '12px',
+    backgroundColor: 'rgba(24, 24, 37, 0.6)',
+    backdropFilter: 'blur(20px) saturate(160%)',
+    padding: '6px',
     zIndex: 9999,
-    transition: 'transform 0.2s ease, opacity 0.2s ease',
+    transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s ease',
     display: 'flex',
     alignItems: 'center',
-    gap: '4px',
+    gap: '6px',
+    borderRadius: '20px',
+    border: '1px solid rgba(255, 255, 255, 0.08)',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5)',
   },
   scrollContainer: {
     flex: 1,
@@ -322,73 +360,77 @@ const styles = {
     WebkitOverflowScrolling: 'touch',
     scrollbarWidth: 'none',
     msOverflowStyle: 'none',
-    scrollSnapType: 'x proximity',
     display: 'flex',
     justifyContent: 'center',
   },
   buttonGroup: {
     display: 'flex',
-    gap: 'clamp(3px, 1vw, 6px)',
+    gap: '6px',
     alignItems: 'center',
     flexWrap: 'nowrap',
     padding: '0 4px',
   },
   scrollButton: {
     flexShrink: 0,
-    width: '32px',
-    height: '32px',
+    width: '28px',
+    height: '28px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(24, 24, 37, 0.95)',
-    backdropFilter: 'blur(8px)',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '14px',
     color: '#cdd6f4',
     cursor: 'pointer',
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.4)',
-    transition: 'all 0.15s ease',
+    transition: 'all 0.2s ease',
     WebkitTapHighlightColor: 'transparent',
   },
   button: {
     flex: '0 0 auto',
-    padding: 'clamp(4px, 1.5vw, 6px) clamp(6px, 2vw, 10px)',
-    fontSize: 'clamp(9px, 2.5vw, 11px)',
-    fontWeight: '500',
+    padding: '0 10px',
+    fontSize: '11px',
+    fontWeight: '700',
     border: 'none',
-    borderRadius: '4px',
+    borderRadius: '10px',
     cursor: 'pointer',
     userSelect: 'none',
     WebkitTapHighlightColor: 'transparent',
-    transition: 'all 0.15s cubic-bezier(0.4, 0, 0.2, 1)',
-    minWidth: 'clamp(26px, 8vw, 32px)',
-    minHeight: 'clamp(26px, 8vw, 32px)',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+    minWidth: '34px',
+    height: '32px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: '0 1px 3px rgba(0, 0, 0, 0.3)',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
     willChange: 'transform, opacity',
-    scrollSnapAlign: 'start',
   },
   primary: {
     backgroundColor: '#89b4fa',
     color: '#1e1e2e',
   },
   secondary: {
-    backgroundColor: '#313244',
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     color: '#cdd6f4',
   },
-  danger: {
-    backgroundColor: '#f38ba8',
+  active: {
+    backgroundColor: '#f9e2af',
     color: '#1e1e2e',
+    boxShadow: '0 0 15px rgba(249, 226, 175, 0.4)',
+  },
+  danger: {
+    backgroundColor: 'rgba(243, 139, 168, 0.2)',
+    color: '#f38ba8',
+    border: '1px solid rgba(243, 139, 168, 0.3)',
   },
   warning: {
-    backgroundColor: '#fab387',
-    color: '#1e1e2e',
+    backgroundColor: 'rgba(250, 179, 135, 0.2)',
+    color: '#fab387',
+    border: '1px solid rgba(250, 179, 135, 0.3)',
   },
   clear: {
-    backgroundColor: '#94e2d5',
-    color: '#1e1e2e',
+    backgroundColor: 'rgba(148, 226, 213, 0.2)',
+    color: '#94e2d5',
+    border: '1px solid rgba(148, 226, 213, 0.3)',
   },
 };
 

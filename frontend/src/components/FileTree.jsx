@@ -475,10 +475,11 @@ const FileTreeNode = ({ item, depth, expanded, onToggle, onSelect, onFolderSelec
       <div
         style={{
           ...styles.treeItem,
-          paddingLeft: `${depth * 16 + 8}px`,
+          paddingLeft: '8px', // wrapper가 들여쓰기를 처리하므로 고정값 사용
           backgroundColor: isSelected ? theme.ui.bgTertiary : (isHovered ? theme.ui.bgTertiary : 'transparent'),
           color: theme.ui.text,
-          borderLeft: isSelected ? `2px solid ${theme.ui.accent}` : 'none',
+          borderLeft: isSelected ? `3px solid ${theme.ui.accent}` : '3px solid transparent', // 더 두꺼운 선택 표시
+          opacity: isHovered || isSelected ? 1 : 0.8,
         }}
         onClick={handleClick}
         onMouseEnter={() => setIsHovered(true)}
@@ -495,14 +496,14 @@ const FileTreeNode = ({ item, depth, expanded, onToggle, onSelect, onFolderSelec
             {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </span>
         )}
-        {item.type !== 'directory' && <span style={styles.icon}></span>}
+        {item.type !== 'directory' && <span style={{ ...styles.icon, width: '14px' }}></span>}
 
         {/* 파일/폴더 아이콘 */}
         <span style={{ ...styles.icon, color: item.type === 'directory' ? theme.ui.accent : theme.ui.textSecondary }}>
           {item.type === 'directory' ? (
-            expanded ? <FolderOpen size={14} /> : <Folder size={14} />
+            expanded ? <FolderOpen size={15} /> : <Folder size={15} />
           ) : (
-            <File size={14} />
+            <File size={15} />
           )}
         </span>
 
@@ -512,27 +513,34 @@ const FileTreeNode = ({ item, depth, expanded, onToggle, onSelect, onFolderSelec
 
       {/* 자식 노드 (디렉토리만) */}
       {item.type === 'directory' && expanded && (
-        loading ? (
-          <div style={{ ...styles.loading, paddingLeft: `${(depth + 1) * 16 + 8}px`, color: theme.ui.textSecondary }}>
-            ...
-          </div>
-        ) : (
-          children.map(child => (
-            <FileTreeNode
-              key={child.path}
-              item={child}
-              depth={depth + 1}
-              expanded={expanded && child.type === 'directory'}
-              onToggle={onToggle}
-              onSelect={onSelect}
-              onFolderSelect={onFolderSelect}
-              selectedPath={selectedPath}
-              loadDirectory={loadDirectory}
-              theme={theme}
-              onContextMenu={onContextMenu}
-            />
-          ))
-        )
+        <div style={{
+          position: 'relative',
+          paddingLeft: '6px',
+          marginLeft: '14px', // 고정 간격 (부모에서 이미 들여쓰기 됨)
+          borderLeft: `1px solid ${theme.ui.borderLight || 'rgba(255,255,255,0.05)'}`,
+        }}>
+          {loading ? (
+            <div style={{ ...styles.loading, color: theme.ui.textSecondary }}>
+              ...
+            </div>
+          ) : (
+            children.map(child => (
+              <FileTreeNode
+                key={child.path}
+                item={child}
+                depth={0} // 들여쓰기는 부모 div에서 처리하므로 depth는 0으로 리셋 (또는 다르게 처리)
+                expanded={expanded && child.type === 'directory'}
+                onToggle={onToggle}
+                onSelect={onSelect}
+                onFolderSelect={onFolderSelect}
+                selectedPath={selectedPath}
+                loadDirectory={loadDirectory}
+                theme={theme}
+                onContextMenu={onContextMenu}
+              />
+            ))
+          )}
+        </div>
       )}
     </>
   );
@@ -544,69 +552,83 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+    padding: '8px',
   },
   header: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '8px',
-    borderBottom: '1px solid',
-    gap: '8px',
+    padding: '10px 12px',
+    borderRadius: '12px',
+    marginBottom: '8px',
+    border: '1px solid',
   },
   pathDisplay: {
     fontSize: '11px',
-    fontFamily: 'monospace',
+    fontFamily: '"JetBrains Mono", monospace',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
     flex: 1,
+    fontWeight: '600',
+    opacity: 0.8,
   },
   actions: {
     display: 'flex',
-    gap: '4px',
+    gap: '6px',
     flexShrink: 0,
   },
   actionBtn: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: '4px',
+    padding: '6px',
     border: 'none',
-    backgroundColor: 'transparent',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
     cursor: 'pointer',
-    borderRadius: '2px',
-    transition: 'opacity 0.15s ease',
+    borderRadius: '8px',
+    transition: 'all 0.2s ease',
   },
   treeContainer: {
     flex: 1,
     overflowY: 'auto',
     overflowX: 'hidden',
+    paddingRight: '4px',
+    scrollbarWidth: 'none', // for firefox
   },
   loading: {
-    padding: '8px',
+    padding: '12px',
     fontSize: '12px',
+    display: 'flex',
+    justifyContent: 'center',
+    opacity: 0.7,
   },
   treeItem: {
     display: 'flex',
     alignItems: 'center',
-    padding: '4px 8px',
-    fontSize: '12px',
+    padding: '6px 8px',
+    fontSize: '13px',
     cursor: 'pointer',
     userSelect: 'none',
-    transition: 'background-color 0.15s ease',
+    transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+    borderRadius: '8px',
+    marginBottom: '2px',
+    position: 'relative',
   },
   icon: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: '4px',
+    marginRight: '6px',
     flexShrink: 0,
+    transition: 'transform 0.2s ease',
   },
   name: {
     flex: 1,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    fontWeight: '500',
   },
   backdrop: {
     position: 'fixed',
@@ -614,9 +636,10 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     zIndex: 10000,
-    backdropFilter: 'blur(2px)',
+    backdropFilter: 'blur(8px)',
+    animation: 'fadeIn 0.2s ease',
   },
   modal: {
     position: 'fixed',
@@ -624,24 +647,27 @@ const styles = {
     left: '50%',
     transform: 'translate(-50%, -50%)',
     width: '90%',
-    maxWidth: '400px',
-    borderRadius: '8px',
-    border: '1px solid',
+    maxWidth: '360px',
+    borderRadius: '16px',
+    border: '1px solid rgba(255,255,255,0.1)',
     zIndex: 10001,
     display: 'flex',
     flexDirection: 'column',
+    boxShadow: '0 20px 40px rgba(0,0,0,0.4)',
+    backdropFilter: 'blur(20px) saturate(180%)',
+    animation: 'scaleUp 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
   },
   modalHeader: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '16px',
-    borderBottom: '1px solid',
+    padding: '16px 20px',
+    borderBottom: '1px solid rgba(255,255,255,0.05)',
   },
   modalTitle: {
     margin: 0,
-    fontSize: '16px',
-    fontWeight: '600',
+    fontSize: '15px',
+    fontWeight: '700',
   },
   closeButton: {
     background: 'none',
@@ -652,62 +678,73 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     transition: 'opacity 0.2s',
+    opacity: 0.7,
   },
   modalBody: {
-    padding: '16px',
+    padding: '20px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '8px',
+    gap: '12px',
   },
   input: {
     width: '100%',
-    padding: '12px',
-    fontSize: '14px',
-    fontFamily: 'monospace',
-    border: '1px solid',
-    borderRadius: '4px',
+    padding: '12px 14px',
+    fontSize: '13px',
+    fontFamily: '"JetBrains Mono", monospace',
+    border: '1px solid rgba(255,255,255,0.1)',
+    borderRadius: '10px',
     outline: 'none',
+    transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+  },
+  hint: {
+    fontSize: '11px',
+    opacity: 0.7,
+    fontFamily: '"JetBrains Mono", monospace',
   },
   contextMenu: {
     position: 'fixed',
-    minWidth: '200px',
-    borderRadius: '4px',
-    border: '1px solid',
+    minWidth: '220px',
+    borderRadius: '12px',
+    border: '1px solid rgba(255,255,255,0.1)',
     zIndex: 10000,
-    padding: '4px',
+    padding: '6px',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+    backdropFilter: 'blur(20px) saturate(180%)',
+    animation: 'fadeIn 0.15s ease',
   },
   menuItem: {
     display: 'flex',
     alignItems: 'center',
-    gap: '8px',
-    padding: '8px 12px',
+    gap: '10px',
+    padding: '10px 12px',
     fontSize: '13px',
+    fontWeight: '500',
     cursor: 'pointer',
-    borderRadius: '2px',
-    transition: 'background-color 0.15s ease',
+    borderRadius: '8px',
+    transition: 'all 0.15s ease',
     userSelect: 'none',
   },
   menuDivider: {
     height: '1px',
-    margin: '4px 0',
+    margin: '4px 8px',
   },
   modalFooter: {
     display: 'flex',
-    padding: '16px',
-    borderTop: '1px solid',
+    padding: '16px 20px',
+    borderTop: '1px solid rgba(255,255,255,0.05)',
   },
   createButton: {
     flex: 1,
-    padding: '10px 16px',
+    padding: '12px',
     fontSize: '14px',
-    fontWeight: '500',
+    fontWeight: '600',
     border: 'none',
-    borderRadius: '6px',
+    borderRadius: '10px',
     cursor: 'pointer',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '6px',
+    gap: '8px',
     transition: 'all 0.2s ease',
   },
 };
