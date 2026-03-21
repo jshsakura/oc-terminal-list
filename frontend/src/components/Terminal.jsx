@@ -23,8 +23,6 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
   const intentionalCloseRef = useRef(false);
   const [isReady, setIsReady] = useState(false);
 
-  const { t } = useTranslation(settings.language);
-
   // 스마트 스크롤 훅
   const { handleUserScroll, handleNewData } = useSmartScroll(terminalRef, {
     autoScroll: settings.autoScroll,

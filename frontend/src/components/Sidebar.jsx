@@ -112,9 +112,8 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
               title={t('closeSidebar')}
             >
               <X size={20} strokeWidth={2.5} />
-            </button>
-          </div>
-        )}
+          </button>
+        </div>
 
         {/* 탭 헤더 (세션/파일) */}
         <div style={{ 
