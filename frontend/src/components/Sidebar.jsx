@@ -75,19 +75,26 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
   return (
     <>
       {/* 오버레이 배경 (모바일에서만) */}
-      {isMobile && <div style={styles.overlay} onClick={onClose} />}
+      {isMobile && <div style={{
+        ...styles.overlay,
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        backdropFilter: 'blur(4px)',
+        zIndex: 9998,
+      }} onClick={onClose} />}
 
       {/* 사이드바 */}
       <div style={{
         ...styles.sidebar,
         backgroundColor: currentTheme.ui.bg,
-        borderRightColor: currentTheme.ui.border,
-        width: isMobile ? 'min(80vw, 250px)' : `${width}px`,
+        borderRight: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
+        width: isMobile ? 'min(80vw, 280px)' : `${width}px`,
         maxWidth: isMobile ? '80vw' : '400px',
         minWidth: isMobile ? undefined : '180px',
         top: 0,
         height: '100vh',
-        zIndex: 10000,
+        zIndex: 9999,
+        boxShadow: isMobile ? '10px 0 30px rgba(0,0,0,0.5)' : 'none',
+        transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       }}>
         {/* 헤더 */}
         <div style={{ 

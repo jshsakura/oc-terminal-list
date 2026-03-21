@@ -141,7 +141,7 @@ function App() {
       backgroundColor: currentTheme.ui.bg,
       height: isMobile ? `${viewportHeight}px` : '100vh',
     }}>
-      {/* 사이드바 (최상위 고정) */}
+      {/* 사이드바 */}
       <Sidebar 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
@@ -175,17 +175,19 @@ function App() {
         onOpenTerminalAtFolder={createSession} 
       />
 
-      {/* 메인 콘텐츠 영역 (사이드바에 의해 밀려남) */}
+      {/* 메인 콘텐츠 영역 (사이드바에 의해 밀려남 - 절대 좌표 방식 적용) */}
       <div style={{
+        position: 'absolute',
+        top: 0,
+        left: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
+        right: 0,
+        bottom: 0,
         display: 'flex',
         flexDirection: 'column',
-        flex: 1,
-        width: !isMobile && isSidebarOpen ? `calc(100% - ${sidebarWidth}px)` : '100%',
-        marginLeft: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
-        height: '100%',
-        transition: isResizing ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        position: 'relative',
+        transition: isResizing ? 'none' : 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        backgroundColor: currentTheme.ui.bg,
         overflow: 'hidden',
+        zIndex: 1,
       }}>
         <Header 
           isSidebarOpen={isSidebarOpen}
@@ -215,6 +217,7 @@ function App() {
             ...AppStyles.terminalContainer,
             paddingBottom: isMobile ? '80px' : '0',
             backgroundColor: currentTheme.ui.bg,
+            flex: 1,
           }}
         >
           {sessions.length === 0 ? (
@@ -238,7 +241,8 @@ function App() {
               left: 0, 
               right: 0, 
               bottom: isMobile ? '80px' : 0, 
-              zIndex: 100 
+              zIndex: 100,
+              backgroundColor: currentTheme.ui.bg,
             }}>
               <FileEditor filePath={selectedFile} onClose={() => setFileEditorOpen(false)} theme={currentTheme} />
             </div>
