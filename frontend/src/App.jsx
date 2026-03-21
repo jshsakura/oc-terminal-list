@@ -141,61 +141,110 @@ function App() {
       backgroundColor: currentTheme.ui.bg,
       height: isMobile ? `${viewportHeight}px` : '100vh',
     }}>
-      <Header 
-        isSidebarOpen={isSidebarOpen}
-        toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        isMobile={isMobile}
-        scrollBtnClicked={scrollBtnClicked}
-        handleScrollToBottom={handleScrollToBottom}
-        isMenuOpen={isMenuOpen}
-        setIsMenuOpen={setIsMenuOpen}
-        currentTheme={currentTheme}
-        t={t}
-        authState={{ username }}
-        handleNewSession={handleNewSession}
-        setIsSettingsOpen={setIsSettingsOpen}
-        handleLogoutRequest={handleLogoutRequest}
-        hoveredDropdownItem={hoveredDropdownItem}
-        setHoveredDropdownItem={setHoveredDropdownItem}
-        style={{
-          marginLeft: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
-          transition: isResizing ? 'none' : 'margin-left 0.3s ease',
-        }}
+      {/* 사이드바 (최상위 고정) */}
+      <Sidebar 
+        isOpen={isSidebarOpen} 
+        onClose={() => setIsSidebarOpen(false)} 
+        sessions={sessions} 
+        activeSessionId={activeSessionId} 
+        onSelectSession={setActiveSessionId} 
+        onNewSession={handleNewSession} 
+        onCloseSession={(id) => setConfirmModal({ isOpen: true, sessionId: id, title: t('closeTerminal'), message: t('confirmCloseTerminal') })} 
+        onRenameSession={renameSession} 
+        onReconnectSession={(id) => { setActiveSessionId(null); setTimeout(() => setActiveSessionId(id), 50); }}
+        language={settings.language} 
+        theme={currentTheme} 
+        isMobile={isMobile} 
+        width={sidebarWidth} 
+        onResizeStart={(e) => {
+          e.preventDefault();
+          setIsResizing(true);
+          const startX = e.clientX;
+          const startWidth = sidebarWidth;
+          const onMove = (me) => setSidebarWidth(Math.max(180, Math.min(400, startWidth + me.clientX - startX)));
+          const onUp = () => {
+            setIsResizing(false);
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+          };
+          document.addEventListener('mousemove', onMove);
+          document.addEventListener('mouseup', onUp);
+        }} 
+        onFileSelect={(path) => { setSelectedFile(path); setFileEditorOpen(true); }} 
+        onFolderSelect={setSelectedFolderPath} 
+        onOpenTerminalAtFolder={createSession} 
       />
 
-      <div 
-        ref={terminalRef}
-        onTouchStart={isMobile ? handleTouchStart : undefined}
-        onTouchEnd={isMobile ? handleTouchEnd : undefined}
-        style={{
-          ...AppStyles.terminalContainer,
-          paddingBottom: isMobile ? '80px' : '0',
-          marginLeft: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
-          transition: isResizing ? 'none' : 'margin-left 0.3s ease',
-        }}
-      >
-        {sessions.length === 0 ? (
-          <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
-        ) : (
-          sessions.map((session) => (
-            <div key={session.id} style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}>
-              <Suspense fallback={null}>
-                <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
-              </Suspense>
+      {/* 메인 콘텐츠 영역 (사이드바에 의해 밀려남) */}
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        flex: 1,
+        width: !isMobile && isSidebarOpen ? `calc(100% - ${sidebarWidth}px)` : '100%',
+        marginLeft: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
+        height: '100%',
+        transition: isResizing ? 'none' : 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        position: 'relative',
+        overflow: 'hidden',
+      }}>
+        <Header 
+          isSidebarOpen={isSidebarOpen}
+          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          isMobile={isMobile}
+          scrollBtnClicked={scrollBtnClicked}
+          handleScrollToBottom={handleScrollToBottom}
+          isMenuOpen={isMenuOpen}
+          setIsMenuOpen={setIsMenuOpen}
+          currentTheme={currentTheme}
+          t={t}
+          authState={{ username }}
+          handleNewSession={handleNewSession}
+          setIsSettingsOpen={setIsSettingsOpen}
+          handleLogoutRequest={handleLogoutRequest}
+          hoveredDropdownItem={hoveredDropdownItem}
+          setHoveredDropdownItem={setHoveredDropdownItem}
+        />
+
+        <div 
+          ref={terminalRef}
+          onTouchStart={isMobile ? handleTouchStart : undefined}
+          onTouchEnd={isMobile ? handleTouchEnd : undefined}
+          style={{
+            ...AppStyles.terminalContainer,
+            paddingBottom: isMobile ? '80px' : '0',
+            backgroundColor: currentTheme.ui.bg,
+          }}
+        >
+          {sessions.length === 0 ? (
+            <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
+          ) : (
+            sessions.map((session) => (
+              <div key={session.id} style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}>
+                <Suspense fallback={null}>
+                  <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
+                </Suspense>
+              </div>
+            ))
+          )}
+        </div>
+
+        {fileEditorOpen && selectedFile && (
+          <Suspense fallback={null}>
+            <div style={{ 
+              position: 'absolute', 
+              top: '40px', 
+              left: 0, 
+              right: 0, 
+              bottom: isMobile ? '80px' : 0, 
+              zIndex: 100 
+            }}>
+              <FileEditor filePath={selectedFile} onClose={() => setFileEditorOpen(false)} theme={currentTheme} />
             </div>
-          ))
+          </Suspense>
         )}
       </div>
-
-      {fileEditorOpen && selectedFile && (
-        <Suspense fallback={null}>
-          <div style={{ position: 'absolute', top: '40px', left: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0', right: 0, bottom: isMobile ? '80px' : 0, transition: isResizing ? 'none' : 'left 0.3s ease' }}>
-            <FileEditor filePath={selectedFile} onClose={() => setFileEditorOpen(false)} theme={currentTheme} />
-          </div>
-        </Suspense>
-      )}
 
       {isMobile && <StatusBar sessions={sessions} activeSessionId={activeSessionId} setActiveSessionId={setActiveSessionId} currentTheme={currentTheme} />}
 
@@ -220,38 +269,6 @@ function App() {
           setCommand={setCommandText} 
           theme={currentTheme} 
           t={t} 
-        />
-        <Sidebar 
-          isOpen={isSidebarOpen} 
-          onClose={() => setIsSidebarOpen(false)} 
-          sessions={sessions} 
-          activeSessionId={activeSessionId} 
-          onSelectSession={setActiveSessionId} 
-          onNewSession={handleNewSession} 
-          onCloseSession={(id) => setConfirmModal({ isOpen: true, sessionId: id, title: t('closeTerminal'), message: t('confirmCloseTerminal') })} 
-          onRenameSession={renameSession} 
-          onReconnectSession={(id) => { setActiveSessionId(null); setTimeout(() => setActiveSessionId(id), 50); }}
-          language={settings.language} 
-          theme={currentTheme} 
-          isMobile={isMobile} 
-          width={sidebarWidth} 
-          onResizeStart={(e) => {
-            e.preventDefault();
-            setIsResizing(true);
-            const startX = e.clientX;
-            const startWidth = sidebarWidth;
-            const onMove = (me) => setSidebarWidth(Math.max(180, Math.min(400, startWidth + me.clientX - startX)));
-            const onUp = () => {
-              setIsResizing(false);
-              document.removeEventListener('mousemove', onMove);
-              document.removeEventListener('mouseup', onUp);
-            };
-            document.addEventListener('mousemove', onMove);
-            document.addEventListener('mouseup', onUp);
-          }} 
-          onFileSelect={(path) => { setSelectedFile(path); setFileEditorOpen(true); }} 
-          onFolderSelect={setSelectedFolderPath} 
-          onOpenTerminalAtFolder={createSession} 
         />
         <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} onSave={updateSettings} theme={currentTheme} username={username} />
         <ConfirmModal 
