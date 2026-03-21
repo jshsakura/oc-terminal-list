@@ -51,5 +51,8 @@ backend/data/
 # Claude
 .claude/
 
+# Jupyter
+.ipynb_checkpoints/
+
 # Backup files
 backup-*.tar.gz

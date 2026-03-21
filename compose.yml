@@ -1,73 +1,46 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  # FastAPI 백엔드
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: iterminal-backend
-    restart: unless-stopped
+    image: jshsakura/oc-terminal-list:latest
+    container_name: oc-terminal-backend
+    # build: ./backend # 로컬에서 직접 빌드할 경우 주석 해제
     ports:
-      - "8000:8000"
+      - 28022:8000
     environment:
-      - PYTHONUNBUFFERED=1
+      - DB_PATH=/app/data/octerminallist.db
+      - WORKSPACE_ROOT=/workspace
+      - JWT_SECRET_KEY=your-super-secret-jwt-key-change-this
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      - SHELL=/bin/bash
     volumes:
-      # 개발 모드: 코드 변경 시 자동 재시작
-      - ./backend:/app
-      # SQLite 데이터베이스 (외부 경로)
-      - /home/ubuntu/app/iterm/data:/data
-      # 워크스페이스 (사용자 작업 공간)
-      - /home/ubuntu/app/iterm/workspace:/workspace
-      # PTY 장치 마운트
-      - /dev/pts:/dev/pts
-    privileged: true
-    networks:
-      - iterminal-network
-    command: >
-      uvicorn main:app
-      --host 0.0.0.0
-      --port 8000
-      --reload
-      --log-level info
-
-  # React 프론트엔드 (개발 모드)
-  frontend-dev:
-    image: node:18-alpine
-    container_name: iterminal-frontend-dev
+      # 1. 데이터 및 워크스페이스 영속화
+      - ./data:/app/data
+      - ./workspace:/workspace
+      
+      # 2. 홈 디렉토리 영속화 (가장 중요!)
+      # 컨테이너 터미널에서 nvm, pip 등으로 설치한 도구와 설정들이 영구 보존됩니다.
+      - terminal_home:/root
+      
+      # 3. 호스트 도커 제어 (Docker-in-Docker)
+      # 터미널 내부에서 'docker' 명령어를 사용하여 호스트의 컨테이너를 관리할 수 있습니다.
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      # 4. 호스트 환경 설정 공유 (Claude & OpenCode)
+      - /home/ubuntu/.config/Claude:/root/.config/Claude:ro
+      - /home/ubuntu/.config/opencode:/root/.config/opencode:ro
+      
     restart: unless-stopped
-    ports:
-      - "23232:5173"
-    working_dir: /app
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    environment:
-      - NODE_ENV=development
     networks:
-      - iterminal-network
-    depends_on:
-      - backend
-    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
-    profiles:
-      - dev
-
-  # React 프론트엔드 (프로덕션 모드)
-  frontend-prod:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: iterminal-frontend-prod
-    restart: unless-stopped
-    ports:
-      - "23232:80"
-    networks:
-      - iterminal-network
-    depends_on:
-      - backend
-    profiles:
-      - prod
+      - terminal-net
 
 networks:
-  iterminal-network:
+  terminal-net:
     driver: bridge
+
+volumes:
+  # 이름이 있는 볼륨으로 /root를 관리하여 컨테이너 재생성 시에도 데이터 유지
+  terminal_home:
+  # 기존 volumes 정의 유지 (필요시)
+  app-data:

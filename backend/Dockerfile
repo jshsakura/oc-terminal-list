@@ -22,9 +22,13 @@ RUN apt-get update && apt-get install -y \
     libxmlsec1-dev \
     libffi-dev \
     liblzma-dev \
-    && rm -rf /var/lib/apt/lists/* \
-    && sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen \
-    && locale-gen
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI 설치 (호스트 도커 제어용)
+RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh
+
+# 한글 로케일 설정
+RUN sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
 
 # nvm (Node Version Manager) 설치
 ENV NVM_DIR=/root/.nvm

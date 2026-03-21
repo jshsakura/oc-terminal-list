@@ -1,0 +1,37 @@
+version: "3.8"
+
+services:
+  backend:
+    image: jshsakura/oc-terminal-list:latest
+    container_name: oc-terminal-personal
+    ports:
+      - 28022:8000
+    environment:
+      - DB_PATH=/app/data/octerminallist.db
+      - WORKSPACE_ROOT=/workspace
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=HS256
+      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
+      - SHELL=/bin/bash
+    volumes:
+      # 1. 앱 데이터 및 코드 워크스페이스 (호스트 경로 명시)
+      - ./data:/app/data
+      - ./workspace:/workspace
+      
+      # 2. 터미널 환경 영속화
+      - ./home:/root
+      
+      # 3. 호스트 도커 제어
+      - /var/run/docker.sock:/var/run/docker.sock
+      
+      # 4. 호스트 환경 설정 공유 (Claude & OpenCode)
+      - /home/ubuntu/.config/Claude:/root/.config/Claude:ro
+      - /home/ubuntu/.config/opencode:/root/.config/opencode:ro
+      
+    restart: unless-stopped
+    networks:
+      - terminal-net
+
+networks:
+  terminal-net:
+    driver: bridge

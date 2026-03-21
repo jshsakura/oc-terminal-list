@@ -228,7 +228,7 @@ class PtyManager:
 
     async def _output_reader_loop(self, session_id: str):
         """
-        PTY 출력을 지속적으로 읽어서 WebSocket과 Redis로 전송
+        PTY 출력을 지속적으로 읽어서 WebSocket과 SQLite 스토리지로 전송
         [중요] 이 루프는 WebSocket 연결 여부와 무관하게 항상 실행됨
         [최적화] asyncio 이벤트 기반으로 즉시 반응
         """
