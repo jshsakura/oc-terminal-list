@@ -71,12 +71,13 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
 
   // 트리 데이터 변환 (API 데이터를 arborist 형식으로)
   const transformItems = useCallback((items) => {
+    if (!items) return [];
     return items.map(item => ({
-      id: item.path,
+      id: item.path || item.name, // 고유 ID로 경로 사용
       name: item.name,
       path: item.path,
       type: item.type,
-      // 폴더인 경우 children을 빈 배열로 두어 화살표가 나오게 함 (Lazy loading은 추후 구현)
+      // 폴더인 경우 children을 빈 배열로 두어 확장 가능하게 함
       children: item.type === 'directory' ? [] : null
     }));
   }, []);
@@ -85,15 +86,22 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
   const loadInitialData = useCallback(async () => {
     setLoading(true);
     try {
-      // 워크스페이스 정보 가져오기
+      // 1. 워크스페이스 정보 가져오기
       const ws = await apiCall('/api/files/workspace');
       setWorkspaceInfo(ws);
 
-      // 루트 아이템 가져오기
+      // 2. 루트 아이템 가져오기 (경로를 명시적으로 빈 문자열로 전달)
       const result = await apiCall('/api/files?path=');
-      setData(transformItems(result.items));
+      console.log('Explorer root items:', result);
+      
+      if (result && result.items) {
+        setData(transformItems(result.items));
+      } else {
+        setData([]);
+      }
     } catch (err) {
       console.error("Failed to load explorer:", err);
+      setData([]); // 에러 발생 시 빈 배열로 초기화하여 로딩 상태 해제
     } finally {
       setLoading(false);
     }

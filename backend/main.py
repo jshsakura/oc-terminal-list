@@ -144,6 +144,20 @@ async def startup_event():
     """서버 시작 시 초기화"""
     global auth_manager
     logger.info("=== iTerminaLlist 서버 시작 ===")
+    
+    # 워크스페이스 디렉토리 존재 보장 및 로깅
+    try:
+        if not os.path.exists(WORKSPACE_ROOT):
+            os.makedirs(WORKSPACE_ROOT, exist_ok=True)
+            logger.info(f"Created missing WORKSPACE_ROOT: {WORKSPACE_ROOT}")
+        else:
+            logger.info(f"Using existing WORKSPACE_ROOT: {WORKSPACE_ROOT}")
+            # 현재 워크스페이스 내 파일 목록 출력 (디버깅용)
+            files = os.listdir(WORKSPACE_ROOT)
+            logger.info(f"Files in workspace: {len(files)} items found")
+    except Exception as e:
+        logger.error(f"Failed to initialize WORKSPACE_ROOT: {e}")
+
     try:
         await storage.connect()
         logger.info("SQLite 스토리지 초기화 완료")
@@ -561,16 +575,25 @@ def validate_path(path: str) -> Path:
     """
     경로 검증 및 정규화
     """
-    if not path:
+    # 1. 경로가 None이거나 슬래시만 있는 경우 빈 문자열로 처리
+    if not path or path == "/":
         path = ""
+    
+    # 2. 앞뒤 공백 및 선행 슬래시 제거 (루트 기준 상대 경로로 통일)
+    path = path.strip().lstrip("/")
 
-    # WORKSPACE_ROOT 기준 절대 경로 생성
+    # 3. WORKSPACE_ROOT 기준 절대 경로 생성
     workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    
+    # 만약 path가 비어있다면 바로 workspace_abs 반환
+    if not path:
+        return Path(workspace_abs)
+        
     requested_abs = os.path.abspath(os.path.join(workspace_abs, path))
 
-    # workspace 외부 접근 차단
+    # 4. workspace 외부 접근 차단 (보안)
     if not requested_abs.startswith(workspace_abs):
-        logger.warning(f"Path traversal attempt: {path} (Resolved: {requested_abs})")
+        logger.warning(f"Path traversal attempt blocked: {path} (Resolved: {requested_abs})")
         raise HTTPException(status_code=403, detail="Access denied")
 
     return Path(requested_abs)

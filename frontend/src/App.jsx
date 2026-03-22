@@ -253,8 +253,6 @@ function App() {
           {/* 터미널 영역 */}
           <div 
             ref={terminalRef}
-            onTouchStart={isMobile ? handleTouchStart : undefined}
-            onTouchEnd={isMobile ? handleTouchEnd : undefined}
             style={{
               ...AppStyles.terminalContainer,
               display: activeFile && !isMobile ? 'none' : 'block',
@@ -262,6 +260,8 @@ function App() {
               backgroundColor: currentTheme.ui.bg,
               flex: 1,
               height: activeFile && !isMobile ? '0' : 'auto',
+              userSelect: 'text', // 텍스트 선택 강제 허용
+              WebkitUserSelect: 'text',
             }}
           >
             {sessions.length === 0 ? (
