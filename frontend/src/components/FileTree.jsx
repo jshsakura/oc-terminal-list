@@ -53,10 +53,15 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
       
       const res = await fetch(url, options);
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.detail || 'API Error');
+        let errorMsg = 'API Error';
+        try {
+          const err = await res.json();
+          errorMsg = err.detail || errorMsg;
+        } catch (e) {}
+        throw new Error(errorMsg);
       }
-      return await res.json();
+      const data = await res.json();
+      return data || { items: [] };
     } catch (error) {
       console.error(`API Error (${url}):`, error);
       throw error;

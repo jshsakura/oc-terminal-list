@@ -69,7 +69,9 @@ class PtyManager:
             })
 
             # 워크스페이스 디렉토리 설정 (main.py와 동일한 로직)
-            default_workspace = "/workspace" if os.path.exists("/workspace") else str(Path(__file__).parent.parent.resolve())
+            _current_file = os.path.abspath(__file__)
+            _project_root = os.path.dirname(os.path.dirname(_current_file))
+            default_workspace = "/workspace" if os.path.exists("/workspace") else _project_root
             workspace_root = os.getenv("WORKSPACE_ROOT", default_workspace)
 
             # 시작 디렉토리 결정

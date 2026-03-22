@@ -102,6 +102,8 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
           justifyContent: 'space-between',
           alignItems: 'center',
           height: '40px',
+          minHeight: '40px',
+          maxHeight: '40px',
           padding: '0 8px',
           boxSizing: 'border-box',
           backgroundColor: currentTheme.ui.bgSecondary, 
@@ -119,7 +121,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
                 alignItems: 'center',
                 height: '100%'
               }}>
-                {t('sessions')}
+                {activeTab === 'sessions' ? t('sessions') : t('files')}
               </h2>
             </div>
             <Button 
@@ -295,13 +297,15 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
 
         {/* 파일 트리 (파일 탭일 때) */}
         {activeTab === 'files' && (
-          <FileTree
-            theme={currentTheme}
-            onFileSelect={onFileSelect}
-            onFolderSelect={onFolderSelect}
-            onOpenTerminalAtFolder={onOpenTerminalAtFolder}
-            language={language}
-          />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <FileTree
+              theme={currentTheme}
+              onFileSelect={onFileSelect}
+              onFolderSelect={onFolderSelect}
+              onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+              language={language}
+            />
+          </div>
         )}
 
         {/* 푸터 정보 */}
