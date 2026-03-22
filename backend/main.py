@@ -116,15 +116,25 @@ class SessionNameRequest(BaseModel):
     name: str
 
 
-# Workspace 루트 디렉토리
-# 1. 환경변수 WORKSPACE_ROOT 확인
-# 2. /workspace 디렉토리 확인
-# 3. 위 둘 다 없으면 현재 프로젝트의 '상위' 디렉토리를 기본값으로 사용 (더 넓은 작업 영역 제공)
+# Workspace 루트 디렉토리 결정 로직
 _current_file = os.path.abspath(__file__)
 _project_root = os.path.dirname(os.path.dirname(_current_file))
-_parent_root = os.path.dirname(_project_root)
-default_workspace = "/workspace" if os.path.exists("/workspace") else _parent_root
-WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", default_workspace)
+
+# 1. 환경변수 확인
+WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT")
+
+if not WORKSPACE_ROOT:
+    # 2. Docker 볼륨 매핑 (/workspace) 확인
+    if os.path.exists("/workspace"):
+        WORKSPACE_ROOT = "/workspace"
+    else:
+        # 3. 데이터 폴더 내의 workspace (컴포즈 볼륨 구조 반영)
+        db_path = os.getenv("DB_PATH", os.path.join(_project_root, "data", "iterminallist.db"))
+        data_dir = os.path.dirname(os.path.abspath(db_path))
+        WORKSPACE_ROOT = os.path.join(data_dir, "workspace")
+
+# 디렉토리 존재 보장
+os.makedirs(WORKSPACE_ROOT, exist_ok=True)
 logger.info(f"WORKSPACE_ROOT configured as: {WORKSPACE_ROOT}")
 
 # 인증 매니저 인스턴스

@@ -71,11 +71,17 @@ class PtyManager:
             # 워크스페이스 디렉토리 설정 (main.py와 동일한 로직)
             _current_file = os.path.abspath(__file__)
             _project_root = os.path.dirname(os.path.dirname(_current_file))
-            _parent_root = os.path.dirname(_project_root)
-            default_workspace = "/workspace" if os.path.exists("/workspace") else _parent_root
-            workspace_root = os.getenv("WORKSPACE_ROOT", default_workspace)
-
-            # 시작 디렉토리 결정
+            workspace_root = os.getenv("WORKSPACE_ROOT")
+            
+            if not workspace_root:
+                if os.path.exists("/workspace"):
+                    workspace_root = "/workspace"
+                else:
+                    db_path = os.getenv("DB_PATH", os.path.join(_project_root, "data", "iterminallist.db"))
+                    data_dir = os.path.dirname(os.path.abspath(db_path))
+                    workspace_root = os.path.join(data_dir, "workspace")
+            
+            os.makedirs(workspace_root, exist_ok=True)
             start_dir = workspace_root
             if cwd:
                 if os.path.isabs(cwd):
