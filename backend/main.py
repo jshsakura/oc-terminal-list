@@ -353,20 +353,23 @@ async def terminal_websocket(
             # WebSocket에서 데이터 수신 (사용자 키 입력 또는 제어 메시지)
             data = await websocket.receive_text()
 
-            # 제어 메시지(JSON)인지 일반 입력인지 확인
-            try:
-                # JSON 파싱 시도
-                if data.startswith('{') and data.endswith('}'):
-                    msg = json.loads(data)
+            # 제어 메시지(JSON)인지 일반 입력인지 확인 (공백 제거 후 더 견고하게 체크)
+            is_control = False
+            stripped_data = data.strip()
+            if stripped_data.startswith('{') and stripped_data.endswith('}'):
+                try:
+                    msg = json.loads(stripped_data)
                     if isinstance(msg, dict) and msg.get('type') == 'resize':
+                        is_control = True
                         cols = msg.get('cols', 80)
                         rows = msg.get('rows', 24)
                         logger.info(f"WebSocket을 통한 터미널 리사이즈: {session_id} ({cols}x{rows})")
                         await pty_manager.resize(session_id, cols, rows)
-                        continue
-            except (json.JSONDecodeError, TypeError, ValueError):
-                # JSON이 아니거나 형식이 다르면 일반 터미널 입력으로 처리
-                pass
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    pass
+
+            if is_control:
+                continue
 
             # PTY에 입력 전송
             await pty_manager.write_input(session_id, data)
