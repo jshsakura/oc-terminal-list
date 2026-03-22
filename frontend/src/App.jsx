@@ -344,26 +344,6 @@ function App() {
                     </Suspense>
                   </div>
                 ))}
-                
-                {/* 하단 경로 표시 */}
-                {sessions.find(s => s.id === activeSessionId)?.cwd && (
-                  <div style={{
-                    position: 'absolute',
-                    bottom: isMobile ? '85px' : '10px',
-                    left: '15px',
-                    padding: '2px 8px',
-                    backgroundColor: `${currentTheme.ui.bgSecondary}cc`,
-                    color: currentTheme.ui.textSecondary,
-                    fontSize: '10px',
-                    borderRadius: '4px',
-                    border: `1px solid ${currentTheme.ui.borderLight}`,
-                    pointerEvents: 'none',
-                    fontFamily: '"JetBrains Mono", monospace',
-                    zIndex: 5
-                  }}>
-                    {sessions.find(s => s.id === activeSessionId).cwd}
-                  </div>
-                )}
               </>
             )}
           </div>
