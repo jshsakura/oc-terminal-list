@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-iTerminaLlist 단독 실행 스크립트
+Terminal List 단독 실행 스크립트
 Docker 없이 백엔드 + 프론트엔드 동시 실행
 Ctrl+C로 종료
 """
@@ -28,7 +28,7 @@ def print_header():
 {Colors.PURPLE}{Colors.BOLD}
 ╔═══════════════════════════════════════════════════╗
 ║                                                   ║
-║              iTerminaLlist v1.0                   ║
+║              Terminal List v1.0                   ║
 ║         Standalone Development Server             ║
 ║                                                   ║
 ╚═══════════════════════════════════════════════════╝

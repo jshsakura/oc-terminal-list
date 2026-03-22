@@ -1,4 +1,4 @@
-# iTerminaLlist - 빠른 시작 가이드
+# Terminal List - 빠른 시작 가이드
 
 ## 🚀 5분 안에 시작하기
 

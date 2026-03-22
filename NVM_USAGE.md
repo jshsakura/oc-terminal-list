@@ -119,7 +119,7 @@ npm install -g ts-node
 
 ## 터미널에서 직접 사용
 
-iTerminaLlist 웹 터미널에서 바로 nvm 명령어를 사용할 수 있습니다:
+Terminal List 웹 터미널에서 바로 nvm 명령어를 사용할 수 있습니다:
 
 1. 웹 터미널 접속 (http://localhost:5173)
 2. 로그인

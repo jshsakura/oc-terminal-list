@@ -2,7 +2,7 @@
 
 # 기본 타겟
 help:
-	@echo "iTerminaLlist - Docker Compose Makefile"
+	@echo "Terminal List - Docker Compose Makefile"
 	@echo ""
 	@echo "사용 가능한 명령어:"
 	@echo "  make up          - 전체 스택 시작"

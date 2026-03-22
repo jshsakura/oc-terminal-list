@@ -1,4 +1,4 @@
-# iTerminaLlist 개발 환경 가이드
+# Terminal List 개발 환경 가이드
 
 ## 개발 모드 실행
 

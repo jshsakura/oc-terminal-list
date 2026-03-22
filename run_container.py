@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-iTerminaLlist 개발용 컨테이너 관리 스크립트
+Terminal List 개발용 컨테이너 관리 스크립트
 
 사용법:
     python run_container.py dev     # 개발 모드 시작
@@ -235,7 +235,7 @@ def shell(service="backend"):
 
 def help_menu():
     """도움말 출력"""
-    print_header("iTerminaLlist 컨테이너 관리")
+    print_header("Terminal List 컨테이너 관리")
     print("""
 명령어:
     dev         개발 모드 시작 (핫 리로드)
