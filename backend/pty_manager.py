@@ -133,11 +133,11 @@ class PtyManager:
                 self._output_reader_loop(session_id)
             )
 
-            return session_info
+            return True
 
         except Exception as e:
             logger.error(f"PTY 세션 생성 실패 ({session_id}): {e}")
-            raise
+            return False
 
     async def attach_session(self, session_id: str, websocket: WebSocket):
         """

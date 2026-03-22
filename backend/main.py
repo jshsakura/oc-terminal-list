@@ -542,25 +542,36 @@ async def create_session(
 ):
     """
     새 세션 명시적 생성 (DB에 저장)
-
-    Args:
-        session_id: 세션 ID
-        request: 터미널 크기 및 시작 디렉토리 정보
-
-    Returns:
-        생성된 세션 정보
     """
+    logger.info(f"--- Session Creation API Call ---")
+    logger.info(f"ID: {session_id}")
+    logger.info(f"User: {username}")
+    logger.info(f"Requested CWD: {request.cwd}")
+    logger.info(f"Dimensions: {request.cols}x{request.rows}")
+
     if pty_manager.session_exists(session_id):
+        logger.warning(f"Session already exists: {session_id}")
         raise HTTPException(status_code=409, detail="세션이 이미 존재합니다")
 
     try:
-        await pty_manager.create_session(
+        # PTY 세션 생성 시도
+        success = await pty_manager.create_session(
             session_id, 
             cols=request.cols, 
             rows=request.rows, 
             cwd=request.cwd
         )
+        
+        if not success:
+            logger.error(f"PTY manager failed to create session {session_id}")
+            raise HTTPException(status_code=500, detail="PTY 세션 생성에 실패했습니다")
+
+        logger.info(f"PTY session created successfully")
+
+        # DB에 세션 정보 저장 시도
         await storage.create_session(session_id, username, cwd=request.cwd)
+        logger.info(f"Session stored in DB successfully")
+
         return {
             "session_id": session_id,
             "status": "created",
@@ -569,7 +580,7 @@ async def create_session(
             "cwd": request.cwd
         }
     except Exception as e:
-        logger.error(f"세션 생성 실패 ({session_id}): {e}")
+        logger.error(f"CRITICAL ERROR in create_session: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
