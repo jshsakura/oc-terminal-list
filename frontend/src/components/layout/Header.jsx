@@ -42,13 +42,15 @@ const Header = ({
           icon={isSidebarOpen ? PanelLeftClose : PanelLeft}
         />
 
-        <h1 style={{
-          ...styles.title,
-          color: currentTheme.ui.accent,
-          letterSpacing: '0.5px',
-          fontSize: '14px',
-          fontWeight: '800',
-        }}>{t('appName')}</h1>
+        {!isMobile && (
+          <h1 style={{
+            ...styles.title,
+            color: currentTheme.ui.accent,
+            letterSpacing: '0.5px',
+            fontSize: '14px',
+            fontWeight: '800',
+          }}>{t('appName')}</h1>
+        )}
       </div>
 
       <div style={styles.headerRight}>
@@ -60,15 +62,15 @@ const Header = ({
             borderColor: 'transparent',
             borderRadius: currentTheme.ui.radiusSmall,
             height: '26px',
-            marginRight: '8px',
-            padding: '0 12px',
+            marginRight: isMobile ? '4px' : '8px',
+            padding: isMobile ? '0 8px' : '0 12px',
             boxShadow: 'inset 0 1px 4px rgba(0,0,0,0.2)',
           }}>
-            <span style={{ color: currentTheme.ui.accent, fontWeight: '800' }}>
+            <span style={{ color: currentTheme.ui.accent, fontWeight: '800', fontSize: isMobile ? '11px' : 'inherit' }}>
               {sessions.findIndex((s) => s.id === activeSessionId) + 1}
             </span>
-            <span style={{ color: currentTheme.ui.textSecondary, fontSize: '10px', margin: '0 6px' }}> / </span>
-            <span style={{ color: currentTheme.ui.textSecondary, fontWeight: '600' }}>
+            <span style={{ color: currentTheme.ui.textSecondary, fontSize: '10px', margin: isMobile ? '0 2px' : '0 6px' }}> / </span>
+            <span style={{ color: currentTheme.ui.textSecondary, fontWeight: '600', fontSize: isMobile ? '11px' : 'inherit' }}>
               {sessions.length}
             </span>
           </div>

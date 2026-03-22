@@ -44,13 +44,17 @@ const AppStyles = {
     flexWrap: 'nowrap',
     height: '100%',
     paddingLeft: '4px',
+    minWidth: 'fit-content',
   },
   headerRight: {
     display: 'flex',
     alignItems: 'center',
-    gap: '4px',
+    justifyContent: 'flex-end',
+    gap: '2px',
     height: '100%',
     paddingRight: '4px',
+    flex: 1,
+    overflow: 'visible',
   },
   hamburgerBtn: {
     background: 'none',
