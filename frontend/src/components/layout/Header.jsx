@@ -60,16 +60,23 @@ const Header = ({
           gap: '8px'
         }}>
           iTerminaLlist
-          {activeSessionId && !isMobile && (
+          {activeSessionId && (
             <span style={{ 
               fontSize: '10px', 
-              fontWeight: '400', 
-              opacity: 0.5,
+              fontWeight: '700', 
+              opacity: 0.8,
               backgroundColor: currentTheme.ui.bgTertiary,
-              padding: '2px 6px',
-              borderRadius: '10px'
+              color: currentTheme.ui.accent,
+              padding: '2px 8px',
+              borderRadius: '10px',
+              marginLeft: '4px',
+              border: `1px solid ${currentTheme.ui.border}`,
+              maxWidth: isMobile ? '80px' : '120px',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
             }}>
-              {sessions.find(s => s.id === activeSessionId)?.name || 'bash'}
+              {sessions.find(s => s.id === activeSessionId)?.name || 'zsh'}
             </span>
           )}
         </h1>

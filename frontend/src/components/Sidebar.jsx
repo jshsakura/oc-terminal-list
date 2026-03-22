@@ -335,8 +335,8 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         <div style={{ 
           backgroundColor: currentTheme.ui.bgSecondary, 
           borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, 
-          padding: '8px 12px',
-          paddingBottom: isMobile ? '40px' : '8px' // MobileToolbar(32px) 고려하여 여유있게 패딩 추가
+          padding: isMobile ? '6px 12px' : '8px 12px',
+          paddingBottom: isMobile ? 'calc(34px + env(safe-area-inset-bottom, 0px))' : '8px' // MobileToolbar 높이와 일치
         }}>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="CPU">

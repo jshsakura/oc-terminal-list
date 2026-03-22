@@ -19,14 +19,29 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     locales \
     curl \
+    git \
+    zsh \
+    vim \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen \
     && locale-gen
+
+# Install Oh My Zsh and Plugins (Global)
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
+    && git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
+    && git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+
+# Configure .zshrc with Agnoster theme and plugins
+RUN sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' ~/.zshrc \
+    && sed -i 's/plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/' ~/.zshrc \
+    && echo "export TERM=xterm-256color" >> ~/.zshrc \
+    && echo "export LANG=ko_KR.UTF-8" >> ~/.zshrc
 
 # Set locale
 ENV LANG=ko_KR.UTF-8
 ENV LC_ALL=ko_KR.UTF-8
 ENV LANGUAGE=ko_KR:ko
+ENV SHELL=/bin/zsh
 
 # Install Python dependencies
 COPY backend/requirements.txt .

@@ -50,12 +50,28 @@ class SQLiteStorage:
             CREATE TABLE IF NOT EXISTS sessions (
                 session_id TEXT PRIMARY KEY,
                 username TEXT NOT NULL,
-                name TEXT,
-                cwd TEXT,
                 created_at TEXT NOT NULL,
                 last_active TEXT NOT NULL
             )
         """)
+
+        # 컬럼 존재 여부 체크 및 추가 (Migration)
+        cursor.execute("PRAGMA table_info(sessions)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'name' not in columns:
+            try:
+                cursor.execute("ALTER TABLE sessions ADD COLUMN name TEXT")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
+                
+        if 'cwd' not in columns:
+            try:
+                cursor.execute("ALTER TABLE sessions ADD COLUMN cwd TEXT")
+                conn.commit()
+            except sqlite3.OperationalError:
+                pass
 
         # 세션 히스토리 테이블
         cursor.execute("""
@@ -69,30 +85,10 @@ class SQLiteStorage:
         """)
 
         # 인덱스 생성
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_session_id
-            ON session_history(session_id)
-        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_session_id ON session_history(session_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sessions_username ON sessions(username)")
 
-        cursor.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sessions_username
-            ON sessions(username)
-        """)
-
-        # Migration: name, cwd 컬럼 추가 (기존 테이블 호환)
-        try:
-            cursor.execute("ALTER TABLE sessions ADD COLUMN name TEXT")
-        except sqlite3.OperationalError:
-            pass
-
-        try:
-            cursor.execute("ALTER TABLE sessions ADD COLUMN cwd TEXT")
-        except sqlite3.OperationalError:
-            pass
-
-        conn.commit()
-
-        # 시스템 설정 테이블 (JWT SECRET_KEY 저장용)
+        # 시스템 설정 테이블
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS system_config (
                 key TEXT PRIMARY KEY,

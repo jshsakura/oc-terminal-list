@@ -182,7 +182,8 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    height: '32px', // 전체 높이 대폭 축소
+    height: 'calc(34px + env(safe-area-inset-bottom, 0px))', // 높이 소폭 증가 및 세이프 에어리어 대응
+    paddingBottom: 'env(safe-area-inset-bottom, 2px)', // 하단 홈바 여백
     zIndex: 10000,
     display: 'flex',
     alignItems: 'center',

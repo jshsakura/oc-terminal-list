@@ -215,10 +215,28 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
                       textOverflow: 'ellipsis', 
                       flex: 1,
                       fontWeight: isActive ? '700' : '400',
-                      color: isActive ? theme.ui.text : theme.ui.textSecondary
+                      color: item.git_status === 'M' ? '#fab387' : // Mocha orange
+                             (item.git_status === '??' || item.git_status === 'A') ? '#a6e3a1' : // Mocha green
+                             isActive ? theme.ui.text : theme.ui.textSecondary
                     }}>
                       {item.name}
                     </span>
+                    {item.git_status && (
+                      <span style={{ 
+                        fontSize: '9px', 
+                        fontWeight: '800', 
+                        padding: '1px 4px', 
+                        borderRadius: '2px',
+                        backgroundColor: item.git_status === 'M' ? '#fab38722' : 
+                                       (item.git_status === '??' || item.git_status === 'A') ? '#a6e3a122' : 'transparent',
+                        color: item.git_status === 'M' ? '#fab387' : 
+                               (item.git_status === '??' || item.git_status === 'A') ? '#a6e3a1' : theme.ui.textSecondary,
+                        border: `1px solid ${item.git_status === 'M' ? '#fab38744' : '#a6e3a144'}`,
+                        flexShrink: 0
+                      }}>
+                        {item.git_status === '??' ? 'U' : item.git_status}
+                      </span>
+                    )}
                   </div>
                 );
               })

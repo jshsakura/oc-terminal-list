@@ -48,67 +48,40 @@ class PtyManager:
         """세션 존재 여부 확인"""
         return session_id in self.sessions
 
-    async def create_session(self, session_id: str, cols: int = 80, rows: int = 24, cwd: Optional[str] = None) -> SessionInfo:
-        """
-        새 PTY 세션 생성
-
-        Args:
-            session_id: 세션 ID
-            cols: 터미널 너비 (컬럼)
-            rows: 터미널 높이 (행)
-            cwd: 시작 디렉토리 (선택 사항)
-
-        Returns:
-            SessionInfo 객체
-        """
+    async def create_session(self, session_id: str, cols: int = 80, rows: int = 24, cwd: Optional[str] = None) -> bool:
+        """새 PTY 세션 생성"""
         if self.session_exists(session_id):
-            logger.warning(f"세션이 이미 존재함: {session_id}")
-            return self.sessions[session_id]
+            return True
+
+        # 1. 쉘 결정 (환경 변수 우선)
+        shell = os.getenv("SHELL")
+        if not (shell and os.path.exists(shell) and os.access(shell, os.X_OK)):
+            shell = None
+            for s in ["/bin/zsh", "/usr/bin/zsh", "/bin/bash", "/usr/bin/bash", "/bin/sh"]:
+                if os.path.exists(s) and os.access(s, os.X_OK):
+                    shell = s
+                    break
+        if not shell: shell = "/bin/sh"
+
+        # 2. 시작 디렉토리 확정
+        # main.py에서 이미 검증된 절대 경로가 오지만, 다시 한번 확인
+        start_dir = cwd if cwd and os.path.exists(cwd) else os.getcwd()
 
         try:
-            # 환경 변수 설정 (한글 지원)
+            # 3. 환경 변수 설정
             env = os.environ.copy()
             env.update({
                 "TERM": "xterm-256color",
                 "LANG": "ko_KR.UTF-8",
                 "LC_ALL": "ko_KR.UTF-8",
-                "COLORTERM": "truecolor"
+                "COLORTERM": "truecolor",
+                "SHELL": shell,
+                "HOME": os.path.expanduser("~")
             })
 
-            # 워크스페이스 디렉토리 설정 (main.py와 동일한 로직)
-            _p_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            _l_workspace = os.path.join(_p_root, "workspace")
-            workspace_root = os.getenv("WORKSPACE_ROOT", "/app/workspace")
+            logger.info(f"Spawning PTY: shell={shell}, cwd={start_dir}")
             
-            if workspace_root == "/app/workspace" and not os.path.exists(workspace_root) and os.path.exists(_l_workspace):
-                workspace_root = _l_workspace
-                
-            os.makedirs(workspace_root, exist_ok=True)
-            
-            start_dir = workspace_root
-            if cwd:
-                if os.path.isabs(cwd):
-                    temp_dir = cwd
-                else:
-                    temp_dir = os.path.normpath(os.path.join(workspace_root, cwd))
-                
-                if os.path.exists(temp_dir) and os.path.is_dir(temp_dir):
-                    start_dir = temp_dir
-                    logger.info(f"Using requested directory: {start_dir}")
-                else:
-                    logger.warning(f"요청된 디렉토리가 존재하지 않거나 디렉토리가 아님: {temp_dir}, 기본값 사용: {start_dir}")
-
-            # 지능형 셸 감지 (zsh -> bash -> sh)
-            shell = os.environ.get("SHELL")
-            if not shell:
-                for s in ["/bin/zsh", "/usr/bin/zsh", "/bin/bash", "/bin/sh"]:
-                    if os.path.exists(s):
-                        shell = s
-                        break
-            
-            if not shell:
-                shell = "/bin/sh"
-
+            # 4. 프로세스 실행 (실패 시 예외가 발생하여 상위로 전달됨)
             process = ptyprocess.PtyProcess.spawn(
                 [shell],
                 dimensions=(rows, cols),
@@ -116,29 +89,24 @@ class PtyManager:
                 cwd=start_dir
             )
 
-            logger.info(f"--- PTY Session Created ---")
-            logger.info(f"ID: {session_id}")
-            logger.info(f"PID: {process.pid}")
-            logger.info(f"CWD: {start_dir}")
-            logger.info(f"Shell: {shell}")
-            logger.info(f"Workspace Root Used: {workspace_root}")
-
-            # 세션 정보 저장
+            # 5. 세션 정보 저장
             session_info = SessionInfo(process, session_id)
             session_info.cols = cols
             session_info.rows = rows
             self.sessions[session_id] = session_info
 
-            # 비동기 출력 리더 태스크 시작
+            # 6. 출력 리더 시작
             session_info.output_task = asyncio.create_task(
                 self._output_reader_loop(session_id)
             )
 
+            logger.info(f"PTY Session {session_id} started successfully (PID: {process.pid})")
             return True
 
         except Exception as e:
-            logger.error(f"PTY 세션 생성 실패 ({session_id}): {e}")
-            return False
+            logger.error(f"PTY Spawn Error ({session_id}) at {start_dir}: {str(e)}")
+            # 예외를 다시 던져서 main.py에서 상세 사유를 알 수 있게 함
+            raise e
 
     async def attach_session(self, session_id: str, websocket: WebSocket):
         """

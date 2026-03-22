@@ -430,6 +430,37 @@ async def get_raw_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+import asyncio
+import subprocess
+from pathlib import Path
+
+# 파일 시스템 헬퍼 함수
+def validate_path(path) -> Path:
+    """
+    경로 검증 및 정규화
+    어떤 경로가 들어와도 WORKSPACE_ROOT 내부로 한정함
+    """
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    
+    # 1. 경로가 None이거나 빈 문자열인 경우 루트 반환
+    if path is None or str(path).strip() in ["/", "", "None"]:
+        return Path(workspace_abs)
+    
+    # 2. 선행 슬래시 제거 및 보안을 위한 상위 디렉토리 참조(..) 제거
+    clean_path = str(path).strip().lstrip("/")
+    # ../ 등을 통한 탈출 방지
+    clean_path = os.path.normpath(clean_path).replace("..", "")
+    
+    # 3. 절대 경로 결합
+    requested_abs = os.path.abspath(os.path.join(workspace_abs, clean_path))
+
+    # 4. workspace 외부 접근 차단 (최종 확인)
+    if not requested_abs.startswith(workspace_abs):
+        return Path(workspace_abs)
+
+    return Path(requested_abs)
+
+
 # WebSocket: 터미널 세션
 @app.websocket("/ws/{session_id}")
 async def terminal_websocket(
@@ -442,10 +473,6 @@ async def terminal_websocket(
 ):
     """
     터미널 WebSocket 연결 핸들러
-
-    프로토콜:
-    - 클라이언트 → 서버: 사용자 입력 (텍스트)
-    - 서버 → 클라이언트: 터미널 출력 (텍스트)
     """
     # 인증 확인 (optional)
     username = "admin"  # 기본 사용자
@@ -463,22 +490,25 @@ async def terminal_websocket(
         is_new_session = not pty_manager.session_exists(session_id)
         
         if is_new_session:
-            logger.info(f"새 세션 생성: {session_id} (cols={cols}, rows={rows}, cwd={cwd})")
-            await pty_manager.create_session(session_id, cols=cols, rows=rows, cwd=cwd)
-            await storage.create_session(session_id, username, cwd=cwd)
+            # WebSocket 경로 검증
+            safe_cwd = str(validate_path(cwd).absolute())
+            logger.info(f"새 세션 생성 (WS): {session_id} (cwd={safe_cwd})")
+            await pty_manager.create_session(session_id, cols=cols, rows=rows, cwd=safe_cwd)
+            try:
+                await storage.create_session(session_id, username, cwd=cwd or "")
+            except:
+                pass
         else:
             logger.info(f"기존 세션 복원: {session_id}")
             await storage.update_session_activity(session_id)
 
-        # 2. SQLite 히스토리 전송 (재접속 시에만 이전 상태 복원)
-        # 세션에 이미 연결된 소켓이 있다면 히스토리를 보내지 않음 (중복 출력 방지)
+        # 2. SQLite 히스토리 전송
         session_info = pty_manager.sessions.get(session_id)
         is_already_connected = session_info and session_info.connected_socket is not None
         
         if not is_new_session and not is_already_connected:
             history = await storage.get_history(session_id)
             if history:
-                logger.info(f"히스토리 복원: {session_id} ({len(history)} 청크)")
                 full_history = "".join(history)
                 await websocket.send_text(full_history)
 
@@ -487,10 +517,7 @@ async def terminal_websocket(
 
         # 4. 사용자 입력 수신 루프
         while True:
-            # WebSocket에서 데이터 수신 (사용자 키 입력 또는 제어 메시지)
             data = await websocket.receive_text()
-
-            # 제어 메시지(JSON)인지 일반 입력인지 확인 (공백 제거 후 더 견고하게 체크)
             is_control = False
             stripped_data = data.strip()
             if stripped_data.startswith('{') and stripped_data.endswith('}'):
@@ -498,24 +525,15 @@ async def terminal_websocket(
                     msg = json.loads(stripped_data)
                     if isinstance(msg, dict) and msg.get('type') == 'resize':
                         is_control = True
-                        cols = msg.get('cols', 80)
-                        rows = msg.get('rows', 24)
-                        logger.info(f"WebSocket을 통한 터미널 리사이즈: {session_id} ({cols}x{rows})")
-                        await pty_manager.resize(session_id, cols, rows)
-                except (json.JSONDecodeError, TypeError, ValueError):
+                        await pty_manager.resize(session_id, msg.get('cols', 80), msg.get('rows', 24))
+                except:
                     pass
 
-            if is_control:
-                continue
-
-            # PTY에 입력 전송
+            if is_control: continue
             await pty_manager.write_input(session_id, data)
 
     except WebSocketDisconnect:
-        # 클라이언트 연결 종료 (프로세스는 유지)
-        logger.info(f"WebSocket 연결 해제: {session_id} (세션 유지)")
         await pty_manager.detach_session(session_id)
-
     except Exception as e:
         logger.error(f"WebSocket 에러 ({session_id}): {e}")
         await pty_manager.detach_session(session_id)
@@ -524,14 +542,8 @@ async def terminal_websocket(
 # REST API: 세션 관리
 @app.get("/api/sessions", response_model=List[dict])
 async def list_sessions(username: str = Depends(verify_auth_token)):
-    """
-    사용자의 세션 목록 조회 (DB에서)
-
-    Returns:
-        세션 정보 리스트
-    """
-    sessions = await storage.get_user_sessions(username)
-    return sessions
+    """사용자의 세션 목록 조회"""
+    return await storage.get_user_sessions(username)
 
 
 @app.post("/api/sessions/{session_id}")
@@ -540,50 +552,52 @@ async def create_session(
     request: SessionCreateRequest,
     username: str = Depends(verify_auth_token)
 ):
-    """
-    새 세션 명시적 생성 (DB에 저장)
-    """
-    logger.info(f"--- Session Creation API Call ---")
-    logger.info(f"ID: {session_id}")
-    logger.info(f"User: {username}")
-    logger.info(f"Requested CWD: {request.cwd}")
-    logger.info(f"Dimensions: {request.cols}x{request.rows}")
+    """새 세션 명시적 생성"""
+    logger.info(f"[API] Create Session: {session_id}, CWD: {request.cwd}")
 
     if pty_manager.session_exists(session_id):
-        logger.warning(f"Session already exists: {session_id}")
-        raise HTTPException(status_code=409, detail="세션이 이미 존재합니다")
+        return {"session_id": session_id, "status": "exists", "cwd": request.cwd}
 
     try:
-        # PTY 세션 생성 시도
-        success = await pty_manager.create_session(
+        # 1. 경로 검증 (요청된 경로가 있으면 엄격하게 체크)
+        safe_cwd = str(os.path.abspath(WORKSPACE_ROOT))
+        if request.cwd:
+            target_path = validate_path(request.cwd)
+            if not target_path.exists():
+                raise HTTPException(status_code=400, detail=f"디렉토리가 존재하지 않습니다: {request.cwd}")
+            if not target_path.is_dir():
+                raise HTTPException(status_code=400, detail=f"디렉토리가 아닙니다: {request.cwd}")
+            if not os.access(str(target_path), os.X_OK):
+                raise HTTPException(status_code=400, detail=f"디렉토리에 접근 권한이 없습니다: {request.cwd}")
+            safe_cwd = str(target_path.absolute())
+
+        # 2. PTY 세션 생성 (여기서 발생하는 에러는 500으로 상세 사유 전달)
+        await pty_manager.create_session(
             session_id, 
-            cols=request.cols, 
-            rows=request.rows, 
-            cwd=request.cwd
+            cols=request.cols or 80, 
+            rows=request.rows or 24, 
+            cwd=safe_cwd
         )
         
-        if not success:
-            logger.error(f"PTY manager failed to create session {session_id}")
-            raise HTTPException(status_code=500, detail="PTY 세션 생성에 실패했습니다")
-
-        logger.info(f"PTY session created successfully: {session_id}")
-
-        # DB에 세션 정보 저장 시도
-        await storage.create_session(session_id, username, cwd=request.cwd)
-        logger.info(f"Session {session_id} stored in DB successfully")
+        # 3. DB 저장 (실패해도 무시)
+        try:
+            await storage.create_session(session_id, username, cwd=request.cwd or "")
+        except:
+            pass
 
         return {
             "session_id": session_id,
             "status": "created",
-            "cols": request.cols,
-            "rows": request.rows,
-            "cwd": request.cwd
+            "cwd": safe_cwd
         }
-    except HTTPException:
-        raise
+    except HTTPException as he:
+        # 이미 처리된 HTTP 예외는 그대로 전달
+        raise he
     except Exception as e:
-        logger.error(f"CRITICAL ERROR in create_session ({session_id}): {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        # 예상치 못한 시스템 에러(ptyprocess 실패 등)는 상세 사유와 함께 500 전달
+        logger.error(f"create_session critical error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"터미널 실행 실패: {str(e)}")
+
 
 
 @app.delete("/api/sessions/{session_id}")
@@ -692,33 +706,39 @@ async def get_session_history(session_id: str, username: str = Depends(verify_au
 
 
 # 파일 시스템 헬퍼 함수
-def validate_path(path: str) -> Path:
-    """
-    경로 검증 및 정규화
-    """
-    # 1. 경로가 None이거나 슬래시만 있는 경우 빈 문자열로 처리
-    if not path or path == "/":
-        path = ""
-    
-    # 2. 앞뒤 공백 및 선행 슬래시 제거 (루트 기준 상대 경로로 통일)
-    path = path.strip().lstrip("/")
 
-    # 3. WORKSPACE_ROOT 기준 절대 경로 생성
-    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-    
-    # 만약 path가 비어있다면 바로 workspace_abs 반환
-    if not path:
-        return Path(workspace_abs)
+
+import asyncio
+import subprocess
+from pathlib import Path
+
+async def get_git_status(path: Path) -> dict:
+    """Git 상태 조회 (M, ??, A, D 등)"""
+    try:
+        # 워크스페이스 루트에서 실행
+        workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+        # --porcelain=v1: 기계 친화적 출력, -uall: 모든 untracked 파일 표시
+        proc = await asyncio.create_subprocess_exec(
+            "git", "status", "--porcelain=v1", "-uall",
+            cwd=workspace_abs,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
         
-    requested_abs = os.path.abspath(os.path.join(workspace_abs, path))
-
-    # 4. workspace 외부 접근 차단 (보안)
-    if not requested_abs.startswith(workspace_abs):
-        logger.warning(f"Path traversal attempt blocked: {path} (Resolved: {requested_abs})")
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    return Path(requested_abs)
-
+        status_dict = {}
+        if stdout:
+            for line in stdout.decode().splitlines():
+                if len(line) > 3:
+                    # ' M frontend/src/App.jsx' -> status='M', file_path='frontend/src/App.jsx'
+                    status = line[:2].strip()
+                    file_path = line[3:].strip().strip('"') # 따옴표 제거
+                    status_dict[file_path] = status
+        
+        return status_dict
+    except Exception as e:
+        logger.error(f"Git status failed: {e}")
+        return {}
 
 # 파일 시스템 API
 @app.get("/api/files/workspace")
@@ -756,18 +776,33 @@ async def list_files(
             logger.error(f"Path is not a directory: {safe_path}")
             raise HTTPException(status_code=400, detail="Not a directory")
 
+        # Git 상태 가져오기
+        git_statuses = await get_git_status(safe_path)
+
         items = []
         for item in safe_path.iterdir():
             try:
                 item_abs = os.path.abspath(str(item))
-                relative_path = os.path.relpath(item_abs, workspace_abs)
+                relative_path = os.path.relpath(item_abs, workspace_abs).replace('\\', '/')
                 
+                # 폴더인 경우, 해당 폴더 내부 파일 중 Git 변경사항이 있는지 확인
+                git_status = git_statuses.get(relative_path)
+                
+                # 폴더에 직접적인 상태는 없어도 내부 파일이 변경된 경우 표시 로직 (선택사항)
+                if not git_status and item.is_dir():
+                    # 'frontend/'로 시작하는 변경사항이 있으면 폴더도 M으로 표시하거나 힌트 제공
+                    for f_path, f_status in git_statuses.items():
+                        if f_path.startswith(relative_path + '/'):
+                            git_status = "M" # 하위 변경됨 표시
+                            break
+
                 items.append({
                     "name": item.name,
-                    "path": relative_path.replace('\\', '/'),
+                    "path": relative_path,
                     "type": "directory" if item.is_dir() else "file",
                     "size": item.stat().st_size if item.is_file() else None,
-                    "modified": item.stat().st_mtime
+                    "modified": item.stat().st_mtime,
+                    "git_status": git_status
                 })
             except Exception as e:
                 logger.warning(f"Failed to read item {item}: {e}")
