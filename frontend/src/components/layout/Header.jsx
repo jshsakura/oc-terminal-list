@@ -29,7 +29,9 @@ const Header = ({
       backgroundColor: currentTheme.ui.bgSecondary,
       borderBottom: `1px solid ${currentTheme.ui.border}`,
       height: '40px',
-      boxShadow: 'none', // 글로우 효과 제거
+      boxShadow: 'none',
+      position: 'relative', // 레이어 우선순위 확보를 위해 추가
+      zIndex: 1000,         // 터미널 영역보다 위에 오도록 설정
     }}>
       <div style={styles.headerLeft}>
         <Button 
@@ -99,7 +101,7 @@ const Header = ({
                 theme={currentTheme}
                 style={{
                   backgroundColor: isMenuOpen ? currentTheme.ui.bgTertiary : 'transparent',
-                  zIndex: 10002,
+                  zIndex: 2000,
                 }}
                 icon={Menu}
               />
