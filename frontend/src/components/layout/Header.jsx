@@ -8,34 +8,31 @@ const Header = ({
   sessions, 
   activeSessionId, 
   isMobile, 
-  const Header = ({ 
-    isSidebarOpen, 
-    onToggleSidebar, 
-    currentTheme, 
-    onNewSession, 
-    onOpenSettings, 
-    onOpenConfirmModal,
-    language = 'en',
-    handleLogoutRequest
-  }) => {
-    const styles = AppStyles;
-    const { t } = useTranslation(language);
-    const isLightTheme = currentTheme.background === '#ffffff' || currentTheme.background === '#fdf6e3' || currentTheme.background === '#fbf1c7';
+  currentTheme, 
+  t,
+  handleNewSession,
+  setIsSettingsOpen,
+  handleLogoutRequest,
+  setIsMenuOpen,
+  isMenuOpen
+}) => {
+  const styles = AppStyles;
+  const isLightTheme = currentTheme.background === '#ffffff' || currentTheme.background === '#fdf6e3' || currentTheme.background === '#fbf1c7';
 
-    return (
-      <div style={{
-        ...styles.header,
-        backgroundColor: currentTheme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.92)' : 'rgba(30, 30, 46, 0.7)'),
-        backdropFilter: isLightTheme ? 'blur(12px)' : 'blur(8px) saturate(140%)',
-        WebkitBackdropFilter: isLightTheme ? 'blur(12px)' : 'blur(8px) saturate(140%)',
-        borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
-        boxShadow: currentTheme.ui.shadow || (isLightTheme ? '0 1px 10px rgba(0,0,0,0.04)' : '0 2px 15px rgba(0,0,0,0.4)'),
-        height: '40px',
-        minHeight: '40px',
-        maxHeight: '40px',
-        position: 'relative',
-        zIndex: 100,
-      }}>
+  return (
+    <div style={{
+      ...styles.header,
+      backgroundColor: currentTheme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.92)' : 'rgba(30, 30, 46, 0.7)'),
+      backdropFilter: isLightTheme ? 'blur(12px)' : 'blur(8px) saturate(140%)',
+      WebkitBackdropFilter: isLightTheme ? 'blur(12px)' : 'blur(8px) saturate(140%)',
+      borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
+      boxShadow: currentTheme.ui.shadow || (isLightTheme ? '0 1px 10px rgba(0,0,0,0.04)' : '0 2px 15px rgba(0,0,0,0.4)'),
+      height: '40px',
+      minHeight: '40px',
+      maxHeight: '40px',
+      position: 'relative',
+      zIndex: 100,
+    }}>
       <div style={styles.headerLeft}>
         <Button 
           variant="ghost" 
@@ -48,104 +45,78 @@ const Header = ({
 
         <h1 style={{
           ...styles.title,
-          color: currentTheme.ui.accent,
-          letterSpacing: '0.5px',
-          fontSize: isMobile ? '12px' : '14px',
+          color: currentTheme.ui.text,
+          fontSize: isMobile ? '14px' : '16px',
           fontWeight: '800',
-          padding: isMobile ? '0 4px' : '0 8px',
+          letterSpacing: '-0.02em',
           margin: 0,
-          fontFamily: '"JetBrains Mono", monospace'
-        }}>{t('appName')}</h1>
+          marginLeft: '4px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px'
+        }}>
+          iTerminaLlist
+          {activeSessionId && !isMobile && (
+            <span style={{ 
+              fontSize: '10px', 
+              fontWeight: '400', 
+              opacity: 0.5,
+              backgroundColor: currentTheme.ui.bgTertiary,
+              padding: '2px 6px',
+              borderRadius: '10px'
+            }}>
+              {sessions.find(s => s.id === activeSessionId)?.name || 'bash'}
+            </span>
+          )}
+        </h1>
       </div>
 
       <div style={styles.headerRight}>
-        {sessions.length > 0 && (
-          <div style={{
-            ...styles.sessionInfo,
-            color: currentTheme.ui.text,
-            backgroundColor: currentTheme.ui.bgTertiary,
-            border: `1px solid ${currentTheme.ui.border}`,
-            borderRadius: currentTheme.ui.radiusSmall,
-            height: '26px',
-            marginRight: isMobile ? '4px' : '8px',
-            padding: isMobile ? '0 8px' : '0 12px',
-          }}>
-            <span style={{ color: currentTheme.ui.accent, fontWeight: '800', fontSize: isMobile ? '11px' : 'inherit' }}>
-              {sessions.findIndex((s) => s.id === activeSessionId) + 1}
-            </span>
-            <span style={{ color: currentTheme.ui.textSecondary, fontSize: '10px', margin: isMobile ? '0 2px' : '0 6px' }}> / </span>
-            <span style={{ color: currentTheme.ui.textSecondary, fontWeight: '600', fontSize: isMobile ? '11px' : 'inherit' }}>
-              {sessions.length}
-            </span>
-          </div>
-        )}
-        
         {isMobile ? (
-          <>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={handleScrollToBottom} 
-              disabled={sessions.length === 0}
-              theme={currentTheme}
-              style={{
-                backgroundColor: scrollBtnClicked ? currentTheme.ui.accentMuted : 'transparent',
-                color: sessions.length === 0 ? currentTheme.ui.textSecondary + '60' : currentTheme.ui.iconColor,
-              }}
-              icon={ChevronsDown}
-            />
-
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={(e) => {
-                e.stopPropagation();
-                setIsMenuOpen(!isMenuOpen);
-              }} 
-              theme={currentTheme}
-              style={{
-                backgroundColor: isMenuOpen ? currentTheme.ui.bgTertiary : 'transparent',
-              }}
-              icon={Menu}
-            />
-          </>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setIsMenuOpen(!isMenuOpen)} 
+            theme={currentTheme}
+            icon={Menu}
+          />
         ) : (
-          <div style={styles.desktopButtons}>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={handleScrollToBottom} 
-              disabled={sessions.length === 0}
-              theme={currentTheme}
-              icon={ChevronsDown}
-              title={t('scrollToBottom')}
-            />
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={handleNewSession} 
-              theme={currentTheme}
-              icon={Plus}
-              title={t('newSession')}
-            />
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={() => setIsSettingsOpen(true)} 
-              theme={currentTheme}
-              icon={SettingsIcon}
-              title={t('settings')}
-            />
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={handleLogoutRequest} 
-              theme={currentTheme}
-              style={{ color: currentTheme.red }}
-              icon={Power}
-              title={t('logout')}
-            />
-          </div>
+          <>
+            <div style={{ display: 'flex', gap: '6px', marginRight: '12px' }}>
+              <Button 
+                variant="secondary" 
+                size="small" 
+                onClick={handleNewSession} 
+                theme={currentTheme}
+                icon={Plus}
+              >
+                {t('newSession')}
+              </Button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={() => setIsSettingsOpen(true)} 
+                theme={currentTheme}
+                icon={SettingsIcon}
+                title={t('settings')}
+              />
+              
+              <div style={{ width: '1px', height: '16px', backgroundColor: currentTheme.ui.border, margin: '0 4px', opacity: 0.5 }} />
+              
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                onClick={handleLogoutRequest}
+                theme={currentTheme}
+                style={{ color: currentTheme.red }}
+                icon={Power}
+                title={t('logout')}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>
