@@ -1,7 +1,7 @@
 /**
  * MobileToolbar 컴포넌트
- * 모바일(iOS) 전용 고밀도 IDE 툴바
- * 우선순위: 방향키 > ESC > TAB > ^C > CTRL/ALT
+ * 모바일(iOS) 전용 고밀도 IDE 툴바 (터치 최적화 버전)
+ * 순서: 빠른입력 > 방향키 > ESC > TAB > ^C > CTRL/ALT
  */
 import { useRef, useState, useEffect } from 'react';
 import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, ClipboardPaste, Eraser, MessageSquare } from 'lucide-react';
@@ -70,7 +70,18 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
         <div ref={scrollContainerRef} className="mobile-toolbar-scroll" style={styles.scrollContainer}>
           <div style={styles.buttonGroup}>
             
-            {/* 1. 방향키 (가장 중요) */}
+            {/* 1. 빠른 입력 (최좌측 전진 배치) */}
+            <button 
+              onClick={() => onOpenCommandInput?.()} 
+              style={{...styles.compactBtn, backgroundColor: 'rgba(137, 180, 250, 0.15)', color: currentTheme.ui.accent, borderColor: 'rgba(137, 180, 250, 0.3)'}}
+              title={t('commandInput')}
+            >
+              <MessageSquare size={14} strokeWidth={2.5} />
+            </button>
+
+            <div style={styles.divider} />
+
+            {/* 2. 방향키 */}
             <div style={styles.cluster}>
               <button onClick={() => handleKeyWithModifiers('\x1b[D')} style={styles.compactBtn}><ArrowLeft size={14} /></button>
               <button onClick={() => handleKeyWithModifiers('\x1b[A')} style={styles.compactBtn}><ArrowUp size={14} /></button>
@@ -80,7 +91,7 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
 
             <div style={styles.divider} />
 
-            {/* 2. 핵심 조작키 */}
+            {/* 3. 핵심 제어키 */}
             <button onClick={() => handleKeyWithModifiers('\x1b')} style={{...styles.compactBtn, fontWeight: '800'}}>ESC</button>
             <button onClick={() => handleKeyWithModifiers('\t')} style={{...styles.compactBtn, fontWeight: '800'}}>TAB</button>
             <button 
@@ -92,7 +103,7 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
 
             <div style={styles.divider} />
 
-            {/* 3. 조합키 (토글) */}
+            {/* 4. 조합키 (토글) */}
             <button 
               onClick={() => setCtrlActive(!ctrlActive)} 
               className={ctrlActive ? 'btn-active' : ''}
@@ -110,13 +121,7 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
 
             <div style={styles.divider} />
 
-            {/* 4. 부가 기능 */}
-            <button 
-              onClick={() => onOpenCommandInput?.()} 
-              style={{...styles.compactBtn, color: currentTheme.ui.accent}}
-            >
-              <MessageSquare size={14} />
-            </button>
+            {/* 5. 부가 기능 */}
             <button 
               onClick={() => { const text = prompt('Paste:'); if (text) onSendKey(text); }} 
               style={styles.compactBtn}
@@ -137,7 +142,7 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    height: '42px', // 초슬림 높이
+    height: '40px', 
     zIndex: 10000,
     display: 'flex',
     alignItems: 'center',
@@ -149,27 +154,27 @@ const styles = {
     overflowX: 'auto',
     overflowY: 'hidden',
     WebkitOverflowScrolling: 'touch',
-    padding: '0 8px',
+    padding: '0 10px',
     display: 'flex',
     alignItems: 'center',
   },
   buttonGroup: {
     display: 'flex',
-    gap: '4px',
+    gap: '8px', // 간격을 8px로 넓혀 터치 정확도 향상
     alignItems: 'center',
-    paddingRight: '16px',
+    paddingRight: '20px',
   },
   cluster: {
     display: 'flex',
-    gap: '2px',
+    gap: '4px',
     backgroundColor: 'rgba(255,255,255,0.03)',
     padding: '2px',
     borderRadius: '4px',
   },
   compactBtn: {
     flexShrink: 0,
-    height: '30px',
-    minWidth: '32px',
+    height: '28px', // 버튼 높이 축소
+    minWidth: '30px', // 최소 너비 축소
     padding: '0 6px',
     display: 'flex',
     alignItems: 'center',
@@ -178,7 +183,7 @@ const styles = {
     border: '1px solid rgba(255, 255, 255, 0.08)',
     borderRadius: '3px',
     color: '#cdd6f4',
-    fontSize: '11px',
+    fontSize: '10px', // 텍스트 크기 미세 조정
     fontWeight: '600',
     cursor: 'pointer',
     transition: 'all 0.1s ease',
@@ -187,7 +192,7 @@ const styles = {
   },
   divider: {
     width: '1px',
-    height: '18px',
+    height: '16px',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     margin: '0 2px',
     flexShrink: 0,
