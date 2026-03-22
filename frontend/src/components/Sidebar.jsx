@@ -420,6 +420,7 @@ const styles = {
   sessionList: {
     flex: 1,
     overflowY: 'auto',
+    WebkitOverflowScrolling: 'touch',
     padding: '8px',
     display: 'flex',
     flexDirection: 'column',

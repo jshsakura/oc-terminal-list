@@ -146,7 +146,7 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
         </div>
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
+      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '4px 0' }}>
         {loading && items.length === 0 ? (
           <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>Loading...</div>
         ) : (
