@@ -42,7 +42,7 @@ function App() {
   const { 
     sessions, activeSessionId, setActiveSessionId, 
     createSession, deleteSession, renameSession 
-  } = useSessionManager(isAuthenticated);
+  } = useSessionManager(isAuthenticated, settings.defaultShell);
 
   // UI State
   const [isMobile, setIsMobile] = useState(false);

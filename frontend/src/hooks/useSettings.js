@@ -5,6 +5,17 @@
 import { useState, useEffect } from 'react';
 import { DEFAULT_TERMINAL_FONT_FAMILY, normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
+const SUPPORTED_DEFAULT_SHELLS = new Set(['auto', 'bash', 'zsh', 'sh']);
+
+const normalizeDefaultShell = (value) => {
+  if (typeof value !== 'string') {
+    return 'bash';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return SUPPORTED_DEFAULT_SHELLS.has(normalized) ? normalized : 'bash';
+};
+
 // 브라우저 언어 자동 감지
 const detectBrowserLanguage = () => {
   // navigator.language 또는 navigator.languages에서 언어 감지
@@ -24,6 +35,7 @@ const DEFAULT_SETTINGS = {
   language: detectBrowserLanguage(), // 브라우저 언어 자동 감지
   fontSize: 14,
   fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
+  defaultShell: 'bash',
   autoScroll: 'smart', // 'always' | 'smart' | 'never'
   smoothScroll: true,
   scrollSensitivity: 0.8, // AI 스트리밍 대응 (0~1, 높을수록 민감)
@@ -41,6 +53,7 @@ export const useSettings = () => {
         return {
           ...merged,
           fontFamily: normalizeTerminalFontFamily(merged.fontFamily),
+          defaultShell: normalizeDefaultShell(merged.defaultShell),
         };
       }
     } catch (error) {
@@ -62,7 +75,11 @@ export const useSettings = () => {
   const updateSetting = (key, value) => {
     setSettings((prev) => ({
       ...prev,
-      [key]: key === 'fontFamily' ? normalizeTerminalFontFamily(value) : value,
+      [key]: key === 'fontFamily'
+        ? normalizeTerminalFontFamily(value)
+        : key === 'defaultShell'
+          ? normalizeDefaultShell(value)
+          : value,
     }));
   };
 
@@ -72,6 +89,7 @@ export const useSettings = () => {
       ...prev,
       ...newSettings,
       fontFamily: normalizeTerminalFontFamily(newSettings.fontFamily ?? prev.fontFamily),
+      defaultShell: normalizeDefaultShell(newSettings.defaultShell ?? prev.defaultShell),
     }));
   };
 

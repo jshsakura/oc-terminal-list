@@ -7,6 +7,7 @@ import os
 import shutil
 import json
 import time
+import re
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -87,6 +88,7 @@ class SessionCreateRequest(BaseModel):
     cols: int = 80
     rows: int = 24
     cwd: Optional[str] = None
+    shell: Optional[str] = None
 
 
 class SetupRequest(BaseModel):
@@ -122,6 +124,16 @@ class FileMoveRequest(BaseModel):
 class SessionNameRequest(BaseModel):
     """세션 이름 변경 요청"""
     name: str
+
+
+HISTORY_REPLAY_CHUNK_LIMIT = 1200
+HISTORY_REPLAY_MAX_CHARS = 200000
+
+
+def normalize_replay_output(output: str) -> str:
+    sanitized = re.sub(r"\x1b\[\?2004[hl]", "", output)
+    sanitized = sanitized.replace("\r\n", "\n").replace("\r", "\n")
+    return sanitized
 
 
 # Workspace 루트 디렉토리 결정 로직
@@ -469,7 +481,8 @@ async def terminal_websocket(
     token: Optional[str] = Query(None),
     cols: int = Query(80),
     rows: int = Query(24),
-    cwd: Optional[str] = Query(None)
+    cwd: Optional[str] = Query(None),
+    shell: Optional[str] = Query(None)
 ):
     """
     터미널 WebSocket 연결 핸들러
@@ -493,7 +506,11 @@ async def terminal_websocket(
             # WebSocket 경로 검증
             safe_cwd = str(validate_path(cwd).absolute())
             logger.info(f"새 세션 생성 (WS): {session_id} (cwd={safe_cwd})")
-            await pty_manager.create_session(session_id, cols=cols, rows=rows, cwd=safe_cwd)
+            try:
+                await storage.delete_history(session_id)
+            except Exception:
+                pass
+            await pty_manager.create_session(session_id, cols=cols, rows=rows, cwd=safe_cwd, shell=shell)
             try:
                 await storage.create_session(session_id, username, cwd=cwd or "")
             except:
@@ -507,9 +524,12 @@ async def terminal_websocket(
         is_already_connected = session_info and session_info.connected_socket is not None
         
         if not is_new_session and not is_already_connected:
-            history = await storage.get_history(session_id)
+            history = await storage.get_history(session_id, limit=HISTORY_REPLAY_CHUNK_LIMIT)
             if history:
                 full_history = "".join(history)
+                if len(full_history) > HISTORY_REPLAY_MAX_CHARS:
+                    full_history = full_history[-HISTORY_REPLAY_MAX_CHARS:]
+                full_history = normalize_replay_output(full_history)
                 await websocket.send_text(full_history)
 
         # 3. WebSocket을 세션에 연결
@@ -556,7 +576,14 @@ async def create_session(
     logger.info(f"[API] Create Session: {session_id}, CWD: {request.cwd}")
 
     if pty_manager.session_exists(session_id):
-        return {"session_id": session_id, "status": "exists", "cwd": request.cwd}
+        existing_shell = pty_manager.get_session_shell(session_id)
+        return {
+            "session_id": session_id,
+            "status": "exists",
+            "cwd": request.cwd,
+            "shell": existing_shell,
+            "shell_name": os.path.basename(existing_shell) if existing_shell else None,
+        }
 
     try:
         # 1. 경로 검증 (요청된 경로가 있으면 엄격하게 체크)
@@ -572,12 +599,19 @@ async def create_session(
             safe_cwd = str(target_path.absolute())
 
         # 2. PTY 세션 생성 (여기서 발생하는 에러는 500으로 상세 사유 전달)
+        try:
+            await storage.delete_history(session_id)
+        except Exception:
+            pass
+
         await pty_manager.create_session(
             session_id, 
             cols=request.cols or 80, 
             rows=request.rows or 24, 
-            cwd=safe_cwd
+            cwd=safe_cwd,
+            shell=request.shell,
         )
+        session_shell = pty_manager.get_session_shell(session_id)
         
         # 3. DB 저장 (실패해도 무시)
         try:
@@ -588,7 +622,9 @@ async def create_session(
         return {
             "session_id": session_id,
             "status": "created",
-            "cwd": safe_cwd
+            "cwd": safe_cwd,
+            "shell": session_shell,
+            "shell_name": os.path.basename(session_shell) if session_shell else None,
         }
     except HTTPException as he:
         # 이미 처리된 HTTP 예외는 그대로 전달

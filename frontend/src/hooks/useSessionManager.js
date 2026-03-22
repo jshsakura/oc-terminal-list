@@ -1,7 +1,18 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { generateUUID } from '../utils/helpers';
 
-const useSessionManager = (isAuthenticated) => {
+const SUPPORTED_SHELLS = new Set(['auto', 'bash', 'zsh', 'sh']);
+
+const normalizeShell = (value) => {
+  if (typeof value !== 'string') {
+    return 'bash';
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return SUPPORTED_SHELLS.has(normalized) ? normalized : 'bash';
+};
+
+const useSessionManager = (isAuthenticated, defaultShell = 'bash') => {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const creatingSessionRef = useRef(false);
@@ -57,6 +68,7 @@ const useSessionManager = (isAuthenticated) => {
     creatingSessionRef.current = true;
     const newId = generateUUID();
     const token = localStorage.getItem('auth_token');
+    const requestedShell = normalizeShell(defaultShell);
 
     try {
       const response = await fetch(`/api/sessions/${newId}`, {
@@ -68,7 +80,8 @@ const useSessionManager = (isAuthenticated) => {
         body: JSON.stringify({ 
           cols: 80, 
           rows: 24,
-          cwd: cwd || null
+          cwd: cwd || null,
+          shell: requestedShell,
         }),
       });
 
@@ -76,10 +89,15 @@ const useSessionManager = (isAuthenticated) => {
         const data = await response.json();
         const actualCwd = data.cwd || cwd;
         const folderName = actualCwd ? actualCwd.split('/').pop() : null;
+        const shellName = typeof data.shell_name === 'string' && data.shell_name
+          ? data.shell_name
+          : requestedShell === 'auto'
+            ? 'shell'
+            : requestedShell;
         
         const newSession = { 
           id: newId, 
-          name: folderName ? `bash (${folderName})` : 'bash',
+          name: folderName ? `${shellName} (${folderName})` : shellName,
           cwd: actualCwd
         };
         setSessions(prev => [...prev, newSession]);

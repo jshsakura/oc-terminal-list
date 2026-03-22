@@ -56,6 +56,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       minimumContrastRatio: 7,
       allowProposedApi: true,
       convertEol: false,
+      bracketedPasteMode: false,
       windowsMode: false,
       smoothScrollDuration: settings.smoothScroll ? 100 : 0,
     });
@@ -79,10 +80,11 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const token = localStorage.getItem('auth_token');
+    const shell = encodeURIComponent(settings.defaultShell || 'bash');
     
     // 초기 크기 정보 포함
     const { cols, rows } = fitAddon.proposeDimensions() || { cols: 80, rows: 24 };
-    const wsUrl = `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}`;
+    const wsUrl = `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}`;
     
     const socket = new WebSocket(wsUrl);
     wsRef.current = socket;

@@ -12,7 +12,7 @@ import os
 class SQLiteStorage:
     """SQLite 기반 저장소"""
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: Optional[str] = None):
         if db_path is None:
             # 환경 변수 또는 기본값 사용
             db_path = os.getenv("DB_PATH", "./data/iterminallist.db")
@@ -182,16 +182,22 @@ class SQLiteStorage:
 
         await asyncio.to_thread(_append)
 
-    async def get_history(self, session_id: str) -> List[str]:
+    async def get_history(self, session_id: str, limit: Optional[int] = None) -> List[str]:
         """세션 히스토리 조회"""
         def _get():
             conn = self._get_connection()
             cursor = conn.cursor()
 
-            cursor.execute(
-                "SELECT chunk FROM session_history WHERE session_id = ? ORDER BY id ASC",
-                (session_id,)
-            )
+            if limit is not None and limit > 0:
+                cursor.execute(
+                    "SELECT chunk FROM (SELECT chunk, id FROM session_history WHERE session_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC",
+                    (session_id, limit)
+                )
+            else:
+                cursor.execute(
+                    "SELECT chunk FROM session_history WHERE session_id = ? ORDER BY id ASC",
+                    (session_id,)
+                )
             rows = cursor.fetchall()
             conn.close()
 
@@ -234,7 +240,7 @@ class SQLiteStorage:
 
     # ==================== 세션 관리 ====================
 
-    async def create_session(self, session_id: str, username: str, cwd: str = None):
+    async def create_session(self, session_id: str, username: str, cwd: Optional[str] = None):
         """세션 생성"""
         def _create():
             conn = self._get_connection()

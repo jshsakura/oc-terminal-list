@@ -2,7 +2,7 @@
  * Settings 컴포넌트
  * 테마, 언어, 스크롤 동작 등 설정
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { themeNames } from '../styles/themes';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
@@ -12,6 +12,10 @@ import { DEFAULT_TERMINAL_FONT_FAMILY } from '../utils/terminalFonts';
 const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
   const { t } = useTranslation(settings.language);
   const [localSettings, setLocalSettings] = useState(settings);
+
+  useEffect(() => {
+    setLocalSettings(settings);
+  }, [settings]);
 
   if (!isOpen) return null;
 
@@ -36,6 +40,7 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
         language: 'en',
         fontSize: 14,
         fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
+        defaultShell: 'bash',
         autoScroll: 'smart',
         smoothScroll: true,
         scrollSensitivity: 0.8,
@@ -93,21 +98,36 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
         </div>
 
         <div style={styles.content}>
-          {/* 사용자 정보 */}
-          {username && (
-            <div style={{ ...styles.section, ...styles.userSection, borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
-              <label style={{ ...styles.label, color: currentTheme.ui.textSecondary }}>{t('user')}</label>
-              <div style={{ 
-                ...styles.userValue, 
-                color: currentTheme.ui.accent, 
-                backgroundColor: currentTheme.ui.cardBg || currentTheme.ui.bgTertiary, 
-                borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
-                borderRadius: currentTheme.ui.radiusSmall
-              }}>
-                {username}
+          <div style={{ ...styles.row, ...styles.userSection, borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
+            {username && (
+              <div style={styles.rowItem}>
+                <label style={{ ...styles.label, color: currentTheme.ui.textSecondary }}>{t('user')}</label>
+                <div style={{
+                  ...styles.userValue,
+                  color: currentTheme.ui.accent,
+                  backgroundColor: currentTheme.ui.cardBg || currentTheme.ui.bgTertiary,
+                  borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
+                  borderRadius: currentTheme.ui.radiusSmall
+                }}>
+                  {username}
+                </div>
               </div>
+            )}
+
+            <div style={styles.rowItem}>
+              <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('defaultShell')}</label>
+              <select
+                value={localSettings.defaultShell || 'bash'}
+                onChange={(e) => handleChange('defaultShell', e.target.value)}
+                style={selectStyle}
+              >
+                <option value="bash">{t('shellBash')}</option>
+                <option value="zsh">{t('shellZsh')}</option>
+                <option value="sh">{t('shellSh')}</option>
+                <option value="auto">{t('shellAuto')}</option>
+              </select>
             </div>
-          )}
+          </div>
 
           {/* 테마와 언어를 한 줄로 */}
           <div style={styles.row}>

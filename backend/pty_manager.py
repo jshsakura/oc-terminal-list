@@ -24,9 +24,10 @@ logger = logging.getLogger(__name__)
 class SessionInfo:
     """세션 정보 저장 클래스"""
 
-    def __init__(self, process: ptyprocess.PtyProcess, session_id: str):
+    def __init__(self, process: ptyprocess.PtyProcess, session_id: str, shell: str):
         self.process = process
         self.session_id = session_id
+        self.shell = shell
         self.connected_socket: Optional[WebSocket] = None
         self.output_task: Optional[asyncio.Task] = None
         self.cols = 80
@@ -48,20 +49,60 @@ class PtyManager:
         """세션 존재 여부 확인"""
         return session_id in self.sessions
 
-    async def create_session(self, session_id: str, cols: int = 80, rows: int = 24, cwd: Optional[str] = None) -> bool:
+    def get_session_shell(self, session_id: str) -> Optional[str]:
+        """세션에 사용된 shell 경로 반환"""
+        session = self.sessions.get(session_id)
+        return session.shell if session else None
+
+    def _resolve_shell(self, requested_shell: Optional[str]) -> str:
+        shell_candidates = {
+            "bash": ["/bin/bash", "/usr/bin/bash"],
+            "zsh": ["/bin/zsh", "/usr/bin/zsh"],
+            "sh": ["/bin/sh", "/usr/bin/sh"],
+        }
+
+        normalized = None
+        if isinstance(requested_shell, str):
+            raw = requested_shell.strip().lower()
+            if raw in shell_candidates:
+                normalized = raw
+            elif raw in ["auto", ""]:
+                normalized = None
+            else:
+                for shell_name, candidates in shell_candidates.items():
+                    if raw in candidates:
+                        normalized = shell_name
+                        break
+
+        if normalized in shell_candidates:
+            for candidate in shell_candidates[normalized]:
+                if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+                    return candidate
+
+        env_shell = os.getenv("SHELL")
+        if env_shell:
+            env_shell = env_shell.strip()
+            bash_candidates = shell_candidates["bash"]
+            if env_shell in bash_candidates and os.path.exists(env_shell) and os.access(env_shell, os.X_OK):
+                return env_shell
+
+        for candidate in ["/bin/bash", "/usr/bin/bash", "/bin/zsh", "/usr/bin/zsh", "/bin/sh", "/usr/bin/sh"]:
+            if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+                return candidate
+
+        if env_shell and env_shell in shell_candidates["zsh"] + shell_candidates["sh"]:
+            if os.path.exists(env_shell) and os.access(env_shell, os.X_OK):
+                return env_shell
+
+        return "/bin/sh"
+
+    async def create_session(self, session_id: str, cols: int = 80, rows: int = 24, cwd: Optional[str] = None, shell: Optional[str] = None) -> bool:
         """새 PTY 세션 생성"""
         if self.session_exists(session_id):
             return True
 
-        # 1. 쉘 결정 (환경 변수 우선)
-        shell = os.getenv("SHELL")
-        if not (shell and os.path.exists(shell) and os.access(shell, os.X_OK)):
-            shell = None
-            for s in ["/bin/zsh", "/usr/bin/zsh", "/bin/bash", "/usr/bin/bash", "/bin/sh"]:
-                if os.path.exists(s) and os.access(s, os.X_OK):
-                    shell = s
-                    break
-        if not shell: shell = "/bin/sh"
+        # 1. 쉘 결정 (요청값 우선, 이후 환경 변수, 이후 fallback)
+        resolved_shell = self._resolve_shell(shell)
 
         # 2. 시작 디렉토리 확정
         # main.py에서 이미 검증된 절대 경로가 오지만, 다시 한번 확인
@@ -75,22 +116,22 @@ class PtyManager:
                 "LANG": "ko_KR.UTF-8",
                 "LC_ALL": "ko_KR.UTF-8",
                 "COLORTERM": "truecolor",
-                "SHELL": shell,
+                "SHELL": resolved_shell,
                 "HOME": os.path.expanduser("~")
             })
 
-            logger.info(f"Spawning PTY: shell={shell}, cwd={start_dir}")
+            logger.info(f"Spawning PTY: shell={resolved_shell}, cwd={start_dir}")
             
             # 4. 프로세스 실행 (실패 시 예외가 발생하여 상위로 전달됨)
             process = ptyprocess.PtyProcess.spawn(
-                [shell],
+                [resolved_shell],
                 dimensions=(rows, cols),
                 env=env,
                 cwd=start_dir
             )
 
             # 5. 세션 정보 저장
-            session_info = SessionInfo(process, session_id)
+            session_info = SessionInfo(process, session_id, resolved_shell)
             session_info.cols = cols
             session_info.rows = rows
             self.sessions[session_id] = session_info
@@ -152,9 +193,9 @@ class PtyManager:
         session = self.sessions[session_id]
         try:
             # PTY에 데이터 쓰기 (bytes로 변환)
-            if isinstance(data, str):
-                data = data.encode('utf-8')
-            session.process.write(data)
+            normalized_data = data.replace('\r\n', '\n').replace('\r', '\n') if isinstance(data, str) else data
+            input_bytes = normalized_data.encode('utf-8') if isinstance(normalized_data, str) else normalized_data
+            session.process.write(input_bytes)
         except Exception as e:
             logger.error(f"PTY 입력 쓰기 실패 ({session_id}): {e}")
 
