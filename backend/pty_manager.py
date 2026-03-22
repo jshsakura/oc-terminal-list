@@ -68,10 +68,9 @@ class PtyManager:
                 "COLORTERM": "truecolor"
             })
 
-            # 워크스페이스 디렉토리 설정
-            workspace_root = os.getenv("WORKSPACE_ROOT", "/workspace")
-            if not os.path.exists(workspace_root):
-                workspace_root = "/app"  # fallback
+            # 워크스페이스 디렉토리 설정 (main.py와 동일한 로직)
+            default_workspace = "/workspace" if os.path.exists("/workspace") else str(Path(__file__).parent.parent.resolve())
+            workspace_root = os.getenv("WORKSPACE_ROOT", default_workspace)
 
             # 시작 디렉토리 결정
             start_dir = workspace_root

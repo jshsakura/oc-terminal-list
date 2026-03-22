@@ -116,7 +116,11 @@ class SessionNameRequest(BaseModel):
 
 
 # Workspace 루트 디렉토리
-WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/workspace")
+# 1. 환경변수 WORKSPACE_ROOT 확인
+# 2. /workspace 디렉토리 확인
+# 3. 위 둘 다 없으면 현재 프로젝트의 상위 디렉토리를 기본값으로 사용
+default_workspace = "/workspace" if os.path.exists("/workspace") else str(Path(__file__).parent.parent.resolve())
+WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", default_workspace)
 
 # 인증 매니저 인스턴스
 auth_manager: Optional[AuthManager] = None
