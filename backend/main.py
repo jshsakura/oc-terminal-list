@@ -338,7 +338,9 @@ async def terminal_websocket(
 
     try:
         # 1. 세션 복원 또는 생성 (DB에 저장)
-        if not pty_manager.session_exists(session_id):
+        is_new_session = not pty_manager.session_exists(session_id)
+        
+        if is_new_session:
             logger.info(f"새 세션 생성: {session_id} (cols={cols}, rows={rows}, cwd={cwd})")
             await pty_manager.create_session(session_id, cols=cols, rows=rows, cwd=cwd)
             await storage.create_session(session_id, username)
@@ -346,12 +348,17 @@ async def terminal_websocket(
             logger.info(f"기존 세션 복원: {session_id}")
             await storage.update_session_activity(session_id)
 
-        # 2. SQLite 히스토리 전송 (재접속 시 이전 상태 복원)
-        history = await storage.get_history(session_id)
-        if history:
-            logger.info(f"히스토리 복원: {session_id} ({len(history)} 청크)")
-            full_history = "".join(history)
-            await websocket.send_text(full_history)
+        # 2. SQLite 히스토리 전송 (재접속 시에만 이전 상태 복원)
+        # 세션에 이미 연결된 소켓이 있다면 히스토리를 보내지 않음 (중복 출력 방지)
+        session_info = pty_manager.sessions.get(session_id)
+        is_already_connected = session_info and session_info.connected_socket is not None
+        
+        if not is_new_session and not is_already_connected:
+            history = await storage.get_history(session_id)
+            if history:
+                logger.info(f"히스토리 복원: {session_id} ({len(history)} 청크)")
+                full_history = "".join(history)
+                await websocket.send_text(full_history)
 
         # 3. WebSocket을 세션에 연결
         await pty_manager.attach_session(session_id, websocket)

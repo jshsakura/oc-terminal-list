@@ -260,17 +260,28 @@ function App() {
               paddingBottom: isMobile ? '80px' : '0',
               backgroundColor: currentTheme.ui.bg,
               flex: 1,
-              // 에디터가 열려있을 때 모바일에서는 터미널을 가리거나 조정할 수 있음
               height: activeFile && !isMobile ? '0' : 'auto',
             }}
           >
             {sessions.length === 0 ? (
               <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
             ) : (
+              // 터미널 컴포넌트를 직접 매핑하여 상태 유지 (memoized 렌더링)
               sessions.map((session) => (
-                <div key={session.id} style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}>
+                <div 
+                  key={`session-container-${session.id}`} 
+                  style={{ 
+                    display: session.id === activeSessionId ? 'block' : 'none', 
+                    width: '100%', 
+                    height: '100%' 
+                  }}
+                >
                   <Suspense fallback={null}>
-                    <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
+                    <Terminal 
+                      sessionId={session.id} 
+                      settings={settings} 
+                      isActive={session.id === activeSessionId} 
+                    />
                   </Suspense>
                 </div>
               ))
