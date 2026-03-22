@@ -187,7 +187,6 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
         <div style={{ ...styles.footer, borderTopColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
           <Button 
             variant="danger" 
-            size="small" 
             onClick={handleReset} 
             theme={currentTheme}
           >
@@ -195,6 +194,7 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
           </Button>
           <div style={styles.buttonGroup}>
             <Button 
+              variant="secondary"
               onClick={onClose} 
               theme={currentTheme}
             >
