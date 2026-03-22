@@ -270,9 +270,4 @@ export const locales = {
 
 export const defaultLocale = 'en';
 
-export const languageNames = {
-  en: 'English (US)',
-  ko: '한국어 (KR)',
-};
-
 export default locales;
