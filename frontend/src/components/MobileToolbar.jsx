@@ -14,6 +14,9 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, currentTheme, language =
   const toolbarRef = useRef(null);
   const scrollContainerRef = useRef(null);
 
+  // Safety check for currentTheme
+  if (!currentTheme || !currentTheme.ui) return null;
+
   const handleKeyWithModifiers = (key) => {
     let finalKey = key;
     if (ctrlActive) {
