@@ -229,6 +229,15 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     xtermRef.current?.scrollToBottom();
   }, []);
 
+  useEffect(() => {
+    if (isActive && xtermRef.current && isReady) {
+      const timer = setTimeout(() => {
+        xtermRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [isActive, isReady]);
+
   // 전역 세션 관리자에 현재 활성 함수 등록
   useEffect(() => {
     if (!window.terminalSessions) window.terminalSessions = {};
@@ -273,13 +282,18 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       {/* xterm.js 컨테이너 */}
       <div
         ref={terminalRef}
+        onClick={() => {
+          if (xtermRef.current) {
+            xtermRef.current.focus();
+          }
+        }}
         style={{
           width: '100%',
           height: '100%',
           opacity: isReady ? 1 : 0,
           transition: 'opacity 0.2s ease',
-          caretColor: 'transparent', // iOS 네이티브 커서 숨김
-          outline: 'none', // 포커스 아웃라인 숨김
+          caretColor: 'transparent',
+          outline: 'none',
         }}
       />
     </>
