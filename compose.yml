@@ -2,9 +2,11 @@ version: "3.8"
 
 services:
   backend:
-    image: jshsakura/oc-terminal-list:latest
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    image: oc-terminal-list:local
     container_name: oc-terminal-backend
-    # build: ./backend # 로컬에서 직접 빌드할 경우 주석 해제
     ports:
       - 28022:8000
     environment:

@@ -616,20 +616,17 @@ async def list_files(
 ):
     """
     디렉토리 내용 조회
-
-    Args:
-        path: 디렉토리 경로 (루트 기준 상대 경로)
-
-    Returns:
-        파일/폴더 목록
     """
     try:
         safe_path = validate_path(path)
+        logger.info(f"Listing directory: {safe_path} (Requested: {path})")
 
         if not safe_path.exists():
+            logger.error(f"Path not found: {safe_path}")
             raise HTTPException(status_code=404, detail="Path not found")
 
         if not safe_path.is_dir():
+            logger.error(f"Not a directory: {safe_path}")
             raise HTTPException(status_code=400, detail="Not a directory")
 
         items = []
@@ -643,7 +640,7 @@ async def list_files(
                 
                 items.append({
                     "name": item.name,
-                    "path": relative_path.replace('\\', '/'), # URL 호환을 위해 구분자 통일
+                    "path": relative_path.replace('\\', '/'),
                     "type": "directory" if item.is_dir() else "file",
                     "size": item.stat().st_size if item.is_file() else None,
                     "modified": item.stat().st_mtime
@@ -654,7 +651,8 @@ async def list_files(
 
         # 폴더 먼저, 그 다음 파일, 각각 이름순 정렬
         items.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
-
+        
+        logger.info(f"Found {len(items)} items in {safe_path}")
         return {"items": items}
 
     except HTTPException:
