@@ -346,10 +346,13 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
             onDelete={onDelete}
             onCreate={async ({ parentId, name, type }) => {
               const path = parentId ? `${parentId}/${name}` : name;
+              // arborist 타입('leaf', 'internal')을 백엔드 타입('file', 'directory')으로 변환
+              const backendType = type === 'internal' ? 'directory' : 'file';
+              
               try {
-                await apiCall('/api/files/create', 'POST', { path, type });
+                await apiCall('/api/files/create', 'POST', { path, type: backendType });
                 loadInitialData();
-                return { id: path, name, path, type };
+                return { id: path, name, path, type: backendType };
               } catch (err) {
                 alert(`생성 실패: ${err.message}`);
                 return null;
@@ -357,9 +360,9 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
             }}
             width="100%"
             height="100%"
-            indent={12}
+            indent={16}
             rowHeight={24}
-            overscanCount={5}
+            overscanCount={10}
             padding={4}
           >
             {Node}
