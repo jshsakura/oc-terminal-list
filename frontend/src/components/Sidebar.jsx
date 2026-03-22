@@ -221,9 +221,9 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
                     key={session.id}
                     style={{
                       ...styles.sessionItem,
-                      backgroundColor: isActive ? `${currentTheme.ui.accent}22` : (isHovered ? `${currentTheme.ui.bgTertiary}` : 'transparent'),
+                      backgroundColor: isActive ? (isLightTheme ? `${currentTheme.ui.accent}11` : `${currentTheme.ui.accent}22`) : (isHovered ? `${currentTheme.ui.bgTertiary}` : 'transparent'),
                       borderRadius: '2px', // 아주 사각사각하게
-                      border: 'none', // 테두리 제거
+                      border: isLightTheme && isActive ? `1px solid ${currentTheme.ui.accent}33` : '1px solid transparent',
                       marginBottom: '1px',
                     }}
                     onMouseEnter={() => setHoveredSessionId(session.id)}

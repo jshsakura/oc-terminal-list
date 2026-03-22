@@ -163,7 +163,7 @@ export const catppuccinLatteTheme = {
     ...commonUI,
     bg: '#ffffff',
     bgSecondary: '#ffffff',
-    bgTertiary: '#f2f5fa',
+    bgTertiary: '#f8f9fb',
     glassBg: 'rgba(255, 255, 255, 0.95)',
     cardBg: 'rgba(30, 102, 245, 0.04)',
     border: '#ebedf2',
