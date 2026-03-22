@@ -209,8 +209,8 @@ function App() {
         flexDirection: 'column',
         transition: isResizing ? 'none' : 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         backgroundColor: currentTheme.ui.bg,
-        overflow: 'hidden',
-        zIndex: 1,
+        overflow: 'visible',
+        zIndex: 10,
       }}>
         <Header 
           isSidebarOpen={isSidebarOpen}

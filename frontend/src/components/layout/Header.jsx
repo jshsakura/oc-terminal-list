@@ -89,7 +89,7 @@ const Header = ({
               icon={ChevronsDown}
             />
 
-            <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
+            <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center', zIndex: 10001 }}>
               <Button 
                 variant="ghost" 
                 size="icon" 

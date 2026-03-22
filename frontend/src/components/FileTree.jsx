@@ -285,27 +285,72 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
           <span style={{ fontSize: '11px', fontWeight: '800', color: theme.ui.textSecondary, letterSpacing: '0.5px' }}>
             {workspaceInfo.name.toUpperCase()}
           </span>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '4px' }}>
             <button 
-              onClick={() => treeRef.current?.createLeaf()} 
+              onClick={() => {
+                const focused = treeRef.current?.focusedNode;
+                treeRef.current?.createLeaf(focused?.id || null);
+              }} 
               title="New File"
-              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                color: theme.ui.textSecondary, 
+                cursor: 'pointer',
+                padding: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.ui.bgTertiary}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
-              <FilePlus size={14} />
+              <FilePlus size={16} />
             </button>
             <button 
-              onClick={() => treeRef.current?.createInternal()} 
+              onClick={() => {
+                const focused = treeRef.current?.focusedNode;
+                treeRef.current?.createInternal(focused?.id || null);
+              }} 
               title="New Folder"
-              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                color: theme.ui.textSecondary, 
+                cursor: 'pointer',
+                padding: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.ui.bgTertiary}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
-              <FolderPlus size={14} />
+              <FolderPlus size={16} />
             </button>
             <button 
               onClick={loadInitialData} 
               title="Refresh"
-              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
+              style={{ 
+                background: 'none', 
+                border: 'none', 
+                color: theme.ui.textSecondary, 
+                cursor: 'pointer',
+                padding: '6px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '4px',
+                transition: 'background-color 0.2s'
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.ui.bgTertiary}
+              onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             >
-              <RefreshCw size={14} />
+              <RefreshCw size={16} />
             </button>
           </div>
         </div>
@@ -371,16 +416,26 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
             onRename={onRename}
             onDelete={onDelete}
             onCreate={async ({ parentId, name, type }) => {
-              const path = parentId ? `${parentId}/${name}` : name;
+              // 경로가 중복되지 않도록 처리 (parentId가 null이거나 비어있을 수 있음)
+              const cleanParentId = parentId ? (parentId.endsWith('/') ? parentId.slice(0, -1) : parentId) : '';
+              const path = cleanParentId ? `${cleanParentId}/${name}` : name;
               const backendType = type === 'internal' ? 'directory' : 'file';
               
+              console.log(`Creating ${backendType}: ${path} (parentId: ${parentId})`);
+              
               try {
-                await apiCall('/api/files/create', 'POST', { path, type: backendType });
-                loadInitialData();
+                const response = await apiCall('/api/files/create', 'POST', { path, type: backendType });
+                console.log('Create success:', response);
+                
+                // 데이터 새로고침
+                await loadInitialData();
+                
+                // 생성된 노드 정보 반환
                 return { id: path, name, path, type: backendType };
               } catch (err) {
                 const message = err instanceof Error ? err.message : String(err);
-                alert(`생성 실패: ${message}`);
+                console.error('Create failed:', err);
+                alert(`Creation failed: ${message}\nPath: ${path}\nType: ${backendType}`);
                 return null;
               }
             }}
