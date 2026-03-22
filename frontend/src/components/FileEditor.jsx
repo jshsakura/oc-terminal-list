@@ -116,9 +116,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     }
   }, []);
 
-  // Poll for external changes every 5 seconds
+  // Poll for external changes every 5 seconds (only for text files)
   useEffect(() => {
-    if (activeFile) {
+    if (activeFile && !isImage) {
       pollingRef.current = setInterval(() => {
         loadFile(activeFile, true);
       }, 5000);
@@ -126,13 +126,16 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [activeFile, loadFile]);
+  }, [activeFile, loadFile, isImage]);
 
   useEffect(() => {
     if (activeFile && !fileStates[activeFile]) {
-      loadFile(activeFile);
+      // Don't try to load binary images into state
+      if (!isImage) {
+        loadFile(activeFile);
+      }
     }
-  }, [activeFile, loadFile]); // Removed fileStates from here to avoid redundant resets
+  }, [activeFile, loadFile, isImage]); // Added isImage to dependency array
 
   useEffect(() => {
     setIsPreviewMode(false);
