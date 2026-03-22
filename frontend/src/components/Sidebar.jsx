@@ -113,6 +113,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
               theme={currentTheme}
               title={t('closeSidebar')}
               icon={X}
+              style={{ width: '24px', height: '24px', borderRadius: '2px' }}
             />
         </div>
 

@@ -104,6 +104,12 @@ class FileCreateRequest(BaseModel):
     type: str  # "file" or "directory"
 
 
+class FileMoveRequest(BaseModel):
+    """파일/폴더 이동(이름 변경 포함) 요청"""
+    source: str
+    destination: str
+
+
 class SessionNameRequest(BaseModel):
     """세션 이름 변경 요청"""
     name: str
@@ -662,6 +668,45 @@ async def write_file(
         raise
     except Exception as e:
         logger.error(f"Failed to write file {request.path}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/files/move")
+async def move_file(
+    request: FileMoveRequest,
+    username: str = Depends(verify_auth_token)
+):
+    """
+    파일/폴더 이동 또는 이름 변경
+
+    Args:
+        request: 소스 및 대상 경로
+
+    Returns:
+        작업 결과
+    """
+    try:
+        source_path = validate_path(request.source)
+        destination_path = validate_path(request.destination)
+
+        if not source_path.exists():
+            raise HTTPException(status_code=404, detail="Source not found")
+
+        if destination_path.exists():
+            raise HTTPException(status_code=409, detail="Destination already exists")
+
+        # 대상 상위 디렉토리가 없으면 생성
+        destination_path.parent.mkdir(parents=True, exist_ok=True)
+
+        shutil.move(str(source_path), str(destination_path))
+
+        logger.info(f"Moved: {request.source} -> {request.destination} by {username}")
+        return {"status": "moved", "source": request.source, "destination": request.destination}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to move {request.source} to {request.destination}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1,33 +1,76 @@
 /**
  * FileEditor 컴포넌트
- * 파일 내용 표시 및 즉시 편집 지원
+ * Monaco Editor를 사용한 VSCode 수준의 멀티 탭 편집 환경 제공
  */
-import { useState, useEffect } from 'react';
-import { File, X, Save, XCircle, RefreshCw } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import Editor from '@monaco-editor/react';
+import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon } from 'lucide-react';
 import Button from './common/Button';
 
-const FileEditor = ({ filePath, onClose, theme }) => {
+const getFileIcon = (filename, color) => {
+  const ext = filename.split('.').pop().toLowerCase();
+  switch (ext) {
+    case 'js': case 'jsx': case 'ts': case 'tsx':
+    case 'py': case 'html': case 'css': case 'c': case 'cpp': case 'go': case 'rs':
+      return <FileCode size={14} color={color || '#89b4fa'} />;
+    case 'json': case 'md': case 'txt': case 'csv': case 'env':
+    case 'gitignore': case 'dockerignore':
+      return <FileText size={14} color={color || '#f9e2af'} />;
+    case 'png': case 'jpg': case 'jpeg': case 'gif': case 'svg': case 'ico': case 'webp':
+      return <ImageIcon size={14} color={color || '#a6e3a1'} />;
+    default:
+      return <File size={14} color={color || '#cdd6f4'} />;
+  }
+};
+
+const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme }) => {
   const [content, setContent] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [status, setStatus] = useState('idle'); // 'idle' | 'saved' | 'error'
+  
+  const editorRef = useRef(null);
 
-  // 파일 로드
-  useEffect(() => {
-    if (filePath) {
-      loadFile();
-    }
-  }, [filePath]);
+  // 확장자에 따른 언어 결정
+  const getLanguage = useCallback((path) => {
+    if (!path) return 'plaintext';
+    const ext = path.split('.').pop().toLowerCase();
+    const map = {
+      'js': 'javascript',
+      'jsx': 'javascript',
+      'ts': 'typescript',
+      'tsx': 'typescript',
+      'py': 'python',
+      'html': 'html',
+      'css': 'css',
+      'json': 'json',
+      'md': 'markdown',
+      'c': 'c',
+      'cpp': 'cpp',
+      'go': 'go',
+      'rs': 'rust',
+      'sh': 'shell',
+      'yml': 'yaml',
+      'yaml': 'yaml',
+      'xml': 'xml',
+      'sql': 'sql',
+      'php': 'php',
+    };
+    return map[ext] || 'plaintext';
+  }, []);
 
-  const loadFile = async () => {
+  const loadFile = useCallback(async (path) => {
+    if (!path) return;
     setLoading(true);
     setError(null);
     setHasChanges(false);
+    setStatus('idle');
 
     try {
       const token = localStorage.getItem('auth_token');
-      const res = await fetch(`/api/files/read?path=${encodeURIComponent(filePath)}`, {
+      const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -44,10 +87,14 @@ const FileEditor = ({ filePath, onClose, theme }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  const saveFile = async () => {
-    if (!hasChanges) return;
+  useEffect(() => {
+    if (activeFile) loadFile(activeFile);
+  }, [activeFile, loadFile]);
+
+  const saveFile = useCallback(async () => {
+    if (!hasChanges || saving || !activeFile) return;
     setSaving(true);
     setError(null);
 
@@ -59,7 +106,7 @@ const FileEditor = ({ filePath, onClose, theme }) => {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ path: filePath, content })
+        body: JSON.stringify({ path: activeFile, content })
       });
 
       if (!res.ok) {
@@ -68,109 +115,224 @@ const FileEditor = ({ filePath, onClose, theme }) => {
       }
 
       setHasChanges(false);
+      setStatus('saved');
+      setTimeout(() => setStatus('idle'), 2000);
     } catch (error) {
       console.error('Failed to save file:', error);
       setError(error.message);
+      setStatus('error');
     } finally {
       setSaving(false);
     }
+  }, [activeFile, content, hasChanges, saving]);
+
+  const handleEditorDidMount = (editor, monaco) => {
+    editorRef.current = editor;
+    
+    // Ctrl+S 저장 단축키 추가
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      saveFile();
+    });
   };
 
-  const handleContentChange = (e) => {
-    setContent(e.target.value);
+  const handleEditorChange = (value) => {
+    setContent(value);
     setHasChanges(true);
   };
 
-  const handleKeyDown = (e) => {
-    // Ctrl+S 또는 Cmd+S로 저장
-    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-      e.preventDefault();
-      saveFile();
-    }
-  };
-
-  if (!filePath) return null;
+  if (!activeFile && openFiles.length === 0) return null;
 
   return (
     <div style={{ 
       ...styles.container, 
       backgroundColor: theme.ui.bg,
-      boxShadow: '0 -10px 30px rgba(0,0,0,0.3)',
     }}>
-      {/* 헤더 */}
-      <div style={{ 
-        ...styles.header, 
-        backgroundColor: theme.ui.bgSecondary, 
-        borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}`,
-        height: '40px',
+      {/* 탭 바 */}
+      <div style={{
+        display: 'flex',
+        backgroundColor: theme.ui.bgSecondary,
+        height: '35px',
+        overflowX: 'auto',
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none',
+        borderBottom: `1px solid ${theme.ui.border}`,
       }}>
-        <div style={styles.headerLeft}>
-          <File size={14} style={{ color: theme.ui.accent }} strokeWidth={2.5} />
-          <span style={{ ...styles.filePath, color: theme.ui.text }}>{filePath}</span>
-          {hasChanges && <span style={{ color: theme.yellow, fontSize: '10px', marginLeft: '8px' }}>● Modified</span>}
+        {openFiles.map((path) => {
+          const isActive = path === activeFile;
+          const filename = path.split('/').pop();
+          return (
+            <div
+              key={path}
+              onClick={() => onFileSelect(path)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                padding: '0 12px',
+                height: '100%',
+                cursor: 'pointer',
+                backgroundColor: isActive ? theme.ui.bg : 'transparent',
+                borderRight: `1px solid ${theme.ui.border}`,
+                borderTop: isActive ? `2px solid ${theme.ui.accent}` : '2px solid transparent',
+                minWidth: '100px',
+                maxWidth: '200px',
+                transition: 'all 0.15s ease',
+                position: 'relative',
+              }}
+            >
+              <div style={{ marginRight: '8px', display: 'flex', alignItems: 'center' }}>
+                {getFileIcon(filename, theme.ui.iconColor)}
+              </div>
+              <span style={{ 
+                fontSize: '12px', 
+                color: isActive ? theme.ui.text : theme.ui.textSecondary,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                flex: 1,
+                fontWeight: isActive ? '600' : '400',
+              }}>
+                {filename}
+              </span>
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onClose(path);
+                }}
+                style={{
+                  marginLeft: '8px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  borderRadius: '2px',
+                  padding: '2px',
+                  opacity: 0.6,
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+              >
+                <X size={14} />
+              </div>
+              {isActive && hasChanges && (
+                <div style={{ 
+                  position: 'absolute', 
+                  bottom: '4px', 
+                  right: '4px', 
+                  width: '6px', 
+                  height: '6px', 
+                  borderRadius: '50%', 
+                  backgroundColor: theme.ui.accent 
+                }} />
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 액션바 (저장, 새로고침 등) */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        padding: '4px 12px', 
+        backgroundColor: theme.ui.bg,
+        borderBottom: `1px solid ${theme.ui.borderLight}`,
+      }}>
+        <div style={{ fontSize: '11px', color: theme.ui.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+          {activeFile}
         </div>
-        <div style={styles.headerRight}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {status === 'saved' && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: theme.green, fontSize: '11px' }}>
+              <CheckCircle2 size={12} /> Saved
+            </div>
+          )}
           <Button 
-            variant="primary" 
+            variant="ghost" 
             size="small" 
             onClick={saveFile} 
             disabled={!hasChanges || saving || loading}
             theme={theme}
-            icon={Save}
+            style={{ height: '24px', fontSize: '11px', padding: '0 8px' }}
           >
-            {saving ? 'Saving...' : 'Save'}
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+            <span>Save</span>
           </Button>
-          
           <Button 
             variant="ghost" 
             size="small" 
-            onClick={loadFile} 
+            onClick={() => loadFile(activeFile)} 
             disabled={loading}
             theme={theme}
+            style={{ height: '24px', padding: '0 4px' }}
             icon={RefreshCw}
-            title="Reload"
-          />
-
-          <div style={{ width: '1px', height: '16px', backgroundColor: theme.ui.borderLight, margin: '0 4px' }} />
-          
-          <Button 
-            variant="danger" 
-            size="small" 
-            onClick={onClose} 
-            theme={theme}
-            icon={X}
           />
         </div>
       </div>
 
-      {/* 내용 */}
+      {/* 에디터 영역 */}
       <div style={styles.content}>
         {loading ? (
           <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
-            <div className="terminal-loader" style={{ borderColor: theme.ui.accent, marginBottom: '12px' }}></div>
-            Loading file...
+            <Loader2 size={32} className="animate-spin" style={{ color: theme.ui.accent, marginBottom: '12px' }} />
+            <span>Loading editor...</span>
           </div>
         ) : error ? (
           <div style={{ ...styles.message, color: theme.red }}>
-            <XCircle size={32} style={{ marginBottom: '12px' }} />
-            {error}
-            <Button theme={theme} onClick={loadFile} style={{ marginTop: '16px' }}>Retry</Button>
+            <AlertCircle size={32} style={{ marginBottom: '12px' }} />
+            <span style={{ marginBottom: '16px' }}>{error}</span>
+            <Button theme={theme} onClick={() => loadFile(activeFile)} variant="secondary">Retry</Button>
           </div>
         ) : (
-          <textarea
-            style={{
-              ...styles.textarea,
-              backgroundColor: theme.ui.bg,
-              color: theme.ui.text,
-              borderColor: 'transparent',
-            }}
+          <Editor
+            height="100%"
+            theme="vs-dark"
+            language={getLanguage(activeFile)}
             value={content}
-            onChange={handleContentChange}
-            onKeyDown={handleKeyDown}
-            spellCheck={false}
-            placeholder="File is empty"
+            onChange={handleEditorChange}
+            onMount={handleEditorDidMount}
+            options={{
+              fontSize: 14,
+              fontFamily: '"JetBrains Mono", monospace',
+              minimap: { enabled: true },
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              tabSize: 2,
+              wordWrap: 'on',
+              lineNumbers: 'on',
+              renderWhitespace: 'selection',
+              contextmenu: true,
+              bracketPairColorization: { enabled: true },
+              smoothScrolling: true,
+              cursorBlinking: 'smooth',
+              cursorSmoothCaretAnimation: 'on',
+              scrollbar: {
+                vertical: 'visible',
+                horizontal: 'visible',
+                useShadows: false,
+                verticalScrollbarSize: 10,
+                horizontalScrollbarSize: 10,
+              }
+            }}
           />
         )}
+      </div>
+
+      {/* 푸터 */}
+      <div style={{ 
+        height: '22px', 
+        backgroundColor: theme.ui.bgSecondary, 
+        borderTop: `1px solid ${theme.ui.borderLight}`,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'flex-end',
+        padding: '0 12px',
+        fontSize: '11px',
+        color: theme.ui.textSecondary,
+      }}>
+        <div style={{ display: 'flex', gap: '16px' }}>
+          <span>Language: <span style={{ color: theme.ui.text }}>{getLanguage(activeFile).toUpperCase()}</span></span>
+          <span>UTF-8</span>
+        </div>
       </div>
     </div>
   );
@@ -187,61 +349,19 @@ const styles = {
     flexDirection: 'column',
     zIndex: 100,
   },
-  header: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: '0 12px',
-    gap: '12px',
-  },
-  headerLeft: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    flex: 1,
-    minWidth: 0,
-  },
-  filePath: {
-    fontSize: '12px',
-    fontWeight: '700',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    fontFamily: '"JetBrains Mono", monospace',
-    opacity: 0.9,
-  },
-  headerRight: {
-    display: 'flex',
-    gap: '6px',
-    alignItems: 'center',
-    flexShrink: 0,
-  },
   content: {
     flex: 1,
-    display: 'flex',
-    flexDirection: 'column',
     overflow: 'hidden',
-  },
-  textarea: {
-    flex: 1,
-    width: '100%',
-    padding: '16px',
-    outline: 'none',
-    fontFamily: '"JetBrains Mono", monospace',
-    fontSize: '13px',
-    lineHeight: '1.6',
-    resize: 'none',
-    overflow: 'auto',
-    border: 'none',
+    position: 'relative',
   },
   message: {
-    flex: 1,
+    position: 'absolute',
+    inset: 0,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
     fontSize: '14px',
-    fontWeight: '600',
   },
 };
 

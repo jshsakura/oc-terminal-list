@@ -63,8 +63,8 @@ function App() {
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
   
   // File/Folder State
-  const [fileEditorOpen, setFileEditorOpen] = useState(false);
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [openFiles, setOpenFiles] = useState([]); // 열려있는 파일 배열
+  const [activeFile, setActiveFile] = useState(null); // 현재 활성화된 파일
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
   const [commandText, setCommandText] = useState('');
@@ -130,6 +130,29 @@ function App() {
     }
   };
 
+  // 파일 열기 핸들러
+  const handleFileOpen = (path) => {
+    if (!openFiles.includes(path)) {
+      setOpenFiles([...openFiles, path]);
+    }
+    setActiveFile(path);
+  };
+
+  // 파일 닫기 핸들러
+  const handleFileClose = (path) => {
+    const newOpenFiles = openFiles.filter(f => f !== path);
+    setOpenFiles(newOpenFiles);
+    
+    // 닫는 파일이 활성 파일이었다면 다른 파일 활성화
+    if (activeFile === path) {
+      if (newOpenFiles.length > 0) {
+        setActiveFile(newOpenFiles[newOpenFiles.length - 1]);
+      } else {
+        setActiveFile(null);
+      }
+    }
+  };
+
   // Renderers
   if (isLoading) return <LoadingScreen currentTheme={currentTheme} t={t} />;
   if (needsSetup) return <Suspense fallback={null}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense>;
@@ -170,7 +193,7 @@ function App() {
           document.addEventListener('mousemove', onMove);
           document.addEventListener('mouseup', onUp);
         }} 
-        onFileSelect={(path) => { setSelectedFile(path); setFileEditorOpen(true); }} 
+        onFileSelect={handleFileOpen} 
         onFolderSelect={setSelectedFolderPath} 
         onOpenTerminalAtFolder={createSession} 
       />
@@ -209,45 +232,52 @@ function App() {
           setHoveredDropdownItem={setHoveredDropdownItem}
         />
 
-        <div 
-          ref={terminalRef}
-          onTouchStart={isMobile ? handleTouchStart : undefined}
-          onTouchEnd={isMobile ? handleTouchEnd : undefined}
-          style={{
-            ...AppStyles.terminalContainer,
-            paddingBottom: isMobile ? '80px' : '0',
-            backgroundColor: currentTheme.ui.bg,
-            flex: 1,
-          }}
-        >
-          {sessions.length === 0 ? (
-            <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
-          ) : (
-            sessions.map((session) => (
-              <div key={session.id} style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}>
-                <Suspense fallback={null}>
-                  <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
-                </Suspense>
-              </div>
-            ))
-          )}
-        </div>
-
-        {fileEditorOpen && selectedFile && (
-          <Suspense fallback={null}>
-            <div style={{ 
-              position: 'absolute', 
-              top: '40px', 
-              left: 0, 
-              right: 0, 
-              bottom: isMobile ? '80px' : 0, 
-              zIndex: 100,
-              backgroundColor: currentTheme.ui.bg,
-            }}>
-              <FileEditor filePath={selectedFile} onClose={() => setFileEditorOpen(false)} theme={currentTheme} />
+        {/* 에디터와 터미널이 위치하는 메인 작업 영역 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+          
+          {/* 에디터 영역 */}
+          {activeFile && (
+            <div style={{ flex: 1, position: 'relative', zIndex: 10 }}>
+              <Suspense fallback={null}>
+                <FileEditor 
+                  activeFile={activeFile} 
+                  openFiles={openFiles}
+                  onFileSelect={handleFileOpen}
+                  onClose={handleFileClose} 
+                  theme={currentTheme} 
+                />
+              </Suspense>
             </div>
-          </Suspense>
-        )}
+          )}
+
+          {/* 터미널 영역 (에디터가 열려있을 때는 배경에서 유지) */}
+          <div 
+            ref={terminalRef}
+            onTouchStart={isMobile ? handleTouchStart : undefined}
+            onTouchEnd={isMobile ? handleTouchEnd : undefined}
+            style={{
+              ...AppStyles.terminalContainer,
+              display: activeFile && !isMobile ? 'none' : 'block',
+              paddingBottom: isMobile ? '80px' : '0',
+              backgroundColor: currentTheme.ui.bg,
+              flex: 1,
+              // 에디터가 열려있을 때 모바일에서는 터미널을 가리거나 조정할 수 있음
+              height: activeFile && !isMobile ? '0' : 'auto',
+            }}
+          >
+            {sessions.length === 0 ? (
+              <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
+            ) : (
+              sessions.map((session) => (
+                <div key={session.id} style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}>
+                  <Suspense fallback={null}>
+                    <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
+                  </Suspense>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
       {isMobile && <StatusBar sessions={sessions} activeSessionId={activeSessionId} setActiveSessionId={setActiveSessionId} currentTheme={currentTheme} />}
