@@ -87,10 +87,10 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
 
             {/* 2. 방향키 */}
             <div style={styles.cluster}>
-              <button onClick={() => handleKeyWithModifiers('\x1b[D')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowLeft size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[A')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowUp size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[B')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowDown size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[C')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowRight size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1bOD')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowLeft size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1bOA')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowUp size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1bOB')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowDown size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1bOC')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowRight size={14} /></button>
             </div>
 
             <div style={styles.divider} />
