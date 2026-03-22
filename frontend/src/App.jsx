@@ -197,6 +197,7 @@ function App() {
         onFileSelect={handleFileOpen} 
         onFolderSelect={setSelectedFolderPath} 
         onOpenTerminalAtFolder={createSession} 
+        selectedFolderPath={selectedFolderPath}
       />
 
       {/* 2. 메인 콘텐츠 영역 (사이드바에 의해 밀려남) */}

@@ -8,7 +8,7 @@ import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import Button from './common/Button';
 
-const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, onRenameSession, onReconnectSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect, onFolderSelect, onOpenTerminalAtFolder }) => {
+const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, onRenameSession, onReconnectSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect, onFolderSelect, onOpenTerminalAtFolder, selectedFolderPath = '' }) => {
   const { t } = useTranslation(language);
   const [hoveredSessionId, setHoveredSessionId] = useState(null);
   const [activeTab, setActiveTab] = useState('sessions'); // 'sessions' | 'files'
@@ -304,6 +304,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
               onFolderSelect={onFolderSelect}
               onOpenTerminalAtFolder={onOpenTerminalAtFolder}
               language={language}
+              initialPath={selectedFolderPath}
             />
           </div>
         )}

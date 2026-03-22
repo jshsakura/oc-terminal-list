@@ -1,13 +1,13 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Folder, File, RefreshCw, ChevronLeft, Home } from 'lucide-react';
+import { Folder, File, RefreshCw, ChevronLeft } from 'lucide-react';
 
-const FileTree = ({ theme, onFileSelect, onFolderSelect }) => {
+const FileTree = ({ theme, onFileSelect, onFolderSelect, initialPath = '' }) => {
   const [items, setItems] = useState([]);
-  const [currentPath, setCurrentPath] = useState('');
+  const [currentPath, setCurrentPath] = useState(initialPath);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const fetchFiles = useCallback(async (path = '') => {
+  const fetchFiles = useCallback(async (path) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
@@ -20,6 +20,7 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect }) => {
       const data = await res.json();
       setItems(data.items || []);
       setCurrentPath(path);
+      onFolderSelect?.(path); // 부모 상태 업데이트 (터미널 열기용)
       setError(null);
     } catch (err) {
       console.error("[DEBUG] Fetch error:", err);
@@ -27,11 +28,12 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect }) => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onFolderSelect]);
 
+  // 마운트 시 initialPath가 있으면 그곳을, 없으면 루트를 로드
   useEffect(() => {
-    fetchFiles('');
-  }, [fetchFiles]);
+    fetchFiles(initialPath);
+  }, [fetchFiles, initialPath]);
 
   const handleGoBack = () => {
     if (!currentPath) return;
@@ -44,7 +46,6 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect }) => {
   const handleItemClick = (item) => {
     if (item.type === 'directory') {
       fetchFiles(item.path);
-      onFolderSelect?.(item.path);
     } else {
       onFileSelect?.(item.path);
     }
@@ -81,7 +82,6 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect }) => {
       color: theme.ui.text,
       overflowY: 'hidden'
     }}>
-      {/* 헤더 */}
       <div style={{ 
         padding: '10px 12px', 
         borderBottom: `1px solid ${theme.ui.border}`, 
@@ -98,20 +98,16 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect }) => {
             </button>
           </div>
         </div>
-        
-        {/* 경로 표시줄 */}
         <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
           {renderPathBreadcrumbs()}
         </div>
       </div>
 
-      {/* 리스트 본체 */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '4px 0' }}>
         {loading && items.length === 0 ? (
           <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>Loading...</div>
         ) : (
           <>
-            {/* 뒤로 가기 (루트가 아닐 때만) */}
             {currentPath && (
               <div 
                 onClick={handleGoBack}
@@ -125,18 +121,14 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect }) => {
                   opacity: 0.7,
                   borderBottom: `1px solid ${theme.ui.border}22`
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.ui.bgTertiary}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
                 <ChevronLeft size={16} />
-                <span>.. (Parent Directory)</span>
+                <span>.. (Parent)</span>
               </div>
             )}
 
             {items.length === 0 ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>
-                Folder is empty
-              </div>
+              <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>Folder empty</div>
             ) : (
               items.map((item) => (
                 <div 
@@ -145,14 +137,11 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect }) => {
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    padding: '10px 16px', // 터치 영역 확대
+                    padding: '10px 16px',
                     cursor: 'pointer',
                     fontSize: '13px',
                     gap: '10px',
-                    transition: 'background 0.1s'
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.ui.bgTertiary}
-                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                 >
                   {item.type === 'directory' ? (
                     <Folder size={18} color="#89b4fa" fill="#89b4fa" fillOpacity={0.2} />
