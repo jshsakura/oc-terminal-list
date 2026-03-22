@@ -59,7 +59,7 @@ const Header = ({
           alignItems: 'center',
           gap: '8px'
         }}>
-          iTerminaLlist
+          Terminal List
         </h1>
       </div>
 

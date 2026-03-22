@@ -1,5 +1,5 @@
 """
-iTerminaLlist - 백엔드 FastAPI 서버
+Terminal List - 백엔드 FastAPI 서버
 모바일 최적화된 웹 터미널 에뮬레이터
 """
 import logging
@@ -219,7 +219,7 @@ system_monitor = SystemMonitor()
 async def startup_event():
     """서버 시작 시 초기화"""
     global auth_manager
-    logger.info("=== iTerminaLlist 서버 시작 ===")
+    logger.info("=== Terminal List 서버 시작 ===")
     
     # 워크스페이스 디렉토리 존재 보장 및 로깅
     try:
@@ -252,7 +252,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """서버 종료 시 정리"""
-    logger.info("=== iTerminaLlist 서버 종료 ===")
+    logger.info("=== Terminal List 서버 종료 ===")
     await storage.close()
 
 
@@ -295,7 +295,7 @@ async def verify_auth_token_ws(token: str) -> str:
 async def health_check():
     """헬스 체크 엔드포인트"""
     return {
-        "service": "iTerminaLlist",
+        "service": "Terminal List",
         "status": "running",
         "version": "1.0.0"
     }

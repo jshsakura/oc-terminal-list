@@ -40,7 +40,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
     setIsReady(false);
 
     // 1. xterm.js 인스턴스 생성 (최신 프리미엄 옵션 적용)
-    const terminalFont = settings.fontFamily || '"MesloLGS NF", "Cascadia Code NF", "JetBrains Mono", monospace';
+    const terminalFont = settings.fontFamily || '"JetBrains Mono", "MesloLGS NF", "Cascadia Code NF", monospace';
     const term = new Terminal({
       theme: currentTheme,
       fontFamily: terminalFont,
