@@ -119,9 +119,11 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
               >
                 {themeNames.map((name) => {
                   const themeKey = `theme${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+                  // Fallback for manual mappings if needed
+                  const displayName = t(themeKey) || name;
                   return (
                     <option key={name} value={name}>
-                      {t(themeKey) || name}
+                      {displayName}
                     </option>
                   );
                 })}

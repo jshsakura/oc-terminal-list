@@ -32,7 +32,9 @@ export const locales = {
     scrollSensitivityHint: 'Higher values respond more sensitively to user scrolling',
 
     // Themes
-    themeCatppuccin: 'Catppuccin Mocha',
+    themeCatppuccinMocha: 'Catppuccin Mocha',
+    themeCatppuccinMacchiato: 'Catppuccin Macchiato',
+    themeCatppuccinFrappe: 'Catppuccin Frappé',
     themeCatppuccinLatte: 'Catppuccin Latte',
     themeTokyoNight: 'Tokyo Night',
     themeOneDark: 'One Dark',
@@ -162,7 +164,9 @@ export const locales = {
     scrollSensitivityHint: '높을수록 사용자 조작에 민감하게 반응합니다',
 
     // 테마
-    themeCatppuccin: 'Catppuccin Mocha',
+    themeCatppuccinMocha: 'Catppuccin Mocha',
+    themeCatppuccinMacchiato: 'Catppuccin Macchiato',
+    themeCatppuccinFrappe: 'Catppuccin Frappé',
     themeCatppuccinLatte: 'Catppuccin Latte',
     themeTokyoNight: 'Tokyo Night',
     themeOneDark: 'One Dark',
