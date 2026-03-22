@@ -331,16 +331,98 @@ export const githubDarkTheme = {
   }
 };
 
+// 9. GitHub Light (라이트 테마)
+export const githubLightTheme = {
+  background: '#ffffff',
+  foreground: '#24292f',
+  cursor: '#24292f',
+  cursorAccent: '#ffffff',
+  selection: 'rgba(9, 105, 218, 0.2)',
+  black: '#24292f',
+  red: '#cf222e',
+  green: '#1a7f37',
+  yellow: '#9a6700',
+  blue: '#0969da',
+  magenta: '#8250df',
+  cyan: '#1b7c83',
+  white: '#ffffff',
+  brightBlack: '#57606a',
+  brightRed: '#a40e26',
+  brightGreen: '#116329',
+  brightYellow: '#4d2d00',
+  brightBlue: '#0550ae',
+  brightMagenta: '#6e33ce',
+  brightCyan: '#055d54',
+  brightWhite: '#8c959f',
+  ui: {
+    ...commonUI,
+    bg: '#ffffff',
+    bgSecondary: '#f6f8fa',
+    bgTertiary: '#eff2f5',
+    glassBg: 'rgba(255, 255, 255, 0.8)',
+    cardBg: 'rgba(246, 248, 250, 0.5)',
+    border: '#d0d7de',
+    borderLight: 'rgba(31, 35, 40, 0.1)',
+    text: '#24292f',
+    textSecondary: '#57606a',
+    accent: '#0969da',
+    accentMuted: 'rgba(9, 105, 218, 0.15)',
+    iconColor: '#24292f',
+  }
+};
+
+// 10. Catppuccin Latte (라이트 테마)
+export const catppuccinLatteTheme = {
+  background: '#eff1f5',
+  foreground: '#4c4f69',
+  cursor: '#dc8a78',
+  cursorAccent: '#eff1f5',
+  selection: 'rgba(30, 102, 245, 0.2)',
+  black: '#5c5f77',
+  red: '#d20f39',
+  green: '#40a02b',
+  yellow: '#df8e1d',
+  blue: '#1e66f5',
+  magenta: '#ea76cb',
+  cyan: '#179299',
+  white: '#acb0be',
+  brightBlack: '#6c6f85',
+  brightRed: '#d20f39',
+  brightGreen: '#40a02b',
+  brightYellow: '#df8e1d',
+  brightBlue: '#1e66f5',
+  brightMagenta: '#ea76cb',
+  brightCyan: '#179299',
+  brightWhite: '#ccd0da',
+  ui: {
+    ...commonUI,
+    bg: '#eff1f5',
+    bgSecondary: '#e6e9ef',
+    bgTertiary: '#ccd0da',
+    glassBg: 'rgba(239, 241, 245, 0.8)',
+    cardBg: 'rgba(230, 233, 239, 0.5)',
+    border: '#bcc0cc',
+    borderLight: 'rgba(76, 79, 105, 0.1)',
+    text: '#4c4f69',
+    textSecondary: '#6c6f85',
+    accent: '#1e66f5',
+    accentMuted: 'rgba(30, 102, 245, 0.15)',
+    iconColor: '#4c4f69',
+  }
+};
+
 // 테마 맵핑
 export const themes = {
   catppuccin: catppuccinTheme,
+  catppuccinLatte: catppuccinLatteTheme,
   tokyoNight: tokyoNightTheme,
   nord: nordTheme,
   rosePine: rosePineTheme,
   dracula: draculaTheme,
   oneDark: oneDarkTheme,
   everforest: everforestTheme,
-  github: githubDarkTheme,
+  githubDark: githubDarkTheme,
+  githubLight: githubLightTheme,
 };
 
 export const themeNames = Object.keys(themes);

@@ -285,7 +285,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme }) => 
         ) : (
           <Editor
             height="100%"
-            theme="vs-dark"
+            theme={theme.background === '#ffffff' || theme.background === '#eff1f5' ? 'light' : 'vs-dark'}
             language={getLanguage(activeFile)}
             value={content}
             onChange={handleEditorChange}
