@@ -86,18 +86,18 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
             <div style={styles.divider} />
 
             {/* 2. 방향키 */}
-            <div style={{...styles.cluster, backgroundColor: currentTheme.ui.bgTertiary}}>
-              <button onClick={() => handleKeyWithModifiers('\x1b[D')} style={{...styles.compactBtn, color: currentTheme.ui.text}}><ArrowLeft size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[A')} style={{...styles.compactBtn, color: currentTheme.ui.text}}><ArrowUp size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[B')} style={{...styles.compactBtn, color: currentTheme.ui.text}}><ArrowDown size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[C')} style={{...styles.compactBtn, color: currentTheme.ui.text}}><ArrowRight size={14} /></button>
+            <div style={styles.cluster}>
+              <button onClick={() => handleKeyWithModifiers('\x1b[D')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowLeft size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1b[A')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowUp size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1b[B')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowDown size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1b[C')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}><ArrowRight size={14} /></button>
             </div>
 
             <div style={styles.divider} />
 
             {/* 3. 핵심 제어키 */}
-            <button onClick={() => handleKeyWithModifiers('\x1b')} style={{...styles.compactBtn, color: currentTheme.ui.text, fontWeight: '800'}}>ESC</button>
-            <button onClick={() => handleKeyWithModifiers('\t')} style={{...styles.compactBtn, color: currentTheme.ui.text, fontWeight: '800'}}>TAB</button>
+            <button onClick={() => handleKeyWithModifiers('\x1b')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border, fontWeight: '800'}}>ESC</button>
+            <button onClick={() => handleKeyWithModifiers('\t')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border, fontWeight: '800'}}>TAB</button>
             <button 
               onClick={() => onSendKey('\x03')} 
               style={{...styles.compactBtn, color: currentTheme.red, borderColor: `${currentTheme.red}44`, backgroundColor: `${currentTheme.red}11`, fontWeight: '900'}}
@@ -111,14 +111,14 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
             <button 
               onClick={() => setCtrlActive(!ctrlActive)} 
               className={ctrlActive ? 'btn-active' : ''}
-              style={{...styles.compactBtn, color: currentTheme.ui.text}}
+              style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}
             >
               CTRL
             </button>
             <button 
               onClick={() => setAltActive(!altActive)} 
               className={altActive ? 'btn-active' : ''}
-              style={{...styles.compactBtn, color: currentTheme.ui.text}}
+              style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}
             >
               ALT
             </button>
@@ -128,11 +128,11 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
             {/* 5. 부가 기능 */}
             <button 
               onClick={() => { const text = prompt('Paste:'); if (text) onSendKey(text); }} 
-              style={{...styles.compactBtn, color: currentTheme.ui.text}}
+              style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border}}
             >
               <ClipboardPaste size={14} />
             </button>
-            <button onClick={() => onSendKey('\x15')} style={{...styles.compactBtn, color: currentTheme.ui.text, opacity: 0.6}}><Eraser size={14} /></button>
+            <button onClick={() => onSendKey('\x15')} style={{...styles.compactBtn, color: currentTheme.ui.text, backgroundColor: currentTheme.ui.bgTertiary, borderColor: currentTheme.ui.border, opacity: 0.6}}><Eraser size={14} /></button>
           </div>
         </div>
       </div>
@@ -164,21 +164,20 @@ const styles = {
   },
   buttonGroup: {
     display: 'flex',
-    gap: '6px', // 간격을 12px에서 6px로 축소
+    gap: '8px', // 간격을 6px에서 8px로 약간 확대
     alignItems: 'center',
     paddingRight: '20px',
   },
   cluster: {
     display: 'flex',
-    gap: '2px', // 클러스터 내부 간격 축소
-    backgroundColor: 'rgba(255,255,255,0.03)',
-    padding: '2px',
+    gap: '4px', // 클러스터 내부 간격을 2px에서 4px로 확대
+    padding: '0', // 패딩 제거
     borderRadius: '4px',
   },
   compactBtn: {
     flexShrink: 0,
     height: '24px', 
-    padding: '0 6px', // 패딩 약간 축소
+    padding: '0 8px', // 패딩 약간 확대 (터치 영역 확보)
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
