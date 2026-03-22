@@ -147,7 +147,7 @@ class SystemMonitor:
         self.cached_cpu_percent = 0
 
     def get_stats(self):
-        stats = {"cpu": 0, "ram": 0}
+        stats = {"cpu": 0, "ram": 0, "disk": 0}
         try:
             # RAM 정보 추출
             if os.path.exists('/proc/meminfo'):
@@ -162,6 +162,16 @@ class SystemMonitor:
                             available = int(line.split()[1])
                     if total > 0:
                         stats["ram"] = round((total - available) / total * 100, 1)
+
+            # Disk 정보 추출
+            try:
+                usage = os.statvfs(WORKSPACE_ROOT)
+                d_total = usage.f_blocks * usage.f_frsize
+                d_free = usage.f_bfree * usage.f_frsize
+                if d_total > 0:
+                    stats["disk"] = round((d_total - d_free) / d_total * 100, 1)
+            except:
+                pass
 
             # CPU 정보 추출 (이전 값과의 차이로 계산)
             now = time.time()

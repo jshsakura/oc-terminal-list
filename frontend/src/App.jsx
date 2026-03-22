@@ -233,7 +233,12 @@ function App() {
         }} 
         onFileSelect={handleFileOpen} 
         onFolderSelect={setSelectedFolderPath} 
-        onOpenTerminalAtFolder={createSession} 
+        onOpenTerminalAtFolder={async (path) => {
+          const newId = await createSession(path);
+          if (newId && isMobile) {
+            setIsSidebarOpen(false);
+          }
+        }} 
         selectedFolderPath={selectedFolderPath}
       />
 
@@ -375,6 +380,7 @@ function App() {
             activeSessionId={activeSessionId} 
             onOpenCommandInput={() => setCommandInputOpen(true)}
             language={settings.language}
+            theme={currentTheme}
           />
         </Suspense>
       )}
@@ -390,20 +396,20 @@ function App() {
             width: '180px',
             backgroundColor: currentTheme.ui.bgSecondary,
             border: `1px solid ${currentTheme.ui.border}`,
-            borderRadius: '0 0 8px 8px',
+            borderRadius: currentTheme.ui.radius || '4px',
             padding: '4px',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
             zIndex: 100001
           }}>
-            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${currentTheme.ui.border}`, marginBottom: '4px' }}>
+            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${currentTheme.ui.borderLight}`, marginBottom: '4px' }}>
               <div style={{ fontSize: '10px', color: currentTheme.ui.textSecondary, textTransform: 'uppercase' }}>{t('user')}</div>
               <div style={{ fontWeight: '800', color: currentTheme.ui.accent }}>{username}</div>
             </div>
-            <button onClick={() => { handleNewSession(); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '14px', borderRadius: '4px' }}>{t('newSession')}</button>
-            <button onClick={() => { setIsSettingsOpen(true); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '14px', borderRadius: '4px' }}>{t('settings')}</button>
-            <button onClick={() => { handleLogoutRequest(); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.red, textAlign: 'left', fontWeight: '700', fontSize: '14px', borderRadius: '4px' }}>{t('logout')}</button>
+            <button onClick={() => { handleNewSession(); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '13px', borderRadius: '4px' }}>{t('newSession')}</button>
+            <button onClick={() => { setIsSettingsOpen(true); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '13px', borderRadius: '4px' }}>{t('settings')}</button>
+            <button onClick={() => { handleLogoutRequest(); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.red, textAlign: 'left', fontWeight: '700', fontSize: '13px', borderRadius: '4px' }}>{t('logout')}</button>
           </div>
         </div>
       )}

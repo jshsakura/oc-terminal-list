@@ -62,9 +62,8 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
         ref={toolbarRef}
         style={{
           ...styles.toolbar,
-          backgroundColor: 'rgba(24, 24, 37, 0.85)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          borderTop: `1px solid ${currentTheme.ui.borderLight}`,
+          backgroundColor: currentTheme.ui.bgSecondary,
+          borderTop: `1px solid ${currentTheme.ui.border}`,
         }}
       >
         <div ref={scrollContainerRef} className="mobile-toolbar-scroll" style={styles.scrollContainer}>
@@ -73,7 +72,12 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
             {/* 1. 빠른 입력 (최좌측 전진 배치) */}
             <button 
               onClick={() => onOpenCommandInput?.()} 
-              style={{...styles.compactBtn, backgroundColor: 'rgba(137, 180, 250, 0.15)', color: currentTheme.ui.accent, borderColor: 'rgba(137, 180, 250, 0.3)'}}
+              style={{
+                ...styles.compactBtn, 
+                backgroundColor: currentTheme.ui.accentMuted, 
+                color: currentTheme.ui.accent, 
+                borderColor: currentTheme.ui.borderLight
+              }}
               title={t('commandInput')}
             >
               <MessageSquare size={14} strokeWidth={2.5} />
@@ -82,18 +86,18 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
             <div style={styles.divider} />
 
             {/* 2. 방향키 */}
-            <div style={styles.cluster}>
-              <button onClick={() => handleKeyWithModifiers('\x1b[D')} style={styles.compactBtn}><ArrowLeft size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[A')} style={styles.compactBtn}><ArrowUp size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[B')} style={styles.compactBtn}><ArrowDown size={14} /></button>
-              <button onClick={() => handleKeyWithModifiers('\x1b[C')} style={styles.compactBtn}><ArrowRight size={14} /></button>
+            <div style={{...styles.cluster, backgroundColor: currentTheme.ui.bgTertiary}}>
+              <button onClick={() => handleKeyWithModifiers('\x1b[D')} style={{...styles.compactBtn, color: currentTheme.ui.text}}><ArrowLeft size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1b[A')} style={{...styles.compactBtn, color: currentTheme.ui.text}}><ArrowUp size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1b[B')} style={{...styles.compactBtn, color: currentTheme.ui.text}}><ArrowDown size={14} /></button>
+              <button onClick={() => handleKeyWithModifiers('\x1b[C')} style={{...styles.compactBtn, color: currentTheme.ui.text}}><ArrowRight size={14} /></button>
             </div>
 
             <div style={styles.divider} />
 
             {/* 3. 핵심 제어키 */}
-            <button onClick={() => handleKeyWithModifiers('\x1b')} style={{...styles.compactBtn, fontWeight: '800'}}>ESC</button>
-            <button onClick={() => handleKeyWithModifiers('\t')} style={{...styles.compactBtn, fontWeight: '800'}}>TAB</button>
+            <button onClick={() => handleKeyWithModifiers('\x1b')} style={{...styles.compactBtn, color: currentTheme.ui.text, fontWeight: '800'}}>ESC</button>
+            <button onClick={() => handleKeyWithModifiers('\t')} style={{...styles.compactBtn, color: currentTheme.ui.text, fontWeight: '800'}}>TAB</button>
             <button 
               onClick={() => onSendKey('\x03')} 
               style={{...styles.compactBtn, color: currentTheme.red, borderColor: `${currentTheme.red}44`, backgroundColor: `${currentTheme.red}11`, fontWeight: '900'}}
@@ -107,14 +111,14 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
             <button 
               onClick={() => setCtrlActive(!ctrlActive)} 
               className={ctrlActive ? 'btn-active' : ''}
-              style={styles.compactBtn}
+              style={{...styles.compactBtn, color: currentTheme.ui.text}}
             >
               CTRL
             </button>
             <button 
               onClick={() => setAltActive(!altActive)} 
               className={altActive ? 'btn-active' : ''}
-              style={styles.compactBtn}
+              style={{...styles.compactBtn, color: currentTheme.ui.text}}
             >
               ALT
             </button>
@@ -124,11 +128,11 @@ const MobileToolbar = ({ onSendKey, isVisible, onClose, activeSessionId, onOpenC
             {/* 5. 부가 기능 */}
             <button 
               onClick={() => { const text = prompt('Paste:'); if (text) onSendKey(text); }} 
-              style={styles.compactBtn}
+              style={{...styles.compactBtn, color: currentTheme.ui.text}}
             >
               <ClipboardPaste size={14} />
             </button>
-            <button onClick={() => onSendKey('\x15')} style={{...styles.compactBtn, opacity: 0.6}}><Eraser size={14} /></button>
+            <button onClick={() => onSendKey('\x15')} style={{...styles.compactBtn, color: currentTheme.ui.text, opacity: 0.6}}><Eraser size={14} /></button>
           </div>
         </div>
       </div>
@@ -160,21 +164,21 @@ const styles = {
   },
   buttonGroup: {
     display: 'flex',
-    gap: '12px', // 버튼 사이의 틈을 12px로 대폭 확대
+    gap: '6px', // 간격을 12px에서 6px로 축소
     alignItems: 'center',
     paddingRight: '20px',
   },
   cluster: {
     display: 'flex',
-    gap: '6px', // 클러스터 내부 간격도 확대
+    gap: '2px', // 클러스터 내부 간격 축소
     backgroundColor: 'rgba(255,255,255,0.03)',
     padding: '2px',
     borderRadius: '4px',
   },
   compactBtn: {
     flexShrink: 0,
-    height: '24px', // 버튼 높이 더 축소
-    padding: '0 8px', // 좌우 패딩은 유지하여 터치 영역 확보
+    height: '24px', 
+    padding: '0 6px', // 패딩 약간 축소
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -193,7 +197,7 @@ const styles = {
     width: '1px',
     height: '14px',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    margin: '0 4px',
+    margin: '0 2px', // 마진을 4px에서 2px로 축소
     flexShrink: 0,
   },
 };

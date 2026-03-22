@@ -3,7 +3,7 @@
  * 터미널 세션 목록 및 관리
  */
 import { useState, useRef, useEffect, memo } from 'react';
-import { X, Terminal, Cpu, FolderTree, RefreshCw, Plus, Activity } from 'lucide-react';
+import { X, Terminal, Cpu, FolderTree, RefreshCw, Plus, Activity, HardDrive } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import Button from './common/Button';
@@ -14,7 +14,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
   const [activeTab, setActiveTab] = useState('sessions'); // 'sessions' | 'files'
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editingName, setEditingName] = useState('');
-  const [systemStats, setSystemStats] = useState({ cpu: 0, ram: 0 });
+  const [systemStats, setSystemStats] = useState({ cpu: 0, ram: 0, disk: 0 });
   const editInputRef = useRef(null);
 
   // 시스템 정보 주기적 업데이트
@@ -94,6 +94,11 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
     }
   }, [editingSessionId]);
 
+  const handleOpenTerminalAtFolder = (path) => {
+    setActiveTab('sessions');
+    if (onOpenTerminalAtFolder) onOpenTerminalAtFolder(path);
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -123,31 +128,16 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         {/* 헤더 */}
         <div style={{ 
           display: 'flex',
-          justifyContent: 'space-between',
+          justifyContent: 'flex-end',
           alignItems: 'center',
-          height: '40px',
-          minHeight: '40px',
-          maxHeight: '40px',
+          height: '35px',
+          minHeight: '35px',
+          maxHeight: '35px',
           padding: '0 8px',
           boxSizing: 'border-box',
           backgroundColor: currentTheme.ui.bgSecondary, 
           borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
         }}>
-            <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingLeft: '8px' }}>
-              <h2 style={{ 
-                margin: 0, 
-                color: currentTheme.ui.text, 
-                fontSize: '11px', 
-                fontWeight: '800', 
-                textTransform: 'uppercase', 
-                letterSpacing: '1px',
-                display: 'flex',
-                alignItems: 'center',
-                height: '100%'
-              }}>
-                {activeTab === 'sessions' ? t('sessions') : t('files')}
-              </h2>
-            </div>
             <Button 
               variant="ghost" 
               size="icon" 
@@ -331,35 +321,28 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
               theme={currentTheme}
               onFileSelect={onFileSelect}
               onFolderSelect={onFolderSelect}
-              onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+              onOpenTerminalAtFolder={handleOpenTerminalAtFolder}
               language={language}
               initialPath={selectedFolderPath}
             />
           </div>
         )}
 
-        {/* 푸터 정보 */}
-        <div style={{ ...styles.footer, backgroundColor: currentTheme.ui.bgSecondary, borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, padding: '10px 12px' }}>
-          {/* 시스템 리소스 정보 */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', paddingBottom: '8px', borderBottom: `1px solid ${currentTheme.ui.borderLight}` }}>
-            <div style={{ display: 'flex', gap: '12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="CPU Usage">
-                <Cpu size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
-                <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text }}>{systemStats.cpu}%</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="RAM Usage">
-                <Activity size={12} strokeWidth={2.5} style={{ color: currentTheme.green }} />
-                <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text }}>{systemStats.ram}%</span>
-              </div>
+        {/* 푸터 정보 (시스템 리소스) */}
+        <div style={{ backgroundColor: currentTheme.ui.bgSecondary, borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, padding: '8px 12px' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="CPU">
+              <Cpu size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
+              <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text, opacity: 0.8 }}>{systemStats.cpu}%</span>
             </div>
-          </div>
-
-          <div style={styles.footerInfo}>
-            <div style={styles.footerLeft}>
-              <Terminal size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.textSecondary }} />
-              <span style={{ ...styles.footerLabel, color: currentTheme.ui.textSecondary, fontSize: '10px', fontWeight: '700' }}>{t('activeTerminals')}:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="RAM">
+              <Activity size={12} strokeWidth={2.5} style={{ color: currentTheme.green }} />
+              <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text, opacity: 0.8 }}>{systemStats.ram}%</span>
             </div>
-            <span style={{ ...styles.footerValue, color: currentTheme.ui.accent, fontSize: '11px', fontWeight: '800' }}>{sessions.length}</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="DISK">
+              <HardDrive size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
+              <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text, opacity: 0.8 }}>{systemStats.disk}%</span>
+            </div>
           </div>
         </div>
 
