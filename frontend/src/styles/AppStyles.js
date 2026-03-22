@@ -108,6 +108,7 @@ const AppStyles = {
     flex: 1,
     overflow: 'hidden',
     position: 'relative',
+    padding: '12px', // 터미널 안쪽 여백 추가
   },
   emptyState: {
     display: 'flex',
