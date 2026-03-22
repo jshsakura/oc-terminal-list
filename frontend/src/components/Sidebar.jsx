@@ -100,22 +100,23 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
 
   if (!isOpen) return null;
 
+  const isLightTheme = currentTheme.background === '#ffffff' || currentTheme.background === '#fdf6e3' || currentTheme.background === '#fbf1c7';
+
   return (
     <>
       {/* 오버레이 배경 (모바일에서만) */}
       {isMobile && <div style={{
         ...styles.overlay,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        backgroundColor: 'rgba(0, 0, 0, 0.4)',
         backdropFilter: 'blur(4px)',
         zIndex: 9998,
       }} onClick={onClose} />}
 
-      {/* 사이드바 */}
       <div style={{
         ...styles.sidebar,
-        backgroundColor: currentTheme.ui.glassBg || 'rgba(30, 30, 46, 0.7)',
-        backdropFilter: 'blur(16px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
+        backgroundColor: currentTheme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.95)' : 'rgba(30, 30, 46, 0.7)'),
+        backdropFilter: isLightTheme ? 'blur(15px)' : 'blur(10px) saturate(140%)',
+        WebkitBackdropFilter: isLightTheme ? 'blur(15px)' : 'blur(10px) saturate(140%)',
         borderRight: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
         width: isMobile ? 'min(80vw, 280px)' : `${width}px`,
         maxWidth: isMobile ? '80vw' : '400px',
@@ -123,7 +124,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         top: 0,
         height: '100vh',
         zIndex: 9999,
-        boxShadow: isMobile ? '10px 0 30px rgba(0,0,0,0.5)' : currentTheme.ui.shadow,
+        boxShadow: isMobile ? '10px 0 30px rgba(0,0,0,0.1)' : (isLightTheme ? '1px 0 10px rgba(0,0,0,0.03)' : '5px 0 25px rgba(0,0,0,0.3)'),
         transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       }}>
         {/* 헤더 */}

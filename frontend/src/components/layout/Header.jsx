@@ -8,32 +8,34 @@ const Header = ({
   sessions, 
   activeSessionId, 
   isMobile, 
-  scrollBtnClicked, 
-  handleScrollToBottom, 
-  isMenuOpen, 
-  setIsMenuOpen, 
-  currentTheme, 
-  t, 
-  handleNewSession,
-  setIsSettingsOpen,
-  handleLogoutRequest
-}) => {
-  const styles = AppStyles;
+  const Header = ({ 
+    isSidebarOpen, 
+    onToggleSidebar, 
+    currentTheme, 
+    onNewSession, 
+    onOpenSettings, 
+    onOpenConfirmModal,
+    language = 'en',
+    handleLogoutRequest
+  }) => {
+    const styles = AppStyles;
+    const { t } = useTranslation(language);
+    const isLightTheme = currentTheme.background === '#ffffff' || currentTheme.background === '#fdf6e3' || currentTheme.background === '#fbf1c7';
 
-  return (
-    <div style={{
-      ...styles.header,
-      backgroundColor: currentTheme.ui.glassBg || 'rgba(0, 0, 0, 0.3)',
-      backdropFilter: 'blur(12px) saturate(180%)',
-      WebkitBackdropFilter: 'blur(12px) saturate(180%)',
-      borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
-      height: '40px',
-      minHeight: '40px',
-      maxHeight: '40px',
-      boxShadow: 'none',
-      position: 'relative',
-      zIndex: 100,
-    }}>
+    return (
+      <div style={{
+        ...styles.header,
+        backgroundColor: currentTheme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.92)' : 'rgba(30, 30, 46, 0.7)'),
+        backdropFilter: isLightTheme ? 'blur(12px)' : 'blur(8px) saturate(140%)',
+        WebkitBackdropFilter: isLightTheme ? 'blur(12px)' : 'blur(8px) saturate(140%)',
+        borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
+        boxShadow: currentTheme.ui.shadow || (isLightTheme ? '0 1px 10px rgba(0,0,0,0.04)' : '0 2px 15px rgba(0,0,0,0.4)'),
+        height: '40px',
+        minHeight: '40px',
+        maxHeight: '40px',
+        position: 'relative',
+        zIndex: 100,
+      }}>
       <div style={styles.headerLeft}>
         <Button 
           variant="ghost" 

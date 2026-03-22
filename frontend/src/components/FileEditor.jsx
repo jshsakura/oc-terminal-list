@@ -239,6 +239,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const isHtml = activeFile?.endsWith('.html');
   const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFile || '');
   const token = localStorage.getItem('auth_token');
+  const isLightTheme = theme.background === '#ffffff' || theme.background === '#fdf6e3' || theme.background === '#fbf1c7';
 
   if (!activeFile && openFiles.length === 0) return null;
 
@@ -250,9 +251,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
       {/* 탭 바 */}
       <div style={{
         display: 'flex',
-        backgroundColor: theme.ui.glassBg || 'rgba(0,0,0,0.3)',
-        backdropFilter: 'blur(12px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+        backgroundColor: theme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0,0,0,0.3)'),
+        backdropFilter: isLightTheme ? 'blur(10px)' : 'blur(12px) saturate(180%)',
+        WebkitBackdropFilter: isLightTheme ? 'blur(10px)' : 'blur(12px) saturate(180%)',
         height: '40px',
         minHeight: '40px',
         maxHeight: '40px',
