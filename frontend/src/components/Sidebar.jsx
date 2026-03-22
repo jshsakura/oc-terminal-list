@@ -98,14 +98,30 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
       }}>
         {/* 헤더 */}
         <div style={{ 
-          ...styles.header, 
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          height: '40px',
+          padding: '0 8px',
+          boxSizing: 'border-box',
           backgroundColor: currentTheme.ui.bgSecondary, 
           borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
-          height: '40px',
         }}>
-            <h2 style={{ ...styles.title, color: currentTheme.ui.text, fontSize: '12px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '1px' }}>
-              {t('sessions')}
-            </h2>
+            <div style={{ display: 'flex', alignItems: 'center', height: '100%', paddingLeft: '8px' }}>
+              <h2 style={{ 
+                margin: 0, 
+                color: currentTheme.ui.text, 
+                fontSize: '11px', 
+                fontWeight: '800', 
+                textTransform: 'uppercase', 
+                letterSpacing: '1px',
+                display: 'flex',
+                alignItems: 'center',
+                height: '100%'
+              }}>
+                {t('sessions')}
+              </h2>
+            </div>
             <Button 
               variant="ghost" 
               size="icon" 
