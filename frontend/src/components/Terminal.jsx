@@ -10,6 +10,7 @@ import 'xterm/css/xterm.css';
 import themes from '../styles/themes';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
+import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
 const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true }) => {
   const { t } = useTranslation(settings.language);
@@ -40,7 +41,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
     setIsReady(false);
 
     // 1. xterm.js 인스턴스 생성 (최신 프리미엄 옵션 적용)
-    const terminalFont = settings.fontFamily || '"JetBrains Mono", "MesloLGS NF", "Cascadia Code NF", monospace';
+    const terminalFont = normalizeTerminalFontFamily(settings.fontFamily);
     const term = new Terminal({
       theme: currentTheme,
       fontFamily: terminalFont,
@@ -164,7 +165,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
     if (xtermRef.current) {
       xtermRef.current.options.theme = currentTheme;
       xtermRef.current.options.fontSize = settings.fontSize;
-      xtermRef.current.options.fontFamily = settings.fontFamily || '"MesloLGS NF", "Cascadia Code NF", "JetBrains Mono", monospace';
+      xtermRef.current.options.fontFamily = normalizeTerminalFontFamily(settings.fontFamily);
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
       
       // 폰트 변경 후 리사이즈 필요 (폰트 로드 대기를 위해 200ms 지연)

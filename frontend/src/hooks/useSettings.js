@@ -3,6 +3,7 @@
  * 사용자 설정 관리 (테마, 언어, 스크롤 등)
  */
 import { useState, useEffect } from 'react';
+import { DEFAULT_TERMINAL_FONT_FAMILY, normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
 // 브라우저 언어 자동 감지
 const detectBrowserLanguage = () => {
@@ -22,7 +23,7 @@ const DEFAULT_SETTINGS = {
   theme: 'catppuccin',
   language: detectBrowserLanguage(), // 브라우저 언어 자동 감지
   fontSize: 14,
-  fontFamily: '"MesloLGS NF", "MesloLGS Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace',
+  fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
   autoScroll: 'smart', // 'always' | 'smart' | 'never'
   smoothScroll: true,
   scrollSensitivity: 0.8, // AI 스트리밍 대응 (0~1, 높을수록 민감)
@@ -36,7 +37,11 @@ export const useSettings = () => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        return { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+        const merged = { ...DEFAULT_SETTINGS, ...JSON.parse(stored) };
+        return {
+          ...merged,
+          fontFamily: normalizeTerminalFontFamily(merged.fontFamily),
+        };
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -57,7 +62,7 @@ export const useSettings = () => {
   const updateSetting = (key, value) => {
     setSettings((prev) => ({
       ...prev,
-      [key]: value,
+      [key]: key === 'fontFamily' ? normalizeTerminalFontFamily(value) : value,
     }));
   };
 
@@ -66,6 +71,7 @@ export const useSettings = () => {
     setSettings((prev) => ({
       ...prev,
       ...newSettings,
+      fontFamily: normalizeTerminalFontFamily(newSettings.fontFamily ?? prev.fontFamily),
     }));
   };
 

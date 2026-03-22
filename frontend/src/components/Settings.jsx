@@ -7,6 +7,7 @@ import { themeNames } from '../styles/themes';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import { X } from 'lucide-react';
+import { DEFAULT_TERMINAL_FONT_FAMILY } from '../utils/terminalFonts';
 
 const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
   const { t } = useTranslation(settings.language);
@@ -34,7 +35,7 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
         theme: 'catppuccin',
         language: 'en',
         fontSize: 14,
-        fontFamily: '"MesloLGS NF", "MesloLGS Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace',
+        fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
         autoScroll: 'smart',
         smoothScroll: true,
         scrollSensitivity: 0.8,
