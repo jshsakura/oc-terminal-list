@@ -42,15 +42,14 @@ const Header = ({
           icon={isSidebarOpen ? PanelLeftClose : PanelLeft}
         />
 
-        {!isMobile && (
-          <h1 style={{
-            ...styles.title,
-            color: currentTheme.ui.accent,
-            letterSpacing: '0.5px',
-            fontSize: '14px',
-            fontWeight: '800',
-          }}>{t('appName')}</h1>
-        )}
+        <h1 style={{
+          ...styles.title,
+          color: currentTheme.ui.accent,
+          letterSpacing: '0.5px',
+          fontSize: isMobile ? '12px' : '14px',
+          fontWeight: '800',
+          padding: isMobile ? '0 4px' : '0 8px',
+        }}>{t('appName')}</h1>
       </div>
 
       <div style={styles.headerRight}>
@@ -91,88 +90,114 @@ const Header = ({
               icon={ChevronsDown}
             />
 
-            <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center', zIndex: 10001 }}>
+            <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
               <Button 
                 variant="ghost" 
                 size="icon" 
-                onClick={() => setIsMenuOpen(!isMenuOpen)} 
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setIsMenuOpen(!isMenuOpen);
+                }} 
                 theme={currentTheme}
                 style={{
                   backgroundColor: isMenuOpen ? currentTheme.ui.accentMuted : 'transparent',
+                  zIndex: 10002,
                 }}
                 icon={Menu}
               />
 
               {isMenuOpen && (
-                <>
-                  <div style={styles.menuOverlay} onClick={() => setIsMenuOpen(false)} />
+                <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 10000 }}>
+                  <div 
+                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', zIndex: 10000 }} 
+                    onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); }} 
+                  />
                   <div style={{
-                    ...styles.dropdown,
+                    position: 'absolute',
+                    top: '48px',
+                    right: '8px',
+                    width: '220px',
+                    display: 'flex',
+                    flexDirection: 'column',
                     backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bgSecondary,
                     backdropFilter: 'blur(25px) saturate(180%)',
-                    borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
-                    borderRadius: currentTheme.ui.radius,
-                    boxShadow: '0 15px 40px rgba(0,0,0,0.6)',
+                    borderRadius: '16px',
+                    boxShadow: '0 20px 60px rgba(0,0,0,0.6)',
                     padding: '8px',
-                    marginTop: '6px',
                     border: `1px solid ${currentTheme.ui.borderLight || 'rgba(255,255,255,0.1)'}`,
+                    zIndex: 10001,
                   }}>
-                    <div style={{ ...styles.dropdownItem, borderBottom: 'none', padding: '12px 16px' }}>
-                      <span style={{ ...styles.dropdownLabel, color: currentTheme.ui.textSecondary, fontSize: '11px', fontWeight: '700', textTransform: 'uppercase' }}>{t('user')}</span>
-                      <span style={{ ...styles.dropdownValue, color: currentTheme.ui.accent, fontWeight: '800' }}>{authState.username}</span>
+                    <div style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ color: currentTheme.ui.textSecondary, fontSize: '11px', fontWeight: '800', textTransform: 'uppercase' }}>{t('user')}</span>
+                      <span style={{ color: currentTheme.ui.accent, fontWeight: '800' }}>{authState.username}</span>
                     </div>
-                    <div style={{ height: '1px', backgroundColor: currentTheme.ui.borderLight, margin: '4px 12px' }} />
+                    <div style={{ height: '1px', backgroundColor: currentTheme.ui.borderLight, margin: '4px 8px', opacity: 0.4 }} />
                     <button
-                      onClick={() => { handleNewSession(); setIsMenuOpen(false); }}
-                      onMouseEnter={() => setHoveredDropdownItem('new')}
-                      onMouseLeave={() => setHoveredDropdownItem(null)}
+                      onClick={(e) => { e.stopPropagation(); handleNewSession(); setIsMenuOpen(false); }}
                       style={{
-                        ...styles.dropdownButton,
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
                         color: currentTheme.ui.text,
-                        backgroundColor: hoveredDropdownItem === 'new' ? currentTheme.ui.cardBg : 'transparent',
-                        borderRadius: currentTheme.ui.radiusSmall,
-                        padding: '10px 12px',
+                        fontSize: '14px',
                         fontWeight: '600',
+                        borderRadius: '12px',
+                        textAlign: 'left',
+                        cursor: 'pointer'
                       }}
                     >
-                      <Plus size={18} strokeWidth={2.5} />
+                      <Plus size={18} strokeWidth={2.5} color={currentTheme.ui.accent} />
                       <span>{t('newSession')}</span>
                     </button>
                     <button
-                      onClick={() => { setIsSettingsOpen(true); setIsMenuOpen(false); }}
-                      onMouseEnter={() => setHoveredDropdownItem('settings')}
-                      onMouseLeave={() => setHoveredDropdownItem(null)}
+                      onClick={(e) => { e.stopPropagation(); setIsSettingsOpen(true); setIsMenuOpen(false); }}
                       style={{
-                        ...styles.dropdownButton,
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
                         color: currentTheme.ui.text,
-                        backgroundColor: hoveredDropdownItem === 'settings' ? currentTheme.ui.cardBg : 'transparent',
-                        borderRadius: currentTheme.ui.radiusSmall,
-                        padding: '10px 12px',
+                        fontSize: '14px',
                         fontWeight: '600',
+                        borderRadius: '12px',
+                        textAlign: 'left',
+                        cursor: 'pointer'
                       }}
                     >
-                      <SettingsIcon size={18} strokeWidth={2.5} />
+                      <SettingsIcon size={18} strokeWidth={2.5} color={currentTheme.ui.textSecondary} />
                       <span>{t('settings')}</span>
                     </button>
-                    <div style={{ height: '1px', backgroundColor: currentTheme.ui.borderLight, margin: '4px 12px' }} />
+                    <div style={{ height: '1px', backgroundColor: currentTheme.ui.borderLight, margin: '4px 8px', opacity: 0.4 }} />
                     <button
-                      onClick={() => { handleLogoutRequest(); setIsMenuOpen(false); }}
-                      onMouseEnter={() => setHoveredDropdownItem('logout')}
-                      onMouseLeave={() => setHoveredDropdownItem(null)}
+                      onClick={(e) => { e.stopPropagation(); handleLogoutRequest(); setIsMenuOpen(false); }}
                       style={{
-                        ...styles.dropdownButton,
+                        width: '100%',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '12px',
+                        padding: '12px 16px',
+                        background: 'none',
+                        border: 'none',
                         color: currentTheme.red,
-                        backgroundColor: hoveredDropdownItem === 'logout' ? 'rgba(243, 139, 168, 0.1)' : 'transparent',
-                        borderRadius: currentTheme.ui.radiusSmall,
-                        padding: '10px 12px',
+                        fontSize: '14px',
                         fontWeight: '700',
+                        borderRadius: '12px',
+                        textAlign: 'left',
+                        cursor: 'pointer'
                       }}
                     >
                       <Power size={18} strokeWidth={2.5} />
                       <span>{t('logout')}</span>
                     </button>
                   </div>
-                </>
+                </div>
               )}
             </div>
           </>
