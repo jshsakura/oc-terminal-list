@@ -5,6 +5,7 @@ iTerminaLlist - 백엔드 FastAPI 서버
 import logging
 import os
 import shutil
+import json
 from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Query, Response
 from fastapi.staticfiles import StaticFiles
@@ -349,8 +350,23 @@ async def terminal_websocket(
 
         # 4. 사용자 입력 수신 루프
         while True:
-            # WebSocket에서 데이터 수신 (사용자 키 입력)
+            # WebSocket에서 데이터 수신 (사용자 키 입력 또는 제어 메시지)
             data = await websocket.receive_text()
+
+            # 제어 메시지(JSON)인지 일반 입력인지 확인
+            try:
+                # JSON 파싱 시도
+                if data.startswith('{') and data.endswith('}'):
+                    msg = json.loads(data)
+                    if isinstance(msg, dict) and msg.get('type') == 'resize':
+                        cols = msg.get('cols', 80)
+                        rows = msg.get('rows', 24)
+                        logger.info(f"WebSocket을 통한 터미널 리사이즈: {session_id} ({cols}x{rows})")
+                        await pty_manager.resize(session_id, cols, rows)
+                        continue
+            except (json.JSONDecodeError, TypeError, ValueError):
+                # JSON이 아니거나 형식이 다르면 일반 터미널 입력으로 처리
+                pass
 
             # PTY에 입력 전송
             await pty_manager.write_input(session_id, data)
