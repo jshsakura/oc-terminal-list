@@ -288,6 +288,7 @@ function App() {
                   onFileSelect={handleFileOpen}
                   onClose={handleFileClose} 
                   theme={currentTheme} 
+                  language={settings.language}
                 />
               </Suspense>
 

@@ -33,13 +33,21 @@ export const locales = {
 
     // Themes
     themeCatppuccin: 'Catppuccin Mocha',
+    themeCatppuccinLatte: 'Catppuccin Latte',
     themeTokyoNight: 'Tokyo Night',
-    themeNord: 'Nordic Snow',
+    themeOneDark: 'One Dark',
+    themeNightOwl: 'Night Owl',
+    themeAyuMirage: 'Ayu Mirage',
+    themeGruvboxDark: 'Gruvbox Dark',
+    themeSynthwave84: "SynthWave '84",
+    themeMoonlight: 'Moonlight',
+    themeDracula: 'Dracula',
+    themeNord: 'Nord',
     themeRosePine: 'Rosé Pine',
-    themeDracula: 'Dracula Vampire',
-    themeOneDark: 'Atom One Dark',
-    themeEverforest: 'Everforest Green',
-    themeGithub: 'GitHub Enterprise',
+    themeEverforest: 'Everforest',
+    themeSolarizedDark: 'Solarized Dark',
+    themeGithubDark: 'GitHub Dark',
+    themeGithubLight: 'GitHub Light',
 
     // Languages
     languageEnglish: 'English (US)',
@@ -54,6 +62,14 @@ export const locales = {
     clear: 'Clear',
     clearInput: 'Clear field',
     confirmClearInput: 'Wipe all input text?',
+    unsavedChanges: 'Unsaved Changes',
+    unsavedChangesMessage: 'File has unsaved changes. Discard and close?',
+    externalChangeDetected: 'External Change Detected',
+    externalChangeMessage: 'This file was modified outside. Reload from disk?',
+    reload: 'Reload',
+    keepMine: 'Keep Mine',
+    preview: 'Preview',
+    edit: 'Edit',
 
     // Messages
     settingsSaved: 'Settings updated',
@@ -141,13 +157,21 @@ export const locales = {
 
     // 테마
     themeCatppuccin: 'Catppuccin Mocha',
+    themeCatppuccinLatte: 'Catppuccin Latte',
     themeTokyoNight: 'Tokyo Night',
-    themeNord: 'Nordic Snow',
+    themeOneDark: 'One Dark',
+    themeNightOwl: 'Night Owl',
+    themeAyuMirage: 'Ayu Mirage',
+    themeGruvboxDark: 'Gruvbox Dark',
+    themeSynthwave84: "SynthWave '84",
+    themeMoonlight: 'Moonlight',
+    themeDracula: 'Dracula',
+    themeNord: 'Nord',
     themeRosePine: 'Rosé Pine',
-    themeDracula: 'Dracula Vampire',
-    themeOneDark: 'Atom One Dark',
-    themeEverforest: 'Everforest Green',
-    themeGithub: 'GitHub Enterprise',
+    themeEverforest: 'Everforest',
+    themeSolarizedDark: 'Solarized Dark',
+    themeGithubDark: 'GitHub Dark',
+    themeGithubLight: 'GitHub Light',
 
     // 언어
     languageEnglish: 'English (US)',
@@ -162,6 +186,14 @@ export const locales = {
     clear: '화면 정리',
     clearInput: '입력창 비우기',
     confirmClearInput: '입력한 내용을 모두 삭제하시겠습니까?',
+    unsavedChanges: '저장되지 않은 변경사항',
+    unsavedChangesMessage: '변경사항이 저장되지 않았습니다. 무시하고 닫으시겠습니까?',
+    externalChangeDetected: '외부 변경 감지됨',
+    externalChangeMessage: '파일이 외부에서 수정되었습니다. 다시 불러오시겠습니까?',
+    reload: '다시 불러오기',
+    keepMine: '내용 유지',
+    preview: '미리보기',
+    edit: '편집하기',
 
     // 메시지
     settingsSaved: '설정이 반영되었습니다',

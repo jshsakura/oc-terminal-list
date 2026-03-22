@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import json
+import time
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -136,6 +137,65 @@ logger.info(f"WORKSPACE_ROOT configured as: {WORKSPACE_ROOT}")
 
 # 인증 매니저 인스턴스
 auth_manager: Optional[AuthManager] = None
+
+# 시스템 모니터링 (Linux 전용, 오버헤드 최소화)
+class SystemMonitor:
+    def __init__(self):
+        self.last_cpu_time = 0
+        self.last_idle_time = 0
+        self.last_update = 0
+        self.cached_cpu_percent = 0
+
+    def get_stats(self):
+        stats = {"cpu": 0, "ram": 0}
+        try:
+            # RAM 정보 추출
+            if os.path.exists('/proc/meminfo'):
+                with open('/proc/meminfo', 'r') as f:
+                    meminfo = f.readlines()
+                    total = 0
+                    available = 0
+                    for line in meminfo:
+                        if line.startswith('MemTotal:'):
+                            total = int(line.split()[1])
+                        if line.startswith('MemAvailable:'):
+                            available = int(line.split()[1])
+                    if total > 0:
+                        stats["ram"] = round((total - available) / total * 100, 1)
+
+            # CPU 정보 추출 (이전 값과의 차이로 계산)
+            now = time.time()
+            if os.path.exists('/proc/stat') and now - self.last_update > 1.0:
+                with open('/proc/stat', 'r') as f:
+                    line = f.readline()
+                    parts = line.split()
+                    if len(parts) >= 5:
+                        user = int(parts[1])
+                        nice = int(parts[2])
+                        system = int(parts[3])
+                        idle = int(parts[4])
+                        iowait = int(parts[5]) if len(parts) > 5 else 0
+                        irq = int(parts[6]) if len(parts) > 6 else 0
+                        softirq = int(parts[7]) if len(parts) > 7 else 0
+                        
+                        total_cpu = user + nice + system + idle + iowait + irq + softirq
+                        
+                        if self.last_cpu_time > 0:
+                            diff_total = total_cpu - self.last_cpu_time
+                            diff_idle = idle - self.last_idle_time
+                            if diff_total > 0:
+                                self.cached_cpu_percent = round((1 - diff_idle / diff_total) * 100, 1)
+                        
+                        self.last_cpu_time = total_cpu
+                        self.last_idle_time = idle
+                        self.last_update = now
+            
+            stats["cpu"] = self.cached_cpu_percent
+        except Exception as e:
+            logger.error(f"Error reading system stats: {e}")
+        return stats
+
+system_monitor = SystemMonitor()
 
 
 # 시작/종료 이벤트
@@ -320,6 +380,29 @@ async def verify_token(username: str = Depends(verify_auth_token)):
         "valid": True,
         "username": username
     }
+
+
+@app.get("/api/system/stats")
+async def get_system_stats(username: str = Depends(verify_auth_token)):
+    """시스템 리소스 사용량 조회"""
+    return system_monitor.get_stats()
+
+
+@app.get("/api/files/raw")
+async def get_raw_file(
+    path: str = Query(...),
+    username: str = Depends(verify_auth_token)
+):
+    """파일 원본 반환 (이미지, HTML 프리뷰용)"""
+    try:
+        safe_path = validate_path(path)
+        if not safe_path.exists() or not safe_path.is_file():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        return FileResponse(str(safe_path))
+    except Exception as e:
+        logger.error(f"Failed to serve raw file {path}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # WebSocket: 터미널 세션

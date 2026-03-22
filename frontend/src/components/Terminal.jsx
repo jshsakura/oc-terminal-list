@@ -144,11 +144,13 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
       }, 200);
     };
 
-    window.addEventListener('resize', handleResize);
+    // [중요] ResizeObserver를 통한 컨테이너 크기 변화 감지 (에디터 열고 닫기 등 레이아웃 변화 대응)
+    const observer = new ResizeObserver(() => handleResize());
+    if (terminalRef.current) observer.observe(terminalRef.current);
 
     return () => {
       intentionalCloseRef.current = true;
-      window.removeEventListener('resize', handleResize);
+      if (observer) observer.disconnect();
       socket.close();
       term.dispose();
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);

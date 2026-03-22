@@ -39,15 +39,6 @@ const Header = ({
           title={isSidebarOpen ? t('closeSidebar') : t('sessions')}
           icon={isSidebarOpen ? PanelLeftClose : PanelLeft}
         />
-
-        <h1 style={{
-          ...styles.title,
-          color: currentTheme.ui.accent,
-          letterSpacing: '0.5px',
-          fontSize: isMobile ? '12px' : '14px',
-          fontWeight: '800',
-          padding: isMobile ? '0 4px' : '0 8px',
-        }}>{t('appName')}</h1>
       </div>
 
       <div style={styles.headerRight}>

@@ -3,7 +3,7 @@
  * 터미널 세션 목록 및 관리
  */
 import { useState, useRef, useEffect, memo } from 'react';
-import { X, Terminal, Cpu, FolderTree, RefreshCw, Plus } from 'lucide-react';
+import { X, Terminal, Cpu, FolderTree, RefreshCw, Plus, Activity } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import Button from './common/Button';
@@ -14,7 +14,31 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
   const [activeTab, setActiveTab] = useState('sessions'); // 'sessions' | 'files'
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editingName, setEditingName] = useState('');
+  const [systemStats, setSystemStats] = useState({ cpu: 0, ram: 0 });
   const editInputRef = useRef(null);
+
+  // 시스템 정보 주기적 업데이트
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const token = localStorage.getItem('auth_token');
+        if (!token) return;
+        const res = await fetch('/api/system/stats', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSystemStats(data);
+        }
+      } catch (e) {
+        console.error("Failed to fetch system stats", e);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 10000); // 10초 주기
+    return () => clearInterval(interval);
+  }, []);
 
   // 기본 테마 (theme prop이 없을 경우 Catppuccin 사용)
   const currentTheme = theme || {
@@ -315,10 +339,24 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         )}
 
         {/* 푸터 정보 */}
-        <div style={{ ...styles.footer, backgroundColor: currentTheme.ui.bgSecondary, borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, padding: '8px 12px' }}>
+        <div style={{ ...styles.footer, backgroundColor: currentTheme.ui.bgSecondary, borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, padding: '10px 12px' }}>
+          {/* 시스템 리소스 정보 */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', paddingBottom: '8px', borderBottom: `1px solid ${currentTheme.ui.borderLight}` }}>
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="CPU Usage">
+                <Cpu size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
+                <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text }}>{systemStats.cpu}%</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="RAM Usage">
+                <Activity size={12} strokeWidth={2.5} style={{ color: currentTheme.green }} />
+                <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text }}>{systemStats.ram}%</span>
+              </div>
+            </div>
+          </div>
+
           <div style={styles.footerInfo}>
             <div style={styles.footerLeft}>
-              <Cpu size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
+              <Terminal size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.textSecondary }} />
               <span style={{ ...styles.footerLabel, color: currentTheme.ui.textSecondary, fontSize: '10px', fontWeight: '700' }}>{t('activeTerminals')}:</span>
             </div>
             <span style={{ ...styles.footerValue, color: currentTheme.ui.accent, fontSize: '11px', fontWeight: '800' }}>{sessions.length}</span>
@@ -357,6 +395,8 @@ const styles = {
   },
   tabHeader: {
     display: 'flex',
+    height: '35px',
+    minHeight: '35px',
   },
   tab: {
     flex: 1,
@@ -364,12 +404,13 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '6px',
-    padding: '6px',
+    padding: '0 6px',
     fontSize: '11px',
     background: 'none',
     border: 'none',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
+    height: '100%',
   },
   header: {
     position: 'relative',

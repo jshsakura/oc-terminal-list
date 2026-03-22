@@ -101,6 +101,7 @@ const AppStyles = {
   },
   desktopButtons: {
     display: 'flex',
+    alignItems: 'center',
     height: '100%',
     gap: '2px',
   },
