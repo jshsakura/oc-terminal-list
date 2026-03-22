@@ -9,8 +9,11 @@ import json
 from pathlib import Path
 from dotenv import load_dotenv
 
-# .env 파일 로드 (가장 먼저 실행)
-load_dotenv()
+# .env 파일 로드 (프로젝트 루트 경로 명시)
+_current_file = os.path.abspath(__file__)
+_project_root = os.path.dirname(os.path.dirname(_current_file))
+_env_path = os.path.join(_project_root, ".env")
+load_dotenv(_env_path)
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Query, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -577,6 +580,15 @@ def validate_path(path: str) -> Path:
 
 
 # 파일 시스템 API
+@app.get("/api/files/workspace")
+async def get_workspace_info(username: str = Depends(verify_auth_token)):
+    """현재 워크스페이스 정보 조회"""
+    return {
+        "root": os.path.abspath(WORKSPACE_ROOT),
+        "name": os.path.basename(os.path.abspath(WORKSPACE_ROOT))
+    }
+
+
 @app.get("/api/files")
 async def list_files(
     path: str = Query(""),
@@ -601,14 +613,17 @@ async def list_files(
             raise HTTPException(status_code=400, detail="Not a directory")
 
         items = []
-        workspace_resolved = Path(WORKSPACE_ROOT).resolve()
+        workspace_abs = os.path.abspath(WORKSPACE_ROOT)
 
         for item in safe_path.iterdir():
             try:
-                relative_path = item.relative_to(workspace_resolved)
+                item_abs = os.path.abspath(str(item))
+                # 절대 경로에서 워크스페이스 경로를 제거하여 상대 경로 획득
+                relative_path = os.path.relpath(item_abs, workspace_abs)
+                
                 items.append({
                     "name": item.name,
-                    "path": str(relative_path),
+                    "path": relative_path.replace('\\', '/'), # URL 호환을 위해 구분자 통일
                     "type": "directory" if item.is_dir() else "file",
                     "size": item.stat().st_size if item.is_file() else None,
                     "modified": item.stat().st_mtime

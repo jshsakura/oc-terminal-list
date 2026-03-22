@@ -34,6 +34,7 @@ const getFileIcon = (filename, color, isExpanded) => {
 
 const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder }) => {
   const [data, setData] = useState([]);
+  const [workspaceInfo, setWorkspaceInfo] = useState({ root: '', name: 'EXPLORER' });
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
   const treeRef = useRef();
@@ -80,15 +81,19 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
     }));
   }, []);
 
-  // 전체 트리 로드 (간단하게 하기 위해 현재는 루트 수준만 로드하고, 필요시 확장)
-  // 실제 pro 사용성을 위해선 재귀적으로 로드하거나 lazy 로딩을 arborist와 연결해야 함
+  // 워크스페이스 정보 및 루트 데이터 로드
   const loadInitialData = useCallback(async () => {
     setLoading(true);
     try {
+      // 워크스페이스 정보 가져오기
+      const ws = await apiCall('/api/files/workspace');
+      setWorkspaceInfo(ws);
+
+      // 루트 아이템 가져오기
       const result = await apiCall('/api/files?path=');
       setData(transformItems(result.items));
     } catch (err) {
-      console.error("Failed to load root:", err);
+      console.error("Failed to load explorer:", err);
     } finally {
       setLoading(false);
     }
@@ -272,36 +277,48 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
       <div style={{ 
         padding: '8px 12px', 
         display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'space-between',
+        flexDirection: 'column',
         borderBottom: `1px solid ${theme.ui.borderLight}`,
         backgroundColor: theme.ui.bgSecondary 
       }}>
-        <span style={{ fontSize: '11px', fontWeight: '800', color: theme.ui.textSecondary, letterSpacing: '0.5px' }}>
-          EXPLORER
-        </span>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button 
-            onClick={() => treeRef.current?.createLeaf()} 
-            title="New File"
-            style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
-          >
-            <FilePlus size={14} />
-          </button>
-          <button 
-            onClick={() => treeRef.current?.createInternal()} 
-            title="New Folder"
-            style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
-          >
-            <FolderPlus size={14} />
-          </button>
-          <button 
-            onClick={loadInitialData} 
-            title="Refresh"
-            style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
-          >
-            <RefreshCw size={14} />
-          </button>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '4px' }}>
+          <span style={{ fontSize: '11px', fontWeight: '800', color: theme.ui.textSecondary, letterSpacing: '0.5px' }}>
+            {workspaceInfo.name.toUpperCase()}
+          </span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button 
+              onClick={() => treeRef.current?.createLeaf()} 
+              title="New File"
+              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
+            >
+              <FilePlus size={14} />
+            </button>
+            <button 
+              onClick={() => treeRef.current?.createInternal()} 
+              title="New Folder"
+              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
+            >
+              <FolderPlus size={14} />
+            </button>
+            <button 
+              onClick={loadInitialData} 
+              title="Refresh"
+              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
+            >
+              <RefreshCw size={14} />
+            </button>
+          </div>
+        </div>
+        <div style={{ 
+          fontSize: '10px', 
+          color: theme.ui.textSecondary, 
+          opacity: 0.6,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontFamily: '"JetBrains Mono", monospace'
+        }} title={workspaceInfo.root}>
+          {workspaceInfo.root}
         </div>
       </div>
 
@@ -338,6 +355,10 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
         {loading && data.length === 0 ? (
           <div style={{ padding: '20px', textAlign: 'center', color: theme.ui.textSecondary, fontSize: '12px' }}>
             Loading...
+          </div>
+        ) : data.length === 0 ? (
+          <div style={{ padding: '40px 20px', textAlign: 'center', color: theme.ui.textSecondary, fontSize: '12px', opacity: 0.6 }}>
+            No files found in workspace
           </div>
         ) : (
           <Tree

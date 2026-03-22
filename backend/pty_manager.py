@@ -12,8 +12,11 @@ from fastapi import WebSocket
 import logging
 from dotenv import load_dotenv
 
-# .env 파일 로드
-load_dotenv()
+# .env 파일 로드 (프로젝트 루트 경로 명시)
+_current_file = os.path.abspath(__file__)
+_project_root = os.path.dirname(os.path.dirname(_current_file))
+_env_path = os.path.join(_project_root, ".env")
+load_dotenv(_env_path)
 
 logger = logging.getLogger(__name__)
 
