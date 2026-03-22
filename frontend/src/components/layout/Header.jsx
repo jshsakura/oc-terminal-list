@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeft, ChevronsDown, Menu, Plus, Settings as SettingsIcon, Power } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, ChevronsUp, ChevronsDown, Menu, Plus, Settings as SettingsIcon, Power } from 'lucide-react';
 import AppStyles from '../../styles/AppStyles';
 import Button from '../common/Button';
 
@@ -72,6 +72,28 @@ const Header = ({
       </div>
 
       <div style={styles.headerRight}>
+        {/* Page Up/Down Buttons (Visible on both mobile and desktop if session active) */}
+        {activeSessionId && (
+          <div style={{ display: 'flex', gap: '4px', marginRight: '8px' }}>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => window.terminalSessions?.[activeSessionId]?.sendData('\x1b[5~')} 
+              theme={currentTheme}
+              icon={ChevronsUp}
+              title="Page Up"
+            />
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => window.terminalSessions?.[activeSessionId]?.sendData('\x1b[6~')} 
+              theme={currentTheme}
+              icon={ChevronsDown}
+              title="Page Down"
+            />
+          </div>
+        )}
+
         {isMobile ? (
           <Button 
             variant="ghost" 
@@ -79,51 +101,30 @@ const Header = ({
             onClick={() => setIsMenuOpen(!isMenuOpen)} 
             theme={currentTheme}
             icon={Menu}
-          <div style={styles.headerRight}>
-            {activeSessionId && (
-              <div style={{ display: 'flex', gap: '4px', marginRight: '8px' }}>
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => window.terminalSessions?.[activeSessionId]?.sendData('\x1b[5~')} 
-                  theme={currentTheme}
-                  icon={ChevronsUp}
-                  title="Page Up"
-                />
-                <Button 
-                  variant="ghost" 
-                  size="icon" 
-                  onClick={() => window.terminalSessions?.[activeSessionId]?.sendData('\x1b[6~')} 
-                  theme={currentTheme}
-                  icon={ChevronsDown}
-                  title="Page Down"
-                />
-              </div>
-            )}
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={() => setIsSettingsOpen(true)} 
-                theme={currentTheme}
-                icon={SettingsIcon}
-                title={t('settings')}
-              />
-              
-              <div style={{ width: '1px', height: '16px', backgroundColor: currentTheme.ui.border, margin: '0 4px', opacity: 0.5 }} />
-              
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={handleLogoutRequest}
-                theme={currentTheme}
-                style={{ color: currentTheme.red }}
-                icon={Power}
-                title={t('logout')}
-              />
-            </div>
-          </>
+          />
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={() => setIsSettingsOpen(true)} 
+              theme={currentTheme}
+              icon={SettingsIcon}
+              title={t('settings')}
+            />
+            
+            <div style={{ width: '1px', height: '16px', backgroundColor: currentTheme.ui.border, margin: '0 4px', opacity: 0.5 }} />
+            
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={handleLogoutRequest}
+              theme={currentTheme}
+              style={{ color: currentTheme.red }}
+              icon={Power}
+              title={t('logout')}
+            />
+          </div>
         )}
       </div>
     </div>
