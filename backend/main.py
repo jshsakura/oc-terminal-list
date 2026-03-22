@@ -545,31 +545,20 @@ async def get_session_history(session_id: str, username: str = Depends(verify_au
 def validate_path(path: str) -> Path:
     """
     경로 검증 및 정규화
-
-    Args:
-        path: 상대 경로
-
-    Returns:
-        검증된 절대 경로
-
-    Raises:
-        HTTPException: workspace 외부 접근 시
     """
-    # 빈 경로는 루트로 처리
     if not path:
         path = ""
 
-    # 절대 경로 생성
-    abs_path = Path(WORKSPACE_ROOT) / path
-    abs_path = abs_path.resolve()
+    # WORKSPACE_ROOT 기준 절대 경로 생성
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    requested_abs = os.path.abspath(os.path.join(workspace_abs, path))
 
     # workspace 외부 접근 차단
-    workspace_resolved = Path(WORKSPACE_ROOT).resolve()
-    if not str(abs_path).startswith(str(workspace_resolved)):
-        logger.warning(f"Path traversal attempt: {path}")
+    if not requested_abs.startswith(workspace_abs):
+        logger.warning(f"Path traversal attempt: {path} (Resolved: {requested_abs})")
         raise HTTPException(status_code=403, detail="Access denied")
 
-    return abs_path
+    return Path(requested_abs)
 
 
 # 파일 시스템 API

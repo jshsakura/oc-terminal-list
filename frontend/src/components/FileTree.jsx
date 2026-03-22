@@ -351,7 +351,6 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
             onDelete={onDelete}
             onCreate={async ({ parentId, name, type }) => {
               const path = parentId ? `${parentId}/${name}` : name;
-              // arborist 타입('leaf', 'internal')을 백엔드 타입('file', 'directory')으로 변환
               const backendType = type === 'internal' ? 'directory' : 'file';
               
               try {
@@ -359,7 +358,8 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
                 loadInitialData();
                 return { id: path, name, path, type: backendType };
               } catch (err) {
-                alert(`생성 실패: ${err.message}`);
+                const message = err instanceof Error ? err.message : String(err);
+                alert(`생성 실패: ${message}`);
                 return null;
               }
             }}
