@@ -251,13 +251,22 @@ async def shutdown_event():
 
 
 # 인증 의존성
-async def verify_auth_token(authorization: Optional[str] = Header(None)) -> str:
-    """JWT 토큰 검증 의존성"""
-    if not authorization or not authorization.startswith("Bearer "):
+async def verify_auth_token(
+    authorization: Optional[str] = Header(None),
+    token: Optional[str] = Query(None)
+) -> str:
+    """JWT 토큰 검증 의존성 (헤더 또는 쿼리 파라미터 지원)"""
+    actual_token = None
+    
+    if authorization and authorization.startswith("Bearer "):
+        actual_token = authorization.replace("Bearer ", "")
+    elif token:
+        actual_token = token
+        
+    if not actual_token:
         raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
 
-    token = authorization.replace("Bearer ", "")
-    username = await auth_manager.verify_token(token)
+    username = await auth_manager.verify_token(actual_token)
 
     if username is None:
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")

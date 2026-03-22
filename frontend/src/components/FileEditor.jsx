@@ -238,6 +238,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const isMarkdown = activeFile?.endsWith('.md');
   const isHtml = activeFile?.endsWith('.html');
   const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFile || '');
+  const token = localStorage.getItem('auth_token');
 
   if (!activeFile && openFiles.length === 0) return null;
 
@@ -417,7 +418,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             padding: '20px'
           }}>
             <img 
-              src={`/api/files/raw?path=${encodeURIComponent(activeFile)}&_t=${Date.now()}`} 
+              src={`/api/files/raw?path=${encodeURIComponent(activeFile)}&token=${token}&_t=${Date.now()}`} 
               alt={activeFile}
               style={{ 
                 maxWidth: '100%', 
