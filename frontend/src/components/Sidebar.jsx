@@ -95,7 +95,6 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
   }, [editingSessionId]);
 
   const handleOpenTerminalAtFolder = (path) => {
-    setActiveTab('sessions');
     if (onOpenTerminalAtFolder) onOpenTerminalAtFolder(path);
   };
 
@@ -122,7 +121,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         top: 0,
         height: '100vh',
         zIndex: 9999,
-        boxShadow: isMobile ? '10px 0 30px rgba(0,0,0,0.5)' : 'none',
+        boxShadow: isMobile ? '10px 0 30px rgba(0,0,0,0.5)' : currentTheme.ui.shadow,
         transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       }}>
         {/* 헤더 */}

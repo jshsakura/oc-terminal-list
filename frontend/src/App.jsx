@@ -142,25 +142,29 @@ function App() {
   const onEditorResizeStart = (e) => {
     e.preventDefault();
     setIsResizingEditor(true);
-    const startY = e.clientY;
+    const startY = e.clientY || (e.touches && e.touches[0].clientY);
     const startHeight = editorHeight;
-    
+
     const onMove = (moveEvent) => {
-      const deltaY = moveEvent.clientY - startY;
+      const currentY = moveEvent.clientY || (moveEvent.touches && moveEvent.touches[0].clientY);
+      const deltaY = currentY - startY;
       const newHeight = Math.max(150, Math.min(window.innerHeight - 150, startHeight + deltaY));
       setEditorHeight(newHeight);
     };
-    
+
     const onUp = () => {
       setIsResizingEditor(false);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
     };
-    
+
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: false });
+    document.addEventListener('touchend', onUp);
   };
-
   if (isLoading) return <LoadingScreen currentTheme={currentTheme} t={t} />;
   if (needsSetup) return <Suspense fallback={null}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense>;
   if (!isAuthenticated) return <Suspense fallback={null}><Login onLogin={login} language={settings.language} /></Suspense>;
@@ -254,7 +258,19 @@ function App() {
         backgroundColor: currentTheme.ui.bg,
         overflow: 'visible',
         zIndex: 10,
+        boxShadow: currentTheme.ui.shadow,
       }}>
+        {/* Inner Highlight for Skeuomorphism */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '1px',
+          backgroundColor: 'rgba(255,255,255,0.05)',
+          zIndex: 101,
+          pointerEvents: 'none'
+        }} />
         <Header 
           isSidebarOpen={isSidebarOpen}
           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -278,7 +294,7 @@ function App() {
           {/* 에디터 영역 (높이 가변형) */}
           {activeFile && (
             <div style={{ 
-              height: isMobile ? '50%' : `${editorHeight}px`, 
+              height: `${editorHeight}px`, 
               position: 'relative', 
               zIndex: 10,
               flexShrink: 0,
@@ -294,28 +310,9 @@ function App() {
                   onClose={handleFileClose} 
                   theme={currentTheme} 
                   language={settings.language}
+                  onResizeStart={onEditorResizeStart}
                 />
               </Suspense>
-
-              {/* [중요] 에디터 높이 리사이저 핸들 (데스크탑 전용) */}
-              {!isMobile && (
-                <div 
-                  onMouseDown={onEditorResizeStart}
-                  style={{
-                    height: '4px',
-                    width: '100%',
-                    cursor: 'row-resize',
-                    backgroundColor: isResizingEditor ? currentTheme.ui.accent : 'transparent',
-                    position: 'absolute',
-                    bottom: -2,
-                    left: 0,
-                    zIndex: 100,
-                    transition: 'background-color 0.2s'
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = currentTheme.ui.accent + '66'}
-                  onMouseLeave={(e) => !isResizingEditor && (e.currentTarget.style.backgroundColor = 'transparent')}
-                />
-              )}
             </div>
           )}
 

@@ -36,6 +36,8 @@ const AppStyles = {
     padding: '0',
     flexShrink: 0,
     boxSizing: 'border-box',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.3)',
+    zIndex: 100,
   },
   headerLeft: {
     display: 'flex',
@@ -109,7 +111,8 @@ const AppStyles = {
     flex: 1,
     overflow: 'hidden',
     position: 'relative',
-    padding: '5px', // 터미널 안쪽 여백 최소화
+    padding: '5px',
+    boxShadow: 'inset 0 2px 10px rgba(0,0,0,0.2)',
   },
   emptyState: {
     display: 'flex',

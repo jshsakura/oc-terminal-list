@@ -4,7 +4,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Editor from '@monaco-editor/react';
-import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon, Eye, Edit3 } from 'lucide-react';
+import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon, Eye, Edit3, GripHorizontal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Button from './common/Button';
@@ -27,7 +27,7 @@ const getFileIcon = (filename, color) => {
   }
 };
 
-const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, language = 'en' }) => {
+const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, language = 'en', onResizeStart }) => {
   const { t } = useTranslation(language);
   const [fileStates, setFileStates] = useState({}); // { path: { content, hasChanges, lastSavedContent } }
   const [loading, setLoading] = useState(false);
@@ -252,6 +252,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         scrollbarWidth: 'none',
         msOverflowStyle: 'none',
         borderBottom: `1px solid ${theme.ui.border}`,
+        backdropFilter: 'blur(10px)',
       }}>
         {openFiles.map((path) => {
           const isActive = path === activeFile;
@@ -341,6 +342,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         padding: '4px 12px', 
         backgroundColor: theme.ui.bg,
         borderBottom: `1px solid ${theme.ui.borderLight}`,
+        backdropFilter: 'blur(10px)',
       }}>
         <div style={{ fontSize: '11px', color: theme.ui.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
           {activeFile}
@@ -513,20 +515,42 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         )}
       </div>
 
-      {/* 푸터 */}
-      <div style={{ 
-        height: '22px', 
-        backgroundColor: theme.ui.bgSecondary, 
-        borderTop: `1px solid ${theme.ui.borderLight}`,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'flex-end',
-        padding: '0 12px',
-        fontSize: '11px',
-        color: theme.ui.textSecondary,
-      }}>
-        <div style={{ display: 'flex', gap: '16px' }}>
+      {/* 푸터 (드래그 가능한 리사이저 역할 겸용) */}
+      <div 
+        onMouseDown={onResizeStart}
+        onTouchStart={(e) => {
+          if (onResizeStart) {
+            const touch = e.touches[0];
+            const simulatedEvent = {
+              preventDefault: () => e.preventDefault(),
+              clientY: touch.clientY,
+              isTouch: true
+            };
+            onResizeStart(simulatedEvent);
+          }
+        }}
+        style={{ 
+          height: '24px', 
+          backgroundColor: theme.ui.bgSecondary, 
+          borderTop: `1px solid ${theme.ui.border}`,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '0 12px',
+          fontSize: '11px',
+          color: theme.ui.textSecondary,
+          cursor: 'row-resize',
+          userSelect: 'none',
+          position: 'relative',
+          zIndex: 100,
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.1)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <GripHorizontal size={14} style={{ opacity: 0.5 }} />
           <span>{t('language')}: <span style={{ color: theme.ui.text }}>{getLanguage(activeFile).toUpperCase()}</span></span>
+        </div>
+        <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
           <span>UTF-8</span>
         </div>
       </div>

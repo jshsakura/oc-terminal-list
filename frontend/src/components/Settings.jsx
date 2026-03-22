@@ -64,12 +64,29 @@ const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
       <div style={{ 
         ...styles.modal, 
         backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bg,
-        backdropFilter: 'blur(20px)',
-        borderRadius: currentTheme.ui.radius,
-        border: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
-        boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
+        backdropFilter: 'blur(30px) saturate(180%)',
+        borderRadius: currentTheme.ui.radius || '8px',
+        border: `1px solid ${currentTheme.ui.border}`,
+        boxShadow: currentTheme.ui.shadow,
+        position: 'relative',
+        overflow: 'hidden'
       }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...styles.header, borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
+        {/* Inner Highlight for Skeuomorphism */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '1px',
+          backgroundColor: 'rgba(255,255,255,0.05)',
+          pointerEvents: 'none',
+          zIndex: 10
+        }} />
+        <div style={{ 
+          ...styles.header, 
+          backgroundColor: currentTheme.ui.bgSecondary,
+          borderBottom: `1px solid ${currentTheme.ui.border}`
+        }}>
           <h2 style={{ ...styles.title, color: currentTheme.ui.accent }}>{t('settingsTitle')}</h2>
           <Button variant="ghost" size="icon" onClick={onClose} theme={currentTheme} icon={X} />
         </div>

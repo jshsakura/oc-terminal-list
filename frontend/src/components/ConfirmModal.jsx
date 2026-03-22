@@ -18,12 +18,28 @@ const ConfirmModal = ({ isOpen, onConfirm, onCancel, title, message, confirmText
         ...styles.modal, 
         backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bg,
         backdropFilter: 'blur(20px) saturate(180%)',
-        borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
-        borderRadius: currentTheme.ui.radius,
-        boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
-        border: `1px solid ${currentTheme.ui.borderLight || 'rgba(255,255,255,0.1)'}`,
+        borderRadius: currentTheme.ui.radius || '8px',
+        boxShadow: currentTheme.ui.shadow,
+        border: `1px solid ${currentTheme.ui.border}`,
+        position: 'relative',
+        overflow: 'hidden'
       }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ ...styles.header, borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
+        {/* Inner Highlight for Skeuomorphism */}
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          height: '1px',
+          backgroundColor: 'rgba(255,255,255,0.05)',
+          pointerEvents: 'none',
+          zIndex: 10
+        }} />
+        <div style={{ 
+          ...styles.header, 
+          borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border,
+          backgroundColor: currentTheme.ui.bgSecondary 
+        }}>
           <h3 style={{ ...styles.title, color: danger ? currentTheme.red : currentTheme.ui.accent }}>{title || t('confirm')}</h3>
         </div>
 

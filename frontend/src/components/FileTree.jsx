@@ -6,6 +6,7 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
   const { t } = useTranslation(language);
   const [items, setItems] = useState([]);
   const [currentPath, setCurrentPath] = useState(initialPath);
+  const [activeItemPath, setActiveItemPath] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -48,6 +49,7 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
   const lastClickRef = useRef({ id: null, time: 0 });
 
   const handleItemClick = (item) => {
+    setActiveItemPath(item.path);
     if (item.type === 'directory') {
       fetchFiles(item.path);
     } else {
@@ -63,6 +65,7 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
       handleItemClick(item);
       lastClickRef.current = { id: null, time: 0 };
     } else {
+      setActiveItemPath(item.path); // Single click just selects/highlights
       lastClickRef.current = { id: item.path, time: now };
     }
   };
@@ -120,15 +123,15 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>{t('explorer')}</span>
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '12px' }}>
             <button 
               onClick={() => onOpenTerminalAtFolder?.(currentPath)} 
-              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
+              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
               title="Open terminal here"
             >
               <Terminal size={14} />
             </button>
-            <button onClick={() => fetchFiles(currentPath)} style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}>
+            <button onClick={() => fetchFiles(currentPath)} style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             </button>
           </div>
@@ -166,30 +169,43 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
             {items.length === 0 ? (
               <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>Folder empty</div>
             ) : (
-              items.map((item) => (
-                <div 
-                  key={item.path}
-                  onClick={() => handleTouchOrClick(item)}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    padding: '10px 16px',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    gap: '10px',
-                    userSelect: 'none'
-                  }}
-                >
-                  {item.type === 'directory' ? (
-                    <Folder size={18} color="#89b4fa" fill="#89b4fa" fillOpacity={0.2} />
-                  ) : (
-                    <File size={18} color={theme.ui.textSecondary} />
-                  )}
-                  <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>
-                    {item.name}
-                  </span>
-                </div>
-              ))
+              items.map((item) => {
+                const isActive = item.path === activeItemPath;
+                return (
+                  <div 
+                    key={item.path}
+                    onClick={() => handleTouchOrClick(item)}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      padding: '10px 16px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      gap: '10px',
+                      userSelect: 'none',
+                      backgroundColor: isActive ? `${theme.ui.accent}33` : 'transparent',
+                      borderLeft: isActive ? `3px solid ${theme.ui.accent}` : '3px solid transparent',
+                      transition: 'all 0.1s ease',
+                    }}
+                  >
+                    {item.type === 'directory' ? (
+                      <Folder size={18} color={theme.ui.accent} fill={theme.ui.accent} fillOpacity={0.2} />
+                    ) : (
+                      <File size={18} color={theme.ui.textSecondary} />
+                    )}
+                    <span style={{ 
+                      whiteSpace: 'nowrap', 
+                      overflow: 'hidden', 
+                      textOverflow: 'ellipsis', 
+                      flex: 1,
+                      fontWeight: isActive ? '700' : '400',
+                      color: isActive ? theme.ui.text : theme.ui.textSecondary
+                    }}>
+                      {item.name}
+                    </span>
+                  </div>
+                );
+              })
             )}
           </>
         )}
