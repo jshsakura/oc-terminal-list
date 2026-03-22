@@ -10,7 +10,7 @@ const commonUI = {
   gap: '8px',
 };
 
-// 1. Catppuccin Mocha (기본 테마 - 어두움)
+// 1. Catppuccin Mocha
 export const catppuccinMochaTheme = {
   background: '#1e1e2e',
   foreground: '#cdd6f4',
@@ -178,133 +178,7 @@ export const catppuccinLatteTheme = {
   }
 };
 
-// 5. GitHub Light
-export const githubLightTheme = {
-  background: '#ffffff',
-  foreground: '#24292f',
-  cursor: '#24292f',
-  cursorAccent: '#ffffff',
-  selection: 'rgba(9, 105, 218, 0.2)',
-  black: '#24292f',
-  red: '#cf222e',
-  green: '#1a7f37',
-  yellow: '#9a6700',
-  blue: '#0969da',
-  magenta: '#8250df',
-  cyan: '#1b7c83',
-  white: '#ffffff',
-  brightBlack: '#57606a',
-  brightRed: '#a40e26',
-  brightGreen: '#116329',
-  brightYellow: '#4d2d00',
-  brightBlue: '#0550ae',
-  brightMagenta: '#6e33ce',
-  brightCyan: '#055d54',
-  brightWhite: '#8c959f',
-  ui: {
-    ...commonUI,
-    bg: '#ffffff',
-    bgSecondary: '#ffffff',
-    bgTertiary: '#f6f8fa',
-    glassBg: 'rgba(255, 255, 255, 0.95)',
-    cardBg: 'rgba(9, 105, 218, 0.03)',
-    border: '#d0d7de',
-    borderLight: 'rgba(31, 35, 40, 0.06)',
-    text: '#24292f',
-    textSecondary: '#57606a',
-    accent: '#0969da',
-    accentMuted: 'rgba(9, 105, 218, 0.08)',
-    iconColor: '#24292f',
-    shadow: '0 1px 12px rgba(0,0,0,0.04)',
-    innerShadow: 'none',
-  }
-};
-
-// 6. Solarized Light
-export const solarizedLightTheme = {
-  background: '#fdf6e3',
-  foreground: '#657b83',
-  cursor: '#586e75',
-  cursorAccent: '#fdf6e3',
-  selection: 'rgba(238, 232, 213, 0.5)',
-  black: '#fdf6e3',
-  red: '#dc322f',
-  green: '#859900',
-  yellow: '#b58900',
-  blue: '#268bd2',
-  magenta: '#d33682',
-  cyan: '#2aa198',
-  white: '#073642',
-  brightBlack: '#eee8d5',
-  brightRed: '#cb4b16',
-  brightGreen: '#586e75',
-  brightYellow: '#657b83',
-  brightBlue: '#839496',
-  brightMagenta: '#6c71c4',
-  brightCyan: '#93a1a1',
-  brightWhite: '#002b36',
-  ui: {
-    ...commonUI,
-    bg: '#fdf6e3',
-    bgSecondary: '#fdf6e3',
-    bgTertiary: '#f5efdc',
-    glassBg: 'rgba(253, 246, 227, 0.95)',
-    cardBg: 'rgba(38, 139, 210, 0.04)',
-    border: '#dcd3a1',
-    borderLight: 'rgba(101, 123, 131, 0.06)',
-    text: '#657b83',
-    textSecondary: '#93a1a1',
-    accent: '#268bd2',
-    accentMuted: 'rgba(38, 139, 210, 0.08)',
-    iconColor: '#657b83',
-    shadow: '0 1px 12px rgba(0,0,0,0.03)',
-    innerShadow: 'none',
-  }
-};
-
-// 7. Gruvbox Light
-export const gruvboxLightTheme = {
-  background: '#fbf1c7',
-  foreground: '#3c3836',
-  cursor: '#3c3836',
-  cursorAccent: '#fbf1c7',
-  selection: 'rgba(213, 196, 161, 0.5)',
-  black: '#fbf1c7',
-  red: '#cc241d',
-  green: '#98971a',
-  yellow: '#d79921',
-  blue: '#458588',
-  magenta: '#b16286',
-  cyan: '#689d6a',
-  white: '#7c6f64',
-  brightBlack: '#928374',
-  brightRed: '#9d0006',
-  brightGreen: '#79740e',
-  brightYellow: '#b57614',
-  brightBlue: '#076678',
-  brightMagenta: '#8f3f71',
-  brightCyan: '#427b58',
-  brightWhite: '#3c3836',
-  ui: {
-    ...commonUI,
-    bg: '#fbf1c7',
-    bgSecondary: '#fbf1c7',
-    bgTertiary: '#f2e5bc',
-    glassBg: 'rgba(251, 241, 199, 0.95)',
-    cardBg: 'rgba(175, 58, 3, 0.04)',
-    border: '#d5c4a1',
-    borderLight: 'rgba(60, 56, 54, 0.06)',
-    text: '#3c3836',
-    textSecondary: '#7c6f64',
-    accent: '#af3a03',
-    accentMuted: 'rgba(175, 58, 3, 0.08)',
-    iconColor: '#3c3836',
-    shadow: '0 1px 12px rgba(0,0,0,0.03)',
-    innerShadow: 'none',
-  }
-};
-
-// 8. Tokyo Night
+// 5. Tokyo Night
 export const tokyoNightTheme = {
   background: '#1a1b26',
   foreground: '#c0caf5',
@@ -346,7 +220,7 @@ export const tokyoNightTheme = {
   }
 };
 
-// 9. One Dark
+// 6. One Dark
 export const oneDarkTheme = {
   background: '#282c34',
   foreground: '#abb2bf',
@@ -388,7 +262,7 @@ export const oneDarkTheme = {
   }
 };
 
-// 10. Dracula
+// 7. Dracula
 export const draculaTheme = {
   background: '#282a36',
   foreground: '#f8f8f2',
@@ -430,7 +304,7 @@ export const draculaTheme = {
   }
 };
 
-// 11. Nord
+// 8. Nord
 export const nordTheme = {
   background: '#2e3440',
   foreground: '#d8dee9',
@@ -472,7 +346,7 @@ export const nordTheme = {
   }
 };
 
-// 12. Shades of Purple
+// 9. Shades of Purple
 export const shadesOfPurpleTheme = {
   background: '#2d2b55',
   foreground: '#ffffff',
@@ -514,7 +388,7 @@ export const shadesOfPurpleTheme = {
   }
 };
 
-// 13. Night Owl
+// 10. Night Owl
 export const nightOwlTheme = {
   background: '#011627',
   foreground: '#d6deeb',
@@ -556,7 +430,7 @@ export const nightOwlTheme = {
   }
 };
 
-// 14. Monokai Pro
+// 11. Monokai Pro
 export const monokaiProTheme = {
   background: '#2d2a2e',
   foreground: '#fcfcfa',
@@ -598,7 +472,343 @@ export const monokaiProTheme = {
   }
 };
 
-// 15. Rose Pine
+// 12. Monokai
+export const monokaiTheme = {
+  background: '#272822',
+  foreground: '#f8f8f2',
+  cursor: '#f8f8f0',
+  cursorAccent: '#272822',
+  selection: 'rgba(73, 72, 62, 0.5)',
+  black: '#272822',
+  red: '#f92672',
+  green: '#a6e22e',
+  yellow: '#f4bf75',
+  blue: '#66d9ef',
+  magenta: '#ae81ff',
+  cyan: '#a1efe4',
+  white: '#f8f8f2',
+  brightBlack: '#75715e',
+  brightRed: '#f92672',
+  brightGreen: '#a6e22e',
+  brightYellow: '#f4bf75',
+  brightBlue: '#66d9ef',
+  brightMagenta: '#ae81ff',
+  brightCyan: '#a1efe4',
+  brightWhite: '#f9f8f5',
+  ui: {
+    ...commonUI,
+    bg: '#272822',
+    bgSecondary: '#1e1f1c',
+    bgTertiary: '#3e3d32',
+    glassBg: 'rgba(39, 40, 34, 0.7)',
+    cardBg: 'rgba(62, 61, 50, 0.3)',
+    border: '#1e1f1c',
+    borderLight: 'rgba(248, 248, 242, 0.12)',
+    text: '#f8f8f2',
+    textSecondary: '#75715e',
+    accent: '#a6e22e',
+    accentMuted: 'rgba(166, 226, 46, 0.2)',
+    iconColor: '#f8f8f2',
+    shadow: '0 8px 32px rgba(0,0,0,0.6)',
+    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.05)',
+  }
+};
+
+// 13. SynthWave '84
+export const synthwave84Theme = {
+  background: '#2b213a',
+  foreground: '#ffffff',
+  cursor: '#f92aad',
+  cursorAccent: '#2b213a',
+  selection: 'rgba(60, 46, 81, 0.5)',
+  black: '#241b30',
+  red: '#fe4450',
+  green: '#72f1b8',
+  yellow: '#fede5d',
+  blue: '#03edf9',
+  magenta: '#ff7edb',
+  cyan: '#03edf9',
+  white: '#ffffff',
+  brightBlack: '#241b30',
+  brightRed: '#fe4450',
+  brightGreen: '#72f1b8',
+  brightYellow: '#fede5d',
+  brightBlue: '#03edf9',
+  brightMagenta: '#ff7edb',
+  brightCyan: '#03edf9',
+  brightWhite: '#ffffff',
+  ui: {
+    ...commonUI,
+    bg: '#2b213a',
+    bgSecondary: '#241b30',
+    bgTertiary: '#34294f',
+    glassBg: 'rgba(43, 33, 58, 0.7)',
+    cardBg: 'rgba(52, 41, 79, 0.3)',
+    border: '#1b1525',
+    borderLight: 'rgba(255, 126, 219, 0.22)',
+    text: '#ffffff',
+    textSecondary: '#8d7ba7',
+    accent: '#f92aad',
+    accentMuted: 'rgba(249, 42, 173, 0.2)',
+    iconColor: '#ffffff',
+    shadow: '0 8px 32px rgba(249, 42, 173, 0.2)',
+    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.1)',
+  }
+};
+
+// 14. Cobalt2
+export const cobalt2Theme = {
+  background: '#193549',
+  foreground: '#ffffff',
+  cursor: '#ffc600',
+  cursorAccent: '#193549',
+  selection: 'rgba(0, 80, 151, 0.5)',
+  black: '#000000',
+  red: '#ff0000',
+  green: '#3ad900',
+  yellow: '#ffc600',
+  blue: '#0088ff',
+  magenta: '#ff46cb',
+  cyan: '#00d7af',
+  white: '#bbbbbb',
+  brightBlack: '#555555',
+  brightRed: '#ff5c57',
+  brightGreen: '#3ad900',
+  brightYellow: '#ffc600',
+  brightBlue: '#0088ff',
+  brightMagenta: '#ff46cb',
+  brightCyan: '#00d7af',
+  brightWhite: '#ffffff',
+  ui: {
+    ...commonUI,
+    bg: '#193549',
+    bgSecondary: '#152c3d',
+    bgTertiary: '#1f4662',
+    glassBg: 'rgba(25, 53, 73, 0.7)',
+    cardBg: 'rgba(31, 70, 98, 0.3)',
+    border: '#152c3d',
+    borderLight: 'rgba(255, 255, 255, 0.12)',
+    text: '#ffffff',
+    textSecondary: '#8da6bc',
+    accent: '#ffc600',
+    accentMuted: 'rgba(255, 198, 0, 0.2)',
+    iconColor: '#ffffff',
+    shadow: '0 8px 32px rgba(0,0,0,0.6)',
+    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.05)',
+  }
+};
+
+// 15. Oceanic Next
+export const oceanicNextTheme = {
+  background: '#1b2b34',
+  foreground: '#d8dee9',
+  cursor: '#ffffff',
+  cursorAccent: '#1b2b34',
+  selection: 'rgba(79, 91, 102, 0.5)',
+  black: '#1b2b34',
+  red: '#ec5f67',
+  green: '#99c794',
+  yellow: '#fac863',
+  blue: '#6699cc',
+  magenta: '#c594c5',
+  cyan: '#5fb3b3',
+  white: '#d8dee9',
+  brightBlack: '#65737e',
+  brightRed: '#ec5f67',
+  brightGreen: '#99c794',
+  brightYellow: '#fac863',
+  brightBlue: '#6699cc',
+  brightMagenta: '#c594c5',
+  brightCyan: '#5fb3b3',
+  brightWhite: '#ffffff',
+  ui: {
+    ...commonUI,
+    bg: '#1b2b34',
+    bgSecondary: '#162129',
+    bgTertiary: '#343d46',
+    glassBg: 'rgba(27, 43, 52, 0.7)',
+    cardBg: 'rgba(52, 61, 70, 0.3)',
+    border: '#162129',
+    borderLight: 'rgba(216, 222, 233, 0.12)',
+    text: '#d8dee9',
+    textSecondary: '#65737e',
+    accent: '#6699cc',
+    accentMuted: 'rgba(102, 153, 204, 0.2)',
+    iconColor: '#d8dee9',
+    shadow: '0 8px 32px rgba(0,0,0,0.6)',
+    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.05)',
+  }
+};
+
+// 16. Gruvbox Dark
+export const gruvboxDarkTheme = {
+  background: '#282828',
+  foreground: '#ebdbb2',
+  cursor: '#ebdbb2',
+  cursorAccent: '#282828',
+  selection: 'rgba(102, 92, 84, 0.5)',
+  black: '#282828',
+  red: '#cc241d',
+  green: '#98971a',
+  yellow: '#d79921',
+  blue: '#458588',
+  magenta: '#b16286',
+  cyan: '#689d6a',
+  white: '#a89984',
+  brightBlack: '#928374',
+  brightRed: '#fb4934',
+  brightGreen: '#b8bb26',
+  brightYellow: '#fabd2f',
+  brightBlue: '#83a598',
+  brightMagenta: '#d3869b',
+  brightCyan: '#8ec07c',
+  brightWhite: '#ebdbb2',
+  ui: {
+    ...commonUI,
+    bg: '#282828',
+    bgSecondary: '#1d2021',
+    bgTertiary: '#3c3836',
+    glassBg: 'rgba(40, 40, 40, 0.7)',
+    cardBg: 'rgba(60, 56, 54, 0.3)',
+    border: '#1d2021',
+    borderLight: 'rgba(235, 219, 178, 0.12)',
+    text: '#ebdbb2',
+    textSecondary: '#928374',
+    accent: '#d79921',
+    accentMuted: 'rgba(215, 153, 33, 0.2)',
+    iconColor: '#ebdbb2',
+    shadow: '0 8px 32px rgba(0,0,0,0.6)',
+    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.05)',
+  }
+};
+
+// 17. Everforest
+export const everforestTheme = {
+  background: '#2d353b',
+  foreground: '#d3c6aa',
+  cursor: '#d3c6aa',
+  cursorAccent: '#2d353b',
+  selection: 'rgba(86, 102, 114, 0.5)',
+  black: '#475258',
+  red: '#e67e80',
+  green: '#a7c080',
+  yellow: '#dbbc7f',
+  blue: '#7fbbb3',
+  magenta: '#d699b6',
+  cyan: '#83c092',
+  white: '#d3c6aa',
+  brightBlack: '#475258',
+  brightRed: '#e67e80',
+  brightGreen: '#a7c080',
+  brightYellow: '#dbbc7f',
+  brightBlue: '#7fbbb3',
+  brightMagenta: '#d699b6',
+  brightCyan: '#83c092',
+  brightWhite: '#d3c6aa',
+  ui: {
+    ...commonUI,
+    bg: '#2d353b',
+    bgSecondary: '#232a2e',
+    bgTertiary: '#3d484d',
+    glassBg: 'rgba(45, 53, 59, 0.7)',
+    cardBg: 'rgba(61, 72, 77, 0.3)',
+    border: '#343f44',
+    borderLight: 'rgba(211, 198, 170, 0.12)',
+    text: '#d3c6aa',
+    textSecondary: '#859289',
+    accent: '#a7c080',
+    accentMuted: 'rgba(167, 192, 128, 0.2)',
+    iconColor: '#d3c6aa',
+    shadow: '0 8px 32px rgba(0,0,0,0.6)',
+    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.05)',
+  }
+};
+
+// 18. Solarized Dark
+export const solarizedDarkTheme = {
+  background: '#002b36',
+  foreground: '#839496',
+  cursor: '#93a1a1',
+  cursorAccent: '#002b36',
+  selection: 'rgba(7, 54, 66, 0.5)',
+  black: '#073642',
+  red: '#dc322f',
+  green: '#859900',
+  yellow: '#b58900',
+  blue: '#268bd2',
+  magenta: '#d33682',
+  cyan: '#2aa198',
+  white: '#eee8d5',
+  brightBlack: '#002b36',
+  brightRed: '#cb4b16',
+  brightGreen: '#586e75',
+  brightYellow: '#657b83',
+  brightBlue: '#839496',
+  brightMagenta: '#6c71c4',
+  brightCyan: '#93a1a1',
+  brightWhite: '#fdf6e3',
+  ui: {
+    ...commonUI,
+    bg: '#002b36',
+    bgSecondary: '#073642',
+    bgTertiary: '#586e75',
+    glassBg: 'rgba(0, 43, 54, 0.7)',
+    cardBg: 'rgba(7, 54, 66, 0.3)',
+    border: '#002b36',
+    borderLight: 'rgba(131, 148, 150, 0.12)',
+    text: '#839496',
+    textSecondary: '#586e75',
+    accent: '#268bd2',
+    accentMuted: 'rgba(38, 139, 210, 0.2)',
+    iconColor: '#839496',
+    shadow: '0 8px 32px rgba(0,0,0,0.6)',
+    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.05)',
+  }
+};
+
+// 19. GitHub Dark
+export const githubDarkTheme = {
+  background: '#0d1117',
+  foreground: '#c9d1d9',
+  cursor: '#c9d1d9',
+  cursorAccent: '#0d1117',
+  selection: 'rgba(56, 139, 253, 0.3)',
+  black: '#484f58',
+  red: '#ff7b72',
+  green: '#3fb950',
+  yellow: '#d29922',
+  blue: '#58a6ff',
+  magenta: '#bc8cff',
+  cyan: '#39c5cf',
+  white: '#b1bac4',
+  brightBlack: '#6e7681',
+  brightRed: '#ffa198',
+  brightGreen: '#56d364',
+  brightYellow: '#e3b341',
+  brightBlue: '#79c0ff',
+  brightMagenta: '#d2a8ff',
+  brightCyan: '#56d4dd',
+  brightWhite: '#f0f6fc',
+  ui: {
+    ...commonUI,
+    bg: '#0d1117',
+    bgSecondary: '#010409',
+    bgTertiary: '#21262d',
+    glassBg: 'rgba(13, 17, 23, 0.7)',
+    cardBg: 'rgba(33, 38, 45, 0.3)',
+    border: '#181b20',
+    borderLight: 'rgba(201, 209, 217, 0.12)',
+    text: '#e6edf3',
+    textSecondary: '#7d8590',
+    accent: '#58a6ff',
+    accentMuted: 'rgba(88, 166, 255, 0.2)',
+    iconColor: '#e6edf3',
+    shadow: '0 8px 32px rgba(0,0,0,0.6)',
+    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.05)',
+  }
+};
+
+// 20. Rosé Pine
 export const rosePineTheme = {
   background: '#191724',
   foreground: '#e0def4',
@@ -640,7 +850,7 @@ export const rosePineTheme = {
   }
 };
 
-// 16. Ayu Mirage
+// 21. Ayu Mirage
 export const ayuMirageTheme = {
   background: '#171b24',
   foreground: '#cccac2',
@@ -688,8 +898,11 @@ export const themes = {
   catppuccinMacchiato: catppuccinMacchiatoTheme,
   catppuccinFrappe: catppuccinFrappeTheme,
   catppuccinLatte: catppuccinLatteTheme,
+  githubDark: githubDarkTheme,
   githubLight: githubLightTheme,
+  solarizedDark: solarizedDarkTheme,
   solarizedLight: solarizedLightTheme,
+  gruvboxDark: gruvboxDarkTheme,
   gruvboxLight: gruvboxLightTheme,
   tokyoNight: tokyoNightTheme,
   oneDark: oneDarkTheme,
@@ -698,8 +911,13 @@ export const themes = {
   rosePine: rosePineTheme,
   ayuMirage: ayuMirageTheme,
   monokaiPro: monokaiProTheme,
+  monokai: monokaiTheme,
   nightOwl: nightOwlTheme,
   shadesOfPurple: shadesOfPurpleTheme,
+  synthwave84: synthwave84Theme,
+  cobalt2: cobalt2Theme,
+  oceanicNext: oceanicNextTheme,
+  everforest: everforestTheme,
 };
 
 // 하위 호환성
