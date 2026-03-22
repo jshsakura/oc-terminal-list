@@ -90,12 +90,13 @@ class PtyManager:
                 if os.path.isabs(cwd):
                     temp_dir = cwd
                 else:
-                    temp_dir = os.path.join(workspace_root, cwd)
+                    temp_dir = os.path.normpath(os.path.join(workspace_root, cwd))
                 
                 if os.path.exists(temp_dir) and os.path.is_dir(temp_dir):
                     start_dir = temp_dir
+                    logger.info(f"Using requested directory: {start_dir}")
                 else:
-                    logger.warning(f"요청된 디렉토리가 존재하지 않음: {temp_dir}, 기본값 사용: {start_dir}")
+                    logger.warning(f"요청된 디렉토리가 존재하지 않거나 디렉토리가 아님: {temp_dir}, 기본값 사용: {start_dir}")
 
             # 지능형 셸 감지 (zsh -> bash -> sh)
             shell = os.environ.get("SHELL")

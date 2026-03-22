@@ -67,11 +67,14 @@ const useSessionManager = (isAuthenticated) => {
       });
 
       if (response.ok) {
-        const folderName = cwd ? cwd.split('/').pop() : null;
+        const data = await response.json();
+        const actualCwd = data.cwd || cwd;
+        const folderName = actualCwd ? actualCwd.split('/').pop() : null;
+        
         const newSession = { 
           id: newId, 
           name: folderName ? `bash (${folderName})` : 'bash',
-          cwd: cwd
+          cwd: actualCwd
         };
         setSessions(prev => [...prev, newSession]);
         setActiveSessionId(newId);

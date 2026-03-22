@@ -130,7 +130,10 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
           <span style={{ fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>{t('explorer')}</span>
           <div style={{ display: 'flex', gap: '12px' }}>
             <button 
-              onClick={() => onOpenTerminalAtFolder?.(currentPath)} 
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenTerminalAtFolder?.(currentPath);
+              }} 
               style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
               title="Open terminal here"
             >

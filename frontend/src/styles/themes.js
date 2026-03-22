@@ -1021,6 +1021,7 @@ export const catppuccinFrappeTheme = {
 
 // 테마 맵핑
 export const themes = {
+  catppuccin: catppuccinTheme,
   catppuccinMocha: catppuccinTheme,
   catppuccinMacchiato: catppuccinMacchiatoTheme,
   catppuccinFrappe: catppuccinFrappeTheme,
@@ -1047,11 +1048,6 @@ export const themes = {
   everforest: everforestTheme,
 };
 
-// 하위 호환성
-themes.catppuccin = themes.catppuccinMocha;
-
 export const themeNames = Object.keys(themes);
-
-export const defaultTheme = 'catppuccinMocha';
-
+export const defaultTheme = 'catppuccin';
 export default themes;
