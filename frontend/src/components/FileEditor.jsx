@@ -116,6 +116,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     }
   }, []);
 
+  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFile || '');
+  const isLightTheme = theme.background === '#ffffff' || theme.background === '#fdf6e3' || theme.background === '#fbf1c7';
+
   // Poll for external changes every 5 seconds (only for text files)
   useEffect(() => {
     if (activeFile && !isImage) {
@@ -237,9 +240,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
   const isMarkdown = activeFile?.endsWith('.md');
   const isHtml = activeFile?.endsWith('.html');
-  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFile || '');
   const token = localStorage.getItem('auth_token');
-  const isLightTheme = theme.background === '#ffffff' || theme.background === '#fdf6e3' || theme.background === '#fbf1c7';
 
   if (!activeFile && openFiles.length === 0) return null;
 
