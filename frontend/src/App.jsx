@@ -162,8 +162,10 @@ function App() {
       ...AppStyles.container,
       backgroundColor: currentTheme.ui.bg,
       height: isMobile ? `${viewportHeight}px` : '100vh',
+      position: 'relative',
+      overflow: 'hidden'
     }}>
-      {/* 사이드바 */}
+      {/* 1. 사이드바 (모바일은 오버레이, 데스크탑은 고정) */}
       <Sidebar 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
@@ -197,7 +199,7 @@ function App() {
         onOpenTerminalAtFolder={createSession} 
       />
 
-      {/* 메인 콘텐츠 영역 (사이드바에 의해 밀려남 - 절대 좌표 방식 적용) */}
+      {/* 2. 메인 콘텐츠 영역 (사이드바에 의해 밀려남) */}
       <div style={{
         position: 'absolute',
         top: 0,
@@ -208,7 +210,7 @@ function App() {
         flexDirection: 'column',
         transition: isResizing ? 'none' : 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         backgroundColor: currentTheme.ui.bg,
-        overflow: 'visible',
+        overflow: 'visible', // 헤더 드롭다운이 밖으로 나갈 수 있게 함
         zIndex: 10,
       }}>
         <Header 
@@ -231,9 +233,8 @@ function App() {
           setHoveredDropdownItem={setHoveredDropdownItem}
         />
 
-        {/* 에디터와 터미널이 위치하는 메인 작업 영역 */}
+        {/* 에디터와 터미널 작업 영역 */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-          
           {/* 에디터 영역 */}
           {activeFile && (
             <div style={{ flex: 1, position: 'relative', zIndex: 10 }}>
@@ -249,7 +250,7 @@ function App() {
             </div>
           )}
 
-          {/* 터미널 영역 (에디터가 열려있을 때는 배경에서 유지) */}
+          {/* 터미널 영역 */}
           <div 
             ref={terminalRef}
             onTouchStart={isMobile ? handleTouchStart : undefined}
@@ -266,22 +267,13 @@ function App() {
             {sessions.length === 0 ? (
               <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
             ) : (
-              // 터미널 컴포넌트를 직접 매핑하여 상태 유지 (memoized 렌더링)
               sessions.map((session) => (
                 <div 
                   key={`session-container-${session.id}`} 
-                  style={{ 
-                    display: session.id === activeSessionId ? 'block' : 'none', 
-                    width: '100%', 
-                    height: '100%' 
-                  }}
+                  style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}
                 >
                   <Suspense fallback={null}>
-                    <Terminal 
-                      sessionId={session.id} 
-                      settings={settings} 
-                      isActive={session.id === activeSessionId} 
-                    />
+                    <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
                   </Suspense>
                 </div>
               ))
@@ -290,6 +282,7 @@ function App() {
         </div>
       </div>
 
+      {/* 3. 모바일 하단 툴바 */}
       {isMobile && (
         <Suspense fallback={null}>
           <MobileToolbar 
@@ -302,6 +295,60 @@ function App() {
         </Suspense>
       )}
 
+      {/* 4. [중요] 모바일 드롭다운 메뉴 - 모든 레이어의 최상위에 배치 */}
+      {isMobile && isMenuOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 100000 }}>
+          {/* 오버레이 (클릭 시 닫힘) */}
+          <div 
+            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)' }} 
+            onClick={() => setIsMenuOpen(false)} 
+          />
+          
+          {/* 메뉴 박스 (헤더 바로 아래 우측 상단 고정) */}
+          <div style={{
+            position: 'absolute',
+            top: '40px',
+            right: '8px',
+            width: '180px',
+            backgroundColor: currentTheme.ui.bgSecondary,
+            border: `1px solid ${currentTheme.ui.border}`,
+            borderRadius: '0 0 8px 8px',
+            padding: '4px',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
+            zIndex: 100001
+          }}>
+            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${currentTheme.ui.border}`, marginBottom: '4px' }}>
+              <div style={{ fontSize: '10px', color: currentTheme.ui.textSecondary, textTransform: 'uppercase' }}>{t('user')}</div>
+              <div style={{ fontWeight: '800', color: currentTheme.ui.accent }}>{username}</div>
+            </div>
+            
+            <button
+              onClick={() => { handleNewSession(); setIsMenuOpen(false); }}
+              style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '14px', borderRadius: '4px' }}
+            >
+              {t('newSession')}
+            </button>
+            
+            <button
+              onClick={() => { setIsSettingsOpen(true); setIsMenuOpen(false); }}
+              style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '14px', borderRadius: '4px' }}
+            >
+              {t('settings')}
+            </button>
+            
+            <button
+              onClick={() => { handleLogoutRequest(); setIsMenuOpen(false); }}
+              style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.red, textAlign: 'left', fontWeight: '700', fontSize: '14px', borderRadius: '4px' }}
+            >
+              {t('logout')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* 5. 모달들 */}
       <Suspense fallback={null}>
         <CommandInput 
           isOpen={commandInputOpen} 

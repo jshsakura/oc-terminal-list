@@ -14,12 +14,9 @@ const Header = ({
   setIsMenuOpen, 
   currentTheme, 
   t, 
-  authState,
   handleNewSession,
   setIsSettingsOpen,
-  handleLogoutRequest,
-  hoveredDropdownItem,
-  setHoveredDropdownItem
+  handleLogoutRequest
 }) => {
   const styles = AppStyles;
 
@@ -30,8 +27,8 @@ const Header = ({
       borderBottom: `1px solid ${currentTheme.ui.border}`,
       height: '40px',
       boxShadow: 'none',
-      position: 'relative', // 레이어 우선순위 확보를 위해 추가
-      zIndex: 1000,         // 터미널 영역보다 위에 오도록 설정
+      position: 'relative',
+      zIndex: 100,
     }}>
       <div style={styles.headerLeft}>
         <Button 
@@ -90,116 +87,19 @@ const Header = ({
               icon={ChevronsDown}
             />
 
-            <div style={{ position: 'relative', height: '100%', display: 'flex', alignItems: 'center' }}>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setIsMenuOpen(!isMenuOpen);
-                }} 
-                theme={currentTheme}
-                style={{
-                  backgroundColor: isMenuOpen ? currentTheme.ui.bgTertiary : 'transparent',
-                  zIndex: 2000,
-                }}
-                icon={Menu}
-              />
-
-              {isMenuOpen && (
-                <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 10000 }}>
-                  <div 
-                    style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.3)', zIndex: 10000 }} 
-                    onClick={(e) => { e.stopPropagation(); setIsMenuOpen(false); }} 
-                  />
-                  <div style={{
-                    position: 'absolute',
-                    top: '40px',
-                    right: '0',
-                    width: '180px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    backgroundColor: currentTheme.ui.bgSecondary,
-                    borderRadius: '0 0 0 8px',
-                    boxShadow: 'none',
-                    borderLeft: `1px solid ${currentTheme.ui.border}`,
-                    borderBottom: `1px solid ${currentTheme.ui.border}`,
-                    padding: '4px',
-                    zIndex: 10001,
-                  }}>
-                    <div style={{ padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <span style={{ color: currentTheme.ui.textSecondary, fontSize: '10px', fontWeight: '800', textTransform: 'uppercase' }}>{t('user')}</span>
-                      <span style={{ color: currentTheme.ui.accent, fontWeight: '800', fontSize: '12px' }}>{authState.username}</span>
-                    </div>
-                    <div style={{ height: '1px', backgroundColor: currentTheme.ui.border, margin: '4px 8px' }} />
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleNewSession(); setIsMenuOpen(false); }}
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '10px 12px',
-                        background: 'none',
-                        border: 'none',
-                        color: currentTheme.ui.text,
-                        fontSize: '13px',
-                        fontWeight: '600',
-                        borderRadius: '4px',
-                        textAlign: 'left',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <Plus size={16} strokeWidth={2.5} color={currentTheme.ui.accent} />
-                      <span>{t('newSession')}</span>
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setIsSettingsOpen(true); setIsMenuOpen(false); }}
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '10px 12px',
-                        background: 'none',
-                        border: 'none',
-                        color: currentTheme.ui.text,
-                        fontSize: '13px',
-                        fontWeight: '600',
-                        borderRadius: '4px',
-                        textAlign: 'left',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <SettingsIcon size={16} strokeWidth={2.5} color={currentTheme.ui.textSecondary} />
-                      <span>{t('settings')}</span>
-                    </button>
-                    <div style={{ height: '1px', backgroundColor: currentTheme.ui.border, margin: '4px 8px' }} />
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleLogoutRequest(); setIsMenuOpen(false); }}
-                      style={{
-                        width: '100%',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '10px 12px',
-                        background: 'none',
-                        border: 'none',
-                        color: currentTheme.red,
-                        fontSize: '13px',
-                        fontWeight: '700',
-                        borderRadius: '4px',
-                        textAlign: 'left',
-                        cursor: 'pointer'
-                      }}
-                    >
-                      <Power size={16} strokeWidth={2.5} />
-                      <span>{t('logout')}</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsMenuOpen(!isMenuOpen);
+              }} 
+              theme={currentTheme}
+              style={{
+                backgroundColor: isMenuOpen ? currentTheme.ui.bgTertiary : 'transparent',
+              }}
+              icon={Menu}
+            />
           </>
         ) : (
           <div style={styles.desktopButtons}>
