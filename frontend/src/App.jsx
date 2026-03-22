@@ -244,6 +244,7 @@ function App() {
           }
         }} 
         selectedFolderPath={selectedFolderPath}
+        viewportHeight={viewportHeight}
       />
 
       <div style={{

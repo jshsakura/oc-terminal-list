@@ -8,7 +8,7 @@ import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import Button from './common/Button';
 
-const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, onRenameSession, onReconnectSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect, onFolderSelect, onOpenTerminalAtFolder, selectedFolderPath = '' }) => {
+const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, onRenameSession, onReconnectSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect, onFolderSelect, onOpenTerminalAtFolder, selectedFolderPath = '', viewportHeight }) => {
   const { t } = useTranslation(language);
   const [hoveredSessionId, setHoveredSessionId] = useState(null);
   const [activeTab, setActiveTab] = useState('sessions'); // 'sessions' | 'files'
@@ -123,7 +123,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         maxWidth: isMobile ? '80vw' : '400px',
         minWidth: isMobile ? undefined : '180px',
         top: 0,
-        height: '100vh',
+        height: isMobile ? `${viewportHeight}px` : '100vh',
         zIndex: 9999,
         boxShadow: isMobile ? '10px 0 30px rgba(0,0,0,0.1)' : (isLightTheme ? '1px 0 10px rgba(0,0,0,0.03)' : '5px 0 25px rgba(0,0,0,0.3)'),
         transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -375,7 +375,6 @@ const styles = {
     right: 0,
     bottom: 0,
     width: '100%',
-    height: '100vh',
     animation: 'fadeIn 0.2s ease',
   },
   sidebar: {
