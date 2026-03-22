@@ -79,20 +79,27 @@ const Header = ({
             onClick={() => setIsMenuOpen(!isMenuOpen)} 
             theme={currentTheme}
             icon={Menu}
-          />
-        ) : (
-          <>
-            <div style={{ display: 'flex', gap: '6px', marginRight: '12px' }}>
-              <Button 
-                variant="secondary" 
-                size="small" 
-                onClick={handleNewSession} 
-                theme={currentTheme}
-                icon={Plus}
-              >
-                {t('newSession')}
-              </Button>
-            </div>
+          <div style={styles.headerRight}>
+            {activeSessionId && (
+              <div style={{ display: 'flex', gap: '4px', marginRight: '8px' }}>
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => window.terminalSessions?.[activeSessionId]?.sendData('\x1b[5~')} 
+                  theme={currentTheme}
+                  icon={ChevronsUp}
+                  title="Page Up"
+                />
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  onClick={() => window.terminalSessions?.[activeSessionId]?.sendData('\x1b[6~')} 
+                  theme={currentTheme}
+                  icon={ChevronsDown}
+                  title="Page Down"
+                />
+              </div>
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Button 
