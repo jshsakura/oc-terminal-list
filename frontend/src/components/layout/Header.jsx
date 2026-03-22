@@ -23,9 +23,13 @@ const Header = ({
   return (
     <div style={{
       ...styles.header,
-      backgroundColor: currentTheme.ui.bgSecondary,
-      borderBottom: `1px solid ${currentTheme.ui.border}`,
+      backgroundColor: currentTheme.ui.glassBg || 'rgba(0, 0, 0, 0.3)',
+      backdropFilter: 'blur(12px) saturate(180%)',
+      WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+      borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
       height: '40px',
+      minHeight: '40px',
+      maxHeight: '40px',
       boxShadow: 'none',
       position: 'relative',
       zIndex: 100,

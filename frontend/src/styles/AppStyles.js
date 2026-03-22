@@ -38,6 +38,9 @@ const AppStyles = {
     boxSizing: 'border-box',
     boxShadow: '0 2px 10px rgba(0,0,0,0.3)',
     zIndex: 100,
+    height: '40px',
+    minHeight: '40px',
+    maxHeight: '40px',
   },
   headerLeft: {
     display: 'flex',

@@ -113,7 +113,9 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
       {/* 사이드바 */}
       <div style={{
         ...styles.sidebar,
-        backgroundColor: currentTheme.ui.bg,
+        backgroundColor: currentTheme.ui.glassBg || 'rgba(30, 30, 46, 0.7)',
+        backdropFilter: 'blur(16px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(16px) saturate(180%)',
         borderRight: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
         width: isMobile ? 'min(80vw, 280px)' : `${width}px`,
         maxWidth: isMobile ? '80vw' : '400px',
@@ -129,12 +131,12 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
           display: 'flex',
           justifyContent: 'flex-end',
           alignItems: 'center',
-          height: '35px',
-          minHeight: '35px',
-          maxHeight: '35px',
+          height: '40px',
+          minHeight: '40px',
+          maxHeight: '40px',
           padding: '0 8px',
           boxSizing: 'border-box',
-          backgroundColor: currentTheme.ui.bgSecondary, 
+          backgroundColor: 'transparent', 
           borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
         }}>
             <Button 
@@ -152,7 +154,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         <div style={{ 
           ...styles.tabHeader, 
           borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, 
-          backgroundColor: currentTheme.ui.bgSecondary,
+          backgroundColor: 'rgba(0,0,0,0.1)',
           padding: '4px',
           gap: '4px',
         }}>
@@ -377,8 +379,9 @@ const styles = {
   },
   tabHeader: {
     display: 'flex',
-    height: '35px',
-    minHeight: '35px',
+    height: '40px',
+    minHeight: '40px',
+    maxHeight: '40px',
   },
   tab: {
     flex: 1,

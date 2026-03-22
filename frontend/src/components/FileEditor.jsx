@@ -246,15 +246,17 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
       {/* 탭 바 */}
       <div style={{
         display: 'flex',
-        backgroundColor: theme.ui.bgSecondary,
-        height: '35px',
+        backgroundColor: theme.ui.glassBg || 'rgba(0,0,0,0.3)',
+        backdropFilter: 'blur(12px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(12px) saturate(180%)',
+        height: '40px',
+        minHeight: '40px',
+        maxHeight: '40px',
         overflowX: 'auto',
         scrollbarWidth: 'none',
         msOverflowStyle: 'none',
-        borderBottom: `1px solid ${theme.ui.border}`,
-        backdropFilter: 'blur(10px)',
-      }}>
-        {openFiles.map((path) => {
+        borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}`,
+      }}>        {openFiles.map((path) => {
           const isActive = path === activeFile;
           const filename = path.split('/').pop();
           const fileHasChanges = fileStates[path]?.hasChanges;

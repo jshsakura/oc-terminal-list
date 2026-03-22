@@ -61,11 +61,13 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
     const now = Date.now();
     const isDoubleTap = lastClickRef.current.id === item.path && (now - lastClickRef.current.time) < 300;
     
+    // Always update active item for visual feedback
+    setActiveItemPath(item.path);
+
     if (isDoubleTap) {
       handleItemClick(item);
       lastClickRef.current = { id: null, time: 0 };
     } else {
-      setActiveItemPath(item.path); // Single click just selects/highlights
       lastClickRef.current = { id: item.path, time: now };
     }
   };
@@ -97,6 +99,8 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
     );
   };
 
+  const [hoveredPath, setHoveredPath] = useState(null);
+
   if (error) return (
     <div style={{ color: theme.red, padding: '20px', fontSize: '12px' }}>
       <div>Error: {error}</div>
@@ -109,17 +113,18 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
       display: 'flex', 
       flexDirection: 'column', 
       height: '100%', 
-      backgroundColor: theme.ui.bg,
+      backgroundColor: 'transparent',
       color: theme.ui.text,
       overflowY: 'hidden'
     }}>
       <div style={{ 
         padding: '10px 12px', 
-        borderBottom: `1px solid ${theme.ui.border}`, 
+        borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}`, 
         display: 'flex', 
         flexDirection: 'column',
         gap: '8px',
-        backgroundColor: theme.ui.bgSecondary
+        backgroundColor: theme.ui.glassBg || 'rgba(0,0,0,0.1)',
+        backdropFilter: 'blur(8px)',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span style={{ fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>{t('explorer')}</span>
@@ -149,6 +154,8 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
             {currentPath && (
               <div 
                 onClick={handleGoBack}
+                onMouseEnter={() => setHoveredPath('back')}
+                onMouseLeave={() => setHoveredPath(null)}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -157,8 +164,10 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
                   fontSize: '13px',
                   gap: '10px',
                   opacity: 0.7,
-                  borderBottom: `1px solid ${theme.ui.border}22`,
-                  userSelect: 'none'
+                  backgroundColor: hoveredPath === 'back' ? theme.ui.cardBg : 'transparent',
+                  borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}22`,
+                  userSelect: 'none',
+                  transition: 'background-color 0.15s ease'
                 }}
               >
                 <ChevronLeft size={16} />
@@ -171,10 +180,13 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
             ) : (
               items.map((item) => {
                 const isActive = item.path === activeItemPath;
+                const isHovered = item.path === hoveredPath;
                 return (
                   <div 
                     key={item.path}
                     onClick={() => handleTouchOrClick(item)}
+                    onMouseEnter={() => setHoveredPath(item.path)}
+                    onMouseLeave={() => setHoveredPath(null)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -183,9 +195,10 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
                       fontSize: '13px',
                       gap: '10px',
                       userSelect: 'none',
-                      backgroundColor: isActive ? `${theme.ui.accent}33` : 'transparent',
+                      backgroundColor: isActive ? (theme.ui.accentMuted || `${theme.ui.accent}33`) : (isHovered ? theme.ui.cardBg : 'transparent'),
                       borderLeft: isActive ? `3px solid ${theme.ui.accent}` : '3px solid transparent',
-                      transition: 'all 0.1s ease',
+                      transition: 'all 0.15s ease',
+                      position: 'relative',
                     }}
                   >
                     {item.type === 'directory' ? (
