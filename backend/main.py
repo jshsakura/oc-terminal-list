@@ -566,11 +566,11 @@ async def create_session(
             logger.error(f"PTY manager failed to create session {session_id}")
             raise HTTPException(status_code=500, detail="PTY 세션 생성에 실패했습니다")
 
-        logger.info(f"PTY session created successfully")
+        logger.info(f"PTY session created successfully: {session_id}")
 
         # DB에 세션 정보 저장 시도
         await storage.create_session(session_id, username, cwd=request.cwd)
-        logger.info(f"Session stored in DB successfully")
+        logger.info(f"Session {session_id} stored in DB successfully")
 
         return {
             "session_id": session_id,
@@ -579,8 +579,10 @@ async def create_session(
             "rows": request.rows,
             "cwd": request.cwd
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"CRITICAL ERROR in create_session: {e}", exc_info=True)
+        logger.error(f"CRITICAL ERROR in create_session ({session_id}): {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
