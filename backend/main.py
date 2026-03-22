@@ -127,9 +127,15 @@ class SessionNameRequest(BaseModel):
 # Workspace 루트 디렉토리 결정 로직
 _current_file = os.path.abspath(__file__)
 _project_root = os.path.dirname(os.path.dirname(_current_file))
+_local_workspace = os.path.join(_project_root, "workspace")
 
-# 기본값은 /app/workspace (Docker 환경 권장)
+# 기본값은 /app/workspace (Docker 환경 권장), 없으면 로컬 workspace 폴더 사용
 WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/app/workspace")
+
+# 만약 기본값이 /app/workspace인데 존재하지 않고 로컬 디렉토리가 있다면 로컬 사용
+if WORKSPACE_ROOT == "/app/workspace" and not os.path.exists(WORKSPACE_ROOT) and os.path.exists(_local_workspace):
+    WORKSPACE_ROOT = _local_workspace
+    logger.info(f"Using local WORKSPACE_ROOT: {WORKSPACE_ROOT}")
 
 # 디렉토리 존재 보장
 os.makedirs(WORKSPACE_ROOT, exist_ok=True)
