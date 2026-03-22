@@ -330,7 +330,12 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
         )}
 
         {/* 푸터 정보 (시스템 리소스) */}
-        <div style={{ backgroundColor: currentTheme.ui.bgSecondary, borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, padding: '8px 12px' }}>
+        <div style={{ 
+          backgroundColor: currentTheme.ui.bgSecondary, 
+          borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, 
+          padding: '8px 12px',
+          paddingBottom: isMobile ? '40px' : '8px' // MobileToolbar(32px) 고려하여 여유있게 패딩 추가
+        }}>
           <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="CPU">
               <Cpu size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
