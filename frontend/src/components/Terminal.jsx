@@ -73,23 +73,12 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
 
     term.open(terminalRef.current);
 
-    const handleContextMenu = async (e) => {
-      e.preventDefault();
-      try {
-        const text = await navigator.clipboard.readText();
-        if (text && socket.readyState === WebSocket.OPEN) {
-          socket.send(text);
-        }
-      } catch (err) {
-      }
-    };
-
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
         e.preventDefault();
         navigator.clipboard.readText().then(text => {
-          if (text && socket.readyState === WebSocket.OPEN) {
-            socket.send(text);
+          if (text && wsRef.current?.readyState === WebSocket.OPEN) {
+            wsRef.current.send(text);
           }
         }).catch(() => {});
       }
@@ -99,6 +88,17 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
           e.preventDefault();
           navigator.clipboard.writeText(selection).catch(() => {});
         }
+      }
+    };
+
+    const handleContextMenu = async (e) => {
+      e.preventDefault();
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(text);
+        }
+      } catch (err) {
       }
     };
 
