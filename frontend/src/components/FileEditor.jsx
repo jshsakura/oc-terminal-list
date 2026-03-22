@@ -117,6 +117,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   }, []);
 
   const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFile || '');
+  
+  if (!theme || !theme.ui) return null;
+  
   const isLightTheme = theme.background === '#ffffff' || theme.background === '#fdf6e3' || theme.background === '#fbf1c7';
 
   // Poll for external changes every 5 seconds (only for text files)

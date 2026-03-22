@@ -17,6 +17,10 @@ const Header = ({
   isMenuOpen
 }) => {
   const styles = AppStyles;
+  
+  // Safety check for currentTheme
+  if (!currentTheme || !currentTheme.ui) return null;
+
   const isLightTheme = currentTheme.background === '#ffffff' || currentTheme.background === '#fdf6e3' || currentTheme.background === '#fbf1c7';
 
   return (

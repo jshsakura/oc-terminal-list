@@ -99,6 +99,7 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
   };
 
   if (!isOpen) return null;
+  if (!currentTheme || !currentTheme.ui) return null;
 
   const isLightTheme = currentTheme.background === '#ffffff' || currentTheme.background === '#fdf6e3' || currentTheme.background === '#fbf1c7';
 
