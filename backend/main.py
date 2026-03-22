@@ -119,10 +119,11 @@ class SessionNameRequest(BaseModel):
 # Workspace 루트 디렉토리
 # 1. 환경변수 WORKSPACE_ROOT 확인
 # 2. /workspace 디렉토리 확인
-# 3. 위 둘 다 없으면 현재 프로젝트의 상위 디렉토리를 기본값으로 사용
+# 3. 위 둘 다 없으면 현재 프로젝트의 '상위' 디렉토리를 기본값으로 사용 (더 넓은 작업 영역 제공)
 _current_file = os.path.abspath(__file__)
 _project_root = os.path.dirname(os.path.dirname(_current_file))
-default_workspace = "/workspace" if os.path.exists("/workspace") else _project_root
+_parent_root = os.path.dirname(_project_root)
+default_workspace = "/workspace" if os.path.exists("/workspace") else _parent_root
 WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", default_workspace)
 logger.info(f"WORKSPACE_ROOT configured as: {WORKSPACE_ROOT}")
 
