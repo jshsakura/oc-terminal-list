@@ -127,18 +127,8 @@ class SessionNameRequest(BaseModel):
 _current_file = os.path.abspath(__file__)
 _project_root = os.path.dirname(os.path.dirname(_current_file))
 
-# 1. 환경변수 확인
-WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT")
-
-if not WORKSPACE_ROOT:
-    # 2. Docker 볼륨 매핑 (/workspace) 확인
-    if os.path.exists("/workspace"):
-        WORKSPACE_ROOT = "/workspace"
-    else:
-        # 3. 데이터 폴더 내의 workspace (컴포즈 볼륨 구조 반영)
-        db_path = os.getenv("DB_PATH", os.path.join(_project_root, "data", "iterminallist.db"))
-        data_dir = os.path.dirname(os.path.abspath(db_path))
-        WORKSPACE_ROOT = os.path.join(data_dir, "workspace")
+# 기본값은 /app/workspace (Docker 환경 권장)
+WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/app/workspace")
 
 # 디렉토리 존재 보장
 os.makedirs(WORKSPACE_ROOT, exist_ok=True)

@@ -9,7 +9,7 @@ services:
       - 28022:8000
     environment:
       - DB_PATH=/app/data/octerminallist.db
-      - WORKSPACE_ROOT=/workspace
+      - WORKSPACE_ROOT=/app/workspace
       - JWT_SECRET_KEY=your-super-secret-jwt-key-change-this
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=1440
@@ -17,7 +17,7 @@ services:
     volumes:
       # 1. 데이터 및 워크스페이스 영속화
       - ./data:/app/data
-      - ./workspace:/workspace
+      - ./workspace:/app/workspace
       
       # 2. 홈 디렉토리 영속화 (가장 중요!)
       # 컨테이너 터미널에서 nvm, pip 등으로 설치한 도구와 설정들이 영구 보존됩니다.
