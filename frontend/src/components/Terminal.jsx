@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
+import { WebLinksAddon } from 'xterm-addon-web-links';
 import { Loader2 } from 'lucide-react';
 import 'xterm/css/xterm.css';
 import themes from '../styles/themes';
@@ -64,25 +65,64 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
 
+    const webLinksAddon = new WebLinksAddon();
+    term.loadAddon(webLinksAddon);
+
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
-    // 2. DOM에 연결 및 초기 리사이즈
     term.open(terminalRef.current);
-    
-    // 약간의 지연 후 핏 맞추기 (DOM 렌더링 시간 확보)
+
+    const handleContextMenu = async (e) => {
+      e.preventDefault();
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && socket.readyState === WebSocket.OPEN) {
+          socket.send(text);
+        }
+      } catch (err) {
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+        e.preventDefault();
+        navigator.clipboard.readText().then(text => {
+          if (text && socket.readyState === WebSocket.OPEN) {
+            socket.send(text);
+          }
+        }).catch(() => {});
+      }
+      if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
+        const selection = term.getSelection();
+        if (selection) {
+          e.preventDefault();
+          navigator.clipboard.writeText(selection).catch(() => {});
+        }
+      }
+    };
+
+    term.onSelectionChange(() => {
+      const selection = term.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection).catch(() => {});
+      }
+    });
+
+    const container = terminalRef.current;
+    container.addEventListener('contextmenu', handleContextMenu);
+    container.addEventListener('keydown', handleKeyDown);
+
     setTimeout(() => {
       fitAddon.fit();
       term.focus();
     }, 100);
 
-    // 3. WebSocket 연결 (token 포함)
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const token = localStorage.getItem('auth_token');
     const shell = encodeURIComponent(settings.defaultShell || 'bash');
     
-    // 초기 크기 정보 포함
     const { cols, rows } = fitAddon.proposeDimensions() || { cols: 80, rows: 24 };
     const wsUrl = `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}`;
     
@@ -157,12 +197,16 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     return () => {
       intentionalCloseRef.current = true;
       if (observer) observer.disconnect();
+      if (container) {
+        container.removeEventListener('contextmenu', handleContextMenu);
+        container.removeEventListener('keydown', handleKeyDown);
+      }
       socket.close();
       term.dispose();
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
-  }, [sessionId]); // sessionId 변경 시에만 재구동 (currentTheme 제거)
+  }, [sessionId]);
 
   // 테마 및 설정(폰트 크기 등) 변경 시 반영
   useEffect(() => {
