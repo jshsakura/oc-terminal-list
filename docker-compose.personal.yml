@@ -37,7 +37,7 @@ services:
     volumes:
       # 1. 앱 데이터 및 코드 워크스페이스
       - ./data:/app/data
-      - ./workspace:/workspace
+      - /home/ubuntu/app/jupyterLab/notebooks:/workspace
       
       # 2. 터미널 환경 영속화
       - ./home:/root
