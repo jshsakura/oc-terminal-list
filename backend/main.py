@@ -7,6 +7,10 @@ import os
 import shutil
 import json
 from pathlib import Path
+from dotenv import load_dotenv
+
+# .env 파일 로드 (가장 먼저 실행)
+load_dotenv()
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Query, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse

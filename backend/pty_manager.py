@@ -10,6 +10,10 @@ import ptyprocess
 from typing import Dict, Optional
 from fastapi import WebSocket
 import logging
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
