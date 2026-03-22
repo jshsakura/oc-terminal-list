@@ -40,11 +40,12 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
     setIsReady(false);
 
     // 1. xterm.js 인스턴스 생성 (최신 프리미엄 옵션 적용)
+    const terminalFont = settings.fontFamily || '"MesloLGS NF", "Cascadia Code NF", "JetBrains Mono", monospace';
     const term = new Terminal({
       theme: currentTheme,
-      fontFamily: '"MesloLGS NF", "MesloLGS Nerd Font", "FiraCode Nerd Font", "JetBrains Mono", monospace',
+      fontFamily: terminalFont,
       fontSize: settings.fontSize,
-      lineHeight: 1.2,
+      lineHeight: 1.1,
       letterSpacing: 0,
       cursorBlink: true,
       cursorStyle: 'block',
@@ -163,10 +164,10 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
     if (xtermRef.current) {
       xtermRef.current.options.theme = currentTheme;
       xtermRef.current.options.fontSize = settings.fontSize;
-      xtermRef.current.options.fontFamily = settings.fontFamily;
+      xtermRef.current.options.fontFamily = settings.fontFamily || '"MesloLGS NF", "Cascadia Code NF", "JetBrains Mono", monospace';
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
       
-      // 폰트 변경 후 리사이즈 필요
+      // 폰트 변경 후 리사이즈 필요 (폰트 로드 대기를 위해 200ms 지연)
       setTimeout(() => {
         if (fitAddonRef.current) {
           fitAddonRef.current.fit();
@@ -175,7 +176,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
             wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
           }
         }
-      }, 100);
+      }, 200);
     }
   }, [currentTheme, settings.fontSize, settings.fontFamily, settings.smoothScroll]);
 
