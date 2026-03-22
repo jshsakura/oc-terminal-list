@@ -329,7 +329,8 @@ function App() {
               flex: 1,
               userSelect: 'text',
               WebkitUserSelect: 'text',
-              paddingBottom: isMobile ? '80px' : '5px',
+              paddingBottom: isMobile ? '80px' : '0',
+              padding: isMobile ? '5px' : '0',
               minHeight: '150px'
             }}
           >
