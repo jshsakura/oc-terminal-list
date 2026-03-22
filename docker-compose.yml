@@ -17,32 +17,9 @@ services:
       timeout: 3s
       retries: 3
 
-  # MariaDB for persistent data
-  mariadb:
-    image: mariadb:11
-    container_name: oc-terminal-list-mariadb
-    restart: unless-stopped
-    environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-octerminallist}
-      MYSQL_USER: ${MYSQL_USER:-iterminal}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-iterminalpass}
-    volumes:
-      - mariadb-data:/var/lib/mysql
-    networks:
-      - iterminal-network
-    healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-
-  # OC Terminal List application (frontend + backend)
+  # OC Terminal List application
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: ${DOCKER_IMAGE:-jshsakura/oc-terminal-list:latest}
+    image: jshsakura/oc-terminal-list:latest
     container_name: oc-terminal-list-app
     restart: unless-stopped
     ports:
@@ -52,22 +29,15 @@ services:
       - WORKSPACE_ROOT=/app/workspace
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - MYSQL_HOST=mariadb
-      - MYSQL_PORT=3306
-      - MYSQL_DATABASE=${MYSQL_DATABASE:-octerminallist}
-      - MYSQL_USER=${MYSQL_USER:-iterminal}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-iterminalpass}
     volumes:
-      - app-data:/app/data
-      - ./workspace:/app/workspace
+      - ./app-data:/app/data
       - /dev/pts:/dev/pts
+      - /home/ubuntu/app/jupyterLab/notebooks:/app/workspace
     privileged: true
     networks:
       - iterminal-network
     depends_on:
       redis:
-        condition: service_healthy
-      mariadb:
         condition: service_healthy
 
 networks:
@@ -76,5 +46,4 @@ networks:
 
 volumes:
   redis-data:
-  mariadb-data:
   app-data:

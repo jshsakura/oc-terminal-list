@@ -256,6 +256,11 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
                             {formatSessionName(session, index)}
                           </div>
                         )}
+                        {session.cwd && (
+                          <div style={{ fontSize: '10px', color: currentTheme.ui.textSecondary, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}>
+                            {session.cwd}
+                          </div>
+                        )}
                         <div style={{ ...styles.sessionId, color: currentTheme.ui.textSecondary, opacity: 0.5 }}>
                           {formatSessionId(session.id)}
                         </div>

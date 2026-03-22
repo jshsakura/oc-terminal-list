@@ -173,6 +173,36 @@ function App() {
       position: 'relative',
       overflow: 'hidden'
     }}>
+      <style>{`
+        /* Global Scrollbar Styles */
+        * {
+          scrollbar-width: thin;
+          scrollbar-color: ${currentTheme.ui.bgTertiary} transparent;
+        }
+
+        /* Webkit browsers (Chrome, Safari, Edge) */
+        ::-webkit-scrollbar {
+          width: 8px;
+          height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+          background: ${currentTheme.ui.bgTertiary};
+          border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+          background: ${currentTheme.ui.accent}88;
+        }
+
+        ::-webkit-scrollbar-corner {
+          background: transparent;
+        }
+      `}</style>
       <Sidebar 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
@@ -299,16 +329,38 @@ function App() {
             {sessions.length === 0 ? (
               <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
             ) : (
-              sessions.map((session) => (
-                <div 
-                  key={`session-container-${session.id}`} 
-                  style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}
-                >
-                  <Suspense fallback={null}>
-                    <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
-                  </Suspense>
-                </div>
-              ))
+              <>
+                {sessions.map((session) => (
+                  <div 
+                    key={`session-container-${session.id}`} 
+                    style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}
+                  >
+                    <Suspense fallback={null}>
+                      <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
+                    </Suspense>
+                  </div>
+                ))}
+                
+                {/* 하단 경로 표시 */}
+                {sessions.find(s => s.id === activeSessionId)?.cwd && (
+                  <div style={{
+                    position: 'absolute',
+                    bottom: isMobile ? '85px' : '10px',
+                    left: '15px',
+                    padding: '2px 8px',
+                    backgroundColor: `${currentTheme.ui.bgSecondary}cc`,
+                    color: currentTheme.ui.textSecondary,
+                    fontSize: '10px',
+                    borderRadius: '4px',
+                    border: `1px solid ${currentTheme.ui.borderLight}`,
+                    pointerEvents: 'none',
+                    fontFamily: '"JetBrains Mono", monospace',
+                    zIndex: 5
+                  }}>
+                    {sessions.find(s => s.id === activeSessionId).cwd}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

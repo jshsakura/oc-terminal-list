@@ -17,7 +17,7 @@ const useSessionManager = (isAuthenticated) => {
       if (!response.ok) return [];
 
       const data = await response.json();
-      const mapped = data.map(s => ({ id: s.id, name: s.name }));
+      const mapped = data.map(s => ({ id: s.id, name: s.name, cwd: s.cwd }));
       setSessions(mapped);
       return mapped;
     } catch (error) {
@@ -70,7 +70,8 @@ const useSessionManager = (isAuthenticated) => {
         const folderName = cwd ? cwd.split('/').pop() : null;
         const newSession = { 
           id: newId, 
-          name: folderName ? `bash (${folderName})` : 'bash' 
+          name: folderName ? `bash (${folderName})` : 'bash',
+          cwd: cwd
         };
         setSessions(prev => [...prev, newSession]);
         setActiveSessionId(newId);

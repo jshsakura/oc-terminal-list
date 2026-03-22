@@ -51,6 +51,7 @@ class SQLiteStorage:
                 session_id TEXT PRIMARY KEY,
                 username TEXT NOT NULL,
                 name TEXT,
+                cwd TEXT,
                 created_at TEXT NOT NULL,
                 last_active TEXT NOT NULL
             )
@@ -78,13 +79,18 @@ class SQLiteStorage:
             ON sessions(username)
         """)
 
-        # Migration: name 컬럼 추가 (기존 테이블 호환)
+        # Migration: name, cwd 컬럼 추가 (기존 테이블 호환)
         try:
             cursor.execute("ALTER TABLE sessions ADD COLUMN name TEXT")
-            conn.commit()
         except sqlite3.OperationalError:
-            # 컬럼이 이미 존재하면 무시
             pass
+
+        try:
+            cursor.execute("ALTER TABLE sessions ADD COLUMN cwd TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        conn.commit()
 
         # 시스템 설정 테이블 (JWT SECRET_KEY 저장용)
         cursor.execute("""
@@ -232,15 +238,15 @@ class SQLiteStorage:
 
     # ==================== 세션 관리 ====================
 
-    async def create_session(self, session_id: str, username: str):
+    async def create_session(self, session_id: str, username: str, cwd: str = None):
         """세션 생성"""
         def _create():
             conn = self._get_connection()
             cursor = conn.cursor()
             now = datetime.utcnow().isoformat()
             cursor.execute(
-                "INSERT OR REPLACE INTO sessions (session_id, username, created_at, last_active) VALUES (?, ?, ?, ?)",
-                (session_id, username, now, now)
+                "INSERT OR REPLACE INTO sessions (session_id, username, cwd, created_at, last_active) VALUES (?, ?, ?, ?, ?)",
+                (session_id, username, cwd, now, now)
             )
             conn.commit()
             conn.close()
@@ -253,7 +259,7 @@ class SQLiteStorage:
             conn = self._get_connection()
             cursor = conn.cursor()
             cursor.execute(
-                "SELECT session_id, name, created_at, last_active FROM sessions WHERE username = ? ORDER BY last_active DESC",
+                "SELECT session_id, name, cwd, created_at, last_active FROM sessions WHERE username = ? ORDER BY last_active DESC",
                 (username,)
             )
             rows = cursor.fetchall()
@@ -263,6 +269,7 @@ class SQLiteStorage:
                 {
                     "id": row["session_id"],
                     "name": row["name"],
+                    "cwd": row["cwd"],
                     "created_at": row["created_at"],
                     "last_active": row["last_active"]
                 }

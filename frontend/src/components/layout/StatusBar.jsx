@@ -31,10 +31,12 @@ const StatusBar = ({ sessions, activeSessionId, setActiveSessionId, currentTheme
               borderRadius: currentTheme.ui.radiusSmall || '2px',
               fontWeight: isActive ? '800' : '600',
               boxShadow: isActive ? `0 4px 12px ${currentTheme.ui.accent}66` : 'none',
+              padding: '0 12px',
             }}
           >
-            <span style={{ opacity: 0.7, marginRight: '4px' }}>{idx}</span>
-            {s.name || 'bash'}{isActive ? ' ●' : ''}
+            <span style={{ fontSize: '12px' }}>{idx + 1}</span>
+            {s.name ? <span style={{ marginLeft: '6px' }}>{s.name}</span> : null}
+            {isActive && <span style={{ marginLeft: '4px', fontSize: '10px' }}>●</span>}
           </div>
         );
       })}

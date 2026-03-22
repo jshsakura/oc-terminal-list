@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Folder, File, RefreshCw, ChevronLeft } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { Folder, File, RefreshCw, ChevronLeft, Terminal } from 'lucide-react';
+import useTranslation from '../hooks/useTranslation';
 
-const FileTree = ({ theme, onFileSelect, onFolderSelect, initialPath = '' }) => {
+const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder, language = 'en', initialPath = '' }) => {
+  const { t } = useTranslation(language);
   const [items, setItems] = useState([]);
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [loading, setLoading] = useState(true);
@@ -43,11 +45,37 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, initialPath = '' }) => 
     fetchFiles(parentPath);
   };
 
+  const lastClickRef = useRef({ id: null, time: 0 });
+
   const handleItemClick = (item) => {
     if (item.type === 'directory') {
       fetchFiles(item.path);
     } else {
       onFileSelect?.(item.path);
+    }
+  };
+
+  const handleTouchOrClick = (item) => {
+    const now = Date.now();
+    const isDoubleTap = lastClickRef.current.id === item.path && (now - lastClickRef.current.time) < 300;
+    
+    if (isDoubleTap) {
+      handleItemClick(item);
+      lastClickRef.current = { id: null, time: 0 };
+    } else {
+      lastClickRef.current = { id: item.path, time: now };
+    }
+  };
+
+  const handleBackTouchOrClick = () => {
+    const now = Date.now();
+    const isDoubleTap = lastClickRef.current.id === 'back' && (now - lastClickRef.current.time) < 300;
+    
+    if (isDoubleTap) {
+      handleGoBack();
+      lastClickRef.current = { id: null, time: 0 };
+    } else {
+      lastClickRef.current = { id: 'back', time: now };
     }
   };
 
@@ -91,8 +119,15 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, initialPath = '' }) => 
         backgroundColor: theme.ui.bgSecondary
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>EXPLORER</span>
+          <span style={{ fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>{t('explorer')}</span>
           <div style={{ display: 'flex', gap: '8px' }}>
+            <button 
+              onClick={() => onOpenTerminalAtFolder?.(currentPath)} 
+              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}
+              title="Open terminal here"
+            >
+              <Terminal size={14} />
+            </button>
             <button onClick={() => fetchFiles(currentPath)} style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer' }}>
               <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
             </button>
@@ -119,11 +154,12 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, initialPath = '' }) => 
                   fontSize: '13px',
                   gap: '10px',
                   opacity: 0.7,
-                  borderBottom: `1px solid ${theme.ui.border}22`
+                  borderBottom: `1px solid ${theme.ui.border}22`,
+                  userSelect: 'none'
                 }}
               >
                 <ChevronLeft size={16} />
-                <span>.. (Parent)</span>
+                <span>.. {t('parentFolder')}</span>
               </div>
             )}
 
@@ -133,7 +169,7 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, initialPath = '' }) => 
               items.map((item) => (
                 <div 
                   key={item.path}
-                  onClick={() => handleItemClick(item)}
+                  onClick={() => handleTouchOrClick(item)}
                   style={{
                     display: 'flex',
                     alignItems: 'center',
@@ -141,6 +177,7 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, initialPath = '' }) => 
                     cursor: 'pointer',
                     fontSize: '13px',
                     gap: '10px',
+                    userSelect: 'none'
                   }}
                 >
                   {item.type === 'directory' ? (

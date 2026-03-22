@@ -357,7 +357,7 @@ async def terminal_websocket(
         if is_new_session:
             logger.info(f"새 세션 생성: {session_id} (cols={cols}, rows={rows}, cwd={cwd})")
             await pty_manager.create_session(session_id, cols=cols, rows=rows, cwd=cwd)
-            await storage.create_session(session_id, username)
+            await storage.create_session(session_id, username, cwd=cwd)
         else:
             logger.info(f"기존 세션 복원: {session_id}")
             await storage.update_session_activity(session_id)
@@ -452,7 +452,7 @@ async def create_session(
             rows=request.rows, 
             cwd=request.cwd
         )
-        await storage.create_session(session_id, username)
+        await storage.create_session(session_id, username, cwd=request.cwd)
         return {
             "session_id": session_id,
             "status": "created",

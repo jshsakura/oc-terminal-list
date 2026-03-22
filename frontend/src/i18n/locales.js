@@ -73,6 +73,8 @@ export const locales = {
     resizeSidebar: 'Adjust width',
     activeTerminals: 'Active Sessions',
     files: 'Workspace',
+    explorer: 'Explorer',
+    parentFolder: 'Parent Folder',
 
     // Empty State
     noTerminals: 'No active terminals',
@@ -179,6 +181,8 @@ export const locales = {
     resizeSidebar: '너비 조정',
     activeTerminals: '활성 세션',
     files: '워크스페이스',
+    explorer: '파일 탐색기',
+    parentFolder: '상위 폴더',
 
     // 빈 화면
     noTerminals: '활성화된 세션 없음',

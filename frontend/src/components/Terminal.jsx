@@ -154,11 +154,12 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
     };
-  }, [sessionId, currentTheme]); // sessionId 또는 테마 변경 시 재구동
+  }, [sessionId]); // sessionId 변경 시에만 재구동 (currentTheme 제거)
 
-  // 설정(폰트 크기 등) 변경 시 반영
+  // 테마 및 설정(폰트 크기 등) 변경 시 반영
   useEffect(() => {
     if (xtermRef.current) {
+      xtermRef.current.options.theme = currentTheme;
       xtermRef.current.options.fontSize = settings.fontSize;
       xtermRef.current.options.fontFamily = settings.fontFamily;
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
@@ -174,7 +175,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
         }
       }, 100);
     }
-  }, [settings.fontSize, settings.fontFamily, settings.smoothScroll]);
+  }, [currentTheme, settings.fontSize, settings.fontFamily, settings.smoothScroll]);
 
   // 재연결 로직
   const handleReconnect = () => {
