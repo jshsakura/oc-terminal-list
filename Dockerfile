@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y \
     curl \
     git \
     zsh \
+    fzf \
     vim \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen \
@@ -29,13 +30,17 @@ RUN apt-get update && apt-get install -y \
 # Install Oh My Zsh and Plugins (Global)
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
     && git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions \
-    && git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+    && git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting \
+    && git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-completions \
+    && git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
 
 # Configure .zshrc with Agnoster theme and plugins
 RUN sed -i 's/ZSH_THEME="robbyrussell"/ZSH_THEME="agnoster"/' ~/.zshrc \
-    && sed -i 's/plugins=(git)/plugins=(git zsh-autosuggestions zsh-syntax-highlighting)/' ~/.zshrc \
+    && sed -i 's/plugins=(git)/plugins=(git z zsh-autosuggestions zsh-syntax-highlighting zsh-completions zsh-history-substring-search fzf)/' ~/.zshrc \
     && echo "export TERM=xterm-256color" >> ~/.zshrc \
-    && echo "export LANG=ko_KR.UTF-8" >> ~/.zshrc
+    && echo "export LANG=ko_KR.UTF-8" >> ~/.zshrc \
+    && echo '[ -f /usr/share/doc/fzf/examples/key-bindings.zsh ] && source /usr/share/doc/fzf/examples/key-bindings.zsh' >> ~/.zshrc \
+    && echo '[ -f /usr/share/doc/fzf/examples/completion.zsh ] && source /usr/share/doc/fzf/examples/completion.zsh' >> ~/.zshrc
 
 # Set locale
 ENV LANG=ko_KR.UTF-8

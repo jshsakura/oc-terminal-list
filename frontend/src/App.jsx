@@ -73,6 +73,7 @@ function App() {
   const [commandText, setCommandText] = useState('');
 
   const terminalRef = useRef(null);
+  const terminalLayoutSignal = `${isMobile ? 'm' : 'd'}:${isSidebarOpen ? sidebarWidth : 0}:${activeFile ? editorHeight : 0}:${activeFile ? 'editor-open' : 'editor-closed'}`;
 
   // Responsive & Viewport
   useEffect(() => {
@@ -140,7 +141,9 @@ function App() {
 
   // Editor Resizing Logic
   const onEditorResizeStart = (e) => {
-    e.preventDefault();
+    if (typeof e.preventDefault === 'function' && e.cancelable !== false) {
+      e.preventDefault();
+    }
     setIsResizingEditor(true);
     const startY = e.clientY || (e.touches && e.touches[0].clientY);
     const startHeight = editorHeight;
@@ -340,7 +343,12 @@ function App() {
                     style={{ display: session.id === activeSessionId ? 'block' : 'none', width: '100%', height: '100%' }}
                   >
                     <Suspense fallback={null}>
-                      <Terminal sessionId={session.id} settings={settings} isActive={session.id === activeSessionId} />
+                      <Terminal
+                        sessionId={session.id}
+                        settings={settings}
+                        isActive={session.id === activeSessionId}
+                        layoutSignal={terminalLayoutSignal}
+                      />
                     </Suspense>
                   </div>
                 ))}
@@ -354,11 +362,9 @@ function App() {
         <Suspense fallback={null}>
           <MobileToolbar 
             onSendKey={(key) => window.terminalSessions?.[activeSessionId]?.sendData(key)} 
-            isVisible={true} 
-            activeSessionId={activeSessionId} 
             onOpenCommandInput={() => setCommandInputOpen(true)}
             language={settings.language}
-            theme={currentTheme}
+            currentTheme={currentTheme}
           />
         </Suspense>
       )}

@@ -12,7 +12,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
-const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true }) => {
+const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, layoutSignal = '' }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -55,7 +55,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
       tabStopWidth: 4,
       minimumContrastRatio: 7,
       allowProposedApi: true,
-      convertEol: true,
+      convertEol: false,
       windowsMode: false,
       smoothScrollDuration: settings.smoothScroll ? 100 : 0,
     });
@@ -136,11 +136,13 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
         clearTimeout(resizeTimeoutRef.current);
       }
       resizeTimeoutRef.current = setTimeout(() => {
-        if (fitAddonRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+        if (fitAddonRef.current) {
           fitAddonRef.current.fit();
-          const dims = fitAddonRef.current.proposeDimensions();
-          if (dims) {
-            wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+          if (wsRef.current?.readyState === WebSocket.OPEN) {
+            const dims = fitAddonRef.current.proposeDimensions();
+            if (dims) {
+              wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+            }
           }
         }
       }, 200);
@@ -180,6 +182,22 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
       }, 200);
     }
   }, [currentTheme, settings.fontSize, settings.fontFamily, settings.smoothScroll]);
+
+  useEffect(() => {
+    if (!isActive) return;
+
+    const timer = setTimeout(() => {
+      if (!fitAddonRef.current) return;
+
+      fitAddonRef.current.fit();
+      const dims = fitAddonRef.current.proposeDimensions();
+      if (dims && wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+      }
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [layoutSignal, isActive]);
 
   // 재연결 로직
   const handleReconnect = () => {
@@ -227,7 +245,11 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true })
 
   // 로깅 헬퍼
   const logger = {
-    info: (msg) => console.log(`[Terminal:${sessionId}] ${msg}`),
+    info: (msg) => {
+      if (localStorage.getItem('debug_terminal') === '1') {
+        console.log(`[Terminal:${sessionId}] ${msg}`);
+      }
+    },
     warn: (msg) => console.warn(`[Terminal:${sessionId}] ${msg}`),
     error: (msg, err) => console.error(`[Terminal:${sessionId}] ${msg}`, err),
   };

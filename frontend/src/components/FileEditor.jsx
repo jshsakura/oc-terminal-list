@@ -41,6 +41,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   
   const editorRef = useRef(null);
   const pollingRef = useRef(null);
+  const binaryPathsRef = useRef(new Set());
 
   const currentFileState = fileStates[activeFile] || { content: '', hasChanges: false, lastSavedContent: '' };
   const content = currentFileState.content;
@@ -91,6 +92,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
       }
 
       const data = await res.json();
+      binaryPathsRef.current.delete(path);
       
       setFileStates(prev => {
         // If we already have changes for this file, don't overwrite silently
@@ -109,8 +111,16 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         };
       });
     } catch (error) {
-      console.error('Failed to load file:', error);
-      if (!isSilent) setError(error.message);
+      const isBinaryFile = /binary file not supported/i.test(error.message || '');
+      if (isBinaryFile) {
+        binaryPathsRef.current.add(path);
+      } else {
+        console.error('Failed to load file:', error);
+      }
+
+      if (!isSilent) {
+        setError(isBinaryFile ? 'Binary file cannot be opened in the editor.' : error.message);
+      }
     } finally {
       if (!isSilent) setLoading(false);
     }
@@ -124,7 +134,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
   // Poll for external changes every 5 seconds (only for text files)
   useEffect(() => {
-    if (activeFile && !isImage) {
+    if (activeFile && !isImage && !binaryPathsRef.current.has(activeFile)) {
       pollingRef.current = setInterval(() => {
         loadFile(activeFile, true);
       }, 5000);
@@ -135,7 +145,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   }, [activeFile, loadFile, isImage]);
 
   useEffect(() => {
-    if (activeFile && !fileStates[activeFile]) {
+    if (activeFile && !fileStates[activeFile] && !binaryPathsRef.current.has(activeFile)) {
       // Don't try to load binary images into state
       if (!isImage) {
         loadFile(activeFile);
@@ -533,8 +543,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
           if (onResizeStart) {
             const touch = e.touches[0];
             const simulatedEvent = {
-              preventDefault: () => e.preventDefault(),
+              preventDefault: () => {},
               clientY: touch.clientY,
+              cancelable: false,
               isTouch: true
             };
             onResizeStart(simulatedEvent);

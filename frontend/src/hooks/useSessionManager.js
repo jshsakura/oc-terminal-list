@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { generateUUID } from '../utils/helpers';
 
 const useSessionManager = (isAuthenticated) => {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
+  const creatingSessionRef = useRef(false);
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -49,6 +50,11 @@ const useSessionManager = (isAuthenticated) => {
   }, [activeSessionId]);
 
   const createSession = async (cwd = null) => {
+    if (creatingSessionRef.current) {
+      return null;
+    }
+
+    creatingSessionRef.current = true;
     const newId = generateUUID();
     const token = localStorage.getItem('auth_token');
 
@@ -82,6 +88,8 @@ const useSessionManager = (isAuthenticated) => {
       }
     } catch (error) {
       console.error('Create session failed:', error);
+    } finally {
+      creatingSessionRef.current = false;
     }
     return null;
   };
