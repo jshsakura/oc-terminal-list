@@ -142,11 +142,11 @@ const styles = {
     left: 0,
     right: 0,
     bottom: 0,
-    height: '40px', 
+    height: '32px', // 전체 높이 대폭 축소
     zIndex: 10000,
     display: 'flex',
     alignItems: 'center',
-    boxShadow: '0 -5px 20px rgba(0,0,0,0.3)',
+    boxShadow: '0 -2px 10px rgba(0,0,0,0.3)',
   },
   scrollContainer: {
     flex: 1,
@@ -154,37 +154,36 @@ const styles = {
     overflowX: 'auto',
     overflowY: 'hidden',
     WebkitOverflowScrolling: 'touch',
-    padding: '0 10px',
+    padding: '0 8px',
     display: 'flex',
     alignItems: 'center',
   },
   buttonGroup: {
     display: 'flex',
-    gap: '8px', // 간격을 8px로 넓혀 터치 정확도 향상
+    gap: '12px', // 버튼 사이의 틈을 12px로 대폭 확대
     alignItems: 'center',
     paddingRight: '20px',
   },
   cluster: {
     display: 'flex',
-    gap: '4px',
+    gap: '6px', // 클러스터 내부 간격도 확대
     backgroundColor: 'rgba(255,255,255,0.03)',
     padding: '2px',
     borderRadius: '4px',
   },
   compactBtn: {
     flexShrink: 0,
-    height: '28px', // 버튼 높이 축소
-    minWidth: '30px', // 최소 너비 축소
-    padding: '0 6px',
+    height: '24px', // 버튼 높이 더 축소
+    padding: '0 8px', // 좌우 패딩은 유지하여 터치 영역 확보
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255, 255, 255, 0.06)',
     border: '1px solid rgba(255, 255, 255, 0.08)',
-    borderRadius: '3px',
+    borderRadius: '4px',
     color: '#cdd6f4',
-    fontSize: '10px', // 텍스트 크기 미세 조정
-    fontWeight: '600',
+    fontSize: '10px',
+    fontWeight: '700',
     cursor: 'pointer',
     transition: 'all 0.1s ease',
     outline: 'none',
@@ -192,9 +191,9 @@ const styles = {
   },
   divider: {
     width: '1px',
-    height: '16px',
+    height: '14px',
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    margin: '0 2px',
+    margin: '0 4px',
     flexShrink: 0,
   },
 };
