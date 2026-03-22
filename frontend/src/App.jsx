@@ -1,8 +1,8 @@
 /**
  * App 컴포넌트
- * 메인 애플리케이션 - 멀티 터미널 세션 관리
+ * 메인 애플리케이션 - 멀티 터미널 세션 관리 및 에디터 리사이즈 지원
  */
-import { useState, useEffect, useRef, lazy, Suspense, useMemo } from 'react';
+import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
 import useSettings from './hooks/useSettings';
 import useTranslation from './hooks/useTranslation';
 import useAuth from './hooks/useAuth';
@@ -61,9 +61,13 @@ function App() {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, sessionId: null, title: '', message: '', isLogout: false });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
   
+  // Split View State
+  const [editorHeight, setEditorHeight] = useState(() => parseInt(localStorage.getItem('editor_height') || '500'));
+  const [isResizingEditor, setIsResizingEditor] = useState(false);
+
   // File/Folder State
-  const [openFiles, setOpenFiles] = useState([]); // 열려있는 파일 배열
-  const [activeFile, setActiveFile] = useState(null); // 현재 활성화된 파일
+  const [openFiles, setOpenFiles] = useState([]); 
+  const [activeFile, setActiveFile] = useState(null); 
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
   const [commandText, setCommandText] = useState('');
@@ -92,19 +96,8 @@ function App() {
   useEffect(() => {
     localStorage.setItem('sidebar_open', isSidebarOpen.toString());
     localStorage.setItem('sidebar_width', sidebarWidth.toString());
-  }, [isSidebarOpen, sidebarWidth]);
-
-  // Swipe Gestures
-  const { handleTouchStart, handleTouchEnd } = useSwipe(
-    () => { // Swipe Left -> Next
-      const idx = sessions.findIndex(s => s.id === activeSessionId);
-      if (idx < sessions.length - 1) setActiveSessionId(sessions[idx + 1].id);
-    },
-    () => { // Swipe Right -> Prev
-      const idx = sessions.findIndex(s => s.id === activeSessionId);
-      if (idx > 0) setActiveSessionId(sessions[idx - 1].id);
-    }
-  );
+    localStorage.setItem('editor_height', editorHeight.toString());
+  }, [isSidebarOpen, sidebarWidth, editorHeight]);
 
   // Actions
   const handleNewSession = () => createSession(selectedFolderPath);
@@ -129,7 +122,6 @@ function App() {
     }
   };
 
-  // 파일 열기 핸들러
   const handleFileOpen = (path) => {
     if (!openFiles.includes(path)) {
       setOpenFiles([...openFiles, path]);
@@ -137,22 +129,38 @@ function App() {
     setActiveFile(path);
   };
 
-  // 파일 닫기 핸들러
   const handleFileClose = (path) => {
     const newOpenFiles = openFiles.filter(f => f !== path);
     setOpenFiles(newOpenFiles);
-    
-    // 닫는 파일이 활성 파일이었다면 다른 파일 활성화
     if (activeFile === path) {
-      if (newOpenFiles.length > 0) {
-        setActiveFile(newOpenFiles[newOpenFiles.length - 1]);
-      } else {
-        setActiveFile(null);
-      }
+      if (newOpenFiles.length > 0) setActiveFile(newOpenFiles[newOpenFiles.length - 1]);
+      else setActiveFile(null);
     }
   };
 
-  // Renderers
+  // Editor Resizing Logic
+  const onEditorResizeStart = (e) => {
+    e.preventDefault();
+    setIsResizingEditor(true);
+    const startY = e.clientY;
+    const startHeight = editorHeight;
+    
+    const onMove = (moveEvent) => {
+      const deltaY = moveEvent.clientY - startY;
+      const newHeight = Math.max(150, Math.min(window.innerHeight - 150, startHeight + deltaY));
+      setEditorHeight(newHeight);
+    };
+    
+    const onUp = () => {
+      setIsResizingEditor(false);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
+
   if (isLoading) return <LoadingScreen currentTheme={currentTheme} t={t} />;
   if (needsSetup) return <Suspense fallback={null}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense>;
   if (!isAuthenticated) return <Suspense fallback={null}><Login onLogin={login} language={settings.language} /></Suspense>;
@@ -165,7 +173,6 @@ function App() {
       position: 'relative',
       overflow: 'hidden'
     }}>
-      {/* 1. 사이드바 (모바일은 오버레이, 데스크탑은 고정) */}
       <Sidebar 
         isOpen={isSidebarOpen} 
         onClose={() => setIsSidebarOpen(false)} 
@@ -200,7 +207,6 @@ function App() {
         selectedFolderPath={selectedFolderPath}
       />
 
-      {/* 2. 메인 콘텐츠 영역 (사이드바에 의해 밀려남) */}
       <div style={{
         position: 'absolute',
         top: 0,
@@ -211,7 +217,7 @@ function App() {
         flexDirection: 'column',
         transition: isResizing ? 'none' : 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         backgroundColor: currentTheme.ui.bg,
-        overflow: 'visible', // 헤더 드롭다운이 밖으로 나갈 수 있게 함
+        overflow: 'visible',
         zIndex: 10,
       }}>
         <Header 
@@ -230,15 +236,21 @@ function App() {
           handleNewSession={handleNewSession}
           setIsSettingsOpen={setIsSettingsOpen}
           handleLogoutRequest={handleLogoutRequest}
-          hoveredDropdownItem={hoveredDropdownItem}
-          setHoveredDropdownItem={setHoveredDropdownItem}
         />
 
-        {/* 에디터와 터미널 작업 영역 */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
-          {/* 에디터 영역 */}
+          
+          {/* 에디터 영역 (높이 가변형) */}
           {activeFile && (
-            <div style={{ flex: 1, position: 'relative', zIndex: 10 }}>
+            <div style={{ 
+              height: isMobile ? '50%' : `${editorHeight}px`, 
+              position: 'relative', 
+              zIndex: 10,
+              flexShrink: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              minHeight: '150px'
+            }}>
               <Suspense fallback={null}>
                 <FileEditor 
                   activeFile={activeFile} 
@@ -248,21 +260,40 @@ function App() {
                   theme={currentTheme} 
                 />
               </Suspense>
+
+              {/* [중요] 에디터 높이 리사이저 핸들 (데스크탑 전용) */}
+              {!isMobile && (
+                <div 
+                  onMouseDown={onEditorResizeStart}
+                  style={{
+                    height: '4px',
+                    width: '100%',
+                    cursor: 'row-resize',
+                    backgroundColor: isResizingEditor ? currentTheme.ui.accent : 'transparent',
+                    position: 'absolute',
+                    bottom: -2,
+                    left: 0,
+                    zIndex: 100,
+                    transition: 'background-color 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = currentTheme.ui.accent + '66'}
+                  onMouseLeave={(e) => !isResizingEditor && (e.currentTarget.style.backgroundColor = 'transparent')}
+                />
+              )}
             </div>
           )}
 
-          {/* 터미널 영역 */}
+          {/* 터미널 영역 (남은 공간 차지) */}
           <div 
             ref={terminalRef}
             style={{
               ...AppStyles.terminalContainer,
-              display: activeFile && !isMobile ? 'none' : 'block',
-              paddingBottom: isMobile ? '80px' : '0',
               backgroundColor: currentTheme.ui.bg,
               flex: 1,
-              height: activeFile && !isMobile ? '0' : 'auto',
-              userSelect: 'text', // 텍스트 선택 강제 허용
+              userSelect: 'text',
               WebkitUserSelect: 'text',
+              paddingBottom: isMobile ? '80px' : '5px',
+              minHeight: '150px'
             }}
           >
             {sessions.length === 0 ? (
@@ -283,7 +314,6 @@ function App() {
         </div>
       </div>
 
-      {/* 3. 모바일 하단 툴바 */}
       {isMobile && (
         <Suspense fallback={null}>
           <MobileToolbar 
@@ -296,16 +326,10 @@ function App() {
         </Suspense>
       )}
 
-      {/* 4. [중요] 모바일 드롭다운 메뉴 - 모든 레이어의 최상위에 배치 */}
+      {/* 모바일 드롭다운 메뉴 */}
       {isMobile && isMenuOpen && (
         <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 100000 }}>
-          {/* 오버레이 (클릭 시 닫힘) */}
-          <div 
-            style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)' }} 
-            onClick={() => setIsMenuOpen(false)} 
-          />
-          
-          {/* 메뉴 박스 (헤더 바로 아래 우측 상단 고정) */}
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)' }} onClick={() => setIsMenuOpen(false)} />
           <div style={{
             position: 'absolute',
             top: '40px',
@@ -324,55 +348,17 @@ function App() {
               <div style={{ fontSize: '10px', color: currentTheme.ui.textSecondary, textTransform: 'uppercase' }}>{t('user')}</div>
               <div style={{ fontWeight: '800', color: currentTheme.ui.accent }}>{username}</div>
             </div>
-            
-            <button
-              onClick={() => { handleNewSession(); setIsMenuOpen(false); }}
-              style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '14px', borderRadius: '4px' }}
-            >
-              {t('newSession')}
-            </button>
-            
-            <button
-              onClick={() => { setIsSettingsOpen(true); setIsMenuOpen(false); }}
-              style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '14px', borderRadius: '4px' }}
-            >
-              {t('settings')}
-            </button>
-            
-            <button
-              onClick={() => { handleLogoutRequest(); setIsMenuOpen(false); }}
-              style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.red, textAlign: 'left', fontWeight: '700', fontSize: '14px', borderRadius: '4px' }}
-            >
-              {t('logout')}
-            </button>
+            <button onClick={() => { handleNewSession(); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '14px', borderRadius: '4px' }}>{t('newSession')}</button>
+            <button onClick={() => { setIsSettingsOpen(true); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '14px', borderRadius: '4px' }}>{t('settings')}</button>
+            <button onClick={() => { handleLogoutRequest(); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.red, textAlign: 'left', fontWeight: '700', fontSize: '14px', borderRadius: '4px' }}>{t('logout')}</button>
           </div>
         </div>
       )}
 
-      {/* 5. 모달들 */}
       <Suspense fallback={null}>
-        <CommandInput 
-          isOpen={commandInputOpen} 
-          onClose={() => setCommandInputOpen(false)} 
-          onSend={(cmd) => window.terminalSessions?.[activeSessionId]?.sendData(cmd + '\n')} 
-          command={commandText} 
-          setCommand={setCommandText} 
-          theme={currentTheme} 
-          t={t} 
-        />
+        <CommandInput isOpen={commandInputOpen} onClose={() => setCommandInputOpen(false)} onSend={(cmd) => window.terminalSessions?.[activeSessionId]?.sendData(cmd + '\n')} command={commandText} setCommand={setCommandText} theme={currentTheme} t={t} />
         <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} onSave={updateSettings} theme={currentTheme} username={username} />
-        <ConfirmModal 
-          isOpen={confirmModal.isOpen} 
-          title={confirmModal.title} 
-          message={confirmModal.message} 
-          confirmText={confirmModal.isLogout ? t('logout') : t('close')} 
-          cancelText={t('cancel')} 
-          onConfirm={handleConfirmModal} 
-          onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })} 
-          language={settings.language} 
-          danger={true} 
-          theme={currentTheme} 
-        />
+        <ConfirmModal isOpen={confirmModal.isOpen} title={confirmModal.title} message={confirmModal.message} confirmText={confirmModal.isLogout ? t('logout') : t('close')} cancelText={t('cancel')} onConfirm={handleConfirmModal} onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })} language={settings.language} danger={true} theme={currentTheme} />
         <NotificationModal isOpen={notification.isOpen} message={notification.message} onClose={() => setNotification({ isOpen: false, message: '' })} theme={currentTheme} />
       </Suspense>
     </div>
