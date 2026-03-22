@@ -618,24 +618,27 @@ async def list_files(
     디렉토리 내용 조회
     """
     try:
+        workspace_abs = os.path.abspath(WORKSPACE_ROOT)
         safe_path = validate_path(path)
-        logger.info(f"Listing directory: {safe_path} (Requested: {path})")
+        
+        logger.info(f"--- Explorer API Call ---")
+        logger.info(f"User: {username}")
+        logger.info(f"WORKSPACE_ROOT: {workspace_abs}")
+        logger.info(f"Requested Path: '{path}'")
+        logger.info(f"Resolved Safe Path: {safe_path}")
 
         if not safe_path.exists():
-            logger.error(f"Path not found: {safe_path}")
-            raise HTTPException(status_code=404, detail="Path not found")
+            logger.error(f"Path does not exist: {safe_path}")
+            raise HTTPException(status_code=404, detail=f"Path not found: {safe_path}")
 
         if not safe_path.is_dir():
-            logger.error(f"Not a directory: {safe_path}")
+            logger.error(f"Path is not a directory: {safe_path}")
             raise HTTPException(status_code=400, detail="Not a directory")
 
         items = []
-        workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-
         for item in safe_path.iterdir():
             try:
                 item_abs = os.path.abspath(str(item))
-                # 절대 경로에서 워크스페이스 경로를 제거하여 상대 경로 획득
                 relative_path = os.path.relpath(item_abs, workspace_abs)
                 
                 items.append({
@@ -649,11 +652,19 @@ async def list_files(
                 logger.warning(f"Failed to read item {item}: {e}")
                 continue
 
-        # 폴더 먼저, 그 다음 파일, 각각 이름순 정렬
         items.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
+        logger.info(f"Found {len(items)} items. First few: {[i['name'] for i in items[:3]]}")
         
-        logger.info(f"Found {len(items)} items in {safe_path}")
         return {"items": items}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"CRITICAL ERROR in list_files: {str(e)}")
+        return JSONResponse(
+            status_code=500, 
+            content={"detail": str(e), "workspace": WORKSPACE_ROOT, "requested": path}
+        )
 
     except HTTPException:
         raise

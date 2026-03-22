@@ -90,13 +90,16 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder 
       const ws = await apiCall('/api/files/workspace');
       setWorkspaceInfo(ws);
 
-      // 2. 루트 아이템 가져오기 (경로를 명시적으로 빈 문자열로 전달)
-      const result = await apiCall('/api/files?path=');
-      console.log('Explorer root items:', result);
+      // 2. 루트 아이템 가져오기 (캐시 방지 및 상세 로그)
+      const timestamp = new Date().getTime();
+      const result = await apiCall(`/api/files?path=&_t=${timestamp}`);
+      console.log(`[Explorer] Root items loaded at ${new Date().toLocaleTimeString()}:`, result);
       
       if (result && result.items) {
+        console.log(`[Explorer] Found ${result.items.length} items in root.`);
         setData(transformItems(result.items));
       } else {
+        console.warn('[Explorer] No items returned from API or invalid response:', result);
         setData([]);
       }
     } catch (err) {

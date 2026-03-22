@@ -109,7 +109,12 @@ class PtyManager:
                 cwd=start_dir
             )
 
-            logger.info(f"PTY 프로세스 생성됨: {session_id} (pid={process.pid}, shell={shell}, cwd={start_dir})")
+            logger.info(f"--- PTY Session Created ---")
+            logger.info(f"ID: {session_id}")
+            logger.info(f"PID: {process.pid}")
+            logger.info(f"CWD: {start_dir}")
+            logger.info(f"Shell: {shell}")
+            logger.info(f"Workspace Root Used: {workspace_root}")
 
             # 세션 정보 저장
             session_info = SessionInfo(process, session_id)

@@ -2,10 +2,7 @@ version: "3.8"
 
 services:
   backend:
-    build: 
-      context: .
-      dockerfile: Dockerfile
-    image: oc-terminal-list:local
+    image: jshsakura/oc-terminal-list:latest
     container_name: oc-terminal-backend
     ports:
       - 28022:8000
