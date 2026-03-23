@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -20,9 +21,12 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
+  const searchAddonRef = useRef(null);
   const wsRef = useRef(null);
   const resizeTimeoutRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const wsFlushTimeoutRef = useRef(null);
+  const wsBufferRef = useRef([]);
   const reconnectAttemptsRef = useRef(0);
   const intentionalCloseRef = useRef(false);
   const lastDimsRef = useRef({ cols: 0, rows: 0 });
@@ -55,7 +59,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       cursorBlink: true,
       cursorStyle: 'block',
       cursorInactiveStyle: 'outline',
-      scrollback: 10000,
+      scrollback: 3000,
       tabStopWidth: 4,
       minimumContrastRatio: 7,
       allowProposedApi: true,
@@ -78,6 +82,10 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     term.loadAddon(unicode11Addon);
     term.unicode.activeVersion = '11';
 
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
+    searchAddonRef.current = searchAddon;
+
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
@@ -94,6 +102,10 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     }
 
     const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent('terminal:open-search', { detail: { sessionId } }));
+      }
       if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
         e.preventDefault();
         navigator.clipboard.readText().then(text => {
@@ -164,9 +176,23 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       }, 500);
     };
 
+    const flushBufferedOutput = () => {
+      wsFlushTimeoutRef.current = null;
+
+      if (wsBufferRef.current.length === 0) return;
+
+      const mergedOutput = wsBufferRef.current.join('');
+      wsBufferRef.current = [];
+
+      term.write(mergedOutput, () => {
+        handleNewData();
+      });
+    };
+
     socket.onmessage = (event) => {
-      term.write(event.data);
-      handleNewData();
+      wsBufferRef.current.push(event.data);
+      if (wsFlushTimeoutRef.current) return;
+      wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, 16);
     };
 
     socket.onclose = (event) => {
@@ -224,9 +250,11 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
         container.removeEventListener('keydown', handleKeyDown);
       }
       socket.close();
+      wsBufferRef.current = [];
       term.dispose();
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
     };
   }, [sessionId]);
 
@@ -301,6 +329,34 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     xtermRef.current?.scrollToBottom();
   }, []);
 
+  const focus = useCallback(() => {
+    xtermRef.current?.focus();
+  }, []);
+
+  const clear = useCallback(() => {
+    xtermRef.current?.clear();
+  }, []);
+
+  const searchNext = useCallback((query, options = {}) => {
+    if (!query || !searchAddonRef.current) return false;
+    return searchAddonRef.current.findNext(query, {
+      incremental: true,
+      ...options,
+    }) || false;
+  }, []);
+
+  const searchPrevious = useCallback((query, options = {}) => {
+    if (!query || !searchAddonRef.current) return false;
+    return searchAddonRef.current.findPrevious(query, {
+      incremental: true,
+      ...options,
+    }) || false;
+  }, []);
+
+  const closeSearch = useCallback(() => {
+    searchAddonRef.current?.clearDecorations();
+  }, []);
+
   useEffect(() => {
     if (isActive && xtermRef.current && isReady) {
       const timer = setTimeout(() => {
@@ -317,6 +373,11 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       sendData,
       getSelection,
       scrollToBottom,
+      focus,
+      clear,
+      searchNext,
+      searchPrevious,
+      closeSearch,
     };
 
     return () => {
@@ -324,7 +385,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
         delete window.terminalSessions[sessionId];
       }
     };
-  }, [sessionId, sendData, getSelection, scrollToBottom]);
+  }, [sessionId, sendData, getSelection, scrollToBottom, focus, clear, searchNext, searchPrevious, closeSearch]);
 
   // 로깅 헬퍼
   const logger = {

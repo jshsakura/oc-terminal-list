@@ -6,6 +6,7 @@ import os
 import struct
 import fcntl
 import termios
+from collections import deque
 import ptyprocess
 import codecs
 from typing import Dict, Optional
@@ -274,20 +275,34 @@ class PtyManager:
 
         logger.info(f"출력 리더 루프 시작: {session_id}")
 
-        import select
         loop = asyncio.get_event_loop()
+        pending_output = deque()
+        pending_bytes = 0
+        max_pending_bytes = 2 * 1024 * 1024
+        flush_task: Optional[asyncio.Task] = None
 
         # 데이터를 읽고 전송하는 콜백
+        def schedule_flush():
+            nonlocal flush_task
+            if flush_task is None or flush_task.done():
+                flush_task = asyncio.create_task(flush_output_queue())
+
         def read_and_send():
+            nonlocal pending_bytes
             try:
-                # select로 데이터 확인 (타임아웃 0 = 즉시)
-                r, _, _ = select.select([session.process.fd], [], [], 0)
-                if r:
-                    data = session.process.read()
-                    if data:
-                        # 비동기 처리를 위해 태스크 생성
-                        asyncio.create_task(process_output(data))
-            except:
+                data = session.process.read()
+                if not data:
+                    return
+
+                pending_output.append(data)
+                pending_bytes += len(data)
+
+                while pending_bytes > max_pending_bytes and len(pending_output) > 1:
+                    dropped = pending_output.popleft()
+                    pending_bytes -= len(dropped)
+
+                schedule_flush()
+            except Exception:
                 pass
 
         # 출력 데이터 처리 (비동기)
@@ -312,6 +327,27 @@ class PtyManager:
             except Exception as e:
                 logger.error(f"출력 처리 에러 ({session_id}): {e}")
 
+        async def flush_output_queue():
+            nonlocal pending_bytes
+            try:
+                while pending_output:
+                    batch = []
+                    batch_size = 0
+
+                    while pending_output and batch_size < 65536:
+                        chunk = pending_output.popleft()
+                        batch.append(chunk)
+                        chunk_size = len(chunk)
+                        batch_size += chunk_size
+                        pending_bytes = max(0, pending_bytes - chunk_size)
+
+                    if batch:
+                        await process_output(b"".join(batch))
+
+                    await asyncio.sleep(0)
+            except Exception as e:
+                logger.error(f"출력 큐 플러시 에러 ({session_id}): {e}")
+
         # 이벤트 루프에 파일 디스크립터 리더 등록 (데이터 도착 즉시 콜백)
         loop.add_reader(session.process.fd, read_and_send)
 
@@ -329,6 +365,12 @@ class PtyManager:
         except Exception as e:
             logger.error(f"출력 리더 루프 예외 ({session_id}): {e}")
         finally:
+            if flush_task:
+                flush_task.cancel()
+                try:
+                    await flush_task
+                except asyncio.CancelledError:
+                    pass
             # 리더 제거
             try:
                 loop.remove_reader(session.process.fd)
