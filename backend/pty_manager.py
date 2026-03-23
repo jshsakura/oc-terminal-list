@@ -7,6 +7,7 @@ import struct
 import fcntl
 import termios
 import ptyprocess
+import codecs
 from typing import Dict, Optional
 from fastapi import WebSocket
 import logging
@@ -32,6 +33,7 @@ class SessionInfo:
         self.output_task: Optional[asyncio.Task] = None
         self.cols = 80
         self.rows = 24
+        self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
     def __repr__(self):
         return f"<Session {self.session_id} pid={self.process.pid} connected={self.connected_socket is not None}>"
@@ -192,9 +194,8 @@ class PtyManager:
 
         session = self.sessions[session_id]
         try:
-            # PTY에 데이터 쓰기 (bytes로 변환)
-            normalized_data = data.replace('\r\n', '\n').replace('\r', '\n') if isinstance(data, str) else data
-            input_bytes = normalized_data.encode('utf-8') if isinstance(normalized_data, str) else normalized_data
+            # 원본 데이터 그대로 PTY에 전송 (터미널 입력 변조 금지)
+            input_bytes = data.encode('utf-8') if isinstance(data, str) else data
             session.process.write(input_bytes)
         except Exception as e:
             logger.error(f"PTY 입력 쓰기 실패 ({session_id}): {e}")
@@ -289,11 +290,10 @@ class PtyManager:
         # 출력 데이터 처리 (비동기)
         async def process_output(data):
             try:
-                # 문자열로 디코딩
-                try:
-                    output = data.decode("utf-8", errors="replace")
-                except Exception:
-                    output = data.decode("latin-1", errors="replace")
+                # 점진적 디코더를 사용하여 UTF-8 경계 잘림 문제 해결
+                output = session.decoder.decode(data)
+                if not output:
+                    return
 
                 # SQLite에 저장
                 if self.storage:

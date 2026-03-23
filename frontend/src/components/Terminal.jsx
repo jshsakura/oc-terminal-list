@@ -3,11 +3,13 @@
  * xterm.js 기반 터미널 에뮬레이터 (테마 및 스마트 스크롤 지원)
  */
 import { useEffect, useRef, useState, useCallback, memo } from 'react';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
-import { WebLinksAddon } from 'xterm-addon-web-links';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { WebLinksAddon } from '@xterm/addon-web-links';
+import { WebglAddon } from '@xterm/addon-webgl';
+import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { Loader2 } from 'lucide-react';
-import 'xterm/css/xterm.css';
+import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
@@ -47,7 +49,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       theme: currentTheme,
       fontFamily: terminalFont,
       fontSize: settings.fontSize,
-      lineHeight: 1.1,
+      lineHeight: 1.2,
       letterSpacing: 0,
       cursorBlink: true,
       cursorStyle: 'block',
@@ -57,9 +59,12 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       minimumContrastRatio: 7,
       allowProposedApi: true,
       convertEol: false,
-      bracketedPasteMode: false,
+      bracketedPasteMode: true,
       windowsMode: false,
       smoothScrollDuration: settings.smoothScroll ? 100 : 0,
+      macOptionIsMeta: true,
+      altClickMovesCursor: true,
+      drawBoldTextInBrightColors: true,
     });
 
     const fitAddon = new FitAddon();
@@ -68,10 +73,24 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     const webLinksAddon = new WebLinksAddon();
     term.loadAddon(webLinksAddon);
 
+    const unicode11Addon = new Unicode11Addon();
+    term.loadAddon(unicode11Addon);
+    term.unicode.activeVersion = '11';
+
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
 
     term.open(terminalRef.current);
+
+    try {
+      const webglAddon = new WebglAddon();
+      webglAddon.onContextLoss(() => {
+        webglAddon.dispose();
+      });
+      term.loadAddon(webglAddon);
+    } catch (e) {
+      console.warn("WebGL addon could not be loaded. Falling back to DOM/Canvas renderer.", e);
+    }
 
     const handleKeyDown = (e) => {
       if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
