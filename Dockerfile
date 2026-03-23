@@ -112,8 +112,7 @@ RUN /usr/local/bin/pip install --no-cache-dir -r requirements.txt
 # Configure user package installation paths for persistence (Fallback for system python)
 ENV PIP_USER=1
 ENV PYTHONUSERBASE=/root/.local
-ENV NPM_CONFIG_PREFIX=/root/.npm-global
-ENV PATH=/root/.local/bin:/root/.npm-global/bin:$PATH
+ENV PATH=/root/.local/bin:$PATH
 
 # Copy backend code
 COPY backend/ .
