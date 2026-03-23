@@ -64,6 +64,7 @@ RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm
 # nvm (Node Version Manager) 설치
 ENV NVM_DIR=/root/.nvm
 ENV NODE_VERSION=lts/*
+ENV SHELL=/bin/zsh
 
 RUN mkdir -p $NVM_DIR \
     && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash \
@@ -71,7 +72,8 @@ RUN mkdir -p $NVM_DIR \
     && nvm install $NODE_VERSION \
     && nvm alias default $NODE_VERSION \
     && nvm use default \
-    && npm install -g @anthropic-ai/claude-code
+    && npm install -g @anthropic-ai/claude-code oh-my-opencode \
+    && curl -fsSL https://opencode.ai/install | bash
 
 # PATH에 Node.js 추가
 RUN echo "export PATH=\"\$NVM_DIR/versions/node/\$(ls \$NVM_DIR/versions/node | tail -1)/bin:\$PATH\"" >> ~/.bashrc \
@@ -102,7 +104,6 @@ RUN git clone https://github.com/pyenv/pyenv.git $PYENV_ROOT \
 ENV LANG=ko_KR.UTF-8
 ENV LC_ALL=ko_KR.UTF-8
 ENV LANGUAGE=ko_KR:ko
-ENV SHELL=/bin/zsh
 
 # Python 의존성 설치
 COPY backend/requirements.txt .

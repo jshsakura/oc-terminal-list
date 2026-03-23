@@ -48,6 +48,7 @@ RUN sed -i '/ko_KR.UTF-8/s/^# //g' /etc/locale.gen && locale-gen
 # nvm (Node Version Manager) 설치
 ENV NVM_DIR=/root/.nvm
 ENV NODE_VERSION=lts/*
+ENV SHELL=/bin/zsh
 
 RUN mkdir -p $NVM_DIR \
     && curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash \
@@ -55,15 +56,20 @@ RUN mkdir -p $NVM_DIR \
     && nvm install $NODE_VERSION \
     && nvm alias default $NODE_VERSION \
     && nvm use default \
-    && npm install -g @anthropic-ai/claude-code
+    && npm install -g @anthropic-ai/claude-code oh-my-opencode \
+    && curl -fsSL https://opencode.ai/install | bash
 
 # PATH에 Node.js 추가 (nvm이 설치한 버전 자동 감지)
 RUN echo "export PATH=\"\$NVM_DIR/versions/node/\$(ls \$NVM_DIR/versions/node | tail -1)/bin:\$PATH\"" >> ~/.bashrc
+RUN echo "export PATH=\"\$NVM_DIR/versions/node/\$(ls \$NVM_DIR/versions/node | tail -1)/bin:\$PATH\"" >> ~/.zshrc
 
 # nvm을 자동으로 로드하도록 bashrc 설정
 RUN echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.bashrc \
     && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> ~/.bashrc \
-    && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> ~/.bashrc
+    && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> ~/.bashrc \
+    && echo 'export NVM_DIR="$HOME/.nvm"' >> ~/.zshrc \
+    && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"' >> ~/.zshrc \
+    && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"' >> ~/.zshrc
 
 # pyenv (Python Version Manager) 설치
 ENV PYENV_ROOT=/root/.pyenv
