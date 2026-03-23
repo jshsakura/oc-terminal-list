@@ -96,11 +96,7 @@ RUN git clone https://github.com/pyenv/pyenv.git $PYENV_ROOT \
     && echo 'eval "$(pyenv init -)"' >> ~/.bashrc \
     && echo 'export PYENV_ROOT="$HOME/.pyenv"' >> ~/.zshrc \
     && echo 'export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.zshrc \
-    && echo 'eval "$(pyenv init -)"' >> ~/.zshrc \
-    && eval "$(pyenv init -)" \
-    && pyenv install 3.11.7 \
-    && pyenv install 3.12.1 \
-    && pyenv global 3.11.7
+    && echo 'eval "$(pyenv init -)"' >> ~/.zshrc
 
 # 로케일 및 쉘 환경 변수 설정
 ENV LANG=ko_KR.UTF-8
