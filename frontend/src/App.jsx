@@ -13,7 +13,6 @@ import AppStyles from './styles/AppStyles';
 
 // Layout Components
 import Header from './components/layout/Header';
-import StatusBar from './components/layout/StatusBar';
 import EmptyState from './components/layout/EmptyState';
 import LoadingScreen from './components/layout/LoadingScreen';
 
@@ -727,15 +726,6 @@ function App() {
             )}
           </div>
         </div>
-
-        <StatusBar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          setActiveSessionId={setActiveSessionId}
-          onNewSession={handleNewSession}
-          onCloseSession={(id) => setConfirmModal({ isOpen: true, sessionId: id, title: t('closeTerminal'), message: t('confirmCloseTerminal'), isLogout: false })}
-          currentTheme={currentTheme}
-        />
 
         {isTerminalSearchOpen && (
           <div style={{
