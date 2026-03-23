@@ -33,6 +33,7 @@ services:
       - ./app-data:/app/data
       - /dev/pts:/dev/pts
       - /home/ubuntu/app/jupyterLab/notebooks:/app/workspace
+      - terminal_home:/root
     privileged: true
     networks:
       - iterminal-network
@@ -47,3 +48,4 @@ networks:
 volumes:
   redis-data:
   app-data:
+  terminal_home:
