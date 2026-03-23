@@ -25,14 +25,14 @@ logger = logging.getLogger(__name__)
 class SessionInfo:
     """세션 정보 저장 클래스"""
 
-    def __init__(self, process: ptyprocess.PtyProcess, session_id: str, shell: str):
+    def __init__(self, process: ptyprocess.PtyProcess, session_id: str, shell: str, cols: int = 80, rows: int = 24):
         self.process = process
         self.session_id = session_id
         self.shell = shell
         self.connected_socket: Optional[WebSocket] = None
         self.output_task: Optional[asyncio.Task] = None
-        self.cols = 80
-        self.rows = 24
+        self.cols = cols
+        self.rows = rows
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
     def __repr__(self):
@@ -133,9 +133,7 @@ class PtyManager:
             )
 
             # 5. 세션 정보 저장
-            session_info = SessionInfo(process, session_id, resolved_shell)
-            session_info.cols = cols
-            session_info.rows = rows
+            session_info = SessionInfo(process, session_id, resolved_shell, cols=cols, rows=rows)
             self.sessions[session_id] = session_info
 
             # 6. 출력 리더 시작
