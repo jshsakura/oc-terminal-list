@@ -25,6 +25,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
   const reconnectTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const intentionalCloseRef = useRef(false);
+  const lastDimsRef = useRef({ cols: 0, rows: 0 });
   const [isReady, setIsReady] = useState(false);
 
   // 스마트 스크롤 훅
@@ -156,7 +157,8 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       // 서버에 현재 크기 다시 한번 확실히 전송
       setTimeout(() => {
         const dims = fitAddon.proposeDimensions();
-        if (dims) {
+        if (dims && (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows)) {
+          lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
           socket.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
         }
       }, 500);
@@ -201,7 +203,8 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
           fitAddonRef.current.fit();
           if (wsRef.current?.readyState === WebSocket.OPEN) {
             const dims = fitAddonRef.current.proposeDimensions();
-            if (dims) {
+            if (dims && (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows)) {
+              lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
               wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
             }
           }
@@ -241,7 +244,10 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
           fitAddonRef.current.fit();
           const dims = fitAddonRef.current.proposeDimensions();
           if (dims && wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+            if (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows) {
+              lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
+              wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+            }
           }
         }
       }, 200);
@@ -257,7 +263,10 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
       fitAddonRef.current.fit();
       const dims = fitAddonRef.current.proposeDimensions();
       if (dims && wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+        if (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows) {
+          lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
+          wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+        }
       }
     }, 120);
 

@@ -213,6 +213,11 @@ class PtyManager:
             return
 
         session = self.sessions[session_id]
+        
+        # 크기가 변경되지 않았다면 불필요한 SIGWINCH 발생 방지 (UI 깨짐/중복 출력 방지)
+        if session.cols == cols and session.rows == rows:
+            return
+
         try:
             # TIOCSWINSZ ioctl로 윈도우 크기 설정
             session.process.setwinsize(rows, cols)
