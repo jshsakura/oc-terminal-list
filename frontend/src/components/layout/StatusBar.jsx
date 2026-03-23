@@ -1,6 +1,6 @@
 import AppStyles from '../../styles/AppStyles';
 
-const StatusBar = ({ sessions, activeSessionId, setActiveSessionId, currentTheme }) => {
+const StatusBar = ({ sessions, activeSessionId, setActiveSessionId, onCloseSession, onNewSession, currentTheme }) => {
   const styles = AppStyles;
 
   if (sessions.length === 0) return null;
@@ -18,6 +18,23 @@ const StatusBar = ({ sessions, activeSessionId, setActiveSessionId, currentTheme
       <style>{`
         div::-webkit-scrollbar { display: none; }
       `}</style>
+      <button
+        type="button"
+        onClick={onNewSession}
+        title="New terminal"
+        style={{
+          ...styles.statusTab,
+          border: `1px dashed ${currentTheme.ui.border}`,
+          color: currentTheme.ui.textSecondary,
+          fontWeight: 700,
+          minWidth: '32px',
+          justifyContent: 'center',
+          backgroundColor: 'transparent',
+          height: '24px',
+        }}
+      >
+        +
+      </button>
       {sessions.map((s, idx) => {
         const isActive = s.id === activeSessionId;
         return (
@@ -28,15 +45,43 @@ const StatusBar = ({ sessions, activeSessionId, setActiveSessionId, currentTheme
               ...styles.statusTab,
               backgroundColor: isActive ? currentTheme.ui.accent : 'transparent',
               color: isActive ? currentTheme.ui.bg : currentTheme.ui.textSecondary,
+              border: `1px solid ${isActive ? currentTheme.ui.accent : currentTheme.ui.borderLight}`,
               borderRadius: currentTheme.ui.radiusSmall || '2px',
               fontWeight: isActive ? '800' : '600',
               boxShadow: isActive ? `0 4px 12px ${currentTheme.ui.accent}66` : 'none',
-              padding: '0 12px',
+              padding: '0 8px',
+              gap: '6px',
             }}
           >
             <span style={{ fontSize: '12px' }}>{idx + 1}</span>
-            {s.name ? <span style={{ marginLeft: '6px' }}>{s.name}</span> : null}
-            {isActive && <span style={{ marginLeft: '4px', fontSize: '10px' }}>●</span>}
+            {s.name ? (
+              <span style={{ maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {s.name}
+              </span>
+            ) : null}
+            {isActive && <span style={{ fontSize: '10px' }}>●</span>}
+            {sessions.length > 1 && onCloseSession ? (
+              <button
+                type="button"
+                title="Close terminal"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCloseSession(s.id);
+                }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  color: isActive ? currentTheme.ui.bg : currentTheme.ui.textSecondary,
+                  cursor: 'pointer',
+                  fontSize: '12px',
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  padding: 0,
+                }}
+              >
+                ×
+              </button>
+            ) : null}
           </div>
         );
       })}

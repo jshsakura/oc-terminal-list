@@ -69,6 +69,8 @@ export const locales = {
     // Toolbar
     paste: 'Paste',
     commandInput: 'Quick Input',
+    commandPalette: 'Command Palette',
+    commandPalettePlaceholder: 'Type a command...',
     commandInputPlaceholder: 'Type command here... (Ctrl+Enter to send)',
     commandInputHint: '💡 Shift+Enter for new line, Ctrl+Enter to send',
     send: 'Send',
@@ -108,6 +110,21 @@ export const locales = {
     // Empty State
     noTerminals: 'No active terminals',
     createFirstTerminal: 'Launch a new terminal to start',
+    focusTerminal: 'Focus Terminal',
+    quickOpenFiles: 'Quick Open Files',
+    quickOpenPlaceholder: 'Type a filename or path...',
+    splitTerminal: 'Split Terminal View',
+    unsplitTerminal: 'Exit Split View',
+    needTwoSessionsForSplit: 'Create at least two sessions to split terminal view.',
+    noCommandsFound: 'No commands found',
+    noFilesFound: 'No files found',
+    searchingFiles: 'Searching files...',
+    findInTerminal: 'Find in Terminal',
+    clearTerminal: 'Clear Terminal',
+    closeActiveTerminal: 'Close Active Terminal',
+    scrollToBottom: 'Scroll to Bottom',
+    searchMatchFound: 'Match found',
+    searchNoResults: 'No results',
 
     // Errors
     clipboardError: 'Permission denied',
@@ -206,6 +223,8 @@ export const locales = {
     // 툴바
     paste: '붙여넣기',
     commandInput: '빠른 입력',
+    commandPalette: '명령 팔레트',
+    commandPalettePlaceholder: '명령어를 입력하세요...',
     commandInputPlaceholder: '명령어 입력... (Ctrl+Enter로 전송)',
     commandInputHint: '💡 Shift+Enter 줄바꿈, Ctrl+Enter 전송',
     send: '전송',
@@ -245,6 +264,21 @@ export const locales = {
     // 빈 화면
     noTerminals: '활성화된 세션 없음',
     createFirstTerminal: '+ 버튼을 눌러 새 터미널을 시작하세요',
+    focusTerminal: '터미널 포커스',
+    quickOpenFiles: '빠른 파일 열기',
+    quickOpenPlaceholder: '파일명 또는 경로를 입력하세요...',
+    splitTerminal: '터미널 분할 보기',
+    unsplitTerminal: '분할 보기 종료',
+    needTwoSessionsForSplit: '분할 보기를 사용하려면 최소 2개의 세션이 필요합니다.',
+    noCommandsFound: '명령을 찾을 수 없습니다',
+    noFilesFound: '파일을 찾을 수 없습니다',
+    searchingFiles: '파일 검색 중...',
+    findInTerminal: '터미널 검색',
+    clearTerminal: '터미널 지우기',
+    closeActiveTerminal: '현재 터미널 닫기',
+    scrollToBottom: '맨 아래로 이동',
+    searchMatchFound: '일치 항목 있음',
+    searchNoResults: '검색 결과 없음',
 
     // 오류
     clipboardError: '권한이 거부되었습니다',

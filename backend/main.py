@@ -865,6 +865,67 @@ async def list_files(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/files/search")
+async def search_files(
+    q: str = Query("", min_length=0),
+    limit: int = Query(200, ge=1, le=500),
+    username: str = Depends(verify_auth_token)
+):
+    """워크스페이스 전체 파일 검색 (Quick Open 용)"""
+    query = q.strip().lower()
+    if not query:
+        return {"items": []}
+
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    root = Path(workspace_abs)
+
+    ignored_dirs = {
+        ".git",
+        "node_modules",
+        "dist",
+        "build",
+        "coverage",
+        "__pycache__",
+        ".venv",
+        "venv",
+        ".next",
+        ".turbo",
+        ".idea",
+        ".vscode",
+    }
+
+    matches = []
+
+    try:
+        for current_root, dirs, files in os.walk(root):
+            dirs[:] = [d for d in dirs if d not in ignored_dirs]
+
+            for file_name in files:
+                abs_path = Path(current_root) / file_name
+                rel_path = os.path.relpath(abs_path, workspace_abs).replace('\\', '/')
+                haystack = f"{file_name} {rel_path}".lower()
+
+                if query not in haystack:
+                    continue
+
+                matches.append({
+                    "name": file_name,
+                    "path": rel_path,
+                })
+
+                if len(matches) >= limit:
+                    break
+
+            if len(matches) >= limit:
+                break
+
+        matches.sort(key=lambda item: (not item["name"].lower().startswith(query), item["path"].lower()))
+        return {"items": matches}
+    except Exception as e:
+        logger.error(f"Failed to search files (q={q}): {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/files/read")
 async def read_file(
     path: str = Query(...),
