@@ -1,92 +1,62 @@
-/**
- * Sidebar 컴포넌트
- * 터미널 세션 목록 및 관리
- */
-import { useState, useRef, useEffect, memo } from 'react';
-import { X, Terminal, Cpu, FolderTree, RefreshCw, Plus, Activity, HardDrive } from 'lucide-react';
+import { useState, useRef, useEffect, memo, useMemo } from 'react';
+import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
-import Button from './common/Button';
+import { tokens } from '../styles/tokens';
 
-const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, onNewSession, onCloseSession, onRenameSession, onReconnectSession, language = 'en', theme, isMobile = false, width = 250, onResizeStart, onFileSelect, onFolderSelect, onOpenTerminalAtFolder, selectedFolderPath = '', viewportHeight }) => {
+const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+
+// 세션 ID를 안정적인 dot 컬러로 매핑
+const colorForSession = (sessionId) => {
+  let h = 0;
+  for (let i = 0; i < sessionId.length; i++) h = (h * 31 + sessionId.charCodeAt(i)) >>> 0;
+  return color.dotPalette[h % color.dotPalette.length];
+};
+
+const Sidebar = ({
+  isOpen,
+  onClose,
+  sessions,
+  activeSessionId,
+  onSelectSession,
+  onNewSession,
+  onCloseSession,
+  onRenameSession,
+  onReconnectSession,
+  language = 'en',
+  isMobile = false,
+  width = 260,
+  onResizeStart,
+  onFileSelect,
+  onFolderSelect,
+  onOpenTerminalAtFolder,
+  selectedFolderPath = '',
+  viewportHeight,
+}) => {
   const { t } = useTranslation(language);
-  const [hoveredSessionId, setHoveredSessionId] = useState(null);
-  const [activeTab, setActiveTab] = useState('sessions'); // 'sessions' | 'files'
+  const [activeTab, setActiveTab] = useState('sessions'); // sessions | files
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editingName, setEditingName] = useState('');
   const [systemStats, setSystemStats] = useState({ cpu: 0, ram: 0, disk: 0 });
+  const [filter, setFilter] = useState('');
+  const [hoverId, setHoverId] = useState(null);
   const editInputRef = useRef(null);
 
-  // 시스템 정보 주기적 업데이트
+  // 시스템 정보 폴링
   useEffect(() => {
     const fetchStats = async () => {
       try {
         const token = localStorage.getItem('auth_token');
         if (!token) return;
-        const res = await fetch('/api/system/stats', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setSystemStats(data);
-        }
-      } catch (e) {
-        console.error("Failed to fetch system stats", e);
-      }
+        const res = await fetch('/api/system/stats', { headers: { Authorization: `Bearer ${token}` } });
+        if (res.ok) setSystemStats(await res.json());
+      } catch {}
     };
-
     fetchStats();
-    const interval = setInterval(fetchStats, 10000); // 10초 주기
-    return () => clearInterval(interval);
+    const id = setInterval(fetchStats, 10000);
+    return () => clearInterval(id);
   }, []);
 
-  // 기본 테마 (theme prop이 없을 경우 Catppuccin 사용)
-  const currentTheme = theme || {
-    ui: {
-      bg: '#1e1e2e',
-      bgSecondary: '#181825',
-      bgTertiary: '#313244',
-      border: '#313244',
-      text: '#cdd6f4',
-      textSecondary: '#6c7086',
-      accent: '#89b4fa',
-      iconColor: '#cdd6f4',
-      radiusSmall: '2px',
-    },
-    green: '#a6e3a1',
-    red: '#f38ba8',
-  };
-
-  const formatSessionName = (session, index) => {
-    return session.name || `Terminal ${index + 1}`;
-  };
-
-  const formatSessionId = (sessionId) => {
-    return sessionId.substring(0, 8);
-  };
-
-  // 편집 시작
-  const handleStartEdit = (session, index) => {
-    setEditingSessionId(session.id);
-    setEditingName(session.name || `Terminal ${index + 1}`);
-  };
-
-  // 편집 완료
-  const handleFinishEdit = async () => {
-    if (editingSessionId && editingName.trim() && onRenameSession) {
-      await onRenameSession(editingSessionId, editingName.trim());
-    }
-    setEditingSessionId(null);
-    setEditingName('');
-  };
-
-  // 편집 취소
-  const handleCancelEdit = () => {
-    setEditingSessionId(null);
-    setEditingName('');
-  };
-
-  // 편집 input 포커스
   useEffect(() => {
     if (editingSessionId && editInputRef.current) {
       editInputRef.current.focus();
@@ -94,416 +64,475 @@ const Sidebar = ({ isOpen, onClose, sessions, activeSessionId, onSelectSession, 
     }
   }, [editingSessionId]);
 
-  const handleOpenTerminalAtFolder = (path) => {
-    if (onOpenTerminalAtFolder) onOpenTerminalAtFolder(path);
+  const filteredSessions = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return sessions;
+    return sessions.filter((s) => {
+      const name = (s.name || '').toLowerCase();
+      const cwd = (s.cwd || '').toLowerCase();
+      return name.includes(q) || cwd.includes(q) || s.id.toLowerCase().includes(q);
+    });
+  }, [filter, sessions]);
+
+  const finishEdit = async () => {
+    if (editingSessionId && editingName.trim() && onRenameSession) {
+      await onRenameSession(editingSessionId, editingName.trim());
+    }
+    setEditingSessionId(null);
+    setEditingName('');
+  };
+
+  const cancelEdit = () => {
+    setEditingSessionId(null);
+    setEditingName('');
   };
 
   if (!isOpen) return null;
-  if (!currentTheme || !currentTheme.ui) return null;
-
-  const isLightTheme = currentTheme.background === '#ffffff' || currentTheme.background === '#fdf6e3' || currentTheme.background === '#fbf1c7';
 
   return (
     <>
-      {/* 오버레이 배경 (모바일에서만) */}
-      {isMobile && <div style={{
-        ...styles.overlay,
-        backgroundColor: 'rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(4px)',
-        zIndex: 9998,
-      }} onClick={onClose} />}
-
-      <div style={{
-        ...styles.sidebar,
-        backgroundColor: currentTheme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.95)' : 'rgba(30, 30, 46, 0.7)'),
-        backdropFilter: isLightTheme ? 'blur(15px)' : 'blur(10px) saturate(140%)',
-        WebkitBackdropFilter: isLightTheme ? 'blur(15px)' : 'blur(10px) saturate(140%)',
-        borderRight: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
-        width: isMobile ? 'min(80vw, 280px)' : `${width}px`,
-        maxWidth: isMobile ? '80vw' : '400px',
-        minWidth: isMobile ? undefined : '180px',
-        top: 0,
-        height: isMobile ? `${viewportHeight}px` : '100vh',
-        zIndex: 9999,
-        boxShadow: isMobile ? '10px 0 30px rgba(0,0,0,0.1)' : (isLightTheme ? '1px 0 10px rgba(0,0,0,0.03)' : '5px 0 25px rgba(0,0,0,0.3)'),
-        transition: 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      }}>
-        {/* 헤더 */}
-        <div style={{ 
-          display: 'flex',
-          justifyContent: 'flex-end',
-          alignItems: 'center',
-          height: '40px',
-          minHeight: '40px',
-          maxHeight: '40px',
-          padding: '0 8px',
-          boxSizing: 'border-box',
-          backgroundColor: 'transparent', 
-          borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`,
-        }}>
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              onClick={onClose} 
-              theme={currentTheme}
-              title={t('closeSidebar')}
-              icon={X}
-              style={{ width: '24px', height: '24px', borderRadius: '2px' }}
-            />
-        </div>
-
-        {/* 탭 헤더 (세션/파일) */}
-        <div style={{ 
-          ...styles.tabHeader, 
-          borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, 
-          backgroundColor: 'rgba(0,0,0,0.1)',
-          padding: '4px',
-          gap: '4px',
-        }}>
-          <button
+      {isMobile && (
+        <div
+          onClick={onClose}
+          style={{ position: 'fixed', inset: 0, background: color.scrim, zIndex: 9998, animation: 'fadeIn 150ms ease' }}
+        />
+      )}
+      <aside
+        style={{
+          ...styles.aside,
+          width: isMobile ? 'min(82vw, 300px)' : `${width}px`,
+          maxWidth: isMobile ? '82vw' : '420px',
+          minWidth: isMobile ? undefined : '200px',
+          height: isMobile ? `${viewportHeight}px` : '100vh',
+        }}
+      >
+        {/* 탭 헤더 (세그먼트 컨트롤) */}
+        <div style={styles.tabRow}>
+          <SegTab
+            active={activeTab === 'sessions'}
             onClick={() => setActiveTab('sessions')}
-            style={{
-              ...styles.tab,
-              backgroundColor: activeTab === 'sessions' ? currentTheme.ui.cardBg : 'transparent',
-              color: activeTab === 'sessions' ? currentTheme.ui.accent : currentTheme.ui.textSecondary,
-              borderRadius: currentTheme.ui.radiusSmall || '2px',
-              fontWeight: activeTab === 'sessions' ? '800' : '600',
-            }}
-          >
-            <Cpu size={14} strokeWidth={2.5} />
-            <span>{t('sessions')}</span>
-          </button>
-          <button
+            icon={Terminal}
+            label={t('sessions')}
+          />
+          <SegTab
+            active={activeTab === 'files'}
             onClick={() => setActiveTab('files')}
-            style={{
-              ...styles.tab,
-              backgroundColor: activeTab === 'files' ? currentTheme.ui.cardBg : 'transparent',
-              color: activeTab === 'files' ? currentTheme.ui.accent : currentTheme.ui.textSecondary,
-              borderRadius: currentTheme.ui.radiusSmall || '2px',
-              fontWeight: activeTab === 'files' ? '800' : '600',
-            }}
-          >
-            <FolderTree size={14} strokeWidth={2.5} />
-            <span>{t('files')}</span>
-          </button>
+            icon={FolderTree}
+            label={t('files')}
+          />
+          {isMobile && (
+            <button onClick={onClose} title={t('closeSidebar')} style={styles.closeBtn}>
+              <X size={14} strokeWidth={2} />
+            </button>
+          )}
         </div>
 
-        {/* 새 터미널 버튼 (세션 탭일 때만) */}
+        {/* sessions 탭 */}
         {activeTab === 'sessions' && (
-          <div style={{ ...styles.newSessionContainer, borderBottom: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, padding: '8px 12px' }}>
-            <Button 
-              variant="primary" 
-              fullWidth 
-              size="small"
-              onClick={onNewSession} 
-              theme={currentTheme}
-              icon={Plus}
-            >
-              {t('newSession')}
-            </Button>
-          </div>
-        )}
-
-        {/* 세션 목록 (세션 탭일 때) */}
-        {activeTab === 'sessions' && (
-          <div style={styles.sessionList}>
-            {sessions.length === 0 ? (
-              <div style={styles.emptyState}>
-                <p style={{ ...styles.emptyText, color: currentTheme.ui.textSecondary }}>{t('noTerminals')}</p>
-                <p style={{ ...styles.emptyHint, color: currentTheme.ui.textSecondary, opacity: 0.9 }}>{t('createFirstTerminal')}</p>
+          <>
+            <div style={styles.searchRow}>
+              <div style={styles.searchInputWrap}>
+                <Search size={12} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+                <input
+                  type="text"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  placeholder={t('searchSessions') || 'Search sessions'}
+                  style={styles.searchInput}
+                />
               </div>
-            ) : (
-              sessions.map((session, index) => {
-                const isActive = session.id === activeSessionId;
-                const isHovered = session.id === hoveredSessionId;
+              <button onClick={onNewSession} title={t('newSession')} style={styles.newBtn}>
+                <Plus size={14} strokeWidth={2} />
+              </button>
+            </div>
 
-                return (
-                  <div
-                    key={session.id}
-                    style={{
-                      ...styles.sessionItem,
-                      backgroundColor: isActive ? (isLightTheme ? `${currentTheme.ui.accent}11` : `${currentTheme.ui.accent}22`) : (isHovered ? `${currentTheme.ui.bgTertiary}` : 'transparent'),
-                      borderRadius: '2px', // 아주 사각사각하게
-                      border: isLightTheme && isActive ? `1px solid ${currentTheme.ui.accent}33` : '1px solid transparent',
-                      marginBottom: '1px',
-                    }}
-                    onMouseEnter={() => setHoveredSessionId(session.id)}
-                    onMouseLeave={() => setHoveredSessionId(null)}
-                  >
-                    {/* 세션 정보 (클릭 영역) */}
+            <div style={styles.list}>
+              {filteredSessions.length === 0 ? (
+                <div style={styles.empty}>
+                  <div style={styles.emptyTitle}>
+                    {sessions.length === 0
+                      ? (t('noTerminals') || 'No sessions yet')
+                      : (t('noResults') || 'No matches')}
+                  </div>
+                  <div style={styles.emptyHint}>
+                    {sessions.length === 0
+                      ? (t('createFirstTerminal') || 'Create one to get started.')
+                      : (t('tryDifferentSearch') || 'Try a different search.')}
+                  </div>
+                </div>
+              ) : (
+                filteredSessions.map((session, index) => {
+                  const isActive = session.id === activeSessionId;
+                  const isHovered = session.id === hoverId;
+                  const dotColor = colorForSession(session.id);
+                  return (
                     <div
-                      style={styles.sessionInfo}
+                      key={session.id}
+                      onMouseEnter={() => setHoverId(session.id)}
+                      onMouseLeave={() => setHoverId(null)}
                       onClick={() => {
                         onSelectSession(session.id);
                         if (isMobile) onClose();
                       }}
+                      style={{
+                        ...styles.row,
+                        background: isActive ? color.accentSubtle : (isHovered ? color.surface0 : 'transparent'),
+                      }}
                     >
-                      <div style={{ ...styles.sessionIcon, color: isActive ? currentTheme.ui.accent : currentTheme.ui.textSecondary }}>
-                        <Terminal size={14} strokeWidth={isActive ? 2.5 : 2} />
-                      </div>
-                      <div style={styles.sessionDetails}>
+                      <div style={{ ...styles.activeBar, background: isActive ? color.accent : 'transparent' }} />
+                      <div style={{ ...styles.dot, background: dotColor }} />
+                      <div style={styles.rowBody}>
                         {editingSessionId === session.id ? (
                           <input
                             ref={editInputRef}
                             type="text"
                             value={editingName}
                             onChange={(e) => setEditingName(e.target.value)}
-                            onBlur={handleFinishEdit}
+                            onBlur={finishEdit}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleFinishEdit();
-                              else if (e.key === 'Escape') handleCancelEdit();
+                              if (e.key === 'Enter') finishEdit();
+                              else if (e.key === 'Escape') cancelEdit();
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            style={{
-                              ...styles.sessionNameInput,
-                              backgroundColor: currentTheme.ui.bgTertiary,
-                              color: currentTheme.ui.text,
-                              borderColor: currentTheme.ui.accent,
-                              borderRadius: '2px',
-                            }}
+                            style={styles.editInput}
                           />
                         ) : (
                           <div
-                            style={{ ...styles.sessionName, color: isActive ? currentTheme.ui.accent : currentTheme.ui.text, fontWeight: isActive ? '700' : '500' }}
+                            style={{
+                              ...styles.rowName,
+                              color: isActive ? color.text : color.text,
+                              fontWeight: isActive ? fontWeight.medium : fontWeight.regular,
+                            }}
                             onDoubleClick={(e) => {
                               e.stopPropagation();
-                              handleStartEdit(session, index);
+                              setEditingSessionId(session.id);
+                              setEditingName(session.name || `Terminal ${index + 1}`);
                             }}
                           >
-                            {formatSessionName(session, index)}
+                            {session.name || `Terminal ${index + 1}`}
                           </div>
                         )}
-                        {session.cwd && (
-                          <div style={{ fontSize: '10px', color: currentTheme.ui.textSecondary, opacity: 0.7, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '140px' }}>
-                            {session.cwd}
-                          </div>
-                        )}
-                        <div style={{ ...styles.sessionId, color: currentTheme.ui.textSecondary, opacity: 0.5 }}>
-                          {formatSessionId(session.id)}
-                        </div>
+                        {session.cwd && <div style={styles.rowSub}>{session.cwd}</div>}
                       </div>
-                    </div>
 
-                    <div style={{ display: 'flex', gap: '4px' }}>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onReconnectSession) onReconnectSession(session.id);
-                        }} 
-                        theme={currentTheme}
-                        style={{ width: '24px', height: '24px', color: currentTheme.ui.textSecondary }}
-                        icon={RefreshCw}
-                        title="재연결"
-                      />
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onCloseSession(session.id);
-                        }} 
-                        theme={currentTheme}
-                        style={{ width: '24px', height: '24px', color: currentTheme.red }}
-                        icon={X}
-                        title={t('closeTerminal')}
-                      />
+                      {(isHovered || isActive) && (
+                        <div style={styles.rowActions} onClick={(e) => e.stopPropagation()}>
+                          <RowAction
+                            onClick={() => onReconnectSession?.(session.id)}
+                            icon={RefreshCw}
+                            title={t('reconnect') || 'Reconnect'}
+                          />
+                          <RowAction
+                            onClick={() => onCloseSession(session.id)}
+                            icon={X}
+                            title={t('closeTerminal')}
+                            tone="danger"
+                          />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+                  );
+                })
+              )}
+            </div>
+          </>
         )}
 
-        {/* 파일 트리 (파일 탭일 때) */}
+        {/* files 탭 */}
         {activeTab === 'files' && (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <div style={styles.fileTreeWrap}>
             <FileTree
-              theme={currentTheme}
+              theme={undefined /* FileTree는 자체 토큰 사용 */}
               onFileSelect={onFileSelect}
               onFolderSelect={onFolderSelect}
-              onOpenTerminalAtFolder={handleOpenTerminalAtFolder}
+              onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
               language={language}
               initialPath={selectedFolderPath}
             />
           </div>
         )}
 
-        {/* 푸터 정보 (시스템 리소스) */}
-        <div style={{ 
-          backgroundColor: currentTheme.ui.bgSecondary, 
-          borderTop: `1px solid ${currentTheme.ui.borderLight || currentTheme.ui.border}`, 
-          padding: isMobile ? '6px 12px' : '8px 12px',
-          paddingBottom: isMobile ? 'calc(34px + env(safe-area-inset-bottom, 0px))' : '8px' // MobileToolbar 높이와 일치
-        }}>
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="CPU">
-              <Cpu size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
-              <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text, opacity: 0.8 }}>{systemStats.cpu}%</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="RAM">
-              <Activity size={12} strokeWidth={2.5} style={{ color: currentTheme.green }} />
-              <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text, opacity: 0.8 }}>{systemStats.ram}%</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title="DISK">
-              <HardDrive size={12} strokeWidth={2.5} style={{ color: currentTheme.ui.accent }} />
-              <span style={{ fontSize: '10px', fontWeight: '700', color: currentTheme.ui.text, opacity: 0.8 }}>{systemStats.disk}%</span>
-            </div>
-          </div>
+        {/* 푸터: 시스템 리소스 */}
+        <div
+          style={{
+            ...styles.footer,
+            paddingBottom: isMobile ? 'calc(34px + env(safe-area-inset-bottom, 0px))' : space['2'],
+          }}
+        >
+          <Stat icon={Cpu} value={`${systemStats.cpu}%`} hue={color.accent} />
+          <Stat icon={Activity} value={`${systemStats.ram}%`} hue={color.success} />
+          <Stat icon={HardDrive} value={`${systemStats.disk}%`} hue={color.info} />
         </div>
 
-        {/* 리사이즈 핸들 (PC에서만) */}
         {!isMobile && onResizeStart && (
           <div
             onMouseDown={onResizeStart}
-            style={styles.resizeHandle}
             title={t('resizeSidebar')}
+            style={styles.resizeHandle}
           />
         )}
-      </div>
+      </aside>
     </>
   );
 };
 
+const SegTab = ({ active, onClick, icon: Icon, label }) => (
+  <button
+    onClick={onClick}
+    style={{
+      ...styles.tab,
+      color: active ? color.text : color.muted,
+      background: active ? color.surface0 : 'transparent',
+    }}
+  >
+    <Icon size={12} strokeWidth={2} />
+    <span>{label}</span>
+  </button>
+);
+
+const RowAction = ({ onClick, icon: Icon, title, tone }) => (
+  <button
+    onClick={onClick}
+    title={title}
+    style={{
+      ...styles.rowActionBtn,
+      color: tone === 'danger' ? color.danger : color.muted,
+    }}
+    onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+  >
+    <Icon size={12} strokeWidth={2} />
+  </button>
+);
+
+const Stat = ({ icon: Icon, value, hue }) => (
+  <div style={styles.stat}>
+    <Icon size={11} strokeWidth={2} style={{ color: hue }} />
+    <span style={styles.statValue}>{value}</span>
+  </div>
+);
+
 const styles = {
-  overlay: {
+  aside: {
     position: 'fixed',
     top: 0,
     left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    animation: 'fadeIn 0.2s ease',
-  },
-  sidebar: {
-    position: 'fixed',
-    left: 0,
     display: 'flex',
     flexDirection: 'column',
+    background: color.mantle,
+    borderRight: `1px solid ${color.border}`,
+    fontFamily: font.sans,
+    zIndex: 9999,
+    transition: `width ${motion.normal}`,
   },
-  tabHeader: {
+  tabRow: {
+    height: '36px',
+    minHeight: '36px',
     display: 'flex',
-    height: '40px',
-    minHeight: '40px',
-    maxHeight: '40px',
+    alignItems: 'center',
+    gap: space['0.5'],
+    padding: `0 ${space['1.5']}`,
+    borderBottom: `1px solid ${color.border}`,
   },
   tab: {
     flex: 1,
-    display: 'flex',
+    height: '24px',
+    display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '6px',
-    padding: '0 6px',
-    fontSize: '11px',
-    background: 'none',
+    gap: space['1.5'],
+    background: 'transparent',
     border: 'none',
+    borderRadius: radius.xs,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
     cursor: 'pointer',
-    transition: 'all 0.15s ease',
-    height: '100%',
+    transition: `background ${motion.fast}, color ${motion.fast}`,
+    fontFamily: 'inherit',
   },
-  header: {
-    position: 'relative',
-    display: 'flex',
-    justifyContent: 'space-between',
+  closeBtn: {
+    width: '24px',
+    height: '24px',
+    display: 'inline-flex',
     alignItems: 'center',
-    padding: '0 8px 0 16px',
-    boxSizing: 'border-box',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: color.muted,
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
   },
-  title: {
-    margin: 0,
+  searchRow: {
+    display: 'flex',
+    gap: space['1.5'],
+    padding: `${space['2']} ${space['2']} ${space['1.5']}`,
   },
-  newSessionContainer: {
+  searchInputWrap: {
+    flex: 1,
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1.5'],
+    height: '28px',
+    padding: `0 ${space['2']}`,
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
   },
-  sessionList: {
+  searchInput: {
+    flex: 1,
+    background: 'transparent',
+    border: 'none',
+    outline: 'none',
+    color: color.text,
+    fontSize: fontSize['12'],
+    fontFamily: 'inherit',
+  },
+  newBtn: {
+    width: '28px',
+    height: '28px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: color.surface0,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    cursor: 'pointer',
+    transition: `background ${motion.fast}, border-color ${motion.fast}`,
+  },
+  list: {
     flex: 1,
     overflowY: 'auto',
-    WebkitOverflowScrolling: 'touch',
-    padding: '8px',
+    padding: space['1'],
     display: 'flex',
     flexDirection: 'column',
-    gap: '2px',
+    gap: '1px',
   },
-  emptyState: {
+  empty: {
     textAlign: 'center',
-    padding: '20px',
+    padding: `${space['8']} ${space['4']}`,
+    color: color.muted,
   },
-  emptyText: {
-    fontSize: '12px',
-    margin: '0 0 4px 0',
+  emptyTitle: {
+    fontSize: fontSize['13'],
+    color: color.subtext,
+    marginBottom: space['1'],
   },
   emptyHint: {
-    fontSize: '11px',
-    margin: 0,
+    fontSize: fontSize['11'],
+    color: color.muted,
   },
-  sessionItem: {
+  row: {
+    position: 'relative',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: '6px 8px',
+    gap: space['2'],
+    padding: `${space['1.5']} ${space['2']}`,
+    paddingLeft: space['3'],
+    borderRadius: radius.sm,
     cursor: 'pointer',
-    transition: 'all 0.15s ease',
+    transition: `background ${motion.fast}`,
+    minHeight: '40px',
   },
-  sessionInfo: {
+  activeBar: {
+    position: 'absolute',
+    left: '4px',
+    top: '8px',
+    bottom: '8px',
+    width: '2px',
+    borderRadius: '2px',
+    transition: `background ${motion.fast}`,
+  },
+  dot: {
+    flexShrink: 0,
+    width: '7px',
+    height: '7px',
+    borderRadius: radius.full,
+    boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.25)',
+  },
+  rowBody: {
     flex: 1,
-    display: 'flex',
-    alignItems: 'center',
-    gap: '10px',
     minWidth: 0,
   },
-  sessionIcon: {
-    width: '14px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  sessionDetails: {
-    flex: 1,
-    minWidth: 0,
-  },
-  sessionName: {
-    fontSize: '12px',
+  rowName: {
+    fontSize: fontSize['13'],
+    color: color.text,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    lineHeight: 1.3,
   },
-  sessionNameInput: {
+  rowSub: {
+    fontSize: fontSize['11'],
+    color: color.muted,
+    fontFamily: font.mono,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    marginTop: '1px',
+  },
+  editInput: {
     width: '100%',
-    fontSize: '12px',
+    background: color.crust,
+    color: color.text,
+    border: `1px solid ${color.accentBorder}`,
+    borderRadius: radius.xs,
     padding: '2px 6px',
-    border: '1px solid',
+    fontSize: fontSize['13'],
+    fontFamily: 'inherit',
     outline: 'none',
   },
-  sessionId: {
-    fontSize: '9px',
-    fontFamily: '"JetBrains Mono", monospace',
+  rowActions: {
+    display: 'flex',
+    gap: '2px',
+  },
+  rowActionBtn: {
+    width: '22px',
+    height: '22px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    transition: `background ${motion.fast}, color ${motion.fast}`,
+  },
+  fileTreeWrap: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
   },
   footer: {
-  },
-  footerInfo: {
     display: 'flex',
-    justifyContent: 'space-between',
+    gap: space['3'],
     alignItems: 'center',
+    justifyContent: 'space-around',
+    padding: `${space['2']} ${space['3']}`,
+    background: color.crust,
+    borderTop: `1px solid ${color.border}`,
   },
-  footerLeft: {
-    display: 'flex',
+  stat: {
+    display: 'inline-flex',
     alignItems: 'center',
-    gap: '6px',
+    gap: space['1'],
   },
-  footerLabel: {
-  },
-  footerValue: {
+  statValue: {
+    fontSize: fontSize['11'],
+    color: color.subtext,
+    fontFamily: font.mono,
+    fontVariantNumeric: 'tabular-nums',
   },
   resizeHandle: {
     position: 'absolute',
     top: 0,
     right: 0,
     bottom: 0,
-    width: '4px',
+    width: '3px',
     cursor: 'ew-resize',
-    backgroundColor: 'transparent',
-    transition: 'background-color 0.2s ease',
+    background: 'transparent',
+    transition: `background ${motion.fast}`,
     zIndex: 10000,
   },
 };

@@ -1,377 +1,358 @@
-/**
- * Settings 컴포넌트
- * 테마, 언어, 스크롤 동작 등 설정
- */
 import { useEffect, useState } from 'react';
+import { X, RotateCcw } from 'lucide-react';
 import { themeNames } from '../styles/themes';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
-import { X } from 'lucide-react';
+import { tokens } from '../styles/tokens';
 import { DEFAULT_TERMINAL_FONT_FAMILY } from '../utils/terminalFonts';
 
-const Settings = ({ isOpen, onClose, settings, onSave, theme, username }) => {
-  const { t } = useTranslation(settings.language);
-  const [localSettings, setLocalSettings] = useState(settings);
+const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
-  useEffect(() => {
-    setLocalSettings(settings);
-  }, [settings]);
+const DEFAULTS = {
+  theme: 'catppuccin',
+  language: 'en',
+  fontSize: 14,
+  fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
+  defaultShell: 'bash',
+  autoScroll: 'smart',
+  smoothScroll: true,
+  scrollSensitivity: 0.8,
+};
+
+const Settings = ({ isOpen, onClose, settings, onSave, username }) => {
+  const { t } = useTranslation(settings.language);
+  const [s, setS] = useState(settings);
+
+  useEffect(() => { setS(settings); }, [settings]);
 
   if (!isOpen) return null;
 
-  const currentTheme = theme;
-
-  const handleChange = (key, value) => {
-    setLocalSettings((prev) => ({
-      ...prev,
-      [key]: value,
-    }));
-  };
-
-  const handleSave = () => {
-    onSave(localSettings);
-    onClose();
-  };
-
-  const handleReset = () => {
-    if (confirm(t('reset'))) {
-      onSave({
-        theme: 'catppuccin',
-        language: 'en',
-        fontSize: 14,
-        fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-        defaultShell: 'bash',
-        autoScroll: 'smart',
-        smoothScroll: true,
-        scrollSensitivity: 0.8,
-      });
-      onClose();
-    }
-  };
-
-  const inputStyle = {
-    ...styles.input,
-    backgroundColor: currentTheme.ui.bgSecondary,
-    color: currentTheme.ui.text,
-    borderColor: currentTheme.ui.border,
-    borderRadius: currentTheme.ui.radiusSmall,
-  };
-
-  const selectStyle = {
-    ...styles.select,
-    backgroundColor: currentTheme.ui.bgSecondary,
-    color: currentTheme.ui.text,
-    borderColor: currentTheme.ui.border,
-    borderRadius: currentTheme.ui.radiusSmall,
+  const change = (key, value) => setS((p) => ({ ...p, [key]: value }));
+  const save = () => { onSave(s); onClose(); };
+  const reset = () => {
+    if (confirm(t('reset'))) { onSave(DEFAULTS); onClose(); }
   };
 
   return (
     <div style={styles.overlay} onClick={onClose}>
-      <div style={{ 
-        ...styles.modal, 
-        backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bg,
-        backdropFilter: 'blur(30px) saturate(180%)',
-        borderRadius: currentTheme.ui.radius || '8px',
-        border: `1px solid ${currentTheme.ui.border}`,
-        boxShadow: currentTheme.ui.shadow,
-        position: 'relative',
-        overflow: 'hidden'
-      }} onClick={(e) => e.stopPropagation()}>
-        {/* Inner Highlight for Skeuomorphism */}
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '1px',
-          backgroundColor: 'rgba(255,255,255,0.05)',
-          pointerEvents: 'none',
-          zIndex: 10
-        }} />
-        <div style={{ 
-          ...styles.header, 
-          backgroundColor: currentTheme.ui.bgSecondary,
-          borderBottom: `1px solid ${currentTheme.ui.border}`
-        }}>
-          <h2 style={{ ...styles.title, color: currentTheme.ui.accent }}>{t('settingsTitle')}</h2>
-          <Button variant="ghost" size="icon" onClick={onClose} theme={currentTheme} icon={X} />
-        </div>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <header style={styles.header}>
+          <div style={styles.title}>{t('settingsTitle')}</div>
+          <button onClick={onClose} title={t('cancel')} style={styles.closeBtn}>
+            <X size={14} strokeWidth={2} />
+          </button>
+        </header>
 
-        <div style={styles.content}>
-          <div style={{ ...styles.row, ...styles.userSection, borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
+        <div style={styles.body}>
+          <Section title={t('account') || 'Account'}>
             {username && (
-              <div style={styles.rowItem}>
-                <label style={{ ...styles.label, color: currentTheme.ui.textSecondary }}>{t('user')}</label>
-                <div style={{
-                  ...styles.userValue,
-                  color: currentTheme.ui.accent,
-                  backgroundColor: currentTheme.ui.cardBg || currentTheme.ui.bgTertiary,
-                  borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
-                  borderRadius: currentTheme.ui.radiusSmall
-                }}>
-                  {username}
-                </div>
-              </div>
+              <Field label={t('user')}>
+                <div style={styles.readonly}>{username}</div>
+              </Field>
             )}
-
-            <div style={styles.rowItem}>
-              <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('defaultShell')}</label>
-              <select
-                value={localSettings.defaultShell || 'bash'}
-                onChange={(e) => handleChange('defaultShell', e.target.value)}
-                style={selectStyle}
-              >
+            <Field label={t('defaultShell')}>
+              <Select value={s.defaultShell || 'bash'} onChange={(v) => change('defaultShell', v)}>
                 <option value="bash">{t('shellBash')}</option>
                 <option value="zsh">{t('shellZsh')}</option>
                 <option value="sh">{t('shellSh')}</option>
                 <option value="auto">{t('shellAuto')}</option>
-              </select>
-            </div>
-          </div>
+              </Select>
+            </Field>
+          </Section>
 
-          {/* 테마와 언어를 한 줄로 */}
-          <div style={styles.row}>
-            <div style={styles.rowItem}>
-              <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('theme')}</label>
-              <select
-                value={localSettings.theme}
-                onChange={(e) => handleChange('theme', e.target.value)}
-                style={selectStyle}
-              >
+          <Divider />
+
+          <Section title={t('appearance') || 'Appearance'}>
+            <Field label={t('theme')}>
+              <Select value={s.theme} onChange={(v) => change('theme', v)}>
                 {themeNames.map((name) => {
-                  const themeKey = `theme${name.charAt(0).toUpperCase()}${name.slice(1)}`;
-                  return (
-                    <option key={name} value={name}>
-                      {t(themeKey) || name}
-                    </option>
-                  );
+                  const key = `theme${name.charAt(0).toUpperCase()}${name.slice(1)}`;
+                  return <option key={name} value={name}>{t(key) || name}</option>;
                 })}
-              </select>
-            </div>
-
-            <div style={styles.rowItem}>
-              <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('language')}</label>
-              <select
-                value={localSettings.language}
-                onChange={(e) => handleChange('language', e.target.value)}
-                style={selectStyle}
-              >
+              </Select>
+            </Field>
+            <Field label={t('language')}>
+              <Select value={s.language} onChange={(v) => change('language', v)}>
                 <option value="en">{t('languageEnglish')}</option>
                 <option value="ko">{t('languageKorean')}</option>
-              </select>
-            </div>
-          </div>
-
-          {/* 폰트 크기 */}
-          <div style={styles.section}>
-            <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('fontSize')}</label>
-            <input
-              type="number"
-              min="10"
-              max="24"
-              value={localSettings.fontSize}
-              onChange={(e) => handleChange('fontSize', parseInt(e.target.value))}
-              style={inputStyle}
-            />
-          </div>
-
-          {/* 자동 스크롤 */}
-          <div style={styles.section}>
-            <label style={{ ...styles.label, color: currentTheme.ui.text }}>{t('autoScroll')}</label>
-            <select
-              value={localSettings.autoScroll}
-              onChange={(e) => handleChange('autoScroll', e.target.value)}
-              style={selectStyle}
-            >
-              <option value="always">Always</option>
-              <option value="smart">Smart (AI)</option>
-              <option value="never">Manual</option>
-            </select>
-          </div>
-
-          {/* 부드러운 스크롤 */}
-          <div style={styles.section}>
-            <label style={{ ...styles.checkboxLabel, color: currentTheme.ui.text }}>
+              </Select>
+            </Field>
+            <Field label={t('fontSize')}>
               <input
-                type="checkbox"
-                checked={localSettings.smoothScroll}
-                onChange={(e) => handleChange('smoothScroll', e.target.checked)}
-                style={styles.checkbox}
+                type="number"
+                min="10"
+                max="24"
+                value={s.fontSize}
+                onChange={(e) => change('fontSize', parseInt(e.target.value, 10))}
+                style={styles.input}
               />
-              {t('smoothScroll')}
-            </label>
-          </div>
+            </Field>
+          </Section>
 
-          {/* 스크롤 민감도 */}
-          <div style={styles.section}>
-            <label style={{ ...styles.label, color: currentTheme.ui.text }}>
-              {t('scrollSensitivity')}: {localSettings.scrollSensitivity.toFixed(1)}
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.1"
-              value={localSettings.scrollSensitivity}
-              onChange={(e) => handleChange('scrollSensitivity', parseFloat(e.target.value))}
-              style={styles.slider}
+          <Divider />
+
+          <Section title={t('scrollBehavior') || 'Scroll'}>
+            <Field label={t('autoScroll')}>
+              <Select value={s.autoScroll} onChange={(v) => change('autoScroll', v)}>
+                <option value="always">{t('autoScrollAlways') || 'Always'}</option>
+                <option value="smart">{t('autoScrollSmart') || 'Smart'}</option>
+                <option value="never">{t('autoScrollNever') || 'Manual'}</option>
+              </Select>
+            </Field>
+            <Toggle
+              label={t('smoothScroll')}
+              checked={s.smoothScroll}
+              onChange={(v) => change('smoothScroll', v)}
             />
-            <small style={{ ...styles.hint, color: currentTheme.ui.textSecondary }}>
-              {t('scrollSensitivityHint')}
-            </small>
-          </div>
+            <Field
+              label={`${t('scrollSensitivity')} · ${s.scrollSensitivity.toFixed(1)}`}
+              hint={t('scrollSensitivityHint')}
+            >
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={s.scrollSensitivity}
+                onChange={(e) => change('scrollSensitivity', parseFloat(e.target.value))}
+                style={styles.slider}
+              />
+            </Field>
+          </Section>
         </div>
 
-        <div style={{ ...styles.footer, borderTopColor: currentTheme.ui.borderLight || currentTheme.ui.border }}>
-          <Button 
-            variant="danger" 
-            onClick={handleReset} 
-            theme={currentTheme}
-          >
-            {t('reset')}
-          </Button>
-          <div style={styles.buttonGroup}>
-            <Button 
-              variant="secondary"
-              onClick={onClose} 
-              theme={currentTheme}
-            >
-              {t('cancel')}
-            </Button>
-            <Button 
-              variant="primary" 
-              onClick={handleSave} 
-              theme={currentTheme}
-            >
-              {t('save')}
-            </Button>
+        <footer style={styles.footer}>
+          <Button variant="ghost" onClick={reset} icon={RotateCcw}>{t('reset')}</Button>
+          <div style={{ display: 'flex', gap: space['1.5'] }}>
+            <Button variant="secondary" onClick={onClose}>{t('cancel')}</Button>
+            <Button variant="primary" onClick={save}>{t('save')}</Button>
           </div>
-        </div>
+        </footer>
       </div>
     </div>
   );
 };
 
+const Section = ({ title, children }) => (
+  <section style={styles.section}>
+    <div style={styles.sectionTitle}>{title}</div>
+    <div style={styles.sectionBody}>{children}</div>
+  </section>
+);
+
+const Divider = () => <div style={styles.divider} />;
+
+const Field = ({ label, hint, children }) => (
+  <div style={styles.field}>
+    <label style={styles.label}>{label}</label>
+    {children}
+    {hint && <div style={styles.hint}>{hint}</div>}
+  </div>
+);
+
+const Select = ({ value, onChange, children }) => {
+  const [hover, setHover] = useState(false);
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        ...styles.input,
+        borderColor: hover ? color.borderStrong : color.border,
+        appearance: 'none',
+        cursor: 'pointer',
+      }}
+    >
+      {children}
+    </select>
+  );
+};
+
+const Toggle = ({ label, checked, onChange }) => (
+  <label style={styles.toggleRow}>
+    <span style={styles.toggleLabel}>{label}</span>
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      style={{
+        ...styles.toggle,
+        background: checked ? color.accent : color.surface1,
+      }}
+    >
+      <span
+        style={{
+          ...styles.toggleKnob,
+          transform: checked ? 'translateX(14px)' : 'translateX(0)',
+        }}
+      />
+    </button>
+  </label>
+);
+
 const styles = {
   overlay: {
     position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    inset: 0,
+    background: color.scrim,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10000,
-    backdropFilter: 'blur(8px)',
+    backdropFilter: 'blur(2px)',
+    fontFamily: font.sans,
   },
   modal: {
-    width: '90%',
-    maxWidth: '500px',
-    maxHeight: '85vh',
-    overflow: 'auto',
+    width: '92%',
+    maxWidth: '480px',
+    maxHeight: '86vh',
+    background: color.base,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.lg,
+    boxShadow: tokens.shadow.lg,
     display: 'flex',
     flexDirection: 'column',
+    overflow: 'hidden',
   },
   header: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '12px 20px',
-    borderBottom: '1px solid',
+    justifyContent: 'space-between',
+    padding: `${space['3']} ${space['4']}`,
+    borderBottom: `1px solid ${color.border}`,
   },
   title: {
-    margin: 0,
-    fontSize: '16px',
-    fontWeight: '800',
-    letterSpacing: '0.5px',
-    textTransform: 'uppercase',
+    fontSize: fontSize['14'],
+    fontWeight: fontWeight.semibold,
+    color: color.text,
   },
-  content: {
-    padding: '20px',
+  closeBtn: {
+    width: '24px',
+    height: '24px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: color.muted,
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+  },
+  body: {
+    padding: `${space['3']} ${space['4']}`,
     overflowY: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
   },
   section: {
-    marginBottom: '16px',
-  },
-  row: {
     display: 'flex',
-    gap: '12px',
-    marginBottom: '16px',
+    flexDirection: 'column',
+    gap: space['2'],
+    paddingTop: space['1'],
+    paddingBottom: space['1'],
   },
-  rowItem: {
-    flex: 1,
+  sectionTitle: {
+    fontSize: fontSize['11'],
+    fontWeight: fontWeight.medium,
+    color: color.muted,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    marginBottom: space['1'],
   },
-  userSection: {
-    paddingBottom: '16px',
-    borderBottom: '1px solid',
+  sectionBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['3'],
   },
-  userValue: {
-    padding: '8px 12px',
-    fontSize: '13px',
-    fontWeight: '700',
-    border: '1px solid',
-    fontFamily: '"JetBrains Mono", monospace',
+  divider: {
+    height: '1px',
+    background: color.border,
+    margin: `${space['3']} 0`,
+  },
+  field: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['1'],
   },
   label: {
-    display: 'block',
-    marginBottom: '6px',
-    fontSize: '12px',
-    fontWeight: '700',
-    opacity: 0.8,
-    textTransform: 'uppercase',
-  },
-  select: {
-    width: '100%',
-    padding: '8px 10px',
-    border: '1px solid',
-    fontSize: '13px',
-    outline: 'none',
-    cursor: 'pointer',
-    appearance: 'none',
+    fontSize: fontSize['12'],
+    color: color.subtext,
+    fontWeight: fontWeight.medium,
   },
   input: {
     width: '100%',
-    padding: '8px 10px',
-    border: '1px solid',
-    fontSize: '13px',
+    height: '32px',
+    padding: `0 ${space['3']}`,
+    background: color.crust,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    fontSize: fontSize['13'],
+    fontFamily: 'inherit',
     outline: 'none',
+    transition: `border-color ${motion.fast}`,
   },
-  checkboxLabel: {
+  readonly: {
+    width: '100%',
+    height: '32px',
+    padding: `0 ${space['3']}`,
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
-    fontSize: '13px',
-    fontWeight: '600',
-    cursor: 'pointer',
+    background: color.mantle,
+    color: color.subtext,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    fontSize: fontSize['13'],
+    fontFamily: font.mono,
   },
-  checkbox: {
-    width: '16px',
-    height: '16px',
-    cursor: 'pointer',
+  hint: {
+    fontSize: fontSize['11'],
+    color: color.muted,
+    marginTop: space['0.5'],
   },
   slider: {
     width: '100%',
-    marginTop: '8px',
+    accentColor: color.accent,
     cursor: 'pointer',
   },
-  hint: {
-    display: 'block',
-    marginTop: '4px',
-    fontSize: '11px',
-    opacity: 0.7,
+  toggleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    cursor: 'pointer',
+  },
+  toggleLabel: {
+    fontSize: fontSize['13'],
+    color: color.text,
+  },
+  toggle: {
+    position: 'relative',
+    width: '30px',
+    height: '16px',
+    border: 'none',
+    borderRadius: radius.full,
+    cursor: 'pointer',
+    transition: `background ${motion.fast}`,
+    padding: 0,
+  },
+  toggleKnob: {
+    position: 'absolute',
+    top: '2px',
+    left: '2px',
+    width: '12px',
+    height: '12px',
+    background: '#fff',
+    borderRadius: radius.full,
+    transition: `transform ${motion.fast}`,
   },
   footer: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: '12px 20px',
-    borderTop: '1px solid',
-  },
-  buttonGroup: {
-    display: 'flex',
-    gap: '8px',
+    justifyContent: 'space-between',
+    padding: `${space['3']} ${space['4']}`,
+    borderTop: `1px solid ${color.border}`,
+    background: color.mantle,
   },
 };
 

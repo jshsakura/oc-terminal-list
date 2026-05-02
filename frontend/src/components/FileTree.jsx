@@ -1,54 +1,60 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Folder, File, RefreshCw, ChevronLeft, Terminal } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
+import { tokens } from '../styles/tokens';
 
-const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder, language = 'en', initialPath = '' }) => {
+const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+
+const gitTone = (status) => {
+  if (status === 'M') return color.warning;
+  if (status === '??' || status === 'A') return color.success;
+  if (status === 'D') return color.danger;
+  return color.muted;
+};
+
+const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, language = 'en', initialPath = '' }) => {
   const { t } = useTranslation(language);
   const [items, setItems] = useState([]);
   const [currentPath, setCurrentPath] = useState(initialPath);
   const [activeItemPath, setActiveItemPath] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [hoveredPath, setHoveredPath] = useState(null);
+  const lastClickRef = useRef({ id: null, time: 0 });
 
   const fetchFiles = useCallback(async (path) => {
     setLoading(true);
     try {
       const token = localStorage.getItem('auth_token');
-      const timestamp = new Date().getTime();
-      const res = await fetch(`/api/files?path=${encodeURIComponent(path)}&_t=${timestamp}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const ts = Date.now();
+      const res = await fetch(`/api/files?path=${encodeURIComponent(path)}&_t=${ts}`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setItems(data.items || []);
       setCurrentPath(path);
-      onFolderSelect?.(path); // 부모 상태 업데이트 (터미널 열기용)
+      onFolderSelect?.(path);
       setError(null);
     } catch (err) {
-      console.error("[DEBUG] Fetch error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
     }
   }, [onFolderSelect]);
 
-  // 마운트 시 initialPath가 있으면 그곳을, 없으면 루트를 로드
   useEffect(() => {
     fetchFiles(initialPath);
   }, [fetchFiles, initialPath]);
 
-  const handleGoBack = () => {
+  const goBack = () => {
     if (!currentPath) return;
     const parts = currentPath.split('/');
     parts.pop();
-    const parentPath = parts.join('/');
-    fetchFiles(parentPath);
+    fetchFiles(parts.join('/'));
   };
 
-  const lastClickRef = useRef({ id: null, time: 0 });
-
-  const handleItemClick = (item) => {
+  const onItemClick = (item) => {
     setActiveItemPath(item.path);
     if (item.type === 'directory') {
       fetchFiles(item.path);
@@ -57,187 +63,105 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
     }
   };
 
-  const handleTouchOrClick = (item) => {
+  const onItemTouch = (item) => {
     const now = Date.now();
-    const isDoubleTap = lastClickRef.current.id === item.path && (now - lastClickRef.current.time) < 300;
-    
-    // Always update active item for visual feedback
+    const isDouble = lastClickRef.current.id === item.path && (now - lastClickRef.current.time) < 300;
     setActiveItemPath(item.path);
-
-    if (isDoubleTap) {
-      handleItemClick(item);
+    if (isDouble) {
+      onItemClick(item);
       lastClickRef.current = { id: null, time: 0 };
     } else {
       lastClickRef.current = { id: item.path, time: now };
     }
   };
 
-  const handleBackTouchOrClick = () => {
-    const now = Date.now();
-    const isDoubleTap = lastClickRef.current.id === 'back' && (now - lastClickRef.current.time) < 300;
-    
-    if (isDoubleTap) {
-      handleGoBack();
-      lastClickRef.current = { id: null, time: 0 };
-    } else {
-      lastClickRef.current = { id: 'back', time: now };
-    }
-  };
-
-  const renderPathBreadcrumbs = () => {
-    if (!currentPath) return <span style={{ opacity: 0.6 }}>ROOT</span>;
+  if (error) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        <span onClick={() => fetchFiles('')} style={{ cursor: 'pointer', opacity: 0.6 }}>~</span>
-        {currentPath.split('/').map((part, i) => (
-          <span key={i} style={{ display: 'flex', alignItems: 'center' }}>
-            <span style={{ margin: '0 2px', opacity: 0.4 }}>/</span>
-            <span style={{ fontWeight: 'bold' }}>{part}</span>
-          </span>
-        ))}
+      <div style={styles.errorBox}>
+        <div>Error: {error}</div>
+        <button onClick={() => fetchFiles(currentPath)} style={styles.retryBtn}>
+          {t('retry') || 'Retry'}
+        </button>
       </div>
     );
-  };
-
-  const [hoveredPath, setHoveredPath] = useState(null);
-
-  if (error) return (
-    <div style={{ color: theme.red, padding: '20px', fontSize: '12px' }}>
-      <div>Error: {error}</div>
-      <button onClick={() => fetchFiles(currentPath)} style={{ marginTop: '10px', background: 'none', border: `1px solid ${theme.red}`, color: theme.red, padding: '4px 8px', borderRadius: '4px' }}>Retry</button>
-    </div>
-  );
+  }
 
   return (
-    <div style={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
-      height: '100%', 
-      backgroundColor: 'transparent',
-      color: theme.ui.text,
-      overflowY: 'hidden'
-    }}>
-      <div style={{ 
-        padding: '10px 12px', 
-        borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}`, 
-        display: 'flex', 
-        flexDirection: 'column',
-        gap: '8px',
-        backgroundColor: theme.ui.glassBg || 'rgba(0,0,0,0.1)',
-        backdropFilter: 'blur(8px)',
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: '11px', fontWeight: 'bold', letterSpacing: '1px' }}>{t('explorer')}</span>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <button 
-              onClick={(e) => {
-                e.stopPropagation();
-                onOpenTerminalAtFolder?.(currentPath);
-              }} 
-              style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer', display: 'flex', alignItems: 'center' }}
-              title="Open terminal here"
-            >
-              <Terminal size={14} />
-            </button>
-            <button onClick={() => fetchFiles(currentPath)} style={{ background: 'none', border: 'none', color: theme.ui.textSecondary, cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-            </button>
+    <div style={styles.wrap}>
+      <div style={styles.head}>
+        <div style={styles.headTopRow}>
+          <span style={styles.headLabel}>{t('explorer')}</span>
+          <div style={styles.headActions}>
+            <HeadAction
+              icon={Terminal}
+              title={t('focusTerminal') || 'Open terminal here'}
+              onClick={() => onOpenTerminalAtFolder?.(currentPath)}
+            />
+            <HeadAction
+              icon={RefreshCw}
+              title={t('refresh') || 'Refresh'}
+              spin={loading}
+              onClick={() => fetchFiles(currentPath)}
+            />
           </div>
         </div>
-        <div style={{ fontSize: '10px', display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden' }}>
-          {renderPathBreadcrumbs()}
-        </div>
+        <Breadcrumbs path={currentPath} onJump={fetchFiles} />
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', WebkitOverflowScrolling: 'touch', padding: '4px 0' }}>
+      <div style={styles.list}>
         {loading && items.length === 0 ? (
-          <div style={{ padding: '20px', textAlign: 'center', opacity: 0.5, fontSize: '12px' }}>Loading...</div>
+          <div style={styles.muted}>{t('loading') || 'Loading…'}</div>
         ) : (
           <>
             {currentPath && (
-              <div 
-                onClick={handleGoBack}
+              <Row
+                onClick={goBack}
+                hovered={hoveredPath === 'back'}
                 onMouseEnter={() => setHoveredPath('back')}
                 onMouseLeave={() => setHoveredPath(null)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                  fontSize: '13px',
-                  gap: '10px',
-                  opacity: 0.7,
-                  backgroundColor: hoveredPath === 'back' ? theme.ui.cardBg : 'transparent',
-                  borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}22`,
-                  userSelect: 'none',
-                  transition: 'background-color 0.15s ease'
-                }}
+                muted
               >
-                <ChevronLeft size={16} />
-                <span>.. {t('parentFolder')}</span>
-              </div>
+                <ChevronLeft size={14} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+                <span style={styles.nameMuted}>.. {t('parentFolder')}</span>
+              </Row>
             )}
 
             {items.length === 0 ? (
-              <div style={{ padding: '40px 20px', textAlign: 'center', opacity: 0.4, fontSize: '12px' }}>Folder empty</div>
+              <div style={styles.muted}>{t('folderEmpty') || 'Empty folder'}</div>
             ) : (
               items.map((item) => {
                 const isActive = item.path === activeItemPath;
                 const isHovered = item.path === hoveredPath;
+                const tone = gitTone(item.git_status);
                 return (
-                  <div 
+                  <Row
                     key={item.path}
-                    onClick={() => handleTouchOrClick(item)}
+                    onClick={() => onItemTouch(item)}
+                    hovered={isHovered}
+                    active={isActive}
                     onMouseEnter={() => setHoveredPath(item.path)}
                     onMouseLeave={() => setHoveredPath(null)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      padding: '10px 16px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      gap: '10px',
-                      userSelect: 'none',
-                      backgroundColor: isActive ? (theme.ui.accentMuted || `${theme.ui.accent}33`) : (isHovered ? theme.ui.cardBg : 'transparent'),
-                      borderLeft: isActive ? `3px solid ${theme.ui.accent}` : '3px solid transparent',
-                      transition: 'all 0.15s ease',
-                      position: 'relative',
-                    }}
                   >
                     {item.type === 'directory' ? (
-                      <Folder size={18} color={theme.ui.accent} fill={theme.ui.accent} fillOpacity={0.2} />
+                      <Folder size={14} strokeWidth={2} style={{ color: color.accent, flexShrink: 0 }} />
                     ) : (
-                      <File size={18} color={theme.ui.textSecondary} />
+                      <File size={14} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
                     )}
-                    <span style={{ 
-                      whiteSpace: 'nowrap', 
-                      overflow: 'hidden', 
-                      textOverflow: 'ellipsis', 
-                      flex: 1,
-                      fontWeight: isActive ? '700' : '400',
-                      color: item.git_status === 'M' ? '#fab387' : // Mocha orange
-                             (item.git_status === '??' || item.git_status === 'A') ? '#a6e3a1' : // Mocha green
-                             isActive ? theme.ui.text : theme.ui.textSecondary
-                    }}>
+                    <span
+                      style={{
+                        ...styles.name,
+                        color: item.git_status ? tone : (isActive ? color.text : color.subtext),
+                        fontWeight: isActive ? fontWeight.medium : fontWeight.regular,
+                      }}
+                    >
                       {item.name}
                     </span>
                     {item.git_status && (
-                      <span style={{ 
-                        fontSize: '9px', 
-                        fontWeight: '800', 
-                        padding: '1px 4px', 
-                        borderRadius: '2px',
-                        backgroundColor: item.git_status === 'M' ? '#fab38722' : 
-                                       (item.git_status === '??' || item.git_status === 'A') ? '#a6e3a122' : 'transparent',
-                        color: item.git_status === 'M' ? '#fab387' : 
-                               (item.git_status === '??' || item.git_status === 'A') ? '#a6e3a1' : theme.ui.textSecondary,
-                        border: `1px solid ${item.git_status === 'M' ? '#fab38744' : '#a6e3a144'}`,
-                        flexShrink: 0
-                      }}>
+                      <span style={{ ...styles.gitTag, color: tone, borderColor: 'transparent', background: 'transparent' }}>
                         {item.git_status === '??' ? 'U' : item.git_status}
                       </span>
                     )}
-                  </div>
+                  </Row>
                 );
               })
             )}
@@ -246,6 +170,191 @@ const FileTree = ({ theme, onFileSelect, onFolderSelect, onOpenTerminalAtFolder,
       </div>
     </div>
   );
+};
+
+const HeadAction = ({ icon: Icon, title, onClick, spin }) => (
+  <button
+    onClick={(e) => {
+      e.stopPropagation();
+      onClick?.();
+    }}
+    title={title}
+    style={styles.headActionBtn}
+    onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
+    onMouseLeave={(e) => { e.currentTarget.style.color = color.muted; }}
+  >
+    <Icon size={13} strokeWidth={2} className={spin ? 'animate-spin' : undefined} />
+  </button>
+);
+
+const Breadcrumbs = ({ path, onJump }) => {
+  if (!path) return <span style={styles.crumbRoot}>~ /</span>;
+  const parts = path.split('/').filter(Boolean);
+  return (
+    <div style={styles.crumbRow}>
+      <span onClick={() => onJump('')} style={styles.crumbLink}>~</span>
+      {parts.map((part, i) => {
+        const partial = parts.slice(0, i + 1).join('/');
+        return (
+          <span key={i} style={styles.crumbItem}>
+            <span style={styles.crumbSep}>/</span>
+            <span onClick={() => onJump(partial)} style={styles.crumbLink}>{part}</span>
+          </span>
+        );
+      })}
+    </div>
+  );
+};
+
+const Row = ({ onClick, onMouseEnter, onMouseLeave, hovered, active, children, muted }) => (
+  <div
+    onClick={onClick}
+    onMouseEnter={onMouseEnter}
+    onMouseLeave={onMouseLeave}
+    style={{
+      ...styles.row,
+      background: active ? color.accentSubtle : (hovered ? color.surface0 : 'transparent'),
+      opacity: muted ? 0.85 : 1,
+    }}
+  >
+    {children}
+  </div>
+);
+
+const styles = {
+  wrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100%',
+    background: 'transparent',
+    color: color.text,
+    fontFamily: font.sans,
+    overflow: 'hidden',
+  },
+  head: {
+    padding: `${space['2']} ${space['2']}`,
+    borderBottom: `1px solid ${color.border}`,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['1.5'],
+  },
+  headTopRow: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headLabel: {
+    fontSize: fontSize['11'],
+    fontWeight: fontWeight.medium,
+    color: color.muted,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+  },
+  headActions: {
+    display: 'flex',
+    gap: space['0.5'],
+  },
+  headActionBtn: {
+    width: '22px',
+    height: '22px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: color.muted,
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    transition: `color ${motion.fast}`,
+  },
+  crumbRoot: {
+    fontSize: fontSize['11'],
+    color: color.muted,
+    fontFamily: font.mono,
+  },
+  crumbRow: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    fontSize: fontSize['11'],
+    color: color.subtext,
+    fontFamily: font.mono,
+    gap: '1px',
+  },
+  crumbItem: {
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
+  crumbSep: {
+    color: color.muted,
+    margin: '0 2px',
+  },
+  crumbLink: {
+    cursor: 'pointer',
+  },
+  list: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: `${space['1']} ${space['1']}`,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1px',
+  },
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['2'],
+    padding: `${space['1']} ${space['2']}`,
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    fontSize: fontSize['13'],
+    userSelect: 'none',
+    transition: `background ${motion.fast}`,
+    minHeight: '26px',
+  },
+  name: {
+    flex: 1,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  nameMuted: {
+    flex: 1,
+    color: color.muted,
+    fontSize: fontSize['12'],
+  },
+  gitTag: {
+    fontSize: fontSize['11'],
+    fontFamily: font.mono,
+    fontWeight: fontWeight.medium,
+    flexShrink: 0,
+    minWidth: '14px',
+    textAlign: 'right',
+  },
+  errorBox: {
+    color: color.danger,
+    padding: space['4'],
+    fontSize: fontSize['12'],
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['2'],
+    alignItems: 'flex-start',
+  },
+  retryBtn: {
+    background: 'transparent',
+    color: color.danger,
+    border: `1px solid ${color.danger}55`,
+    padding: `${space['1']} ${space['2']}`,
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    fontSize: fontSize['12'],
+  },
+  muted: {
+    padding: `${space['6']} ${space['4']}`,
+    textAlign: 'center',
+    color: color.muted,
+    fontSize: fontSize['12'],
+  },
 };
 
 export default FileTree;

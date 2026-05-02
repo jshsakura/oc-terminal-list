@@ -1,10 +1,10 @@
-/**
- * Login 컴포넌트
- * 관리자 로그인
- */
 import { useState } from 'react';
+import { Terminal as TerminalIcon } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
+import { tokens } from '../styles/tokens';
+
+const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
 
 const Login = ({ onLogin, language = 'en' }) => {
   const { t } = useTranslation(language);
@@ -13,43 +13,22 @@ const Login = ({ onLogin, language = 'en' }) => {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // 기본 테마 객체
-  const loginTheme = {
-    ui: {
-      accent: '#89b4fa',
-      bg: '#1e1e2e',
-      bgSecondary: '#181825',
-      radiusSmall: '12px',
-    },
-    red: '#f38ba8',
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-
     if (!username || !password) {
       setError(t('fillAllFields'));
       return;
     }
-
     setIsLoading(true);
-
     try {
       const response = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-
       const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.detail || 'Login failed');
-      }
-
+      if (!response.ok) throw new Error(data.detail || 'Login failed');
       localStorage.setItem('auth_token', data.access_token);
       localStorage.setItem('username', data.username);
       onLogin(data.access_token, data.username);
@@ -63,150 +42,156 @@ const Login = ({ onLogin, language = 'en' }) => {
 
   return (
     <div style={styles.overlay}>
-      <div style={styles.container}>
-        <div style={styles.header}>
-          <div style={styles.icon}>
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <rect x="2" y="4" width="20" height="16" rx="2" />
-              <path d="M7 10l3 3-3 3" />
-              <line x1="13" y1="16" x2="17" y2="16" />
-            </svg>
+      <form onSubmit={handleSubmit} style={styles.card}>
+        <div style={styles.brand}>
+          <div style={styles.brandIcon}>
+            <TerminalIcon size={16} strokeWidth={2} />
           </div>
-          <h1 style={styles.title}>{t('login')}</h1>
-          <p style={styles.description}>{t('loginDescription')}</p>
+          <div style={styles.brandText}>iTerminaLlist</div>
         </div>
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <div style={styles.formGroup}>
-            <label style={styles.label}>{t('username')}</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              style={styles.input}
-              placeholder={t('usernamePlaceholder')}
-              disabled={isLoading}
-              autoFocus
-              required
-            />
-          </div>
+        <div style={styles.heading}>{t('login') || 'Sign in'}</div>
+        <div style={styles.sub}>{t('loginDescription') || 'Access your terminal sessions'}</div>
 
-          <div style={styles.formGroup}>
-            <label style={styles.label}>{t('password')}</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              style={styles.input}
-              placeholder={t('passwordPlaceholder')}
-              disabled={isLoading}
-              required
-            />
-          </div>
+        <Field
+          label={t('username') || 'Username'}
+          value={username}
+          onChange={setUsername}
+          placeholder={t('usernamePlaceholder')}
+          disabled={isLoading}
+          autoFocus
+        />
+        <Field
+          label={t('password') || 'Password'}
+          type="password"
+          value={password}
+          onChange={setPassword}
+          placeholder={t('passwordPlaceholder')}
+          disabled={isLoading}
+        />
 
-          {error && <div style={styles.error}>{error}</div>}
+        {error && <div style={styles.error}>{error}</div>}
 
-          <Button 
-            variant="primary" 
-            fullWidth 
-            size="large" 
-            onClick={handleSubmit} 
-            theme={loginTheme}
-            disabled={isLoading}
-          >
-            {isLoading ? t('signingIn') : t('signIn')}
-          </Button>
-        </form>
-      </div>
+        <Button variant="primary" size="large" fullWidth type="submit" disabled={isLoading}>
+          {isLoading ? (t('signingIn') || 'Signing in…') : (t('signIn') || 'Sign in')}
+        </Button>
+      </form>
     </div>
+  );
+};
+
+const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, autoFocus }) => {
+  const [focused, setFocused] = useState(false);
+  return (
+    <label style={styles.field}>
+      <span style={styles.label}>{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoFocus={autoFocus}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        style={{
+          ...styles.input,
+          borderColor: focused ? color.accentBorder : color.border,
+          background: focused ? color.crust : color.mantle,
+        }}
+      />
+    </label>
   );
 };
 
 const styles = {
   overlay: {
     position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#1e1e2e',
+    inset: 0,
+    background: color.crust,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10000,
-    backdropFilter: 'blur(10px)',
+    fontFamily: font.sans,
   },
-  container: {
-    backgroundColor: 'rgba(30, 30, 46, 0.7)',
-    backdropFilter: 'blur(20px)',
-    borderRadius: '24px',
-    width: '90%',
-    maxWidth: '400px',
-    padding: '40px',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5)',
-  },
-  header: {
-    textAlign: 'center',
-    marginBottom: '32px',
-  },
-  icon: {
-    color: '#89b4fa',
-    marginBottom: '16px',
+  card: {
+    width: '100%',
+    maxWidth: '380px',
+    padding: `${space['8']} ${space['8']} ${space['6']}`,
+    background: color.base,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.lg,
+    boxShadow: shadow.pop,
     display: 'flex',
+    flexDirection: 'column',
+    gap: space['4'],
+  },
+  brand: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['2'],
+    color: color.subtext,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    letterSpacing: '0.02em',
+    marginBottom: space['1'],
+  },
+  brandIcon: {
+    width: '24px',
+    height: '24px',
+    display: 'flex',
+    alignItems: 'center',
     justifyContent: 'center',
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
+    color: color.accent,
   },
-  title: {
-    margin: '0 0 8px 0',
-    fontSize: '22px',
-    fontWeight: '800',
-    color: '#cdd6f4',
-    textTransform: 'uppercase',
-    letterSpacing: '1px',
+  brandText: {
+    color: color.text,
   },
-  description: {
+  heading: {
+    fontSize: fontSize['20'],
+    fontWeight: fontWeight.semibold,
+    color: color.text,
     margin: 0,
-    fontSize: '14px',
-    color: '#6c7086',
-    lineHeight: '1.5',
+    lineHeight: 1.2,
   },
-  form: {
+  sub: {
+    fontSize: fontSize['13'],
+    color: color.muted,
+    margin: 0,
+    marginBottom: space['1'],
+  },
+  field: {
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px',
-  },
-  formGroup: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '8px',
+    gap: space['1.5'],
   },
   label: {
-    fontSize: '13px',
-    fontWeight: '700',
-    color: '#cdd6f4',
-    textTransform: 'uppercase',
-    opacity: 0.8,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    color: color.subtext,
   },
   input: {
-    padding: '14px 16px',
-    fontSize: '14px',
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
-    color: '#cdd6f4',
-    border: '1px solid rgba(255, 255, 255, 0.1)',
-    borderRadius: '12px',
+    height: '34px',
+    padding: `0 ${space['3']}`,
+    fontSize: fontSize['13'],
+    fontFamily: font.sans,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
     outline: 'none',
-    transition: 'all 0.2s ease',
-    fontFamily: '"JetBrains Mono", monospace',
+    transition: `border-color ${motion.fast}, background ${motion.fast}`,
   },
   error: {
-    padding: '12px',
-    backgroundColor: 'rgba(243, 139, 168, 0.1)',
-    color: '#f38ba8',
-    borderRadius: '12px',
-    fontSize: '13px',
-    textAlign: 'center',
-    border: '1px solid rgba(243, 139, 168, 0.2)',
-    fontWeight: '600',
+    fontSize: fontSize['12'],
+    color: color.danger,
+    background: 'rgba(243, 139, 168, 0.08)',
+    border: `1px solid rgba(243, 139, 168, 0.18)`,
+    borderRadius: radius.sm,
+    padding: `${space['2']} ${space['3']}`,
   },
 };
 

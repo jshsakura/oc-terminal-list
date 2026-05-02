@@ -662,7 +662,7 @@ function App() {
           )}
 
           {/* 터미널 영역 (남은 공간 차지) */}
-          <div 
+          <div
             ref={terminalRef}
             style={{
               ...AppStyles.terminalContainer,
@@ -670,8 +670,10 @@ function App() {
               flex: 1,
               userSelect: 'text',
               WebkitUserSelect: 'text',
-              paddingBottom: isMobile ? '80px' : '0',
-              padding: isMobile ? '5px' : '0',
+              paddingTop: isMobile ? '5px' : '6px',
+              paddingBottom: isMobile ? '80px' : '6px',
+              paddingLeft: '10px',
+              paddingRight: '10px',
               minHeight: '150px'
             }}
           >

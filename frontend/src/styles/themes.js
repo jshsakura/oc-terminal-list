@@ -34,22 +34,24 @@ export const catppuccinTheme = {
   brightMagenta: '#f5c2e7',
   brightCyan: '#94e2d5',
   brightWhite: '#a6adc8',
+  // UI 색상은 styles/tokens.js 의 Zed 톤 팔레트와 정렬되어 있다.
+  // 새 컴포넌트는 tokens.js 를 직접 import 하고, 레거시 컴포넌트는 이 ui 블록을 통해 점진 마이그레이션.
   ui: {
     ...commonUI,
-    bg: '#1e1e2e',
-    bgSecondary: '#181825',
-    bgTertiary: '#313244',
-    glassBg: 'rgba(30, 30, 46, 0.6)',
-    cardBg: 'rgba(49, 50, 68, 0.3)',
-    border: '#25263a',
-    borderLight: 'rgba(205, 214, 244, 0.15)',
-    text: '#cdd6f4',
-    textSecondary: '#6c7086',
+    bg: '#1a1a25',
+    bgSecondary: '#15151f',
+    bgTertiary: '#23232f',
+    glassBg: 'rgba(26, 26, 37, 0.72)',
+    cardBg: '#23232f',
+    border: 'rgba(228, 230, 241, 0.06)',
+    borderLight: 'rgba(228, 230, 241, 0.12)',
+    text: '#e4e6f1',
+    textSecondary: '#a8acc4',
     accent: '#89b4fa',
-    accentMuted: 'rgba(137, 180, 250, 0.25)',
-    iconColor: '#cdd6f4',
-    shadow: '0 8px 32px rgba(0,0,0,0.5), 0 2px 8px rgba(0,0,0,0.3)',
-    innerShadow: 'inset 0 1px 1px rgba(255,255,255,0.05), inset 0 -1px 1px rgba(0,0,0,0.2)',
+    accentMuted: 'rgba(137, 180, 250, 0.12)',
+    iconColor: '#a8acc4',
+    shadow: '0 12px 32px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35)',
+    innerShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.04)',
   }
 };
 
