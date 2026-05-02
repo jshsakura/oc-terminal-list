@@ -1,479 +1,415 @@
 """
 Terminal List - 백엔드 FastAPI 서버
-모바일 최적화된 웹 터미널 에뮬레이터
+
+세션 영속성은 호스트의 tmux 서버가 담당한다.
+- 백엔드는 tmux 서버에 명령을 보내고, WebSocket↔tmux client PTY를 중계한다.
+- 백엔드가 죽어도 tmux 서버가 살아있으면 세션은 유지된다.
+- 동일 세션에 웹/SSH 등 여러 클라이언트가 동시 attach 가능하다.
 """
+import asyncio
+import json
 import logging
 import os
 import shutil
-import json
 import time
-import re
 from pathlib import Path
+from typing import List, Optional
+
 from dotenv import load_dotenv
 
-# .env 파일 로드 (프로젝트 루트 경로 명시)
-_current_file = os.path.abspath(__file__)
-_project_root = os.path.dirname(os.path.dirname(_current_file))
-_env_path = os.path.join(_project_root, ".env")
-load_dotenv(_env_path)
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Header, Depends, Query, Response
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+# .env 로드 (프로젝트 루트)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
+
+from fastapi import (
+    Depends, FastAPI, Header, HTTPException, Query, WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import List, Optional
-from starlette.types import Scope, Receive, Send
+from starlette.types import Receive, Scope, Send
 
-from pty_manager import pty_manager
-from sqlite_storage import storage
 from auth_manager import AuthManager
+from sqlite_storage import storage
+from tmux_manager import tmux_manager
+from ws_bridge import TmuxClientBridge
 
-# 로깅 설정
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=os.getenv("LOG_LEVEL", "INFO"),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# FastAPI 앱 생성
-app = FastAPI(
-    title="Terminal List",
-    description="영속적 세션 지원 웹 터미널 에뮬레이터",
-    version="1.0.0"
-)
 
-# CORS 설정 (프론트엔드 통신 허용)
+# ---------------------- 앱 / 미들웨어 ----------------------
+
+app = FastAPI(title="Terminal List", version="2.0.0")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 프로덕션에서는 특정 도메인으로 제한
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Gzip 압축 미들웨어 (성능 향상)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
-# 캐시 헤더를 추가하는 커스텀 StaticFiles
 class CachedStaticFiles(StaticFiles):
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        # 응답 헤더에 캐시 추가
         async def send_wrapper(message):
-            if message['type'] == 'http.response.start':
-                headers = dict(message.get('headers', []))
-                # JS, CSS 파일은 1년 캐시 (immutable)
-                if scope['path'].endswith(('.js', '.css')):
-                    headers[b'cache-control'] = b'public, max-age=31536000, immutable'
-                # 기타 정적 파일은 1시간 캐시
+            if message["type"] == "http.response.start":
+                headers = dict(message.get("headers", []))
+                if scope["path"].endswith((".js", ".css")):
+                    headers[b"cache-control"] = b"public, max-age=31536000, immutable"
                 else:
-                    headers[b'cache-control'] = b'public, max-age=3600'
-                message['headers'] = list(headers.items())
+                    headers[b"cache-control"] = b"public, max-age=3600"
+                message["headers"] = list(headers.items())
             await send(message)
 
         await super().__call__(scope, receive, send_wrapper)
 
 
-# Pydantic 모델
+# ---------------------- 워크스페이스 ----------------------
+
+# 호스트 설치 전제: 기본값은 프로젝트 루트의 workspace/.
+# .env 의 WORKSPACE_ROOT 로 오버라이드 가능.
+_DEFAULT_WORKSPACE = os.path.join(_PROJECT_ROOT, "workspace")
+WORKSPACE_ROOT = os.path.abspath(os.getenv("WORKSPACE_ROOT") or _DEFAULT_WORKSPACE)
+os.makedirs(WORKSPACE_ROOT, exist_ok=True)
+logger.info("WORKSPACE_ROOT = %s", WORKSPACE_ROOT)
+
+
+def validate_path(path) -> Path:
+    """워크스페이스 외부 접근을 차단하며 안전한 절대 경로 반환."""
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    if path is None or str(path).strip() in ("/", "", "None"):
+        return Path(workspace_abs)
+    clean = os.path.normpath(str(path).strip().lstrip("/")).replace("..", "")
+    requested = os.path.abspath(os.path.join(workspace_abs, clean))
+    if not requested.startswith(workspace_abs):
+        return Path(workspace_abs)
+    return Path(requested)
+
+
+# ---------------------- 모델 ----------------------
+
 class ResizeRequest(BaseModel):
-    """터미널 크기 조정 요청"""
     cols: int
     rows: int
 
 
 class SessionCreateRequest(BaseModel):
-    """세션 생성 요청"""
     cols: int = 80
     rows: int = 24
     cwd: Optional[str] = None
     shell: Optional[str] = None
 
 
+class SessionNameRequest(BaseModel):
+    name: str
+
+
 class SetupRequest(BaseModel):
-    """초기 관리자 설정 요청"""
     username: str
     password: str
 
 
 class LoginRequest(BaseModel):
-    """로그인 요청"""
     username: str
     password: str
 
 
 class FileWriteRequest(BaseModel):
-    """파일 쓰기 요청"""
     path: str
     content: str
 
 
 class FileCreateRequest(BaseModel):
-    """파일/폴더 생성 요청"""
     path: str
     type: str  # "file" or "directory"
 
 
 class FileMoveRequest(BaseModel):
-    """파일/폴더 이동(이름 변경 포함) 요청"""
     source: str
     destination: str
 
 
-class SessionNameRequest(BaseModel):
-    """세션 이름 변경 요청"""
-    name: str
+# ---------------------- 시스템 모니터 ----------------------
 
-
-HISTORY_REPLAY_CHUNK_LIMIT = 1200
-HISTORY_REPLAY_MAX_CHARS = 200000
-
-
-def normalize_replay_output(output: str) -> str:
-    sanitized = re.sub(r"\x1b\[\?2004[hl]", "", output)
-    sanitized = sanitized.replace("\r\n", "\n").replace("\r", "\n")
-    return sanitized
-
-
-# Workspace 루트 디렉토리 결정 로직
-_current_file = os.path.abspath(__file__)
-_project_root = os.path.dirname(os.path.dirname(_current_file))
-_local_workspace = os.path.join(_project_root, "workspace")
-
-# 기본값은 /app/workspace (Docker 환경 권장), 없으면 로컬 workspace 폴더 사용
-WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "/app/workspace")
-
-# 만약 기본값이 /app/workspace인데 존재하지 않고 로컬 디렉토리가 있다면 로컬 사용
-if WORKSPACE_ROOT == "/app/workspace" and not os.path.exists(WORKSPACE_ROOT) and os.path.exists(_local_workspace):
-    WORKSPACE_ROOT = _local_workspace
-    logger.info(f"Using local WORKSPACE_ROOT: {WORKSPACE_ROOT}")
-
-# 디렉토리 존재 보장
-os.makedirs(WORKSPACE_ROOT, exist_ok=True)
-logger.info(f"WORKSPACE_ROOT configured as: {WORKSPACE_ROOT}")
-
-# 인증 매니저 인스턴스
-auth_manager: Optional[AuthManager] = None
-
-# 시스템 모니터링 (Linux 전용, 오버헤드 최소화)
 class SystemMonitor:
     def __init__(self):
         self.last_cpu_time = 0
         self.last_idle_time = 0
         self.last_update = 0
-        self.cached_cpu_percent = 0
+        self.cached_cpu_percent = 0.0
 
     def get_stats(self):
         stats = {"cpu": 0, "ram": 0, "disk": 0}
         try:
-            # RAM 정보 추출
-            if os.path.exists('/proc/meminfo'):
-                with open('/proc/meminfo', 'r') as f:
-                    meminfo = f.readlines()
-                    total = 0
-                    available = 0
-                    for line in meminfo:
-                        if line.startswith('MemTotal:'):
+            if os.path.exists("/proc/meminfo"):
+                total = available = 0
+                with open("/proc/meminfo") as f:
+                    for line in f:
+                        if line.startswith("MemTotal:"):
                             total = int(line.split()[1])
-                        if line.startswith('MemAvailable:'):
+                        elif line.startswith("MemAvailable:"):
                             available = int(line.split()[1])
-                    if total > 0:
-                        stats["ram"] = round((total - available) / total * 100, 1)
+                if total > 0:
+                    stats["ram"] = round((total - available) / total * 100, 1)
 
-            # Disk 정보 추출
             try:
                 usage = os.statvfs(WORKSPACE_ROOT)
                 d_total = usage.f_blocks * usage.f_frsize
                 d_free = usage.f_bfree * usage.f_frsize
                 if d_total > 0:
                     stats["disk"] = round((d_total - d_free) / d_total * 100, 1)
-            except:
+            except Exception:
                 pass
 
-            # CPU 정보 추출 (이전 값과의 차이로 계산)
             now = time.time()
-            if os.path.exists('/proc/stat') and now - self.last_update > 1.0:
-                with open('/proc/stat', 'r') as f:
-                    line = f.readline()
-                    parts = line.split()
-                    if len(parts) >= 5:
-                        user = int(parts[1])
-                        nice = int(parts[2])
-                        system = int(parts[3])
-                        idle = int(parts[4])
-                        iowait = int(parts[5]) if len(parts) > 5 else 0
-                        irq = int(parts[6]) if len(parts) > 6 else 0
-                        softirq = int(parts[7]) if len(parts) > 7 else 0
-                        
-                        total_cpu = user + nice + system + idle + iowait + irq + softirq
-                        
-                        if self.last_cpu_time > 0:
-                            diff_total = total_cpu - self.last_cpu_time
-                            diff_idle = idle - self.last_idle_time
-                            if diff_total > 0:
-                                self.cached_cpu_percent = round((1 - diff_idle / diff_total) * 100, 1)
-                        
-                        self.last_cpu_time = total_cpu
-                        self.last_idle_time = idle
-                        self.last_update = now
-            
+            if os.path.exists("/proc/stat") and now - self.last_update > 1.0:
+                with open("/proc/stat") as f:
+                    parts = f.readline().split()
+                if len(parts) >= 5:
+                    user = int(parts[1]); nice = int(parts[2]); system = int(parts[3])
+                    idle = int(parts[4])
+                    iowait = int(parts[5]) if len(parts) > 5 else 0
+                    irq = int(parts[6]) if len(parts) > 6 else 0
+                    softirq = int(parts[7]) if len(parts) > 7 else 0
+                    total_cpu = user + nice + system + idle + iowait + irq + softirq
+                    if self.last_cpu_time > 0:
+                        diff_total = total_cpu - self.last_cpu_time
+                        diff_idle = idle - self.last_idle_time
+                        if diff_total > 0:
+                            self.cached_cpu_percent = round((1 - diff_idle / diff_total) * 100, 1)
+                    self.last_cpu_time = total_cpu
+                    self.last_idle_time = idle
+                    self.last_update = now
+
             stats["cpu"] = self.cached_cpu_percent
         except Exception as e:
-            logger.error(f"Error reading system stats: {e}")
+            logger.error("system stats error: %s", e)
         return stats
+
 
 system_monitor = SystemMonitor()
 
 
-# 시작/종료 이벤트
+# ---------------------- 라이프사이클 ----------------------
+
+auth_manager: Optional[AuthManager] = None
+
+
 @app.on_event("startup")
 async def startup_event():
-    """서버 시작 시 초기화"""
     global auth_manager
-    logger.info("=== Terminal List 서버 시작 ===")
-    
-    # 워크스페이스 디렉토리 존재 보장 및 로깅
-    try:
-        if not os.path.exists(WORKSPACE_ROOT):
-            os.makedirs(WORKSPACE_ROOT, exist_ok=True)
-            logger.info(f"Created missing WORKSPACE_ROOT: {WORKSPACE_ROOT}")
-        else:
-            logger.info(f"Using existing WORKSPACE_ROOT: {WORKSPACE_ROOT}")
-            # 현재 워크스페이스 내 파일 목록 출력 (디버깅용)
-            files = os.listdir(WORKSPACE_ROOT)
-            logger.info(f"Files in workspace: {len(files)} items found")
-    except Exception as e:
-        logger.error(f"Failed to initialize WORKSPACE_ROOT: {e}")
-
-    try:
-        await storage.connect()
-        logger.info("SQLite 스토리지 초기화 완료")
-
-        # PTY 매니저에 스토리지 주입
-        pty_manager.storage = storage
-
-        # 인증 매니저 초기화
-        auth_manager = AuthManager(storage)
-        logger.info("인증 매니저 초기화 완료")
-    except Exception as e:
-        logger.error(f"스토리지 초기화 실패: {e}")
-        raise
+    logger.info("=== Terminal List 시작 ===")
+    await storage.connect()
+    auth_manager = AuthManager(storage)
+    if not shutil.which("tmux"):
+        logger.error("tmux 바이너리를 찾을 수 없습니다. 호스트에 tmux를 설치해주세요.")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """서버 종료 시 정리"""
-    logger.info("=== Terminal List 서버 종료 ===")
+    logger.info("=== Terminal List 종료 ===")
     await storage.close()
 
 
-# 인증 의존성
+# ---------------------- 인증 ----------------------
+
 async def verify_auth_token(
     authorization: Optional[str] = Header(None),
-    token: Optional[str] = Query(None)
+    token: Optional[str] = Query(None),
 ) -> str:
-    """JWT 토큰 검증 의존성 (헤더 또는 쿼리 파라미터 지원)"""
-    actual_token = None
-    
+    actual = None
     if authorization and authorization.startswith("Bearer "):
-        actual_token = authorization.replace("Bearer ", "")
+        actual = authorization[len("Bearer "):]
     elif token:
-        actual_token = token
-        
-    if not actual_token:
+        actual = token
+    if not actual:
         raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
-
-    username = await auth_manager.verify_token(actual_token)
-
-    if username is None:
+    username = await auth_manager.verify_token(actual)
+    if not username:
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
-
     return username
 
 
-async def verify_auth_token_ws(token: str) -> str:
-    """WebSocket용 JWT 토큰 검증"""
-    username = await auth_manager.verify_token(token)
-
-    if username is None:
-        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
-
-    return username
+async def verify_auth_token_ws(token: str) -> Optional[str]:
+    if not token or not auth_manager:
+        return None
+    return await auth_manager.verify_token(token)
 
 
-# 헬스 체크
+# ---------------------- 인증 API ----------------------
+
 @app.get("/api/health")
 async def health_check():
-    """헬스 체크 엔드포인트"""
-    return {
-        "service": "Terminal List",
-        "status": "running",
-        "version": "1.0.0"
-    }
+    return {"service": "Terminal List", "status": "running", "version": "2.0.0"}
 
 
-# 인증 API
 @app.get("/api/auth/status")
 async def auth_status():
-    """
-    인증 상태 확인 (초기 설정 완료 여부)
-
-    Returns:
-        setup_complete: 초기 설정 완료 여부
-    """
     if auth_manager is None:
         return {"setup_complete": False}
-
-    is_complete = await auth_manager.is_setup_complete()
-    return {"setup_complete": is_complete}
+    return {"setup_complete": await auth_manager.is_setup_complete()}
 
 
 @app.post("/api/auth/setup")
 async def setup_admin(request: SetupRequest):
-    """
-    초기 관리자 계정 설정
-
-    Args:
-        request: 관리자 계정 정보 (username, password)
-
-    Returns:
-        설정 결과
-    """
     if auth_manager is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
-
-    # 이미 설정된 경우 거부
     if await auth_manager.is_setup_complete():
         raise HTTPException(status_code=400, detail="이미 초기 설정이 완료되었습니다")
-
-    # 사용자명/비밀번호 검증
     if len(request.username) < 3:
         raise HTTPException(status_code=400, detail="사용자명은 3자 이상이어야 합니다")
-
     if len(request.password) < 8:
         raise HTTPException(status_code=400, detail="비밀번호는 8자 이상이어야 합니다")
-
-    # 관리자 생성
-    success = await auth_manager.create_admin(request.username, request.password)
-
-    if not success:
-        raise HTTPException(status_code=500, detail="관리자 계정 생성에 실패했습니다")
-
-    logger.info(f"초기 관리자 계정 생성 완료: {request.username}")
-
-    return {
-        "success": True,
-        "message": "관리자 계정이 생성되었습니다"
-    }
+    if not await auth_manager.create_admin(request.username, request.password):
+        raise HTTPException(status_code=500, detail="관리자 계정 생성 실패")
+    return {"success": True, "message": "관리자 계정이 생성되었습니다"}
 
 
 @app.post("/api/auth/login")
 async def login(request: LoginRequest):
-    """
-    로그인
-
-    Args:
-        request: 로그인 정보 (username, password)
-
-    Returns:
-        access_token: JWT 토큰
-    """
     if auth_manager is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
-
-    # 초기 설정이 완료되지 않은 경우
     if not await auth_manager.is_setup_complete():
         raise HTTPException(status_code=400, detail="초기 설정을 먼저 완료해주세요")
-
-    # 사용자 인증
-    is_valid = await auth_manager.verify_admin(request.username, request.password)
-
-    if not is_valid:
-        logger.warning(f"로그인 실패: {request.username}")
+    if not await auth_manager.verify_admin(request.username, request.password):
         raise HTTPException(status_code=401, detail="사용자명 또는 비밀번호가 올바르지 않습니다")
-
-    # JWT 토큰 생성
     access_token = await auth_manager.create_access_token(request.username)
-
-    logger.info(f"로그인 성공: {request.username}")
-
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "username": request.username
-    }
+    return {"access_token": access_token, "token_type": "bearer", "username": request.username}
 
 
 @app.get("/api/auth/verify")
 async def verify_token(username: str = Depends(verify_auth_token)):
-    """
-    토큰 검증
-
-    Returns:
-        사용자 정보
-    """
-    return {
-        "valid": True,
-        "username": username
-    }
+    return {"valid": True, "username": username}
 
 
 @app.get("/api/system/stats")
 async def get_system_stats(username: str = Depends(verify_auth_token)):
-    """시스템 리소스 사용량 조회"""
     return system_monitor.get_stats()
 
 
-@app.get("/api/files/raw")
-async def get_raw_file(
-    path: str = Query(...),
-    username: str = Depends(verify_auth_token)
+# ---------------------- 세션 API ----------------------
+
+def _basename_or_none(p: Optional[str]) -> Optional[str]:
+    return os.path.basename(p) if p else None
+
+
+def _resolve_create_cwd(req_cwd: Optional[str]) -> str:
+    """세션 생성 cwd 결정. 워크스페이스 외부는 차단."""
+    if not req_cwd:
+        return os.path.abspath(WORKSPACE_ROOT)
+    target = validate_path(req_cwd)
+    if not target.exists():
+        raise HTTPException(status_code=400, detail=f"디렉토리가 존재하지 않습니다: {req_cwd}")
+    if not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"디렉토리가 아닙니다: {req_cwd}")
+    if not os.access(str(target), os.X_OK):
+        raise HTTPException(status_code=400, detail=f"디렉토리에 접근 권한이 없습니다: {req_cwd}")
+    return str(target.absolute())
+
+
+def _resolve_shell(requested: Optional[str]) -> Optional[str]:
+    """프론트가 보내는 'auto'/'bash'/'zsh'/'sh' 를 실제 실행 경로로 변환."""
+    candidates = {
+        "bash": ["/bin/bash", "/usr/bin/bash"],
+        "zsh": ["/bin/zsh", "/usr/bin/zsh"],
+        "sh": ["/bin/sh", "/usr/bin/sh"],
+    }
+    if not requested or requested.strip().lower() in ("auto", ""):
+        return None  # tmux가 사용자 기본 셸 사용
+    key = requested.strip().lower()
+    for path in candidates.get(key, []):
+        if os.path.exists(path) and os.access(path, os.X_OK):
+            return path
+    return None
+
+
+@app.get("/api/sessions", response_model=List[dict])
+async def list_sessions(username: str = Depends(verify_auth_token)):
+    """DB에 기록된 사용자 세션 목록 (tmux에 살아있는지 여부와 무관)."""
+    db_sessions = await storage.get_user_sessions(username)
+    # tmux에 실제 살아있는 세션과 교차 참조
+    live = {s.name for s in await tmux_manager.list_sessions()}
+    return [{**s, "alive": s["id"] in live} for s in db_sessions]
+
+
+@app.post("/api/sessions/{session_id}")
+async def create_session(
+    session_id: str,
+    request: SessionCreateRequest,
+    username: str = Depends(verify_auth_token),
 ):
-    """파일 원본 반환 (이미지, HTML 프리뷰용)"""
+    """tmux 세션 생성 + DB 등록."""
+    logger.info("[API] create session %s (cwd=%s, shell=%s)", session_id, request.cwd, request.shell)
+
+    safe_cwd = _resolve_create_cwd(request.cwd)
+    shell_path = _resolve_shell(request.shell)
+
     try:
-        safe_path = validate_path(path)
-        if not safe_path.exists() or not safe_path.is_file():
-            raise HTTPException(status_code=404, detail="File not found")
-        
-        return FileResponse(str(safe_path))
+        await tmux_manager.create_session(
+            session_id,
+            cols=request.cols or 80,
+            rows=request.rows or 24,
+            cwd=safe_cwd,
+            shell=shell_path,
+        )
     except Exception as e:
-        logger.error(f"Failed to serve raw file {path}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("tmux create failed (%s): %s", session_id, e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"터미널 실행 실패: {e}")
+
+    try:
+        await storage.create_session(session_id, username, cwd=request.cwd or "")
+    except Exception as e:
+        logger.warning("session db record failed (%s): %s", session_id, e)
+
+    return {
+        "session_id": session_id,
+        "status": "created",
+        "cwd": safe_cwd,
+        "shell": shell_path,
+        "shell_name": _basename_or_none(shell_path),
+    }
 
 
-import asyncio
-import subprocess
-from pathlib import Path
-
-# 파일 시스템 헬퍼 함수
-def validate_path(path) -> Path:
-    """
-    경로 검증 및 정규화
-    어떤 경로가 들어와도 WORKSPACE_ROOT 내부로 한정함
-    """
-    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-    
-    # 1. 경로가 None이거나 빈 문자열인 경우 루트 반환
-    if path is None or str(path).strip() in ["/", "", "None"]:
-        return Path(workspace_abs)
-    
-    # 2. 선행 슬래시 제거 및 보안을 위한 상위 디렉토리 참조(..) 제거
-    clean_path = str(path).strip().lstrip("/")
-    # ../ 등을 통한 탈출 방지
-    clean_path = os.path.normpath(clean_path).replace("..", "")
-    
-    # 3. 절대 경로 결합
-    requested_abs = os.path.abspath(os.path.join(workspace_abs, clean_path))
-
-    # 4. workspace 외부 접근 차단 (최종 확인)
-    if not requested_abs.startswith(workspace_abs):
-        return Path(workspace_abs)
-
-    return Path(requested_abs)
+@app.delete("/api/sessions/{session_id}")
+async def delete_session(session_id: str, username: str = Depends(verify_auth_token)):
+    await tmux_manager.kill_session(session_id)
+    await storage.delete_session(session_id)
+    return {"session_id": session_id, "status": "deleted"}
 
 
-# WebSocket: 터미널 세션
+@app.post("/api/sessions/{session_id}/resize")
+async def resize_terminal(
+    session_id: str,
+    request: ResizeRequest,
+    username: str = Depends(verify_auth_token),
+):
+    if not await tmux_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    await tmux_manager.resize_window(session_id, request.cols, request.rows)
+    return {"session_id": session_id, "cols": request.cols, "rows": request.rows, "status": "resized"}
+
+
+@app.patch("/api/sessions/{session_id}/name")
+async def update_session_name(
+    session_id: str,
+    request: SessionNameRequest,
+    username: str = Depends(verify_auth_token),
+):
+    await storage.update_session_name(session_id, request.name)
+    return {"session_id": session_id, "name": request.name, "status": "updated"}
+
+
+# ---------------------- WebSocket 터미널 ----------------------
+
 @app.websocket("/ws/{session_id}")
 async def terminal_websocket(
     websocket: WebSocket,
@@ -482,679 +418,265 @@ async def terminal_websocket(
     cols: int = Query(80),
     rows: int = Query(24),
     cwd: Optional[str] = Query(None),
-    shell: Optional[str] = Query(None)
+    shell: Optional[str] = Query(None),
 ):
-    """
-    터미널 WebSocket 연결 핸들러
-    """
-    # 인증 확인 (optional)
-    username = "admin"  # 기본 사용자
-    if token:
-        try:
-            username = await verify_auth_token_ws(token)
-        except:
-            pass  # 토큰 실패해도 기본 사용자로 진행
+    username = await verify_auth_token_ws(token) if token else None
+    if not username:
+        username = "admin"  # 인증 실패해도 기본 사용자로 진행 (기존 동작 유지)
 
     await websocket.accept()
-    logger.info(f"WebSocket 연결 요청: {session_id} (사용자: {username}, cwd: {cwd})")
+    logger.info("WS attach: session=%s user=%s", session_id, username)
 
-    try:
-        # 1. 세션 복원 또는 생성 (DB에 저장)
-        is_new_session = not pty_manager.session_exists(session_id)
-        
-        if is_new_session:
-            # WebSocket 경로 검증
-            safe_cwd = str(validate_path(cwd).absolute())
-            logger.info(f"새 세션 생성 (WS): {session_id} (cwd={safe_cwd})")
-            try:
-                await storage.delete_history(session_id)
-            except Exception:
-                pass
-            await pty_manager.create_session(session_id, cols=cols, rows=rows, cwd=safe_cwd, shell=shell)
+    # 세션이 없으면 생성 (백엔드 재시작 후 첫 연결 또는 직접 WS로 진입한 경우)
+    if not await tmux_manager.session_exists(session_id):
+        try:
+            safe_cwd = _resolve_create_cwd(cwd)
+        except HTTPException as e:
+            await websocket.close(code=1008, reason=e.detail)
+            return
+        try:
+            await tmux_manager.create_session(
+                session_id,
+                cols=cols,
+                rows=rows,
+                cwd=safe_cwd,
+                shell=_resolve_shell(shell),
+            )
             try:
                 await storage.create_session(session_id, username, cwd=cwd or "")
-            except:
+            except Exception:
                 pass
-        else:
-            logger.info(f"기존 세션 복원: {session_id}")
-            await storage.update_session_activity(session_id)
-
-        # 2. SQLite 히스토리 전송
-        session_info = pty_manager.sessions.get(session_id)
-        is_already_connected = session_info and session_info.connected_socket is not None
-        
-        if not is_new_session and not is_already_connected:
-            history = await storage.get_history(session_id, limit=HISTORY_REPLAY_CHUNK_LIMIT)
-            if history:
-                full_history = "".join(history)
-                if len(full_history) > HISTORY_REPLAY_MAX_CHARS:
-                    full_history = full_history[-HISTORY_REPLAY_MAX_CHARS:]
-                full_history = normalize_replay_output(full_history)
-                await websocket.send_text(full_history)
-
-        # 3. WebSocket을 세션에 연결
-        await pty_manager.attach_session(session_id, websocket)
-
-        # 4. 사용자 입력 수신 루프
-        while True:
-            data = await websocket.receive_text()
-            is_control = False
-            stripped_data = data.strip()
-            if stripped_data.startswith('{') and stripped_data.endswith('}'):
-                try:
-                    msg = json.loads(stripped_data)
-                    if isinstance(msg, dict) and msg.get('type') == 'resize':
-                        is_control = True
-                        await pty_manager.resize(session_id, msg.get('cols', 80), msg.get('rows', 24))
-                except:
-                    pass
-
-            if is_control: continue
-            await pty_manager.write_input(session_id, data)
-
-    except WebSocketDisconnect:
-        await pty_manager.detach_session(session_id)
-    except Exception as e:
-        logger.error(f"WebSocket 에러 ({session_id}): {e}")
-        await pty_manager.detach_session(session_id)
-
-
-# REST API: 세션 관리
-@app.get("/api/sessions", response_model=List[dict])
-async def list_sessions(username: str = Depends(verify_auth_token)):
-    """사용자의 세션 목록 조회"""
-    return await storage.get_user_sessions(username)
-
-
-@app.post("/api/sessions/{session_id}")
-async def create_session(
-    session_id: str,
-    request: SessionCreateRequest,
-    username: str = Depends(verify_auth_token)
-):
-    """새 세션 명시적 생성"""
-    logger.info(f"[API] Create Session: {session_id}, CWD: {request.cwd}")
-
-    if pty_manager.session_exists(session_id):
-        existing_shell = pty_manager.get_session_shell(session_id)
-        return {
-            "session_id": session_id,
-            "status": "exists",
-            "cwd": request.cwd,
-            "shell": existing_shell,
-            "shell_name": os.path.basename(existing_shell) if existing_shell else None,
-        }
-
-    try:
-        # 1. 경로 검증 (요청된 경로가 있으면 엄격하게 체크)
-        safe_cwd = str(os.path.abspath(WORKSPACE_ROOT))
-        if request.cwd:
-            target_path = validate_path(request.cwd)
-            if not target_path.exists():
-                raise HTTPException(status_code=400, detail=f"디렉토리가 존재하지 않습니다: {request.cwd}")
-            if not target_path.is_dir():
-                raise HTTPException(status_code=400, detail=f"디렉토리가 아닙니다: {request.cwd}")
-            if not os.access(str(target_path), os.X_OK):
-                raise HTTPException(status_code=400, detail=f"디렉토리에 접근 권한이 없습니다: {request.cwd}")
-            safe_cwd = str(target_path.absolute())
-
-        # 2. PTY 세션 생성 (여기서 발생하는 에러는 500으로 상세 사유 전달)
+        except Exception as e:
+            logger.error("tmux create on WS failed (%s): %s", session_id, e)
+            await websocket.close(code=1011, reason=f"tmux create failed: {e}")
+            return
+    else:
         try:
-            await storage.delete_history(session_id)
+            await storage.update_session_activity(session_id)
         except Exception:
             pass
 
-        await pty_manager.create_session(
-            session_id, 
-            cols=request.cols or 80, 
-            rows=request.rows or 24, 
-            cwd=safe_cwd,
-            shell=request.shell,
-        )
-        session_shell = pty_manager.get_session_shell(session_id)
-        
-        # 3. DB 저장 (실패해도 무시)
-        try:
-            await storage.create_session(session_id, username, cwd=request.cwd or "")
-        except:
-            pass
-
-        return {
-            "session_id": session_id,
-            "status": "created",
-            "cwd": safe_cwd,
-            "shell": session_shell,
-            "shell_name": os.path.basename(session_shell) if session_shell else None,
-        }
-    except HTTPException as he:
-        # 이미 처리된 HTTP 예외는 그대로 전달
-        raise he
-    except Exception as e:
-        # 예상치 못한 시스템 에러(ptyprocess 실패 등)는 상세 사유와 함께 500 전달
-        logger.error(f"create_session critical error: {str(e)}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"터미널 실행 실패: {str(e)}")
-
-
-
-@app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str, username: str = Depends(verify_auth_token)):
-    """
-    세션 강제 종료 및 삭제 (DB에서도 삭제)
-
-    Args:
-        session_id: 세션 ID
-
-    Returns:
-        삭제 결과
-    """
-    if not pty_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
-
+    bridge = TmuxClientBridge(
+        websocket=websocket,
+        session_id=session_id,
+        attach_argv=tmux_manager.attach_argv(session_id),
+        cols=cols,
+        rows=rows,
+    )
     try:
-        await pty_manager.kill_session(session_id)
-        await storage.delete_session(session_id)
-        return {
-            "session_id": session_id,
-            "status": "deleted"
-        }
+        await bridge.run()
+    except WebSocketDisconnect:
+        pass
     except Exception as e:
-        logger.error(f"세션 삭제 실패 ({session_id}): {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("WS bridge error (%s): %s", session_id, e)
 
 
-@app.post("/api/sessions/{session_id}/resize")
-async def resize_terminal(
-    session_id: str,
-    request: ResizeRequest,
-    username: str = Depends(verify_auth_token)
-):
-    """
-    터미널 크기 조정
+# ---------------------- 파일 시스템 API ----------------------
 
-    Args:
-        session_id: 세션 ID
-        request: 새 크기 (cols, rows)
-
-    Returns:
-        조정 결과
-    """
-    if not pty_manager.session_exists(session_id):
-        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
-
+async def get_git_status(_: Path) -> dict:
     try:
-        await pty_manager.resize(session_id, request.cols, request.rows)
-        return {
-            "session_id": session_id,
-            "cols": request.cols,
-            "rows": request.rows,
-            "status": "resized"
-        }
-    except Exception as e:
-        logger.error(f"크기 조정 실패 ({session_id}): {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.patch("/api/sessions/{session_id}/name")
-async def update_session_name(
-    session_id: str,
-    request: SessionNameRequest,
-    username: str = Depends(verify_auth_token)
-):
-    """
-    세션 이름 변경
-
-    Args:
-        session_id: 세션 ID
-        request: 새 이름
-
-    Returns:
-        업데이트 결과
-    """
-    try:
-        await storage.update_session_name(session_id, request.name)
-        return {
-            "session_id": session_id,
-            "name": request.name,
-            "status": "updated"
-        }
-    except Exception as e:
-        logger.error(f"세션 이름 변경 실패 ({session_id}): {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/sessions/{session_id}/history")
-async def get_session_history(session_id: str, username: str = Depends(verify_auth_token)):
-    """
-    세션 히스토리 조회
-
-    Args:
-        session_id: 세션 ID
-
-    Returns:
-        히스토리 텍스트
-    """
-    history = await storage.get_history(session_id)
-    return {
-        "session_id": session_id,
-        "history": "".join(history),
-        "chunks": len(history)
-    }
-
-
-# 파일 시스템 헬퍼 함수
-
-
-import asyncio
-import subprocess
-from pathlib import Path
-
-async def get_git_status(path: Path) -> dict:
-    """Git 상태 조회 (M, ??, A, D 등)"""
-    try:
-        # 워크스페이스 루트에서 실행
-        workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-        # --porcelain=v1: 기계 친화적 출력, -uall: 모든 untracked 파일 표시
         proc = await asyncio.create_subprocess_exec(
             "git", "status", "--porcelain=v1", "-uall",
-            cwd=workspace_abs,
+            cwd=os.path.abspath(WORKSPACE_ROOT),
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
+            stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await proc.communicate()
-        
-        status_dict = {}
+        stdout, _err = await proc.communicate()
+        result: dict = {}
         if stdout:
             for line in stdout.decode().splitlines():
                 if len(line) > 3:
-                    # ' M frontend/src/App.jsx' -> status='M', file_path='frontend/src/App.jsx'
-                    status = line[:2].strip()
-                    file_path = line[3:].strip().strip('"') # 따옴표 제거
-                    status_dict[file_path] = status
-        
-        return status_dict
+                    result[line[3:].strip().strip('"')] = line[:2].strip()
+        return result
     except Exception as e:
-        logger.error(f"Git status failed: {e}")
+        logger.error("git status failed: %s", e)
         return {}
 
-# 파일 시스템 API
+
 @app.get("/api/files/workspace")
 async def get_workspace_info(username: str = Depends(verify_auth_token)):
-    """현재 워크스페이스 정보 조회"""
     return {
         "root": os.path.abspath(WORKSPACE_ROOT),
-        "name": os.path.basename(os.path.abspath(WORKSPACE_ROOT))
+        "name": os.path.basename(os.path.abspath(WORKSPACE_ROOT)),
     }
 
 
 @app.get("/api/files")
 async def list_files(
     path: str = Query(""),
-    username: str = Depends(verify_auth_token)
+    username: str = Depends(verify_auth_token),
 ):
-    """
-    디렉토리 내용 조회
-    """
-    try:
-        workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-        safe_path = validate_path(path)
-        
-        logger.info(f"--- Explorer API Call ---")
-        logger.info(f"User: {username}")
-        logger.info(f"WORKSPACE_ROOT: {workspace_abs}")
-        logger.info(f"Requested Path: '{path}'")
-        logger.info(f"Resolved Safe Path: {safe_path}")
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    safe_path = validate_path(path)
 
-        if not safe_path.exists():
-            logger.error(f"Path does not exist: {safe_path}")
-            raise HTTPException(status_code=404, detail=f"Path not found: {safe_path}")
+    if not safe_path.exists():
+        raise HTTPException(status_code=404, detail=f"Path not found: {safe_path}")
+    if not safe_path.is_dir():
+        raise HTTPException(status_code=400, detail="Not a directory")
 
-        if not safe_path.is_dir():
-            logger.error(f"Path is not a directory: {safe_path}")
-            raise HTTPException(status_code=400, detail="Not a directory")
+    git_statuses = await get_git_status(safe_path)
+    items = []
+    for item in safe_path.iterdir():
+        try:
+            relative = os.path.relpath(os.path.abspath(str(item)), workspace_abs).replace("\\", "/")
+            git_status = git_statuses.get(relative)
+            if not git_status and item.is_dir():
+                for f_path in git_statuses:
+                    if f_path.startswith(relative + "/"):
+                        git_status = "M"
+                        break
+            items.append({
+                "name": item.name,
+                "path": relative,
+                "type": "directory" if item.is_dir() else "file",
+                "size": item.stat().st_size if item.is_file() else None,
+                "modified": item.stat().st_mtime,
+                "git_status": git_status,
+            })
+        except Exception as e:
+            logger.warning("Failed to read item %s: %s", item, e)
+            continue
 
-        # Git 상태 가져오기
-        git_statuses = await get_git_status(safe_path)
-
-        items = []
-        for item in safe_path.iterdir():
-            try:
-                item_abs = os.path.abspath(str(item))
-                relative_path = os.path.relpath(item_abs, workspace_abs).replace('\\', '/')
-                
-                # 폴더인 경우, 해당 폴더 내부 파일 중 Git 변경사항이 있는지 확인
-                git_status = git_statuses.get(relative_path)
-                
-                # 폴더에 직접적인 상태는 없어도 내부 파일이 변경된 경우 표시 로직 (선택사항)
-                if not git_status and item.is_dir():
-                    # 'frontend/'로 시작하는 변경사항이 있으면 폴더도 M으로 표시하거나 힌트 제공
-                    for f_path, f_status in git_statuses.items():
-                        if f_path.startswith(relative_path + '/'):
-                            git_status = "M" # 하위 변경됨 표시
-                            break
-
-                items.append({
-                    "name": item.name,
-                    "path": relative_path,
-                    "type": "directory" if item.is_dir() else "file",
-                    "size": item.stat().st_size if item.is_file() else None,
-                    "modified": item.stat().st_mtime,
-                    "git_status": git_status
-                })
-            except Exception as e:
-                logger.warning(f"Failed to read item {item}: {e}")
-                continue
-
-        items.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
-        logger.info(f"Found {len(items)} items. First few: {[i['name'] for i in items[:3]]}")
-        
-        return {"items": items}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"CRITICAL ERROR in list_files: {str(e)}")
-        return JSONResponse(
-            status_code=500, 
-            content={"detail": str(e), "workspace": WORKSPACE_ROOT, "requested": path}
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to list directory {path}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    items.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
+    return {"items": items}
 
 
 @app.get("/api/files/search")
 async def search_files(
     q: str = Query("", min_length=0),
     limit: int = Query(200, ge=1, le=500),
-    username: str = Depends(verify_auth_token)
+    username: str = Depends(verify_auth_token),
 ):
-    """워크스페이스 전체 파일 검색 (Quick Open 용)"""
     query = q.strip().lower()
     if not query:
         return {"items": []}
 
     workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-    root = Path(workspace_abs)
-
-    ignored_dirs = {
-        ".git",
-        "node_modules",
-        "dist",
-        "build",
-        "coverage",
-        "__pycache__",
-        ".venv",
-        "venv",
-        ".next",
-        ".turbo",
-        ".idea",
-        ".vscode",
-    }
-
+    ignored = {".git", "node_modules", "dist", "build", "coverage", "__pycache__",
+               ".venv", "venv", ".next", ".turbo", ".idea", ".vscode"}
     matches = []
-
     try:
-        for current_root, dirs, files in os.walk(root):
-            dirs[:] = [d for d in dirs if d not in ignored_dirs]
-
+        for current_root, dirs, files in os.walk(workspace_abs):
+            dirs[:] = [d for d in dirs if d not in ignored]
             for file_name in files:
-                abs_path = Path(current_root) / file_name
-                rel_path = os.path.relpath(abs_path, workspace_abs).replace('\\', '/')
-                haystack = f"{file_name} {rel_path}".lower()
-
-                if query not in haystack:
+                rel = os.path.relpath(os.path.join(current_root, file_name), workspace_abs).replace("\\", "/")
+                if query not in f"{file_name} {rel}".lower():
                     continue
-
-                matches.append({
-                    "name": file_name,
-                    "path": rel_path,
-                })
-
+                matches.append({"name": file_name, "path": rel})
                 if len(matches) >= limit:
                     break
-
             if len(matches) >= limit:
                 break
-
         matches.sort(key=lambda item: (not item["name"].lower().startswith(query), item["path"].lower()))
         return {"items": matches}
     except Exception as e:
-        logger.error(f"Failed to search files (q={q}): {e}")
+        logger.error("search files failed (q=%s): %s", q, e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/files/raw")
+async def get_raw_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
+    safe = validate_path(path)
+    if not safe.exists() or not safe.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(str(safe))
 
 
 @app.get("/api/files/read")
-async def read_file(
-    path: str = Query(...),
-    username: str = Depends(verify_auth_token)
-):
-    """
-    파일 내용 읽기
-
-    Args:
-        path: 파일 경로
-
-    Returns:
-        파일 내용
-    """
+async def read_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
+    safe = validate_path(path)
+    if not safe.exists():
+        raise HTTPException(status_code=404, detail="File not found")
+    if not safe.is_file():
+        raise HTTPException(status_code=400, detail="Not a file")
+    if safe.stat().st_size > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large (max 10MB)")
     try:
-        safe_path = validate_path(path)
-
-        if not safe_path.exists():
-            raise HTTPException(status_code=404, detail="File not found")
-
-        if not safe_path.is_file():
-            raise HTTPException(status_code=400, detail="Not a file")
-
-        # 파일 크기 제한 (10MB)
-        if safe_path.stat().st_size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="File too large (max 10MB)")
-
-        try:
-            content = safe_path.read_text(encoding='utf-8')
-            return {"content": content, "path": path}
-        except UnicodeDecodeError:
-            raise HTTPException(status_code=400, detail="Binary file not supported")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to read file {path}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"content": safe.read_text(encoding="utf-8"), "path": path}
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Binary file not supported")
 
 
 @app.post("/api/files/write")
-async def write_file(
-    request: FileWriteRequest,
-    username: str = Depends(verify_auth_token)
-):
-    """
-    파일 쓰기
-
-    Args:
-        request: 파일 경로 및 내용
-
-    Returns:
-        작업 결과
-    """
-    try:
-        safe_path = validate_path(request.path)
-
-        # 부모 디렉토리가 없으면 생성
-        safe_path.parent.mkdir(parents=True, exist_ok=True)
-
-        safe_path.write_text(request.content, encoding='utf-8')
-
-        logger.info(f"File written: {request.path} by {username}")
-        return {"status": "written", "path": request.path}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to write file {request.path}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def write_file(request: FileWriteRequest, username: str = Depends(verify_auth_token)):
+    safe = validate_path(request.path)
+    safe.parent.mkdir(parents=True, exist_ok=True)
+    safe.write_text(request.content, encoding="utf-8")
+    return {"status": "written", "path": request.path}
 
 
 @app.post("/api/files/move")
-async def move_file(
-    request: FileMoveRequest,
-    username: str = Depends(verify_auth_token)
-):
-    """
-    파일/폴더 이동 또는 이름 변경
-
-    Args:
-        request: 소스 및 대상 경로
-
-    Returns:
-        작업 결과
-    """
-    try:
-        source_path = validate_path(request.source)
-        destination_path = validate_path(request.destination)
-
-        if not source_path.exists():
-            raise HTTPException(status_code=404, detail="Source not found")
-
-        if destination_path.exists():
-            raise HTTPException(status_code=409, detail="Destination already exists")
-
-        # 대상 상위 디렉토리가 없으면 생성
-        destination_path.parent.mkdir(parents=True, exist_ok=True)
-
-        shutil.move(str(source_path), str(destination_path))
-
-        logger.info(f"Moved: {request.source} -> {request.destination} by {username}")
-        return {"status": "moved", "source": request.source, "destination": request.destination}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to move {request.source} to {request.destination}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def move_file(request: FileMoveRequest, username: str = Depends(verify_auth_token)):
+    src = validate_path(request.source)
+    dst = validate_path(request.destination)
+    if not src.exists():
+        raise HTTPException(status_code=404, detail="Source not found")
+    if dst.exists():
+        raise HTTPException(status_code=409, detail="Destination already exists")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(src), str(dst))
+    return {"status": "moved", "source": request.source, "destination": request.destination}
 
 
 @app.post("/api/files/create")
-async def create_file(
-    request: FileCreateRequest,
-    username: str = Depends(verify_auth_token)
-):
-    """
-    파일/폴더 생성
-
-    Args:
-        request: 경로 및 타입
-
-    Returns:
-        작업 결과
-    """
-    try:
-        safe_path = validate_path(request.path)
-
-        if safe_path.exists():
-            raise HTTPException(status_code=409, detail="Already exists")
-
-        if request.type == "directory":
-            safe_path.mkdir(parents=True, exist_ok=True)
-        elif request.type == "file":
-            safe_path.parent.mkdir(parents=True, exist_ok=True)
-            safe_path.touch()
-        else:
-            raise HTTPException(status_code=400, detail="Invalid type (must be 'file' or 'directory')")
-
-        logger.info(f"{request.type.capitalize()} created: {request.path} by {username}")
-        return {"status": "created", "path": request.path, "type": request.type}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to create {request.type} {request.path}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def create_file(request: FileCreateRequest, username: str = Depends(verify_auth_token)):
+    safe = validate_path(request.path)
+    if safe.exists():
+        raise HTTPException(status_code=409, detail="Already exists")
+    if request.type == "directory":
+        safe.mkdir(parents=True, exist_ok=True)
+    elif request.type == "file":
+        safe.parent.mkdir(parents=True, exist_ok=True)
+        safe.touch()
+    else:
+        raise HTTPException(status_code=400, detail="Invalid type (must be 'file' or 'directory')")
+    return {"status": "created", "path": request.path, "type": request.type}
 
 
 @app.delete("/api/files")
-async def delete_file(
-    path: str = Query(...),
-    username: str = Depends(verify_auth_token)
-):
-    """
-    파일/폴더 삭제
-
-    Args:
-        path: 경로
-
-    Returns:
-        작업 결과
-    """
-    try:
-        safe_path = validate_path(path)
-
-        if not safe_path.exists():
-            raise HTTPException(status_code=404, detail="Not found")
-
-        if safe_path.is_dir():
-            shutil.rmtree(safe_path)
-        else:
-            safe_path.unlink()
-
-        logger.info(f"Deleted: {path} by {username}")
-        return {"status": "deleted", "path": path}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to delete {path}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+async def delete_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
+    safe = validate_path(path)
+    if not safe.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    if safe.is_dir():
+        shutil.rmtree(safe)
+    else:
+        safe.unlink()
+    return {"status": "deleted", "path": path}
 
 
-# 에러 핸들러
+# ---------------------- 에러 / 정적 ----------------------
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """전역 예외 핸들러"""
-    logger.error(f"Unhandled exception: {exc}")
-    return JSONResponse(
-        status_code=500,
-        content={"detail": "Internal server error"}
-    )
+    logger.error("Unhandled exception: %s", exc, exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
-# Static files for frontend (프로덕션 배포용)
-# 정적 파일이 존재하는 경우에만 마운트
 STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
     app.mount("/assets", CachedStaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
 
     @app.get("/")
     async def serve_frontend():
-        """프론트엔드 index.html 서빙"""
         return FileResponse(str(STATIC_DIR / "index.html"))
 
     @app.get("/{full_path:path}")
     async def catch_all(full_path: str):
-        """SPA fallback - 모든 경로를 index.html로"""
-        # API 경로는 제외
         if full_path.startswith("api/") or full_path.startswith("ws/"):
             raise HTTPException(status_code=404, detail="Not found")
-
-        # 파일이 존재하면 반환
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
             return FileResponse(str(file_path))
-
-        # 그 외는 index.html 반환 (SPA routing)
         return FileResponse(str(STATIC_DIR / "index.html"))
 
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(
         "main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
+        host=os.getenv("HOST", "0.0.0.0"),
+        port=int(os.getenv("APP_PORT", "8000")),
+        reload=os.getenv("RELOAD", "true").lower() == "true",
+        log_level=os.getenv("LOG_LEVEL", "info").lower(),
     )

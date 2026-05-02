@@ -1,0 +1,166 @@
+"""
+tmux 매니저: 전용 tmux 서버 소켓을 통한 영속 세션 관리
+
+설계 요점
+- 전용 소켓 (`-L iterminallist`) 으로 시스템의 다른 tmux와 격리
+- 세션명 = UUID (불변), 사용자 표시명은 SQLite 별도 관리
+- 세션은 detached 상태로 생성되어 tmux 서버에 살아있음
+- 백엔드 재시작과 무관하게 tmux 서버가 살아있는 한 세션 보존
+- 클라이언트 attach는 ws_bridge.py에서 PTY로 spawn
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import shutil
+from dataclasses import dataclass
+from typing import List, Optional
+
+logger = logging.getLogger(__name__)
+
+
+TMUX_SOCKET_NAME = os.getenv("TMUX_SOCKET_NAME", "iterminallist")
+TMUX_BIN = shutil.which("tmux") or "tmux"
+DEFAULT_HISTORY_LIMIT = int(os.getenv("TMUX_HISTORY_LIMIT", "100000"))
+
+
+@dataclass(frozen=True)
+class TmuxSessionInfo:
+    """tmux 세션 메타 (read-only 스냅샷)"""
+    name: str
+    windows: int
+    attached: bool
+    created: int
+
+
+class TmuxError(RuntimeError):
+    """tmux 명령 실패"""
+
+
+class TmuxManager:
+    """
+    tmux 서버 wrapper. 세션의 생사만 책임진다.
+    PTY/WebSocket 브리지는 ws_bridge.py 담당.
+    """
+
+    def __init__(self, socket_name: str = TMUX_SOCKET_NAME, history_limit: int = DEFAULT_HISTORY_LIMIT):
+        self.socket_name = socket_name
+        self.history_limit = history_limit
+
+    def _base_args(self) -> List[str]:
+        return [TMUX_BIN, "-L", self.socket_name]
+
+    async def _run(self, *args: str, check: bool = True) -> tuple[int, str, str]:
+        """tmux 명령 실행 → (rc, stdout, stderr)"""
+        cmd = [*self._base_args(), *args]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        rc = proc.returncode if proc.returncode is not None else -1
+        out = stdout.decode("utf-8", errors="replace").strip()
+        err = stderr.decode("utf-8", errors="replace").strip()
+        if check and rc != 0:
+            raise TmuxError(f"tmux {' '.join(args)} failed (rc={rc}): {err or out}")
+        return rc, out, err
+
+    async def server_alive(self) -> bool:
+        """tmux 서버 응답 여부"""
+        rc, _, _ = await self._run("list-sessions", check=False)
+        # rc=0 (세션 존재) 또는 rc!=0 with "no server"/"no sessions" 모두 정상 분기
+        return rc == 0 or rc == 1  # 1 = no sessions, 서버는 살아있을 수 있음
+
+    async def session_exists(self, session_id: str) -> bool:
+        rc, _, _ = await self._run("has-session", "-t", f"={session_id}", check=False)
+        return rc == 0
+
+    async def create_session(
+        self,
+        session_id: str,
+        cols: int = 80,
+        rows: int = 24,
+        cwd: Optional[str] = None,
+        shell: Optional[str] = None,
+    ) -> None:
+        """새 detached 세션 생성. 이미 존재하면 no-op."""
+        if await self.session_exists(session_id):
+            logger.debug("tmux session already exists: %s", session_id)
+            return
+
+        args = [
+            "new-session", "-d",
+            "-s", session_id,
+            "-x", str(max(cols, 1)),
+            "-y", str(max(rows, 1)),
+        ]
+        if cwd:
+            args += ["-c", cwd]
+
+        # 셸을 명시하면 첫 윈도우의 명령으로 사용. 미지정 시 사용자 기본 셸.
+        if shell:
+            args.append(shell)
+
+        await self._run(*args)
+        # 스크롤백 길이 + 마우스 등 세션 옵션 적용
+        await self._run("set-option", "-t", session_id, "history-limit", str(self.history_limit), check=False)
+        await self._run("set-option", "-t", session_id, "mouse", "on", check=False)
+        # 다중 클라이언트일 때 마지막 활성 클라이언트 크기를 따라가도록
+        await self._run("set-option", "-t", session_id, "window-size", "latest", check=False)
+        # 256색/truecolor 활성화
+        await self._run("set-option", "-t", session_id, "default-terminal", "tmux-256color", check=False)
+        await self._run("set-option", "-ag", "-t", session_id, "terminal-overrides", ",*256col*:Tc", check=False)
+
+        logger.info("tmux session created: %s (%dx%d, cwd=%s, shell=%s)", session_id, cols, rows, cwd, shell)
+
+    async def kill_session(self, session_id: str) -> None:
+        if not await self.session_exists(session_id):
+            return
+        await self._run("kill-session", "-t", f"={session_id}", check=False)
+        logger.info("tmux session killed: %s", session_id)
+
+    async def resize_window(self, session_id: str, cols: int, rows: int) -> None:
+        """세션의 모든 윈도우 크기 조정 (어태치된 클라이언트가 없을 때 유용)."""
+        if not await self.session_exists(session_id):
+            return
+        await self._run(
+            "resize-window", "-t", session_id,
+            "-x", str(max(cols, 1)),
+            "-y", str(max(rows, 1)),
+            check=False,
+        )
+
+    async def list_sessions(self) -> List[TmuxSessionInfo]:
+        rc, out, _ = await self._run(
+            "list-sessions",
+            "-F", "#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created}",
+            check=False,
+        )
+        if rc != 0 or not out:
+            return []
+        result: List[TmuxSessionInfo] = []
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) != 4:
+                continue
+            name, windows, attached, created = parts
+            try:
+                result.append(TmuxSessionInfo(
+                    name=name,
+                    windows=int(windows or 0),
+                    attached=int(attached or 0) > 0,
+                    created=int(created or 0),
+                ))
+            except ValueError:
+                continue
+        return result
+
+    def attach_argv(self, session_id: str) -> List[str]:
+        """ws_bridge에서 PTY로 spawn할 때 쓰는 argv. 분리해서 권한·테스트 용이성 확보."""
+        return [*self._base_args(), "attach-session", "-t", session_id]
+
+
+# 전역 인스턴스 (main.py에서 import)
+tmux_manager = TmuxManager()

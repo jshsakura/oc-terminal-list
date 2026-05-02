@@ -1,6 +1,9 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const BACKEND_HOST = process.env.VITE_BACKEND_HOST || 'localhost'
+const BACKEND_PORT = process.env.VITE_BACKEND_PORT || '8000'
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -8,15 +11,15 @@ export default defineConfig({
     port: 5173,
     allowedHosts: [
       'term.jshsakura.com',
-      '.jshsakura.com', // 모든 서브도메인 허용
+      '.jshsakura.com',
     ],
     proxy: {
       '/api': {
-        target: 'http://iterminal-backend:8000',
+        target: `http://${BACKEND_HOST}:${BACKEND_PORT}`,
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://iterminal-backend:8000',
+        target: `ws://${BACKEND_HOST}:${BACKEND_PORT}`,
         ws: true,
       },
     },
