@@ -123,11 +123,6 @@ function App() {
     if (confirmModal.isLogout) {
       logout();
     } else if (confirmModal.sessionId) {
-      if (sessions.length <= 1) {
-        setNotification({ isOpen: true, message: t('cannotCloseLastSession') });
-        setConfirmModal({ isOpen: false, sessionId: null, title: '', message: '', isLogout: false });
-        return;
-      }
       await deleteSession(confirmModal.sessionId);
     }
     setConfirmModal({ isOpen: false, sessionId: null, title: '', message: '', isLogout: false });

@@ -132,7 +132,9 @@ class TmuxManager:
         # 세션 옵션: 웹 임베드 환경에 적합한 기본값
         opts = [
             ("history-limit", str(self.history_limit)),
-            ("mouse", "on"),
+            # mouse 는 일부러 off — 웹 터미널에서 우클릭/스크롤은 xterm.js 가
+            # 처리해야 자연스럽다. tmux 가 가로채면 우클릭 붙여넣기 등이 깨짐.
+            ("mouse", "off"),
             ("window-size", "latest"),         # 다중 클라이언트시 최근 활성 사이즈
             ("default-terminal", "tmux-256color"),
             ("status", "off"),                 # 하단 상태바 숨김 (xterm.js 임베드 친화)

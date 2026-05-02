@@ -19,9 +19,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Vite
+# Vite / 빌드 산출물
 frontend/dist/
 frontend/.vite/
+backend/static/
 
 # IDE
 .vscode/

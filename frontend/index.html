@@ -9,11 +9,24 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="Terminal List" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nerdfonts-web@1.0.1/nf.css" />
     <title>Terminal List</title>
     <style>
+      /* JetBrainsMono Nerd Font (로컬 번들, 패치된 모노 + Nerd 글리프 포함) */
+      @font-face {
+        font-family: 'JetBrainsMono Nerd Font Mono';
+        src: url('/fonts/JetBrainsMonoNerdFontMono-Regular.ttf') format('truetype');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+      @font-face {
+        font-family: 'JetBrainsMono Nerd Font Mono';
+        src: url('/fonts/JetBrainsMonoNerdFontMono-Bold.ttf') format('truetype');
+        font-weight: 700;
+        font-style: normal;
+        font-display: swap;
+      }
+
       * {
         margin: 0;
         padding: 0;
@@ -59,6 +72,11 @@
             e.preventDefault();
           }
         }
+      });
+
+      // 브라우저 기본 우클릭 메뉴 전역 차단 (커스텀 메뉴는 컴포넌트별로 처리)
+      document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
       });
     </script>
     <script type="module" src="/src/main.jsx"></script>

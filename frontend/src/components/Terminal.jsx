@@ -31,6 +31,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
   const intentionalCloseRef = useRef(false);
   const lastDimsRef = useRef({ cols: 0, rows: 0 });
   const [isReady, setIsReady] = useState(false);
+  const [hasContent, setHasContent] = useState(false);
 
   // 스마트 스크롤 훅
   const { handleUserScroll, handleNewData } = useSmartScroll(terminalRef, {
@@ -47,6 +48,7 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     if (!terminalRef.current) return;
 
     setIsReady(false);
+    setHasContent(false);
 
     // 1. xterm.js 인스턴스 생성 (최신 프리미엄 옵션 적용)
     const terminalFont = normalizeTerminalFontFamily(settings.fontFamily);
@@ -145,17 +147,25 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     container.addEventListener('contextmenu', handleContextMenu);
     container.addEventListener('keydown', handleKeyDown);
 
-    setTimeout(() => {
+    // ⚠️  WS 연결 전에 fit() 동기 호출 — xterm.js 의 cols/rows 와 백엔드/tmux 에
+    // 알리는 차원이 일치하도록 한다. 늦게 fit 하면 첫 렌더가 80x24 로 나간 뒤
+    // 컨테이너 실제 크기로 리사이즈되며 초기 viewport 가 잘려 빈 화면처럼 보인다.
+    try {
       fitAddon.fit();
-      term.focus();
-    }, 100);
+    } catch (e) {
+      // 컨테이너가 아직 0x0 인 극단 케이스 방어
+    }
+    term.focus();
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
     const token = localStorage.getItem('auth_token');
     const shell = encodeURIComponent(settings.defaultShell || 'bash');
-    
-    const { cols, rows } = fitAddon.proposeDimensions() || { cols: 80, rows: 24 };
+
+    const proposed = fitAddon.proposeDimensions();
+    const cols = proposed?.cols || term.cols || 80;
+    const rows = proposed?.rows || term.rows || 24;
+    lastDimsRef.current = { cols, rows };
     const wsUrl = `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}`;
     
     const socket = new WebSocket(wsUrl);
@@ -186,6 +196,8 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
 
       term.write(mergedOutput, () => {
         handleNewData();
+        // 첫 데이터가 화면에 그려지면 스켈레톤 제거
+        setHasContent(true);
       });
     };
 
@@ -400,15 +412,40 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
 
   return (
     <>
-      {/* 상태 표시 레이어 */}
-      {!isReady && (
-        <div style={{
-          ...styles.statusOverlay,
-          backgroundColor: currentTheme.ui.bg,
-          color: currentTheme.ui.text,
-        }}>
-          <div className="terminal-loader" style={{ borderColor: currentTheme.ui.accent }}></div>
-          <div style={{ marginTop: '15px', fontWeight: '600' }}>{t('connecting')}</div>
+      <style>{`
+        @keyframes term-skeleton-pulse {
+          0%   { opacity: 0.35; }
+          50%  { opacity: 0.7; }
+          100% { opacity: 0.35; }
+        }
+      `}</style>
+
+      {/* 스켈레톤: 첫 콘텐츠가 그려지기 전까지 표시 */}
+      {!hasContent && (
+        <div
+          aria-hidden="true"
+          style={{
+            ...styles.statusOverlay,
+            backgroundColor: currentTheme.ui.bg,
+            padding: '14px 18px',
+            justifyContent: 'flex-start',
+            alignItems: 'stretch',
+            gap: '10px',
+          }}
+        >
+          {[62, 38, 84, 50, 72, 30, 66, 44, 78, 40].map((width, i) => (
+            <div
+              key={i}
+              style={{
+                height: '12px',
+                width: `${width}%`,
+                borderRadius: '4px',
+                background: currentTheme.ui.bgTertiary || currentTheme.ui.borderLight || '#313244',
+                animation: 'term-skeleton-pulse 1.4s ease-in-out infinite',
+                animationDelay: `${i * 90}ms`,
+              }}
+            />
+          ))}
         </div>
       )}
 
@@ -423,8 +460,8 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
         style={{
           width: '100%',
           height: '100%',
-          opacity: isReady ? 1 : 0,
-          transition: 'opacity 0.2s ease',
+          opacity: hasContent ? 1 : 0,
+          transition: 'opacity 0.18s ease',
           caretColor: 'transparent',
           outline: 'none',
         }}

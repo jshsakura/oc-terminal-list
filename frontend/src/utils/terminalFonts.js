@@ -1,6 +1,7 @@
-export const DEFAULT_TERMINAL_FONT_FAMILY = '"MesloLGS NF", "MesloLGS Nerd Font", "CaskaydiaCove Nerd Font", "JetBrains Mono", "NerdFontsSymbols Nerd Font", Menlo, Monaco, monospace';
+// 로컬 번들 패치 폰트가 1순위. 사용자 시스템 설치 폰트는 그 다음.
+export const DEFAULT_TERMINAL_FONT_FAMILY = '"JetBrainsMono Nerd Font Mono", "MesloLGS NF", "CaskaydiaCove Nerd Font", "JetBrains Mono", Menlo, Monaco, monospace';
 
-const NERD_FONT_FALLBACK = '"NerdFontsSymbols Nerd Font"';
+const NERD_FONT_FALLBACK = '"JetBrainsMono Nerd Font Mono"';
 
 export const normalizeTerminalFontFamily = (fontFamily) => {
   if (typeof fontFamily !== 'string') {
