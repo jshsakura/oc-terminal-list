@@ -1,8 +1,18 @@
 import { useMemo, useState } from 'react';
-import { Plus, Search, Server, KeyRound, Edit3, Trash2 } from 'lucide-react';
+import { Plus, Search, Server, KeyRound, Edit3, Trash2, Monitor } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+
+// 항상 존재하는 \"이 머신\" 가상 호스트. id 가 'local' 이면 onConnect 측에서 분기.
+const LOCAL_HOST = {
+  id: 'local',
+  name: 'This machine',
+  hostname: 'localhost',
+  ssh_user: '',
+  port: 0,
+  isLocal: true,
+};
 
 const HostList = ({
   hosts,
@@ -48,16 +58,26 @@ const HostList = ({
       </div>
 
       <div style={styles.list}>
-        {filtered.length === 0 ? (
+        {/* 항상 첫 줄: 로컬 머신 (저장된 원격이 비어있어도 1개는 보장) */}
+        <LocalRow
+          onClick={() => onConnect?.(LOCAL_HOST)}
+          hovered={hoverId === 'local'}
+          onMouseEnter={() => setHoverId('local')}
+          onMouseLeave={() => setHoverId(null)}
+          label={t('thisMachine') || 'This machine'}
+          subLabel={t('localTmuxHint') || 'Local tmux session'}
+        />
+
+        {/* 저장된 원격 호스트 */}
+        {filtered.length === 0 && filter.trim() === '' ? (
           <div style={styles.empty}>
-            <div style={styles.emptyTitle}>
-              {hosts.length === 0 ? (t('noHosts') || 'No hosts yet') : (t('noResults') || 'No matches')}
-            </div>
-            <div style={styles.emptyHint}>
-              {hosts.length === 0
-                ? (t('addHostHint') || 'Add a server to connect via SSH.')
-                : (t('tryDifferentSearch') || 'Try a different search.')}
-            </div>
+            <div style={styles.emptyTitle}>{t('noRemoteHosts') || 'No saved remote hosts'}</div>
+            <div style={styles.emptyHint}>{t('addHostHint') || 'Add a server to connect via SSH.'}</div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div style={styles.empty}>
+            <div style={styles.emptyTitle}>{t('noResults') || 'No matches'}</div>
+            <div style={styles.emptyHint}>{t('tryDifferentSearch') || 'Try a different search.'}</div>
           </div>
         ) : (
           filtered.map((h) => {
@@ -98,6 +118,26 @@ const HostList = ({
     </>
   );
 };
+
+const LocalRow = ({ onClick, hovered, onMouseEnter, onMouseLeave, label, subLabel }) => (
+  <div
+    onClick={onClick}
+    onMouseEnter={onMouseEnter}
+    onMouseLeave={onMouseLeave}
+    style={{
+      ...styles.row,
+      background: hovered ? color.surface0 : 'transparent',
+    }}
+  >
+    <div style={{ ...styles.localIcon }}>
+      <Monitor size={12} strokeWidth={2} />
+    </div>
+    <div style={styles.rowBody}>
+      <div style={styles.rowName}>{label}</div>
+      <div style={styles.rowSub}>{subLabel}</div>
+    </div>
+  </div>
+);
 
 const RowAction = ({ onClick, icon: Icon, title, tone }) => (
   <button
@@ -192,6 +232,18 @@ const styles = {
     height: '7px',
     borderRadius: radius.full,
     boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.25)',
+  },
+  localIcon: {
+    flexShrink: 0,
+    width: '20px',
+    height: '20px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: color.surface0,
+    color: color.accent,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
   },
   rowBody: {
     flex: 1,

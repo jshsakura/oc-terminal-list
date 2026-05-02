@@ -171,6 +171,9 @@ export const locales = {
     confirmDeleteKey: 'Delete this SSH key?',
     remoteLabel: 'remote',
     needAnotherSessionForSplit: 'Create another session to split.',
+    thisMachine: 'This machine',
+    localTmuxHint: 'Local tmux session',
+    noRemoteHosts: 'No saved remote hosts',
 
     // Empty State
     noTerminals: 'No sessions yet',
@@ -390,6 +393,9 @@ export const locales = {
     confirmDeleteKey: '이 SSH 키를 삭제하시겠습니까?',
     remoteLabel: '원격',
     needAnotherSessionForSplit: '분할하려면 다른 세션을 먼저 만드세요.',
+    thisMachine: '이 머신',
+    localTmuxHint: '로컬 tmux 세션',
+    noRemoteHosts: '저장된 원격 호스트 없음',
 
     // 빈 화면
     noTerminals: '활성 세션 없음',

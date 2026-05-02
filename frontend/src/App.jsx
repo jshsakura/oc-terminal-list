@@ -78,7 +78,12 @@ function App() {
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
 
-  const openHost = useCallback((host) => {
+  const openHost = useCallback(async (host) => {
+    // \"This machine\" 가상 호스트 → 로컬 tmux 세션 새로 생성
+    if (host?.id === 'local' || host?.isLocal) {
+      await createSession(null);
+      return;
+    }
     const tabId = `host:${host.id}:${Date.now()}`;
     setHostTabs(prev => [...prev, {
       id: tabId,
@@ -88,7 +93,7 @@ function App() {
       kind: 'host',
     }]);
     setActiveSessionId(tabId);
-  }, [setActiveSessionId]);
+  }, [createSession, setActiveSessionId]);
 
   // UI State
   const [isMobile, setIsMobile] = useState(false);
@@ -749,19 +754,16 @@ function App() {
             </div>
           )}
 
-          {/* 터미널 영역 (남은 공간 차지) */}
+          {/* 터미널 영역 (남은 공간 차지) — 외곽 패딩 없음. 여백은 pane 내부에서 처리 */}
           <div
             ref={terminalRef}
             style={{
               ...AppStyles.terminalContainer,
-              backgroundColor: currentTheme.ui.bg,
+              backgroundColor: currentTheme.background,
               flex: 1,
               userSelect: 'text',
               WebkitUserSelect: 'text',
-              paddingTop: isMobile ? '5px' : '6px',
-              paddingBottom: isMobile ? '80px' : '6px',
-              paddingLeft: '10px',
-              paddingRight: '10px',
+              paddingBottom: isMobile ? '80px' : '0',
               minHeight: '150px'
             }}
           >
