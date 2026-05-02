@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, memo, useMemo } from 'react';
-import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search } from 'lucide-react';
+import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
+import HostList from './HostList';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -23,6 +24,13 @@ const Sidebar = ({
   onCloseSession,
   onRenameSession,
   onReconnectSession,
+  // hosts
+  hosts = [],
+  onConnectHost,
+  onAddHost,
+  onEditHost,
+  onDeleteHost,
+  onManageKeys,
   language = 'en',
   isMobile = false,
   width = 260,
@@ -34,7 +42,7 @@ const Sidebar = ({
   viewportHeight,
 }) => {
   const { t } = useTranslation(language);
-  const [activeTab, setActiveTab] = useState('sessions'); // sessions | files
+  const [activeTab, setActiveTab] = useState('hosts'); // hosts | sessions | files
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editingName, setEditingName] = useState('');
   const [systemStats, setSystemStats] = useState({ cpu: 0, ram: 0, disk: 0 });
@@ -109,10 +117,16 @@ const Sidebar = ({
         {/* 탭 헤더 (세그먼트 컨트롤) */}
         <div style={styles.tabRow}>
           <SegTab
+            active={activeTab === 'hosts'}
+            onClick={() => setActiveTab('hosts')}
+            icon={Server}
+            label={t('hosts') || 'Hosts'}
+          />
+          <SegTab
             active={activeTab === 'sessions'}
             onClick={() => setActiveTab('sessions')}
             icon={Terminal}
-            label={t('sessions')}
+            label={t('active') || t('sessions')}
           />
           <SegTab
             active={activeTab === 'files'}
@@ -126,6 +140,22 @@ const Sidebar = ({
             </button>
           )}
         </div>
+
+        {/* hosts 탭 */}
+        {activeTab === 'hosts' && (
+          <HostList
+            hosts={hosts}
+            onConnect={(h) => {
+              onConnectHost?.(h);
+              if (isMobile) onClose();
+            }}
+            onAddHost={onAddHost}
+            onEditHost={onEditHost}
+            onDeleteHost={onDeleteHost}
+            onManageKeys={onManageKeys}
+            t={t}
+          />
+        )}
 
         {/* sessions 탭 */}
         {activeTab === 'sessions' && (

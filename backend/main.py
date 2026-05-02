@@ -36,6 +36,8 @@ from auth_manager import AuthManager
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
 from ws_bridge import TmuxClientBridge
+from host_manager import HostBridge, resolve_host_secrets
+from vault import encrypt_str
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -136,6 +138,27 @@ class FileCreateRequest(BaseModel):
 class FileMoveRequest(BaseModel):
     source: str
     destination: str
+
+
+class SshKeyCreateRequest(BaseModel):
+    name: str
+    private_key: str
+    passphrase: Optional[str] = None
+    public_key: Optional[str] = None
+
+
+class HostUpsertRequest(BaseModel):
+    name: str
+    hostname: str
+    port: int = 22
+    ssh_user: str
+    auth_method: str = "key"        # 'key' | 'password'
+    key_id: Optional[str] = None
+    password: Optional[str] = None  # 평문으로 들어와서 vault 로 암호화 후 저장
+    color_index: int = 0
+    group_name: Optional[str] = None
+    use_remote_tmux: bool = True
+    remote_tmux_session: Optional[str] = "mobile"
 
 
 # ---------------------- 시스템 모니터 ----------------------
@@ -469,6 +492,143 @@ async def terminal_websocket(
         pass
     except Exception as e:
         logger.error("WS bridge error (%s): %s", session_id, e)
+
+
+# ---------------------- SSH 키 API ----------------------
+
+@app.get("/api/ssh-keys")
+async def list_ssh_keys(username: str = Depends(verify_auth_token)):
+    return {"items": await storage.list_ssh_keys(username)}
+
+
+@app.post("/api/ssh-keys")
+async def create_ssh_key(request: SshKeyCreateRequest, username: str = Depends(verify_auth_token)):
+    import uuid
+    key_id = str(uuid.uuid4())
+    private_key_enc = encrypt_str(request.private_key)
+    if private_key_enc is None:
+        raise HTTPException(status_code=400, detail="개인키가 비어있습니다")
+    passphrase_enc = encrypt_str(request.passphrase) if request.passphrase else None
+    await storage.create_ssh_key(
+        key_id=key_id,
+        username=username,
+        name=request.name,
+        public_key=request.public_key,
+        private_key_enc=private_key_enc,
+        passphrase_enc=passphrase_enc,
+    )
+    return {"id": key_id, "name": request.name, "status": "created"}
+
+
+@app.delete("/api/ssh-keys/{key_id}")
+async def delete_ssh_key(key_id: str, username: str = Depends(verify_auth_token)):
+    ok = await storage.delete_ssh_key(key_id, username)
+    if not ok:
+        raise HTTPException(status_code=404, detail="키를 찾을 수 없습니다")
+    return {"id": key_id, "status": "deleted"}
+
+
+# ---------------------- 호스트 API ----------------------
+
+@app.get("/api/hosts")
+async def list_hosts(username: str = Depends(verify_auth_token)):
+    return {"items": await storage.list_hosts(username)}
+
+
+def _host_payload_to_fields(req: HostUpsertRequest) -> dict:
+    fields = {
+        "name": req.name,
+        "hostname": req.hostname,
+        "port": int(req.port or 22),
+        "ssh_user": req.ssh_user,
+        "auth_method": req.auth_method,
+        "key_id": req.key_id,
+        "color_index": int(req.color_index or 0),
+        "group_name": req.group_name,
+        "use_remote_tmux": 1 if req.use_remote_tmux else 0,
+        "remote_tmux_session": req.remote_tmux_session or "mobile",
+    }
+    if req.auth_method == "password" and req.password:
+        fields["password_enc"] = encrypt_str(req.password)
+    return fields
+
+
+@app.post("/api/hosts")
+async def create_host(request: HostUpsertRequest, username: str = Depends(verify_auth_token)):
+    import uuid
+    host_id = str(uuid.uuid4())
+    fields = _host_payload_to_fields(request)
+    await storage.upsert_host(host_id, username, **fields)
+    return {"id": host_id, "status": "created"}
+
+
+@app.patch("/api/hosts/{host_id}")
+async def update_host(host_id: str, request: HostUpsertRequest, username: str = Depends(verify_auth_token)):
+    existing = await storage.get_host(host_id, username)
+    if not existing:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+    fields = _host_payload_to_fields(request)
+    await storage.upsert_host(host_id, username, **fields)
+    return {"id": host_id, "status": "updated"}
+
+
+@app.delete("/api/hosts/{host_id}")
+async def delete_host(host_id: str, username: str = Depends(verify_auth_token)):
+    ok = await storage.delete_host(host_id, username)
+    if not ok:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+    return {"id": host_id, "status": "deleted"}
+
+
+# ---------------------- WebSocket: SSH 호스트 ----------------------
+
+@app.websocket("/ws/host/{host_id}")
+async def host_websocket(
+    websocket: WebSocket,
+    host_id: str,
+    token: Optional[str] = Query(None),
+    cols: int = Query(80),
+    rows: int = Query(24),
+):
+    username = await verify_auth_token_ws(token) if token else None
+    if not username:
+        await websocket.close(code=1008, reason="인증 필요")
+        return
+
+    host = await storage.get_host(host_id, username)
+    if not host:
+        await websocket.close(code=1008, reason="호스트를 찾을 수 없음")
+        return
+
+    key_record = None
+    if host.get("auth_method") == "key" and host.get("key_id"):
+        key_record = await storage.get_ssh_key(host["key_id"], username)
+        if not key_record:
+            await websocket.close(code=1008, reason="연결된 SSH 키를 찾을 수 없음")
+            return
+
+    secrets = resolve_host_secrets(host, key_record)
+    await websocket.accept()
+    try:
+        await storage.touch_host(host_id, username)
+    except Exception:
+        pass
+
+    bridge = HostBridge(
+        websocket=websocket,
+        host=host,
+        private_key=secrets["private_key"],
+        passphrase=secrets["passphrase"],
+        password=secrets["password"],
+        cols=cols,
+        rows=rows,
+    )
+    try:
+        await bridge.run()
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error("host WS bridge error (%s): %s", host_id, e, exc_info=True)
 
 
 # ---------------------- 파일 시스템 API ----------------------

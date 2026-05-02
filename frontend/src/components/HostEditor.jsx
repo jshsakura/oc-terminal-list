@@ -1,0 +1,434 @@
+import { useEffect, useState } from 'react';
+import { X } from 'lucide-react';
+import Button from './common/Button';
+import { tokens } from '../styles/tokens';
+
+const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
+
+const EMPTY = {
+  name: '',
+  hostname: '',
+  port: 22,
+  ssh_user: '',
+  auth_method: 'key',
+  key_id: null,
+  password: '',
+  color_index: 0,
+  group_name: null,
+  use_remote_tmux: true,
+  remote_tmux_session: 'mobile',
+};
+
+const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, t }) => {
+  const [draft, setDraft] = useState(EMPTY);
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (host) {
+      setDraft({
+        ...EMPTY,
+        ...host,
+        use_remote_tmux: !!host.use_remote_tmux,
+      });
+    } else {
+      setDraft(EMPTY);
+    }
+    setError('');
+  }, [host, isOpen]);
+
+  if (!isOpen) return null;
+
+  const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+
+  const submit = async (e) => {
+    e?.preventDefault?.();
+    setError('');
+    if (!draft.name.trim()) return setError(t('errorNameRequired') || 'Name is required.');
+    if (!draft.hostname.trim()) return setError(t('errorHostRequired') || 'Hostname is required.');
+    if (!draft.ssh_user.trim()) return setError(t('errorUserRequired') || 'SSH user is required.');
+    if (draft.auth_method === 'key' && !draft.key_id) return setError(t('errorKeyRequired') || 'Pick an SSH key (or add one first).');
+    if (draft.auth_method === 'password' && !draft.password && !host) return setError(t('errorPasswordRequired') || 'Password required.');
+
+    setSaving(true);
+    try {
+      await onSave(draft);
+    } catch (err) {
+      setError(err.message || 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div style={styles.overlay} onClick={onClose}>
+      <form onSubmit={submit} style={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <header style={styles.header}>
+          <div style={styles.title}>{host ? (t('editHost') || 'Edit host') : (t('addHost') || 'Add host')}</div>
+          <button type="button" onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
+        </header>
+
+        <div style={styles.body}>
+          <Section title={t('connection') || 'Connection'}>
+            <Field label={t('hostName') || 'Display name'}>
+              <Input value={draft.name} onChange={(v) => set('name', v)} placeholder="prod-web-01" autoFocus />
+            </Field>
+            <Row>
+              <Field label={t('hostnameLabel') || 'Hostname / IP'} flex={2}>
+                <Input value={draft.hostname} onChange={(v) => set('hostname', v)} placeholder="example.com" />
+              </Field>
+              <Field label={t('port') || 'Port'} flex={1}>
+                <Input
+                  type="number"
+                  value={draft.port}
+                  onChange={(v) => set('port', parseInt(v || '22', 10))}
+                  placeholder="22"
+                />
+              </Field>
+            </Row>
+            <Field label={t('sshUser') || 'SSH user'}>
+              <Input value={draft.ssh_user} onChange={(v) => set('ssh_user', v)} placeholder="root" />
+            </Field>
+          </Section>
+
+          <Divider />
+
+          <Section title={t('authentication') || 'Authentication'}>
+            <SegmentedControl
+              value={draft.auth_method}
+              options={[
+                { value: 'key', label: t('authKey') || 'SSH key' },
+                { value: 'password', label: t('authPassword') || 'Password' },
+              ]}
+              onChange={(v) => set('auth_method', v)}
+            />
+            {draft.auth_method === 'key' ? (
+              <Field label={t('sshKey') || 'SSH key'}>
+                <Select value={draft.key_id || ''} onChange={(v) => set('key_id', v || null)}>
+                  <option value="">— {t('chooseKey') || 'Choose a key'} —</option>
+                  {sshKeys.map((k) => (
+                    <option key={k.id} value={k.id}>{k.name}</option>
+                  ))}
+                </Select>
+              </Field>
+            ) : (
+              <Field label={t('password') || 'Password'} hint={host ? (t('leaveBlankToKeep') || 'Leave blank to keep saved password.') : undefined}>
+                <Input
+                  type="password"
+                  value={draft.password || ''}
+                  onChange={(v) => set('password', v)}
+                  placeholder="••••••••"
+                />
+              </Field>
+            )}
+          </Section>
+
+          <Divider />
+
+          <Section title={t('persistence') || 'Persistence'}>
+            <Toggle
+              label={t('useRemoteTmux') || 'Auto-attach remote tmux session'}
+              hint={t('useRemoteTmuxHint') || 'Disconnects no longer end your work — reattach from anywhere.'}
+              checked={draft.use_remote_tmux}
+              onChange={(v) => set('use_remote_tmux', v)}
+            />
+            {draft.use_remote_tmux && (
+              <Field label={t('tmuxSessionName') || 'tmux session name'}>
+                <Input
+                  value={draft.remote_tmux_session || ''}
+                  onChange={(v) => set('remote_tmux_session', v)}
+                  placeholder="mobile"
+                />
+              </Field>
+            )}
+          </Section>
+
+          <Divider />
+
+          <Section title={t('appearance') || 'Appearance'}>
+            <Field label={t('color') || 'Color'}>
+              <ColorPicker value={draft.color_index} onChange={(v) => set('color_index', v)} />
+            </Field>
+          </Section>
+
+          {error && <div style={styles.error}>{error}</div>}
+        </div>
+
+        <footer style={styles.footer}>
+          <Button variant="secondary" onClick={onClose} type="button">{t('cancel')}</Button>
+          <Button variant="primary" onClick={submit} disabled={saving} type="submit">
+            {saving ? (t('saving') || 'Saving…') : (host ? (t('save') || 'Save') : (t('add') || 'Add'))}
+          </Button>
+        </footer>
+      </form>
+    </div>
+  );
+};
+
+const Section = ({ title, children }) => (
+  <section style={styles.section}>
+    <div style={styles.sectionTitle}>{title}</div>
+    <div style={styles.sectionBody}>{children}</div>
+  </section>
+);
+
+const Divider = () => <div style={styles.divider} />;
+
+const Row = ({ children }) => <div style={styles.row}>{children}</div>;
+
+const Field = ({ label, hint, children, flex }) => (
+  <div style={{ ...styles.field, flex: flex || 'unset' }}>
+    <label style={styles.label}>{label}</label>
+    {children}
+    {hint && <div style={styles.hint}>{hint}</div>}
+  </div>
+);
+
+const Input = ({ value, onChange, type = 'text', placeholder, autoFocus }) => {
+  const [focused, setFocused] = useState(false);
+  return (
+    <input
+      type={type}
+      value={value ?? ''}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      autoFocus={autoFocus}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      style={{
+        ...styles.input,
+        borderColor: focused ? color.accentBorder : color.border,
+        background: focused ? color.crust : color.mantle,
+      }}
+    />
+  );
+};
+
+const Select = ({ value, onChange, children }) => {
+  const [hover, setHover] = useState(false);
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ ...styles.input, borderColor: hover ? color.borderStrong : color.border, cursor: 'pointer', appearance: 'none' }}
+    >
+      {children}
+    </select>
+  );
+};
+
+const SegmentedControl = ({ value, options, onChange }) => (
+  <div style={styles.segment}>
+    {options.map((opt) => (
+      <button
+        key={opt.value}
+        type="button"
+        onClick={() => onChange(opt.value)}
+        style={{
+          ...styles.segmentBtn,
+          background: value === opt.value ? color.surface1 : 'transparent',
+          color: value === opt.value ? color.text : color.muted,
+        }}
+      >
+        {opt.label}
+      </button>
+    ))}
+  </div>
+);
+
+const Toggle = ({ label, hint, checked, onChange }) => (
+  <div style={styles.toggleRow}>
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: fontSize['13'], color: color.text }}>{label}</div>
+      {hint && <div style={{ fontSize: fontSize['11'], color: color.muted, marginTop: '2px' }}>{hint}</div>}
+    </div>
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      style={{
+        ...styles.toggle,
+        background: checked ? color.accent : color.surface1,
+      }}
+    >
+      <span style={{ ...styles.toggleKnob, transform: checked ? 'translateX(14px)' : 'translateX(0)' }} />
+    </button>
+  </div>
+);
+
+const ColorPicker = ({ value, onChange }) => (
+  <div style={{ display: 'flex', gap: space['1.5'], flexWrap: 'wrap' }}>
+    {color.dotPalette.map((c, i) => (
+      <button
+        key={c}
+        type="button"
+        onClick={() => onChange(i)}
+        style={{
+          width: '22px',
+          height: '22px',
+          padding: 0,
+          background: c,
+          border: i === value ? `2px solid ${color.text}` : `2px solid transparent`,
+          borderRadius: radius.full,
+          cursor: 'pointer',
+          boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.25)',
+          transition: `border-color ${motion.fast}, transform ${motion.fast}`,
+        }}
+      />
+    ))}
+  </div>
+);
+
+const styles = {
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: color.scrim,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10000,
+    backdropFilter: 'blur(2px)',
+    fontFamily: font.sans,
+  },
+  modal: {
+    width: '92%',
+    maxWidth: '480px',
+    maxHeight: '88vh',
+    background: color.base,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.lg,
+    boxShadow: shadow.lg,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: `${space['3']} ${space['4']}`,
+    borderBottom: `1px solid ${color.border}`,
+  },
+  title: {
+    fontSize: fontSize['14'],
+    fontWeight: fontWeight.semibold,
+    color: color.text,
+  },
+  closeBtn: {
+    width: '24px',
+    height: '24px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: color.muted,
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+  },
+  body: {
+    padding: `${space['3']} ${space['4']}`,
+    overflowY: 'auto',
+  },
+  section: { display: 'flex', flexDirection: 'column', gap: space['2'], paddingTop: space['1'], paddingBottom: space['1'] },
+  sectionTitle: {
+    fontSize: fontSize['11'],
+    fontWeight: fontWeight.medium,
+    color: color.muted,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    marginBottom: space['1'],
+  },
+  sectionBody: { display: 'flex', flexDirection: 'column', gap: space['3'] },
+  row: { display: 'flex', gap: space['2'] },
+  divider: { height: '1px', background: color.border, margin: `${space['3']} 0` },
+  field: { display: 'flex', flexDirection: 'column', gap: space['1'] },
+  label: {
+    fontSize: fontSize['12'],
+    color: color.subtext,
+    fontWeight: fontWeight.medium,
+  },
+  input: {
+    width: '100%',
+    height: '32px',
+    padding: `0 ${space['3']}`,
+    background: color.mantle,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    fontSize: fontSize['13'],
+    fontFamily: 'inherit',
+    outline: 'none',
+    transition: `border-color ${motion.fast}, background ${motion.fast}`,
+  },
+  hint: { fontSize: fontSize['11'], color: color.muted, marginTop: space['0.5'] },
+  error: {
+    fontSize: fontSize['12'],
+    color: color.danger,
+    background: 'rgba(243, 139, 168, 0.08)',
+    border: `1px solid rgba(243, 139, 168, 0.18)`,
+    borderRadius: radius.sm,
+    padding: `${space['2']} ${space['3']}`,
+    marginTop: space['2'],
+  },
+  segment: {
+    display: 'flex',
+    gap: '2px',
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    padding: '2px',
+  },
+  segmentBtn: {
+    flex: 1,
+    height: '26px',
+    border: 'none',
+    background: 'transparent',
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    color: color.muted,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    borderRadius: radius.xs,
+    transition: `background ${motion.fast}, color ${motion.fast}`,
+  },
+  toggleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['3'],
+  },
+  toggle: {
+    position: 'relative',
+    width: '30px',
+    height: '16px',
+    border: 'none',
+    borderRadius: radius.full,
+    cursor: 'pointer',
+    transition: `background ${motion.fast}`,
+    padding: 0,
+    flexShrink: 0,
+  },
+  toggleKnob: {
+    position: 'absolute',
+    top: '2px',
+    left: '2px',
+    width: '12px',
+    height: '12px',
+    background: '#fff',
+    borderRadius: radius.full,
+    transition: `transform ${motion.fast}`,
+  },
+  footer: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: space['1.5'],
+    padding: `${space['3']} ${space['4']}`,
+    borderTop: `1px solid ${color.border}`,
+    background: color.mantle,
+  },
+};
+
+export default HostEditor;

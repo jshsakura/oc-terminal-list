@@ -79,6 +79,43 @@ class SQLiteStorage:
             )
         """)
 
+        # SSH 키 (개인키는 vault 암호화 후 보관)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ssh_keys (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                name TEXT NOT NULL,
+                public_key TEXT,
+                private_key_enc TEXT NOT NULL,
+                passphrase_enc TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_ssh_keys_user ON ssh_keys(username)")
+
+        # SSH 호스트 (즐겨찾기)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS hosts (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                name TEXT NOT NULL,
+                hostname TEXT NOT NULL,
+                port INTEGER NOT NULL DEFAULT 22,
+                ssh_user TEXT NOT NULL,
+                auth_method TEXT NOT NULL DEFAULT 'key',
+                key_id TEXT,
+                password_enc TEXT,
+                color_index INTEGER DEFAULT 0,
+                group_name TEXT,
+                use_remote_tmux INTEGER DEFAULT 1,
+                remote_tmux_session TEXT DEFAULT 'mobile',
+                created_at TEXT NOT NULL,
+                last_used TEXT,
+                FOREIGN KEY (key_id) REFERENCES ssh_keys(id) ON DELETE SET NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_hosts_user ON hosts(username)")
+
         conn.commit()
         conn.close()
 
@@ -201,6 +238,177 @@ class SQLiteStorage:
             finally:
                 conn.close()
         await asyncio.to_thread(_delete)
+
+    # -------- ssh keys --------
+
+    async def list_ssh_keys(self, username: str) -> List[Dict]:
+        def _get():
+            conn = self._get_connection()
+            try:
+                rows = conn.execute(
+                    "SELECT id, name, public_key, created_at FROM ssh_keys WHERE username = ? ORDER BY created_at DESC",
+                    (username,),
+                ).fetchall()
+                return [dict(r) for r in rows]
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_get)
+
+    async def get_ssh_key(self, key_id: str, username: str) -> Optional[Dict]:
+        def _get():
+            conn = self._get_connection()
+            try:
+                row = conn.execute(
+                    "SELECT id, name, public_key, private_key_enc, passphrase_enc, created_at FROM ssh_keys WHERE id = ? AND username = ?",
+                    (key_id, username),
+                ).fetchone()
+                return dict(row) if row else None
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_get)
+
+    async def create_ssh_key(
+        self,
+        key_id: str,
+        username: str,
+        name: str,
+        public_key: Optional[str],
+        private_key_enc: str,
+        passphrase_enc: Optional[str],
+    ) -> None:
+        def _create():
+            now = datetime.utcnow().isoformat()
+            conn = self._get_connection()
+            try:
+                conn.execute(
+                    """INSERT INTO ssh_keys (id, username, name, public_key, private_key_enc, passphrase_enc, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (key_id, username, name, public_key, private_key_enc, passphrase_enc, now),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_create)
+
+    async def delete_ssh_key(self, key_id: str, username: str) -> bool:
+        def _delete():
+            conn = self._get_connection()
+            try:
+                cur = conn.execute("DELETE FROM ssh_keys WHERE id = ? AND username = ?", (key_id, username))
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_delete)
+
+    # -------- hosts --------
+
+    async def list_hosts(self, username: str) -> List[Dict]:
+        def _get():
+            conn = self._get_connection()
+            try:
+                rows = conn.execute(
+                    """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
+                              color_index, group_name, use_remote_tmux, remote_tmux_session,
+                              created_at, last_used
+                       FROM hosts WHERE username = ?
+                       ORDER BY group_name NULLS LAST, last_used DESC, name ASC""",
+                    (username,),
+                ).fetchall()
+                return [dict(r) for r in rows]
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_get)
+
+    async def get_host(self, host_id: str, username: str) -> Optional[Dict]:
+        def _get():
+            conn = self._get_connection()
+            try:
+                row = conn.execute(
+                    """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
+                              password_enc, color_index, group_name, use_remote_tmux,
+                              remote_tmux_session, created_at, last_used
+                       FROM hosts WHERE id = ? AND username = ?""",
+                    (host_id, username),
+                ).fetchone()
+                return dict(row) if row else None
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_get)
+
+    async def upsert_host(self, host_id: str, username: str, **fields) -> None:
+        """호스트 생성/수정. fields 에 들어있는 키만 갱신 (PATCH 시맨틱)."""
+        allowed = {
+            "name", "hostname", "port", "ssh_user", "auth_method", "key_id",
+            "password_enc", "color_index", "group_name", "use_remote_tmux",
+            "remote_tmux_session",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+
+        def _upsert():
+            conn = self._get_connection()
+            try:
+                now = datetime.utcnow().isoformat()
+                existing = conn.execute("SELECT id FROM hosts WHERE id = ? AND username = ?", (host_id, username)).fetchone()
+                if existing:
+                    if not updates:
+                        return
+                    cols = ", ".join([f"{k} = ?" for k in updates.keys()])
+                    conn.execute(
+                        f"UPDATE hosts SET {cols} WHERE id = ? AND username = ?",
+                        (*updates.values(), host_id, username),
+                    )
+                else:
+                    conn.execute(
+                        """INSERT INTO hosts (id, username, name, hostname, port, ssh_user,
+                                              auth_method, key_id, password_enc, color_index,
+                                              group_name, use_remote_tmux, remote_tmux_session,
+                                              created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            host_id, username,
+                            updates.get("name", "Unnamed"),
+                            updates.get("hostname", ""),
+                            int(updates.get("port", 22)),
+                            updates.get("ssh_user", "root"),
+                            updates.get("auth_method", "key"),
+                            updates.get("key_id"),
+                            updates.get("password_enc"),
+                            int(updates.get("color_index", 0)),
+                            updates.get("group_name"),
+                            int(updates.get("use_remote_tmux", 1)),
+                            updates.get("remote_tmux_session", "mobile"),
+                            now,
+                        ),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_upsert)
+
+    async def touch_host(self, host_id: str, username: str) -> None:
+        def _touch():
+            conn = self._get_connection()
+            try:
+                conn.execute(
+                    "UPDATE hosts SET last_used = ? WHERE id = ? AND username = ?",
+                    (datetime.utcnow().isoformat(), host_id, username),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_touch)
+
+    async def delete_host(self, host_id: str, username: str) -> bool:
+        def _delete():
+            conn = self._get_connection()
+            try:
+                cur = conn.execute("DELETE FROM hosts WHERE id = ? AND username = ?", (host_id, username))
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_delete)
 
     # -------- system config --------
 

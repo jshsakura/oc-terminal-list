@@ -7,6 +7,8 @@ import useSettings from './hooks/useSettings';
 import useTranslation from './hooks/useTranslation';
 import useAuth from './hooks/useAuth';
 import useSessionManager from './hooks/useSessionManager';
+import useHosts from './hooks/useHosts';
+import useSshKeys from './hooks/useSshKeys';
 import useSwipe from './hooks/useSwipe';
 import themes from './styles/themes';
 import AppStyles from './styles/AppStyles';
@@ -28,6 +30,8 @@ const InitialSetup = lazy(() => import('./components/InitialSetup'));
 const Login = lazy(() => import('./components/Login'));
 const FileEditor = lazy(() => import('./components/FileEditor'));
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
+const HostEditor = lazy(() => import('./components/HostEditor'));
+const SshKeyManager = lazy(() => import('./components/SshKeyManager'));
 
 function App() {
   const { settings, updateSettings } = useSettings();
@@ -40,10 +44,50 @@ function App() {
     login, logout, completeSetup 
   } = useAuth();
   
-  const { 
-    sessions, activeSessionId, setActiveSessionId, 
-    createSession, deleteSession, renameSession 
+  const {
+    sessions: localSessions, activeSessionId, setActiveSessionId,
+    createSession, deleteSession: deleteLocalSession, renameSession,
   } = useSessionManager(isAuthenticated, settings.defaultShell);
+
+  const { hosts, refresh: refreshHosts, createHost, updateHost, deleteHost } = useHosts(isAuthenticated);
+  const { keys: sshKeys, createKey, deleteKey } = useSshKeys(isAuthenticated);
+
+  // 호스트 연결 = 클라이언트 사이드 세션 (로컬 tmux 와 별개로 메모리에서만 추적)
+  const [hostTabs, setHostTabs] = useState([]);  // {id, hostId, name, color_index}
+
+  // 사이드바/터미널이 함께 다루는 통합 세션 목록 (로컬 tmux + 호스트 연결)
+  const sessions = useMemo(() => {
+    return [...localSessions, ...hostTabs];
+  }, [localSessions, hostTabs]);
+
+  const deleteSession = useCallback(async (id) => {
+    const ht = hostTabs.find(t => t.id === id);
+    if (ht) {
+      setHostTabs(prev => prev.filter(t => t.id !== id));
+      if (activeSessionId === id) {
+        const remaining = [...localSessions, ...hostTabs.filter(t => t.id !== id)];
+        setActiveSessionId(remaining[0]?.id || null);
+      }
+      return true;
+    }
+    return await deleteLocalSession(id);
+  }, [hostTabs, localSessions, activeSessionId, setActiveSessionId, deleteLocalSession]);
+
+  // 호스트 관련 모달 상태
+  const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
+  const [keyManagerOpen, setKeyManagerOpen] = useState(false);
+
+  const openHost = useCallback((host) => {
+    const tabId = `host:${host.id}:${Date.now()}`;
+    setHostTabs(prev => [...prev, {
+      id: tabId,
+      hostId: host.id,
+      name: host.name,
+      color_index: host.color_index,
+      kind: 'host',
+    }]);
+    setActiveSessionId(tabId);
+  }, [setActiveSessionId]);
 
   // UI State
   const [isMobile, setIsMobile] = useState(false);
@@ -551,18 +595,28 @@ function App() {
           background: transparent;
         }
       `}</style>
-      <Sidebar 
-        isOpen={isSidebarOpen} 
-        onClose={() => setIsSidebarOpen(false)} 
-        sessions={sessions} 
-        activeSessionId={activeSessionId} 
-        onSelectSession={setActiveSessionId} 
-        onNewSession={handleNewSession} 
-        onCloseSession={(id) => setConfirmModal({ isOpen: true, sessionId: id, title: t('closeTerminal'), message: t('confirmCloseTerminal') })} 
-        onRenameSession={renameSession} 
+      <Sidebar
+        isOpen={isSidebarOpen}
+        onClose={() => setIsSidebarOpen(false)}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={setActiveSessionId}
+        onNewSession={handleNewSession}
+        onCloseSession={(id) => setConfirmModal({ isOpen: true, sessionId: id, title: t('closeTerminal'), message: t('confirmCloseTerminal') })}
+        onRenameSession={renameSession}
         onReconnectSession={(id) => { setActiveSessionId(null); setTimeout(() => setActiveSessionId(id), 50); }}
-        language={settings.language} 
-        theme={currentTheme} 
+        hosts={hosts}
+        onConnectHost={openHost}
+        onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
+        onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
+        onDeleteHost={async (h) => {
+          if (confirm(t('confirmDeleteHost') || 'Delete this host?')) {
+            await deleteHost(h.id);
+          }
+        }}
+        onManageKeys={() => setKeyManagerOpen(true)}
+        language={settings.language}
+        theme={currentTheme}
         isMobile={isMobile} 
         width={sidebarWidth} 
         onResizeStart={(e) => {
@@ -711,6 +765,7 @@ function App() {
                       <Suspense fallback={null}>
                         <Terminal
                           sessionId={session.id}
+                          hostId={session.hostId}
                           settings={settings}
                           isActive={session.id === activeSessionId}
                           layoutSignal={terminalLayoutSignal}
@@ -889,6 +944,36 @@ function App() {
         <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} onSave={updateSettings} theme={currentTheme} username={username} />
         <ConfirmModal isOpen={confirmModal.isOpen} title={confirmModal.title} message={confirmModal.message} confirmText={confirmModal.isLogout ? t('logout') : t('close')} cancelText={t('cancel')} onConfirm={handleConfirmModal} onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })} language={settings.language} danger={true} theme={currentTheme} />
         <NotificationModal isOpen={notification.isOpen} message={notification.message} onClose={() => setNotification({ isOpen: false, message: '' })} theme={currentTheme} />
+
+        <Suspense fallback={null}>
+          <HostEditor
+            isOpen={hostEditorState.isOpen}
+            host={hostEditorState.host}
+            sshKeys={sshKeys}
+            t={t}
+            onClose={() => setHostEditorState({ isOpen: false, host: null })}
+            onSave={async (draft) => {
+              if (hostEditorState.host) {
+                await updateHost(hostEditorState.host.id, draft);
+              } else {
+                await createHost(draft);
+              }
+              setHostEditorState({ isOpen: false, host: null });
+            }}
+          />
+          <SshKeyManager
+            isOpen={keyManagerOpen}
+            keys={sshKeys}
+            t={t}
+            onClose={() => setKeyManagerOpen(false)}
+            onAdd={async (draft) => { await createKey(draft); }}
+            onDelete={async (id) => {
+              if (confirm(t('confirmDeleteKey') || 'Delete this SSH key?')) {
+                await deleteKey(id);
+              }
+            }}
+          />
+        </Suspense>
       </Suspense>
     </div>
   );

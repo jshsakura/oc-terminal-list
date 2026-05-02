@@ -7,3 +7,5 @@ python-jose[cryptography]==3.3.0
 bcrypt==4.1.2
 passlib==1.7.4
 python-dotenv==1.0.0
+asyncssh==2.18.0
+cryptography>=41.0.0

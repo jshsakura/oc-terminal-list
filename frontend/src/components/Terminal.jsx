@@ -16,7 +16,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
-const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, layoutSignal = '' }) => {
+const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive = true, layoutSignal = '' }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -166,7 +166,10 @@ const TerminalComponent = ({ sessionId, settings, onSendData, isActive = true, l
     const cols = proposed?.cols || term.cols || 80;
     const rows = proposed?.rows || term.rows || 24;
     lastDimsRef.current = { cols, rows };
-    const wsUrl = `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}`;
+    // 호스트 연결이면 SSH 브리지로, 아니면 로컬 tmux 브리지로
+    const wsUrl = hostId
+      ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}`
+      : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}`;
     
     const socket = new WebSocket(wsUrl);
     wsRef.current = socket;
