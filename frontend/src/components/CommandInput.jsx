@@ -1,23 +1,25 @@
-/**
- * CommandInput 컴포넌트
- * 모바일에서 한글 입력을 위한 별도 입력창
- * 자소 분리 문제 해결을 위해 일반 textarea 사용
- */
 import { useEffect, useRef } from 'react';
 import { Send, X, Eraser, ClipboardPaste } from 'lucide-react';
 import Button from './common/Button';
+import { tokens } from '../styles/tokens';
 
-const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }) => {
+const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
+
+/**
+ * 모바일에서 한글 IME 자소 분리 문제를 우회하기 위한 별도 입력창.
+ * Ctrl+Enter / Cmd+Enter 로 전송, ESC 로 닫기.
+ */
+const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   const textareaRef = useRef(null);
 
   useEffect(() => {
     if (isOpen && textareaRef.current) {
-      // 모달이 열리면 입력창에 포커스
-      setTimeout(() => {
-        textareaRef.current?.focus();
-      }, 100);
+      const id = setTimeout(() => textareaRef.current?.focus(), 100);
+      return () => clearTimeout(id);
     }
   }, [isOpen]);
+
+  if (!isOpen) return null;
 
   const handleSend = () => {
     if (command.trim()) {
@@ -28,10 +30,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
   };
 
   const handleClear = () => {
-    const confirmMessage = t?.('confirmClearInput') || '입력한 내용을 모두 지우시겠습니까?';
-    if (command.trim() && !confirm(confirmMessage)) {
-      return;
-    }
+    if (command.trim() && !confirm(t?.('confirmClearInput') || '입력한 내용을 모두 지우시겠습니까?')) return;
     setCommand('');
     textareaRef.current?.focus();
   };
@@ -41,8 +40,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
       const text = await navigator.clipboard.readText();
       setCommand(command + text);
       textareaRef.current?.focus();
-    } catch (err) {
-      // Clipboard API 실패 시 prompt 사용
+    } catch {
       const text = prompt(t?.('paste') || '붙여넣을 텍스트:');
       if (text) {
         setCommand(command + text);
@@ -52,61 +50,24 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
   };
 
   const handleKeyDown = (e) => {
-    // Ctrl+Enter 또는 Cmd+Enter로 전송
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
       handleSend();
     }
-    // ESC로 닫기
-    if (e.key === 'Escape') {
-      onClose();
-    }
+    if (e.key === 'Escape') onClose();
   };
-
-  if (!isOpen) return null;
-
-  const currentTheme = theme;
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        style={styles.backdrop}
-        onClick={onClose}
-      />
+      <div style={styles.backdrop} onClick={onClose} />
+      <style>{`.command-input-textarea::placeholder { color: ${color.muted}; }`}</style>
 
-      {/* Placeholder 스타일 */}
-      <style>{`
-        .command-input-textarea::placeholder {
-          color: ${currentTheme.ui.textSecondary};
-          opacity: 0.5;
-        }
-      `}</style>
+      <div style={styles.modal}>
+        <header style={styles.header}>
+          <div style={styles.title}>{t?.('commandInput') || 'Send command'}</div>
+          <button onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
+        </header>
 
-      {/* Modal */}
-      <div style={{
-        ...styles.modal,
-        backgroundColor: currentTheme.ui.glassBg || currentTheme.ui.bg,
-        backdropFilter: 'blur(20px) saturate(180%)',
-        borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
-        borderRadius: currentTheme.ui.radius,
-        boxShadow: '0 20px 50px rgba(0,0,0,0.5)',
-      }}>
-        {/* Header */}
-        <div style={{
-          ...styles.header,
-          borderBottomColor: currentTheme.ui.borderLight || currentTheme.ui.border,
-        }}>
-          <h3 style={{
-            ...styles.title,
-            color: currentTheme.ui.accent,
-          }}>
-            {t?.('commandInput') || '명령어 입력'}
-          </h3>
-          <Button variant="ghost" size="icon" onClick={onClose} theme={currentTheme} icon={X} />
-        </div>
-
-        {/* Input Area */}
         <div style={styles.body}>
           <textarea
             ref={textareaRef}
@@ -115,56 +76,34 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
             onKeyDown={handleKeyDown}
             placeholder={t?.('commandInputPlaceholder')}
             className="command-input-textarea"
-            style={{
-              ...styles.textarea,
-              backgroundColor: currentTheme.ui.cardBg || currentTheme.ui.bgSecondary,
-              color: currentTheme.ui.text,
-              borderColor: currentTheme.ui.borderLight || currentTheme.ui.border,
-              borderRadius: currentTheme.ui.radiusSmall,
-            }}
+            style={styles.textarea}
             autoFocus
           />
-          <div style={{ marginTop: '8px', fontSize: '11px', color: currentTheme.ui.textSecondary, textAlign: 'center' }}>
-            {t?.('commandInputHint')}
+          <div style={styles.hint}>
+            {t?.('commandInputHint') || 'Ctrl+Enter to send · ESC to close'}
           </div>
         </div>
 
-        {/* Footer */}
-        <div style={{
-          ...styles.footer,
-          borderTopColor: currentTheme.ui.borderLight || currentTheme.ui.border,
-        }}>
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handlePaste} 
-            theme={currentTheme} 
-            icon={ClipboardPaste} 
-            title={t?.('paste')}
-          />
-          
-          <Button 
-            variant="ghost" 
-            size="icon" 
-            onClick={handleClear} 
+        <footer style={styles.footer}>
+          <Button variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleClear}
             disabled={!command.trim()}
-            theme={currentTheme} 
-            style={{ color: command.trim() ? currentTheme.red : currentTheme.ui.textSecondary }}
-            icon={Eraser} 
+            icon={Eraser}
             title={t?.('clearInput')}
           />
-
-          <Button 
-            variant="primary" 
-            fullWidth
-            onClick={handleSend} 
+          <div style={{ flex: 1 }} />
+          <Button
+            variant="primary"
+            onClick={handleSend}
             disabled={!command.trim()}
-            theme={currentTheme} 
             icon={Send}
           >
-            {t?.('send')}
+            {t?.('send') || 'Send'}
           </Button>
-        </div>
+        </footer>
       </div>
     </>
   );
@@ -173,65 +112,85 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, theme, t }
 const styles = {
   backdrop: {
     position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    inset: 0,
+    background: color.scrim,
     zIndex: 10000,
-    backdropFilter: 'blur(8px)',
+    backdropFilter: 'blur(2px)',
   },
   modal: {
     position: 'fixed',
     top: '50%',
     left: '50%',
     transform: 'translate(-50%, -50%)',
-    width: '90%',
-    maxWidth: '500px',
+    width: '92%',
+    maxWidth: '480px',
     maxHeight: '80vh',
     zIndex: 10001,
+    background: color.base,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.lg,
+    boxShadow: shadow.lg,
+    fontFamily: font.sans,
     display: 'flex',
     flexDirection: 'column',
-    border: '1px solid',
+    overflow: 'hidden',
   },
   header: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '12px 20px',
-    borderBottom: '1px solid',
+    padding: `${space['3']} ${space['4']}`,
+    borderBottom: `1px solid ${color.border}`,
   },
-  title: {
-    margin: 0,
-    fontSize: '16px',
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: '1px',
+  title: { fontSize: fontSize['14'], fontWeight: fontWeight.semibold, color: color.text },
+  closeBtn: {
+    width: '24px',
+    height: '24px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: color.muted,
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
   },
   body: {
     flex: 1,
-    padding: '20px',
+    padding: `${space['3']} ${space['4']}`,
     display: 'flex',
     flexDirection: 'column',
+    gap: space['2'],
     overflow: 'auto',
   },
   textarea: {
     width: '100%',
-    minHeight: '150px',
-    maxHeight: '300px',
-    padding: '14px',
-    fontSize: '14px',
-    fontFamily: '"JetBrains Mono", monospace',
-    border: '1px solid',
-    resize: 'vertical',
+    minHeight: '140px',
+    maxHeight: '320px',
+    padding: `${space['3']} ${space['3']}`,
+    background: color.crust,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    fontSize: fontSize['13'],
+    fontFamily: font.mono,
+    lineHeight: 1.55,
     outline: 'none',
-    lineHeight: '1.6',
+    resize: 'vertical',
+    transition: `border-color ${motion.fast}`,
+  },
+  hint: {
+    fontSize: fontSize['11'],
+    color: color.muted,
+    textAlign: 'center',
   },
   footer: {
     display: 'flex',
-    gap: '10px',
-    padding: '12px 20px',
-    borderTop: '1px solid',
+    alignItems: 'center',
+    gap: space['1.5'],
+    padding: `${space['3']} ${space['4']}`,
+    borderTop: `1px solid ${color.border}`,
+    background: color.mantle,
   },
 };
 

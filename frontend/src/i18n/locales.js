@@ -174,6 +174,9 @@ export const locales = {
     thisMachine: 'Local',
     localTmuxHint: 'New local session',
     noRemoteHosts: 'No saved remote hosts',
+    emptyHeadline: 'Start a session',
+    emptyDescription: 'Spin up a local shell, or pick a saved host on the left to SSH in.',
+    emptyHostsHint: 'Or pick a host from the sidebar',
 
     // Empty State
     noTerminals: 'No sessions yet',
@@ -396,6 +399,9 @@ export const locales = {
     thisMachine: '로컬',
     localTmuxHint: '로컬 새 세션',
     noRemoteHosts: '저장된 원격 호스트 없음',
+    emptyHeadline: '세션을 시작하세요',
+    emptyDescription: '로컬 셸을 띄우거나, 좌측에서 저장된 호스트로 SSH 접속하세요.',
+    emptyHostsHint: '또는 사이드바에서 호스트를 선택',
 
     // 빈 화면
     noTerminals: '활성 세션 없음',
