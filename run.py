@@ -21,12 +21,18 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent
 BACKEND_DIR = PROJECT_ROOT / "backend"
 FRONTEND_DIR = PROJECT_ROOT / "frontend"
+VENV_PYTHON = PROJECT_ROOT / ".venv" / "bin" / "python"
+
+
+def _python_bin() -> str:
+    """프로젝트 venv가 있으면 그걸로, 없으면 현재 인터프리터로."""
+    return str(VENV_PYTHON) if VENV_PYTHON.exists() else sys.executable
 
 
 def start_backend() -> subprocess.Popen:
     print(f"[backend] starting uvicorn (cwd={BACKEND_DIR})")
     return subprocess.Popen(
-        [sys.executable, "main.py"],
+        [_python_bin(), "main.py"],
         cwd=str(BACKEND_DIR),
         env={**os.environ},
     )
