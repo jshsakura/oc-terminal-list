@@ -92,7 +92,8 @@ const HostList = ({
                 onDoubleClick={() => onConnect?.(h)}
                 style={{
                   ...styles.row,
-                  background: hovered ? color.surface0 : 'transparent',
+                  background: hovered ? color.surface1 : color.surface0,
+                  borderColor: hovered ? color.borderStrong : color.border,
                 }}
               >
                 <div style={{ ...styles.dot, background: dotColor }} />
@@ -126,7 +127,8 @@ const LocalRow = ({ onClick, hovered, onMouseEnter, onMouseLeave, label, subLabe
     onMouseLeave={onMouseLeave}
     style={{
       ...styles.row,
-      background: hovered ? color.surface0 : 'transparent',
+      background: hovered ? color.surface1 : color.surface0,
+      borderColor: hovered ? color.borderStrong : color.border,
     }}
   >
     <div style={{ ...styles.localIcon }}>
@@ -196,10 +198,10 @@ const styles = {
   list: {
     flex: 1,
     overflowY: 'auto',
-    padding: space['1'],
+    padding: `${space['2']} ${space['2']}`,
     display: 'flex',
     flexDirection: 'column',
-    gap: '1px',
+    gap: space['1'],
   },
   empty: {
     textAlign: 'center',
@@ -219,12 +221,14 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: space['2'],
-    padding: `${space['1.5']} ${space['2']}`,
-    paddingLeft: space['3'],
-    borderRadius: radius.sm,
+    padding: `${space['2']} ${space['3']}`,
+    paddingLeft: space['4'],
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.md,
     cursor: 'pointer',
-    transition: `background ${motion.fast}`,
-    minHeight: '40px',
+    transition: `background ${motion.fast}, border-color ${motion.fast}`,
+    minHeight: '46px',
   },
   dot: {
     flexShrink: 0,

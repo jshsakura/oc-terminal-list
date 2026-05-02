@@ -38,8 +38,9 @@ const PaneGrid = ({
 
   // 터미널 배경과 같은 색을 pane 박스 배경으로 깔고, 그 안에서만 padding.
   // 이렇게 하면 여백 영역도 터미널과 동일한 색이라 시각적으로 매끈해진다.
-  const innerPaddingX = isMobile ? '8px' : '10px';
-  const innerPaddingY = '6px';
+  // 살짝만 띄우는 느낌 — 5px 동일.
+  const innerPaddingX = '5px';
+  const innerPaddingY = '5px';
 
   return (
     <div style={{ width: '100%', height: '100%', ...gridStyle }}>

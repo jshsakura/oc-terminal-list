@@ -208,7 +208,8 @@ const Sidebar = ({
                       }}
                       style={{
                         ...styles.row,
-                        background: isActive ? color.accentSubtle : (isHovered ? color.surface0 : 'transparent'),
+                        background: isActive ? color.accentSubtle : color.surface0,
+                        borderColor: isActive ? color.accentBorder : (isHovered ? color.borderStrong : color.border),
                       }}
                     >
                       <div style={{ ...styles.activeBar, background: isActive ? color.accent : 'transparent' }} />
@@ -445,10 +446,10 @@ const styles = {
   list: {
     flex: 1,
     overflowY: 'auto',
-    padding: space['1'],
+    padding: `${space['2']} ${space['2']}`,
     display: 'flex',
     flexDirection: 'column',
-    gap: '1px',
+    gap: space['1'],
   },
   empty: {
     textAlign: 'center',
@@ -469,18 +470,20 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: space['2'],
-    padding: `${space['1.5']} ${space['2']}`,
-    paddingLeft: space['3'],
-    borderRadius: radius.sm,
+    padding: `${space['2']} ${space['3']}`,
+    paddingLeft: space['4'],
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.md,
     cursor: 'pointer',
-    transition: `background ${motion.fast}`,
-    minHeight: '40px',
+    transition: `background ${motion.fast}, border-color ${motion.fast}`,
+    minHeight: '46px',
   },
   activeBar: {
     position: 'absolute',
-    left: '4px',
-    top: '8px',
-    bottom: '8px',
+    left: '6px',
+    top: '10px',
+    bottom: '10px',
     width: '2px',
     borderRadius: '2px',
     transition: `background ${motion.fast}`,
