@@ -17,6 +17,7 @@ import AppStyles from './styles/AppStyles';
 import Header from './components/layout/Header';
 import EmptyState from './components/layout/EmptyState';
 import LoadingScreen from './components/layout/LoadingScreen';
+import PaneGrid from './components/layout/PaneGrid';
 
 // Lazy load modals/pages
 const Terminal = lazy(() => import('./components/Terminal'));
@@ -122,15 +123,19 @@ function App() {
   const [filePickerQuery, setFilePickerQuery] = useState('');
   const [filePickerItems, setFilePickerItems] = useState([]);
   const [isFilePickerLoading, setIsFilePickerLoading] = useState(false);
-  const [isSplitTerminal, setIsSplitTerminal] = useState(false);
-  const [secondarySessionId, setSecondarySessionId] = useState(null);
+  // N-pane split: activeSessionId = focused pane(0). extraPanes = 옆 pane들의 sessionId (최대 3).
+  // 전체 visible panes = [activeSessionId, ...extraPanes] (길이 1..4)
+  const [extraPanes, setExtraPanes] = useState([]);
+  const MAX_PANES = 4;
   const [isTerminalSearchOpen, setIsTerminalSearchOpen] = useState(false);
   const [terminalSearchQuery, setTerminalSearchQuery] = useState('');
   const [terminalSearchStatus, setTerminalSearchStatus] = useState('');
   const terminalSearchInputRef = useRef(null);
 
   const terminalRef = useRef(null);
-  const terminalLayoutSignal = `${isMobile ? 'm' : 'd'}:${isSidebarOpen ? sidebarWidth : 0}:${activeFile ? editorHeight : 0}:${activeFile ? 'editor-open' : 'editor-closed'}:${isSplitTerminal ? `split-${secondarySessionId || 'none'}` : 'single'}`;
+  const visiblePaneIds = useMemo(() => [activeSessionId, ...extraPanes].filter(Boolean).slice(0, MAX_PANES), [activeSessionId, extraPanes]);
+  const paneCount = visiblePaneIds.length;
+  const terminalLayoutSignal = `${isMobile ? 'm' : 'd'}:${isSidebarOpen ? sidebarWidth : 0}:${activeFile ? editorHeight : 0}:${activeFile ? 'editor-open' : 'editor-closed'}:panes-${visiblePaneIds.join(',')}`;
 
   // Responsive & Viewport
   useEffect(() => {
@@ -241,22 +246,47 @@ function App() {
     setIsFilePickerOpen(false);
   }, []);
 
-  const toggleTerminalSplit = useCallback(() => {
-    if (sessions.length < 2) {
-      setNotification({ isOpen: true, message: t('needTwoSessionsForSplit') });
+  // pane 추가 — 다음으로 패널이 안 잡힌 세션을 선택해서 분할 영역에 띄움
+  const addPane = useCallback(() => {
+    if (paneCount >= MAX_PANES) return;
+    const used = new Set(visiblePaneIds);
+    const candidate = sessions.find((s) => !used.has(s.id));
+    if (!candidate) {
+      setNotification({ isOpen: true, message: t('needAnotherSessionForSplit') || t('needTwoSessionsForSplit') });
       return;
     }
+    setExtraPanes((prev) => [...prev, candidate.id]);
+  }, [paneCount, visiblePaneIds, sessions, t]);
 
-    if (isSplitTerminal) {
-      setIsSplitTerminal(false);
-      setSecondarySessionId(null);
+  const removePane = useCallback((paneIdx) => {
+    if (paneIdx === 0) {
+      // 첫 pane(=active)을 닫으려면 다음 pane 으로 active 이동
+      if (extraPanes.length === 0) return;
+      const next = extraPanes[0];
+      setExtraPanes((prev) => prev.slice(1));
+      setActiveSessionId(next);
       return;
     }
+    setExtraPanes((prev) => prev.filter((_, i) => i !== paneIdx - 1));
+  }, [extraPanes, setActiveSessionId]);
 
-    const fallbackSecondary = sessions.find((session) => session.id !== activeSessionId)?.id || null;
-    setSecondarySessionId(fallbackSecondary);
-    setIsSplitTerminal(true);
-  }, [sessions, isSplitTerminal, activeSessionId, t]);
+  const focusPane = useCallback((paneIdx) => {
+    if (paneIdx === 0) return;
+    const targetId = extraPanes[paneIdx - 1];
+    if (!targetId) return;
+    // 첫 pane 의 session 과 클릭한 pane 의 session 을 swap → activeSessionId 가 클릭한 것으로 이동
+    setExtraPanes((prev) => {
+      const next = [...prev];
+      next[paneIdx - 1] = activeSessionId;
+      return next;
+    });
+    setActiveSessionId(targetId);
+  }, [extraPanes, activeSessionId, setActiveSessionId]);
+
+  // 세션이 사라지면 pane 정리
+  useEffect(() => {
+    setExtraPanes((prev) => prev.filter((id) => sessions.some((s) => s.id === id)));
+  }, [sessions]);
 
   const commandPaletteItems = useMemo(() => [
     {
@@ -288,11 +318,18 @@ function App() {
       action: openFilePicker,
     },
     {
-      id: 'split-terminal',
-      label: isSplitTerminal ? t('unsplitTerminal') : t('splitTerminal'),
+      id: 'split-add',
+      label: t('splitTerminal'),
       shortcut: 'Ctrl+\\',
       keywords: ['split', 'pane', 'terminal'],
-      action: toggleTerminalSplit,
+      action: addPane,
+    },
+    {
+      id: 'split-remove',
+      label: t('unsplitTerminal'),
+      shortcut: 'Ctrl+Shift+\\',
+      keywords: ['unsplit', 'close pane'],
+      action: () => removePane(extraPanes.length),
     },
     {
       id: 'focus-terminal',
@@ -343,8 +380,9 @@ function App() {
     handleNewSession,
     isSidebarOpen,
     openFilePicker,
-    isSplitTerminal,
-    toggleTerminalSplit,
+    addPane,
+    removePane,
+    extraPanes,
     focusActiveTerminal,
     openTerminalSearch,
     clearActiveTerminal,
@@ -416,20 +454,11 @@ function App() {
     };
   }, [isFilePickerOpen, filePickerQuery, openFiles]);
 
+  // 활성 세션이 다른 pane 에도 있다면 (sidebar 클릭으로) 그 pane 을 제거 — 첫 pane 으로 통합
   useEffect(() => {
-    if (!isSplitTerminal) return;
-
-    if (sessions.length < 2) {
-      setIsSplitTerminal(false);
-      setSecondarySessionId(null);
-      return;
-    }
-
-    if (!secondarySessionId || secondarySessionId === activeSessionId || !sessions.some((session) => session.id === secondarySessionId)) {
-      const fallbackSecondary = sessions.find((session) => session.id !== activeSessionId)?.id || null;
-      setSecondarySessionId(fallbackSecondary);
-    }
-  }, [isSplitTerminal, sessions, activeSessionId, secondarySessionId]);
+    if (!activeSessionId) return;
+    setExtraPanes((prev) => prev.filter((id) => id !== activeSessionId));
+  }, [activeSessionId]);
 
   useEffect(() => {
     const isFormElement = (target) => {
@@ -606,6 +635,7 @@ function App() {
         onRenameSession={renameSession}
         onReconnectSession={(id) => { setActiveSessionId(null); setTimeout(() => setActiveSessionId(id), 50); }}
         hosts={hosts}
+        activeSession={sessions.find(s => s.id === activeSessionId) || null}
         onConnectHost={openHost}
         onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
         onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
@@ -670,7 +700,7 @@ function App() {
           zIndex: 101,
           pointerEvents: 'none'
         }} />
-        <Header 
+        <Header
           isSidebarOpen={isSidebarOpen}
           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           sessions={sessions}
@@ -686,6 +716,10 @@ function App() {
           handleNewSession={handleNewSession}
           setIsSettingsOpen={setIsSettingsOpen}
           handleLogoutRequest={handleLogoutRequest}
+          paneCount={paneCount}
+          maxPanes={MAX_PANES}
+          onAddPane={addPane}
+          onClosePane={() => removePane(extraPanes.length)}
         />
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
@@ -734,47 +768,18 @@ function App() {
             {sessions.length === 0 ? (
               <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
             ) : (
-              <div
-                style={{
-                  width: '100%',
-                  height: '100%',
-                  display: 'flex',
-                  flexDirection: isSplitTerminal ? (isMobile ? 'column' : 'row') : 'column',
-                  gap: isSplitTerminal ? '6px' : 0,
-                }}
-              >
-                {sessions.map((session) => {
-                  const visibleInSplit = isSplitTerminal && (session.id === activeSessionId || session.id === secondarySessionId);
-                  const isVisible = isSplitTerminal ? visibleInSplit : session.id === activeSessionId;
-                  if (!isVisible) return null;
-
-                  const isFocusedPane = session.id === activeSessionId;
-                  return (
-                    <div
-                      key={`session-container-${session.id}`}
-                      onMouseDown={() => setActiveSessionId(session.id)}
-                      style={{
-                        width: isSplitTerminal && !isMobile ? '50%' : '100%',
-                        height: isSplitTerminal && isMobile ? '50%' : '100%',
-                        border: isSplitTerminal ? `1px solid ${isFocusedPane ? currentTheme.ui.accent : currentTheme.ui.borderLight}` : 'none',
-                        borderRadius: isSplitTerminal ? '8px' : 0,
-                        overflow: 'hidden',
-                        boxShadow: isSplitTerminal && isFocusedPane ? `0 0 0 1px ${currentTheme.ui.accent}66 inset` : 'none',
-                      }}
-                    >
-                      <Suspense fallback={null}>
-                        <Terminal
-                          sessionId={session.id}
-                          hostId={session.hostId}
-                          settings={settings}
-                          isActive={session.id === activeSessionId}
-                          layoutSignal={terminalLayoutSignal}
-                        />
-                      </Suspense>
-                    </div>
-                  );
-                })}
-              </div>
+              <PaneGrid
+                visiblePaneIds={visiblePaneIds}
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                paneCount={paneCount}
+                isMobile={isMobile}
+                currentTheme={currentTheme}
+                settings={settings}
+                terminalLayoutSignal={terminalLayoutSignal}
+                onFocusPane={focusPane}
+                onClosePane={removePane}
+              />
             )}
           </div>
         </div>
@@ -955,10 +960,15 @@ function App() {
             onSave={async (draft) => {
               if (hostEditorState.host) {
                 await updateHost(hostEditorState.host.id, draft);
+                setHostEditorState({ isOpen: false, host: null });
               } else {
                 await createHost(draft);
+                // 새 호스트 추가 직후 곧장 연결되도록 (Termius 풍의 \"이지\" UX)
+                const fresh = await refreshHosts();
+                const justAdded = (fresh || []).find(h => h.name === draft.name && h.hostname === draft.hostname);
+                setHostEditorState({ isOpen: false, host: null });
+                if (justAdded) openHost(justAdded);
               }
-              setHostEditorState({ isOpen: false, host: null });
             }}
           />
           <SshKeyManager

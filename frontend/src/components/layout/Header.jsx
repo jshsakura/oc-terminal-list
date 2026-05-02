@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeft, Menu, Plus, Settings as SettingsIcon, Power, Terminal as TerminalIcon } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, Menu, Plus, Settings as SettingsIcon, Power, Terminal as TerminalIcon, Columns2, X } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 
 const { color, font, fontSize, fontWeight, space } = tokens;
@@ -15,6 +15,10 @@ const Header = ({
   handleLogoutRequest,
   setIsMenuOpen,
   isMenuOpen,
+  paneCount = 1,
+  maxPanes = 4,
+  onAddPane,
+  onClosePane,
 }) => {
   return (
     <header style={styles.bar}>
@@ -33,6 +37,25 @@ const Header = ({
       </div>
 
       <div style={styles.right}>
+        {!isMobile && (
+          <>
+            {paneCount < maxPanes && (
+              <IconButton
+                onClick={onAddPane}
+                title={`${t('splitTerminal')} (${paneCount}/${maxPanes})`}
+                icon={Columns2}
+              />
+            )}
+            {paneCount > 1 && (
+              <IconButton
+                onClick={onClosePane}
+                title={t('unsplitTerminal')}
+                icon={X}
+              />
+            )}
+            <Divider />
+          </>
+        )}
         <IconButton
           onClick={handleNewSession}
           title={t('newSession')}

@@ -31,6 +31,8 @@ const Sidebar = ({
   onEditHost,
   onDeleteHost,
   onManageKeys,
+  // 현재 활성 세션의 정보 (사용량 라벨 컨텍스트에 사용)
+  activeSession = null,
   language = 'en',
   isMobile = false,
   width = 260,
@@ -282,16 +284,26 @@ const Sidebar = ({
           </div>
         )}
 
-        {/* 푸터: 시스템 리소스 */}
+        {/* 푸터: 컨텍스트 정보 — 활성 세션이 호스트면 호스트 라벨, 로컬이면 로컬 시스템 통계 */}
         <div
           style={{
             ...styles.footer,
             paddingBottom: isMobile ? 'calc(34px + env(safe-area-inset-bottom, 0px))' : space['2'],
           }}
         >
-          <Stat icon={Cpu} value={`${systemStats.cpu}%`} hue={color.accent} />
-          <Stat icon={Activity} value={`${systemStats.ram}%`} hue={color.success} />
-          <Stat icon={HardDrive} value={`${systemStats.disk}%`} hue={color.info} />
+          {activeSession?.kind === 'host' ? (
+            <div style={styles.footerHostLabel}>
+              <Server size={11} strokeWidth={2} style={{ color: color.accent, flexShrink: 0 }} />
+              <span style={styles.footerHostName}>{activeSession.name}</span>
+              <span style={styles.footerHostBadge}>{t('remoteLabel') || 'remote'}</span>
+            </div>
+          ) : (
+            <>
+              <Stat icon={Cpu} value={`${systemStats.cpu}%`} hue={color.accent} />
+              <Stat icon={Activity} value={`${systemStats.ram}%`} hue={color.success} />
+              <Stat icon={HardDrive} value={`${systemStats.disk}%`} hue={color.info} />
+            </>
+          )}
         </div>
 
         {!isMobile && onResizeStart && (
@@ -553,6 +565,33 @@ const styles = {
     color: color.subtext,
     fontFamily: font.mono,
     fontVariantNumeric: 'tabular-nums',
+  },
+  footerHostLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1.5'],
+    width: '100%',
+    minWidth: 0,
+  },
+  footerHostName: {
+    flex: 1,
+    fontSize: fontSize['12'],
+    color: color.text,
+    fontWeight: fontWeight.medium,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  footerHostBadge: {
+    fontSize: fontSize['11'],
+    color: color.accent,
+    background: color.accentSubtle,
+    border: `1px solid ${color.accentBorder}`,
+    borderRadius: radius.full,
+    padding: `1px ${space['1.5']}`,
+    flexShrink: 0,
+    fontFamily: font.mono,
+    letterSpacing: '0.04em',
   },
   resizeHandle: {
     position: 'absolute',
