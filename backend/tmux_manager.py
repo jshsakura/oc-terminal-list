@@ -51,18 +51,36 @@ class TmuxManager:
     def _base_args(self) -> List[str]:
         return [TMUX_BIN, "-L", self.socket_name]
 
-    async def _run(self, *args: str, check: bool = True) -> tuple[int, str, str]:
-        """tmux 명령 실행 → (rc, stdout, stderr)"""
+    async def _run(self, *args: str, check: bool = True, capture: bool = True) -> tuple[int, str, str]:
+        """tmux 명령 실행 → (rc, stdout, stderr).
+
+        ⚠️  tmux 서버가 daemonize 될 때 stdout/stderr 파이프를 상속받아 닫지 않으면
+        `communicate()` 가 영원히 블로킹된다. 따라서 출력이 필요 없는 호출은
+        `capture=False` 로 호출해 DEVNULL 로 리다이렉트한다.
+        """
         cmd = [*self._base_args(), *args]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
+        if capture:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            out = stdout.decode("utf-8", errors="replace").strip()
+            err = stderr.decode("utf-8", errors="replace").strip()
+        else:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.wait()
+            out = ""
+            err = ""
+
         rc = proc.returncode if proc.returncode is not None else -1
-        out = stdout.decode("utf-8", errors="replace").strip()
-        err = stderr.decode("utf-8", errors="replace").strip()
         if check and rc != 0:
             raise TmuxError(f"tmux {' '.join(args)} failed (rc={rc}): {err or out}")
         return rc, out, err
@@ -103,7 +121,14 @@ class TmuxManager:
         if shell:
             args.append(shell)
 
-        await self._run(*args)
+        # ⚠️  new-session은 tmux 서버를 daemonize 하므로 stdout/stderr를 잡으면 hang.
+        # capture=False 로 DEVNULL 리다이렉트하고, has-session으로 사후 확인.
+        await self._run(*args, capture=False)
+        if not await self.session_exists(session_id):
+            raise TmuxError(
+                f"new-session 직후 세션이 보이지 않음: {session_id} "
+                f"(shell={shell}, cwd={cwd}). 셸/디렉토리 권한을 확인하세요."
+            )
         # 세션 옵션: 웹 임베드 환경에 적합한 기본값
         opts = [
             ("history-limit", str(self.history_limit)),
