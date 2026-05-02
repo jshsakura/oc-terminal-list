@@ -104,14 +104,23 @@ class TmuxManager:
             args.append(shell)
 
         await self._run(*args)
-        # 스크롤백 길이 + 마우스 등 세션 옵션 적용
-        await self._run("set-option", "-t", session_id, "history-limit", str(self.history_limit), check=False)
-        await self._run("set-option", "-t", session_id, "mouse", "on", check=False)
-        # 다중 클라이언트일 때 마지막 활성 클라이언트 크기를 따라가도록
-        await self._run("set-option", "-t", session_id, "window-size", "latest", check=False)
-        # 256색/truecolor 활성화
-        await self._run("set-option", "-t", session_id, "default-terminal", "tmux-256color", check=False)
-        await self._run("set-option", "-ag", "-t", session_id, "terminal-overrides", ",*256col*:Tc", check=False)
+        # 세션 옵션: 웹 임베드 환경에 적합한 기본값
+        opts = [
+            ("history-limit", str(self.history_limit)),
+            ("mouse", "on"),
+            ("window-size", "latest"),         # 다중 클라이언트시 최근 활성 사이즈
+            ("default-terminal", "tmux-256color"),
+            ("status", "off"),                 # 하단 상태바 숨김 (xterm.js 임베드 친화)
+            ("renumber-windows", "on"),
+            ("focus-events", "on"),
+        ]
+        for key, val in opts:
+            await self._run("set-option", "-t", session_id, key, val, check=False)
+        # truecolor override
+        await self._run(
+            "set-option", "-ag", "-t", session_id, "terminal-overrides", ",*256col*:Tc",
+            check=False,
+        )
 
         logger.info("tmux session created: %s (%dx%d, cwd=%s, shell=%s)", session_id, cols, rows, cwd, shell)
 
