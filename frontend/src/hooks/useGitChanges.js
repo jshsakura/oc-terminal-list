@@ -9,6 +9,7 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '' } = {}) =
   const [items, setItems] = useState([]);
   const [branch, setBranch] = useState(null);
   const [repo, setRepo] = useState(null);
+  const [repos, setRepos] = useState([]);   // 워크스페이스 집계 모드일 때 repo 별 요약
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const tickRef = useRef(null);
@@ -26,6 +27,7 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '' } = {}) =
       setItems(data.items || []);
       setBranch(data.branch || null);
       setRepo(data.repo || null);
+      setRepos(data.repos || []);
       setError(data.error || null);
     } catch (e) {
       setError(e.message);
@@ -60,7 +62,7 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '' } = {}) =
     return res.json();
   }, []);
 
-  return { items, branch, repo, error, loading, refresh, fetchDiff };
+  return { items, branch, repo, repos, error, loading, refresh, fetchDiff };
 };
 
 export default useGitChanges;

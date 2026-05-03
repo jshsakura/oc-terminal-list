@@ -94,8 +94,13 @@ function App() {
     isLocal: !!isActiveLocal,
   });
   const gitContextPath = activeCwdRel ?? '';
-  // 헤더 뱃지/사이드바 둘 다 라이브 — 활성 터미널의 cwd 기준 git 폴링
-  const { items: gitChanges } = useGitChanges({ enabled: true, path: gitContextPath });
+  // 헤더 뱃지/사이드바 둘 다 라이브 — 활성 터미널의 cwd 기준 git 폴링.
+  // 경로 미지정 (= 전체 워크스페이스 집계) 일 때는 부하 줄이려고 폴링 간격 길게.
+  const { items: gitChanges } = useGitChanges({
+    enabled: true,
+    path: gitContextPath,
+    intervalMs: gitContextPath ? 4000 : 9000,
+  });
   const handleSelectChangedFile = useCallback((path) => {
     setRequestedDiffPath(path);
     setIsChangesPanelOpen(true);

@@ -57,10 +57,14 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
   const createInputRef = useRef(null);
 
   // gitContextPath (활성 터미널 cwd) 가 비어있으면 트리에서 마지막에 펼친 폴더로 폴백.
-  // 두 경로가 모두 빈 경우에만 진짜 워크스페이스 루트에서 탐색.
+  // 둘 다 빈 경우 워크스페이스 전체 repo 들을 집계 (백엔드).
   const [treeFocus, setTreeFocus] = useState(initialPath || '');
   const effectiveGitPath = gitContextPath || treeFocus;
-  const { items: gitItems, branch: gitBranch, repo: gitRepo } = useGitChanges({ enabled: true, path: effectiveGitPath });
+  const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = useGitChanges({
+    enabled: true,
+    path: effectiveGitPath,
+    intervalMs: effectiveGitPath ? 4000 : 9000,
+  });
   const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
 
   const fetchChildren = useCallback(async (path) => {
@@ -265,10 +269,13 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
   return (
     <div style={styles.wrap}>
       <div style={styles.head}>
-        <div style={styles.headBranch} title={gitRepo || (t('notInGitRepo') || 'Not inside a git repository')}>
-          <GitBranch size={11} strokeWidth={2} style={{ color: gitRepo ? color.muted : color.faint, flexShrink: 0 }} />
-          <span style={{ ...styles.branchName, color: gitRepo ? color.subtext : color.muted }}>
-            {gitBranch || (gitRepo ? '—' : (t('noGitHere') || 'no git here'))}
+        <div
+          style={styles.headBranch}
+          title={gitRepo || (gitRepos && gitRepos.length ? `${gitRepos.length} repos` : (t('notInGitRepo') || 'Not inside a git repository'))}
+        >
+          <GitBranch size={11} strokeWidth={2} style={{ color: (gitRepo || gitRepos?.length) ? color.muted : color.faint, flexShrink: 0 }} />
+          <span style={{ ...styles.branchName, color: (gitRepo || gitRepos?.length) ? color.subtext : color.muted }}>
+            {gitBranch || (gitRepos?.length ? `${gitRepos.length} repos` : (gitRepo ? '—' : (t('noGitHere') || 'no git here')))}
           </span>
           {gitItems.length > 0 && (
             <span style={styles.countBadge}>{gitItems.length}</span>
@@ -286,7 +293,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
           <HeadAction
             icon={Terminal}
             title={t('openTerminalHere') || 'Open terminal here'}
-            onClick={() => onOpenTerminalAtFolder?.(treeFocus || '')}
+            onClick={() => onOpenTerminalAtFolder?.(effectiveGitPath || '')}
           />
           <HeadAction icon={RefreshCw} title={t('refresh') || 'Refresh'} onClick={refreshAll} />
         </div>

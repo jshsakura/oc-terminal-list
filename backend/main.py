@@ -713,19 +713,137 @@ async def _find_repo_root(start_path: str) -> Optional[str]:
         return None
 
 
+async def _collect_repo_status(repo_root: str, workspace_abs: str) -> dict:
+    """단일 repo 의 변경 사항 + 브랜치를 워크스페이스 상대 경로 기준으로 정리."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_root, "status", "--porcelain=v1", "-uall",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            return {"items": [], "branch": None, "error": stderr.decode("utf-8", "replace").strip() or "git status failed"}
+
+        repo_rel_prefix = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
+        if repo_rel_prefix in (".", ""):
+            repo_rel_prefix = ""
+
+        items = []
+        for line in stdout.decode().splitlines():
+            if len(line) < 3:
+                continue
+            staged_code = line[0]
+            unstaged_code = line[1]
+            rel_to_repo = line[3:].strip().strip('"')
+            kind = (
+                "untracked" if line[:2] == "??"
+                else "deleted" if "D" in line[:2]
+                else "added" if "A" in line[:2]
+                else "modified"
+            )
+            workspace_rel = (
+                f"{repo_rel_prefix}/{rel_to_repo}" if repo_rel_prefix else rel_to_repo
+            )
+            items.append({
+                "path": workspace_rel,
+                "repo_path": rel_to_repo,
+                "repo_root": repo_root,
+                "code": (staged_code + unstaged_code).strip(),
+                "kind": kind,
+                "staged": staged_code not in (" ", "?"),
+            })
+
+        branch_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        b_out, _ = await branch_proc.communicate()
+        branch = b_out.decode().strip() if branch_proc.returncode == 0 else None
+
+        return {"items": items, "branch": branch, "error": None}
+    except Exception as e:
+        return {"items": [], "branch": None, "error": str(e)}
+
+
+# 워크스페이스 repo 스캔 결과 캐시 — fs 변동이 잦지 않으니 60초 캐시.
+_REPO_SCAN_CACHE: dict = {"ts": 0.0, "roots": []}
+_REPO_SCAN_TTL = 60.0
+
+
+async def _scan_workspace_repos(workspace_abs: str, max_depth: int = 2) -> List[str]:
+    """워크스페이스에서 git repo 들의 루트 경로를 탐색 (max_depth 까지). 60초 캐시."""
+    now = time.time()
+    if now - _REPO_SCAN_CACHE["ts"] < _REPO_SCAN_TTL and _REPO_SCAN_CACHE["roots"]:
+        return list(_REPO_SCAN_CACHE["roots"])
+
+    found: List[str] = []
+    try:
+        for entry in os.scandir(workspace_abs):
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            if entry.name.startswith('.'):
+                continue
+            full = entry.path
+            if os.path.isdir(os.path.join(full, '.git')):
+                found.append(full)
+                continue
+            if max_depth > 1:
+                try:
+                    for sub in os.scandir(full):
+                        if not sub.is_dir(follow_symlinks=False):
+                            continue
+                        if sub.name.startswith('.'):
+                            continue
+                        if os.path.isdir(os.path.join(sub.path, '.git')):
+                            found.append(sub.path)
+                except PermissionError:
+                    pass
+    except Exception as e:
+        logger.warning("scan workspace repos failed: %s", e)
+    _REPO_SCAN_CACHE["ts"] = now
+    _REPO_SCAN_CACHE["roots"] = found
+    return found
+
+
 @app.get("/api/git/status")
 async def git_status(
-    path: str = Query("", description="포커스된 폴더 경로 (워크스페이스 상대). 비우면 워크스페이스 루트."),
+    path: str = Query("", description="포커스된 폴더 경로 (워크스페이스 상대). 비우면 워크스페이스 전체 repo 집계."),
     username: str = Depends(verify_auth_token),
 ):
-    """주어진 경로(또는 워크스페이스 루트)에서 발견한 git 저장소의 변경 사항을 반환.
+    """경로 지정 시 그 repo 의 변경, 비우면 워크스페이스 내 모든 repo 의 변경을 집계."""
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
 
-    경로가 git 저장소가 아니면 위로 올라가며 자동 탐색. 그래도 없으면 빈 응답 + repo=None.
-    """
-    target = str(validate_path(path).absolute()) if path else os.path.abspath(WORKSPACE_ROOT)
+    # 경로 없음 → 워크스페이스 전체 집계 (병렬 git status)
+    if not path:
+        repo_roots = await _scan_workspace_repos(workspace_abs)
+        if not repo_roots:
+            return {"items": [], "branch": None, "repo": None, "repos": [], "error": None}
+        results = await asyncio.gather(*[
+            _collect_repo_status(r, workspace_abs) for r in repo_roots
+        ], return_exceptions=False)
+        repos_meta = []
+        all_items = []
+        for repo_root, r in zip(repo_roots, results):
+            if r.get("error") or len(r.get("items", [])) == 0:
+                continue
+            rel = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
+            repos_meta.append({"root": repo_root, "rel": rel, "branch": r["branch"], "count": len(r["items"])})
+            all_items.extend(r["items"])
+        return {
+            "items": all_items,
+            "branch": None,
+            "repo": None,
+            "repos": repos_meta,
+            "error": None,
+        }
+
+    # 경로 지정 → 단일 repo (기존 동작)
+    target = str(validate_path(path).absolute())
     repo_root = await _find_repo_root(target)
     if not repo_root:
-        return {"items": [], "branch": None, "repo": None, "error": None}
+        return {"items": [], "branch": None, "repo": None, "repos": [], "error": None}
 
     try:
         proc = await asyncio.create_subprocess_exec(

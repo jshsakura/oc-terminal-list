@@ -18,12 +18,46 @@ const STATUS_META = {
  * - 파일 클릭 → 하단에 unified diff 표시
  * - 클로드 코드 같은 도구가 파일을 수정하면 즉시 보임
  */
+const MIN_WIDTH = 240;
+const MAX_WIDTH = 720;
+const DEFAULT_WIDTH = 320;
+
 const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, onConsumedExternalPath, gitContextPath = '' }) => {
-  const { items, branch, error, refresh, fetchDiff } = useGitChanges({ enabled: isOpen, path: gitContextPath });
+  const { items, branch, repos, error, refresh, fetchDiff } = useGitChanges({
+    enabled: isOpen,
+    path: gitContextPath,
+    intervalMs: gitContextPath ? 4000 : 9000,
+  });
   const [selected, setSelected] = useState(null);
   const [diff, setDiff] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState(null);
+  const [width, setWidth] = useState(() => {
+    const saved = parseInt(localStorage.getItem('changes_panel_width') || '0', 10);
+    return saved >= MIN_WIDTH && saved <= MAX_WIDTH ? saved : DEFAULT_WIDTH;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+
+  useEffect(() => { localStorage.setItem('changes_panel_width', String(width)); }, [width]);
+
+  const startResize = (e) => {
+    e.preventDefault();
+    setIsResizing(true);
+    const startX = e.clientX;
+    const startWidth = width;
+    const onMove = (ev) => {
+      // 패널이 우측에 있으므로, 왼쪽으로 끌면 너비 증가
+      const next = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, startWidth + (startX - ev.clientX)));
+      setWidth(next);
+    };
+    const onUp = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  };
 
   // 외부에서 선택 요청 (사이드바 Git 탭 클릭) — 패널이 열릴 때 그 파일을 선택
   useEffect(() => {
@@ -58,12 +92,42 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
 
   if (!isOpen) return null;
 
+  const renderRow = (it) => {
+    const meta = STATUS_META[it.kind] || STATUS_META.modified;
+    const isSelected = selected === it.path;
+    return (
+      <button
+        key={it.path}
+        onClick={() => setSelected(it.path)}
+        onDoubleClick={() => onOpenFile?.(it.path)}
+        style={{
+          ...styles.row,
+          background: isSelected ? color.accentSubtle : 'transparent',
+        }}
+        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = color.surface0; }}
+        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+      >
+        <span style={{ ...styles.statusLetter, color: meta.tone, borderColor: `${meta.tone}55`, background: `${meta.tone}11` }}>
+          {meta.letter}
+        </span>
+        <span style={{ ...styles.rowName, color: isSelected ? color.text : color.subtext }}>{it.path}</span>
+      </button>
+    );
+  };
+
   return (
-    <aside style={styles.aside}>
+    <aside style={{ ...styles.aside, width: `${width}px` }}>
+      <div
+        onMouseDown={startResize}
+        style={{ ...styles.resizeHandle, background: isResizing ? color.accentBorder : 'transparent' }}
+        title={t('resizePanel') || 'Drag to resize'}
+      />
       <header style={styles.header}>
         <div style={styles.headerLeft}>
           <GitBranch size={12} strokeWidth={2} style={{ color: color.muted }} />
-          <span style={styles.branchName}>{branch || '—'}</span>
+          <span style={styles.branchName}>
+            {branch || (repos && repos.length > 0 ? `${repos.length} repos` : '—')}
+          </span>
           {items.length > 0 && (
             <span style={styles.countBadge}>{items.length}</span>
           )}
@@ -82,28 +146,26 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
             <div style={styles.emptyHint}>{t('changesHint') || 'When files change in this repo, they show up here.'}</div>
           </div>
         )}
-        {items.map((it) => {
-          const meta = STATUS_META[it.kind] || STATUS_META.modified;
-          const isSelected = selected === it.path;
-          return (
-            <button
-              key={it.path}
-              onClick={() => setSelected(it.path)}
-              onDoubleClick={() => onOpenFile?.(it.path)}
-              style={{
-                ...styles.row,
-                background: isSelected ? color.accentSubtle : 'transparent',
-              }}
-              onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = color.surface0; }}
-              onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
-            >
-              <span style={{ ...styles.statusLetter, color: meta.tone, borderColor: `${meta.tone}55`, background: `${meta.tone}11` }}>
-                {meta.letter}
-              </span>
-              <span style={{ ...styles.rowName, color: isSelected ? color.text : color.subtext }}>{it.path}</span>
-            </button>
-          );
-        })}
+        {/* repo 다수면 repo 별로 그룹핑, 단일이면 평탄 리스트 */}
+        {repos && repos.length > 1 ? (
+          repos.map((repo) => {
+            const groupItems = items.filter((it) => it.path.startsWith(repo.rel + '/') || it.path === repo.rel);
+            if (groupItems.length === 0) return null;
+            return (
+              <div key={repo.root} style={styles.group}>
+                <div style={styles.groupHead}>
+                  <GitBranch size={10} strokeWidth={2} style={{ color: color.muted }} />
+                  <span style={styles.groupRepo}>{repo.rel}</span>
+                  <span style={styles.groupBranch}>{repo.branch || '—'}</span>
+                  <span style={styles.groupCount}>{groupItems.length}</span>
+                </div>
+                {groupItems.map((it) => renderRow(it))}
+              </div>
+            );
+          })
+        ) : (
+          items.map((it) => renderRow(it))
+        )}
       </div>
 
       {selected && (
@@ -170,15 +232,24 @@ const HeaderBtn = ({ onClick, title, icon: Icon }) => (
 
 const styles = {
   aside: {
-    width: '320px',
-    minWidth: '260px',
-    maxWidth: '480px',
     height: '100%',
     display: 'flex',
     flexDirection: 'column',
     background: color.mantle,
     borderLeft: `1px solid ${color.border}`,
     fontFamily: font.sans,
+    position: 'relative',
+    flexShrink: 0,
+  },
+  resizeHandle: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: '-3px',
+    width: '6px',
+    cursor: 'ew-resize',
+    zIndex: 10,
+    transition: 'background 120ms ease',
   },
   header: {
     height: '36px',
@@ -227,10 +298,51 @@ const styles = {
   },
   list: {
     flexShrink: 0,
-    maxHeight: '40%',
+    maxHeight: '50%',
     overflowY: 'auto',
     padding: `${space['1']} ${space['1']}`,
     borderBottom: `1px solid ${color.border}`,
+  },
+  group: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1px',
+    marginBottom: space['1'],
+  },
+  groupHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1'],
+    padding: `${space['1']} ${space['2']}`,
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
+    fontFamily: font.mono,
+    fontSize: fontSize['11'],
+    marginTop: '2px',
+  },
+  groupRepo: {
+    color: color.text,
+    fontWeight: fontWeight.medium,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: '50%',
+  },
+  groupBranch: {
+    color: color.muted,
+    flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  groupCount: {
+    color: color.accent,
+    background: color.accentSubtle,
+    border: `1px solid ${color.accentBorder}`,
+    borderRadius: radius.full,
+    padding: `0 ${space['1.5']}`,
+    flexShrink: 0,
   },
   empty: {
     padding: `${space['8']} ${space['3']}`,
