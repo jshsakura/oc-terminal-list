@@ -221,6 +221,11 @@ const Sidebar = ({
                   const dotColor = colorForSession(session.id);
                   const isExpanded = expandedActivity.has(session.id);
                   const isHostTab = !!session.hostId;
+                  // 표시 이름: 사용자 명시명 > cwd basename > Terminal N
+                  const cwdBase = session.cwd
+                    ? (session.cwd.split('/').filter(Boolean).pop() || 'workspace')
+                    : null;
+                  const displayName = session.name || cwdBase || `Terminal ${index + 1}`;
                   return (
                     <div key={session.id} style={styles.cardOuter}>
                       <div
@@ -272,10 +277,10 @@ const Sidebar = ({
                               onDoubleClick={(e) => {
                                 e.stopPropagation();
                                 setEditingSessionId(session.id);
-                                setEditingName(session.name || `Terminal ${index + 1}`);
+                                setEditingName(displayName);
                               }}
                             >
-                              {session.name || `Terminal ${index + 1}`}
+                              {displayName}
                             </div>
                           )}
                           {session.cwd && <div style={styles.rowSub}>{session.cwd}</div>}

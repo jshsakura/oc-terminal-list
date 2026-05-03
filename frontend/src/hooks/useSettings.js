@@ -13,6 +13,12 @@ const normalizeDefaultShell = (value) => {
   }
 
   const normalized = value.trim().toLowerCase();
+  // 'bash' 가 묵시적 기본값으로 박혀있던 옛 설정 → 시스템 쉘 사용으로 한 번 마이그레이션.
+  // 명시적으로 bash 쓰려면 사용자가 Settings 에서 다시 선택.
+  if (normalized === 'bash' && !localStorage.getItem('shell_pref_v2')) {
+    try { localStorage.setItem('shell_pref_v2', '1'); } catch {}
+    return 'auto';
+  }
   return SUPPORTED_DEFAULT_SHELLS.has(normalized) ? normalized : 'auto';
 };
 
