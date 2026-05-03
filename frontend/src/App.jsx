@@ -92,6 +92,16 @@ function App() {
   const [isChangesPanelOpen, setIsChangesPanelOpen] = useState(() => localStorage.getItem('changes_panel_open') === 'true');
   useEffect(() => { localStorage.setItem('changes_panel_open', String(isChangesPanelOpen)); }, [isChangesPanelOpen]);
   const [requestedDiffPath, setRequestedDiffPath] = useState(null);
+
+  // pane 시각화 데이터 — focusedPaneIdx 기준
+  const visiblePaneIds = useMemo(
+    () => [activeSessionId, ...extraPanes].slice(0, MAX_PANES),
+    [activeSessionId, extraPanes]
+  );
+  const paneCount = visiblePaneIds.length;
+  const safeFocusedIdx = focusedPaneIdx >= paneCount ? 0 : focusedPaneIdx;
+  const focusedSessionId = visiblePaneIds[safeFocusedIdx];
+
   // 포커스된 pane 의 세션 정보 — host 세션이면 cwd 추적 안 함
   const activeSessionInfo = useMemo(() => sessions.find((s) => s.id === focusedSessionId) || null, [sessions, focusedSessionId]);
   const isActiveLocal = activeSessionInfo && !activeSessionInfo.hostId;
@@ -175,16 +185,6 @@ function App() {
   const terminalSearchInputRef = useRef(null);
 
   const terminalRef = useRef(null);
-  // 첫 슬롯은 activeSessionId, 나머지는 extraPanes (null 가능 = 빈 placeholder)
-  const visiblePaneIds = useMemo(
-    () => [activeSessionId, ...extraPanes].slice(0, MAX_PANES),
-    [activeSessionId, extraPanes]
-  );
-  const paneCount = visiblePaneIds.length;
-  // focusedPaneIdx 가 범위 벗어나면 0으로 보정
-  const safeFocusedIdx = focusedPaneIdx >= paneCount ? 0 : focusedPaneIdx;
-  // 포커스된 pane 의 세션 — Changes 패널, cwd 추적의 기준
-  const focusedSessionId = visiblePaneIds[safeFocusedIdx];
   const terminalLayoutSignal = `${isMobile ? 'm' : 'd'}:${isSidebarOpen ? sidebarWidth : 0}:${activeFile ? editorHeight : 0}:${activeFile ? 'editor-open' : 'editor-closed'}:panes-${visiblePaneIds.join(',')}`;
 
   // Responsive & Viewport
