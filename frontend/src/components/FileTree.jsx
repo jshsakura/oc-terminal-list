@@ -283,7 +283,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
           />
           <HeadAction icon={Plus} title={t('newFile') || 'New file'} onClick={() => startCreate('', 'file')} />
           <HeadAction icon={Folder} title={t('newFolder') || 'New folder'} onClick={() => startCreate('', 'directory')} />
-          <HeadAction icon={Terminal} title={t('openTerminalHere') || 'Open terminal here'} onClick={() => onOpenTerminalAtFolder?.('')} />
+          <HeadAction
+            icon={Terminal}
+            title={t('openTerminalHere') || 'Open terminal here'}
+            onClick={() => onOpenTerminalAtFolder?.(treeFocus || '')}
+          />
           <HeadAction icon={RefreshCw} title={t('refresh') || 'Refresh'} onClick={refreshAll} />
         </div>
       </div>
