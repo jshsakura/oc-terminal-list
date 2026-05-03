@@ -380,9 +380,9 @@ function App() {
     setFocusedPaneIdx(paneIdx);
   }, []);
 
-  // 세션이 사라지면 pane 정리
+  // 세션이 사라지면 슬롯의 죽은 sessionId 를 null 로
   useEffect(() => {
-    setExtraPanes((prev) => prev.filter((id) => sessions.some((s) => s.id === id)));
+    setPaneSlots((prev) => prev.map((id) => (id && sessions.some((s) => s.id === id)) ? id : null));
   }, [sessions]);
 
   const commandPaletteItems = useMemo(() => [
