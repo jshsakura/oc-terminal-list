@@ -55,13 +55,6 @@ const Header = ({
                 icon={Plus}
               />
             )}
-            {paneCount > 1 && (
-              <IconButton
-                onClick={onClosePane}
-                title={t('unsplitTerminal') || 'Close pane'}
-                icon={X}
-              />
-            )}
             <Divider />
             <ChangesToggle
               open={isChangesPanelOpen}
