@@ -151,6 +151,13 @@ const Sidebar = ({
             iconOnly={iconOnly}
           />
           <SegTab
+            active={activeTab === 'git'}
+            onClick={() => setActiveTab('git')}
+            icon={GitBranch}
+            label={t('git') || 'Git'}
+            iconOnly={iconOnly}
+          />
+          <SegTab
             active={activeTab === 'sessions'}
             onClick={() => setActiveTab('sessions')}
             icon={Terminal}
@@ -330,35 +337,35 @@ const Sidebar = ({
           </>
         )}
 
-        {/* files 탭 — 트리(상단) + 변경사항(하단) 한 세트 */}
+        {/* files 탭 — 트리만 */}
         {activeTab === 'files' && (
           <div style={styles.fileTreeWrap}>
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-              <FileTree
-                onFileSelect={onFileSelect}
-                onFolderSelect={onFolderSelect}
-                onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
-                onSelectChangedFile={onSelectChangedFile}
-                gitContextPath={gitContextPath}
-                language={language}
-                initialPath={selectedFolderPath}
-              />
-            </div>
-            <div style={{ flexShrink: 0, maxHeight: '40%', minHeight: '120px', display: 'flex', flexDirection: 'column', borderTop: `1px solid ${color.border}` }}>
-              <ChangesList
-                gitContextPath={gitContextPath}
-                onSelectFile={(p) => {
-                  onSelectChangedFile?.(p);
-                  if (isMobile) onClose();
-                }}
-                onOpenFile={(p) => {
-                  onFileSelect?.(p);
-                  if (isMobile) onClose();
-                }}
-                t={t}
-              />
-            </div>
+            <FileTree
+              onFileSelect={onFileSelect}
+              onFolderSelect={onFolderSelect}
+              onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
+              onSelectChangedFile={onSelectChangedFile}
+              gitContextPath={gitContextPath}
+              language={language}
+              initialPath={selectedFolderPath}
+            />
           </div>
+        )}
+
+        {/* git 탭 — 활성 터미널 cwd 가 속한 repo 의 변경사항 */}
+        {activeTab === 'git' && (
+          <ChangesList
+            gitContextPath={gitContextPath}
+            onSelectFile={(p) => {
+              onSelectChangedFile?.(p);
+              if (isMobile) onClose();
+            }}
+            onOpenFile={(p) => {
+              onFileSelect?.(p);
+              if (isMobile) onClose();
+            }}
+            t={t}
+          />
         )}
 
         {/* 푸터: 컨텍스트 정보 — 활성 세션이 호스트면 호스트 라벨, 로컬이면 로컬 시스템 통계 */}
