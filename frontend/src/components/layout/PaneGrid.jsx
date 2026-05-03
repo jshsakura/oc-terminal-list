@@ -7,6 +7,7 @@ const Terminal = lazy(() => import('../Terminal'));
 const { color, radius, motion, fontSize, fontWeight } = tokens;
 
 const DRAG_MIME = 'application/x-iterminallist-session';
+const HOST_DRAG_MIME = 'application/x-iterminallist-host';
 
 /**
  * N-pane 터미널 그리드.
@@ -26,23 +27,28 @@ const PaneGrid = ({
   onFocusPane,
   onClosePane,
   onDropSession,
+  onDropHost,
 }) => {
   const [dragOver, setDragOver] = useState(false);
   const handleDragOver = (e) => {
-    if (e.dataTransfer.types.includes(DRAG_MIME)) {
+    if (e.dataTransfer.types.includes(DRAG_MIME) || e.dataTransfer.types.includes(HOST_DRAG_MIME)) {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'copy';
       if (!dragOver) setDragOver(true);
     }
   };
   const handleDragLeave = (e) => {
-    // 자식으로 이동한 경우 무시
     if (e.currentTarget.contains(e.relatedTarget)) return;
     setDragOver(false);
   };
   const handleDrop = (e) => {
     e.preventDefault();
     setDragOver(false);
+    const hostId = e.dataTransfer.getData(HOST_DRAG_MIME);
+    if (hostId) {
+      onDropHost?.(hostId);
+      return;
+    }
     const sessionId = e.dataTransfer.getData(DRAG_MIME);
     if (sessionId) onDropSession?.(sessionId);
   };

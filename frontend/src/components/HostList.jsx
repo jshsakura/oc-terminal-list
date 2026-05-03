@@ -1,8 +1,15 @@
 import { useMemo, useState } from 'react';
-import { Plus, Search, Server, KeyRound, Edit3, Trash2, Monitor } from 'lucide-react';
+import { Plus, Search, Server, KeyRound, Edit3, Trash2, Monitor, ChevronRight } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+
+const HOST_DRAG_MIME = 'application/x-iterminallist-host';
+
+const startHostDrag = (e, hostId) => {
+  e.dataTransfer.effectAllowed = 'copy';
+  e.dataTransfer.setData(HOST_DRAG_MIME, hostId);
+};
 
 // 항상 존재하는 \"이 머신\" 가상 호스트. id 가 'local' 이면 onConnect 측에서 분기.
 const LOCAL_HOST = {
@@ -86,14 +93,18 @@ const HostList = ({
             return (
               <div
                 key={h.id}
+                draggable
+                onDragStart={(e) => startHostDrag(e, h.id)}
                 onMouseEnter={() => setHoverId(h.id)}
                 onMouseLeave={() => setHoverId(null)}
                 onClick={() => onConnect?.(h)}
                 onDoubleClick={() => onConnect?.(h)}
+                title={`${h.name} — ${t('dragToOpenHere') || 'click or drag to terminal'}`}
                 style={{
                   ...styles.row,
                   background: hovered ? color.surface1 : color.surface0,
                   borderColor: hovered ? color.borderStrong : color.border,
+                  cursor: 'grab',
                 }}
               >
                 <div style={{ ...styles.dot, background: dotColor }} />
@@ -111,6 +122,16 @@ const HostList = ({
                     <RowAction onClick={() => onDeleteHost(h)} icon={Trash2} title={t('delete') || 'Delete'} tone="danger" />
                   </div>
                 )}
+                <ChevronRight
+                  size={12}
+                  strokeWidth={2}
+                  style={{
+                    ...styles.openHint,
+                    opacity: hovered ? 1 : 0.35,
+                    color: hovered ? color.accent : color.muted,
+                    transform: hovered ? 'translateX(2px)' : 'translateX(0)',
+                  }}
+                />
               </div>
             );
           })
@@ -122,13 +143,17 @@ const HostList = ({
 
 const LocalRow = ({ onClick, hovered, onMouseEnter, onMouseLeave, label, subLabel }) => (
   <div
+    draggable
+    onDragStart={(e) => startHostDrag(e, 'local')}
     onClick={onClick}
     onMouseEnter={onMouseEnter}
     onMouseLeave={onMouseLeave}
+    title={`${label} — click or drag to terminal`}
     style={{
       ...styles.row,
       background: hovered ? color.surface1 : color.surface0,
       borderColor: hovered ? color.borderStrong : color.border,
+      cursor: 'grab',
     }}
   >
     <div style={{ ...styles.localIcon }}>
@@ -138,6 +163,16 @@ const LocalRow = ({ onClick, hovered, onMouseEnter, onMouseLeave, label, subLabe
       <div style={styles.rowName}>{label}</div>
       <div style={styles.rowSub}>{subLabel}</div>
     </div>
+    <ChevronRight
+      size={12}
+      strokeWidth={2}
+      style={{
+        ...styles.openHint,
+        opacity: hovered ? 1 : 0.35,
+        color: hovered ? color.accent : color.muted,
+        transform: hovered ? 'translateX(2px)' : 'translateX(0)',
+      }}
+    />
   </div>
 );
 
@@ -277,6 +312,12 @@ const styles = {
   rowActions: {
     display: 'flex',
     gap: '2px',
+  },
+  openHint: {
+    color: color.muted,
+    flexShrink: 0,
+    opacity: 0.5,
+    transition: `opacity ${motion.fast}, transform ${motion.fast}`,
   },
   rowActionBtn: {
     width: '22px',

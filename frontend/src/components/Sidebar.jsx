@@ -169,6 +169,8 @@ const Sidebar = ({
             hosts={hosts}
             onConnect={(h) => {
               onConnectHost?.(h);
+              // 호스트 클릭 → 결과(터미널) 가 활성 탭에 생기므로 자동 전환
+              setActiveTab('sessions');
               if (isMobile) onClose();
             }}
             onAddHost={onAddHost}

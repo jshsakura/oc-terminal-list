@@ -300,12 +300,32 @@ function App() {
     if (!sessionId) return;
     if (paneCount >= MAX_PANES) return;
     if (sessionId === activeSessionId || extraPanes.includes(sessionId)) {
-      // 이미 어느 pane 에 있으면 활성 pane 으로 가져오기만
       setActiveSessionId(sessionId);
       return;
     }
     setExtraPanes((prev) => [...prev, sessionId]);
   }, [paneCount, activeSessionId, extraPanes, setActiveSessionId]);
+
+  // 호스트(또는 'local')를 드래그 드롭으로 새 pane 에 열기
+  const openHostAsPane = useCallback(async (hostIdOrLocal) => {
+    if (paneCount >= MAX_PANES) return;
+    if (hostIdOrLocal === 'local') {
+      const newId = await createSession(null);
+      if (newId) setExtraPanes((prev) => [...prev, newId]);
+      return;
+    }
+    const host = hosts.find((h) => h.id === hostIdOrLocal);
+    if (!host) return;
+    const tabId = `host:${host.id}:${Date.now()}`;
+    setHostTabs((prev) => [...prev, {
+      id: tabId,
+      hostId: host.id,
+      name: host.name,
+      color_index: host.color_index,
+      kind: 'host',
+    }]);
+    setExtraPanes((prev) => [...prev, tabId]);
+  }, [paneCount, hosts, createSession]);
 
   const removePane = useCallback((paneIdx) => {
     if (paneIdx === 0) {
@@ -832,6 +852,7 @@ function App() {
                 onFocusPane={focusPane}
                 onClosePane={removePane}
                 onDropSession={addPaneWithSession}
+                onDropHost={openHostAsPane}
               />
             )}
           </div>
