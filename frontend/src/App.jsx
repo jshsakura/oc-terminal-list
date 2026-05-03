@@ -251,17 +251,33 @@ function App() {
     setIsFilePickerOpen(false);
   }, []);
 
-  // pane 추가 — 다음으로 패널이 안 잡힌 세션을 선택해서 분할 영역에 띄움
-  const addPane = useCallback(() => {
+  // pane 추가 — 사용 안 된 기존 세션이 있으면 그걸 쓰고, 없으면 새 로컬 세션을 즉석 생성
+  const addPane = useCallback(async () => {
     if (paneCount >= MAX_PANES) return;
     const used = new Set(visiblePaneIds);
     const candidate = sessions.find((s) => !used.has(s.id));
-    if (!candidate) {
-      setNotification({ isOpen: true, message: t('needAnotherSessionForSplit') || t('needTwoSessionsForSplit') });
+    if (candidate) {
+      setExtraPanes((prev) => [...prev, candidate.id]);
       return;
     }
-    setExtraPanes((prev) => [...prev, candidate.id]);
-  }, [paneCount, visiblePaneIds, sessions, t]);
+    // 모든 세션이 이미 다른 pane 에 잡혀있다 → 새 로컬 세션 생성하면서 분할
+    const newId = await createSession(null);
+    if (newId) {
+      setExtraPanes((prev) => [...prev, newId]);
+    }
+  }, [paneCount, visiblePaneIds, sessions, createSession]);
+
+  // 특정 세션을 즉시 새 pane 으로 (드래그 드롭에서 사용)
+  const addPaneWithSession = useCallback((sessionId) => {
+    if (!sessionId) return;
+    if (paneCount >= MAX_PANES) return;
+    if (sessionId === activeSessionId || extraPanes.includes(sessionId)) {
+      // 이미 어느 pane 에 있으면 활성 pane 으로 가져오기만
+      setActiveSessionId(sessionId);
+      return;
+    }
+    setExtraPanes((prev) => [...prev, sessionId]);
+  }, [paneCount, activeSessionId, extraPanes, setActiveSessionId]);
 
   const removePane = useCallback((paneIdx) => {
     if (paneIdx === 0) {
@@ -781,6 +797,7 @@ function App() {
                 terminalLayoutSignal={terminalLayoutSignal}
                 onFocusPane={focusPane}
                 onClosePane={removePane}
+                onDropSession={addPaneWithSession}
               />
             )}
           </div>

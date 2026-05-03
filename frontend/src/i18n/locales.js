@@ -177,6 +177,11 @@ export const locales = {
     emptyHeadline: 'Start a session',
     emptyDescription: 'Spin up a local shell, or pick a saved host on the left to SSH in.',
     emptyHostsHint: 'Or pick a host from the sidebar',
+    dragToSplitHint: 'drag to terminal to split',
+    newFile: 'New file',
+    newFolder: 'New folder',
+    rename: 'Rename',
+    confirmDeleteFile: 'Delete {name}?',
 
     // Empty State
     noTerminals: 'No sessions yet',
@@ -402,6 +407,11 @@ export const locales = {
     emptyHeadline: '세션을 시작하세요',
     emptyDescription: '로컬 셸을 띄우거나, 좌측에서 저장된 호스트로 SSH 접속하세요.',
     emptyHostsHint: '또는 사이드바에서 호스트를 선택',
+    dragToSplitHint: '터미널 영역으로 드래그하면 분할',
+    newFile: '새 파일',
+    newFolder: '새 폴더',
+    rename: '이름 변경',
+    confirmDeleteFile: '{name} 을(를) 삭제하시겠습니까?',
 
     // 빈 화면
     noTerminals: '활성 세션 없음',

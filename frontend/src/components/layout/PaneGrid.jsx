@@ -1,10 +1,12 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState } from 'react';
 import { X } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 
 const Terminal = lazy(() => import('../Terminal'));
 
-const { color, radius, motion } = tokens;
+const { color, radius, motion, fontSize, fontWeight } = tokens;
+
+const DRAG_MIME = 'application/x-iterminallist-session';
 
 /**
  * N-pane 터미널 그리드.
@@ -23,7 +25,27 @@ const PaneGrid = ({
   terminalLayoutSignal,
   onFocusPane,
   onClosePane,
+  onDropSession,
 }) => {
+  const [dragOver, setDragOver] = useState(false);
+  const handleDragOver = (e) => {
+    if (e.dataTransfer.types.includes(DRAG_MIME)) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      if (!dragOver) setDragOver(true);
+    }
+  };
+  const handleDragLeave = (e) => {
+    // 자식으로 이동한 경우 무시
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setDragOver(false);
+  };
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const sessionId = e.dataTransfer.getData(DRAG_MIME);
+    if (sessionId) onDropSession?.(sessionId);
+  };
   const single = paneCount === 1;
   const gridStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: single ? 0 : '6px' }
@@ -43,7 +65,31 @@ const PaneGrid = ({
   const innerPaddingY = '5px';
 
   return (
-    <div style={{ width: '100%', height: '100%', ...gridStyle }}>
+    <div
+      style={{ width: '100%', height: '100%', position: 'relative', ...gridStyle }}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {dragOver && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 50,
+          background: color.accentSubtle,
+          border: `2px dashed ${color.accent}`,
+          borderRadius: radius.md,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color: color.accent,
+          fontSize: fontSize['13'],
+          fontWeight: fontWeight.medium,
+          pointerEvents: 'none',
+        }}>
+          + Drop to add as pane
+        </div>
+      )}
       {visiblePaneIds.map((sessionId, idx) => {
         const session = sessions.find((s) => s.id === sessionId);
         if (!session) return null;

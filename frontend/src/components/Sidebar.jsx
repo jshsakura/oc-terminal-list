@@ -200,16 +200,23 @@ const Sidebar = ({
                   return (
                     <div
                       key={session.id}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'copy';
+                        e.dataTransfer.setData('application/x-iterminallist-session', session.id);
+                      }}
                       onMouseEnter={() => setHoverId(session.id)}
                       onMouseLeave={() => setHoverId(null)}
                       onClick={() => {
                         onSelectSession(session.id);
                         if (isMobile) onClose();
                       }}
+                      title={`${session.name || session.id} — ${t('dragToSplitHint') || 'drag to terminal to split'}`}
                       style={{
                         ...styles.row,
                         background: isActive ? color.accentSubtle : color.surface0,
                         borderColor: isActive ? color.accentBorder : (isHovered ? color.borderStrong : color.border),
+                        cursor: 'grab',
                       }}
                     >
                       <div style={{ ...styles.activeBar, background: isActive ? color.accent : 'transparent' }} />
