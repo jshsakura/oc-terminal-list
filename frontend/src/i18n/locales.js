@@ -312,8 +312,8 @@ export const locales = {
     scrollSensitivityHint: '높을수록 사용자 조작에 민감하게 반응합니다',
 
     // 테마
-    themeCatppuccin: '캣푸치노',
-    themeDefault: '기본',
+    themeCatppuccin: 'Catppuccin',
+    themeDefault: 'Default',
     themeCatppuccinMocha: 'Catppuccin Mocha',
     themeCatppuccinMacchiato: 'Catppuccin Macchiato',
     themeCatppuccinFrappe: 'Catppuccin Frappé',
