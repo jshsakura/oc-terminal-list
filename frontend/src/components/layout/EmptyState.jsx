@@ -35,7 +35,7 @@ const EmptyState = ({ currentTheme, t, handleNewSession }) => {
 
         <div style={styles.shortcuts}>
           <Shortcut keys="Ctrl+P" label={t('quickOpenFiles') || 'Quick open'} />
-          <Shortcut keys="Ctrl+\\" label={t('splitTerminal') || 'Split pane'} />
+          <Shortcut keys={'Ctrl+\\'} label={t('splitTerminal') || 'Split pane'} />
           <Shortcut keys="Ctrl+`" label={t('focusTerminal') || 'Focus terminal'} />
         </div>
       </div>
