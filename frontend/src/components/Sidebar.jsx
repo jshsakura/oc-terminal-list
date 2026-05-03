@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect, memo, useMemo } from 'react';
-import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server, ChevronDown, ChevronRight } from 'lucide-react';
+import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import HostList from './HostList';
 import SessionActivity from './SessionActivity';
+import ChangesList from './ChangesList';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -147,6 +148,13 @@ const Sidebar = ({
             onClick={() => setActiveTab('files')}
             icon={FolderTree}
             label={t('files')}
+            iconOnly={iconOnly}
+          />
+          <SegTab
+            active={activeTab === 'changes'}
+            onClick={() => setActiveTab('changes')}
+            icon={GitBranch}
+            label={t('changes') || 'Changes'}
             iconOnly={iconOnly}
           />
           <SegTab
@@ -341,6 +349,22 @@ const Sidebar = ({
               initialPath={selectedFolderPath}
             />
           </div>
+        )}
+
+        {/* changes 탭 — 활성 터미널 repo 의 git 변경 파일 */}
+        {activeTab === 'changes' && (
+          <ChangesList
+            gitContextPath={gitContextPath}
+            onSelectFile={(p) => {
+              onSelectChangedFile?.(p);
+              if (isMobile) onClose();
+            }}
+            onOpenFile={(p) => {
+              onFileSelect?.(p);
+              if (isMobile) onClose();
+            }}
+            t={t}
+          />
         )}
 
         {/* 푸터: 컨텍스트 정보 — 활성 세션이 호스트면 호스트 라벨, 로컬이면 로컬 시스템 통계 */}
