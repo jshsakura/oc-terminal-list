@@ -296,25 +296,21 @@ function App() {
     setExtraPanes((prev) => [...prev, null]);
   }, [paneCount]);
 
-  // N 개 (1..MAX) pane 으로 즉시 전환 — 각 pane 에 새 로컬 세션을 자동으로 채움.
-  // 워크플로우: '4분할' 한방 누르면 격리된 4개 터미널이 즉시 작업 가능 상태.
-  const setPaneLayout = useCallback(async (target) => {
+  // N 개 (1..MAX) pane 으로 영역만 나눔 — 기존 활성 세션 1개 외 나머지는 빈 슬롯.
+  // 채우는 건 사용자가 빈 슬롯의 '+ 새 로컬 세션' 클릭 or 사이드바에서 드래그.
+  const setPaneLayout = useCallback((target) => {
     const n = Math.max(1, Math.min(MAX_PANES, target));
-    // 1. activeSession 이 없으면 먼저 만들기
-    let baseId = activeSessionId;
-    if (!baseId) {
-      baseId = await createSession(null);
-      if (!baseId) return;
+    if (n === 1) {
+      setExtraPanes([]);
+      return;
     }
-    // 2. 추가로 필요한 pane 수만큼 새 세션 생성 (n - 1 개)
-    const needed = n - 1;
-    const newSlots = [];
-    for (let i = 0; i < needed; i++) {
-      const id = await createSession(null);
-      if (id) newSlots.push(id);
-    }
-    setExtraPanes(newSlots);
-  }, [activeSessionId, createSession]);
+    // 기존에 채워진 extraPanes 가 있으면 우선 보존, 모자란 만큼 null 채움
+    setExtraPanes((prev) => {
+      const filled = prev.slice(0, n - 1);
+      while (filled.length < n - 1) filled.push(null);
+      return filled;
+    });
+  }, []);
 
   // 특정 세션을 새 pane 으로 또는 빈 슬롯 채우기 (드래그 드롭).
   // targetIdx 주면 그 슬롯에 놓고, 없으면 첫 빈 슬롯에 채우거나 새 슬롯 추가.
