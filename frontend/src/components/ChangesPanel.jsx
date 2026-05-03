@@ -59,11 +59,12 @@ const buildTree = (items, stripPrefix = '') => {
 };
 
 const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, onConsumedExternalPath, gitContextPath = '' }) => {
-  const { items, branch, repos, error, refresh, fetchDiff } = useGitChanges({
+  const { items, branch, repo, repos, error, refresh, fetchDiff } = useGitChanges({
     enabled: isOpen,
     path: gitContextPath,
     intervalMs: gitContextPath ? 2500 : 7000,
   });
+  const repoBasename = repo ? repo.split('/').pop() : null;
   const [collapsed, setCollapsed] = useState(() => new Set());
   const toggleCollapse = (path) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -205,11 +206,12 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
         style={{ ...styles.resizeHandle, background: isResizing ? color.accentBorder : 'transparent' }}
         title={t('resizePanel') || 'Drag to resize'}
       />
-      <header style={styles.header}>
+      <header style={styles.header} title={repo || gitContextPath || ''}>
         <div style={styles.headerLeft}>
           <GitBranch size={12} strokeWidth={2} style={{ color: color.muted }} />
+          {repoBasename && <span style={styles.repoLabel}>{repoBasename}</span>}
           <span style={styles.branchName}>
-            {branch || (repos && repos.length > 0 ? `${repos.length} repos` : '—')}
+            {branch || (repos && repos.length > 0 ? `${repos.length} repos` : (gitContextPath ? '—' : 'workspace'))}
           </span>
           {items.length > 0 && (
             <span style={styles.countBadge}>{items.length}</span>
@@ -225,8 +227,16 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
         {error && <div style={styles.errorBox}>{error}</div>}
         {!error && items.length === 0 && (
           <div style={styles.empty}>
-            <div style={styles.emptyTitle}>{t('noChanges') || 'No changes'}</div>
-            <div style={styles.emptyHint}>{t('changesHint') || 'When files change in this repo, they show up here.'}</div>
+            <div style={styles.emptyTitle}>
+              {repoBasename
+                ? `${repoBasename}: ${t('noChanges') || 'No changes'}`
+                : (t('noChanges') || 'No changes')}
+            </div>
+            <div style={styles.emptyHint}>
+              {repo
+                ? (t('emptyRepoHint') || '커밋 안 된 변경이 없습니다. 파일을 수정해보세요.')
+                : (t('changesHint') || 'When files change, they show up here.')}
+            </div>
           </div>
         )}
         {/* repo 다수면 repo 별로 그룹핑 + 트리, 단일이면 트리만 */}
@@ -359,10 +369,16 @@ const styles = {
     display: 'flex',
     gap: '2px',
   },
+  repoLabel: {
+    fontSize: fontSize['12'],
+    fontFamily: font.mono,
+    fontWeight: fontWeight.medium,
+    color: color.text,
+  },
   branchName: {
     fontSize: fontSize['12'],
     fontFamily: font.mono,
-    color: color.subtext,
+    color: color.muted,
   },
   countBadge: {
     fontSize: fontSize['11'],
