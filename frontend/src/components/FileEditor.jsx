@@ -95,19 +95,36 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
       binaryPathsRef.current.delete(path);
       
       setFileStates(prev => {
-        // If we already have changes for this file, don't overwrite silently
-        if (isSilent && prev[path]?.hasChanges && prev[path]?.content !== data.content) {
-          setExternalChange({ isOpen: true, path, newContent: data.content });
+        const existing = prev[path];
+        // 디스크와 마지막 저장 내용이 같으면 외부 변경이 없는 것 — 폴링 스킵
+        if (isSilent && existing && existing.lastSavedContent === data.content) {
           return prev;
         }
-
+        // 디스크가 마지막 저장본과 다른 케이스 = 진짜 외부 변경
+        if (isSilent && existing) {
+          if (existing.hasChanges) {
+            // 사용자도 편집 중 + 디스크도 바뀜 → 충돌 → 모달
+            setExternalChange({ isOpen: true, path, newContent: data.content });
+            return prev;
+          }
+          // 편집 중 아님 → 조용히 새 내용으로 갱신
+          return {
+            ...prev,
+            [path]: {
+              content: data.content,
+              hasChanges: false,
+              lastSavedContent: data.content,
+            },
+          };
+        }
+        // 처음 로드 또는 명시적 reload
         return {
           ...prev,
           [path]: {
             content: data.content,
             hasChanges: false,
-            lastSavedContent: data.content
-          }
+            lastSavedContent: data.content,
+          },
         };
       });
     } catch (error) {
