@@ -296,21 +296,33 @@ function App() {
     setExtraPanes((prev) => [...prev, null]);
   }, [paneCount]);
 
-  // N 개 (1..MAX) pane 으로 영역만 나눔 — 기존 활성 세션 1개 외 나머지는 빈 슬롯.
-  // 채우는 건 사용자가 빈 슬롯의 '+ 새 로컬 세션' 클릭 or 사이드바에서 드래그.
+  // N 분할: 새 세션 생성 절대 X. 기존 사용 안 된 세션 우선 채우고,
+  // 모자라면 활성 세션을 복제 (= 같은 tmux 세션을 N 개 pane 에 mirror).
+  // 사용자는 그 후 사이드바에서 다른 세션을 특정 pane 으로 드래그해서 바꿀 수 있음.
   const setPaneLayout = useCallback((target) => {
     const n = Math.max(1, Math.min(MAX_PANES, target));
     if (n === 1) {
       setExtraPanes([]);
       return;
     }
-    // 기존에 채워진 extraPanes 가 있으면 우선 보존, 모자란 만큼 null 채움
+    if (!activeSessionId) {
+      // 활성 세션 자체가 없을 땐 빈 슬롯 (placeholder 가 안내)
+      setExtraPanes(Array(n - 1).fill(null));
+      return;
+    }
     setExtraPanes((prev) => {
-      const filled = prev.slice(0, n - 1);
-      while (filled.length < n - 1) filled.push(null);
-      return filled;
+      const need = n - 1;
+      // 1) 기존 extraPanes 중 살아있는 세션은 보존
+      const keep = prev.filter((id) => id && sessions.some((s) => s.id === id)).slice(0, need);
+      // 2) 사용 중이 아닌 세션을 추가로 채움
+      const used = new Set([activeSessionId, ...keep]);
+      const fresh = sessions.filter((s) => !used.has(s.id)).map((s) => s.id);
+      while (keep.length < need && fresh.length > 0) keep.push(fresh.shift());
+      // 3) 그래도 모자라면 활성 세션을 복제로 채움 (같은 세션 mirror)
+      while (keep.length < need) keep.push(activeSessionId);
+      return keep;
     });
-  }, []);
+  }, [activeSessionId, sessions]);
 
   // 특정 세션을 새 pane 으로 또는 빈 슬롯 채우기 (드래그 드롭).
   // targetIdx 주면 그 슬롯에 놓고, 없으면 첫 빈 슬롯에 채우거나 새 슬롯 추가.
@@ -346,10 +358,32 @@ function App() {
   }, [activeSessionId, extraPanes, setActiveSessionId]);
 
   // 빈 슬롯 안에서 명시적 '새 로컬 세션' 만들 때
+  // createSession 이 setActiveSessionId(newId) 를 부르고, 그러면 dedupe effect 가
+  // newId 를 extraPanes 에서 제거 → 분할 사라짐. 이전 active 를 복구해 유지.
   const fillSlotWithNewLocal = useCallback(async (targetIdx) => {
+    const previousActive = activeSessionId;
     const newId = await createSession(null);
-    if (newId) addPaneWithSession(newId, targetIdx);
-  }, [createSession, addPaneWithSession]);
+    if (!newId) return;
+    if (previousActive) setActiveSessionId(previousActive);
+    setExtraPanes((prev) => {
+      if (targetIdx != null && targetIdx > 0) {
+        const ei = targetIdx - 1;
+        if (ei < prev.length) {
+          const next = [...prev];
+          next[ei] = newId;
+          return next;
+        }
+      }
+      // 첫 null 슬롯이 있으면 거기 채움
+      const emptyIdx = prev.findIndex((p) => p == null);
+      if (emptyIdx >= 0) {
+        const next = [...prev];
+        next[emptyIdx] = newId;
+        return next;
+      }
+      return [...prev, newId];
+    });
+  }, [activeSessionId, createSession, setActiveSessionId]);
 
   // 호스트(또는 'local')를 드래그 드롭 또는 명시 슬롯에 열기
   const openHostAsPane = useCallback(async (hostIdOrLocal, targetIdx = null) => {
@@ -373,11 +407,17 @@ function App() {
 
   const removePane = useCallback((paneIdx) => {
     if (paneIdx === 0) {
-      // 첫 pane(=active)을 닫으려면 다음 pane 으로 active 이동
+      // 첫 pane(=active) 닫으려면 첫 번째 살아있는 extra 를 active 로 승격
       if (extraPanes.length === 0) return;
-      const next = extraPanes[0];
-      setExtraPanes((prev) => prev.slice(1));
-      setActiveSessionId(next);
+      const promoteIdx = extraPanes.findIndex((id) => !!id);
+      if (promoteIdx < 0) {
+        // 모두 빈 슬롯이면 그냥 다 닫고 1 pane (현재 active 유지)
+        setExtraPanes([]);
+        return;
+      }
+      const promote = extraPanes[promoteIdx];
+      setExtraPanes((prev) => prev.filter((_, i) => i !== promoteIdx));
+      setActiveSessionId(promote);
       return;
     }
     setExtraPanes((prev) => prev.filter((_, i) => i !== paneIdx - 1));
@@ -567,11 +607,7 @@ function App() {
     };
   }, [isFilePickerOpen, filePickerQuery, openFiles]);
 
-  // 활성 세션이 다른 pane 에도 있다면 (sidebar 클릭으로) 그 pane 을 제거 — 첫 pane 으로 통합
-  useEffect(() => {
-    if (!activeSessionId) return;
-    setExtraPanes((prev) => prev.filter((id) => id !== activeSessionId));
-  }, [activeSessionId]);
+  // 의도한 mirroring (같은 세션을 여러 pane 에 표시) 을 허용하기 위해 dedupe 비활성.
 
   useEffect(() => {
     const isFormElement = (target) => {

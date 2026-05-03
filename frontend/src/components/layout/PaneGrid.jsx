@@ -4,17 +4,19 @@ import { tokens } from '../../styles/tokens';
 
 const Terminal = lazy(() => import('../Terminal'));
 
-const { color, radius, motion, fontSize, fontWeight } = tokens;
+const { color, radius, motion, fontSize, fontWeight, font, space } = tokens;
 
 const DRAG_MIME = 'application/x-iterminallist-session';
 const HOST_DRAG_MIME = 'application/x-iterminallist-host';
 
-/**
- * N-pane 터미널 그리드.
- * - 데스크톱: 1pane=full, 2pane=2cols, 3/4pane=2x2 grid
- * - 모바일: 항상 세로 스택 (사실상 1pane 권장)
- * - 활성 pane 은 액센트 보더 + 미세 글로우, 비활성은 헤어라인 보더
- */
+// 세션 ID → 안정 색 (사이드바 dot 과 일치)
+const colorForSession = (sessionId) => {
+  if (!sessionId) return color.muted;
+  let h = 0;
+  for (let i = 0; i < sessionId.length; i++) h = (h * 31 + sessionId.charCodeAt(i)) >>> 0;
+  return color.dotPalette[h % color.dotPalette.length];
+};
+
 const PaneGrid = ({
   visiblePaneIds,
   sessions,
@@ -31,29 +33,6 @@ const PaneGrid = ({
   onFillSlotNew,
   t = (k) => k,
 }) => {
-  const [dragOver, setDragOver] = useState(false);
-  const handleDragOver = (e) => {
-    if (e.dataTransfer.types.includes(DRAG_MIME) || e.dataTransfer.types.includes(HOST_DRAG_MIME)) {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
-      if (!dragOver) setDragOver(true);
-    }
-  };
-  const handleDragLeave = (e) => {
-    if (e.currentTarget.contains(e.relatedTarget)) return;
-    setDragOver(false);
-  };
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    const hostId = e.dataTransfer.getData(HOST_DRAG_MIME);
-    if (hostId) {
-      onDropHost?.(hostId);
-      return;
-    }
-    const sessionId = e.dataTransfer.getData(DRAG_MIME);
-    if (sessionId) onDropSession?.(sessionId);
-  };
   const single = paneCount === 1;
   const gridStyle = isMobile
     ? { display: 'flex', flexDirection: 'column', gap: single ? 0 : '6px' }
@@ -61,45 +40,14 @@ const PaneGrid = ({
       ? { display: 'flex' }
       : {
           display: 'grid',
-          gridTemplateColumns: paneCount === 2 ? '1fr 1fr' : '1fr 1fr',
+          gridTemplateColumns: '1fr 1fr',
           gridTemplateRows: paneCount <= 2 ? '1fr' : '1fr 1fr',
           gap: '6px',
         };
 
-  // 터미널 배경과 같은 색을 pane 박스 배경으로 깔고, 그 안에서만 padding.
-  // 이렇게 하면 여백 영역도 터미널과 동일한 색이라 시각적으로 매끈해진다.
-  // 살짝만 띄우는 느낌 — 5px 동일.
-  const innerPaddingX = '5px';
-  const innerPaddingY = '5px';
-
   return (
-    <div
-      style={{ width: '100%', height: '100%', position: 'relative', ...gridStyle }}
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-    >
-      {dragOver && (
-        <div style={{
-          position: 'absolute',
-          inset: 0,
-          zIndex: 50,
-          background: color.accentSubtle,
-          border: `2px dashed ${color.accent}`,
-          borderRadius: radius.md,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: color.accent,
-          fontSize: fontSize['13'],
-          fontWeight: fontWeight.medium,
-          pointerEvents: 'none',
-        }}>
-          {t('dropToAddPane') || '+ Drop to add as pane'}
-        </div>
-      )}
+    <div style={{ width: '100%', height: '100%', ...gridStyle }}>
       {visiblePaneIds.map((sessionId, idx) => {
-        // 빈 슬롯 (null) → placeholder + drop zone
         if (sessionId == null) {
           return (
             <EmptyPaneSlot
@@ -117,74 +65,163 @@ const PaneGrid = ({
         if (!session) return null;
         const isFocused = sessionId === activeSessionId;
         return (
-          <div
+          <FilledPane
             key={`pane-${sessionId}`}
-            onMouseDown={() => onFocusPane?.(idx)}
-            style={{
-              position: 'relative',
-              width: '100%',
-              height: '100%',
-              minHeight: 0,
-              background: currentTheme.background,
-              padding: `${innerPaddingY} ${innerPaddingX}`,
-              boxSizing: 'border-box',
-              border: single
-                ? 'none'
-                : `1px solid ${isFocused ? color.accentBorder : color.border}`,
-              borderRadius: single ? 0 : radius.md,
-              overflow: 'hidden',
-              transition: `border-color ${motion.fast}, box-shadow ${motion.fast}`,
-              boxShadow: !single && isFocused ? `0 0 0 1px ${color.accentBorder} inset` : 'none',
-            }}
-          >
-            {!single && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onClosePane?.(idx);
-                }}
-                title={t('closePane') || 'Close pane'}
-                style={{
-                  position: 'absolute',
-                  top: '6px',
-                  right: '6px',
-                  width: '20px',
-                  height: '20px',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: color.surface0,
-                  color: color.muted,
-                  border: `1px solid ${color.border}`,
-                  borderRadius: radius.xs,
-                  cursor: 'pointer',
-                  opacity: 0.7,
-                  zIndex: 5,
-                  transition: `opacity ${motion.fast}, color ${motion.fast}`,
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; e.currentTarget.style.color = color.danger; }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.7'; e.currentTarget.style.color = color.muted; }}
-              >
-                <X size={11} strokeWidth={2} />
-              </button>
-            )}
-            <Suspense fallback={null}>
-              <Terminal
-                sessionId={session.id}
-                hostId={session.hostId}
-                settings={settings}
-                isActive={isFocused}
-                layoutSignal={terminalLayoutSignal}
-              />
-            </Suspense>
-          </div>
+            idx={idx}
+            session={session}
+            isFocused={isFocused}
+            single={single}
+            currentTheme={currentTheme}
+            settings={settings}
+            terminalLayoutSignal={terminalLayoutSignal}
+            onFocus={() => onFocusPane?.(idx)}
+            onClose={() => onClosePane?.(idx)}
+            onDropSession={(sid) => onDropSession?.(sid, idx)}
+            onDropHost={(hid) => onDropHost?.(hid, idx)}
+            t={t}
+          />
         );
       })}
     </div>
   );
 };
 
-// 빈 슬롯 placeholder — 드롭 또는 + 새 로컬 세션 클릭으로 채움
+// ─── 채워진 pane ─────────────────────────────────────────────────────────
+const FilledPane = ({
+  idx, session, isFocused, single, currentTheme, settings, terminalLayoutSignal,
+  onFocus, onClose, onDropSession, onDropHost, t,
+}) => {
+  const [over, setOver] = useState(false);
+  const [hover, setHover] = useState(false);
+  const dotColor = colorForSession(session.id);
+
+  const onDragOver = (e) => {
+    if (e.dataTransfer.types.includes(DRAG_MIME) || e.dataTransfer.types.includes(HOST_DRAG_MIME)) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      if (!over) setOver(true);
+    }
+  };
+  const onDragLeave = (e) => {
+    if (e.currentTarget.contains(e.relatedTarget)) return;
+    setOver(false);
+  };
+  const onDrop = (e) => {
+    e.preventDefault();
+    setOver(false);
+    const hid = e.dataTransfer.getData(HOST_DRAG_MIME);
+    if (hid) return onDropHost(hid);
+    const sid = e.dataTransfer.getData(DRAG_MIME);
+    if (sid) return onDropSession(sid);
+  };
+
+  return (
+    <div
+      onMouseDown={onFocus}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        minHeight: 0,
+        background: currentTheme.background,
+        padding: '5px',
+        boxSizing: 'border-box',
+        border: single ? 'none' : `1px solid ${over ? color.accent : (isFocused ? color.accentBorder : color.border)}`,
+        borderRadius: single ? 0 : radius.md,
+        overflow: 'hidden',
+        transition: `border-color ${motion.fast}, box-shadow ${motion.fast}`,
+        boxShadow: !single && isFocused ? `0 0 0 1px ${color.accentBorder} inset` : 'none',
+      }}
+    >
+      {/* color dot (활성/세션 식별) — 좌상단 작은 점 */}
+      {!single && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '8px',
+            left: '8px',
+            width: isFocused ? '8px' : '6px',
+            height: isFocused ? '8px' : '6px',
+            borderRadius: '999px',
+            background: dotColor,
+            boxShadow: isFocused ? `0 0 0 2px ${dotColor}40` : 'inset 0 0 0 1px rgba(0,0,0,0.25)',
+            zIndex: 5,
+            pointerEvents: 'none',
+            transition: `width ${motion.fast}, height ${motion.fast}, box-shadow ${motion.fast}`,
+          }}
+          title={session.name || session.id}
+        />
+      )}
+
+      {/* 드롭 오버레이 */}
+      {over && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 4,
+          background: `${color.accent}1a`,
+          border: `2px dashed ${color.accent}`,
+          borderRadius: radius.md,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: color.accent,
+          fontSize: fontSize['12'], fontWeight: fontWeight.medium,
+          fontFamily: font.sans,
+          pointerEvents: 'none',
+        }}>
+          {t('replacePane') || 'Replace this pane'}
+        </div>
+      )}
+
+      {/* X 닫기 — 호버 시 노출 */}
+      {!single && (hover || isFocused) && (
+        <button
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          title={t('closePane') || 'Close pane'}
+          style={{
+            position: 'absolute',
+            top: '6px',
+            right: '6px',
+            width: '22px',
+            height: '22px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: color.surface0,
+            color: color.muted,
+            border: `1px solid ${color.border}`,
+            borderRadius: radius.xs,
+            cursor: 'pointer',
+            zIndex: 6,
+            transition: `background ${motion.fast}, color ${motion.fast}`,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; e.currentTarget.style.color = color.danger; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.muted; }}
+        >
+          <X size={12} strokeWidth={2} />
+        </button>
+      )}
+
+      <Suspense fallback={null}>
+        <Terminal
+          sessionId={session.id}
+          hostId={session.hostId}
+          settings={settings}
+          isActive={isFocused}
+          layoutSignal={terminalLayoutSignal}
+        />
+      </Suspense>
+    </div>
+  );
+};
+
+// ─── 빈 pane 슬롯 ────────────────────────────────────────────────────────
 const EmptyPaneSlot = ({ idx, onDropSession, onDropHost, onFillNew, onClose, t }) => {
   const [over, setOver] = useState(false);
   const handleDragOver = (e) => {
@@ -222,10 +259,11 @@ const EmptyPaneSlot = ({ idx, onDropSession, onDropHost, onFillNew, onClose, t }
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        gap: tokens.space['3'],
+        gap: space['3'],
         color: color.muted,
         fontSize: fontSize['12'],
-        fontFamily: tokens.font.sans,
+        fontFamily: font.sans,
+        transition: `border-color ${motion.fast}`,
       }}
     >
       <button
