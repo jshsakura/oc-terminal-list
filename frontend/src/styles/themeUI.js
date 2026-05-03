@@ -34,16 +34,16 @@ const rgba = (hex, alpha) => {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
-// hex 섞기 (a 와 b 를 t 비율로) — 사이드바 surface 단계 도출용
-const mix = (a, b, t) => {
-  const pa = parseInt(a.replace('#', ''), 16);
-  const pb = parseInt(b.replace('#', ''), 16);
-  const ar = (pa >> 16) & 0xff, ag = (pa >> 8) & 0xff, ab = pa & 0xff;
-  const br = (pb >> 16) & 0xff, bg = (pb >> 8) & 0xff, bb = pb & 0xff;
-  const r = Math.round(ar + (br - ar) * t);
-  const g = Math.round(ag + (bg - ag) * t);
-  const b = Math.round(ab + (bb - ab) * t);
-  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+// hex 섞기 (col1 과 col2 를 t 비율로) — 사이드바 surface 단계 도출용
+const mix = (col1, col2, t) => {
+  const p1 = parseInt(col1.replace('#', ''), 16);
+  const p2 = parseInt(col2.replace('#', ''), 16);
+  const r1 = (p1 >> 16) & 0xff, g1 = (p1 >> 8) & 0xff, b1 = p1 & 0xff;
+  const r2 = (p2 >> 16) & 0xff, g2 = (p2 >> 8) & 0xff, b2 = p2 & 0xff;
+  const rr = Math.round(r1 + (r2 - r1) * t);
+  const gg = Math.round(g1 + (g2 - g1) * t);
+  const bb = Math.round(b1 + (b2 - b1) * t);
+  return `#${[rr, gg, bb].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 };
 
 export const buildThemeUI = (theme) => {
