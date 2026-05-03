@@ -93,6 +93,11 @@ function App() {
   useEffect(() => { localStorage.setItem('changes_panel_open', String(isChangesPanelOpen)); }, [isChangesPanelOpen]);
   const [requestedDiffPath, setRequestedDiffPath] = useState(null);
 
+  // N-pane state (focusedPaneIdx 등은 아래 useMemo 가 참조하므로 위로 hoist)
+  const [extraPanes, setExtraPanes] = useState([]);
+  const [focusedPaneIdx, setFocusedPaneIdx] = useState(0);
+  const MAX_PANES = 4;
+
   // pane 시각화 데이터 — focusedPaneIdx 기준
   const visiblePaneIds = useMemo(
     () => [activeSessionId, ...extraPanes].slice(0, MAX_PANES),
@@ -173,12 +178,6 @@ function App() {
   const [filePickerQuery, setFilePickerQuery] = useState('');
   const [filePickerItems, setFilePickerItems] = useState([]);
   const [isFilePickerLoading, setIsFilePickerLoading] = useState(false);
-  // N-pane split: extraPanes = 옆 pane들의 sessionId (최대 3, null 가능 = 빈 슬롯).
-  // 전체 visible panes = [activeSessionId, ...extraPanes] (길이 1..4)
-  // focusedPaneIdx = 시각적으로 활성인 pane 인덱스 (0..N-1). 0이면 activeSessionId.
-  const [extraPanes, setExtraPanes] = useState([]);
-  const [focusedPaneIdx, setFocusedPaneIdx] = useState(0);
-  const MAX_PANES = 4;
   const [isTerminalSearchOpen, setIsTerminalSearchOpen] = useState(false);
   const [terminalSearchQuery, setTerminalSearchQuery] = useState('');
   const [terminalSearchStatus, setTerminalSearchStatus] = useState('');
