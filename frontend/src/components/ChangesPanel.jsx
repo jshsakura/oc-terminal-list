@@ -62,7 +62,7 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
   const { items, branch, repo, repos, error, refresh, fetchDiff } = useGitChanges({
     enabled: isOpen,
     path: gitContextPath,
-    intervalMs: gitContextPath ? 2500 : 7000,
+    intervalMs: gitContextPath ? 1500 : 7000,
   });
   const repoBasename = repo ? repo.split('/').pop() : null;
   const [collapsed, setCollapsed] = useState(() => new Set());

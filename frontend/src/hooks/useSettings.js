@@ -9,11 +9,11 @@ const SUPPORTED_DEFAULT_SHELLS = new Set(['auto', 'bash', 'zsh', 'sh']);
 
 const normalizeDefaultShell = (value) => {
   if (typeof value !== 'string') {
-    return 'bash';
+    return 'auto';
   }
 
   const normalized = value.trim().toLowerCase();
-  return SUPPORTED_DEFAULT_SHELLS.has(normalized) ? normalized : 'bash';
+  return SUPPORTED_DEFAULT_SHELLS.has(normalized) ? normalized : 'auto';
 };
 
 // 브라우저 언어 자동 감지
@@ -35,7 +35,7 @@ const DEFAULT_SETTINGS = {
   language: detectBrowserLanguage(), // 브라우저 언어 자동 감지
   fontSize: 14,
   fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-  defaultShell: 'bash',
+  defaultShell: 'auto',  // 시스템 로그인 쉘 자동 사용 (zsh, bash 등)
   autoScroll: 'smart', // 'always' | 'smart' | 'never'
   smoothScroll: true,
   scrollSensitivity: 0.8, // AI 스트리밍 대응 (0~1, 높을수록 민감)

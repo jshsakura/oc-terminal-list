@@ -63,7 +63,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
   const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = useGitChanges({
     enabled: true,
     path: effectiveGitPath,
-    intervalMs: effectiveGitPath ? 4000 : 9000,
+    intervalMs: effectiveGitPath ? 1500 : 8000,
   });
   const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
 

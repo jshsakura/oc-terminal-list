@@ -99,7 +99,7 @@ function App() {
   const { items: gitChanges } = useGitChanges({
     enabled: true,
     path: gitContextPath,
-    intervalMs: gitContextPath ? 4000 : 9000,
+    intervalMs: gitContextPath ? 1500 : 8000,
   });
   const handleSelectChangedFile = useCallback((path) => {
     setRequestedDiffPath(path);

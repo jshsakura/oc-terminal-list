@@ -5,14 +5,14 @@ const SUPPORTED_SHELLS = new Set(['auto', 'bash', 'zsh', 'sh']);
 
 const normalizeShell = (value) => {
   if (typeof value !== 'string') {
-    return 'bash';
+    return 'auto';
   }
 
   const normalized = value.trim().toLowerCase();
-  return SUPPORTED_SHELLS.has(normalized) ? normalized : 'bash';
+  return SUPPORTED_SHELLS.has(normalized) ? normalized : 'auto';
 };
 
-const useSessionManager = (isAuthenticated, defaultShell = 'bash') => {
+const useSessionManager = (isAuthenticated, defaultShell = 'auto') => {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
   const creatingSessionRef = useRef(false);
