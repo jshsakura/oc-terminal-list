@@ -705,7 +705,7 @@ function App() {
           setIsResizing(true);
           const startX = e.clientX;
           const startWidth = sidebarWidth;
-          const onMove = (me) => setSidebarWidth(Math.max(120, Math.min(420, startWidth + me.clientX - startX)));
+          const onMove = (me) => setSidebarWidth(Math.max(150, Math.min(420, startWidth + me.clientX - startX)));
           const onUp = () => {
             setIsResizing(false);
             document.removeEventListener('mousemove', onMove);
