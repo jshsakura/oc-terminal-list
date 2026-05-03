@@ -713,7 +713,8 @@ async def _find_repo_root(start_path: str) -> Optional[str]:
         return None
 
 
-REPO_ITEMS_CAP = 200  # repo 당 최대 노출 변경 (오버플로 발생 시 truncated 표시)
+REPO_ITEMS_CAP = 200       # repo 당 응답에 포함할 최대 항목 (over → truncated 플래그)
+REPO_NOISE_THRESHOLD = 800 # 이 이상이면 repo 자체를 noisy 로 분류 → 메타만, items 비움
 
 
 async def _collect_repo_status(repo_root: str, workspace_abs: str, items_cap: int = REPO_ITEMS_CAP) -> dict:
@@ -737,8 +738,11 @@ async def _collect_repo_status(repo_root: str, workspace_abs: str, items_cap: in
 
         all_lines = [l for l in stdout.decode().splitlines() if len(l) >= 3]
         total = len(all_lines)
-        truncated = total > items_cap
-        lines = all_lines[:items_cap]
+        # 너무 시끄러운 repo (gitignore 누락된 build/cache 등) 는 메타만 반환,
+        # items 는 비워 응답 비대화 방지.
+        noisy = total >= REPO_NOISE_THRESHOLD
+        truncated = total > items_cap and not noisy
+        lines = [] if noisy else all_lines[:items_cap]
 
         items = []
         for line in lines:
@@ -771,9 +775,16 @@ async def _collect_repo_status(repo_root: str, workspace_abs: str, items_cap: in
         b_out, _ = await branch_proc.communicate()
         branch = b_out.decode().strip() if branch_proc.returncode == 0 else None
 
-        return {"items": items, "branch": branch, "error": None, "total": total, "truncated": truncated}
+        return {
+            "items": items,
+            "branch": branch,
+            "error": None,
+            "total": total,
+            "truncated": truncated,
+            "noisy": noisy,
+        }
     except Exception as e:
-        return {"items": [], "branch": None, "error": str(e), "total": 0, "truncated": False}
+        return {"items": [], "branch": None, "error": str(e), "total": 0, "truncated": False, "noisy": False}
 
 
 # 워크스페이스 repo 스캔 결과 캐시 — fs 변동이 잦지 않으니 60초 캐시.
@@ -835,7 +846,11 @@ async def git_status(
         repos_meta = []
         all_items = []
         for repo_root, r in zip(repo_roots, results):
-            if r.get("error") or len(r.get("items", [])) == 0:
+            if r.get("error"):
+                continue
+            total = r.get("total", 0)
+            # 변경 0 인 repo 는 응답에서 제외 (UI 노이즈 줄임)
+            if total == 0:
                 continue
             rel = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
             repos_meta.append({
@@ -843,8 +858,9 @@ async def git_status(
                 "rel": rel,
                 "branch": r["branch"],
                 "count": len(r["items"]),
-                "total": r.get("total", len(r["items"])),
+                "total": total,
                 "truncated": r.get("truncated", False),
+                "noisy": r.get("noisy", False),
             })
             all_items.extend(r["items"])
         return {

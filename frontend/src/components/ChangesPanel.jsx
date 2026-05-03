@@ -233,16 +233,23 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
         {repos && repos.length > 1 ? (
           repos.map((repo) => {
             const groupItems = items.filter((it) => it.path.startsWith(repo.rel + '/') || it.path === repo.rel);
-            if (groupItems.length === 0) return null;
+            const showLabel = repo.noisy
+              ? `${repo.total} (skipped)`
+              : (repo.truncated ? `${repo.count} of ${repo.total}` : `${repo.count}`);
             return (
               <div key={repo.root} style={styles.group}>
-                <div style={styles.groupHead}>
+                <div style={styles.groupHead} title={repo.noisy ? `이 repo는 ${repo.total}개 변경으로 너무 시끄러워서 자동으로 접힘. .gitignore 확인 권장.` : ''}>
                   <GitBranch size={10} strokeWidth={2} style={{ color: color.muted }} />
                   <span style={styles.groupRepo}>{repo.rel}</span>
                   <span style={styles.groupBranch}>{repo.branch || '—'}</span>
-                  <span style={styles.groupCount}>{groupItems.length}</span>
+                  <span style={{
+                    ...styles.groupCount,
+                    color: repo.noisy ? color.warning : color.accent,
+                    background: repo.noisy ? `${color.warning}1A` : color.accentSubtle,
+                    borderColor: repo.noisy ? `${color.warning}55` : color.accentBorder,
+                  }}>{showLabel}</span>
                 </div>
-                {renderTreeForItems(groupItems, repo.rel)}
+                {!repo.noisy && renderTreeForItems(groupItems, repo.rel)}
               </div>
             );
           })
