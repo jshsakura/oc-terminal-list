@@ -47,7 +47,7 @@ const Login = ({ onLogin, language = 'en' }) => {
           <div style={styles.brandIcon}>
             <TerminalIcon size={16} strokeWidth={2} />
           </div>
-          <div style={styles.brandText}>iTerminaLlist</div>
+          <div style={styles.brandText}>Terminal List</div>
         </div>
 
         <div style={styles.heading}>{t('login') || 'Sign in'}</div>

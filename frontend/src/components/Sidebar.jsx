@@ -58,6 +58,9 @@ const Sidebar = ({
   const [expandedActivity, setExpandedActivity] = useState(new Set());
   const editInputRef = useRef(null);
 
+  // 사이드바가 좁아지면 탭 라벨 숨김 (아이콘만)
+  const iconOnly = !isMobile && width < 200;
+
   const toggleActivity = (id) => {
     setExpandedActivity((prev) => {
       const next = new Set(prev);
@@ -126,7 +129,7 @@ const Sidebar = ({
           ...styles.aside,
           width: isMobile ? 'min(82vw, 300px)' : `${width}px`,
           maxWidth: isMobile ? '82vw' : '420px',
-          minWidth: isMobile ? undefined : '200px',
+          minWidth: isMobile ? undefined : '120px',
           height: isMobile ? `${viewportHeight}px` : '100vh',
         }}
       >
@@ -137,18 +140,21 @@ const Sidebar = ({
             onClick={() => setActiveTab('hosts')}
             icon={Server}
             label={t('hosts') || 'Hosts'}
+            iconOnly={iconOnly}
           />
           <SegTab
             active={activeTab === 'sessions'}
             onClick={() => setActiveTab('sessions')}
             icon={Terminal}
             label={t('active') || t('sessions')}
+            iconOnly={iconOnly}
           />
           <SegTab
             active={activeTab === 'files'}
             onClick={() => setActiveTab('files')}
             icon={FolderTree}
             label={t('files')}
+            iconOnly={iconOnly}
           />
           {isMobile && (
             <button onClick={onClose} title={t('closeSidebar')} style={styles.closeBtn}>
@@ -359,9 +365,10 @@ const Sidebar = ({
   );
 };
 
-const SegTab = ({ active, onClick, icon: Icon, label }) => (
+const SegTab = ({ active, onClick, icon: Icon, label, iconOnly = false }) => (
   <button
     onClick={onClick}
+    title={iconOnly ? label : undefined}
     style={{
       ...styles.tab,
       color: active ? color.text : color.muted,
@@ -369,7 +376,7 @@ const SegTab = ({ active, onClick, icon: Icon, label }) => (
     }}
   >
     <Icon size={12} strokeWidth={2} />
-    <span>{label}</span>
+    {!iconOnly && <span>{label}</span>}
   </button>
 );
 

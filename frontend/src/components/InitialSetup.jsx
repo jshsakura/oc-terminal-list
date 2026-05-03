@@ -45,7 +45,7 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
           <div style={styles.brandIcon}>
             <TerminalIcon size={16} strokeWidth={2} />
           </div>
-          <div style={styles.brandText}>iTerminaLlist</div>
+          <div style={styles.brandText}>Terminal List</div>
           <div style={styles.brandTag}>
             <Sparkles size={11} strokeWidth={2} />
             {t('initialSetup') || 'First-time setup'}

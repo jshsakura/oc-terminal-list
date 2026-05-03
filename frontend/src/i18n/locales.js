@@ -103,7 +103,7 @@ export const locales = {
     closeSidebar: 'Hide sidebar',
     resizeSidebar: 'Adjust width',
     activeTerminals: 'Active Sessions',
-    files: 'Workspace',
+    files: 'Files',
     explorer: 'Explorer',
     parentFolder: 'Parent Folder',
 
@@ -346,7 +346,7 @@ export const locales = {
     closeSidebar: '사이드바 숨기기',
     resizeSidebar: '너비 조정',
     activeTerminals: '활성 세션',
-    files: '워크스페이스',
+    files: '파일',
     explorer: '파일 탐색기',
     parentFolder: '상위 폴더',
 

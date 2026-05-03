@@ -35,7 +35,7 @@ const Header = ({
           <div style={styles.brandIcon}>
             <TerminalIcon size={13} strokeWidth={2} />
           </div>
-          <span style={styles.brandText}>iTerminaLlist</span>
+          <span style={styles.brandText}>Terminal List</span>
         </div>
       </div>
 
