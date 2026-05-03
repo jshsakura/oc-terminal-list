@@ -134,6 +134,12 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
 
   if (!isOpen) return null;
 
+  // 폴더 하위 leaf 개수 (재귀)
+  const countLeaves = (node) => {
+    if (node.type === 'file') return 1;
+    return node.children.reduce((acc, c) => acc + countLeaves(c), 0);
+  };
+
   // 트리 노드 재귀 렌더
   const renderNode = (node, depth) => {
     if (node.type === 'file') {
@@ -143,7 +149,7 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
       return (
         <button
           key={it.path}
-          onClick={() => setSelected(it.path)}
+          onClick={() => setSelected(isSelected ? null : it.path)}
           onDoubleClick={() => onOpenFile?.(it.path)}
           style={{
             ...styles.row,
@@ -163,6 +169,7 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
     }
     // dir
     const isCollapsed = collapsed.has(node.fullPath || node.path);
+    const leafCount = countLeaves(node);
     return (
       <div key={`d:${node.fullPath || node.path}`}>
         <div
@@ -179,6 +186,7 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
           </span>
           <Folder size={12} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
           <span style={styles.dirName}>{node.name}</span>
+          <span style={styles.dirCount}>{leafCount}</span>
         </div>
         {!isCollapsed && node.children.map((c) => renderNode(c, depth + 1))}
       </div>
@@ -468,11 +476,24 @@ const styles = {
     userSelect: 'none',
   },
   dirName: {
+    flex: 1,
     fontSize: fontSize['12'],
     color: color.subtext,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  dirCount: {
+    fontSize: fontSize['11'],
+    color: color.muted,
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.full,
+    padding: `0 ${space['1.5']}`,
+    fontFamily: font.mono,
+    flexShrink: 0,
+    minWidth: '16px',
+    textAlign: 'center',
   },
   chevronSlot: {
     width: '12px',
