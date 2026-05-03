@@ -1147,12 +1147,19 @@ async def global_exception_handler(request, exc):
 
 
 STATIC_DIR = Path(__file__).parent / "static"
+NO_CACHE_HEADERS = {
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
+    "Expires": "0",
+}
+
 if STATIC_DIR.exists():
     app.mount("/assets", CachedStaticFiles(directory=str(STATIC_DIR / "assets")), name="assets")
 
     @app.get("/")
     async def serve_frontend():
-        return FileResponse(str(STATIC_DIR / "index.html"))
+        # index.html 은 항상 fresh — 새 빌드 chunk 해시 즉시 반영
+        return FileResponse(str(STATIC_DIR / "index.html"), headers=NO_CACHE_HEADERS)
 
     @app.get("/{full_path:path}")
     async def catch_all(full_path: str):
@@ -1161,7 +1168,8 @@ if STATIC_DIR.exists():
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
             return FileResponse(str(file_path))
-        return FileResponse(str(STATIC_DIR / "index.html"))
+        # SPA fallback 도 no-cache (라우팅 경로 어디로 와도 최신 index)
+        return FileResponse(str(STATIC_DIR / "index.html"), headers=NO_CACHE_HEADERS)
 
 
 if __name__ == "__main__":
