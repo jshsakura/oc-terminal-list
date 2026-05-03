@@ -143,17 +143,17 @@ const Sidebar = ({
             iconOnly={iconOnly}
           />
           <SegTab
-            active={activeTab === 'sessions'}
-            onClick={() => setActiveTab('sessions')}
-            icon={Terminal}
-            label={t('active') || t('sessions')}
-            iconOnly={iconOnly}
-          />
-          <SegTab
             active={activeTab === 'files'}
             onClick={() => setActiveTab('files')}
             icon={FolderTree}
             label={t('files')}
+            iconOnly={iconOnly}
+          />
+          <SegTab
+            active={activeTab === 'sessions'}
+            onClick={() => setActiveTab('sessions')}
+            icon={Terminal}
+            label={t('active') || t('sessions')}
             iconOnly={iconOnly}
           />
           {isMobile && (
