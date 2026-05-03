@@ -129,7 +129,7 @@ const Sidebar = ({
           ...styles.aside,
           width: isMobile ? 'min(82vw, 300px)' : `${width}px`,
           maxWidth: isMobile ? '82vw' : '420px',
-          minWidth: isMobile ? undefined : '150px',
+          minWidth: isMobile ? undefined : '200px',
           height: isMobile ? `${viewportHeight}px` : '100vh',
         }}
       >
