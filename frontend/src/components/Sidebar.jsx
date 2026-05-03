@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, memo, useMemo } from 'react';
-import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server } from 'lucide-react';
+import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server, ChevronDown, ChevronRight } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import HostList from './HostList';
+import SessionActivity from './SessionActivity';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -54,7 +55,16 @@ const Sidebar = ({
   const [systemStats, setSystemStats] = useState({ cpu: 0, ram: 0, disk: 0 });
   const [filter, setFilter] = useState('');
   const [hoverId, setHoverId] = useState(null);
+  const [expandedActivity, setExpandedActivity] = useState(new Set());
   const editInputRef = useRef(null);
+
+  const toggleActivity = (id) => {
+    setExpandedActivity((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
   // 시스템 정보 폴링
   useEffect(() => {
@@ -201,78 +211,96 @@ const Sidebar = ({
                   const isActive = session.id === activeSessionId;
                   const isHovered = session.id === hoverId;
                   const dotColor = colorForSession(session.id);
+                  const isExpanded = expandedActivity.has(session.id);
+                  const isHostTab = !!session.hostId;
                   return (
-                    <div
-                      key={session.id}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.effectAllowed = 'copy';
-                        e.dataTransfer.setData('application/x-iterminallist-session', session.id);
-                      }}
-                      onMouseEnter={() => setHoverId(session.id)}
-                      onMouseLeave={() => setHoverId(null)}
-                      onClick={() => {
-                        onSelectSession(session.id);
-                        if (isMobile) onClose();
-                      }}
-                      title={`${session.name || session.id} — ${t('dragToSplitHint') || 'drag to terminal to split'}`}
-                      style={{
-                        ...styles.row,
-                        background: isActive ? color.accentSubtle : color.surface0,
-                        borderColor: isActive ? color.accentBorder : (isHovered ? color.borderStrong : color.border),
-                        cursor: 'grab',
-                      }}
-                    >
-                      <div style={{ ...styles.activeBar, background: isActive ? color.accent : 'transparent' }} />
-                      <div style={{ ...styles.dot, background: dotColor }} />
-                      <div style={styles.rowBody}>
-                        {editingSessionId === session.id ? (
-                          <input
-                            ref={editInputRef}
-                            type="text"
-                            value={editingName}
-                            onChange={(e) => setEditingName(e.target.value)}
-                            onBlur={finishEdit}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') finishEdit();
-                              else if (e.key === 'Escape') cancelEdit();
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            style={styles.editInput}
-                          />
-                        ) : (
-                          <div
-                            style={{
-                              ...styles.rowName,
-                              color: isActive ? color.text : color.text,
-                              fontWeight: isActive ? fontWeight.medium : fontWeight.regular,
-                            }}
-                            onDoubleClick={(e) => {
-                              e.stopPropagation();
-                              setEditingSessionId(session.id);
-                              setEditingName(session.name || `Terminal ${index + 1}`);
-                            }}
-                          >
-                            {session.name || `Terminal ${index + 1}`}
-                          </div>
-                        )}
-                        {session.cwd && <div style={styles.rowSub}>{session.cwd}</div>}
+                    <div key={session.id} style={styles.cardOuter}>
+                      <div
+                        draggable
+                        onDragStart={(e) => {
+                          e.dataTransfer.effectAllowed = 'copy';
+                          e.dataTransfer.setData('application/x-iterminallist-session', session.id);
+                        }}
+                        onMouseEnter={() => setHoverId(session.id)}
+                        onMouseLeave={() => setHoverId(null)}
+                        onClick={() => {
+                          onSelectSession(session.id);
+                          if (isMobile) onClose();
+                        }}
+                        title={`${session.name || session.id} — ${t('dragToSplitHint') || 'drag to terminal to split'}`}
+                        style={{
+                          ...styles.row,
+                          background: isActive ? color.accentSubtle : color.surface0,
+                          borderColor: isActive ? color.accentBorder : (isHovered ? color.borderStrong : color.border),
+                          borderBottomLeftRadius: isExpanded ? 0 : radius.md,
+                          borderBottomRightRadius: isExpanded ? 0 : radius.md,
+                          cursor: 'grab',
+                        }}
+                      >
+                        <div style={{ ...styles.activeBar, background: isActive ? color.accent : 'transparent' }} />
+                        <div style={{ ...styles.dot, background: dotColor }} />
+                        <div style={styles.rowBody}>
+                          {editingSessionId === session.id ? (
+                            <input
+                              ref={editInputRef}
+                              type="text"
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onBlur={finishEdit}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') finishEdit();
+                                else if (e.key === 'Escape') cancelEdit();
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              style={styles.editInput}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                ...styles.rowName,
+                                color: isActive ? color.text : color.text,
+                                fontWeight: isActive ? fontWeight.medium : fontWeight.regular,
+                              }}
+                              onDoubleClick={(e) => {
+                                e.stopPropagation();
+                                setEditingSessionId(session.id);
+                                setEditingName(session.name || `Terminal ${index + 1}`);
+                              }}
+                            >
+                              {session.name || `Terminal ${index + 1}`}
+                            </div>
+                          )}
+                          {session.cwd && <div style={styles.rowSub}>{session.cwd}</div>}
+                        </div>
+
+                        <div style={styles.rowActions} onClick={(e) => e.stopPropagation()}>
+                          {!isHostTab && (
+                            <RowAction
+                              onClick={() => toggleActivity(session.id)}
+                              icon={isExpanded ? ChevronDown : ChevronRight}
+                              title={t('activity') || 'Recent activity'}
+                            />
+                          )}
+                          {(isHovered || isActive) && (
+                            <>
+                              <RowAction
+                                onClick={() => onReconnectSession?.(session.id)}
+                                icon={RefreshCw}
+                                title={t('reconnect') || 'Reconnect'}
+                              />
+                              <RowAction
+                                onClick={() => onCloseSession(session.id)}
+                                icon={X}
+                                title={t('closeTerminal')}
+                                tone="danger"
+                              />
+                            </>
+                          )}
+                        </div>
                       </div>
 
-                      {(isHovered || isActive) && (
-                        <div style={styles.rowActions} onClick={(e) => e.stopPropagation()}>
-                          <RowAction
-                            onClick={() => onReconnectSession?.(session.id)}
-                            icon={RefreshCw}
-                            title={t('reconnect') || 'Reconnect'}
-                          />
-                          <RowAction
-                            onClick={() => onCloseSession(session.id)}
-                            icon={X}
-                            title={t('closeTerminal')}
-                            tone="danger"
-                          />
-                        </div>
+                      {isExpanded && !isHostTab && (
+                        <SessionActivity sessionId={session.id} />
                       )}
                     </div>
                   );
@@ -477,6 +505,10 @@ const styles = {
     fontSize: fontSize['11'],
     color: color.muted,
   },
+  cardOuter: {
+    display: 'flex',
+    flexDirection: 'column',
+  },
   row: {
     position: 'relative',
     display: 'flex',
@@ -488,7 +520,7 @@ const styles = {
     border: `1px solid ${color.border}`,
     borderRadius: radius.md,
     cursor: 'pointer',
-    transition: `background ${motion.fast}, border-color ${motion.fast}`,
+    transition: `background ${motion.fast}, border-color ${motion.fast}, border-radius ${motion.fast}`,
     minHeight: '46px',
   },
   activeBar: {

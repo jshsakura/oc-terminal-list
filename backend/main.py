@@ -421,6 +421,28 @@ async def resize_terminal(
     return {"session_id": session_id, "cols": request.cols, "rows": request.rows, "status": "resized"}
 
 
+@app.get("/api/sessions/{session_id}/activity")
+async def get_session_activity(session_id: str, username: str = Depends(verify_auth_token)):
+    """세션의 cwd 타임라인 + 워크스페이스 상대 경로 부가."""
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    raw = tmux_manager.get_cwd_history(session_id)
+    items = []
+    for entry in raw:
+        cwd = entry["cwd"]
+        in_ws = cwd == workspace_abs or cwd.startswith(workspace_abs + os.sep)
+        rel = ""
+        if in_ws:
+            r = os.path.relpath(cwd, workspace_abs).replace("\\", "/")
+            rel = "" if r == "." else r
+        items.append({
+            "ts": entry["ts"],
+            "cwd": cwd,
+            "workspace_relative": rel if in_ws else None,
+            "in_workspace": in_ws,
+        })
+    return {"session_id": session_id, "items": items}
+
+
 @app.get("/api/sessions/{session_id}/cwd")
 async def get_session_cwd(session_id: str, username: str = Depends(verify_auth_token)):
     """활성 pane 의 현재 작업 디렉토리. 워크스페이스 내부면 상대 경로도 같이 반환."""

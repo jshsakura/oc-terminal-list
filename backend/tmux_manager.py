@@ -14,8 +14,10 @@ import asyncio
 import logging
 import os
 import shutil
+import time
+from collections import deque
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,8 @@ class TmuxManager:
     def __init__(self, socket_name: str = TMUX_SOCKET_NAME, history_limit: int = DEFAULT_HISTORY_LIMIT):
         self.socket_name = socket_name
         self.history_limit = history_limit
+        # 세션별 cwd 변화 타임라인 (ts, cwd) — 같은 cwd 가 연속으로 들어오면 갱신만
+        self._cwd_history: Dict[str, Deque[Tuple[float, str]]] = {}
 
     def _base_args(self) -> List[str]:
         return [TMUX_BIN, "-L", self.socket_name]
@@ -198,7 +202,9 @@ class TmuxManager:
         return [*self._base_args(), "attach-session", "-t", session_id]
 
     async def get_pane_cwd(self, session_id: str) -> Optional[str]:
-        """활성 pane 의 현재 작업 디렉토리. 세션이 없거나 실패하면 None."""
+        """활성 pane 의 현재 작업 디렉토리. 세션이 없거나 실패하면 None.
+        호출 시점에 cwd 가 직전 기록과 다르면 활동 타임라인에 push.
+        """
         if not await self.session_exists(session_id):
             return None
         rc, out, _ = await self._run(
@@ -207,8 +213,22 @@ class TmuxManager:
         )
         if rc != 0:
             return None
-        out = out.strip()
-        return out or None
+        cwd = out.strip() or None
+        if cwd:
+            self._record_cwd(session_id, cwd)
+        return cwd
+
+    def _record_cwd(self, session_id: str, cwd: str) -> None:
+        history = self._cwd_history.setdefault(session_id, deque(maxlen=50))
+        if history and history[-1][1] == cwd:
+            # 같은 cwd 가 연속이면 마지막 ts 만 갱신 (= "여기 있는 시간" 표현)
+            history[-1] = (time.time(), cwd)
+        else:
+            history.append((time.time(), cwd))
+
+    def get_cwd_history(self, session_id: str) -> List[Dict]:
+        history = self._cwd_history.get(session_id, deque())
+        return [{"ts": ts, "cwd": cwd} for ts, cwd in history]
 
 
 # 전역 인스턴스 (main.py에서 import)

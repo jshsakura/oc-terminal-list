@@ -56,8 +56,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
 
-  // git 상태 — 활성 터미널 cwd (gitContextPath) 기준으로 repo 자동 탐색
-  const { items: gitItems, branch: gitBranch, repo: gitRepo } = useGitChanges({ enabled: true, path: gitContextPath });
+  // gitContextPath (활성 터미널 cwd) 가 비어있으면 트리에서 마지막에 펼친 폴더로 폴백.
+  // 두 경로가 모두 빈 경우에만 진짜 워크스페이스 루트에서 탐색.
+  const [treeFocus, setTreeFocus] = useState(initialPath || '');
+  const effectiveGitPath = gitContextPath || treeFocus;
+  const { items: gitItems, branch: gitBranch, repo: gitRepo } = useGitChanges({ enabled: true, path: effectiveGitPath });
   const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
 
   const fetchChildren = useCallback(async (path) => {
@@ -125,6 +128,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
       }
       return next;
     });
+    setTreeFocus(path);  // 폴더 펼치는 행위 = git context 후보로 등록 (활성 cwd 가 우선)
     onFolderSelect?.(path);
   }, [nodes, fetchChildren, onFolderSelect]);
 
