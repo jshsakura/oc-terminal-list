@@ -13,6 +13,7 @@ import useGitChanges from './hooks/useGitChanges';
 import useActiveTerminalCwd from './hooks/useActiveTerminalCwd';
 import useSwipe from './hooks/useSwipe';
 import themes from './styles/themes';
+import { applyThemeVars } from './styles/themeUI';
 import AppStyles from './styles/AppStyles';
 
 // Layout Components
@@ -41,6 +42,12 @@ function App() {
   const { settings, updateSettings } = useSettings();
   const { t } = useTranslation(settings.language);
   const currentTheme = useMemo(() => themes[settings.theme] || themes.catppuccin, [settings.theme]);
+
+  // 활성 전체 테마가 바뀔 때마다 :root 의 --ui-* CSS 변수 갱신
+  // → tokens.color 가 var() 참조라 사이드바/헤더/모달 등 전체 UI 가 즉시 따라감
+  useEffect(() => {
+    applyThemeVars(currentTheme);
+  }, [currentTheme]);
   
   // Custom Hooks
   const { 

@@ -1,49 +1,51 @@
 /**
  * 디자인 토큰 — UI 의 단일 진실의 출처.
  *
- * 색은 캣푸치노 Mocha 팔레트 기반, 레이어링/타이포/모션은 Zed 톤.
- * 모든 컴포넌트는 이 토큰을 참조한다 (직접 hex/px 를 박지 말 것).
+ * 색 토큰은 CSS 커스텀 프로퍼티(var(--ui-*)) 를 가리킨다.
+ * 활성 테마가 바뀌면 ThemeProvider 가 :root 의 CSS 변수만 갱신 → 모든 컴포넌트 즉시 따라감.
+ * (= React 리렌더 없이도 색이 즉시 변경됨)
+ *
+ * spacing/radius/typography/motion 은 정적.
  */
 
 // ─── 색 ──────────────────────────────────────────────────────────────────
-// 같은 다크라도 Zed 처럼 한 단계 더 깊게 들어가서 "검은 사면체" 느낌을 살린다.
-// surface 단계는 위로 갈수록 희미하게 밝아진다 (Zed 의 layered depth).
+const v = (name, fallback) => `var(--ui-${name}, ${fallback})`;
 const palette = {
-  // base layers (낮은 → 높은)
-  crust:   '#0f0f17',  // 가장 깊은 배경 (앱 바깥 프레임)
-  mantle:  '#15151f',  // 사이드바 / 캔버스 바깥
-  base:    '#1a1a25',  // 메인 캔버스 / 터미널 바닥
-  surface0:'#23232f',  // 카드 / hover
-  surface1:'#2d2d3c',  // selected / active row
-  surface2:'#393949',  // input 활성 / press
+  // base layers
+  crust:    v('crust',    '#0f0f17'),
+  mantle:   v('mantle',   '#15151f'),
+  base:     v('base',     '#1a1a25'),
+  surface0: v('surface0', '#23232f'),
+  surface1: v('surface1', '#2d2d3c'),
+  surface2: v('surface2', '#393949'),
 
   // text
-  text:    '#e4e6f1',  // 본문
-  subtext: '#a8acc4',  // 보조
-  muted:   '#6c7086',  // 캡션 / 비활성
-  faint:   '#45475a',  // disabled
+  text:    v('text',    '#e4e6f1'),
+  subtext: v('subtext', '#a8acc4'),
+  muted:   v('muted',   '#6c7086'),
+  faint:   v('faint',   '#45475a'),
 
-  // 액센트 (단일 primary — 캣푸치노 blue)
-  accent:        '#89b4fa',
-  accentSubtle:  'rgba(137, 180, 250, 0.12)',
-  accentBorder:  'rgba(137, 180, 250, 0.32)',
+  // 액센트
+  accent:        v('accent',        '#89b4fa'),
+  accentSubtle:  v('accent-subtle', 'rgba(137, 180, 250, 0.12)'),
+  accentBorder:  v('accent-border', 'rgba(137, 180, 250, 0.32)'),
 
   // semantic
-  success: '#a6e3a1',
-  warning: '#f9e2af',
-  danger:  '#f38ba8',
-  info:    '#74c7ec',
+  success: v('success', '#a6e3a1'),
+  warning: v('warning', '#f9e2af'),
+  danger:  v('danger',  '#f38ba8'),
+  info:    v('info',    '#74c7ec'),
 
-  // 호스트 색 dot 후보 (사이드바에서 카드 좌측 indicator 로)
+  // 호스트 dot 후보
   dotPalette: ['#89b4fa', '#a6e3a1', '#f9e2af', '#f38ba8', '#cba6f7', '#94e2d5', '#fab387', '#74c7ec'],
 
-  // 헤어라인 보더 — Zed 의 핵심
-  border:        'rgba(228, 230, 241, 0.06)',
-  borderStrong:  'rgba(228, 230, 241, 0.12)',
-  borderSubtle:  'rgba(228, 230, 241, 0.03)',
+  // 보더
+  border:        v('border',         'rgba(228, 230, 241, 0.06)'),
+  borderStrong:  v('border-strong',  'rgba(228, 230, 241, 0.12)'),
+  borderSubtle:  v('border-subtle',  'rgba(228, 230, 241, 0.03)'),
 
-  // overlay (모달 백드롭)
-  scrim: 'rgba(0, 0, 0, 0.55)',
+  // overlay
+  scrim: v('scrim', 'rgba(0, 0, 0, 0.55)'),
 };
 
 // ─── 타이포 ──────────────────────────────────────────────────────────────
