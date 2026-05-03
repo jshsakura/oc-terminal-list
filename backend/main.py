@@ -713,8 +713,14 @@ async def _find_repo_root(start_path: str) -> Optional[str]:
         return None
 
 
-async def _collect_repo_status(repo_root: str, workspace_abs: str) -> dict:
-    """단일 repo 의 변경 사항 + 브랜치를 워크스페이스 상대 경로 기준으로 정리."""
+REPO_ITEMS_CAP = 200  # repo 당 최대 노출 변경 (오버플로 발생 시 truncated 표시)
+
+
+async def _collect_repo_status(repo_root: str, workspace_abs: str, items_cap: int = REPO_ITEMS_CAP) -> dict:
+    """단일 repo 의 변경 사항 + 브랜치를 워크스페이스 상대 경로 기준으로 정리.
+
+    repo 가 매우 크면 (예: 빌드 산출물 수천개) cap 까지만 자르고 truncated 표시.
+    """
     try:
         proc = await asyncio.create_subprocess_exec(
             "git", "-C", repo_root, "status", "--porcelain=v1", "-uall",
@@ -723,16 +729,19 @@ async def _collect_repo_status(repo_root: str, workspace_abs: str) -> dict:
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            return {"items": [], "branch": None, "error": stderr.decode("utf-8", "replace").strip() or "git status failed"}
+            return {"items": [], "branch": None, "error": stderr.decode("utf-8", "replace").strip() or "git status failed", "total": 0, "truncated": False}
 
         repo_rel_prefix = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
         if repo_rel_prefix in (".", ""):
             repo_rel_prefix = ""
 
+        all_lines = [l for l in stdout.decode().splitlines() if len(l) >= 3]
+        total = len(all_lines)
+        truncated = total > items_cap
+        lines = all_lines[:items_cap]
+
         items = []
-        for line in stdout.decode().splitlines():
-            if len(line) < 3:
-                continue
+        for line in lines:
             staged_code = line[0]
             unstaged_code = line[1]
             rel_to_repo = line[3:].strip().strip('"')
@@ -762,9 +771,9 @@ async def _collect_repo_status(repo_root: str, workspace_abs: str) -> dict:
         b_out, _ = await branch_proc.communicate()
         branch = b_out.decode().strip() if branch_proc.returncode == 0 else None
 
-        return {"items": items, "branch": branch, "error": None}
+        return {"items": items, "branch": branch, "error": None, "total": total, "truncated": truncated}
     except Exception as e:
-        return {"items": [], "branch": None, "error": str(e)}
+        return {"items": [], "branch": None, "error": str(e), "total": 0, "truncated": False}
 
 
 # 워크스페이스 repo 스캔 결과 캐시 — fs 변동이 잦지 않으니 60초 캐시.
@@ -829,7 +838,14 @@ async def git_status(
             if r.get("error") or len(r.get("items", [])) == 0:
                 continue
             rel = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
-            repos_meta.append({"root": repo_root, "rel": rel, "branch": r["branch"], "count": len(r["items"])})
+            repos_meta.append({
+                "root": repo_root,
+                "rel": rel,
+                "branch": r["branch"],
+                "count": len(r["items"]),
+                "total": r.get("total", len(r["items"])),
+                "truncated": r.get("truncated", False),
+            })
             all_items.extend(r["items"])
         return {
             "items": all_items,
