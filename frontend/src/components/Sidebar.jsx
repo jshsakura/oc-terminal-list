@@ -1,9 +1,8 @@
 import { useState, useRef, useEffect, memo, useMemo } from 'react';
-import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server, GitBranch } from 'lucide-react';
+import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import HostList from './HostList';
-import GitChangesTab from './GitChangesTab';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -138,12 +137,6 @@ const Sidebar = ({
             onClick={() => setActiveTab('files')}
             icon={FolderTree}
             label={t('files')}
-          />
-          <SegTab
-            active={activeTab === 'git'}
-            onClick={() => setActiveTab('git')}
-            icon={GitBranch}
-            label={t('git') || 'Git'}
           />
           {isMobile && (
             <button onClick={onClose} title={t('closeSidebar')} style={styles.closeBtn}>
@@ -287,29 +280,18 @@ const Sidebar = ({
           </>
         )}
 
-        {/* files 탭 */}
+        {/* files 탭 — git 워크스페이스를 겸함 */}
         {activeTab === 'files' && (
           <div style={styles.fileTreeWrap}>
             <FileTree
-              theme={undefined /* FileTree는 자체 토큰 사용 */}
               onFileSelect={onFileSelect}
               onFolderSelect={onFolderSelect}
               onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
+              onSelectChangedFile={onSelectChangedFile}
               language={language}
               initialPath={selectedFolderPath}
             />
           </div>
-        )}
-
-        {/* git 탭 */}
-        {activeTab === 'git' && (
-          <GitChangesTab
-            onSelectFile={(p) => {
-              onSelectChangedFile?.(p);
-              if (isMobile) onClose();
-            }}
-            t={t}
-          />
         )}
 
         {/* 푸터: 컨텍스트 정보 — 활성 세션이 호스트면 호스트 라벨, 로컬이면 로컬 시스템 통계 */}

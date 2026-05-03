@@ -189,6 +189,7 @@ export const locales = {
     close: 'Close',
     git: 'Git',
     notAGitRepo: 'Not a git repo',
+    filterChangedOnly: 'Show only changed',
 
     // Empty State
     noTerminals: 'No sessions yet',
@@ -426,6 +427,7 @@ export const locales = {
     close: '닫기',
     git: 'Git',
     notAGitRepo: 'Git 저장소 아님',
+    filterChangedOnly: '변경된 것만 보기',
 
     // 빈 화면
     noTerminals: '활성 세션 없음',

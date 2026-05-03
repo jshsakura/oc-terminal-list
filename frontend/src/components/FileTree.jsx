@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Folder, FolderOpen, File, FileText, FileCode, FileImage, FileJson, FileType,
-  RefreshCw, Terminal, ChevronRight, ChevronDown, Plus, Pencil, Trash2,
+  RefreshCw, Terminal, ChevronRight, ChevronDown, Plus, Pencil, Trash2, GitBranch, Filter,
 } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
+import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -42,7 +43,7 @@ const authHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, language = 'en', initialPath = '' }) => {
+const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSelectChangedFile, language = 'en', initialPath = '' }) => {
   const { t } = useTranslation(language);
   // 노드별 캐시: path → { items: [{name,path,type,git_status}], loading, error }
   const [nodes, setNodes] = useState({});
@@ -51,8 +52,13 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, langua
   const [contextMenu, setContextMenu] = useState(null); // {x,y,target:{path,type}}
   const [renameTarget, setRenameTarget] = useState(null); // {path, draftName}
   const [creating, setCreating] = useState(null); // {parentPath, type:'file'|'directory', draftName}
+  const [filterChangedOnly, setFilterChangedOnly] = useState(false);
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
+
+  // git 상태 — 항상 폴링해서 트리 헤더의 브랜치/변경 개수 라이브 유지
+  const { items: gitItems, branch: gitBranch } = useGitChanges({ enabled: true });
+  const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
 
   const fetchChildren = useCallback(async (path) => {
     setNodes((prev) => ({ ...prev, [path]: { ...(prev[path] || {}), loading: true } }));
@@ -216,6 +222,16 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, langua
     }
   };
 
+  // 폴더가 자손 중에 변경 파일을 갖고 있는지 (필터/시각화에 사용)
+  const hasChangedDescendant = useCallback((folderPath) => {
+    if (!folderPath) return changedSet.size > 0;
+    const prefix = folderPath + '/';
+    for (const p of changedSet) {
+      if (p.startsWith(prefix)) return true;
+    }
+    return false;
+  }, [changedSet]);
+
   // ---------- 트리 평면화 (depth 포함) ----------
   const visibleRows = useMemo(() => {
     const rows = [];
@@ -223,6 +239,12 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, langua
       const node = nodes[parentPath];
       if (!node || !node.items) return;
       for (const item of node.items) {
+        // 변경된 것만 필터: 변경 파일이거나, 그 자손에 변경 파일이 있는 폴더만 통과
+        if (filterChangedOnly) {
+          const isChanged = changedSet.has(item.path);
+          const folderHasChanges = item.type === 'directory' && hasChangedDescendant(item.path);
+          if (!isChanged && !folderHasChanges) continue;
+        }
         rows.push({ ...item, depth });
         if (item.type === 'directory' && expanded.has(item.path)) {
           walk(item.path, depth + 1);
@@ -231,7 +253,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, langua
     };
     walk('', 0);
     return rows;
-  }, [nodes, expanded]);
+  }, [nodes, expanded, filterChangedOnly, changedSet, hasChangedDescendant]);
 
   const rootError = nodes['']?.error;
   const rootLoading = nodes['']?.loading && !nodes['']?.items;
@@ -239,8 +261,20 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, langua
   return (
     <div style={styles.wrap}>
       <div style={styles.head}>
-        <span style={styles.headLabel}>{t('explorer') || 'Explorer'}</span>
+        <div style={styles.headBranch}>
+          <GitBranch size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+          <span style={styles.branchName}>{gitBranch || t('explorer') || 'workspace'}</span>
+          {gitItems.length > 0 && (
+            <span style={styles.countBadge}>{gitItems.length}</span>
+          )}
+        </div>
         <div style={styles.headActions}>
+          <HeadAction
+            icon={Filter}
+            title={t('filterChangedOnly') || 'Show only changed'}
+            onClick={() => setFilterChangedOnly((v) => !v)}
+            active={filterChangedOnly}
+          />
           <HeadAction icon={Plus} title={t('newFile') || 'New file'} onClick={() => startCreate('', 'file')} />
           <HeadAction icon={Folder} title={t('newFolder') || 'New folder'} onClick={() => startCreate('', 'directory')} />
           <HeadAction icon={Terminal} title={t('focusTerminal') || 'Open terminal here'} onClick={() => onOpenTerminalAtFolder?.('')} />
@@ -306,13 +340,20 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, langua
                   name={row.name}
                   tone={tone}
                   gitStatus={row.git_status}
+                  isChanged={changedSet.has(row.path)}
                   onClick={() => {
                     setSelectedPath(row.path);
                     if (isFolder) {
                       toggleFolder(row.path);
+                    } else if (changedSet.has(row.path) && onSelectChangedFile) {
+                      // 변경된 파일은 우측 ChangesPanel 의 diff 로 즉시 띄움
+                      onSelectChangedFile(row.path);
                     } else {
                       onFileSelect?.(row.path);
                     }
+                  }}
+                  onDoubleClick={() => {
+                    if (!isFolder) onFileSelect?.(row.path);
                   }}
                   onContextMenu={(e) => {
                     e.preventDefault();
@@ -381,12 +422,15 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, langua
 
 // ---------- 보조 컴포넌트 ----------
 
-const Row = ({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, onClick, onContextMenu }) => {
+const Row = ({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu }) => {
   const FileIcon = isFolder ? (isOpen ? FolderOpen : Folder) : iconForFile(name);
   const iconHue = isFolder ? color.accent : fileIconColor(name);
+  // 변경된 파일은 트리에서 살짝 강조 (이름 + git tag 색)
+  const nameColor = isChanged && !isFolder ? gitTone(gitStatus || 'M') : tone;
   return (
     <div
       onClick={onClick}
+      onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
       style={{
         ...styles.row,
@@ -402,7 +446,11 @@ const Row = ({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, onCli
         ) : null}
       </span>
       <FileIcon size={13} strokeWidth={2} style={{ color: iconHue, flexShrink: 0 }} />
-      <span style={{ ...styles.name, color: tone, fontWeight: isSelected ? fontWeight.medium : fontWeight.regular }}>
+      <span style={{
+        ...styles.name,
+        color: nameColor,
+        fontWeight: isSelected ? fontWeight.medium : fontWeight.regular,
+      }}>
         {name}
       </span>
       {gitStatus && (
@@ -451,13 +499,17 @@ const CreateRow = ({ depth, type, value, onChange, onCommit, onCancel, inputRef 
   </div>
 );
 
-const HeadAction = ({ icon: Icon, title, onClick }) => (
+const HeadAction = ({ icon: Icon, title, onClick, active }) => (
   <button
     onClick={(e) => { e.stopPropagation(); onClick?.(); }}
     title={title}
-    style={styles.headActionBtn}
-    onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
-    onMouseLeave={(e) => { e.currentTarget.style.color = color.muted; }}
+    style={{
+      ...styles.headActionBtn,
+      color: active ? color.accent : color.muted,
+      background: active ? color.accentSubtle : 'transparent',
+    }}
+    onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = color.text; }}
+    onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = color.muted; }}
   >
     <Icon size={12} strokeWidth={2} />
   </button>
@@ -524,6 +576,7 @@ const styles = {
     padding: `${space['1.5']} ${space['2']}`,
     borderBottom: `1px solid ${color.border}`,
     minHeight: '32px',
+    gap: space['2'],
   },
   headLabel: {
     fontSize: fontSize['11'],
@@ -531,6 +584,31 @@ const styles = {
     color: color.muted,
     letterSpacing: '0.04em',
     textTransform: 'uppercase',
+  },
+  headBranch: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1.5'],
+  },
+  branchName: {
+    fontSize: fontSize['12'],
+    fontFamily: font.mono,
+    color: color.subtext,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  countBadge: {
+    fontSize: fontSize['11'],
+    color: color.accent,
+    background: color.accentSubtle,
+    border: `1px solid ${color.accentBorder}`,
+    borderRadius: radius.full,
+    padding: `0 ${space['1.5']}`,
+    fontFamily: font.mono,
+    flexShrink: 0,
   },
   headActions: { display: 'flex', gap: '2px' },
   headActionBtn: {
