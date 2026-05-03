@@ -653,6 +653,97 @@ async def get_git_status(_: Path) -> dict:
         return {}
 
 
+@app.get("/api/git/status")
+async def git_status(username: str = Depends(verify_auth_token)):
+    """워크스페이스의 Git 변경 사항 (변경/추가/삭제 파일 + 스테이지 상태) 반환."""
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "status", "--porcelain=v1", "-uall",
+            cwd=workspace_abs,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()
+            return {"items": [], "branch": None, "error": err or "not a git repository"}
+
+        items = []
+        for line in stdout.decode().splitlines():
+            if len(line) < 3:
+                continue
+            staged_code = line[0]
+            unstaged_code = line[1]
+            path = line[3:].strip().strip('"')
+            kind = (
+                "untracked" if line[:2] == "??"
+                else "deleted" if "D" in line[:2]
+                else "added" if "A" in line[:2]
+                else "modified"
+            )
+            items.append({
+                "path": path,
+                "code": (staged_code + unstaged_code).strip(),
+                "kind": kind,
+                "staged": staged_code not in (" ", "?"),
+            })
+
+        # 현재 브랜치
+        branch_proc = await asyncio.create_subprocess_exec(
+            "git", "rev-parse", "--abbrev-ref", "HEAD",
+            cwd=workspace_abs,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        b_out, _ = await branch_proc.communicate()
+        branch = b_out.decode().strip() if branch_proc.returncode == 0 else None
+
+        return {"items": items, "branch": branch, "error": None}
+    except FileNotFoundError:
+        return {"items": [], "branch": None, "error": "git binary not found"}
+    except Exception as e:
+        logger.error("git status endpoint failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/git/diff")
+async def git_diff(
+    path: str = Query(...),
+    staged: bool = Query(False),
+    username: str = Depends(verify_auth_token),
+):
+    """단일 파일의 git diff 패치 반환. staged=true 면 인덱스 vs HEAD."""
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    safe = validate_path(path)
+    rel = os.path.relpath(str(safe), workspace_abs).replace("\\", "/")
+    args = ["git", "diff"]
+    if staged:
+        args.append("--cached")
+    args += ["--no-color", "--", rel]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            cwd=workspace_abs,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()
+            raise HTTPException(status_code=500, detail=err or "git diff failed")
+        return {
+            "path": rel,
+            "patch": stdout.decode("utf-8", errors="replace"),
+            "staged": staged,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("git diff failed (%s): %s", path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/files/workspace")
 async def get_workspace_info(username: str = Depends(verify_auth_token)):
     return {

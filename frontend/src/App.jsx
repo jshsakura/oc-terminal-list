@@ -9,6 +9,7 @@ import useAuth from './hooks/useAuth';
 import useSessionManager from './hooks/useSessionManager';
 import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
+import useGitChanges from './hooks/useGitChanges';
 import useSwipe from './hooks/useSwipe';
 import themes from './styles/themes';
 import AppStyles from './styles/AppStyles';
@@ -33,6 +34,7 @@ const FileEditor = lazy(() => import('./components/FileEditor'));
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
 const HostEditor = lazy(() => import('./components/HostEditor'));
 const SshKeyManager = lazy(() => import('./components/SshKeyManager'));
+const ChangesPanel = lazy(() => import('./components/ChangesPanel'));
 
 function App() {
   const { settings, updateSettings } = useSettings();
@@ -77,6 +79,11 @@ function App() {
   // 호스트 관련 모달 상태
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
+
+  // 우측 Changes 패널 (git 변경사항)
+  const [isChangesPanelOpen, setIsChangesPanelOpen] = useState(() => localStorage.getItem('changes_panel_open') === 'true');
+  useEffect(() => { localStorage.setItem('changes_panel_open', String(isChangesPanelOpen)); }, [isChangesPanelOpen]);
+  const { items: gitChanges } = useGitChanges({ enabled: isChangesPanelOpen });
 
   const openHost = useCallback(async (host) => {
     // \"This machine\" 가상 호스트 → 로컬 tmux 세션 새로 생성
@@ -741,9 +748,13 @@ function App() {
           maxPanes={MAX_PANES}
           onAddPane={addPane}
           onClosePane={() => removePane(extraPanes.length)}
+          isChangesPanelOpen={isChangesPanelOpen}
+          toggleChangesPanel={() => setIsChangesPanelOpen((p) => !p)}
+          changesCount={gitChanges.length}
         />
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', minWidth: 0 }}>
           
           {/* 에디터 영역 (높이 가변형) */}
           {activeFile && (
@@ -801,6 +812,17 @@ function App() {
               />
             )}
           </div>
+        </div>
+        {isChangesPanelOpen && (
+          <Suspense fallback={null}>
+            <ChangesPanel
+              isOpen={isChangesPanelOpen}
+              onClose={() => setIsChangesPanelOpen(false)}
+              onOpenFile={(path) => handleFileOpen(path)}
+              t={t}
+            />
+          </Suspense>
+        )}
         </div>
 
         {isTerminalSearchOpen && (

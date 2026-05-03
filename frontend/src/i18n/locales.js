@@ -182,6 +182,11 @@ export const locales = {
     newFolder: 'New folder',
     rename: 'Rename',
     confirmDeleteFile: 'Delete {name}?',
+    changes: 'Changes',
+    noChanges: 'No changes',
+    changesHint: 'When files change in this repo, they show up here.',
+    openInEditor: 'Open in editor',
+    close: 'Close',
 
     // Empty State
     noTerminals: 'No sessions yet',
@@ -412,6 +417,11 @@ export const locales = {
     newFolder: '새 폴더',
     rename: '이름 변경',
     confirmDeleteFile: '{name} 을(를) 삭제하시겠습니까?',
+    changes: '변경사항',
+    noChanges: '변경사항 없음',
+    changesHint: '레포에서 파일이 변경되면 여기에 표시됩니다.',
+    openInEditor: '에디터에서 열기',
+    close: '닫기',
 
     // 빈 화면
     noTerminals: '활성 세션 없음',
