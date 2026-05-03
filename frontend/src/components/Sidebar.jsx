@@ -168,8 +168,13 @@ const Sidebar = ({
           <HostList
             hosts={hosts}
             onConnect={(h) => {
+              // 로컬: 폴더 먼저 고르도록 Files 탭으로 전환 (셸은 거기서 '여기서 터미널 열기' 로)
+              if (h?.id === 'local' || h?.isLocal) {
+                setActiveTab('files');
+                return;
+              }
+              // 원격 호스트: 즉시 SSH 연결 + Active 탭 전환
               onConnectHost?.(h);
-              // 호스트 클릭 → 결과(터미널) 가 활성 탭에 생기므로 자동 전환
               setActiveTab('sessions');
               if (isMobile) onClose();
             }}
