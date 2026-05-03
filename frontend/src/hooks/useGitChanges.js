@@ -5,9 +5,10 @@ const authHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const useGitChanges = ({ enabled = false, intervalMs = 4000 } = {}) => {
+const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '' } = {}) => {
   const [items, setItems] = useState([]);
   const [branch, setBranch] = useState(null);
+  const [repo, setRepo] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const tickRef = useRef(null);
@@ -15,7 +16,8 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000 } = {}) => {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/git/status', { headers: authHeader() });
+      const url = `/api/git/status${path ? `?path=${encodeURIComponent(path)}` : ''}`;
+      const res = await fetch(url, { headers: authHeader() });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `HTTP ${res.status}`);
@@ -23,13 +25,14 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000 } = {}) => {
       const data = await res.json();
       setItems(data.items || []);
       setBranch(data.branch || null);
+      setRepo(data.repo || null);
       setError(data.error || null);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [path]);
 
   useEffect(() => {
     if (!enabled) {
@@ -57,7 +60,7 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000 } = {}) => {
     return res.json();
   }, []);
 
-  return { items, branch, error, loading, refresh, fetchDiff };
+  return { items, branch, repo, error, loading, refresh, fetchDiff };
 };
 
 export default useGitChanges;

@@ -421,6 +421,26 @@ async def resize_terminal(
     return {"session_id": session_id, "cols": request.cols, "rows": request.rows, "status": "resized"}
 
 
+@app.get("/api/sessions/{session_id}/cwd")
+async def get_session_cwd(session_id: str, username: str = Depends(verify_auth_token)):
+    """활성 pane 의 현재 작업 디렉토리. 워크스페이스 내부면 상대 경로도 같이 반환."""
+    cwd = await tmux_manager.get_pane_cwd(session_id)
+    if not cwd:
+        return {"session_id": session_id, "cwd": None, "workspace_relative": None, "in_workspace": False}
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    in_workspace = cwd == workspace_abs or cwd.startswith(workspace_abs + os.sep)
+    workspace_relative = None
+    if in_workspace:
+        rel = os.path.relpath(cwd, workspace_abs).replace("\\", "/")
+        workspace_relative = "" if rel == "." else rel
+    return {
+        "session_id": session_id,
+        "cwd": cwd,
+        "workspace_relative": workspace_relative,
+        "in_workspace": in_workspace,
+    }
+
+
 @app.patch("/api/sessions/{session_id}/name")
 async def update_session_name(
     session_id: str,
@@ -653,21 +673,58 @@ async def get_git_status(_: Path) -> dict:
         return {}
 
 
-@app.get("/api/git/status")
-async def git_status(username: str = Depends(verify_auth_token)):
-    """워크스페이스의 Git 변경 사항 (변경/추가/삭제 파일 + 스테이지 상태) 반환."""
-    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+async def _find_repo_root(start_path: str) -> Optional[str]:
+    """주어진 경로에서 위로 올라가며 git 저장소 루트를 찾는다. 없으면 None."""
+    if not os.path.isdir(start_path):
+        start_path = os.path.dirname(start_path) or start_path
     try:
         proc = await asyncio.create_subprocess_exec(
-            "git", "status", "--porcelain=v1", "-uall",
-            cwd=workspace_abs,
+            "git", "-C", start_path, "rev-parse", "--show-toplevel",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        out, _ = await proc.communicate()
+        if proc.returncode != 0:
+            return None
+        return out.decode("utf-8", errors="replace").strip() or None
+    except FileNotFoundError:
+        return None
+
+
+@app.get("/api/git/status")
+async def git_status(
+    path: str = Query("", description="포커스된 폴더 경로 (워크스페이스 상대). 비우면 워크스페이스 루트."),
+    username: str = Depends(verify_auth_token),
+):
+    """주어진 경로(또는 워크스페이스 루트)에서 발견한 git 저장소의 변경 사항을 반환.
+
+    경로가 git 저장소가 아니면 위로 올라가며 자동 탐색. 그래도 없으면 빈 응답 + repo=None.
+    """
+    target = str(validate_path(path).absolute()) if path else os.path.abspath(WORKSPACE_ROOT)
+    repo_root = await _find_repo_root(target)
+    if not repo_root:
+        return {"items": [], "branch": None, "repo": None, "error": None}
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_root, "status", "--porcelain=v1", "-uall",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            err = stderr.decode("utf-8", errors="replace").strip()
-            return {"items": [], "branch": None, "error": err or "not a git repository"}
+            return {
+                "items": [],
+                "branch": None,
+                "repo": repo_root,
+                "error": stderr.decode("utf-8", errors="replace").strip() or "git status failed",
+            }
+
+        workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+        # 워크스페이스에 대한 상대 경로 prefix (FileTree 의 path 와 매칭하기 위해)
+        repo_rel_prefix = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
+        if repo_rel_prefix in (".", ""):
+            repo_rel_prefix = ""
 
         items = []
         for line in stdout.decode().splitlines():
@@ -675,33 +732,41 @@ async def git_status(username: str = Depends(verify_auth_token)):
                 continue
             staged_code = line[0]
             unstaged_code = line[1]
-            path = line[3:].strip().strip('"')
+            rel_to_repo = line[3:].strip().strip('"')
             kind = (
                 "untracked" if line[:2] == "??"
                 else "deleted" if "D" in line[:2]
                 else "added" if "A" in line[:2]
                 else "modified"
             )
+            workspace_rel = (
+                f"{repo_rel_prefix}/{rel_to_repo}" if repo_rel_prefix else rel_to_repo
+            )
             items.append({
-                "path": path,
+                "path": workspace_rel,            # FileTree 트리 path 매칭용
+                "repo_path": rel_to_repo,         # diff 호출 시 사용
                 "code": (staged_code + unstaged_code).strip(),
                 "kind": kind,
                 "staged": staged_code not in (" ", "?"),
             })
 
-        # 현재 브랜치
         branch_proc = await asyncio.create_subprocess_exec(
-            "git", "rev-parse", "--abbrev-ref", "HEAD",
-            cwd=workspace_abs,
+            "git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD",
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
         )
         b_out, _ = await branch_proc.communicate()
         branch = b_out.decode().strip() if branch_proc.returncode == 0 else None
 
-        return {"items": items, "branch": branch, "error": None}
+        return {
+            "items": items,
+            "branch": branch,
+            "repo": repo_root,
+            "repo_relative": repo_rel_prefix,
+            "error": None,
+        }
     except FileNotFoundError:
-        return {"items": [], "branch": None, "error": "git binary not found"}
+        return {"items": [], "branch": None, "repo": None, "error": "git binary not found"}
     except Exception as e:
         logger.error("git status endpoint failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -713,18 +778,21 @@ async def git_diff(
     staged: bool = Query(False),
     username: str = Depends(verify_auth_token),
 ):
-    """단일 파일의 git diff 패치 반환. staged=true 면 인덱스 vs HEAD."""
-    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    """단일 파일의 git diff. path 는 워크스페이스 상대 경로."""
     safe = validate_path(path)
-    rel = os.path.relpath(str(safe), workspace_abs).replace("\\", "/")
-    args = ["git", "diff"]
+    repo_root = await _find_repo_root(str(safe))
+    if not repo_root:
+        raise HTTPException(status_code=404, detail="해당 파일이 속한 git 저장소를 찾을 수 없습니다")
+
+    rel_to_repo = os.path.relpath(str(safe.absolute()), repo_root).replace("\\", "/")
+    args = ["git", "-C", repo_root, "diff"]
     if staged:
         args.append("--cached")
-    args += ["--no-color", "--", rel]
+    args += ["--no-color", "--", rel_to_repo]
+
     try:
         proc = await asyncio.create_subprocess_exec(
             *args,
-            cwd=workspace_abs,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -733,7 +801,9 @@ async def git_diff(
             err = stderr.decode("utf-8", errors="replace").strip()
             raise HTTPException(status_code=500, detail=err or "git diff failed")
         return {
-            "path": rel,
+            "path": path,
+            "repo": repo_root,
+            "repo_path": rel_to_repo,
             "patch": stdout.decode("utf-8", errors="replace"),
             "staged": staged,
         }

@@ -10,6 +10,7 @@ import useSessionManager from './hooks/useSessionManager';
 import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
 import useGitChanges from './hooks/useGitChanges';
+import useActiveTerminalCwd from './hooks/useActiveTerminalCwd';
 import useSwipe from './hooks/useSwipe';
 import themes from './styles/themes';
 import AppStyles from './styles/AppStyles';
@@ -84,8 +85,17 @@ function App() {
   const [isChangesPanelOpen, setIsChangesPanelOpen] = useState(() => localStorage.getItem('changes_panel_open') === 'true');
   useEffect(() => { localStorage.setItem('changes_panel_open', String(isChangesPanelOpen)); }, [isChangesPanelOpen]);
   const [requestedDiffPath, setRequestedDiffPath] = useState(null);
-  // 헤더 뱃지/사이드바 Git 탭 둘 다 항상 동작하도록 폴링은 항상 enabled
-  const { items: gitChanges } = useGitChanges({ enabled: true });
+  // 활성 세션 정보 — host 세션이면 cwd 추적 안 함
+  const activeSessionInfo = useMemo(() => sessions.find((s) => s.id === activeSessionId) || null, [sessions, activeSessionId]);
+  const isActiveLocal = activeSessionInfo && !activeSessionInfo.hostId;
+  // 활성 터미널의 현재 작업 디렉토리 → git context 의 기준 경로
+  const { workspaceRelative: activeCwdRel } = useActiveTerminalCwd({
+    sessionId: isActiveLocal ? activeSessionId : null,
+    isLocal: !!isActiveLocal,
+  });
+  const gitContextPath = activeCwdRel ?? '';
+  // 헤더 뱃지/사이드바 둘 다 라이브 — 활성 터미널의 cwd 기준 git 폴링
+  const { items: gitChanges } = useGitChanges({ enabled: true, path: gitContextPath });
   const handleSelectChangedFile = useCallback((path) => {
     setRequestedDiffPath(path);
     setIsChangesPanelOpen(true);
@@ -669,7 +679,8 @@ function App() {
         onRenameSession={renameSession}
         onReconnectSession={(id) => { setActiveSessionId(null); setTimeout(() => setActiveSessionId(id), 50); }}
         hosts={hosts}
-        activeSession={sessions.find(s => s.id === activeSessionId) || null}
+        activeSession={activeSessionInfo}
+        gitContextPath={gitContextPath}
         onSelectChangedFile={handleSelectChangedFile}
         onConnectHost={openHost}
         onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
@@ -828,6 +839,7 @@ function App() {
               onOpenFile={(path) => handleFileOpen(path)}
               externalSelectedPath={requestedDiffPath}
               onConsumedExternalPath={() => setRequestedDiffPath(null)}
+              gitContextPath={gitContextPath}
               t={t}
             />
           </Suspense>

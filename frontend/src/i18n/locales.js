@@ -190,11 +190,14 @@ export const locales = {
     git: 'Git',
     notAGitRepo: 'Not a git repo',
     filterChangedOnly: 'Show only changed',
+    noGitHere: 'no git here',
+    notInGitRepo: 'Open a folder inside a git repository to see changes',
 
     // Empty State
     noTerminals: 'No sessions yet',
     createFirstTerminal: 'Create one to get started.',
     focusTerminal: 'Focus Terminal',
+    openTerminalHere: 'Open terminal here',
     quickOpenFiles: 'Quick Open Files',
     quickOpenPlaceholder: 'Type a filename or path...',
     splitTerminal: 'Split Terminal View',
@@ -428,11 +431,14 @@ export const locales = {
     git: 'Git',
     notAGitRepo: 'Git 저장소 아님',
     filterChangedOnly: '변경된 것만 보기',
+    noGitHere: 'git 저장소 아님',
+    notInGitRepo: 'git 저장소 안 폴더를 열면 변경사항이 보입니다',
 
     // 빈 화면
     noTerminals: '활성 세션 없음',
     createFirstTerminal: '새 세션을 만들어 시작하세요.',
     focusTerminal: '터미널 포커스',
+    openTerminalHere: '여기서 터미널 열기',
     quickOpenFiles: '빠른 파일 열기',
     quickOpenPlaceholder: '파일명 또는 경로를 입력하세요...',
     splitTerminal: '터미널 분할 보기',

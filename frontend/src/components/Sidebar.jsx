@@ -35,6 +35,8 @@ const Sidebar = ({
   activeSession = null,
   // git 변경 파일 클릭 → 우측 ChangesPanel 열어 해당 파일 diff 표시
   onSelectChangedFile,
+  // git context 의 기준 경로 (활성 터미널 cwd)
+  gitContextPath = '',
   language = 'en',
   isMobile = false,
   width = 260,
@@ -288,6 +290,7 @@ const Sidebar = ({
               onFolderSelect={onFolderSelect}
               onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
               onSelectChangedFile={onSelectChangedFile}
+              gitContextPath={gitContextPath}
               language={language}
               initialPath={selectedFolderPath}
             />

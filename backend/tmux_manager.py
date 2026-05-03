@@ -197,6 +197,19 @@ class TmuxManager:
         """ws_bridge에서 PTY로 spawn할 때 쓰는 argv. 분리해서 권한·테스트 용이성 확보."""
         return [*self._base_args(), "attach-session", "-t", session_id]
 
+    async def get_pane_cwd(self, session_id: str) -> Optional[str]:
+        """활성 pane 의 현재 작업 디렉토리. 세션이 없거나 실패하면 None."""
+        if not await self.session_exists(session_id):
+            return None
+        rc, out, _ = await self._run(
+            "display-message", "-t", session_id, "-p", "#{pane_current_path}",
+            check=False,
+        )
+        if rc != 0:
+            return None
+        out = out.strip()
+        return out or None
+
 
 # 전역 인스턴스 (main.py에서 import)
 tmux_manager = TmuxManager()

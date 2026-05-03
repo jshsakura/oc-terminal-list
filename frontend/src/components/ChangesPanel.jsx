@@ -18,8 +18,8 @@ const STATUS_META = {
  * - 파일 클릭 → 하단에 unified diff 표시
  * - 클로드 코드 같은 도구가 파일을 수정하면 즉시 보임
  */
-const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, onConsumedExternalPath }) => {
-  const { items, branch, error, refresh, fetchDiff } = useGitChanges({ enabled: isOpen });
+const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, onConsumedExternalPath, gitContextPath = '' }) => {
+  const { items, branch, error, refresh, fetchDiff } = useGitChanges({ enabled: isOpen, path: gitContextPath });
   const [selected, setSelected] = useState(null);
   const [diff, setDiff] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);

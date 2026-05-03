@@ -43,7 +43,7 @@ const authHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSelectChangedFile, language = 'en', initialPath = '' }) => {
+const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSelectChangedFile, gitContextPath = '', language = 'en', initialPath = '' }) => {
   const { t } = useTranslation(language);
   // 노드별 캐시: path → { items: [{name,path,type,git_status}], loading, error }
   const [nodes, setNodes] = useState({});
@@ -56,8 +56,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
 
-  // git 상태 — 항상 폴링해서 트리 헤더의 브랜치/변경 개수 라이브 유지
-  const { items: gitItems, branch: gitBranch } = useGitChanges({ enabled: true });
+  // git 상태 — 활성 터미널 cwd (gitContextPath) 기준으로 repo 자동 탐색
+  const { items: gitItems, branch: gitBranch, repo: gitRepo } = useGitChanges({ enabled: true, path: gitContextPath });
   const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
 
   const fetchChildren = useCallback(async (path) => {
@@ -261,9 +261,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
   return (
     <div style={styles.wrap}>
       <div style={styles.head}>
-        <div style={styles.headBranch}>
-          <GitBranch size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
-          <span style={styles.branchName}>{gitBranch || t('explorer') || 'workspace'}</span>
+        <div style={styles.headBranch} title={gitRepo || (t('notInGitRepo') || 'Not inside a git repository')}>
+          <GitBranch size={11} strokeWidth={2} style={{ color: gitRepo ? color.muted : color.faint, flexShrink: 0 }} />
+          <span style={{ ...styles.branchName, color: gitRepo ? color.subtext : color.muted }}>
+            {gitBranch || (gitRepo ? '—' : (t('noGitHere') || 'no git here'))}
+          </span>
           {gitItems.length > 0 && (
             <span style={styles.countBadge}>{gitItems.length}</span>
           )}
@@ -277,7 +279,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
           />
           <HeadAction icon={Plus} title={t('newFile') || 'New file'} onClick={() => startCreate('', 'file')} />
           <HeadAction icon={Folder} title={t('newFolder') || 'New folder'} onClick={() => startCreate('', 'directory')} />
-          <HeadAction icon={Terminal} title={t('focusTerminal') || 'Open terminal here'} onClick={() => onOpenTerminalAtFolder?.('')} />
+          <HeadAction icon={Terminal} title={t('openTerminalHere') || 'Open terminal here'} onClick={() => onOpenTerminalAtFolder?.('')} />
           <HeadAction icon={RefreshCw} title={t('refresh') || 'Refresh'} onClick={refreshAll} />
         </div>
       </div>
@@ -530,7 +532,7 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
     >
       <MenuItem icon={Plus} label={t('newFile') || 'New file'} onClick={onNewFile} />
       <MenuItem icon={Folder} label={t('newFolder') || 'New folder'} onClick={onNewFolder} />
-      <MenuItem icon={Terminal} label={t('focusTerminal') || 'Open terminal here'} onClick={onOpenTerminal} />
+      <MenuItem icon={Terminal} label={t('openTerminalHere') || 'Open terminal here'} onClick={onOpenTerminal} />
       {target.path && (
         <>
           <MenuDivider />
