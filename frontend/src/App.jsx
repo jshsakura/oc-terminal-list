@@ -296,33 +296,18 @@ function App() {
     setExtraPanes((prev) => [...prev, null]);
   }, [paneCount]);
 
-  // N 분할: 새 세션 생성 절대 X. 기존 사용 안 된 세션 우선 채우고,
-  // 모자라면 활성 세션을 복제 (= 같은 tmux 세션을 N 개 pane 에 mirror).
-  // 사용자는 그 후 사이드바에서 다른 세션을 특정 pane 으로 드래그해서 바꿀 수 있음.
+  // N 분할: 영역만 나눔. 빈 슬롯은 사용자가 사이드바에서 드래그하거나
+  // 슬롯 안 '+ 새 로컬 세션' 으로 직접 채움. 자동 mirroring/생성 X.
   const setPaneLayout = useCallback((target) => {
     const n = Math.max(1, Math.min(MAX_PANES, target));
-    if (n === 1) {
-      setExtraPanes([]);
-      return;
-    }
-    if (!activeSessionId) {
-      // 활성 세션 자체가 없을 땐 빈 슬롯 (placeholder 가 안내)
-      setExtraPanes(Array(n - 1).fill(null));
-      return;
-    }
     setExtraPanes((prev) => {
       const need = n - 1;
-      // 1) 기존 extraPanes 중 살아있는 세션은 보존
-      const keep = prev.filter((id) => id && sessions.some((s) => s.id === id)).slice(0, need);
-      // 2) 사용 중이 아닌 세션을 추가로 채움
-      const used = new Set([activeSessionId, ...keep]);
-      const fresh = sessions.filter((s) => !used.has(s.id)).map((s) => s.id);
-      while (keep.length < need && fresh.length > 0) keep.push(fresh.shift());
-      // 3) 그래도 모자라면 활성 세션을 복제로 채움 (같은 세션 mirror)
-      while (keep.length < need) keep.push(activeSessionId);
+      // 기존 채워진 슬롯은 보존, 모자라면 null (빈 슬롯) 추가, 넘치면 자름
+      const keep = prev.slice(0, need);
+      while (keep.length < need) keep.push(null);
       return keep;
     });
-  }, [activeSessionId, sessions]);
+  }, []);
 
   // 특정 세션을 새 pane 으로 또는 빈 슬롯 채우기 (드래그 드롭).
   // targetIdx 주면 그 슬롯에 놓고, 없으면 첫 빈 슬롯에 채우거나 새 슬롯 추가.
