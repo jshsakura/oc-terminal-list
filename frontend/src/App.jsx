@@ -93,15 +93,18 @@ function App() {
   useEffect(() => { localStorage.setItem('changes_panel_open', String(isChangesPanelOpen)); }, [isChangesPanelOpen]);
   const [requestedDiffPath, setRequestedDiffPath] = useState(null);
 
-  // N-pane state (focusedPaneIdx 등은 아래 useMemo 가 참조하므로 위로 hoist)
-  const [extraPanes, setExtraPanes] = useState([]);
-  const [focusedPaneIdx, setFocusedPaneIdx] = useState(0);
+  // 레이아웃 ≠ 슬롯 내용. 분리 모델:
+  // - paneSlots: 항상 길이 3 (extra pane 들). 슬롯별 sessionId 또는 null. 영구 저장.
+  // - visibleN: 1..4, 화면에 보이는 pane 수. 레이아웃 버튼이 변경.
+  // 레이아웃 변경은 visibleN 만 바꾸므로 슬롯 할당 안 잃음 (4→1→4 해도 그대로).
   const MAX_PANES = 4;
+  const [paneSlots, setPaneSlots] = useState([null, null, null]);
+  const [visibleN, setVisibleN] = useState(1);
+  const [focusedPaneIdx, setFocusedPaneIdx] = useState(0);
 
-  // pane 시각화 데이터 — focusedPaneIdx 기준
   const visiblePaneIds = useMemo(
-    () => [activeSessionId, ...extraPanes].slice(0, MAX_PANES),
-    [activeSessionId, extraPanes]
+    () => [activeSessionId, ...paneSlots].slice(0, visibleN),
+    [activeSessionId, paneSlots, visibleN]
   );
   const paneCount = visiblePaneIds.length;
   const safeFocusedIdx = focusedPaneIdx >= paneCount ? 0 : focusedPaneIdx;
@@ -295,91 +298,62 @@ function App() {
     setIsFilePickerOpen(false);
   }, []);
 
-  // 분할 버튼 = 빈 슬롯 추가. 슬롯은 사용자가 드래그 또는 명시적 새 세션으로 채워야 함.
+  // 레이아웃은 visibleN 만 변경. 슬롯 할당(paneSlots) 은 그대로 유지.
   const addPane = useCallback(() => {
-    if (paneCount >= MAX_PANES) return;
-    setExtraPanes((prev) => [...prev, null]);
-  }, [paneCount]);
-
-  // N 분할: 영역만 나눔. 빈 슬롯은 사용자가 사이드바에서 드래그하거나
-  // 슬롯 안 '+ 새 로컬 세션' 으로 직접 채움. 자동 mirroring/생성 X.
-  const setPaneLayout = useCallback((target) => {
-    const n = Math.max(1, Math.min(MAX_PANES, target));
-    setExtraPanes((prev) => {
-      const need = n - 1;
-      // 기존 채워진 슬롯은 보존, 모자라면 null (빈 슬롯) 추가, 넘치면 자름
-      const keep = prev.slice(0, need);
-      while (keep.length < need) keep.push(null);
-      return keep;
-    });
+    setVisibleN((n) => Math.min(MAX_PANES, n + 1));
   }, []);
 
-  // 특정 세션을 새 pane 으로 또는 빈 슬롯 채우기 (드래그 드롭).
-  // targetIdx 주면 그 슬롯에 놓고, 없으면 첫 빈 슬롯에 채우거나 새 슬롯 추가.
+  const setPaneLayout = useCallback((target) => {
+    setVisibleN(Math.max(1, Math.min(MAX_PANES, target)));
+  }, []);
+
+  // 슬롯에 세션 할당. targetIdx > 0 = paneSlots[idx-1]. 0 이면 active.
   const addPaneWithSession = useCallback((sessionId, targetIdx = null) => {
     if (!sessionId) return;
-    // 이미 다른 pane 에 있으면 그 pane 으로 활성 이동
-    if (sessionId === activeSessionId) return;
-    if (extraPanes.includes(sessionId)) {
+    if (targetIdx === 0) {
       setActiveSessionId(sessionId);
       return;
     }
-    setExtraPanes((prev) => {
-      // 명시 슬롯이 있으면 거기 채움 (extraPanes 인덱스는 0-based, pane idx 0=active 제외하면 +1)
-      if (targetIdx != null && targetIdx > 0) {
-        const ei = targetIdx - 1;
-        if (ei < prev.length) {
-          const next = [...prev];
-          next[ei] = sessionId;
-          return next;
-        }
-      }
-      // 첫 null 슬롯 찾아서 채움
-      const emptyIdx = prev.findIndex((p) => p == null);
-      if (emptyIdx >= 0) {
+    if (targetIdx != null && targetIdx > 0) {
+      const slotIdx = targetIdx - 1;
+      setPaneSlots((prev) => {
         const next = [...prev];
+        next[slotIdx] = sessionId;
+        return next;
+      });
+      setVisibleN((n) => Math.max(n, targetIdx + 1));
+      return;
+    }
+    // 명시 슬롯 없음: 첫 비어있는 visible extra 슬롯 또는 다음 슬롯
+    setPaneSlots((prev) => {
+      const next = [...prev];
+      const emptyIdx = next.findIndex((s, i) => i < visibleN - 1 && s == null);
+      if (emptyIdx >= 0) {
         next[emptyIdx] = sessionId;
         return next;
       }
-      // 빈 슬롯 없으면 새 슬롯 추가 (max 미만일 때)
-      if (prev.length + 1 >= MAX_PANES) return prev;
-      return [...prev, sessionId];
+      const nextSlot = visibleN - 1;
+      if (nextSlot < 3) next[nextSlot] = sessionId;
+      return next;
     });
-  }, [activeSessionId, extraPanes, setActiveSessionId]);
+    setVisibleN((n) => Math.min(MAX_PANES, n + 1));
+  }, [visibleN, setActiveSessionId]);
 
-  // 빈 슬롯 안에서 명시적 '새 로컬 세션' 만들 때
-  // createSession 이 setActiveSessionId(newId) 를 부르고, 그러면 dedupe effect 가
-  // newId 를 extraPanes 에서 제거 → 분할 사라짐. 이전 active 를 복구해 유지.
+  // 빈 슬롯 안에서 '+ 새 로컬 세션' (현재는 안 쓰지만 호환성 유지)
   const fillSlotWithNewLocal = useCallback(async (targetIdx) => {
     const previousActive = activeSessionId;
     const newId = await createSession(null);
     if (!newId) return;
     if (previousActive) setActiveSessionId(previousActive);
-    setExtraPanes((prev) => {
-      if (targetIdx != null && targetIdx > 0) {
-        const ei = targetIdx - 1;
-        if (ei < prev.length) {
-          const next = [...prev];
-          next[ei] = newId;
-          return next;
-        }
-      }
-      // 첫 null 슬롯이 있으면 거기 채움
-      const emptyIdx = prev.findIndex((p) => p == null);
-      if (emptyIdx >= 0) {
-        const next = [...prev];
-        next[emptyIdx] = newId;
-        return next;
-      }
-      return [...prev, newId];
-    });
-  }, [activeSessionId, createSession, setActiveSessionId]);
+    addPaneWithSession(newId, targetIdx);
+  }, [activeSessionId, createSession, setActiveSessionId, addPaneWithSession]);
 
-  // 호스트(또는 'local')를 드래그 드롭 또는 명시 슬롯에 열기
   const openHostAsPane = useCallback(async (hostIdOrLocal, targetIdx = null) => {
     let newId = null;
     if (hostIdOrLocal === 'local') {
+      const previousActive = activeSessionId;
       newId = await createSession(null);
+      if (newId && previousActive && targetIdx !== 0) setActiveSessionId(previousActive);
     } else {
       const host = hosts.find((h) => h.id === hostIdOrLocal);
       if (!host) return;
@@ -393,25 +367,13 @@ function App() {
       }]);
     }
     if (newId) addPaneWithSession(newId, targetIdx);
-  }, [hosts, createSession, addPaneWithSession]);
+  }, [activeSessionId, hosts, createSession, setActiveSessionId, addPaneWithSession]);
 
+  // X 닫기 = visibleN 축소만. 슬롯 할당은 보존 (다시 늘리면 그대로 복귀).
   const removePane = useCallback((paneIdx) => {
-    if (paneIdx === 0) {
-      // 첫 pane(=active) 닫으려면 첫 번째 살아있는 extra 를 active 로 승격
-      if (extraPanes.length === 0) return;
-      const promoteIdx = extraPanes.findIndex((id) => !!id);
-      if (promoteIdx < 0) {
-        // 모두 빈 슬롯이면 그냥 다 닫고 1 pane (현재 active 유지)
-        setExtraPanes([]);
-        return;
-      }
-      const promote = extraPanes[promoteIdx];
-      setExtraPanes((prev) => prev.filter((_, i) => i !== promoteIdx));
-      setActiveSessionId(promote);
-      return;
-    }
-    setExtraPanes((prev) => prev.filter((_, i) => i !== paneIdx - 1));
-  }, [extraPanes, setActiveSessionId]);
+    if (paneIdx === 0) return; // 활성 pane 은 닫기 X
+    setVisibleN((n) => Math.max(1, n - 1));
+  }, []);
 
   // pane 클릭 = 시각적 포커스만 이동. 세션 swap 없음 (위치 안 바뀜).
   const focusPane = useCallback((paneIdx) => {
@@ -464,7 +426,7 @@ function App() {
       label: t('unsplitTerminal'),
       shortcut: 'Ctrl+Shift+\\',
       keywords: ['unsplit', 'close pane'],
-      action: () => removePane(extraPanes.length),
+      action: () => removePane(visibleN - 1),
     },
     {
       id: 'focus-terminal',
@@ -517,7 +479,7 @@ function App() {
     openFilePicker,
     addPane,
     removePane,
-    extraPanes,
+    visibleN,
     focusActiveTerminal,
     openTerminalSearch,
     clearActiveTerminal,
@@ -852,7 +814,7 @@ function App() {
           paneCount={paneCount}
           maxPanes={MAX_PANES}
           onAddPane={addPane}
-          onClosePane={() => removePane(extraPanes.length)}
+          onClosePane={() => removePane(visibleN - 1)}
           onSetLayout={setPaneLayout}
           isChangesPanelOpen={isChangesPanelOpen}
           toggleChangesPanel={() => setIsChangesPanelOpen((p) => !p)}
