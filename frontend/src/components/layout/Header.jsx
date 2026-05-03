@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, Menu, Plus, Settings as SettingsIcon, Power, Terminal as TerminalIcon, Columns2, X, GitBranch } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, Menu, Plus, Settings as SettingsIcon, Power, Terminal as TerminalIcon, Columns2, X, GitBranch, Square, Rows2, LayoutGrid } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 
 const { color, font, fontSize, fontWeight, space } = tokens;
@@ -19,6 +19,7 @@ const Header = ({
   maxPanes = 4,
   onAddPane,
   onClosePane,
+  onSetLayout,
   isChangesPanelOpen = false,
   toggleChangesPanel,
   changesCount = 0,
@@ -42,17 +43,22 @@ const Header = ({
       <div style={styles.right}>
         {!isMobile && (
           <>
+            <LayoutGroup
+              paneCount={paneCount}
+              onSetLayout={onSetLayout}
+              t={t}
+            />
             {paneCount < maxPanes && (
               <IconButton
                 onClick={onAddPane}
-                title={`${t('splitTerminal')} (${paneCount}/${maxPanes})`}
-                icon={Columns2}
+                title={`${t('splitTerminal') || 'Split'} (+empty)`}
+                icon={Plus}
               />
             )}
             {paneCount > 1 && (
               <IconButton
                 onClick={onClosePane}
-                title={t('unsplitTerminal')}
+                title={t('unsplitTerminal') || 'Close pane'}
                 icon={X}
               />
             )}
@@ -122,6 +128,55 @@ const IconButton = ({ onClick, title, icon: Icon, tone }) => (
 const Divider = () => (
   <div style={{ width: '1px', height: '14px', background: color.border, margin: `0 ${space['1']}` }} />
 );
+
+// 1/2/3/4 pane 즉시 전환 버튼들 — 각 누르면 부족한 만큼 새 로컬 세션 자동 생성
+const LayoutGroup = ({ paneCount, onSetLayout, t }) => {
+  const items = [
+    { n: 1, icon: Square,    title: t('layout1') || '1 pane' },
+    { n: 2, icon: Rows2,     title: t('layout2') || '2 panes' },
+    { n: 4, icon: LayoutGrid, title: t('layout4') || '4 panes' },
+  ];
+  return (
+    <div style={{
+      display: 'inline-flex',
+      gap: '2px',
+      background: color.surface0,
+      border: `1px solid ${color.border}`,
+      borderRadius: '4px',
+      padding: '1px',
+      marginRight: '4px',
+    }}>
+      {items.map(({ n, icon: Icon, title }) => {
+        const active = paneCount === n;
+        return (
+          <button
+            key={n}
+            onClick={() => onSetLayout?.(n)}
+            title={title}
+            style={{
+              width: '24px',
+              height: '22px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: active ? color.accent : 'transparent',
+              color: active ? color.crust : color.subtext,
+              border: 'none',
+              borderRadius: '3px',
+              cursor: 'pointer',
+              transition: 'background 120ms ease, color 120ms ease',
+              padding: 0,
+            }}
+            onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = color.surface1; e.currentTarget.style.color = color.text; } }}
+            onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; } }}
+          >
+            <Icon size={12} strokeWidth={2} />
+          </button>
+        );
+      })}
+    </div>
+  );
+};
 
 const ChangesToggle = ({ open, onClick, count, title }) => (
   <button

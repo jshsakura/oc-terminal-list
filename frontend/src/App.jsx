@@ -291,11 +291,30 @@ function App() {
   }, []);
 
   // 분할 버튼 = 빈 슬롯 추가. 슬롯은 사용자가 드래그 또는 명시적 새 세션으로 채워야 함.
-  // extraPanes 의 entry 가 null 이면 PaneGrid 가 placeholder 렌더.
   const addPane = useCallback(() => {
     if (paneCount >= MAX_PANES) return;
     setExtraPanes((prev) => [...prev, null]);
   }, [paneCount]);
+
+  // N 개 (1..MAX) pane 으로 즉시 전환 — 각 pane 에 새 로컬 세션을 자동으로 채움.
+  // 워크플로우: '4분할' 한방 누르면 격리된 4개 터미널이 즉시 작업 가능 상태.
+  const setPaneLayout = useCallback(async (target) => {
+    const n = Math.max(1, Math.min(MAX_PANES, target));
+    // 1. activeSession 이 없으면 먼저 만들기
+    let baseId = activeSessionId;
+    if (!baseId) {
+      baseId = await createSession(null);
+      if (!baseId) return;
+    }
+    // 2. 추가로 필요한 pane 수만큼 새 세션 생성 (n - 1 개)
+    const needed = n - 1;
+    const newSlots = [];
+    for (let i = 0; i < needed; i++) {
+      const id = await createSession(null);
+      if (id) newSlots.push(id);
+    }
+    setExtraPanes(newSlots);
+  }, [activeSessionId, createSession]);
 
   // 특정 세션을 새 pane 으로 또는 빈 슬롯 채우기 (드래그 드롭).
   // targetIdx 주면 그 슬롯에 놓고, 없으면 첫 빈 슬롯에 채우거나 새 슬롯 추가.
@@ -820,6 +839,7 @@ function App() {
           maxPanes={MAX_PANES}
           onAddPane={addPane}
           onClosePane={() => removePane(extraPanes.length)}
+          onSetLayout={setPaneLayout}
           isChangesPanelOpen={isChangesPanelOpen}
           toggleChangesPanel={() => setIsChangesPanelOpen((p) => !p)}
           changesCount={gitChanges.length}
