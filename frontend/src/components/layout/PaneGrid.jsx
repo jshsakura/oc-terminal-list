@@ -21,6 +21,7 @@ const PaneGrid = ({
   visiblePaneIds,
   sessions,
   activeSessionId,
+  focusedPaneIdx = 0,
   paneCount,
   isMobile,
   currentTheme,
@@ -63,7 +64,7 @@ const PaneGrid = ({
         }
         const session = sessions.find((s) => s.id === sessionId);
         if (!session) return null;
-        const isFocused = sessionId === activeSessionId;
+        const isFocused = idx === focusedPaneIdx;
         return (
           <FilledPane
             key={`pane-${sessionId}`}
@@ -280,29 +281,10 @@ const EmptyPaneSlot = ({ idx, onDropSession, onDropHost, onFillNew, onClose, t }
       >
         <X size={11} strokeWidth={2} />
       </button>
-      <ArrowDownToLine size={20} strokeWidth={1.5} style={{ color: over ? color.accent : color.muted }} />
-      <div style={{ textAlign: 'center', lineHeight: 1.5 }}>
-        <div style={{ color: color.subtext, fontSize: fontSize['13'], fontWeight: fontWeight.medium }}>
-          {t('emptyPaneTitle') || 'Empty pane'}
-        </div>
-        <div style={{ marginTop: '4px' }}>
-          {t('emptyPaneHint') || 'Drag a session/host here, or'}
-        </div>
+      <ArrowDownToLine size={22} strokeWidth={1.5} style={{ color: over ? color.accent : color.muted }} />
+      <div style={{ textAlign: 'center', lineHeight: 1.5, color: color.muted, fontSize: fontSize['12'] }}>
+        {t('emptyPaneDragOnly') || '왼쪽 사이드바에서 호스트나 세션을 드래그해 놓으세요'}
       </div>
-      <button
-        onClick={onFillNew}
-        style={{
-          display: 'inline-flex', alignItems: 'center', gap: '6px',
-          height: '28px', padding: '0 10px',
-          background: color.accent, color: color.crust,
-          border: 'none', borderRadius: radius.sm,
-          fontSize: fontSize['12'], fontWeight: fontWeight.medium,
-          fontFamily: 'inherit', cursor: 'pointer',
-        }}
-      >
-        <Plus size={13} strokeWidth={2} />
-        {t('newLocalSession') || 'New local session'}
-      </button>
     </div>
   );
 };

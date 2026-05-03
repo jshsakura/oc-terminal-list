@@ -151,18 +151,12 @@ const Sidebar = ({
             iconOnly={iconOnly}
           />
           <SegTab
-            active={activeTab === 'changes'}
-            onClick={() => setActiveTab('changes')}
-            icon={GitBranch}
-            label={t('changes') || 'Changes'}
-            iconOnly={iconOnly}
-          />
-          <SegTab
             active={activeTab === 'sessions'}
             onClick={() => setActiveTab('sessions')}
             icon={Terminal}
             label={t('active') || t('sessions')}
             iconOnly={iconOnly}
+            count={sessions.length}
           />
           {isMobile && (
             <button onClick={onClose} title={t('closeSidebar')} style={styles.closeBtn}>
@@ -336,35 +330,35 @@ const Sidebar = ({
           </>
         )}
 
-        {/* files 탭 — git 워크스페이스를 겸함 */}
+        {/* files 탭 — 트리(상단) + 변경사항(하단) 한 세트 */}
         {activeTab === 'files' && (
           <div style={styles.fileTreeWrap}>
-            <FileTree
-              onFileSelect={onFileSelect}
-              onFolderSelect={onFolderSelect}
-              onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
-              onSelectChangedFile={onSelectChangedFile}
-              gitContextPath={gitContextPath}
-              language={language}
-              initialPath={selectedFolderPath}
-            />
+            <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+              <FileTree
+                onFileSelect={onFileSelect}
+                onFolderSelect={onFolderSelect}
+                onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
+                onSelectChangedFile={onSelectChangedFile}
+                gitContextPath={gitContextPath}
+                language={language}
+                initialPath={selectedFolderPath}
+              />
+            </div>
+            <div style={{ flexShrink: 0, maxHeight: '40%', minHeight: '120px', display: 'flex', flexDirection: 'column', borderTop: `1px solid ${color.border}` }}>
+              <ChangesList
+                gitContextPath={gitContextPath}
+                onSelectFile={(p) => {
+                  onSelectChangedFile?.(p);
+                  if (isMobile) onClose();
+                }}
+                onOpenFile={(p) => {
+                  onFileSelect?.(p);
+                  if (isMobile) onClose();
+                }}
+                t={t}
+              />
+            </div>
           </div>
-        )}
-
-        {/* changes 탭 — 활성 터미널 repo 의 git 변경 파일 */}
-        {activeTab === 'changes' && (
-          <ChangesList
-            gitContextPath={gitContextPath}
-            onSelectFile={(p) => {
-              onSelectChangedFile?.(p);
-              if (isMobile) onClose();
-            }}
-            onOpenFile={(p) => {
-              onFileSelect?.(p);
-              if (isMobile) onClose();
-            }}
-            t={t}
-          />
         )}
 
         {/* 푸터: 컨텍스트 정보 — 활성 세션이 호스트면 호스트 라벨, 로컬이면 로컬 시스템 통계 */}
@@ -401,10 +395,10 @@ const Sidebar = ({
   );
 };
 
-const SegTab = ({ active, onClick, icon: Icon, label, iconOnly = false }) => (
+const SegTab = ({ active, onClick, icon: Icon, label, iconOnly = false, count }) => (
   <button
     onClick={onClick}
-    title={iconOnly ? label : undefined}
+    title={iconOnly ? `${label}${count != null ? ` (${count})` : ''}` : undefined}
     style={{
       ...styles.tab,
       color: active ? color.text : color.muted,
@@ -413,6 +407,21 @@ const SegTab = ({ active, onClick, icon: Icon, label, iconOnly = false }) => (
   >
     <Icon size={12} strokeWidth={2} />
     {!iconOnly && <span>{label}</span>}
+    {count != null && count > 0 && (
+      <span style={{
+        fontSize: fontSize['11'],
+        fontFamily: font.mono,
+        color: active ? color.accent : color.muted,
+        background: active ? color.accentSubtle : color.crust,
+        border: `1px solid ${active ? color.accentBorder : color.border}`,
+        borderRadius: radius.full,
+        padding: `0 ${space['1']}`,
+        minWidth: '14px',
+        textAlign: 'center',
+      }}>
+        {count}
+      </span>
+    )}
   </button>
 );
 

@@ -92,12 +92,12 @@ function App() {
   const [isChangesPanelOpen, setIsChangesPanelOpen] = useState(() => localStorage.getItem('changes_panel_open') === 'true');
   useEffect(() => { localStorage.setItem('changes_panel_open', String(isChangesPanelOpen)); }, [isChangesPanelOpen]);
   const [requestedDiffPath, setRequestedDiffPath] = useState(null);
-  // 활성 세션 정보 — host 세션이면 cwd 추적 안 함
-  const activeSessionInfo = useMemo(() => sessions.find((s) => s.id === activeSessionId) || null, [sessions, activeSessionId]);
+  // 포커스된 pane 의 세션 정보 — host 세션이면 cwd 추적 안 함
+  const activeSessionInfo = useMemo(() => sessions.find((s) => s.id === focusedSessionId) || null, [sessions, focusedSessionId]);
   const isActiveLocal = activeSessionInfo && !activeSessionInfo.hostId;
-  // 활성 터미널의 현재 작업 디렉토리 → git context 의 기준 경로
+  // 포커스 pane 의 cwd → git context 의 기준 경로
   const { workspaceRelative: activeCwdRel } = useActiveTerminalCwd({
-    sessionId: isActiveLocal ? activeSessionId : null,
+    sessionId: isActiveLocal ? focusedSessionId : null,
     isLocal: !!isActiveLocal,
   });
   const gitContextPath = activeCwdRel ?? '';
@@ -163,9 +163,11 @@ function App() {
   const [filePickerQuery, setFilePickerQuery] = useState('');
   const [filePickerItems, setFilePickerItems] = useState([]);
   const [isFilePickerLoading, setIsFilePickerLoading] = useState(false);
-  // N-pane split: activeSessionId = focused pane(0). extraPanes = 옆 pane들의 sessionId (최대 3).
+  // N-pane split: extraPanes = 옆 pane들의 sessionId (최대 3, null 가능 = 빈 슬롯).
   // 전체 visible panes = [activeSessionId, ...extraPanes] (길이 1..4)
+  // focusedPaneIdx = 시각적으로 활성인 pane 인덱스 (0..N-1). 0이면 activeSessionId.
   const [extraPanes, setExtraPanes] = useState([]);
+  const [focusedPaneIdx, setFocusedPaneIdx] = useState(0);
   const MAX_PANES = 4;
   const [isTerminalSearchOpen, setIsTerminalSearchOpen] = useState(false);
   const [terminalSearchQuery, setTerminalSearchQuery] = useState('');
@@ -179,6 +181,10 @@ function App() {
     [activeSessionId, extraPanes]
   );
   const paneCount = visiblePaneIds.length;
+  // focusedPaneIdx 가 범위 벗어나면 0으로 보정
+  const safeFocusedIdx = focusedPaneIdx >= paneCount ? 0 : focusedPaneIdx;
+  // 포커스된 pane 의 세션 — Changes 패널, cwd 추적의 기준
+  const focusedSessionId = visiblePaneIds[safeFocusedIdx];
   const terminalLayoutSignal = `${isMobile ? 'm' : 'd'}:${isSidebarOpen ? sidebarWidth : 0}:${activeFile ? editorHeight : 0}:${activeFile ? 'editor-open' : 'editor-closed'}:panes-${visiblePaneIds.join(',')}`;
 
   // Responsive & Viewport
@@ -408,18 +414,10 @@ function App() {
     setExtraPanes((prev) => prev.filter((_, i) => i !== paneIdx - 1));
   }, [extraPanes, setActiveSessionId]);
 
+  // pane 클릭 = 시각적 포커스만 이동. 세션 swap 없음 (위치 안 바뀜).
   const focusPane = useCallback((paneIdx) => {
-    if (paneIdx === 0) return;
-    const targetId = extraPanes[paneIdx - 1];
-    if (!targetId) return;
-    // 첫 pane 의 session 과 클릭한 pane 의 session 을 swap → activeSessionId 가 클릭한 것으로 이동
-    setExtraPanes((prev) => {
-      const next = [...prev];
-      next[paneIdx - 1] = activeSessionId;
-      return next;
-    });
-    setActiveSessionId(targetId);
-  }, [extraPanes, activeSessionId, setActiveSessionId]);
+    setFocusedPaneIdx(paneIdx);
+  }, []);
 
   // 세션이 사라지면 pane 정리
   useEffect(() => {
@@ -910,6 +908,7 @@ function App() {
                 visiblePaneIds={visiblePaneIds}
                 sessions={sessions}
                 activeSessionId={activeSessionId}
+                focusedPaneIdx={safeFocusedIdx}
                 paneCount={paneCount}
                 isMobile={isMobile}
                 currentTheme={currentTheme}
