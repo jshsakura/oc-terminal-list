@@ -72,12 +72,6 @@ const Header = ({
             <Divider />
           </>
         )}
-        <IconButton
-          onClick={handleNewSession}
-          title={t('newSession')}
-          icon={Plus}
-        />
-        <Divider />
         {isMobile ? (
           <IconButton
             onClick={() => setIsMenuOpen(!isMenuOpen)}

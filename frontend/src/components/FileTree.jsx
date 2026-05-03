@@ -402,6 +402,25 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
         )}
       </div>
 
+      {/* 풋터: 현재 포커스 폴더에서 터미널 열기 */}
+      <div style={styles.footerBar}>
+        <button
+          onClick={() => onOpenTerminalAtFolder?.(effectiveGitPath || '')}
+          style={styles.footerBtn}
+          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+          title={t('openTerminalHere') || 'Open terminal here'}
+        >
+          <Terminal size={12} strokeWidth={2} />
+          <span style={styles.footerLabel}>
+            {t('openTerminalHere') || 'Open terminal here'}
+          </span>
+          <span style={styles.footerPath}>
+            {effectiveGitPath ? `~/${effectiveGitPath.split('/').pop()}` : '~/'}
+          </span>
+        </button>
+      </div>
+
       {/* 컨텍스트 메뉴 */}
       {contextMenu && (
         <ContextMenu
@@ -720,6 +739,45 @@ const styles = {
     textAlign: 'center',
     color: color.muted,
     fontSize: fontSize['12'],
+  },
+  footerBar: {
+    padding: space['1.5'],
+    borderTop: `1px solid ${color.border}`,
+    background: color.crust,
+    flexShrink: 0,
+  },
+  footerBtn: {
+    width: '100%',
+    height: '30px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1.5'],
+    padding: `0 ${space['2']}`,
+    background: color.accent,
+    color: color.crust,
+    border: 'none',
+    borderRadius: radius.sm,
+    fontFamily: 'inherit',
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    cursor: 'pointer',
+    transition: 'opacity 120ms ease',
+  },
+  footerLabel: {
+    flex: 1,
+    textAlign: 'left',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  footerPath: {
+    fontFamily: font.mono,
+    fontSize: fontSize['11'],
+    opacity: 0.75,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    maxWidth: '40%',
   },
   menu: {
     background: color.base,

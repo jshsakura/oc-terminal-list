@@ -1,4 +1,4 @@
-import { Plus, Server, Terminal as TerminalIcon, Command } from 'lucide-react';
+import { Server, Terminal as TerminalIcon, FolderTree } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -16,20 +16,17 @@ const EmptyState = ({ currentTheme, t, handleNewSession }) => {
         </div>
         <h2 style={styles.title}>{t('emptyHeadline') || 'Start a session'}</h2>
         <p style={styles.message}>
-          {t('emptyDescription') || 'Spin up a local shell, or pick a saved host on the left to SSH in.'}
+          {t('emptyDescriptionV2') || 'Pick a host on the left, or open Files and click "Open terminal here" on a folder.'}
         </p>
 
-        <div style={styles.actions}>
-          <button onClick={handleNewSession} style={styles.primaryBtn}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-          >
-            <Plus size={14} strokeWidth={2} />
-            <span>{t('newSession') || 'New session'}</span>
-          </button>
-          <div style={styles.hintRow}>
-            <Server size={11} strokeWidth={2} style={{ color: color.muted }} />
-            <span style={styles.hintText}>{t('emptyHostsHint') || 'Or pick a host from the sidebar'}</span>
+        <div style={styles.steps}>
+          <div style={styles.step}>
+            <div style={styles.stepIcon}><Server size={11} strokeWidth={2} /></div>
+            <span>{t('emptyStep1') || 'Hosts → click Local or a saved host'}</span>
+          </div>
+          <div style={styles.step}>
+            <div style={styles.stepIcon}><FolderTree size={11} strokeWidth={2} /></div>
+            <span>{t('emptyStep2') || 'Files → expand a folder → "Open terminal here"'}</span>
           </div>
         </div>
 
@@ -95,37 +92,35 @@ const styles = {
     margin: 0,
     maxWidth: '320px',
   },
-  actions: {
+  steps: {
     display: 'flex',
     flexDirection: 'column',
+    gap: space['1.5'],
+    marginTop: space['2'],
+    width: '100%',
+  },
+  step: {
+    display: 'flex',
     alignItems: 'center',
     gap: space['2'],
-    marginTop: space['2'],
-  },
-  primaryBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: space['1.5'],
-    height: '32px',
-    padding: `0 ${space['4']}`,
-    background: color.accent,
-    color: color.crust,
-    border: 'none',
+    fontSize: fontSize['12'],
+    color: color.subtext,
+    padding: `${space['1.5']} ${space['3']}`,
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
     borderRadius: radius.sm,
-    fontSize: fontSize['13'],
-    fontWeight: fontWeight.medium,
-    fontFamily: 'inherit',
-    cursor: 'pointer',
-    transition: `opacity ${motion.fast}`,
   },
-  hintRow: {
+  stepIcon: {
+    width: '20px',
+    height: '20px',
     display: 'inline-flex',
     alignItems: 'center',
-    gap: space['1'],
-  },
-  hintText: {
-    fontSize: fontSize['11'],
-    color: color.muted,
+    justifyContent: 'center',
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
+    color: color.accent,
+    flexShrink: 0,
   },
   shortcuts: {
     marginTop: space['5'],
