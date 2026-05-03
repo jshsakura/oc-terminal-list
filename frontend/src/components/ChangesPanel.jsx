@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { GitBranch, RefreshCw, X, FileText, FilePlus, FileMinus, FileEdit } from 'lucide-react';
+import { GitBranch, RefreshCw, X, FileText, FilePlus, FileMinus, FileEdit, ChevronRight, ChevronDown, Folder } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
 
@@ -22,11 +22,53 @@ const MIN_WIDTH = 240;
 const MAX_WIDTH = 720;
 const DEFAULT_WIDTH = 320;
 
+// path 리스트 → 디렉토리 트리. items 는 leaf 만, dir 는 중간 노드.
+const buildTree = (items, stripPrefix = '') => {
+  const root = { name: '', path: '', type: 'dir', children: [] };
+  const idx = new Map([['', root]]);
+  for (const it of items) {
+    const fullPath = it.path;
+    const rel = stripPrefix && fullPath.startsWith(stripPrefix + '/') ? fullPath.slice(stripPrefix.length + 1) : fullPath;
+    const parts = rel.split('/');
+    const fileName = parts.pop();
+    let parentRel = '';
+    let parent = root;
+    for (const part of parts) {
+      const childRel = parentRel ? `${parentRel}/${part}` : part;
+      let child = idx.get(childRel);
+      if (!child) {
+        child = { name: part, path: childRel, fullPath: stripPrefix ? `${stripPrefix}/${childRel}` : childRel, type: 'dir', children: [] };
+        parent.children.push(child);
+        idx.set(childRel, child);
+      }
+      parent = child;
+      parentRel = childRel;
+    }
+    parent.children.push({ name: fileName, path: rel, fullPath, type: 'file', item: it });
+  }
+  // 정렬: dir 먼저, 그 다음 file
+  const sortRec = (node) => {
+    node.children.sort((a, b) => {
+      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
+    for (const c of node.children) if (c.type === 'dir') sortRec(c);
+  };
+  sortRec(root);
+  return root;
+};
+
 const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, onConsumedExternalPath, gitContextPath = '' }) => {
   const { items, branch, repos, error, refresh, fetchDiff } = useGitChanges({
     enabled: isOpen,
     path: gitContextPath,
-    intervalMs: gitContextPath ? 4000 : 9000,
+    intervalMs: gitContextPath ? 2500 : 7000,
+  });
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const toggleCollapse = (path) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    if (next.has(path)) next.delete(path); else next.add(path);
+    return next;
   });
   const [selected, setSelected] = useState(null);
   const [diff, setDiff] = useState(null);
@@ -92,27 +134,60 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
 
   if (!isOpen) return null;
 
-  const renderRow = (it) => {
-    const meta = STATUS_META[it.kind] || STATUS_META.modified;
-    const isSelected = selected === it.path;
+  // 트리 노드 재귀 렌더
+  const renderNode = (node, depth) => {
+    if (node.type === 'file') {
+      const it = node.item;
+      const meta = STATUS_META[it.kind] || STATUS_META.modified;
+      const isSelected = selected === it.path;
+      return (
+        <button
+          key={it.path}
+          onClick={() => setSelected(it.path)}
+          onDoubleClick={() => onOpenFile?.(it.path)}
+          style={{
+            ...styles.row,
+            paddingLeft: 4 + depth * 14,
+            background: isSelected ? color.accentSubtle : 'transparent',
+          }}
+          onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = color.surface0; }}
+          onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+        >
+          <span style={styles.chevronSlot} />
+          <span style={{ ...styles.statusLetter, color: meta.tone, borderColor: `${meta.tone}55`, background: `${meta.tone}11` }}>
+            {meta.letter}
+          </span>
+          <span style={{ ...styles.rowName, color: isSelected ? color.text : color.subtext }}>{node.name}</span>
+        </button>
+      );
+    }
+    // dir
+    const isCollapsed = collapsed.has(node.fullPath || node.path);
     return (
-      <button
-        key={it.path}
-        onClick={() => setSelected(it.path)}
-        onDoubleClick={() => onOpenFile?.(it.path)}
-        style={{
-          ...styles.row,
-          background: isSelected ? color.accentSubtle : 'transparent',
-        }}
-        onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = color.surface0; }}
-        onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
-      >
-        <span style={{ ...styles.statusLetter, color: meta.tone, borderColor: `${meta.tone}55`, background: `${meta.tone}11` }}>
-          {meta.letter}
-        </span>
-        <span style={{ ...styles.rowName, color: isSelected ? color.text : color.subtext }}>{it.path}</span>
-      </button>
+      <div key={`d:${node.fullPath || node.path}`}>
+        <div
+          onClick={() => toggleCollapse(node.fullPath || node.path)}
+          style={{
+            ...styles.dirRow,
+            paddingLeft: 4 + depth * 14,
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          <span style={styles.chevronSlot}>
+            {isCollapsed ? <ChevronRight size={11} strokeWidth={2} /> : <ChevronDown size={11} strokeWidth={2} />}
+          </span>
+          <Folder size={12} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+          <span style={styles.dirName}>{node.name}</span>
+        </div>
+        {!isCollapsed && node.children.map((c) => renderNode(c, depth + 1))}
+      </div>
     );
+  };
+
+  const renderTreeForItems = (its, stripPrefix = '') => {
+    const tree = buildTree(its, stripPrefix);
+    return tree.children.map((c) => renderNode(c, 0));
   };
 
   return (
@@ -146,7 +221,7 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
             <div style={styles.emptyHint}>{t('changesHint') || 'When files change in this repo, they show up here.'}</div>
           </div>
         )}
-        {/* repo 다수면 repo 별로 그룹핑, 단일이면 평탄 리스트 */}
+        {/* repo 다수면 repo 별로 그룹핑 + 트리, 단일이면 트리만 */}
         {repos && repos.length > 1 ? (
           repos.map((repo) => {
             const groupItems = items.filter((it) => it.path.startsWith(repo.rel + '/') || it.path === repo.rel);
@@ -159,12 +234,12 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
                   <span style={styles.groupBranch}>{repo.branch || '—'}</span>
                   <span style={styles.groupCount}>{groupItems.length}</span>
                 </div>
-                {groupItems.map((it) => renderRow(it))}
+                {renderTreeForItems(groupItems, repo.rel)}
               </div>
             );
           })
         ) : (
-          items.map((it) => renderRow(it))
+          renderTreeForItems(items)
         )}
       </div>
 
@@ -366,9 +441,9 @@ const styles = {
   row: {
     display: 'flex',
     alignItems: 'center',
-    gap: space['2'],
+    gap: space['1.5'],
     width: '100%',
-    padding: `${space['1']} ${space['2']}`,
+    padding: `2px ${space['1']}`,
     background: 'transparent',
     border: 'none',
     borderRadius: radius.xs,
@@ -376,6 +451,37 @@ const styles = {
     fontFamily: 'inherit',
     textAlign: 'left',
     transition: `background ${motion.fast}`,
+    minHeight: '22px',
+  },
+  dirRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1.5'],
+    width: '100%',
+    padding: `2px ${space['1']}`,
+    background: 'transparent',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    transition: `background ${motion.fast}`,
+    minHeight: '22px',
+    userSelect: 'none',
+  },
+  dirName: {
+    fontSize: fontSize['12'],
+    color: color.subtext,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  chevronSlot: {
+    width: '12px',
+    height: '12px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: color.muted,
+    flexShrink: 0,
   },
   statusLetter: {
     width: '18px',
