@@ -224,6 +224,7 @@ export const locales = {
     notAGitRepo: 'Not a git repo',
     filterChangedOnly: 'Show only changed',
     noGitHere: 'no git here',
+    noActiveTerminal: 'no active terminal',
     notInGitRepo: 'Open a folder inside a git repository to see changes',
 
     // Empty State
@@ -499,6 +500,7 @@ export const locales = {
     notAGitRepo: 'Git 저장소 아님',
     filterChangedOnly: '변경된 것만 보기',
     noGitHere: 'git 저장소 아님',
+    noActiveTerminal: '활성 터미널 없음',
     notInGitRepo: 'git 저장소 안 폴더를 열면 변경사항이 보입니다',
 
     // 빈 화면

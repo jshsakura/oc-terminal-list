@@ -59,32 +59,13 @@ const buildTree = (items, stripPrefix = '') => {
 };
 
 const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, onConsumedExternalPath, gitContextPath = '' }) => {
-  // 활성 터미널 컨텍스트의 git 상태
-  const ctx = useGitChanges({
-    enabled: isOpen && !!gitContextPath,
+  // 활성 터미널의 cwd 가 속한 repo 만 본다. 워크스페이스 전체 집계는 안 함.
+  const { items, branch, repo, repos, error, refresh, fetchDiff } = useGitChanges({
+    enabled: isOpen,
     path: gitContextPath,
     intervalMs: 1500,
   });
-  // 워크스페이스 전체 집계 — 컨텍스트가 비어있거나 컨텍스트 repo 가 깨끗할 때 노출
-  const needsWorkspace = isOpen && (!gitContextPath || ctx.items.length === 0);
-  const ws = useGitChanges({
-    enabled: needsWorkspace,
-    path: '',
-    intervalMs: 8000,
-  });
-
-  // 어떤 데이터를 화면에 쓸지 결정
-  const showWorkspace = !gitContextPath || (ctx.items.length === 0 && ws.items.length > 0);
-  const items = showWorkspace ? ws.items : ctx.items;
-  const branch = showWorkspace ? ws.branch : ctx.branch;
-  const repo = showWorkspace ? ws.repo : ctx.repo;
-  const repos = showWorkspace ? ws.repos : ctx.repos;
-  const error = (gitContextPath ? ctx.error : null) || (showWorkspace ? ws.error : null);
-  const refresh = () => { ctx.refresh(); ws.refresh(); };
-  const fetchDiff = ctx.fetchDiff;
-
   const repoBasename = repo ? repo.split('/').pop() : null;
-  const ctxRepoName = ctx.repo ? ctx.repo.split('/').pop() : null;
   const [collapsed, setCollapsed] = useState(() => new Set());
   const toggleCollapse = (path) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -229,21 +210,15 @@ const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, on
       <header style={styles.header} title={repo || gitContextPath || ''}>
         <div style={styles.headerLeft}>
           <GitBranch size={12} strokeWidth={2} style={{ color: color.muted }} />
-          {showWorkspace && gitContextPath && ctxRepoName ? (
-            // 컨텍스트 repo 는 깨끗 → 워크스페이스 전체 보여주는 중. 어디에 있는지 힌트.
+          {repoBasename ? (
             <>
-              <span style={styles.repoLabel}>workspace</span>
-              <span style={styles.branchName}>
-                ({ctxRepoName} clean · {repos?.length || 0} repos)
-              </span>
+              <span style={styles.repoLabel}>{repoBasename}</span>
+              <span style={styles.branchName}>{branch || '—'}</span>
             </>
           ) : (
-            <>
-              {repoBasename && <span style={styles.repoLabel}>{repoBasename}</span>}
-              <span style={styles.branchName}>
-                {branch || (repos && repos.length > 0 ? `${repos.length} repos` : (gitContextPath ? '—' : 'workspace'))}
-              </span>
-            </>
+            <span style={styles.branchName}>
+              {gitContextPath ? (t('noGitHere') || 'no git here') : (t('noActiveTerminal') || 'no active terminal')}
+            </span>
           )}
           {items.length > 0 && (
             <span style={styles.countBadge}>{items.length}</span>
