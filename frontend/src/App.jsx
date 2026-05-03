@@ -83,7 +83,13 @@ function App() {
   // 우측 Changes 패널 (git 변경사항)
   const [isChangesPanelOpen, setIsChangesPanelOpen] = useState(() => localStorage.getItem('changes_panel_open') === 'true');
   useEffect(() => { localStorage.setItem('changes_panel_open', String(isChangesPanelOpen)); }, [isChangesPanelOpen]);
-  const { items: gitChanges } = useGitChanges({ enabled: isChangesPanelOpen });
+  const [requestedDiffPath, setRequestedDiffPath] = useState(null);
+  // 헤더 뱃지/사이드바 Git 탭 둘 다 항상 동작하도록 폴링은 항상 enabled
+  const { items: gitChanges } = useGitChanges({ enabled: true });
+  const handleSelectChangedFile = useCallback((path) => {
+    setRequestedDiffPath(path);
+    setIsChangesPanelOpen(true);
+  }, []);
 
   const openHost = useCallback(async (host) => {
     // \"This machine\" 가상 호스트 → 로컬 tmux 세션 새로 생성
@@ -664,6 +670,7 @@ function App() {
         onReconnectSession={(id) => { setActiveSessionId(null); setTimeout(() => setActiveSessionId(id), 50); }}
         hosts={hosts}
         activeSession={sessions.find(s => s.id === activeSessionId) || null}
+        onSelectChangedFile={handleSelectChangedFile}
         onConnectHost={openHost}
         onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
         onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
@@ -819,6 +826,8 @@ function App() {
               isOpen={isChangesPanelOpen}
               onClose={() => setIsChangesPanelOpen(false)}
               onOpenFile={(path) => handleFileOpen(path)}
+              externalSelectedPath={requestedDiffPath}
+              onConsumedExternalPath={() => setRequestedDiffPath(null)}
               t={t}
             />
           </Suspense>

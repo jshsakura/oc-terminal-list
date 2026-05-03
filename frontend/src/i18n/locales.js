@@ -187,6 +187,8 @@ export const locales = {
     changesHint: 'When files change in this repo, they show up here.',
     openInEditor: 'Open in editor',
     close: 'Close',
+    git: 'Git',
+    notAGitRepo: 'Not a git repo',
 
     // Empty State
     noTerminals: 'No sessions yet',
@@ -422,6 +424,8 @@ export const locales = {
     changesHint: '레포에서 파일이 변경되면 여기에 표시됩니다.',
     openInEditor: '에디터에서 열기',
     close: '닫기',
+    git: 'Git',
+    notAGitRepo: 'Git 저장소 아님',
 
     // 빈 화면
     noTerminals: '활성 세션 없음',

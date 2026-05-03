@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, memo, useMemo } from 'react';
-import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server } from 'lucide-react';
+import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server, GitBranch } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import HostList from './HostList';
+import GitChangesTab from './GitChangesTab';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -33,6 +34,8 @@ const Sidebar = ({
   onManageKeys,
   // 현재 활성 세션의 정보 (사용량 라벨 컨텍스트에 사용)
   activeSession = null,
+  // git 변경 파일 클릭 → 우측 ChangesPanel 열어 해당 파일 diff 표시
+  onSelectChangedFile,
   language = 'en',
   isMobile = false,
   width = 260,
@@ -135,6 +138,12 @@ const Sidebar = ({
             onClick={() => setActiveTab('files')}
             icon={FolderTree}
             label={t('files')}
+          />
+          <SegTab
+            active={activeTab === 'git'}
+            onClick={() => setActiveTab('git')}
+            icon={GitBranch}
+            label={t('git') || 'Git'}
           />
           {isMobile && (
             <button onClick={onClose} title={t('closeSidebar')} style={styles.closeBtn}>
@@ -290,6 +299,17 @@ const Sidebar = ({
               initialPath={selectedFolderPath}
             />
           </div>
+        )}
+
+        {/* git 탭 */}
+        {activeTab === 'git' && (
+          <GitChangesTab
+            onSelectFile={(p) => {
+              onSelectChangedFile?.(p);
+              if (isMobile) onClose();
+            }}
+            t={t}
+          />
         )}
 
         {/* 푸터: 컨텍스트 정보 — 활성 세션이 호스트면 호스트 라벨, 로컬이면 로컬 시스템 통계 */}

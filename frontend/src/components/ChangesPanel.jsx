@@ -18,12 +18,20 @@ const STATUS_META = {
  * - 파일 클릭 → 하단에 unified diff 표시
  * - 클로드 코드 같은 도구가 파일을 수정하면 즉시 보임
  */
-const ChangesPanel = ({ isOpen, onClose, onOpenFile, t }) => {
+const ChangesPanel = ({ isOpen, onClose, onOpenFile, t, externalSelectedPath, onConsumedExternalPath }) => {
   const { items, branch, error, refresh, fetchDiff } = useGitChanges({ enabled: isOpen });
   const [selected, setSelected] = useState(null);
   const [diff, setDiff] = useState(null);
   const [diffLoading, setDiffLoading] = useState(false);
   const [diffError, setDiffError] = useState(null);
+
+  // 외부에서 선택 요청 (사이드바 Git 탭 클릭) — 패널이 열릴 때 그 파일을 선택
+  useEffect(() => {
+    if (externalSelectedPath) {
+      setSelected(externalSelectedPath);
+      onConsumedExternalPath?.();
+    }
+  }, [externalSelectedPath, onConsumedExternalPath]);
 
   // 선택한 파일이 더 이상 변경 목록에 없으면 선택 해제
   useEffect(() => {
