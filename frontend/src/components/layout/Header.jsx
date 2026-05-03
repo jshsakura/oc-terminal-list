@@ -75,7 +75,7 @@ const Header = ({
         {isMobile ? (
           <IconButton
             onClick={() => setIsMenuOpen(!isMenuOpen)}
-            title="Menu"
+            title={t('menu') || 'Menu'}
             icon={Menu}
           />
         ) : (

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Clock } from 'lucide-react';
+import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;

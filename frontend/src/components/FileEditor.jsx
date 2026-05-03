@@ -506,7 +506,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             <iframe 
               src={`/api/files/raw?path=${encodeURIComponent(activeFile)}&_t=${Date.now()}`}
               style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#fff' }}
-              title="HTML Preview"
+              title={t('htmlPreview') || 'HTML Preview'}
             />
           )
         ) : (

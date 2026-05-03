@@ -166,7 +166,11 @@ function App() {
   const terminalSearchInputRef = useRef(null);
 
   const terminalRef = useRef(null);
-  const visiblePaneIds = useMemo(() => [activeSessionId, ...extraPanes].filter(Boolean).slice(0, MAX_PANES), [activeSessionId, extraPanes]);
+  // 첫 슬롯은 activeSessionId, 나머지는 extraPanes (null 가능 = 빈 placeholder)
+  const visiblePaneIds = useMemo(
+    () => [activeSessionId, ...extraPanes].slice(0, MAX_PANES),
+    [activeSessionId, extraPanes]
+  );
   const paneCount = visiblePaneIds.length;
   const terminalLayoutSignal = `${isMobile ? 'm' : 'd'}:${isSidebarOpen ? sidebarWidth : 0}:${activeFile ? editorHeight : 0}:${activeFile ? 'editor-open' : 'editor-closed'}:panes-${visiblePaneIds.join(',')}`;
 
@@ -279,53 +283,71 @@ function App() {
     setIsFilePickerOpen(false);
   }, []);
 
-  // pane 추가 — 사용 안 된 기존 세션이 있으면 그걸 쓰고, 없으면 새 로컬 세션을 즉석 생성
-  const addPane = useCallback(async () => {
+  // 분할 버튼 = 빈 슬롯 추가. 슬롯은 사용자가 드래그 또는 명시적 새 세션으로 채워야 함.
+  // extraPanes 의 entry 가 null 이면 PaneGrid 가 placeholder 렌더.
+  const addPane = useCallback(() => {
     if (paneCount >= MAX_PANES) return;
-    const used = new Set(visiblePaneIds);
-    const candidate = sessions.find((s) => !used.has(s.id));
-    if (candidate) {
-      setExtraPanes((prev) => [...prev, candidate.id]);
-      return;
-    }
-    // 모든 세션이 이미 다른 pane 에 잡혀있다 → 새 로컬 세션 생성하면서 분할
-    const newId = await createSession(null);
-    if (newId) {
-      setExtraPanes((prev) => [...prev, newId]);
-    }
-  }, [paneCount, visiblePaneIds, sessions, createSession]);
+    setExtraPanes((prev) => [...prev, null]);
+  }, [paneCount]);
 
-  // 특정 세션을 즉시 새 pane 으로 (드래그 드롭에서 사용)
-  const addPaneWithSession = useCallback((sessionId) => {
+  // 특정 세션을 새 pane 으로 또는 빈 슬롯 채우기 (드래그 드롭).
+  // targetIdx 주면 그 슬롯에 놓고, 없으면 첫 빈 슬롯에 채우거나 새 슬롯 추가.
+  const addPaneWithSession = useCallback((sessionId, targetIdx = null) => {
     if (!sessionId) return;
-    if (paneCount >= MAX_PANES) return;
-    if (sessionId === activeSessionId || extraPanes.includes(sessionId)) {
+    // 이미 다른 pane 에 있으면 그 pane 으로 활성 이동
+    if (sessionId === activeSessionId) return;
+    if (extraPanes.includes(sessionId)) {
       setActiveSessionId(sessionId);
       return;
     }
-    setExtraPanes((prev) => [...prev, sessionId]);
-  }, [paneCount, activeSessionId, extraPanes, setActiveSessionId]);
+    setExtraPanes((prev) => {
+      // 명시 슬롯이 있으면 거기 채움 (extraPanes 인덱스는 0-based, pane idx 0=active 제외하면 +1)
+      if (targetIdx != null && targetIdx > 0) {
+        const ei = targetIdx - 1;
+        if (ei < prev.length) {
+          const next = [...prev];
+          next[ei] = sessionId;
+          return next;
+        }
+      }
+      // 첫 null 슬롯 찾아서 채움
+      const emptyIdx = prev.findIndex((p) => p == null);
+      if (emptyIdx >= 0) {
+        const next = [...prev];
+        next[emptyIdx] = sessionId;
+        return next;
+      }
+      // 빈 슬롯 없으면 새 슬롯 추가 (max 미만일 때)
+      if (prev.length + 1 >= MAX_PANES) return prev;
+      return [...prev, sessionId];
+    });
+  }, [activeSessionId, extraPanes, setActiveSessionId]);
 
-  // 호스트(또는 'local')를 드래그 드롭으로 새 pane 에 열기
-  const openHostAsPane = useCallback(async (hostIdOrLocal) => {
-    if (paneCount >= MAX_PANES) return;
+  // 빈 슬롯 안에서 명시적 '새 로컬 세션' 만들 때
+  const fillSlotWithNewLocal = useCallback(async (targetIdx) => {
+    const newId = await createSession(null);
+    if (newId) addPaneWithSession(newId, targetIdx);
+  }, [createSession, addPaneWithSession]);
+
+  // 호스트(또는 'local')를 드래그 드롭 또는 명시 슬롯에 열기
+  const openHostAsPane = useCallback(async (hostIdOrLocal, targetIdx = null) => {
+    let newId = null;
     if (hostIdOrLocal === 'local') {
-      const newId = await createSession(null);
-      if (newId) setExtraPanes((prev) => [...prev, newId]);
-      return;
+      newId = await createSession(null);
+    } else {
+      const host = hosts.find((h) => h.id === hostIdOrLocal);
+      if (!host) return;
+      newId = `host:${host.id}:${Date.now()}`;
+      setHostTabs((prev) => [...prev, {
+        id: newId,
+        hostId: host.id,
+        name: host.name,
+        color_index: host.color_index,
+        kind: 'host',
+      }]);
     }
-    const host = hosts.find((h) => h.id === hostIdOrLocal);
-    if (!host) return;
-    const tabId = `host:${host.id}:${Date.now()}`;
-    setHostTabs((prev) => [...prev, {
-      id: tabId,
-      hostId: host.id,
-      name: host.name,
-      color_index: host.color_index,
-      kind: 'host',
-    }]);
-    setExtraPanes((prev) => [...prev, tabId]);
-  }, [paneCount, hosts, createSession]);
+    if (newId) addPaneWithSession(newId, targetIdx);
+  }, [hosts, createSession, addPaneWithSession]);
 
   const removePane = useCallback((paneIdx) => {
     if (paneIdx === 0) {
@@ -853,6 +875,8 @@ function App() {
                 onClosePane={removePane}
                 onDropSession={addPaneWithSession}
                 onDropHost={openHostAsPane}
+                onFillSlotNew={fillSlotWithNewLocal}
+                t={t}
               />
             )}
           </div>
