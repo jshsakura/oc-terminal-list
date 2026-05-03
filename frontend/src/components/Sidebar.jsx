@@ -459,6 +459,7 @@ const styles = {
   },
   searchInputWrap: {
     flex: 1,
+    minWidth: 0,
     display: 'flex',
     alignItems: 'center',
     gap: space['1.5'],
@@ -470,6 +471,8 @@ const styles = {
   },
   searchInput: {
     flex: 1,
+    minWidth: 0,
+    width: '100%',
     background: 'transparent',
     border: 'none',
     outline: 'none',
