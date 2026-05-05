@@ -172,43 +172,71 @@ function App() {
   // 빈 pane 활성화 — target 종류:
   //  - { type: 'local' } 새 로컬 세션
   //  - { type: 'host', hostId } 호스트 새 pane
-  //  - { type: 'tab',  sourceTabId } 다른 열린 탭의 활성 pane 을 이 자리로 이동 (병합)
-  //                                  → 원본 탭은 상단 탭바에서 사라진다.
+  //  - { type: 'tab',  sourceTabId } 다른 열린 탭 전체를 이 자리로 흡수 (병합)
+  //                                  → 원본 탭은 상단 탭바에서 사라지고, 그 탭의 pane 들이
+  //                                    대상 탭에 합류 (총 4개까지).
   // target 없으면 부모 탭 타입 그대로 따라감 (단순 클릭 케이스)
+  const MAX_PANES = 4;
   const activatePane = useCallback((tabId, paneId, target = null) => {
     setTabs((prev) => {
-      const moved = prev.map((t) => {
+      // 병합인 경우 원본 탭의 pane 들을 빈 슬롯에 채워넣는 로직을 한 번에 처리.
+      if (target?.type === 'tab' && target.sourceTabId) {
+        const src = prev.find((tt) => tt.id === target.sourceTabId);
+        const srcPanes = (src?.panes || []).filter((p) => p.sessionId || p.hostId);
+        if (srcPanes.length === 0) {
+          // 빈 탭 흡수 — 그냥 원본만 제거
+          return prev.filter((t) => t.id !== target.sourceTabId);
+        }
+        // 활성 pane 이 첫 번째가 되도록 정렬
+        const active = srcPanes.find((p) => p.id === src.activePaneId) || srcPanes[0];
+        const rest = srcPanes.filter((p) => p.id !== active.id);
+        const ordered = [active, ...rest];
+
+        const merged = prev.map((t) => {
+          if (t.id !== tabId) return t;
+          const currentPanes = t.panes || [];
+          const targetIdx = currentPanes.findIndex((p) => p.id === paneId);
+          if (targetIdx < 0) return t;
+          // 빈 슬롯을 첫 흡수 pane 으로 교체
+          const filledTarget = {
+            ...currentPanes[targetIdx],
+            sessionId: ordered[0].sessionId,
+            hostId: ordered[0].hostId,
+          };
+          const replacedPanes = currentPanes.map((p, i) => (i === targetIdx ? filledTarget : p));
+          // 남은 흡수 pane 들 — 새 pane id 부여 후 뒤에 append, 4개 까지만
+          const slotsLeft = MAX_PANES - replacedPanes.length;
+          const extra = ordered.slice(1, 1 + Math.max(0, slotsLeft)).map((sp) => ({
+            ...makePane({ sessionId: sp.sessionId, hostId: sp.hostId }),
+          }));
+          const allPanes = [...replacedPanes, ...extra];
+          const total = allPanes.length;
+          let layout = t.layout || 'single';
+          if (total === 1) layout = 'single';
+          else if (total === 2) layout = (layout === 'v' ? 'v' : 'h');
+          else layout = '2x2';
+          return { ...t, panes: allPanes, layout, activePaneId: filledTarget.id };
+        });
+        return merged.filter((t) => t.id !== target.sourceTabId);
+      }
+
+      // 병합이 아닌 단순 활성화 케이스
+      return prev.map((t) => {
         if (t.id !== tabId) return t;
         const panes = (t.panes || []).map((p) => {
           if (p.id !== paneId) return p;
           if (p.sessionId || p.hostId) return p;
-          // 1) 다른 열린 탭에서 활성 pane 을 이 자리로 가져옴
-          if (target?.type === 'tab' && target.sourceTabId) {
-            const src = prev.find((tt) => tt.id === target.sourceTabId);
-            if (src) {
-              const srcPane = src.panes?.find((pp) => pp.id === src.activePaneId) || src.panes?.[0];
-              if (srcPane?.sessionId) return { ...p, sessionId: srcPane.sessionId, hostId: undefined };
-              if (srcPane?.hostId) return { ...p, hostId: srcPane.hostId, sessionId: undefined };
-            }
-          }
-          // 2) 명시 target
           if (target?.type === 'host' && target.hostId) {
             return { ...p, hostId: target.hostId, sessionId: undefined };
           }
           if (target?.type === 'local') {
             return { ...p, sessionId: generateUUID(), hostId: undefined };
           }
-          // 3) 부모 탭 타입 폴백
           if (t.type === 'host') return { ...p, hostId: t.hostId };
           return { ...p, sessionId: generateUUID() };
         });
         return { ...t, panes, activePaneId: paneId };
       });
-      // tab → tab 병합인 경우 원본 탭은 상단 탭바에서 제거 (이미 pane 으로 흡수됨)
-      if (target?.type === 'tab' && target.sourceTabId) {
-        return moved.filter((t) => t.id !== target.sourceTabId);
-      }
-      return moved;
     });
   }, []);
 
