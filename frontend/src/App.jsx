@@ -169,7 +169,10 @@ function App() {
     });
   }, []);
 
-  // 빈 pane 활성화 — target = { type: 'local' } 또는 { type: 'host', hostId }
+  // 빈 pane 활성화 — target 종류:
+  //  - { type: 'local' } 새 로컬 세션
+  //  - { type: 'host', hostId } 호스트 새 pane
+  //  - { type: 'tab',  sourceTabId } 다른 열린 탭의 활성 pane 을 그대로 복제 (mirror)
   // target 없으면 부모 탭 타입 그대로 따라감 (단순 클릭 케이스)
   const activatePane = useCallback((tabId, paneId, target = null) => {
     setTabs((prev) => prev.map((t) => {
@@ -177,14 +180,23 @@ function App() {
       const panes = (t.panes || []).map((p) => {
         if (p.id !== paneId) return p;
         if (p.sessionId || p.hostId) return p;
-        // target 우선
+        // 1) 다른 열린 탭에서 미러
+        if (target?.type === 'tab' && target.sourceTabId) {
+          const src = prev.find((tt) => tt.id === target.sourceTabId);
+          if (src) {
+            const srcPane = src.panes?.find((pp) => pp.id === src.activePaneId) || src.panes?.[0];
+            if (srcPane?.sessionId) return { ...p, sessionId: srcPane.sessionId, hostId: undefined };
+            if (srcPane?.hostId) return { ...p, hostId: srcPane.hostId, sessionId: undefined };
+          }
+        }
+        // 2) 명시 target
         if (target?.type === 'host' && target.hostId) {
           return { ...p, hostId: target.hostId, sessionId: undefined };
         }
         if (target?.type === 'local') {
           return { ...p, sessionId: generateUUID(), hostId: undefined };
         }
-        // fallback: 부모 탭 타입
+        // 3) 부모 탭 타입 폴백
         if (t.type === 'host') return { ...p, hostId: t.hostId };
         return { ...p, sessionId: generateUUID() };
       });
@@ -725,6 +737,7 @@ function App() {
               }}>
                 <PaneGrid
                   tab={activeTab}
+                  allTabs={tabs}
                   hosts={hosts}
                   isActive={true}
                   isMobile={isMobile}

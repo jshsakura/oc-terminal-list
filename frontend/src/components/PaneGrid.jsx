@@ -1,8 +1,9 @@
 import { Suspense, lazy, useState, useEffect } from 'react';
-import { X, Plus, Server, Terminal as TerminalIcon } from 'lucide-react';
+import { X, Plus, Server, Terminal as TerminalIcon, Copy } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RightPanel from './RightPanel';
 import HomeDashboard from './HomeDashboard';
+import HostIcon from '../utils/hostIcons';
 import useActiveTerminalCwd from '../hooks/useActiveTerminalCwd';
 
 const Terminal = lazy(() => import('./Terminal'));
@@ -15,6 +16,7 @@ const { color, font, fontSize, fontWeight, radius, space } = tokens;
  */
 const PaneGrid = ({
   tab,
+  allTabs = [],
   hosts = [],
   isActive = true,
   isMobile = false,
@@ -70,6 +72,7 @@ const PaneGrid = ({
             cwd={cwd}
             onFileSelect={onFileSelect}
             onFolderSelect={onFolderSelect}
+            allTabs={allTabs}
             onOpenTerminalAtFolder={onOpenTerminalAtFolder}
             onPaneCwdChange={onPaneCwdChange}
             language={language}
@@ -114,6 +117,7 @@ const PaneGrid = ({
           cwd={cwd}
           onFileSelect={onFileSelect}
           onFolderSelect={onFolderSelect}
+          allTabs={allTabs}
           onOpenTerminalAtFolder={onOpenTerminalAtFolder}
           onPaneCwdChange={onPaneCwdChange}
           language={language}
@@ -126,7 +130,7 @@ const PaneGrid = ({
 };
 
 const Pane = ({
-  pane, paneIndex = 0, tab, hosts, isFocused, isMultiple, onFocus, onClose, onActivate,
+  pane, paneIndex = 0, tab, hosts, allTabs = [], isFocused, isMultiple, onFocus, onClose, onActivate,
   isActive, layoutSignal, settings, updateSettings, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange,
   language, t, viewportHeight,
@@ -213,7 +217,13 @@ const Pane = ({
         )}
 
         {isEmpty ? (
-          <EmptyPane onActivate={onActivate} hosts={hosts} t={t} />
+          <EmptyPane
+            onActivate={onActivate}
+            hosts={hosts}
+            tab={tab}
+            allTabs={allTabs}
+            t={t}
+          />
         ) : (
           <Suspense fallback={null}>
             <Terminal
@@ -339,19 +349,145 @@ const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
 );
 
 // 빈 pane = 메인 홈 대시보드 그대로 재사용. 호스트 카드 클릭 시 onActivate 호출.
-const EmptyPane = ({ onActivate, hosts = [], t }) => (
-  <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
-    <HomeDashboard
-      hosts={hosts}
-      t={t}
-      onOpenHost={(host) => {
-        if (host?.isLocal || host?.id === 'local') onActivate?.({ type: 'local' });
-        else onActivate?.({ type: 'host', hostId: host.id });
-      }}
-      onAddHost={() => {}}      // pane 안에서는 추가 안 받음 (홈에서)
-      onEditHost={() => {}}
-    />
-  </div>
-);
+const EmptyPane = ({ onActivate, hosts = [], tab, allTabs = [], t }) => {
+  // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러
+  const otherTabs = (allTabs || []).filter(
+    (tt) => tt && tt.id && tt.id !== tab?.id && (tt.panes || []).some((p) => p.sessionId || p.hostId),
+  );
+
+  return (
+    <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
+      {otherTabs.length > 0 && (
+        <OpenTabPicker
+          tabs={otherTabs}
+          hosts={hosts}
+          t={t}
+          onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
+        />
+      )}
+      <HomeDashboard
+        hosts={hosts}
+        t={t}
+        onOpenHost={(host) => {
+          if (host?.isLocal || host?.id === 'local') onActivate?.({ type: 'local' });
+          else onActivate?.({ type: 'host', hostId: host.id });
+        }}
+        onAddHost={() => {}}      // pane 안에서는 추가 안 받음 (홈에서)
+        onEditHost={() => {}}
+      />
+    </div>
+  );
+};
+
+const OpenTabPicker = ({ tabs, hosts = [], onPick, t }) => {
+  const HOST_COLORS = [
+    '#89b4fa', '#a6e3a1', '#fab387', '#f38ba8',
+    '#cba6f7', '#89dceb', '#f9e2af', '#b4befe',
+  ];
+  return (
+    <div style={emptyPaneStyles.section}>
+      <div style={emptyPaneStyles.sectionTitle}>
+        {t?.('mirrorOpenTab') || 'Mirror an open tab here'}
+      </div>
+      <div style={emptyPaneStyles.list}>
+        {tabs.map((tb) => {
+          const isHost = tb.type === 'host';
+          const hostMeta = isHost ? hosts.find((h) => h.id === tb.hostId) : null;
+          const accent = tb.color_index != null
+            ? HOST_COLORS[tb.color_index % HOST_COLORS.length]
+            : color.accent;
+          return (
+            <button
+              key={tb.id}
+              type="button"
+              onClick={() => onPick(tb.id)}
+              style={emptyPaneStyles.row}
+              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; }}
+            >
+              <span style={{ ...emptyPaneStyles.icon, color: accent }}>
+                <HostIcon
+                  value={tb.icon || (hostMeta?.icon || '')}
+                  fallback={isHost ? Server : TerminalIcon}
+                  size={14}
+                />
+              </span>
+              <div style={emptyPaneStyles.text}>
+                <div style={emptyPaneStyles.name}>{tb.name}</div>
+                <div style={emptyPaneStyles.sub}>
+                  {isHost
+                    ? (hostMeta ? `${hostMeta.ssh_user}@${hostMeta.hostname}` : tb.hostId)
+                    : (t?.('thisMachine') || 'This machine')}
+                </div>
+              </div>
+              <Copy size={12} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+const emptyPaneStyles = {
+  section: {
+    padding: '16px 20px 8px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+    maxWidth: '720px',
+    margin: '0 auto',
+    width: '100%',
+    boxSizing: 'border-box',
+  },
+  sectionTitle: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: color.subtext,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+  },
+  list: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+    gap: '6px',
+  },
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    padding: '8px 10px',
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontFamily: font.sans,
+    color: color.text,
+    textAlign: 'left',
+    transition: 'background 150ms',
+  },
+  icon: {
+    width: '24px', height: '24px',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    flexShrink: 0,
+  },
+  text: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' },
+  name: {
+    fontSize: '12px',
+    fontWeight: 600,
+    color: color.text,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  sub: {
+    fontSize: '10.5px',
+    color: color.muted,
+    fontFamily: font.mono,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+};
 
 export default PaneGrid;
