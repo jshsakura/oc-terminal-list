@@ -358,6 +358,7 @@ const EmptyPane = ({ onActivate, hosts = [], tab, allTabs = [], t }) => {
   return (
     <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
       <HomeDashboard
+        embedded
         hosts={hosts}
         t={t}
         onOpenHost={(host) => {

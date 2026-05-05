@@ -50,6 +50,9 @@ const HomeDashboard = ({
   onOpenSettings,
   onEditLocal,
   onPickLocalPath,
+  // embedded=true 면 부모 안에 끼워 쓰는 모드 — root 의 height: 100% 를 풀어
+  // 콘텐츠 높이만 차지하게 한다 (분할 pane 의 빈 슬롯에서 미러 picker 와 같이 stack 가능).
+  embedded = false,
   t,
 }) => {
   const [hoverId, setHoverId] = useState(null);
@@ -115,7 +118,13 @@ const HomeDashboard = ({
   };
 
   return (
-    <div ref={rootRef} style={styles.root}>
+    <div
+      ref={rootRef}
+      style={{
+        ...styles.root,
+        ...(embedded ? { height: 'auto', overflow: 'visible' } : null),
+      }}
+    >
       <div style={styles.inner}>
         <div style={styles.topBar}>
           <span style={styles.title}>
