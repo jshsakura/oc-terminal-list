@@ -4,6 +4,7 @@ SQLite 저장소 — 사용자/세션 메타/시스템 설정만 보관
 세션 출력 히스토리는 tmux 스크롤백이 담당하므로 여기서는 다루지 않는다.
 """
 import asyncio
+import json
 import os
 import sqlite3
 from datetime import datetime
@@ -109,12 +110,33 @@ class SQLiteStorage:
                 group_name TEXT,
                 use_remote_tmux INTEGER DEFAULT 1,
                 remote_tmux_session TEXT DEFAULT 'mobile',
+                start_path TEXT,
+                icon TEXT,
                 created_at TEXT NOT NULL,
                 last_used TEXT,
                 FOREIGN KEY (key_id) REFERENCES ssh_keys(id) ON DELETE SET NULL
             )
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_hosts_user ON hosts(username)")
+        # 마이그레이션: 기존 hosts 테이블에 start_path 컬럼 없으면 추가
+        try:
+            cursor.execute("ALTER TABLE hosts ADD COLUMN start_path TEXT")
+        except sqlite3.OperationalError:
+            pass
+        # 마이그레이션: 기존 hosts 테이블에 icon 컬럼 없으면 추가
+        try:
+            cursor.execute("ALTER TABLE hosts ADD COLUMN icon TEXT")
+        except sqlite3.OperationalError:
+            pass
+
+        # 사용자별 UI 설정 — 단일 JSON blob 으로 모두 보관 (테마, 폰트 등)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS user_settings (
+                username TEXT PRIMARY KEY,
+                settings_json TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
 
         conn.commit()
         conn.close()
@@ -290,6 +312,49 @@ class SQLiteStorage:
                 conn.close()
         await asyncio.to_thread(_create)
 
+    async def update_ssh_key(
+        self,
+        key_id: str,
+        username: str,
+        name: Optional[str] = None,
+        public_key: Optional[str] = None,
+        private_key_enc: Optional[str] = None,
+        passphrase_enc: Optional[str] = None,
+        clear_passphrase: bool = False,
+    ) -> bool:
+        """필드별 부분 업데이트. None 은 미변경, clear_passphrase=True 면 passphrase 제거."""
+        def _update():
+            sets = []
+            params: List = []
+            if name is not None:
+                sets.append("name = ?")
+                params.append(name)
+            if public_key is not None:
+                sets.append("public_key = ?")
+                params.append(public_key)
+            if private_key_enc is not None:
+                sets.append("private_key_enc = ?")
+                params.append(private_key_enc)
+            if clear_passphrase:
+                sets.append("passphrase_enc = NULL")
+            elif passphrase_enc is not None:
+                sets.append("passphrase_enc = ?")
+                params.append(passphrase_enc)
+            if not sets:
+                return False
+            params.extend([key_id, username])
+            conn = self._get_connection()
+            try:
+                cur = conn.execute(
+                    f"UPDATE ssh_keys SET {', '.join(sets)} WHERE id = ? AND username = ?",
+                    tuple(params),
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_update)
+
     async def delete_ssh_key(self, key_id: str, username: str) -> bool:
         def _delete():
             conn = self._get_connection()
@@ -310,7 +375,7 @@ class SQLiteStorage:
                 rows = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               color_index, group_name, use_remote_tmux, remote_tmux_session,
-                              created_at, last_used
+                              start_path, icon, created_at, last_used
                        FROM hosts WHERE username = ?
                        ORDER BY group_name NULLS LAST, last_used DESC, name ASC""",
                     (username,),
@@ -327,7 +392,7 @@ class SQLiteStorage:
                 row = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               password_enc, color_index, group_name, use_remote_tmux,
-                              remote_tmux_session, created_at, last_used
+                              remote_tmux_session, start_path, icon, created_at, last_used
                        FROM hosts WHERE id = ? AND username = ?""",
                     (host_id, username),
                 ).fetchone()
@@ -341,7 +406,7 @@ class SQLiteStorage:
         allowed = {
             "name", "hostname", "port", "ssh_user", "auth_method", "key_id",
             "password_enc", "color_index", "group_name", "use_remote_tmux",
-            "remote_tmux_session",
+            "remote_tmux_session", "start_path", "icon",
         }
         updates = {k: v for k, v in fields.items() if k in allowed}
 
@@ -363,8 +428,8 @@ class SQLiteStorage:
                         """INSERT INTO hosts (id, username, name, hostname, port, ssh_user,
                                               auth_method, key_id, password_enc, color_index,
                                               group_name, use_remote_tmux, remote_tmux_session,
-                                              created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                              start_path, icon, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             host_id, username,
                             updates.get("name", "Unnamed"),
@@ -378,6 +443,8 @@ class SQLiteStorage:
                             updates.get("group_name"),
                             int(updates.get("use_remote_tmux", 1)),
                             updates.get("remote_tmux_session", "mobile"),
+                            updates.get("start_path"),
+                            updates.get("icon"),
                             now,
                         ),
                     )
@@ -409,6 +476,41 @@ class SQLiteStorage:
             finally:
                 conn.close()
         return await asyncio.to_thread(_delete)
+
+    # -------- user settings (UI 환경설정 — 테마/폰트 등) --------
+
+    async def get_user_settings(self, username: str) -> Optional[Dict]:
+        """사용자의 저장된 UI 설정. 없으면 None."""
+        def _get():
+            conn = self._get_connection()
+            try:
+                row = conn.execute(
+                    "SELECT settings_json FROM user_settings WHERE username = ?", (username,)
+                ).fetchone()
+                if not row:
+                    return None
+                try:
+                    return json.loads(row["settings_json"])
+                except (TypeError, ValueError):
+                    return None
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_get)
+
+    async def save_user_settings(self, username: str, settings: Dict) -> None:
+        """사용자 설정 upsert. 단일 JSON blob 으로 보관."""
+        payload = json.dumps(settings, ensure_ascii=False)
+        def _save():
+            conn = self._get_connection()
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO user_settings (username, settings_json, updated_at) VALUES (?, ?, ?)",
+                    (username, payload, datetime.utcnow().isoformat()),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_save)
 
     # -------- system config --------
 

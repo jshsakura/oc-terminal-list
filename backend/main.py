@@ -147,6 +147,15 @@ class SshKeyCreateRequest(BaseModel):
     public_key: Optional[str] = None
 
 
+class SshKeyUpdateRequest(BaseModel):
+    # 모든 필드 옵셔널. private_key 가 비어있으면 기존 키 유지 (보안: 평문 노출 방지를 위한 write-once 정책 유지).
+    name: Optional[str] = None
+    private_key: Optional[str] = None  # 새 키로 교체할 때만 채움
+    passphrase: Optional[str] = None
+    clear_passphrase: bool = False     # passphrase 제거 의도 명시 (빈 문자열과 구분)
+    public_key: Optional[str] = None
+
+
 class HostUpsertRequest(BaseModel):
     name: str
     hostname: str
@@ -159,6 +168,8 @@ class HostUpsertRequest(BaseModel):
     group_name: Optional[str] = None
     use_remote_tmux: bool = True
     remote_tmux_session: Optional[str] = "mobile"
+    start_path: Optional[str] = None
+    icon: Optional[str] = None
 
 
 # ---------------------- 시스템 모니터 ----------------------
@@ -240,6 +251,11 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     logger.info("=== Terminal List 종료 ===")
+    try:
+        import host_sftp
+        await host_sftp.close_pool()
+    except Exception:
+        pass
     await storage.close()
 
 
@@ -317,6 +333,80 @@ async def verify_token(username: str = Depends(verify_auth_token)):
 @app.get("/api/system/stats")
 async def get_system_stats(username: str = Depends(verify_auth_token)):
     return system_monitor.get_stats()
+
+
+# ---------------------- Tailscale 연동 ----------------------
+# `tailscale status --json` 으로 tailnet peers 조회 → 호스트 추가 시 picker 에 사용.
+# tailscale 바이너리 없거나 실행 안 되면 빈 목록 반환 (UI 측에서 비활성).
+
+@app.get("/api/tailscale/peers")
+async def get_tailscale_peers(username: str = Depends(verify_auth_token)):
+    if not shutil.which("tailscale"):
+        return {"available": False, "peers": []}
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "tailscale", "status", "--json",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+        if proc.returncode != 0:
+            return {"available": True, "peers": [], "error": "tailscale status failed"}
+        data = json.loads(stdout.decode("utf-8", errors="replace"))
+    except (asyncio.TimeoutError, json.JSONDecodeError, FileNotFoundError) as e:
+        return {"available": False, "peers": [], "error": str(e)}
+
+    peers_raw = data.get("Peer") or {}
+    peers = []
+    for p in peers_raw.values():
+        ips = p.get("TailscaleIPs") or []
+        peers.append({
+            "id": p.get("ID"),
+            "hostname": p.get("HostName") or "",
+            "dns_name": (p.get("DNSName") or "").rstrip("."),
+            "os": p.get("OS") or "",
+            "ip": ips[0] if ips else "",
+            "online": bool(p.get("Online")),
+            "user_id": p.get("UserID"),
+        })
+    # 자기 자신
+    self_node = data.get("Self") or {}
+    me = {
+        "id": self_node.get("ID"),
+        "hostname": self_node.get("HostName") or "",
+        "dns_name": (self_node.get("DNSName") or "").rstrip("."),
+        "os": self_node.get("OS") or "",
+        "ip": (self_node.get("TailscaleIPs") or [""])[0] or "",
+        "online": True,
+        "is_self": True,
+    }
+    peers.sort(key=lambda x: ((not x.get("online")), x.get("hostname", "").lower()))
+    return {"available": True, "peers": peers, "self": me}
+
+
+# ---------------------- 사용자 UI 설정 ----------------------
+# 테마/폰트/언어 등 클라이언트 측 환경설정을 사용자별로 서버에 저장.
+# 디바이스/브라우저 갈아탈 때도 동일 설정으로 들어오게.
+
+class UserSettingsRequest(BaseModel):
+    settings: dict
+
+
+@app.get("/api/user/settings")
+async def get_user_settings(username: str = Depends(verify_auth_token)):
+    saved = await storage.get_user_settings(username)
+    return {"settings": saved or {}}
+
+
+@app.put("/api/user/settings")
+async def put_user_settings(
+    request: UserSettingsRequest,
+    username: str = Depends(verify_auth_token),
+):
+    if not isinstance(request.settings, dict):
+        raise HTTPException(status_code=400, detail="settings must be an object")
+    await storage.save_user_settings(username, request.settings)
+    return {"status": "saved"}
 
 
 # ---------------------- 세션 API ----------------------
@@ -562,6 +652,28 @@ async def create_ssh_key(request: SshKeyCreateRequest, username: str = Depends(v
     return {"id": key_id, "name": request.name, "status": "created"}
 
 
+@app.put("/api/ssh-keys/{key_id}")
+async def update_ssh_key(
+    key_id: str,
+    request: SshKeyUpdateRequest,
+    username: str = Depends(verify_auth_token),
+):
+    private_key_enc = encrypt_str(request.private_key) if request.private_key else None
+    passphrase_enc = encrypt_str(request.passphrase) if request.passphrase else None
+    ok = await storage.update_ssh_key(
+        key_id=key_id,
+        username=username,
+        name=request.name,
+        public_key=request.public_key,
+        private_key_enc=private_key_enc,
+        passphrase_enc=passphrase_enc,
+        clear_passphrase=request.clear_passphrase,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="키를 찾을 수 없거나 변경할 내용이 없습니다")
+    return {"id": key_id, "status": "updated"}
+
+
 @app.delete("/api/ssh-keys/{key_id}")
 async def delete_ssh_key(key_id: str, username: str = Depends(verify_auth_token)):
     ok = await storage.delete_ssh_key(key_id, username)
@@ -589,6 +701,8 @@ def _host_payload_to_fields(req: HostUpsertRequest) -> dict:
         "group_name": req.group_name,
         "use_remote_tmux": 1 if req.use_remote_tmux else 0,
         "remote_tmux_session": req.remote_tmux_session or "mobile",
+        "start_path": (req.start_path or "").strip() or None,
+        "icon": (req.icon or "").strip() or None,
     }
     if req.auth_method == "password" and req.password:
         fields["password_enc"] = encrypt_str(req.password)
@@ -614,12 +728,129 @@ async def update_host(host_id: str, request: HostUpsertRequest, username: str = 
     return {"id": host_id, "status": "updated"}
 
 
+@app.post("/api/hosts/{host_id}/kill-tmux")
+async def kill_host_tmux(
+    host_id: str,
+    force: bool = Query(False, description="true 면 tmux kill-server (전체 nuke)"),
+    username: str = Depends(verify_auth_token),
+):
+    """원격 tmux 세션을 명시적으로 kill. 짧은 SSH exec 한 번 실행하고 종료.
+
+    - force=False (기본): `tmux kill-session -t <name>` (해당 세션만)
+    - force=True: `tmux kill-server` (그 호스트의 tmux 서버 전체 nuke — 망가진 상태 청소용)
+    """
+    from host_manager import open_connection, DEFAULT_REMOTE_TMUX_SESSION
+    import shlex as _shlex
+    host = await storage.get_host(host_id, username)
+    if not host:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+    if not bool(host.get("use_remote_tmux", 1)) and not force:
+        return {"id": host_id, "status": "skipped", "reason": "tmux not used"}
+
+    key_record = None
+    if host.get("auth_method") == "key" and host.get("key_id"):
+        key_record = await storage.get_ssh_key(host["key_id"], username)
+    secrets = resolve_host_secrets(host, key_record)
+    session = host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+    safe = _shlex.quote(session)
+    cmd = "tmux kill-server 2>/dev/null; true" if force else f"tmux has-session -t {safe} 2>/dev/null && tmux kill-session -t {safe}"
+    try:
+        conn = await open_connection(
+            host,
+            private_key=secrets["private_key"],
+            passphrase=secrets["passphrase"],
+            password=secrets["password"],
+        )
+        try:
+            await conn.run(cmd, check=False)
+        finally:
+            conn.close()
+            await conn.wait_closed()
+    except Exception as e:
+        logger.error("kill-tmux failed (%s, force=%s): %s", host_id, force, e)
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"id": host_id, "session": session, "status": "server_killed" if force else "killed"}
+
+
 @app.delete("/api/hosts/{host_id}")
 async def delete_host(host_id: str, username: str = Depends(verify_auth_token)):
     ok = await storage.delete_host(host_id, username)
     if not ok:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
     return {"id": host_id, "status": "deleted"}
+
+
+# ---------------------- 호스트 SFTP 파일 API ----------------------
+# asyncssh SFTP 로 원격 호스트 파일 시스템 브라우징/읽기/쓰기.
+# 연결은 host_sftp 풀에서 재사용.
+
+import host_sftp
+
+
+async def _resolve_host_with_secrets(host_id: str, username: str) -> tuple:
+    host = await storage.get_host(host_id, username)
+    if not host:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+    key_record = None
+    if host.get("auth_method") == "key" and host.get("key_id"):
+        key_record = await storage.get_ssh_key(host["key_id"], username)
+        if not key_record:
+            raise HTTPException(status_code=400, detail="연결된 SSH 키를 찾을 수 없음")
+    secrets = resolve_host_secrets(host, key_record)
+    return host, secrets
+
+
+@app.get("/api/hosts/{host_id}/files")
+async def list_host_files(
+    host_id: str,
+    path: str = Query("", description="원격 디렉토리 경로. 비우면 host start_path 또는 홈."),
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    target = (path or "").strip()
+    if not target:
+        target = (host.get("start_path") or "").strip() or "."
+    try:
+        items = await host_sftp.list_directory(host, secrets, target)
+        return {"items": items, "path": target, "host_id": host_id}
+    except Exception as e:
+        logger.warning("SFTP list failed (%s, %s): %s", host_id, target, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/hosts/{host_id}/files/read")
+async def read_host_file(
+    host_id: str,
+    path: str = Query(..., description="원격 파일 경로 (절대 권장)"),
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    try:
+        content = await host_sftp.read_file(host, secrets, path)
+        return {"content": content, "path": path, "host_id": host_id}
+    except Exception as e:
+        logger.warning("SFTP read failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class HostFileWriteRequest(BaseModel):
+    path: str
+    content: str
+
+
+@app.post("/api/hosts/{host_id}/files/write")
+async def write_host_file(
+    host_id: str,
+    request: HostFileWriteRequest,
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    try:
+        await host_sftp.write_file(host, secrets, request.path, request.content)
+        return {"status": "written", "path": request.path, "host_id": host_id}
+    except Exception as e:
+        logger.warning("SFTP write failed (%s, %s): %s", host_id, request.path, e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------- WebSocket: SSH 호스트 ----------------------
@@ -983,6 +1214,45 @@ async def git_diff(
         raise
     except Exception as e:
         logger.error("git diff failed (%s): %s", path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/git/file-content")
+async def git_file_content(
+    path: str = Query(...),
+    ref: str = Query("HEAD"),
+    username: str = Depends(verify_auth_token),
+):
+    """파일의 특정 ref(기본 HEAD) 시점 내용. DiffEditor 좌측(원본)에 사용."""
+    safe = validate_path(path)
+    repo_root = await _find_repo_root(str(safe))
+    if not repo_root:
+        raise HTTPException(status_code=404, detail="해당 파일이 속한 git 저장소를 찾을 수 없습니다")
+
+    rel_to_repo = os.path.relpath(str(safe.absolute()), repo_root).replace("\\", "/")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_root, "show", f"{ref}:{rel_to_repo}",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            # untracked / 새 파일은 HEAD에 없음 → 빈 원본으로 응답
+            err = stderr.decode("utf-8", errors="replace").strip().lower()
+            if "exists on disk, but not in" in err or "does not exist" in err or "bad object" in err:
+                return {"path": path, "ref": ref, "content": "", "exists": False}
+            raise HTTPException(status_code=500, detail=err or "git show failed")
+        return {
+            "path": path,
+            "ref": ref,
+            "content": stdout.decode("utf-8", errors="replace"),
+            "exists": True,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("git show failed (%s): %s", path, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
