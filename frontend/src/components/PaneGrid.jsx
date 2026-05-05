@@ -93,10 +93,11 @@ const PaneGrid = ({
 
   return (
     <div style={gridStyle}>
-      {panes.map((pane) => (
+      {panes.map((pane, idx) => (
         <Pane
           key={pane.id}
           pane={pane}
+          paneIndex={idx}
           tab={tab}
           hosts={hosts}
           isFocused={pane.id === tab.activePaneId}
@@ -122,7 +123,7 @@ const PaneGrid = ({
 };
 
 const Pane = ({
-  pane, tab, hosts, isFocused, isMultiple, onFocus, onClose, onActivate,
+  pane, paneIndex = 0, tab, hosts, isFocused, isMultiple, onFocus, onClose, onActivate,
   isActive, layoutSignal, settings, updateSettings, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, language, t, viewportHeight,
 }) => {
@@ -207,6 +208,7 @@ const Pane = ({
               key={pane.id}
               sessionId={pane.sessionId || pane.id}
               hostId={pane.hostId || undefined}
+              paneIndex={paneIndex}
               cwd={isLocal ? cwd : null}
               settings={settings}
               isActive={isActive && isFocused}

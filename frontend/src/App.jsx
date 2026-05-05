@@ -185,6 +185,7 @@ function App() {
     const tab = tabs.find((tt) => tt.id === tabId);
     const pane = tab?.panes?.find((p) => p.id === paneId);
     if (!tab || !pane) return;
+    const paneIndex = tab.panes.findIndex((p) => p.id === paneId);
 
     const doClose = () => {
       setTabs((prev) => prev.map((t) => {
@@ -205,11 +206,21 @@ function App() {
         const activePaneId = t.activePaneId === paneId ? remaining[0].id : t.activePaneId;
         return { ...t, panes: remaining, layout, activePaneId };
       }));
-      // 로컬 세션 정리 (호스트는 원격 tmux 살림)
+      const token = localStorage.getItem('auth_token');
+      // 로컬 세션 정리
       if (pane.sessionId && !pane.hostId) {
-        const token = localStorage.getItem('auth_token');
         fetch(`/api/sessions/${pane.sessionId}`, {
           method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+      // 호스트 분할 pane (paneIndex > 0) → 자동 부여된 원격 tmux 세션 정리.
+      // pane 0 (메인) 은 영속이므로 안 죽임.
+      if (pane.hostId && paneIndex > 0) {
+        const host = hosts.find((h) => h.id === pane.hostId);
+        const baseSession = host?.remote_tmux_session || 'mobile';
+        const targetSession = `${baseSession}.${paneIndex + 1}`;
+        fetch(`/api/hosts/${pane.hostId}/kill-tmux?session=${encodeURIComponent(targetSession)}`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` },
         }).catch(() => {});
       }
     };

@@ -732,12 +732,14 @@ async def update_host(host_id: str, request: HostUpsertRequest, username: str = 
 async def kill_host_tmux(
     host_id: str,
     force: bool = Query(False, description="true 면 tmux kill-server (전체 nuke)"),
+    session: Optional[str] = Query(None, description="특정 세션 이름 직접 지정 (예: mobile.2). 없으면 호스트 기본"),
     username: str = Depends(verify_auth_token),
 ):
-    """원격 tmux 세션을 명시적으로 kill. 짧은 SSH exec 한 번 실행하고 종료.
+    """원격 tmux 세션 종료.
 
-    - force=False (기본): `tmux kill-session -t <name>` (해당 세션만)
-    - force=True: `tmux kill-server` (그 호스트의 tmux 서버 전체 nuke — 망가진 상태 청소용)
+    - force=True: `tmux kill-server` (전체 nuke)
+    - session 지정: 그 세션만 kill (분할 pane 의 자동 부여된 세션 정리용)
+    - 둘 다 없으면 호스트의 기본 세션 kill
     """
     from host_manager import open_connection, DEFAULT_REMOTE_TMUX_SESSION
     import shlex as _shlex
@@ -751,25 +753,95 @@ async def kill_host_tmux(
     if host.get("auth_method") == "key" and host.get("key_id"):
         key_record = await storage.get_ssh_key(host["key_id"], username)
     secrets = resolve_host_secrets(host, key_record)
-    session = host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
-    safe = _shlex.quote(session)
+    target_session = (session or "").strip() or host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+    safe = _shlex.quote(target_session)
     cmd = "tmux kill-server 2>/dev/null; true" if force else f"tmux has-session -t {safe} 2>/dev/null && tmux kill-session -t {safe}"
     try:
-        conn = await open_connection(
-            host,
-            private_key=secrets["private_key"],
-            passphrase=secrets["passphrase"],
-            password=secrets["password"],
-        )
-        try:
-            await conn.run(cmd, check=False)
-        finally:
-            conn.close()
-            await conn.wait_closed()
+        # tailscale auth 면 일반 ssh open_connection 안 됨 → tailscale ssh exec
+        if host.get("auth_method") == "tailscale":
+            import asyncio as _asyncio
+            target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
+            proc = await _asyncio.create_subprocess_exec(
+                "tailscale", "ssh", target, cmd,
+                stdout=_asyncio.subprocess.PIPE,
+                stderr=_asyncio.subprocess.PIPE,
+            )
+            await _asyncio.wait_for(proc.communicate(), timeout=10)
+        else:
+            conn = await open_connection(
+                host,
+                private_key=secrets["private_key"],
+                passphrase=secrets["passphrase"],
+                password=secrets["password"],
+            )
+            try:
+                await conn.run(cmd, check=False)
+            finally:
+                conn.close()
+                await conn.wait_closed()
     except Exception as e:
-        logger.error("kill-tmux failed (%s, force=%s): %s", host_id, force, e)
+        logger.error("kill-tmux failed (%s, force=%s, session=%s): %s", host_id, force, target_session, e)
         raise HTTPException(status_code=500, detail=str(e))
-    return {"id": host_id, "session": session, "status": "server_killed" if force else "killed"}
+    return {"id": host_id, "session": target_session, "status": "server_killed" if force else "killed"}
+
+
+@app.get("/api/hosts/{host_id}/tmux-sessions")
+async def list_host_tmux_sessions(
+    host_id: str,
+    username: str = Depends(verify_auth_token),
+):
+    """원격 tmux 서버의 세션 목록. 좀비 세션 청소용.
+
+    `tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}'`
+    """
+    host = await storage.get_host(host_id, username)
+    if not host:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+
+    from host_manager import open_connection
+    cmd = "tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}' 2>/dev/null || true"
+
+    try:
+        if host.get("auth_method") == "tailscale":
+            target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
+            proc = await asyncio.create_subprocess_exec(
+                "tailscale", "ssh", target, cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=10)
+            output = stdout.decode("utf-8", errors="replace")
+        else:
+            key_record = None
+            if host.get("auth_method") == "key" and host.get("key_id"):
+                key_record = await storage.get_ssh_key(host["key_id"], username)
+            secrets = resolve_host_secrets(host, key_record)
+            conn = await open_connection(
+                host,
+                private_key=secrets["private_key"],
+                passphrase=secrets["passphrase"],
+                password=secrets["password"],
+            )
+            try:
+                result = await conn.run(cmd, check=False)
+                output = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace")
+            finally:
+                conn.close()
+                await conn.wait_closed()
+    except Exception as e:
+        logger.error("list-tmux-sessions failed (%s): %s", host_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+    sessions = []
+    for line in output.strip().splitlines():
+        parts = line.split("|")
+        if len(parts) >= 3:
+            sessions.append({
+                "name": parts[0],
+                "created": int(parts[1]) if parts[1].isdigit() else None,
+                "attached": parts[2] != "0",
+            })
+    return {"id": host_id, "sessions": sessions}
 
 
 @app.delete("/api/hosts/{host_id}")
@@ -862,6 +934,7 @@ async def host_websocket(
     token: Optional[str] = Query(None),
     cols: int = Query(80),
     rows: int = Query(24),
+    pane_index: int = Query(0, description="0 이면 base 세션, 1+ 면 base.N+1 세션"),
 ):
     username = await verify_auth_token_ws(token) if token else None
     if not username:
@@ -895,6 +968,7 @@ async def host_websocket(
             host=host,
             cols=cols,
             rows=rows,
+            pane_index=pane_index,
         )
     else:
         bridge = HostBridge(
@@ -905,6 +979,7 @@ async def host_websocket(
             password=secrets["password"],
             cols=cols,
             rows=rows,
+            pane_index=pane_index,
         )
     try:
         await bridge.run()

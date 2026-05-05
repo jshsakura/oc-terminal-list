@@ -47,6 +47,17 @@ def _shell_path(p: str) -> str:
     return shlex.quote(p)
 
 
+def effective_tmux_session(base: str, pane_index: int = 0) -> str:
+    """pane index 별 tmux 세션 이름 부여.
+
+    pane 0 = 기본 이름 (영속/재attach 용도). pane 1+ = `base.N+1` 자동 접미.
+    """
+    base = base or DEFAULT_REMOTE_TMUX_SESSION
+    if not pane_index:
+        return base
+    return f"{base}.{int(pane_index) + 1}"
+
+
 def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: Optional[str] = None) -> Optional[str]:
     """원격에서 실행할 명령. tmux 없으면 기본 셸로 fallback.
 
@@ -133,6 +144,7 @@ class HostBridge:
         password: Optional[str],
         cols: int,
         rows: int,
+        pane_index: int = 0,
     ):
         self.websocket = websocket
         self.host = host
@@ -141,6 +153,7 @@ class HostBridge:
         self.password = password
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)
+        self.pane_index = max(int(pane_index or 0), 0)
         self.conn: Optional[asyncssh.SSHClientConnection] = None
         self.process: Optional[asyncssh.SSHClientProcess] = None
         self._closed = asyncio.Event()
@@ -155,7 +168,8 @@ class HostBridge:
         )
 
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
-        tmux_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+        base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+        tmux_session = effective_tmux_session(base_session, self.pane_index)
         start_path = (self.host.get("start_path") or "").strip() or None
         cmd = _build_remote_command(use_tmux, tmux_session, start_path)
 
@@ -278,11 +292,13 @@ class TailscaleHostBridge:
         *,
         cols: int,
         rows: int,
+        pane_index: int = 0,
     ):
         self.websocket = websocket
         self.host = host
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)
+        self.pane_index = max(int(pane_index or 0), 0)
         self.process: Optional[ptyprocess.PtyProcess] = None
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
@@ -292,7 +308,8 @@ class TailscaleHostBridge:
         hostname = self.host["hostname"]
         target = f"{ssh_user}@{hostname}"
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
-        tmux_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+        base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+        tmux_session = effective_tmux_session(base_session, self.pane_index)
         start_path = (self.host.get("start_path") or "").strip() or None
         cmd = _build_remote_command(use_tmux, tmux_session, start_path)
         argv = ["tailscale", "ssh", "-t", target]
