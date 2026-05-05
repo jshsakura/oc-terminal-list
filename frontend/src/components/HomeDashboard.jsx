@@ -215,6 +215,7 @@ const HomeDashboard = ({
 
 export const HostRow = memo(({
   id, icon, name, subtitle, accentColor,
+  leadingBadge = null,    // 아이콘 박스 앞에 표시할 작은 노드 (예: 탭 번호 kbd)
   isHovered, isDragging, isDragOver,
   draggable, onHover, onClick, onEdit, editTitle,
   onPickPath, pickPathTitle,
@@ -247,6 +248,7 @@ export const HostRow = memo(({
       cursor: draggable ? 'grab' : 'pointer',
     }}
   >
+    {leadingBadge}
     <div
       style={{
         ...styles.iconBox,

@@ -350,10 +350,13 @@ const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
 
 // 빈 pane = 메인 홈 대시보드 그대로 재사용. 호스트 카드 클릭 시 onActivate 호출.
 const EmptyPane = ({ onActivate, hosts = [], tab, allTabs = [], t }) => {
-  // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러
-  const otherTabs = (allTabs || []).filter(
-    (tt) => tt && tt.id && tt.id !== tab?.id && (tt.panes || []).some((p) => p.sessionId || p.hostId),
-  );
+  // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러.
+  // index 는 상단 탭바와 동일한 1-base 순번 (Ctrl+N 단축키와 짝).
+  const otherTabs = (allTabs || [])
+    .map((tt, idx) => ({ tab: tt, index: idx + 1 }))
+    .filter(({ tab: tt }) =>
+      tt && tt.id && tt.id !== tab?.id && (tt.panes || []).some((p) => p.sessionId || p.hostId),
+    );
 
   return (
     <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
@@ -393,7 +396,7 @@ const OpenTabPicker = ({ tabs, hosts = [], onPick, t }) => {
           </span>
         </div>
         <div style={mirrorStyles.grid}>
-          {tabs.map((tb) => {
+          {tabs.map(({ tab: tb, index }) => {
             const isHost = tb.type === 'host';
             const hostMeta = isHost ? hosts.find((h) => h.id === tb.hostId) : null;
             const accent = tb.color_index != null
@@ -404,6 +407,17 @@ const OpenTabPicker = ({ tabs, hosts = [], onPick, t }) => {
                 key={tb.id}
                 id={tb.id}
                 accentColor={accent}
+                leadingBadge={
+                  index <= 9 ? (
+                    <span
+                      title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
+                      style={mirrorStyles.numberBadge}
+                      aria-hidden
+                    >
+                      {index}
+                    </span>
+                  ) : null
+                }
                 icon={
                   <HostIcon
                     value={tb.icon || (hostMeta?.icon || '')}
@@ -460,6 +474,23 @@ const mirrorStyles = {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
     gap: '8px',
+  },
+  numberBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: '20px',
+    height: '20px',
+    padding: '0 5px',
+    fontSize: '11px',
+    fontWeight: 700,
+    color: color.subtext,
+    fontFamily: font.mono,
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: '4px',
+    flexShrink: 0,
+    lineHeight: 1,
   },
 };
 
