@@ -25,7 +25,8 @@ describe('LeftSidebar', () => {
     expect(screen.getByTitle('Hosts')).toBeInTheDocument();
     expect(screen.getByTitle('SSH Keys')).toBeInTheDocument();
     expect(screen.getByTitle(/Settings/i)).toBeInTheDocument();
-    expect(screen.getByTitle(/Sign Out|Logout/i)).toBeInTheDocument();
+    // Logout 은 Settings 모달의 General 탭 안으로 이동 — 사이드바엔 없어야 함.
+    expect(screen.queryByTitle(/Sign Out|Logout/i)).not.toBeInTheDocument();
   });
 
   it('toggles hosts panel on Hosts icon click', () => {

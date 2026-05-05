@@ -1,7 +1,7 @@
 import { memo, useState, useEffect, useRef } from 'react';
 import {
   X, Terminal as TerminalIcon, Server,
-  Settings as SettingsIcon, Key, LogOut, MoreHorizontal,
+  Settings as SettingsIcon, Key, MoreHorizontal,
   SquareSplitHorizontal, SquareSplitVertical,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
@@ -18,7 +18,6 @@ const TabBar = ({
   onOpenHosts,
   onOpenKeys,
   onOpenSettings,
-  onLogout,
   onSplit,
   canSplit = false,
   t,
@@ -98,7 +97,6 @@ const TabBar = ({
         <ActionBtn icon={Server}       onClick={onOpenHosts}    title={t?.('manageHosts') || 'Manage hosts'} />
         <ActionBtn icon={Key}          onClick={onOpenKeys}     title={t?.('sshKeys') || 'SSH Keys'} />
         <ActionBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
-        <ActionBtn icon={LogOut}       onClick={onLogout}       title={t?.('logout') || 'Sign out'} tone="danger" />
       </div>
 
       {contextMenu && (

@@ -1,5 +1,5 @@
 import { useState, memo } from 'react';
-import { FolderTree, GitBranch, Palette, X } from 'lucide-react';
+import { FolderTree, GitBranch, Palette, X, RefreshCw } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import FileTree from './FileTree';
 import ChangesList from './ChangesList';
@@ -23,6 +23,7 @@ const RightPanel = ({
   onFileSelect,
   onFolderSelect,
   onOpenTerminalAtFolder,
+  onRefreshTerminal = null,  // 호출 시 활성 터미널을 통째로 remount (WS 재접속)
   selectedFolderPath = '',
   settings,
   updateSettings,
@@ -130,6 +131,27 @@ const RightPanel = ({
             </button>
           );
         })}
+
+        {/* 분리선 + 터미널 새로고침 — Theme 아래 별도 액션 */}
+        {onRefreshTerminal && !disabled && (
+          <>
+            <div style={{ width: '20px', height: '1px', background: color.border, margin: '6px 0' }} />
+            <button
+              style={{
+                ...styles.actBtn,
+                background: 'transparent',
+                color: color.subtext,
+                cursor: 'pointer',
+              }}
+              onClick={onRefreshTerminal}
+              title={t?.('refreshTerminal') || 'Reload terminal'}
+              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+            >
+              <RefreshCw size={15} strokeWidth={1.8} />
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

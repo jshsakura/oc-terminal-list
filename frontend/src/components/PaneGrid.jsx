@@ -128,6 +128,8 @@ const Pane = ({
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, language, t, viewportHeight,
 }) => {
   const [hover, setHover] = useState(false);
+  // RightPanel 의 재접속 버튼이 누를 때마다 ++ → Terminal key 가 바뀌어 통째로 remount.
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const isEmpty = !pane.sessionId && !pane.hostId;
   const isLocal = !!pane.sessionId && !pane.hostId;
 
@@ -205,7 +207,7 @@ const Pane = ({
         ) : (
           <Suspense fallback={null}>
             <Terminal
-              key={pane.id}
+              key={`${pane.id}:${refreshNonce}`}
               sessionId={pane.sessionId || pane.id}
               hostId={pane.hostId || undefined}
               paneIndex={paneIndex}
@@ -233,6 +235,7 @@ const Pane = ({
           onFileSelect={onFileSelect}
           onFolderSelect={onFolderSelect}
           onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+          onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
           settings={settings}
           updateSettings={updateSettings}
           language={language}

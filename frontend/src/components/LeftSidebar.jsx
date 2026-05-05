@@ -1,6 +1,6 @@
 import { useState, memo } from 'react';
 import {
-  Server, Key, Settings as SettingsIcon, LogOut,
+  Server, Key, Settings as SettingsIcon,
   X, Plus, Monitor,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
@@ -83,13 +83,6 @@ const LeftSidebar = ({
             Icon={SettingsIcon}
             label={t?.('settings') || 'Settings'}
             onClick={onOpenSettings}
-          />
-          <ActIcon
-            isActive={false}
-            Icon={LogOut}
-            label={t?.('logout') || 'Logout'}
-            tone="danger"
-            onClick={onLogout}
           />
         </div>
       </div>

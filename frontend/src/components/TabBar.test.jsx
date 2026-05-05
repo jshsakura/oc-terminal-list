@@ -14,7 +14,8 @@ describe('TabBar', () => {
     expect(screen.getByTitle('Home')).toBeInTheDocument();
     expect(screen.getByTitle(/SSH Keys/)).toBeInTheDocument();
     expect(screen.getByTitle(/^Settings/)).toBeInTheDocument();
-    expect(screen.getByTitle(/Sign out/)).toBeInTheDocument();
+    // Logout 은 Settings 안으로 이동 — TabBar 액션바엔 더 이상 없음.
+    expect(screen.queryByTitle(/Sign out/)).not.toBeInTheDocument();
   });
 
   it('triggers right action handlers', () => {

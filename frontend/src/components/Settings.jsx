@@ -137,10 +137,10 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
                 type="button"
                 onClick={onLogout}
                 style={styles.inlineLogoutBtn}
-                onMouseEnter={(e) => { e.currentTarget.style.background = color.danger; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = color.danger; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.danger; e.currentTarget.style.borderColor = color.border; }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
               >
-                <LogOut size={11} strokeWidth={1.8} />
+                <LogOut size={11} strokeWidth={2} />
                 <span>{t('logout') || 'Logout'}</span>
               </button>
             )}
@@ -645,17 +645,17 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '5px',
-    height: '22px',
-    padding: `0 8px`,
-    background: 'transparent',
-    border: `1px solid ${color.border}`,
+    height: '24px',
+    padding: `0 10px`,
+    background: color.danger,
+    border: `1px solid ${color.danger}`,
     borderRadius: radius.xs,
     cursor: 'pointer',
-    color: color.danger,
+    color: '#fff',
     fontSize: '11px',
     fontFamily: 'inherit',
-    fontWeight: fontWeight.medium,
-    transition: `background ${motion.fast}, color ${motion.fast}, border-color ${motion.fast}`,
+    fontWeight: fontWeight.semibold,
+    transition: `background ${motion.fast}, color ${motion.fast}, border-color ${motion.fast}, opacity ${motion.fast}`,
   },
 };
 
