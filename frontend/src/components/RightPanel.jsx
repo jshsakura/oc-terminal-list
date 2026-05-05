@@ -135,7 +135,7 @@ const RightPanel = ({
         {/* 분리선 + 터미널 새로고침 — Theme 아래 별도 액션 */}
         {onRefreshTerminal && !disabled && (
           <>
-            <div style={{ width: '20px', height: '1px', background: color.border, margin: '6px 0' }} />
+            <div style={{ alignSelf: 'stretch', height: '1px', background: color.border, margin: '6px 0' }} />
             <button
               style={{
                 ...styles.actBtn,
