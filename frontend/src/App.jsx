@@ -172,36 +172,44 @@ function App() {
   // 빈 pane 활성화 — target 종류:
   //  - { type: 'local' } 새 로컬 세션
   //  - { type: 'host', hostId } 호스트 새 pane
-  //  - { type: 'tab',  sourceTabId } 다른 열린 탭의 활성 pane 을 그대로 복제 (mirror)
+  //  - { type: 'tab',  sourceTabId } 다른 열린 탭의 활성 pane 을 이 자리로 이동 (병합)
+  //                                  → 원본 탭은 상단 탭바에서 사라진다.
   // target 없으면 부모 탭 타입 그대로 따라감 (단순 클릭 케이스)
   const activatePane = useCallback((tabId, paneId, target = null) => {
-    setTabs((prev) => prev.map((t) => {
-      if (t.id !== tabId) return t;
-      const panes = (t.panes || []).map((p) => {
-        if (p.id !== paneId) return p;
-        if (p.sessionId || p.hostId) return p;
-        // 1) 다른 열린 탭에서 미러
-        if (target?.type === 'tab' && target.sourceTabId) {
-          const src = prev.find((tt) => tt.id === target.sourceTabId);
-          if (src) {
-            const srcPane = src.panes?.find((pp) => pp.id === src.activePaneId) || src.panes?.[0];
-            if (srcPane?.sessionId) return { ...p, sessionId: srcPane.sessionId, hostId: undefined };
-            if (srcPane?.hostId) return { ...p, hostId: srcPane.hostId, sessionId: undefined };
+    setTabs((prev) => {
+      const moved = prev.map((t) => {
+        if (t.id !== tabId) return t;
+        const panes = (t.panes || []).map((p) => {
+          if (p.id !== paneId) return p;
+          if (p.sessionId || p.hostId) return p;
+          // 1) 다른 열린 탭에서 활성 pane 을 이 자리로 가져옴
+          if (target?.type === 'tab' && target.sourceTabId) {
+            const src = prev.find((tt) => tt.id === target.sourceTabId);
+            if (src) {
+              const srcPane = src.panes?.find((pp) => pp.id === src.activePaneId) || src.panes?.[0];
+              if (srcPane?.sessionId) return { ...p, sessionId: srcPane.sessionId, hostId: undefined };
+              if (srcPane?.hostId) return { ...p, hostId: srcPane.hostId, sessionId: undefined };
+            }
           }
-        }
-        // 2) 명시 target
-        if (target?.type === 'host' && target.hostId) {
-          return { ...p, hostId: target.hostId, sessionId: undefined };
-        }
-        if (target?.type === 'local') {
-          return { ...p, sessionId: generateUUID(), hostId: undefined };
-        }
-        // 3) 부모 탭 타입 폴백
-        if (t.type === 'host') return { ...p, hostId: t.hostId };
-        return { ...p, sessionId: generateUUID() };
+          // 2) 명시 target
+          if (target?.type === 'host' && target.hostId) {
+            return { ...p, hostId: target.hostId, sessionId: undefined };
+          }
+          if (target?.type === 'local') {
+            return { ...p, sessionId: generateUUID(), hostId: undefined };
+          }
+          // 3) 부모 탭 타입 폴백
+          if (t.type === 'host') return { ...p, hostId: t.hostId };
+          return { ...p, sessionId: generateUUID() };
+        });
+        return { ...t, panes, activePaneId: paneId };
       });
-      return { ...t, panes, activePaneId: paneId };
-    }));
+      // tab → tab 병합인 경우 원본 탭은 상단 탭바에서 제거 (이미 pane 으로 흡수됨)
+      if (target?.type === 'tab' && target.sourceTabId) {
+        return moved.filter((t) => t.id !== target.sourceTabId);
+      }
+      return moved;
+    });
   }, []);
 
   const closePane = useCallback((tabId, paneId) => {
