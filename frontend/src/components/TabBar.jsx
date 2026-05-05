@@ -104,7 +104,6 @@ const TabBar = ({
           t={t}
           onClose={() => setContextMenu(null)}
           onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
-          onSelectTab={() => { onSelect(contextMenu.tabId); setContextMenu(null); }}
           onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
         />
       )}
@@ -183,7 +182,7 @@ const Tab = memo(({ tab, isActive, onSelect, onClose, onContextMenu, onMore, t }
   );
 });
 
-const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onSelectTab, onDuplicateTab }) => {
+const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab }) => {
   const ref = useRef(null);
   useEffect(() => {
     const handle = (e) => {
@@ -204,17 +203,16 @@ const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onSelectTab, onDuplicateT
         background: color.surface0,
         border: `1px solid ${color.borderStrong}`,
         borderRadius: '6px',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-        padding: '4px',
+        boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+        padding: '3px',
         zIndex: 1000,
-        minWidth: '140px',
+        minWidth: '120px',
         fontFamily: font.sans,
       }}
     >
-      <MenuItem onClick={onSelectTab}>{t?.('switchToTab') || 'Switch to tab'}</MenuItem>
       {onDuplicateTab && (
         <MenuItem onClick={onDuplicateTab}>
-          {t?.('duplicateTab') || 'Duplicate tab (same path)'}
+          {t?.('duplicateTab') || 'Duplicate (same path)'}
         </MenuItem>
       )}
       <MenuItem onClick={onCloseTab} danger>{t?.('closeTab') || 'Close tab'}</MenuItem>
@@ -228,15 +226,16 @@ const MenuItem = ({ onClick, children, danger }) => (
     style={{
       width: '100%',
       textAlign: 'left',
-      padding: '6px 10px',
+      padding: '5px 8px',
       background: 'transparent',
       border: 'none',
-      borderRadius: '4px',
+      borderRadius: '3px',
       cursor: 'pointer',
       color: danger ? color.danger : color.text,
-      fontSize: fontSize['12'],
+      fontSize: '11.5px',
       fontFamily: 'inherit',
       transition: 'background 120ms',
+      lineHeight: 1.3,
     }}
     onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
@@ -250,6 +249,7 @@ const ActionBtn = ({ icon: Icon, onClick, title, tone }) => (
     onClick={onClick}
     title={title}
     style={{
+      // 큰 클릭 영역 — 시각적 호버 박스는 inner span 이 담당해 우측 활동바와 균형 맞춤.
       width: '32px',
       height: '32px',
       display: 'inline-flex',
@@ -257,22 +257,35 @@ const ActionBtn = ({ icon: Icon, onClick, title, tone }) => (
       justifyContent: 'center',
       background: 'transparent',
       border: 'none',
-      borderRadius: '6px',
       cursor: 'pointer',
       color: tone === 'danger' ? color.danger : color.subtext,
-      transition: 'background 150ms, color 150ms',
       padding: 0,
     }}
     onMouseEnter={(e) => {
-      e.currentTarget.style.background = color.surface0;
+      const inner = e.currentTarget.firstElementChild;
+      if (inner) inner.style.background = color.surface0;
       if (tone !== 'danger') e.currentTarget.style.color = color.text;
     }}
     onMouseLeave={(e) => {
-      e.currentTarget.style.background = 'transparent';
+      const inner = e.currentTarget.firstElementChild;
+      if (inner) inner.style.background = 'transparent';
       e.currentTarget.style.color = tone === 'danger' ? color.danger : color.subtext;
     }}
   >
-    <Icon size={16} strokeWidth={1.8} />
+    <span
+      style={{
+        width: '24px',
+        height: '24px',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'transparent',
+        borderRadius: '5px',
+        transition: 'background 150ms',
+      }}
+    >
+      <Icon size={15} strokeWidth={1.8} />
+    </span>
   </button>
 );
 
