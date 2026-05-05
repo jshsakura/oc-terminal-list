@@ -18,7 +18,10 @@ const EMPTY = {
   use_remote_tmux: true,
   remote_tmux_session: 'mobile',
   start_path: '',
+  icon: '',
 };
+
+const ICON_PRESETS = ['🖥️', '🐧', '🐳', '☁️', '🛠️', '🦊', '🍎', '🐍', '🌐', '🔒'];
 
 const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t }) => {
   const [draft, setDraft] = useState(EMPTY);
@@ -376,6 +379,12 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
             <Field label={t('color') || 'Color'}>
               <ColorPicker value={draft.color_index} onChange={(v) => set('color_index', v)} />
             </Field>
+            <Field
+              label={t('icon') || 'Icon'}
+              hint={t('iconHint') || 'Pick a preset or type any emoji. Empty = default server icon.'}
+            >
+              <IconPicker value={draft.icon || ''} onChange={(v) => set('icon', v)} />
+            </Field>
           </Section>
 
           {error && <div style={styles.error}>{error}</div>}
@@ -502,6 +511,80 @@ const Toggle = ({ label, hint, checked, onChange }) => (
     </button>
   </div>
 );
+
+const IconPicker = ({ value, onChange }) => {
+  const [focused, setFocused] = useState(false);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: space['2'], flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+        <input
+          type="text"
+          value={value}
+          maxLength={4}
+          onChange={(e) => onChange(e.target.value)}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          placeholder="🖥️"
+          style={{
+            width: '52px',
+            height: '32px',
+            textAlign: 'center',
+            fontSize: '18px',
+            background: focused ? color.crust : color.mantle,
+            color: color.text,
+            border: `1px solid ${focused ? color.accentBorder : color.border}`,
+            borderRadius: radius.sm,
+            outline: 'none',
+            fontFamily: 'inherit',
+            padding: 0,
+          }}
+        />
+        {value && (
+          <button
+            type="button"
+            onClick={() => onChange('')}
+            title="Clear"
+            style={{
+              height: '24px',
+              padding: `0 ${space['2']}`,
+              background: 'transparent',
+              border: `1px solid ${color.border}`,
+              borderRadius: radius.xs,
+              color: color.muted,
+              fontSize: fontSize['11'],
+              cursor: 'pointer',
+            }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+        {ICON_PRESETS.map((emoji) => (
+          <button
+            key={emoji}
+            type="button"
+            onClick={() => onChange(emoji)}
+            style={{
+              width: '30px',
+              height: '30px',
+              padding: 0,
+              fontSize: '17px',
+              lineHeight: 1,
+              background: value === emoji ? color.surface2 : color.surface0,
+              border: `1px solid ${value === emoji ? color.accent : color.border}`,
+              borderRadius: radius.sm,
+              cursor: 'pointer',
+              transition: `background ${motion.fast}, border-color ${motion.fast}`,
+            }}
+          >
+            {emoji}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const ColorPicker = ({ value, onChange }) => (
   <div style={{ display: 'flex', gap: space['1.5'], flexWrap: 'wrap' }}>

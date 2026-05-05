@@ -174,7 +174,7 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
     const cwdQS = cwd ? `&cwd=${encodeURIComponent(cwd)}` : '';
     const paneQS = paneIndex ? `&pane_index=${paneIndex}` : '';
     const wsUrl = hostId
-      ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}`
+      ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}`
       : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
     
     const socket = new WebSocket(wsUrl);

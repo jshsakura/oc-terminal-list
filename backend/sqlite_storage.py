@@ -111,6 +111,7 @@ class SQLiteStorage:
                 use_remote_tmux INTEGER DEFAULT 1,
                 remote_tmux_session TEXT DEFAULT 'mobile',
                 start_path TEXT,
+                last_cwd TEXT,
                 icon TEXT,
                 created_at TEXT NOT NULL,
                 last_used TEXT,
@@ -126,6 +127,11 @@ class SQLiteStorage:
         # 마이그레이션: 기존 hosts 테이블에 icon 컬럼 없으면 추가
         try:
             cursor.execute("ALTER TABLE hosts ADD COLUMN icon TEXT")
+        except sqlite3.OperationalError:
+            pass
+        # 마이그레이션: 호스트 마지막 cwd (브라우저로 폴더 골라 들어간 경로 — start_path 보다 우선)
+        try:
+            cursor.execute("ALTER TABLE hosts ADD COLUMN last_cwd TEXT")
         except sqlite3.OperationalError:
             pass
 
@@ -375,7 +381,7 @@ class SQLiteStorage:
                 rows = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               color_index, group_name, use_remote_tmux, remote_tmux_session,
-                              start_path, icon, created_at, last_used
+                              start_path, last_cwd, icon, created_at, last_used
                        FROM hosts WHERE username = ?
                        ORDER BY group_name NULLS LAST, last_used DESC, name ASC""",
                     (username,),
@@ -392,7 +398,7 @@ class SQLiteStorage:
                 row = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               password_enc, color_index, group_name, use_remote_tmux,
-                              remote_tmux_session, start_path, icon, created_at, last_used
+                              remote_tmux_session, start_path, last_cwd, icon, created_at, last_used
                        FROM hosts WHERE id = ? AND username = ?""",
                     (host_id, username),
                 ).fetchone()
@@ -465,6 +471,21 @@ class SQLiteStorage:
             finally:
                 conn.close()
         await asyncio.to_thread(_touch)
+
+    async def update_host_last_cwd(self, host_id: str, username: str, cwd: Optional[str]) -> None:
+        """호스트의 마지막 cwd 갱신. 빈 문자열은 None 으로 정규화."""
+        normalized = (cwd or "").strip() or None
+        def _update():
+            conn = self._get_connection()
+            try:
+                conn.execute(
+                    "UPDATE hosts SET last_cwd = ? WHERE id = ? AND username = ?",
+                    (normalized, host_id, username),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_update)
 
     async def delete_host(self, host_id: str, username: str) -> bool:
         def _delete():

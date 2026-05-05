@@ -13,6 +13,7 @@ import { generateUUID } from './utils/helpers';
 
 import TabBar from './components/TabBar';
 import HomeDashboard from './components/HomeDashboard';
+import RemoteFolderPicker from './components/RemoteFolderPicker';
 import HostManager from './components/HostManager';
 import PaneGrid from './components/PaneGrid';
 import LoadingScreen from './components/layout/LoadingScreen';
@@ -42,20 +43,21 @@ const makePane = (extra = {}) => ({
   ...extra,
 });
 
-const makLocalTab = (sessionId, name) => {
+const makLocalTab = (sessionId, name, cwd = null) => {
   const pane = makePane({ sessionId });
   return {
     id: `local:${sessionId}`,
     type: 'local',
     sessionId,
     name: name || 'terminal',
+    cwd: cwd ?? null,
     panes: [pane],
     layout: 'single',
     activePaneId: pane.id,
   };
 };
 
-const makeHostTab = (host) => {
+const makeHostTab = (host, cwd = null) => {
   const pane = makePane({ hostId: host.id });
   return {
     id: `host:${host.id}:${Date.now()}`,
@@ -64,6 +66,7 @@ const makeHostTab = (host) => {
     name: host.name,
     icon: host.icon || null,
     color_index: host.color_index ?? 0,
+    cwd: cwd ?? null,
     panes: [pane],
     layout: 'single',
     activePaneId: pane.id,
@@ -127,12 +130,12 @@ function App() {
     setActiveTabId(tab.id);
   }, []);
 
-  const openHostTab = useCallback((host) => {
+  const openHostTab = useCallback((host, cwd = null) => {
     if (!host || host.isLocal || host.id === 'local') {
       openLocalTab();
       return;
     }
-    const tab = makeHostTab(host);
+    const tab = makeHostTab(host, cwd);
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);
   }, [openLocalTab]);
@@ -342,6 +345,7 @@ function App() {
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
   const [editingKey, setEditingKey] = useState(null);
   const [hostManagerOpen, setHostManagerOpen] = useState(false);
+  const [folderPickerHost, setFolderPickerHost] = useState(null);
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -589,6 +593,7 @@ function App() {
             <HomeDashboard
               hosts={hosts}
               onOpenHost={openHostTab}
+              onOpenHostAtPath={(h) => setFolderPickerHost(h)}
               onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
               onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
               onDeleteHost={async (h) => { await deleteHost(h.id); await refreshHosts(); }}
@@ -632,12 +637,16 @@ function App() {
                   layoutSignal={terminalLayoutSignal}
                   settings={settings}
                   updateSettings={updateSettings}
-                  cwd={activeTab?.type === 'local' ? (activeTab?.cwd || settings.localStartPath || null) : null}
+                  cwd={
+                    activeTab?.type === 'local'
+                      ? (activeTab?.cwd ?? (settings.localStartPath || null))
+                      : (activeTab?.cwd ?? null)
+                  }
                   onFileSelect={handleFileOpen}
                   onFolderSelect={setSelectedFolderPath}
                   onOpenTerminalAtFolder={async (path) => {
                     const sessionId = generateUUID();
-                    const tab = makLocalTab(sessionId, path.split('/').pop() || 'terminal');
+                    const tab = makLocalTab(sessionId, path.split('/').pop() || 'terminal', path);
                     setTabs((prev) => [...prev, tab]);
                     setActiveTabId(tab.id);
                   }}
@@ -709,6 +718,31 @@ function App() {
         onAdd={() => { setHostManagerOpen(false); setHostEditorState({ isOpen: true, host: null }); }}
         onEdit={(h) => { setHostManagerOpen(false); setHostEditorState({ isOpen: true, host: h }); }}
         onConnect={(h) => { setHostManagerOpen(false); openHostTab(h); }}
+        t={t}
+      />
+
+      {/* ── remote folder picker (open-at-path) ── */}
+      <RemoteFolderPicker
+        isOpen={!!folderPickerHost}
+        host={folderPickerHost}
+        onClose={() => setFolderPickerHost(null)}
+        onPick={async (chosen) => {
+          const host = folderPickerHost;
+          setFolderPickerHost(null);
+          if (!host || !chosen) return;
+          try {
+            const token = localStorage.getItem('auth_token');
+            await fetch(`/api/hosts/${host.id}/last-cwd`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ cwd: chosen }),
+            });
+          } catch {
+            // 무시 — 갱신 실패해도 cwd 는 WS 로 직접 전달
+          }
+          openHostTab(host, chosen);
+          refreshHosts();
+        }}
         t={t}
       />
 

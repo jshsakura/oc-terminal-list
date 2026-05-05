@@ -145,6 +145,7 @@ class HostBridge:
         cols: int,
         rows: int,
         pane_index: int = 0,
+        cwd: Optional[str] = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -154,6 +155,7 @@ class HostBridge:
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)
         self.pane_index = max(int(pane_index or 0), 0)
+        self.cwd = (cwd or "").strip() or None
         self.conn: Optional[asyncssh.SSHClientConnection] = None
         self.process: Optional[asyncssh.SSHClientProcess] = None
         self._closed = asyncio.Event()
@@ -170,7 +172,13 @@ class HostBridge:
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
         base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
         tmux_session = effective_tmux_session(base_session, self.pane_index)
-        start_path = (self.host.get("start_path") or "").strip() or None
+        # 우선순위: 호출자 cwd (브라우저로 고른 경로) > host.last_cwd > host.start_path
+        start_path = (
+            self.cwd
+            or (self.host.get("last_cwd") or "").strip()
+            or (self.host.get("start_path") or "").strip()
+            or None
+        )
         cmd = _build_remote_command(use_tmux, tmux_session, start_path)
 
         # PTY 요청해서 인터랙티브 셸로 동작
@@ -293,12 +301,14 @@ class TailscaleHostBridge:
         cols: int,
         rows: int,
         pane_index: int = 0,
+        cwd: Optional[str] = None,
     ):
         self.websocket = websocket
         self.host = host
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)
         self.pane_index = max(int(pane_index or 0), 0)
+        self.cwd = (cwd or "").strip() or None
         self.process: Optional[ptyprocess.PtyProcess] = None
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
@@ -310,7 +320,12 @@ class TailscaleHostBridge:
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
         base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
         tmux_session = effective_tmux_session(base_session, self.pane_index)
-        start_path = (self.host.get("start_path") or "").strip() or None
+        start_path = (
+            self.cwd
+            or (self.host.get("last_cwd") or "").strip()
+            or (self.host.get("start_path") or "").strip()
+            or None
+        )
         cmd = _build_remote_command(use_tmux, tmux_session, start_path)
         argv = ["tailscale", "ssh", "-t", target]
         if cmd:

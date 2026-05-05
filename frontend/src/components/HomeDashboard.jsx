@@ -1,5 +1,5 @@
 import { useState, memo, useMemo, useRef, useEffect } from 'react';
-import { Server, Monitor, Plus, Settings as SettingsIcon } from 'lucide-react';
+import { Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
@@ -25,7 +25,7 @@ const CARD_WIDTH = 140;
 const CARD_GAP = 8;
 const HORIZONTAL_PADDING = 40;  // root 좌우 padding 합 추정 (root padding ${space['5']}=20px*2)
 
-const HomeDashboard = ({ hosts = [], onOpenHost, onAddHost, onEditHost, onDeleteHost, onOpenSettings, t }) => {
+const HomeDashboard = ({ hosts = [], onOpenHost, onOpenHostAtPath, onAddHost, onEditHost, onDeleteHost, onOpenSettings, t }) => {
   const [hoverId, setHoverId] = useState(null);
   const [order, setOrder] = useState(() => loadOrder());
   const [draggingId, setDraggingId] = useState(null);
@@ -146,6 +146,8 @@ const HomeDashboard = ({ hosts = [], onOpenHost, onAddHost, onEditHost, onDelete
                   onClick={() => onOpenHost(host)}
                   onEdit={() => onEditHost?.(host)}
                   editTitle={t?.('hostSettings') || 'Host settings'}
+                  onPickPath={onOpenHostAtPath ? () => onOpenHostAtPath(host) : null}
+                  pickPathTitle={t?.('openAtPath') || 'Open at path…'}
                   onDragStart={(e) => {
                     setDraggingId(host.id);
                     e.dataTransfer.effectAllowed = 'move';
@@ -183,6 +185,7 @@ const HostCard = memo(({
   id, iconNode, emoji, name, subtitle, accentColor,
   isHovered, isDragging, isDragOver,
   draggable, onHover, onClick, onEdit, editTitle,
+  onPickPath, pickPathTitle,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
 }) => (
   <div
@@ -211,33 +214,35 @@ const HostCard = memo(({
       position: 'relative',
     }}
   >
-    {onEdit && (
-      <button
-        onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        title={editTitle}
+    {(onEdit || onPickPath) && (
+      <div
         style={{
           position: 'absolute',
           top: '6px',
           right: '6px',
-          width: '22px',
-          height: '22px',
           display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          background: isHovered ? color.surface2 : 'transparent',
-          border: 'none',
-          borderRadius: '4px',
-          cursor: 'pointer',
-          color: isHovered ? color.subtext : 'transparent',
-          opacity: isHovered ? 1 : 0,
-          transition: 'opacity 150ms, background 150ms, color 150ms',
-          padding: 0,
+          gap: '2px',
         }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = color.base; e.currentTarget.style.color = color.text; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = isHovered ? color.surface2 : 'transparent'; e.currentTarget.style.color = isHovered ? color.subtext : 'transparent'; }}
       >
-        <SettingsIcon size={12} strokeWidth={1.8} />
-      </button>
+        {onPickPath && (
+          <CornerBtn
+            onClick={(e) => { e.stopPropagation(); onPickPath(); }}
+            title={pickPathTitle}
+            isHovered={isHovered}
+          >
+            <FolderOpen size={12} strokeWidth={1.8} />
+          </CornerBtn>
+        )}
+        {onEdit && (
+          <CornerBtn
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            title={editTitle}
+            isHovered={isHovered}
+          >
+            <SettingsIcon size={12} strokeWidth={1.8} />
+          </CornerBtn>
+        )}
+      </div>
     )}
     {/* 아이콘 — 박스 없이 accent 색 라인 아이콘만 가운데 */}
     <div style={{ ...styles.iconBadge, color: accentColor }}>
@@ -249,6 +254,39 @@ const HostCard = memo(({
     <div style={styles.cardSub}>{subtitle}</div>
   </div>
 ));
+
+const CornerBtn = ({ onClick, title, isHovered, children }) => (
+  <button
+    onClick={onClick}
+    title={title}
+    style={{
+      width: '22px',
+      height: '22px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: isHovered ? color.surface2 : color.surface0,
+      border: `1px solid ${color.border}`,
+      borderRadius: '4px',
+      cursor: 'pointer',
+      color: color.subtext,
+      transition: 'background 150ms, color 150ms, border-color 150ms',
+      padding: 0,
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = color.base;
+      e.currentTarget.style.color = color.text;
+      e.currentTarget.style.borderColor = color.accent;
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = isHovered ? color.surface2 : color.surface0;
+      e.currentTarget.style.color = color.subtext;
+      e.currentTarget.style.borderColor = color.border;
+    }}
+  >
+    {children}
+  </button>
+);
 
 const EmptySlot = ({ onClick, t }) => {
   const [hovered, setHovered] = useState(false);

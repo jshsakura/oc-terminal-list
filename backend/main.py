@@ -728,6 +728,24 @@ async def update_host(host_id: str, request: HostUpsertRequest, username: str = 
     return {"id": host_id, "status": "updated"}
 
 
+class HostLastCwdRequest(BaseModel):
+    cwd: Optional[str] = None
+
+
+@app.post("/api/hosts/{host_id}/last-cwd")
+async def update_host_last_cwd(
+    host_id: str,
+    request: HostLastCwdRequest,
+    username: str = Depends(verify_auth_token),
+):
+    """호스트의 마지막 cwd 명시적으로 설정. 폴더 픽커에서 경로 고른 직후 호출."""
+    existing = await storage.get_host(host_id, username)
+    if not existing:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+    await storage.update_host_last_cwd(host_id, username, request.cwd)
+    return {"id": host_id, "last_cwd": (request.cwd or "").strip() or None}
+
+
 @app.post("/api/hosts/{host_id}/kill-tmux")
 async def kill_host_tmux(
     host_id: str,
@@ -935,6 +953,7 @@ async def host_websocket(
     cols: int = Query(80),
     rows: int = Query(24),
     pane_index: int = Query(0, description="0 이면 base 세션, 1+ 면 base.N+1 세션"),
+    cwd: Optional[str] = Query(None, description="이 연결에서 사용할 시작 디렉토리. 비우면 host.last_cwd → host.start_path 순으로 폴백."),
 ):
     username = await verify_auth_token_ws(token) if token else None
     if not username:
@@ -960,6 +979,14 @@ async def host_websocket(
     except Exception:
         pass
 
+    effective_cwd = (cwd or "").strip() or None
+    # cwd 가 명시적으로 들어왔으면 last_cwd 갱신 (다음 접속에서 폴백 기본값으로 사용)
+    if effective_cwd:
+        try:
+            await storage.update_host_last_cwd(host_id, username, effective_cwd)
+        except Exception as e:
+            logger.warning("update_host_last_cwd failed (%s): %s", host_id, e)
+
     # auth_method == 'tailscale' → tailscale ssh subprocess 로 연결 (SSH 키 불필요)
     if host.get("auth_method") == "tailscale":
         from host_manager import TailscaleHostBridge
@@ -969,6 +996,7 @@ async def host_websocket(
             cols=cols,
             rows=rows,
             pane_index=pane_index,
+            cwd=effective_cwd,
         )
     else:
         bridge = HostBridge(
@@ -980,6 +1008,7 @@ async def host_websocket(
             cols=cols,
             rows=rows,
             pane_index=pane_index,
+            cwd=effective_cwd,
         )
     try:
         await bridge.run()
