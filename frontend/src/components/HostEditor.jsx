@@ -194,13 +194,20 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
 
           <Section title={t('persistence') || 'Persistence'}>
             <Toggle
-              label={t('useRemoteTmux') || 'Auto-attach remote tmux session'}
-              hint={t('useRemoteTmuxHint') || 'Disconnects no longer end your work — reattach from anywhere.'}
+              label={t('useRemoteTmux') || 'Persist sessions across disconnects (tmux)'}
+              hint={
+                draft.use_remote_tmux
+                  ? (t('useRemoteTmuxHintOn') || 'ON: 연결 끊겨도 원격 tmux 가 세션을 살려둠. 다시 붙으면 그대로. 원격에 tmux 설치 필요 (없으면 일반 셸로 폴백).')
+                  : (t('useRemoteTmuxHintOff') || 'OFF: 일반 SSH 셸. 연결 끊기면 실행 중이던 작업 사라짐.')
+              }
               checked={draft.use_remote_tmux}
               onChange={(v) => set('use_remote_tmux', v)}
             />
             {draft.use_remote_tmux && (
-              <Field label={t('tmuxSessionName') || 'tmux session name'}>
+              <Field
+                label={t('tmuxSessionName') || 'tmux session name'}
+                hint={t('tmuxSessionNameHint') || '같은 이름이면 다른 탭/디바이스에서도 같은 화면 공유.'}
+              >
                 <Input
                   value={draft.remote_tmux_session || ''}
                   onChange={(v) => set('remote_tmux_session', v)}
