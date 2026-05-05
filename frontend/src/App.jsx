@@ -843,8 +843,10 @@ function App() {
               await refreshHosts();
               setHostEditorState({ isOpen: false, host: null });
             }}
-            onDelete={async (h) => {
-              await deleteHost(h.id);
+            onDelete={async () => {
+              const target = hostEditorState.host;
+              if (!target) return;
+              await deleteHost(target.id);
               await refreshHosts();
               setHostEditorState({ isOpen: false, host: null });
             }}
