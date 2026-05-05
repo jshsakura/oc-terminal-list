@@ -2,7 +2,7 @@ import { Suspense, lazy, useState, useEffect } from 'react';
 import { X, Plus, Server, Terminal as TerminalIcon, Copy } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RightPanel from './RightPanel';
-import HomeDashboard from './HomeDashboard';
+import HomeDashboard, { HostRow } from './HomeDashboard';
 import HostIcon from '../utils/hostIcons';
 import useActiveTerminalCwd from '../hooks/useActiveTerminalCwd';
 
@@ -382,16 +382,17 @@ const EmptyPane = ({ onActivate, hosts = [], tab, allTabs = [], t }) => {
 
 const OpenTabPicker = ({ tabs, hosts = [], onPick, t }) => {
   const palette = color.dotPalette || ['#89b4fa'];
+  const [hoverId, setHoverId] = useState(null);
   return (
-    <div style={emptyPaneStyles.outer}>
-      <div style={emptyPaneStyles.inner}>
-        <div style={emptyPaneStyles.titleRow}>
-          <Copy size={12} strokeWidth={2} style={{ color: color.warning }} />
-          <span style={emptyPaneStyles.title}>
+    <div style={mirrorStyles.outer}>
+      <div style={mirrorStyles.inner}>
+        <div style={mirrorStyles.titleRow}>
+          <Copy size={12} strokeWidth={2} style={{ color: color.subtext }} />
+          <span style={mirrorStyles.title}>
             {t?.('mirrorOpenTab') || 'Mirror an open tab here'}
           </span>
         </div>
-        <div style={emptyPaneStyles.grid}>
+        <div style={mirrorStyles.grid}>
           {tabs.map((tb) => {
             const isHost = tb.type === 'host';
             const hostMeta = isHost ? hosts.find((h) => h.id === tb.hostId) : null;
@@ -399,51 +400,27 @@ const OpenTabPicker = ({ tabs, hosts = [], onPick, t }) => {
               ? palette[tb.color_index % palette.length]
               : color.accent;
             return (
-              <button
+              <HostRow
                 key={tb.id}
-                type="button"
-                onClick={() => onPick(tb.id)}
-                style={{
-                  ...emptyPaneStyles.row,
-                  borderColor: `${color.warning}55`,
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = `${color.warning}14`;
-                  e.currentTarget.style.borderColor = color.warning;
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = color.surface0;
-                  e.currentTarget.style.borderColor = `${color.warning}55`;
-                }}
-              >
-                {/* 좌측 색 띠 — 미러 항목임을 표시 */}
-                <span style={{ ...emptyPaneStyles.stripe, background: color.warning }} />
-                <span
-                  style={{
-                    ...emptyPaneStyles.iconBox,
-                    color: accent,
-                    borderColor: `${accent}66`,
-                    background: `${accent}1a`,
-                  }}
-                >
+                id={tb.id}
+                accentColor={accent}
+                icon={
                   <HostIcon
                     value={tb.icon || (hostMeta?.icon || '')}
                     fallback={isHost ? Server : TerminalIcon}
                     size={20}
                   />
-                </span>
-                <div style={emptyPaneStyles.text}>
-                  <div style={emptyPaneStyles.name}>{tb.name}</div>
-                  <div style={emptyPaneStyles.sub}>
-                    {isHost
-                      ? (hostMeta ? `${hostMeta.ssh_user}@${hostMeta.hostname}` : tb.hostId)
-                      : (t?.('thisMachine') || 'This machine')}
-                  </div>
-                </div>
-                <span style={emptyPaneStyles.badge}>
-                  <Copy size={11} strokeWidth={1.8} />
-                </span>
-              </button>
+                }
+                name={tb.name}
+                subtitle={
+                  isHost
+                    ? (hostMeta ? `${hostMeta.ssh_user}@${hostMeta.hostname}` : tb.hostId)
+                    : (t?.('thisMachine') || 'This machine')
+                }
+                isHovered={hoverId === tb.id}
+                onHover={setHoverId}
+                onClick={() => onPick(tb.id)}
+              />
             );
           })}
         </div>
@@ -452,8 +429,7 @@ const OpenTabPicker = ({ tabs, hosts = [], onPick, t }) => {
   );
 };
 
-// HomeDashboard 의 가로 카드 메트릭(60px 행, 12px 갭, 260 minmax) 그대로 맞춰 줄을 정렬.
-const emptyPaneStyles = {
+const mirrorStyles = {
   outer: {
     width: '100%',
     boxSizing: 'border-box',
@@ -466,8 +442,7 @@ const emptyPaneStyles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '12px',
-    paddingTop: '12px',
-    borderTop: `1px dashed ${color.border}`,
+    paddingTop: '4px',
   },
   titleRow: {
     display: 'inline-flex',
@@ -477,7 +452,7 @@ const emptyPaneStyles = {
   title: {
     fontSize: '11px',
     fontWeight: 600,
-    color: color.warning,
+    color: color.subtext,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
   },
@@ -485,65 +460,6 @@ const emptyPaneStyles = {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
     gap: '8px',
-  },
-  row: {
-    position: 'relative',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-    padding: '10px 12px 10px 18px',
-    minHeight: '60px',
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
-    borderRadius: '12px',
-    cursor: 'pointer',
-    fontFamily: font.sans,
-    color: color.text,
-    textAlign: 'left',
-    transition: 'background 150ms, border-color 150ms',
-    boxSizing: 'border-box',
-    overflow: 'hidden',
-  },
-  stripe: {
-    position: 'absolute',
-    left: 0, top: 0, bottom: 0,
-    width: '4px',
-  },
-  iconBox: {
-    width: '40px',
-    height: '40px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    border: `1px solid ${color.border}`,
-    borderRadius: '8px',
-  },
-  text: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' },
-  name: {
-    fontSize: '13px',
-    fontWeight: 600,
-    color: color.text,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  sub: {
-    fontSize: '11px',
-    color: color.subtext,
-    fontFamily: font.mono,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  badge: {
-    width: '24px', height: '24px',
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    background: `${color.warning}22`,
-    color: color.warning,
-    border: `1px solid ${color.warning}44`,
-    borderRadius: '6px',
-    flexShrink: 0,
   },
 };
 

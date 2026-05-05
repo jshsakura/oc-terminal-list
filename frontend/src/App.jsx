@@ -571,6 +571,16 @@ function App() {
         if (activeTabId) closeTab(activeTabId);
         return;
       }
+      // Ctrl/Cmd + 1..9 → 해당 인덱스 탭으로 전환 (탭 좌측의 번호와 짝)
+      if (ctrl && /^[1-9]$/.test(e.key)) {
+        const idx = parseInt(e.key, 10) - 1;
+        const target = tabs[idx];
+        if (target) {
+          e.preventDefault();
+          setActiveTabId(target.id);
+        }
+        return;
+      }
     };
 
     const onSearch = (ev) => {
@@ -582,7 +592,7 @@ function App() {
     window.addEventListener('keydown', onKey);
     window.addEventListener('terminal:open-search', onSearch);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('terminal:open-search', onSearch); };
-  }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane]);  // splitActivePane 은 deps 비어 있어 stable
+  }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane, tabs]);  // splitActivePane 은 deps 비어 있어 stable
 
   useEffect(() => { setTerminalSearchStatus(''); }, [terminalSearchQuery]);
 

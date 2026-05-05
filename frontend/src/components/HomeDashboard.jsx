@@ -213,7 +213,7 @@ const HomeDashboard = ({
   );
 };
 
-const HostRow = memo(({
+export const HostRow = memo(({
   id, icon, name, subtitle, accentColor,
   isHovered, isDragging, isDragOver,
   draggable, onHover, onClick, onEdit, editTitle,

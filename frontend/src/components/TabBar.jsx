@@ -189,17 +189,26 @@ const Tab = memo(({
         if (closeBtn) closeBtn.style.opacity = isActive ? '0.85' : '0.5';
       }}
     >
-      {index != null && (
+      {index != null && index <= 9 && (
         <span
+          title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
           style={{
-            fontSize: '10px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minWidth: '15px',
+            height: '15px',
+            padding: '0 3px',
+            fontSize: '9.5px',
             fontWeight: 600,
-            color: isActive ? color.subtext : color.muted,
+            color: isActive ? color.text : color.muted,
             fontFamily: font.mono,
-            minWidth: '12px',
-            textAlign: 'right',
+            background: isActive ? color.surface1 : 'transparent',
+            border: `1px solid ${isActive ? color.borderStrong : color.border}`,
+            borderRadius: '3px',
             flexShrink: 0,
             letterSpacing: '0',
+            lineHeight: 1,
           }}
           aria-hidden
         >
