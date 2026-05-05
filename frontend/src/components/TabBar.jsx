@@ -12,6 +12,7 @@ const { color, font, fontSize, fontWeight } = tokens;
 const TabBar = ({
   tabs = [],
   activeTabId,
+  busyTabIds,
   onSelect,
   onClose,
   onHome,
@@ -31,6 +32,10 @@ const TabBar = ({
     <div style={styles.bar}>
       <style>{`
         .tabbar-list::-webkit-scrollbar { display: none; }
+        @keyframes iterm-tab-pulse {
+          0%, 100% { transform: scale(1); opacity: 1; }
+          50%      { transform: scale(1.35); opacity: 0.55; }
+        }
       `}</style>
       {/* brand = home button — 홈 활성 시 활성 탭과 동일한 base 배경으로 */}
       <button
@@ -63,6 +68,7 @@ const TabBar = ({
             key={tab.id}
             tab={tab}
             isActive={tab.id === activeTabId}
+            isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
             onSelect={() => onSelect(tab.id)}
             onClose={() => onClose(tab.id)}
             onContextMenu={(e) => {
@@ -92,7 +98,6 @@ const TabBar = ({
               onClick={() => onSplit?.('v')}
               title={`${t?.('splitVertical') || 'Split down'} (Ctrl+Shift+\\)`}
             />
-            <div style={{ width: 1, alignSelf: 'stretch', background: color.border, margin: '0 4px' }} />
           </>
         )}
         <ActionBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
@@ -111,7 +116,7 @@ const TabBar = ({
   );
 };
 
-const Tab = memo(({ tab, isActive, onSelect, onClose, onContextMenu, onMore, t }) => {
+const Tab = memo(({ tab, isActive, isBusy = false, onSelect, onClose, onContextMenu, onMore, t }) => {
   const Icon = tab.type === 'host' ? Server : TerminalIcon;
   const dotColor = tab.color_index != null
     ? color.dotPalette?.[tab.color_index % (color.dotPalette?.length || 8)] || color.accent
@@ -149,6 +154,8 @@ const Tab = memo(({ tab, isActive, onSelect, onClose, onContextMenu, onMore, t }
         background: dotColor,
         flexShrink: 0,
         opacity: isActive ? 1 : 0.55,
+        boxShadow: isBusy ? `0 0 0 2px ${dotColor}55` : 'none',
+        animation: isBusy ? 'iterm-tab-pulse 0.9s ease-in-out infinite' : 'none',
       }} />
 
       <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, color: isActive ? color.text : color.subtext }}>

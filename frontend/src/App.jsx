@@ -345,6 +345,60 @@ function App() {
   const gitContextPath = activeCwdRel ?? '';
   const focusedHostId = focusedPane?.hostId || null;
 
+  // ── 자동 탭 이름 (Jupyter 식) ────────────────────────────────────────────
+  // 활성 pane 의 cwd basename 으로 탭 이름 갱신. 호스트 탭/사용자가 직접 이름 박은 탭
+  // (manualName=true) 은 건드리지 않는다.
+  const handlePaneCwdChange = useCallback((paneId, workspaceRel, isLocalPane) => {
+    if (!isLocalPane || !paneId) return;
+    setTabs((prev) => prev.map((tb) => {
+      if (tb.type !== 'local' || tb.manualName) return tb;
+      // 활성 pane 만 반영 (다중 pane 일 때 비활성 pane 의 cwd 가 탭 이름 흔들지 않게).
+      if (tb.activePaneId && tb.activePaneId !== paneId) return tb;
+      const trimmed = (workspaceRel || '').replace(/\/+$/, '');
+      const next = trimmed ? trimmed.split('/').pop() : (settings.localName || 'workspace');
+      if (!next || next === tb.name) return tb;
+      return { ...tb, name: next };
+    }));
+  }, [settings.localName]);
+
+  // ── 탭 busy 인디케이터 (Jupyter 식 활동 점멸) ─────────────────────────────
+  // Terminal.jsx 가 데이터 도착 시 'iterm:activity' 윈도우 이벤트를 paneId 와 함께
+  // 디스패치 → 여기서 paneId → ts 맵에 기록 → 250ms 마다 만료 (>700ms 비활성) 검사 후
+  // tabId 단위 busy 집합으로 변환. tabs 는 ref 로 잡아 stale closure 방지.
+  const [busyTabIds, setBusyTabIds] = useState(() => new Set());
+  const tabsRef = useRef(tabs);
+  useEffect(() => { tabsRef.current = tabs; }, [tabs]);
+  useEffect(() => {
+    const activity = new Map(); // paneId -> ts (ms)
+    const onActivity = (e) => {
+      const paneId = e?.detail?.paneId;
+      if (paneId) activity.set(paneId, Date.now());
+    };
+    window.addEventListener('iterm:activity', onActivity);
+
+    const tick = setInterval(() => {
+      const now = Date.now();
+      const busyPaneIds = new Set();
+      for (const [pid, ts] of activity.entries()) {
+        if (now - ts < 700) busyPaneIds.add(pid);
+        else activity.delete(pid);
+      }
+      const next = new Set();
+      for (const tb of tabsRef.current) {
+        if (tb.panes?.some((p) => busyPaneIds.has(p.id))) next.add(tb.id);
+      }
+      setBusyTabIds((prev) => {
+        if (prev.size === next.size && [...prev].every((x) => next.has(x))) return prev;
+        return next;
+      });
+    }, 250);
+
+    return () => {
+      window.removeEventListener('iterm:activity', onActivity);
+      clearInterval(tick);
+    };
+  }, []);
+
   // ── UI state ──────────────────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
@@ -585,6 +639,7 @@ function App() {
       <TabBar
         tabs={tabs}
         activeTabId={activeTabId}
+        busyTabIds={busyTabIds}
         onSelect={setActiveTabId}
         onClose={closeTab}
         onHome={() => setActiveTabId(null)}
@@ -676,6 +731,7 @@ function App() {
                   onFocusPane={focusPane}
                   onClosePane={closePane}
                   onActivatePane={activatePane}
+                  onPaneCwdChange={handlePaneCwdChange}
                   layoutSignal={terminalLayoutSignal}
                   settings={settings}
                   updateSettings={updateSettings}

@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from 'react';
+import { Suspense, lazy, useState, useEffect } from 'react';
 import { X, Plus, Server, Terminal as TerminalIcon } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RightPanel from './RightPanel';
@@ -21,6 +21,7 @@ const PaneGrid = ({
   onFocusPane,
   onClosePane,
   onActivatePane,
+  onPaneCwdChange,    // (paneId, workspaceRel, isLocal) → 부모로 cwd 변화 보고 (자동 탭명 등)
   layoutSignal,
   settings,
   updateSettings,
@@ -70,6 +71,7 @@ const PaneGrid = ({
             onFileSelect={onFileSelect}
             onFolderSelect={onFolderSelect}
             onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+            onPaneCwdChange={onPaneCwdChange}
             language={language}
             t={t}
             viewportHeight={viewportHeight}
@@ -113,6 +115,7 @@ const PaneGrid = ({
           onFileSelect={onFileSelect}
           onFolderSelect={onFolderSelect}
           onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+          onPaneCwdChange={onPaneCwdChange}
           language={language}
           t={t}
           viewportHeight={viewportHeight}
@@ -125,7 +128,8 @@ const PaneGrid = ({
 const Pane = ({
   pane, paneIndex = 0, tab, hosts, isFocused, isMultiple, onFocus, onClose, onActivate,
   isActive, layoutSignal, settings, updateSettings, cwd,
-  onFileSelect, onFolderSelect, onOpenTerminalAtFolder, language, t, viewportHeight,
+  onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange,
+  language, t, viewportHeight,
 }) => {
   const [hover, setHover] = useState(false);
   // RightPanel 의 재접속 버튼이 누를 때마다 ++ → Terminal key 가 바뀌어 통째로 remount.
@@ -139,6 +143,12 @@ const Pane = ({
     isLocal,
   });
   const paneGitContext = paneCwdRel ?? '';
+
+  // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭 이름 같은 곳에 활용
+  useEffect(() => {
+    if (!onPaneCwdChange || !pane?.id) return;
+    onPaneCwdChange(pane.id, paneCwdRel ?? '', isLocal);
+  }, [onPaneCwdChange, pane?.id, paneCwdRel, isLocal]);
 
   return (
     <div
@@ -211,6 +221,8 @@ const Pane = ({
               sessionId={pane.sessionId || pane.id}
               hostId={pane.hostId || undefined}
               paneIndex={paneIndex}
+              paneId={pane.id}
+              tabId={tab?.id}
               cwd={cwd}
               settings={settings}
               isActive={isActive && isFocused}

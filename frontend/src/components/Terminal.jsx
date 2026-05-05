@@ -16,7 +16,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
-const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0 }) => {
+const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -241,8 +241,22 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
       });
     };
 
+    // 데이터 도착 시 활동 신호 — 탭 busy 인디케이터 트리거. 300ms 쓰로틀.
+    let lastActivityDispatch = 0;
+    const dispatchActivity = () => {
+      const now = Date.now();
+      if (now - lastActivityDispatch < 300) return;
+      lastActivityDispatch = now;
+      try {
+        window.dispatchEvent(new CustomEvent('iterm:activity', {
+          detail: { paneId, tabId, sessionId, hostId, ts: now },
+        }));
+      } catch {}
+    };
+
     socket.onmessage = (event) => {
       wsBufferRef.current.push(event.data);
+      dispatchActivity();
       if (wsFlushTimeoutRef.current) return;
       wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, 16);
     };
