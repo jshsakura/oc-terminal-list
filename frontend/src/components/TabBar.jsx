@@ -1,7 +1,7 @@
 import { memo, useState, useEffect, useRef } from 'react';
 import {
   X, Terminal as TerminalIcon, Server,
-  Settings as SettingsIcon, Key, MoreHorizontal,
+  Settings as SettingsIcon, MoreHorizontal,
   SquareSplitHorizontal, SquareSplitVertical,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
@@ -91,11 +91,9 @@ const TabBar = ({
               onClick={() => onSplit?.('v')}
               title={`${t?.('splitVertical') || 'Split down'} (Ctrl+Shift+\\)`}
             />
-            <div style={{ width: 1, height: '16px', background: color.border, margin: '0 4px' }} />
+            <div style={{ width: 1, alignSelf: 'stretch', background: color.border, margin: '0 4px' }} />
           </>
         )}
-        <ActionBtn icon={Server}       onClick={onOpenHosts}    title={t?.('manageHosts') || 'Manage hosts'} />
-        <ActionBtn icon={Key}          onClick={onOpenKeys}     title={t?.('sshKeys') || 'SSH Keys'} />
         <ActionBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
       </div>
 

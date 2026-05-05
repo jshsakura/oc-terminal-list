@@ -3,34 +3,31 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import TabBar from './TabBar';
 
 describe('TabBar', () => {
-  it('renders with no tabs and shows brand + home + actions', () => {
+  it('renders with no tabs and shows brand + home + settings only', () => {
     render(
       <TabBar
         tabs={[]} activeTabId={null}
         onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()}
-        onOpenKeys={vi.fn()} onOpenSettings={vi.fn()} onLogout={vi.fn()}
+        onOpenSettings={vi.fn()}
       />
     );
     expect(screen.getByTitle('Home')).toBeInTheDocument();
-    expect(screen.getByTitle(/SSH Keys/)).toBeInTheDocument();
     expect(screen.getByTitle(/^Settings/)).toBeInTheDocument();
-    // Logout 은 Settings 안으로 이동 — TabBar 액션바엔 더 이상 없음.
+    // Hosts / SSH Keys / Logout 은 Settings 모달의 탭 안으로 이동 → TabBar 액션바엔 없음.
+    expect(screen.queryByTitle(/SSH Keys/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle(/Manage hosts/)).not.toBeInTheDocument();
     expect(screen.queryByTitle(/Sign out/)).not.toBeInTheDocument();
   });
 
-  it('triggers right action handlers', () => {
-    const onOpenKeys = vi.fn();
+  it('triggers Settings handler', () => {
     const onOpenSettings = vi.fn();
-    const onLogout = vi.fn();
     render(
       <TabBar
         tabs={[]} activeTabId={null}
         onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()}
-        onOpenKeys={onOpenKeys} onOpenSettings={onOpenSettings} onLogout={onLogout}
+        onOpenSettings={onOpenSettings}
       />
     );
-    fireEvent.click(screen.getByTitle(/SSH Keys/));
-    expect(onOpenKeys).toHaveBeenCalled();
     fireEvent.click(screen.getByTitle(/^Settings/));
     expect(onOpenSettings).toHaveBeenCalled();
   });
