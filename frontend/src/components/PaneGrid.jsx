@@ -357,14 +357,6 @@ const EmptyPane = ({ onActivate, hosts = [], tab, allTabs = [], t }) => {
 
   return (
     <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
-      {otherTabs.length > 0 && (
-        <OpenTabPicker
-          tabs={otherTabs}
-          hosts={hosts}
-          t={t}
-          onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
-        />
-      )}
       <HomeDashboard
         hosts={hosts}
         t={t}
@@ -375,105 +367,160 @@ const EmptyPane = ({ onActivate, hosts = [], tab, allTabs = [], t }) => {
         onAddHost={() => {}}      // pane 안에서는 추가 안 받음 (홈에서)
         onEditHost={() => {}}
       />
+      {otherTabs.length > 0 && (
+        <OpenTabPicker
+          tabs={otherTabs}
+          hosts={hosts}
+          t={t}
+          onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
+        />
+      )}
     </div>
   );
 };
 
 const OpenTabPicker = ({ tabs, hosts = [], onPick, t }) => {
-  const HOST_COLORS = [
-    '#89b4fa', '#a6e3a1', '#fab387', '#f38ba8',
-    '#cba6f7', '#89dceb', '#f9e2af', '#b4befe',
-  ];
+  const palette = color.dotPalette || ['#89b4fa'];
   return (
-    <div style={emptyPaneStyles.section}>
-      <div style={emptyPaneStyles.sectionTitle}>
-        {t?.('mirrorOpenTab') || 'Mirror an open tab here'}
-      </div>
-      <div style={emptyPaneStyles.list}>
-        {tabs.map((tb) => {
-          const isHost = tb.type === 'host';
-          const hostMeta = isHost ? hosts.find((h) => h.id === tb.hostId) : null;
-          const accent = tb.color_index != null
-            ? HOST_COLORS[tb.color_index % HOST_COLORS.length]
-            : color.accent;
-          return (
-            <button
-              key={tb.id}
-              type="button"
-              onClick={() => onPick(tb.id)}
-              style={emptyPaneStyles.row}
-              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; }}
-            >
-              <span style={{ ...emptyPaneStyles.icon, color: accent }}>
-                <HostIcon
-                  value={tb.icon || (hostMeta?.icon || '')}
-                  fallback={isHost ? Server : TerminalIcon}
-                  size={14}
-                />
-              </span>
-              <div style={emptyPaneStyles.text}>
-                <div style={emptyPaneStyles.name}>{tb.name}</div>
-                <div style={emptyPaneStyles.sub}>
-                  {isHost
-                    ? (hostMeta ? `${hostMeta.ssh_user}@${hostMeta.hostname}` : tb.hostId)
-                    : (t?.('thisMachine') || 'This machine')}
+    <div style={emptyPaneStyles.outer}>
+      <div style={emptyPaneStyles.inner}>
+        <div style={emptyPaneStyles.titleRow}>
+          <Copy size={12} strokeWidth={2} style={{ color: color.warning }} />
+          <span style={emptyPaneStyles.title}>
+            {t?.('mirrorOpenTab') || 'Mirror an open tab here'}
+          </span>
+        </div>
+        <div style={emptyPaneStyles.grid}>
+          {tabs.map((tb) => {
+            const isHost = tb.type === 'host';
+            const hostMeta = isHost ? hosts.find((h) => h.id === tb.hostId) : null;
+            const accent = tb.color_index != null
+              ? palette[tb.color_index % palette.length]
+              : color.accent;
+            return (
+              <button
+                key={tb.id}
+                type="button"
+                onClick={() => onPick(tb.id)}
+                style={{
+                  ...emptyPaneStyles.row,
+                  borderColor: `${color.warning}55`,
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = `${color.warning}14`;
+                  e.currentTarget.style.borderColor = color.warning;
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = color.surface0;
+                  e.currentTarget.style.borderColor = `${color.warning}55`;
+                }}
+              >
+                {/* 좌측 색 띠 — 미러 항목임을 표시 */}
+                <span style={{ ...emptyPaneStyles.stripe, background: color.warning }} />
+                <span
+                  style={{
+                    ...emptyPaneStyles.iconBox,
+                    color: accent,
+                    borderColor: `${accent}66`,
+                    background: `${accent}1a`,
+                  }}
+                >
+                  <HostIcon
+                    value={tb.icon || (hostMeta?.icon || '')}
+                    fallback={isHost ? Server : TerminalIcon}
+                    size={20}
+                  />
+                </span>
+                <div style={emptyPaneStyles.text}>
+                  <div style={emptyPaneStyles.name}>{tb.name}</div>
+                  <div style={emptyPaneStyles.sub}>
+                    {isHost
+                      ? (hostMeta ? `${hostMeta.ssh_user}@${hostMeta.hostname}` : tb.hostId)
+                      : (t?.('thisMachine') || 'This machine')}
+                  </div>
                 </div>
-              </div>
-              <Copy size={12} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
-            </button>
-          );
-        })}
+                <span style={emptyPaneStyles.badge}>
+                  <Copy size={11} strokeWidth={1.8} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
 };
 
+// HomeDashboard 의 가로 카드 메트릭(60px 행, 12px 갭, 260 minmax) 그대로 맞춰 줄을 정렬.
 const emptyPaneStyles = {
-  section: {
-    padding: '16px 20px 8px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    maxWidth: '720px',
-    margin: '0 auto',
+  outer: {
     width: '100%',
     boxSizing: 'border-box',
+    padding: `0 20px 16px`,
   },
-  sectionTitle: {
+  inner: {
+    width: '100%',
+    maxWidth: '960px',
+    margin: '0 auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '12px',
+    paddingTop: '12px',
+    borderTop: `1px dashed ${color.border}`,
+  },
+  titleRow: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  title: {
     fontSize: '11px',
     fontWeight: 600,
-    color: color.subtext,
+    color: color.warning,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
   },
-  list: {
+  grid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-    gap: '6px',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+    gap: '8px',
   },
   row: {
+    position: 'relative',
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
-    padding: '8px 10px',
+    gap: '12px',
+    padding: '10px 12px 10px 18px',
+    minHeight: '60px',
     background: color.surface0,
     border: `1px solid ${color.border}`,
-    borderRadius: '8px',
+    borderRadius: '12px',
     cursor: 'pointer',
     fontFamily: font.sans,
     color: color.text,
     textAlign: 'left',
-    transition: 'background 150ms',
+    transition: 'background 150ms, border-color 150ms',
+    boxSizing: 'border-box',
+    overflow: 'hidden',
   },
-  icon: {
-    width: '24px', height: '24px',
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  stripe: {
+    position: 'absolute',
+    left: 0, top: 0, bottom: 0,
+    width: '4px',
+  },
+  iconBox: {
+    width: '40px',
+    height: '40px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     flexShrink: 0,
+    border: `1px solid ${color.border}`,
+    borderRadius: '8px',
   },
-  text: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' },
+  text: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '2px' },
   name: {
-    fontSize: '12px',
+    fontSize: '13px',
     fontWeight: 600,
     color: color.text,
     overflow: 'hidden',
@@ -481,12 +528,21 @@ const emptyPaneStyles = {
     whiteSpace: 'nowrap',
   },
   sub: {
-    fontSize: '10.5px',
-    color: color.muted,
+    fontSize: '11px',
+    color: color.subtext,
     fontFamily: font.mono,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  badge: {
+    width: '24px', height: '24px',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    background: `${color.warning}22`,
+    color: color.warning,
+    border: `1px solid ${color.warning}44`,
+    borderRadius: '6px',
+    flexShrink: 0,
   },
 };
 

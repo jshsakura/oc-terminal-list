@@ -21,10 +21,13 @@ const TabBar = ({
   onOpenSettings,
   onSplit,
   onDuplicate,
+  onReorder,
   canSplit = false,
   t,
 }) => {
   const [contextMenu, setContextMenu] = useState(null);  // {tabId, x, y}
+  const [draggingTabId, setDraggingTabId] = useState(null);
+  const [dragOverTabId, setDragOverTabId] = useState(null);
 
   const isHome = activeTabId === null;
 
@@ -63,12 +66,15 @@ const TabBar = ({
           }
         }}
       >
-        {tabs.map((tab) => (
+        {tabs.map((tab, idx) => (
           <Tab
             key={tab.id}
             tab={tab}
+            index={idx + 1}
             isActive={tab.id === activeTabId}
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
+            isDragging={draggingTabId === tab.id}
+            isDragOver={dragOverTabId === tab.id && draggingTabId && draggingTabId !== tab.id}
             onSelect={() => onSelect(tab.id)}
             onClose={() => onClose(tab.id)}
             onContextMenu={(e) => {
@@ -78,6 +84,29 @@ const TabBar = ({
             onMore={(e) => {
               const rect = e.currentTarget.getBoundingClientRect();
               setContextMenu({ tabId: tab.id, x: rect.left, y: rect.bottom + 4 });
+            }}
+            onDragStart={(e) => {
+              setDraggingTabId(tab.id);
+              try {
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', tab.id);
+              } catch {}
+            }}
+            onDragEnd={() => { setDraggingTabId(null); setDragOverTabId(null); }}
+            onDragOver={(e) => {
+              if (!draggingTabId || draggingTabId === tab.id) return;
+              e.preventDefault();
+              try { e.dataTransfer.dropEffect = 'move'; } catch {}
+              if (dragOverTabId !== tab.id) setDragOverTabId(tab.id);
+            }}
+            onDragLeave={() => { if (dragOverTabId === tab.id) setDragOverTabId(null); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const fromId = (() => { try { return e.dataTransfer.getData('text/plain'); } catch { return null; } })()
+                || draggingTabId;
+              setDraggingTabId(null);
+              setDragOverTabId(null);
+              if (fromId && fromId !== tab.id) onReorder?.(fromId, tab.id);
             }}
             t={t}
           />
@@ -116,7 +145,12 @@ const TabBar = ({
   );
 };
 
-const Tab = memo(({ tab, isActive, isBusy = false, onSelect, onClose, onContextMenu, onMore, t }) => {
+const Tab = memo(({
+  tab, index, isActive, isBusy = false, isDragging = false, isDragOver = false,
+  onSelect, onClose, onContextMenu, onMore,
+  onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
+  t,
+}) => {
   const Icon = tab.type === 'host' ? Server : TerminalIcon;
   const dotColor = tab.color_index != null
     ? color.dotPalette?.[tab.color_index % (color.dotPalette?.length || 8)] || color.accent
@@ -124,12 +158,20 @@ const Tab = memo(({ tab, isActive, isBusy = false, onSelect, onClose, onContextM
 
   return (
     <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       onContextMenu={onContextMenu}
       style={{
         ...styles.tab,
         background: isActive ? color.base : color.surface0,
         color: isActive ? color.text : color.subtext,
-        border: `1px solid ${isActive ? color.borderStrong : color.border}`,
+        border: `1px solid ${isDragOver ? color.accent : (isActive ? color.borderStrong : color.border)}`,
+        opacity: isDragging ? 0.4 : 1,
+        cursor: 'grab',
       }}
       onClick={onSelect}
       onMouseEnter={(e) => {
@@ -147,6 +189,23 @@ const Tab = memo(({ tab, isActive, isBusy = false, onSelect, onClose, onContextM
         if (closeBtn) closeBtn.style.opacity = isActive ? '0.85' : '0.5';
       }}
     >
+      {index != null && (
+        <span
+          style={{
+            fontSize: '10px',
+            fontWeight: 600,
+            color: isActive ? color.subtext : color.muted,
+            fontFamily: font.mono,
+            minWidth: '12px',
+            textAlign: 'right',
+            flexShrink: 0,
+            letterSpacing: '0',
+          }}
+          aria-hidden
+        >
+          {index}
+        </span>
+      )}
       <div style={{
         width: '6px',
         height: '6px',

@@ -652,6 +652,19 @@ function App() {
         tabs={tabs}
         activeTabId={activeTabId}
         busyTabIds={busyTabIds}
+        onReorder={(fromId, toId) => {
+          if (!fromId || !toId || fromId === toId) return;
+          setTabs((prev) => {
+            const ids = prev.map((tt) => tt.id);
+            const fromIdx = ids.indexOf(fromId);
+            const toIdx = ids.indexOf(toId);
+            if (fromIdx < 0 || toIdx < 0) return prev;
+            const next = [...prev];
+            const [moved] = next.splice(fromIdx, 1);
+            next.splice(toIdx, 0, moved);
+            return next;
+          });
+        }}
         onSelect={setActiveTabId}
         onClose={closeTab}
         onHome={() => setActiveTabId(null)}
