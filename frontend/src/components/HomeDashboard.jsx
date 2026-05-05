@@ -31,19 +31,21 @@ const HomeDashboard = ({ hosts = [], onOpenHost, onAddHost, onEditHost, onDelete
   const [draggingId, setDraggingId] = useState(null);
   const [overId, setOverId] = useState(null);
 
-  // 컨테이너 폭 측정 → 8/6/4/3 중 가장 큰 거 선택 (딱딱 끊어지는 단계)
+  // 컨테이너 폭 측정 → 8/6/4/3/2/1 중 fit 되는 가장 큰 거 (모바일까지 안전하게 내려감)
   const rootRef = useRef(null);
-  const [columns, setColumns] = useState(3);
+  const [columns, setColumns] = useState(2);
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
     const fits = (n) => n * CARD_WIDTH + (n - 1) * CARD_GAP;
     const calc = () => {
       const avail = el.clientWidth - HORIZONTAL_PADDING;
-      let n = 3;
+      let n = 1;
       if (avail >= fits(8)) n = 8;
       else if (avail >= fits(6)) n = 6;
       else if (avail >= fits(4)) n = 4;
+      else if (avail >= fits(3)) n = 3;
+      else if (avail >= fits(2)) n = 2;
       setColumns(n);
     };
     calc();
