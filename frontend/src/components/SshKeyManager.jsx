@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, KeyRound, Plus, Trash2 } from 'lucide-react';
+import { X, KeyRound, Plus, Trash2, Pencil } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 
@@ -14,9 +14,11 @@ const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tok
  * private_key 는 입력 시점에서 한 번 백엔드 vault 로 암호화 후 저장.
  * UI 에는 평문으로 다시 보여주지 않는다 (write-once).
  */
-const SshKeyManager = ({ isOpen, keys, onAdd, onDelete, onClose, t }) => {
-  const [adding, setAdding] = useState(false);
+const SshKeyManager = ({ isOpen, keys, onAdd, onUpdate, onDelete, onClose, t }) => {
+  const [mode, setMode] = useState('list'); // 'list' | 'add' | 'edit'
+  const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState({ name: '', privateKey: '', passphrase: '', publicKey: '' });
+  const [clearPassphrase, setClearPassphrase] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -24,17 +26,38 @@ const SshKeyManager = ({ isOpen, keys, onAdd, onDelete, onClose, t }) => {
 
   const reset = () => {
     setDraft({ name: '', privateKey: '', passphrase: '', publicKey: '' });
+    setClearPassphrase(false);
+    setEditingId(null);
     setError('');
-    setAdding(false);
+    setMode('list');
+  };
+
+  const startEdit = (k) => {
+    // 보안: private key 평문은 노출하지 않음. name/public_key 만 채우고 비밀 필드는 빈값(미변경 의도).
+    setDraft({ name: k.name || '', privateKey: '', passphrase: '', publicKey: k.public_key || '' });
+    setClearPassphrase(false);
+    setEditingId(k.id);
+    setError('');
+    setMode('edit');
   };
 
   const submit = async () => {
     setError('');
     if (!draft.name.trim()) return setError(t('errorNameRequired') || 'Name required');
-    if (!draft.privateKey.trim()) return setError(t('errorKeyRequired') || 'Private key required');
+    if (mode === 'add' && !draft.privateKey.trim()) return setError(t('errorKeyRequired') || 'Private key required');
     setBusy(true);
     try {
-      await onAdd(draft);
+      if (mode === 'edit') {
+        await onUpdate(editingId, {
+          name: draft.name,
+          publicKey: draft.publicKey,
+          privateKey: draft.privateKey || undefined,
+          passphrase: draft.passphrase || undefined,
+          clearPassphrase: clearPassphrase,
+        });
+      } else {
+        await onAdd(draft);
+      }
       reset();
     } catch (err) {
       setError(err.message || 'Failed');
@@ -44,15 +67,19 @@ const SshKeyManager = ({ isOpen, keys, onAdd, onDelete, onClose, t }) => {
   };
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div style={styles.overlay}>
+      <div style={styles.modal}>
         <header style={styles.header}>
-          <div style={styles.title}>{t('sshKeys') || 'SSH Keys'}</div>
+          <div style={styles.title}>
+            {mode === 'edit' ? (t('editKey') || 'Edit SSH key')
+              : mode === 'add' ? (t('addKey') || 'Add SSH key')
+              : (t('sshKeys') || 'SSH Keys')}
+          </div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
         </header>
 
         <div style={styles.body}>
-          {!adding && (
+          {mode === 'list' && (
             <>
               {keys.length === 0 ? (
                 <div style={styles.empty}>
@@ -73,6 +100,15 @@ const SshKeyManager = ({ isOpen, keys, onAdd, onDelete, onClose, t }) => {
                         </div>
                       </div>
                       <button
+                        onClick={() => startEdit(k)}
+                        title={t('edit') || 'Edit'}
+                        style={styles.rowActionBtn}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; e.currentTarget.style.color = color.text; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.muted; }}
+                      >
+                        <Pencil size={12} strokeWidth={2} />
+                      </button>
+                      <button
                         onClick={() => onDelete(k.id)}
                         title={t('delete') || 'Delete'}
                         style={styles.rowActionBtn}
@@ -86,35 +122,51 @@ const SshKeyManager = ({ isOpen, keys, onAdd, onDelete, onClose, t }) => {
                 </div>
               )}
               <div style={{ marginTop: space['3'] }}>
-                <Button variant="primary" size="medium" icon={Plus} onClick={() => setAdding(true)}>
+                <Button variant="primary" size="medium" icon={Plus} onClick={() => setMode('add')}>
                   {t('addKey') || 'Add SSH key'}
                 </Button>
               </div>
             </>
           )}
 
-          {adding && (
+          {(mode === 'add' || mode === 'edit') && (
             <div style={styles.form}>
               <Field label={t('hostName') || 'Display name'}>
                 <Input value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} placeholder="my-laptop-ed25519" autoFocus />
               </Field>
-              <Field label={t('privateKey') || 'Private key (PEM)'} hint={t('privateKeyHint') || 'Paste the full PEM content. Encrypted at rest.'}>
+              <Field
+                label={t('privateKey') || 'Private key (PEM)'}
+                hint={mode === 'edit'
+                  ? (t('privateKeyEditHint') || 'Leave empty to keep the existing key. Paste a new key only to replace it.')
+                  : (t('privateKeyHint') || 'Paste the full PEM content. Encrypted at rest.')}
+              >
                 <textarea
                   value={draft.privateKey}
                   onChange={(e) => setDraft({ ...draft, privateKey: e.target.value })}
-                  placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;…&#10;-----END OPENSSH PRIVATE KEY-----"
+                  placeholder={mode === 'edit'
+                    ? (t('privateKeyKeepPlaceholder') || '(unchanged — paste new key to replace)')
+                    : '-----BEGIN OPENSSH PRIVATE KEY-----\n…\n-----END OPENSSH PRIVATE KEY-----'}
                   spellCheck={false}
                   rows={8}
                   style={styles.textarea}
                 />
               </Field>
-              <Field label={t('passphraseOptional') || 'Passphrase (if any)'}>
+              <Field
+                label={t('passphraseOptional') || 'Passphrase (if any)'}
+                hint={mode === 'edit' ? (t('passphraseEditHint') || 'Leave empty to keep current. Check the box to clear it.') : undefined}
+              >
                 <Input
                   type="password"
                   value={draft.passphrase}
                   onChange={(v) => setDraft({ ...draft, passphrase: v })}
-                  placeholder="••••"
+                  placeholder={mode === 'edit' ? (t('passphraseKeepPlaceholder') || '(unchanged)') : '••••'}
                 />
+                {mode === 'edit' && (
+                  <label style={{ display: 'flex', alignItems: 'center', gap: space['1.5'], marginTop: space['1'], fontSize: fontSize['11'], color: color.muted, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={clearPassphrase} onChange={(e) => setClearPassphrase(e.target.checked)} />
+                    {t('clearPassphrase') || 'Clear passphrase'}
+                  </label>
+                )}
               </Field>
               <Field label={t('publicKeyOptional') || 'Public key (optional, helps identify)'}>
                 <textarea
@@ -130,7 +182,7 @@ const SshKeyManager = ({ isOpen, keys, onAdd, onDelete, onClose, t }) => {
               <div style={{ display: 'flex', gap: space['1.5'], justifyContent: 'flex-end' }}>
                 <Button variant="secondary" onClick={reset} disabled={busy}>{t('cancel')}</Button>
                 <Button variant="primary" onClick={submit} disabled={busy}>
-                  {busy ? (t('saving') || 'Saving…') : (t('add') || 'Add')}
+                  {busy ? (t('saving') || 'Saving…') : (mode === 'edit' ? (t('save') || 'Save') : (t('add') || 'Add'))}
                 </Button>
               </div>
             </div>

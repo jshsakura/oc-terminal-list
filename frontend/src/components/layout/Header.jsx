@@ -1,4 +1,4 @@
-import { PanelLeftClose, PanelLeft, PanelRightClose, PanelRight, Menu, Plus, Settings as SettingsIcon, Power, Terminal as TerminalIcon, Columns2, X, GitBranch, Square, Rows2, LayoutGrid } from 'lucide-react';
+import { PanelLeftClose, PanelLeft, Menu, Settings as SettingsIcon, Power, Terminal as TerminalIcon, Square, Rows2, LayoutGrid } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 
 const { color, font, fontSize, fontWeight, space } = tokens;
@@ -6,23 +6,14 @@ const { color, font, fontSize, fontWeight, space } = tokens;
 const Header = ({
   isSidebarOpen,
   toggleSidebar,
-  sessions,
-  activeSessionId,
   isMobile,
   t,
-  handleNewSession,
   setIsSettingsOpen,
   handleLogoutRequest,
   setIsMenuOpen,
   isMenuOpen,
   paneCount = 1,
-  maxPanes = 4,
-  onAddPane,
-  onClosePane,
   onSetLayout,
-  isChangesPanelOpen = false,
-  toggleChangesPanel,
-  changesCount = 0,
 }) => {
   return (
     <header style={styles.bar}>
@@ -47,20 +38,6 @@ const Header = ({
               paneCount={paneCount}
               onSetLayout={onSetLayout}
               t={t}
-            />
-            {paneCount < maxPanes && (
-              <IconButton
-                onClick={onAddPane}
-                title={`${t('splitTerminal') || 'Split'} (+empty)`}
-                icon={Plus}
-              />
-            )}
-            <Divider />
-            <ChangesToggle
-              open={isChangesPanelOpen}
-              onClick={toggleChangesPanel}
-              count={changesCount}
-              title={t('changes') || 'Changes'}
             />
             <Divider />
           </>
@@ -164,46 +141,6 @@ const LayoutGroup = ({ paneCount, onSetLayout, t }) => {
     </div>
   );
 };
-
-const ChangesToggle = ({ open, onClick, count, title }) => (
-  <button
-    onClick={onClick}
-    title={title}
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: space['1'],
-      height: '26px',
-      padding: `0 ${space['2']}`,
-      background: open ? color.surface0 : 'transparent',
-      color: open ? color.text : color.subtext,
-      border: `1px solid ${open ? color.border : 'transparent'}`,
-      borderRadius: '4px',
-      cursor: 'pointer',
-      fontSize: '12px',
-      fontFamily: 'inherit',
-      transition: 'background 120ms ease, color 120ms ease, border-color 120ms ease',
-    }}
-    onMouseEnter={(e) => { if (!open) { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; } }}
-    onMouseLeave={(e) => { if (!open) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; } }}
-  >
-    <GitBranch size={13} strokeWidth={2} />
-    <span>{title}</span>
-    {count > 0 && (
-      <span style={{
-        fontSize: '10px',
-        color: color.accent,
-        background: color.accentSubtle,
-        border: `1px solid ${color.accentBorder}`,
-        borderRadius: '999px',
-        padding: '0 5px',
-        fontFamily: 'inherit',
-      }}>
-        {count}
-      </span>
-    )}
-  </button>
-);
 
 const styles = {
   bar: {

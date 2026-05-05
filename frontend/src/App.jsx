@@ -1,265 +1,411 @@
-/**
- * App 컴포넌트
- * 메인 애플리케이션 - 멀티 터미널 세션 관리 및 에디터 리사이즈 지원
- */
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
+import { Terminal as TerminalIcon, Menu } from 'lucide-react';
 import useSettings from './hooks/useSettings';
 import useTranslation from './hooks/useTranslation';
 import useAuth from './hooks/useAuth';
-import useSessionManager from './hooks/useSessionManager';
 import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
-import useGitChanges from './hooks/useGitChanges';
 import useActiveTerminalCwd from './hooks/useActiveTerminalCwd';
-import useSwipe from './hooks/useSwipe';
 import themes from './styles/themes';
 import { applyThemeVars } from './styles/themeUI';
-import AppStyles from './styles/AppStyles';
+import { tokens } from './styles/tokens';
+import { generateUUID } from './utils/helpers';
 
-// Layout Components
-import Header from './components/layout/Header';
-import EmptyState from './components/layout/EmptyState';
+import TabBar from './components/TabBar';
+import HomeDashboard from './components/HomeDashboard';
+import HostManager from './components/HostManager';
+import PaneGrid from './components/PaneGrid';
 import LoadingScreen from './components/layout/LoadingScreen';
-import PaneGrid from './components/layout/PaneGrid';
 
-// Lazy load modals/pages
-const Terminal = lazy(() => import('./components/Terminal'));
-const MobileToolbar = lazy(() => import('./components/MobileToolbar'));
-const CommandInput = lazy(() => import('./components/CommandInput'));
-const Settings = lazy(() => import('./components/Settings'));
-const Sidebar = lazy(() => import('./components/Sidebar'));
-const ConfirmModal = lazy(() => import('./components/ConfirmModal'));
+const Terminal        = lazy(() => import('./components/Terminal'));
+const FileEditor      = lazy(() => import('./components/FileEditor'));
+const Settings        = lazy(() => import('./components/Settings'));
+const ConfirmModal    = lazy(() => import('./components/ConfirmModal'));
 const NotificationModal = lazy(() => import('./components/NotificationModal'));
-const InitialSetup = lazy(() => import('./components/InitialSetup'));
-const Login = lazy(() => import('./components/Login'));
-const FileEditor = lazy(() => import('./components/FileEditor'));
-const CommandPalette = lazy(() => import('./components/CommandPalette'));
-const HostEditor = lazy(() => import('./components/HostEditor'));
-const SshKeyManager = lazy(() => import('./components/SshKeyManager'));
-const ChangesPanel = lazy(() => import('./components/ChangesPanel'));
+const InitialSetup    = lazy(() => import('./components/InitialSetup'));
+const Login           = lazy(() => import('./components/Login'));
+const CommandPalette  = lazy(() => import('./components/CommandPalette'));
+const HostEditor      = lazy(() => import('./components/HostEditor'));
+const SshKeyManager   = lazy(() => import('./components/SshKeyManager'));
+const MobileToolbar   = lazy(() => import('./components/MobileToolbar'));
+const CommandInput    = lazy(() => import('./components/CommandInput'));
+
+const { color, font, fontSize, fontWeight, space } = tokens;
+
+// ── tab helpers ──────────────────────────────────────────────────────────────
+// 모델: tab = { id, type, name, ..., panes:[Pane], layout:'single'|'h'|'v', activePaneId }
+// Pane = { id, mode:'terminal'|'editor', sessionId?, hostId?, openFiles?, activeFile? }
+
+const makePane = (extra = {}) => ({
+  id: generateUUID(),
+  mode: 'terminal',
+  ...extra,
+});
+
+const makLocalTab = (sessionId, name) => {
+  const pane = makePane({ sessionId });
+  return {
+    id: `local:${sessionId}`,
+    type: 'local',
+    sessionId,
+    name: name || 'terminal',
+    panes: [pane],
+    layout: 'single',
+    activePaneId: pane.id,
+  };
+};
+
+const makeHostTab = (host) => {
+  const pane = makePane({ hostId: host.id });
+  return {
+    id: `host:${host.id}:${Date.now()}`,
+    type: 'host',
+    hostId: host.id,
+    name: host.name,
+    icon: host.icon || null,
+    color_index: host.color_index ?? 0,
+    panes: [pane],
+    layout: 'single',
+    activePaneId: pane.id,
+  };
+};
+
+// 옛 탭 (panes 없음) 자동 마이그레이션 — localStorage 호환
+const migrateTab = (t) => {
+  if (t.panes && t.panes.length > 0) return t;
+  const pane = makePane({ sessionId: t.sessionId, hostId: t.hostId });
+  return { ...t, panes: [pane], layout: 'single', activePaneId: pane.id };
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 function App() {
   const { settings, updateSettings } = useSettings();
   const { t } = useTranslation(settings.language);
   const currentTheme = useMemo(() => themes[settings.theme] || themes.catppuccin, [settings.theme]);
 
-  // 활성 전체 테마가 바뀔 때마다 :root 의 --ui-* CSS 변수 갱신
-  // → tokens.color 가 var() 참조라 사이드바/헤더/모달 등 전체 UI 가 즉시 따라감
-  useEffect(() => {
-    applyThemeVars(currentTheme);
-  }, [currentTheme]);
-  
-  // Custom Hooks
-  const { 
-    isLoading, needsSetup, isAuthenticated, username, 
-    login, logout, completeSetup 
-  } = useAuth();
-  
-  const {
-    sessions: localSessions, activeSessionId, setActiveSessionId,
-    createSession, deleteSession: deleteLocalSession, renameSession,
-  } = useSessionManager(isAuthenticated, settings.defaultShell);
+  useEffect(() => { applyThemeVars(currentTheme); }, [currentTheme]);
 
+  const { isLoading, needsSetup, isAuthenticated, login, logout, completeSetup } = useAuth();
   const { hosts, refresh: refreshHosts, createHost, updateHost, deleteHost } = useHosts(isAuthenticated);
-  const { keys: sshKeys, createKey, deleteKey } = useSshKeys(isAuthenticated);
+  const { keys: sshKeys, createKey, updateKey, deleteKey } = useSshKeys(isAuthenticated);
 
-  // 호스트 연결 = 클라이언트 사이드 세션 (로컬 tmux 와 별개로 메모리에서만 추적)
-  const [hostTabs, setHostTabs] = useState([]);  // {id, hostId, name, color_index}
+  // ── tabs ──────────────────────────────────────────────────────────────────
+  const [tabs, setTabs] = useState(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem('tabs_v2') || '[]');
+      return stored.map(migrateTab);
+    } catch { return []; }
+  });
+  const [activeTabId, setActiveTabId] = useState(() => localStorage.getItem('active_tab_id') || null);
 
-  // 사이드바/터미널이 함께 다루는 통합 세션 목록 (로컬 tmux + 호스트 연결)
-  const sessions = useMemo(() => {
-    return [...localSessions, ...hostTabs];
-  }, [localSessions, hostTabs]);
+  useEffect(() => { localStorage.setItem('tabs_v2', JSON.stringify(tabs)); }, [tabs]);
+  useEffect(() => {
+    if (activeTabId) localStorage.setItem('active_tab_id', activeTabId);
+    else localStorage.removeItem('active_tab_id');
+  }, [activeTabId]);
 
-  const deleteSession = useCallback(async (id) => {
-    const ht = hostTabs.find(t => t.id === id);
-    if (ht) {
-      setHostTabs(prev => prev.filter(t => t.id !== id));
-      if (activeSessionId === id) {
-        const remaining = [...localSessions, ...hostTabs.filter(t => t.id !== id)];
-        setActiveSessionId(remaining[0]?.id || null);
-      }
-      return true;
+  // validate active tab still exists
+  useEffect(() => {
+    if (activeTabId && !tabs.some((t) => t.id === activeTabId)) {
+      setActiveTabId(tabs[0]?.id || null);
     }
-    return await deleteLocalSession(id);
-  }, [hostTabs, localSessions, activeSessionId, setActiveSessionId, deleteLocalSession]);
+  }, [tabs, activeTabId]);
 
-  // 호스트 관련 모달 상태
-  const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
-  const [keyManagerOpen, setKeyManagerOpen] = useState(false);
+  // 키보드 핸들러 클로저에서 stale 안 되게 ref 로 보관
+  const activeTabIdRef = useRef(null);
+  useEffect(() => { activeTabIdRef.current = activeTabId; }, [activeTabId]);
 
-  // 우측 Changes 패널 (git 변경사항)
-  const [isChangesPanelOpen, setIsChangesPanelOpen] = useState(() => localStorage.getItem('changes_panel_open') === 'true');
-  useEffect(() => { localStorage.setItem('changes_panel_open', String(isChangesPanelOpen)); }, [isChangesPanelOpen]);
-  const [requestedDiffPath, setRequestedDiffPath] = useState(null);
+  const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || null, [tabs, activeTabId]);
 
-  // 레이아웃 ≠ 슬롯 내용. 분리 모델:
-  // - paneSlots: 항상 길이 3 (extra pane 들). 슬롯별 sessionId 또는 null. 영구 저장.
-  // - visibleN: 1..4, 화면에 보이는 pane 수. 레이아웃 버튼이 변경.
-  // 레이아웃 변경은 visibleN 만 바꾸므로 슬롯 할당 안 잃음 (4→1→4 해도 그대로).
-  const MAX_PANES = 4;
-  const [paneSlots, setPaneSlots] = useState([null, null, null]);
-  const [visibleN, setVisibleN] = useState(1);
-  const [focusedPaneIdx, setFocusedPaneIdx] = useState(0);
-
-  const visiblePaneIds = useMemo(
-    () => [activeSessionId, ...paneSlots].slice(0, visibleN),
-    [activeSessionId, paneSlots, visibleN]
-  );
-  const paneCount = visiblePaneIds.length;
-  const safeFocusedIdx = focusedPaneIdx >= paneCount ? 0 : focusedPaneIdx;
-  const focusedSessionId = visiblePaneIds[safeFocusedIdx];
-
-  // 포커스된 pane 의 세션 정보 — host 세션이면 cwd 추적 안 함
-  const activeSessionInfo = useMemo(() => sessions.find((s) => s.id === focusedSessionId) || null, [sessions, focusedSessionId]);
-  const isActiveLocal = activeSessionInfo && !activeSessionInfo.hostId;
-  // 포커스 pane 의 cwd → git context 의 기준 경로
-  const { workspaceRelative: activeCwdRel } = useActiveTerminalCwd({
-    sessionId: isActiveLocal ? focusedSessionId : null,
-    isLocal: !!isActiveLocal,
-  });
-  const gitContextPath = activeCwdRel ?? '';
-  // 헤더 뱃지/사이드바 둘 다 라이브 — 활성 터미널의 cwd 기준 git 폴링.
-  // 경로 미지정 (= 전체 워크스페이스 집계) 일 때는 부하 줄이려고 폴링 간격 길게.
-  const { items: gitChanges } = useGitChanges({
-    enabled: true,
-    path: gitContextPath,
-    intervalMs: gitContextPath ? 1500 : 8000,
-  });
-  const handleSelectChangedFile = useCallback((path) => {
-    setRequestedDiffPath(path);
-    setIsChangesPanelOpen(true);
+  // ── open / close tabs ─────────────────────────────────────────────────────
+  const openLocalTab = useCallback(async (cwd = null) => {
+    const sessionId = generateUUID();
+    // WS handler creates tmux session on first connect — no pre-create needed.
+    const tab = makLocalTab(sessionId, 'terminal');
+    setTabs((prev) => [...prev, tab]);
+    setActiveTabId(tab.id);
   }, []);
 
-  const openHost = useCallback(async (host) => {
-    // \"This machine\" 가상 호스트 → 로컬 tmux 세션 새로 생성
-    if (host?.id === 'local' || host?.isLocal) {
-      await createSession(null);
+  const openHostTab = useCallback((host) => {
+    if (!host || host.isLocal || host.id === 'local') {
+      openLocalTab();
       return;
     }
-    const tabId = `host:${host.id}:${Date.now()}`;
-    setHostTabs(prev => [...prev, {
-      id: tabId,
-      hostId: host.id,
-      name: host.name,
-      color_index: host.color_index,
-      kind: 'host',
-    }]);
-    setActiveSessionId(tabId);
-  }, [createSession, setActiveSessionId]);
+    const tab = makeHostTab(host);
+    setTabs((prev) => [...prev, tab]);
+    setActiveTabId(tab.id);
+  }, [openLocalTab]);
 
-  // UI State
-  const [isMobile, setIsMobile] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(() => {
-    const saved = localStorage.getItem('sidebar_open');
-    if (saved !== null) return saved === 'true';
-    return window.innerWidth >= 768;
+  // ── pane operations ───────────────────────────────────────────────────────
+  // 활성 탭에 *빈* pane 을 분할 추가. 사용자가 클릭해야 세션이 시작됨.
+  // dir = 'h' (좌우) | 'v' (상하)
+  // 중요: prev (latest) 에서 panes 길이 판단 → useCallback 클로저의 stale activeTab 영향 안 받음
+  const splitActivePane = useCallback((dir = 'h') => {
+    setTabs((prev) => {
+      const targetId = activeTabIdRef.current;
+      if (!targetId) return prev;
+      return prev.map((t) => {
+        if (t.id !== targetId) return t;
+        if ((t.panes?.length || 1) >= 4) return t; // 최대 4
+        const newPane = makePane({});
+        const panes = [...(t.panes || []), newPane];
+        let layout = t.layout || 'single';
+        if (panes.length === 2) layout = dir === 'v' ? 'v' : 'h';
+        else if (panes.length >= 3) layout = '2x2';
+        return { ...t, panes, layout, activePaneId: newPane.id };
+      });
+    });
+  }, []);
+
+  // 빈 pane 활성화 — target = { type: 'local' } 또는 { type: 'host', hostId }
+  // target 없으면 부모 탭 타입 그대로 따라감 (단순 클릭 케이스)
+  const activatePane = useCallback((tabId, paneId, target = null) => {
+    setTabs((prev) => prev.map((t) => {
+      if (t.id !== tabId) return t;
+      const panes = (t.panes || []).map((p) => {
+        if (p.id !== paneId) return p;
+        if (p.sessionId || p.hostId) return p;
+        // target 우선
+        if (target?.type === 'host' && target.hostId) {
+          return { ...p, hostId: target.hostId, sessionId: undefined };
+        }
+        if (target?.type === 'local') {
+          return { ...p, sessionId: generateUUID(), hostId: undefined };
+        }
+        // fallback: 부모 탭 타입
+        if (t.type === 'host') return { ...p, hostId: t.hostId };
+        return { ...p, sessionId: generateUUID() };
+      });
+      return { ...t, panes, activePaneId: paneId };
+    }));
+  }, []);
+
+  const closePane = useCallback((tabId, paneId) => {
+    const tab = tabs.find((tt) => tt.id === tabId);
+    const pane = tab?.panes?.find((p) => p.id === paneId);
+    if (!tab || !pane) return;
+
+    const doClose = () => {
+      setTabs((prev) => prev.map((t) => {
+        if (t.id !== tabId) return t;
+        const panes = t.panes || [];
+        if (panes.length === 0) return t;       // 안전장치
+        // 마지막 1개 pane 이면 비움 (탭은 유지)
+        if (panes.length === 1) {
+          const single = panes[0];
+          if (single.id !== paneId) return t;   // id 매치 안 되면 무동작
+          const emptied = [{ id: single.id, mode: 'terminal' }];
+          return { ...t, panes: emptied, layout: 'single', activePaneId: emptied[0].id };
+        }
+        // 다중 pane → 해당 pane 제거
+        const remaining = panes.filter((p) => p.id !== paneId);
+        if (remaining.length === 0) return t;   // 위에서 걸러줘야 정상이지만 방어
+        const layout = remaining.length === 1 ? 'single' : (remaining.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
+        const activePaneId = t.activePaneId === paneId ? remaining[0].id : t.activePaneId;
+        return { ...t, panes: remaining, layout, activePaneId };
+      }));
+      // 로컬 세션 정리 (호스트는 원격 tmux 살림)
+      if (pane.sessionId && !pane.hostId) {
+        const token = localStorage.getItem('auth_token');
+        fetch(`/api/sessions/${pane.sessionId}`, {
+          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => {});
+      }
+    };
+
+    // 빈 pane (이미 picker 상태) 마지막 1개 → 닫을 게 없음
+    const paneCount = tab.panes?.length || 0;
+    if (!pane.sessionId && !pane.hostId && paneCount <= 1) return;
+
+    const isEmpty = !pane.sessionId && !pane.hostId;
+    const isHost = !!pane.hostId;
+    const isLastPane = paneCount === 1;
+    // 호스트면 그 호스트의 tmux 설정 보고 메시지 결정 (작업 유지/소실)
+    const host = isHost ? hosts.find((h) => h.id === pane.hostId) : null;
+    const willPersist = isEmpty || !isHost /* local 항상 tmux */ || !!host?.use_remote_tmux;
+
+    let title, message;
+    if (isEmpty) {
+      // 빈 pane (멀티 중) 제거
+      title = t('removePane') || 'Remove pane';
+      message = t('confirmRemoveEmptyPane') || 'Remove this empty pane?';
+    } else if (isLastPane) {
+      // 단일 pane 닫기 → 탭은 유지 + picker 노출
+      title = t('closeTerminal') || 'Close terminal';
+      message = willPersist
+        ? (t('confirmCloseLastPane') || 'Close this terminal? The tab stays (empty picker).')
+        : (t('confirmCloseLastPaneNoTmux') || 'Close this terminal? Work will be lost (tmux off). Tab stays.');
+    } else {
+      // 멀티 pane 중 하나 닫기
+      title = t('closePane') || 'Close pane';
+      message = willPersist
+        ? (t('confirmClosePane') || 'Close this pane?')
+        : (t('confirmClosePaneNoTmux') || 'Close this pane? Work will be lost (tmux off).');
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title, message,
+      onConfirm: doClose,
+    });
+  }, [tabs, t, hosts]);
+
+  const focusPane = useCallback((tabId, paneId) => {
+    setTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, activePaneId: paneId } : t));
+  }, []);
+
+  const closeTab = useCallback((tabId) => {
+    const tab = tabs.find((t) => t.id === tabId);
+    if (!tab) return;
+
+    const doClose = () => {
+      const idx = tabs.findIndex((t) => t.id === tabId);
+      const remaining = tabs.filter((t) => t.id !== tabId);
+      if (activeTabId === tabId) {
+        const fallback = remaining[Math.max(0, idx - 1)]?.id || remaining[0]?.id || null;
+        setActiveTabId(fallback);
+      }
+      setTabs(remaining);
+      // 로컬이면 모든 pane 의 백엔드 세션 정리 (호스트는 원격 tmux 살림)
+      if (tab.type === 'local') {
+        const token = localStorage.getItem('auth_token');
+        const sessionIds = (tab.panes || [{ sessionId: tab.sessionId }])
+          .map((p) => p.sessionId)
+          .filter(Boolean);
+        sessionIds.forEach((sid) => {
+          fetch(`/api/sessions/${sid}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${token}` },
+          }).catch(() => {});
+        });
+      }
+    };
+
+    // 탭 안에 tmux 꺼진 호스트 pane 이 하나라도 있으면 경고 (작업 소실 가능)
+    const hasNoTmuxPane = (tab.panes || []).some((p) => {
+      if (!p.hostId) return false;
+      const h = hosts.find((hh) => hh.id === p.hostId);
+      return h && !h.use_remote_tmux;
+    });
+    const paneCount = tab.panes?.length || 1;
+    const baseMsg = hasNoTmuxPane
+      ? (t('confirmCloseTabLossy') || 'Close this tab? Work in non-tmux sessions will be lost.')
+      : (t('confirmCloseTab') || 'Close this tab?');
+    const message = paneCount > 1
+      ? `${baseMsg} (${paneCount} ${t('panesInTab') || 'panes'})`
+      : baseMsg;
+    setConfirmModal({
+      isOpen: true,
+      title: t('closeTab') || 'Close tab',
+      message,
+      onConfirm: doClose,
+    });
+  }, [tabs, activeTabId, t, hosts]);
+
+  // ── new tab = open home picker (just go home) ─────────────────────────────
+  const handleAddTab = useCallback(() => {
+    setActiveTabId(null); // show home
+  }, []);
+
+  // ── cwd & git context ─────────────────────────────────────────────────────
+  // 포커스된 pane 기준 — 같은 탭 안에서도 각 pane 의 cwd/git 이 다를 수 있으므로
+  // RightPanel 은 활성 pane 을 따라간다.
+  const focusedPane = useMemo(() => {
+    if (!activeTab?.panes) return null;
+    return activeTab.panes.find((p) => p.id === activeTab.activePaneId) || activeTab.panes[0] || null;
+  }, [activeTab]);
+  const isFocusedLocal = focusedPane && !focusedPane.hostId;
+  const { workspaceRelative: activeCwdRel } = useActiveTerminalCwd({
+    sessionId: isFocusedLocal ? focusedPane?.sessionId : null,
+    isLocal: !!isFocusedLocal,
   });
-  const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(localStorage.getItem('sidebar_width') || '280'));
-  const [isResizing, setIsResizing] = useState(false);
+  const gitContextPath = activeCwdRel ?? '';
+  const focusedHostId = focusedPane?.hostId || null;
+
+  // ── UI state ──────────────────────────────────────────────────────────────
+  const [isMobile, setIsMobile] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [hoveredDropdownItem, setHoveredDropdownItem] = useState(null);
-  const [scrollBtnClicked, setScrollBtnClicked] = useState(false);
-  const [confirmModal, setConfirmModal] = useState({ isOpen: false, sessionId: null, title: '', message: '', isLogout: false });
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
+  const [keyManagerOpen, setKeyManagerOpen] = useState(false);
+  const [editingKey, setEditingKey] = useState(null);
+  const [hostManagerOpen, setHostManagerOpen] = useState(false);
+  const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
-  
-  // Split View State
-  const [editorHeight, setEditorHeight] = useState(() => parseInt(localStorage.getItem('editor_height') || '500'));
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // File editor
+  const [openFiles, setOpenFiles] = useState([]);
+  const [activeFile, setActiveFile] = useState(null);
+  const [editorHeight, setEditorHeight] = useState(() => parseInt(localStorage.getItem('editor_height') || '400'));
   const [isResizingEditor, setIsResizingEditor] = useState(false);
 
-  // File/Folder State
-  const [openFiles, setOpenFiles] = useState([]); 
-  const [activeFile, setActiveFile] = useState(null); 
-  const [selectedFolderPath, setSelectedFolderPath] = useState('');
-  const [commandInputOpen, setCommandInputOpen] = useState(false);
-  const [commandText, setCommandText] = useState('');
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [commandPaletteQuery, setCommandPaletteQuery] = useState('');
-  const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
-  const [filePickerQuery, setFilePickerQuery] = useState('');
-  const [filePickerItems, setFilePickerItems] = useState([]);
-  const [isFilePickerLoading, setIsFilePickerLoading] = useState(false);
+  // Terminal search
   const [isTerminalSearchOpen, setIsTerminalSearchOpen] = useState(false);
   const [terminalSearchQuery, setTerminalSearchQuery] = useState('');
   const [terminalSearchStatus, setTerminalSearchStatus] = useState('');
   const terminalSearchInputRef = useRef(null);
 
-  const terminalRef = useRef(null);
-  const terminalLayoutSignal = `${isMobile ? 'm' : 'd'}:${isSidebarOpen ? sidebarWidth : 0}:${activeFile ? editorHeight : 0}:${activeFile ? 'editor-open' : 'editor-closed'}:panes-${visiblePaneIds.join(',')}`;
+  // Command palette / file picker
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
+  const [filePickerQuery, setFilePickerQuery] = useState('');
+  const [filePickerItems, setFilePickerItems] = useState([]);
+  const [isFilePickerLoading, setIsFilePickerLoading] = useState(false);
+  const [selectedFolderPath, setSelectedFolderPath] = useState('');
+  const [commandInputOpen, setCommandInputOpen] = useState(false);
+  const [commandText, setCommandText] = useState('');
 
-  // Responsive & Viewport
+  // ── responsive ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const checkMobile = () => {
-      const mobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
-      setIsMobile(mobile);
-    };
-    checkMobile();
-    window.addEventListener('resize', checkMobile);
+    const check = () => setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
     if (window.visualViewport) {
-      const handleViewport = () => setViewportHeight(window.visualViewport.height);
-      window.visualViewport.addEventListener('resize', handleViewport);
-      return () => {
-        window.removeEventListener('resize', checkMobile);
-        window.visualViewport.removeEventListener('resize', handleViewport);
-      };
+      const vp = () => setViewportHeight(window.visualViewport.height);
+      window.visualViewport.addEventListener('resize', vp);
+      return () => { window.removeEventListener('resize', check); window.visualViewport.removeEventListener('resize', vp); };
     }
-    return () => window.removeEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', check);
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem('sidebar_open', isSidebarOpen.toString());
-    localStorage.setItem('sidebar_width', sidebarWidth.toString());
-    localStorage.setItem('editor_height', editorHeight.toString());
-  }, [isSidebarOpen, sidebarWidth, editorHeight]);
+  useEffect(() => { localStorage.setItem('editor_height', editorHeight.toString()); }, [editorHeight]);
 
-  // Actions
-  const handleNewSession = () => createSession(selectedFolderPath);
+  // ── actions ───────────────────────────────────────────────────────────────
   const handleLogoutRequest = () => setConfirmModal({
-    isOpen: true, isLogout: true, title: t('confirmLogout'), message: t('logoutMessage')
+    isOpen: true,
+    title: t('confirmLogout'),
+    message: t('logoutMessage'),
+    onConfirm: logout,
   });
 
   const handleConfirmModal = async () => {
-    if (confirmModal.isLogout) {
-      logout();
-    } else if (confirmModal.sessionId) {
-      await deleteSession(confirmModal.sessionId);
-    }
-    setConfirmModal({ isOpen: false, sessionId: null, title: '', message: '', isLogout: false });
-  };
-
-  const handleScrollToBottom = () => {
-    if (window.terminalSessions?.[activeSessionId]) {
-      setScrollBtnClicked(true);
-      setTimeout(() => setScrollBtnClicked(false), 300);
-      window.terminalSessions[activeSessionId].scrollToBottom();
-    }
+    await confirmModal.onConfirm?.();
+    setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
   };
 
   const focusActiveTerminal = useCallback(() => {
-    window.terminalSessions?.[activeSessionId]?.focus?.();
-  }, [activeSessionId]);
+    if (activeTab?.sessionId) window.terminalSessions?.[activeTab.sessionId]?.focus?.();
+    else if (activeTab?.id) window.terminalSessions?.[activeTab.id]?.focus?.();
+  }, [activeTab]);
 
-  const clearActiveTerminal = useCallback(() => {
-    window.terminalSessions?.[activeSessionId]?.clear?.();
-  }, [activeSessionId]);
+  const handleFileOpen = (path) => {
+    if (!openFiles.includes(path)) setOpenFiles((prev) => [...prev, path]);
+    setActiveFile(path);
+  };
 
-  const executeTerminalSearch = useCallback((direction = 'next') => {
-    if (!terminalSearchQuery.trim()) return;
+  const handleFileClose = (path) => {
+    const next = openFiles.filter((f) => f !== path);
+    setOpenFiles(next);
+    if (activeFile === path) setActiveFile(next[next.length - 1] || null);
+  };
 
-    const sessionApi = window.terminalSessions?.[activeSessionId];
-    if (!sessionApi) return;
-
-    let matched = false;
-    if (direction === 'previous') {
-      matched = sessionApi.searchPrevious?.(terminalSearchQuery, { caseSensitive: false, regex: false, wholeWord: false }) || false;
-    } else {
-      matched = sessionApi.searchNext?.(terminalSearchQuery, { caseSensitive: false, regex: false, wholeWord: false }) || false;
-    }
-
-    setTerminalSearchStatus(matched ? t('searchMatchFound') : t('searchNoResults'));
-  }, [activeSessionId, terminalSearchQuery, t]);
+  const openFilePicker = useCallback(() => {
+    setFilePickerQuery('');
+    setFilePickerItems(openFiles.map((p) => ({ id: `recent:${p}`, path: p, label: p })));
+    setIsFilePickerOpen(true);
+  }, [openFiles]);
 
   const openTerminalSearch = useCallback(() => {
     setTerminalSearchStatus('');
@@ -268,841 +414,422 @@ function App() {
   }, []);
 
   const closeTerminalSearch = useCallback(() => {
-    setTerminalSearchStatus('');
     setIsTerminalSearchOpen(false);
-    window.terminalSessions?.[activeSessionId]?.closeSearch?.();
-  }, [activeSessionId]);
-
-  const openCommandPalette = useCallback(() => {
-    setCommandPaletteQuery('');
-    setIsCommandPaletteOpen(true);
-  }, []);
-
-  const closeCommandPalette = useCallback(() => {
-    setIsCommandPaletteOpen(false);
-  }, []);
-
-  const openFilePicker = useCallback(() => {
-    setFilePickerQuery('');
-    setFilePickerItems(
-      openFiles.map((path) => ({
-        id: `recent:${path}`,
-        path,
-        label: path,
-      }))
-    );
-    setIsFilePickerOpen(true);
-  }, [openFiles]);
-
-  const closeFilePicker = useCallback(() => {
-    setIsFilePickerOpen(false);
-  }, []);
-
-  // 레이아웃은 visibleN 만 변경. 슬롯 할당(paneSlots) 은 그대로 유지.
-  const addPane = useCallback(() => {
-    setVisibleN((n) => Math.min(MAX_PANES, n + 1));
-  }, []);
-
-  const setPaneLayout = useCallback((target) => {
-    setVisibleN(Math.max(1, Math.min(MAX_PANES, target)));
-  }, []);
-
-  // 슬롯에 세션 할당. targetIdx > 0 = paneSlots[idx-1]. 0 이면 active.
-  const addPaneWithSession = useCallback((sessionId, targetIdx = null) => {
-    if (!sessionId) return;
-    if (targetIdx === 0) {
-      setActiveSessionId(sessionId);
-      return;
-    }
-    if (targetIdx != null && targetIdx > 0) {
-      const slotIdx = targetIdx - 1;
-      setPaneSlots((prev) => {
-        const next = [...prev];
-        next[slotIdx] = sessionId;
-        return next;
-      });
-      setVisibleN((n) => Math.max(n, targetIdx + 1));
-      return;
-    }
-    // 명시 슬롯 없음: 첫 비어있는 visible extra 슬롯 또는 다음 슬롯
-    setPaneSlots((prev) => {
-      const next = [...prev];
-      const emptyIdx = next.findIndex((s, i) => i < visibleN - 1 && s == null);
-      if (emptyIdx >= 0) {
-        next[emptyIdx] = sessionId;
-        return next;
-      }
-      const nextSlot = visibleN - 1;
-      if (nextSlot < 3) next[nextSlot] = sessionId;
-      return next;
-    });
-    setVisibleN((n) => Math.min(MAX_PANES, n + 1));
-  }, [visibleN, setActiveSessionId]);
-
-  // 빈 슬롯 안에서 '+ 새 로컬 세션' (현재는 안 쓰지만 호환성 유지)
-  const fillSlotWithNewLocal = useCallback(async (targetIdx) => {
-    const previousActive = activeSessionId;
-    const newId = await createSession(null);
-    if (!newId) return;
-    if (previousActive) setActiveSessionId(previousActive);
-    addPaneWithSession(newId, targetIdx);
-  }, [activeSessionId, createSession, setActiveSessionId, addPaneWithSession]);
-
-  const openHostAsPane = useCallback(async (hostIdOrLocal, targetIdx = null) => {
-    let newId = null;
-    if (hostIdOrLocal === 'local') {
-      const previousActive = activeSessionId;
-      newId = await createSession(null);
-      if (newId && previousActive && targetIdx !== 0) setActiveSessionId(previousActive);
-    } else {
-      const host = hosts.find((h) => h.id === hostIdOrLocal);
-      if (!host) return;
-      newId = `host:${host.id}:${Date.now()}`;
-      setHostTabs((prev) => [...prev, {
-        id: newId,
-        hostId: host.id,
-        name: host.name,
-        color_index: host.color_index,
-        kind: 'host',
-      }]);
-    }
-    if (newId) addPaneWithSession(newId, targetIdx);
-  }, [activeSessionId, hosts, createSession, setActiveSessionId, addPaneWithSession]);
-
-  // X 닫기 = visibleN 축소만. 슬롯 할당은 보존 (다시 늘리면 그대로 복귀).
-  const removePane = useCallback((paneIdx) => {
-    if (paneIdx === 0) return; // 활성 pane 은 닫기 X
-    setVisibleN((n) => Math.max(1, n - 1));
-  }, []);
-
-  // pane 클릭 = 시각적 포커스만 이동. 세션 swap 없음 (위치 안 바뀜).
-  const focusPane = useCallback((paneIdx) => {
-    setFocusedPaneIdx(paneIdx);
-  }, []);
-
-  // 세션이 사라지면 슬롯의 죽은 sessionId 를 null 로
-  useEffect(() => {
-    setPaneSlots((prev) => prev.map((id) => (id && sessions.some((s) => s.id === id)) ? id : null));
-  }, [sessions]);
-
-  const commandPaletteItems = useMemo(() => [
-    {
-      id: 'new-terminal',
-      label: t('newSession'),
-      shortcut: 'Ctrl+Shift+N',
-      keywords: ['terminal', 'session', 'new'],
-      action: handleNewSession,
-    },
-    {
-      id: 'toggle-sidebar',
-      label: isSidebarOpen ? t('closeSidebar') : t('sessions'),
-      shortcut: 'Ctrl+B',
-      keywords: ['sidebar', 'panel', 'toggle'],
-      action: () => setIsSidebarOpen((prev) => !prev),
-    },
-    {
-      id: 'open-settings',
-      label: t('settings'),
-      shortcut: 'Ctrl+,',
-      keywords: ['preferences', 'config'],
-      action: () => setIsSettingsOpen(true),
-    },
-    {
-      id: 'quick-open-files',
-      label: t('quickOpenFiles'),
-      shortcut: 'Ctrl+P',
-      keywords: ['file', 'open', 'quick'],
-      action: openFilePicker,
-    },
-    {
-      id: 'split-add',
-      label: t('splitTerminal'),
-      shortcut: 'Ctrl+\\',
-      keywords: ['split', 'pane', 'terminal'],
-      action: addPane,
-    },
-    {
-      id: 'split-remove',
-      label: t('unsplitTerminal'),
-      shortcut: 'Ctrl+Shift+\\',
-      keywords: ['unsplit', 'close pane'],
-      action: () => removePane(visibleN - 1),
-    },
-    {
-      id: 'focus-terminal',
-      label: t('focusTerminal'),
-      shortcut: 'Ctrl+`',
-      keywords: ['focus', 'terminal'],
-      action: focusActiveTerminal,
-    },
-    {
-      id: 'find-terminal',
-      label: t('findInTerminal'),
-      shortcut: 'Ctrl+Shift+F',
-      keywords: ['search', 'find', 'terminal'],
-      action: openTerminalSearch,
-    },
-    {
-      id: 'clear-terminal',
-      label: t('clearTerminal'),
-      shortcut: 'Ctrl+K',
-      keywords: ['clear', 'screen'],
-      action: clearActiveTerminal,
-    },
-    {
-      id: 'scroll-bottom',
-      label: t('scrollToBottom'),
-      shortcut: 'Ctrl+End',
-      keywords: ['scroll', 'bottom'],
-      action: handleScrollToBottom,
-    },
-    {
-      id: 'close-active',
-      label: t('closeActiveTerminal'),
-      shortcut: 'Ctrl+W',
-      keywords: ['close', 'terminal', 'session'],
-      action: () => {
-        if (!activeSessionId) return;
-        setConfirmModal({
-          isOpen: true,
-          sessionId: activeSessionId,
-          title: t('closeTerminal'),
-          message: t('confirmCloseTerminal'),
-          isLogout: false,
-        });
-      },
-    },
-  ], [
-    t,
-    handleNewSession,
-    isSidebarOpen,
-    openFilePicker,
-    addPane,
-    removePane,
-    visibleN,
-    focusActiveTerminal,
-    openTerminalSearch,
-    clearActiveTerminal,
-    handleScrollToBottom,
-    activeSessionId,
-  ]);
-
-  const executeCommandPaletteAction = useCallback((commandId) => {
-    const command = commandPaletteItems.find((item) => item.id === commandId);
-    if (!command) return;
-    closeCommandPalette();
-    command.action();
-  }, [commandPaletteItems, closeCommandPalette]);
-
-  const executeFilePickerAction = useCallback((itemId) => {
-    const selected = filePickerItems.find((item) => item.id === itemId);
-    if (!selected) return;
-    handleFileOpen(selected.path);
-    closeFilePicker();
-  }, [filePickerItems, closeFilePicker]);
-
-  useEffect(() => {
-    if (!isFilePickerOpen) return;
-
-    const query = filePickerQuery.trim();
-    const token = localStorage.getItem('auth_token');
-    const controller = new AbortController();
-
-    if (!query) {
-      setFilePickerItems(
-        openFiles.map((path) => ({
-          id: `recent:${path}`,
-          path,
-          label: path,
-        }))
-      );
-      setIsFilePickerLoading(false);
-      return () => controller.abort();
-    }
-
-    const debounce = setTimeout(async () => {
-      setIsFilePickerLoading(true);
-      try {
-        const res = await fetch(`/api/files/search?q=${encodeURIComponent(query)}&limit=200`, {
-          headers: { Authorization: `Bearer ${token}` },
-          signal: controller.signal,
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        const items = (data.items || []).map((item) => ({
-          id: `search:${item.path}`,
-          path: item.path,
-          label: item.path,
-          keywords: [item.name, item.path],
-        }));
-        setFilePickerItems(items);
-      } catch (error) {
-        if (error.name !== 'AbortError') {
-          setFilePickerItems([]);
-        }
-      } finally {
-        setIsFilePickerLoading(false);
-      }
-    }, 120);
-
-    return () => {
-      clearTimeout(debounce);
-      controller.abort();
-    };
-  }, [isFilePickerOpen, filePickerQuery, openFiles]);
-
-  // 의도한 mirroring (같은 세션을 여러 pane 에 표시) 을 허용하기 위해 dedupe 비활성.
-
-  useEffect(() => {
-    const isFormElement = (target) => {
-      if (!target || !(target instanceof HTMLElement)) return false;
-      if (target.classList.contains('xterm-helper-textarea')) return false;
-      const tag = target.tagName.toLowerCase();
-      return tag === 'input' || tag === 'textarea' || tag === 'select' || target.isContentEditable;
-    };
-
-    const onKeyDown = (event) => {
-      if (isFormElement(event.target)) return;
-      if (isCommandPaletteOpen || isTerminalSearchOpen || isFilePickerOpen) return;
-
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && (event.key === 'P' || event.key === 'p')) {
-        event.preventDefault();
-        openCommandPalette();
-        return;
-      }
-
-      if ((event.ctrlKey || event.metaKey) && event.key === 'p') {
-        event.preventDefault();
-        openFilePicker();
-        return;
-      }
-
-      if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
-        event.preventDefault();
-        setIsSidebarOpen((prev) => !prev);
-        return;
-      }
-
-      if ((event.ctrlKey || event.metaKey) && event.key === ',') {
-        event.preventDefault();
-        setIsSettingsOpen(true);
-        return;
-      }
-
-    };
-
-    const onOpenTerminalSearch = (event) => {
-      if (!event.detail?.sessionId || event.detail.sessionId !== activeSessionId) return;
-      openTerminalSearch();
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('terminal:open-search', onOpenTerminalSearch);
-
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('terminal:open-search', onOpenTerminalSearch);
-    };
-  }, [activeSessionId, openCommandPalette, openTerminalSearch, openFilePicker, isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen]);
-
-  useEffect(() => {
     setTerminalSearchStatus('');
-  }, [terminalSearchQuery]);
+    const key = activeTab?.sessionId || activeTab?.id;
+    window.terminalSessions?.[key]?.closeSearch?.();
+  }, [activeTab]);
 
-  useEffect(() => {
-    if (!isTerminalSearchOpen) return;
+  const executeTerminalSearch = useCallback((dir = 'next') => {
+    if (!terminalSearchQuery.trim()) return;
+    const key = activeTab?.sessionId || activeTab?.id;
+    const api = window.terminalSessions?.[key];
+    if (!api) return;
+    const matched = dir === 'previous'
+      ? api.searchPrevious?.(terminalSearchQuery, {}) || false
+      : api.searchNext?.(terminalSearchQuery, {}) || false;
+    setTerminalSearchStatus(matched ? t('searchMatchFound') : t('searchNoResults'));
+  }, [activeTab, terminalSearchQuery, t]);
 
-    const onKeyDown = (event) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeTerminalSearch();
-        focusActiveTerminal();
-        return;
-      }
-
-      if (event.key === 'Enter') {
-        event.preventDefault();
-        executeTerminalSearch(event.shiftKey ? 'previous' : 'next');
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isTerminalSearchOpen, closeTerminalSearch, focusActiveTerminal, executeTerminalSearch]);
-
-  const handleFileOpen = (path) => {
-    if (!openFiles.includes(path)) {
-      setOpenFiles([...openFiles, path]);
-    }
-    setActiveFile(path);
-  };
-
-  const handleFileClose = (path) => {
-    const newOpenFiles = openFiles.filter(f => f !== path);
-    setOpenFiles(newOpenFiles);
-    if (activeFile === path) {
-      if (newOpenFiles.length > 0) setActiveFile(newOpenFiles[newOpenFiles.length - 1]);
-      else setActiveFile(null);
-    }
-  };
-
-  // Editor Resizing Logic
+  // editor resize
   const onEditorResizeStart = (e) => {
-    if (typeof e.preventDefault === 'function' && e.cancelable !== false) {
-      e.preventDefault();
-    }
+    if (e.preventDefault && e.cancelable !== false) e.preventDefault();
     setIsResizingEditor(true);
-    const startY = e.clientY || (e.touches && e.touches[0].clientY);
-    const startHeight = editorHeight;
-
-    const onMove = (moveEvent) => {
-      const currentY = moveEvent.clientY || (moveEvent.touches && moveEvent.touches[0].clientY);
-      const deltaY = currentY - startY;
-      const newHeight = Math.max(150, Math.min(window.innerHeight - 150, startHeight + deltaY));
-      setEditorHeight(newHeight);
+    const startY = e.clientY || e.touches?.[0]?.clientY;
+    const startH = editorHeight;
+    const onMove = (me) => {
+      const y = me.clientY || me.touches?.[0]?.clientY;
+      setEditorHeight(Math.max(150, Math.min(window.innerHeight - 150, startH + y - startY)));
     };
-
     const onUp = () => {
       setIsResizingEditor(false);
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('touchend', onUp);
     };
-
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
-    document.addEventListener('touchmove', onMove, { passive: false });
-    document.addEventListener('touchend', onUp);
   };
+
+  // ── keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    const isForm = (el) => {
+      if (!el || !(el instanceof HTMLElement)) return false;
+      if (el.classList.contains('xterm-helper-textarea')) return false;
+      const t = el.tagName.toLowerCase();
+      return t === 'input' || t === 'textarea' || t === 'select' || el.isContentEditable;
+    };
+
+    const onKey = (e) => {
+      if (isForm(e.target) || isCommandPaletteOpen || isTerminalSearchOpen || isFilePickerOpen) return;
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (ctrl && e.shiftKey && (e.key === 'P' || e.key === 'p')) { e.preventDefault(); setIsCommandPaletteOpen(true); return; }
+      if (ctrl && e.key === 'p') { e.preventDefault(); openFilePicker(); return; }
+      if (ctrl && e.key === ',') { e.preventDefault(); setIsSettingsOpen(true); return; }
+      if (ctrl && e.key === 't') { e.preventDefault(); handleAddTab(); return; }
+      if (ctrl && (e.key === '\\' || e.code === 'Backslash')) {
+        e.preventDefault();
+        splitActivePane(e.shiftKey ? 'v' : 'h');
+        return;
+      }
+      if (ctrl && e.key === 'w') {
+        e.preventDefault();
+        if (activeTabId) closeTab(activeTabId);
+        return;
+      }
+    };
+
+    const onSearch = (ev) => {
+      const key = activeTab?.sessionId || activeTab?.id;
+      if (!ev.detail?.sessionId || ev.detail.sessionId !== key) return;
+      openTerminalSearch();
+    };
+
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('terminal:open-search', onSearch);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('terminal:open-search', onSearch); };
+  }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane]);  // splitActivePane 은 deps 비어 있어 stable
+
+  useEffect(() => { setTerminalSearchStatus(''); }, [terminalSearchQuery]);
+
+  useEffect(() => {
+    if (!isTerminalSearchOpen) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); closeTerminalSearch(); focusActiveTerminal(); }
+      if (e.key === 'Enter') { e.preventDefault(); executeTerminalSearch(e.shiftKey ? 'previous' : 'next'); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isTerminalSearchOpen, closeTerminalSearch, focusActiveTerminal, executeTerminalSearch]);
+
+  // file picker search
+  useEffect(() => {
+    if (!isFilePickerOpen) return;
+    const query = filePickerQuery.trim();
+    const token = localStorage.getItem('auth_token');
+    const ctrl = new AbortController();
+    if (!query) {
+      setFilePickerItems(openFiles.map((p) => ({ id: `recent:${p}`, path: p, label: p })));
+      return () => ctrl.abort();
+    }
+    const timer = setTimeout(async () => {
+      setIsFilePickerLoading(true);
+      try {
+        const res = await fetch(`/api/files/search?q=${encodeURIComponent(query)}&limit=200`, {
+          headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal,
+        });
+        const data = await res.json();
+        setFilePickerItems((data.items || []).map((item) => ({ id: `s:${item.path}`, path: item.path, label: item.path })));
+      } catch (err) {
+        if (err.name !== 'AbortError') setFilePickerItems([]);
+      } finally { setIsFilePickerLoading(false); }
+    }, 120);
+    return () => { clearTimeout(timer); ctrl.abort(); };
+  }, [isFilePickerOpen, filePickerQuery, openFiles]);
+
+  // ── terminal key for session registry ─────────────────────────────────────
+  const terminalKey = activeTab?.sessionId || activeTab?.id || null;
+  const terminalLayoutSignal = `tab:${activeTabId}:editor:${activeFile ? editorHeight : 0}`;
+
+  // ── guards ────────────────────────────────────────────────────────────────
   if (isLoading) return <LoadingScreen currentTheme={currentTheme} t={t} />;
   if (needsSetup) return <Suspense fallback={null}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense>;
   if (!isAuthenticated) return <Suspense fallback={null}><Login onLogin={login} language={settings.language} /></Suspense>;
 
+  // ── render ─────────────────────────────────────────────────────────────────
   return (
     <div style={{
-      ...AppStyles.container,
-      backgroundColor: currentTheme.ui.bg,
+      display: 'flex', flexDirection: 'column',
       height: isMobile ? `${viewportHeight}px` : '100vh',
-      position: 'relative',
-      overflow: 'hidden'
+      background: currentTheme.ui.bg,
+      overflow: 'hidden',
+      fontFamily: font.sans,
     }}>
       <style>{`
-        /* Global Scrollbar Styles */
-        * {
-          scrollbar-width: thin;
-          scrollbar-color: ${currentTheme.ui.bgTertiary} transparent;
-        }
-
-        /* Webkit browsers (Chrome, Safari, Edge) */
-        ::-webkit-scrollbar {
-          width: 8px;
-          height: 8px;
-        }
-
-        ::-webkit-scrollbar-track {
-          background: transparent;
-        }
-
-        ::-webkit-scrollbar-thumb {
-          background: ${currentTheme.ui.bgTertiary};
-          border-radius: 4px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-          background: ${currentTheme.ui.accent}88;
-        }
-
-        ::-webkit-scrollbar-corner {
-          background: transparent;
-        }
+        * { scrollbar-width: thin; scrollbar-color: ${currentTheme.ui.bgTertiary} transparent; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: ${currentTheme.ui.bgTertiary}; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: ${currentTheme.ui.accent}88; }
       `}</style>
-      <Sidebar
-        isOpen={isSidebarOpen}
-        onClose={() => setIsSidebarOpen(false)}
-        sessions={sessions}
-        activeSessionId={activeSessionId}
-        onSelectSession={setActiveSessionId}
-        onNewSession={handleNewSession}
-        onCloseSession={(id) => setConfirmModal({ isOpen: true, sessionId: id, title: t('closeTerminal'), message: t('confirmCloseTerminal') })}
-        onRenameSession={renameSession}
-        onReconnectSession={(id) => { setActiveSessionId(null); setTimeout(() => setActiveSessionId(id), 50); }}
-        hosts={hosts}
-        activeSession={activeSessionInfo}
-        gitContextPath={gitContextPath}
-        onSelectChangedFile={handleSelectChangedFile}
-        onConnectHost={openHost}
-        onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
-        onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
-        onDeleteHost={async (h) => {
-          if (confirm(t('confirmDeleteHost') || 'Delete this host?')) {
-            await deleteHost(h.id);
-          }
-        }}
-        onManageKeys={() => setKeyManagerOpen(true)}
-        language={settings.language}
-        theme={currentTheme}
-        isMobile={isMobile} 
-        width={sidebarWidth} 
-        onResizeStart={(e) => {
-          e.preventDefault();
-          setIsResizing(true);
-          const startX = e.clientX;
-          const startWidth = sidebarWidth;
-          const onMove = (me) => setSidebarWidth(Math.max(200, Math.min(420, startWidth + me.clientX - startX)));
-          const onUp = () => {
-            setIsResizing(false);
-            document.removeEventListener('mousemove', onMove);
-            document.removeEventListener('mouseup', onUp);
-          };
-          document.addEventListener('mousemove', onMove);
-          document.addEventListener('mouseup', onUp);
-        }} 
-        onFileSelect={handleFileOpen} 
-        onFolderSelect={setSelectedFolderPath} 
-        onOpenTerminalAtFolder={async (path) => {
-          const newId = await createSession(path);
-          if (newId && isMobile) {
-            setIsSidebarOpen(false);
-          }
-        }} 
-        selectedFolderPath={selectedFolderPath}
-        viewportHeight={viewportHeight}
+
+      {/* ── 단일 상단 바: 홈 + 탭 + 액션 (호스트 / SSH 키 / 설정 / 로그아웃) ── */}
+      <TabBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelect={setActiveTabId}
+        onClose={closeTab}
+        onHome={() => setActiveTabId(null)}
+        onOpenHosts={() => setHostManagerOpen(true)}
+        onOpenKeys={() => { setEditingKey(null); setKeyManagerOpen(true); }}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onLogout={handleLogoutRequest}
+        onSplit={splitActivePane}
+        canSplit={!!activeTab && (activeTab.panes?.length || 1) < 4}
+        t={t}
       />
 
-      <div style={{
-        position: 'absolute',
-        top: 0,
-        left: !isMobile && isSidebarOpen ? `${sidebarWidth}px` : '0',
-        right: 0,
-        bottom: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        transition: isResizing ? 'none' : 'left 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        backgroundColor: currentTheme.ui.bg,
-        overflow: 'visible',
-        zIndex: 10,
-        boxShadow: currentTheme.ui.shadow,
-      }}>
-        {/* Inner Highlight for Skeuomorphism */}
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: '1px',
-          backgroundColor: 'rgba(255,255,255,0.05)',
-          zIndex: 101,
-          pointerEvents: 'none'
-        }} />
-        <Header
-          isSidebarOpen={isSidebarOpen}
-          toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          isMobile={isMobile}
-          scrollBtnClicked={scrollBtnClicked}
-          handleScrollToBottom={handleScrollToBottom}
-          isMenuOpen={isMenuOpen}
-          setIsMenuOpen={setIsMenuOpen}
-          currentTheme={currentTheme}
-          t={t}
-          authState={{ username }}
-          handleNewSession={handleNewSession}
-          setIsSettingsOpen={setIsSettingsOpen}
-          handleLogoutRequest={handleLogoutRequest}
-          paneCount={paneCount}
-          maxPanes={MAX_PANES}
-          onAddPane={addPane}
-          onClosePane={() => removePane(visibleN - 1)}
-          onSetLayout={setPaneLayout}
-          isChangesPanelOpen={isChangesPanelOpen}
-          toggleChangesPanel={() => setIsChangesPanelOpen((p) => !p)}
-          changesCount={gitChanges.length}
-        />
+      {/* ── main body ── */}
+      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+        {/* center: home or terminal */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', position: 'relative', overflow: 'hidden', minWidth: 0 }}>
-          
-          {/* 에디터 영역 (높이 가변형) */}
-          {activeFile && (
-            <div style={{ 
-              height: `${editorHeight}px`, 
-              position: 'relative', 
-              zIndex: 10,
-              flexShrink: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              minHeight: '150px'
-            }}>
-              <Suspense fallback={null}>
-                <FileEditor 
-                  activeFile={activeFile} 
-                  openFiles={openFiles}
-                  onFileSelect={handleFileOpen}
-                  onClose={handleFileClose} 
-                  theme={currentTheme} 
-                  language={settings.language}
-                  onResizeStart={onEditorResizeStart}
-                />
-              </Suspense>
-            </div>
-          )}
-
-          {/* 터미널 영역 (남은 공간 차지) — 외곽 패딩 없음. 여백은 pane 내부에서 처리 */}
-          <div
-            ref={terminalRef}
-            style={{
-              ...AppStyles.terminalContainer,
-              backgroundColor: currentTheme.background,
-              flex: 1,
-              userSelect: 'text',
-              WebkitUserSelect: 'text',
-              paddingBottom: isMobile ? '80px' : '0',
-              minHeight: '150px'
-            }}
-          >
-            {sessions.length === 0 ? (
-              <EmptyState currentTheme={currentTheme} t={t} handleNewSession={handleNewSession} />
-            ) : (
-              <PaneGrid
-                visiblePaneIds={visiblePaneIds}
-                sessions={sessions}
-                activeSessionId={activeSessionId}
-                focusedPaneIdx={safeFocusedIdx}
-                paneCount={paneCount}
-                isMobile={isMobile}
-                currentTheme={currentTheme}
-                settings={settings}
-                terminalLayoutSignal={terminalLayoutSignal}
-                onFocusPane={focusPane}
-                onClosePane={removePane}
-                onDropSession={addPaneWithSession}
-                onDropHost={openHostAsPane}
-                onFillSlotNew={fillSlotWithNewLocal}
-                t={t}
-              />
-            )}
-          </div>
-        </div>
-        {isChangesPanelOpen && (
-          <Suspense fallback={null}>
-            <ChangesPanel
-              isOpen={isChangesPanelOpen}
-              onClose={() => setIsChangesPanelOpen(false)}
-              onOpenFile={(path) => handleFileOpen(path)}
-              externalSelectedPath={requestedDiffPath}
-              onConsumedExternalPath={() => setRequestedDiffPath(null)}
-              gitContextPath={gitContextPath}
+          {activeTabId === null ? (
+            /* ── home dashboard ── */
+            <HomeDashboard
+              hosts={hosts}
+              onOpenHost={openHostTab}
+              onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
+              onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
+              onDeleteHost={async (h) => { await deleteHost(h.id); await refreshHosts(); }}
+              onOpenSettings={() => setIsSettingsOpen(true)}
               t={t}
+              settings={settings}
             />
-          </Suspense>
-        )}
+          ) : (
+            /* ── active terminal ── */
+            <>
+              {/* file editor (optional split) */}
+              {activeFile && (
+                <div style={{ height: `${editorHeight}px`, flexShrink: 0, position: 'relative', minHeight: '150px', zIndex: 10 }}>
+                  <Suspense fallback={null}>
+                    <FileEditor
+                      activeFile={activeFile}
+                      openFiles={openFiles}
+                      onFileSelect={handleFileOpen}
+                      onClose={handleFileClose}
+                      theme={currentTheme}
+                      language={settings.language}
+                      onResizeStart={onEditorResizeStart}
+                    />
+                  </Suspense>
+                </div>
+              )}
+
+              {/* terminal panes (각 pane 안에 RightPanel 포함) */}
+              <div style={{
+                flex: 1, position: 'relative', overflow: 'hidden', minHeight: '150px',
+                paddingBottom: isMobile ? '80px' : 0,
+              }}>
+                <PaneGrid
+                  tab={activeTab}
+                  hosts={hosts}
+                  isActive={true}
+                  isMobile={isMobile}
+                  onFocusPane={focusPane}
+                  onClosePane={closePane}
+                  onActivatePane={activatePane}
+                  layoutSignal={terminalLayoutSignal}
+                  settings={settings}
+                  updateSettings={updateSettings}
+                  cwd={activeTab?.type === 'local' ? (activeTab?.cwd || settings.localStartPath || null) : null}
+                  onFileSelect={handleFileOpen}
+                  onFolderSelect={setSelectedFolderPath}
+                  onOpenTerminalAtFolder={async (path) => {
+                    const sessionId = generateUUID();
+                    const tab = makLocalTab(sessionId, path.split('/').pop() || 'terminal');
+                    setTabs((prev) => [...prev, tab]);
+                    setActiveTabId(tab.id);
+                  }}
+                  language={settings.language}
+                  t={t}
+                  viewportHeight={viewportHeight}
+                />
+              </div>
+            </>
+          )}
         </div>
 
-        {isTerminalSearchOpen && (
-          <div style={{
-            position: 'absolute',
-            top: '52px',
-            right: isMobile ? '8px' : '12px',
-            zIndex: 1002,
-            width: isMobile ? 'min(98vw, 360px)' : '420px',
-            maxWidth: 'calc(100vw - 24px)',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            backgroundColor: currentTheme.ui.bgSecondary,
-            border: `1px solid ${currentTheme.ui.border}`,
-            borderRadius: currentTheme.ui.radius || '6px',
-            padding: '6px',
-            boxShadow: currentTheme.ui.shadow,
-          }}>
-            <input
-              ref={terminalSearchInputRef}
-              value={terminalSearchQuery}
-              onChange={(event) => setTerminalSearchQuery(event.target.value)}
-              placeholder={t('findInTerminal')}
-              style={{
-                flex: 1,
-                height: '30px',
-                border: `1px solid ${currentTheme.ui.borderLight}`,
-                borderRadius: '4px',
-                backgroundColor: currentTheme.ui.bg,
-                color: currentTheme.ui.text,
-                padding: '0 10px',
-                outline: 'none',
-                fontSize: '13px',
-                fontWeight: 600,
-              }}
-            />
-            <span style={{
-              minWidth: '104px',
-              textAlign: 'center',
-              fontSize: '11px',
-              fontWeight: 700,
-              color: terminalSearchStatus === t('searchNoResults') ? currentTheme.red : currentTheme.ui.textSecondary,
-            }}>
-              {terminalSearchStatus}
-            </span>
-            <button
-              type="button"
-              onClick={() => executeTerminalSearch('previous')}
-              style={{
-                border: `1px solid ${currentTheme.ui.borderLight}`,
-                background: 'transparent',
-                color: currentTheme.ui.text,
-                borderRadius: '4px',
-                height: '30px',
-                padding: '0 10px',
-                cursor: 'pointer',
-                fontWeight: 700,
-              }}
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              onClick={() => executeTerminalSearch('next')}
-              style={{
-                border: `1px solid ${currentTheme.ui.borderLight}`,
-                background: currentTheme.ui.accent,
-                color: currentTheme.ui.bg,
-                borderRadius: '4px',
-                height: '30px',
-                padding: '0 10px',
-                cursor: 'pointer',
-                fontWeight: 700,
-              }}
-            >
-              ↓
-            </button>
-            <button
-              type="button"
-              onClick={closeTerminalSearch}
-              style={{
-                border: 'none',
-                background: 'transparent',
-                color: currentTheme.ui.textSecondary,
-                height: '30px',
-                width: '30px',
-                cursor: 'pointer',
-                fontWeight: 800,
-                fontSize: '14px',
-              }}
-            >
-              ×
-            </button>
-          </div>
-        )}
+        {/* RightPanel 은 각 pane 내부로 이동 (PaneGrid 가 처리) */}
       </div>
 
-      {isMobile && (
+      {/* ── terminal search overlay ── */}
+      {isTerminalSearchOpen && (
+        <div style={{
+          position: 'fixed', top: '80px', right: '56px', zIndex: 1002,
+          width: '360px', display: 'flex', alignItems: 'center', gap: '6px',
+          background: currentTheme.ui.bgSecondary,
+          border: `1px solid ${currentTheme.ui.border}`,
+          borderRadius: '6px', padding: '6px',
+          boxShadow: currentTheme.ui.shadow,
+        }}>
+          <input
+            ref={terminalSearchInputRef}
+            value={terminalSearchQuery}
+            onChange={(e) => setTerminalSearchQuery(e.target.value)}
+            placeholder={t('findInTerminal')}
+            style={{
+              flex: 1, height: '30px',
+              border: `1px solid ${currentTheme.ui.borderLight}`, borderRadius: '4px',
+              background: currentTheme.ui.bg, color: currentTheme.ui.text,
+              padding: '0 10px', outline: 'none', fontSize: '13px',
+            }}
+          />
+          <span style={{ fontSize: '11px', color: terminalSearchStatus === t('searchNoResults') ? currentTheme.red : currentTheme.ui.textSecondary, minWidth: '80px', textAlign: 'center' }}>
+            {terminalSearchStatus}
+          </span>
+          <button onClick={() => executeTerminalSearch('previous')} style={searchBtnStyle(currentTheme)}>↑</button>
+          <button onClick={() => executeTerminalSearch('next')} style={searchBtnStyle(currentTheme)}>↓</button>
+          <button onClick={() => { closeTerminalSearch(); focusActiveTerminal(); }} style={searchBtnStyle(currentTheme)}>✕</button>
+        </div>
+      )}
+
+      {/* ── mobile toolbar ── */}
+      {isMobile && activeTabId !== null && (
         <Suspense fallback={null}>
-          <MobileToolbar 
-            onSendKey={(key) => window.terminalSessions?.[activeSessionId]?.sendData(key)} 
-            onOpenCommandInput={() => setCommandInputOpen(true)}
-            language={settings.language}
+          <MobileToolbar
+            sessionId={terminalKey}
+            isMenuOpen={isMenuOpen}
+            setIsMenuOpen={setIsMenuOpen}
             currentTheme={currentTheme}
+            t={t}
+            commandInputOpen={commandInputOpen}
+            setCommandInputOpen={setCommandInputOpen}
+            commandText={commandText}
+            setCommandText={setCommandText}
           />
         </Suspense>
       )}
 
-      {/* 모바일 드롭다운 메뉴 */}
-      {isMobile && isMenuOpen && (
-        <div style={{ position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh', zIndex: 100000 }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.4)' }} onClick={() => setIsMenuOpen(false)} />
-          <div style={{
-            position: 'absolute',
-            top: '40px',
-            right: '8px',
-            width: '180px',
-            backgroundColor: currentTheme.ui.bgSecondary,
-            border: `1px solid ${currentTheme.ui.border}`,
-            borderRadius: currentTheme.ui.radius || '4px',
-            padding: '4px',
-            display: 'flex',
-            flexDirection: 'column',
-            boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
-            zIndex: 100001
-          }}>
-            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${currentTheme.ui.borderLight}`, marginBottom: '4px' }}>
-              <div style={{ fontSize: '10px', color: currentTheme.ui.textSecondary, textTransform: 'uppercase' }}>{t('user')}</div>
-              <div style={{ fontWeight: '800', color: currentTheme.ui.accent }}>{username}</div>
-            </div>
-            <button onClick={() => { handleNewSession(); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '13px', borderRadius: '4px' }}>{t('newSession')}</button>
-            <button onClick={() => { setIsSettingsOpen(true); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.ui.text, textAlign: 'left', fontWeight: '600', fontSize: '13px', borderRadius: '4px' }}>{t('settings')}</button>
-            <button onClick={() => { handleLogoutRequest(); setIsMenuOpen(false); }} style={{ padding: '12px', background: 'none', border: 'none', color: currentTheme.red, textAlign: 'left', fontWeight: '700', fontSize: '13px', borderRadius: '4px' }}>{t('logout')}</button>
-          </div>
-        </div>
-      )}
+      {/* ── host manager modal (top action) ── */}
+      <HostManager
+        isOpen={hostManagerOpen}
+        onClose={() => setHostManagerOpen(false)}
+        hosts={hosts}
+        onAdd={() => { setHostManagerOpen(false); setHostEditorState({ isOpen: true, host: null }); }}
+        onEdit={(h) => { setHostManagerOpen(false); setHostEditorState({ isOpen: true, host: h }); }}
+        onConnect={(h) => { setHostManagerOpen(false); openHostTab(h); }}
+        t={t}
+      />
 
+      {/* ── modals ── */}
       <Suspense fallback={null}>
-        <CommandPalette
-          isOpen={isCommandPaletteOpen}
-          query={commandPaletteQuery}
-          onQueryChange={setCommandPaletteQuery}
-          onClose={closeCommandPalette}
-          commands={commandPaletteItems}
-          onExecute={executeCommandPaletteAction}
-          theme={currentTheme}
-          title={t('commandPalette')}
-          placeholder={t('commandPalettePlaceholder')}
-          emptyLabel={t('noCommandsFound')}
-        />
-        <CommandPalette
-          isOpen={isFilePickerOpen}
-          query={filePickerQuery}
-          onQueryChange={setFilePickerQuery}
-          onClose={closeFilePicker}
-          commands={filePickerItems}
-          onExecute={executeFilePickerAction}
-          theme={currentTheme}
-          title={isFilePickerLoading ? `${t('quickOpenFiles')}...` : t('quickOpenFiles')}
-          placeholder={t('quickOpenPlaceholder')}
-          emptyLabel={isFilePickerLoading ? t('searchingFiles') : t('noFilesFound')}
-        />
-        <CommandInput isOpen={commandInputOpen} onClose={() => setCommandInputOpen(false)} onSend={(cmd) => window.terminalSessions?.[activeSessionId]?.sendData(cmd + '\n')} command={commandText} setCommand={setCommandText} theme={currentTheme} t={t} />
-        <Settings isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} settings={settings} onSave={updateSettings} theme={currentTheme} username={username} />
-        <ConfirmModal isOpen={confirmModal.isOpen} title={confirmModal.title} message={confirmModal.message} confirmText={confirmModal.isLogout ? t('logout') : t('close')} cancelText={t('cancel')} onConfirm={handleConfirmModal} onCancel={() => setConfirmModal({ ...confirmModal, isOpen: false })} language={settings.language} danger={true} theme={currentTheme} />
-        <NotificationModal isOpen={notification.isOpen} message={notification.message} onClose={() => setNotification({ isOpen: false, message: '' })} theme={currentTheme} />
-
-        <Suspense fallback={null}>
+        {isSettingsOpen && (
+          <Settings
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            settings={settings}
+            onSave={updateSettings}
+            t={t}
+            language={settings.language}
+          />
+        )}
+        {keyManagerOpen && (
+          <SshKeyManager
+            isOpen={keyManagerOpen}
+            onClose={() => { setKeyManagerOpen(false); setEditingKey(null); }}
+            keys={sshKeys}
+            onCreate={createKey}
+            onUpdate={updateKey}
+            onDelete={deleteKey}
+            initialEditKey={editingKey}
+            t={t}
+            language={settings.language}
+          />
+        )}
+        {hostEditorState.isOpen && (
           <HostEditor
             isOpen={hostEditorState.isOpen}
             host={hostEditorState.host}
             sshKeys={sshKeys}
-            t={t}
+            onSave={async (data) => {
+              if (hostEditorState.host) await updateHost(hostEditorState.host.id, data);
+              else await createHost(data);
+              await refreshHosts();
+              setHostEditorState({ isOpen: false, host: null });
+            }}
+            onDelete={async (h) => {
+              await deleteHost(h.id);
+              await refreshHosts();
+              setHostEditorState({ isOpen: false, host: null });
+            }}
+            onKillTmuxServer={async (h) => {
+              const token = localStorage.getItem('auth_token');
+              await fetch(`/api/hosts/${h.id}/kill-tmux?force=true`, {
+                method: 'POST', headers: { Authorization: `Bearer ${token}` },
+              });
+              setNotification({ isOpen: true, message: t('killTmuxServerDone') || 'Remote tmux server killed.' });
+            }}
             onClose={() => setHostEditorState({ isOpen: false, host: null })}
-            onSave={async (draft) => {
-              if (hostEditorState.host) {
-                await updateHost(hostEditorState.host.id, draft);
-                setHostEditorState({ isOpen: false, host: null });
-              } else {
-                await createHost(draft);
-                // 새 호스트 추가 직후 곧장 연결되도록 (Termius 풍의 \"이지\" UX)
-                const fresh = await refreshHosts();
-                const justAdded = (fresh || []).find(h => h.name === draft.name && h.hostname === draft.hostname);
-                setHostEditorState({ isOpen: false, host: null });
-                if (justAdded) openHost(justAdded);
-              }
-            }}
-          />
-          <SshKeyManager
-            isOpen={keyManagerOpen}
-            keys={sshKeys}
             t={t}
-            onClose={() => setKeyManagerOpen(false)}
-            onAdd={async (draft) => { await createKey(draft); }}
-            onDelete={async (id) => {
-              if (confirm(t('confirmDeleteKey') || 'Delete this SSH key?')) {
-                await deleteKey(id);
-              }
-            }}
+            language={settings.language}
           />
-        </Suspense>
+        )}
+        {confirmModal.isOpen && (
+          <ConfirmModal
+            isOpen={confirmModal.isOpen}
+            title={confirmModal.title}
+            message={confirmModal.message}
+            onConfirm={handleConfirmModal}
+            onCancel={() => setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null })}
+            language={settings.language}
+          />
+        )}
+        {notification.isOpen && (
+          <NotificationModal
+            isOpen={notification.isOpen}
+            message={notification.message}
+            onClose={() => setNotification({ isOpen: false, message: '' })}
+            t={t}
+          />
+        )}
+        {isCommandPaletteOpen && (
+          <CommandPalette
+            isOpen={isCommandPaletteOpen}
+            items={[
+              { id: 'new-tab', label: t('newSession') || 'New tab', action: () => { setIsCommandPaletteOpen(false); handleAddTab(); } },
+              { id: 'settings', label: t('settings'), action: () => { setIsCommandPaletteOpen(false); setIsSettingsOpen(true); } },
+              { id: 'find', label: t('findInTerminal'), action: () => { setIsCommandPaletteOpen(false); openTerminalSearch(); } },
+              { id: 'files', label: t('quickOpenFiles'), action: () => { setIsCommandPaletteOpen(false); openFilePicker(); } },
+            ]}
+            onSelect={(id) => {
+              const item = [
+                { id: 'new-tab', action: () => handleAddTab() },
+                { id: 'settings', action: () => setIsSettingsOpen(true) },
+                { id: 'find', action: () => openTerminalSearch() },
+                { id: 'files', action: () => openFilePicker() },
+              ].find((i) => i.id === id);
+              setIsCommandPaletteOpen(false);
+              item?.action();
+            }}
+            onClose={() => setIsCommandPaletteOpen(false)}
+            t={t}
+            language={settings.language}
+          />
+        )}
+        {isFilePickerOpen && (
+          <CommandPalette
+            isOpen={isFilePickerOpen}
+            items={filePickerItems.map((item) => ({ id: item.id, label: item.label }))}
+            query={filePickerQuery}
+            onQueryChange={setFilePickerQuery}
+            isLoading={isFilePickerLoading}
+            onSelect={(id) => {
+              const item = filePickerItems.find((i) => i.id === id);
+              if (item) handleFileOpen(item.path);
+              setIsFilePickerOpen(false);
+            }}
+            onClose={() => setIsFilePickerOpen(false)}
+            t={t}
+            language={settings.language}
+          />
+        )}
       </Suspense>
     </div>
   );
 }
+
+const iconBtnStyle = {
+  width: '26px', height: '26px',
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  background: 'transparent', border: 'none', borderRadius: '4px',
+  cursor: 'pointer', color: color.subtext,
+  transition: 'background 120ms, color 120ms', padding: 0,
+};
+
+const searchBtnStyle = (theme) => ({
+  height: '28px', minWidth: '28px', padding: '0 6px',
+  border: `1px solid ${theme.ui.borderLight}`, borderRadius: '4px',
+  background: 'transparent', color: theme.ui.text, cursor: 'pointer', fontSize: '12px',
+});
 
 export default App;

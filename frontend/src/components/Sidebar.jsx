@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, memo, useMemo } from 'react';
-import { X, Terminal, FolderTree, RefreshCw, Plus, Activity, Cpu, HardDrive, Search, Server, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
+import { X, Terminal, FolderTree, RefreshCw, Activity, Cpu, HardDrive, Search, Server, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import FileTree from './FileTree';
 import HostList from './HostList';
@@ -22,7 +22,6 @@ const Sidebar = ({
   sessions,
   activeSessionId,
   onSelectSession,
-  onNewSession,
   onCloseSession,
   onRenameSession,
   onReconnectSession,
@@ -35,8 +34,6 @@ const Sidebar = ({
   onManageKeys,
   // 현재 활성 세션의 정보 (사용량 라벨 컨텍스트에 사용)
   activeSession = null,
-  // git 변경 파일 클릭 → 우측 ChangesPanel 열어 해당 파일 diff 표시
-  onSelectChangedFile,
   // git context 의 기준 경로 (활성 터미널 cwd)
   gitContextPath = '',
   language = 'en',
@@ -58,9 +55,6 @@ const Sidebar = ({
   const [hoverId, setHoverId] = useState(null);
   const [expandedActivity, setExpandedActivity] = useState(new Set());
   const editInputRef = useRef(null);
-
-  // 사이드바가 좁아지면 탭 라벨 숨김 (아이콘만)
-  const iconOnly = !isMobile && width < 200;
 
   const toggleActivity = (id) => {
     setExpandedActivity((prev) => {
@@ -130,47 +124,29 @@ const Sidebar = ({
           ...styles.aside,
           width: isMobile ? 'min(82vw, 300px)' : `${width}px`,
           maxWidth: isMobile ? '82vw' : '420px',
-          minWidth: isMobile ? undefined : '200px',
+          // 활성 사이드바 최소폭 = 활동바(40px) + 푸터(CPU/RAM/Disk 3개) 가 안 짤리는 폭
+          minWidth: isMobile ? undefined : '240px',
           height: isMobile ? `${viewportHeight}px` : '100vh',
+          flexDirection: 'row',
         }}
       >
-        {/* 탭 헤더 (세그먼트 컨트롤) */}
-        <div style={styles.tabRow}>
-          <SegTab
-            active={activeTab === 'hosts'}
-            onClick={() => setActiveTab('hosts')}
-            icon={Server}
-            label={t('hosts') || 'Hosts'}
-            iconOnly={iconOnly}
-          />
-          <SegTab
-            active={activeTab === 'files'}
-            onClick={() => setActiveTab('files')}
-            icon={FolderTree}
-            label={t('files')}
-            iconOnly={iconOnly}
-          />
-          <SegTab
-            active={activeTab === 'git'}
-            onClick={() => setActiveTab('git')}
-            icon={GitBranch}
-            label={t('git') || 'Git'}
-            iconOnly={iconOnly}
-          />
-          <SegTab
-            active={activeTab === 'sessions'}
-            onClick={() => setActiveTab('sessions')}
-            icon={Terminal}
-            label={t('active') || t('sessions')}
-            iconOnly={iconOnly}
-            count={sessions.length}
-          />
+        {/* 좌측 세로 아이콘 스트립 (Jupyter 식 activity bar) */}
+        <nav style={styles.activityBar}>
+          <ActivityIcon active={activeTab === 'hosts'} onClick={() => setActiveTab('hosts')} icon={Server} title={t('hosts') || 'Hosts'} />
+          <ActivityIcon active={activeTab === 'files'} onClick={() => setActiveTab('files')} icon={FolderTree} title={t('files')} />
+          <ActivityIcon active={activeTab === 'git'} onClick={() => setActiveTab('git')} icon={GitBranch} title={t('git') || 'Git'} />
+          <ActivityIcon active={activeTab === 'sessions'} onClick={() => setActiveTab('sessions')} icon={Terminal} title={t('active') || t('sessions')} badge={sessions.length} />
           {isMobile && (
-            <button onClick={onClose} title={t('closeSidebar')} style={styles.closeBtn}>
-              <X size={14} strokeWidth={2} />
-            </button>
+            <div style={{ marginTop: 'auto', paddingBottom: space['1'] }}>
+              <button onClick={onClose} title={t('closeSidebar')} style={styles.closeBtn}>
+                <X size={14} strokeWidth={2} />
+              </button>
+            </div>
           )}
-        </div>
+        </nav>
+
+        {/* 우측 패널 영역 */}
+        <div style={styles.panelArea}>
 
         {/* hosts 탭 */}
         {activeTab === 'hosts' && (
@@ -209,9 +185,6 @@ const Sidebar = ({
                   style={styles.searchInput}
                 />
               </div>
-              <button onClick={onNewSession} title={t('newSession')} style={styles.newBtn}>
-                <Plus size={14} strokeWidth={2} />
-              </button>
             </div>
 
             <div style={styles.list}>
@@ -344,7 +317,6 @@ const Sidebar = ({
               onFileSelect={onFileSelect}
               onFolderSelect={onFolderSelect}
               onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
-              onSelectChangedFile={onSelectChangedFile}
               gitContextPath={gitContextPath}
               language={language}
               initialPath={selectedFolderPath}
@@ -352,12 +324,12 @@ const Sidebar = ({
           </div>
         )}
 
-        {/* git 탭 — 활성 터미널 cwd 가 속한 repo 의 변경사항 */}
+        {/* git 탭 — 활성 터미널 cwd 가 속한 repo 의 변경사항. 클릭 → 파일 열기 (우측 패널 없음) */}
         {activeTab === 'git' && (
           <ChangesList
             gitContextPath={gitContextPath}
             onSelectFile={(p) => {
-              onSelectChangedFile?.(p);
+              onFileSelect?.(p);
               if (isMobile) onClose();
             }}
             onOpenFile={(p) => {
@@ -390,6 +362,8 @@ const Sidebar = ({
           )}
         </div>
 
+        </div>
+
         {!isMobile && onResizeStart && (
           <div
             onMouseDown={onResizeStart}
@@ -402,31 +376,46 @@ const Sidebar = ({
   );
 };
 
-const SegTab = ({ active, onClick, icon: Icon, label, iconOnly = false, count }) => (
+// 좌측 세로 아이콘 (JupyterLab/VS Code activity bar 식)
+const ActivityIcon = ({ active, onClick, icon: Icon, title, badge }) => (
   <button
     onClick={onClick}
-    title={iconOnly ? `${label}${count != null ? ` (${count})` : ''}` : undefined}
+    title={badge != null && badge > 0 ? `${title} (${badge})` : title}
     style={{
-      ...styles.tab,
+      position: 'relative',
+      width: '40px',
+      height: '36px',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'transparent',
       color: active ? color.text : color.muted,
-      background: active ? color.surface0 : 'transparent',
+      border: 'none',
+      borderLeft: `2px solid ${active ? color.accent : 'transparent'}`,
+      cursor: 'pointer',
+      transition: 'color 120ms ease, border-left-color 120ms ease',
     }}
+    onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = color.text; }}
+    onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = color.muted; }}
   >
-    <Icon size={12} strokeWidth={2} />
-    {!iconOnly && <span>{label}</span>}
-    {count != null && count > 0 && (
+    <Icon size={16} strokeWidth={2} />
+    {badge != null && badge > 0 && (
       <span style={{
-        fontSize: fontSize['11'],
-        fontFamily: font.mono,
-        color: active ? color.accent : color.muted,
-        background: active ? color.accentSubtle : color.crust,
-        border: `1px solid ${active ? color.accentBorder : color.border}`,
-        borderRadius: radius.full,
-        padding: `0 ${space['1']}`,
+        position: 'absolute',
+        top: '4px',
+        right: '4px',
         minWidth: '14px',
+        height: '14px',
+        padding: '0 3px',
+        fontSize: '9px',
+        lineHeight: '14px',
         textAlign: 'center',
+        fontFamily: font.mono,
+        color: color.crust,
+        background: color.accent,
+        borderRadius: '999px',
       }}>
-        {count}
+        {badge}
       </span>
     )}
   </button>
@@ -460,37 +449,28 @@ const styles = {
     top: 0,
     left: 0,
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
     background: color.mantle,
     borderRight: `1px solid ${color.border}`,
     fontFamily: font.sans,
     zIndex: 9999,
     transition: `width ${motion.normal}`,
   },
-  tabRow: {
-    height: '36px',
-    minHeight: '36px',
+  activityBar: {
+    width: '40px',
+    minWidth: '40px',
     display: 'flex',
-    alignItems: 'center',
-    gap: space['0.5'],
-    padding: `0 ${space['1.5']}`,
-    borderBottom: `1px solid ${color.border}`,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    background: color.crust,
+    borderRight: `1px solid ${color.border}`,
+    paddingTop: '4px',
   },
-  tab: {
+  panelArea: {
     flex: 1,
-    height: '24px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space['1.5'],
-    background: 'transparent',
-    border: 'none',
-    borderRadius: radius.xs,
-    fontSize: fontSize['12'],
-    fontWeight: fontWeight.medium,
-    cursor: 'pointer',
-    transition: `background ${motion.fast}, color ${motion.fast}`,
-    fontFamily: 'inherit',
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
   },
   closeBtn: {
     width: '24px',
@@ -531,19 +511,6 @@ const styles = {
     color: color.text,
     fontSize: fontSize['12'],
     fontFamily: 'inherit',
-  },
-  newBtn: {
-    width: '28px',
-    height: '28px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: color.surface0,
-    color: color.text,
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.sm,
-    cursor: 'pointer',
-    transition: `background ${motion.fast}, border-color ${motion.fast}`,
   },
   list: {
     flex: 1,

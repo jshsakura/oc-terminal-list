@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Plus, Search, Server, KeyRound, Edit3, Trash2, Monitor, ChevronRight } from 'lucide-react';
+import { Plus, Search, Server, KeyRound, Settings as SettingsIcon, Monitor, ChevronRight } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -107,7 +107,13 @@ const HostList = ({
                   cursor: 'grab',
                 }}
               >
-                <div style={{ ...styles.dot, background: dotColor }} />
+                <div style={{
+                  ...styles.hostIcon,
+                  color: dotColor,
+                  borderColor: hovered ? `${dotColor}55` : color.border,
+                }}>
+                  <Server size={12} strokeWidth={2} />
+                </div>
                 <div style={styles.rowBody}>
                   <div style={styles.rowName}>{h.name}</div>
                   <div style={styles.rowSub}>
@@ -118,8 +124,7 @@ const HostList = ({
 
                 {hovered && (
                   <div style={styles.rowActions} onClick={(e) => e.stopPropagation()}>
-                    <RowAction onClick={() => onEditHost(h)} icon={Edit3} title={t('edit') || 'Edit'} />
-                    <RowAction onClick={() => onDeleteHost(h)} icon={Trash2} title={t('delete') || 'Delete'} tone="danger" />
+                    <RowAction onClick={() => onEditHost(h)} icon={SettingsIcon} title={t('hostSettings') || 'Host settings'} />
                   </div>
                 )}
                 <ChevronRight
@@ -268,12 +273,17 @@ const styles = {
     transition: `background ${motion.fast}, border-color ${motion.fast}`,
     minHeight: '46px',
   },
-  dot: {
+  hostIcon: {
     flexShrink: 0,
-    width: '7px',
-    height: '7px',
-    borderRadius: radius.full,
-    boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.25)',
+    width: '20px',
+    height: '20px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
+    transition: `border-color ${motion.fast}`,
   },
   localIcon: {
     flexShrink: 0,

@@ -49,7 +49,24 @@ const useSshKeys = (isAuthenticated) => {
     await refresh();
   };
 
-  return { keys, loading, refresh, createKey, deleteKey };
+  // 부분 업데이트. private_key 비어있으면 기존 키 유지 (write-once 정책).
+  const updateKey = async (id, { name, privateKey, passphrase, publicKey, clearPassphrase }) => {
+    const body = {};
+    if (name !== undefined) body.name = name;
+    if (publicKey !== undefined) body.public_key = publicKey;
+    if (privateKey) body.private_key = privateKey;
+    if (clearPassphrase) body.clear_passphrase = true;
+    else if (passphrase) body.passphrase = passphrase;
+    const res = await fetch(`/api/ssh-keys/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail || 'Failed to update key');
+    await refresh();
+  };
+
+  return { keys, loading, refresh, createKey, updateKey, deleteKey };
 };
 
 export default useSshKeys;

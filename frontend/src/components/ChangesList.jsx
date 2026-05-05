@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit } from 'lucide-react';
+import { useMemo, useState, useEffect } from 'react';
+import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, Pencil, Link2, Check } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
 
@@ -53,13 +53,32 @@ const buildTree = (items, stripPrefix = '') => {
  * 더블클릭 → onOpenFile (메인 에디터)
  */
 const ChangesList = ({ gitContextPath = '', onSelectFile, onOpenFile, t }) => {
+  // 경로 오버라이드 — null 이면 활성 터미널을 따라가고, 문자열이면 사용자 지정 경로 사용
+  const [overridePath, setOverridePath] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [draftPath, setDraftPath] = useState('');
+
+  const effectivePath = overridePath != null ? overridePath : gitContextPath;
+  const isFollowing = overridePath == null;
+
   const { items, branch, repo, error, refresh, loading } = useGitChanges({
     enabled: true,
-    path: gitContextPath,
+    path: effectivePath,
     intervalMs: 1500,
   });
   const [collapsed, setCollapsed] = useState(() => new Set());
   const repoBasename = repo ? repo.split('/').pop() : null;
+
+  useEffect(() => { if (editing) setDraftPath(effectivePath || ''); }, [editing]);
+
+  const startEdit = () => { setDraftPath(effectivePath || ''); setEditing(true); };
+  const applyEdit = () => {
+    const trimmed = (draftPath || '').trim().replace(/^\/+|\/+$/g, '');
+    setOverridePath(trimmed);
+    setEditing(false);
+  };
+  const cancelEdit = () => setEditing(false);
+  const followTerminal = () => { setOverridePath(null); setEditing(false); };
 
   const tree = useMemo(() => buildTree(items), [items]);
 
@@ -124,7 +143,7 @@ const ChangesList = ({ gitContextPath = '', onSelectFile, onOpenFile, t }) => {
             </>
           ) : (
             <span style={styles.branchName}>
-              {gitContextPath ? (t('noGitHere') || 'no git here') : (t('noActiveTerminal') || 'no active terminal')}
+              {effectivePath ? (t('noGitHere') || 'no git here') : (t('noActiveTerminal') || 'no active terminal')}
             </span>
           )}
           {items.length > 0 && <span style={styles.countBadge}>{items.length}</span>}
@@ -138,6 +157,51 @@ const ChangesList = ({ gitContextPath = '', onSelectFile, onOpenFile, t }) => {
         >
           <RefreshCw size={11} strokeWidth={2} className={loading ? 'animate-spin' : ''} />
         </button>
+      </div>
+
+      {/* 경로 바 — 클릭 또는 편집 아이콘으로 자유 입력, 잠금 아이콘으로 활성 터미널 따라가기 */}
+      <div style={styles.pathBar}>
+        {editing ? (
+          <>
+            <input
+              autoFocus
+              value={draftPath}
+              onChange={(e) => setDraftPath(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') applyEdit();
+                else if (e.key === 'Escape') cancelEdit();
+              }}
+              placeholder={t('gitPathPlaceholder') || 'Path (relative to workspace)'}
+              style={styles.pathInput}
+            />
+            <button onClick={applyEdit} title={t('applyPath') || 'Apply'} style={styles.pathBtn}>
+              <Check size={11} strokeWidth={2} />
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={startEdit}
+              title={t('editPath') || 'Edit path'}
+              style={styles.pathDisplay}
+            >
+              <Folder size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+              <span style={styles.pathText}>
+                {effectivePath || <em style={{ color: color.muted, fontStyle: 'normal' }}>{t('gitPathPlaceholder') || 'whole workspace'}</em>}
+              </span>
+              <Pencil size={10} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+            </button>
+            {!isFollowing && (
+              <button
+                onClick={followTerminal}
+                title={t('followTerminal') || 'Follow active terminal'}
+                style={{ ...styles.pathBtn, color: color.accent }}
+              >
+                <Link2 size={11} strokeWidth={2} />
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       <div style={styles.list}>
@@ -231,6 +295,64 @@ const styles = {
     flex: 1,
     overflowY: 'auto',
     padding: `${space['1']} ${space['1']}`,
+  },
+  pathBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1'],
+    padding: `${space['1']} ${space['2']}`,
+    borderBottom: `1px solid ${color.border}`,
+    background: color.crust,
+    minHeight: '28px',
+  },
+  pathDisplay: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1'],
+    height: '22px',
+    padding: `0 ${space['1.5']}`,
+    background: 'transparent',
+    border: `1px solid transparent`,
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    color: color.subtext,
+    fontSize: fontSize['11'],
+    fontFamily: font.mono,
+    textAlign: 'left',
+  },
+  pathText: {
+    flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  pathInput: {
+    flex: 1,
+    minWidth: 0,
+    height: '22px',
+    padding: `0 ${space['1.5']}`,
+    background: color.surface0,
+    border: `1px solid ${color.accentBorder}`,
+    borderRadius: radius.xs,
+    color: color.text,
+    fontSize: fontSize['11'],
+    fontFamily: font.mono,
+    outline: 'none',
+  },
+  pathBtn: {
+    width: '22px',
+    height: '22px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: color.muted,
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    flexShrink: 0,
   },
   row: {
     display: 'flex',

@@ -43,7 +43,10 @@ const authHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSelectChangedFile, gitContextPath = '', language = 'en', initialPath = '' }) => {
+const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitContextPath = '', language = 'en', initialPath = '', hostId = null }) => {
+  // 호스트 모드 (SFTP) 면 /api/hosts/{id}/files, 아니면 로컬 /api/files
+  const isHostMode = !!hostId;
+  const apiBase = isHostMode ? `/api/hosts/${hostId}/files` : '/api/files';
   const { t } = useTranslation(language);
   // 노드별 캐시: path → { items: [{name,path,type,git_status}], loading, error }
   const [nodes, setNodes] = useState({});
@@ -60,8 +63,9 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
   // 둘 다 빈 경우 워크스페이스 전체 repo 들을 집계 (백엔드).
   const [treeFocus, setTreeFocus] = useState(initialPath || '');
   const effectiveGitPath = gitContextPath || treeFocus;
+  // 호스트 모드면 git 호출 비활성 (원격이라 로컬 git 의미 없음)
   const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = useGitChanges({
-    enabled: true,
+    enabled: !isHostMode,
     path: effectiveGitPath,
     intervalMs: effectiveGitPath ? 1500 : 8000,
   });
@@ -71,14 +75,14 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
     setNodes((prev) => ({ ...prev, [path]: { ...(prev[path] || {}), loading: true } }));
     try {
       const ts = Date.now();
-      const res = await fetch(`/api/files?path=${encodeURIComponent(path)}&_t=${ts}`, { headers: authHeader() });
+      const res = await fetch(`${apiBase}?path=${encodeURIComponent(path)}&_t=${ts}`, { headers: authHeader() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setNodes((prev) => ({ ...prev, [path]: { items: data.items || [], loading: false, error: null } }));
     } catch (e) {
       setNodes((prev) => ({ ...prev, [path]: { items: [], loading: false, error: e.message } }));
     }
-  }, []);
+  }, [apiBase]);
 
   // 첫 마운트: 루트 + initialPath 까지 expand
   useEffect(() => {
@@ -360,14 +364,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onSele
                   isChanged={changedSet.has(row.path)}
                   onClick={() => {
                     setSelectedPath(row.path);
-                    if (isFolder) {
-                      toggleFolder(row.path);
-                    } else if (changedSet.has(row.path) && onSelectChangedFile) {
-                      // 변경된 파일은 우측 ChangesPanel 의 diff 로 즉시 띄움
-                      onSelectChangedFile(row.path);
-                    } else {
-                      onFileSelect?.(row.path);
-                    }
+                    if (isFolder) toggleFolder(row.path);
+                    else onFileSelect?.(row.path);
                   }}
                   onDoubleClick={() => {
                     if (!isFolder) onFileSelect?.(row.path);

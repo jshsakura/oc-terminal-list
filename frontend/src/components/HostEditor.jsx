@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, Trash2, Network } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 
@@ -17,12 +17,20 @@ const EMPTY = {
   group_name: null,
   use_remote_tmux: true,
   remote_tmux_session: 'mobile',
+  start_path: '',
 };
 
-const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, t }) => {
+const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t }) => {
   const [draft, setDraft] = useState(EMPTY);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [killing, setKilling] = useState(false);
+  const [tsPicker, setTsPicker] = useState({ open: false, peers: [], loading: false, available: true });
+
+  useEffect(() => {
+    setConfirmingDelete(false);
+  }, [isOpen, host?.id]);
 
   useEffect(() => {
     if (host) {
@@ -40,6 +48,28 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, t }) => {
   if (!isOpen) return null;
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+
+  const openTailscalePicker = async () => {
+    setTsPicker({ open: true, peers: [], loading: true, available: true });
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch('/api/tailscale/peers', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      const list = [...(data.self ? [data.self] : []), ...(data.peers || [])];
+      setTsPicker({ open: true, peers: list, loading: false, available: !!data.available });
+    } catch (e) {
+      setTsPicker({ open: true, peers: [], loading: false, available: false });
+    }
+  };
+
+  const pickTailscalePeer = (peer) => {
+    setDraft((d) => ({
+      ...d,
+      hostname: peer.dns_name || peer.ip || peer.hostname || d.hostname,
+      name: d.name || peer.hostname || '',
+    }));
+    setTsPicker((p) => ({ ...p, open: false }));
+  };
 
   const submit = async (e) => {
     e?.preventDefault?.();
@@ -61,8 +91,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, t }) => {
   };
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <form onSubmit={submit} style={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div style={styles.overlay}>
+      <form onSubmit={submit} style={styles.modal}>
         <header style={styles.header}>
           <div style={styles.title}>{host ? (t('editHost') || 'Edit host') : (t('addHost') || 'Add host')}</div>
           <button type="button" onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
@@ -75,7 +105,37 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, t }) => {
             </Field>
             <Row>
               <Field label={t('hostnameLabel') || 'Hostname / IP'} flex={2}>
-                <Input value={draft.hostname} onChange={(v) => set('hostname', v)} placeholder="example.com" />
+                <div style={{ position: 'relative', display: 'flex', gap: '4px' }}>
+                  <Input value={draft.hostname} onChange={(v) => set('hostname', v)} placeholder="example.com" />
+                  <button
+                    type="button"
+                    onClick={openTailscalePicker}
+                    title={t('pickFromTailscale') || 'Pick from Tailscale'}
+                    style={{
+                      width: '32px', height: '30px',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      background: color.surface0,
+                      border: `1px solid ${color.border}`,
+                      borderRadius: radius.sm,
+                      cursor: 'pointer',
+                      color: color.subtext,
+                      flexShrink: 0,
+                      padding: 0,
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; e.currentTarget.style.color = color.text; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.subtext; }}
+                  >
+                    <Network size={13} strokeWidth={1.8} />
+                  </button>
+                  {tsPicker.open && (
+                    <TailscalePicker
+                      data={tsPicker}
+                      onPick={pickTailscalePeer}
+                      onClose={() => setTsPicker((p) => ({ ...p, open: false }))}
+                      t={t}
+                    />
+                  )}
+                </div>
               </Field>
               <Field label={t('port') || 'Port'} flex={1}>
                 <Input
@@ -141,6 +201,36 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, t }) => {
                 />
               </Field>
             )}
+            <Field
+              label={t('startPath') || 'Start path'}
+              hint={t('startPathHint') || 'Directory to enter on connect (absolute or ~). Empty = home.'}
+            >
+              <Input
+                value={draft.start_path || ''}
+                onChange={(v) => set('start_path', v)}
+                placeholder="~/projects/my-app"
+              />
+            </Field>
+            {host && onKillTmuxServer && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: space['1'], marginTop: space['1'] }}>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  disabled={killing}
+                  onClick={async () => {
+                    if (!confirm(t('confirmKillTmuxServer') || 'Kill the entire tmux server on this host? All sessions there will die.')) return;
+                    setKilling(true);
+                    try { await onKillTmuxServer(); } finally { setKilling(false); }
+                  }}
+                  style={{ alignSelf: 'flex-start', color: color.warning }}
+                >
+                  {killing ? (t('saving') || '…') : (t('killTmuxServer') || 'Kill remote tmux server')}
+                </Button>
+                <div style={{ fontSize: fontSize['11'], color: color.muted }}>
+                  {t('killTmuxServerHint') || '망가진 tmux 상태 한번에 청소. 다음 접속 시 새 서버에 새 세션이 만들어집니다.'}
+                </div>
+              </div>
+            )}
           </Section>
 
           <Divider />
@@ -155,6 +245,25 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, t }) => {
         </div>
 
         <footer style={styles.footer}>
+          {host && onDelete && (
+            !confirmingDelete ? (
+              <Button variant="ghost" onClick={() => setConfirmingDelete(true)} type="button" icon={Trash2} style={{ color: color.danger, marginRight: 'auto' }}>
+                {t('delete') || 'Delete'}
+              </Button>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: space['1.5'], marginRight: 'auto' }}>
+                <span style={{ fontSize: fontSize['12'], color: color.danger }}>
+                  {t('confirmDeleteHostInline') || 'Delete this host?'}
+                </span>
+                <Button variant="ghost" onClick={() => setConfirmingDelete(false)} type="button" style={{ height: '26px' }}>
+                  {t('cancel') || 'Cancel'}
+                </Button>
+                <Button variant="primary" onClick={onDelete} type="button" style={{ height: '26px', background: color.danger, borderColor: color.danger }}>
+                  {t('delete') || 'Delete'}
+                </Button>
+              </div>
+            )
+          )}
           <Button variant="secondary" onClick={onClose} type="button">{t('cancel')}</Button>
           <Button variant="primary" onClick={submit} disabled={saving} type="submit">
             {saving ? (t('saving') || 'Saving…') : (host ? (t('save') || 'Save') : (t('add') || 'Add'))}
@@ -279,6 +388,83 @@ const ColorPicker = ({ value, onChange }) => (
     ))}
   </div>
 );
+
+const TailscalePicker = ({ data, onPick, onClose, t }) => {
+  useEffect(() => {
+    const handle = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handle);
+    return () => document.removeEventListener('keydown', handle);
+  }, [onClose]);
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
+      <div style={{
+        position: 'absolute',
+        top: 'calc(100% + 4px)',
+        left: 0,
+        right: 0,
+        zIndex: 51,
+        background: color.base,
+        border: `1px solid ${color.borderStrong}`,
+        borderRadius: radius.md,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.45)',
+        maxHeight: '260px',
+        overflow: 'auto',
+        fontFamily: font.sans,
+      }}>
+        {!data.available ? (
+          <div style={{ padding: '12px', fontSize: fontSize['12'], color: color.subtext, textAlign: 'center' }}>
+            {t?.('tailscaleUnavailable') || 'Tailscale not available on the server.'}
+          </div>
+        ) : data.loading ? (
+          <div style={{ padding: '12px', fontSize: fontSize['12'], color: color.subtext, textAlign: 'center' }}>
+            {t?.('loading') || 'Loading…'}
+          </div>
+        ) : data.peers.length === 0 ? (
+          <div style={{ padding: '12px', fontSize: fontSize['12'], color: color.subtext, textAlign: 'center' }}>
+            {t?.('tailscaleNoPeers') || 'No tailnet peers found.'}
+          </div>
+        ) : (
+          data.peers.map((peer) => (
+            <button
+              key={peer.id || peer.ip}
+              type="button"
+              onClick={() => onPick(peer)}
+              disabled={peer.is_self}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                width: '100%', padding: '8px 12px',
+                background: 'transparent', border: 'none',
+                borderBottom: `1px solid ${color.border}`,
+                cursor: peer.is_self ? 'default' : 'pointer',
+                textAlign: 'left', fontFamily: font.sans,
+                opacity: peer.is_self ? 0.5 : 1,
+              }}
+              onMouseEnter={(e) => { if (!peer.is_self) e.currentTarget.style.background = color.surface0; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <div style={{
+                width: '8px', height: '8px', borderRadius: '50%',
+                background: peer.online ? color.success : color.muted,
+                flexShrink: 0,
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: fontSize['12'], fontWeight: fontWeight.medium, color: color.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {peer.hostname}
+                  {peer.is_self && ` (${t?.('thisMachine') || 'this machine'})`}
+                </div>
+                <div style={{ fontSize: '10.5px', color: color.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {peer.dns_name || peer.ip} · {peer.os}
+                </div>
+              </div>
+            </button>
+          ))
+        )}
+      </div>
+    </>
+  );
+};
 
 const styles = {
   overlay: {

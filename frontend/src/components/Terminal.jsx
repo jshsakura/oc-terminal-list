@@ -16,7 +16,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
-const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive = true, layoutSignal = '' }) => {
+const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive = true, layoutSignal = '', cwd = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -93,14 +93,18 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
 
     term.open(terminalRef.current);
 
-    try {
-      const webglAddon = new WebglAddon();
-      webglAddon.onContextLoss(() => {
-        webglAddon.dispose();
-      });
-      term.loadAddon(webglAddon);
-    } catch (e) {
-      console.warn("WebGL addon could not be loaded. Falling back to DOM/Canvas renderer.", e);
+    // WebGL renderer 는 일부 환경/타이밍에서 incremental update 를 누락 (커서 위치 불일치, 빈 화면 등).
+    // 사용자가 명시적으로 켤 때만 활성화. 기본은 DOM renderer (안정).
+    if (settings?.useWebgl) {
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => {
+          webglAddon.dispose();
+        });
+        term.loadAddon(webglAddon);
+      } catch (e) {
+        console.warn("WebGL addon could not be loaded. Falling back to DOM renderer.", e);
+      }
     }
 
     const handleKeyDown = (e) => {
@@ -167,9 +171,10 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
     const rows = proposed?.rows || term.rows || 24;
     lastDimsRef.current = { cols, rows };
     // 호스트 연결이면 SSH 브리지로, 아니면 로컬 tmux 브리지로
+    const cwdQS = cwd ? `&cwd=${encodeURIComponent(cwd)}` : '';
     const wsUrl = hostId
       ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}`
-      : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}`;
+      : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
     
     const socket = new WebSocket(wsUrl);
     wsRef.current = socket;
@@ -179,14 +184,44 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
       setIsReady(true);
       reconnectAttemptsRef.current = 0;
       
-      // 서버에 현재 크기 다시 한번 확실히 전송
-      setTimeout(() => {
+      // 서버에 현재 크기 무조건 한번 더 전송 — tmux 가 이전 클라이언트 차원으로 잠긴 케이스 강제 갱신.
+      const sendResize = () => {
+        try { fitAddon.fit(); } catch {}
         const dims = fitAddon.proposeDimensions();
-        if (dims && (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows)) {
-          lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
-          socket.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+        const c = dims?.cols || term.cols || 80;
+        const r = dims?.rows || term.rows || 24;
+        lastDimsRef.current = { cols: c, rows: r };
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'resize', cols: c, rows: r }));
         }
-      }, 500);
+      };
+      setTimeout(sendResize, 0);
+      setTimeout(sendResize, 200);
+
+      // WebGL renderer 가 첫 paint 이후 변경 감지 못하는 케이스 — attach 직후 prompt 가
+      // 이미 그려져 있는데 화면이 비어보이는 증상. 강제로 viewport 전체를 refresh 해 화면 동기화.
+      const forceRedraw = () => {
+        try { term.refresh(0, term.rows - 1); } catch {}
+      };
+      setTimeout(forceRedraw, 100);
+      setTimeout(forceRedraw, 400);
+      // 호스트 세션은 attach 후 SIGWINCH 한 번 더 흔들어서 tmux→shell 재그리기 유도.
+      // (Ctrl+L 은 zsh 키바인딩이 없는 환경에선 ^L 로 노출되므로 사용 안 함)
+      if (hostId) {
+        setTimeout(() => {
+          if (socket.readyState !== WebSocket.OPEN) return;
+          const dims = fitAddon.proposeDimensions();
+          const c = dims?.cols || term.cols || 80;
+          const r = dims?.rows || term.rows || 24;
+          // 1px 줄였다가 즉시 복원 → SIGWINCH 가 확실히 두 번 전파
+          socket.send(JSON.stringify({ type: 'resize', cols: Math.max(20, c - 1), rows: Math.max(5, r - 1) }));
+          setTimeout(() => {
+            if (socket.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: 'resize', cols: c, rows: r }));
+            }
+          }, 60);
+        }, 350);
+      }
     };
 
     const flushBufferedOutput = () => {
@@ -199,7 +234,8 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
 
       term.write(mergedOutput, () => {
         handleNewData();
-        // 첫 데이터가 화면에 그려지면 스켈레톤 제거
+        // WebGL renderer 가 일부 update 를 누락하는 케이스 방어 — 매 flush 끝에 viewport 전체 강제 refresh.
+        try { term.refresh(0, term.rows - 1); } catch {}
         setHasContent(true);
       });
     };

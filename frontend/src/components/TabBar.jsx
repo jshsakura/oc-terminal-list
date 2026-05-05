@@ -1,0 +1,375 @@
+import { memo, useState, useEffect, useRef } from 'react';
+import {
+  X, Terminal as TerminalIcon, Server,
+  Settings as SettingsIcon, Key, Power, MoreHorizontal,
+  SquareSplitHorizontal, SquareSplitVertical,
+} from 'lucide-react';
+import { tokens } from '../styles/tokens';
+
+const { color, font, fontSize, fontWeight } = tokens;
+
+const TabBar = ({
+  tabs = [],
+  activeTabId,
+  onSelect,
+  onClose,
+  onHome,
+  onOpenHosts,
+  onOpenKeys,
+  onOpenSettings,
+  onLogout,
+  onSplit,
+  canSplit = false,
+  t,
+}) => {
+  const [contextMenu, setContextMenu] = useState(null);  // {tabId, x, y}
+
+  const isHome = activeTabId === null;
+
+  return (
+    <div style={styles.bar}>
+      <style>{`
+        .tabbar-list::-webkit-scrollbar { display: none; }
+      `}</style>
+      {/* brand = home button — 홈 활성 시 활성 탭과 동일한 base 배경으로 */}
+      <button
+        style={{
+          ...styles.brandBtn,
+          background: isHome ? color.base : 'transparent',
+          border: `1px solid ${isHome ? color.borderStrong : 'transparent'}`,
+        }}
+        onClick={onHome}
+        title={t?.('home') || 'Home'}
+        onMouseEnter={(e) => { if (!isHome) e.currentTarget.style.background = color.surface0; }}
+        onMouseLeave={(e) => { if (!isHome) e.currentTarget.style.background = 'transparent'; }}
+      >
+        <TerminalIcon size={13} strokeWidth={2} />
+      </button>
+
+      {/* tabs */}
+      <div
+        className="tabbar-list"
+        style={styles.tabList}
+        onWheel={(e) => {
+          // 세로 휠 → 가로 스크롤로 전환 (Jupyter 처럼)
+          if (e.deltaY !== 0 && e.deltaX === 0) {
+            e.currentTarget.scrollLeft += e.deltaY;
+          }
+        }}
+      >
+        {tabs.map((tab) => (
+          <Tab
+            key={tab.id}
+            tab={tab}
+            isActive={tab.id === activeTabId}
+            onSelect={() => onSelect(tab.id)}
+            onClose={() => onClose(tab.id)}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setContextMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
+            }}
+            onMore={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              setContextMenu({ tabId: tab.id, x: rect.left, y: rect.bottom + 4 });
+            }}
+            t={t}
+          />
+        ))}
+      </div>
+
+      {/* right action group */}
+      <div style={styles.actionGroup}>
+        {canSplit && (
+          <>
+            <ActionBtn
+              icon={SquareSplitHorizontal}
+              onClick={() => onSplit?.('h')}
+              title={`${t?.('splitHorizontal') || 'Split right'} (Ctrl+\\)`}
+            />
+            <ActionBtn
+              icon={SquareSplitVertical}
+              onClick={() => onSplit?.('v')}
+              title={`${t?.('splitVertical') || 'Split down'} (Ctrl+Shift+\\)`}
+            />
+            <div style={{ width: 1, height: '16px', background: color.border, margin: '0 4px' }} />
+          </>
+        )}
+        <ActionBtn icon={Server}       onClick={onOpenHosts}    title={t?.('manageHosts') || 'Manage hosts'} />
+        <ActionBtn icon={Key}          onClick={onOpenKeys}     title={t?.('sshKeys') || 'SSH Keys'} />
+        <ActionBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
+        <ActionBtn icon={Power}        onClick={onLogout}       title={t?.('logout') || 'Sign out'} tone="danger" />
+      </div>
+
+      {contextMenu && (
+        <TabContextMenu
+          ctx={contextMenu}
+          t={t}
+          onClose={() => setContextMenu(null)}
+          onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
+          onSelectTab={() => { onSelect(contextMenu.tabId); setContextMenu(null); }}
+        />
+      )}
+    </div>
+  );
+};
+
+const Tab = memo(({ tab, isActive, onSelect, onClose, onContextMenu, onMore, t }) => {
+  const Icon = tab.type === 'host' ? Server : TerminalIcon;
+  const dotColor = tab.color_index != null
+    ? color.dotPalette?.[tab.color_index % (color.dotPalette?.length || 8)] || color.accent
+    : color.accent;
+
+  return (
+    <div
+      onContextMenu={onContextMenu}
+      style={{
+        ...styles.tab,
+        background: isActive ? color.base : color.surface0,
+        color: isActive ? color.text : color.subtext,
+        border: `1px solid ${isActive ? color.borderStrong : color.border}`,
+      }}
+      onClick={onSelect}
+      onMouseEnter={(e) => {
+        if (!isActive) e.currentTarget.style.background = color.surface1;
+        const moreBtn = e.currentTarget.querySelector('[data-more]');
+        if (moreBtn) moreBtn.style.opacity = '1';
+        const closeBtn = e.currentTarget.querySelector('[data-close]');
+        if (closeBtn) closeBtn.style.opacity = '1';
+      }}
+      onMouseLeave={(e) => {
+        if (!isActive) e.currentTarget.style.background = color.surface0;
+        const moreBtn = e.currentTarget.querySelector('[data-more]');
+        if (moreBtn) moreBtn.style.opacity = isActive ? '0.6' : '0';
+        const closeBtn = e.currentTarget.querySelector('[data-close]');
+        if (closeBtn) closeBtn.style.opacity = isActive ? '0.85' : '0.5';
+      }}
+    >
+      <div style={{
+        width: '6px',
+        height: '6px',
+        borderRadius: '50%',
+        background: dotColor,
+        flexShrink: 0,
+        opacity: isActive ? 1 : 0.55,
+      }} />
+
+      {tab.icon ? (
+        <span style={{ fontSize: '13px', lineHeight: 1, flexShrink: 0 }}>{tab.icon}</span>
+      ) : (
+        <Icon size={11} strokeWidth={1.8} style={{ color: isActive ? color.text : color.subtext, flexShrink: 0 }} />
+      )}
+      <span style={styles.tabName}>{tab.name}</span>
+
+      <button
+        data-more="true"
+        onClick={(e) => { e.stopPropagation(); onMore(e); }}
+        style={{ ...styles.miniBtn, opacity: isActive ? 0.6 : 0, color: color.subtext }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; e.currentTarget.style.opacity = '1'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '0.6' : '0'; }}
+        title={t?.('more') || 'More'}
+      >
+        <MoreHorizontal size={11} strokeWidth={2} />
+      </button>
+
+      <button
+        data-close="true"
+        style={{ ...styles.miniBtn, opacity: isActive ? 0.85 : 0.5, color: color.subtext }}
+        onClick={(e) => { e.stopPropagation(); onClose(); }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = color.danger; e.currentTarget.style.color = '#fff'; e.currentTarget.style.opacity = '1'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '0.85' : '0.5'; }}
+        title={t?.('closeTab') || 'Close tab'}
+      >
+        <X size={11} strokeWidth={2.4} />
+      </button>
+
+    </div>
+  );
+});
+
+const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onSelectTab }) => {
+  const ref = useRef(null);
+  useEffect(() => {
+    const handle = (e) => {
+      if (!ref.current?.contains(e.target)) onClose();
+    };
+    document.addEventListener('mousedown', handle);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') onClose(); });
+    return () => document.removeEventListener('mousedown', handle);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: ctx.y,
+        left: ctx.x,
+        background: color.surface0,
+        border: `1px solid ${color.borderStrong}`,
+        borderRadius: '6px',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
+        padding: '4px',
+        zIndex: 1000,
+        minWidth: '140px',
+        fontFamily: font.sans,
+      }}
+    >
+      <MenuItem onClick={onSelectTab}>{t?.('switchToTab') || 'Switch to tab'}</MenuItem>
+      <MenuItem onClick={onCloseTab} danger>{t?.('closeTab') || 'Close tab'}</MenuItem>
+    </div>
+  );
+};
+
+const MenuItem = ({ onClick, children, danger }) => (
+  <button
+    onClick={onClick}
+    style={{
+      width: '100%',
+      textAlign: 'left',
+      padding: '6px 10px',
+      background: 'transparent',
+      border: 'none',
+      borderRadius: '4px',
+      cursor: 'pointer',
+      color: danger ? color.danger : color.text,
+      fontSize: fontSize['12'],
+      fontFamily: 'inherit',
+      transition: 'background 120ms',
+    }}
+    onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+  >
+    {children}
+  </button>
+);
+
+const ActionBtn = ({ icon: Icon, onClick, title, tone }) => (
+  <button
+    onClick={onClick}
+    title={title}
+    style={{
+      width: '28px',
+      height: '28px',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'transparent',
+      border: 'none',
+      borderRadius: '6px',
+      cursor: 'pointer',
+      color: tone === 'danger' ? color.danger : color.subtext,
+      transition: 'background 150ms, color 150ms',
+      padding: 0,
+    }}
+    onMouseEnter={(e) => {
+      e.currentTarget.style.background = color.surface0;
+      if (tone !== 'danger') e.currentTarget.style.color = color.text;
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = 'transparent';
+      e.currentTarget.style.color = tone === 'danger' ? color.danger : color.subtext;
+    }}
+  >
+    <Icon size={14} strokeWidth={1.8} />
+  </button>
+);
+
+const styles = {
+  bar: {
+    display: 'flex',
+    alignItems: 'stretch',
+    height: '38px',
+    background: color.crust,
+    borderBottom: `1px solid ${color.border}`,
+    fontFamily: font.sans,
+    overflow: 'hidden',
+    flexShrink: 0,
+    padding: '0 6px',
+    gap: '6px',
+  },
+  brandBtn: {
+    width: '28px',
+    height: '28px',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    border: 'none',
+    color: color.accent,
+    cursor: 'pointer',
+    transition: 'background 150ms',
+    padding: 0,
+    borderRadius: '6px',
+    margin: '4px 6px 4px 2px',
+  },
+  tabList: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    flex: 1,
+    paddingTop: '5px',
+    paddingBottom: '5px',
+    scrollbarWidth: 'none',           // Firefox
+    msOverflowStyle: 'none',           // IE/Edge legacy
+  },
+  tab: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    padding: '0 6px 0 10px',
+    height: '28px',
+    minWidth: 0,
+    maxWidth: '200px',
+    cursor: 'pointer',
+    transition: 'background 150ms, color 150ms',
+    userSelect: 'none',
+    flexShrink: 0,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    borderRadius: '6px',
+  },
+  tabName: {
+    flex: 1,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    minWidth: 0,
+    letterSpacing: '0.005em',
+  },
+  miniBtn: {
+    width: '17px',
+    height: '17px',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    color: 'inherit',
+    padding: 0,
+    transition: 'background 150ms, color 150ms, opacity 150ms',
+  },
+  actionGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+    paddingLeft: '6px',
+    paddingRight: '4px',
+    borderLeft: `1px solid ${color.border}`,
+    flexShrink: 0,
+  },
+  closeGroup: {
+    display: 'flex',
+    alignItems: 'center',
+    paddingLeft: '4px',
+    paddingRight: '4px',
+    flexShrink: 0,
+  },
+};
+
+export default TabBar;

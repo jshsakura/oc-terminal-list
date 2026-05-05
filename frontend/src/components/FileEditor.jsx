@@ -3,8 +3,8 @@
  * Monaco Editor를 사용한 VSCode 수준의 멀티 탭 편집 환경 제공
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
-import Editor from '@monaco-editor/react';
-import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon, Eye, Edit3, GripHorizontal } from 'lucide-react';
+import Editor, { DiffEditor } from '@monaco-editor/react';
+import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon, Eye, Edit3, GripHorizontal, GitCompare } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Button from './common/Button';
@@ -37,8 +37,11 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const [confirmClose, setConfirmClose] = useState({ isOpen: false, path: null });
   const [externalChange, setExternalChange] = useState({ isOpen: false, path: null, newContent: '' });
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  // diff 모드: { [path]: { original: string, exists: boolean, loading: boolean, error: string|null } }
+  const [diffStates, setDiffStates] = useState({});
+  // 변경 파일은 자동으로 diff 모드로 열되, 사용자 토글로 일반 편집 ↔ diff 전환 가능
+  const [diffViewByPath, setDiffViewByPath] = useState({}); // { [path]: boolean }
 
-  
   const editorRef = useRef(null);
   const pollingRef = useRef(null);
   const binaryPathsRef = useRef(new Set());
@@ -143,6 +146,26 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     }
   }, []);
 
+  // git HEAD 시점 원본 로드 — diff 좌측에 사용. 404/저장소 없음 등은 조용히 무시.
+  const loadOriginalContent = useCallback(async (path) => {
+    if (!path) return;
+    setDiffStates(prev => ({ ...prev, [path]: { ...(prev[path] || {}), loading: true, error: null } }));
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`/api/git/file-content?path=${encodeURIComponent(path)}&ref=HEAD`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setDiffStates(prev => ({ ...prev, [path]: { original: '', exists: false, loading: false, error: null } }));
+        return;
+      }
+      const data = await res.json();
+      setDiffStates(prev => ({ ...prev, [path]: { original: data.content || '', exists: !!data.exists, loading: false, error: null } }));
+    } catch (e) {
+      setDiffStates(prev => ({ ...prev, [path]: { original: '', exists: false, loading: false, error: String(e?.message || e) } }));
+    }
+  }, []);
+
   const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFile || '');
   
   if (!theme || !theme.ui) return null;
@@ -172,6 +195,30 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
   useEffect(() => {
     setIsPreviewMode(false);
+  }, [activeFile]);
+
+  // 활성 파일이 바뀌면 HEAD 원본을 lazy load. 변경분이 있으면 diff 모드로 자동 진입.
+  useEffect(() => {
+    if (!activeFile || isImage || binaryPathsRef.current.has(activeFile)) return;
+    if (diffStates[activeFile]) return; // 이미 로드됨
+    loadOriginalContent(activeFile);
+  }, [activeFile, isImage, loadOriginalContent, diffStates]);
+
+  // HEAD 원본이 들어왔고 현재 파일 내용과 다르면, 사용자가 명시적으로 끄지 않은 한 diff 자동 ON.
+  useEffect(() => {
+    if (!activeFile) return;
+    const ds = diffStates[activeFile];
+    const fs = fileStates[activeFile];
+    if (!ds || ds.loading || !fs) return;
+    if (diffViewByPath[activeFile] !== undefined) return; // 사용자 결정 존중
+    const changed = ds.exists && ds.original !== fs.lastSavedContent;
+    if (changed) setDiffViewByPath(prev => ({ ...prev, [activeFile]: true }));
+  }, [activeFile, diffStates, fileStates, diffViewByPath]);
+
+  const isDiffView = !!diffViewByPath[activeFile] && !!diffStates[activeFile]?.exists;
+  const toggleDiffView = useCallback(() => {
+    if (!activeFile) return;
+    setDiffViewByPath(prev => ({ ...prev, [activeFile]: !prev[activeFile] }));
   }, [activeFile]);
 
   const saveFile = useCallback(async () => {
@@ -204,6 +251,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         }
       }));
       setStatus('saved');
+      // 저장 후엔 디스크가 바뀐 것이라 HEAD 와의 diff도 최신화 필요 — 백그라운드 재로드
+      loadOriginalContent(activeFile);
       setTimeout(() => setStatus('idle'), 2000);
     } catch (error) {
       console.error('Failed to save file:', error);
@@ -212,7 +261,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     } finally {
       setSaving(false);
     }
-  }, [activeFile, content, hasChanges, saving]);
+  }, [activeFile, content, hasChanges, saving, loadOriginalContent]);
 
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -386,10 +435,22 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
           {activeFile}
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {diffStates[activeFile]?.exists && diffStates[activeFile]?.original !== currentFileState.lastSavedContent && (
+            <Button
+              variant="ghost"
+              size="small"
+              onClick={toggleDiffView}
+              theme={theme}
+              style={{ height: '24px', fontSize: '11px', padding: '0 8px' }}
+              icon={GitCompare}
+            >
+              <span>{isDiffView ? (t('edit') || 'Edit') : (t('viewDiff') || 'Diff')}</span>
+            </Button>
+          )}
           {(isMarkdown || isHtml) && (
-            <Button 
-              variant="ghost" 
-              size="small" 
+            <Button
+              variant="ghost"
+              size="small"
               onClick={() => setIsPreviewMode(!isPreviewMode)}
               theme={theme}
               style={{ height: '24px', fontSize: '11px', padding: '0 8px' }}
@@ -509,6 +570,27 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               title={t('htmlPreview') || 'HTML Preview'}
             />
           )
+        ) : isDiffView ? (
+          <DiffEditor
+            height="100%"
+            theme={theme.background === '#ffffff' || theme.background === '#eff1f5' ? 'light' : 'vs-dark'}
+            language={getLanguage(activeFile)}
+            original={diffStates[activeFile]?.original || ''}
+            modified={content}
+            options={{
+              fontSize: 14,
+              fontFamily: '"JetBrains Mono", monospace',
+              automaticLayout: true,
+              renderSideBySide: true,
+              originalEditable: false,
+              readOnly: true,
+              wordWrap: 'on',
+              minimap: { enabled: false },
+              scrollBeyondLastLine: false,
+              renderOverviewRuler: false,
+              diffWordWrap: 'on',
+            }}
+          />
         ) : (
           <Editor
             height="100%"
@@ -528,9 +610,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               lineNumbers: 'on',
               renderWhitespace: 'selection',
               contextmenu: true,
-              bracketPairColorization: { 
+              bracketPairColorization: {
                 enabled: true,
-                independentColorPoolPerBracketType: true 
+                independentColorPoolPerBracketType: true
               },
               guides: {
                 bracketPairs: true,

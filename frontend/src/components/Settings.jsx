@@ -34,8 +34,8 @@ const Settings = ({ isOpen, onClose, settings, onSave, username }) => {
   };
 
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div style={styles.overlay}>
+      <div style={styles.modal}>
         <header style={styles.header}>
           <div style={styles.title}>{t('settingsTitle')}</div>
           <button onClick={onClose} title={t('cancel')} style={styles.closeBtn}>
@@ -57,6 +57,18 @@ const Settings = ({ isOpen, onClose, settings, onSave, username }) => {
                 <option value="sh">{t('shellSh')}</option>
                 <option value="auto">{t('shellAuto')}</option>
               </Select>
+            </Field>
+            <Field
+              label={t('localStartPath') || 'This machine — start path'}
+              hint={t('localStartPathHint') || 'Workspace-relative path. Empty = workspace root.'}
+            >
+              <input
+                type="text"
+                value={s.localStartPath || ''}
+                onChange={(e) => change('localStartPath', e.target.value)}
+                placeholder="projects/my-app"
+                style={styles.input}
+              />
             </Field>
           </Section>
 
@@ -105,7 +117,7 @@ const Settings = ({ isOpen, onClose, settings, onSave, username }) => {
               onChange={(v) => change('smoothScroll', v)}
             />
             <Field
-              label={`${t('scrollSensitivity')} · ${s.scrollSensitivity.toFixed(1)}`}
+              label={`${t('scrollSensitivity')} · ${(s.scrollSensitivity ?? 0.8).toFixed(1)}`}
               hint={t('scrollSensitivityHint')}
             >
               <input
@@ -113,7 +125,7 @@ const Settings = ({ isOpen, onClose, settings, onSave, username }) => {
                 min="0"
                 max="1"
                 step="0.1"
-                value={s.scrollSensitivity}
+                value={s.scrollSensitivity ?? 0.8}
                 onChange={(e) => change('scrollSensitivity', parseFloat(e.target.value))}
                 style={styles.slider}
               />
