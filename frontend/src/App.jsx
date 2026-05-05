@@ -593,6 +593,18 @@ function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         onLogout={handleLogoutRequest}
         onSplit={splitActivePane}
+        onDuplicate={(tabId) => {
+          const src = tabs.find((tt) => tt.id === tabId);
+          if (!src) return;
+          if (src.type === 'host') {
+            const h = hosts.find((hh) => hh.id === src.hostId);
+            if (h) openHostTab(h, src.cwd ?? null);
+          } else {
+            // src.cwd 가 비어 있으면 탭의 활성 pane cwd 를 추적해 재현. 단순화 — tab.cwd 우선,
+            // 없으면 settings.localStartPath 폴백 (openLocalTab 의 기본 동작).
+            openLocalTab(src.cwd ?? null);
+          }
+        }}
         canSplit={!!activeTab && (activeTab.panes?.length || 1) < 4}
         t={t}
       />

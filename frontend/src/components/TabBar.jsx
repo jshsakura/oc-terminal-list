@@ -19,6 +19,7 @@ const TabBar = ({
   onOpenKeys,
   onOpenSettings,
   onSplit,
+  onDuplicate,
   canSplit = false,
   t,
 }) => {
@@ -104,6 +105,7 @@ const TabBar = ({
           onClose={() => setContextMenu(null)}
           onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
           onSelectTab={() => { onSelect(contextMenu.tabId); setContextMenu(null); }}
+          onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
         />
       )}
     </div>
@@ -181,7 +183,7 @@ const Tab = memo(({ tab, isActive, onSelect, onClose, onContextMenu, onMore, t }
   );
 });
 
-const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onSelectTab }) => {
+const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onSelectTab, onDuplicateTab }) => {
   const ref = useRef(null);
   useEffect(() => {
     const handle = (e) => {
@@ -210,6 +212,11 @@ const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onSelectTab }) => {
       }}
     >
       <MenuItem onClick={onSelectTab}>{t?.('switchToTab') || 'Switch to tab'}</MenuItem>
+      {onDuplicateTab && (
+        <MenuItem onClick={onDuplicateTab}>
+          {t?.('duplicateTab') || 'Duplicate tab (same path)'}
+        </MenuItem>
+      )}
       <MenuItem onClick={onCloseTab} danger>{t?.('closeTab') || 'Close tab'}</MenuItem>
     </div>
   );
@@ -243,8 +250,8 @@ const ActionBtn = ({ icon: Icon, onClick, title, tone }) => (
     onClick={onClick}
     title={title}
     style={{
-      width: '28px',
-      height: '28px',
+      width: '32px',
+      height: '32px',
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -265,7 +272,7 @@ const ActionBtn = ({ icon: Icon, onClick, title, tone }) => (
       e.currentTarget.style.color = tone === 'danger' ? color.danger : color.subtext;
     }}
   >
-    <Icon size={14} strokeWidth={1.8} />
+    <Icon size={16} strokeWidth={1.8} />
   </button>
 );
 
@@ -279,7 +286,8 @@ const styles = {
     fontFamily: font.sans,
     overflow: 'hidden',
     flexShrink: 0,
-    padding: '0 6px',
+    // 우측 padding 0 — Settings 버튼 중심이 우측 활동바(36px) 중심과 동일선이 되게.
+    padding: '0 0 0 6px',
     gap: '6px',
   },
   brandBtn: {
@@ -354,7 +362,8 @@ const styles = {
     alignItems: 'center',
     gap: '2px',
     paddingLeft: '6px',
-    paddingRight: '4px',
+    // 우측 활동바 actBtn 의 마진 (=(36-32)/2=2) 과 같게 — Settings 버튼 중심선이 활동바 버튼 중심선과 일치.
+    paddingRight: '2px',
     borderLeft: `1px solid ${color.border}`,
     flexShrink: 0,
   },
