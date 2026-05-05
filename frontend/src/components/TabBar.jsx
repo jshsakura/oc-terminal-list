@@ -1,10 +1,11 @@
 import { memo, useState, useEffect, useRef } from 'react';
 import {
   X, Terminal as TerminalIcon, Server,
-  Settings as SettingsIcon, Key, Power, MoreHorizontal,
+  Settings as SettingsIcon, Key, LogOut, MoreHorizontal,
   SquareSplitHorizontal, SquareSplitVertical,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
@@ -97,7 +98,7 @@ const TabBar = ({
         <ActionBtn icon={Server}       onClick={onOpenHosts}    title={t?.('manageHosts') || 'Manage hosts'} />
         <ActionBtn icon={Key}          onClick={onOpenKeys}     title={t?.('sshKeys') || 'SSH Keys'} />
         <ActionBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
-        <ActionBtn icon={Power}        onClick={onLogout}       title={t?.('logout') || 'Sign out'} tone="danger" />
+        <ActionBtn icon={LogOut}       onClick={onLogout}       title={t?.('logout') || 'Sign out'} tone="danger" />
       </div>
 
       {contextMenu && (
@@ -153,11 +154,9 @@ const Tab = memo(({ tab, isActive, onSelect, onClose, onContextMenu, onMore, t }
         opacity: isActive ? 1 : 0.55,
       }} />
 
-      {tab.icon ? (
-        <span style={{ fontSize: '13px', lineHeight: 1, flexShrink: 0 }}>{tab.icon}</span>
-      ) : (
-        <Icon size={11} strokeWidth={1.8} style={{ color: isActive ? color.text : color.subtext, flexShrink: 0 }} />
-      )}
+      <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, color: isActive ? color.text : color.subtext }}>
+        <HostIcon value={tab.icon || ''} fallback={Icon} size={12} strokeWidth={1.8} />
+      </span>
       <span style={styles.tabName}>{tab.name}</span>
 
       <button

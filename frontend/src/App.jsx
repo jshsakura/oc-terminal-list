@@ -14,6 +14,9 @@ import { generateUUID } from './utils/helpers';
 import TabBar from './components/TabBar';
 import HomeDashboard from './components/HomeDashboard';
 import RemoteFolderPicker from './components/RemoteFolderPicker';
+import LocalEditor from './components/LocalEditor';
+import LocalFolderPicker from './components/LocalFolderPicker';
+import { tokens as designTokens } from './styles/tokens';
 import HostManager from './components/HostManager';
 import PaneGrid from './components/PaneGrid';
 import LoadingScreen from './components/layout/LoadingScreen';
@@ -43,7 +46,7 @@ const makePane = (extra = {}) => ({
   ...extra,
 });
 
-const makLocalTab = (sessionId, name, cwd = null) => {
+const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = null } = {}) => {
   const pane = makePane({ sessionId });
   return {
     id: `local:${sessionId}`,
@@ -51,6 +54,8 @@ const makLocalTab = (sessionId, name, cwd = null) => {
     sessionId,
     name: name || 'terminal',
     cwd: cwd ?? null,
+    icon: icon || null,
+    color_index: colorIndex ?? 0,
     panes: [pane],
     layout: 'single',
     activePaneId: pane.id,
@@ -124,11 +129,14 @@ function App() {
   // ── open / close tabs ─────────────────────────────────────────────────────
   const openLocalTab = useCallback(async (cwd = null) => {
     const sessionId = generateUUID();
-    // WS handler creates tmux session on first connect — no pre-create needed.
-    const tab = makLocalTab(sessionId, 'terminal');
+    const name = (settings.localName || '').trim() || 'terminal';
+    const tab = makLocalTab(sessionId, name, cwd, {
+      icon: settings.localIcon || null,
+      colorIndex: settings.localColorIndex ?? 0,
+    });
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);
-  }, []);
+  }, [settings.localName, settings.localIcon, settings.localColorIndex]);
 
   const openHostTab = useCallback((host, cwd = null) => {
     if (!host || host.isLocal || host.id === 'local') {
@@ -346,6 +354,12 @@ function App() {
   const [editingKey, setEditingKey] = useState(null);
   const [hostManagerOpen, setHostManagerOpen] = useState(false);
   const [folderPickerHost, setFolderPickerHost] = useState(null);
+  const [localEditorOpen, setLocalEditorOpen] = useState(false);
+  const [localFolderPicker, setLocalFolderPicker] = useState({
+    open: false,
+    initial: '',
+    onPick: null,
+  });
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -592,8 +606,24 @@ function App() {
             /* ── home dashboard ── */
             <HomeDashboard
               hosts={hosts}
+              localCard={{
+                name: (settings.localName || '').trim() || (t('thisMachine') || 'This machine'),
+                icon: settings.localIcon || '',
+                accent: designTokens.color.dotPalette[
+                  (settings.localColorIndex ?? 0) % designTokens.color.dotPalette.length
+                ],
+                subtitle: settings.localStartPath
+                  ? `localhost · /${settings.localStartPath}`
+                  : 'localhost',
+              }}
               onOpenHost={openHostTab}
               onOpenHostAtPath={(h) => setFolderPickerHost(h)}
+              onEditLocal={() => setLocalEditorOpen(true)}
+              onPickLocalPath={() => setLocalFolderPicker({
+                open: true,
+                initial: settings.localStartPath || '',
+                onPick: (chosen) => openLocalTab(chosen),
+              })}
               onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
               onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
               onDeleteHost={async (h) => { await deleteHost(h.id); await refreshHosts(); }}
@@ -646,7 +676,11 @@ function App() {
                   onFolderSelect={setSelectedFolderPath}
                   onOpenTerminalAtFolder={async (path) => {
                     const sessionId = generateUUID();
-                    const tab = makLocalTab(sessionId, path.split('/').pop() || 'terminal', path);
+                    const name = path.split('/').pop() || (settings.localName || 'terminal');
+                    const tab = makLocalTab(sessionId, name, path, {
+                      icon: settings.localIcon || null,
+                      colorIndex: settings.localColorIndex ?? 0,
+                    });
                     setTabs((prev) => [...prev, tab]);
                     setActiveTabId(tab.id);
                   }}
@@ -742,6 +776,33 @@ function App() {
           }
           openHostTab(host, chosen);
           refreshHosts();
+        }}
+        t={t}
+      />
+
+      {/* ── local machine editor ── */}
+      <LocalEditor
+        isOpen={localEditorOpen}
+        settings={settings}
+        onSave={(patch) => updateSettings(patch)}
+        onClose={() => setLocalEditorOpen(false)}
+        onPickFolder={(initial, applyChosen) => setLocalFolderPicker({
+          open: true,
+          initial: initial || '',
+          onPick: (chosen) => applyChosen?.(chosen),
+        })}
+        t={t}
+      />
+
+      {/* ── local workspace folder picker ── */}
+      <LocalFolderPicker
+        isOpen={localFolderPicker.open}
+        initialPath={localFolderPicker.initial}
+        onClose={() => setLocalFolderPicker({ open: false, initial: '', onPick: null })}
+        onPick={(chosen) => {
+          const fn = localFolderPicker.onPick;
+          setLocalFolderPicker({ open: false, initial: '', onPick: null });
+          fn?.(chosen);
         }}
         t={t}
       />

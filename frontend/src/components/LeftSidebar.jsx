@@ -1,9 +1,10 @@
 import { useState, memo } from 'react';
 import {
-  Server, Key, Settings as SettingsIcon, Power,
+  Server, Key, Settings as SettingsIcon, LogOut,
   X, Plus, Monitor,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
@@ -85,7 +86,7 @@ const LeftSidebar = ({
           />
           <ActIcon
             isActive={false}
-            Icon={Power}
+            Icon={LogOut}
             label={t?.('logout') || 'Logout'}
             tone="danger"
             onClick={onLogout}
@@ -218,10 +219,7 @@ const HostsPanel = ({ hosts, onConnect, onAdd, onEdit, t }) => (
         <ListRow
           key={host.id}
           accent={accent}
-          icon={host.icon
-            ? <span style={{ fontSize: '14px', lineHeight: 1 }}>{host.icon}</span>
-            : <Server size={13} strokeWidth={1.8} />
-          }
+          icon={<HostIcon value={host.icon || ''} fallback={Server} size={13} />}
           name={host.name}
           sub={`${host.ssh_user}@${host.hostname}`}
           onClick={() => onConnect(host)}

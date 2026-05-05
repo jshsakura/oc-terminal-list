@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { X, Plus, Server, Settings as SettingsIcon, Monitor } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
@@ -53,10 +54,7 @@ const HostManager = ({ isOpen, onClose, hosts = [], onAdd, onEdit, onConnect, t 
               <Row
                 key={host.id}
                 accent={accent}
-                icon={host.icon
-                  ? <span style={{ fontSize: '14px', lineHeight: 1 }}>{host.icon}</span>
-                  : <Server size={13} strokeWidth={1.8} />
-                }
+                icon={<HostIcon value={host.icon || ''} fallback={Server} size={13} />}
                 name={host.name}
                 sub={`${host.ssh_user}@${host.hostname}${host.port !== 22 ? `:${host.port}` : ''}`}
                 onClick={() => onConnect?.(host)}

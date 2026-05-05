@@ -51,6 +51,9 @@ const DEFAULT_SETTINGS = {
   smoothScroll: true,
   scrollSensitivity: 0.8, // AI 스트리밍 대응 (0~1, 높을수록 민감)
   localStartPath: '',  // 현재 머신 새 터미널 시작 경로 (워크스페이스 상대, 빈 값 = 루트)
+  localName: '',       // 비우면 i18n 의 'thisMachine' 기본값 사용
+  localIcon: '',       // 비우면 Monitor 아이콘
+  localColorIndex: 0,  // 호스트 카드의 ColorPicker 와 동일한 인덱스
 };
 
 const STORAGE_KEY = 'terminal_settings';

@@ -1,10 +1,9 @@
 import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import { Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
-
-// 한 줄 최대 칸 수 — 실제 카드 수가 이보다 적으면 그 수만큼만 사용 (가운데 딱)
 
 const HOST_COLORS = [
   '#89b4fa', '#a6e3a1', '#fab387', '#f38ba8',
@@ -13,7 +12,6 @@ const HOST_COLORS = [
 
 const ORDER_KEY = 'host_order_v1';
 
-// localStorage 영속 — 호스트 ID 의 순서 배열
 const loadOrder = () => {
   try { return JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); } catch { return []; }
 };
@@ -21,31 +19,42 @@ const saveOrder = (ids) => {
   try { localStorage.setItem(ORDER_KEY, JSON.stringify(ids)); } catch {}
 };
 
-const CARD_WIDTH = 140;
+// Termius 풍 가로 카드 — 폭이 넓어지면 한 줄에 여러개, 좁아지면 한 줄로 stack.
+const CARD_MIN_WIDTH = 260;
 const CARD_GAP = 8;
-const HORIZONTAL_PADDING = 40;  // root 좌우 padding 합 추정 (root padding ${space['5']}=20px*2)
+const CONTENT_PADDING = 40; // 좌우 padding 합 (root padding ${space['5']}=20px*2)
+const MAX_COLUMNS = 3;
 
-const HomeDashboard = ({ hosts = [], onOpenHost, onOpenHostAtPath, onAddHost, onEditHost, onDeleteHost, onOpenSettings, t }) => {
+const HomeDashboard = ({
+  hosts = [],
+  localCard,
+  onOpenHost,
+  onOpenHostAtPath,
+  onAddHost,
+  onEditHost,
+  onDeleteHost,
+  onOpenSettings,
+  onEditLocal,
+  onPickLocalPath,
+  t,
+}) => {
   const [hoverId, setHoverId] = useState(null);
   const [order, setOrder] = useState(() => loadOrder());
   const [draggingId, setDraggingId] = useState(null);
   const [overId, setOverId] = useState(null);
 
-  // 컨테이너 폭 측정 → 8/6/4/3/2/1 중 fit 되는 가장 큰 거 (모바일까지 안전하게 내려감)
   const rootRef = useRef(null);
-  const [columns, setColumns] = useState(2);
+  const [columns, setColumns] = useState(1);
   useEffect(() => {
     const el = rootRef.current;
     if (!el) return;
-    const fits = (n) => n * CARD_WIDTH + (n - 1) * CARD_GAP;
     const calc = () => {
-      const avail = el.clientWidth - HORIZONTAL_PADDING;
+      const avail = el.clientWidth - CONTENT_PADDING;
+      const fits = (n) => n * CARD_MIN_WIDTH + (n - 1) * CARD_GAP;
       let n = 1;
-      if (avail >= fits(8)) n = 8;
-      else if (avail >= fits(6)) n = 6;
-      else if (avail >= fits(4)) n = 4;
-      else if (avail >= fits(3)) n = 3;
-      else if (avail >= fits(2)) n = 2;
+      for (let candidate = MAX_COLUMNS; candidate >= 1; candidate -= 1) {
+        if (avail >= fits(candidate)) { n = candidate; break; }
+      }
       setColumns(n);
     };
     calc();
@@ -76,19 +85,9 @@ const HomeDashboard = ({ hosts = [], onOpenHost, onOpenHostAtPath, onAddHost, on
     saveOrder(next);
   };
 
-  // 카드 = This machine + 호스트들. 한 줄(=columns) 보다 적으면 빈 Add 슬롯으로 채움 (한 줄 항상 꽉)
-  const realSlots = [
-    { type: 'local' },
-    ...orderedHosts.map((h) => ({ type: 'host', host: h })),
-  ];
-  const slots = [...realSlots];
-  while (slots.length < columns) slots.push({ type: 'empty' });
-  // inner 폭은 항상 한 줄(columns) 기준 → 추가 카드는 다음 줄로 wrap
-  const innerWidth = columns * CARD_WIDTH + (columns - 1) * CARD_GAP;
-
   return (
     <div ref={rootRef} style={styles.root}>
-      <div style={{ ...styles.inner, width: `${innerWidth}px`, maxWidth: '100%' }}>
+      <div style={styles.inner}>
         <div style={styles.topBar}>
           <span style={styles.title}>
             {t?.('connections') || 'Connections'}
@@ -107,82 +106,77 @@ const HomeDashboard = ({ hosts = [], onOpenHost, onOpenHostAtPath, onAddHost, on
         <div style={{
           display: 'grid',
           gap: `${CARD_GAP}px`,
-          gridTemplateColumns: `repeat(${columns}, ${CARD_WIDTH}px)`,
+          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
         }}>
-          {slots.map((slot, i) => {
-            if (slot.type === 'local') {
-              return (
-                <HostCard
-                  key="local"
-                  id="local"
-                  draggable={false}
-                  iconNode={<Monitor size={22} strokeWidth={1.8} />}
-                  name={t?.('thisMachine') || 'This machine'}
-                  subtitle="localhost"
-                  accentColor={color.accent}
-                  isHovered={hoverId === 'local'}
-                  onHover={setHoverId}
-                  onClick={() => onOpenHost({ id: 'local', isLocal: true })}
-                />
-              );
-            }
-            if (slot.type === 'host') {
-              const { host } = slot;
-              const accent = HOST_COLORS[host.color_index % HOST_COLORS.length] || color.accent;
-              return (
-                <HostCard
-                  key={host.id}
-                  id={host.id}
-                  draggable
-                  isDragging={draggingId === host.id}
-                  isDragOver={overId === host.id && draggingId !== host.id}
-                  emoji={host.icon || null}
-                  iconNode={!host.icon && <Server size={22} strokeWidth={1.8} />}
-                  name={host.name}
-                  subtitle={`${host.ssh_user}@${host.hostname}`}
-                  accentColor={accent}
-                  isHovered={hoverId === host.id}
-                  onHover={setHoverId}
-                  onClick={() => onOpenHost(host)}
-                  onEdit={() => onEditHost?.(host)}
-                  editTitle={t?.('hostSettings') || 'Host settings'}
-                  onPickPath={onOpenHostAtPath ? () => onOpenHostAtPath(host) : null}
-                  pickPathTitle={t?.('openAtPath') || 'Open at path…'}
-                  onDragStart={(e) => {
-                    setDraggingId(host.id);
-                    e.dataTransfer.effectAllowed = 'move';
-                    e.dataTransfer.setData('text/plain', host.id);
-                  }}
-                  onDragEnd={() => { setDraggingId(null); setOverId(null); }}
-                  onDragOver={(e) => {
-                    if (!draggingId || draggingId === host.id) return;
-                    e.preventDefault();
-                    e.dataTransfer.dropEffect = 'move';
-                    if (overId !== host.id) setOverId(host.id);
-                  }}
-                  onDragLeave={() => { if (overId === host.id) setOverId(null); }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    const fromId = e.dataTransfer.getData('text/plain') || draggingId;
-                    reorder(fromId, host.id);
-                    setDraggingId(null);
-                    setOverId(null);
-                  }}
-                />
-              );
-            }
+          <HostRow
+            id="local"
+            draggable={false}
+            icon={<HostIcon value={localCard?.icon || ''} fallback={Monitor} size={20} />}
+            name={localCard?.name || (t?.('thisMachine') || 'This machine')}
+            subtitle={localCard?.subtitle || 'localhost'}
+            accentColor={localCard?.accent || color.accent}
+            isHovered={hoverId === 'local'}
+            onHover={setHoverId}
+            onClick={() => onOpenHost({ id: 'local', isLocal: true })}
+            onEdit={onEditLocal || null}
+            editTitle={t?.('editLocalMachine') || 'Edit this machine'}
+            onPickPath={onPickLocalPath || null}
+            pickPathTitle={t?.('openAtPath') || 'Open at path…'}
+          />
+
+          {orderedHosts.map((host) => {
+            const accent = HOST_COLORS[host.color_index % HOST_COLORS.length] || color.accent;
             return (
-              <EmptySlot key={`empty-${i}`} onClick={onAddHost} t={t} />
+              <HostRow
+                key={host.id}
+                id={host.id}
+                draggable
+                isDragging={draggingId === host.id}
+                isDragOver={overId === host.id && draggingId !== host.id}
+                icon={<HostIcon value={host.icon || ''} fallback={Server} size={20} />}
+                name={host.name}
+                subtitle={`${host.ssh_user}@${host.hostname}${host.port && host.port !== 22 ? `:${host.port}` : ''}`}
+                accentColor={accent}
+                isHovered={hoverId === host.id}
+                onHover={setHoverId}
+                onClick={() => onOpenHost(host)}
+                onEdit={() => onEditHost?.(host)}
+                editTitle={t?.('hostSettings') || 'Host settings'}
+                onPickPath={onOpenHostAtPath ? () => onOpenHostAtPath(host) : null}
+                pickPathTitle={t?.('openAtPath') || 'Open at path…'}
+                onDragStart={(e) => {
+                  setDraggingId(host.id);
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', host.id);
+                }}
+                onDragEnd={() => { setDraggingId(null); setOverId(null); }}
+                onDragOver={(e) => {
+                  if (!draggingId || draggingId === host.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = 'move';
+                  if (overId !== host.id) setOverId(host.id);
+                }}
+                onDragLeave={() => { if (overId === host.id) setOverId(null); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  const fromId = e.dataTransfer.getData('text/plain') || draggingId;
+                  reorder(fromId, host.id);
+                  setDraggingId(null);
+                  setOverId(null);
+                }}
+              />
             );
           })}
+
+          <EmptyRow onClick={onAddHost} t={t} />
         </div>
       </div>
     </div>
   );
 };
 
-const HostCard = memo(({
-  id, iconNode, emoji, name, subtitle, accentColor,
+const HostRow = memo(({
+  id, icon, name, subtitle, accentColor,
   isHovered, isDragging, isDragOver,
   draggable, onHover, onClick, onEdit, editTitle,
   onPickPath, pickPathTitle,
@@ -195,11 +189,11 @@ const HostCard = memo(({
     onDragOver={onDragOver}
     onDragLeave={onDragLeave}
     onDrop={onDrop}
-    onMouseEnter={() => onHover(id)}
-    onMouseLeave={() => onHover(null)}
+    onMouseEnter={() => onHover?.(id)}
+    onMouseLeave={() => onHover?.(null)}
     onClick={onClick}
     style={{
-      ...styles.card,
+      ...styles.row,
       background: isDragOver
         ? color.surface2
         : isHovered ? color.surface1 : color.surface0,
@@ -207,67 +201,60 @@ const HostCard = memo(({
         ? color.accent
         : isHovered ? accentColor : color.border,
       borderStyle: isDragOver ? 'dashed' : 'solid',
-      transform: isHovered && !isDragging ? 'translateY(-3px)' : 'translateY(0)',
-      boxShadow: isHovered && !isDragging ? `0 8px 20px ${accentColor}30, 0 0 0 1px ${accentColor}` : 'none',
+      transform: isHovered && !isDragging ? 'translateY(-1px)' : 'translateY(0)',
+      boxShadow: isHovered && !isDragging
+        ? `0 4px 14px ${accentColor}22, 0 0 0 1px ${accentColor}`
+        : 'none',
       opacity: isDragging ? 0.4 : 1,
       cursor: draggable ? 'grab' : 'pointer',
-      position: 'relative',
     }}
   >
-    {(onEdit || onPickPath) && (
-      <div
-        style={{
-          position: 'absolute',
-          top: '6px',
-          right: '6px',
-          display: 'flex',
-          gap: '2px',
-        }}
-      >
+    <div
+      style={{
+        ...styles.iconBox,
+        color: accentColor,
+        borderColor: isHovered ? `${accentColor}66` : color.border,
+        background: isHovered ? `${accentColor}1a` : color.crust,
+      }}
+    >
+      {icon}
+    </div>
+
+    <div style={styles.text}>
+      <div style={styles.name}>{name}</div>
+      <div style={styles.sub}>{subtitle}</div>
+    </div>
+
+    {(onPickPath || onEdit) && (
+      <div style={styles.actions} onClick={(e) => e.stopPropagation()}>
         {onPickPath && (
-          <CornerBtn
-            onClick={(e) => { e.stopPropagation(); onPickPath(); }}
-            title={pickPathTitle}
-            isHovered={isHovered}
-          >
-            <FolderOpen size={12} strokeWidth={1.8} />
-          </CornerBtn>
+          <RowBtn onClick={(e) => { e.stopPropagation(); onPickPath(); }} title={pickPathTitle}>
+            <FolderOpen size={13} strokeWidth={1.8} />
+          </RowBtn>
         )}
         {onEdit && (
-          <CornerBtn
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            title={editTitle}
-            isHovered={isHovered}
-          >
-            <SettingsIcon size={12} strokeWidth={1.8} />
-          </CornerBtn>
+          <RowBtn onClick={(e) => { e.stopPropagation(); onEdit(); }} title={editTitle}>
+            <SettingsIcon size={13} strokeWidth={1.8} />
+          </RowBtn>
         )}
       </div>
     )}
-    {/* 아이콘 — 박스 없이 accent 색 라인 아이콘만 가운데 */}
-    <div style={{ ...styles.iconBadge, color: accentColor }}>
-      {emoji
-        ? <span style={{ fontSize: '24px', lineHeight: 1 }}>{emoji}</span>
-        : iconNode}
-    </div>
-    <div style={styles.cardName}>{name}</div>
-    <div style={styles.cardSub}>{subtitle}</div>
   </div>
 ));
 
-const CornerBtn = ({ onClick, title, isHovered, children }) => (
+const RowBtn = ({ onClick, title, children }) => (
   <button
     onClick={onClick}
     title={title}
     style={{
-      width: '22px',
-      height: '22px',
+      width: '26px',
+      height: '26px',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: isHovered ? color.surface2 : color.surface0,
+      background: color.surface0,
       border: `1px solid ${color.border}`,
-      borderRadius: '4px',
+      borderRadius: radius.sm,
       cursor: 'pointer',
       color: color.subtext,
       transition: 'background 150ms, color 150ms, border-color 150ms',
@@ -279,7 +266,7 @@ const CornerBtn = ({ onClick, title, isHovered, children }) => (
       e.currentTarget.style.borderColor = color.accent;
     }}
     onMouseLeave={(e) => {
-      e.currentTarget.style.background = isHovered ? color.surface2 : color.surface0;
+      e.currentTarget.style.background = color.surface0;
       e.currentTarget.style.color = color.subtext;
       e.currentTarget.style.borderColor = color.border;
     }}
@@ -288,27 +275,24 @@ const CornerBtn = ({ onClick, title, isHovered, children }) => (
   </button>
 );
 
-const EmptySlot = ({ onClick, t }) => {
+const EmptyRow = ({ onClick, t }) => {
   const [hovered, setHovered] = useState(false);
   return (
     <button
-      style={{
-        ...styles.card,
-        ...styles.emptyCard,
-        background: hovered ? color.surface0 : 'transparent',
-        borderColor: hovered ? color.accent : color.border,
-        borderStyle: 'dashed',
-      }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={onClick}
+      style={{
+        ...styles.row,
+        ...styles.emptyRow,
+        background: hovered ? color.surface0 : 'transparent',
+        borderColor: hovered ? color.accent : color.border,
+        borderStyle: 'dashed',
+        color: hovered ? color.accent : color.muted,
+      }}
     >
-      <Plus
-        size={18}
-        strokeWidth={1.5}
-        style={{ color: hovered ? color.accent : color.muted }}
-      />
-      <span style={{ fontSize: fontSize['11'], color: hovered ? color.accent : color.muted }}>
+      <Plus size={14} strokeWidth={1.8} />
+      <span style={{ fontSize: fontSize['12'], fontWeight: fontWeight.medium }}>
         {t?.('addHost') || 'Add host'}
       </span>
     </button>
@@ -319,23 +303,24 @@ const styles = {
   root: {
     width: '100%',
     height: '100%',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
     background: color.base,
     overflow: 'auto',
     fontFamily: font.sans,
-    padding: `0 ${space['5']}`,
+    padding: `${space['4']} ${space['5']}`,
     boxSizing: 'border-box',
   },
   inner: {
-    padding: `${space['6']} 0`,
+    width: '100%',
+    maxWidth: '960px',
+    margin: '0 auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['3'],
   },
   topBar: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: space['4'],
   },
   title: {
     fontSize: fontSize['11'],
@@ -359,73 +344,64 @@ const styles = {
     transition: 'background 150ms, border-color 150ms, color 150ms',
     fontFamily: font.sans,
   },
-  cornerBtn: {
-    width: '26px',
-    height: '26px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'transparent',
-    border: 'none',
-    borderRadius: radius.sm,
-    cursor: 'pointer',
-    color: color.subtext,
-    transition: 'background 150ms, color 150ms',
-    padding: 0,
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-    gap: space['2'],
-  },
-  card: {
+  row: {
     display: 'flex',
-    flexDirection: 'column',
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: '8px',
-    padding: `14px 10px 10px`,
+    gap: '12px',
+    padding: '10px 12px',
     background: color.surface0,
     border: `1px solid ${color.border}`,
     borderRadius: radius.lg,
     cursor: 'pointer',
     transition: 'background 150ms, border-color 150ms, transform 150ms, box-shadow 150ms, opacity 120ms',
     fontFamily: font.sans,
-    height: '128px',
-    boxSizing: 'border-box',
+    minHeight: '60px',
     userSelect: 'none',
+    boxSizing: 'border-box',
   },
-  emptyCard: {
+  emptyRow: {
     justifyContent: 'center',
-    flexDirection: 'column',
-    gap: space['2'],
+    cursor: 'pointer',
   },
-  iconBadge: {
-    width: '32px',
-    height: '32px',
+  iconBox: {
+    width: '40px',
+    height: '40px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     flexShrink: 0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.md,
+    background: color.crust,
+    transition: 'background 150ms, border-color 150ms',
   },
-  cardName: {
+  text: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  name: {
     fontSize: fontSize['13'],
     fontWeight: fontWeight.semibold,
     color: color.text,
-    textAlign: 'center',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    maxWidth: '100%',
   },
-  cardSub: {
+  sub: {
     fontSize: fontSize['11'],
     color: color.subtext,
-    textAlign: 'center',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    maxWidth: '100%',
+    fontFamily: font.mono,
+  },
+  actions: {
+    display: 'flex',
+    gap: '4px',
+    flexShrink: 0,
   },
 };
 

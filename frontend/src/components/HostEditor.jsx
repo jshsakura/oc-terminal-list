@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { X, Trash2, Network } from 'lucide-react';
+import { X, Trash2, Network, ChevronDown } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
+import HostIcon from '../utils/hostIcons';
+import IconPickerPopup from './IconPickerPopup';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
 
@@ -21,7 +23,6 @@ const EMPTY = {
   icon: '',
 };
 
-const ICON_PRESETS = ['🖥️', '🐧', '🐳', '☁️', '🛠️', '🦊', '🍎', '🐍', '🌐', '🔒'];
 
 const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t }) => {
   const [draft, setDraft] = useState(EMPTY);
@@ -29,6 +30,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   const [saving, setSaving] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [killing, setKilling] = useState(false);
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [tsPicker, setTsPicker] = useState({ open: false, peers: [], loading: false, available: true });
   const [sessions, setSessions] = useState({ open: false, items: [], loading: false, error: null, killing: null });
 
@@ -376,16 +378,21 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
           <Divider />
 
           <Section title={t('appearance') || 'Appearance'}>
+            <Field label={t('icon') || 'Icon'}>
+              <IconButton value={draft.icon || ''} onOpen={() => setIconPickerOpen(true)} t={t} />
+            </Field>
             <Field label={t('color') || 'Color'}>
               <ColorPicker value={draft.color_index} onChange={(v) => set('color_index', v)} />
             </Field>
-            <Field
-              label={t('icon') || 'Icon'}
-              hint={t('iconHint') || 'Pick a preset or type any emoji. Empty = default server icon.'}
-            >
-              <IconPicker value={draft.icon || ''} onChange={(v) => set('icon', v)} />
-            </Field>
           </Section>
+
+          <IconPickerPopup
+            isOpen={iconPickerOpen}
+            value={draft.icon || ''}
+            onChange={(v) => set('icon', v)}
+            onClose={() => setIconPickerOpen(false)}
+            t={t}
+          />
 
           {error && <div style={styles.error}>{error}</div>}
         </div>
@@ -512,79 +519,33 @@ const Toggle = ({ label, hint, checked, onChange }) => (
   </div>
 );
 
-const IconPicker = ({ value, onChange }) => {
-  const [focused, setFocused] = useState(false);
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: space['2'], flexWrap: 'wrap' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-        <input
-          type="text"
-          value={value}
-          maxLength={4}
-          onChange={(e) => onChange(e.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          placeholder="🖥️"
-          style={{
-            width: '52px',
-            height: '32px',
-            textAlign: 'center',
-            fontSize: '18px',
-            background: focused ? color.crust : color.mantle,
-            color: color.text,
-            border: `1px solid ${focused ? color.accentBorder : color.border}`,
-            borderRadius: radius.sm,
-            outline: 'none',
-            fontFamily: 'inherit',
-            padding: 0,
-          }}
-        />
-        {value && (
-          <button
-            type="button"
-            onClick={() => onChange('')}
-            title="Clear"
-            style={{
-              height: '24px',
-              padding: `0 ${space['2']}`,
-              background: 'transparent',
-              border: `1px solid ${color.border}`,
-              borderRadius: radius.xs,
-              color: color.muted,
-              fontSize: fontSize['11'],
-              cursor: 'pointer',
-            }}
-          >
-            ×
-          </button>
-        )}
-      </div>
-      <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-        {ICON_PRESETS.map((emoji) => (
-          <button
-            key={emoji}
-            type="button"
-            onClick={() => onChange(emoji)}
-            style={{
-              width: '30px',
-              height: '30px',
-              padding: 0,
-              fontSize: '17px',
-              lineHeight: 1,
-              background: value === emoji ? color.surface2 : color.surface0,
-              border: `1px solid ${value === emoji ? color.accent : color.border}`,
-              borderRadius: radius.sm,
-              cursor: 'pointer',
-              transition: `background ${motion.fast}, border-color ${motion.fast}`,
-            }}
-          >
-            {emoji}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-};
+const IconButton = ({ value, onOpen, t }) => (
+  <button
+    type="button"
+    onClick={onOpen}
+    style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '8px',
+      height: '32px',
+      padding: `0 10px`,
+      background: color.mantle,
+      color: color.text,
+      border: `1px solid ${color.border}`,
+      borderRadius: radius.sm,
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+      fontSize: fontSize['12'],
+      alignSelf: 'flex-start',
+    }}
+  >
+    <HostIcon value={value} size={16} />
+    <span style={{ color: value ? color.text : color.muted }}>
+      {value || (t?.('chooseIcon') || 'Choose icon…')}
+    </span>
+    <ChevronDown size={12} strokeWidth={1.8} style={{ color: color.muted }} />
+  </button>
+);
 
 const ColorPicker = ({ value, onChange }) => (
   <div style={{ display: 'flex', gap: space['1.5'], flexWrap: 'wrap' }}>

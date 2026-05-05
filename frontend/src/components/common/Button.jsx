@@ -16,7 +16,7 @@ const variantStyle = {
   ghost: {
     background: 'transparent',
     color: color.subtext,
-    border: '1px solid transparent',
+    border: `1px solid ${color.border}`,
   },
   danger: {
     background: 'transparent',
@@ -94,7 +94,8 @@ const Button = ({
       onMouseLeave={(e) => {
         e.currentTarget.style.opacity = disabled ? '0.45' : '1';
         e.currentTarget.style.background = v.background;
-        e.currentTarget.style.borderColor = v.border.split(' ')[2] || 'transparent';
+        // border 는 전체 shorthand 로 복원 — rgba() 처럼 공백 포함 컬러 호환
+        e.currentTarget.style.border = v.border;
       }}
     >
       {Icon && <Icon size={iconSize} strokeWidth={2} />}

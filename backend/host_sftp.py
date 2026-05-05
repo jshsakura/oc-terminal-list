@@ -74,11 +74,19 @@ async def list_directory(host: dict, secrets: dict, path: str = ".") -> List[Dic
     try:
         conn = await _get_or_open(host, secrets)
         async with conn.start_sftp_client() as sftp:
-            # ~ 확장은 SFTP 가 안 해줌 → realpath 로 변환
+            # ~ 확장은 SFTP 가 안 해줌 → realpath 로 변환. ~/ 시작이면 환경에서 $HOME 으로 풀어줌.
+            candidate = target
+            if candidate.startswith("~"):
+                # SFTP 표준은 ~ 미지원 → '.' (= 로그인 홈) 으로 시작해 상대 경로로 변환
+                if candidate in ("~", "~/"):
+                    candidate = "."
+                elif candidate.startswith("~/"):
+                    candidate = candidate[2:]  # '~/foo/bar' → 'foo/bar'
             try:
-                resolved = await sftp.realpath(target)
+                resolved = await sftp.realpath(candidate)
             except (OSError, asyncssh.SFTPError):
-                resolved = target
+                # realpath 실패 → 홈 (".") 폴백
+                resolved = await sftp.realpath(".")
 
             entries = await sftp.readdir(resolved)
             items: List[Dict] = []

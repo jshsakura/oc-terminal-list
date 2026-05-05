@@ -36,8 +36,33 @@ const palette = {
   danger:  v('danger',  '#f38ba8'),
   info:    v('info',    '#74c7ec'),
 
-  // 호스트 dot 후보
-  dotPalette: ['#89b4fa', '#a6e3a1', '#f9e2af', '#f38ba8', '#cba6f7', '#94e2d5', '#fab387', '#74c7ec'],
+  // 호스트 dot 후보 — 계열별로 hue 다양화 (24색)
+  dotPalette: [
+    '#89b4fa', // blue
+    '#74c7ec', // sky
+    '#7dd3fc', // light sky
+    '#94e2d5', // teal
+    '#22d3ee', // cyan
+    '#a6e3a1', // green
+    '#86efac', // mint
+    '#dffac6', // lime
+    '#fde68a', // gold
+    '#f9e2af', // yellow
+    '#fab387', // peach
+    '#fb923c', // orange
+    '#eba0ac', // maroon
+    '#f87171', // red
+    '#f38ba8', // pink
+    '#f472b6', // hot pink
+    '#f5c2e7', // rose
+    '#cba6f7', // mauve
+    '#a78bfa', // violet
+    '#b4befe', // lavender
+    '#9aa6f5', // indigo
+    '#c0caf5', // pale blue
+    '#a8d8c9', // sage
+    '#d6a692', // sand
+  ],
 
   // 보더
   border:        v('border',         'rgba(228, 230, 241, 0.06)'),
