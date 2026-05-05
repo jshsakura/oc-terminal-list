@@ -27,6 +27,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [killing, setKilling] = useState(false);
   const [tsPicker, setTsPicker] = useState({ open: false, peers: [], loading: false, available: true });
+  const [sessions, setSessions] = useState({ open: false, items: [], loading: false, error: null, killing: null });
 
   useEffect(() => {
     setConfirmingDelete(false);
@@ -59,6 +60,40 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
       setTsPicker({ open: true, peers: list, loading: false, available: !!data.available });
     } catch (e) {
       setTsPicker({ open: true, peers: [], loading: false, available: false });
+    }
+  };
+
+  const refreshSessions = async () => {
+    if (!host) return;
+    setSessions((s) => ({ ...s, open: true, loading: true, error: null }));
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`/api/hosts/${host.id}/tmux-sessions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setSessions((s) => ({ ...s, loading: false, items: data.sessions || [] }));
+    } catch (err) {
+      setSessions((s) => ({ ...s, loading: false, error: err.message || 'failed' }));
+    }
+  };
+
+  const killOneSession = async (name) => {
+    if (!host) return;
+    if (!confirm((t('confirmKillSession') || 'Kill session') + ` "${name}"?`)) return;
+    setSessions((s) => ({ ...s, killing: name }));
+    try {
+      const token = localStorage.getItem('auth_token');
+      await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(name)}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await refreshSessions();
+    } catch {
+      // ignore
+    } finally {
+      setSessions((s) => ({ ...s, killing: null }));
     }
   };
 
@@ -225,24 +260,112 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                 placeholder="~/projects/my-app"
               />
             </Field>
-            {host && onKillTmuxServer && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: space['1'], marginTop: space['1'] }}>
-                <Button
-                  variant="ghost"
-                  type="button"
-                  disabled={killing}
-                  onClick={async () => {
-                    if (!confirm(t('confirmKillTmuxServer') || 'Kill the entire tmux server on this host? All sessions there will die.')) return;
-                    setKilling(true);
-                    try { await onKillTmuxServer(); } finally { setKilling(false); }
-                  }}
-                  style={{ alignSelf: 'flex-start', color: color.warning }}
-                >
-                  {killing ? (t('saving') || '…') : (t('killTmuxServer') || 'Kill remote tmux server')}
-                </Button>
-                <div style={{ fontSize: fontSize['11'], color: color.muted }}>
-                  {t('killTmuxServerHint') || '망가진 tmux 상태 한번에 청소. 다음 접속 시 새 서버에 새 세션이 만들어집니다.'}
+            {host && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: space['2'], marginTop: space['2'] }}>
+                {/* 세션 목록 + 개별 kill */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: space['2'] }}>
+                  <Button
+                    variant="ghost"
+                    type="button"
+                    disabled={sessions.loading}
+                    onClick={refreshSessions}
+                    style={{ alignSelf: 'flex-start' }}
+                  >
+                    {sessions.loading
+                      ? (t('loading') || 'Loading…')
+                      : (sessions.open
+                          ? (t('refreshSessions') || 'Refresh')
+                          : (t('viewRemoteSessions') || 'View remote sessions'))}
+                  </Button>
+                  {sessions.open && (
+                    <span style={{ fontSize: fontSize['11'], color: color.muted }}>
+                      {sessions.items.length} {t('sessions') || 'sessions'}
+                    </span>
+                  )}
                 </div>
+
+                {sessions.open && sessions.error && (
+                  <div style={{ fontSize: fontSize['11'], color: color.danger }}>{sessions.error}</div>
+                )}
+
+                {sessions.open && !sessions.error && sessions.items.length === 0 && !sessions.loading && (
+                  <div style={{ fontSize: fontSize['11'], color: color.muted, padding: `${space['1']} 0` }}>
+                    {t('noRemoteSessions') || 'No tmux sessions running on this host.'}
+                  </div>
+                )}
+
+                {sessions.open && sessions.items.length > 0 && (
+                  <div style={{
+                    border: `1px solid ${color.border}`,
+                    borderRadius: radius.sm,
+                    background: color.surface0,
+                    overflow: 'hidden',
+                  }}>
+                    {sessions.items.map((s) => (
+                      <div
+                        key={s.name}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: space['2'],
+                          padding: `${space['1.5']} ${space['2']}`,
+                          borderBottom: `1px solid ${color.border}`,
+                          fontSize: fontSize['12'],
+                        }}
+                      >
+                        <div style={{
+                          width: '8px', height: '8px', borderRadius: '50%',
+                          background: s.attached ? color.success : color.muted,
+                          flexShrink: 0,
+                        }} />
+                        <span style={{ flex: 1, color: color.text, fontFamily: font.mono, fontSize: fontSize['11'] }}>
+                          {s.name}
+                          {s.attached && <span style={{ marginLeft: 6, color: color.success, fontSize: '10px' }}>● {t('attached') || 'attached'}</span>}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={sessions.killing === s.name}
+                          onClick={() => killOneSession(s.name)}
+                          title={t('killSession') || 'Kill this session'}
+                          style={{
+                            padding: `2px ${space['2']}`,
+                            background: 'transparent',
+                            border: `1px solid ${color.border}`,
+                            borderRadius: '3px',
+                            color: color.danger,
+                            cursor: 'pointer',
+                            fontSize: fontSize['11'],
+                            fontFamily: font.sans,
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = color.danger; e.currentTarget.style.color = '#fff'; e.currentTarget.style.borderColor = color.danger; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.danger; e.currentTarget.style.borderColor = color.border; }}
+                        >
+                          {sessions.killing === s.name ? '…' : 'Kill'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 전체 nuke */}
+                {onKillTmuxServer && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: space['1'], marginTop: space['1'] }}>
+                    <Button
+                      variant="ghost"
+                      type="button"
+                      disabled={killing}
+                      onClick={async () => {
+                        if (!confirm(t('confirmKillTmuxServer') || 'Kill the entire tmux server on this host? All sessions there will die.')) return;
+                        setKilling(true);
+                        try { await onKillTmuxServer(); await refreshSessions(); } finally { setKilling(false); }
+                      }}
+                      style={{ alignSelf: 'flex-start', color: color.danger }}
+                    >
+                      {killing ? (t('saving') || '…') : (t('killTmuxServer') || 'Kill remote tmux server (nuke all)')}
+                    </Button>
+                    <div style={{ fontSize: fontSize['11'], color: color.muted }}>
+                      {t('killTmuxServerHint') || '망가진 tmux 상태 한번에 청소. 다음 접속 시 새 서버에 새 세션이 만들어집니다.'}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </Section>
