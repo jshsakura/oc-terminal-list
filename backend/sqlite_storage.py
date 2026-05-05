@@ -134,6 +134,11 @@ class SQLiteStorage:
             cursor.execute("ALTER TABLE hosts ADD COLUMN last_cwd TEXT")
         except sqlite3.OperationalError:
             pass
+        # 마이그레이션: 사용자 정의 정렬 순서 (DnD 결과 영속). NULL 이면 last_used 폴백.
+        try:
+            cursor.execute("ALTER TABLE hosts ADD COLUMN sort_index INTEGER")
+        except sqlite3.OperationalError:
+            pass
 
         # 사용자별 UI 설정 — 단일 JSON blob 으로 모두 보관 (테마, 폰트 등)
         cursor.execute("""
@@ -381,9 +386,10 @@ class SQLiteStorage:
                 rows = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               color_index, group_name, use_remote_tmux, remote_tmux_session,
-                              start_path, last_cwd, icon, created_at, last_used
+                              start_path, last_cwd, icon, sort_index, created_at, last_used
                        FROM hosts WHERE username = ?
-                       ORDER BY group_name NULLS LAST, last_used DESC, name ASC""",
+                       ORDER BY sort_index IS NULL, sort_index ASC,
+                                group_name NULLS LAST, last_used DESC, name ASC""",
                     (username,),
                 ).fetchall()
                 return [dict(r) for r in rows]
@@ -471,6 +477,21 @@ class SQLiteStorage:
             finally:
                 conn.close()
         await asyncio.to_thread(_touch)
+
+    async def reorder_hosts(self, username: str, ids: List[str]) -> None:
+        """주어진 id 순서대로 sort_index 0..N-1 으로 갱신. 목록에 없는 호스트는 그대로."""
+        def _reorder():
+            conn = self._get_connection()
+            try:
+                for idx, host_id in enumerate(ids):
+                    conn.execute(
+                        "UPDATE hosts SET sort_index = ? WHERE id = ? AND username = ?",
+                        (idx, host_id, username),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_reorder)
 
     async def update_host_last_cwd(self, host_id: str, username: str, cwd: Optional[str]) -> None:
         """호스트의 마지막 cwd 갱신. 빈 문자열은 None 으로 정규화."""

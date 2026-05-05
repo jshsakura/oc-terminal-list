@@ -728,6 +728,17 @@ async def update_host(host_id: str, request: HostUpsertRequest, username: str = 
     return {"id": host_id, "status": "updated"}
 
 
+class HostReorderRequest(BaseModel):
+    ids: List[str]
+
+
+@app.post("/api/hosts/reorder")
+async def reorder_hosts(request: HostReorderRequest, username: str = Depends(verify_auth_token)):
+    """홈 카드 DnD 순서 영속. ids 리스트 순서대로 sort_index 0..N-1 부여."""
+    await storage.reorder_hosts(username, request.ids)
+    return {"status": "ok", "count": len(request.ids)}
+
+
 class HostLastCwdRequest(BaseModel):
     cwd: Optional[str] = None
 

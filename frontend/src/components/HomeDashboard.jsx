@@ -10,13 +10,27 @@ const HOST_COLORS = [
   '#cba6f7', '#89dceb', '#f9e2af', '#b4befe',
 ];
 
-const ORDER_KEY = 'host_order_v1';
+// 정렬 순서는 DB(hosts.sort_index) 가 정답. localStorage 캐시는 최초 paint 깜빡임 방지용.
+const ORDER_CACHE_KEY = 'host_order_v1';
 
-const loadOrder = () => {
-  try { return JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); } catch { return []; }
+const loadCachedOrder = () => {
+  try { return JSON.parse(localStorage.getItem(ORDER_CACHE_KEY) || '[]'); } catch { return []; }
 };
-const saveOrder = (ids) => {
-  try { localStorage.setItem(ORDER_KEY, JSON.stringify(ids)); } catch {}
+const cacheOrder = (ids) => {
+  try { localStorage.setItem(ORDER_CACHE_KEY, JSON.stringify(ids)); } catch {}
+};
+
+const persistOrderToServer = async (ids) => {
+  try {
+    const token = localStorage.getItem('auth_token');
+    await fetch('/api/hosts/reorder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ids }),
+    });
+  } catch {
+    // 네트워크 실패해도 캐시는 유지 — 다음 새로고침에 서버 응답이 정답
+  }
 };
 
 // Termius 풍 가로 카드 — 폭이 넓어지면 한 줄에 여러개, 좁아지면 한 줄로 stack.
@@ -39,7 +53,9 @@ const HomeDashboard = ({
   t,
 }) => {
   const [hoverId, setHoverId] = useState(null);
-  const [order, setOrder] = useState(() => loadOrder());
+  // 서버가 sort_index 로 정렬해서 hosts prop 을 내려줌. 클라 측 order 는 그 순서를 그대로 따른다.
+  // 단, DnD 직후 서버 fetch 가 끝나기 전 깜빡임 방지를 위해 localStorage 캐시 / pending 버퍼 사용.
+  const [pendingOrder, setPendingOrder] = useState(() => loadCachedOrder());
   const [draggingId, setDraggingId] = useState(null);
   const [overId, setOverId] = useState(null);
 
@@ -63,26 +79,39 @@ const HomeDashboard = ({
     return () => ro.disconnect();
   }, []);
 
-  // 저장된 순서대로 정렬, 신규 호스트는 뒤에 붙임
+  // pendingOrder 가 있으면 그걸 우선, 없으면 hosts 가 이미 서버 정렬된 상태.
   const orderedHosts = useMemo(() => {
     const byId = new Map(hosts.map((h) => [h.id, h]));
-    const sorted = order.map((id) => byId.get(id)).filter(Boolean);
-    const known = new Set(sorted.map((h) => h.id));
-    const newcomers = hosts.filter((h) => !known.has(h.id));
-    return [...sorted, ...newcomers];
-  }, [hosts, order]);
+    if (pendingOrder.length > 0) {
+      const sorted = pendingOrder.map((id) => byId.get(id)).filter(Boolean);
+      const known = new Set(sorted.map((h) => h.id));
+      const newcomers = hosts.filter((h) => !known.has(h.id));
+      return [...sorted, ...newcomers];
+    }
+    return hosts;
+  }, [hosts, pendingOrder]);
+
+  // 서버에서 새 hosts 가 도착하면 pendingOrder 와 일치하는지 보고 정리 — 일치하면 비움
+  useEffect(() => {
+    if (pendingOrder.length === 0) return;
+    const live = hosts.map((h) => h.id);
+    const match = pendingOrder.length <= live.length
+      && pendingOrder.every((id, i) => live[i] === id);
+    if (match) setPendingOrder([]);
+  }, [hosts, pendingOrder]);
 
   const reorder = (fromId, toId) => {
     if (!fromId || !toId || fromId === toId) return;
-    const ids = orderedHosts.map((h) => h.id);
-    const fromIdx = ids.indexOf(fromId);
-    const toIdx = ids.indexOf(toId);
+    const currentIds = orderedHosts.map((h) => h.id);
+    const fromIdx = currentIds.indexOf(fromId);
+    const toIdx = currentIds.indexOf(toId);
     if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...ids];
+    const next = [...currentIds];
     const [moved] = next.splice(fromIdx, 1);
     next.splice(toIdx, 0, moved);
-    setOrder(next);
-    saveOrder(next);
+    setPendingOrder(next);
+    cacheOrder(next);
+    persistOrderToServer(next);
   };
 
   return (

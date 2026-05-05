@@ -94,7 +94,7 @@ function App() {
 
   useEffect(() => { applyThemeVars(currentTheme); }, [currentTheme]);
 
-  const { isLoading, needsSetup, isAuthenticated, login, logout, completeSetup } = useAuth();
+  const { isLoading, needsSetup, isAuthenticated, username, login, logout, completeSetup } = useAuth();
   const { hosts, refresh: refreshHosts, createHost, updateHost, deleteHost } = useHosts(isAuthenticated);
   const { keys: sshKeys, createKey, updateKey, deleteKey } = useSshKeys(isAuthenticated);
 
@@ -815,6 +815,14 @@ function App() {
             onClose={() => setIsSettingsOpen(false)}
             settings={settings}
             onSave={updateSettings}
+            username={username}
+            hosts={hosts}
+            sshKeys={sshKeys}
+            onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
+            onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
+            onAddKey={() => { setEditingKey(null); setKeyManagerOpen(true); }}
+            onEditKey={(k) => { setEditingKey(k); setKeyManagerOpen(true); }}
+            onLogout={() => { setIsSettingsOpen(false); logout?.(); }}
             t={t}
             language={settings.language}
           />
