@@ -159,10 +159,11 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
               options={[
                 { value: 'key', label: t('authKey') || 'SSH key' },
                 { value: 'password', label: t('authPassword') || 'Password' },
+                { value: 'tailscale', label: t('authTailscale') || 'Tailscale' },
               ]}
               onChange={(v) => set('auth_method', v)}
             />
-            {draft.auth_method === 'key' ? (
+            {draft.auth_method === 'key' && (
               <Field label={t('sshKey') || 'SSH key'}>
                 <Select value={draft.key_id || ''} onChange={(v) => set('key_id', v || null)}>
                   <option value="">— {t('chooseKey') || 'Choose a key'} —</option>
@@ -171,7 +172,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                   ))}
                 </Select>
               </Field>
-            ) : (
+            )}
+            {draft.auth_method === 'password' && (
               <Field label={t('password') || 'Password'} hint={host ? (t('leaveBlankToKeep') || 'Leave blank to keep saved password.') : undefined}>
                 <Input
                   type="password"
@@ -180,6 +182,11 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                   placeholder="••••••••"
                 />
               </Field>
+            )}
+            {draft.auth_method === 'tailscale' && (
+              <div style={{ fontSize: fontSize['11'], color: color.subtext, padding: `0 ${space['1']}`, lineHeight: 1.5 }}>
+                {t('tailscaleAuthHint') || 'Authenticated by Tailscale itself — no SSH key needed. Server must be logged in to tailscale.'}
+              </div>
             )}
           </Section>
 

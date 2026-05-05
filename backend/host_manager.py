@@ -10,11 +10,14 @@ from __future__ import annotations
 import asyncio
 import codecs
 import logging
+import os
 import re
 import shlex
-from typing import Optional
+import shutil as _shutil
+from typing import List, Optional
 
 import asyncssh
+import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
 
 from vault import decrypt_str
@@ -259,6 +262,176 @@ class HostBridge:
             pass
 
 
+class TailscaleHostBridge:
+    """`tailscale ssh user@host` 로 PTY spawn → WS 브리지.
+
+    백엔드 서버의 tailscale 인증을 그대로 사용 (SSH 키 / 비밀번호 불필요).
+    원격 명령(tmux attach 등) 은 `_build_remote_command` 결과를 그대로 인자로 전달.
+    """
+
+    READ_CHUNK = 65536
+
+    def __init__(
+        self,
+        websocket: WebSocket,
+        host: dict,
+        *,
+        cols: int,
+        rows: int,
+    ):
+        self.websocket = websocket
+        self.host = host
+        self.cols = max(int(cols or 80), 1)
+        self.rows = max(int(rows or 24), 1)
+        self.process: Optional[ptyprocess.PtyProcess] = None
+        self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        self._closed = asyncio.Event()
+
+    def _build_argv(self) -> List[str]:
+        ssh_user = self.host.get("ssh_user") or os.environ.get("USER") or "root"
+        hostname = self.host["hostname"]
+        target = f"{ssh_user}@{hostname}"
+        use_tmux = bool(self.host.get("use_remote_tmux", 1))
+        tmux_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+        start_path = (self.host.get("start_path") or "").strip() or None
+        cmd = _build_remote_command(use_tmux, tmux_session, start_path)
+        argv = ["tailscale", "ssh", "-t", target]
+        if cmd:
+            argv.append(cmd)
+        return argv
+
+    def _spawn(self) -> None:
+        if not _shutil.which("tailscale"):
+            raise HostConnectError("tailscale binary not found on server")
+        env = os.environ.copy()
+        env.update({
+            "TERM": "xterm-256color",
+            "COLORTERM": "truecolor",
+            "LANG": env.get("LANG") or "ko_KR.UTF-8",
+        })
+        self.process = ptyprocess.PtyProcess.spawn(
+            self._build_argv(),
+            dimensions=(self.rows, self.cols),
+            env=env,
+        )
+        logger.info(
+            "tailscale ssh spawned: target=%s pid=%s size=%dx%d",
+            self.host.get("hostname"), self.process.pid, self.cols, self.rows,
+        )
+
+    async def _stdout_pump(self) -> None:
+        assert self.process is not None
+        loop = asyncio.get_event_loop()
+        pending: List[bytes] = []
+
+        def on_readable() -> None:
+            try:
+                data = self.process.read(self.READ_CHUNK)
+            except Exception:
+                self._closed.set()
+                return
+            if not data:
+                return
+            pending.append(data)
+
+        try:
+            loop.add_reader(self.process.fd, on_readable)
+        except Exception as e:
+            logger.error("tailscale add_reader failed: %s", e)
+            self._closed.set()
+            return
+
+        try:
+            while not self._closed.is_set():
+                if pending:
+                    buf = b"".join(pending)
+                    pending.clear()
+                    try:
+                        text = self._decoder.decode(buf)
+                    except Exception:
+                        text = buf.decode("utf-8", errors="replace")
+                    if text and self.websocket.client_state.name == "CONNECTED":
+                        try:
+                            await self.websocket.send_text(text)
+                        except Exception:
+                            self._closed.set()
+                            break
+                if self.process and not self.process.isalive():
+                    self._closed.set()
+                    break
+                await asyncio.sleep(0.02)
+        finally:
+            try: loop.remove_reader(self.process.fd)
+            except Exception: pass
+
+    async def _input_pump(self) -> None:
+        assert self.process is not None
+        import json
+        try:
+            while not self._closed.is_set():
+                data = await self.websocket.receive_text()
+                stripped = data.strip()
+                if stripped.startswith("{") and stripped.endswith("}"):
+                    try:
+                        msg = json.loads(stripped)
+                        if isinstance(msg, dict) and msg.get("type") == "resize":
+                            cols = max(int(msg.get("cols") or self.cols), 1)
+                            rows = max(int(msg.get("rows") or self.rows), 1)
+                            if cols != self.cols or rows != self.rows:
+                                self.cols, self.rows = cols, rows
+                                try: self.process.setwinsize(rows, cols)
+                                except Exception: pass
+                            continue
+                    except Exception:
+                        pass
+                try:
+                    self.process.write(data.encode("utf-8") if isinstance(data, str) else data)
+                except Exception as e:
+                    logger.warning("tailscale write failed: %s", e)
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            logger.info("ws recv error (tailscale bridge): %s", e)
+        finally:
+            self._closed.set()
+
+    async def run(self) -> None:
+        try:
+            self._spawn()
+        except HostConnectError as e:
+            try:
+                await self.websocket.send_text(f"\r\n\x1b[31m[연결 실패] {e}\x1b[0m\r\n")
+                await self.websocket.close(code=1011, reason=str(e))
+            except Exception:
+                pass
+            return
+        except Exception as e:
+            logger.error("tailscale spawn unexpected: %s", e, exc_info=True)
+            try:
+                await self.websocket.send_text(f"\r\n\x1b[31m[연결 오류] {e}\x1b[0m\r\n")
+                await self.websocket.close(code=1011, reason=str(e))
+            except Exception:
+                pass
+            return
+
+        out_task = asyncio.create_task(self._stdout_pump())
+        in_task = asyncio.create_task(self._input_pump())
+        try:
+            await self._closed.wait()
+        finally:
+            for t in (out_task, in_task):
+                if not t.done():
+                    t.cancel()
+            for t in (out_task, in_task):
+                try: await t
+                except (asyncio.CancelledError, Exception): pass
+            try:
+                if self.process and self.process.isalive():
+                    self.process.terminate(force=True)
+            except Exception:
+                pass
+
+
 def resolve_host_secrets(host: dict, key_record: Optional[dict]) -> dict:
     """저장된 호스트/키 레코드에서 vault 복호화한 secret 들을 추출."""
     private_key: Optional[str] = None
@@ -271,6 +444,7 @@ def resolve_host_secrets(host: dict, key_record: Optional[dict]) -> dict:
         passphrase = decrypt_str(key_record.get("passphrase_enc"))
     elif auth_method == "password":
         password = decrypt_str(host.get("password_enc"))
+    # 'tailscale' 은 secret 불필요 (tailscale auth 가 알아서 함)
 
     return {
         "private_key": private_key,

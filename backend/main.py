@@ -887,15 +887,25 @@ async def host_websocket(
     except Exception:
         pass
 
-    bridge = HostBridge(
-        websocket=websocket,
-        host=host,
-        private_key=secrets["private_key"],
-        passphrase=secrets["passphrase"],
-        password=secrets["password"],
-        cols=cols,
-        rows=rows,
-    )
+    # auth_method == 'tailscale' → tailscale ssh subprocess 로 연결 (SSH 키 불필요)
+    if host.get("auth_method") == "tailscale":
+        from host_manager import TailscaleHostBridge
+        bridge = TailscaleHostBridge(
+            websocket=websocket,
+            host=host,
+            cols=cols,
+            rows=rows,
+        )
+    else:
+        bridge = HostBridge(
+            websocket=websocket,
+            host=host,
+            private_key=secrets["private_key"],
+            passphrase=secrets["passphrase"],
+            password=secrets["password"],
+            cols=cols,
+            rows=rows,
+        )
     try:
         await bridge.run()
     except WebSocketDisconnect:
