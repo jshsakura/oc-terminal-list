@@ -78,3 +78,23 @@ python run.py
 # 백엔드만
 python run.py --backend
 ```
+
+## 비밀 키 관리 (vault.py)
+
+저장된 SSH 비밀키 / 호스트 비밀번호 / OTP 비밀키는 `data/.vault-key` (자동 생성 0600)
+로 암호화된다. JWT_SECRET_KEY 와 분리되어 있어서 JWT 회전해도 vault 데이터는 그대로.
+
+운영 시 주의:
+- `data/.vault-key` 는 절대 백업/이미지에서 분실하면 안 됨 → 잃으면 모든 vault 항목 복구 불가
+- `.gitignore` 에 등록되어 있어 실수로 커밋되지 않음
+- 다른 서버로 이전 시 `.vault-key` 와 DB 를 함께 복사
+
+기존 v1 (JWT 파생 키) 데이터가 있으면 한 번만 마이그레이션:
+
+```bash
+# 이전 JWT_SECRET_KEY 알 때 — OLD_JWT_SECRET_KEY 환경변수로 지정
+OLD_JWT_SECRET_KEY='이전값' .venv/bin/python backend/migrate_vault.py --dry-run
+OLD_JWT_SECRET_KEY='이전값' .venv/bin/python backend/migrate_vault.py
+```
+
+스크립트는 자동으로 DB `.bak-pre-vault-migrate` 백업을 만든다.

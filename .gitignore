@@ -47,8 +47,13 @@ logs/
 # Database
 *.db
 *.db-journal
+*.db.bak*
 backend/data/
 **/data/*.db
+
+# Vault 마스터 키 (절대 커밋 금지)
+data/.vault-key
+backend/data/.vault-key
 
 # Claude
 .claude/
