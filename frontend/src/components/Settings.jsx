@@ -7,6 +7,7 @@ import { themeNames } from '../styles/themes';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import HostIcon from '../utils/hostIcons';
+import OtpSection from './OtpSection';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_TERMINAL_FONT_FAMILY } from '../utils/terminalFonts';
 
@@ -167,6 +168,12 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           style={styles.input}
         />
       </Field>
+    </Section>
+
+    <Divider />
+
+    <Section title={t('twoFactorAuth') || 'Two-factor authentication'}>
+      <OtpSection t={t} />
     </Section>
 
     <Divider />

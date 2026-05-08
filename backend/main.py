@@ -17,9 +17,9 @@ from typing import List, Optional
 
 from dotenv import load_dotenv
 
-# .env 로드 (프로젝트 루트)
+# .env 로드 (프로젝트 루트). 실행 셸의 TMUX_SOCKET_NAME 이 앱 격리를 깨지 않도록 .env 를 우선한다.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_PROJECT_ROOT, ".env"))
+load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
 
 from fastapi import (
     Depends, FastAPI, Header, HTTPException, Query, WebSocket,
@@ -125,6 +125,20 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class OtpLoginRequest(BaseModel):
+    pending_token: str
+    code: str
+    is_backup_code: bool = False
+
+
+class OtpEnableRequest(BaseModel):
+    code: str
+
+
+class OtpDisableRequest(BaseModel):
+    password: str
+
+
 class FileWriteRequest(BaseModel):
     path: str
     content: str
@@ -182,7 +196,7 @@ class SystemMonitor:
         self.cached_cpu_percent = 0.0
 
     def get_stats(self):
-        stats = {"cpu": 0, "ram": 0, "disk": 0}
+        stats: dict[str, float] = {"cpu": 0.0, "ram": 0.0, "disk": 0.0}
         try:
             if os.path.exists("/proc/meminfo"):
                 total = available = 0
@@ -272,6 +286,8 @@ async def verify_auth_token(
         actual = token
     if not actual:
         raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
+    if not auth_manager:
+        raise HTTPException(status_code=503, detail="인증 관리자가 초기화되지 않았습니다")
     username = await auth_manager.verify_token(actual)
     if not username:
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
@@ -321,13 +337,99 @@ async def login(request: LoginRequest):
         raise HTTPException(status_code=400, detail="초기 설정을 먼저 완료해주세요")
     if not await auth_manager.verify_admin(request.username, request.password):
         raise HTTPException(status_code=401, detail="사용자명 또는 비밀번호가 올바르지 않습니다")
+    if await auth_manager.is_otp_enabled():
+        pending = await auth_manager.create_otp_pending_token(request.username)
+        return {
+            "otp_required": True,
+            "pending_token": pending,
+            "username": request.username,
+        }
     access_token = await auth_manager.create_access_token(request.username)
-    return {"access_token": access_token, "token_type": "bearer", "username": request.username}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "username": request.username,
+        "otp_required": False,
+    }
+
+
+@app.post("/api/auth/login/otp")
+async def login_otp(request: OtpLoginRequest):
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    username = await auth_manager.verify_otp_pending_token(request.pending_token)
+    if not username:
+        raise HTTPException(status_code=401, detail="OTP 인증 시간이 만료되었습니다. 다시 로그인해주세요.")
+    if request.is_backup_code:
+        ok = await auth_manager.consume_backup_code(username, request.code)
+    else:
+        ok = await auth_manager.verify_otp_code(username, request.code)
+    if not ok:
+        raise HTTPException(status_code=401, detail="OTP 코드가 올바르지 않습니다")
+    access_token = await auth_manager.create_access_token(username)
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "username": username,
+        "otp_required": False,
+    }
 
 
 @app.get("/api/auth/verify")
 async def verify_token(username: str = Depends(verify_auth_token)):
     return {"valid": True, "username": username}
+
+
+# ---------------------- OTP (TOTP) 관리 ----------------------
+
+@app.get("/api/auth/otp/status")
+async def otp_status(username: str = Depends(verify_auth_token)):
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    return await auth_manager.get_otp_status()
+
+
+@app.post("/api/auth/otp/setup")
+async def otp_setup(username: str = Depends(verify_auth_token)):
+    """새 비밀키 발급 → provisioning URI 반환. 아직 활성화는 안 됨."""
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    if await auth_manager.is_otp_enabled():
+        raise HTTPException(status_code=400, detail="이미 OTP가 활성화되어 있습니다. 먼저 비활성화 후 다시 설정하세요.")
+    return await auth_manager.begin_otp_setup(username)
+
+
+@app.post("/api/auth/otp/enable")
+async def otp_enable(request: OtpEnableRequest, username: str = Depends(verify_auth_token)):
+    """첫 OTP 코드 검증 → 활성화 + 백업코드 발급."""
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    backup_codes = await auth_manager.enable_otp(username, request.code)
+    if backup_codes is None:
+        raise HTTPException(status_code=400, detail="OTP 코드가 올바르지 않거나 setup 이 먼저 필요합니다")
+    return {"enabled": True, "backup_codes": backup_codes}
+
+
+@app.post("/api/auth/otp/disable")
+async def otp_disable(request: OtpDisableRequest, username: str = Depends(verify_auth_token)):
+    """비밀번호 재확인 후 OTP 비활성화 + 비밀키/백업코드 삭제."""
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    if not await auth_manager.verify_admin(username, request.password):
+        raise HTTPException(status_code=401, detail="비밀번호가 올바르지 않습니다")
+    await auth_manager.disable_otp(username)
+    return {"enabled": False}
+
+
+@app.post("/api/auth/otp/backup-codes/regenerate")
+async def otp_regenerate_backup_codes(username: str = Depends(verify_auth_token)):
+    """기존 백업코드 폐기 후 새로 10개 발급."""
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    if not await auth_manager.is_otp_enabled():
+        raise HTTPException(status_code=400, detail="OTP가 활성화되지 않았습니다")
+    codes = await auth_manager.issue_backup_codes(username)
+    return {"backup_codes": codes}
 
 
 @app.get("/api/system/stats")
@@ -392,6 +494,38 @@ class UserSettingsRequest(BaseModel):
     settings: dict
 
 
+class TabStateRequest(BaseModel):
+    tabs: list
+    activeTabId: Optional[str] = None
+
+
+async def _sanitize_tab_state(tabs: list, active_tab_id: Optional[str]) -> tuple[list, Optional[str]]:
+    """현재 앱 tmux 소켓에 살아있지 않은 local 탭은 저장/복원하지 않는다."""
+    live_local_sessions = {session.name for session in await tmux_manager.list_sessions()}
+    kept_tabs = []
+    kept_tab_ids: set[str] = set()
+    for tab in tabs:
+        if not isinstance(tab, dict):
+            continue
+        tab_id = tab.get("id")
+        if not isinstance(tab_id, str):
+            continue
+        if tab.get("type") == "local":
+            session_id = tab.get("sessionId")
+            if not isinstance(session_id, str) or session_id not in live_local_sessions:
+                continue
+        kept_tabs.append(tab)
+        kept_tab_ids.add(tab_id)
+
+    if active_tab_id not in kept_tab_ids:
+        active_tab_id = kept_tabs[0].get("id") if kept_tabs else None
+    return kept_tabs, active_tab_id
+
+
+async def _has_stored_session(username: str, session_id: str) -> bool:
+    return any(session["id"] == session_id for session in await storage.get_user_sessions(username))
+
+
 @app.get("/api/user/settings")
 async def get_user_settings(username: str = Depends(verify_auth_token)):
     saved = await storage.get_user_settings(username)
@@ -406,6 +540,35 @@ async def put_user_settings(
     if not isinstance(request.settings, dict):
         raise HTTPException(status_code=400, detail="settings must be an object")
     await storage.save_user_settings(username, request.settings)
+    return {"status": "saved"}
+
+
+@app.get("/api/tab-state")
+async def get_tab_state(username: str = Depends(verify_auth_token)):
+    """저장된 탭 전체 상태 조회 (순서/레이아웃/pane 구성 포함)."""
+    state = await storage.get_tab_state(username)
+    if not state:
+        return {"tabs": [], "activeTabId": None}
+    raw_tabs = state.get("tabs")
+    tabs = raw_tabs if isinstance(raw_tabs, list) else []
+    raw_active_tab_id = state.get("activeTabId")
+    active_tab_id = raw_active_tab_id if isinstance(raw_active_tab_id, str) else None
+    sanitized_tabs, sanitized_active_tab_id = await _sanitize_tab_state(tabs, active_tab_id)
+    if sanitized_tabs != tabs or sanitized_active_tab_id != active_tab_id:
+        await storage.save_tab_state(username, sanitized_tabs, sanitized_active_tab_id)
+    return {"tabs": sanitized_tabs, "activeTabId": sanitized_active_tab_id}
+
+
+@app.put("/api/tab-state")
+async def put_tab_state(
+    request: TabStateRequest,
+    username: str = Depends(verify_auth_token),
+):
+    """탭 전체 상태 저장. 프론트엔드가 변경 시마다 (debounced) 호출."""
+    if not isinstance(request.tabs, list):
+        raise HTTPException(status_code=400, detail="tabs must be an array")
+    tabs, active_tab_id = await _sanitize_tab_state(request.tabs, request.activeTabId)
+    await storage.save_tab_state(username, tabs, active_tab_id)
     return {"status": "saved"}
 
 
@@ -582,7 +745,7 @@ async def terminal_websocket(
     await websocket.accept()
     logger.info("WS attach: session=%s user=%s", session_id, username)
 
-    # 세션이 없으면 생성 (백엔드 재시작 후 첫 연결 또는 직접 WS로 진입한 경우)
+    # 세션이 없으면 생성 (백엔드 재시작 후 첫 연결 또는 새 세션 직접 WS 진입)
     if not await tmux_manager.session_exists(session_id):
         try:
             safe_cwd = _resolve_create_cwd(cwd)

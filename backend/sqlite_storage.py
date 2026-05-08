@@ -45,9 +45,34 @@ class SQLiteStorage:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT UNIQUE NOT NULL,
                 password TEXT NOT NULL,
-                created_at TEXT NOT NULL
+                created_at TEXT NOT NULL,
+                otp_secret_enc TEXT,
+                otp_enabled INTEGER NOT NULL DEFAULT 0,
+                otp_enabled_at TEXT
             )
         """)
+        # 마이그레이션: 기존 admin 테이블에 OTP 컬럼 없으면 추가
+        cursor.execute("PRAGMA table_info(admin)")
+        admin_cols = {row[1] for row in cursor.fetchall()}
+        if "otp_secret_enc" not in admin_cols:
+            cursor.execute("ALTER TABLE admin ADD COLUMN otp_secret_enc TEXT")
+        if "otp_enabled" not in admin_cols:
+            cursor.execute("ALTER TABLE admin ADD COLUMN otp_enabled INTEGER NOT NULL DEFAULT 0")
+        if "otp_enabled_at" not in admin_cols:
+            cursor.execute("ALTER TABLE admin ADD COLUMN otp_enabled_at TEXT")
+
+        # 일회용 백업 코드 (bcrypt 해시로만 저장 — 평문은 발급 시점에만 노출)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS admin_backup_codes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT NOT NULL,
+                code_hash TEXT NOT NULL,
+                used INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                used_at TEXT
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_backup_codes_user ON admin_backup_codes(username)")
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
@@ -149,6 +174,16 @@ class SQLiteStorage:
             )
         """)
 
+        # 탭 레이아웃 전체 상태 — 기기 간 완전한 탭 복원을 위해 서버에 영속
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tab_state (
+                username TEXT PRIMARY KEY,
+                tabs_json TEXT NOT NULL,
+                active_tab_id TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """)
+
         conn.commit()
         conn.close()
 
@@ -185,7 +220,7 @@ class SQLiteStorage:
             conn = self._get_connection()
             try:
                 row = conn.execute(
-                    "SELECT username, password, created_at FROM admin LIMIT 1"
+                    "SELECT username, password, created_at, otp_secret_enc, otp_enabled, otp_enabled_at FROM admin LIMIT 1"
                 ).fetchone()
                 if not row:
                     return None
@@ -193,10 +228,93 @@ class SQLiteStorage:
                     "username": row["username"],
                     "password": row["password"],
                     "created_at": row["created_at"],
+                    "otp_secret_enc": row["otp_secret_enc"],
+                    "otp_enabled": bool(row["otp_enabled"]),
+                    "otp_enabled_at": row["otp_enabled_at"],
                 }
             finally:
                 conn.close()
         return await asyncio.to_thread(_get)
+
+    async def set_admin_otp(self, username: str, secret_enc: Optional[str], enabled: bool) -> None:
+        def _set():
+            conn = self._get_connection()
+            try:
+                enabled_at = datetime.utcnow().isoformat() if enabled else None
+                conn.execute(
+                    "UPDATE admin SET otp_secret_enc = ?, otp_enabled = ?, otp_enabled_at = ? WHERE username = ?",
+                    (secret_enc, 1 if enabled else 0, enabled_at, username),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_set)
+
+    async def replace_backup_codes(self, username: str, code_hashes: List[str]) -> None:
+        """기존 코드 모두 삭제하고 새 코드로 교체."""
+        def _replace():
+            conn = self._get_connection()
+            try:
+                conn.execute("DELETE FROM admin_backup_codes WHERE username = ?", (username,))
+                now = datetime.utcnow().isoformat()
+                conn.executemany(
+                    "INSERT INTO admin_backup_codes (username, code_hash, used, created_at) VALUES (?, ?, 0, ?)",
+                    [(username, h, now) for h in code_hashes],
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_replace)
+
+    async def list_unused_backup_codes(self, username: str) -> List[Dict[str, str]]:
+        def _list():
+            conn = self._get_connection()
+            try:
+                rows = conn.execute(
+                    "SELECT id, code_hash FROM admin_backup_codes WHERE username = ? AND used = 0",
+                    (username,),
+                ).fetchall()
+                return [{"id": row["id"], "code_hash": row["code_hash"]} for row in rows]
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_list)
+
+    async def count_unused_backup_codes(self, username: str) -> int:
+        def _count():
+            conn = self._get_connection()
+            try:
+                return conn.execute(
+                    "SELECT COUNT(*) FROM admin_backup_codes WHERE username = ? AND used = 0",
+                    (username,),
+                ).fetchone()[0]
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_count)
+
+    async def consume_backup_code(self, code_id: int) -> bool:
+        def _consume():
+            conn = self._get_connection()
+            try:
+                now = datetime.utcnow().isoformat()
+                cur = conn.execute(
+                    "UPDATE admin_backup_codes SET used = 1, used_at = ? WHERE id = ? AND used = 0",
+                    (now, code_id),
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_consume)
+
+    async def clear_backup_codes(self, username: str) -> None:
+        def _clear():
+            conn = self._get_connection()
+            try:
+                conn.execute("DELETE FROM admin_backup_codes WHERE username = ?", (username,))
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_clear)
 
     # -------- sessions --------
 
@@ -548,6 +666,45 @@ class SQLiteStorage:
                 conn.execute(
                     "INSERT OR REPLACE INTO user_settings (username, settings_json, updated_at) VALUES (?, ?, ?)",
                     (username, payload, datetime.utcnow().isoformat()),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+        await asyncio.to_thread(_save)
+
+    # -------- tab state (탭 순서/레이아웃 전체 — 기기 간 완전 복원) --------
+
+    async def get_tab_state(self, username: str) -> Optional[Dict]:
+        """저장된 탭 전체 상태. 없으면 None."""
+        def _get():
+            conn = self._get_connection()
+            try:
+                row = conn.execute(
+                    "SELECT tabs_json, active_tab_id FROM tab_state WHERE username = ?",
+                    (username,),
+                ).fetchone()
+                if not row:
+                    return None
+                try:
+                    return {
+                        "tabs": json.loads(row["tabs_json"]),
+                        "activeTabId": row["active_tab_id"],
+                    }
+                except (TypeError, ValueError):
+                    return None
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_get)
+
+    async def save_tab_state(self, username: str, tabs: list, active_tab_id: Optional[str]) -> None:
+        """탭 전체 상태 upsert."""
+        tabs_json = json.dumps(tabs, ensure_ascii=False)
+        def _save():
+            conn = self._get_connection()
+            try:
+                conn.execute(
+                    "INSERT OR REPLACE INTO tab_state (username, tabs_json, active_tab_id, updated_at) VALUES (?, ?, ?, ?)",
+                    (username, tabs_json, active_tab_id, datetime.utcnow().isoformat()),
                 )
                 conn.commit()
             finally:
