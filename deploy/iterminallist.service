@@ -1,0 +1,43 @@
+[Unit]
+Description=iTerminaLlist Backend (FastAPI/uvicorn)
+Documentation=https://github.com/jshsakura/iTerminaLlist
+After=network.target
+
+# 짧은 시간 안에 반복 실패 시 진정시키기 (5분 안에 10회 초과면 멈춤)
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+
+User=ubuntu
+Group=ubuntu
+
+# 한글 로케일 (jupyter.service 와 동일)
+Environment=LANG=ko_KR.UTF-8
+Environment=LC_ALL=ko_KR.UTF-8
+
+# 운영 환경 — 코드 변경 자동 리로드 끔 (.env 의 RELOAD 무시)
+Environment=RELOAD=false
+
+# .env 의 나머지 값 (HOST/APP_PORT/JWT/...) 로드
+EnvironmentFile=/home/ubuntu/app/jupyterLab/notebooks/iTerminaLlist/.env
+
+WorkingDirectory=/home/ubuntu/app/jupyterLab/notebooks/iTerminaLlist/backend
+ExecStart=/home/ubuntu/app/jupyterLab/notebooks/iTerminaLlist/.venv/bin/python main.py
+
+# 비정상 종료 시 5초 뒤 재시작
+Restart=always
+RestartSec=5
+
+# 종료 시그널 — uvicorn 은 SIGTERM 으로 graceful
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# 로그 → journalctl
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iterminallist
+
+[Install]
+WantedBy=multi-user.target
