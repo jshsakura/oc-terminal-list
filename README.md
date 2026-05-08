@@ -14,7 +14,7 @@
 - ⚡ **초고속 성능**: 배치 처리, 코드 스플리팅, Gzip 압축으로 최적화
 - 💾 **영속적 세션**: SQLite 기반 세션 복원 및 히스토리
 - 📁 **파일 브라우저**: VS Code 스타일 파일 탐색 및 편집
-- 🔐 **인증 시스템**: JWT 기반 관리자 인증
+- 🔐 **인증 시스템**: JWT 기반 관리자 인증 + TOTP 2단계 인증 (Google/Microsoft Authenticator 등)
 - 🎨 **5가지 테마**: Catppuccin, Dracula, Monokai, Solarized Dark, GitHub Dark
 - 🌐 **다국어 지원**: 한국어/English
 - 📱 **반응형 UI**: 모바일/태블릿/데스크톱 최적화
@@ -122,7 +122,42 @@ EOF
 docker compose up -d
 ```
 
+### 셀프호스트 (systemd, 비-Docker)
+
+호스트에 직접 설치해 부팅 시 자동시작 + 비정상 종료 시 자동 재시작:
+
+```bash
+# venv + 의존성 + 프론트 빌드
+python3 -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+cd frontend && npm install && npm run build && cd ..
+
+# 서비스 등록
+sudo cp deploy/iterminallist.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now iterminallist.service
+
+# 상태 / 로그
+systemctl status iterminallist.service
+journalctl -u iterminallist.service -f
+```
+
+자세한 절차 (JWT 회전, vault 키 관리, 백업/복구, 트러블슈팅)는 **[deploy/README.md](./deploy/README.md)**.
+
 ### 로컬 개발
+
+```bash
+# 백엔드 + Vite dev server 동시 (자식 죽으면 자동 재시작)
+python run.py
+
+# 백엔드만
+python run.py --backend
+
+# 프론트엔드만
+python run.py --frontend
+```
+
+수동으로 따로 띄우고 싶다면:
 
 ```bash
 # 백엔드
@@ -174,6 +209,19 @@ After:
    - 사용자명: 최소 3자
    - 비밀번호: 최소 8자
 3. 로그인 후 터미널 사용
+
+### 2단계 인증 (TOTP) — 권장
+
+로그인 후 ⚙️ Settings → **2단계 인증** 섹션에서 활성화:
+
+1. **Enable 2FA** 클릭
+2. Google Authenticator / Microsoft Authenticator / 1Password / Bitwarden 등 인증앱으로 QR 스캔
+3. 인증앱이 보여주는 6자리 코드 입력 → 활성화
+4. **백업 코드 10개** 표시 — 안전한 곳에 보관 (다시 표시되지 않음)
+
+이후 로그인은 비밀번호 + 6자리 코드 2단계. 디바이스 분실 시 백업 코드(일회용)로 우회.
+
+자세한 운영 절차는 [deploy/README.md](./deploy/README.md) 참조.
 
 ## 📝 사용 방법
 
@@ -235,8 +283,10 @@ oc-terminal-list/
 - FastAPI (웹 프레임워크)
 - ptyprocess (가상 터미널)
 - SQLite (데이터 저장)
-- passlib + bcrypt (비밀번호 해싱)
+- passlib + bcrypt (비밀번호 / 백업 코드 해싱)
 - python-jose (JWT)
+- pyotp (TOTP RFC 6238)
+- cryptography Fernet (vault 암호화)
 - Gzip 압축 미들웨어
 
 ### 프론트엔드
@@ -245,6 +295,7 @@ oc-terminal-list/
 - xterm.js (터미널 렌더링)
 - xterm-addon-fit (반응형 크기)
 - Lucide React (아이콘)
+- qrcode.react (TOTP QR 렌더 — 외부 서비스 송출 없음, 클라이언트 렌더)
 - Code Splitting & Lazy Loading
 
 ## 🔧 개발 모드
@@ -385,16 +436,26 @@ export const translations = {
 ## 🔒 보안
 
 - **비밀번호**: bcrypt 해싱 (단방향, salt 자동 생성)
-- **JWT 토큰**: 24시간 유효, HS256 알고리즘
+- **JWT 토큰**: 24시간 유효, HS256. 서명 키는 DB 자동 생성/관리 (`.env` 에 두지 않음)
+- **2단계 인증 (TOTP, 옵션)**: RFC 6238 표준, Google/Microsoft Authenticator 등 호환 + 일회용 백업 코드 10개
+- **Vault**: SSH 비밀키 / 호스트 비밀번호 / OTP 비밀키는 `data/.vault-key` (0600, 자동 생성) 로 Fernet 암호화. JWT 와 분리되어 있어 JWT 회전이 vault 데이터에 영향 없음
 - **인증 필수**: 모든 API 엔드포인트 보호
-- **파일 접근**: `/workspace` 디렉토리로 제한
+- **파일 접근**: workspace 디렉토리로 제한
 - **Path Traversal 방지**: 경로 검증 및 정규화
 
 ### 보안 권장사항
-1. `.env` 파일에서 `JWT_SECRET_KEY`를 반드시 변경하세요
-2. 강력한 관리자 비밀번호 사용 (최소 12자 이상)
-3. HTTPS 사용 권장
-4. 방화벽으로 포트 8000 보호 (Nginx 리버스 프록시 사용)
+1. **2단계 인증 활성화** (Settings → 2단계 인증)
+2. **강력한 관리자 비밀번호** (최소 12자 이상)
+3. **`data/.vault-key` 와 DB 를 함께 백업** — 한쪽만 살아있으면 vault 항목 복구 불가
+4. **HTTPS 사용 권장** (Nginx + Let's Encrypt — 아래 [도메인 연결](#-도메인-연결) 참조)
+5. **방화벽으로 백엔드 포트 보호** (Nginx 리버스 프록시 사용 권장)
+
+### JWT 키 회전 (셀프호스트 systemd)
+```bash
+.venv/bin/python backend/rotate_jwt.py --confirm
+sudo systemctl restart iterminallist.service
+```
+회전 시 모든 access token 무효 → 사용자 재로그인 필요. 자세한 절차는 [deploy/README.md](./deploy/README.md).
 
 ## 📊 데이터 관리
 
