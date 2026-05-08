@@ -79,6 +79,19 @@ python run.py
 python run.py --backend
 ```
 
+## JWT 키 회전
+
+JWT 서명 키는 DB(`system_config.jwt_secret_key`) 에 자동 생성/저장된다 — `.env` 에는 두지 않는다.
+회전이 필요하면:
+
+```bash
+.venv/bin/python backend/rotate_jwt.py             # 미리보기
+.venv/bin/python backend/rotate_jwt.py --confirm   # 실제 회전
+sudo systemctl restart iterminallist.service       # 서비스 재시작
+```
+
+회전 후 모든 기존 access token 무효 → 모든 사용자가 다시 로그인.
+
 ## 비밀 키 관리 (vault.py)
 
 저장된 SSH 비밀키 / 호스트 비밀번호 / OTP 비밀키는 `data/.vault-key` (자동 생성 0600)
