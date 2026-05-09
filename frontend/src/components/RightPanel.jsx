@@ -1,5 +1,5 @@
 import { useState, memo, useCallback } from 'react';
-import { Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText } from 'lucide-react';
+import { Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, XSquare } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import FileTree from './FileTree';
 import ChangesList from './ChangesList';
@@ -35,6 +35,7 @@ const RightPanel = ({
   terminalKey = null, // window.terminalSessions[key] lookup — 페이지 업/다운 송신용
   paneCwd = null,     // 호스트 모드 FileTree 시작 경로 (없으면 host.start_path)
   onScreenDump = null, // 텍스트 덤프 모달 열기 콜백 (App.jsx 가 처리)
+  onCloseTerminal = null, // pane 닫기 — 단일 pane 이면 closePane 이 closeTab 으로 위임
 }) => {
   // 페이지 단위 스크롤 — 모바일에서는 물리 PgUp/PgDn 키가 없어서 가장 자주
   // 막히는 동작. xterm.js 의 viewport 를 직접 스크롤 (tmux scrollback 와는
@@ -153,6 +154,19 @@ const RightPanel = ({
           <>
             <div style={styles.divider} />
             <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} />
+          </>
+        )}
+
+        {/* pane / 세션 종료 — 활동바 맨 아래 (파괴적 액션은 가장 멀리). */}
+        {onCloseTerminal && (
+          <>
+            <div style={{ flex: 1, minHeight: '6px' }} />
+            <RailIconBtn
+              icon={XSquare}
+              onClick={onCloseTerminal}
+              title={t?.('closeTerminal') || 'Close terminal'}
+              tone="danger"
+            />
           </>
         )}
       </div>

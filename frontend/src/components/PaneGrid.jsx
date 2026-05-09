@@ -173,7 +173,8 @@ const Pane = ({
         minWidth: 0,
       }}
     >
-      {/* 본문 영역 — RightPanel 활동바 폭(36px)만큼 우측 패딩 */}
+      {/* 본문 영역 — RightPanel 활동바 폭(36px)만큼 우측 패딩.
+          pane 닫기 버튼은 RightPanel 활동바 맨 아래로 옮김 (rail 일관성). */}
       <div style={{
         flex: 1,
         position: 'relative',
@@ -181,44 +182,6 @@ const Pane = ({
         overflow: 'hidden',
         marginRight: '36px',
       }}>
-        {/* pane X — 활성 pane 은 항상, 빈 pane 은 멀티팬일 때만 (단일 빈 pane = 탭 자체 picker 라 X 의미 없음) */}
-        {(!isEmpty || isMultiple) && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onClose(); }}
-            title={t?.('closeTerminal') || 'Close terminal'}
-            style={{
-              position: 'absolute',
-              top: '6px', right: '6px',
-              zIndex: 5,
-              width: '22px', height: '22px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: color.surface1,
-              border: `1px solid ${color.border}`,
-              borderRadius: '5px',
-              color: color.subtext,
-              cursor: 'pointer',
-              padding: 0,
-              opacity: hover || isFocused ? 1 : 0.45,
-              transition: 'background 150ms, color 150ms, opacity 150ms, border-color 150ms',
-              boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = color.danger;
-              e.currentTarget.style.color = '#fff';
-              e.currentTarget.style.borderColor = color.danger;
-              e.currentTarget.style.opacity = '1';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = color.surface1;
-              e.currentTarget.style.color = color.subtext;
-              e.currentTarget.style.borderColor = color.border;
-              e.currentTarget.style.opacity = (hover || isFocused) ? '1' : '0.45';
-            }}
-          >
-            <X size={12} strokeWidth={2.4} />
-          </button>
-        )}
-
         {isEmpty ? (
           <EmptyPane
             onActivate={onActivate}
@@ -264,6 +227,9 @@ const Pane = ({
           onFolderSelect={onFolderSelect}
           onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null)}
           onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
+          /* pane 닫기 — 활성 pane 은 항상, 빈 pane 은 멀티팬일 때만 (단일 빈 pane = 탭 picker 라 의미 없음).
+             단일 pane 일 땐 closePane 이 closeTab 으로 위임 → 결과적으로 탭 닫힘. */
+          onCloseTerminal={(!isEmpty || isMultiple) ? onClose : null}
           settings={settings}
           updateSettings={updateSettings}
           language={language}
