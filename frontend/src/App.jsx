@@ -1012,6 +1012,15 @@ function App() {
               onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
               onDeleteHost={async (h) => { await deleteHost(h.id); await refreshHosts(); }}
               onOpenSettings={() => setIsSettingsOpen(true)}
+              tabs={tabsWithMeta}
+              onJumpTab={(tabId) => setActiveTabId(tabId)}
+              onResumeHostSession={(host) => openHostTab(host)}
+              onTerminateHostSession={async (host, sessionName) => {
+                const token = localStorage.getItem('auth_token');
+                await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
+                  method: 'POST', headers: { Authorization: `Bearer ${token}` },
+                }).catch(() => {});
+              }}
               t={t}
               settings={settings}
             />

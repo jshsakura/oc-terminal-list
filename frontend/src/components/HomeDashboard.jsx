@@ -2,6 +2,7 @@ import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import { Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
+import HomeSessions from './HomeSessions';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -46,6 +47,11 @@ const HomeDashboard = ({
   onOpenSettings,
   onEditLocal,
   onPickLocalPath,
+  // 영속 세션 카드용 (옵셔널 — 미공급 시 섹션 미표시)
+  tabs = [],
+  onJumpTab,
+  onResumeHostSession,
+  onTerminateHostSession,
   // embedded=true 면 부모 안에 끼워 쓰는 모드 — root 의 height: 100% 를 풀어
   // 콘텐츠 높이만 차지하게 한다 (분할 pane 의 빈 슬롯에서 미러 picker 와 같이 stack 가능).
   embedded = false,
@@ -122,6 +128,17 @@ const HomeDashboard = ({
       }}
     >
       <div style={styles.inner}>
+        {(tabs.length > 0 || hosts.some((h) => h.use_remote_tmux)) && (
+          <HomeSessions
+            tabs={tabs}
+            hosts={hosts}
+            onJumpTab={onJumpTab}
+            onResumeHostSession={onResumeHostSession}
+            onTerminateHostSession={onTerminateHostSession}
+            t={t}
+          />
+        )}
+
         <div style={styles.topBar}>
           <span style={styles.title}>
             {t?.('connections') || 'Connections'}
