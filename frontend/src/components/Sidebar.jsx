@@ -38,7 +38,7 @@ const Sidebar = ({
   gitContextPath = '',
   language = 'en',
   isMobile = false,
-  width = 260,
+  width = 220,
   onResizeStart,
   onFileSelect,
   onFolderSelect,
@@ -116,17 +116,16 @@ const Sidebar = ({
       {isMobile && (
         <div
           onClick={onClose}
-          style={{ position: 'fixed', inset: 0, background: color.scrim, zIndex: 9998, animation: 'fadeIn 150ms ease' }}
+          style={{ position: 'fixed', inset: 0, background: color.scrim, zIndex: 10000, animation: 'fadeIn 150ms ease' }}
         />
       )}
       <aside
         style={{
           ...styles.aside,
-          width: isMobile ? 'min(82vw, 300px)' : `${width}px`,
-          maxWidth: isMobile ? '82vw' : '420px',
-          // 활성 사이드바 최소폭 = 활동바(40px) + 푸터(CPU/RAM/Disk 3개) 가 안 짤리는 폭
-          minWidth: isMobile ? undefined : '240px',
-          height: isMobile ? `${viewportHeight}px` : '100vh',
+          width: isMobile ? 'min(78vw, 260px)' : `${width}px`,
+          maxWidth: isMobile ? '78vw' : '420px',
+          minWidth: isMobile ? undefined : '200px',
+          bottom: 0,
           flexDirection: 'row',
         }}
       >
@@ -383,8 +382,8 @@ const ActivityIcon = ({ active, onClick, icon: Icon, title, badge }) => (
     title={badge != null && badge > 0 ? `${title} (${badge})` : title}
     style={{
       position: 'relative',
-      width: '40px',
-      height: '36px',
+      width: '36px',
+      height: '38px',
       display: 'inline-flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -453,18 +452,18 @@ const styles = {
     background: color.mantle,
     borderRight: `1px solid ${color.border}`,
     fontFamily: font.sans,
-    zIndex: 9999,
+    zIndex: 10001,
     transition: `width ${motion.normal}`,
   },
   activityBar: {
-    width: '40px',
-    minWidth: '40px',
+    width: '36px',
+    minWidth: '36px',
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'stretch',
     background: color.crust,
     borderRight: `1px solid ${color.border}`,
-    paddingTop: '4px',
+    paddingTop: 0,
   },
   panelArea: {
     flex: 1,

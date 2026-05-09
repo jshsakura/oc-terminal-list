@@ -1,0 +1,152 @@
+# 디자인 가이드
+
+iTerminaLlist 프론트엔드의 시각/구조 규칙. 새 컴포넌트를 추가하거나 기존을 고칠 때 이 문서의 규칙을 따른다.
+
+## 1. 디자인 토큰 — 단일 진실의 출처
+
+`frontend/src/styles/tokens.js` 가 모든 색·간격·타이포·반경·모션의 원본이다.
+
+- **색**: `var(--ui-*)` CSS 변수를 가리키므로 `ThemeProvider` 가 `:root` 변수만 갱신해도 전체 UI 가 즉시 테마 따라감 (React 리렌더 없음).
+- **간격(`space`)**: 4px 그리드 (`space['1']`=4px ... `space['5']`=20px).
+- **반경(`radius`)**: `xs`(3) / `sm`(6) / `lg`(10) / `full`.
+- **모션(`motion`)**: `fast`(120ms) — hover/focus 전이용.
+
+새 색·간격을 하드코딩하지 말고 토큰을 추가하거나 가까운 기존 토큰을 쓴다.
+
+## 2. 색 톤 — 의미로 묶기
+
+- `accent` — primary 액션, 강조(예: ⌘ Quick Input).
+- `success` / `warning` / `danger` / `info` — 결과 상태.
+- `muted` / `faint` — 비활성, 보조 정보.
+- `tone` 옵션 (모바일 단축키 등): `accent | danger | muted | (default)`.
+
+`^C` 같은 파괴적 키는 `tone: 'danger'`. 자주 쓰는 헬퍼 키는 `tone: 'muted'`. 디폴트는 별도 표기 없음.
+
+## 3. 모달 패턴
+
+**중앙 오버레이를 표준으로** 한다. bottom-anchored popover 는 모바일 키보드 + safe-area 와 충돌해서 화면 점유율이 의도와 달라지므로 쓰지 않는다.
+
+```js
+overlay: {
+  position: 'fixed', inset: 0,
+  background: color.scrim,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  zIndex: 10001,
+  backdropFilter: 'blur(2px)',
+}
+modal: {
+  width: '90%', maxWidth: 380~520,   // 컨텐츠 양에 따라
+  maxHeight: '80vh',                 // 작은 폼은 무지정 (auto-fit)
+  background: color.base,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.lg,
+  boxShadow: shadow.lg,
+  display: 'flex', flexDirection: 'column',
+  overflow: 'hidden',
+}
+```
+
+크기 가이드:
+- 짧은 확인/알림 → `maxWidth: 380px`, height auto.
+- 입력 1~2개 → `maxWidth: 420px`, height auto.
+- 다중 섹션 폼 → `maxWidth: 520px`, `height: 88vh` 또는 `maxHeight: 80vh`.
+
+backdrop 클릭으로 닫기. 내부 `onClick={(e) => e.stopPropagation()}`. ESC 도 닫기.
+
+## 4. Settings 모달
+
+탭 구조: `[General] [Mobile] [Hosts] [SSH Keys]`
+
+- **General / Mobile** — 사용자 설정 편집, footer 가 `[Reset] [Cancel] [Save]`.
+- **Hosts / SSH Keys** — 별도 modal flow 로 진입하는 인덱스 뷰, footer 는 카운트 + `[Close]`.
+
+탭 분기는 `SETTINGS_TABS = new Set(['general', 'mobile'])` 으로 footer 가 어느 모드인지 결정.
+
+모바일 전용 항목 (`fontSizeMobile`, `mobileKeys`) 은 General 에 섞지 않고 **Mobile 탭에 모은다**.
+
+## 5. 모바일 단축키 바 — 데이터 모델
+
+`utils/mobileKeys.js` 의 `DEFAULT_MOBILE_KEYS` 가 디폴트 구성. 모델:
+
+```ts
+{ id, kind, label?, payload?, modifier?, tone? }
+kind: 'send' | 'mod' | 'cmdInput' | 'paste' | 'sep'
+```
+
+- `send` — `payload` 를 raw bytes 로 PTY 에 전송.
+- `mod` — `modifier` ('ctrl'|'alt') 토글, 다음 send 키에 1회 적용.
+- `cmdInput` — Quick Input 모달 오픈.
+- `paste` — 클립보드 붙여넣기.
+- `sep` — 구분선.
+
+**그룹 규칙**: 비파괴 키와 파괴적 키는 같은 sep 그룹에 섞지 않는다. 디폴트 배치:
+
+```
+⌘ | ←↑↓→ | ESC TAB | CTRL ALT | ^C 📋
+```
+
+`^C` 는 `tone: 'danger'` 로 마지막 그룹에 위치. `⌫` 라벨에 `\x15`(Ctrl+U) 를 넣지 않는다 — 라벨/페이로드 의미 일치 원칙.
+
+## 6. MobileKeysEditor — 편집기 레이아웃
+
+좁은 모달(360~520px)과 모바일 뷰포트(<360px) 모두에서 깨지지 않도록 **2-row** 구조:
+
+```
+┌──────────────────────────────────────────┐
+│ [kind ▼] [label........]   [↑] [↓] [🗑]   │  ← 1행 (sep 행은 여기까지)
+│ [payload | modifier ▼]      [tone ▼]      │  ← 2행 (kind 별 가변)
+└──────────────────────────────────────────┘
+```
+
+- `kind` 는 select(편집 가능). 변경 시 `morphForKind()` 가 종류별 필수 필드를 보정 (label 은 사용자 입력 우선).
+- `tone` 은 항상 2행 우측 (1행에 두면 좁은 폭에서 깨짐).
+- 액션: `[+ Add empty]` `[Presets ▾]` `[↺ Restore]` 3버튼. 프리셋만 토글 — Add 흐름과 분리해 산만함 제거.
+
+## 7. 탭 / Pane 닫기 시맨틱
+
+- **마지막 1개 pane** 닫기 = `closeTab(tabId)` 위임. 빈 picker 만 남기는 자투리 상태를 만들지 않는다.
+- **다중 pane** 중 하나 닫기 = pane 만 제거, 레이아웃 재배열.
+- 빈 pane (picker 상태) 은 **분할 시(splitPane)** 의 정상 상태 — 닫기 단계에서 만들어지는 게 아니다.
+- tmux off 호스트는 작업 소실 경고 메시지로 분기.
+
+## 8. i18n 규칙
+
+- 모든 사용자-노출 텍스트는 `frontend/src/i18n/locales.js` 의 `en` / `ko` 양쪽에 추가.
+- 컴포넌트는 `t?.(key, fallback)` 패턴으로 fallback 을 명시 — 키 누락 시에도 깨지지 않게.
+- 라벨 키 접두 컨벤션: `kind*`, `tone*`, `field*`, `confirm*`, `theme*`, `language*`.
+
+## 9. 아이콘 vs 이모지
+
+**이모지 금지**. 이모지는 OS/폰트마다 렌더링 편차가 크고 톤(색상)을 토큰으로 제어할 수 없다. 모든 시각 심볼은 `lucide-react` 아이콘으로 통일.
+
+- `paste` → `ClipboardPaste`
+- `cmdInput` (Quick Input) → `Command`
+- 영속 세션 표시 → `Anchor`
+- 사용자가 직접 라벨을 적는 `send` 키는 텍스트 그대로 (`←`, `↑`, `^C` 등은 유니코드 글리프, 이모지 아님 — 허용).
+
+## 10. 상단 정렬
+
+`TabBar` 와 `Sidebar.activityBar` 의 첫 행은 동일한 y-축 라인에서 끝나야 한다.
+
+- TabBar: `height: 38px` + `borderBottom: 1px`.
+- ActivityBar: `paddingTop: 0`, 첫 ActivityIcon `height: 38px` → 38px 라인에서 동일하게 끝남.
+- ActivityBar 폭은 `36px` (TabBar 의 brandBtn 너비와 정렬).
+
+이 규칙을 깨면 사이드바와 탭바가 따로 노는 시각적 어긋남이 발생한다.
+
+## 11. 영속 세션 표시
+
+탭 라벨 우측에 작은 `Anchor` 아이콘 (10px, muted 컬러). 표시 조건:
+
+- `tab.type === 'local'` — 로컬 셸은 항상 tmux backed.
+- `tab.type === 'host'` 이고 호스트의 `use_remote_tmux === true`.
+
+App.jsx 가 `tabsWithMeta` 로 `isPersistent` derived field 를 미리 계산해 TabBar 에 넘긴다. TabBar 는 hosts 를 직접 알 필요 없음.
+
+## 12. 안 하는 것
+
+- bottom-anchored popover (CommandInput 등) — safe-area + 모바일 키보드와 충돌.
+- 모달 안에 또 다른 모달의 별도 backdrop (z-index 카오스 방지).
+- 탭마다 다른 footer 시각 스타일 — 동일 footer 슬롯에 액션만 분기.
+- 의미 없는 단축키를 디폴트에 넣기 (라벨/페이로드 일치).
+- 이모지 (위 §9 참조).

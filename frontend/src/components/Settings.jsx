@@ -1,15 +1,17 @@
 import { useEffect, useState } from 'react';
 import {
   X, RotateCcw, SlidersHorizontal, Server, Key as KeyIcon, Plus,
-  Settings as GearIcon, ChevronRight, LogOut,
+  Settings as GearIcon, ChevronRight, LogOut, Smartphone,
 } from 'lucide-react';
 import { themeNames } from '../styles/themes';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import HostIcon from '../utils/hostIcons';
 import OtpSection from './OtpSection';
+import MobileKeysEditor from './MobileKeysEditor';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_TERMINAL_FONT_FAMILY } from '../utils/terminalFonts';
+import { DEFAULT_MOBILE_KEYS } from '../utils/mobileKeys';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -28,9 +30,12 @@ const DEFAULTS = {
 
 const TABS = [
   { id: 'general', icon: SlidersHorizontal, labelKey: 'general',     fallback: 'General' },
+  { id: 'mobile',  icon: Smartphone,        labelKey: 'mobile',      fallback: 'Mobile' },
   { id: 'hosts',   icon: Server,            labelKey: 'manageHosts', fallback: 'Hosts' },
   { id: 'keys',    icon: KeyIcon,           labelKey: 'sshKeys',     fallback: 'SSH Keys' },
 ];
+
+const SETTINGS_TABS = new Set(['general', 'mobile']);
 
 const Settings = ({
   isOpen, onClose, settings, onSave, username,
@@ -56,7 +61,7 @@ const Settings = ({
 
   return (
     <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div className="iterm-modal-card" style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <header style={styles.header}>
           <div style={styles.title}>
             <GearIcon size={14} strokeWidth={1.8} style={{ color: color.subtext }} />
@@ -93,6 +98,9 @@ const Settings = ({
           {tab === 'general' && (
             <GeneralPanel s={s} change={change} username={username} onLogout={onLogout} t={t} />
           )}
+          {tab === 'mobile' && (
+            <MobilePanel s={s} change={change} t={t} />
+          )}
           {tab === 'hosts' && (
             <HostsPanel hosts={hosts} onAdd={onAddHost} onEdit={onEditHost} t={t} />
           )}
@@ -102,7 +110,7 @@ const Settings = ({
         </div>
 
         <footer style={styles.footer}>
-          {tab === 'general' ? (
+          {SETTINGS_TABS.has(tab) ? (
             <>
               <Button variant="ghost" onClick={reset} icon={RotateCcw}>{t('reset')}</Button>
               <div style={{ display: 'flex', gap: space['1.5'] }}>
@@ -193,14 +201,10 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           <option value="ko">{t('languageKorean')}</option>
         </Select>
       </Field>
-      <Field label={t('fontSize')}>
-        <input
-          type="number"
-          min="10"
-          max="24"
-          value={s.fontSize}
-          onChange={(e) => change('fontSize', parseInt(e.target.value, 10))}
-          style={styles.input}
+      <Field label={`${t('fontSize')} (PC) · ${s.fontSize ?? 12}px`}>
+        <FontSizeRow
+          value={s.fontSize ?? 12}
+          onChange={(v) => change('fontSize', v)}
         />
       </Field>
     </Section>
@@ -234,6 +238,33 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           style={styles.slider}
         />
       </Field>
+    </Section>
+
+  </>
+);
+
+const MobilePanel = ({ s, change, t }) => (
+  <>
+    <Section title={t('appearance') || 'Appearance'}>
+      <Field
+        label={`${t('fontSizeMobile') || 'Font size (Mobile)'} · ${s.fontSizeMobile ?? 13}px`}
+        hint={t('mobileTabHint') || 'Settings that only apply on mobile devices.'}
+      >
+        <FontSizeRow
+          value={s.fontSizeMobile ?? 13}
+          onChange={(v) => change('fontSizeMobile', v)}
+        />
+      </Field>
+    </Section>
+
+    <Divider />
+
+    <Section title={t('mobileKeys') || 'Mobile shortcut bar'}>
+      <MobileKeysEditor
+        keys={s.mobileKeys ?? DEFAULT_MOBILE_KEYS}
+        onChange={(next) => change('mobileKeys', next)}
+        t={t}
+      />
     </Section>
   </>
 );
@@ -374,6 +405,90 @@ const Toggle = ({ label, checked, onChange }) => (
     </button>
   </label>
 );
+
+// 폰트 크기 — 숫자 input + 슬라이더 + ± 버튼 한 줄. 변경 빠르게.
+const FontSizeRow = ({ value, onChange, min = 9, max = 28 }) => {
+  const clamp = (v) => Math.max(min, Math.min(max, v));
+  const set = (v) => onChange(clamp(parseInt(v, 10) || min));
+  return (
+    <div style={fszStyles.row}>
+      <button
+        type="button"
+        style={fszStyles.btn}
+        onClick={() => set(value - 1)}
+        title="-1"
+        aria-label="decrease font size"
+      >−</button>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => set(e.target.value)}
+        style={fszStyles.input}
+      />
+      <button
+        type="button"
+        style={fszStyles.btn}
+        onClick={() => set(value + 1)}
+        title="+1"
+        aria-label="increase font size"
+      >+</button>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => set(e.target.value)}
+        style={fszStyles.slider}
+      />
+    </div>
+  );
+};
+
+const fszStyles = {
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    width: '100%',
+  },
+  input: {
+    width: '52px',
+    height: '28px',
+    padding: '0 6px',
+    background: color.crust,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    fontSize: fontSize['12'],
+    fontFamily: 'inherit',
+    outline: 'none',
+    textAlign: 'center',
+    flexShrink: 0,
+  },
+  btn: {
+    width: '28px',
+    height: '28px',
+    background: color.surface0,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    fontSize: '14px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    flexShrink: 0,
+    fontFamily: 'inherit',
+    lineHeight: 1,
+  },
+  slider: {
+    flex: 1,
+    accentColor: color.accent,
+    cursor: 'pointer',
+    minWidth: 0,
+  },
+};
 
 const styles = {
   overlay: {

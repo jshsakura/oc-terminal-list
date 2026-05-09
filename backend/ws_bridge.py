@@ -40,6 +40,8 @@ class TmuxClientBridge:
 
     def _spawn(self) -> None:
         env = os.environ.copy()
+        env.pop("TMUX", None)
+        env.pop("TMUX_PANE", None)
         env.update({
             "TERM": "tmux-256color",
             "COLORTERM": "truecolor",
@@ -83,6 +85,7 @@ class TmuxClientBridge:
     async def _reader_loop(self) -> None:
         """PTY → WebSocket 출력 펌프. 이벤트 루프 add_reader로 즉시 반응."""
         assert self.process is not None
+        process = self.process
         loop = asyncio.get_event_loop()
         pending: List[bytes] = []
         pending_bytes = 0
@@ -91,7 +94,7 @@ class TmuxClientBridge:
         def on_readable() -> None:
             nonlocal pending_bytes
             try:
-                data = self.process.read()
+                data = process.read()
             except Exception:
                 # PTY 닫힘 또는 EOF
                 self._closed.set()
@@ -133,7 +136,7 @@ class TmuxClientBridge:
                 await asyncio.sleep(0)
 
         try:
-            loop.add_reader(self.process.fd, on_readable)
+            loop.add_reader(process.fd, on_readable)
         except Exception as e:
             logger.error("add_reader failed (%s): %s", self.session_id, e)
             self._closed.set()
@@ -141,13 +144,13 @@ class TmuxClientBridge:
 
         try:
             while not self._closed.is_set():
-                if not self.process.isalive():
+                if not process.isalive():
                     self._closed.set()
                     break
                 await asyncio.sleep(0.5)
         finally:
             try:
-                loop.remove_reader(self.process.fd)
+                loop.remove_reader(process.fd)
             except Exception:
                 pass
             if flush_task:

@@ -9,6 +9,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { DEFAULT_TERMINAL_FONT_FAMILY, normalizeTerminalFontFamily } from '../utils/terminalFonts';
+import { DEFAULT_MOBILE_KEYS } from '../utils/mobileKeys';
 
 const SUPPORTED_DEFAULT_SHELLS = new Set(['auto', 'bash', 'zsh', 'sh']);
 
@@ -44,7 +45,8 @@ const detectBrowserLanguage = () => {
 const DEFAULT_SETTINGS = {
   theme: 'catppuccin',
   language: detectBrowserLanguage(), // 브라우저 언어 자동 감지
-  fontSize: 12,
+  fontSize: 12,            // PC 글자크기
+  fontSizeMobile: 13,      // 모바일 글자크기 (별도 — 작은 화면 보정)
   fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
   defaultShell: 'auto',  // 시스템 로그인 쉘 자동 사용 (zsh, bash 등)
   autoScroll: 'smart', // 'always' | 'smart' | 'never'
@@ -54,6 +56,8 @@ const DEFAULT_SETTINGS = {
   localName: '',       // 비우면 i18n 의 'thisMachine' 기본값 사용
   localIcon: '',       // 비우면 Monitor 아이콘
   localColorIndex: 0,  // 호스트 카드의 ColorPicker 와 동일한 인덱스
+  useWebgl: true,      // GPU 가속 렌더러 — context loss / 초기화 실패 시 Terminal.jsx 가 자동으로 DOM 으로 폴백
+  mobileKeys: DEFAULT_MOBILE_KEYS,  // 모바일 하단 단축키 목록 — 사용자가 Settings 에서 편집
 };
 
 const STORAGE_KEY = 'terminal_settings';

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Plus, Search, Server, KeyRound, Settings as SettingsIcon, Monitor, ChevronRight } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -112,7 +113,7 @@ const HostList = ({
                   color: dotColor,
                   borderColor: hovered ? `${dotColor}55` : color.border,
                 }}>
-                  <Server size={12} strokeWidth={2} />
+                  <HostIcon value={h.icon || ''} fallback={Server} size={12} strokeWidth={2} />
                 </div>
                 <div style={styles.rowBody}>
                   <div style={styles.rowName}>{h.name}</div>

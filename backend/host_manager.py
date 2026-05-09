@@ -76,10 +76,21 @@ def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: Optiona
     cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
     # 핵심: new-session 단계에서 stty size 로 PTY 차원 그대로 주입 → 80x24 기본 아래 시작 후
     # attach 시 리사이즈하느라 prompt 가 안 그려지는 race 방지.
+    # 로컬 tmux 와 동일한 임베드 친화 세팅 — "미묘하게 다름" 회피 위해 옵션을 통일한다.
+    # mouse off (xterm 이 우클릭/휠 처리), status off (녹색 바 가림 방지),
+    # window-size latest (다중 클라이언트 사이즈 동기화), focus-events on,
+    # truecolor override, 그리고 PgUp/PgDn 자동 분기 root 바인딩.
     return (
         f"command -v tmux >/dev/null 2>&1 && {{ "
         f"tmux has-session -t {safe} 2>/dev/null || tmux new-session -d -s {safe}{cwd_arg}; "
         f"tmux set-option -t {safe} aggressive-resize on >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} mouse off >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} focus-events on >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} status off >/dev/null 2>&1; "
+        f"tmux set-option -ag -t {safe} terminal-overrides ',*256col*:Tc' >/dev/null 2>&1; "
+        f"tmux bind-key -T root PageUp if-shell -F '#{{alternate_on}}' 'send-keys PageUp' 'copy-mode -eu' >/dev/null 2>&1; "
+        f"tmux bind-key -T root PageDown if-shell -F '#{{alternate_on}}' 'send-keys PageDown' '' >/dev/null 2>&1; "
         f"exec tmux attach-session -d -t {safe}; "
         f"}} || "
         f"{cd_prefix}exec ${{SHELL:-bash}} -l"
@@ -146,6 +157,7 @@ class HostBridge:
         rows: int,
         pane_index: int = 0,
         cwd: Optional[str] = None,
+        tmux_suffix: Optional[str] = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -156,6 +168,7 @@ class HostBridge:
         self.rows = max(int(rows or 24), 1)
         self.pane_index = max(int(pane_index or 0), 0)
         self.cwd = (cwd or "").strip() or None
+        self.tmux_suffix = (tmux_suffix or "").strip() or None
         self.conn: Optional[asyncssh.SSHClientConnection] = None
         self.process: Optional[asyncssh.SSHClientProcess] = None
         self._closed = asyncio.Event()
@@ -171,6 +184,9 @@ class HostBridge:
 
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
         base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+        # 호스트 새 탭 = 새 base session 분리. suffix 없으면 기존 동작 (옛 클라이언트 호환).
+        if self.tmux_suffix:
+            base_session = f"{base_session}-{self.tmux_suffix}"
         tmux_session = effective_tmux_session(base_session, self.pane_index)
         # 우선순위: 호출자 cwd (브라우저로 고른 경로) > host.last_cwd > host.start_path
         start_path = (
@@ -302,6 +318,7 @@ class TailscaleHostBridge:
         rows: int,
         pane_index: int = 0,
         cwd: Optional[str] = None,
+        tmux_suffix: Optional[str] = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -309,6 +326,7 @@ class TailscaleHostBridge:
         self.rows = max(int(rows or 24), 1)
         self.pane_index = max(int(pane_index or 0), 0)
         self.cwd = (cwd or "").strip() or None
+        self.tmux_suffix = (tmux_suffix or "").strip() or None
         self.process: Optional[ptyprocess.PtyProcess] = None
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
@@ -319,6 +337,8 @@ class TailscaleHostBridge:
         target = f"{ssh_user}@{hostname}"
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
         base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+        if self.tmux_suffix:
+            base_session = f"{base_session}-{self.tmux_suffix}"
         tmux_session = effective_tmux_session(base_session, self.pane_index)
         start_path = (
             self.cwd

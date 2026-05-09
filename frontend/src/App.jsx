@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
+import uFuzzy from '@leeoniya/ufuzzy';
 import { Terminal as TerminalIcon, Menu } from 'lucide-react';
 import useSettings from './hooks/useSettings';
 import useTranslation from './hooks/useTranslation';
@@ -33,6 +34,7 @@ const HostEditor      = lazy(() => import('./components/HostEditor'));
 const SshKeyManager   = lazy(() => import('./components/SshKeyManager'));
 const MobileToolbar   = lazy(() => import('./components/MobileToolbar'));
 const CommandInput    = lazy(() => import('./components/CommandInput'));
+const ScreenDumpModal = lazy(() => import('./components/ScreenDumpModal'));
 
 const { color, font, fontSize, fontWeight, space } = tokens;
 
@@ -62,12 +64,18 @@ const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = nu
   };
 };
 
+// 호스트 탭마다 고유 tmux 세션 suffix — 같은 호스트라도 새 탭 = 새 작업공간.
+// 탭이 서버 tab-state 로 복원될 땐 이 값이 보존되어 같은 세션을 다시 attach.
+const makeTmuxSuffix = () => Date.now().toString(36).slice(-6) + Math.floor(Math.random() * 36).toString(36);
+
 const makeHostTab = (host, cwd = null) => {
   const pane = makePane({ hostId: host.id });
+  const suffix = makeTmuxSuffix();
   return {
     id: `host:${host.id}:${Date.now()}`,
     type: 'host',
     hostId: host.id,
+    tmuxSuffix: suffix,
     name: host.name,
     icon: host.icon || null,
     color_index: host.color_index ?? 0,
@@ -107,24 +115,152 @@ function App() {
   });
   const [activeTabId, setActiveTabId] = useState(() => localStorage.getItem('active_tab_id') || null);
 
+  // localStorage 캐시 동기화 (같은 기기 새로고침 시 즉시 복원용)
   useEffect(() => { localStorage.setItem('tabs_v2', JSON.stringify(tabs)); }, [tabs]);
   useEffect(() => {
     if (activeTabId) localStorage.setItem('active_tab_id', activeTabId);
     else localStorage.removeItem('active_tab_id');
   }, [activeTabId]);
 
-  // validate active tab still exists
+  // validate active tab still exists (activeTabId=null 은 홈 화면 의도이므로 건드리지 않음)
   useEffect(() => {
     if (activeTabId && !tabs.some((t) => t.id === activeTabId)) {
       setActiveTabId(tabs[0]?.id || null);
     }
   }, [tabs, activeTabId]);
 
+  // 서버 탭 상태의 마지막 적용 버전. 자기 자신의 PUT 응답으로 갱신해
+  // 폴링이 자기 변경을 다시 적용 (=리렌더 깜빡임) 하지 않게 한다.
+  const lastAppliedTabVersionRef = useRef(null);
+  // 로컬에서 입력 중 (debounce 대기) 인지 — 폴링이 도중에 덮어쓰지 않게 가드.
+  const localDirtyRef = useRef(false);
+
+  // 다른 기기에서 받은 서버 상태를 로컬에 적용 (alive 세션 머지 포함).
+  const applyServerTabState = useCallback(async (serverState) => {
+    if (!serverState) return;
+    const token = localStorage.getItem('auth_token');
+    let aliveSessions = [];
+    try {
+      const r = await fetch('/api/sessions', { headers: { Authorization: `Bearer ${token}` } });
+      if (r.ok) aliveSessions = (await r.json()).filter((s) => s.alive);
+    } catch { /* noop */ }
+    setTabs((prev) => {
+      const base = (serverState?.tabs?.length > 0)
+        ? serverState.tabs.map(migrateTab)
+        : prev;
+      const knownIds = new Set(
+        base.flatMap((t) => (t.panes || []).map((p) => p.sessionId).filter(Boolean))
+      );
+      const missing = aliveSessions.filter((s) => !knownIds.has(s.id));
+      return missing.length
+        ? [...missing.map((s) => makLocalTab(s.id, s.name || 'terminal', s.cwd || null)), ...base]
+        : base;
+    });
+    if (serverState?.activeTabId !== undefined) {
+      setActiveTabId(serverState.activeTabId || null);
+    }
+    if (serverState?.updatedAt) lastAppliedTabVersionRef.current = serverState.updatedAt;
+  }, []);
+
+  // 로그인 후 서버 탭 상태(canonical)와 alive 세션을 함께 조회해 완전 복원
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const token = localStorage.getItem('auth_token');
+    fetch('/api/tab-state', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null)
+      .then((serverState) => applyServerTabState(serverState));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated]);
+
+  // tabs/activeTabId 변경 시 서버에 저장 (debounced 800ms) — 기기 간 완전 동기화.
+  // 응답의 updatedAt 을 기억해 폴링에서 자기 변경 재적용을 막음.
+  const _saveTabTimer = useRef(null);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    localDirtyRef.current = true;
+    if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current);
+    _saveTabTimer.current = setTimeout(async () => {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+      try {
+        const res = await fetch('/api/tab-state', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ tabs, activeTabId }),
+        });
+        if (res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.updatedAt) lastAppliedTabVersionRef.current = data.updatedAt;
+        }
+      } catch { /* offline ok — 다음 변경에 다시 시도 */ }
+      localDirtyRef.current = false;
+    }, 800);
+    return () => { if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current); };
+  }, [tabs, activeTabId, isAuthenticated]);
+
+  // 다른 기기 (PC↔모바일) 변경 폴링 — 2.5초마다 가벼운 version 체크,
+  // 다르면 풀 GET. 로컬 입력 중 (dirty) 이면 스킵 — 사용자의 키 입력이
+  // 폴링에 의해 되돌려지는 일을 방지.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    const POLL_MS = 2500;
+
+    const tick = async () => {
+      if (cancelled || document.hidden) return;
+      if (localDirtyRef.current) return;
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+      try {
+        const r = await fetch('/api/tab-state/version', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) return;
+        const { updatedAt } = await r.json();
+        if (!updatedAt) return;
+        if (updatedAt === lastAppliedTabVersionRef.current) return;
+        // 풀 GET 후 적용
+        const r2 = await fetch('/api/tab-state', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r2.ok) return;
+        const serverState = await r2.json();
+        if (cancelled || localDirtyRef.current) return;
+        await applyServerTabState(serverState);
+      } catch { /* offline noop */ }
+    };
+
+    const id = setInterval(tick, POLL_MS);
+    // 탭이 다시 포커스 받으면 즉시 한 번 확인 (백그라운드 동안의 변경 빠르게 반영)
+    const onVisible = () => { if (!document.hidden) tick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    // 초기 1회는 위 useEffect 가 적용 — 여기선 인터벌만.
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    };
+  }, [isAuthenticated, applyServerTabState]);
+
   // 키보드 핸들러 클로저에서 stale 안 되게 ref 로 보관
   const activeTabIdRef = useRef(null);
   useEffect(() => { activeTabIdRef.current = activeTabId; }, [activeTabId]);
 
+  // closePane → closeTab 위임용 (선언 순서가 거꾸로라 ref 로 우회)
+  const closeTabRef = useRef(null);
+
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || null, [tabs, activeTabId]);
+
+  // 탭별 영속성 (tmux 로 작업이 살아남는지) — 로컬은 항상 true, 호스트는 use_remote_tmux 따라감.
+  // TabBar 가 시각 표시할 수 있게 derived field 로 붙여서 넘김.
+  const tabsWithMeta = useMemo(() => tabs.map((tt) => {
+    const host = tt.type === 'host' ? hosts.find((h) => h.id === tt.hostId) : null;
+    const isPersistent = tt.type === 'local' || !!host?.use_remote_tmux;
+    return { ...tt, isPersistent };
+  }), [tabs, hosts]);
 
   // ── open / close tabs ─────────────────────────────────────────────────────
   const openLocalTab = useCallback(async (cwd = null) => {
@@ -143,7 +279,9 @@ function App() {
       openLocalTab();
       return;
     }
-    const tab = makeHostTab(host, cwd);
+    // 명시 cwd 가 없으면 host 설정의 start_path 로 폴백 → FileTree 가 그 경로에서 시작
+    const initialCwd = cwd ?? host.start_path ?? null;
+    const tab = makeHostTab(host, initialCwd);
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);
   }, [openLocalTab]);
@@ -152,7 +290,11 @@ function App() {
   // 활성 탭에 *빈* pane 을 분할 추가. 사용자가 클릭해야 세션이 시작됨.
   // dir = 'h' (좌우) | 'v' (상하)
   // 중요: prev (latest) 에서 panes 길이 판단 → useCallback 클로저의 stale activeTab 영향 안 받음
+  // 모바일에서는 가로/세로 분할이 의미 없음 (화면 좁음 + sub-tab 으로 변환됨).
+  // → 키보드 단축키로도 호출 못 막게 진입에서 차단.
+  const isMobileViewportRef = useRef(false);
   const splitActivePane = useCallback((dir = 'h') => {
+    if (isMobileViewportRef.current) return;
     setTabs((prev) => {
       const targetId = activeTabIdRef.current;
       if (!targetId) return prev;
@@ -251,16 +393,9 @@ function App() {
         if (t.id !== tabId) return t;
         const panes = t.panes || [];
         if (panes.length === 0) return t;       // 안전장치
-        // 마지막 1개 pane 이면 비움 (탭은 유지)
-        if (panes.length === 1) {
-          const single = panes[0];
-          if (single.id !== paneId) return t;   // id 매치 안 되면 무동작
-          const emptied = [{ id: single.id, mode: 'terminal' }];
-          return { ...t, panes: emptied, layout: 'single', activePaneId: emptied[0].id };
-        }
-        // 다중 pane → 해당 pane 제거
+        // 다중 pane → 해당 pane 제거 (단일 pane 케이스는 closeTab 으로 위임됨)
         const remaining = panes.filter((p) => p.id !== paneId);
-        if (remaining.length === 0) return t;   // 위에서 걸러줘야 정상이지만 방어
+        if (remaining.length === 0) return t;
         const layout = remaining.length === 1 ? 'single' : (remaining.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
         const activePaneId = t.activePaneId === paneId ? remaining[0].id : t.activePaneId;
         return { ...t, panes: remaining, layout, activePaneId };
@@ -284,14 +419,17 @@ function App() {
       }
     };
 
-    // 빈 pane (이미 picker 상태) 마지막 1개 → 닫을 게 없음
     const paneCount = tab.panes?.length || 0;
-    if (!pane.sessionId && !pane.hostId && paneCount <= 1) return;
-
     const isEmpty = !pane.sessionId && !pane.hostId;
+
+    // 단일 pane (마지막 1개) = 탭 자체 닫기로 위임. 빈 picker 만 남기는 건 의미 없음.
+    if (paneCount <= 1) {
+      if (isEmpty) return; // 이미 비어있음 → 닫을 게 없음
+      closeTabRef.current?.(tabId);
+      return;
+    }
+
     const isHost = !!pane.hostId;
-    const isLastPane = paneCount === 1;
-    // 호스트면 그 호스트의 tmux 설정 보고 메시지 결정 (작업 유지/소실)
     const host = isHost ? hosts.find((h) => h.id === pane.hostId) : null;
     const willPersist = isEmpty || !isHost /* local 항상 tmux */ || !!host?.use_remote_tmux;
 
@@ -300,12 +438,6 @@ function App() {
       // 빈 pane (멀티 중) 제거
       title = t('removePane') || 'Remove pane';
       message = t('confirmRemoveEmptyPane') || 'Remove this empty pane?';
-    } else if (isLastPane) {
-      // 단일 pane 닫기 → 탭은 유지 + picker 노출
-      title = t('closeTerminal') || 'Close terminal';
-      message = willPersist
-        ? (t('confirmCloseLastPane') || 'Close this terminal? The tab stays (empty picker).')
-        : (t('confirmCloseLastPaneNoTmux') || 'Close this terminal? Work will be lost (tmux off). Tab stays.');
     } else {
       // 멀티 pane 중 하나 닫기
       title = t('closePane') || 'Close pane';
@@ -372,6 +504,8 @@ function App() {
       onConfirm: doClose,
     });
   }, [tabs, activeTabId, t, hosts]);
+
+  useEffect(() => { closeTabRef.current = closeTab; }, [closeTab]);
 
   // ── new tab = open home picker (just go home) ─────────────────────────────
   const handleAddTab = useCallback(() => {
@@ -449,7 +583,7 @@ function App() {
 
   // ── UI state ──────────────────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState(window.innerHeight);
+  const [viewportHeight, setViewportHeight] = useState(window.visualViewport?.height ?? window.innerHeight);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
@@ -487,16 +621,45 @@ function App() {
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
   const [commandText, setCommandText] = useState('');
+  const [screenDumpText, setScreenDumpText] = useState(null);
+
+  // 활성 viewport 기준 effective settings — fontSize 를 PC/모바일 분리. 자식들
+  // (PaneGrid, Terminal) 은 settings.fontSize 만 보면 자동으로 알맞은 값 적용.
+  const effectiveSettings = useMemo(() => ({
+    ...settings,
+    fontSize: isMobile
+      ? (settings.fontSizeMobile ?? settings.fontSize ?? 13)
+      : (settings.fontSize ?? 12),
+  }), [settings, isMobile]);
 
   // ── responsive ────────────────────────────────────────────────────────────
   useEffect(() => {
-    const check = () => setIsMobile(/iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768);
+    const check = () => {
+      const m = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
+      setIsMobile(m);
+      isMobileViewportRef.current = m;
+    };
     check();
     window.addEventListener('resize', check);
     if (window.visualViewport) {
-      const vp = () => setViewportHeight(window.visualViewport.height);
+      // raf throttle — 키보드 애니메이션 중 resize 이벤트 폭주 방지.
+      // setState 마다 wrapper height 갱신 + 자식 ResizeObserver 트리거 → 떨림 원인.
+      let pending = false;
+      const vp = () => {
+        if (pending) return;
+        pending = true;
+        requestAnimationFrame(() => {
+          pending = false;
+          setViewportHeight(window.visualViewport.height);
+        });
+      };
       window.visualViewport.addEventListener('resize', vp);
-      return () => { window.removeEventListener('resize', check); window.visualViewport.removeEventListener('resize', vp); };
+      window.visualViewport.addEventListener('scroll', vp);
+      return () => {
+        window.removeEventListener('resize', check);
+        window.visualViewport.removeEventListener('resize', vp);
+        window.visualViewport.removeEventListener('scroll', vp);
+      };
     }
     return () => window.removeEventListener('resize', check);
   }, []);
@@ -521,9 +684,10 @@ function App() {
     else if (activeTab?.id) window.terminalSessions?.[activeTab.id]?.focus?.();
   }, [activeTab]);
 
-  const handleFileOpen = (path) => {
-    if (!openFiles.includes(path)) setOpenFiles((prev) => [...prev, path]);
-    setActiveFile(path);
+  const handleFileOpen = (path, hostId = null) => {
+    const fileKey = hostId ? `remote:${hostId}:${path}` : path;
+    if (!openFiles.includes(fileKey)) setOpenFiles((prev) => [...prev, fileKey]);
+    setActiveFile(fileKey);
   };
 
   const handleFileClose = (path) => {
@@ -642,33 +806,95 @@ function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [isTerminalSearchOpen, closeTerminalSearch, focusActiveTerminal, executeTerminalSearch]);
 
-  // file picker search
+  // 워크스페이스 파일 인덱스 — 한 번 받아서 메모리 캐시 (TTL 60s).
+  // ufuzzy 로 클라이언트 매칭 → 키 입력 즉시 결과 (서버 왕복 0).
+  const fileIndexRef = useRef({ files: [], ts: 0, truncated: false });
+  const ufuzzyRef = useRef(null);
+  if (!ufuzzyRef.current) {
+    ufuzzyRef.current = new uFuzzy({ intraMode: 1, intraIns: 1 });
+  }
+  const ensureFileIndex = useCallback(async (force = false) => {
+    const now = Date.now() / 1000;
+    if (!force && fileIndexRef.current.files.length && now - fileIndexRef.current.ts < 60) {
+      return fileIndexRef.current;
+    }
+    try {
+      const token = localStorage.getItem('auth_token');
+      const r = await fetch('/api/files/index', { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return fileIndexRef.current;
+      const data = await r.json();
+      fileIndexRef.current = { files: data.files || [], ts: now, truncated: !!data.truncated };
+    } catch { /* 오프라인 — 다음 호출에서 재시도 */ }
+    return fileIndexRef.current;
+  }, []);
+
+  // file picker search — ufuzzy 로 클라이언트 매칭.
+  // 큰 인덱스 (>10k) 에서도 sub-ms 수준이라 debounce 거의 불필요.
   useEffect(() => {
     if (!isFilePickerOpen) return;
     const query = filePickerQuery.trim();
-    const token = localStorage.getItem('auth_token');
-    const ctrl = new AbortController();
     if (!query) {
       setFilePickerItems(openFiles.map((p) => ({ id: `recent:${p}`, path: p, label: p })));
-      return () => ctrl.abort();
+      return;
     }
-    const timer = setTimeout(async () => {
-      setIsFilePickerLoading(true);
-      try {
-        const res = await fetch(`/api/files/search?q=${encodeURIComponent(query)}&limit=200`, {
-          headers: { Authorization: `Bearer ${token}` }, signal: ctrl.signal,
-        });
-        const data = await res.json();
-        setFilePickerItems((data.items || []).map((item) => ({ id: `s:${item.path}`, path: item.path, label: item.path })));
-      } catch (err) {
-        if (err.name !== 'AbortError') setFilePickerItems([]);
-      } finally { setIsFilePickerLoading(false); }
-    }, 120);
-    return () => { clearTimeout(timer); ctrl.abort(); };
-  }, [isFilePickerOpen, filePickerQuery, openFiles]);
+    let cancelled = false;
+    setIsFilePickerLoading(true);
+    (async () => {
+      const index = await ensureFileIndex();
+      if (cancelled) return;
+      const haystack = index.files;
+      if (!haystack.length) {
+        // 인덱스 비었으면 레거시 서버 검색으로 폴백 (대용량 워크스페이스 truncated 케이스 등)
+        try {
+          const token = localStorage.getItem('auth_token');
+          const res = await fetch(`/api/files/search?q=${encodeURIComponent(query)}&limit=200`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await res.json();
+          if (!cancelled) {
+            setFilePickerItems((data.items || []).map((item) => ({ id: `s:${item.path}`, path: item.path, label: item.path })));
+          }
+        } catch { /* noop */ }
+        if (!cancelled) setIsFilePickerLoading(false);
+        return;
+      }
+      const uf = ufuzzyRef.current;
+      const idxs = uf.filter(haystack, query);
+      if (!idxs || idxs.length === 0) {
+        if (!cancelled) {
+          setFilePickerItems([]);
+          setIsFilePickerLoading(false);
+        }
+        return;
+      }
+      const info = uf.info(idxs, haystack, query);
+      const order = uf.sort(info, haystack, query);
+      const limited = order.slice(0, 200);
+      const items = limited.map((oi) => {
+        const path = haystack[info.idx[oi]];
+        return { id: `s:${path}`, path, label: path };
+      });
+      if (!cancelled) {
+        setFilePickerItems(items);
+        setIsFilePickerLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isFilePickerOpen, filePickerQuery, openFiles, ensureFileIndex]);
+
+  // 파일 picker 가 열리는 즉시 인덱스 워밍업 (첫 입력 전에 받아두기)
+  useEffect(() => {
+    if (isFilePickerOpen) ensureFileIndex();
+  }, [isFilePickerOpen, ensureFileIndex]);
 
   // ── terminal key for session registry ─────────────────────────────────────
-  const terminalKey = activeTab?.sessionId || activeTab?.id || null;
+  // Terminal.jsx 는 `sessionId={pane.sessionId || pane.id}` 로 등록한다.
+  // → 호스트 pane 은 pane.id (UUID) 로, 로컬 pane 은 pane.sessionId 로 등록.
+  // 기존엔 activeTab.id 를 봤기 때문에 host 탭에선 lookup 이 항상 실패해서
+  // MobileToolbar 의 단축키가 sendData 를 못 호출했다.
+  const terminalKey = focusedPane
+    ? (focusedPane.sessionId || focusedPane.id)
+    : (activeTab?.sessionId || activeTab?.id || null);
   const terminalLayoutSignal = `tab:${activeTabId}:editor:${activeFile ? editorHeight : 0}`;
 
   // ── guards ────────────────────────────────────────────────────────────────
@@ -691,12 +917,32 @@ function App() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${currentTheme.ui.bgTertiary}; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: ${currentTheme.ui.accent}88; }
+
+        /* 모바일 모달 풀스크린 — 768px 이하면 모달이 전체 화면을 진짜 다 차지.
+           inline transform/maxWidth/maxHeight 가 있어도 !important 로 reset.
+           스크롤바도 트랙 폭 0 으로 사라지게 (콘텐츠는 스크롤 가능). */
+        @media (max-width: 768px) {
+          .iterm-modal-card {
+            width: 100vw !important;
+            height: 100% !important;
+            max-width: 100vw !important;
+            max-height: 100% !important;
+            top: 0 !important;
+            left: 0 !important;
+            transform: none !important;
+            border-radius: 0 !important;
+            border: none !important;
+          }
+          .iterm-no-scrollbar { scrollbar-width: none; }
+          .iterm-no-scrollbar::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
+        }
       `}</style>
 
       {/* ── 단일 상단 바: 홈 + 탭 + 액션 (호스트 / SSH 키 / 설정 / 로그아웃) ── */}
       <TabBar
-        tabs={tabs}
+        tabs={tabsWithMeta}
         activeTabId={activeTabId}
+        isMobile={isMobile}
         busyTabIds={busyTabIds}
         onReorder={(fromId, toId) => {
           if (!fromId || !toId || fromId === toId) return;
@@ -789,10 +1035,11 @@ function App() {
                 </div>
               )}
 
-              {/* terminal panes (각 pane 안에 RightPanel 포함) */}
+              {/* terminal panes (각 pane 안에 RightPanel 포함)
+                  모바일 하단 paddingBottom 제거 — MobileToolbar 가 wrapper flex flow 에서
+                  자기 자리(34px+safe-area)를 직접 차지하므로 중복 공간 만들 필요 없음. */}
               <div style={{
                 flex: 1, position: 'relative', overflow: 'hidden', minHeight: '150px',
-                paddingBottom: isMobile ? '80px' : 0,
               }}>
                 <PaneGrid
                   tab={activeTab}
@@ -805,7 +1052,7 @@ function App() {
                   onActivatePane={activatePane}
                   onPaneCwdChange={handlePaneCwdChange}
                   layoutSignal={terminalLayoutSignal}
-                  settings={settings}
+                  settings={effectiveSettings}
                   updateSettings={updateSettings}
                   cwd={
                     activeTab?.type === 'local'
@@ -814,7 +1061,11 @@ function App() {
                   }
                   onFileSelect={handleFileOpen}
                   onFolderSelect={setSelectedFolderPath}
-                  onOpenTerminalAtFolder={async (path) => {
+                  onOpenTerminalAtFolder={(path, hostId = null) => {
+                    if (hostId) {
+                      const host = hosts.find((h) => h.id === hostId);
+                      if (host) { openHostTab(host, path); return; }
+                    }
                     const sessionId = generateUUID();
                     const name = path.split('/').pop() || (settings.localName || 'terminal');
                     const tab = makLocalTab(sessionId, name, path, {
@@ -827,6 +1078,7 @@ function App() {
                   language={settings.language}
                   t={t}
                   viewportHeight={viewportHeight}
+                  onScreenDump={(text) => setScreenDumpText(text || '— empty —')}
                 />
               </div>
             </>
@@ -871,15 +1123,38 @@ function App() {
       {isMobile && activeTabId !== null && (
         <Suspense fallback={null}>
           <MobileToolbar
-            sessionId={terminalKey}
-            isMenuOpen={isMenuOpen}
-            setIsMenuOpen={setIsMenuOpen}
-            currentTheme={currentTheme}
+            onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}
+            onOpenCommandInput={() => setCommandInputOpen(true)}
+            language={settings.language}
+            keys={settings.mobileKeys}
+          />
+        </Suspense>
+      )}
+
+      {/* ── screen dump modal — 모바일에서 터미널 텍스트 자유 선택/복사 ── */}
+      {screenDumpText && (
+        <Suspense fallback={null}>
+          <ScreenDumpModal
+            text={screenDumpText}
+            onClose={() => setScreenDumpText(null)}
             t={t}
-            commandInputOpen={commandInputOpen}
-            setCommandInputOpen={setCommandInputOpen}
-            commandText={commandText}
-            setCommandText={setCommandText}
+          />
+        </Suspense>
+      )}
+
+      {/* ── command input (모바일 한글 IME 우회) ── */}
+      {commandInputOpen && (
+        <Suspense fallback={null}>
+          <CommandInput
+            isOpen={commandInputOpen}
+            onClose={() => setCommandInputOpen(false)}
+            onSend={(cmd) => {
+              window.terminalSessions?.[terminalKey]?.sendData?.(cmd + '\r');
+              setCommandText('');
+            }}
+            command={commandText}
+            setCommand={setCommandText}
+            t={t}
           />
         </Suspense>
       )}

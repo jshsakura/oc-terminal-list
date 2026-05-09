@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Folder, FolderOpen, File, FileText, FileCode, FileImage, FileJson, FileType,
   RefreshCw, Terminal, ChevronRight, ChevronDown, Plus, Pencil, Trash2, GitBranch, Filter,
+  ArrowUp, Home,
 } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
@@ -43,12 +44,26 @@ const authHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+// path 의 부모 디렉토리 — 절대경로(/a/b/c → /a/b, /a → /, / → null) 와
+// 워크스페이스 상대(a/b → a, a → '', '' → null) 둘 다 지원.
+const computeParent = (p) => {
+  if (p === undefined || p === null) return null;
+  if (p === '') return null;        // 워크스페이스 루트 — 더 갈 곳 없음
+  if (p === '/') return null;       // 절대 루트 — 더 갈 곳 없음
+  const trimmed = p.replace(/\/+$/, '');
+  const idx = trimmed.lastIndexOf('/');
+  if (idx < 0) return '';            // 'a' → 워크스페이스 루트
+  if (idx === 0) return '/';         // '/a' → '/'
+  return trimmed.substring(0, idx);
+};
+
 const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitContextPath = '', language = 'en', initialPath = '', hostId = null }) => {
   // 호스트 모드 (SFTP) 면 /api/hosts/{id}/files, 아니면 로컬 /api/files
   const isHostMode = !!hostId;
   const apiBase = isHostMode ? `/api/hosts/${hostId}/files` : '/api/files';
   const { t } = useTranslation(language);
-  // 노드별 캐시: path → { items: [{name,path,type,git_status}], loading, error }
+  // 노드별 캐시: cacheKey → { items, loading, error }.
+  // 루트의 cacheKey 는 항상 '' — 백엔드에는 rootPath 로 매핑되어 호출됨.
   const [nodes, setNodes] = useState({});
   const [expanded, setExpanded] = useState(new Set(['']));
   const [selectedPath, setSelectedPath] = useState(null);
@@ -56,6 +71,12 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   const [renameTarget, setRenameTarget] = useState(null); // {path, draftName}
   const [creating, setCreating] = useState(null); // {parentPath, type:'file'|'directory', draftName}
   const [filterChangedOnly, setFilterChangedOnly] = useState(false);
+  // 트리의 implicit root — Up 버튼으로 위로 올라갈 때 변함.
+  // 로컬 모드도 initialPath(탭 cwd) 가 있으면 그 디렉토리를 루트로 — 다른 프로젝트가
+  // 섞여 보이지 않게 탭 단위로 트리를 좁힘. 워크스페이스 루트('')까지는 Up 으로 올라갈 수 있음.
+  const [rootPath, setRootPath] = useState(initialPath || '');
+  // 백엔드가 resolve 해준 rootPath 의 절대경로 (host 모드에서 부모 계산용).
+  const [resolvedRoot, setResolvedRoot] = useState(null);
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
 
@@ -71,23 +92,35 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   });
   const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
 
-  const fetchChildren = useCallback(async (path) => {
-    setNodes((prev) => ({ ...prev, [path]: { ...(prev[path] || {}), loading: true } }));
+  // cacheKey === '' 면 백엔드에는 rootPath 로 호출. 그 외엔 cacheKey 자체가 backend path.
+  const fetchChildren = useCallback(async (cacheKey) => {
+    const backendPath = cacheKey === '' ? rootPath : cacheKey;
+    setNodes((prev) => ({ ...prev, [cacheKey]: { ...(prev[cacheKey] || {}), loading: true } }));
     try {
       const ts = Date.now();
-      const res = await fetch(`${apiBase}?path=${encodeURIComponent(path)}&_t=${ts}`, { headers: authHeader() });
+      const res = await fetch(`${apiBase}?path=${encodeURIComponent(backendPath)}&_t=${ts}`, { headers: authHeader() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      setNodes((prev) => ({ ...prev, [path]: { items: data.items || [], loading: false, error: null } }));
+      setNodes((prev) => ({ ...prev, [cacheKey]: { items: data.items || [], loading: false, error: null } }));
+      // host 모드: resolved 절대경로를 보관해 "Up" 버튼이 부모를 계산할 수 있게 함.
+      if (cacheKey === '' && isHostMode && (data.resolved || data.path)) {
+        setResolvedRoot(data.resolved || data.path);
+      }
     } catch (e) {
-      setNodes((prev) => ({ ...prev, [path]: { items: [], loading: false, error: e.message } }));
+      setNodes((prev) => ({ ...prev, [cacheKey]: { items: [], loading: false, error: e.message } }));
     }
-  }, [apiBase]);
+  }, [apiBase, rootPath, isHostMode]);
 
-  // 첫 마운트: 루트 + initialPath 까지 expand
+  // 마운트 / rootPath 변경: 캐시 비우고 루트 다시 로드. initialPath 안의 하위
+  // 경로는 절대(/a/b/c) 로 들어와도 이미 rootPath 가 그 위치라 추가 expand 불필요.
   useEffect(() => {
+    setNodes({});
+    setExpanded(new Set(['']));
+    setResolvedRoot(null);
     fetchChildren('');
-    if (initialPath) {
+    // 로컬 워크스페이스 모드: initialPath 가 워크스페이스 상대일 때 그 경로까지 자동 expand.
+    // 호스트 모드는 rootPath 자체가 시작점이라 별도 expand 불필요.
+    if (!isHostMode && initialPath) {
       const parts = initialPath.split('/').filter(Boolean);
       let acc = '';
       const set = new Set(['']);
@@ -98,7 +131,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
       }
       setExpanded(set);
     }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rootPath]);
 
   // 컨텍스트 메뉴 외부 클릭 시 닫기
   useEffect(() => {
@@ -270,8 +304,54 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   const rootError = nodes['']?.error;
   const rootLoading = nodes['']?.loading && !nodes['']?.items;
 
+  // 호스트 모드: resolvedRoot 가 알려진 후에만 "Up" 가능 (루트=/ 면 비활성).
+  // 로컬 모드: rootPath 의 부모 (워크스페이스 루트 '' 까지 올라갈 수 있음, 그 위는 차단).
+  const parentOfRoot = isHostMode ? computeParent(resolvedRoot) : computeParent(rootPath);
+  const canGoUp = parentOfRoot !== null;
+
+  // 시작 경로 (initialPath) 가 있고 그 위/아래로 이동했을 때 다시 돌아갈 "홈" 버튼.
+  const startHome = initialPath || '';
+  const canGoHome = rootPath !== startHome;
+
+  // breadcrumb 표시용 — 너무 길면 끝쪽만 보여줌.
+  const rootDisplay = isHostMode
+    ? (resolvedRoot || (rootPath || '~'))
+    : (rootPath || '/');
+
   return (
     <div style={styles.wrap}>
+      {/* host 모드일 땐 path breadcrumb + Up 행을 추가 */}
+      {isHostMode && (
+        <div style={styles.crumb} title={rootDisplay}>
+          <button
+            onClick={() => canGoUp && setRootPath(parentOfRoot)}
+            disabled={!canGoUp}
+            title={canGoUp ? `${t('goUp') || 'Go up'} → ${parentOfRoot}` : (t('atRoot') || 'At root')}
+            style={{
+              ...styles.crumbBtn,
+              opacity: canGoUp ? 1 : 0.35,
+              cursor: canGoUp ? 'pointer' : 'not-allowed',
+            }}
+            onMouseEnter={(e) => { if (canGoUp) e.currentTarget.style.background = color.surface1; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <ArrowUp size={12} strokeWidth={2} />
+          </button>
+          {canGoHome && (
+            <button
+              onClick={() => setRootPath(startHome)}
+              title={`${t('goHome') || 'Go to start'}: ${startHome || '~'}`}
+              style={{ ...styles.crumbBtn, cursor: 'pointer' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <Home size={12} strokeWidth={2} />
+            </button>
+          )}
+          <span style={styles.crumbPath}>{rootDisplay}</span>
+        </div>
+      )}
+
       <div style={styles.head}>
         <div
           style={styles.headBranch}
@@ -286,6 +366,22 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
           )}
         </div>
         <div style={styles.headActions}>
+          {/* 한 단계 위로 — head 액션의 맨 앞에 둬서 가장 먼저 눈에 띄게.
+              로컬도 워크스페이스 루트('')까지 올라갈 수 있게 노출 (그 위는 백엔드가 차단). */}
+          <HeadAction
+            icon={ArrowUp}
+            title={canGoUp ? `${t('goUp') || 'Go up'} → ${parentOfRoot || '/'}` : (t('atRoot') || 'At root')}
+            onClick={() => canGoUp && setRootPath(parentOfRoot)}
+            active={false}
+            disabled={!canGoUp}
+          />
+          {canGoHome && (
+            <HeadAction
+              icon={Home}
+              title={`${t('goHome') || 'Back to start'}: ${startHome || '~'}`}
+              onClick={() => setRootPath(startHome)}
+            />
+          )}
           <HeadAction
             icon={Filter}
             title={t('filterChangedOnly') || 'Show only changed'}
@@ -533,17 +629,20 @@ const CreateRow = ({ depth, type, value, onChange, onCommit, onCancel, inputRef 
   </div>
 );
 
-const HeadAction = ({ icon: Icon, title, onClick, active }) => (
+const HeadAction = ({ icon: Icon, title, onClick, active, disabled = false }) => (
   <button
-    onClick={(e) => { e.stopPropagation(); onClick?.(); }}
+    onClick={(e) => { e.stopPropagation(); if (!disabled) onClick?.(); }}
     title={title}
+    disabled={disabled}
     style={{
       ...styles.headActionBtn,
       color: active ? color.accent : color.muted,
       background: active ? color.accentSubtle : 'transparent',
+      opacity: disabled ? 0.35 : 1,
+      cursor: disabled ? 'not-allowed' : 'pointer',
     }}
-    onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = color.text; }}
-    onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = color.muted; }}
+    onMouseEnter={(e) => { if (!active && !disabled) e.currentTarget.style.color = color.text; }}
+    onMouseLeave={(e) => { if (!active && !disabled) e.currentTarget.style.color = color.muted; }}
   >
     <Icon size={12} strokeWidth={2} />
   </button>
@@ -611,6 +710,42 @@ const styles = {
     borderBottom: `1px solid ${color.border}`,
     minHeight: '32px',
     gap: space['2'],
+  },
+  crumb: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1'],
+    padding: `${space['1']} ${space['2']}`,
+    borderBottom: `1px solid ${color.border}`,
+    background: color.crust,
+    minHeight: '28px',
+    overflow: 'hidden',
+  },
+  crumbBtn: {
+    width: '22px',
+    height: '22px',
+    flexShrink: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
+    color: color.subtext,
+    transition: `background ${motion.fast}`,
+    padding: 0,
+  },
+  crumbPath: {
+    flex: 1,
+    minWidth: 0,
+    fontFamily: font.mono,
+    fontSize: fontSize['11'],
+    color: color.subtext,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    direction: 'rtl',  // 긴 경로는 끝(파일명 쪽)이 보이도록
+    textAlign: 'left',
   },
   headLabel: {
     fontSize: fontSize['11'],

@@ -5,11 +5,6 @@ import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
-const HOST_COLORS = [
-  '#89b4fa', '#a6e3a1', '#fab387', '#f38ba8',
-  '#cba6f7', '#89dceb', '#f9e2af', '#b4befe',
-];
-
 const HostManager = ({ isOpen, onClose, hosts = [], onAdd, onEdit, onConnect, t }) => {
   useEffect(() => {
     if (!isOpen) return;
@@ -49,7 +44,7 @@ const HostManager = ({ isOpen, onClose, hosts = [], onAdd, onEdit, onConnect, t 
           )}
 
           {hosts.map((host) => {
-            const accent = HOST_COLORS[host.color_index % HOST_COLORS.length] || color.accent;
+            const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
             return (
               <Row
                 key={host.id}

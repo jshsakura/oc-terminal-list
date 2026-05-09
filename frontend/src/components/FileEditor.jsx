@@ -11,6 +11,18 @@ import Button from './common/Button';
 import ConfirmModal from './ConfirmModal';
 import useTranslation from '../hooks/useTranslation';
 
+// 'remote:{hostId}:{absolutePath}' 형식의 파일 키를 파싱하거나 로컬 경로를 그대로 반환
+const parseFileKey = (key) => {
+  if (!key) return { path: null, hostId: null };
+  if (key.startsWith('remote:')) {
+    const rest = key.slice(7);
+    const idx = rest.indexOf(':');
+    if (idx < 0) return { path: rest, hostId: null };
+    return { hostId: rest.slice(0, idx), path: rest.slice(idx + 1) };
+  }
+  return { path: key, hostId: null };
+};
+
 const getFileIcon = (filename, color) => {
   const ext = filename.split('.').pop().toLowerCase();
   switch (ext) {
@@ -78,14 +90,19 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     return map[ext] || 'plaintext';
   }, []);
 
-  const loadFile = useCallback(async (path, isSilent = false) => {
+  const loadFile = useCallback(async (fileKey, isSilent = false) => {
+    if (!fileKey) return;
+    const { path, hostId } = parseFileKey(fileKey);
     if (!path) return;
     if (!isSilent) setLoading(true);
     setError(null);
 
     try {
       const token = localStorage.getItem('auth_token');
-      const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`, {
+      const endpoint = hostId
+        ? `/api/hosts/${hostId}/files/read?path=${encodeURIComponent(path)}`
+        : `/api/files/read?path=${encodeURIComponent(path)}`;
+      const res = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${token}` }
       });
 
@@ -146,9 +163,11 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     }
   }, []);
 
-  // git HEAD 시점 원본 로드 — diff 좌측에 사용. 404/저장소 없음 등은 조용히 무시.
-  const loadOriginalContent = useCallback(async (path) => {
-    if (!path) return;
+  // git HEAD 시점 원본 로드 — diff 좌측에 사용. 리모트 파일 및 404/저장소 없음 등은 조용히 무시.
+  const loadOriginalContent = useCallback(async (fileKey) => {
+    if (!fileKey) return;
+    const { path, hostId } = parseFileKey(fileKey);
+    if (!path || hostId) return; // 리모트 파일은 git diff 미지원
     setDiffStates(prev => ({ ...prev, [path]: { ...(prev[path] || {}), loading: true, error: null } }));
     try {
       const token = localStorage.getItem('auth_token');
@@ -166,8 +185,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     }
   }, []);
 
-  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFile || '');
-  
+  const { path: activeFilePath, hostId: activeFileHostId } = parseFileKey(activeFile || '');
+  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFilePath || activeFile || '');
+
   if (!theme || !theme.ui) return null;
   
   const isLightTheme = theme.background === '#ffffff' || theme.background === '#fdf6e3' || theme.background === '#fbf1c7';
@@ -228,13 +248,15 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
     try {
       const token = localStorage.getItem('auth_token');
-      const res = await fetch('/api/files/write', {
+      const { path: savePath, hostId: saveHostId } = parseFileKey(activeFile);
+      const endpoint = saveHostId ? `/api/hosts/${saveHostId}/files/write` : '/api/files/write';
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ path: activeFile, content })
+        body: JSON.stringify({ path: savePath, content })
       });
 
       if (!res.ok) {
@@ -265,8 +287,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
-    
-    // Ctrl+S 저장 단축키 추가
+    editor.focus();
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
       saveFile();
     });
@@ -317,17 +338,20 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     }));
   };
 
-  const isMarkdown = activeFile?.endsWith('.md');
-  const isHtml = activeFile?.endsWith('.html');
+  const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');
+  const isHtml = (activeFilePath || activeFile)?.endsWith('.html');
   const token = localStorage.getItem('auth_token');
 
   if (!activeFile && openFiles.length === 0) return null;
 
   return (
-    <div style={{ 
-      ...styles.container, 
-      backgroundColor: theme.ui.bg,
-    }}>
+    <div
+      style={{
+        ...styles.container,
+        backgroundColor: theme.ui.bg,
+      }}
+      onMouseEnter={() => editorRef.current?.focus()}
+    >
       {/* 탭 바 */}
       <div style={{
         display: 'flex',
@@ -343,7 +367,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}`,
       }}>        {openFiles.map((path) => {
           const isActive = path === activeFile;
-          const filename = path.split('/').pop();
+          const { path: filePath } = parseFileKey(path);
+          const filename = (filePath || path).split('/').pop();
           const fileHasChanges = fileStates[path]?.hasChanges;
 
           return (
@@ -432,7 +457,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         backdropFilter: 'blur(10px)',
       }}>
         <div style={{ fontSize: '11px', color: theme.ui.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-          {activeFile}
+          {activeFileHostId ? `[remote] ${activeFilePath}` : (activeFilePath || activeFile)}
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {diffStates[activeFile]?.exists && diffStates[activeFile]?.original !== currentFileState.lastSavedContent && (
@@ -501,6 +526,11 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             <Button theme={theme} onClick={() => loadFile(activeFile)} variant="secondary">{t('reset')}</Button>
           </div>
         ) : isImage ? (
+          activeFileHostId ? (
+            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
+              <span>Remote image preview is not supported.</span>
+            </div>
+          ) : (
           <div style={{
             height: '100%',
             display: 'flex',
@@ -510,9 +540,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             overflow: 'auto',
             padding: '20px'
           }}>
-            <img 
-              src={`/api/files/raw?path=${encodeURIComponent(activeFile)}&token=${token}&_t=${Date.now()}`} 
-              alt={activeFile}
+            <img
+              src={`/api/files/raw?path=${encodeURIComponent(activeFilePath || activeFile)}&token=${token}&_t=${Date.now()}`}
+              alt={activeFilePath || activeFile}
               style={{ 
                 maxWidth: '100%', 
                 maxHeight: '100%', 
@@ -524,6 +554,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               }}
             />
           </div>
+          )
         ) : isPreviewMode ? (
           isMarkdown ? (
             <div style={{

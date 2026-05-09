@@ -2,7 +2,7 @@ import { memo, useState, useEffect, useRef } from 'react';
 import {
   X, Terminal as TerminalIcon, Server,
   Settings as SettingsIcon, MoreHorizontal,
-  SquareSplitHorizontal, SquareSplitVertical,
+  SquareSplitHorizontal, SquareSplitVertical, Anchor,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -23,6 +23,7 @@ const TabBar = ({
   onDuplicate,
   onReorder,
   canSplit = false,
+  isMobile = false,
   t,
 }) => {
   const [contextMenu, setContextMenu] = useState(null);  // {tabId, x, y}
@@ -75,6 +76,7 @@ const TabBar = ({
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
             isDragging={draggingTabId === tab.id}
             isDragOver={dragOverTabId === tab.id && draggingTabId && draggingTabId !== tab.id}
+            isMobile={isMobile}
             onSelect={() => onSelect(tab.id)}
             onClose={() => onClose(tab.id)}
             onContextMenu={(e) => {
@@ -113,9 +115,10 @@ const TabBar = ({
         ))}
       </div>
 
-      {/* right action group */}
+      {/* right action group — 모바일에선 가로/세로 분할이 의미 없음 (sub-tab 으로
+          전환되거나 화면이 너무 좁음) → 분할 버튼 숨김. 설정만 노출. */}
       <div style={styles.actionGroup}>
-        {canSplit && (
+        {canSplit && !isMobile && (
           <>
             <ActionBtn
               icon={SquareSplitHorizontal}
@@ -147,6 +150,7 @@ const TabBar = ({
 
 const Tab = memo(({
   tab, index, isActive, isBusy = false, isDragging = false, isDragOver = false,
+  isMobile = false,
   onSelect, onClose, onContextMenu, onMore,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   t,
@@ -156,25 +160,50 @@ const Tab = memo(({
     ? color.dotPalette?.[tab.color_index % (color.dotPalette?.length || 8)] || color.accent
     : color.accent;
 
+  // 모바일 long-press → context menu (실수 닫기 방지: X 버튼 대신 의도된 제스처)
+  const longPressTimerRef = useRef(null);
+  const onTouchStartLP = (e) => {
+    if (!isMobile) return;
+    const touch = e.touches?.[0];
+    const x = touch?.clientX ?? 0;
+    const y = touch?.clientY ?? 0;
+    longPressTimerRef.current = setTimeout(() => {
+      onContextMenu?.({ preventDefault: () => {}, clientX: x, clientY: y });
+      longPressTimerRef.current = null;
+    }, 450);
+  };
+  const cancelLP = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
   return (
     <div
-      draggable
+      draggable={!isMobile /* 모바일은 드래그 비활성 — 탭 누르려다 잘못 끌리는 사고 방지 */}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onContextMenu={onContextMenu}
+      onTouchStart={onTouchStartLP}
+      onTouchEnd={cancelLP}
+      onTouchMove={cancelLP}
+      onTouchCancel={cancelLP}
       style={{
         ...styles.tab,
+        ...(isMobile ? styles.tabMobile : null),
         background: isActive ? color.base : color.surface0,
         color: isActive ? color.text : color.subtext,
         border: `1px solid ${isDragOver ? color.accent : (isActive ? color.borderStrong : color.border)}`,
         opacity: isDragging ? 0.4 : 1,
-        cursor: 'grab',
+        cursor: isMobile ? 'pointer' : 'grab',
       }}
       onClick={onSelect}
       onMouseEnter={(e) => {
+        if (isMobile) return;
         if (!isActive) e.currentTarget.style.background = color.surface1;
         const moreBtn = e.currentTarget.querySelector('[data-more]');
         if (moreBtn) moreBtn.style.opacity = '1';
@@ -182,6 +211,7 @@ const Tab = memo(({
         if (closeBtn) closeBtn.style.opacity = '1';
       }}
       onMouseLeave={(e) => {
+        if (isMobile) return;
         if (!isActive) e.currentTarget.style.background = color.surface0;
         const moreBtn = e.currentTarget.querySelector('[data-more]');
         if (moreBtn) moreBtn.style.opacity = isActive ? '0.6' : '0';
@@ -230,28 +260,52 @@ const Tab = memo(({
         <HostIcon value={tab.icon || ''} fallback={Icon} size={12} strokeWidth={1.8} />
       </span>
       <span style={styles.tabName}>{tab.name}</span>
+      {tab.isPersistent && (
+        <span
+          title={t?.('persistentSession') || 'tmux persistent — work survives disconnect'}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            flexShrink: 0,
+            color: color.muted,
+            opacity: isActive ? 0.85 : 0.55,
+          }}
+          aria-hidden
+        >
+          <Anchor size={10} strokeWidth={2} />
+        </span>
+      )}
 
+      {/* More 버튼 — 모바일은 항상 노출 + 큰 hit-area; 데스크톱은 hover/active 시. */}
       <button
         data-more="true"
         onClick={(e) => { e.stopPropagation(); onMore(e); }}
-        style={{ ...styles.miniBtn, opacity: isActive ? 0.6 : 0, color: color.subtext }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; e.currentTarget.style.opacity = '1'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '0.6' : '0'; }}
+        style={{
+          ...styles.miniBtn,
+          ...(isMobile ? styles.miniBtnMobile : null),
+          opacity: isMobile ? 1 : (isActive ? 0.6 : 0),
+          color: color.subtext,
+        }}
+        onMouseEnter={(e) => { if (isMobile) return; e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; e.currentTarget.style.opacity = '1'; }}
+        onMouseLeave={(e) => { if (isMobile) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '0.6' : '0'; }}
         title={t?.('more') || 'More'}
       >
-        <MoreHorizontal size={11} strokeWidth={2} />
+        <MoreHorizontal size={isMobile ? 14 : 11} strokeWidth={2} />
       </button>
 
-      <button
-        data-close="true"
-        style={{ ...styles.miniBtn, opacity: isActive ? 0.85 : 0.5, color: color.subtext }}
-        onClick={(e) => { e.stopPropagation(); onClose(); }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = color.danger; e.currentTarget.style.color = '#fff'; e.currentTarget.style.opacity = '1'; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '0.85' : '0.5'; }}
-        title={t?.('closeTab') || 'Close tab'}
-      >
-        <X size={11} strokeWidth={2.4} />
-      </button>
+      {/* X 닫기 — 데스크톱에만. 모바일은 More→메뉴로만 닫게 해 실수 방지. */}
+      {!isMobile && (
+        <button
+          data-close="true"
+          style={{ ...styles.miniBtn, opacity: isActive ? 0.85 : 0.5, color: color.subtext }}
+          onClick={(e) => { e.stopPropagation(); onClose(); }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = color.danger; e.currentTarget.style.color = '#fff'; e.currentTarget.style.opacity = '1'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '0.85' : '0.5'; }}
+          title={t?.('closeTab') || 'Close tab'}
+        >
+          <X size={11} strokeWidth={2.4} />
+        </button>
+      )}
 
     </div>
   );
@@ -378,6 +432,20 @@ const styles = {
     padding: '0 0 0 6px',
     gap: '6px',
   },
+  tabMobile: {
+    /* 모바일 — 더 큰 hit-area, 압축하지 않고 가로 스크롤로 처리 */
+    height: '34px',
+    minWidth: '140px',
+    maxWidth: '220px',
+    fontSize: fontSize['13'],
+    paddingLeft: '12px',
+    paddingRight: '4px',
+  },
+  miniBtnMobile: {
+    width: '28px',
+    height: '28px',
+    borderRadius: '6px',
+  },
   brandBtn: {
     width: '28px',
     height: '28px',
@@ -449,8 +517,9 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '2px',
-    paddingLeft: '6px',
-    // 우측 활동바 actBtn 의 마진 (=(36-32)/2=2) 과 같게 — Settings 버튼 중심선이 활동바 버튼 중심선과 일치.
+    // 활동바 actBtn 의 좌우 마진 ((36-32)/2=2) 과 같은 2/2 — Settings 버튼이 활동바 버튼들과
+    // 같은 컬럼 패턴(border + 2px + 32px + 2px)으로 보이게. 비대칭 공백 제거.
+    paddingLeft: '2px',
     paddingRight: '2px',
     borderLeft: `1px solid ${color.border}`,
     flexShrink: 0,

@@ -1,22 +1,48 @@
-import { useEffect, useRef } from 'react';
-import { Send, X, Eraser, ClipboardPaste } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import { Send, X, Eraser, ClipboardPaste, Copy } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
 
+// textarea 의 caret 을 항상 텍스트 끝으로 — 다시 열 때, 붙여넣기 후, clear 후 등
+// 사용자가 이어서 입력하기 좋은 위치에 두기 위함.
+const focusToEnd = (ta) => {
+  if (!ta) return;
+  ta.focus();
+  try {
+    const len = ta.value.length;
+    ta.setSelectionRange(len, len);
+    // 멀티라인일 때 caret 위치까지 스크롤되게 강제 reflow 트릭
+    ta.scrollTop = ta.scrollHeight;
+  } catch { /* setSelectionRange 미지원 환경 무시 */ }
+};
+
 /**
  * 모바일에서 한글 IME 자소 분리 문제를 우회하기 위한 별도 입력창.
  * Ctrl+Enter / Cmd+Enter 로 전송, ESC 로 닫기.
+ *
+ * 입력 보존: command/setCommand 가 부모(App.jsx) state 라 X/ESC/backdrop 으로
+ * 닫아도 텍스트는 유지된다. 비우는 건 명시적 "Clear" 또는 "Send" 시에만.
  */
 const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   const textareaRef = useRef(null);
 
+  // 모달이 mount 되는 즉시 caret 을 텍스트 끝으로 두고 focus.
+  // useLayoutEffect — paint 직전에 실행돼 사용자가 모달을 본 시점에 이미 커서 위치 완료.
+  // setTimeout 100ms 같은 지연을 두면 iOS Safari 가 user gesture 컨텍스트를 잃어
+  // 키보드가 자동으로 안 올라오는 사고가 난다.
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    focusToEnd(textareaRef.current);
+  }, [isOpen]);
+
+  // 일부 모바일 브라우저는 useLayoutEffect 후에도 keyboard 가 즉시 안 올라오는
+  // 케이스가 있어 다음 frame 에 한 번 더 보강. 데스크톱은 이미 끝나서 영향 없음.
   useEffect(() => {
-    if (isOpen && textareaRef.current) {
-      const id = setTimeout(() => textareaRef.current?.focus(), 100);
-      return () => clearTimeout(id);
-    }
+    if (!isOpen) return;
+    const raf = requestAnimationFrame(() => focusToEnd(textareaRef.current));
+    return () => cancelAnimationFrame(raf);
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -32,19 +58,35 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   const handleClear = () => {
     if (command.trim() && !confirm(t?.('confirmClearInput') || '입력한 내용을 모두 지우시겠습니까?')) return;
     setCommand('');
-    textareaRef.current?.focus();
+    focusToEnd(textareaRef.current);
   };
 
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
       setCommand(command + text);
-      textareaRef.current?.focus();
+      // setCommand 후 다음 렌더가 적용되어야 caret 이 새 끝으로 감
+      requestAnimationFrame(() => focusToEnd(textareaRef.current));
     } catch {
       const text = prompt(t?.('paste') || '붙여넣을 텍스트:');
       if (text) {
         setCommand(command + text);
-        textareaRef.current?.focus();
+        requestAnimationFrame(() => focusToEnd(textareaRef.current));
+      }
+    }
+  };
+
+  const handleCopy = async () => {
+    if (!command) return;
+    try {
+      await navigator.clipboard.writeText(command);
+    } catch {
+      // 권한/브라우저 fallback — 텍스트 선택 후 execCommand
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.select();
+        try { document.execCommand('copy'); } catch { /* 무시 */ }
+        focusToEnd(ta);
       }
     }
   };
@@ -58,11 +100,10 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   };
 
   return (
-    <>
-      <div style={styles.backdrop} onClick={onClose} />
+    <div style={styles.overlay} onClick={onClose}>
       <style>{`.command-input-textarea::placeholder { color: ${color.muted}; }`}</style>
 
-      <div style={styles.modal}>
+      <div className="iterm-modal-card" style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <header style={styles.header}>
           <div style={styles.title}>{t?.('commandInput') || 'Send command'}</div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
@@ -85,6 +126,15 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
         </div>
 
         <footer style={styles.footer}>
+          {/* 좌측 — 복사/붙여넣기/비우기 (보조 액션 그룹) */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleCopy}
+            disabled={!command}
+            icon={Copy}
+            title={t?.('copy') || 'Copy'}
+          />
           <Button variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} />
           <Button
             variant="ghost"
@@ -95,6 +145,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
             title={t?.('clearInput')}
           />
           <div style={{ flex: 1 }} />
+          {/* 우측 — 주 액션 */}
           <Button
             variant="primary"
             onClick={handleSend}
@@ -105,32 +156,30 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
           </Button>
         </footer>
       </div>
-    </>
+    </div>
   );
 };
 
 const styles = {
-  backdrop: {
+  overlay: {
     position: 'fixed',
     inset: 0,
     background: color.scrim,
-    zIndex: 10000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10001,
     backdropFilter: 'blur(2px)',
+    fontFamily: font.sans,
   },
   modal: {
-    position: 'fixed',
-    top: '50%',
-    left: '50%',
-    transform: 'translate(-50%, -50%)',
-    width: '92%',
-    maxWidth: '480px',
+    width: '90%',
+    maxWidth: '420px',
     maxHeight: '80vh',
-    zIndex: 10001,
     background: color.base,
     border: `1px solid ${color.border}`,
     borderRadius: radius.lg,
     boxShadow: shadow.lg,
-    fontFamily: font.sans,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -139,13 +188,13 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: `${space['3']} ${space['4']}`,
+    padding: `${space['1.5']} ${space['3']}`,
     borderBottom: `1px solid ${color.border}`,
   },
-  title: { fontSize: fontSize['14'], fontWeight: fontWeight.semibold, color: color.text },
+  title: { fontSize: fontSize['12'], fontWeight: fontWeight.semibold, color: color.text },
   closeBtn: {
-    width: '24px',
-    height: '24px',
+    width: '20px',
+    height: '20px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -157,24 +206,24 @@ const styles = {
   },
   body: {
     flex: 1,
-    padding: `${space['3']} ${space['4']}`,
+    padding: `${space['2']} ${space['3']}`,
     display: 'flex',
     flexDirection: 'column',
-    gap: space['2'],
+    gap: space['1.5'],
     overflow: 'auto',
   },
   textarea: {
     width: '100%',
-    minHeight: '140px',
-    maxHeight: '320px',
-    padding: `${space['3']} ${space['3']}`,
+    minHeight: '72px',
+    maxHeight: '160px',
+    padding: `${space['2']} ${space['2']}`,
     background: color.crust,
     color: color.text,
     border: `1px solid ${color.border}`,
     borderRadius: radius.sm,
     fontSize: fontSize['13'],
     fontFamily: font.mono,
-    lineHeight: 1.55,
+    lineHeight: 1.5,
     outline: 'none',
     resize: 'vertical',
     transition: `border-color ${motion.fast}`,
@@ -187,8 +236,8 @@ const styles = {
   footer: {
     display: 'flex',
     alignItems: 'center',
-    gap: space['1.5'],
-    padding: `${space['3']} ${space['4']}`,
+    gap: space['1'],
+    padding: `${space['1.5']} ${space['3']}`,
     borderTop: `1px solid ${color.border}`,
     background: color.mantle,
   },

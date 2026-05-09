@@ -16,7 +16,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
-const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null }) => {
+const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -93,17 +93,27 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
 
     term.open(terminalRef.current);
 
-    // WebGL renderer 는 일부 환경/타이밍에서 incremental update 를 누락 (커서 위치 불일치, 빈 화면 등).
-    // 사용자가 명시적으로 켤 때만 활성화. 기본은 DOM renderer (안정).
-    if (settings?.useWebgl) {
+    // WebGL 렌더러 — 디폴트 ON. 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
+    // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
+    // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
+    // 명시적으로 false 를 저장한 사용자(특정 GPU 이슈 회피용)는 그대로 OFF.
+    const wantWebgl = settings?.useWebgl !== false;
+    if (wantWebgl) {
+      let webglAddon = null;
       try {
-        const webglAddon = new WebglAddon();
+        webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => {
-          webglAddon.dispose();
+          // GPU context 가 죽으면 더 못 그림 → dispose 후 자동으로 DOM 렌더러가 인계.
+          try { webglAddon?.dispose(); } catch { /* 이미 정리됨 */ }
+          webglAddon = null;
         });
         term.loadAddon(webglAddon);
       } catch (e) {
-        console.warn("WebGL addon could not be loaded. Falling back to DOM renderer.", e);
+        // 초기화 실패 (WebGL 비활성 환경, iframe 정책 등) — 조용히 폴백.
+        try { webglAddon?.dispose(); } catch { /* noop */ }
+        if (localStorage.getItem('debug_terminal') === '1') {
+          console.warn('[xterm] WebGL init failed, using DOM renderer:', e);
+        }
       }
     }
 
@@ -173,8 +183,10 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
     // 호스트 연결이면 SSH 브리지로, 아니면 로컬 tmux 브리지로
     const cwdQS = cwd ? `&cwd=${encodeURIComponent(cwd)}` : '';
     const paneQS = paneIndex ? `&pane_index=${paneIndex}` : '';
+    // tmuxSuffix — 호스트 탭마다 별도 base session 분리 (새 탭 = 새 작업공간)
+    const sfxQS = (hostId && tmuxSuffix) ? `&tmux_suffix=${encodeURIComponent(tmuxSuffix)}` : '';
     const wsUrl = hostId
-      ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}`
+      ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}`
       : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
     
     const socket = new WebSocket(wsUrl);
@@ -285,7 +297,10 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
       handleUserScroll();
     });
 
-    // 윈도우 리사이즈 대응
+    // 윈도우 리사이즈 대응 — debounce 350ms.
+    // 모바일 키보드 애니메이션 (~250-300ms) 중간에 fit() 가 여러 번 호출되면
+    // xterm grid + tmux 가 매번 다시 그려서 화면이 "득득" 떨림. 한 박자 늦춰서
+    // 애니메이션 끝난 후 한 번만 fit → 최종 사이즈 확정 → 한 번만 reflow.
     const handleResize = () => {
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
@@ -301,7 +316,7 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
             }
           }
         }
-      }, 200);
+      }, 350);
     };
 
     // [중요] ResizeObserver를 통한 컨테이너 크기 변화 감지 (에디터 열고 닫기 등 레이아웃 변화 대응)
@@ -395,6 +410,93 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
     xtermRef.current?.scrollToBottom();
   }, []);
 
+  // 페이지/라인 단위 스크롤 — 두 가지 경로를 동시에 trigger 해 한쪽이 동작하면 OK.
+  //  1) xterm.js 자체 client-side scrollback (normal buffer + 충분한 history 일 때)
+  //  2) PgUp/PgDn 키 시퀀스 PTY 송신 (tmux 가 #{alternate_on} root binding 으로
+  //     자동 분기 — alt-buffer 면 응용 프로그램으로 통과, normal 이면 copy-mode 진입)
+  // 둘 다 trigger 해도 normal+xterm 케이스는 시각 변화 한 번만 일어남.
+  const scrollPages = useCallback((pages) => {
+    const term = xtermRef.current;
+    if (!term || pages === 0) return;
+    // 1. xterm 자체 scrollback — normal buffer 면 즉시 화면 위로 이동
+    if (term.buffer?.active?.type === 'normal') {
+      try { term.scrollPages(pages); } catch { /* noop */ }
+    }
+    // 2. PTY 로 키 시퀀스 송신 — tmux/vim/less 가 처리
+    const seq = pages > 0 ? '\x1b[6~' : '\x1b[5~';
+    const n = Math.max(1, Math.abs(pages));
+    for (let i = 0; i < n; i++) sendData(seq);
+  }, [sendData]);
+
+  const scrollLines = useCallback((lines) => {
+    const term = xtermRef.current;
+    if (!term || lines === 0) return;
+    if (term.buffer?.active?.type === 'normal') {
+      try { term.scrollLines(lines); } catch { /* noop */ }
+    }
+    // alternate buffer 일 때만 화살표 송신 (normal 셸에선 prompt 흔들림 방지)
+    if (term.buffer?.active?.type === 'alternate') {
+      const seq = lines > 0 ? '\x1b[B' : '\x1b[A';
+      const n = Math.max(1, Math.abs(lines));
+      for (let i = 0; i < n; i++) sendData(seq);
+    }
+  }, [sendData]);
+
+  const scrollToTop = useCallback(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+    if (term.buffer?.active?.type === 'normal') {
+      try { term.scrollToTop(); } catch { /* noop */ }
+    }
+    if (term.buffer?.active?.type === 'alternate') {
+      sendData('\x1b[1~'); // Home
+    }
+  }, [sendData]);
+
+  // 전체 버퍼 → 일반 텍스트. 모바일에서 손가락 선택이 까다로워 화면 통째로
+  // 텍스트로 띄워주거나 한번에 클립보드에 복사하는 편의 기능에 사용.
+  // includeScrollback=true 면 스크롤백 전체, false 면 viewport 만.
+  const getBufferText = useCallback((includeScrollback = true) => {
+    const term = xtermRef.current;
+    if (!term) return '';
+    const buf = term.buffer.active;
+    const start = includeScrollback ? 0 : buf.viewportY;
+    const end = buf.length;
+    const lines = [];
+    for (let i = start; i < end; i++) {
+      const line = buf.getLine(i);
+      if (!line) continue;
+      // translateToString(true) — trailing whitespace trim
+      lines.push(line.translateToString(true));
+    }
+    // 끝쪽 빈 줄 정리
+    while (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return lines.join('\n');
+  }, []);
+
+  // 전체 버퍼를 한번에 클립보드로 — 모바일 long-select 가 어려운 환경에서 유용.
+  const copyAll = useCallback(async () => {
+    const text = getBufferText(true);
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // execCommand fallback (구형/HTTP 환경)
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        document.body.removeChild(ta);
+        return ok;
+      } catch { return false; }
+    }
+  }, [getBufferText]);
+
   const focus = useCallback(() => {
     xtermRef.current?.focus();
   }, []);
@@ -438,7 +540,12 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
     window.terminalSessions[sessionId] = {
       sendData,
       getSelection,
+      getBufferText,
+      copyAll,
       scrollToBottom,
+      scrollToTop,
+      scrollPages,
+      scrollLines,
       focus,
       clear,
       searchNext,
@@ -451,7 +558,7 @@ const TerminalComponent = ({ sessionId, hostId, settings, onSendData, isActive =
         delete window.terminalSessions[sessionId];
       }
     };
-  }, [sessionId, sendData, getSelection, scrollToBottom, focus, clear, searchNext, searchPrevious, closeSearch]);
+  }, [sessionId, sendData, getSelection, getBufferText, copyAll, scrollToBottom, scrollToTop, scrollPages, scrollLines, focus, clear, searchNext, searchPrevious, closeSearch]);
 
   // 로깅 헬퍼
   const logger = {

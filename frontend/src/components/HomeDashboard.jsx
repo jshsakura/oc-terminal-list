@@ -5,10 +5,6 @@ import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
-const HOST_COLORS = [
-  '#89b4fa', '#a6e3a1', '#fab387', '#f38ba8',
-  '#cba6f7', '#89dceb', '#f9e2af', '#b4befe',
-];
 
 // 정렬 순서는 DB(hosts.sort_index) 가 정답. localStorage 캐시는 최초 paint 깜빡임 방지용.
 const ORDER_CACHE_KEY = 'host_order_v1';
@@ -163,7 +159,7 @@ const HomeDashboard = ({
           />
 
           {orderedHosts.map((host) => {
-            const accent = HOST_COLORS[host.color_index % HOST_COLORS.length] || color.accent;
+            const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
             return (
               <HostRow
                 key={host.id}

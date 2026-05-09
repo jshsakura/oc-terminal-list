@@ -1,5 +1,5 @@
-import { useState, memo } from 'react';
-import { FolderTree, GitBranch, Palette, X, RefreshCw } from 'lucide-react';
+import { useState, memo, useCallback } from 'react';
+import { Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import FileTree from './FileTree';
 import ChangesList from './ChangesList';
@@ -11,7 +11,7 @@ const { color, font, fontSize, fontWeight, space, radius } = tokens;
 const PANEL_WIDTH = 260;
 
 const TABS = [
-  { id: 'files', icon: FolderTree, label: 'Files' },
+  { id: 'files', icon: Folder, label: 'Files' },
   { id: 'git',   icon: GitBranch, label: 'Git' },
   { id: 'theme', icon: Palette,   label: 'Theme' },
 ];
@@ -31,7 +31,23 @@ const RightPanel = ({
   t,
   viewportHeight,
   disabled = false,  // 빈 pane 일 때 활동바만 표시 / 클릭 무효
+  terminalKey = null, // window.terminalSessions[key] lookup — 페이지 업/다운 송신용
+  paneCwd = null,     // 호스트 모드 FileTree 시작 경로 (없으면 host.start_path)
+  onScreenDump = null, // 텍스트 덤프 모달 열기 콜백 (App.jsx 가 처리)
 }) => {
+  // 페이지 단위 스크롤 — 모바일에서는 물리 PgUp/PgDn 키가 없어서 가장 자주
+  // 막히는 동작. xterm.js 의 viewport 를 직접 스크롤 (tmux scrollback 와는
+  // 별개의 클라이언트 버퍼) 해 즉시 반응.
+  const sendScroll = useCallback((pages) => {
+    const sess = terminalKey ? window.terminalSessions?.[terminalKey] : null;
+    sess?.scrollPages?.(pages);
+  }, [terminalKey]);
+
+  const handleDump = useCallback(() => {
+    const sess = terminalKey ? window.terminalSessions?.[terminalKey] : null;
+    const text = sess?.getBufferText?.(true) || '';
+    onScreenDump?.(text);
+  }, [terminalKey, onScreenDump]);
   const [activePanel, setActivePanel] = useState(null); // null | 'files' | 'git' | 'theme'
 
   // Git 변경 카운트 — 활동 바 뱃지에 표시. 경로 없으면 fetch 안 함 (전체 워크스페이스 집계 X).
@@ -57,7 +73,7 @@ const RightPanel = ({
           top: 0,
           right: '36px',  // 활동바 폭만큼 띄움
           bottom: 0,
-          zIndex: 5,
+          zIndex: 10,
           boxShadow: '-4px 0 16px rgba(0,0,0,0.35)',
         }}>
           <div style={styles.panelHeader}>
@@ -76,14 +92,16 @@ const RightPanel = ({
           <div style={styles.panelBody}>
             {activePanel === 'files' && (
               <FileTree
-                key={`${activeHostId || 'local'}:${gitContextPath || selectedFolderPath || 'root'}`}
+                /* host 면 paneCwd 가 트리의 시작 절대경로. local 은 paneCwd(탭 cwd) 가 있으면
+                   그 디렉토리를 트리 루트로 — 워크스페이스 전체가 아니라 프로젝트 단위로 좁힘. */
+                key={`${activeHostId || 'local'}:${activeHostId ? (paneCwd || 'home') : (paneCwd || gitContextPath || selectedFolderPath || 'root')}`}
                 hostId={activeHostId}
                 onFileSelect={onFileSelect}
                 onFolderSelect={onFolderSelect}
                 onOpenTerminalAtFolder={onOpenTerminalAtFolder}
                 gitContextPath={gitContextPath}
                 language={language}
-                initialPath={activeHostId ? '' : (gitContextPath || selectedFolderPath)}
+                initialPath={activeHostId ? (paneCwd || '') : (paneCwd || gitContextPath || selectedFolderPath)}
               />
             )}
             {activePanel === 'git' && (
@@ -132,7 +150,41 @@ const RightPanel = ({
           );
         })}
 
-        {/* 분리선 + 터미널 새로고침 — Theme 아래 별도 액션 */}
+        {/* 분리선 + 페이지 업/다운 (모바일에서 가장 자주 막히는 동작) +
+            화면 복사 / 텍스트로 보기 + 터미널 새로고침 */}
+        {!disabled && terminalKey && (
+          <>
+            <div style={{ alignSelf: 'stretch', height: '1px', background: color.border, margin: '6px 0' }} />
+            <button
+              style={{ ...styles.actBtn, background: 'transparent', color: color.subtext, cursor: 'pointer' }}
+              onClick={() => sendScroll(-1)}
+              title={t?.('pageUp') || 'Page up'}
+              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+            >
+              <ChevronsUp size={16} strokeWidth={1.8} />
+            </button>
+            <button
+              style={{ ...styles.actBtn, background: 'transparent', color: color.subtext, cursor: 'pointer' }}
+              onClick={() => sendScroll(1)}
+              title={t?.('pageDown') || 'Page down'}
+              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+            >
+              <ChevronsDown size={16} strokeWidth={1.8} />
+            </button>
+            <button
+              style={{ ...styles.actBtn, background: 'transparent', color: color.subtext, cursor: 'pointer' }}
+              onClick={handleDump}
+              title={t?.('viewAsText') || 'View as text (free select)'}
+              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+            >
+              <FileText size={15} strokeWidth={1.8} />
+            </button>
+          </>
+        )}
+
         {onRefreshTerminal && !disabled && (
           <>
             <div style={{ alignSelf: 'stretch', height: '1px', background: color.border, margin: '6px 0' }} />

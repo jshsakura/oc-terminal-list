@@ -62,11 +62,13 @@ def _drop(host_id: str) -> None:
         except Exception: pass
 
 
-async def list_directory(host: dict, secrets: dict, path: str = ".") -> List[Dict]:
-    """원격 디렉토리 목록. 각 항목 {name, path, type, size, modified}.
+async def list_directory(host: dict, secrets: dict, path: str = ".") -> Dict:
+    """원격 디렉토리 목록. {items, resolved} 반환.
 
     path 가 빈문자열/None 이면 "." (홈) 사용.
     숨김 파일 (`.` prefix) 은 포함 (프론트에서 필요 시 필터).
+    resolved 는 sftp.realpath 결과 — 프론트가 "상위 폴더로 이동" 같은 절대경로 기반
+    UI 를 할 수 있게 노출.
     """
     target = path.strip() if path else "."
     if not target:
@@ -111,7 +113,7 @@ async def list_directory(host: dict, secrets: dict, path: str = ".") -> List[Dic
                     "modified": float(attrs.mtime) if attrs.mtime else None,
                 })
             items.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
-            return items
+            return {"items": items, "resolved": resolved}
     except HostConnectError as e:
         _drop(host["id"])
         raise

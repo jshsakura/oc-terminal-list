@@ -2,7 +2,7 @@
 tmux 매니저: 전용 tmux 서버 소켓을 통한 영속 세션 관리
 
 설계 요점
-- 전용 소켓 (`-L iterminallist`) 으로 시스템의 다른 tmux와 격리
+- 전용 소켓 (`-L iterminallist-app`) 으로 시스템의 다른 tmux와 격리
 - 세션명 = UUID (불변), 사용자 표시명은 SQLite 별도 관리
 - 세션은 detached 상태로 생성되어 tmux 서버에 살아있음
 - 백엔드 재시작과 무관하게 tmux 서버가 살아있는 한 세션 보존
@@ -22,7 +22,7 @@ from typing import Deque, Dict, List, Optional, Tuple
 logger = logging.getLogger(__name__)
 
 
-TMUX_SOCKET_NAME = os.getenv("TMUX_SOCKET_NAME", "iterminallist")
+TMUX_SOCKET_NAME = os.getenv("TMUX_SOCKET_NAME", "iterminallist-app")
 TMUX_BIN = shutil.which("tmux") or "tmux"
 DEFAULT_HISTORY_LIMIT = int(os.getenv("TMUX_HISTORY_LIMIT", "100000"))
 
@@ -55,6 +55,12 @@ class TmuxManager:
     def _base_args(self) -> List[str]:
         return [TMUX_BIN, "-L", self.socket_name]
 
+    def _tmux_env(self) -> dict[str, str]:
+        env = os.environ.copy()
+        env.pop("TMUX", None)
+        env.pop("TMUX_PANE", None)
+        return env
+
     async def _run(self, *args: str, check: bool = True, capture: bool = True) -> tuple[int, str, str]:
         """tmux 명령 실행 → (rc, stdout, stderr).
 
@@ -69,6 +75,7 @@ class TmuxManager:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=self._tmux_env(),
             )
             stdout, stderr = await proc.communicate()
             out = stdout.decode("utf-8", errors="replace").strip()
@@ -79,6 +86,7 @@ class TmuxManager:
                 stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
+                env=self._tmux_env(),
             )
             await proc.wait()
             out = ""
@@ -141,6 +149,7 @@ class TmuxManager:
             ("mouse", "off"),
             ("window-size", "latest"),         # 다중 클라이언트시 최근 활성 사이즈
             ("default-terminal", "tmux-256color"),
+            ("aggressive-resize", "on"),       # 클라이언트 PTY 차원으로 즉시 리사이즈
             ("status", "off"),                 # 하단 상태바 숨김 (xterm.js 임베드 친화)
             ("renumber-windows", "on"),
             ("focus-events", "on"),
@@ -150,6 +159,22 @@ class TmuxManager:
         # truecolor override
         await self._run(
             "set-option", "-ag", "-t", session_id, "terminal-overrides", ",*256col*:Tc",
+            check=False,
+        )
+        # PgUp/PgDn 자동 분기 — pane 이 alt-buffer (vim/less 등) 면 그대로 통과,
+        # normal buffer (일반 셸) 면 copy-mode 진입해 페이지 단위 이동.
+        # `-eu` = 페이지 위로 + 마지막 도달 시 자동 종료. 모바일 우측 사이드바의
+        # PgUp/PgDn 버튼이 PTY 로 키 시퀀스를 보내면 여기서 처리됨.
+        await self._run(
+            "bind-key", "-T", "root", "PageUp",
+            "if-shell", "-F", "#{alternate_on}",
+            "send-keys PageUp", "copy-mode -eu",
+            check=False,
+        )
+        await self._run(
+            "bind-key", "-T", "root", "PageDown",
+            "if-shell", "-F", "#{alternate_on}",
+            "send-keys PageDown", "",
             check=False,
         )
 

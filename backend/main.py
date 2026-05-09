@@ -545,18 +545,33 @@ async def put_user_settings(
 
 @app.get("/api/tab-state")
 async def get_tab_state(username: str = Depends(verify_auth_token)):
-    """저장된 탭 전체 상태 조회 (순서/레이아웃/pane 구성 포함)."""
+    """저장된 탭 전체 상태 조회 (순서/레이아웃/pane 구성 포함).
+    updatedAt 은 기기 간 동기화 폴링에서 변경 감지용 ETag.
+    """
     state = await storage.get_tab_state(username)
     if not state:
-        return {"tabs": [], "activeTabId": None}
+        return {"tabs": [], "activeTabId": None, "updatedAt": None}
     raw_tabs = state.get("tabs")
     tabs = raw_tabs if isinstance(raw_tabs, list) else []
     raw_active_tab_id = state.get("activeTabId")
     active_tab_id = raw_active_tab_id if isinstance(raw_active_tab_id, str) else None
+    updated_at = state.get("updatedAt")
     sanitized_tabs, sanitized_active_tab_id = await _sanitize_tab_state(tabs, active_tab_id)
     if sanitized_tabs != tabs or sanitized_active_tab_id != active_tab_id:
-        await storage.save_tab_state(username, sanitized_tabs, sanitized_active_tab_id)
-    return {"tabs": sanitized_tabs, "activeTabId": sanitized_active_tab_id}
+        updated_at = await storage.save_tab_state(username, sanitized_tabs, sanitized_active_tab_id)
+    return {
+        "tabs": sanitized_tabs,
+        "activeTabId": sanitized_active_tab_id,
+        "updatedAt": updated_at,
+    }
+
+
+@app.get("/api/tab-state/version")
+async def get_tab_state_version(username: str = Depends(verify_auth_token)):
+    """폴링용 경량 엔드포인트 — updated_at 만 반환.
+    프론트엔드는 이 값이 자기가 마지막으로 본 값과 다를 때만 전체 GET 을 호출한다.
+    """
+    return {"updatedAt": await storage.get_tab_state_updated_at(username)}
 
 
 @app.put("/api/tab-state")
@@ -564,12 +579,14 @@ async def put_tab_state(
     request: TabStateRequest,
     username: str = Depends(verify_auth_token),
 ):
-    """탭 전체 상태 저장. 프론트엔드가 변경 시마다 (debounced) 호출."""
+    """탭 전체 상태 저장. 프론트엔드가 변경 시마다 (debounced) 호출.
+    응답의 updatedAt 을 클라이언트가 기억해 두면 자기 자신의 PUT 을 폴링에서 무시할 수 있다.
+    """
     if not isinstance(request.tabs, list):
         raise HTTPException(status_code=400, detail="tabs must be an array")
     tabs, active_tab_id = await _sanitize_tab_state(request.tabs, request.activeTabId)
-    await storage.save_tab_state(username, tabs, active_tab_id)
-    return {"status": "saved"}
+    updated_at = await storage.save_tab_state(username, tabs, active_tab_id)
+    return {"status": "saved", "updatedAt": updated_at}
 
 
 # ---------------------- 세션 API ----------------------
@@ -1075,8 +1092,14 @@ async def list_host_files(
     if not target:
         target = (host.get("start_path") or "").strip() or "."
     try:
-        items = await host_sftp.list_directory(host, secrets, target)
-        return {"items": items, "path": target, "host_id": host_id}
+        result = await host_sftp.list_directory(host, secrets, target)
+        # 하위 호환: 예전 클라이언트는 path 만 봐도 동작 — resolved 가 새로 추가된 절대경로.
+        return {
+            "items": result["items"],
+            "path": result["resolved"],
+            "resolved": result["resolved"],
+            "host_id": host_id,
+        }
     except Exception as e:
         logger.warning("SFTP list failed (%s, %s): %s", host_id, target, e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1128,6 +1151,7 @@ async def host_websocket(
     rows: int = Query(24),
     pane_index: int = Query(0, description="0 이면 base 세션, 1+ 면 base.N+1 세션"),
     cwd: Optional[str] = Query(None, description="이 연결에서 사용할 시작 디렉토리. 비우면 host.last_cwd → host.start_path 순으로 폴백."),
+    tmux_suffix: Optional[str] = Query(None, description="새 호스트 탭마다 base session 분리용 suffix. 영문/숫자/하이픈만, 32자 이내."),
 ):
     username = await verify_auth_token_ws(token) if token else None
     if not username:
@@ -1161,6 +1185,15 @@ async def host_websocket(
         except Exception as e:
             logger.warning("update_host_last_cwd failed (%s): %s", host_id, e)
 
+    # tmux_suffix sanitize — 영문/숫자/하이픈만, 32자 이내. 호스트 새 탭마다
+    # 이 값이 다르면 base session 자동 분리 (mobile-abc1, mobile-def2 ...).
+    safe_suffix: Optional[str] = None
+    if tmux_suffix:
+        import re as _re
+        s = _re.sub(r"[^a-zA-Z0-9-]", "", tmux_suffix)[:32]
+        if s:
+            safe_suffix = s
+
     # auth_method == 'tailscale' → tailscale ssh subprocess 로 연결 (SSH 키 불필요)
     if host.get("auth_method") == "tailscale":
         from host_manager import TailscaleHostBridge
@@ -1171,6 +1204,7 @@ async def host_websocket(
             rows=rows,
             pane_index=pane_index,
             cwd=effective_cwd,
+            tmux_suffix=safe_suffix,
         )
     else:
         bridge = HostBridge(
@@ -1183,6 +1217,7 @@ async def host_websocket(
             rows=rows,
             pane_index=pane_index,
             cwd=effective_cwd,
+            tmux_suffix=safe_suffix,
         )
     try:
         await bridge.run()
@@ -1592,23 +1627,72 @@ async def list_files(
     return {"items": items}
 
 
+# 워크스페이스 인덱스 캐시 — 모든 파일 path 를 한 번에 들고 와서 클라이언트가
+# 직접 fuzzy 매칭하도록 한다 (서버 왕복 제거 → 즉시 반응).
+# TTL 30s, 명시적 invalidate (mutating endpoint 들에서 호출) 가능.
+_FILE_INDEX_IGNORED = {".git", "node_modules", "dist", "build", "coverage", "__pycache__",
+                       ".venv", "venv", ".next", ".turbo", ".idea", ".vscode"}
+_FILE_INDEX_TTL = 30.0
+_FILE_INDEX_LIMIT = 50000  # 안전 cap — 워크스페이스가 미친듯이 크면 자르고 truncated 표시
+_file_index_cache: dict = {"ts": 0.0, "files": [], "truncated": False}
+
+
+def _build_file_index() -> dict:
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    files: list[str] = []
+    truncated = False
+    for current_root, dirs, names in os.walk(workspace_abs):
+        dirs[:] = [d for d in dirs if d not in _FILE_INDEX_IGNORED]
+        for n in names:
+            rel = os.path.relpath(os.path.join(current_root, n), workspace_abs).replace("\\", "/")
+            files.append(rel)
+            if len(files) >= _FILE_INDEX_LIMIT:
+                truncated = True
+                break
+        if truncated:
+            break
+    return {"ts": time.time(), "files": files, "truncated": truncated}
+
+
+def _invalidate_file_index() -> None:
+    """mutating endpoint 가 호출 — 다음 요청에서 강제 리빌드."""
+    _file_index_cache["ts"] = 0.0
+
+
+@app.get("/api/files/index")
+async def get_file_index(username: str = Depends(verify_auth_token)):
+    """워크스페이스 전체 파일 path 목록 (한번에). 클라이언트가 fuzzy 매칭 직접 수행.
+    응답 캐싱 (30s TTL) — 큰 워크스페이스에서도 두번째 호출부터는 즉시.
+    """
+    global _file_index_cache
+    now = time.time()
+    if now - _file_index_cache["ts"] > _FILE_INDEX_TTL:
+        _file_index_cache = await asyncio.to_thread(_build_file_index)
+    return {
+        "files": _file_index_cache["files"],
+        "truncated": _file_index_cache["truncated"],
+        "ts": _file_index_cache["ts"],
+    }
+
+
 @app.get("/api/files/search")
 async def search_files(
     q: str = Query("", min_length=0),
     limit: int = Query(200, ge=1, le=500),
     username: str = Depends(verify_auth_token),
 ):
+    """레거시 — 클라이언트가 인덱스를 못 받았을 때 폴백. 서버에서 substring 매칭.
+    신규 클라이언트는 /api/files/index 로 받은 캐시에서 직접 fuzzy 한다.
+    """
     query = q.strip().lower()
     if not query:
         return {"items": []}
 
     workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-    ignored = {".git", "node_modules", "dist", "build", "coverage", "__pycache__",
-               ".venv", "venv", ".next", ".turbo", ".idea", ".vscode"}
     matches = []
     try:
         for current_root, dirs, files in os.walk(workspace_abs):
-            dirs[:] = [d for d in dirs if d not in ignored]
+            dirs[:] = [d for d in dirs if d not in _FILE_INDEX_IGNORED]
             for file_name in files:
                 rel = os.path.relpath(os.path.join(current_root, file_name), workspace_abs).replace("\\", "/")
                 if query not in f"{file_name} {rel}".lower():
@@ -1666,6 +1750,7 @@ async def move_file(request: FileMoveRequest, username: str = Depends(verify_aut
         raise HTTPException(status_code=409, detail="Destination already exists")
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(src), str(dst))
+    _invalidate_file_index()
     return {"status": "moved", "source": request.source, "destination": request.destination}
 
 
@@ -1681,6 +1766,7 @@ async def create_file(request: FileCreateRequest, username: str = Depends(verify
         safe.touch()
     else:
         raise HTTPException(status_code=400, detail="Invalid type (must be 'file' or 'directory')")
+    _invalidate_file_index()
     return {"status": "created", "path": request.path, "type": request.type}
 
 
@@ -1693,6 +1779,7 @@ async def delete_file(path: str = Query(...), username: str = Depends(verify_aut
         shutil.rmtree(safe)
     else:
         safe.unlink()
+    _invalidate_file_index()
     return {"status": "deleted", "path": path}
 
 

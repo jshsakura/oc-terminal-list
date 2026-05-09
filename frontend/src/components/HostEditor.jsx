@@ -379,7 +379,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
 
           <Section title={t('appearance') || 'Appearance'}>
             <Field label={t('icon') || 'Icon'}>
-              <IconButton value={draft.icon || ''} onOpen={() => setIconPickerOpen(true)} t={t} />
+              <IconButton value={draft.icon || ''} colorIndex={draft.color_index} onOpen={() => setIconPickerOpen(true)} t={t} />
             </Field>
             <Field label={t('color') || 'Color'}>
               <ColorPicker value={draft.color_index} onChange={(v) => set('color_index', v)} />
@@ -519,33 +519,38 @@ const Toggle = ({ label, hint, checked, onChange }) => (
   </div>
 );
 
-const IconButton = ({ value, onOpen, t }) => (
-  <button
-    type="button"
-    onClick={onOpen}
-    style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: '8px',
-      height: '32px',
-      padding: `0 10px`,
-      background: color.mantle,
-      color: color.text,
-      border: `1px solid ${color.border}`,
-      borderRadius: radius.sm,
-      cursor: 'pointer',
-      fontFamily: 'inherit',
-      fontSize: fontSize['12'],
-      alignSelf: 'flex-start',
-    }}
-  >
-    <HostIcon value={value} size={16} />
-    <span style={{ color: value ? color.text : color.muted }}>
-      {value || (t?.('chooseIcon') || 'Choose icon…')}
-    </span>
-    <ChevronDown size={12} strokeWidth={1.8} style={{ color: color.muted }} />
-  </button>
-);
+const IconButton = ({ value, colorIndex, onOpen, t }) => {
+  const iconColor = color.dotPalette[(colorIndex || 0) % color.dotPalette.length];
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '8px',
+        height: '32px',
+        padding: `0 10px`,
+        background: color.mantle,
+        color: color.text,
+        border: `1px solid ${color.border}`,
+        borderRadius: radius.sm,
+        cursor: 'pointer',
+        fontFamily: 'inherit',
+        fontSize: fontSize['12'],
+        alignSelf: 'flex-start',
+      }}
+    >
+      <span style={{ color: iconColor, display: 'inline-flex', alignItems: 'center' }}>
+        <HostIcon value={value} size={16} />
+      </span>
+      <span style={{ color: value ? color.text : color.muted }}>
+        {value || (t?.('chooseIcon') || 'Choose icon…')}
+      </span>
+      <ChevronDown size={12} strokeWidth={1.8} style={{ color: color.muted }} />
+    </button>
+  );
+};
 
 const ColorPicker = ({ value, onChange }) => (
   <div style={{ display: 'flex', gap: space['1.5'], flexWrap: 'wrap' }}>

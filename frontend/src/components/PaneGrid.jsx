@@ -31,6 +31,7 @@ const PaneGrid = ({
   onFileSelect,
   onFolderSelect,
   onOpenTerminalAtFolder,
+  onScreenDump,
   language = 'en',
   t,
   viewportHeight,
@@ -75,6 +76,7 @@ const PaneGrid = ({
             allTabs={allTabs}
             onOpenTerminalAtFolder={onOpenTerminalAtFolder}
             onPaneCwdChange={onPaneCwdChange}
+            onScreenDump={onScreenDump}
             language={language}
             t={t}
             viewportHeight={viewportHeight}
@@ -120,6 +122,7 @@ const PaneGrid = ({
           allTabs={allTabs}
           onOpenTerminalAtFolder={onOpenTerminalAtFolder}
           onPaneCwdChange={onPaneCwdChange}
+          onScreenDump={onScreenDump}
           language={language}
           t={t}
           viewportHeight={viewportHeight}
@@ -132,7 +135,7 @@ const PaneGrid = ({
 const Pane = ({
   pane, paneIndex = 0, tab, hosts, allTabs = [], isFocused, isMultiple, onFocus, onClose, onActivate,
   isActive, layoutSignal, settings, updateSettings, cwd,
-  onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange,
+  onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   language, t, viewportHeight,
 }) => {
   const [hover, setHover] = useState(false);
@@ -230,6 +233,7 @@ const Pane = ({
               key={`${pane.id}:${refreshNonce}`}
               sessionId={pane.sessionId || pane.id}
               hostId={pane.hostId || undefined}
+              tmuxSuffix={tab?.tmuxSuffix || null}
               paneIndex={paneIndex}
               paneId={pane.id}
               tabId={tab?.id}
@@ -242,21 +246,22 @@ const Pane = ({
         )}
       </div>
 
-      {/* RightPanel — 항상 노출 */}
+      {/* RightPanel — 항상 노출. zIndex 가 pane X(5) 보다 높아야 패널 열렸을 때
+          pane X 가 패널을 뚫고 올라와 미스클릭 유발하는 걸 막음. */}
       <div
         style={{
           position: 'absolute',
           top: 0, right: 0, bottom: 0,
-          zIndex: 4,
+          zIndex: 6,
         }}
       >
         <RightPanel
           activeTabType={pane.hostId ? 'host' : 'local'}
           activeHostId={pane.hostId || null}
           gitContextPath={paneGitContext}
-          onFileSelect={onFileSelect}
+          onFileSelect={(path) => onFileSelect?.(path, pane.hostId || null)}
           onFolderSelect={onFolderSelect}
-          onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+          onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null)}
           onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
           settings={settings}
           updateSettings={updateSettings}
@@ -264,6 +269,12 @@ const Pane = ({
           t={t}
           viewportHeight={viewportHeight}
           disabled={isEmpty}
+          /* Terminal.jsx 가 등록한 sessionId 와 동일한 키 — local 은 sessionId, host 는 pane.id */
+          terminalKey={pane.sessionId || pane.id}
+          /* FileTree 시작 경로 — host 면 절대경로, local 이면 워크스페이스 상대경로.
+             탭별로 트리 루트를 좁혀서 다른 프로젝트가 섞여 보이지 않게 함. */
+          paneCwd={cwd || null}
+          onScreenDump={onScreenDump}
         />
       </div>
 

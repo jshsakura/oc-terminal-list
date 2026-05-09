@@ -675,12 +675,14 @@ class SQLiteStorage:
     # -------- tab state (탭 순서/레이아웃 전체 — 기기 간 완전 복원) --------
 
     async def get_tab_state(self, username: str) -> Optional[Dict]:
-        """저장된 탭 전체 상태. 없으면 None."""
+        """저장된 탭 전체 상태. 없으면 None.
+        updatedAt 은 다른 기기에서의 변경 감지를 위한 ETag 역할.
+        """
         def _get():
             conn = self._get_connection()
             try:
                 row = conn.execute(
-                    "SELECT tabs_json, active_tab_id FROM tab_state WHERE username = ?",
+                    "SELECT tabs_json, active_tab_id, updated_at FROM tab_state WHERE username = ?",
                     (username,),
                 ).fetchone()
                 if not row:
@@ -689,6 +691,7 @@ class SQLiteStorage:
                     return {
                         "tabs": json.loads(row["tabs_json"]),
                         "activeTabId": row["active_tab_id"],
+                        "updatedAt": row["updated_at"],
                     }
                 except (TypeError, ValueError):
                     return None
@@ -696,20 +699,36 @@ class SQLiteStorage:
                 conn.close()
         return await asyncio.to_thread(_get)
 
-    async def save_tab_state(self, username: str, tabs: list, active_tab_id: Optional[str]) -> None:
-        """탭 전체 상태 upsert."""
+    async def get_tab_state_updated_at(self, username: str) -> Optional[str]:
+        """탭 상태의 마지막 수정 시각만 가볍게 조회 (폴링용)."""
+        def _get():
+            conn = self._get_connection()
+            try:
+                row = conn.execute(
+                    "SELECT updated_at FROM tab_state WHERE username = ?",
+                    (username,),
+                ).fetchone()
+                return row["updated_at"] if row else None
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_get)
+
+    async def save_tab_state(self, username: str, tabs: list, active_tab_id: Optional[str]) -> str:
+        """탭 전체 상태 upsert. 새 updated_at 을 반환 — 호출자가 자기 변경의 버전을 기억하게."""
         tabs_json = json.dumps(tabs, ensure_ascii=False)
+        new_updated_at = datetime.utcnow().isoformat()
         def _save():
             conn = self._get_connection()
             try:
                 conn.execute(
                     "INSERT OR REPLACE INTO tab_state (username, tabs_json, active_tab_id, updated_at) VALUES (?, ?, ?, ?)",
-                    (username, tabs_json, active_tab_id, datetime.utcnow().isoformat()),
+                    (username, tabs_json, active_tab_id, new_updated_at),
                 )
                 conn.commit()
             finally:
                 conn.close()
         await asyncio.to_thread(_save)
+        return new_updated_at
 
     # -------- system config --------
 
