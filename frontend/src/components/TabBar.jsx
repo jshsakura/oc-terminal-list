@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
+import RailIconBtn from './common/RailIconBtn';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
@@ -120,19 +121,19 @@ const TabBar = ({
       <div style={styles.actionGroup}>
         {canSplit && !isMobile && (
           <>
-            <ActionBtn
+            <RailIconBtn
               icon={SquareSplitHorizontal}
               onClick={() => onSplit?.('h')}
               title={`${t?.('splitHorizontal') || 'Split right'} (Ctrl+\\)`}
             />
-            <ActionBtn
+            <RailIconBtn
               icon={SquareSplitVertical}
               onClick={() => onSplit?.('v')}
               title={`${t?.('splitVertical') || 'Split down'} (Ctrl+Shift+\\)`}
             />
           </>
         )}
-        <ActionBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
+        <RailIconBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
       </div>
 
       {contextMenu && (
@@ -370,51 +371,6 @@ const MenuItem = ({ onClick, children, danger }) => (
     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
   >
     {children}
-  </button>
-);
-
-const ActionBtn = ({ icon: Icon, onClick, title, tone }) => (
-  <button
-    onClick={onClick}
-    title={title}
-    style={{
-      // 큰 클릭 영역 — 시각적 호버 박스는 inner span 이 담당해 우측 활동바와 균형 맞춤.
-      width: '32px',
-      height: '32px',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'transparent',
-      border: 'none',
-      cursor: 'pointer',
-      color: tone === 'danger' ? color.danger : color.subtext,
-      padding: 0,
-    }}
-    onMouseEnter={(e) => {
-      const inner = e.currentTarget.firstElementChild;
-      if (inner) inner.style.background = color.surface0;
-      if (tone !== 'danger') e.currentTarget.style.color = color.text;
-    }}
-    onMouseLeave={(e) => {
-      const inner = e.currentTarget.firstElementChild;
-      if (inner) inner.style.background = 'transparent';
-      e.currentTarget.style.color = tone === 'danger' ? color.danger : color.subtext;
-    }}
-  >
-    <span
-      style={{
-        width: '24px',
-        height: '24px',
-        display: 'inline-flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'transparent',
-        borderRadius: '5px',
-        transition: 'background 150ms',
-      }}
-    >
-      <Icon size={15} strokeWidth={1.8} />
-    </span>
   </button>
 );
 

@@ -134,7 +134,24 @@ kind: 'send' | 'mod' | 'cmdInput' | 'paste' | 'sep'
 
 이 규칙을 깨면 사이드바와 탭바가 따로 노는 시각적 어긋남이 발생한다.
 
-## 11. 영속 세션 표시
+## 11. Rail 아이콘 버튼 (TabBar 상단 액션 / RightPanel 우측 활동바)
+
+`components/common/RailIconBtn.jsx` — 모든 chrome rail 의 단일 진실의 출처. TabBar 상단 액션 그룹과 RightPanel 우측 활동바가 같은 컴포넌트를 쓴다 (이전엔 두 곳이 따로 정의돼 미묘하게 어긋남).
+
+| 항목 | 값 |
+|---|---|
+| 외부 hit-area | 32×32 |
+| inner box | 24×24, `borderRadius: radius.sm` (6px) |
+| 아이콘 | `size={15}` `strokeWidth={1.8}` |
+| 색상 base | `color.subtext` |
+| 호버 | inner bg `surface0`, color `text` |
+| 활성 | inner bg `surface1`, color `accent` (border-left 같은 부속 표식 안 씀) |
+| 트랜지션 | `motion.fast` (120ms) |
+| 배지 | inner box 우상단, accent 배경, `mantle` ring 1.5px |
+
+다른 곳에서 chrome 버튼이 필요하면 이 컴포넌트를 쓰지, 새로 inline 으로 작성하지 않는다.
+
+## 12. 영속 세션 표시
 
 탭 라벨 우측에 작은 `Anchor` 아이콘 (10px, muted 컬러). 표시 조건:
 
@@ -143,7 +160,7 @@ kind: 'send' | 'mod' | 'cmdInput' | 'paste' | 'sep'
 
 App.jsx 가 `tabsWithMeta` 로 `isPersistent` derived field 를 미리 계산해 TabBar 에 넘긴다. TabBar 는 hosts 를 직접 알 필요 없음.
 
-## 12. 안 하는 것
+## 13. 안 하는 것
 
 - bottom-anchored popover (CommandInput 등) — safe-area + 모바일 키보드와 충돌.
 - 모달 안에 또 다른 모달의 별도 backdrop (z-index 카오스 방지).

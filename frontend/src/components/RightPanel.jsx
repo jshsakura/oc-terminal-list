@@ -5,6 +5,7 @@ import FileTree from './FileTree';
 import ChangesList from './ChangesList';
 import themes from '../styles/themes';
 import useGitChanges from '../hooks/useGitChanges';
+import RailIconBtn from './common/RailIconBtn';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
@@ -125,28 +126,15 @@ const RightPanel = ({
           const isActive = activePanel === id;
           const badge = id === 'git' && gitCount > 0 ? gitCount : null;
           return (
-            <button
+            <RailIconBtn
               key={id}
-              style={{
-                ...styles.actBtn,
-                background: isActive ? color.surface1 : 'transparent',
-                color: isActive ? color.accent : color.subtext,
-                borderLeft: isActive ? `2px solid ${color.accent}` : '2px solid transparent',
-                position: 'relative',
-                cursor: disabled ? 'not-allowed' : 'pointer',
-              }}
+              icon={Icon}
               onClick={() => !disabled && togglePanel(id)}
               title={badge ? `${label} (${badge})` : label}
-              onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; } }}
-              onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; } }}
-            >
-              <Icon size={16} strokeWidth={1.8} />
-              {badge && (
-                <span style={styles.badge}>
-                  {badge > 99 ? '99+' : badge}
-                </span>
-              )}
-            </button>
+              active={isActive}
+              disabled={disabled}
+              badge={badge}
+            />
           );
         })}
 
@@ -154,54 +142,17 @@ const RightPanel = ({
             화면 복사 / 텍스트로 보기 + 터미널 새로고침 */}
         {!disabled && terminalKey && (
           <>
-            <div style={{ alignSelf: 'stretch', height: '1px', background: color.border, margin: '6px 0' }} />
-            <button
-              style={{ ...styles.actBtn, background: 'transparent', color: color.subtext, cursor: 'pointer' }}
-              onClick={() => sendScroll(-1)}
-              title={t?.('pageUp') || 'Page up'}
-              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
-            >
-              <ChevronsUp size={16} strokeWidth={1.8} />
-            </button>
-            <button
-              style={{ ...styles.actBtn, background: 'transparent', color: color.subtext, cursor: 'pointer' }}
-              onClick={() => sendScroll(1)}
-              title={t?.('pageDown') || 'Page down'}
-              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
-            >
-              <ChevronsDown size={16} strokeWidth={1.8} />
-            </button>
-            <button
-              style={{ ...styles.actBtn, background: 'transparent', color: color.subtext, cursor: 'pointer' }}
-              onClick={handleDump}
-              title={t?.('viewAsText') || 'View as text (free select)'}
-              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
-            >
-              <FileText size={15} strokeWidth={1.8} />
-            </button>
+            <div style={styles.divider} />
+            <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} />
+            <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} />
+            <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} />
           </>
         )}
 
         {onRefreshTerminal && !disabled && (
           <>
-            <div style={{ alignSelf: 'stretch', height: '1px', background: color.border, margin: '6px 0' }} />
-            <button
-              style={{
-                ...styles.actBtn,
-                background: 'transparent',
-                color: color.subtext,
-                cursor: 'pointer',
-              }}
-              onClick={onRefreshTerminal}
-              title={t?.('refreshTerminal') || 'Reload terminal'}
-              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
-            >
-              <RefreshCw size={15} strokeWidth={1.8} />
-            </button>
+            <div style={styles.divider} />
+            <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} />
           </>
         )}
       </div>
@@ -394,40 +345,16 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    paddingTop: space['2'],
-    gap: '2px',
+    paddingTop: '2px',
+    gap: '0px',
     borderLeft: `1px solid ${color.border}`,
     background: color.mantle,
   },
-  actBtn: {
-    width: '32px',
-    height: '32px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    border: 'none',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    transition: 'background 120ms, color 120ms',
-    padding: 0,
-  },
-  badge: {
-    position: 'absolute',
-    top: '3px',
-    right: '3px',
-    minWidth: '14px',
-    height: '14px',
-    padding: '0 3px',
-    background: color.accent,
-    color: color.crust,
-    borderRadius: '7px',
-    fontSize: '9px',
-    fontWeight: 700,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    lineHeight: 1,
-    boxShadow: `0 0 0 1.5px ${color.mantle}`,
+  divider: {
+    alignSelf: 'stretch',
+    height: '1px',
+    background: color.border,
+    margin: '6px 4px',
   },
 };
 
