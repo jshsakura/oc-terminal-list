@@ -234,6 +234,7 @@ const Pane = ({
               sessionId={pane.sessionId || pane.id}
               hostId={pane.hostId || undefined}
               tmuxSuffix={tab?.tmuxSuffix || null}
+              tmuxSessionName={pane.tmuxSessionName || null}
               paneIndex={paneIndex}
               paneId={pane.id}
               tabId={tab?.id}

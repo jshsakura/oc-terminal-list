@@ -103,7 +103,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
     <div style={styles.overlay} onClick={onClose}>
       <style>{`.command-input-textarea::placeholder { color: ${color.muted}; }`}</style>
 
-      <div className="iterm-modal-card" style={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <header style={styles.header}>
           <div style={styles.title}>{t?.('commandInput') || 'Send command'}</div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>

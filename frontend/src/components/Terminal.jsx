@@ -16,7 +16,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
-const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null }) => {
+const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionName = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -185,8 +185,10 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, settings, onS
     const paneQS = paneIndex ? `&pane_index=${paneIndex}` : '';
     // tmuxSuffix — 호스트 탭마다 별도 base session 분리 (새 탭 = 새 작업공간)
     const sfxQS = (hostId && tmuxSuffix) ? `&tmux_suffix=${encodeURIComponent(tmuxSuffix)}` : '';
+    // tmuxSessionName — 명시적 영속 세션 attach (Home 의 Resume). 주어지면 base/suffix 무시.
+    const sessQS = (hostId && tmuxSessionName) ? `&tmux_session_name=${encodeURIComponent(tmuxSessionName)}` : '';
     const wsUrl = hostId
-      ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}`
+      ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}`
       : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
     
     const socket = new WebSocket(wsUrl);

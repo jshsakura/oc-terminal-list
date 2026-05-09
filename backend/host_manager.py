@@ -158,6 +158,7 @@ class HostBridge:
         pane_index: int = 0,
         cwd: Optional[str] = None,
         tmux_suffix: Optional[str] = None,
+        tmux_session_name: Optional[str] = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -169,6 +170,8 @@ class HostBridge:
         self.pane_index = max(int(pane_index or 0), 0)
         self.cwd = (cwd or "").strip() or None
         self.tmux_suffix = (tmux_suffix or "").strip() or None
+        # 명시적 세션명 override (Home 의 영속 세션 Resume 등). 주어지면 base/suffix/pane 계산 무시.
+        self.tmux_session_name = (tmux_session_name or "").strip() or None
         self.conn: Optional[asyncssh.SSHClientConnection] = None
         self.process: Optional[asyncssh.SSHClientProcess] = None
         self._closed = asyncio.Event()
@@ -183,11 +186,15 @@ class HostBridge:
         )
 
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
-        base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
-        # 호스트 새 탭 = 새 base session 분리. suffix 없으면 기존 동작 (옛 클라이언트 호환).
-        if self.tmux_suffix:
-            base_session = f"{base_session}-{self.tmux_suffix}"
-        tmux_session = effective_tmux_session(base_session, self.pane_index)
+        if self.tmux_session_name:
+            # 명시적 override — 기존 세션 그대로 attach (Home 의 Resume).
+            tmux_session = self.tmux_session_name
+        else:
+            base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+            # 호스트 새 탭 = 새 base session 분리. suffix 없으면 기존 동작 (옛 클라이언트 호환).
+            if self.tmux_suffix:
+                base_session = f"{base_session}-{self.tmux_suffix}"
+            tmux_session = effective_tmux_session(base_session, self.pane_index)
         # 우선순위: 호출자 cwd (브라우저로 고른 경로) > host.last_cwd > host.start_path
         start_path = (
             self.cwd
@@ -319,6 +326,7 @@ class TailscaleHostBridge:
         pane_index: int = 0,
         cwd: Optional[str] = None,
         tmux_suffix: Optional[str] = None,
+        tmux_session_name: Optional[str] = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -327,6 +335,7 @@ class TailscaleHostBridge:
         self.pane_index = max(int(pane_index or 0), 0)
         self.cwd = (cwd or "").strip() or None
         self.tmux_suffix = (tmux_suffix or "").strip() or None
+        self.tmux_session_name = (tmux_session_name or "").strip() or None
         self.process: Optional[ptyprocess.PtyProcess] = None
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
@@ -336,10 +345,13 @@ class TailscaleHostBridge:
         hostname = self.host["hostname"]
         target = f"{ssh_user}@{hostname}"
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
-        base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
-        if self.tmux_suffix:
-            base_session = f"{base_session}-{self.tmux_suffix}"
-        tmux_session = effective_tmux_session(base_session, self.pane_index)
+        if self.tmux_session_name:
+            tmux_session = self.tmux_session_name
+        else:
+            base_session = self.host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+            if self.tmux_suffix:
+                base_session = f"{base_session}-{self.tmux_suffix}"
+            tmux_session = effective_tmux_session(base_session, self.pane_index)
         start_path = (
             self.cwd
             or (self.host.get("last_cwd") or "").strip()

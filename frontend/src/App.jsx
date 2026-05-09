@@ -68,15 +68,20 @@ const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = nu
 // 탭이 서버 tab-state 로 복원될 땐 이 값이 보존되어 같은 세션을 다시 attach.
 const makeTmuxSuffix = () => Date.now().toString(36).slice(-6) + Math.floor(Math.random() * 36).toString(36);
 
-const makeHostTab = (host, cwd = null) => {
-  const pane = makePane({ hostId: host.id });
-  const suffix = makeTmuxSuffix();
+const makeHostTab = (host, cwd = null, tmuxSessionName = null) => {
+  // tmuxSessionName 이 주어지면 이미 존재하는 영속 세션을 명시적으로 attach (Resume).
+  // 이 경우 새 base/suffix 를 만들 필요 없고 pane 0 에 세션명을 직접 박는다.
+  const pane = makePane({
+    hostId: host.id,
+    ...(tmuxSessionName ? { tmuxSessionName } : null),
+  });
+  const suffix = tmuxSessionName ? null : makeTmuxSuffix();
   return {
     id: `host:${host.id}:${Date.now()}`,
     type: 'host',
     hostId: host.id,
     tmuxSuffix: suffix,
-    name: host.name,
+    name: tmuxSessionName ? `${host.name} · ${tmuxSessionName}` : host.name,
     icon: host.icon || null,
     color_index: host.color_index ?? 0,
     cwd: cwd ?? null,
@@ -274,14 +279,14 @@ function App() {
     setActiveTabId(tab.id);
   }, [settings.localName, settings.localIcon, settings.localColorIndex]);
 
-  const openHostTab = useCallback((host, cwd = null) => {
+  const openHostTab = useCallback((host, cwd = null, tmuxSessionName = null) => {
     if (!host || host.isLocal || host.id === 'local') {
       openLocalTab();
       return;
     }
     // 명시 cwd 가 없으면 host 설정의 start_path 로 폴백 → FileTree 가 그 경로에서 시작
     const initialCwd = cwd ?? host.start_path ?? null;
-    const tab = makeHostTab(host, initialCwd);
+    const tab = makeHostTab(host, initialCwd, tmuxSessionName);
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);
   }, [openLocalTab]);
@@ -1014,7 +1019,7 @@ function App() {
               onOpenSettings={() => setIsSettingsOpen(true)}
               tabs={tabsWithMeta}
               onJumpTab={(tabId) => setActiveTabId(tabId)}
-              onResumeHostSession={(host) => openHostTab(host)}
+              onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
               onTerminateHostSession={async (host, sessionName) => {
                 const token = localStorage.getItem('auth_token');
                 await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {

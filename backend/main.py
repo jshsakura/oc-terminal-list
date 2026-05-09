@@ -1152,6 +1152,7 @@ async def host_websocket(
     pane_index: int = Query(0, description="0 이면 base 세션, 1+ 면 base.N+1 세션"),
     cwd: Optional[str] = Query(None, description="이 연결에서 사용할 시작 디렉토리. 비우면 host.last_cwd → host.start_path 순으로 폴백."),
     tmux_suffix: Optional[str] = Query(None, description="새 호스트 탭마다 base session 분리용 suffix. 영문/숫자/하이픈만, 32자 이내."),
+    tmux_session_name: Optional[str] = Query(None, description="명시적 tmux 세션명 override (기존 영속 세션 Resume). 주어지면 base/suffix/pane 계산 무시."),
 ):
     username = await verify_auth_token_ws(token) if token else None
     if not username:
@@ -1194,6 +1195,15 @@ async def host_websocket(
         if s:
             safe_suffix = s
 
+    # tmux_session_name sanitize — tmux 세션명 허용 문자: 영문/숫자/하이픈/언더스코어/점, 64자 이내.
+    # 점 (.) 은 base.N+1 같은 분할 세션명을 그대로 받기 위함.
+    safe_session_name: Optional[str] = None
+    if tmux_session_name:
+        import re as _re
+        s = _re.sub(r"[^a-zA-Z0-9._-]", "", tmux_session_name)[:64]
+        if s:
+            safe_session_name = s
+
     # auth_method == 'tailscale' → tailscale ssh subprocess 로 연결 (SSH 키 불필요)
     if host.get("auth_method") == "tailscale":
         from host_manager import TailscaleHostBridge
@@ -1205,6 +1215,7 @@ async def host_websocket(
             pane_index=pane_index,
             cwd=effective_cwd,
             tmux_suffix=safe_suffix,
+            tmux_session_name=safe_session_name,
         )
     else:
         bridge = HostBridge(
@@ -1218,6 +1229,7 @@ async def host_websocket(
             pane_index=pane_index,
             cwd=effective_cwd,
             tmux_suffix=safe_suffix,
+            tmux_session_name=safe_session_name,
         )
     try:
         await bridge.run()
