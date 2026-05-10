@@ -58,6 +58,9 @@ backend/data/.vault-key
 # Claude
 .claude/
 
+# Sisyphus / agent runtime state
+.sisyphus/
+
 # Jupyter
 .ipynb_checkpoints/
 
