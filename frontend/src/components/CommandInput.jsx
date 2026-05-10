@@ -104,13 +104,20 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   const blockTouch = (e) => { e.preventDefault(); };
   return (
     <div
+      data-testid="command-input-overlay"
       style={{ ...styles.overlay, touchAction: 'none' }}
       onClick={onClose}
       onTouchMove={blockTouch}
     >
       <style>{`.command-input-textarea::placeholder { color: ${color.muted}; }`}</style>
 
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()}>
+      <div
+        role="dialog"
+        aria-label={t?.('commandInput') || 'Send command'}
+        style={styles.modal}
+        onClick={(e) => e.stopPropagation()}
+        onTouchMove={(e) => e.stopPropagation()}
+      >
         <header style={styles.header}>
           <div style={styles.title}>{t?.('commandInput') || 'Send command'}</div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
@@ -171,18 +178,20 @@ const styles = {
   overlay: {
     position: 'fixed',
     inset: 0,
+    padding: space['3'],
     background: color.scrim,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10001,
     backdropFilter: 'blur(2px)',
+    WebkitBackdropFilter: 'blur(2px)',
     fontFamily: font.sans,
   },
   modal: {
     width: '90%',
     maxWidth: '420px',
-    maxHeight: '80vh',
+    maxHeight: '80dvh',
     background: color.base,
     border: `1px solid ${color.border}`,
     borderRadius: radius.lg,
