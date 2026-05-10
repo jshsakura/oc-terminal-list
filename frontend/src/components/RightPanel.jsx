@@ -121,9 +121,22 @@ const RightPanel = ({
         </div>
       )}
 
-      {/* activity bar — pane 내부에서 항상 노출. close 버튼은 disabled 영향 안 받게 분리. */}
+      {/* activity bar — floating overlay. 터미널이 rail 뒤로 깔려 가로 공간 회수.
+          close 는 우상단 (파괴적이라 가장 멀리), 주 네비는 그 아래. */}
       <div style={styles.activityBar}>
-        {/* 1군: 주 네비 (Files/Git/Theme) — 빈 pane 일 땐 흐리게 + 클릭 무시. */}
+        {/* 1군: close — 항상 동작 (disabled 영향 안 받음). 우상단. */}
+        {onCloseTerminal && (
+          <RailIconBtn
+            icon={XSquare}
+            onClick={onCloseTerminal}
+            title={t?.('closeTerminal') || 'Close terminal'}
+            tone="danger"
+          />
+        )}
+
+        {onCloseTerminal && <div style={styles.divider} />}
+
+        {/* 2군: 주 네비 — 빈 pane 일 땐 흐리게 + 클릭 무시. */}
         <div style={{
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           opacity: disabled ? 0.4 : 1,
@@ -161,19 +174,6 @@ const RightPanel = ({
             </>
           )}
         </div>
-
-        {/* 2군: 파괴적 액션 — disabled 영향 받지 않음. 빈 pane (탭 닫기) 에서도 항상 동작. */}
-        {onCloseTerminal && (
-          <>
-            <div style={{ flex: 1, minHeight: '6px' }} />
-            <RailIconBtn
-              icon={XSquare}
-              onClick={onCloseTerminal}
-              title={t?.('closeTerminal') || 'Close terminal'}
-              tone="danger"
-            />
-          </>
-        )}
       </div>
     </div>
   );
@@ -365,9 +365,15 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     paddingTop: '2px',
+    paddingBottom: '2px',
     gap: '0px',
+    // floating overlay — 터미널이 뒤로 깔려도 버튼이 또렷하게 보이게:
+    // 반투명 mantle + 좌측 1px 라인 + 약한 그림자
+    background: `${color.mantle}cc`,    // ~80% alpha
+    backdropFilter: 'blur(6px)',
+    WebkitBackdropFilter: 'blur(6px)',
     borderLeft: `1px solid ${color.border}`,
-    background: color.mantle,
+    boxShadow: '-2px 0 8px rgba(0, 0, 0, 0.18)',
   },
   divider: {
     alignSelf: 'stretch',

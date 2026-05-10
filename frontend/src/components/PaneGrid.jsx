@@ -173,14 +173,12 @@ const Pane = ({
         minWidth: 0,
       }}
     >
-      {/* 본문 영역 — RightPanel 활동바 폭(36px)만큼 우측 패딩.
-          pane 닫기 버튼은 RightPanel 활동바 맨 아래로 옮김 (rail 일관성). */}
+      {/* 본문 영역 — 전체 폭. RightPanel rail 은 floating overlay 라 터미널이 그 뒤로 깔림. */}
       <div style={{
         flex: 1,
         position: 'relative',
         minWidth: 0,
         overflow: 'hidden',
-        marginRight: '36px',
       }}>
         {isEmpty ? (
           <EmptyPane

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Server, Monitor, Terminal as TerminalIcon, Anchor, Loader2,
-  ArrowRight, Power, AlertCircle,
+  ArrowRight, Power, AlertCircle, Play,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -57,17 +57,27 @@ const HomeSessions = ({
     tmuxHosts.forEach(fetchHostSessions);
   }, [tmuxHosts, fetchHostSessions]);
 
-  // 현재 탭에서 (host, baseSession) 로 점유 중인 세션명 set — 중복 노출 방지
+  // 현재 탭에서 점유 중인 tmux 세션명 set (host_id → Set<name>) — Resumable 에서 dedup.
+  // 점유 규칙 (host_manager.py 와 동기):
+  //   - pane.tmuxSessionName 있으면 (Resume 된 탭) 그 이름 그대로
+  //   - 없으면 base = host.remote_tmux_session (default 'mobile')
+  //     · tab.tmuxSuffix 있으면 base = `${base}-${suffix}`
+  //     · pane 0 → base, pane i>0 → `${base}.${i+1}`
   const occupiedByHost = useMemo(() => {
-    const map = new Map(); // host_id → Set<sessionName>
+    const map = new Map();
     tabs.forEach((tab) => {
       if (tab.type !== 'host' || !tab.hostId) return;
       const host = hosts.find((h) => h.id === tab.hostId);
-      const base = host?.remote_tmux_session || 'mobile';
-      // App.jsx 의 close 로직 참고: pane[0]=base, pane[i>0]=base.{i+1}
-      const panes = tab.panes || [{}];
+      const baseFromHost = host?.remote_tmux_session || 'mobile';
       const set = map.get(tab.hostId) || new Set();
-      panes.forEach((_, idx) => set.add(idx === 0 ? base : `${base}.${idx + 1}`));
+      (tab.panes || [{}]).forEach((pane, idx) => {
+        if (pane && pane.tmuxSessionName) {
+          set.add(pane.tmuxSessionName);
+          return;
+        }
+        const base = tab.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
+        set.add(idx === 0 ? base : `${base}.${idx + 1}`);
+      });
       map.set(tab.hostId, set);
     });
     return map;
@@ -178,7 +188,7 @@ const ResumableCard = ({ host, session, onResume, onTerminate, t }) => {
       <Body
         name={host.name}
         sub={`${session.name}${session.attached ? ` · ${t?.('attached') || 'attached'}` : ''}`}
-        rightAdornment={<Anchor size={11} strokeWidth={2} style={{ color: color.muted, opacity: 0.7, marginLeft: 4 }} />}
+        /* Anchor 제거 — Resumable 카드는 어차피 모두 영속, 중복 표식 */
       />
       {/* 카드 클릭 = 이어시작. 우측에 명시적 "완전 종료" 버튼만 (파괴적 액션은 별도 클릭 필요). */}
       <Actions>
@@ -266,7 +276,7 @@ const Badge = ({ tone, t }) => {
   return (
     <span style={{ ...S.badge, background: palette.bg, color: palette.fg, borderColor: palette.fg + '33' }}>
       {tone === 'open' && <TerminalIcon size={9} strokeWidth={2.4} />}
-      {tone === 'resumable' && <Anchor size={9} strokeWidth={2.4} />}
+      {tone === 'resumable' && <Play size={9} strokeWidth={2.4} />}
       {tone === 'loading' && <Loader2 size={9} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />}
       {tone === 'error' && <AlertCircle size={9} strokeWidth={2.4} />}
       {palette.label}
