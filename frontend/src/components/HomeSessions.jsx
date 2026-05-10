@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
-  Server, Monitor, Terminal as TerminalIcon, Anchor, Loader2,
-  ArrowRight, Power, AlertCircle, Play,
+  Server, Monitor, Anchor, Loader2,
+  ArrowRight, Trash2, AlertCircle,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -101,46 +101,64 @@ const HomeSessions = ({
         @keyframes home-spin { to { transform: rotate(360deg); } }
       `}</style>
 
-      <div style={S.head}>
-        <span style={S.title}>{t?.('sessions') || 'Sessions'}</span>
-        {anyLoading && (
-          <span style={S.headHint}>
-            <Loader2 size={11} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />
-            {t?.('loadingSessions') || 'Scanning hosts…'}
-          </span>
-        )}
-      </div>
+      {/* Open 그룹 — 현재 열려있는 탭 */}
+      {openTabs.length > 0 && (
+        <>
+          <div style={S.head}>
+            <span style={S.title}>{t?.('openSessions') || 'Open'}</span>
+          </div>
+          <div style={S.grid}>
+            {openTabs.map((tab) => (
+              <OpenCard key={`tab-${tab.id}`} tab={tab} onJump={() => onJumpTab?.(tab.id)} t={t} />
+            ))}
+          </div>
+        </>
+      )}
 
-      <div style={S.grid}>
-        {openTabs.map((tab) => (
-          <OpenCard key={`tab-${tab.id}`} tab={tab} onJump={() => onJumpTab?.(tab.id)} t={t} />
-        ))}
-
-        {tmuxHosts.map((host) => {
-          const entry = tmuxByHost[host.id];
-          if (!entry || entry.loading) {
-            return <SkeletonCard key={`skel-${host.id}`} host={host} t={t} />;
-          }
-          if (entry.error) {
-            return <ErrorCard key={`err-${host.id}`} host={host} message={entry.error} onRetry={() => fetchHostSessions(host)} t={t} />;
-          }
-          const occupied = occupiedByHost.get(host.id) || new Set();
-          const resumable = entry.sessions.filter((s) => !occupied.has(s.name));
-          return resumable.map((s) => (
-            <ResumableCard
-              key={`tmx-${host.id}-${s.name}`}
-              host={host}
-              session={s}
-              onResume={() => onResumeHostSession?.(host, s.name)}
-              onTerminate={async () => {
-                await onTerminateHostSession?.(host, s.name);
-                fetchHostSessions(host);
-              }}
-              t={t}
-            />
-          ));
-        })}
-      </div>
+      {/* Resumable 그룹 — 호스트의 영속 tmux 세션 (열려있지 않은 것) */}
+      {(hasAnyResumable || anyLoading) && (
+        <>
+          <div style={S.head}>
+            <span style={S.title}>{t?.('resumableSessions') || 'Resumable'}</span>
+            {anyLoading && (
+              <span style={S.headHint}>
+                <Loader2 size={11} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />
+                {t?.('loadingSessions') || 'Scanning hosts…'}
+              </span>
+            )}
+          </div>
+          <div style={S.grid}>
+            {tmuxHosts.map((host) => {
+              const entry = tmuxByHost[host.id];
+              if (!entry || entry.loading) {
+                return <SkeletonCard key={`skel-${host.id}`} host={host} t={t} />;
+              }
+              if (entry.error) {
+                return <ErrorCard key={`err-${host.id}`} host={host} message={entry.error} onRetry={() => fetchHostSessions(host)} t={t} />;
+              }
+              const occupied = occupiedByHost.get(host.id) || new Set();
+              const resumable = entry.sessions.filter((s) => !occupied.has(s.name));
+              return resumable.map((s) => (
+                <ResumableCard
+                  key={`tmx-${host.id}-${s.name}`}
+                  host={host}
+                  session={s}
+                  onResume={() => {
+                    // 디버깅 용 — 클릭이 실제로 호출되는지 콘솔에서 확인
+                    console.info('[HomeSessions] resume', { hostId: host.id, hostName: host.name, sessionName: s.name });
+                    onResumeHostSession?.(host, s.name);
+                  }}
+                  onTerminate={async () => {
+                    await onTerminateHostSession?.(host, s.name);
+                    fetchHostSessions(host);
+                  }}
+                  t={t}
+                />
+              ));
+            })}
+          </div>
+        </>
+      )}
     </section>
   );
 };
@@ -152,7 +170,6 @@ const OpenCard = ({ tab, onJump, t }) => {
   const Icon = tab.type === 'host' ? Server : Monitor;
   return (
     <Card accent={accent} onClick={onJump}>
-      <Badge tone="open" t={t} />
       <IconBox accent={accent}>
         <HostIcon value={tab.icon || ''} fallback={Icon} size={18} />
       </IconBox>
@@ -163,7 +180,6 @@ const OpenCard = ({ tab, onJump, t }) => {
           ? <Anchor size={11} strokeWidth={2} style={{ color: color.muted, opacity: 0.7, marginLeft: 4 }} />
           : null}
       />
-      {/* 카드 클릭 = jump. 우측 화살표는 시각 hint 만 (호버 시 강조). */}
       <ArrowRight size={14} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
     </Card>
   );
@@ -181,34 +197,31 @@ const ResumableCard = ({ host, session, onResume, onTerminate, t }) => {
   };
   return (
     <Card accent={accent} onClick={onResume}>
-      <Badge tone="resumable" t={t} />
       <IconBox accent={accent}>
         <HostIcon value={host.icon || ''} fallback={Server} size={18} />
       </IconBox>
       <Body
         name={host.name}
         sub={`${session.name}${session.attached ? ` · ${t?.('attached') || 'attached'}` : ''}`}
-        /* Anchor 제거 — Resumable 카드는 어차피 모두 영속, 중복 표식 */
       />
-      {/* 카드 클릭 = 이어시작. 우측에 명시적 "완전 종료" 버튼만 (파괴적 액션은 별도 클릭 필요). */}
+      {/* 카드 클릭 = 이어시작. 우측에 명시적 "완전 삭제" 버튼만 (파괴적 액션은 별도 클릭 필요). */}
       <Actions>
         <CardBtn
-          title={t?.('terminate') || 'Terminate (kill session)'}
+          title={t?.('terminate') || 'Delete (kill session)'}
           tone="danger"
           onClick={handleTerminate}
         >
-          <Power size={13} strokeWidth={2.2} />
+          <Trash2 size={13} strokeWidth={2} />
         </CardBtn>
       </Actions>
     </Card>
   );
 };
 
-const SkeletonCard = ({ host, t }) => {
+const SkeletonCard = ({ host }) => {
   const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
   return (
     <div style={{ ...S.card, ...S.cardSkel, borderColor: color.border, cursor: 'default' }} aria-busy>
-      <Badge tone="loading" t={t} />
       <IconBox accent={accent} subdued>
         <HostIcon value={host.icon || ''} fallback={Server} size={18} />
       </IconBox>
@@ -221,26 +234,22 @@ const SkeletonCard = ({ host, t }) => {
   );
 };
 
-const ErrorCard = ({ host, message, onRetry, t }) => {
-  const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
-  return (
-    <Card accent={color.danger} onClick={onRetry}>
-      <Badge tone="error" t={t} />
-      <IconBox accent={color.danger}>
-        <AlertCircle size={18} strokeWidth={2} />
-      </IconBox>
-      <Body
-        name={host.name}
-        sub={`${t?.('cannotReach') || 'Cannot reach host'} · ${message}`}
-      />
-      <Actions>
-        <CardBtn title={t?.('retry') || 'Retry'} onClick={(e) => { e.stopPropagation(); onRetry?.(); }}>
-          <ArrowRight size={13} strokeWidth={2.2} />
-        </CardBtn>
-      </Actions>
-    </Card>
-  );
-};
+const ErrorCard = ({ host, message, onRetry, t }) => (
+  <Card accent={color.danger} onClick={onRetry}>
+    <IconBox accent={color.danger}>
+      <AlertCircle size={18} strokeWidth={2} />
+    </IconBox>
+    <Body
+      name={host.name}
+      sub={`${t?.('cannotReach') || 'Cannot reach host'} · ${message}`}
+    />
+    <Actions>
+      <CardBtn title={t?.('retry') || 'Retry'} onClick={(e) => { e.stopPropagation(); onRetry?.(); }}>
+        <ArrowRight size={13} strokeWidth={2.2} />
+      </CardBtn>
+    </Actions>
+  </Card>
+);
 
 // ─── Atoms ───────────────────────────────────────────────────────────────
 
@@ -263,24 +272,6 @@ const Card = ({ children, accent, onClick }) => {
     >
       {children}
     </div>
-  );
-};
-
-const Badge = ({ tone, t }) => {
-  const palette = {
-    open:      { bg: color.accentSubtle, fg: color.accent, label: t?.('badgeOpen') || 'OPEN' },
-    resumable: { bg: 'transparent',      fg: color.subtext, label: t?.('badgeResumable') || 'RESUME' },
-    loading:   { bg: 'transparent',      fg: color.muted,   label: t?.('badgeLoading') || 'LOADING' },
-    error:     { bg: 'transparent',      fg: color.danger,  label: t?.('badgeError') || 'ERROR' },
-  }[tone];
-  return (
-    <span style={{ ...S.badge, background: palette.bg, color: palette.fg, borderColor: palette.fg + '33' }}>
-      {tone === 'open' && <TerminalIcon size={9} strokeWidth={2.4} />}
-      {tone === 'resumable' && <Play size={9} strokeWidth={2.4} />}
-      {tone === 'loading' && <Loader2 size={9} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />}
-      {tone === 'error' && <AlertCircle size={9} strokeWidth={2.4} />}
-      {palette.label}
-    </span>
   );
 };
 
@@ -355,6 +346,7 @@ const S = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
+    marginTop: space['2'],
   },
   title: {
     fontSize: fontSize['11'],
@@ -392,22 +384,6 @@ const S = {
   },
   cardSkel: {
     background: color.surface0,
-  },
-  badge: {
-    position: 'absolute',
-    top: '6px',
-    right: '8px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '3px',
-    height: '15px',
-    padding: '0 5px',
-    fontSize: '9px',
-    fontFamily: font.mono,
-    fontWeight: 600,
-    letterSpacing: '0.06em',
-    border: '1px solid',
-    borderRadius: '3px',
   },
   iconBox: {
     width: '36px',

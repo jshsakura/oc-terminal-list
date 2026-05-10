@@ -367,13 +367,8 @@ const styles = {
     paddingTop: '2px',
     paddingBottom: '2px',
     gap: '0px',
-    // floating overlay — 터미널이 뒤로 깔려도 버튼이 또렷하게 보이게:
-    // 반투명 mantle + 좌측 1px 라인 + 약한 그림자
-    background: `${color.mantle}cc`,    // ~80% alpha
-    backdropFilter: 'blur(6px)',
-    WebkitBackdropFilter: 'blur(6px)',
+    background: color.mantle,
     borderLeft: `1px solid ${color.border}`,
-    boxShadow: '-2px 0 8px rgba(0, 0, 0, 0.18)',
   },
   divider: {
     alignSelf: 'stretch',
