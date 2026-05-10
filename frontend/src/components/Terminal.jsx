@@ -13,19 +13,12 @@ import { Loader2, MonitorSmartphone, PowerOff } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
+import { tokens } from '../styles/tokens';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
-const withAlpha = (hex, alpha, fallback) => {
-  const match = /^#?([0-9a-f]{6})$/i.exec(hex || '');
-  if (!match) return fallback;
-  const value = parseInt(match[1], 16);
-  const r = (value >> 16) & 255;
-  const g = (value >> 8) & 255;
-  const b = value & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-};
+const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
 const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null }) => {
   const { t } = useTranslation(settings.language);
@@ -880,45 +873,21 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       {/* takeover 오버레이 — 다른 기기/탭이 같은 tmux 세션을 가져갔을 때.
           이 단말은 가만히 멈춰 있고, 사용자가 버튼을 눌러야만 다시 attach. */}
       {evicted && (
-        <div
-          style={{
-            ...styles.statusOverlay,
-            backgroundColor: withAlpha(themeUi.base, 0.93, themeUi.scrim),
-            backdropFilter: 'blur(2px)',
-            WebkitBackdropFilter: 'blur(2px)',
-            zIndex: 12,
-            padding: '24px',
-            gap: '16px',
-          }}
-        >
-          <div style={{
-            width: '52px', height: '52px', borderRadius: '12px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: themeUi['accent-subtle'],
-            border: `1px solid ${themeUi['accent-border']}`,
-            color: themeUi.accent,
-          }}>
-            <MonitorSmartphone size={26} strokeWidth={1.8} />
-          </div>
-          <div style={{
-            color: themeUi.text,
-            fontSize: '15px',
-            fontWeight: 600,
-            textAlign: 'center',
-            letterSpacing: '0.01em',
-          }}>
-            {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
-          </div>
-          <div style={{
-            color: themeUi.subtext,
-            fontSize: '12.5px',
-            textAlign: 'center',
-            maxWidth: '360px',
-            lineHeight: 1.5,
-          }}>
-            {t('takenOverBody') ||
-              'tmux 세션은 한 번에 한 화면에서만 안정적으로 보입니다. 이 화면으로 다시 가져오면 저쪽이 같은 안내로 바뀝니다.'}
-          </div>
+        <div style={styles.modalOverlay(themeUi, 12)}>
+          <div style={styles.modalCard(themeUi)}>
+            <header style={styles.modalHeader(themeUi)}>
+              <div style={styles.iconTile(themeUi)}>
+                <MonitorSmartphone size={18} strokeWidth={1.8} />
+              </div>
+              <div style={styles.modalTitle(themeUi)}>
+                {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
+              </div>
+            </header>
+            <div style={styles.modalBody(themeUi)}>
+              {t('takenOverBody') ||
+                'tmux 세션은 한 번에 한 화면에서만 안정적으로 보입니다. 이 화면으로 다시 가져오면 저쪽이 같은 안내로 바뀝니다.'}
+            </div>
+            <footer style={styles.modalFooter(themeUi)}>
           <button
             type="button"
             onClick={() => {
@@ -935,66 +904,35 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
               }
             }}
             style={{
-              marginTop: '4px',
-              padding: '9px 18px',
-              borderRadius: '7px',
-              border: `1px solid ${themeUi['accent-border']}`,
+              ...styles.primaryModalButton(themeUi),
               background: themeUi.accent,
               color: themeUi.crust,
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              letterSpacing: '0.01em',
-              boxShadow: `0 6px 18px ${withAlpha(themeUi.accent, 0.28, 'rgba(0,0,0,0.25)')}`,
             }}
           >
             {t('takeOver') || '내가 가져오기'}
           </button>
+            </footer>
+          </div>
         </div>
       )}
 
       {/* shell 종료 오버레이 — 사용자가 `exit` 등으로 셸을 끝내 tmux 세션이 사라진 상태.
           자동 재생성 X. Restart 누르면 새 셸 spawn. */}
       {ended && !evicted && (
-        <div
-          style={{
-            ...styles.statusOverlay,
-            backgroundColor: withAlpha(themeUi.base, 0.93, themeUi.scrim),
-            backdropFilter: 'blur(2px)',
-            WebkitBackdropFilter: 'blur(2px)',
-            zIndex: 12,
-            padding: '24px',
-            gap: '16px',
-          }}
-        >
-          <div style={{
-            width: '52px', height: '52px', borderRadius: '12px',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: themeUi['accent-subtle'],
-            border: `1px solid ${themeUi['accent-border']}`,
-            color: themeUi.accent,
-          }}>
-            <PowerOff size={26} strokeWidth={1.8} />
-          </div>
-          <div style={{
-            color: themeUi.text,
-            fontSize: '15px',
-            fontWeight: 600,
-            textAlign: 'center',
-            letterSpacing: '0.01em',
-          }}>
-            {t('shellEndedTitle') || '셸이 종료되었습니다'}
-          </div>
-          <div style={{
-            color: themeUi.subtext,
-            fontSize: '12.5px',
-            textAlign: 'center',
-            maxWidth: '360px',
-            lineHeight: 1.5,
-          }}>
-            {t('shellEndedBody') || '터미널 안에서 exit 을 입력하면 tmux 세션이 사라집니다. 같은 슬롯에서 새 셸로 다시 시작할 수 있습니다.'}
-          </div>
+        <div style={styles.modalOverlay(themeUi, 12)}>
+          <div style={styles.modalCard(themeUi)}>
+            <header style={styles.modalHeader(themeUi)}>
+              <div style={styles.iconTile(themeUi)}>
+                <PowerOff size={18} strokeWidth={1.8} />
+              </div>
+              <div style={styles.modalTitle(themeUi)}>
+                {t('shellEndedTitle') || '셸이 종료되었습니다'}
+              </div>
+            </header>
+            <div style={styles.modalBody(themeUi)}>
+              {t('shellEndedBody') || '터미널 안에서 exit 을 입력하면 tmux 세션이 사라집니다. 같은 슬롯에서 새 셸로 다시 시작할 수 있습니다.'}
+            </div>
+            <footer style={styles.modalFooter(themeUi)}>
           <button
             type="button"
             onClick={() => {
@@ -1008,22 +946,15 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
               }
             }}
             style={{
-              marginTop: '4px',
-              padding: '9px 18px',
-              borderRadius: '7px',
-              border: `1px solid ${themeUi['accent-border']}`,
+              ...styles.primaryModalButton(themeUi),
               background: themeUi.accent,
               color: themeUi.crust,
-              fontSize: '13px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              letterSpacing: '0.01em',
-              boxShadow: `0 6px 18px ${withAlpha(themeUi.accent, 0.28, 'rgba(0,0,0,0.25)')}`,
             }}
           >
             {t('restartShell') || '새 셸 시작'}
           </button>
+            </footer>
+          </div>
         </div>
       )}
 
@@ -1071,104 +1002,63 @@ const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
     <div
       onClick={onCancel}
       style={{
-        position: 'fixed',
-        top: 0, left: 0, right: 0,
-        // 100dvh = visible viewport (iOS 키보드 올라오면 그만큼 작아짐).
-        // bottom 안 박고 height 만 설정 → 키보드 위로 자동 줄어듦. 모달이 키보드 뒤로 안 늘어남.
-        height: '100dvh',
-        background: themeUi.scrim,
-        backdropFilter: 'blur(3px)', WebkitBackdropFilter: 'blur(3px)',
-        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
-        zIndex: 10050, padding: '24px 24px 0',
-        overflowY: 'auto',
+        ...styles.fixedModalOverlay(themeUi, 10050),
       }}
     >
       <form
         onClick={(e) => e.stopPropagation()}
         onSubmit={(e) => { e.preventDefault(); onSubmit(values); }}
         style={{
-          width: '100%', maxWidth: 380,
-          background: themeUi.base,
-          color: themeUi.text,
-          border: `1px solid ${themeUi.border}`,
-          borderRadius: 10,
-          boxShadow: '0 24px 60px rgba(0,0,0,0.55)',
-          display: 'flex', flexDirection: 'column', gap: 12, padding: 20,
-          fontFamily: 'inherit',
+          ...styles.modalCard(themeUi),
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 40, height: 40, borderRadius: 8,
-            background: themeUi['accent-subtle'],
-            border: `1px solid ${themeUi['accent-border']}`,
-            color: themeUi.accent,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 16, fontWeight: 700, letterSpacing: '0.02em',
-          }}>2FA</div>
-          <div style={{ fontSize: 15, fontWeight: 600 }}>
+        <header style={styles.modalHeader(themeUi)}>
+          <div style={styles.iconTile(themeUi)}>2FA</div>
+          <div style={styles.modalTitle(themeUi)}>
             {prompt.name || (t('authPromptTitle') || 'Additional verification')}
           </div>
-        </div>
-        {prompt.instructions && (
-          <div style={{
-            color: themeUi.subtext,
-            fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-line',
-          }}>
-            {prompt.instructions}
-          </div>
-        )}
-        {(prompt.prompts || []).map((p, i) => (
-          <label key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, color: themeUi.subtext }}>
-              {p.prompt || (t('authPromptCode') || 'Code')}
-            </span>
-            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <input
-                type={p.echo ? 'text' : 'password'}
-                inputMode="text"
-                autoFocus={i === 0}
-                autoComplete="one-time-code"
-                value={values[i] || ''}
-                onChange={(e) => setValues((v) => v.map((x, j) => (j === i ? e.target.value : x)))}
-                style={{
-                  flex: 1, height: 40, padding: '0 12px',
-                  background: themeUi.mantle,
-                  color: themeUi.text,
-                  border: `1px solid ${themeUi.border}`,
-                  borderRadius: 6, outline: 'none', fontSize: 15,
-                  fontFamily: 'inherit',
-                }}
-              />
-              {i === 0 && (
-                <button
-                  type="button"
-                  onClick={pasteFirst}
-                  title={t('paste') || 'Paste'}
-                  style={{
-                    marginLeft: 6, height: 40, padding: '0 12px',
-                    background: themeUi.surface1,
-                    color: themeUi.text,
-                    border: `1px solid ${themeUi.border}`,
-                    borderRadius: 6, fontSize: 12, fontWeight: 500,
-                    cursor: 'pointer', fontFamily: 'inherit',
-                  }}
-                >
-                  {t('paste') || 'Paste'}
-                </button>
-              )}
+        </header>
+        <div style={styles.modalBody(themeUi, 'left')}>
+          {prompt.instructions && (
+            <div style={{ whiteSpace: 'pre-line' }}>
+              {prompt.instructions}
             </div>
-          </label>
-        ))}
-        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          )}
+          {(prompt.prompts || []).map((p, i) => (
+            <label key={i} style={styles.promptField}>
+              <span style={styles.promptLabel(themeUi)}>
+                {p.prompt || (t('authPromptCode') || 'Code')}
+              </span>
+              <div style={styles.promptInputRow}>
+                <input
+                  type={p.echo ? 'text' : 'password'}
+                  inputMode="text"
+                  autoFocus={i === 0}
+                  autoComplete="one-time-code"
+                  value={values[i] || ''}
+                  onChange={(e) => setValues((v) => v.map((x, j) => (j === i ? e.target.value : x)))}
+                  style={styles.promptInput(themeUi)}
+                />
+                {i === 0 && (
+                  <button
+                    type="button"
+                    onClick={pasteFirst}
+                    title={t('paste') || 'Paste'}
+                    style={styles.promptPasteButton(themeUi)}
+                  >
+                    {t('paste') || 'Paste'}
+                  </button>
+                )}
+              </div>
+            </label>
+          ))}
+        </div>
+        <footer style={styles.modalFooter(themeUi)}>
           <button
             type="button"
             onClick={onCancel}
             style={{
-              flex: 1, height: 36, borderRadius: 6,
-              border: `1px solid ${themeUi.border}`,
-              background: 'transparent', color: themeUi.text,
-              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+              ...styles.secondaryModalButton(themeUi),
             }}
           >
             {t('cancel') || 'Cancel'}
@@ -1176,16 +1066,14 @@ const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
           <button
             type="submit"
             style={{
-              flex: 1, height: 36, borderRadius: 6,
-              border: `1px solid ${themeUi.accent}`,
+              ...styles.primaryModalButton(themeUi),
               background: themeUi.accent,
               color: themeUi.crust,
-              fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             }}
           >
             {t('authPromptSubmit') || 'Continue'}
           </button>
-        </div>
+        </footer>
       </form>
     </div>
   );
@@ -1204,6 +1092,155 @@ const styles = {
     justifyContent: 'center',
     zIndex: 10,
   },
+  modalOverlay: (themeUi, zIndex) => ({
+    position: 'absolute',
+    inset: 0,
+    padding: space['3'],
+    background: themeUi.scrim,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex,
+    backdropFilter: 'blur(2px)',
+    WebkitBackdropFilter: 'blur(2px)',
+    fontFamily: 'inherit',
+  }),
+  fixedModalOverlay: (themeUi, zIndex) => ({
+    position: 'fixed',
+    inset: 0,
+    padding: space['3'],
+    background: themeUi.scrim,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex,
+    backdropFilter: 'blur(2px)',
+    WebkitBackdropFilter: 'blur(2px)',
+    fontFamily: 'inherit',
+  }),
+  modalCard: (themeUi) => ({
+    width: '90%',
+    maxWidth: '420px',
+    maxHeight: '80dvh',
+    background: themeUi.base,
+    color: themeUi.text,
+    border: `1px solid ${themeUi.border}`,
+    borderRadius: radius.lg,
+    boxShadow: shadow.lg,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    fontFamily: 'inherit',
+  }),
+  modalHeader: (themeUi) => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['2'],
+    padding: `${space['1.5']} ${space['3']}`,
+    borderBottom: `1px solid ${themeUi.border}`,
+  }),
+  iconTile: (themeUi) => ({
+    width: '24px',
+    height: '24px',
+    borderRadius: radius.sm,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: themeUi.surface1,
+    border: `1px solid ${themeUi.border}`,
+    color: themeUi.text,
+    fontSize: '11px',
+    fontWeight: 600,
+    flexShrink: 0,
+  }),
+  modalTitle: (themeUi) => ({
+    color: themeUi.text,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.semibold,
+    letterSpacing: '0.01em',
+  }),
+  modalBody: (themeUi, textAlign = 'center') => ({
+    flex: 1,
+    padding: `${space['2']} ${space['3']}`,
+    color: themeUi.subtext,
+    fontSize: fontSize['12'],
+    lineHeight: lineHeight.normal,
+    textAlign,
+    overflow: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['2'],
+  }),
+  modalFooter: (themeUi) => ({
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['2'],
+    padding: `${space['1.5']} ${space['3']}`,
+    borderTop: `1px solid ${themeUi.border}`,
+    background: themeUi.mantle,
+  }),
+  primaryModalButton: (themeUi) => ({
+    flex: 1,
+    height: '36px',
+    borderRadius: radius.sm,
+    border: `1px solid ${themeUi.accent}`,
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  }),
+  secondaryModalButton: (themeUi) => ({
+    flex: 1,
+    height: '36px',
+    borderRadius: radius.sm,
+    border: `1px solid ${themeUi.border}`,
+    background: 'transparent',
+    color: themeUi.text,
+    fontSize: '13px',
+    fontWeight: 500,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  }),
+  promptField: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['1.5'],
+  },
+  promptLabel: (themeUi) => ({
+    fontSize: fontSize['12'],
+    color: themeUi.subtext,
+  }),
+  promptInputRow: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1.5'],
+  },
+  promptInput: (themeUi) => ({
+    flex: 1,
+    minWidth: 0,
+    height: '40px',
+    padding: `0 ${space['3']}`,
+    background: themeUi.mantle,
+    color: themeUi.text,
+    border: `1px solid ${themeUi.border}`,
+    borderRadius: radius.sm,
+    outline: 'none',
+    fontSize: fontSize['14'],
+    fontFamily: 'inherit',
+  }),
+  promptPasteButton: (themeUi) => ({
+    height: '40px',
+    padding: `0 ${space['3']}`,
+    background: themeUi.surface1,
+    color: themeUi.text,
+    border: `1px solid ${themeUi.border}`,
+    borderRadius: radius.sm,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  }),
 };
 
 export default memo(TerminalComponent);
