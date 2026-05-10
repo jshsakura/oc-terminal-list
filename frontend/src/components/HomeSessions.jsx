@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Server, Monitor, Terminal as TerminalIcon, Anchor, Loader2,
-  ArrowRight, Play, Square, AlertCircle,
+  ArrowRight, Power, AlertCircle,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -153,17 +153,22 @@ const OpenCard = ({ tab, onJump, t }) => {
           ? <Anchor size={11} strokeWidth={2} style={{ color: color.muted, opacity: 0.7, marginLeft: 4 }} />
           : null}
       />
-      <Actions>
-        <CardBtn title={t?.('jumpToTab') || 'Jump'} onClick={onJump} primary>
-          <ArrowRight size={13} strokeWidth={2.2} />
-        </CardBtn>
-      </Actions>
+      {/* 카드 클릭 = jump. 우측 화살표는 시각 hint 만 (호버 시 강조). */}
+      <ArrowRight size={14} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
     </Card>
   );
 };
 
 const ResumableCard = ({ host, session, onResume, onTerminate, t }) => {
   const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
+  const handleTerminate = (e) => {
+    e.stopPropagation();
+    const msg = (t?.('confirmTerminateSession') || 'Terminate "{name}" on {host}? Work in this tmux session will be lost.')
+      .replace('{name}', session.name)
+      .replace('{host}', host.name);
+    if (!window.confirm(msg)) return;
+    onTerminate?.();
+  };
   return (
     <Card accent={accent} onClick={onResume}>
       <Badge tone="resumable" t={t} />
@@ -175,12 +180,14 @@ const ResumableCard = ({ host, session, onResume, onTerminate, t }) => {
         sub={`${session.name}${session.attached ? ` · ${t?.('attached') || 'attached'}` : ''}`}
         rightAdornment={<Anchor size={11} strokeWidth={2} style={{ color: color.muted, opacity: 0.7, marginLeft: 4 }} />}
       />
+      {/* 카드 클릭 = 이어시작. 우측에 명시적 "완전 종료" 버튼만 (파괴적 액션은 별도 클릭 필요). */}
       <Actions>
-        <CardBtn title={t?.('resume') || 'Resume'} onClick={(e) => { e.stopPropagation(); onResume?.(); }} primary>
-          <Play size={13} strokeWidth={2.2} />
-        </CardBtn>
-        <CardBtn title={t?.('terminate') || 'Terminate'} tone="danger" onClick={(e) => { e.stopPropagation(); onTerminate?.(); }}>
-          <Square size={12} strokeWidth={2.2} />
+        <CardBtn
+          title={t?.('terminate') || 'Terminate (kill session)'}
+          tone="danger"
+          onClick={handleTerminate}
+        >
+          <Power size={13} strokeWidth={2.2} />
         </CardBtn>
       </Actions>
     </Card>
