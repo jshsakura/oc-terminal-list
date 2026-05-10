@@ -1,8 +1,13 @@
-import { Suspense, lazy, useState, useEffect } from 'react';
-import { X, Plus, Server, Terminal as TerminalIcon, Copy } from 'lucide-react';
+import { Suspense, lazy, useState, useEffect, useRef } from 'react';
+import {
+  X, Plus, Server, Terminal as TerminalIcon, Monitor, Copy, Plug, Anchor,
+} from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import themes from '../styles/themes';
+import { buildThemeUI } from '../styles/themeUI';
 import RightPanel from './RightPanel';
-import HomeDashboard, { HostRow } from './HomeDashboard';
+import { HostRow } from './HomeDashboard';
+import HomeSessions from './HomeSessions';
 import HostIcon from '../utils/hostIcons';
 import useActiveTerminalCwd from '../hooks/useActiveTerminalCwd';
 
@@ -33,6 +38,12 @@ const PaneGrid = ({
   onFolderSelect,
   onOpenTerminalAtFolder,
   onScreenDump,
+  /* EmptyPane Resumable 카드의 종료/재attach 흐름 — App 레벨 콜백을 그대로 통과. */
+  onConfirm,
+  onNotify,
+  onResumeHostSession,
+  onTerminateHostSession,
+  busyTabIds,
   language = 'en',
   t,
   viewportHeight,
@@ -79,6 +90,11 @@ const PaneGrid = ({
             onOpenTerminalAtFolder={onOpenTerminalAtFolder}
             onPaneCwdChange={onPaneCwdChange}
             onScreenDump={onScreenDump}
+            onConfirm={onConfirm}
+            onNotify={onNotify}
+            onResumeHostSession={onResumeHostSession}
+            onTerminateHostSession={onTerminateHostSession}
+            busyTabIds={busyTabIds}
             language={language}
             t={t}
             viewportHeight={viewportHeight}
@@ -139,6 +155,7 @@ const Pane = ({
   pane, paneIndex = 0, tab, hosts, allTabs = [], isFocused, isMultiple, onFocus, onClose, onActivate,
   isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
+  onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
   language, t, viewportHeight,
 }) => {
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
@@ -154,8 +171,19 @@ const Pane = ({
     onPaneThemeChange?.(pane.id, next);
   };
   const [hover, setHover] = useState(false);
-  // RightPanel 의 재접속 버튼이 누를 때마다 ++ → Terminal key 가 바뀌어 통째로 remount.
   const [refreshNonce, setRefreshNonce] = useState(0);
+
+  // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — RightPanel 등 팬 내부 UI 가 이 변수를 씀.
+  // :root 는 건드리지 않으므로 좌측 레일·상단 헤더는 글로벌 테마 유지.
+  const paneRef = useRef(null);
+  useEffect(() => {
+    if (!paneRef.current) return;
+    const theme = themes[effectiveThemeId] || themes.catppuccin;
+    const ui = buildThemeUI(theme);
+    for (const [k, v] of Object.entries(ui)) {
+      paneRef.current.style.setProperty(`--ui-${k}`, v);
+    }
+  }, [effectiveThemeId]);
   const isEmpty = !pane.sessionId && !pane.hostId;
   const isLocal = !!pane.sessionId && !pane.hostId;
 
@@ -174,6 +202,7 @@ const Pane = ({
 
   return (
     <div
+      ref={paneRef}
       // capture phase 로 받아서 xterm.js 가 mouse 이벤트 소비 전에 pane focus 를 보장
       onPointerDownCapture={() => { onFocus?.(); }}
       onMouseEnter={() => setHover(true)}
@@ -182,7 +211,7 @@ const Pane = ({
         position: 'relative',
         display: 'flex',
         flexDirection: 'row',
-        background: color.base,
+        background: themes[effectiveThemeId]?.background || color.base,
         overflow: 'hidden',
         minHeight: 0,
         minWidth: 0,
@@ -202,7 +231,13 @@ const Pane = ({
             hosts={hosts}
             tab={tab}
             allTabs={allTabs}
+            settings={settings}
             t={t}
+            onConfirm={onConfirm}
+            onNotify={onNotify}
+            onResumeHostSession={onResumeHostSession}
+            onTerminateHostSession={onTerminateHostSession}
+            busyTabIds={busyTabIds}
           />
         ) : (
           <Suspense fallback={null}>
@@ -303,7 +338,9 @@ const Pane = ({
             position: 'absolute',
             inset: 0,
             pointerEvents: 'none',
-            boxShadow: `inset 0 0 0 2px ${color.accent}`,
+            outline: `2px dashed ${color.text}`,
+            outlineOffset: '-2px',
+            opacity: 0.4,
             zIndex: 20,
           }}
         />
@@ -378,7 +415,10 @@ const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
 );
 
 // 빈 pane = 메인 홈 대시보드 그대로 재사용. 호스트 카드 클릭 시 onActivate 호출.
-const EmptyPane = ({ onActivate, hosts = [], tab, allTabs = [], t }) => {
+const EmptyPane = ({
+  onActivate, hosts = [], tab, allTabs = [], settings = {}, t,
+  onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
+}) => {
   // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러.
   // index 는 상단 탭바와 동일한 1-base 순번 (Ctrl+N 단축키와 짝).
   const otherTabs = (allTabs || [])
@@ -387,43 +427,148 @@ const EmptyPane = ({ onActivate, hosts = [], tab, allTabs = [], t }) => {
       tt && tt.id && tt.id !== tab?.id && (tt.panes || []).some((p) => p.sessionId || p.hostId),
     );
 
+  /* 로컬 카드 메타 — 홈 대시보드 동일 출처(settings.localXxx). */
+  const localAccent = color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length];
+  const localName = (settings.localName || '').trim() || (t?.('thisMachine') || 'This machine');
+  const localSubtitle = settings.localStartPath
+    ? `localhost · /${settings.localStartPath}`
+    : 'localhost';
+
   return (
-    <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
-      <HomeDashboard
-        embedded
-        hosts={hosts}
-        t={t}
-        onOpenHost={(host) => {
-          if (host?.isLocal || host?.id === 'local') onActivate?.({ type: 'local' });
-          else onActivate?.({ type: 'host', hostId: host.id });
-        }}
-        onAddHost={() => {}}      // pane 안에서는 추가 안 받음 (홈에서)
-        onEditHost={() => {}}
-      />
+    <div onClick={(e) => e.stopPropagation()} style={emptyStyles.root}>
+      {/* 1) 기본 연결 — 로컬 + 저장된 호스트. 가장 자주 쓰는 액션. */}
+      <Section icon={Plug} title={t?.('connections') || 'Connections'}>
+        <div style={emptyStyles.grid}>
+          <HostRow
+            id="local"
+            draggable={false}
+            icon={<HostIcon value={settings.localIcon || ''} fallback={Monitor} size={20} />}
+            name={localName}
+            subtitle={localSubtitle}
+            accentColor={localAccent}
+            onClick={() => onActivate?.({ type: 'local' })}
+          />
+          {hosts.map((h) => {
+            const accent = color.dotPalette[(h.color_index ?? 0) % color.dotPalette.length];
+            return (
+              <HostRow
+                key={h.id}
+                id={h.id}
+                draggable={false}
+                icon={<HostIcon value={h.icon || ''} fallback={Server} size={20} />}
+                name={h.name}
+                subtitle={`${h.ssh_user || ''}@${h.hostname || ''}`}
+                accentColor={accent}
+                onClick={() => onActivate?.({ type: 'host', hostId: h.id })}
+              />
+            );
+          })}
+        </div>
+      </Section>
+
+      {/* 2) 열린 탭 미러 — 다른 탭을 이 자리로 흡수. (이어할 수 있는 세션 위로 스왑됨) */}
       {otherTabs.length > 0 && (
-        <OpenTabPicker
-          tabs={otherTabs}
-          hosts={hosts}
-          t={t}
-          onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
-        />
+        <Section icon={Copy} title={t?.('mirrorOpenTab') || 'Open tabs'}>
+          <OpenTabPicker
+            tabs={otherTabs}
+            hosts={hosts}
+            t={t}
+            onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
+            embedded
+          />
+        </Section>
+      )}
+
+      {/* 3) 이어할 수 있는 세션 — 원격 호스트의 살아있는 tmux 세션 (현재 탭 컴패니언 제외). */}
+      {hosts.some((h) => h.use_remote_tmux) && (
+        <Section icon={Anchor} title={t?.('resumableSessions') || 'Resumable'}>
+          <HomeSessions
+            tabs={allTabs}
+            hosts={hosts}
+            busyTabIds={busyTabIds}
+            hideOpen
+            hideHeader
+            onJumpTab={() => {}}
+            onResumeHostSession={(host, sessionName) => {
+              onResumeHostSession?.(host, sessionName);
+              // 새 탭이 열림 — 이 빈 pane 은 그대로 유지 (사용자가 다시 선택 가능).
+            }}
+            onTerminateHostSession={onTerminateHostSession}
+            onConfirm={onConfirm}
+            onNotify={onNotify}
+            t={t}
+          />
+        </Section>
       )}
     </div>
   );
 };
 
-const OpenTabPicker = ({ tabs, hosts = [], onPick, t }) => {
+const Section = ({ icon: Icon, title, children }) => (
+  <div style={emptyStyles.section}>
+    <div style={emptyStyles.sectionHead}>
+      {Icon && <Icon size={12} strokeWidth={2.2} style={{ color: color.subtext, flexShrink: 0 }} />}
+      <span style={emptyStyles.sectionTitle}>{title}</span>
+    </div>
+    <div>{children}</div>
+  </div>
+);
+
+const emptyStyles = {
+  root: {
+    width: '100%',
+    height: '100%',
+    overflow: 'auto',
+    padding: '20px 20px 24px',
+    boxSizing: 'border-box',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '20px',
+  },
+  section: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+    maxWidth: '960px',
+    width: '100%',
+    margin: '0 auto',
+  },
+  sectionHead: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  sectionTitle: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: color.subtext,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+  },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
+    gap: '8px',
+  },
+};
+
+const OpenTabPicker = ({ tabs, hosts = [], onPick, t, embedded = false }) => {
   const palette = color.dotPalette || ['#89b4fa'];
   const [hoverId, setHoverId] = useState(null);
+  const innerStyle = embedded
+    ? { display: 'flex', flexDirection: 'column', gap: '8px' }
+    : mirrorStyles.inner;
   return (
-    <div style={mirrorStyles.outer}>
-      <div style={mirrorStyles.inner}>
-        <div style={mirrorStyles.titleRow}>
-          <Copy size={12} strokeWidth={2} style={{ color: color.subtext }} />
-          <span style={mirrorStyles.title}>
-            {t?.('mirrorOpenTab') || 'Mirror an open tab here'}
-          </span>
-        </div>
+    <div style={embedded ? null : mirrorStyles.outer}>
+      <div style={innerStyle}>
+        {!embedded && (
+          <div style={mirrorStyles.titleRow}>
+            <Copy size={12} strokeWidth={2} style={{ color: color.subtext }} />
+            <span style={mirrorStyles.title}>
+              {t?.('mirrorOpenTab') || 'Mirror an open tab here'}
+            </span>
+          </div>
+        )}
         <div style={mirrorStyles.grid}>
           {tabs.map(({ tab: tb, index }) => {
             const isHost = tb.type === 'host';

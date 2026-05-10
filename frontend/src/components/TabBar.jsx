@@ -37,9 +37,13 @@ const TabBar = ({
     <div style={{ ...styles.bar, ...(isMobile ? styles.barMobile : null) }}>
       <style>{`
         .tabbar-list::-webkit-scrollbar { display: none; }
-        /* busy 상태 — Jupyter 의 채움/빈 원 식 binary 신호. 깜빡임 없음.
-           활동 중: 솔리드 dot + 둘레 정적 halo / 정지: 둘 다 사라짐.
-           시야 부담 최소화 — 작업 중 탭은 *조용히 눈에 띄게* 만 표시. */
+        /* busy 표시 — 우상단 작은 dot 만. 글로우/배경 tint/보더 변경 없음.
+           dot 이 1.1s 주기로 부드럽게 깜빡이며 활동 중임을 신호. 정지 시 dot 사라짐. */
+        @keyframes iterm-tab-busy-blink {
+          0%, 100% { opacity: 0.5; }
+          50%      { opacity: 1; }
+        }
+        .iterm-tab-busy-dot { animation: iterm-tab-busy-blink 1.1s ease-in-out infinite; }
       `}</style>
       {/* brand = home button — 홈 활성 시 활성 탭과 동일하게 강조 */}
       <button
@@ -252,9 +256,7 @@ const Tab = memo(({
         </span>
       )}
 
-      {/* 호스트 아이콘 타일 — dot 색 tint.
-          busy 면 (a) 둘레 글로우 정적 강화, (b) 우상단 작은 솔리드 dot 박동.
-          타일 크기/위치는 변함 없음. */}
+      {/* 호스트 아이콘 타일 — dot 색 tint. busy 시 타일 자체는 변화 없음, 우상단 dot 만 깜빡. */}
       <span
         style={{
           position: 'relative',
@@ -264,20 +266,17 @@ const Tab = memo(({
           width: '18px',
           height: '18px',
           flexShrink: 0,
-          background: isBusy
-            ? `${dotColor}33`
-            : (isActive ? `${dotColor}26` : `${dotColor}12`),
-          border: `1px solid ${isBusy ? dotColor : (isActive ? `${dotColor}77` : `${dotColor}33`)}`,
+          background: isActive ? `${dotColor}26` : `${dotColor}12`,
+          border: `1px solid ${isActive ? `${dotColor}77` : `${dotColor}33`}`,
           borderRadius: '4px',
           color: isActive ? color.text : dotColor,
-          /* busy 정적 halo — 작업 중 사그라들지 않는 ambient. blink 와 별개. */
-          boxShadow: isBusy ? `0 0 8px ${dotColor}aa, 0 0 0 1px ${dotColor}88` : 'none',
           opacity: isActive ? 1 : 0.85,
         }}
       >
         <HostIcon value={tab.icon || ''} fallback={Icon} size={11} strokeWidth={1.9} />
         {isBusy && (
           <span
+            className="iterm-tab-busy-dot"
             aria-hidden
             style={{
               position: 'absolute',
@@ -287,9 +286,8 @@ const Tab = memo(({
               height: '7px',
               borderRadius: '50%',
               background: dotColor,
-              /* crust outline 으로 탭 배경/이웃 탭과 분리해 어디서든 또렷이.
-                 깜빡임은 없음 — "작업 중" 정적 ON, 끝나면 OFF (Jupyter 의 ●/○ 식). */
-              boxShadow: `0 0 6px ${dotColor}, 0 0 0 1.5px ${color.crust}`,
+              /* crust outline 으로 탭/이웃 탭과 분리해 어디서든 또렷이. 부드러운 opacity 박동. */
+              boxShadow: `0 0 0 1.5px ${color.crust}`,
               pointerEvents: 'none',
             }}
           />

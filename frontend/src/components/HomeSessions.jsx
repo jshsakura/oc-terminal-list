@@ -21,6 +21,8 @@ const HomeSessions = ({
   tabs = [],            // [{ id, type, hostId, name, color_index, icon, isPersistent? }]
   hosts = [],
   busyTabIds = null,    // Set<tabId> — 활동 중인 탭 (TabBar 와 동일 신호)
+  hideOpen = false,     // Open 카드 숨김 (EmptyPane 처럼 점프가 의미 없는 컨텍스트용)
+  hideHeader = false,   // 섹션 헤더 숨김 (외부에서 자체 헤더 다는 경우)
   onJumpTab,            // (tabId) =>
   onResumeHostSession,  // (host, sessionName) => — 호스트에 해당 tmux 세션으로 신규 탭
   onTerminateHostSession, // (host, sessionName) => Promise — kill-tmux. throw 가능.
@@ -60,38 +62,56 @@ const HomeSessions = ({
     tmuxHosts.forEach(fetchHostSessions);
   }, [tmuxHosts, fetchHostSessions]);
 
-  // 현재 탭에서 점유 중인 tmux 세션명 set (host_id → Set<name>) — Resumable 에서 dedup.
-  // 점유 규칙 (host_manager.effective_tmux_session 과 동기):
-  //   - pane.tmuxSessionName 있으면 (Resume 된 탭) 그 이름 그대로
-  //   - 없으면 base = host.remote_tmux_session (default 'mobile')
-  //     · tab.tmuxSuffix 있으면 base = `${base}-${suffix}`
-  //     · pane 0 → base, pane i>0 → `${base}_${i+1}` (`.` 은 tmux 가 pane spec 으로 오해)
-  const occupiedByHost = useMemo(() => {
+  // 현재 탭이 점유 중인 *워크스페이스 prefix* set (host_id → Set<prefix>).
+  // 한 호스트 탭 = 한 suffix = 한 워크스페이스. pane 0 = `${base}-${suffix}`, pane>0 = `${base}-${suffix}_N`.
+  // 사용자가 메인 pane 만 열고 분할은 안 한 상태여도 그 suffix 의 `_N` 잔류는 같은 가족이므로
+  // Resumable 에서 함께 가린다. 분명히 다른 suffix 의 `_N` 잔류는 정상적으로 노출 (다른 워크스페이스).
+  // Resume 으로 attach 한 탭은 pane.tmuxSessionName 자체를 prefix 로 (그 이름 + `_N` 컴패니언).
+  const claimedPrefixesByHost = useMemo(() => {
     const map = new Map();
     tabs.forEach((tab) => {
       if (tab.type !== 'host' || !tab.hostId) return;
       const host = hosts.find((h) => h.id === tab.hostId);
-      const baseFromHost = host?.remote_tmux_session || 'mobile';
+      if (!host) return;
+      const baseFromHost = host.remote_tmux_session || 'mobile';
       const set = map.get(tab.hostId) || new Set();
-      (tab.panes || [{}]).forEach((pane, idx) => {
-        if (pane && pane.tmuxSessionName) {
-          set.add(pane.tmuxSessionName);
-          return;
-        }
-        const base = tab.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
-        set.add(idx === 0 ? base : `${base}_${idx + 1}`);
+      // suffix 있는 탭 — 그 suffix 의 모든 컴패니언을 점유.
+      if (tab.tmuxSuffix) {
+        set.add(`${baseFromHost}-${tab.tmuxSuffix}`);
+      } else {
+        // suffix 없는 탭 (오래된 데이터 호환) — base 자체를 점유.
+        set.add(baseFromHost);
+      }
+      // Resume 탭 — pane.tmuxSessionName 이 명시적으로 박혀있음.
+      (tab.panes || []).forEach((pane) => {
+        if (pane?.tmuxSessionName) set.add(pane.tmuxSessionName);
       });
       map.set(tab.hostId, set);
     });
     return map;
   }, [tabs, hosts]);
 
-  const openTabs = tabs;
+  // session 이 해당 host 의 어떤 prefix 의 *그 자신* 또는 컴패니언(`{prefix}_N`) 인지 판정.
+  const isClaimedSession = (hostId, sessionName) => {
+    const prefixes = claimedPrefixesByHost.get(hostId);
+    if (!prefixes) return false;
+    for (const p of prefixes) {
+      if (sessionName === p) return true;
+      if (sessionName.startsWith(`${p}_`)) return true;
+    }
+    return false;
+  };
+
+  /* `name_N` 형태(예: `mobile-zdbfmjs_2`) 는 *pane 컴패니언* 세션 — 사용자 관점에선 별개 워크스페이스가
+     아니라 한 탭의 내부 pane. Resume 으로 돌아갈 단위는 base (`mobile-zdbfmjs`) 뿐이므로 컴패니언은
+     Resumable 목록에서 항상 숨김. (어차피 base 를 resume 하거나 base 를 kill 할 때 같이 처리.) */
+  const isCompanionSession = (name) => /_[1-9][0-9]*$/.test(name || '');
+
+  const openTabs = hideOpen ? [] : tabs;
   const hasAnyResumable = tmuxHosts.some((h) => {
     const entry = tmuxByHost[h.id];
     if (!entry || entry.loading || entry.error) return false;
-    const occupied = occupiedByHost.get(h.id) || new Set();
-    return entry.sessions.some((s) => !occupied.has(s.name));
+    return entry.sessions.some((s) => !isCompanionSession(s.name) && !isClaimedSession(h.id, s.name));
   });
   const anyLoading = tmuxHosts.some((h) => tmuxByHost[h.id]?.loading);
 
@@ -102,8 +122,9 @@ const HomeSessions = ({
       <style>{`
         @keyframes home-skel-pulse { 0%,100%{opacity:.4} 50%{opacity:.7} }
         @keyframes home-spin { to { transform: rotate(360deg); } }
-        /* busy 인디케이터 — Jupyter 식 binary (ON/OFF). 깜빡임 없음.
-           작업 중일 동안 dot 정적으로 켜짐, 끝나면 사라짐 → "끝났는지" 가 즉각 보임. */
+        /* busy 인디케이터 — 우상단 작은 dot 만 부드럽게 깜빡. 카드/IconBox 자체는 정적. */
+        @keyframes home-busy-blink { 0%,100%{opacity:.5} 50%{opacity:1} }
+        .home-iconbox-busy-dot { animation: home-busy-blink 1.1s ease-in-out infinite; }
       `}</style>
 
       {/* Open 그룹 — 현재 열려있는 탭 */}
@@ -130,15 +151,17 @@ const HomeSessions = ({
       {/* Resumable 그룹 — 호스트의 영속 tmux 세션 (열려있지 않은 것) */}
       {(hasAnyResumable || anyLoading) && (
         <>
-          <div style={S.head}>
-            <span style={S.title}>{t?.('resumableSessions') || 'Resumable'}</span>
-            {anyLoading && (
-              <span style={S.headHint}>
-                <Loader2 size={11} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />
-                {t?.('loadingSessions') || 'Scanning hosts…'}
-              </span>
-            )}
-          </div>
+          {!hideHeader && (
+            <div style={S.head}>
+              <span style={S.title}>{t?.('resumableSessions') || 'Resumable'}</span>
+              {anyLoading && (
+                <span style={S.headHint}>
+                  <Loader2 size={11} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />
+                  {t?.('loadingSessions') || 'Scanning hosts…'}
+                </span>
+              )}
+            </div>
+          )}
           <div style={S.grid}>
             {tmuxHosts.map((host) => {
               const entry = tmuxByHost[host.id];
@@ -148,8 +171,9 @@ const HomeSessions = ({
               if (entry.error) {
                 return <ErrorCard key={`err-${host.id}`} host={host} message={entry.error} onRetry={() => fetchHostSessions(host)} t={t} />;
               }
-              const occupied = occupiedByHost.get(host.id) || new Set();
-              const resumable = entry.sessions.filter((s) => !occupied.has(s.name));
+              const resumable = entry.sessions.filter(
+                (s) => !isCompanionSession(s.name) && !isClaimedSession(host.id, s.name),
+              );
               return resumable.map((s) => (
                 <ResumableCard
                   key={`tmx-${host.id}-${s.name}`}
@@ -340,15 +364,15 @@ const IconBox = ({ children, accent, subdued = false, busy = false }) => (
       ...S.iconBox,
       position: 'relative',
       color: accent,
-      borderColor: subdued ? color.border : (busy ? accent : accent + '66'),
-      background: subdued ? color.crust : (busy ? accent + '33' : accent + '1a'),
-      boxShadow: busy ? `0 0 12px ${accent}aa, 0 0 0 1px ${accent}88` : undefined,
+      borderColor: subdued ? color.border : accent + '66',
+      background: subdued ? color.crust : accent + '1a',
       animation: subdued ? 'home-skel-pulse 1.4s ease-in-out infinite' : undefined,
     }}
   >
     {children}
     {busy && (
       <span
+        className="home-iconbox-busy-dot"
         aria-hidden
         style={{
           position: 'absolute',
@@ -358,7 +382,7 @@ const IconBox = ({ children, accent, subdued = false, busy = false }) => (
           height: '9px',
           borderRadius: '50%',
           background: accent,
-          boxShadow: `0 0 8px ${accent}, 0 0 0 2px ${color.crust}`,
+          boxShadow: `0 0 0 2px ${color.crust}`,
           pointerEvents: 'none',
         }}
       />

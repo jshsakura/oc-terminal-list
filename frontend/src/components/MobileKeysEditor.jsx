@@ -71,11 +71,13 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
 
   return (
     <div style={S.wrap}>
-      <div className="iterm-no-scrollbar" style={S.list}>
+      <div style={S.list}>
         {list.map((k, idx) => (
           <Row
             key={k.id}
             k={k}
+            idx={idx}
+            total={list.length}
             isFirst={idx === 0}
             isLast={idx === list.length - 1}
             onUp={() => move(idx, -1)}
@@ -129,36 +131,70 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
   );
 };
 
-const Row = ({ k, isFirst, isLast, onUp, onDown, onRemove, onPatch, onChangeKind, tt }) => {
+const Row = ({ k, idx, total, isFirst, isLast, onUp, onDown, onRemove, onPatch, onChangeKind, tt }) => {
   const isSep = k.kind === 'sep';
-  const showSecond = !isSep;
   return (
     <div style={S.row}>
-      <div style={S.rowLine}>
-        <KindSelect value={k.kind} onChange={onChangeKind} tt={tt} />
-        {isSep ? (
-          <span style={S.sepLabel}>—</span>
-        ) : (
-          <>
-            {/* 아이콘 픽커 — 모든 비-sep 종류 공통. 비어있으면 kind 기본 아이콘 미리보기. */}
-            <IconButton
-              value={k.icon || ''}
-              kind={k.kind}
-              onChange={(icon) => onPatch({ icon })}
-              tt={tt}
-            />
+      {/* index badge */}
+      <span style={S.badge}>{idx + 1}</span>
+
+      {/* kind */}
+      <KindSelect value={k.kind} onChange={onChangeKind} tt={tt} />
+
+      {isSep ? (
+        <span style={S.sepLabel}>— {tt('kindDivider', 'Divider')}</span>
+      ) : (
+        <>
+          {/* icon picker */}
+          <IconButton value={k.icon || ''} kind={k.kind} onChange={(icon) => onPatch({ icon })} tt={tt} />
+
+          {/* label */}
+          <input
+            type="text"
+            value={k.label || ''}
+            onChange={(e) => onPatch({ label: e.target.value })}
+            placeholder={tt('fieldLabel', 'Label')}
+            style={{ ...S.input, width: 64 }}
+          />
+
+          {/* payload / modifier */}
+          {k.kind === 'send' && (
             <input
               type="text"
-              value={k.label || ''}
-              onChange={(e) => onPatch({ label: e.target.value })}
-              placeholder={tt('fieldLabel', 'Label')}
-              style={{ ...S.input, flex: 1 }}
+              value={displayPayload(k.payload)}
+              onChange={(e) => onPatch({ payload: decodeUserPayload(e.target.value) })}
+              placeholder={tt('payloadHint', '\\e, \\n…')}
+              style={{ ...S.input, flex: 1, fontFamily: font.mono }}
             />
-          </>
-        )}
-        <RowActions {...{ isFirst, isLast, onUp, onDown, onRemove, tt }} />
-      </div>
-      {showSecond && <SecondLine k={k} onPatch={onPatch} tt={tt} />}
+          )}
+          {k.kind === 'mod' && (
+            <select
+              value={k.modifier || 'ctrl'}
+              onChange={(e) => onPatch({ modifier: e.target.value })}
+              style={{ ...S.select, width: 72 }}
+            >
+              <option value="ctrl">ctrl</option>
+              <option value="alt">alt</option>
+            </select>
+          )}
+          {(k.kind === 'cmdInput' || k.kind === 'paste') && (
+            <span style={{ flex: 1 }} />
+          )}
+
+          {/* tone */}
+          <select
+            value={k.tone || ''}
+            onChange={(e) => onPatch({ tone: e.target.value || undefined })}
+            style={{ ...S.select, width: 80 }}
+          >
+            {TONE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{tt(o.labelKey, o.fallback)}</option>
+            ))}
+          </select>
+        </>
+      )}
+
+      <RowActions {...{ isFirst, isLast, onUp, onDown, onRemove, tt }} />
     </div>
   );
 };
@@ -205,44 +241,6 @@ const IconButton = ({ value, kind, onChange, tt }) => {
   );
 };
 
-const SecondLine = ({ k, onPatch, tt }) => {
-  // kind 별 부가 필드 + tone (모든 비-sep 행 공통)
-  const extra =
-    k.kind === 'send' ? (
-      <input
-        type="text"
-        value={displayPayload(k.payload)}
-        onChange={(e) => onPatch({ payload: decodeUserPayload(e.target.value) })}
-        placeholder={tt('payloadHint', '\\e, \\n, text...')}
-        style={{ ...S.input, flex: 1, fontFamily: font.mono }}
-      />
-    ) : k.kind === 'mod' ? (
-      <select
-        value={k.modifier || 'ctrl'}
-        onChange={(e) => onPatch({ modifier: e.target.value })}
-        style={{ ...S.input, width: 96, cursor: 'pointer' }}
-      >
-        <option value="ctrl">ctrl</option>
-        <option value="alt">alt</option>
-      </select>
-    ) : (
-      <span style={{ flex: 1 }} />
-    );
-  return (
-    <div style={S.rowLine}>
-      {extra}
-      <select
-        value={k.tone || ''}
-        onChange={(e) => onPatch({ tone: e.target.value || undefined })}
-        style={{ ...S.input, width: 96, cursor: 'pointer' }}
-      >
-        {TONE_OPTIONS.map((o) => (
-          <option key={o.value} value={o.value}>{tt(o.labelKey, o.fallback)}</option>
-        ))}
-      </select>
-    </div>
-  );
-};
 
 const KindSelect = ({ value, onChange, tt }) => (
   <select
@@ -302,47 +300,37 @@ const IconBtn = ({ children, onClick, disabled, title, tone }) => (
 
 const S = {
   wrap: { display: 'flex', flexDirection: 'column', gap: space['2'] },
-  list: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '6px',
-    maxHeight: '360px',
-    overflowY: 'auto',
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.sm,
-    padding: '6px',
-    background: color.crust,
-  },
+  list: { display: 'flex', flexDirection: 'column', gap: '4px' },
   row: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    padding: '6px',
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.xs,
-  },
-  rowLine: {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
+    padding: '5px 6px',
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
     minWidth: 0,
+  },
+  badge: {
+    flexShrink: 0,
+    width: '18px',
+    height: '18px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: '3px',
+    fontSize: '10px',
+    color: color.muted,
+    fontFamily: font.mono,
   },
   sepLabel: {
     flex: 1,
     fontSize: fontSize['11'],
     color: color.muted,
-    textAlign: 'center',
     fontFamily: font.mono,
-    letterSpacing: '0.4em',
-  },
-  iconPreview: {
-    flex: 1,
-    height: '24px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    paddingLeft: space['2'],
-    color: color.subtext,
+    letterSpacing: '0.1em',
   },
   iconPickerBtn: {
     width: '26px',
@@ -384,7 +372,7 @@ const S = {
     outline: 'none',
     cursor: 'pointer',
     flexShrink: 0,
-    width: 96,
+    width: 90,
   },
   input: {
     height: '24px',
@@ -398,7 +386,20 @@ const S = {
     outline: 'none',
     minWidth: 0,
   },
-  rowActions: { display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0 },
+  select: {
+    height: '24px',
+    padding: '0 4px',
+    background: color.crust,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: '3px',
+    fontSize: fontSize['12'],
+    fontFamily: 'inherit',
+    outline: 'none',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  rowActions: { display: 'flex', alignItems: 'center', gap: '2px', flexShrink: 0, marginLeft: 'auto' },
   iconBtn: {
     width: '22px',
     height: '22px',

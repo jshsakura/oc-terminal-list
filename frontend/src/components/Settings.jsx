@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import {
   X, RotateCcw, SlidersHorizontal, Server, Key as KeyIcon, Plus,
-  Settings as GearIcon, ChevronRight, LogOut, Smartphone,
+  Settings as GearIcon, ChevronRight, LogOut, Smartphone, ChevronDown,
 } from 'lucide-react';
-import { themeNames } from '../styles/themes';
+import ThemePicker from './common/ThemePicker';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import HostIcon from '../utils/hostIcons';
@@ -188,12 +188,7 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
 
     <Section title={t('appearance') || 'Appearance'}>
       <Field label={t('theme')}>
-        <Select value={s.theme} onChange={(v) => change('theme', v)}>
-          {themeNames.map((name) => {
-            const key = `theme${name.charAt(0).toUpperCase()}${name.slice(1)}`;
-            return <option key={name} value={name}>{t(key) || name}</option>;
-          })}
-        </Select>
+        <ThemePicker value={s.theme} onChange={(v) => change('theme', v)} t={t} columns={2} />
       </Field>
       <Field label={t('language')}>
         <Select value={s.language} onChange={(v) => change('language', v)}>
@@ -368,20 +363,34 @@ const Field = ({ label, hint, children }) => (
 const Select = ({ value, onChange, children }) => {
   const [hover, setHover] = useState(false);
   return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        ...styles.input,
-        borderColor: hover ? color.borderStrong : color.border,
-        appearance: 'none',
-        cursor: 'pointer',
-      }}
-    >
-      {children}
-    </select>
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          ...styles.input,
+          borderColor: hover ? color.borderStrong : color.border,
+          appearance: 'none',
+          cursor: 'pointer',
+          paddingRight: '28px',
+          width: '100%',
+        }}
+      >
+        {children}
+      </select>
+      <ChevronDown
+        size={14}
+        style={{
+          position: 'absolute',
+          right: '8px',
+          pointerEvents: 'none',
+          color: color.muted,
+          flexShrink: 0,
+        }}
+      />
+    </div>
   );
 };
 

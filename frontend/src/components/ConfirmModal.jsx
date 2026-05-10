@@ -86,6 +86,7 @@ const styles = {
     fontSize: fontSize['13'],
     color: color.subtext,
     lineHeight: 1.5,
+    whiteSpace: 'pre-line', // \n 으로 줄바꿈 — 탭 번호/이름 헤더 라인과 본문 분리용
   },
   footer: {
     display: 'flex',

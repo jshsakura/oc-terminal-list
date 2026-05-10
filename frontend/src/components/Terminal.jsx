@@ -127,48 +127,82 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     }
 
     const handleKeyDown = (e) => {
+      // Ctrl+Shift+F → 검색 — 표준 터미널 컨벤션과 별개의 앱 단축키
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent('terminal:open-search', { detail: { sessionId } }));
       }
-      if (e.ctrlKey && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
-        e.preventDefault();
-        navigator.clipboard.readText().then(text => {
-          if (text && wsRef.current?.readyState === WebSocket.OPEN) {
-            wsRef.current.send(text);
-          }
-        }).catch(() => {});
-      }
-      if (e.ctrlKey && e.shiftKey && (e.key === 'C' || e.key === 'c')) {
-        const selection = term.getSelection();
-        if (selection) {
-          e.preventDefault();
-          navigator.clipboard.writeText(selection).catch(() => {});
-        }
-      }
     };
 
+    /* xterm 키 가로채기 — Ctrl+V/Ctrl+Shift+V → paste, Ctrl+Shift+C → copy, F12 → DevTools.
+       e.preventDefault() 명시 = 브라우저 native paste/copy DOM 이벤트 차단 → 이중 발화 방지.
+       Ctrl+C 는 일부러 안 가로챔 → SIGINT 로 그대로 통과 (Claude Code 등 TUI interrupt 안정). */
+    const pasteFromClipboard = (e) => {
+      e.preventDefault();
+      navigator.clipboard.readText().then((text) => {
+        if (text) term.paste(text);
+      }).catch(() => {});
+    };
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      if (e.key === 'F12') return false;
+      // Ctrl+V (with or without Shift) → paste. literal-quote ^V 기능 손실 — 거의 안 쓰는 기능.
+      if (e.ctrlKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+        pasteFromClipboard(e);
+        return false;
+      }
+      // Ctrl+Shift+C → 선택 영역 복사
+      if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+        const sel = term.getSelection();
+        if (sel) {
+          e.preventDefault();
+          navigator.clipboard.writeText(sel).catch(() => {});
+          return false;
+        }
+      }
+      return true;
+    });
+
     const handleContextMenu = async (e) => {
+      // 브라우저 native 컨텍스트 메뉴 차단. tmux 의 right-click popup 메뉴는 unbind-key 로
+      // 백엔드에서 따로 끔. 클립보드 → term.paste() 로 bracketed-paste 송신.
       e.preventDefault();
       try {
         const text = await navigator.clipboard.readText();
-        if (text && wsRef.current?.readyState === WebSocket.OPEN) {
-          wsRef.current.send(text);
-        }
+        if (text) term.paste(text);
       } catch (err) {
       }
     };
 
+    /* 드래그 중 mousemove 마다 onSelectionChange fire — 정착(80ms idle) 후 한 번만 클립보드 write.
+       race / 이중 발화 방지. */
+    let selectionTimer = null;
     term.onSelectionChange(() => {
-      const selection = term.getSelection();
-      if (selection) {
-        navigator.clipboard.writeText(selection).catch(() => {});
-      }
+      if (selectionTimer) clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+        const selection = term.getSelection();
+        if (selection) navigator.clipboard.writeText(selection).catch(() => {});
+      }, 80);
     });
 
     const container = terminalRef.current;
     container.addEventListener('contextmenu', handleContextMenu);
     container.addEventListener('keydown', handleKeyDown);
+
+    /* 휠 → PgUp/PgDn. xterm v6 의 attachCustomWheelEventHandler 사용 — xterm 내장 wheel 처리 직전에
+       호출되며, return false → xterm 의 default 처리 skip. capture/bubble race 없음. tmux mouse off
+       이라 native 드래그 선택은 그대로 살아있고, 휠만 PgUp 으로 변환해 PTY 송신 → tmux root binding
+       이 normal/alternate 자동 분기 (normal=copy-mode 진입). */
+    if (typeof term.attachCustomWheelEventHandler === 'function') {
+      term.attachCustomWheelEventHandler((e) => {
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return true;
+        ws.send(e.deltaY > 0 ? '\x1b[6~' : '\x1b[5~');
+        return false;
+      });
+    }
+
+
 
     // ⚠️  WS 연결 전에 fit() 동기 호출 — xterm.js 의 cols/rows 와 백엔드/tmux 에
     // 알리는 차원이 일치하도록 한다. 늦게 fit 하면 첫 렌더가 80x24 로 나간 뒤
@@ -737,7 +771,9 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         </div>
       )}
 
-      {/* xterm.js 컨테이너 */}
+      {/* xterm.js 컨테이너 — 좌/우/상에 약간의 호흡 패딩.
+          fitAddon 은 element.clientWidth(=content box, padding 제외) 기준이라 cols 자동 계산 정확.
+          tmux 안 건드림. */}
       <div
         ref={terminalRef}
         onClick={() => {
@@ -748,6 +784,10 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         style={{
           width: '100%',
           height: '100%',
+          paddingLeft: '6px',
+          paddingRight: '4px',
+          paddingTop: '2px',
+          boxSizing: 'border-box',
           opacity: hasContent ? 1 : 0,
           transition: 'opacity 0.18s ease',
           caretColor: 'transparent',

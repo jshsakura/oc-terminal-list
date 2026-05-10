@@ -9,7 +9,7 @@
 
 const LIGHT_BACKGROUNDS = new Set(['#ffffff', '#fdf6e3', '#fbf1c7', '#fafafa']);
 
-const isLight = (bg) => {
+export const isLight = (bg) => {
   if (!bg) return false;
   if (LIGHT_BACKGROUNDS.has(bg.toLowerCase())) return true;
   // hex → 밝기 추정

@@ -1,12 +1,12 @@
 import { useState, memo, useCallback, useEffect, useRef } from 'react';
 import {
-  Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, XSquare,
-  Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound,
+  Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, Trash2,
+  Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound, HelpCircle,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import FileTree from './FileTree';
 import ChangesList from './ChangesList';
-import themes from '../styles/themes';
+import ThemePicker from './common/ThemePicker';
 import useGitChanges from '../hooks/useGitChanges';
 import RailIconBtn from './common/RailIconBtn';
 
@@ -151,7 +151,7 @@ const RightPanel = ({
         {/* 1군: close — 항상 동작 (disabled 영향 안 받음). 우상단. */}
         {onCloseTerminal && (
           <RailIconBtn
-            icon={XSquare}
+            icon={Trash2}
             onClick={onCloseTerminal}
             title={t?.('closeTerminal') || 'Close terminal'}
             tone="danger"
@@ -203,36 +203,6 @@ const RightPanel = ({
   );
 };
 
-// id ↔ display name. id 는 themes map 의 key 와 일치해야 함.
-const THEME_LABELS = {
-  catppuccin: 'Catppuccin Mocha',
-  catppuccinMacchiato: 'Catppuccin Macchiato',
-  catppuccinFrappe: 'Catppuccin Frappé',
-  catppuccinLatte: 'Catppuccin Latte',
-  githubDark: 'GitHub Dark',
-  githubLight: 'GitHub Light',
-  solarizedDark: 'Solarized Dark',
-  solarizedLight: 'Solarized Light',
-  gruvboxDark: 'Gruvbox Dark',
-  gruvboxLight: 'Gruvbox Light',
-  tokyoNight: 'Tokyo Night',
-  oneDark: 'One Dark',
-  dracula: 'Dracula',
-  nord: 'Nord',
-  rosePine: 'Rosé Pine',
-  ayuMirage: 'Ayu Mirage',
-  monokaiPro: 'Monokai Pro',
-  monokai: 'Monokai',
-  nightOwl: 'Night Owl',
-  shadesOfPurple: 'Shades of Purple',
-  synthwave84: 'Synthwave 84',
-  cobalt2: 'Cobalt 2',
-  oceanicNext: 'Oceanic Next',
-  everforest: 'Everforest',
-};
-
-const THEME_IDS = Object.keys(THEME_LABELS);
-
 const ThemeSettings = memo(({ paneThemeId, globalThemeId, onPaneThemeChange, t }) => {
   const effectiveId = paneThemeId || globalThemeId;
   const isOverridden = !!paneThemeId && !!globalThemeId && paneThemeId !== globalThemeId;
@@ -268,74 +238,16 @@ const ThemeSettings = memo(({ paneThemeId, globalThemeId, onPaneThemeChange, t }
           ) : null
         }
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          {THEME_IDS.map((id) => {
-            const theme = themes[id];
-            if (!theme) return null;
-            const isActive = effectiveId === id;
-            const isGlobal = globalThemeId === id;
-            return (
-              <button
-                key={id}
-                onClick={() => onPaneThemeChange?.(id)}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: space['2'],
-                  textAlign: 'left',
-                  padding: `${space['1.5']} ${space['2']}`,
-                  background: isActive ? color.surface1 : color.surface0,
-                  border: `1px solid ${isActive ? color.accent : color.border}`,
-                  borderRadius: radius.sm,
-                  color: isActive ? color.text : color.subtext,
-                  fontSize: fontSize['12'],
-                  cursor: 'pointer',
-                  fontFamily: font.sans,
-                  transition: 'background 120ms, border-color 120ms',
-                }}
-                onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = color.surface1; }}
-                onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = color.surface0; }}
-              >
-                <ThemeSwatch theme={theme} />
-                <span style={{ flex: 1 }}>{THEME_LABELS[id]}</span>
-                {isGlobal && (
-                  <span style={{
-                    fontSize: '9.5px',
-                    fontWeight: fontWeight.semibold,
-                    color: color.muted,
-                    letterSpacing: '0.06em',
-                    textTransform: 'uppercase',
-                  }}>
-                    {t?.('global') || 'Global'}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        <ThemePicker
+          value={effectiveId}
+          onChange={onPaneThemeChange}
+          t={t}
+          markedId={globalThemeId}
+        />
       </Field>
     </div>
   );
 });
-
-// 5 색 swatch — 배경/포그라운드/blue/green/red 미리보기
-const ThemeSwatch = ({ theme }) => (
-  <div style={{
-    display: 'flex',
-    width: '52px',
-    height: '20px',
-    borderRadius: '3px',
-    overflow: 'hidden',
-    border: `1px solid ${color.border}`,
-    flexShrink: 0,
-  }}>
-    <div style={{ flex: 1, background: theme.background }} />
-    <div style={{ flex: 1, background: theme.foreground }} />
-    <div style={{ flex: 1, background: theme.blue }} />
-    <div style={{ flex: 1, background: theme.green }} />
-    <div style={{ flex: 1, background: theme.red }} />
-  </div>
-);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Info 패널 — 세션 메타데이터 + 시스템 자원(CPU/RAM/Disk/Load).
@@ -454,6 +366,8 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
 
   return (
     <div style={infoStyles.root}>
+      {/* 인접 섹션 사이 풀폭 구분선 — first/last 자동 제외 (`+` 형제 셀렉터). */}
+      <style>{`.iterm-info-section + .iterm-info-section { border-top: 1px solid ${color.border}; }`}</style>
       {/* 세션 */}
       <InfoSection title={t?.('infoSession') || 'Session'} icon={TerminalIcon}>
         <InfoRow label={t?.('infoTabName') || 'Tab'} value={info?.tabName || '—'} mono={false} />
@@ -624,12 +538,71 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
           />
         )}
       </InfoSection>
+
+      {/* 키보드/마우스 컨벤션 — tmux mouse on 환경의 표준이지만 사용자가 매번 외우긴 어려워 노출. */}
+      <InfoSection title={t?.('infoShortcuts') || 'Shortcuts'} icon={HelpCircle}>
+        <ShortcutRow keys={[t?.('drag') || 'Drag']}            desc={t?.('shortcutSelect')    || 'Select text (auto-copy)'} />
+        <ShortcutRow keys={[t?.('doubleClick') || 'Double-click']} desc={t?.('shortcutSelectWord') || 'Select word'} />
+        <ShortcutRow keys={[t?.('tripleClick') || 'Triple-click']} desc={t?.('shortcutSelectLine') || 'Select line'} />
+        <ShortcutRow keys={['Ctrl', 'V']}                       desc={t?.('shortcutPaste')     || 'Paste (bracketed)'} />
+        <ShortcutRow keys={[t?.('rightClick') || 'Right-click']} desc={t?.('shortcutPaste')     || 'Paste (bracketed)'} />
+        <ShortcutRow keys={['Ctrl', 'Shift', 'C']}              desc={t?.('shortcutCopy')      || 'Copy selection'} />
+        <ShortcutRow keys={[t?.('wheel') || 'Wheel']}            desc={t?.('shortcutScroll')   || 'Scroll (auto copy-mode)'} />
+        <ShortcutRow keys={['Ctrl', 'C']}                       desc={t?.('shortcutSigint')    || 'Interrupt (SIGINT)'} />
+        <ShortcutRow keys={['Ctrl', 'Shift', 'F']}              desc={t?.('shortcutSearch')    || 'Find in terminal'} />
+        <ShortcutRow keys={['F12']}                             desc={t?.('shortcutDevtools')  || 'Open DevTools'} />
+      </InfoSection>
     </div>
   );
 });
 
+const ShortcutRow = memo(({ keys, desc }) => (
+  <div style={shortcutStyles.row}>
+    <div style={shortcutStyles.keys}>
+      {keys.map((k, i) => (
+        <span key={`${k}-${i}`} style={shortcutStyles.kbd}>{k}</span>
+      ))}
+    </div>
+    <div style={shortcutStyles.desc}>{desc}</div>
+  </div>
+));
+
+const shortcutStyles = {
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space['2'],
+    padding: `${space['1']} 0`,
+    minHeight: 22,
+  },
+  keys: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 3,
+    flexShrink: 0,
+  },
+  kbd: {
+    fontFamily: font.mono,
+    fontSize: fontSize['11'],
+    fontWeight: fontWeight.medium,
+    color: color.text,
+    background: color.surface1,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    padding: '1px 5px',
+    lineHeight: 1.4,
+  },
+  desc: {
+    fontSize: fontSize['11'],
+    color: color.subtext,
+    textAlign: 'right',
+    lineHeight: 1.35,
+  },
+};
+
 const InfoSection = ({ title, icon: Icon, subtitle = null, children }) => (
-  <div style={infoStyles.section}>
+  <div className="iterm-info-section" style={infoStyles.section}>
     <div style={infoStyles.sectionHeader}>
       {Icon && <Icon size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />}
       <span style={infoStyles.sectionTitle}>{title}</span>
@@ -693,16 +666,17 @@ const StatBar = ({ label, percent = 0, right = '' }) => {
 
 const infoStyles = {
   root: {
-    padding: space['3'],
+    padding: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: space['4'],
+    gap: 0,
     fontFamily: font.sans,
   },
   section: {
     display: 'flex',
     flexDirection: 'column',
     gap: '6px',
+    padding: '10px 12px',
   },
   sectionHeader: {
     display: 'flex',
@@ -731,10 +705,6 @@ const infoStyles = {
     display: 'flex',
     flexDirection: 'column',
     gap: '4px',
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.sm,
-    padding: '8px 10px',
   },
   row: {
     display: 'flex',
@@ -933,7 +903,7 @@ const styles = {
     alignSelf: 'stretch',
     height: '1px',
     background: color.border,
-    margin: '6px 4px',
+    margin: '4px 0',
   },
 };
 

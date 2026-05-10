@@ -832,6 +832,26 @@ async def terminal_websocket(
             await storage.update_session_activity(session_id)
         except Exception:
             pass
+        # 기존 세션 mouse off 강제 — 직전에 mouse on 으로 올라간 세션 되돌림.
+        # 드래그 native 선택을 위해선 DECSET 1000 안 보내야 함 → mouse off.
+        # 휠은 frontend 의 attachCustomWheelEventHandler 가 PgUp 변환 → root binding 으로 copy-mode.
+        try:
+            await tmux_manager._run("set-option", "-t", session_id, "mouse", "off", check=False)
+            # PageUp/Down root binding 보강 (휠 → PgUp 경로용). idempotent.
+            await tmux_manager._run(
+                "bind-key", "-T", "root", "PageUp",
+                "if-shell", "-F", "#{alternate_on}",
+                "send-keys PageUp", "copy-mode -eu",
+                check=False,
+            )
+            await tmux_manager._run(
+                "bind-key", "-T", "root", "PageDown",
+                "if-shell", "-F", "#{alternate_on}",
+                "send-keys PageDown", "",
+                check=False,
+            )
+        except Exception:
+            pass
 
     bridge = TmuxClientBridge(
         websocket=websocket,

@@ -104,7 +104,8 @@ function App() {
   const { settings, updateSettings } = useSettings();
   const { t } = useTranslation(settings.language);
   const currentTheme = useMemo(() => themes[settings.theme] || themes.catppuccin, [settings.theme]);
-
+  // 초기 1회 — focusedPane 이 아직 안 정의된 첫 렌더에 글로벌 테마 즉시 적용 (FOUC 방지).
+  // 활성 pane 의 themeOverride 가 잡히면 아래쪽 effect 가 덮어씀.
   useEffect(() => { applyThemeVars(currentTheme); }, [currentTheme]);
 
   const { isLoading, needsSetup, isAuthenticated, username, login, logout, completeSetup } = useAuth();
@@ -557,9 +558,14 @@ function App() {
       : isPersistentHost
         ? (t('confirmCloseTabTerminate') || 'Close this tab? The remote tmux session(s) will be terminated.')
         : (t('confirmCloseTab') || 'Close this tab?');
-    const message = paneCount > 1
+    const bodyMsg = paneCount > 1
       ? `${baseMsg} (${paneCount} ${t('panesInTab') || 'panes'})`
       : baseMsg;
+    // 헤더 라인: #N · 탭이름 — 실수로 다른 탭 닫는 것 방지용
+    const tabIdx = tabs.findIndex((tb) => tb.id === tabId);
+    const tabNo = tabIdx >= 0 ? tabIdx + 1 : '?';
+    const headerLine = `#${tabNo} · ${tab.name || 'terminal'}`;
+    const message = `${headerLine}\n\n${bodyMsg}`;
     setConfirmModal({
       isOpen: true,
       title: t('closeTab') || 'Close tab',
@@ -1208,6 +1214,21 @@ function App() {
                     t={t}
                     viewportHeight={viewportHeight}
                     onScreenDump={(text) => setScreenDumpText(text || '— empty —')}
+                    /* EmptyPane → 내부 Resumable 카드의 종료 confirm 을 표준 ConfirmModal 로. */
+                    onConfirm={(opts) => setConfirmModal({ isOpen: true, ...opts })}
+                    onNotify={(message) => setNotification({ isOpen: true, message })}
+                    onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
+                    onTerminateHostSession={async (host, sessionName) => {
+                      const token = localStorage.getItem('auth_token');
+                      const res = await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
+                        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+                      });
+                      if (!res.ok) {
+                        const detail = await res.text().catch(() => '');
+                        throw new Error(`HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
+                      }
+                    }}
+                    busyTabIds={busyTabIds}
                   />
                 </div>
               </div>

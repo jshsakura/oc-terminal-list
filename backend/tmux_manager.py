@@ -144,8 +144,8 @@ class TmuxManager:
         # 세션 옵션: 웹 임베드 환경에 적합한 기본값
         opts = [
             ("history-limit", str(self.history_limit)),
-            # mouse 는 일부러 off — 웹 터미널에서 우클릭/스크롤은 xterm.js 가
-            # 처리해야 자연스럽다. tmux 가 가로채면 우클릭 붙여넣기 등이 깨짐.
+            # mouse off — DECSET 1000 안 보내야 xterm.js 가 드래그를 native 선택으로 처리 (Shift 불필요).
+            # 휠은 frontend 의 `attachCustomWheelEventHandler` 가 PgUp 으로 변환 → tmux root binding.
             ("mouse", "off"),
             ("window-size", "latest"),         # 다중 클라이언트시 최근 활성 사이즈
             ("default-terminal", "tmux-256color"),
@@ -177,6 +177,18 @@ class TmuxManager:
             "send-keys PageDown", "",
             check=False,
         )
+        # mouse on 인데 휠 외 모든 마우스 바인딩 해제 — 드래그 시 tmux copy-mode 자동 진입 / 우클릭
+        # 팝업 / 더블클릭 단어선택 등 방해 동작 차단. 텍스트 선택은 Shift+드래그 (xterm.js native).
+        # 휠 (WheelUpPane, WheelDownPane) 은 그대로 두어 native 스크롤 유지.
+        for _ev in (
+            "MouseDown1Pane", "MouseDown1Status", "MouseDown1StatusLeft", "MouseDown1StatusRight", "MouseDown1Border",
+            "MouseDrag1Pane", "MouseDrag1Border", "MouseDragEnd1Pane",
+            "MouseUp1Pane", "MouseUp1Status", "MouseUp1StatusLeft", "MouseUp1StatusRight", "MouseUp1Border",
+            "MouseDown2Pane", "MouseUp2Pane",
+            "MouseDown3Pane", "MouseDown3Status", "MouseDown3StatusLeft", "MouseDown3StatusRight",
+            "DoubleClick1Pane", "TripleClick1Pane",
+        ):
+            await self._run("unbind-key", "-T", "root", _ev, check=False)
 
         logger.info("tmux session created: %s (%dx%d, cwd=%s, shell=%s)", session_id, cols, rows, cwd, shell)
 
