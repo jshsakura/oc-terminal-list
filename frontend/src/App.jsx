@@ -1021,10 +1021,16 @@ function App() {
               onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
               onTerminateHostSession={async (host, sessionName) => {
                 const token = localStorage.getItem('auth_token');
-                await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
+                const res = await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
                   method: 'POST', headers: { Authorization: `Bearer ${token}` },
-                }).catch(() => {});
+                });
+                if (!res.ok) {
+                  const detail = await res.text().catch(() => '');
+                  throw new Error(`HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
+                }
               }}
+              onConfirm={(opts) => setConfirmModal({ isOpen: true, ...opts })}
+              onNotify={(message) => setNotification({ isOpen: true, message })}
               t={t}
               settings={settings}
             />

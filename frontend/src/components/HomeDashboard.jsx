@@ -52,6 +52,8 @@ const HomeDashboard = ({
   onJumpTab,
   onResumeHostSession,
   onTerminateHostSession,
+  onConfirm,
+  onNotify,
   // embedded=true 면 부모 안에 끼워 쓰는 모드 — root 의 height: 100% 를 풀어
   // 콘텐츠 높이만 차지하게 한다 (분할 pane 의 빈 슬롯에서 미러 picker 와 같이 stack 가능).
   embedded = false,
@@ -135,6 +137,8 @@ const HomeDashboard = ({
             onJumpTab={onJumpTab}
             onResumeHostSession={onResumeHostSession}
             onTerminateHostSession={onTerminateHostSession}
+            onConfirm={onConfirm}
+            onNotify={onNotify}
             t={t}
           />
         )}

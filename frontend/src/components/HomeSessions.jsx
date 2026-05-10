@@ -22,7 +22,9 @@ const HomeSessions = ({
   hosts = [],
   onJumpTab,            // (tabId) =>
   onResumeHostSession,  // (host, sessionName) => — 호스트에 해당 tmux 세션으로 신규 탭
-  onTerminateHostSession, // (host, sessionName) => Promise — kill-tmux
+  onTerminateHostSession, // (host, sessionName) => Promise — kill-tmux. throw 가능.
+  onConfirm,            // ({title, message, onConfirm, danger?}) => 표준 ConfirmModal 호출
+  onNotify,             // (message) => 표준 NotificationModal 호출 (에러 알림)
   t,
 }) => {
   // host_id → { loading, error, sessions: [{name, created, attached}] }
@@ -144,13 +146,44 @@ const HomeSessions = ({
                   host={host}
                   session={s}
                   onResume={() => {
-                    // 디버깅 용 — 클릭이 실제로 호출되는지 콘솔에서 확인
                     console.info('[HomeSessions] resume', { hostId: host.id, hostName: host.name, sessionName: s.name });
                     onResumeHostSession?.(host, s.name);
                   }}
-                  onTerminate={async () => {
-                    await onTerminateHostSession?.(host, s.name);
-                    fetchHostSessions(host);
+                  onTerminate={() => {
+                    const msg = (t?.('confirmTerminateSession') || 'Terminate "{name}" on {host}? Work in this tmux session will be lost.')
+                      .replace('{name}', s.name)
+                      .replace('{host}', host.name);
+                    const doKill = async () => {
+                      // 1) 즉시 로컬 state 에서 제거 (optimistic) — 다음 fetch 까지 카드 사라짐
+                      setTmuxByHost((prev) => {
+                        const cur = prev[host.id];
+                        if (!cur || !cur.sessions) return prev;
+                        return {
+                          ...prev,
+                          [host.id]: { ...cur, sessions: cur.sessions.filter((x) => x.name !== s.name) },
+                        };
+                      });
+                      // 2) 실제 kill 호출
+                      try {
+                        await onTerminateHostSession?.(host, s.name);
+                      } catch (err) {
+                        onNotify?.((t?.('terminateFailed') || 'Failed to terminate session: {err}')
+                          .replace('{err}', err?.message || String(err)));
+                      }
+                      // 3) 서버 진실 재확인 — 실패해서 살아있으면 카드가 다시 노출됨
+                      fetchHostSessions(host);
+                    };
+                    if (onConfirm) {
+                      onConfirm({
+                        title: t?.('terminate') || 'Terminate session',
+                        message: msg,
+                        onConfirm: doKill,
+                        danger: true,
+                      });
+                    } else {
+                      // 폴백 — onConfirm 미공급 시
+                      if (window.confirm(msg)) doKill();
+                    }
                   }}
                   t={t}
                 />
@@ -189,10 +222,6 @@ const ResumableCard = ({ host, session, onResume, onTerminate, t }) => {
   const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
   const handleTerminate = (e) => {
     e.stopPropagation();
-    const msg = (t?.('confirmTerminateSession') || 'Terminate "{name}" on {host}? Work in this tmux session will be lost.')
-      .replace('{name}', session.name)
-      .replace('{host}', host.name);
-    if (!window.confirm(msg)) return;
     onTerminate?.();
   };
   return (
