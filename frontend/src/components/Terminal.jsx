@@ -38,6 +38,9 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
      호출할 수 있게 ref 로 공개. */
   const connectRef = useRef(null);
   const runPreflightRef = useRef(null);
+  // 휠로 copy-mode 진입한 상태 트래킹 — 사용자가 셸 입력 키를 누르면 자동으로 'q' 먼저 보내
+  // copy-mode 빠져나오게 한다. wheel up 시 set, 일정 시간 idle 후 자동 reset.
+  const wheelStateRef = useRef({ inCopyMode: false, lastWheelTs: 0 });
   const [isReady, setIsReady] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const [evicted, setEvicted] = useState(false);
@@ -134,24 +137,28 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       }
     };
 
-    /* xterm 키 가로채기 — Ctrl+V/Ctrl+Shift+V → paste, Ctrl+Shift+C → copy, F12 → DevTools.
-       e.preventDefault() 명시 = 브라우저 native paste/copy DOM 이벤트 차단 → 이중 발화 방지.
-       Ctrl+C 는 일부러 안 가로챔 → SIGINT 로 그대로 통과 (Claude Code 등 TUI interrupt 안정). */
+    /* xterm 키 가로채기 — Ctrl+V → paste, Ctrl+Shift+C → copy, F12 → DevTools.
+       추가: 휠로 copy-mode 진입한 상태에서 셸 입력 키 누르면 자동 'q' 먼저 보내 copy-mode 종료. */
+    const COPY_MODE_GRACE_MS = 8000; // wheel 후 8초 내 셸 입력 = copy-mode 활성으로 간주
     const pasteFromClipboard = (e) => {
       e.preventDefault();
       navigator.clipboard.readText().then((text) => {
         if (text) term.paste(text);
       }).catch(() => {});
     };
+    const isShellInputKey = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return false;
+      if (e.key.length === 1) return true; // 인쇄 가능 문자
+      return e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Tab';
+    };
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       if (e.key === 'F12') return false;
-      // Ctrl+V (with or without Shift) → paste. literal-quote ^V 기능 손실 — 거의 안 쓰는 기능.
       if (e.ctrlKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
         pasteFromClipboard(e);
+        wheelStateRef.current.inCopyMode = false;
         return false;
       }
-      // Ctrl+Shift+C → 선택 영역 복사
       if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
         const sel = term.getSelection();
         if (sel) {
@@ -159,6 +166,15 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
           navigator.clipboard.writeText(sel).catch(() => {});
           return false;
         }
+      }
+      // copy-mode 자동 종료 — 휠로 진입했고 grace period 안에 셸 입력 키면 'q' 먼저.
+      if (wheelStateRef.current.inCopyMode && isShellInputKey(e)) {
+        const grace = Date.now() - wheelStateRef.current.lastWheelTs < COPY_MODE_GRACE_MS;
+        if (grace) {
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) ws.send('q');
+        }
+        wheelStateRef.current.inCopyMode = false;
       }
       return true;
     });
@@ -198,6 +214,9 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         const ws = wsRef.current;
         if (!ws || ws.readyState !== WebSocket.OPEN) return true;
         ws.send(e.deltaY > 0 ? '\x1b[6~' : '\x1b[5~');
+        // wheel up = copy-mode 진입(또는 더 위로). 사용자가 그 후 셸 입력하면 자동 'q' 보내야.
+        if (e.deltaY < 0) wheelStateRef.current.inCopyMode = true;
+        wheelStateRef.current.lastWheelTs = Date.now();
         return false;
       });
     }
@@ -357,7 +376,29 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         setEvicted(true);
         return;
       }
-      handleReconnect();
+      // detach token 못 봤어도 server-initiated close 면 takeover 가능성 — preflight 확인.
+      // 다른 클라이언트 attached → evicted 오버레이. 아니면 backoff 후 자동 재연결.
+      const checkAndRecover = async () => {
+        try {
+          const { attached } = await (runPreflightRef.current?.() || Promise.resolve({ attached: false }));
+          if (cancelled) return;
+          if (attached) {
+            evictedRef.current = true;
+            setEvicted(true);
+            return;
+          }
+        } catch {}
+        if (cancelled) return;
+        const attempts = reconnectAttemptsRef.current;
+        if (attempts < 5) {
+          const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
+          reconnectAttemptsRef.current = attempts + 1;
+          reconnectTimeoutRef.current = setTimeout(() => {
+            if (!cancelled) connectRef.current?.();
+          }, delay);
+        }
+      };
+      checkAndRecover();
     };
 
       socket.onerror = (error) => {

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { X, Trash2, Network, ChevronDown } from 'lucide-react';
+import { X, Trash2, Network, ChevronDown, FolderOpen } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import IconPickerPopup from './IconPickerPopup';
+import RemoteFolderPicker from './RemoteFolderPicker';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
 
@@ -33,6 +34,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [tsPicker, setTsPicker] = useState({ open: false, peers: [], loading: false, available: true });
   const [sessions, setSessions] = useState({ open: false, items: [], loading: false, error: null, killing: null });
+  // 시작 경로 파일 탐색 모달 — 저장된 호스트 (id 있음) 만 SFTP 가능. 새 호스트면 안내.
+  const [folderPickerOpen, setFolderPickerOpen] = useState(false);
 
   useEffect(() => {
     setConfirmingDelete(false);
@@ -259,11 +262,51 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
               label={t('startPath') || 'Start path'}
               hint={t('startPathHint') || 'Directory to enter on connect (absolute or ~). Empty = home.'}
             >
-              <Input
-                value={draft.start_path || ''}
-                onChange={(v) => set('start_path', v)}
-                placeholder="~/projects/my-app"
-              />
+              <div style={{ display: 'flex', gap: space['2'], alignItems: 'stretch' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Input
+                    value={draft.start_path || ''}
+                    onChange={(v) => set('start_path', v)}
+                    placeholder="~/projects/my-app"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!host?.id) {
+                      setError(t('errorSaveBeforeBrowse') || 'Save host first to browse remote folders.');
+                      return;
+                    }
+                    setError('');
+                    setFolderPickerOpen(true);
+                  }}
+                  title={host?.id ? (t('browseFolder') || 'Browse remote folders') : (t('errorSaveBeforeBrowse') || 'Save host first to browse')}
+                  style={{
+                    flexShrink: 0,
+                    height: 36,
+                    minWidth: 96,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '6px',
+                    padding: `0 ${space['3']}`,
+                    background: host?.id ? color.surface1 : color.surface0,
+                    color: color.text,
+                    border: `1px solid ${color.border}`,
+                    borderRadius: radius.sm,
+                    fontSize: fontSize['13'],
+                    fontWeight: fontWeight.medium,
+                    cursor: host?.id ? 'pointer' : 'not-allowed',
+                    opacity: host?.id ? 1 : 0.5,
+                    transition: `background ${motion.fast}`,
+                  }}
+                  onMouseEnter={(e) => { if (host?.id) e.currentTarget.style.background = color.surface2; }}
+                  onMouseLeave={(e) => { if (host?.id) e.currentTarget.style.background = color.surface1; }}
+                >
+                  <FolderOpen size={15} strokeWidth={2} />
+                  <span>{t('browse') || 'Browse'}</span>
+                </button>
+              </div>
             </Field>
             {host && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: space['2'], marginTop: space['2'] }}>
@@ -391,6 +434,15 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
             value={draft.icon || ''}
             onChange={(v) => set('icon', v)}
             onClose={() => setIconPickerOpen(false)}
+            t={t}
+          />
+
+          {/* 시작 경로 SFTP 폴더 탐색 — 저장된 호스트(id 있음) 만 동작. 선택 시 draft.start_path 업데이트. */}
+          <RemoteFolderPicker
+            isOpen={folderPickerOpen && !!host?.id}
+            host={host}
+            onPick={(p) => { set('start_path', p); setFolderPickerOpen(false); }}
+            onClose={() => setFolderPickerOpen(false)}
             t={t}
           />
 

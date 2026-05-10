@@ -99,11 +99,18 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
     if (e.key === 'Escape') onClose();
   };
 
+  // 모달 뒤 터미널 등으로 touch drag 가 leak 되지 않도록 overlay 에서 명시 차단.
+  // (z-index 만으론 일부 모바일 브라우저에서 touchmove 가 underlying 에 forward 될 수 있음.)
+  const blockTouch = (e) => { e.preventDefault(); };
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div
+      style={{ ...styles.overlay, touchAction: 'none' }}
+      onClick={onClose}
+      onTouchMove={blockTouch}
+    >
       <style>{`.command-input-textarea::placeholder { color: ${color.muted}; }`}</style>
 
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+      <div style={styles.modal} onClick={(e) => e.stopPropagation()} onTouchMove={(e) => e.stopPropagation()}>
         <header style={styles.header}>
           <div style={styles.title}>{t?.('commandInput') || 'Send command'}</div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>

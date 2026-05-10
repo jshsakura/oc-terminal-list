@@ -513,9 +513,9 @@ const styles = {
   },
   modal: {
     width: '92%',
-    maxWidth: '520px',
+    maxWidth: '780px',
     height: '88vh',
-    maxHeight: '720px',
+    maxHeight: '900px',
     background: color.base,
     border: `1px solid ${color.border}`,
     borderRadius: radius.lg,

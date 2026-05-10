@@ -62,7 +62,14 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
     onChange?.(next);
   };
   const addPreset = (preset) => {
-    onChange?.([...list, { id: newId(), kind: 'send', ...preset }]);
+    // preset.kind 가 명시되어 있으면 (예: 'sep') 그걸 사용, 없으면 'send'.
+    const { kind: presetKind, ...rest } = preset;
+    const kind = presetKind || 'send';
+    if (kind === 'sep') {
+      onChange?.([...list, { id: newId(), kind: 'sep' }]);
+      return;
+    }
+    onChange?.([...list, { id: newId(), kind, ...rest }]);
   };
   const addEmpty = () => {
     onChange?.([...list, { id: newId(), kind: 'send', label: 'X', payload: '' }]);

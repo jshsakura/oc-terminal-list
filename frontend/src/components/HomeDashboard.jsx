@@ -192,7 +192,10 @@ const HomeDashboard = ({
                 isDragOver={overId === host.id && draggingId !== host.id}
                 icon={<HostIcon value={host.icon || ''} fallback={Server} size={20} />}
                 name={host.name}
-                subtitle={`${host.ssh_user}@${host.hostname}${host.port && host.port !== 22 ? `:${host.port}` : ''}`}
+                subtitle={
+                  `${host.ssh_user}@${host.hostname}${host.port && host.port !== 22 ? `:${host.port}` : ''}`
+                  + (host.start_path ? ` · ${host.start_path}` : '')
+                }
                 accentColor={accent}
                 isHovered={hoverId === host.id}
                 onHover={setHoverId}

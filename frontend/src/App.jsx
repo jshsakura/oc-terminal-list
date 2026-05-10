@@ -1001,7 +1001,12 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      height: isMobile ? `${viewportHeight}px` : '100vh',
+      // 키보드 닫힌 모바일 = 100dvh (URL bar 동적 변화 자동 반영, 하단 빈공간 X).
+      // 키보드 열린 모바일 = visualViewport.height px (터미널이 키보드 위로 줄어들도록).
+      // 데스크탑 = 100vh.
+      height: isMobile
+        ? ((window.innerHeight - viewportHeight) > 100 ? `${viewportHeight}px` : '100dvh')
+        : '100vh',
       background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,

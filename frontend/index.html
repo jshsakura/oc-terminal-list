@@ -35,7 +35,10 @@
 
       html, body, #root {
         width: 100%;
-        height: 100%;
+        /* 100% = iOS layout viewport (가장 큰 = URL bar 숨김 기준). dvh 안 쓰면 App wrapper 보다
+           커져 하단 빈공간 발생. dvh 로 동적 visible viewport 추적 → URL bar 표시/숨김 모두 정상. */
+        height: 100vh; /* legacy fallback */
+        height: 100dvh;
         overflow: hidden;
         position: fixed;
         background: #0f0f17; /* tokens.color.crust */
