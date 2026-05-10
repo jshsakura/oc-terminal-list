@@ -12,9 +12,20 @@ import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { Loader2, MonitorSmartphone, PowerOff } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
+import { buildThemeUI } from '../styles/themeUI';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
+
+const withAlpha = (hex, alpha, fallback) => {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!match) return fallback;
+  const value = parseInt(match[1], 16);
+  const r = (value >> 16) & 255;
+  const g = (value >> 8) & 255;
+  const b = value & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
 
 const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null }) => {
   const { t } = useTranslation(settings.language);
@@ -62,6 +73,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
 
   // 테마 가져오기
   const currentTheme = themes[settings.theme] || themes.catppuccin;
+  const themeUi = buildThemeUI(currentTheme);
 
   // 터미널 생성 및 WebSocket 연결
   useEffect(() => {
@@ -818,7 +830,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
           aria-hidden="true"
           style={{
             ...styles.statusOverlay,
-            backgroundColor: currentTheme.ui.bg,
+            backgroundColor: themeUi.base,
             padding: '14px 18px',
             justifyContent: 'flex-start',
             alignItems: 'stretch',
@@ -832,7 +844,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
                 height: '12px',
                 width: `${width}%`,
                 borderRadius: '4px',
-                background: currentTheme.ui.bgTertiary || currentTheme.ui.borderLight || '#313244',
+                background: themeUi.surface1 || themeUi['border-strong'] || '#313244',
                 animation: 'term-skeleton-pulse 1.4s ease-in-out infinite',
                 animationDelay: `${i * 90}ms`,
               }}
@@ -871,7 +883,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         <div
           style={{
             ...styles.statusOverlay,
-            backgroundColor: `${currentTheme.ui.bg}EE`,
+            backgroundColor: withAlpha(themeUi.base, 0.93, themeUi.scrim),
             backdropFilter: 'blur(2px)',
             WebkitBackdropFilter: 'blur(2px)',
             zIndex: 12,
@@ -882,14 +894,14 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
           <div style={{
             width: '52px', height: '52px', borderRadius: '12px',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: `${currentTheme.ui.accent}1F`,
-            border: `1px solid ${currentTheme.ui.accent}55`,
-            color: currentTheme.ui.accent,
+            background: themeUi['accent-subtle'],
+            border: `1px solid ${themeUi['accent-border']}`,
+            color: themeUi.accent,
           }}>
             <MonitorSmartphone size={26} strokeWidth={1.8} />
           </div>
           <div style={{
-            color: currentTheme.ui.text,
+            color: themeUi.text,
             fontSize: '15px',
             fontWeight: 600,
             textAlign: 'center',
@@ -898,7 +910,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
             {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
           </div>
           <div style={{
-            color: currentTheme.ui.textSecondary,
+            color: themeUi.subtext,
             fontSize: '12.5px',
             textAlign: 'center',
             maxWidth: '360px',
@@ -926,15 +938,15 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
               marginTop: '4px',
               padding: '9px 18px',
               borderRadius: '7px',
-              border: `1px solid ${currentTheme.ui.accent}66`,
-              background: currentTheme.ui.accent,
-              color: currentTheme.ui.bg,
+              border: `1px solid ${themeUi['accent-border']}`,
+              background: themeUi.accent,
+              color: themeUi.crust,
               fontSize: '13px',
               fontWeight: 600,
               cursor: 'pointer',
               fontFamily: 'inherit',
               letterSpacing: '0.01em',
-              boxShadow: `0 6px 18px ${currentTheme.ui.accent}33`,
+              boxShadow: `0 6px 18px ${withAlpha(themeUi.accent, 0.28, 'rgba(0,0,0,0.25)')}`,
             }}
           >
             {t('takeOver') || '내가 가져오기'}
@@ -948,7 +960,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         <div
           style={{
             ...styles.statusOverlay,
-            backgroundColor: `${currentTheme.ui.bg}EE`,
+            backgroundColor: withAlpha(themeUi.base, 0.93, themeUi.scrim),
             backdropFilter: 'blur(2px)',
             WebkitBackdropFilter: 'blur(2px)',
             zIndex: 12,
@@ -959,14 +971,14 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
           <div style={{
             width: '52px', height: '52px', borderRadius: '12px',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: `${currentTheme.ui.accent}1F`,
-            border: `1px solid ${currentTheme.ui.accent}55`,
-            color: currentTheme.ui.accent,
+            background: themeUi['accent-subtle'],
+            border: `1px solid ${themeUi['accent-border']}`,
+            color: themeUi.accent,
           }}>
             <PowerOff size={26} strokeWidth={1.8} />
           </div>
           <div style={{
-            color: currentTheme.ui.text,
+            color: themeUi.text,
             fontSize: '15px',
             fontWeight: 600,
             textAlign: 'center',
@@ -975,7 +987,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
             {t('shellEndedTitle') || '셸이 종료되었습니다'}
           </div>
           <div style={{
-            color: currentTheme.ui.textSecondary,
+            color: themeUi.subtext,
             fontSize: '12.5px',
             textAlign: 'center',
             maxWidth: '360px',
@@ -999,15 +1011,15 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
               marginTop: '4px',
               padding: '9px 18px',
               borderRadius: '7px',
-              border: `1px solid ${currentTheme.ui.accent}66`,
-              background: currentTheme.ui.accent,
-              color: currentTheme.ui.bg,
+              border: `1px solid ${themeUi['accent-border']}`,
+              background: themeUi.accent,
+              color: themeUi.crust,
               fontSize: '13px',
               fontWeight: 600,
               cursor: 'pointer',
               fontFamily: 'inherit',
               letterSpacing: '0.01em',
-              boxShadow: `0 6px 18px ${currentTheme.ui.accent}33`,
+              boxShadow: `0 6px 18px ${withAlpha(themeUi.accent, 0.28, 'rgba(0,0,0,0.25)')}`,
             }}
           >
             {t('restartShell') || '새 셸 시작'}
@@ -1019,6 +1031,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       {authPrompt && (
         <AuthPromptOverlay
           prompt={authPrompt}
+          themeUi={themeUi}
           t={t}
           onSubmit={(values) => {
             try {
@@ -1043,7 +1056,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
   );
 };
 
-const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
+const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
   const initial = (prompt.prompts || []).map(() => '');
   const [values, setValues] = useState(initial);
   const pasteFirst = async () => {
@@ -1052,8 +1065,8 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
       if (text) setValues((v) => [text, ...v.slice(1)]);
     } catch { /* clipboard 권한 없음 — 사용자 수동 paste */ }
   };
-  /* 전역 토큰 색 사용 (var(--ui-*)) — 화면 안 작은 오버레이가 아닌 전체 모달로 띄움.
-     position: fixed inset 0 + z-index 큰 값. 다른 모달들 (ConfirmModal 등) 과 동일 패턴. */
+  /* 현재 터미널 테마에서 직접 도출한 UI 팔레트 사용.
+     MFA 입력 후 취소/끊김 화면까지 같은 색 체계로 유지한다. */
   return (
     <div
       onClick={onCancel}
@@ -1063,7 +1076,7 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
         // 100dvh = visible viewport (iOS 키보드 올라오면 그만큼 작아짐).
         // bottom 안 박고 height 만 설정 → 키보드 위로 자동 줄어듦. 모달이 키보드 뒤로 안 늘어남.
         height: '100dvh',
-        background: 'rgba(0,0,0,0.55)',
+        background: themeUi.scrim,
         backdropFilter: 'blur(3px)', WebkitBackdropFilter: 'blur(3px)',
         display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
         zIndex: 10050, padding: '24px 24px 0',
@@ -1075,9 +1088,9 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
         onSubmit={(e) => { e.preventDefault(); onSubmit(values); }}
         style={{
           width: '100%', maxWidth: 380,
-          background: 'var(--ui-base, #1a1a25)',
-          color: 'var(--ui-text, #e4e6f1)',
-          border: '1px solid var(--ui-border, rgba(228,230,241,0.06))',
+          background: themeUi.base,
+          color: themeUi.text,
+          border: `1px solid ${themeUi.border}`,
           borderRadius: 10,
           boxShadow: '0 24px 60px rgba(0,0,0,0.55)',
           display: 'flex', flexDirection: 'column', gap: 12, padding: 20,
@@ -1087,9 +1100,9 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{
             width: 40, height: 40, borderRadius: 8,
-            background: 'var(--ui-accent-subtle, rgba(137,180,250,0.12))',
-            border: '1px solid var(--ui-accent-border, rgba(137,180,250,0.32))',
-            color: 'var(--ui-accent, #89b4fa)',
+            background: themeUi['accent-subtle'],
+            border: `1px solid ${themeUi['accent-border']}`,
+            color: themeUi.accent,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             fontSize: 16, fontWeight: 700, letterSpacing: '0.02em',
           }}>2FA</div>
@@ -1099,7 +1112,7 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
         </div>
         {prompt.instructions && (
           <div style={{
-            color: 'var(--ui-subtext, #a8acc4)',
+            color: themeUi.subtext,
             fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-line',
           }}>
             {prompt.instructions}
@@ -1107,7 +1120,7 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
         )}
         {(prompt.prompts || []).map((p, i) => (
           <label key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <span style={{ fontSize: 12, color: 'var(--ui-subtext, #a8acc4)' }}>
+            <span style={{ fontSize: 12, color: themeUi.subtext }}>
               {p.prompt || (t('authPromptCode') || 'Code')}
             </span>
             <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -1120,9 +1133,9 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
                 onChange={(e) => setValues((v) => v.map((x, j) => (j === i ? e.target.value : x)))}
                 style={{
                   flex: 1, height: 40, padding: '0 12px',
-                  background: 'var(--ui-mantle, #15151f)',
-                  color: 'var(--ui-text, #e4e6f1)',
-                  border: '1px solid var(--ui-border, rgba(228,230,241,0.06))',
+                  background: themeUi.mantle,
+                  color: themeUi.text,
+                  border: `1px solid ${themeUi.border}`,
                   borderRadius: 6, outline: 'none', fontSize: 15,
                   fontFamily: 'inherit',
                 }}
@@ -1134,9 +1147,9 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
                   title={t('paste') || 'Paste'}
                   style={{
                     marginLeft: 6, height: 40, padding: '0 12px',
-                    background: 'var(--ui-surface1, #2d2d3c)',
-                    color: 'var(--ui-text, #e4e6f1)',
-                    border: '1px solid var(--ui-border, rgba(228,230,241,0.06))',
+                    background: themeUi.surface1,
+                    color: themeUi.text,
+                    border: `1px solid ${themeUi.border}`,
                     borderRadius: 6, fontSize: 12, fontWeight: 500,
                     cursor: 'pointer', fontFamily: 'inherit',
                   }}
@@ -1153,8 +1166,8 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
             onClick={onCancel}
             style={{
               flex: 1, height: 36, borderRadius: 6,
-              border: '1px solid var(--ui-border, rgba(228,230,241,0.06))',
-              background: 'transparent', color: 'var(--ui-text, #e4e6f1)',
+              border: `1px solid ${themeUi.border}`,
+              background: 'transparent', color: themeUi.text,
               fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
             }}
           >
@@ -1164,9 +1177,9 @@ const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
             type="submit"
             style={{
               flex: 1, height: 36, borderRadius: 6,
-              border: '1px solid var(--ui-accent, #89b4fa)',
-              background: 'var(--ui-accent, #89b4fa)',
-              color: 'var(--ui-crust, #0f0f17)',
+              border: `1px solid ${themeUi.accent}`,
+              background: themeUi.accent,
+              color: themeUi.crust,
               fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
             }}
           >
