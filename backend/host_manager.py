@@ -50,12 +50,16 @@ def _shell_path(p: str) -> str:
 def effective_tmux_session(base: str, pane_index: int = 0) -> str:
     """pane index 별 tmux 세션 이름 부여.
 
-    pane 0 = 기본 이름 (영속/재attach 용도). pane 1+ = `base.N+1` 자동 접미.
+    pane 0 = 기본 이름 (영속/재attach 용도). pane 1+ = `base_N+1` 자동 접미.
+
+    NOTE: 분리자로 `.` 을 쓰면 안 됨 — tmux 의 target spec 이 `session:window.pane`
+    형식이라 `name.2` 가 "session=name, pane=2" 로 파싱되어 "can't find pane: 2"
+    에러. tmux 는 세션명의 `.` 도 내부적으로 `_` 로 치환하므로 우리도 `_` 사용.
     """
     base = base or DEFAULT_REMOTE_TMUX_SESSION
     if not pane_index:
         return base
-    return f"{base}.{int(pane_index) + 1}"
+    return f"{base}_{int(pane_index) + 1}"
 
 
 def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: Optional[str] = None) -> Optional[str]:

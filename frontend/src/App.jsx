@@ -413,11 +413,11 @@ function App() {
         }).catch(() => {});
       }
       // 호스트 분할 pane (paneIndex > 0) → 자동 부여된 원격 tmux 세션 정리.
-      // pane 0 (메인) 은 영속이므로 안 죽임.
+      // pane 0 (메인) 은 영속이므로 안 죽임. host_manager.effective_tmux_session 과 동기.
       if (pane.hostId && paneIndex > 0) {
         const host = hosts.find((h) => h.id === pane.hostId);
         const baseSession = host?.remote_tmux_session || 'mobile';
-        const targetSession = `${baseSession}.${paneIndex + 1}`;
+        const targetSession = `${baseSession}_${paneIndex + 1}`;
         fetch(`/api/hosts/${pane.hostId}/kill-tmux?session=${encodeURIComponent(targetSession)}`, {
           method: 'POST', headers: { Authorization: `Bearer ${token}` },
         }).catch(() => {});
@@ -1138,8 +1138,9 @@ function App() {
         </div>
       )}
 
-      {/* ── mobile toolbar ── */}
-      {isMobile && activeTabId !== null && (
+      {/* ── mobile toolbar ──
+          빈 pane (picker 상태) 이면 키 보낼 곳이 없어서 어차피 동작 안 함 → 숨김. */}
+      {isMobile && activeTabId !== null && !!focusedPane && (focusedPane.sessionId || focusedPane.hostId) && (
         <Suspense fallback={null}>
           <MobileToolbar
             onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}

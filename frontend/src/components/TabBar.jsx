@@ -118,7 +118,7 @@ const TabBar = ({
 
       {/* right action group — 모바일에선 가로/세로 분할이 의미 없음 (sub-tab 으로
           전환되거나 화면이 너무 좁음) → 분할 버튼 숨김. 설정만 노출. */}
-      <div style={styles.actionGroup}>
+      <div style={{ ...styles.actionGroup, ...(isMobile ? styles.actionGroupMobile : null) }}>
         {canSplit && !isMobile && (
           <>
             <RailIconBtn
@@ -472,13 +472,20 @@ const styles = {
   actionGroup: {
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: '2px',
-    // 활동바 actBtn 의 좌우 마진 ((36-32)/2=2) 과 같은 2/2 — Settings 버튼이 활동바 버튼들과
-    // 같은 컬럼 패턴(border + 2px + 32px + 2px)으로 보이게. 비대칭 공백 제거.
+    // 우측 RightPanel.activityBar (36px, border-box, borderLeft 포함) 와 borderLeft 가
+    // 같은 x 에 오게 — box-sizing: border-box + 명시 width.
+    // 데스크탑 (split×2 + settings = 3 버튼) 은 더 넓게, 모바일 (settings 1) 은 36 고정.
+    boxSizing: 'border-box',
     paddingLeft: '2px',
     paddingRight: '2px',
     borderLeft: `1px solid ${color.border}`,
     flexShrink: 0,
+  },
+  actionGroupMobile: {
+    width: '36px',         // 우측 rail 폭과 동일 → borderLeft 같은 x
+    paddingLeft: '1px',    // border 1 + padL 1 + button 32 + padR 2 = 36
   },
   closeGroup: {
     display: 'flex',

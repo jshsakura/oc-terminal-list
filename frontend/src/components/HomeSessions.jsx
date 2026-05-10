@@ -60,11 +60,11 @@ const HomeSessions = ({
   }, [tmuxHosts, fetchHostSessions]);
 
   // 현재 탭에서 점유 중인 tmux 세션명 set (host_id → Set<name>) — Resumable 에서 dedup.
-  // 점유 규칙 (host_manager.py 와 동기):
+  // 점유 규칙 (host_manager.effective_tmux_session 과 동기):
   //   - pane.tmuxSessionName 있으면 (Resume 된 탭) 그 이름 그대로
   //   - 없으면 base = host.remote_tmux_session (default 'mobile')
   //     · tab.tmuxSuffix 있으면 base = `${base}-${suffix}`
-  //     · pane 0 → base, pane i>0 → `${base}.${i+1}`
+  //     · pane 0 → base, pane i>0 → `${base}_${i+1}` (`.` 은 tmux 가 pane spec 으로 오해)
   const occupiedByHost = useMemo(() => {
     const map = new Map();
     tabs.forEach((tab) => {
@@ -78,7 +78,7 @@ const HomeSessions = ({
           return;
         }
         const base = tab.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
-        set.add(idx === 0 ? base : `${base}.${idx + 1}`);
+        set.add(idx === 0 ? base : `${base}_${idx + 1}`);
       });
       map.set(tab.hostId, set);
     });
