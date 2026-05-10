@@ -42,7 +42,7 @@ const detectBrowserLanguage = () => {
   return 'en';
 };
 
-const DEFAULT_SETTINGS = {
+export const DEFAULT_SETTINGS = {
   theme: 'catppuccin',
   language: detectBrowserLanguage(), // 브라우저 언어 자동 감지
   fontSize: 12,            // PC 글자크기
@@ -62,6 +62,33 @@ const DEFAULT_SETTINGS = {
 };
 
 const STORAGE_KEY = 'terminal_settings';
+const DIRTY_KEY = 'terminal_settings_dirty';
+
+const saveSettingsToServer = async (token, nextSettings) => {
+  const payload = JSON.stringify(nextSettings);
+  const res = await fetch('/api/user/settings', {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ settings: nextSettings }),
+  });
+  if (!res.ok) {
+    throw new Error(`settings save failed: ${res.status}`);
+  }
+  return payload;
+};
+
+const markSettingsDirty = () => {
+  try { localStorage.setItem(DIRTY_KEY, '1'); } catch {}
+};
+
+const clearSettingsDirty = (savedPayload, currentSettings) => {
+  if (JSON.stringify(currentSettings) === savedPayload) {
+    try { localStorage.removeItem(DIRTY_KEY); } catch {}
+  }
+};
 
 export const useSettings = () => {
   const [settings, setSettings] = useState(() => {
@@ -80,14 +107,20 @@ export const useSettings = () => {
     }
     return DEFAULT_SETTINGS;
   });
+  const settingsRef = useRef(settings);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   // ── 서버에서 가져오기 (인증 후 한 번) — 다른 디바이스에서 저장된 값 반영 ──
   const fetchedRef = useRef(false);
+  const fetchStartedRef = useRef(false);
   useEffect(() => {
-    if (fetchedRef.current) return;
+    if (fetchStartedRef.current) return;
     const token = localStorage.getItem('auth_token');
     if (!token) return;
-    fetchedRef.current = true;
+    fetchStartedRef.current = true;
     (async () => {
       try {
         const res = await fetch('/api/user/settings', {
@@ -96,6 +129,11 @@ export const useSettings = () => {
         if (!res.ok) return;
         const data = await res.json();
         const remote = data?.settings;
+        if (localStorage.getItem(DIRTY_KEY) === '1') {
+          const savedPayload = await saveSettingsToServer(token, settingsRef.current);
+          clearSettingsDirty(savedPayload, settingsRef.current);
+          return;
+        }
         if (remote && typeof remote === 'object' && Object.keys(remote).length > 0) {
           setSettings((prev) => ({
             ...DEFAULT_SETTINGS,
@@ -108,6 +146,8 @@ export const useSettings = () => {
       } catch (err) {
         // 오프라인이면 그냥 localStorage 값으로 진행
         console.warn('user settings fetch failed:', err);
+      } finally {
+        fetchedRef.current = true;
       }
     })();
   }, []);
@@ -122,20 +162,16 @@ export const useSettings = () => {
     if (!token || !fetchedRef.current) return;
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(() => {
-      fetch('/api/user/settings', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ settings }),
-      }).catch((err) => console.warn('user settings save failed:', err));
+      saveSettingsToServer(token, settings)
+        .then((savedPayload) => clearSettingsDirty(savedPayload, settingsRef.current))
+        .catch((err) => console.warn('user settings save failed:', err));
     }, 600);
     return () => { if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current); };
   }, [settings]);
 
   // 개별 설정 업데이트
   const updateSetting = (key, value) => {
+    markSettingsDirty();
     setSettings((prev) => ({
       ...prev,
       [key]: key === 'fontFamily'
@@ -148,6 +184,7 @@ export const useSettings = () => {
 
   // 여러 설정 동시 업데이트
   const updateSettings = (newSettings) => {
+    markSettingsDirty();
     setSettings((prev) => ({
       ...prev,
       ...newSettings,
@@ -158,6 +195,7 @@ export const useSettings = () => {
 
   // 설정 초기화
   const resetSettings = () => {
+    markSettingsDirty();
     setSettings(DEFAULT_SETTINGS);
     localStorage.removeItem(STORAGE_KEY);
   };
