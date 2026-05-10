@@ -34,6 +34,14 @@ RestartSec=5
 KillSignal=SIGTERM
 TimeoutStopSec=15
 
+# tmux 서버 보존 — 백엔드 재시작 시 로컬 세션이 유지되어야 한다.
+#   기본 KillMode=control-group 이면 cgroup 전체에 SIGTERM 이 가서 이 서비스가 띄운
+#   tmux 서버 (`-L iterminallist-app`) 까지 같이 죽음. process 모드로 두면
+#   MainPID(uvicorn) 만 SIGTERM 받고 tmux 서버는 cgroup 에 그대로 살아남음.
+#   다음 부팅에서 백엔드가 attach 만 다시 걸면 됨 (세션 ID 동일).
+#   Sub-process leak 위험이 있긴 하지만, 본 서비스는 데몬화된 tmux 외에 장기 실행 자식 없음.
+KillMode=process
+
 # 로그 → journalctl
 StandardOutput=journal
 StandardError=journal

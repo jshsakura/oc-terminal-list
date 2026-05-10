@@ -1,8 +1,8 @@
 import { memo, useState, useEffect, useRef } from 'react';
 import {
-  X, Terminal as TerminalIcon, Server,
+  Terminal as TerminalIcon, Server,
   Settings as SettingsIcon, MoreHorizontal,
-  SquareSplitHorizontal, SquareSplitVertical, Anchor,
+  SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Square,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -34,20 +34,21 @@ const TabBar = ({
   const isHome = activeTabId === null;
 
   return (
-    <div style={styles.bar}>
+    <div style={{ ...styles.bar, ...(isMobile ? styles.barMobile : null) }}>
       <style>{`
         .tabbar-list::-webkit-scrollbar { display: none; }
-        @keyframes iterm-tab-pulse {
-          0%, 100% { transform: scale(1); opacity: 1; }
-          50%      { transform: scale(1.35); opacity: 0.55; }
-        }
+        /* busy 상태 — Jupyter 의 채움/빈 원 식 binary 신호. 깜빡임 없음.
+           활동 중: 솔리드 dot + 둘레 정적 halo / 정지: 둘 다 사라짐.
+           시야 부담 최소화 — 작업 중 탭은 *조용히 눈에 띄게* 만 표시. */
       `}</style>
-      {/* brand = home button — 홈 활성 시 활성 탭과 동일한 base 배경으로 */}
+      {/* brand = home button — 홈 활성 시 활성 탭과 동일하게 강조 */}
       <button
         style={{
           ...styles.brandBtn,
-          background: isHome ? color.base : 'transparent',
-          border: `1px solid ${isHome ? color.borderStrong : 'transparent'}`,
+          ...(isMobile ? styles.brandBtnMobile : null),
+          background: isHome ? color.surface1 : 'transparent',
+          border: `1px solid ${isHome ? color.accentBorder : 'transparent'}`,
+          color: isHome ? color.accent : color.subtext,
         }}
         onClick={onHome}
         title={t?.('home') || 'Home'}
@@ -60,7 +61,7 @@ const TabBar = ({
       {/* tabs */}
       <div
         className="tabbar-list"
-        style={styles.tabList}
+        style={{ ...styles.tabList, ...(isMobile ? styles.tabListMobile : null) }}
         onWheel={(e) => {
           // 세로 휠 → 가로 스크롤로 전환 (Jupyter 처럼)
           if (e.deltaY !== 0 && e.deltaX === 0) {
@@ -116,20 +117,27 @@ const TabBar = ({
         ))}
       </div>
 
-      {/* right action group — 모바일에선 가로/세로 분할이 의미 없음 (sub-tab 으로
-          전환되거나 화면이 너무 좁음) → 분할 버튼 숨김. 설정만 노출. */}
+      {/* right action group — 모바일에선 분할 버튼 숨김 (sub-tab 으로 전환).
+          데스크탑: h/v 한 칸씩 추가, 2x2 는 4 pane 으로 즉시 채움. 각 pane 은 활성 pane 의 컨텍스트 상속. */}
       <div style={{ ...styles.actionGroup, ...(isMobile ? styles.actionGroupMobile : null) }}>
-        {canSplit && !isMobile && (
+        {!isMobile && (
           <>
             <RailIconBtn
               icon={SquareSplitHorizontal}
               onClick={() => onSplit?.('h')}
               title={`${t?.('splitHorizontal') || 'Split right'} (Ctrl+\\)`}
+              disabled={!canSplit}
             />
             <RailIconBtn
               icon={SquareSplitVertical}
               onClick={() => onSplit?.('v')}
               title={`${t?.('splitVertical') || 'Split down'} (Ctrl+Shift+\\)`}
+              disabled={!canSplit}
+            />
+            <RailIconBtn
+              icon={Grid2x2}
+              onClick={() => onSplit?.('2x2')}
+              title={t?.('layout2x2') || '2 × 2 grid'}
             />
           </>
         )}
@@ -196,117 +204,116 @@ const Tab = memo(({
       style={{
         ...styles.tab,
         ...(isMobile ? styles.tabMobile : null),
-        background: isActive ? color.base : color.surface0,
-        color: isActive ? color.text : color.subtext,
-        border: `1px solid ${isDragOver ? color.accent : (isActive ? color.borderStrong : color.border)}`,
+        background: isActive ? color.surface1 : 'transparent',
+        color: isActive ? color.text : color.muted,
+        fontWeight: isActive ? fontWeight.semibold : fontWeight.medium,
+        border: `1px solid ${isDragOver ? color.accent : (isActive ? color.borderStrong : 'transparent')}`,
         opacity: isDragging ? 0.4 : 1,
         cursor: isMobile ? 'pointer' : 'grab',
       }}
       onClick={onSelect}
+      /* 휠 클릭(가운데 버튼)으로 즉시 탭 닫기 — 브라우저 기본 동작(자동 스크롤/링크 새 탭) 차단. */
+      onMouseDown={(e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          e.stopPropagation();
+          onClose?.();
+        }
+      }}
+      onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); } }}
       onMouseEnter={(e) => {
         if (isMobile) return;
-        if (!isActive) e.currentTarget.style.background = color.surface1;
-        const moreBtn = e.currentTarget.querySelector('[data-more]');
-        if (moreBtn) moreBtn.style.opacity = '1';
-        const closeBtn = e.currentTarget.querySelector('[data-close]');
-        if (closeBtn) closeBtn.style.opacity = '1';
+        if (!isActive) { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.subtext; }
       }}
       onMouseLeave={(e) => {
         if (isMobile) return;
-        if (!isActive) e.currentTarget.style.background = color.surface0;
-        const moreBtn = e.currentTarget.querySelector('[data-more]');
-        if (moreBtn) moreBtn.style.opacity = isActive ? '0.6' : '0';
-        const closeBtn = e.currentTarget.querySelector('[data-close]');
-        if (closeBtn) closeBtn.style.opacity = isActive ? '0.85' : '0.5';
+        if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.muted; }
       }}
     >
-      {index != null && index <= 9 && (
+      {/* Ctrl+N 번호 — 박스 없이 모노 숫자만. 알림 뱃지 느낌 없이 식별만. */}
+      {!isMobile && index != null && index <= 9 && (
         <span
+          aria-hidden
           title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
           style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            minWidth: '15px',
-            height: '15px',
-            padding: '0 3px',
-            fontSize: '9.5px',
-            fontWeight: 600,
-            color: isActive ? color.text : color.muted,
             fontFamily: font.mono,
-            background: isActive ? color.surface1 : 'transparent',
-            border: `1px solid ${isActive ? color.borderStrong : color.border}`,
-            borderRadius: '3px',
+            fontSize: '10px',
+            fontWeight: 600,
+            color: isActive ? color.subtext : color.muted,
+            opacity: isActive ? 0.95 : 0.75,
             flexShrink: 0,
-            letterSpacing: '0',
             lineHeight: 1,
+            letterSpacing: 0,
+            width: '10px',
+            textAlign: 'center',
           }}
-          aria-hidden
         >
           {index}
         </span>
       )}
-      <div style={{
-        width: '6px',
-        height: '6px',
-        borderRadius: '50%',
-        background: dotColor,
-        flexShrink: 0,
-        opacity: isActive ? 1 : 0.55,
-        boxShadow: isBusy ? `0 0 0 2px ${dotColor}55` : 'none',
-        animation: isBusy ? 'iterm-tab-pulse 0.9s ease-in-out infinite' : 'none',
-      }} />
 
-      <span style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, color: isActive ? color.text : color.subtext }}>
-        <HostIcon value={tab.icon || ''} fallback={Icon} size={12} strokeWidth={1.8} />
+      {/* 호스트 아이콘 타일 — dot 색 tint.
+          busy 면 (a) 둘레 글로우 정적 강화, (b) 우상단 작은 솔리드 dot 박동.
+          타일 크기/위치는 변함 없음. */}
+      <span
+        style={{
+          position: 'relative',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: '18px',
+          height: '18px',
+          flexShrink: 0,
+          background: isBusy
+            ? `${dotColor}33`
+            : (isActive ? `${dotColor}26` : `${dotColor}12`),
+          border: `1px solid ${isBusy ? dotColor : (isActive ? `${dotColor}77` : `${dotColor}33`)}`,
+          borderRadius: '4px',
+          color: isActive ? color.text : dotColor,
+          /* busy 정적 halo — 작업 중 사그라들지 않는 ambient. blink 와 별개. */
+          boxShadow: isBusy ? `0 0 8px ${dotColor}aa, 0 0 0 1px ${dotColor}88` : 'none',
+          opacity: isActive ? 1 : 0.85,
+        }}
+      >
+        <HostIcon value={tab.icon || ''} fallback={Icon} size={11} strokeWidth={1.9} />
+        {isBusy && (
+          <span
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: '-3px',
+              right: '-3px',
+              width: '7px',
+              height: '7px',
+              borderRadius: '50%',
+              background: dotColor,
+              /* crust outline 으로 탭 배경/이웃 탭과 분리해 어디서든 또렷이.
+                 깜빡임은 없음 — "작업 중" 정적 ON, 끝나면 OFF (Jupyter 의 ●/○ 식). */
+              boxShadow: `0 0 6px ${dotColor}, 0 0 0 1.5px ${color.crust}`,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
       </span>
       <span style={styles.tabName}>{tab.name}</span>
-      {tab.isPersistent && (
-        <span
-          title={t?.('persistentSession') || 'tmux persistent — work survives disconnect'}
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            flexShrink: 0,
-            color: color.muted,
-            opacity: isActive ? 0.85 : 0.55,
-          }}
-          aria-hidden
-        >
-          <Anchor size={10} strokeWidth={2} />
-        </span>
-      )}
 
-      {/* More 버튼 — 모바일은 항상 노출 + 큰 hit-area; 데스크톱은 hover/active 시. */}
+      {/* More 버튼 — X 닫기 버튼은 메뉴 안으로 흡수, 휠 클릭으로 즉시 닫기.
+          항상 노출 — 활성/비활성, 데스크톱/모바일 모두 동일하게 일관된 hit-target. */}
       <button
         data-more="true"
         onClick={(e) => { e.stopPropagation(); onMore(e); }}
         style={{
           ...styles.miniBtn,
           ...(isMobile ? styles.miniBtnMobile : null),
-          opacity: isMobile ? 1 : (isActive ? 0.6 : 0),
+          opacity: isActive ? 1 : 0.7,
           color: color.subtext,
         }}
         onMouseEnter={(e) => { if (isMobile) return; e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; e.currentTarget.style.opacity = '1'; }}
-        onMouseLeave={(e) => { if (isMobile) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '0.6' : '0'; }}
+        onMouseLeave={(e) => { if (isMobile) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '1' : '0.7'; }}
         title={t?.('more') || 'More'}
       >
         <MoreHorizontal size={isMobile ? 14 : 11} strokeWidth={2} />
       </button>
-
-      {/* X 닫기 — 데스크톱에만. 모바일은 More→메뉴로만 닫게 해 실수 방지. */}
-      {!isMobile && (
-        <button
-          data-close="true"
-          style={{ ...styles.miniBtn, opacity: isActive ? 0.85 : 0.5, color: color.subtext }}
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = color.danger; e.currentTarget.style.color = '#fff'; e.currentTarget.style.opacity = '1'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '0.85' : '0.5'; }}
-          title={t?.('closeTab') || 'Close tab'}
-        >
-          <X size={11} strokeWidth={2.4} />
-        </button>
-      )}
 
     </div>
   );
@@ -385,17 +392,27 @@ const styles = {
     overflow: 'hidden',
     flexShrink: 0,
     // 우측 padding 0 — Settings 버튼 중심이 우측 활동바(36px) 중심과 동일선이 되게.
-    padding: '0 0 0 6px',
-    gap: '6px',
+    // 좌측도 2px 만 — brandBtn 자체 마진으로 hit-area 확보.
+    padding: '0 0 0 2px',
+    gap: '4px',
+  },
+  barMobile: {
+    /* 모바일은 상단 호흡공간을 공격적으로 줄임 — 네이티브 앱 헤더 톤.
+       좌측 inset 0 — brandBtn 자체 패딩만으로 안전 영역 확보. */
+    height: '30px',
+    padding: '0',
+    gap: '2px',
   },
   tabMobile: {
-    /* 모바일 — 더 큰 hit-area, 압축하지 않고 가로 스크롤로 처리 */
-    height: '34px',
-    minWidth: '140px',
-    maxWidth: '220px',
+    /* 모바일 — touch hit-area 는 유지하되 가로/세로 모두 컴팩트하게.
+       단축번호 뱃지가 빠지므로 leading 패딩을 더 줄임. 많이 열려도 인디케이터 다 보이게 minWidth ↓. */
+    height: '26px',
+    minWidth: '54px',
+    maxWidth: '180px',
     fontSize: fontSize['13'],
-    paddingLeft: '12px',
+    paddingLeft: '7px',
     paddingRight: '4px',
+    gap: '5px',
   },
   miniBtnMobile: {
     width: '28px',
@@ -403,8 +420,9 @@ const styles = {
     borderRadius: '6px',
   },
   brandBtn: {
-    width: '28px',
-    height: '28px',
+    /* 데스크탑 — 슬림한 24px 정사각, 좌우 마진 최소. */
+    width: '24px',
+    height: '24px',
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
@@ -415,8 +433,15 @@ const styles = {
     cursor: 'pointer',
     transition: 'background 150ms',
     padding: 0,
-    borderRadius: '6px',
-    margin: '4px 6px 4px 2px',
+    borderRadius: '5px',
+    margin: '7px 4px 7px 2px',
+  },
+  brandBtnMobile: {
+    /* 모바일은 더 공격적으로 — 20px 정사각, 좌측 inset 2 만. */
+    width: '20px',
+    height: '20px',
+    margin: '5px 1px 5px 2px',
+    borderRadius: '4px',
   },
   tabList: {
     display: 'flex',
@@ -430,18 +455,25 @@ const styles = {
     scrollbarWidth: 'none',           // Firefox
     msOverflowStyle: 'none',           // IE/Edge legacy
   },
+  tabListMobile: {
+    gap: '3px',
+    paddingTop: '1px',
+    paddingBottom: '1px',
+  },
   tab: {
     display: 'flex',
     alignItems: 'center',
     gap: '7px',
-    padding: '0 6px 0 10px',
+    padding: '0 8px 0 10px',
     height: '28px',
-    minWidth: 0,
+    /* 탭 많을 때 인디케이터를 다 보이게 — flex-shrink 1 + 작은 minWidth 로 자동 압축.
+       이름은 tabName 의 ellipsis 가 처리. 너무 좁아지면 결국 아이콘 타일 + 점 정도만 남아도 OK. */
+    minWidth: '46px',
     maxWidth: '200px',
     cursor: 'pointer',
     transition: 'background 150ms, color 150ms',
     userSelect: 'none',
-    flexShrink: 0,
+    flex: '1 1 auto',
     fontSize: fontSize['12'],
     fontWeight: fontWeight.medium,
     borderRadius: '6px',

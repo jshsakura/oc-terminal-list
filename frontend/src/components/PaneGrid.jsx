@@ -24,6 +24,7 @@ const PaneGrid = ({
   onClosePane,
   onActivatePane,
   onPaneCwdChange,    // (paneId, workspaceRel, isLocal) → 부모로 cwd 변화 보고 (자동 탭명 등)
+  onPaneThemeChange,  // (paneId, themeId|null) → pane 별 테마 오버라이드 설정/해제
   layoutSignal,
   settings,
   updateSettings,
@@ -70,6 +71,7 @@ const PaneGrid = ({
             layoutSignal={layoutSignal}
             settings={settings}
             updateSettings={updateSettings}
+            onPaneThemeChange={onPaneThemeChange}
             cwd={cwd}
             onFileSelect={onFileSelect}
             onFolderSelect={onFolderSelect}
@@ -116,6 +118,7 @@ const PaneGrid = ({
           layoutSignal={layoutSignal}
           settings={settings}
           updateSettings={updateSettings}
+          onPaneThemeChange={onPaneThemeChange}
           cwd={cwd}
           onFileSelect={onFileSelect}
           onFolderSelect={onFolderSelect}
@@ -134,10 +137,22 @@ const PaneGrid = ({
 
 const Pane = ({
   pane, paneIndex = 0, tab, hosts, allTabs = [], isFocused, isMultiple, onFocus, onClose, onActivate,
-  isActive, layoutSignal, settings, updateSettings, cwd,
+  isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   language, t, viewportHeight,
 }) => {
+  /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
+     Terminal/RightPanel 에 내려보냄. 전역 settings.theme 자체는 안 건드리므로 다른 pane / 앱 UI
+     (TabBar, RightPanel chrome, scrollbar 등) 는 그대로 유지. */
+  const effectiveThemeId = pane?.themeOverride || settings?.theme;
+  const paneSettings = pane?.themeOverride
+    ? { ...settings, theme: pane.themeOverride }
+    : settings;
+  const handlePaneThemeChange = (themeId) => {
+    /* 전역과 같은 id 를 고르면 override 해제 (null) — 동기화. */
+    const next = themeId && themeId !== settings.theme ? themeId : null;
+    onPaneThemeChange?.(pane.id, next);
+  };
   const [hover, setHover] = useState(false);
   // RightPanel 의 재접속 버튼이 누를 때마다 ++ → Terminal key 가 바뀌어 통째로 remount.
   const [refreshNonce, setRefreshNonce] = useState(0);
@@ -197,13 +212,25 @@ const Pane = ({
               hostId={pane.hostId || undefined}
               tmuxSuffix={tab?.tmuxSuffix || null}
               tmuxSessionName={pane.tmuxSessionName || null}
+              /* preflight/폴링 용 effective tmux 세션명 — backend host_manager.effective_tmux_session 동기.
+                 host 모드에서만 의미. resume 면 그 이름 그대로, 아니면 base+suffix+pane idx. */
+              effectiveTmuxSession={pane.hostId ? (() => {
+                if (pane.tmuxSessionName) return pane.tmuxSessionName;
+                const host = hosts.find((h) => h.id === pane.hostId);
+                const baseFromHost = host?.remote_tmux_session || 'mobile';
+                const base = tab?.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
+                return paneIndex === 0 ? base : `${base}_${paneIndex + 1}`;
+              })() : null}
               paneIndex={paneIndex}
               paneId={pane.id}
               tabId={tab?.id}
               cwd={cwd}
-              settings={settings}
+              settings={paneSettings}
               isActive={isActive && isFocused}
               layoutSignal={`${layoutSignal}:${pane.id}`}
+              /* takeover 시: refreshNonce++ 로 Terminal 통째 remount → 새 WS → tmux attach -d
+                 → 저쪽 클라이언트가 같은 [detached ...] 토큰을 받아 우리와 같은 오버레이로 전환. */
+              onTakeOver={() => setRefreshNonce((n) => n + 1)}
             />
           </Suspense>
         )}
@@ -222,6 +249,28 @@ const Pane = ({
           activeTabType={pane.hostId ? 'host' : 'local'}
           activeHostId={pane.hostId || null}
           gitContextPath={paneGitContext}
+          /* Info 패널 컨텍스트 — 세션/탭/호스트 메타데이터를 한 객체로 묶어 전달.
+             RightPanel 이 파편적으로 props 받지 않게 정리. */
+          paneInfo={{
+            tabName: tab?.name || '',
+            tabType: pane.hostId ? 'host' : 'local',
+            sessionId: pane.sessionId || pane.id,
+            paneId: pane.id,
+            paneIndex,
+            paneCount: tab?.panes?.length || 1,
+            tmuxSessionName: pane.tmuxSessionName || null,
+            tmuxSuffix: tab?.tmuxSuffix || null,
+            /* 영속 여부 — local 은 항상 true, host 는 use_remote_tmux 따름.
+               Resume 으로 attach 한 탭(`pane.tmuxSessionName`) 은 명시적으로 영속. */
+            isPersistent: pane.hostId
+              ? !!(hosts.find((h) => h.id === pane.hostId)?.use_remote_tmux) || !!pane.tmuxSessionName
+              : true,
+            host: pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null,
+            cwd: cwd || null,
+            paneCwdRel: paneCwdRel || null,
+            /* takeover 모델 알림용 — PC ↔ 모바일 동시 attach 안 되는 정책을 Info 패널에서도 안내. */
+            takeoverPolicy: 'last-attach-wins',
+          }}
           onFileSelect={(path) => onFileSelect?.(path, pane.hostId || null)}
           onFolderSelect={onFolderSelect}
           onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null)}
@@ -232,6 +281,8 @@ const Pane = ({
           onCloseTerminal={onClose}
           settings={settings}
           updateSettings={updateSettings}
+          paneThemeId={effectiveThemeId}
+          onPaneThemeChange={handlePaneThemeChange}
           language={language}
           t={t}
           viewportHeight={viewportHeight}

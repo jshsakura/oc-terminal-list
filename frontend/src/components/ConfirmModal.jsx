@@ -12,6 +12,10 @@ const ConfirmModal = ({
   message,
   confirmText,
   cancelText,
+  /* 선택형 3번째 액션 — 예: 닫기에서 "Detach(살림)" 와 "Terminate(죽임)" 둘 다 노출.
+     onTertiary 가 주어지면 footer 좌측에 ghost 버튼으로 그려진다. */
+  tertiaryText,
+  onTertiary,
   language = 'en',
   danger = false,
 }) => {
@@ -28,6 +32,11 @@ const ConfirmModal = ({
           <div style={styles.message}>{message}</div>
         </div>
         <div style={styles.footer}>
+          {onTertiary && (
+            <Button variant="ghost" onClick={onTertiary} style={{ marginRight: 'auto' }}>
+              {tertiaryText || ''}
+            </Button>
+          )}
           <Button variant="secondary" onClick={onCancel}>
             {cancelText || t('cancel')}
           </Button>

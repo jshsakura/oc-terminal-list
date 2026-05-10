@@ -1,8 +1,15 @@
 import { useRef, useState } from 'react';
-import { Command, ClipboardPaste } from 'lucide-react';
+import { MessageSquare, ClipboardPaste } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys } from '../utils/mobileKeys';
+import HostIcon from '../utils/hostIcons';
+
+/* kind 별 기본 아이콘 — 키에 명시적 icon 이 없으면 fallback. */
+const DEFAULT_ICON_FOR_KIND = {
+  cmdInput: MessageSquare,
+  paste: ClipboardPaste,
+};
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -51,6 +58,29 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, language = 'en', keys = 
     }
   };
 
+  /* 한 키의 표시 콘텐츠 — icon (k.icon → HostIcon, 없으면 kind 기본 아이콘) + label.
+     둘 다 있으면 함께 표시 (icon 좌, label 우, gap 4). 둘 다 없으면 send 는 '?', mod 는 modifier 대문자. */
+  const renderKeyContent = (k) => {
+    const FallbackIcon = DEFAULT_ICON_FOR_KIND[k.kind] || null;
+    const iconEl = k.icon
+      ? <HostIcon value={k.icon} size={13} strokeWidth={2.2} />
+      : (FallbackIcon ? <FallbackIcon size={13} strokeWidth={2.2} /> : null);
+    let labelText = k.label || '';
+    if (!iconEl && !labelText) {
+      if (k.kind === 'mod') labelText = (k.modifier || 'ctrl').toUpperCase();
+      else if (k.kind === 'send') labelText = '?';
+    }
+    if (iconEl && labelText) {
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+          {iconEl}
+          <span>{labelText}</span>
+        </span>
+      );
+    }
+    return iconEl || (labelText ? <span>{labelText}</span> : null);
+  };
+
   const renderItem = (k, idx) => {
     if (k.kind === 'sep') return <Divider key={k.id || `sep-${idx}`} />;
 
@@ -58,19 +88,19 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, language = 'en', keys = 
       return (
         <Key
           key={k.id}
-          tone="accent"
+          tone={k.tone || 'accent'}
           title={t('commandInput')}
           onClick={() => onOpenCommandInput?.()}
         >
-          <Command size={13} strokeWidth={2.2} />
+          {renderKeyContent(k)}
         </Key>
       );
     }
 
     if (k.kind === 'paste') {
       return (
-        <Key key={k.id} title={t('paste')} onClick={handlePaste}>
-          <ClipboardPaste size={13} strokeWidth={2.2} />
+        <Key key={k.id} tone={k.tone} title={t('paste')} onClick={handlePaste}>
+          {renderKeyContent(k)}
         </Key>
       );
     }
@@ -82,8 +112,8 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, language = 'en', keys = 
         else if (k.modifier === 'alt') setAltActive((v) => !v);
       };
       return (
-        <Key key={k.id} active={isActive} onClick={toggle}>
-          {k.label || k.modifier?.toUpperCase()}
+        <Key key={k.id} tone={k.tone} active={isActive} onClick={toggle}>
+          {renderKeyContent(k)}
         </Key>
       );
     }
@@ -95,7 +125,7 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, language = 'en', keys = 
         tone={k.tone}
         onMouseDown={(e) => { e.preventDefault(); sendWithModifiers(k.payload || ''); }}
       >
-        {k.label || '?'}
+        {renderKeyContent(k)}
       </Key>
     );
   };
@@ -192,8 +222,8 @@ const styles = {
   key: {
     flexShrink: 0,
     height: '24px',
-    minWidth: '32px',
-    padding: `0 ${space['2']}`,
+    minWidth: '26px',
+    padding: '0 5px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',

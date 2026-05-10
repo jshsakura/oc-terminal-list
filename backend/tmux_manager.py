@@ -222,6 +222,20 @@ class TmuxManager:
                 continue
         return result
 
+    async def clients_count(self, session_id: str) -> int:
+        """해당 세션에 현재 attach 된 tmux 클라이언트 수.
+        멀티 디바이스 takeover 모델에서, 마운트 전 "이미 누가 보고 있나?" 프리플라이트용."""
+        rc, out, _ = await self._run(
+            "list-clients", "-t", f"={session_id}",
+            check=False,
+        )
+        if rc != 0:
+            return 0
+        if not out:
+            return 0
+        # 각 줄 = 클라이언트 1개. 빈 줄은 0 으로.
+        return sum(1 for ln in out.splitlines() if ln.strip())
+
     def attach_argv(self, session_id: str) -> List[str]:
         """ws_bridge에서 PTY로 spawn할 때 쓰는 argv. 분리해서 권한·테스트 용이성 확보."""
         return [*self._base_args(), "attach-session", "-t", session_id]

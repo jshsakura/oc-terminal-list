@@ -84,6 +84,35 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   // 둘 다 빈 경우 워크스페이스 전체 repo 들을 집계 (백엔드).
   const [treeFocus, setTreeFocus] = useState(initialPath || '');
   const effectiveGitPath = gitContextPath || treeFocus;
+
+  /* "여기서 터미널 열기" 의 *진짜* 타겟 폴더 — 사용자가 트리에서 선택한 row 우선.
+       - 선택 = 폴더 → 그 폴더
+       - 선택 = 파일 → 그 파일의 상위 폴더
+       - 선택 없음 → effectiveGitPath (활성 터미널 cwd 또는 마지막 펼친 폴더)
+     이렇게 하면 트리에서 폴더 한 번 클릭 → footer 가 즉시 그 경로를 보여주고
+     같은 버튼이 그 폴더에서 터미널을 연다. 헤더 ⌨ 와 footer 둘 다 동일 소스를 씀. */
+  const findNodeType = useCallback((p) => {
+    if (!p) return null;
+    for (const cache of Object.values(nodes)) {
+      const hit = (cache.items || []).find((it) => it.path === p);
+      if (hit) return hit.type;
+    }
+    return null;
+  }, [nodes]);
+  const terminalTargetPath = useMemo(() => {
+    if (selectedPath) {
+      const type = findNodeType(selectedPath);
+      if (type === 'directory') return selectedPath;
+      if (type === 'file') return selectedPath.split('/').slice(0, -1).join('/');
+    }
+    return effectiveGitPath || '';
+  }, [selectedPath, findNodeType, effectiveGitPath]);
+  const terminalTargetDisplay = useMemo(() => {
+    const p = terminalTargetPath;
+    if (!p) return isHostMode ? '/' : '~/';
+    if (p.startsWith('/')) return p;          // host 모드 절대경로
+    return `~/${p}`;                           // 로컬 워크스페이스 상대경로
+  }, [terminalTargetPath, isHostMode]);
   // 호스트 모드면 git 호출 비활성 (원격이라 로컬 git 의미 없음)
   const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = useGitChanges({
     enabled: !isHostMode,
@@ -392,8 +421,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
           <HeadAction icon={Folder} title={t('newFolder') || 'New folder'} onClick={() => startCreate('', 'directory')} />
           <HeadAction
             icon={Terminal}
-            title={t('openTerminalHere') || 'Open terminal here'}
-            onClick={() => onOpenTerminalAtFolder?.(effectiveGitPath || '')}
+            title={`${t('openTerminalHere') || 'Open terminal here'}: ${terminalTargetDisplay}`}
+            onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)}
           />
           <HeadAction icon={RefreshCw} title={t('refresh') || 'Refresh'} onClick={refreshAll} />
         </div>
@@ -496,23 +525,29 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
         )}
       </div>
 
-      {/* 풋터: 현재 포커스 폴더에서 터미널 열기 */}
+      {/* 풋터 — 한 행에 (좌: 경로, 우: 열기 버튼). 라벨은 위 캡션으로 분리.
+          한 버튼에 라벨+경로+아이콘 다 우겨넣지 않아 모바일/좁은 패널에서도 즉시 식별. */}
       <div style={styles.footerBar}>
-        <button
-          onClick={() => onOpenTerminalAtFolder?.(effectiveGitPath || '')}
-          style={styles.footerBtn}
-          onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92'; }}
-          onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-          title={t('openTerminalHere') || 'Open terminal here'}
-        >
-          <Terminal size={12} strokeWidth={2} />
-          <span style={styles.footerLabel}>
-            {t('openTerminalHere') || 'Open terminal here'}
-          </span>
-          <span style={styles.footerPath}>
-            {effectiveGitPath ? `~/${effectiveGitPath.split('/').pop()}` : '~/'}
-          </span>
-        </button>
+        <div style={styles.footerCaption}>
+          {t('openTerminalHere') || 'Open terminal here'}
+        </div>
+        <div style={styles.footerRow}>
+          <div style={styles.footerPathBox} title={terminalTargetDisplay}>
+            <span style={styles.footerPath} dir="rtl">
+              {terminalTargetDisplay}
+            </span>
+          </div>
+          <button
+            onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)}
+            style={styles.footerActionBtn}
+            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+            title={`${t('openTerminalHere') || 'Open terminal here'}: ${terminalTargetDisplay}`}
+            aria-label={t('openTerminalHere') || 'Open terminal here'}
+          >
+            <Terminal size={14} strokeWidth={2.2} />
+          </button>
+        </div>
       </div>
 
       {/* 컨텍스트 메뉴 */}
@@ -874,43 +909,71 @@ const styles = {
     fontSize: fontSize['12'],
   },
   footerBar: {
-    padding: space['1.5'],
+    padding: `${space['1.5']} ${space['1.5']} ${space['2']}`,
     borderTop: `1px solid ${color.border}`,
     background: color.crust,
     flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
   },
-  footerBtn: {
+  footerCaption: {
+    fontSize: '10.5px',
+    fontWeight: fontWeight.semibold,
+    color: color.muted,
+    textTransform: 'uppercase',
+    letterSpacing: '0.08em',
+    paddingLeft: '2px',
+  },
+  footerRow: {
+    display: 'flex',
+    alignItems: 'stretch',
+    gap: space['1.5'],
     width: '100%',
+    minWidth: 0,
+  },
+  footerPathBox: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    height: '30px',
+    padding: `0 ${space['2']}`,
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+  },
+  footerPath: {
+    display: 'block',
+    flex: 1,
+    minWidth: 0,
+    fontFamily: font.mono,
+    fontSize: '11.5px',
+    color: color.text,
+    opacity: 0.92,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    /* RTL 트릭 — 경로의 *끝쪽* (현재 폴더명) 이 항상 보이도록, 너무 길면 시작에 ... 가 붙음.
+       unicode-bidi: plaintext 로 segment 순서 유지. */
+    textAlign: 'left',
+    unicodeBidi: 'plaintext',
+    letterSpacing: '0',
+  },
+  footerActionBtn: {
+    flexShrink: 0,
+    width: '34px',
     height: '30px',
     display: 'flex',
     alignItems: 'center',
-    gap: space['1.5'],
-    padding: `0 ${space['2']}`,
+    justifyContent: 'center',
     background: color.accent,
     color: color.crust,
     border: 'none',
     borderRadius: radius.sm,
-    fontFamily: 'inherit',
-    fontSize: fontSize['12'],
-    fontWeight: fontWeight.medium,
     cursor: 'pointer',
     transition: 'opacity 120ms ease',
-  },
-  footerLabel: {
-    flex: 1,
-    textAlign: 'left',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  footerPath: {
-    fontFamily: font.mono,
-    fontSize: fontSize['11'],
-    opacity: 0.75,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    maxWidth: '40%',
+    padding: 0,
   },
   menu: {
     background: color.base,

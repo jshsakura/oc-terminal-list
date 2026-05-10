@@ -49,6 +49,7 @@ const HomeDashboard = ({
   onPickLocalPath,
   // 영속 세션 카드용 (옵셔널 — 미공급 시 섹션 미표시)
   tabs = [],
+  busyTabIds = null,
   onJumpTab,
   onResumeHostSession,
   onTerminateHostSession,
@@ -134,6 +135,7 @@ const HomeDashboard = ({
           <HomeSessions
             tabs={tabs}
             hosts={hosts}
+            busyTabIds={busyTabIds}
             onJumpTab={onJumpTab}
             onResumeHostSession={onResumeHostSession}
             onTerminateHostSession={onTerminateHostSession}

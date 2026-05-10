@@ -9,14 +9,14 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { Loader2 } from 'lucide-react';
+import { Loader2, MonitorSmartphone } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
-const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionName = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null }) => {
+const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -30,8 +30,17 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
   const reconnectAttemptsRef = useRef(0);
   const intentionalCloseRef = useRef(false);
   const lastDimsRef = useRef({ cols: 0, rows: 0 });
+  /* 다른 클라이언트가 takeover (tmux attach -d) 했을 때 PTY 출력에 들어오는
+     `[detached (from session ...)]` 토큰을 감지해 evictedRef 를 세움. WS close 시 이 ref 가
+     true 면 자동 재접속 로직을 모두 skip — 사용자가 직접 "내가 가져오기" 버튼을 눌러야만 재attach. */
+  const evictedRef = useRef(false);
+  /* useEffect 내부의 connect()/runPreflight() 를 takeover 버튼/자동 재attach 폴링/탭 활성 변경에서
+     호출할 수 있게 ref 로 공개. */
+  const connectRef = useRef(null);
+  const runPreflightRef = useRef(null);
   const [isReady, setIsReady] = useState(false);
   const [hasContent, setHasContent] = useState(false);
+  const [evicted, setEvicted] = useState(false);
 
   // 스마트 스크롤 훅
   const { handleUserScroll, handleNewData } = useSmartScroll(terminalRef, {
@@ -176,25 +185,48 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     const token = localStorage.getItem('auth_token');
     const shell = encodeURIComponent(settings.defaultShell || 'bash');
 
-    const proposed = fitAddon.proposeDimensions();
-    const cols = proposed?.cols || term.cols || 80;
-    const rows = proposed?.rows || term.rows || 24;
-    lastDimsRef.current = { cols, rows };
-    // 호스트 연결이면 SSH 브리지로, 아니면 로컬 tmux 브리지로
-    const cwdQS = cwd ? `&cwd=${encodeURIComponent(cwd)}` : '';
-    const paneQS = paneIndex ? `&pane_index=${paneIndex}` : '';
-    // tmuxSuffix — 호스트 탭마다 별도 base session 분리 (새 탭 = 새 작업공간)
-    const sfxQS = (hostId && tmuxSuffix) ? `&tmux_suffix=${encodeURIComponent(tmuxSuffix)}` : '';
-    // tmuxSessionName — 명시적 영속 세션 attach (Home 의 Resume). 주어지면 base/suffix 무시.
-    const sessQS = (hostId && tmuxSessionName) ? `&tmux_session_name=${encodeURIComponent(tmuxSessionName)}` : '';
-    const wsUrl = hostId
-      ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}`
-      : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
-    
-    const socket = new WebSocket(wsUrl);
-    wsRef.current = socket;
+    /* preflight 결과로 WS 오픈을 gating. 다른 기기가 이미 attach 중이면 건드리지 않고
+       evicted 오버레이만 띄움. 사용자가 명시적으로 "내가 가져오기" 누를 때까지 대기. */
+    let cancelled = false;
+    const runPreflight = async () => {
+      const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
+      if (!sessionToCheck) return { attached: false };
+      const url = hostId
+        ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}`
+        : `/api/sessions/${sessionToCheck}/clients`;
+      try {
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return { attached: false };
+        const data = await res.json();
+        return { attached: !!data.attached, count: data.count || 0 };
+      } catch {
+        return { attached: false };
+      }
+    };
 
-    socket.onopen = () => {
+    const connect = () => {
+      if (cancelled) return;
+      const proposed = fitAddon.proposeDimensions();
+      const cols = proposed?.cols || term.cols || 80;
+      const rows = proposed?.rows || term.rows || 24;
+      lastDimsRef.current = { cols, rows };
+      // 호스트 연결이면 SSH 브리지로, 아니면 로컬 tmux 브리지로
+      const cwdQS = cwd ? `&cwd=${encodeURIComponent(cwd)}` : '';
+      const paneQS = paneIndex ? `&pane_index=${paneIndex}` : '';
+      // tmuxSuffix — 호스트 탭마다 별도 base session 분리 (새 탭 = 새 작업공간)
+      const sfxQS = (hostId && tmuxSuffix) ? `&tmux_suffix=${encodeURIComponent(tmuxSuffix)}` : '';
+      // tmuxSessionName — 명시적 영속 세션 attach (Home 의 Resume). 주어지면 base/suffix 무시.
+      const sessQS = (hostId && tmuxSessionName) ? `&tmux_session_name=${encodeURIComponent(tmuxSessionName)}` : '';
+      const wsUrl = hostId
+        ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}`
+        : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
+
+      const socket = new WebSocket(wsUrl);
+      wsRef.current = socket;
+
+      socket.onopen = () => {
       logger.info(`WebSocket 연결 성공: ${sessionId}`);
       setIsReady(true);
       reconnectAttemptsRef.current = 0;
@@ -255,11 +287,13 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       });
     };
 
-    // 데이터 도착 시 활동 신호 — 탭 busy 인디케이터 트리거. 300ms 쓰로틀.
+    // 데이터 도착 시 활동 신호 — 탭 busy 인디케이터 트리거.
+    // 100ms 쓰로틀로 조여 반응성 ↑ (이전 300ms 면 짧은 출력 burst 가 한 번 디스패치되고 끝나
+    // busy on/off 가 깜빡 보였음). App.jsx 가 별도 윈도우로 fade-out 처리.
     let lastActivityDispatch = 0;
     const dispatchActivity = () => {
       const now = Date.now();
-      if (now - lastActivityDispatch < 300) return;
+      if (now - lastActivityDispatch < 100) return;
       lastActivityDispatch = now;
       try {
         window.dispatchEvent(new CustomEvent('iterm:activity', {
@@ -269,6 +303,11 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     };
 
     socket.onmessage = (event) => {
+      /* tmux 가 다른 클라이언트에게 takeover 당해 우리를 detach 시킬 때, 마지막에 보내는
+         `[detached (from session ...)]` 한 줄로 의도적 detach 임을 식별 — 네트워크 끊김과 분리. */
+      if (typeof event.data === 'string' && event.data.includes('[detached (from session')) {
+        evictedRef.current = true;
+      }
       wsBufferRef.current.push(event.data);
       dispatchActivity();
       if (wsFlushTimeoutRef.current) return;
@@ -276,21 +315,46 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     };
 
     socket.onclose = (event) => {
-      if (!intentionalCloseRef.current) {
-        logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
-        setIsReady(false);
-        handleReconnect();
+      if (intentionalCloseRef.current) return;
+      logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
+      setIsReady(false);
+      if (evictedRef.current) {
+        /* takeover 당함 — 자동 재접속 금지. 사용자가 "내가 가져오기" 버튼으로만 재attach. */
+        setEvicted(true);
+        return;
       }
+      handleReconnect();
     };
 
-    socket.onerror = (error) => {
-      logger.error(`WebSocket 에러: ${sessionId}`, error);
-    };
+      socket.onerror = (error) => {
+        logger.error(`WebSocket 에러: ${sessionId}`, error);
+      };
+    }; // ← end of connect()
 
-    // 4. 사용자 입력 처리
+    /* connect/runPreflight 를 외부(takeover 버튼, auto-resume 폴링)에서 부를 수 있게 ref 로 노출. */
+    connectRef.current = connect;
+    runPreflightRef.current = runPreflight;
+
+    /* mount: preflight → 결과에 따라 connect() 또는 evicted 오버레이.
+       WS 는 mount 동안 *계속* 열려 있음 — 탭 전환마다 끊었다 다시 붙으면 사용자가 "완전 재연결"
+       느낌을 받고, tmux 가 매번 redraw/clear 보내 jitter 발생. 멀티 디바이스 충돌은 *같은 세션*
+       의 문제이고 한 디바이스 안 여러 탭(=다른 세션) 동시 attach 는 무해하므로 isActive 와
+       WS 는 디커플. isActive 는 focus/visibility 만 담당. */
+    runPreflight().then(({ attached }) => {
+      if (cancelled) return;
+      if (attached) {
+        evictedRef.current = true;
+        setEvicted(true);
+      } else {
+        connect();
+      }
+    });
+
+    // 4. 사용자 입력 처리 — connect() 가 여러 번 호출돼도 (takeover/auto-resume) 항상 최신 ws 를 잡게 ref 사용.
     term.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
-        socket.send(data);
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(data);
       }
     });
 
@@ -308,14 +372,18 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         clearTimeout(resizeTimeoutRef.current);
       }
       resizeTimeoutRef.current = setTimeout(() => {
-        if (fitAddonRef.current) {
-          fitAddonRef.current.fit();
-          if (wsRef.current?.readyState === WebSocket.OPEN) {
-            const dims = fitAddonRef.current.proposeDimensions();
-            if (dims && (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows)) {
-              lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
-              wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
-            }
+        if (!fitAddonRef.current) return;
+        /* 비활성 탭은 컨테이너가 display:none → 0×0. fit() 호출하면 cols=0, rows=0 이 되고
+           tmux 에 그 사이즈로 resize 메시지가 가서 세션이 망가짐. 가시 영역 있을 때만 fit. */
+        const proposed = fitAddonRef.current.proposeDimensions();
+        if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
+        fitAddonRef.current.fit();
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          const dims = fitAddonRef.current.proposeDimensions();
+          if (dims && dims.cols > 0 && dims.rows > 0
+              && (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows)) {
+            lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
+            wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
           }
         }
       }, 350);
@@ -326,13 +394,16 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     if (terminalRef.current) observer.observe(terminalRef.current);
 
     return () => {
+      cancelled = true;
       intentionalCloseRef.current = true;
       if (observer) observer.disconnect();
       if (container) {
         container.removeEventListener('contextmenu', handleContextMenu);
         container.removeEventListener('keydown', handleKeyDown);
       }
-      socket.close();
+      try { wsRef.current?.close(); } catch {}
+      connectRef.current = null;
+      runPreflightRef.current = null;
       wsBufferRef.current = [];
       term.dispose();
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
@@ -340,6 +411,42 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
     };
   }, [sessionId]);
+
+  /* evicted 동안 백엔드 폴링 — 다른 기기가 떨어지면(`count == 0`) 사용자 클릭 없이도 자동 재attach.
+     "내가 모바일 닫고나서도 여기 사이즈가 작은 상태로 남아있다" 상황을 방지. */
+  useEffect(() => {
+    if (!evicted) return undefined;
+    const token = (typeof localStorage !== 'undefined') ? localStorage.getItem('auth_token') : null;
+    const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
+    if (!sessionToCheck) return undefined;
+    const url = hostId
+      ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}`
+      : `/api/sessions/${sessionToCheck}/clients`;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        if (cancelled) return;
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!data.attached) {
+          /* 다른 기기 다 떨어짐 → 자동 재attach. connectRef 직접 호출해 remount 없이 WS 만 다시 열음.
+             새 attach 가 PC 의 PTY 사이즈로 spawn 되니 tmux 가 자동으로 PC 사이즈로 resize 됨. */
+          evictedRef.current = false;
+          setEvicted(false);
+          if (connectRef.current) connectRef.current();
+        }
+      } catch { /* 네트워크 일시 실패 — 다음 tick 에서 다시 */ }
+    };
+    /* 처음에 한 번 빠르게, 이후 4초 간격. */
+    const initial = setTimeout(tick, 1500);
+    const id = setInterval(tick, 4000);
+    return () => {
+      cancelled = true;
+      clearTimeout(initial);
+      clearInterval(id);
+    };
+  }, [evicted, hostId, effectiveTmuxSession, sessionId]);
 
   // 테마 및 설정(폰트 크기 등) 변경 시 반영
   useEffect(() => {
@@ -349,16 +456,18 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       xtermRef.current.options.fontFamily = normalizeTerminalFontFamily(settings.fontFamily);
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
       
-      // 폰트 변경 후 리사이즈 필요 (폰트 로드 대기를 위해 200ms 지연)
+      // 폰트 변경 후 리사이즈 필요 (폰트 로드 대기를 위해 200ms 지연).
+      // hidden(비활성) 탭이면 0×0 이라 fit 스킵 — 가시화될 때 layoutSignal 효과로 다시 fit 됨.
       setTimeout(() => {
-        if (fitAddonRef.current) {
-          fitAddonRef.current.fit();
-          const dims = fitAddonRef.current.proposeDimensions();
-          if (dims && wsRef.current?.readyState === WebSocket.OPEN) {
-            if (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows) {
-              lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
-              wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
-            }
+        if (!fitAddonRef.current) return;
+        const proposed = fitAddonRef.current.proposeDimensions();
+        if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
+        fitAddonRef.current.fit();
+        const dims = fitAddonRef.current.proposeDimensions();
+        if (dims && dims.cols > 0 && dims.rows > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
+          if (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows) {
+            lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
+            wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
           }
         }
       }, 200);
@@ -368,12 +477,15 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
   useEffect(() => {
     if (!isActive) return;
 
+    /* 활성 탭이 되는 순간 = 가시 영역이 처음 생기는 순간. 이전엔 display:none 이라
+       fit 을 스킵했으므로 여기서 한 번 정확히 맞춰서 tmux 에 알림. */
     const timer = setTimeout(() => {
       if (!fitAddonRef.current) return;
-
+      const proposed = fitAddonRef.current.proposeDimensions();
+      if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
       fitAddonRef.current.fit();
       const dims = fitAddonRef.current.proposeDimensions();
-      if (dims && wsRef.current?.readyState === WebSocket.OPEN) {
+      if (dims && dims.cols > 0 && dims.rows > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
         if (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows) {
           lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
           wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
@@ -553,6 +665,19 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       searchNext,
       searchPrevious,
       closeSearch,
+      /* Info 패널이 읽어가는 라이브 메타데이터 — 사이즈/연결상태 등.
+         값은 ref 기반이라 항상 최신. (객체 자체는 그대로, 내부 ref 만 변동) */
+      getDims: () => ({ ...lastDimsRef.current }),
+      getConnectionState: () => {
+        const ws = wsRef.current;
+        if (!ws) return 'closed';
+        switch (ws.readyState) {
+          case WebSocket.CONNECTING: return 'connecting';
+          case WebSocket.OPEN:       return 'open';
+          case WebSocket.CLOSING:    return 'closing';
+          default:                   return 'closed';
+        }
+      },
     };
 
     return () => {
@@ -629,6 +754,83 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
           outline: 'none',
         }}
       />
+
+      {/* takeover 오버레이 — 다른 기기/탭이 같은 tmux 세션을 가져갔을 때.
+          이 단말은 가만히 멈춰 있고, 사용자가 버튼을 눌러야만 다시 attach. */}
+      {evicted && (
+        <div
+          style={{
+            ...styles.statusOverlay,
+            backgroundColor: `${currentTheme.ui.bg}EE`,
+            backdropFilter: 'blur(2px)',
+            WebkitBackdropFilter: 'blur(2px)',
+            zIndex: 12,
+            padding: '24px',
+            gap: '16px',
+          }}
+        >
+          <div style={{
+            width: '52px', height: '52px', borderRadius: '12px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: `${currentTheme.ui.accent}1F`,
+            border: `1px solid ${currentTheme.ui.accent}55`,
+            color: currentTheme.ui.accent,
+          }}>
+            <MonitorSmartphone size={26} strokeWidth={1.8} />
+          </div>
+          <div style={{
+            color: currentTheme.ui.text,
+            fontSize: '15px',
+            fontWeight: 600,
+            textAlign: 'center',
+            letterSpacing: '0.01em',
+          }}>
+            {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
+          </div>
+          <div style={{
+            color: currentTheme.ui.textSecondary,
+            fontSize: '12.5px',
+            textAlign: 'center',
+            maxWidth: '360px',
+            lineHeight: 1.5,
+          }}>
+            {t('takenOverBody') ||
+              'tmux 세션은 한 번에 한 화면에서만 안정적으로 보입니다. 이 화면으로 다시 가져오면 저쪽이 같은 안내로 바뀝니다.'}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              /* 사용자 명시적 액션 — preflight skip 하고 즉시 attach -d (저쪽 떨어뜨림).
+                 connectRef 를 직접 호출해서 Terminal remount 없이 WS 만 새로 엶. */
+              evictedRef.current = false;
+              setEvicted(false);
+              if (connectRef.current) {
+                connectRef.current();
+              } else if (onTakeOver) {
+                onTakeOver();
+              } else {
+                window.location.reload();
+              }
+            }}
+            style={{
+              marginTop: '4px',
+              padding: '9px 18px',
+              borderRadius: '7px',
+              border: `1px solid ${currentTheme.ui.accent}66`,
+              background: currentTheme.ui.accent,
+              color: currentTheme.ui.bg,
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              letterSpacing: '0.01em',
+              boxShadow: `0 6px 18px ${currentTheme.ui.accent}33`,
+            }}
+          >
+            {t('takeOver') || '내가 가져오기'}
+          </button>
+        </div>
+      )}
     </>
   );
 };

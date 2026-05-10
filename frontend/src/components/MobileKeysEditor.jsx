@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import {
   Plus, Trash2, ArrowUp, ArrowDown, RotateCcw, Sparkles, ChevronUp,
-  Command, ClipboardPaste,
+  MessageSquare, ClipboardPaste, Image as ImageIcon, X as XIcon,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, KEY_PRESETS, decodeUserPayload } from '../utils/mobileKeys';
+import IconPickerPopup from './IconPickerPopup';
+import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -25,19 +27,21 @@ const TONE_OPTIONS = [
 
 const newId = () => Math.random().toString(36).slice(2, 9);
 
-// kind 변경 시 종류별 필수 필드를 채워주고 무관 필드는 비움. cmdInput/paste 는 아이콘 전용 (label X).
+// kind 변경 시 종류별 필수 필드를 채워주고 무관 필드는 비움.
+// 모든 비-sep 종류는 icon + label 을 동시에 가질 수 있음 (택일 X).
 const morphForKind = (kind, prev = {}) => {
-  const base = { id: prev.id, kind, tone: prev.tone };
-  if (kind === 'send')     return { ...base, label: prev.label || 'X',    payload: prev.payload || '' };
-  if (kind === 'mod')      return { ...base, label: prev.label || 'CTRL', modifier: prev.modifier || 'ctrl' };
+  const base = { id: prev.id, kind, tone: prev.tone, icon: prev.icon || '', label: prev.label || '' };
+  if (kind === 'send')     return { ...base, payload: prev.payload || '' };
+  if (kind === 'mod')      return { ...base, modifier: prev.modifier || 'ctrl' };
   if (kind === 'cmdInput') return { ...base };
   if (kind === 'paste')    return { ...base };
   if (kind === 'sep')      return { id: prev.id, kind: 'sep' };
   return prev;
 };
 
-const ICON_FOR_KIND = {
-  cmdInput: Command,
+/* kind 별 기본 아이콘 — picker 에서 "기본" 선택 시 시각화용. 실제 fallback 은 MobileToolbar 에서. */
+const DEFAULT_ICON_FOR_KIND = {
+  cmdInput: MessageSquare,
   paste: ClipboardPaste,
 };
 
@@ -127,32 +131,77 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
 
 const Row = ({ k, isFirst, isLast, onUp, onDown, onRemove, onPatch, onChangeKind, tt }) => {
   const isSep = k.kind === 'sep';
-  const Icon = ICON_FOR_KIND[k.kind];
-  const hasLabel = !isSep && !Icon;
   const showSecond = !isSep;
   return (
     <div style={S.row}>
       <div style={S.rowLine}>
         <KindSelect value={k.kind} onChange={onChangeKind} tt={tt} />
-        {isSep && <span style={S.sepLabel}>—</span>}
-        {Icon && (
-          <span style={S.iconPreview}>
-            <Icon size={14} strokeWidth={2} />
-          </span>
-        )}
-        {hasLabel && (
-          <input
-            type="text"
-            value={k.label || ''}
-            onChange={(e) => onPatch({ label: e.target.value })}
-            placeholder={tt('fieldLabel', 'Label')}
-            style={{ ...S.input, flex: 1 }}
-          />
+        {isSep ? (
+          <span style={S.sepLabel}>—</span>
+        ) : (
+          <>
+            {/* 아이콘 픽커 — 모든 비-sep 종류 공통. 비어있으면 kind 기본 아이콘 미리보기. */}
+            <IconButton
+              value={k.icon || ''}
+              kind={k.kind}
+              onChange={(icon) => onPatch({ icon })}
+              tt={tt}
+            />
+            <input
+              type="text"
+              value={k.label || ''}
+              onChange={(e) => onPatch({ label: e.target.value })}
+              placeholder={tt('fieldLabel', 'Label')}
+              style={{ ...S.input, flex: 1 }}
+            />
+          </>
         )}
         <RowActions {...{ isFirst, isLast, onUp, onDown, onRemove, tt }} />
       </div>
       {showSecond && <SecondLine k={k} onPatch={onPatch} tt={tt} />}
     </div>
+  );
+};
+
+const IconButton = ({ value, kind, onChange, tt }) => {
+  const [open, setOpen] = useState(false);
+  const FallbackIcon = DEFAULT_ICON_FOR_KIND[kind];
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title={value ? tt('changeIcon', 'Change icon') : tt('pickIcon', 'Pick icon')}
+        style={S.iconPickerBtn}
+      >
+        {value ? (
+          <HostIcon value={value} size={14} strokeWidth={2} />
+        ) : FallbackIcon ? (
+          <span style={{ display: 'inline-flex', color: color.muted }}>
+            <FallbackIcon size={14} strokeWidth={2} />
+          </span>
+        ) : (
+          <ImageIcon size={13} strokeWidth={1.8} style={{ color: color.muted, opacity: 0.6 }} />
+        )}
+      </button>
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          title={tt('clearIcon', 'Clear icon')}
+          style={S.iconClearBtn}
+        >
+          <XIcon size={10} strokeWidth={2.4} />
+        </button>
+      )}
+      <IconPickerPopup
+        isOpen={open}
+        value={value}
+        onChange={(key) => onChange(key || '')}
+        onClose={() => setOpen(false)}
+        t={tt}
+      />
+    </>
   );
 };
 
@@ -294,6 +343,34 @@ const S = {
     alignItems: 'center',
     paddingLeft: space['2'],
     color: color.subtext,
+  },
+  iconPickerBtn: {
+    width: '26px',
+    height: '24px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: '3px',
+    color: color.text,
+    cursor: 'pointer',
+    flexShrink: 0,
+    padding: 0,
+  },
+  iconClearBtn: {
+    width: '14px',
+    height: '14px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    border: 'none',
+    color: color.muted,
+    cursor: 'pointer',
+    flexShrink: 0,
+    padding: 0,
+    marginLeft: '-4px',
   },
   kindSelect: {
     height: '24px',

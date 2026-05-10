@@ -196,7 +196,8 @@ class SystemMonitor:
         self.cached_cpu_percent = 0.0
 
     def get_stats(self):
-        stats: dict[str, float] = {"cpu": 0.0, "ram": 0.0, "disk": 0.0}
+        # 백워드 호환 — 기존 'cpu/ram/disk' 퍼센트는 그대로 두고 절대값/load/uptime 을 추가.
+        stats: dict = {"cpu": 0.0, "ram": 0.0, "disk": 0.0}
         try:
             if os.path.exists("/proc/meminfo"):
                 total = available = 0
@@ -208,6 +209,8 @@ class SystemMonitor:
                             available = int(line.split()[1])
                 if total > 0:
                     stats["ram"] = round((total - available) / total * 100, 1)
+                    stats["mem_total"] = total * 1024            # bytes
+                    stats["mem_used"] = (total - available) * 1024
 
             try:
                 usage = os.statvfs(WORKSPACE_ROOT)
@@ -215,6 +218,8 @@ class SystemMonitor:
                 d_free = usage.f_bfree * usage.f_frsize
                 if d_total > 0:
                     stats["disk"] = round((d_total - d_free) / d_total * 100, 1)
+                    stats["disk_total"] = d_total
+                    stats["disk_used"] = d_total - d_free
             except Exception:
                 pass
 
@@ -239,6 +244,32 @@ class SystemMonitor:
                     self.last_update = now
 
             stats["cpu"] = self.cached_cpu_percent
+
+            # 부가 정보 — UI 패널이 풍부하게 보여줄 수 있게.
+            try:
+                stats["cpu_count"] = os.cpu_count() or 1
+            except Exception:
+                pass
+
+            try:
+                # /proc/loadavg → "1m 5m 15m running/total lastpid"
+                with open("/proc/loadavg") as f:
+                    la = f.read().split()[:3]
+                stats["load_avg"] = [float(x) for x in la]
+            except Exception:
+                pass
+
+            try:
+                with open("/proc/uptime") as f:
+                    stats["uptime"] = float(f.read().split()[0])
+            except Exception:
+                pass
+
+            try:
+                with open("/proc/sys/kernel/hostname") as f:
+                    stats["hostname"] = f.read().strip()
+            except Exception:
+                pass
         except Exception as e:
             logger.error("system stats error: %s", e)
         return stats
@@ -679,6 +710,17 @@ async def delete_session(session_id: str, username: str = Depends(verify_auth_to
     return {"session_id": session_id, "status": "deleted"}
 
 
+@app.get("/api/sessions/{session_id}/clients")
+async def get_session_clients(session_id: str, username: str = Depends(verify_auth_token)):
+    """세션에 현재 attach 된 tmux 클라이언트 수.
+    프론트엔드 takeover 모델에서 "지금 누가 보고 있냐?" 프리플라이트 / 자동 재attach 폴링용.
+    세션 자체가 없으면 attached=False 로 통일 (UI 가 그냥 신규 attach 진행하게)."""
+    if not await tmux_manager.session_exists(session_id):
+        return {"session_id": session_id, "exists": False, "count": 0, "attached": False}
+    n = await tmux_manager.clients_count(session_id)
+    return {"session_id": session_id, "exists": True, "count": n, "attached": n > 0}
+
+
 @app.post("/api/sessions/{session_id}/resize")
 async def resize_terminal(
     session_id: str,
@@ -992,6 +1034,63 @@ async def kill_host_tmux(
         logger.error("kill-tmux failed (%s, force=%s, session=%s): %s", host_id, force, target_session, e)
         raise HTTPException(status_code=500, detail=str(e))
     return {"id": host_id, "session": target_session, "status": "server_killed" if force else "killed"}
+
+
+@app.get("/api/hosts/{host_id}/tmux-clients")
+async def get_host_tmux_clients(
+    host_id: str,
+    session: str = Query(..., description="원격 tmux 세션명"),
+    username: str = Depends(verify_auth_token),
+):
+    """원격 호스트의 특정 tmux 세션에 attach 된 클라이언트 수.
+    takeover 프리플라이트 + 자동 재attach 폴링용. session 없으면 count=0 으로 통일.
+    `tmux list-clients -t SESSION` 의 라인 수."""
+    host = await storage.get_host(host_id, username)
+    if not host:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+
+    from host_manager import open_connection
+    safe_session = shlex.quote(session)
+    # `=` prefix → exact match (suffix 매치 방지)
+    cmd = f"tmux list-clients -t ={safe_session} 2>/dev/null | wc -l || echo 0"
+
+    try:
+        if host.get("auth_method") == "tailscale":
+            target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
+            proc = await asyncio.create_subprocess_exec(
+                "tailscale", "ssh", target, cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=8)
+            output = stdout.decode("utf-8", errors="replace")
+        else:
+            key_record = None
+            if host.get("auth_method") == "key" and host.get("key_id"):
+                key_record = await storage.get_ssh_key(host["key_id"], username)
+            secrets = resolve_host_secrets(host, key_record)
+            conn = await open_connection(
+                host,
+                private_key=secrets["private_key"],
+                passphrase=secrets["passphrase"],
+                password=secrets["password"],
+            )
+            try:
+                result = await conn.run(cmd, check=False)
+                output = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace")
+            finally:
+                conn.close()
+                await conn.wait_closed()
+    except Exception as e:
+        logger.warning("tmux-clients query failed (%s/%s): %s", host_id, session, e)
+        # 실패 시 알 수 없음 — 0 으로 보내 프론트가 그냥 진행하게.
+        return {"host_id": host_id, "session": session, "count": 0, "attached": False, "error": str(e)}
+
+    try:
+        n = int((output or "0").strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        n = 0
+    return {"host_id": host_id, "session": session, "count": n, "attached": n > 0}
 
 
 @app.get("/api/hosts/{host_id}/tmux-sessions")

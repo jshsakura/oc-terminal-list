@@ -20,6 +20,7 @@ const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 const HomeSessions = ({
   tabs = [],            // [{ id, type, hostId, name, color_index, icon, isPersistent? }]
   hosts = [],
+  busyTabIds = null,    // Set<tabId> — 활동 중인 탭 (TabBar 와 동일 신호)
   onJumpTab,            // (tabId) =>
   onResumeHostSession,  // (host, sessionName) => — 호스트에 해당 tmux 세션으로 신규 탭
   onTerminateHostSession, // (host, sessionName) => Promise — kill-tmux. throw 가능.
@@ -101,6 +102,8 @@ const HomeSessions = ({
       <style>{`
         @keyframes home-skel-pulse { 0%,100%{opacity:.4} 50%{opacity:.7} }
         @keyframes home-spin { to { transform: rotate(360deg); } }
+        /* busy 인디케이터 — Jupyter 식 binary (ON/OFF). 깜빡임 없음.
+           작업 중일 동안 dot 정적으로 켜짐, 끝나면 사라짐 → "끝났는지" 가 즉각 보임. */
       `}</style>
 
       {/* Open 그룹 — 현재 열려있는 탭 */}
@@ -110,8 +113,15 @@ const HomeSessions = ({
             <span style={S.title}>{t?.('openSessions') || 'Open'}</span>
           </div>
           <div style={S.grid}>
-            {openTabs.map((tab) => (
-              <OpenCard key={`tab-${tab.id}`} tab={tab} onJump={() => onJumpTab?.(tab.id)} t={t} />
+            {openTabs.map((tab, idx) => (
+              <OpenCard
+                key={`tab-${tab.id}`}
+                tab={tab}
+                index={idx + 1}
+                isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
+                onJump={() => onJumpTab?.(tab.id)}
+                t={t}
+              />
             ))}
           </div>
         </>
@@ -198,12 +208,32 @@ const HomeSessions = ({
 
 // ─── Cards ───────────────────────────────────────────────────────────────
 
-const OpenCard = ({ tab, onJump, t }) => {
+const OpenCard = ({ tab, index, isBusy = false, onJump, t }) => {
   const accent = color.dotPalette[(tab.color_index || 0) % color.dotPalette.length];
   const Icon = tab.type === 'host' ? Server : Monitor;
   return (
     <Card accent={accent} onClick={onJump}>
-      <IconBox accent={accent}>
+      {/* Ctrl+N 번호 — 박스 없는 모노 숫자. TabBar 와 같은 톤. 1~9 만, 그 이상은 숨김. */}
+      {index != null && index <= 9 && (
+        <span
+          aria-hidden
+          title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
+          style={{
+            fontFamily: font.mono,
+            fontSize: '11px',
+            fontWeight: 600,
+            color: color.muted,
+            opacity: 0.85,
+            flexShrink: 0,
+            lineHeight: 1,
+            width: '12px',
+            textAlign: 'center',
+          }}
+        >
+          {index}
+        </span>
+      )}
+      <IconBox accent={accent} busy={isBusy}>
         <HostIcon value={tab.icon || ''} fallback={Icon} size={18} />
       </IconBox>
       <Body
@@ -304,17 +334,35 @@ const Card = ({ children, accent, onClick }) => {
   );
 };
 
-const IconBox = ({ children, accent, subdued = false }) => (
+const IconBox = ({ children, accent, subdued = false, busy = false }) => (
   <div
     style={{
       ...S.iconBox,
+      position: 'relative',
       color: accent,
-      borderColor: subdued ? color.border : accent + '66',
-      background: subdued ? color.crust : accent + '1a',
-      animation: subdued ? 'home-skel-pulse 1.4s ease-in-out infinite' : 'none',
+      borderColor: subdued ? color.border : (busy ? accent : accent + '66'),
+      background: subdued ? color.crust : (busy ? accent + '33' : accent + '1a'),
+      boxShadow: busy ? `0 0 12px ${accent}aa, 0 0 0 1px ${accent}88` : undefined,
+      animation: subdued ? 'home-skel-pulse 1.4s ease-in-out infinite' : undefined,
     }}
   >
     {children}
+    {busy && (
+      <span
+        aria-hidden
+        style={{
+          position: 'absolute',
+          top: '-3px',
+          right: '-3px',
+          width: '9px',
+          height: '9px',
+          borderRadius: '50%',
+          background: accent,
+          boxShadow: `0 0 8px ${accent}, 0 0 0 2px ${color.crust}`,
+          pointerEvents: 'none',
+        }}
+      />
+    )}
   </div>
 );
 

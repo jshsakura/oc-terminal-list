@@ -127,6 +127,13 @@ function App() {
     else localStorage.removeItem('active_tab_id');
   }, [activeTabId]);
 
+  // 활성 탭명을 브라우저 탭 제목에 반영 (Jupyter 식). 활성 탭 없으면 기본 제목으로 복귀.
+  const DEFAULT_DOC_TITLE = 'Terminal List — Multi-Session SSH Terminal';
+  useEffect(() => {
+    const active = tabs.find((t) => t.id === activeTabId);
+    document.title = active?.name ? `${active.name} — Terminal List` : DEFAULT_DOC_TITLE;
+  }, [tabs, activeTabId]);
+
   // validate active tab still exists (activeTabId=null 은 홈 화면 의도이므로 건드리지 않음)
   useEffect(() => {
     if (activeTabId && !tabs.some((t) => t.id === activeTabId)) {
@@ -257,6 +264,26 @@ function App() {
   // closePane → closeTab 위임용 (선언 순서가 거꾸로라 ref 로 우회)
   const closeTabRef = useRef(null);
 
+  /* 호스트 pane 의 원격 tmux 세션 이름 계산 — backend/host_manager.effective_tmux_session 와 동기.
+     pane.tmuxSessionName 이 있으면 (Resume 으로 재attach 된 탭) 그 이름 그대로,
+     없으면 base = host.remote_tmux_session 에 tab.tmuxSuffix / pane index 합성. */
+  const computePaneTmuxSession = useCallback((host, tab, pane, paneIndex) => {
+    if (pane?.tmuxSessionName) return pane.tmuxSessionName;
+    const baseFromHost = host?.remote_tmux_session || 'mobile';
+    const base = tab?.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
+    return paneIndex === 0 ? base : `${base}_${paneIndex + 1}`;
+  }, []);
+
+  /* 원격 tmux 세션 kill — fire-and-forget. 호스트가 도달 불가능하면 다음 접속 때 Resumable 에 남음. */
+  const killRemoteTmuxSession = useCallback((hostId, sessionName) => {
+    if (!hostId || !sessionName) return;
+    const token = localStorage.getItem('auth_token');
+    fetch(`/api/hosts/${hostId}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => {});
+  }, []);
+
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || null, [tabs, activeTabId]);
 
   // 탭별 영속성 (tmux 로 작업이 살아남는지) — 로컬은 항상 true, 호스트는 use_remote_tmux 따라감.
@@ -305,9 +332,28 @@ function App() {
       if (!targetId) return prev;
       return prev.map((t) => {
         if (t.id !== targetId) return t;
-        if ((t.panes?.length || 1) >= 4) return t; // 최대 4
+        const currentPanes = t.panes || [];
+
+        /* 새 pane 은 *빈* (sessionId / hostId 미설정) → EmptyPane picker 가 떠서 사용자가 직접 선택.
+           로컬, 같은 호스트, 다른 호스트, 다른 탭 흡수 등 자유롭게 골라 "한 화면에 멀티 호스트" 구성 가능. */
+
+        /* '2x2' — 4 pane 채움. 부족한 만큼 빈 pane 추가, 각자 picker 표시. */
+        if (dir === '2x2') {
+          if (currentPanes.length >= 4) return { ...t, layout: '2x2' };
+          const panes = [...currentPanes];
+          while (panes.length < 4) panes.push(makePane({}));
+          return {
+            ...t,
+            panes,
+            layout: '2x2',
+            activePaneId: t.activePaneId || panes[0].id,
+          };
+        }
+
+        /* 'h' / 'v' — 빈 pane 1개 추가. 4개 도달 시 더 못 추가. */
+        if ((currentPanes.length || 1) >= 4) return t;
         const newPane = makePane({});
-        const panes = [...(t.panes || []), newPane];
+        const panes = [...currentPanes, newPane];
         let layout = t.layout || 'single';
         if (panes.length === 2) layout = dir === 'v' ? 'v' : 'h';
         else if (panes.length >= 3) layout = '2x2';
@@ -412,15 +458,15 @@ function App() {
           method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
         }).catch(() => {});
       }
-      // 호스트 분할 pane (paneIndex > 0) → 자동 부여된 원격 tmux 세션 정리.
-      // pane 0 (메인) 은 영속이므로 안 죽임. host_manager.effective_tmux_session 과 동기.
-      if (pane.hostId && paneIndex > 0) {
+      // 호스트 pane → 자신의 원격 tmux 세션도 종료 (의도적 close = 영속 끝).
+      // pane 0 도 포함 — 단일 pane 케이스는 이미 closeTab 으로 위임됐으니 여긴 항상 멀티 pane 의
+      // 한 pane. 잔류 세션이 안 남게 자기 것은 자기가 죽임.
+      if (pane.hostId) {
         const host = hosts.find((h) => h.id === pane.hostId);
-        const baseSession = host?.remote_tmux_session || 'mobile';
-        const targetSession = `${baseSession}_${paneIndex + 1}`;
-        fetch(`/api/hosts/${pane.hostId}/kill-tmux?session=${encodeURIComponent(targetSession)}`, {
-          method: 'POST', headers: { Authorization: `Bearer ${token}` },
-        }).catch(() => {});
+        if (host?.use_remote_tmux) {
+          const targetSession = computePaneTmuxSession(host, tab, pane, paneIndex);
+          killRemoteTmuxSession(pane.hostId, targetSession);
+        }
       }
     };
 
@@ -455,7 +501,7 @@ function App() {
       title, message,
       onConfirm: doClose,
     });
-  }, [tabs, t, hosts]);
+  }, [tabs, t, hosts, computePaneTmuxSession, killRemoteTmuxSession]);
 
   const focusPane = useCallback((tabId, paneId) => {
     setTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, activePaneId: paneId } : t));
@@ -473,7 +519,8 @@ function App() {
         setActiveTabId(fallback);
       }
       setTabs(remaining);
-      // 로컬이면 모든 pane 의 백엔드 세션 정리 (호스트는 원격 tmux 살림)
+      // 닫기 = 영속 끝. 로컬은 백엔드 tmux 세션을, 호스트는 원격 tmux 세션을 모두 kill.
+      // (의도적 close 인데 잔류 세션이 누적되어 Resumable 에 끝없이 쌓이는 문제 해결.)
       if (tab.type === 'local') {
         const token = localStorage.getItem('auth_token');
         const sessionIds = (tab.panes || [{ sessionId: tab.sessionId }])
@@ -485,6 +532,14 @@ function App() {
             headers: { Authorization: `Bearer ${token}` },
           }).catch(() => {});
         });
+      } else if (tab.type === 'host') {
+        const host = hosts.find((h) => h.id === tab.hostId);
+        if (host?.use_remote_tmux) {
+          (tab.panes || [{}]).forEach((pane, idx2) => {
+            const sess = computePaneTmuxSession(host, tab, pane, idx2);
+            killRemoteTmuxSession(tab.hostId, sess);
+          });
+        }
       }
     };
 
@@ -494,10 +549,14 @@ function App() {
       const h = hosts.find((hh) => hh.id === p.hostId);
       return h && !h.use_remote_tmux;
     });
+    const isPersistentHost = tab.type === 'host'
+      && (hosts.find((h) => h.id === tab.hostId)?.use_remote_tmux);
     const paneCount = tab.panes?.length || 1;
     const baseMsg = hasNoTmuxPane
       ? (t('confirmCloseTabLossy') || 'Close this tab? Work in non-tmux sessions will be lost.')
-      : (t('confirmCloseTab') || 'Close this tab?');
+      : isPersistentHost
+        ? (t('confirmCloseTabTerminate') || 'Close this tab? The remote tmux session(s) will be terminated.')
+        : (t('confirmCloseTab') || 'Close this tab?');
     const message = paneCount > 1
       ? `${baseMsg} (${paneCount} ${t('panesInTab') || 'panes'})`
       : baseMsg;
@@ -507,7 +566,7 @@ function App() {
       message,
       onConfirm: doClose,
     });
-  }, [tabs, activeTabId, t, hosts]);
+  }, [tabs, activeTabId, t, hosts, computePaneTmuxSession, killRemoteTmuxSession]);
 
   useEffect(() => { closeTabRef.current = closeTab; }, [closeTab]);
 
@@ -547,6 +606,28 @@ function App() {
     }));
   }, [settings.localName]);
 
+  // ── per-pane 테마 오버라이드 ─────────────────────────────────────────────
+  // 우측 사이드바의 테마 픽커는 "이 터미널만" 적용 — 전역 settings.theme 은 안 건드림.
+  // themeId === null 이면 override 해제 (전역 테마로 복귀).
+  const handlePaneThemeChange = useCallback((paneId, themeId) => {
+    if (!paneId) return;
+    setTabs((prev) => prev.map((tb) => {
+      if (!tb.panes?.some((p) => p.id === paneId)) return tb;
+      return {
+        ...tb,
+        panes: tb.panes.map((p) => {
+          if (p.id !== paneId) return p;
+          if (!themeId) {
+            // override 해제 — themeOverride 키 자체를 제거해 깨끗하게.
+            const { themeOverride: _drop, ...rest } = p;
+            return rest;
+          }
+          return { ...p, themeOverride: themeId };
+        }),
+      };
+    }));
+  }, []);
+
   // ── 탭 busy 인디케이터 (Jupyter 식 활동 점멸) ─────────────────────────────
   // Terminal.jsx 가 데이터 도착 시 'iterm:activity' 윈도우 이벤트를 paneId 와 함께
   // 디스패치 → 여기서 paneId → ts 맵에 기록 → 250ms 마다 만료 (>700ms 비활성) 검사 후
@@ -562,11 +643,15 @@ function App() {
     };
     window.addEventListener('iterm:activity', onActivity);
 
+    /* busy 유지 윈도우 — 마지막 출력 후 이만큼 동안은 busy 로 본다.
+       3500ms = 출력 burst 사이 짧은 휴지(컴파일 단계 사이, 명령 prompt 대기 등)에는 끄지 않고
+       유지 → 깜빡임 인지 줄임. 진짜 idle 이면 자연 fade. */
+    const BUSY_WINDOW_MS = 3500;
     const tick = setInterval(() => {
       const now = Date.now();
       const busyPaneIds = new Set();
       for (const [pid, ts] of activity.entries()) {
-        if (now - ts < 700) busyPaneIds.add(pid);
+        if (now - ts < BUSY_WINDOW_MS) busyPaneIds.add(pid);
         else activity.delete(pid);
       }
       const next = new Set();
@@ -577,7 +662,7 @@ function App() {
         if (prev.size === next.size && [...prev].every((x) => next.has(x))) return prev;
         return next;
       });
-    }, 250);
+    }, 150);  /* 250ms → 150ms — busy 등장/소멸 인지를 1프레임 안으로 내림. */
 
     return () => {
       window.removeEventListener('iterm:activity', onActivity);
@@ -985,13 +1070,23 @@ function App() {
         t={t}
       />
 
-      {/* ── main body ── */}
+      {/* ── main body ── 모든 탭의 PaneGrid 를 stack 으로 마운트 (xterm 보존 → scrollback/사이즈 유지).
+          단, 비활성 탭의 *WebSocket 은 lazy* — Terminal.jsx 가 isActive 에 따라 WS open/close.
+          그래서 멀티 디바이스에서도 한 시점에 한 탭만 attach → takeover 폭주 X.
+          탭 전환 시 xterm 은 그대로라 사이즈 jitter 없음, scrollback 도 그대로. */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
-        {/* center: home or terminal */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, position: 'relative' }}>
 
-          {activeTabId === null ? (
-            /* ── home dashboard ── */
+          {/* 홈 — activeTabId === null 일 때만 visible. visibility 로 토글해 layout 안 흔들리게. */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'flex',
+            flexDirection: 'column', overflow: 'hidden',
+            visibility: activeTabId === null ? 'visible' : 'hidden',
+            opacity: activeTabId === null ? 1 : 0,
+            pointerEvents: activeTabId === null ? 'auto' : 'none',
+            zIndex: activeTabId === null ? 1 : 0,
+          }}>
             <HomeDashboard
               hosts={hosts}
               localCard={{
@@ -1017,6 +1112,7 @@ function App() {
               onDeleteHost={async (h) => { await deleteHost(h.id); await refreshHosts(); }}
               onOpenSettings={() => setIsSettingsOpen(true)}
               tabs={tabsWithMeta}
+              busyTabIds={busyTabIds}
               onJumpTab={(tabId) => setActiveTabId(tabId)}
               onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
               onTerminateHostSession={async (host, sessionName) => {
@@ -1034,77 +1130,90 @@ function App() {
               t={t}
               settings={settings}
             />
-          ) : (
-            /* ── active terminal ── */
-            <>
-              {/* file editor (optional split) */}
-              {activeFile && (
-                <div style={{ height: `${editorHeight}px`, flexShrink: 0, position: 'relative', minHeight: '150px', zIndex: 10 }}>
-                  <Suspense fallback={null}>
-                    <FileEditor
-                      activeFile={activeFile}
-                      openFiles={openFiles}
-                      onFileSelect={handleFileOpen}
-                      onClose={handleFileClose}
-                      theme={currentTheme}
-                      language={settings.language}
-                      onResizeStart={onEditorResizeStart}
-                    />
-                  </Suspense>
+          </div>
+
+          {/* 각 탭의 PaneGrid — 항상 마운트, 활성만 visible. WS 는 Terminal 안에서 lazy. */}
+          {tabs.map((tab) => {
+            const isThisActive = tab.id === activeTabId;
+            const tabCwd = tab?.type === 'local'
+              ? (tab?.cwd ?? (settings.localStartPath || null))
+              : (tab?.cwd ?? null);
+            /* 활성 탭에만 editor 높이 반영. layoutSignal 변하면 그 탭의 fit 트리거. */
+            const tabLayoutSignal = `tab:${tab.id}:editor:${isThisActive && activeFile ? editorHeight : 0}:active:${isThisActive ? 1 : 0}`;
+            return (
+              <div
+                key={tab.id}
+                style={{
+                  position: 'absolute', inset: 0,
+                  /* display:none ↔ flex 토글은 ResizeObserver 를 깨워 fit/redraw 가 다시 일어나
+                     탭 전환마다 화면 flicker. visibility/opacity/pointer-events 로 가리면 layout
+                     안 변해 ResizeObserver 안 짖음 → xterm 이 그대로 정지된 그림 그대로 살아있음. */
+                  display: 'flex',
+                  flexDirection: 'column', overflow: 'hidden',
+                  visibility: isThisActive ? 'visible' : 'hidden',
+                  opacity: isThisActive ? 1 : 0,
+                  pointerEvents: isThisActive ? 'auto' : 'none',
+                  zIndex: isThisActive ? 1 : 0,
+                }}
+                aria-hidden={!isThisActive}
+              >
+                {isThisActive && activeFile && (
+                  <div style={{ height: `${editorHeight}px`, flexShrink: 0, position: 'relative', minHeight: '150px', zIndex: 10 }}>
+                    <Suspense fallback={null}>
+                      <FileEditor
+                        activeFile={activeFile}
+                        openFiles={openFiles}
+                        onFileSelect={handleFileOpen}
+                        onClose={handleFileClose}
+                        theme={currentTheme}
+                        language={settings.language}
+                        onResizeStart={onEditorResizeStart}
+                      />
+                    </Suspense>
+                  </div>
+                )}
+                <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: '150px' }}>
+                  <PaneGrid
+                    tab={tab}
+                    allTabs={tabs}
+                    hosts={hosts}
+                    isActive={isThisActive}
+                    isMobile={isMobile}
+                    onFocusPane={focusPane}
+                    onClosePane={closePane}
+                    onActivatePane={activatePane}
+                    onPaneCwdChange={handlePaneCwdChange}
+                    onPaneThemeChange={handlePaneThemeChange}
+                    layoutSignal={tabLayoutSignal}
+                    settings={effectiveSettings}
+                    updateSettings={updateSettings}
+                    cwd={tabCwd}
+                    onFileSelect={handleFileOpen}
+                    onFolderSelect={setSelectedFolderPath}
+                    onOpenTerminalAtFolder={(path, hostId = null) => {
+                      if (hostId) {
+                        const host = hosts.find((h) => h.id === hostId);
+                        if (host) { openHostTab(host, path); return; }
+                      }
+                      const sessionId = generateUUID();
+                      const name = path.split('/').pop() || (settings.localName || 'terminal');
+                      const newTab = makLocalTab(sessionId, name, path, {
+                        icon: settings.localIcon || null,
+                        colorIndex: settings.localColorIndex ?? 0,
+                      });
+                      setTabs((prev) => [...prev, newTab]);
+                      setActiveTabId(newTab.id);
+                    }}
+                    language={settings.language}
+                    t={t}
+                    viewportHeight={viewportHeight}
+                    onScreenDump={(text) => setScreenDumpText(text || '— empty —')}
+                  />
                 </div>
-              )}
-
-              {/* terminal panes (각 pane 안에 RightPanel 포함)
-                  모바일 하단 paddingBottom 제거 — MobileToolbar 가 wrapper flex flow 에서
-                  자기 자리(34px+safe-area)를 직접 차지하므로 중복 공간 만들 필요 없음. */}
-              <div style={{
-                flex: 1, position: 'relative', overflow: 'hidden', minHeight: '150px',
-              }}>
-                <PaneGrid
-                  tab={activeTab}
-                  allTabs={tabs}
-                  hosts={hosts}
-                  isActive={true}
-                  isMobile={isMobile}
-                  onFocusPane={focusPane}
-                  onClosePane={closePane}
-                  onActivatePane={activatePane}
-                  onPaneCwdChange={handlePaneCwdChange}
-                  layoutSignal={terminalLayoutSignal}
-                  settings={effectiveSettings}
-                  updateSettings={updateSettings}
-                  cwd={
-                    activeTab?.type === 'local'
-                      ? (activeTab?.cwd ?? (settings.localStartPath || null))
-                      : (activeTab?.cwd ?? null)
-                  }
-                  onFileSelect={handleFileOpen}
-                  onFolderSelect={setSelectedFolderPath}
-                  onOpenTerminalAtFolder={(path, hostId = null) => {
-                    if (hostId) {
-                      const host = hosts.find((h) => h.id === hostId);
-                      if (host) { openHostTab(host, path); return; }
-                    }
-                    const sessionId = generateUUID();
-                    const name = path.split('/').pop() || (settings.localName || 'terminal');
-                    const tab = makLocalTab(sessionId, name, path, {
-                      icon: settings.localIcon || null,
-                      colorIndex: settings.localColorIndex ?? 0,
-                    });
-                    setTabs((prev) => [...prev, tab]);
-                    setActiveTabId(tab.id);
-                  }}
-                  language={settings.language}
-                  t={t}
-                  viewportHeight={viewportHeight}
-                  onScreenDump={(text) => setScreenDumpText(text || '— empty —')}
-                />
               </div>
-            </>
-          )}
+            );
+          })}
         </div>
-
-        {/* RightPanel 은 각 pane 내부로 이동 (PaneGrid 가 처리) */}
       </div>
 
       {/* ── terminal search overlay ── */}
@@ -1310,8 +1419,18 @@ function App() {
             isOpen={confirmModal.isOpen}
             title={confirmModal.title}
             message={confirmModal.message}
+            confirmText={confirmModal.confirmText}
+            cancelText={confirmModal.cancelText}
+            tertiaryText={confirmModal.tertiaryText}
+            danger={!!confirmModal.danger}
             onConfirm={handleConfirmModal}
             onCancel={() => setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null })}
+            onTertiary={confirmModal.onTertiary
+              ? async () => {
+                  await confirmModal.onTertiary?.();
+                  setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
+                }
+              : undefined}
             language={settings.language}
           />
         )}
