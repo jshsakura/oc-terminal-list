@@ -4,6 +4,7 @@ import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import IconPickerPopup from './IconPickerPopup';
+import ThemePicker from './common/ThemePicker';
 
 const { color, font, fontSize, fontWeight, radius, space, motion, shadow } = tokens;
 
@@ -18,6 +19,7 @@ const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t }) => 
     localIcon: '',
     localColorIndex: 0,
     localStartPath: '',
+    localTheme: '',
   });
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
 
@@ -28,6 +30,7 @@ const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t }) => 
       localIcon: settings?.localIcon || '',
       localColorIndex: settings?.localColorIndex ?? 0,
       localStartPath: settings?.localStartPath || '',
+      localTheme: settings?.localTheme || '',
     });
   }, [isOpen, settings]);
 
@@ -123,6 +126,21 @@ const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t }) => 
                 </button>
               )}
             </div>
+          </Field>
+
+          {/* 로컬용 기본 테마 — 비우면 글로벌 settings.theme. 호스트 편집과 동일한 컴포넌트 재사용. */}
+          <Field
+            label={t?.('hostTheme') || 'Default theme'}
+            hint={t?.('hostThemeHint') || 'Auto-applied when this host is opened. Empty = use global theme.'}
+          >
+            <ThemePicker
+              value={draft.localTheme || ''}
+              onChange={(v) => set('localTheme', v)}
+              allowEmpty
+              emptyLabel={t?.('useGlobalTheme') || 'Use global theme'}
+              t={t}
+              columns={2}
+            />
           </Field>
         </div>
 

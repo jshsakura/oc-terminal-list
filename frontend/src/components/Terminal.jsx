@@ -46,6 +46,12 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
   const [evicted, setEvicted] = useState(false);
   // 셸이 종료(`exit` 등)되어 tmux 세션이 사라진 상태 — 자동 재생성 막고 사용자에게 명시적 restart.
   const [ended, setEnded] = useState(false);
+  // SSH keyboard-interactive (TOTP/OTP 등 2FA) 챌린지 — 백엔드가 WS 로 보내고 사용자 응답 받음.
+  const [authPrompt, setAuthPrompt] = useState(null);
+  // authPrompt 열고 닫을 때 전역 이벤트 — App.jsx 가 모바일 단축키바를 그동안 숨김.
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('iterm:auth-prompt', { detail: { open: !!authPrompt } }));
+  }, [authPrompt]);
 
   // 스마트 스크롤 훅
   const { handleUserScroll, handleNewData } = useSmartScroll(terminalRef, {
@@ -359,6 +365,16 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     };
 
     socket.onmessage = (event) => {
+      /* JSON 프로토콜 메시지 — 인증 prompt (TOTP/2FA) 등. 터미널 출력으로 가지 않게 일찍 분기. */
+      if (typeof event.data === 'string' && event.data.length > 1 && event.data[0] === '{' && event.data[event.data.length - 1] === '}') {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg && msg.type === 'auth-prompt') {
+            setAuthPrompt(msg);
+            return;
+          }
+        } catch { /* JSON 아님, 일반 출력으로 통과 */ }
+      }
       /* tmux 가 다른 클라이언트에게 takeover 당해 우리를 detach 시킬 때, 마지막에 보내는
          `[detached (from session ...)]` 한 줄로 의도적 detach 임을 식별 — 네트워크 끊김과 분리. */
       if (typeof event.data === 'string' && event.data.includes('[detached (from session')) {
@@ -998,7 +1014,167 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
           </button>
         </div>
       )}
+
+      {/* SSH keyboard-interactive (TOTP/OTP/2FA) 챌린지 prompt — 호스트 연결 직전에 백엔드가 트리거. */}
+      {authPrompt && (
+        <AuthPromptOverlay
+          prompt={authPrompt}
+          t={t}
+          onSubmit={(values) => {
+            try {
+              wsRef.current?.send(JSON.stringify({ type: 'auth-response', values }));
+            } catch { /* noop */ }
+            setAuthPrompt(null);
+          }}
+          onCancel={() => {
+            try {
+              wsRef.current?.send(JSON.stringify({ type: 'auth-cancel' }));
+            } catch { /* noop */ }
+            setAuthPrompt(null);
+            // 명시적 취소 — 자동 재연결 막고 WS 닫음. 사용자가 host 카드에서 다시 시도.
+            intentionalCloseRef.current = true;
+            try { wsRef.current?.close(); } catch { /* noop */ }
+            // 화면에 cancelled 상태 — ended 오버레이로 "다시 시작" 노출.
+            setEnded(true);
+          }}
+        />
+      )}
     </>
+  );
+};
+
+const AuthPromptOverlay = ({ prompt, t, onSubmit, onCancel }) => {
+  const initial = (prompt.prompts || []).map(() => '');
+  const [values, setValues] = useState(initial);
+  const pasteFirst = async () => {
+    try {
+      const text = (await navigator.clipboard.readText() || '').trim();
+      if (text) setValues((v) => [text, ...v.slice(1)]);
+    } catch { /* clipboard 권한 없음 — 사용자 수동 paste */ }
+  };
+  /* 전역 토큰 색 사용 (var(--ui-*)) — 화면 안 작은 오버레이가 아닌 전체 모달로 띄움.
+     position: fixed inset 0 + z-index 큰 값. 다른 모달들 (ConfirmModal 등) 과 동일 패턴. */
+  return (
+    <div
+      onClick={onCancel}
+      style={{
+        position: 'fixed',
+        top: 0, left: 0, right: 0,
+        // 100dvh = visible viewport (iOS 키보드 올라오면 그만큼 작아짐).
+        // bottom 안 박고 height 만 설정 → 키보드 위로 자동 줄어듦. 모달이 키보드 뒤로 안 늘어남.
+        height: '100dvh',
+        background: 'rgba(0,0,0,0.55)',
+        backdropFilter: 'blur(3px)', WebkitBackdropFilter: 'blur(3px)',
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+        zIndex: 10050, padding: '24px 24px 0',
+        overflowY: 'auto',
+      }}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={(e) => { e.preventDefault(); onSubmit(values); }}
+        style={{
+          width: '100%', maxWidth: 380,
+          background: 'var(--ui-base, #1a1a25)',
+          color: 'var(--ui-text, #e4e6f1)',
+          border: '1px solid var(--ui-border, rgba(228,230,241,0.06))',
+          borderRadius: 10,
+          boxShadow: '0 24px 60px rgba(0,0,0,0.55)',
+          display: 'flex', flexDirection: 'column', gap: 12, padding: 20,
+          fontFamily: 'inherit',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 8,
+            background: 'var(--ui-accent-subtle, rgba(137,180,250,0.12))',
+            border: '1px solid var(--ui-accent-border, rgba(137,180,250,0.32))',
+            color: 'var(--ui-accent, #89b4fa)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 16, fontWeight: 700, letterSpacing: '0.02em',
+          }}>2FA</div>
+          <div style={{ fontSize: 15, fontWeight: 600 }}>
+            {prompt.name || (t('authPromptTitle') || 'Additional verification')}
+          </div>
+        </div>
+        {prompt.instructions && (
+          <div style={{
+            color: 'var(--ui-subtext, #a8acc4)',
+            fontSize: 12.5, lineHeight: 1.5, whiteSpace: 'pre-line',
+          }}>
+            {prompt.instructions}
+          </div>
+        )}
+        {(prompt.prompts || []).map((p, i) => (
+          <label key={i} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span style={{ fontSize: 12, color: 'var(--ui-subtext, #a8acc4)' }}>
+              {p.prompt || (t('authPromptCode') || 'Code')}
+            </span>
+            <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <input
+                type={p.echo ? 'text' : 'password'}
+                inputMode="text"
+                autoFocus={i === 0}
+                autoComplete="one-time-code"
+                value={values[i] || ''}
+                onChange={(e) => setValues((v) => v.map((x, j) => (j === i ? e.target.value : x)))}
+                style={{
+                  flex: 1, height: 40, padding: '0 12px',
+                  background: 'var(--ui-mantle, #15151f)',
+                  color: 'var(--ui-text, #e4e6f1)',
+                  border: '1px solid var(--ui-border, rgba(228,230,241,0.06))',
+                  borderRadius: 6, outline: 'none', fontSize: 15,
+                  fontFamily: 'inherit',
+                }}
+              />
+              {i === 0 && (
+                <button
+                  type="button"
+                  onClick={pasteFirst}
+                  title={t('paste') || 'Paste'}
+                  style={{
+                    marginLeft: 6, height: 40, padding: '0 12px',
+                    background: 'var(--ui-surface1, #2d2d3c)',
+                    color: 'var(--ui-text, #e4e6f1)',
+                    border: '1px solid var(--ui-border, rgba(228,230,241,0.06))',
+                    borderRadius: 6, fontSize: 12, fontWeight: 500,
+                    cursor: 'pointer', fontFamily: 'inherit',
+                  }}
+                >
+                  {t('paste') || 'Paste'}
+                </button>
+              )}
+            </div>
+          </label>
+        ))}
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            style={{
+              flex: 1, height: 36, borderRadius: 6,
+              border: '1px solid var(--ui-border, rgba(228,230,241,0.06))',
+              background: 'transparent', color: 'var(--ui-text, #e4e6f1)',
+              fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            {t('cancel') || 'Cancel'}
+          </button>
+          <button
+            type="submit"
+            style={{
+              flex: 1, height: 36, borderRadius: 6,
+              border: '1px solid var(--ui-accent, #89b4fa)',
+              background: 'var(--ui-accent, #89b4fa)',
+              color: 'var(--ui-crust, #0f0f17)',
+              fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit',
+            }}
+          >
+            {t('authPromptSubmit') || 'Continue'}
+          </button>
+        </div>
+      </form>
+    </div>
   );
 };
 

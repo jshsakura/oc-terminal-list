@@ -143,7 +143,7 @@ const ThemeRow = ({ id, theme, isActive, isGlobal, isCurrent, onClick }) => {
  * t        : useTranslation 훅의 t 함수
  * markedId : 글로벌 테마 id → "전체" 배지 (옵션)
  */
-const ThemePicker = ({ value, onChange, t, markedId, columns = 1 }) => {
+const ThemePicker = ({ value, onChange, t, markedId, columns = 1, allowEmpty = false, emptyLabel = '' }) => {
   const renderSection = (ids, isDark, headerKey, headerFallback) => (
     <>
       <SectionHeader isDark={isDark} label={t?.(headerKey) || headerFallback} />
@@ -174,6 +174,30 @@ const ThemePicker = ({ value, onChange, t, markedId, columns = 1 }) => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+      {allowEmpty && (
+        <button
+          type="button"
+          onClick={() => onChange?.('')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '6px 10px',
+            background: !value ? 'var(--ui-surface1, #2d2d3c)' : 'transparent',
+            border: `1px solid ${!value ? 'var(--ui-accent-border, rgba(137,180,250,0.32))' : 'var(--ui-border, rgba(228,230,241,0.06))'}`,
+            borderRadius: '4px',
+            cursor: 'pointer',
+            color: 'var(--ui-text, #e4e6f1)',
+            fontFamily: 'inherit',
+            fontSize: '12px',
+            fontWeight: 500,
+            marginBottom: '4px',
+          }}
+        >
+          <span>{emptyLabel || t?.('useGlobalTheme') || 'Use global theme'}</span>
+          {!value && <span style={{ fontSize: '10px', opacity: 0.7 }}>✓</span>}
+        </button>
+      )}
       {renderSection(DARK_IDS, true, 'themeDark', 'Dark')}
       {renderSection(LIGHT_IDS, false, 'themeLight', 'Light')}
     </div>

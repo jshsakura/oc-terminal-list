@@ -4,6 +4,7 @@ import {
   Settings as GearIcon, ChevronRight, LogOut, Smartphone, ChevronDown,
 } from 'lucide-react';
 import ThemePicker from './common/ThemePicker';
+import useHostReorder from '../hooks/useHostReorder';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import HostIcon from '../utils/hostIcons';
@@ -39,7 +40,7 @@ const SETTINGS_TABS = new Set(['general', 'mobile']);
 
 const Settings = ({
   isOpen, onClose, settings, onSave, username,
-  hosts = [], sshKeys = [],
+  hosts = [], sshKeys = [], refreshHosts = null,
   onAddHost, onEditHost,
   onAddKey,  onEditKey,
   onLogout,
@@ -102,7 +103,7 @@ const Settings = ({
             <MobilePanel s={s} change={change} t={t} />
           )}
           {tab === 'hosts' && (
-            <HostsPanel hosts={hosts} onAdd={onAddHost} onEdit={onEditHost} t={t} />
+            <HostsPanel hosts={hosts} refreshHosts={refreshHosts} onAdd={onAddHost} onEdit={onEditHost} t={t} />
           )}
           {tab === 'keys' && (
             <KeysPanel keys={sshKeys} onAdd={onAddKey} onEdit={onEditKey} t={t} />
@@ -264,47 +265,67 @@ const MobilePanel = ({ s, change, t }) => (
   </>
 );
 
-const HostsPanel = ({ hosts, onAdd, onEdit, t }) => (
-  <Section title={t('savedHosts') || 'Saved hosts'}>
-    {hosts.length === 0 && (
-      <div style={styles.empty}>{t('noHostsYet') || 'No hosts yet. Add one to get started.'}</div>
-    )}
-    <div style={styles.list}>
-      {hosts.map((host) => {
-        const palette = tokens.color.dotPalette || [HOST_DOT_PALETTE_FALLBACK];
-        const accent = palette[(host.color_index || 0) % palette.length] || HOST_DOT_PALETTE_FALLBACK;
-        return (
-          <button
-            key={host.id}
-            type="button"
-            onClick={() => onEdit?.(host)}
-            style={styles.listRow}
-            onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; }}
-          >
-            <span style={{ ...styles.listIcon, color: accent }}>
-              <HostIcon value={host.icon || ''} fallback={Server} size={14} />
-            </span>
-            <div style={styles.listText}>
-              <div style={styles.listName}>{host.name}</div>
-              <div style={styles.listSub}>
-                {host.ssh_user}@{host.hostname}
-                {host.port && host.port !== 22 ? `:${host.port}` : ''}
+const HostsPanel = ({ hosts, refreshHosts, onAdd, onEdit, t }) => {
+  // 모든 사용처와 동일한 hook → 어디서 옮겨도 같은 서버 sort_index 로 동기.
+  const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
+  return (
+    <Section title={t('savedHosts') || 'Saved hosts'}>
+      {hosts.length === 0 && (
+        <div style={styles.empty}>{t('noHostsYet') || 'No hosts yet. Add one to get started.'}</div>
+      )}
+      <div style={styles.list}>
+        {orderedHosts.map((host) => {
+          const palette = tokens.color.dotPalette || [HOST_DOT_PALETTE_FALLBACK];
+          const accent = palette[(host.color_index || 0) % palette.length] || HOST_DOT_PALETTE_FALLBACK;
+          const rp = rowPropsFor(host);
+          return (
+            <div
+              key={host.id}
+              data-host-row={rp['data-host-row']}
+              onPointerDown={rp.onPointerDown}
+              onClick={() => onEdit?.(host)}
+              onMouseEnter={(e) => { if (!rp.isDragOver) e.currentTarget.style.background = color.surface1; }}
+              onMouseLeave={(e) => { if (!rp.isDragOver) e.currentTarget.style.background = color.surface0; }}
+              style={{
+                ...styles.listRow,
+                cursor: rp.isDragging ? 'grabbing' : 'pointer',
+                border: rp.isDragging
+                  ? `1px solid ${color.accent}`
+                  : (rp.isDragOver ? `1px dashed ${color.accent}` : `1px solid ${color.border}`),
+                background: rp.isDragging
+                  ? color.surface2
+                  : (rp.isDragOver ? color.surface2 : color.surface0),
+                boxShadow: rp.isDragging ? `0 6px 18px ${color.accent}40` : 'none',
+                transform: rp.isDragging ? 'translateY(-1px) scale(1.005)' : 'none',
+                transition: 'background 120ms, border-color 120ms, box-shadow 120ms',
+                touchAction: 'pan-y',
+                userSelect: 'none',
+              }}
+            >
+              <span style={{ ...styles.listIcon, color: accent }}>
+                <HostIcon value={host.icon || ''} fallback={Server} size={14} />
+              </span>
+              <div style={styles.listText}>
+                <div style={styles.listName}>{host.name}</div>
+                <div style={styles.listSub}>
+                  {host.ssh_user}@{host.hostname}
+                  {host.port && host.port !== 22 ? `:${host.port}` : ''}
+                </div>
               </div>
+              <ChevronRight size={12} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
             </div>
-            <ChevronRight size={12} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
-          </button>
-        );
-      })}
-    </div>
-    {onAdd && (
-      <button type="button" onClick={onAdd} style={styles.addRow}>
-        <Plus size={13} strokeWidth={2} />
-        <span>{t('addHost') || 'Add host'}</span>
-      </button>
-    )}
-  </Section>
-);
+          );
+        })}
+      </div>
+      {onAdd && (
+        <button type="button" onClick={onAdd} style={styles.addRow}>
+          <Plus size={13} strokeWidth={2} />
+          <span>{t('addHost') || 'Add host'}</span>
+        </button>
+      )}
+    </Section>
+  );
+};
 
 const KeysPanel = ({ keys, onAdd, onEdit, t }) => (
   <Section title={t('sshKeys') || 'SSH Keys'}>

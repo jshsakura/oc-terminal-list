@@ -48,8 +48,8 @@ const makePane = (extra = {}) => ({
   ...extra,
 });
 
-const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = null } = {}) => {
-  const pane = makePane({ sessionId });
+const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = null, themeOverride = null } = {}) => {
+  const pane = makePane({ sessionId, ...(themeOverride ? { themeOverride } : null) });
   return {
     id: `local:${sessionId}`,
     type: 'local',
@@ -71,9 +71,11 @@ const makeTmuxSuffix = () => Date.now().toString(36).slice(-6) + Math.floor(Math
 const makeHostTab = (host, cwd = null, tmuxSessionName = null) => {
   // tmuxSessionName 이 주어지면 이미 존재하는 영속 세션을 명시적으로 attach (Resume).
   // 이 경우 새 base/suffix 를 만들 필요 없고 pane 0 에 세션명을 직접 박는다.
+  // host.theme 이 있으면 pane.themeOverride 자동 설정 → 연결과 동시에 그 테마로 chrome 동기화.
   const pane = makePane({
     hostId: host.id,
     ...(tmuxSessionName ? { tmuxSessionName } : null),
+    ...(host.theme ? { themeOverride: host.theme } : null),
   });
   const suffix = tmuxSessionName ? null : makeTmuxSuffix();
   return {
@@ -302,10 +304,11 @@ function App() {
     const tab = makLocalTab(sessionId, name, cwd, {
       icon: settings.localIcon || null,
       colorIndex: settings.localColorIndex ?? 0,
+      themeOverride: settings.localTheme || null,
     });
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);
-  }, [settings.localName, settings.localIcon, settings.localColorIndex]);
+  }, [settings.localName, settings.localIcon, settings.localColorIndex, settings.localTheme]);
 
   const openHostTab = useCallback((host, cwd = null, tmuxSessionName = null) => {
     if (!host || host.isLocal || host.id === 'local') {
@@ -423,10 +426,14 @@ function App() {
           // target.cwd 가 있으면 pane.cwd 에 저장 → Terminal 이 그 경로로 SSH/셸 시작
           const cwdPatch = target?.cwd ? { cwd: target.cwd } : {};
           if (target?.type === 'host' && target.hostId) {
-            return { ...p, hostId: target.hostId, sessionId: undefined, ...cwdPatch };
+            // 호스트의 기본 테마가 있으면 themeOverride 자동 적용 (연결 직후 chrome 까지 그 테마로).
+            const h = hosts.find((hh) => hh.id === target.hostId);
+            const themePatch = h?.theme ? { themeOverride: h.theme } : {};
+            return { ...p, hostId: target.hostId, sessionId: undefined, ...cwdPatch, ...themePatch };
           }
           if (target?.type === 'local') {
-            return { ...p, sessionId: generateUUID(), hostId: undefined, ...cwdPatch };
+            const themePatch = settings.localTheme ? { themeOverride: settings.localTheme } : {};
+            return { ...p, sessionId: generateUUID(), hostId: undefined, ...cwdPatch, ...themePatch };
           }
           if (t.type === 'host') return { ...p, hostId: t.hostId, ...cwdPatch };
           return { ...p, sessionId: generateUUID(), ...cwdPatch };
@@ -434,7 +441,7 @@ function App() {
         return { ...t, panes, activePaneId: paneId };
       });
     });
-  }, []);
+  }, [hosts, settings.localTheme]);
 
   const closePane = useCallback((tabId, paneId) => {
     const tab = tabs.find((tt) => tt.id === tabId);
@@ -700,6 +707,13 @@ function App() {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  // SSH keyboard-interactive prompt 가 열려 있는지 — 모바일 단축키바 가림 처리.
+  const [authPromptOpen, setAuthPromptOpen] = useState(false);
+  useEffect(() => {
+    const onPrompt = (e) => setAuthPromptOpen(!!e.detail?.open);
+    window.addEventListener('iterm:auth-prompt', onPrompt);
+    return () => window.removeEventListener('iterm:auth-prompt', onPrompt);
+  }, []);
 
   // File editor
   const [openFiles, setOpenFiles] = useState([]);
@@ -1115,6 +1129,7 @@ function App() {
                 startPath: settings.localStartPath || '',
               }}
               onOpenHost={openHostTab}
+              refreshHosts={refreshHosts}
               onOpenHostAtPath={(h) => setFolderPickerHost(h)}
               onEditLocal={() => setLocalEditorOpen(true)}
               onPickLocalPath={() => setLocalFolderPicker({
@@ -1243,6 +1258,7 @@ function App() {
                     /* EmptyPane Connections → 폴더 픽커. slot (tabId/paneId) 같이 넘겨 빈 슬롯에 채움. */
                     onPickHostPath={(h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); }}
                     onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
+                    refreshHosts={refreshHosts}
                   />
                 </div>
               </div>
@@ -1283,8 +1299,9 @@ function App() {
       )}
 
       {/* ── mobile toolbar ──
-          빈 pane (picker 상태) 이면 키 보낼 곳이 없어서 어차피 동작 안 함 → 숨김. */}
-      {isMobile && activeTabId !== null && !!focusedPane && (focusedPane.sessionId || focusedPane.hostId) && (
+          빈 pane (picker 상태) 이면 키 보낼 곳이 없어서 어차피 동작 안 함 → 숨김.
+          SSH 2FA 인증 prompt 열려 있을 때도 키보드와 같이 따라 올라와 모달 가리므로 숨김. */}
+      {isMobile && activeTabId !== null && !!focusedPane && (focusedPane.sessionId || focusedPane.hostId) && !authPromptOpen && (
         <Suspense fallback={null}>
           <MobileToolbar
             onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}
@@ -1329,6 +1346,7 @@ function App() {
         onClose={() => setHostManagerOpen(false)}
         hosts={hosts}
         localStartPath={settings.localStartPath || ''}
+        refreshHosts={refreshHosts}
         onAdd={() => { setHostManagerOpen(false); setHostEditorState({ isOpen: true, host: null }); }}
         onEdit={(h) => { setHostManagerOpen(false); setHostEditorState({ isOpen: true, host: h }); }}
         onConnect={(h) => { setHostManagerOpen(false); openHostTab(h); }}
@@ -1406,6 +1424,7 @@ function App() {
             username={username}
             hosts={hosts}
             sshKeys={sshKeys}
+            refreshHosts={refreshHosts}
             onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
             onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
             onAddKey={() => { setEditingKey(null); setKeyManagerOpen(true); }}

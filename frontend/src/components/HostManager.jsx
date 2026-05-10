@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { X, Plus, Server, Settings as SettingsIcon, Monitor } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
+import useHostReorder from '../hooks/useHostReorder';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
@@ -14,13 +15,16 @@ const LINE = {
   minWidth: 0,
 };
 
-const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, onEdit, onConnect, t }) => {
+const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, onEdit, onConnect, refreshHosts = null, t }) => {
   useEffect(() => {
     if (!isOpen) return;
     const handle = (e) => { if (e.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handle);
     return () => document.removeEventListener('keydown', handle);
   }, [isOpen, onClose]);
+
+  // 서버 sort_index = SSoT. HomeDashboard / EmptyPane 과 동일한 hook → 한 곳에서 옮기면 모든 곳 동기화.
+  const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
 
   if (!isOpen) return null;
 
@@ -59,11 +63,12 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, 
             </div>
           )}
 
-          {hosts.map((host) => {
+          {orderedHosts.map((host) => {
             const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
             return (
               <Row
                 key={host.id}
+                {...rowPropsFor(host)}
                 accent={accent}
                 icon={<HostIcon value={host.icon || ''} fallback={Server} size={13} />}
                 name={host.name}
@@ -75,7 +80,7 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, 
                     </span>
                   </>
                 }
-                onClick={() => onConnect?.(host)}
+                /* 호스트 관리 row 는 클릭으로 연결 X — 관리/정렬 전용. 연결은 새 탭/홈에서. 편집은 우측 gear. */
                 actions={
                   <button
                     onClick={(e) => { e.stopPropagation(); onEdit?.(host); }}
@@ -114,21 +119,37 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, 
   );
 };
 
-const Row = ({ accent, icon, name, sub, onClick, actions }) => (
+const Row = ({
+  accent, icon, name, sub, onClick, actions,
+  isDragging = false, isDragOver = false,
+  ...rest
+}) => (
   <div
+    /* data-host-row + onPointerDown spread (useHostReorder.rowPropsFor). */
+    data-host-row={rest['data-host-row'] || undefined}
+    onPointerDown={rest.onPointerDown}
     style={{
       display: 'flex',
       alignItems: 'center',
-      gap: '10px',
+      gap: '8px',
       padding: '10px 14px',
-      cursor: onClick ? 'pointer' : 'default',
-      transition: 'background 120ms',
+      cursor: isDragging ? 'grabbing' : (onClick ? 'pointer' : 'grab'),
+      transition: 'background 120ms, border-color 120ms, box-shadow 120ms',
       borderRadius: '6px',
       margin: '2px 6px',
+      // 드래그 중 = 들린 카드처럼 accent 보더 + glow. opacity 안 깎음 (이전엔 너무 흐려서 안 보였음).
+      border: isDragging
+        ? `1px solid ${color.accent}`
+        : isDragOver ? `1px dashed ${color.accent}` : '1px solid transparent',
+      background: isDragging ? color.surface2 : (isDragOver ? color.surface1 : 'transparent'),
+      boxShadow: isDragging ? `0 6px 18px ${color.accent}40, 0 0 0 1px ${color.accent}` : 'none',
+      transform: isDragging ? 'translateY(-1px) scale(1.01)' : 'none',
+      touchAction: rest.onPointerDown ? 'pan-y' : 'auto',
+      userSelect: 'none',
     }}
     onClick={onClick}
-    onMouseEnter={(e) => { if (onClick) e.currentTarget.style.background = color.surface0; }}
-    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    onMouseEnter={(e) => { if (!isDragOver) e.currentTarget.style.background = color.surface0; }}
+    onMouseLeave={(e) => { if (!isDragOver) e.currentTarget.style.background = 'transparent'; }}
   >
     <div style={{
       width: '24px', height: '24px',

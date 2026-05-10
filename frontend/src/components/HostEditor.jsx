@@ -4,6 +4,7 @@ import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import IconPickerPopup from './IconPickerPopup';
+import ThemePicker from './common/ThemePicker';
 import RemoteFolderPicker from './RemoteFolderPicker';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
@@ -22,6 +23,7 @@ const EMPTY = {
   remote_tmux_session: 'mobile',
   start_path: '',
   icon: '',
+  theme: '',
 };
 
 
@@ -303,6 +305,21 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                   <FolderOpen size={14} strokeWidth={2} />
                 </button>
               </div>
+            </Field>
+
+            {/* 호스트별 기본 테마 — 비우면 글로벌 settings.theme 사용. */}
+            <Field
+              label={t('hostTheme') || 'Default theme'}
+              hint={t('hostThemeHint') || 'Auto-applied when this host is opened. Empty = use global theme.'}
+            >
+              <ThemePicker
+                value={draft.theme || ''}
+                onChange={(v) => set('theme', v)}
+                allowEmpty
+                emptyLabel={t('useGlobalTheme') || 'Use global theme'}
+                t={t}
+                columns={2}
+              />
             </Field>
             {host && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: space['2'], marginTop: space['2'] }}>

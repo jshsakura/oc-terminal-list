@@ -1,34 +1,14 @@
-import { useState, memo, useMemo, useRef, useEffect } from 'react';
+import { useState, memo, useRef, useEffect } from 'react';
 import { Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
+import useHostReorder from '../hooks/useHostReorder';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
 
-// 정렬 순서는 DB(hosts.sort_index) 가 정답. localStorage 캐시는 최초 paint 깜빡임 방지용.
-const ORDER_CACHE_KEY = 'host_order_v1';
-
-const loadCachedOrder = () => {
-  try { return JSON.parse(localStorage.getItem(ORDER_CACHE_KEY) || '[]'); } catch { return []; }
-};
-const cacheOrder = (ids) => {
-  try { localStorage.setItem(ORDER_CACHE_KEY, JSON.stringify(ids)); } catch {}
-};
-
-const persistOrderToServer = async (ids) => {
-  try {
-    const token = localStorage.getItem('auth_token');
-    await fetch('/api/hosts/reorder', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ ids }),
-    });
-  } catch {
-    // 네트워크 실패해도 캐시는 유지 — 다음 새로고침에 서버 응답이 정답
-  }
-};
+// 정렬 순서는 서버 hosts.sort_index 가 SSoT. useHostReorder 훅이 옵티미스틱 관리.
 
 // Termius 풍 가로 카드 — 폭이 넓어지면 한 줄에 여러개, 좁아지면 한 줄로 stack.
 const CARD_MIN_WIDTH = 260;
@@ -58,14 +38,12 @@ const HomeDashboard = ({
   // embedded=true 면 부모 안에 끼워 쓰는 모드 — root 의 height: 100% 를 풀어
   // 콘텐츠 높이만 차지하게 한다 (분할 pane 의 빈 슬롯에서 미러 picker 와 같이 stack 가능).
   embedded = false,
+  refreshHosts = null,
   t,
 }) => {
   const [hoverId, setHoverId] = useState(null);
-  // 서버가 sort_index 로 정렬해서 hosts prop 을 내려줌. 클라 측 order 는 그 순서를 그대로 따른다.
-  // 단, DnD 직후 서버 fetch 가 끝나기 전 깜빡임 방지를 위해 localStorage 캐시 / pending 버퍼 사용.
-  const [pendingOrder, setPendingOrder] = useState(() => loadCachedOrder());
-  const [draggingId, setDraggingId] = useState(null);
-  const [overId, setOverId] = useState(null);
+  // 서버 sort_index 가 SSoT. useHostReorder 가 옵티미스틱 reorder + persist + refresh 통합 처리.
+  const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
 
   const rootRef = useRef(null);
   const [columns, setColumns] = useState(1);
@@ -86,41 +64,6 @@ const HomeDashboard = ({
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
-
-  // pendingOrder 가 있으면 그걸 우선, 없으면 hosts 가 이미 서버 정렬된 상태.
-  const orderedHosts = useMemo(() => {
-    const byId = new Map(hosts.map((h) => [h.id, h]));
-    if (pendingOrder.length > 0) {
-      const sorted = pendingOrder.map((id) => byId.get(id)).filter(Boolean);
-      const known = new Set(sorted.map((h) => h.id));
-      const newcomers = hosts.filter((h) => !known.has(h.id));
-      return [...sorted, ...newcomers];
-    }
-    return hosts;
-  }, [hosts, pendingOrder]);
-
-  // 서버에서 새 hosts 가 도착하면 pendingOrder 와 일치하는지 보고 정리 — 일치하면 비움
-  useEffect(() => {
-    if (pendingOrder.length === 0) return;
-    const live = hosts.map((h) => h.id);
-    const match = pendingOrder.length <= live.length
-      && pendingOrder.every((id, i) => live[i] === id);
-    if (match) setPendingOrder([]);
-  }, [hosts, pendingOrder]);
-
-  const reorder = (fromId, toId) => {
-    if (!fromId || !toId || fromId === toId) return;
-    const currentIds = orderedHosts.map((h) => h.id);
-    const fromIdx = currentIds.indexOf(fromId);
-    const toIdx = currentIds.indexOf(toId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const next = [...currentIds];
-    const [moved] = next.splice(fromIdx, 1);
-    next.splice(toIdx, 0, moved);
-    setPendingOrder(next);
-    cacheOrder(next);
-    persistOrderToServer(next);
-  };
 
   return (
     <div
@@ -194,9 +137,7 @@ const HomeDashboard = ({
               <HostRow
                 key={host.id}
                 id={host.id}
-                draggable
-                isDragging={draggingId === host.id}
-                isDragOver={overId === host.id && draggingId !== host.id}
+                {...rowPropsFor(host)}
                 icon={<HostIcon value={host.icon || ''} fallback={Server} size={20} />}
                 name={host.name}
                 subtitle={
@@ -215,26 +156,6 @@ const HomeDashboard = ({
                 editTitle={t?.('hostSettings') || 'Host settings'}
                 onPickPath={onOpenHostAtPath ? () => onOpenHostAtPath(host) : null}
                 pickPathTitle={t?.('openAtPath') || 'Open at path…'}
-                onDragStart={(e) => {
-                  setDraggingId(host.id);
-                  e.dataTransfer.effectAllowed = 'move';
-                  e.dataTransfer.setData('text/plain', host.id);
-                }}
-                onDragEnd={() => { setDraggingId(null); setOverId(null); }}
-                onDragOver={(e) => {
-                  if (!draggingId || draggingId === host.id) return;
-                  e.preventDefault();
-                  e.dataTransfer.dropEffect = 'move';
-                  if (overId !== host.id) setOverId(host.id);
-                }}
-                onDragLeave={() => { if (overId === host.id) setOverId(null); }}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  const fromId = e.dataTransfer.getData('text/plain') || draggingId;
-                  reorder(fromId, host.id);
-                  setDraggingId(null);
-                  setOverId(null);
-                }}
               />
             );
           })}
@@ -248,37 +169,37 @@ const HomeDashboard = ({
 
 export const HostRow = memo(({
   id, icon, name, subtitle, accentColor,
-  leadingBadge = null,    // 아이콘 박스 앞에 표시할 작은 노드 (예: 탭 번호 kbd)
+  leadingBadge = null,
   isHovered, isDragging, isDragOver,
-  draggable, onHover, onClick, onEdit, editTitle,
+  onHover, onClick, onEdit, editTitle,
   onPickPath, pickPathTitle,
-  onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
+  // useHostReorder.rowPropsFor 가 spread 로 보내는 것들: data-host-row, onPointerDown, isDragging, isDragOver.
+  ...rest
 }) => (
   <div
-    draggable={draggable}
-    onDragStart={onDragStart}
-    onDragEnd={onDragEnd}
-    onDragOver={onDragOver}
-    onDragLeave={onDragLeave}
-    onDrop={onDrop}
+    data-host-row={rest['data-host-row'] || undefined}
+    onPointerDown={rest.onPointerDown}
     onMouseEnter={() => onHover?.(id)}
     onMouseLeave={() => onHover?.(null)}
     onClick={onClick}
     style={{
       ...styles.row,
-      background: isDragOver
+      background: isDragging
         ? color.surface2
-        : isHovered ? color.surface1 : color.surface0,
-      borderColor: isDragOver
+        : (isDragOver ? color.surface2 : (isHovered ? color.surface1 : color.surface0)),
+      borderColor: isDragging
         ? color.accent
-        : isHovered ? accentColor : color.border,
-      borderStyle: isDragOver ? 'dashed' : 'solid',
-      transform: isHovered && !isDragging ? 'translateY(-1px)' : 'translateY(0)',
-      boxShadow: isHovered && !isDragging
-        ? `0 4px 14px ${accentColor}22, 0 0 0 1px ${accentColor}`
-        : 'none',
-      opacity: isDragging ? 0.4 : 1,
-      cursor: draggable ? 'grab' : 'pointer',
+        : (isDragOver ? color.accent : (isHovered ? accentColor : color.border)),
+      borderStyle: isDragOver && !isDragging ? 'dashed' : 'solid',
+      transform: isDragging
+        ? 'translateY(-1px) scale(1.01)'
+        : (isHovered ? 'translateY(-1px)' : 'translateY(0)'),
+      boxShadow: isDragging
+        ? `0 8px 24px ${color.accent}50, 0 0 0 1px ${color.accent}`
+        : (isHovered ? `0 4px 14px ${accentColor}22, 0 0 0 1px ${accentColor}` : 'none'),
+      cursor: isDragging ? 'grabbing' : 'pointer',
+      touchAction: rest.onPointerDown ? 'pan-y' : 'auto',
+      userSelect: 'none',
     }}
   >
     {leadingBadge}

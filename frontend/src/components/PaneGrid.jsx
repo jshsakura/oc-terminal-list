@@ -10,6 +10,7 @@ import { HostRow } from './HomeDashboard';
 import HomeSessions from './HomeSessions';
 import HostIcon from '../utils/hostIcons';
 import useActiveTerminalCwd from '../hooks/useActiveTerminalCwd';
+import useHostReorder from '../hooks/useHostReorder';
 
 const Terminal = lazy(() => import('./Terminal'));
 
@@ -56,6 +57,7 @@ const PaneGrid = ({
   /* EmptyPane 의 호스트 카드용 — 새탭 (HomeDashboard) 과 동일한 폴더 픽커 / 호스트 설정 진입. */
   onPickHostPath,
   onEditHost,
+  refreshHosts,
   language = 'en',
   t,
   viewportHeight,
@@ -109,6 +111,7 @@ const PaneGrid = ({
             busyTabIds={busyTabIds}
             onPickHostPath={onPickHostPath}
             onEditHost={onEditHost}
+            refreshHosts={refreshHosts}
             language={language}
             t={t}
             viewportHeight={viewportHeight}
@@ -177,7 +180,7 @@ const Pane = ({
   isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
-  onPickHostPath = null, onEditHost = null,
+  onPickHostPath = null, onEditHost = null, refreshHosts = null,
   language, t, viewportHeight,
 }) => {
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
@@ -263,6 +266,7 @@ const Pane = ({
             /* 빈 pane 슬롯 정보 같이 — 폴더 픽업 후 새 탭이 아닌 이 슬롯 채우게. */
             onPickHostPath={onPickHostPath ? (h) => onPickHostPath(h, { tabId: tab?.id, paneId: pane.id }) : null}
             onEditHost={onEditHost}
+            refreshHosts={refreshHosts}
           />
         ) : (
           <Suspense fallback={null}>
@@ -445,11 +449,11 @@ const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
 const EmptyPane = ({
   onActivate, hosts = [], tab, allTabs = [], settings = {}, t,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
-  onPickHostPath = null, onEditHost = null,
+  onPickHostPath = null, onEditHost = null, refreshHosts = null,
 }) => {
-  // 호버 상태 — HostRow 의 isHovered/onHover prop 으로 카드 lift / accent border 트리거.
-  // HomeDashboard 와 동일한 패턴.
   const [hoverId, setHoverId] = useState(null);
+  // 서버 sort_index = SSoT. HomeDashboard / HostManager 와 동일한 hook → 한 곳에서 옮기면 다 동기.
+  const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
   // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러.
   // index 는 상단 탭바와 동일한 1-base 순번 (Ctrl+N 단축키와 짝).
   const otherTabs = (allTabs || [])
@@ -488,13 +492,13 @@ const EmptyPane = ({
             onHover={setHoverId}
             onClick={() => onActivate?.({ type: 'local' })}
           />
-          {hosts.map((h) => {
+          {orderedHosts.map((h) => {
             const accent = color.dotPalette[(h.color_index ?? 0) % color.dotPalette.length];
             return (
               <HostRow
                 key={h.id}
                 id={h.id}
-                draggable={false}
+                {...rowPropsFor(h)}
                 icon={<HostIcon value={h.icon || ''} fallback={Server} size={20} />}
                 name={h.name}
                 subtitle={

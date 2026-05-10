@@ -184,6 +184,7 @@ class HostUpsertRequest(BaseModel):
     remote_tmux_session: Optional[str] = "mobile"
     start_path: Optional[str] = None
     icon: Optional[str] = None
+    theme: Optional[str] = None  # pane.themeOverride 자동 적용용 (없으면 글로벌 settings.theme)
 
 
 # ---------------------- 시스템 모니터 ----------------------
@@ -945,6 +946,7 @@ def _host_payload_to_fields(req: HostUpsertRequest) -> dict:
         "remote_tmux_session": req.remote_tmux_session or "mobile",
         "start_path": (req.start_path or "").strip() or None,
         "icon": (req.icon or "").strip() or None,
+        "theme": (req.theme or "").strip() or None,
     }
     if req.auth_method == "password" and req.password:
         fields["password_enc"] = encrypt_str(req.password)

@@ -159,6 +159,11 @@ class SQLiteStorage:
             cursor.execute("ALTER TABLE hosts ADD COLUMN last_cwd TEXT")
         except sqlite3.OperationalError:
             pass
+        # 마이그레이션: 호스트별 기본 테마 — 연결 시 자동으로 pane.themeOverride 에 적용.
+        try:
+            cursor.execute("ALTER TABLE hosts ADD COLUMN theme TEXT")
+        except sqlite3.OperationalError:
+            pass
         # 마이그레이션: 사용자 정의 정렬 순서 (DnD 결과 영속). NULL 이면 last_used 폴백.
         try:
             cursor.execute("ALTER TABLE hosts ADD COLUMN sort_index INTEGER")
@@ -504,7 +509,7 @@ class SQLiteStorage:
                 rows = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               color_index, group_name, use_remote_tmux, remote_tmux_session,
-                              start_path, last_cwd, icon, sort_index, created_at, last_used
+                              start_path, last_cwd, icon, theme, sort_index, created_at, last_used
                        FROM hosts WHERE username = ?
                        ORDER BY sort_index IS NULL, sort_index ASC,
                                 group_name NULLS LAST, last_used DESC, name ASC""",
@@ -522,7 +527,7 @@ class SQLiteStorage:
                 row = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               password_enc, color_index, group_name, use_remote_tmux,
-                              remote_tmux_session, start_path, last_cwd, icon, created_at, last_used
+                              remote_tmux_session, start_path, last_cwd, icon, theme, created_at, last_used
                        FROM hosts WHERE id = ? AND username = ?""",
                     (host_id, username),
                 ).fetchone()
@@ -536,7 +541,7 @@ class SQLiteStorage:
         allowed = {
             "name", "hostname", "port", "ssh_user", "auth_method", "key_id",
             "password_enc", "color_index", "group_name", "use_remote_tmux",
-            "remote_tmux_session", "start_path", "icon",
+            "remote_tmux_session", "start_path", "icon", "theme",
         }
         updates = {k: v for k, v in fields.items() if k in allowed}
 
@@ -558,8 +563,8 @@ class SQLiteStorage:
                         """INSERT INTO hosts (id, username, name, hostname, port, ssh_user,
                                               auth_method, key_id, password_enc, color_index,
                                               group_name, use_remote_tmux, remote_tmux_session,
-                                              start_path, icon, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                              start_path, icon, theme, created_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             host_id, username,
                             updates.get("name", "Unnamed"),
@@ -575,6 +580,7 @@ class SQLiteStorage:
                             updates.get("remote_tmux_session", "mobile"),
                             updates.get("start_path"),
                             updates.get("icon"),
+                            updates.get("theme"),
                             now,
                         ),
                     )

@@ -307,7 +307,14 @@ const IconBtn = ({ children, onClick, disabled, title, tone }) => (
 
 const S = {
   wrap: { display: 'flex', flexDirection: 'column', gap: space['2'] },
-  list: { display: 'flex', flexDirection: 'column', gap: '4px' },
+  // 모바일 좁은 화면에서 row 가 쪼그라들지 않도록 가로 스크롤. 데스크탑은 자연스럽게 100% 폭.
+  list: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+    overflowX: 'auto',
+    WebkitOverflowScrolling: 'touch',
+  },
   row: {
     display: 'flex',
     alignItems: 'center',
@@ -316,7 +323,8 @@ const S = {
     background: color.surface0,
     border: `1px solid ${color.border}`,
     borderRadius: radius.xs,
-    minWidth: 0,
+    // 가로 최소폭 — 좁은 화면에서 이 폭 유지하고 부모가 스크롤.
+    minWidth: '460px',
   },
   badge: {
     flexShrink: 0,

@@ -16,6 +16,7 @@ import shlex
 import shutil as _shutil
 from typing import List, Optional
 
+import json
 import asyncssh
 import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
@@ -111,6 +112,26 @@ def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: Optiona
     )
 
 
+def _make_kbdint_client(on_prompt):
+    """asyncssh SSHClient subclass — keyboard-interactive 챌린지를 외부 콜백으로 위임.
+    on_prompt(name, instructions, prompts) → list[str] (각 prompt 에 대한 응답).
+    TrueNAS Scale 등 2FA 호스트의 TOTP/OTP prompt 를 사용자 모달로 받아 처리.
+    """
+    class _KbdIntClient(asyncssh.SSHClient):
+        def kbdint_auth_requested(self):
+            return ''  # 모든 submethod 허용
+
+        async def kbdint_challenge_received(self, name, instructions, lang, prompts):
+            try:
+                values = await on_prompt(name or '', instructions or '', list(prompts))
+            except Exception:
+                return None
+            if values is None:
+                return None
+            return [str(v) for v in values]
+    return _KbdIntClient
+
+
 async def open_connection(
     host: dict,
     *,
@@ -118,6 +139,7 @@ async def open_connection(
     passphrase: Optional[str] = None,
     password: Optional[str] = None,
     known_hosts: bool = False,  # v1: TOFU off (모든 호스트 키 수락). v2: known_hosts 관리.
+    kbdint_prompter=None,  # async (name, instructions, prompts) → list[str], OTP/2FA 인터랙티브용
 ) -> asyncssh.SSHClientConnection:
     """SSH 연결을 연다. 호출자가 finally 에서 close() 해야 함."""
     options = {
@@ -130,6 +152,9 @@ async def open_connection(
         "keepalive_count_max": KEEPALIVE_COUNT_MAX,
     }
 
+    if kbdint_prompter is not None:
+        options["client_factory"] = _make_kbdint_client(kbdint_prompter)
+
     auth_method = host.get("auth_method") or "key"
     if auth_method == "key":
         if not private_key:
@@ -137,6 +162,7 @@ async def open_connection(
         options["client_keys"] = [
             asyncssh.import_private_key(private_key, passphrase or None)
         ]
+        # password 자동 응답 금지 — kbd-interactive 챌린지는 항상 인터랙티브 prompt 로 받음.
     elif auth_method == "password":
         if not password:
             raise HostConnectError("비밀번호 인증인데 비밀번호가 없음")
@@ -191,12 +217,54 @@ class HostBridge:
         self._closed = asyncio.Event()
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
+    async def _ws_kbdint_prompter(self, name: str, instructions: str, prompts: list) -> Optional[list]:
+        """asyncssh keyboard-interactive 챌린지를 WS 로 사용자에게 전달하고 응답 수신.
+        TOTP 같은 동적 2FA 에 필요. _connect 도중 호출되며 _input_pump 가 아직 안 켜져있어
+        websocket.receive_text 직접 사용 가능."""
+        try:
+            payload = {
+                "type": "auth-prompt",
+                "name": name,
+                "instructions": instructions,
+                "prompts": [{"prompt": p[0], "echo": bool(p[1])} for p in prompts],
+            }
+            await self.websocket.send_text(json.dumps(payload))
+        except Exception as e:
+            logger.warning("auth-prompt send failed: %s", e)
+            return None
+
+        # 사용자 응답 (auth-response) 까지 다른 메시지 무시. 타임아웃 120s.
+        try:
+            deadline = 120.0
+            while True:
+                data = await asyncio.wait_for(self.websocket.receive_text(), timeout=deadline)
+                if not data:
+                    continue
+                stripped = data.strip()
+                if stripped.startswith("{") and stripped.endswith("}"):
+                    try:
+                        msg = json.loads(stripped)
+                    except Exception:
+                        msg = None
+                    if isinstance(msg, dict):
+                        if msg.get("type") == "auth-response":
+                            values = msg.get("values") or []
+                            return [str(v) for v in values]
+                        if msg.get("type") == "auth-cancel":
+                            return None
+        except (asyncio.TimeoutError, WebSocketDisconnect):
+            return None
+        except Exception as e:
+            logger.warning("auth-prompt response wait failed: %s", e)
+            return None
+
     async def _connect(self) -> None:
         self.conn = await open_connection(
             self.host,
             private_key=self.private_key,
             passphrase=self.passphrase,
             password=self.password,
+            kbdint_prompter=self._ws_kbdint_prompter,
         )
 
         use_tmux = bool(self.host.get("use_remote_tmux", 1))
@@ -511,7 +579,9 @@ class TailscaleHostBridge:
 
 
 def resolve_host_secrets(host: dict, key_record: Optional[dict]) -> dict:
-    """저장된 호스트/키 레코드에서 vault 복호화한 secret 들을 추출."""
+    """저장된 호스트/키 레코드에서 vault 복호화한 secret 들을 추출.
+    auth_method=key 는 password 로드 X — kbd-interactive 챌린지는 사용자 인터랙티브 prompt 로 처리.
+    (저장된 password 가 자동 응답되어 우리 핸들러가 우회되는 사고 방지.)"""
     private_key: Optional[str] = None
     passphrase: Optional[str] = None
     password: Optional[str] = None
