@@ -21,7 +21,7 @@ const parentOf = (abs) => {
  * 원격 호스트의 폴더를 SFTP 로 탐색하면서 시작 경로를 고르는 모달.
  * onPick(absolutePath) 콜백으로 선택 완료 후 경로 전달, onClose 로 취소.
  */
-const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t }) => {
+const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = null, title = null }) => {
   const [path, setPath] = useState('');         // 현재 보고 있는 절대 경로
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -79,7 +79,7 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t }) => {
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <header style={styles.header}>
           <div style={styles.title}>
-            {t?.('pickFolder') || 'Pick a folder'} — <span style={{ color: color.muted }}>{host.name}</span>
+            {title || t?.('pickFolder') || 'Pick a folder'} — <span style={{ color: color.muted }}>{host.name}</span>
           </div>
           <button type="button" onClick={onClose} style={styles.closeBtn} title={t?.('close') || 'Close'}>
             <X size={14} strokeWidth={2} />
@@ -130,7 +130,7 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t }) => {
             disabled={!path}
             style={{ ...styles.openBtn, opacity: path ? 1 : 0.5, cursor: path ? 'pointer' : 'not-allowed' }}
           >
-            {t?.('openHere') || 'Open terminal here'}
+            {confirmLabel || t?.('openHere') || 'Open terminal here'}
           </button>
         </footer>
       </div>

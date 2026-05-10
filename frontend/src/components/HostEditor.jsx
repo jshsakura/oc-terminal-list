@@ -262,7 +262,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
               label={t('startPath') || 'Start path'}
               hint={t('startPathHint') || 'Directory to enter on connect (absolute or ~). Empty = home.'}
             >
-              <div style={{ display: 'flex', gap: space['2'], alignItems: 'stretch' }}>
+              <div style={{ display: 'flex', gap: space['1.5'], alignItems: 'center' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Input
                     value={draft.start_path || ''}
@@ -283,28 +283,24 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                   title={host?.id ? (t('browseFolder') || 'Browse remote folders') : (t('errorSaveBeforeBrowse') || 'Save host first to browse')}
                   style={{
                     flexShrink: 0,
-                    height: 36,
-                    minWidth: 96,
+                    width: 32,
+                    height: 32,
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    gap: '6px',
-                    padding: `0 ${space['3']}`,
-                    background: host?.id ? color.surface1 : color.surface0,
-                    color: color.text,
+                    background: color.mantle,
+                    color: color.subtext,
                     border: `1px solid ${color.border}`,
                     borderRadius: radius.sm,
-                    fontSize: fontSize['13'],
-                    fontWeight: fontWeight.medium,
                     cursor: host?.id ? 'pointer' : 'not-allowed',
                     opacity: host?.id ? 1 : 0.5,
-                    transition: `background ${motion.fast}`,
+                    transition: `background ${motion.fast}, color ${motion.fast}`,
+                    padding: 0,
                   }}
-                  onMouseEnter={(e) => { if (host?.id) e.currentTarget.style.background = color.surface2; }}
-                  onMouseLeave={(e) => { if (host?.id) e.currentTarget.style.background = color.surface1; }}
+                  onMouseEnter={(e) => { if (host?.id) { e.currentTarget.style.background = color.surface1; e.currentTarget.style.color = color.text; } }}
+                  onMouseLeave={(e) => { if (host?.id) { e.currentTarget.style.background = color.mantle; e.currentTarget.style.color = color.subtext; } }}
                 >
-                  <FolderOpen size={15} strokeWidth={2} />
-                  <span>{t('browse') || 'Browse'}</span>
+                  <FolderOpen size={14} strokeWidth={2} />
                 </button>
               </div>
             </Field>
@@ -443,6 +439,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
             host={host}
             onPick={(p) => { set('start_path', p); setFolderPickerOpen(false); }}
             onClose={() => setFolderPickerOpen(false)}
+            title={t('pickStartPath') || 'Pick start path'}
+            confirmLabel={t('useAsStartPath') || 'Use as start path'}
             t={t}
           />
 

@@ -51,7 +51,10 @@ const HostManager = ({ isOpen, onClose, hosts = [], onAdd, onEdit, onConnect, t 
                 accent={accent}
                 icon={<HostIcon value={host.icon || ''} fallback={Server} size={13} />}
                 name={host.name}
-                sub={`${host.ssh_user}@${host.hostname}${host.port !== 22 ? `:${host.port}` : ''}`}
+                sub={
+                  `${host.ssh_user}@${host.hostname}${host.port !== 22 ? `:${host.port}` : ''}`
+                  + (host.start_path ? ` · ${host.start_path}` : '')
+                }
                 onClick={() => onConnect?.(host)}
                 actions={
                   <button

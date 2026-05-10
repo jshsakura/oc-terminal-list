@@ -62,6 +62,18 @@ const RightPanel = ({
     onScreenDump?.(text);
   }, [terminalKey, onScreenDump]);
   const [activePanel, setActivePanel] = useState(null); // null | 'files' | 'git' | 'theme'
+  const panelRef = useRef(null);
+  // 패널 열릴 때 자동 포커스 → ESC 한 방으로 닫기 가능. 사용자가 패널 안 입력 (검색 등) 으로
+  // 옮겨가면 그 요소에 포커스 위임되고, 빈 영역 클릭하면 다시 컨테이너로 돌아감.
+  useEffect(() => {
+    if (activePanel && panelRef.current) panelRef.current.focus();
+  }, [activePanel]);
+  const onPanelKeyDown = (e) => {
+    if (e.key === 'Escape') {
+      e.stopPropagation();
+      setActivePanel(null);
+    }
+  };
 
   // Git 변경 카운트 — 활동 바 뱃지에 표시. 경로 없으면 fetch 안 함 (전체 워크스페이스 집계 X).
   const { items: gitItems } = useGitChanges({
@@ -79,16 +91,21 @@ const RightPanel = ({
     <div style={styles.root}>
       {/* content panel — absolute overlay (활동바 우측 → 본문 위로 떠서 터미널 폭 안 밀어냄) */}
       {activePanel && !disabled && (
-        <div style={{
-          ...styles.panel,
-          width: `${PANEL_WIDTH}px`,
-          position: 'absolute',
-          top: 0,
-          right: '36px',  // 활동바 폭만큼 띄움
-          bottom: 0,
-          zIndex: 10,
-          boxShadow: '-4px 0 16px rgba(0,0,0,0.35)',
-        }}>
+        <div
+          ref={panelRef}
+          tabIndex={-1}
+          onKeyDown={onPanelKeyDown}
+          style={{
+            ...styles.panel,
+            width: `${PANEL_WIDTH}px`,
+            position: 'absolute',
+            top: 0,
+            right: '36px',  // 활동바 폭만큼 띄움
+            bottom: 0,
+            zIndex: 10,
+            boxShadow: '-4px 0 16px rgba(0,0,0,0.35)',
+            outline: 'none', // tabIndex=-1 의 focus ring 제거
+          }}>
           <div style={styles.panelHeader}>
             <span style={styles.panelTitle}>
               {TABS.find((t) => t.id === activePanel)?.label}

@@ -457,7 +457,10 @@ const EmptyPane = ({
                 draggable={false}
                 icon={<HostIcon value={h.icon || ''} fallback={Server} size={20} />}
                 name={h.name}
-                subtitle={`${h.ssh_user || ''}@${h.hostname || ''}`}
+                subtitle={
+                  `${h.ssh_user || ''}@${h.hostname || ''}`
+                  + (h.start_path ? ` · ${h.start_path}` : '')
+                }
                 accentColor={accent}
                 onClick={() => onActivate?.({ type: 'host', hostId: h.id })}
               />
