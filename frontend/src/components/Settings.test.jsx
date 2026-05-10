@@ -6,6 +6,7 @@ const fullSettings = {
   theme: 'catppuccin',
   language: 'en',
   fontSize: 13,
+  fontSizeMobile: 15,
   fontFamily: 'JetBrains Mono',
   defaultShell: 'auto',
   autoScroll: 'smart',
@@ -70,5 +71,40 @@ describe('Settings', () => {
     fireEvent.click(screen.getByText(/Save/i));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ theme: 'catppuccin' }));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('saves the edited mobile font size', () => {
+    const onSave = vi.fn();
+    render(
+      <Settings isOpen={true} onClose={vi.fn()} settings={fullSettings} onSave={onSave} />
+    );
+
+    fireEvent.click(screen.getByText(/Mobile/i));
+    fireEvent.change(screen.getAllByDisplayValue('15')[0], { target: { value: '17' } });
+    fireEvent.click(screen.getByText(/Save/i));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      fontSize: 13,
+      fontSizeMobile: 17,
+    }));
+  });
+
+  it('resets mobile font size with the shared defaults', () => {
+    const onSave = vi.fn();
+    vi.stubGlobal('confirm', vi.fn(() => true));
+
+    render(
+      <Settings isOpen={true} onClose={vi.fn()} settings={fullSettings} onSave={onSave} />
+    );
+
+    fireEvent.click(screen.getByText(/Reset/i));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      fontSize: 12,
+      fontSizeMobile: 13,
+      defaultShell: 'auto',
+    }));
+
+    vi.unstubAllGlobals();
   });
 });

@@ -11,23 +11,12 @@ import HostIcon from '../utils/hostIcons';
 import OtpSection from './OtpSection';
 import MobileKeysEditor from './MobileKeysEditor';
 import { tokens } from '../styles/tokens';
-import { DEFAULT_TERMINAL_FONT_FAMILY } from '../utils/terminalFonts';
+import { DEFAULT_SETTINGS } from '../hooks/useSettings';
 import { DEFAULT_MOBILE_KEYS } from '../utils/mobileKeys';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
 const HOST_DOT_PALETTE_FALLBACK = '#89b4fa';
-
-const DEFAULTS = {
-  theme: 'catppuccin',
-  language: 'en',
-  fontSize: 14,
-  fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
-  defaultShell: 'bash',
-  autoScroll: 'smart',
-  smoothScroll: true,
-  scrollSensitivity: 0.8,
-};
 
 const TABS = [
   { id: 'general', icon: SlidersHorizontal, labelKey: 'general',     fallback: 'General' },
@@ -57,7 +46,7 @@ const Settings = ({
   const change = (key, value) => setS((p) => ({ ...p, [key]: value }));
   const save = () => { onSave(s); onClose(); };
   const reset = () => {
-    if (confirm(t('reset'))) { onSave(DEFAULTS); onClose(); }
+    if (confirm(t('reset'))) { onSave(DEFAULT_SETTINGS); onClose(); }
   };
 
   return (
