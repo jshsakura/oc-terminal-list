@@ -920,7 +920,7 @@ const styles = {
     alignSelf: 'stretch',
     height: '1px',
     background: color.border,
-    margin: '4px 0',
+    margin: '1px 0',
   },
 };
 

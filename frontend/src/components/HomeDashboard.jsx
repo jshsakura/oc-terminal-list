@@ -170,7 +170,14 @@ const HomeDashboard = ({
             draggable={false}
             icon={<HostIcon value={localCard?.icon || ''} fallback={Monitor} size={20} />}
             name={localCard?.name || (t?.('thisMachine') || 'This machine')}
-            subtitle={localCard?.subtitle || 'localhost'}
+            subtitle={
+              <>
+                <span style={styles.subLine}>localhost</span>
+                <span style={{ ...styles.subLine, color: (localCard?.startPath || '').trim() ? color.subtext : color.faint }}>
+                  {(localCard?.startPath || '').trim() || (t?.('noStartPath') || 'No start path')}
+                </span>
+              </>
+            }
             accentColor={localCard?.accent || color.accent}
             isHovered={hoverId === 'local'}
             onHover={setHoverId}
@@ -193,8 +200,12 @@ const HomeDashboard = ({
                 icon={<HostIcon value={host.icon || ''} fallback={Server} size={20} />}
                 name={host.name}
                 subtitle={
-                  `${host.ssh_user}@${host.hostname}${host.port && host.port !== 22 ? `:${host.port}` : ''}`
-                  + (host.start_path ? ` · ${host.start_path}` : '')
+                  <>
+                    <span style={styles.subLine}>{host.ssh_user}@{host.hostname}{host.port && host.port !== 22 ? `:${host.port}` : ''}</span>
+                    <span style={{ ...styles.subLine, color: host.start_path ? color.subtext : color.faint }}>
+                      {host.start_path || (t?.('noStartPath') || 'No start path')}
+                    </span>
+                  </>
                 }
                 accentColor={accent}
                 isHovered={hoverId === host.id}
@@ -455,10 +466,19 @@ const styles = {
   sub: {
     fontSize: fontSize['11'],
     color: color.subtext,
+    fontFamily: font.mono,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1px',
+    minWidth: 0,
+    lineHeight: 1.35,
+  },
+  subLine: {
+    display: 'block',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    fontFamily: font.mono,
+    minWidth: 0,
   },
   actions: {
     display: 'flex',

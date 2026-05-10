@@ -9,7 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { Loader2, MonitorSmartphone } from 'lucide-react';
+import { Loader2, MonitorSmartphone, PowerOff } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import useSmartScroll from '../hooks/useSmartScroll';
@@ -44,6 +44,8 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
   const [isReady, setIsReady] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const [evicted, setEvicted] = useState(false);
+  // 셸이 종료(`exit` 등)되어 tmux 세션이 사라진 상태 — 자동 재생성 막고 사용자에게 명시적 restart.
+  const [ended, setEnded] = useState(false);
 
   // 스마트 스크롤 훅
   const { handleUserScroll, handleNewData } = useSmartScroll(terminalRef, {
@@ -243,7 +245,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     let cancelled = false;
     const runPreflight = async () => {
       const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
-      if (!sessionToCheck) return { attached: false };
+      if (!sessionToCheck) return { attached: false, exists: true };
       const url = hostId
         ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}`
         : `/api/sessions/${sessionToCheck}/clients`;
@@ -251,11 +253,12 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        if (!res.ok) return { attached: false };
+        if (!res.ok) return { attached: false, exists: true };
         const data = await res.json();
-        return { attached: !!data.attached, count: data.count || 0 };
+        // exists 가 false 면 셸이 exit 등으로 tmux 세션이 사라진 상태 → 사용자에게 알리고 명시적 restart.
+        return { attached: !!data.attached, count: data.count || 0, exists: data.exists !== false };
       } catch {
-        return { attached: false };
+        return { attached: false, exists: true };
       }
     };
 
@@ -376,26 +379,36 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         setEvicted(true);
         return;
       }
-      // detach token 못 봤어도 server-initiated close 면 takeover 가능성 — preflight 확인.
-      // 다른 클라이언트 attached → evicted 오버레이. 아니면 backoff 후 자동 재연결.
+      // detach token 못 봤어도 server-initiated close 면 takeover 또는 셸 종료 가능성.
+      // preflight: attached 면 takeover 오버레이 / exists=false 면 종료 오버레이 / 그 외 reconnect.
       const checkAndRecover = async () => {
         try {
-          const { attached } = await (runPreflightRef.current?.() || Promise.resolve({ attached: false }));
+          const pf = await (runPreflightRef.current?.() || Promise.resolve({ attached: false, exists: true }));
           if (cancelled) return;
-          if (attached) {
+          if (pf.attached) {
             evictedRef.current = true;
             setEvicted(true);
             return;
           }
+          if (pf.exists === false) {
+            // 셸이 exit 으로 tmux 세션이 죽음. 자동 재생성 X — 사용자가 명시적으로 Restart 누르게.
+            setEnded(true);
+            return;
+          }
         } catch {}
         if (cancelled) return;
+        // 호스트 네트워크 불안정 (RPi5 wifi 등) 케이스 대응 — 시도 횟수 늘리고 cap 도 큼.
+        // 1→2→4→8→8→8…s, 최대 12회 ≈ 1분 30초. 그 후 ended 화면.
         const attempts = reconnectAttemptsRef.current;
-        if (attempts < 5) {
+        if (attempts < 12) {
           const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
           reconnectAttemptsRef.current = attempts + 1;
           reconnectTimeoutRef.current = setTimeout(() => {
             if (!cancelled) connectRef.current?.();
           }, delay);
+        } else {
+          // 끝까지 실패 — ended 오버레이로 사용자 명시 액션 유도.
+          setEnded(true);
         }
       };
       checkAndRecover();
@@ -909,6 +922,79 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
             }}
           >
             {t('takeOver') || '내가 가져오기'}
+          </button>
+        </div>
+      )}
+
+      {/* shell 종료 오버레이 — 사용자가 `exit` 등으로 셸을 끝내 tmux 세션이 사라진 상태.
+          자동 재생성 X. Restart 누르면 새 셸 spawn. */}
+      {ended && !evicted && (
+        <div
+          style={{
+            ...styles.statusOverlay,
+            backgroundColor: `${currentTheme.ui.bg}EE`,
+            backdropFilter: 'blur(2px)',
+            WebkitBackdropFilter: 'blur(2px)',
+            zIndex: 12,
+            padding: '24px',
+            gap: '16px',
+          }}
+        >
+          <div style={{
+            width: '52px', height: '52px', borderRadius: '12px',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: `${currentTheme.ui.accent}1F`,
+            border: `1px solid ${currentTheme.ui.accent}55`,
+            color: currentTheme.ui.accent,
+          }}>
+            <PowerOff size={26} strokeWidth={1.8} />
+          </div>
+          <div style={{
+            color: currentTheme.ui.text,
+            fontSize: '15px',
+            fontWeight: 600,
+            textAlign: 'center',
+            letterSpacing: '0.01em',
+          }}>
+            {t('shellEndedTitle') || '셸이 종료되었습니다'}
+          </div>
+          <div style={{
+            color: currentTheme.ui.textSecondary,
+            fontSize: '12.5px',
+            textAlign: 'center',
+            maxWidth: '360px',
+            lineHeight: 1.5,
+          }}>
+            {t('shellEndedBody') || '터미널 안에서 exit 을 입력하면 tmux 세션이 사라집니다. 같은 슬롯에서 새 셸로 다시 시작할 수 있습니다.'}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setEnded(false);
+              reconnectAttemptsRef.current = 0;
+              if (connectRef.current) {
+                // backend WS attach 가 세션 없으면 새로 만들어 주므로 그대로 connect.
+                connectRef.current();
+              } else {
+                window.location.reload();
+              }
+            }}
+            style={{
+              marginTop: '4px',
+              padding: '9px 18px',
+              borderRadius: '7px',
+              border: `1px solid ${currentTheme.ui.accent}66`,
+              background: currentTheme.ui.accent,
+              color: currentTheme.ui.bg,
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              letterSpacing: '0.01em',
+              boxShadow: `0 6px 18px ${currentTheme.ui.accent}33`,
+            }}
+          >
+            {t('restartShell') || '새 셸 시작'}
           </button>
         </div>
       )}

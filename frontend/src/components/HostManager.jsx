@@ -5,7 +5,16 @@ import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
-const HostManager = ({ isOpen, onClose, hosts = [], onAdd, onEdit, onConnect, t }) => {
+// 카드 sub 한 줄 (truncate + 인라인 block) 공유 스타일.
+const LINE = {
+  display: 'block',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  minWidth: 0,
+};
+
+const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, onEdit, onConnect, t }) => {
   useEffect(() => {
     if (!isOpen) return;
     const handle = (e) => { if (e.key === 'Escape') onClose(); };
@@ -33,7 +42,14 @@ const HostManager = ({ isOpen, onClose, hosts = [], onAdd, onEdit, onConnect, t 
             accent={color.accent}
             icon={<Monitor size={14} strokeWidth={1.8} />}
             name={t?.('thisMachine') || 'This machine'}
-            sub="localhost (always available)"
+            sub={
+              <>
+                <span style={LINE}>localhost</span>
+                <span style={{ ...LINE, color: (localStartPath || '').trim() ? color.muted : color.faint }}>
+                  {(localStartPath || '').trim() || (t?.('noStartPath') || 'No start path')}
+                </span>
+              </>
+            }
             onClick={() => onConnect?.({ id: 'local', isLocal: true })}
           />
 
@@ -52,8 +68,12 @@ const HostManager = ({ isOpen, onClose, hosts = [], onAdd, onEdit, onConnect, t 
                 icon={<HostIcon value={host.icon || ''} fallback={Server} size={13} />}
                 name={host.name}
                 sub={
-                  `${host.ssh_user}@${host.hostname}${host.port !== 22 ? `:${host.port}` : ''}`
-                  + (host.start_path ? ` · ${host.start_path}` : '')
+                  <>
+                    <span style={LINE}>{host.ssh_user}@{host.hostname}{host.port !== 22 ? `:${host.port}` : ''}</span>
+                    <span style={{ ...LINE, color: host.start_path ? color.muted : color.faint }}>
+                      {host.start_path || (t?.('noStartPath') || 'No start path')}
+                    </span>
+                  </>
                 }
                 onClick={() => onConnect?.(host)}
                 actions={
@@ -130,8 +150,10 @@ const Row = ({ accent, icon, name, sub, onClick, actions }) => (
       {sub && (
         <div style={{
           fontSize: '10.5px', color: color.muted,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           marginTop: '1px',
+          display: 'flex', flexDirection: 'column', gap: '1px',
+          minWidth: 0,
+          lineHeight: 1.35,
         }}>
           {sub}
         </div>

@@ -15,6 +15,15 @@ const Terminal = lazy(() => import('./Terminal'));
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
+// 호스트 카드 subtitle 한 줄 truncate + block — 멀티라인 안에서 각 라인 ellipsis 적용용.
+const SUB_LINE = {
+  display: 'block',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  minWidth: 0,
+};
+
 /**
  * 탭 내부의 1–4 pane. 각 pane = (Terminal/Empty) + 자체 RightPanel.
  * RightPanel 패널은 absolute overlay 라 터미널 폭을 안 밀어냄.
@@ -44,6 +53,9 @@ const PaneGrid = ({
   onResumeHostSession,
   onTerminateHostSession,
   busyTabIds,
+  /* EmptyPane 의 호스트 카드용 — 새탭 (HomeDashboard) 과 동일한 폴더 픽커 / 호스트 설정 진입. */
+  onPickHostPath,
+  onEditHost,
   language = 'en',
   t,
   viewportHeight,
@@ -95,6 +107,8 @@ const PaneGrid = ({
             onResumeHostSession={onResumeHostSession}
             onTerminateHostSession={onTerminateHostSession}
             busyTabIds={busyTabIds}
+            onPickHostPath={onPickHostPath}
+            onEditHost={onEditHost}
             language={language}
             t={t}
             viewportHeight={viewportHeight}
@@ -142,6 +156,13 @@ const PaneGrid = ({
           onOpenTerminalAtFolder={onOpenTerminalAtFolder}
           onPaneCwdChange={onPaneCwdChange}
           onScreenDump={onScreenDump}
+          onConfirm={onConfirm}
+          onNotify={onNotify}
+          onResumeHostSession={onResumeHostSession}
+          onTerminateHostSession={onTerminateHostSession}
+          busyTabIds={busyTabIds}
+          onPickHostPath={onPickHostPath}
+          onEditHost={onEditHost}
           language={language}
           t={t}
           viewportHeight={viewportHeight}
@@ -156,6 +177,7 @@ const Pane = ({
   isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
+  onPickHostPath = null, onEditHost = null,
   language, t, viewportHeight,
 }) => {
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
@@ -238,6 +260,9 @@ const Pane = ({
             onResumeHostSession={onResumeHostSession}
             onTerminateHostSession={onTerminateHostSession}
             busyTabIds={busyTabIds}
+            /* 빈 pane 슬롯 정보 같이 — 폴더 픽업 후 새 탭이 아닌 이 슬롯 채우게. */
+            onPickHostPath={onPickHostPath ? (h) => onPickHostPath(h, { tabId: tab?.id, paneId: pane.id }) : null}
+            onEditHost={onEditHost}
           />
         ) : (
           <Suspense fallback={null}>
@@ -259,7 +284,7 @@ const Pane = ({
               paneIndex={paneIndex}
               paneId={pane.id}
               tabId={tab?.id}
-              cwd={cwd}
+              cwd={pane.cwd ?? cwd}
               settings={paneSettings}
               isActive={isActive && isFocused}
               layoutSignal={`${layoutSignal}:${pane.id}`}
@@ -415,10 +440,16 @@ const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
 );
 
 // 빈 pane = 메인 홈 대시보드 그대로 재사용. 호스트 카드 클릭 시 onActivate 호출.
+// onPickHostPath(host) → 폴더 픽커 띄워 cwd 선택 후 활성화 (홈과 동일).
+// onEditHost(host) → 호스트 설정 모달 열기 (홈과 동일).
 const EmptyPane = ({
   onActivate, hosts = [], tab, allTabs = [], settings = {}, t,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
+  onPickHostPath = null, onEditHost = null,
 }) => {
+  // 호버 상태 — HostRow 의 isHovered/onHover prop 으로 카드 lift / accent border 트리거.
+  // HomeDashboard 와 동일한 패턴.
+  const [hoverId, setHoverId] = useState(null);
   // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러.
   // index 는 상단 탭바와 동일한 1-base 순번 (Ctrl+N 단축키와 짝).
   const otherTabs = (allTabs || [])
@@ -444,8 +475,17 @@ const EmptyPane = ({
             draggable={false}
             icon={<HostIcon value={settings.localIcon || ''} fallback={Monitor} size={20} />}
             name={localName}
-            subtitle={localSubtitle}
+            subtitle={
+              <>
+                <span style={SUB_LINE}>localhost</span>
+                <span style={{ ...SUB_LINE, color: (settings.localStartPath || '').trim() ? color.subtext : color.faint }}>
+                  {(settings.localStartPath || '').trim() || (t?.('noStartPath') || 'No start path')}
+                </span>
+              </>
+            }
             accentColor={localAccent}
+            isHovered={hoverId === 'local'}
+            onHover={setHoverId}
             onClick={() => onActivate?.({ type: 'local' })}
           />
           {hosts.map((h) => {
@@ -458,11 +498,21 @@ const EmptyPane = ({
                 icon={<HostIcon value={h.icon || ''} fallback={Server} size={20} />}
                 name={h.name}
                 subtitle={
-                  `${h.ssh_user || ''}@${h.hostname || ''}`
-                  + (h.start_path ? ` · ${h.start_path}` : '')
+                  <>
+                    <span style={SUB_LINE}>{h.ssh_user || ''}@{h.hostname || ''}</span>
+                    <span style={{ ...SUB_LINE, color: h.start_path ? color.subtext : color.faint }}>
+                      {h.start_path || (t?.('noStartPath') || 'No start path')}
+                    </span>
+                  </>
                 }
                 accentColor={accent}
+                isHovered={hoverId === h.id}
+                onHover={setHoverId}
                 onClick={() => onActivate?.({ type: 'host', hostId: h.id })}
+                onPickPath={onPickHostPath ? () => onPickHostPath(h) : null}
+                pickPathTitle={t?.('pickStartPath') || 'Pick start path'}
+                onEdit={onEditHost ? () => onEditHost(h) : null}
+                editTitle={t?.('hostSettings') || 'Host settings'}
               />
             );
           })}

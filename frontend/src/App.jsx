@@ -420,14 +420,16 @@ function App() {
         const panes = (t.panes || []).map((p) => {
           if (p.id !== paneId) return p;
           if (p.sessionId || p.hostId) return p;
+          // target.cwd 가 있으면 pane.cwd 에 저장 → Terminal 이 그 경로로 SSH/셸 시작
+          const cwdPatch = target?.cwd ? { cwd: target.cwd } : {};
           if (target?.type === 'host' && target.hostId) {
-            return { ...p, hostId: target.hostId, sessionId: undefined };
+            return { ...p, hostId: target.hostId, sessionId: undefined, ...cwdPatch };
           }
           if (target?.type === 'local') {
-            return { ...p, sessionId: generateUUID(), hostId: undefined };
+            return { ...p, sessionId: generateUUID(), hostId: undefined, ...cwdPatch };
           }
-          if (t.type === 'host') return { ...p, hostId: t.hostId };
-          return { ...p, sessionId: generateUUID() };
+          if (t.type === 'host') return { ...p, hostId: t.hostId, ...cwdPatch };
+          return { ...p, sessionId: generateUUID(), ...cwdPatch };
         });
         return { ...t, panes, activePaneId: paneId };
       });
@@ -684,7 +686,11 @@ function App() {
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
   const [editingKey, setEditingKey] = useState(null);
   const [hostManagerOpen, setHostManagerOpen] = useState(false);
+  /* 폴더 픽커 컨텍스트 — { host, slot? } 형태.
+     slot 이 있으면 (tabId/paneId) 그 빈 pane 을 채움 (split 케이스).
+     slot 없으면 새 탭으로 openHostTab (홈 대시보드 케이스). */
   const [folderPickerHost, setFolderPickerHost] = useState(null);
+  const [folderPickerSlot, setFolderPickerSlot] = useState(null);
   const [localEditorOpen, setLocalEditorOpen] = useState(false);
   const [localFolderPicker, setLocalFolderPicker] = useState({
     open: false,
@@ -1106,9 +1112,7 @@ function App() {
                 accent: designTokens.color.dotPalette[
                   (settings.localColorIndex ?? 0) % designTokens.color.dotPalette.length
                 ],
-                subtitle: settings.localStartPath
-                  ? `localhost · /${settings.localStartPath}`
-                  : 'localhost',
+                startPath: settings.localStartPath || '',
               }}
               onOpenHost={openHostTab}
               onOpenHostAtPath={(h) => setFolderPickerHost(h)}
@@ -1149,8 +1153,10 @@ function App() {
             const tabCwd = tab?.type === 'local'
               ? (tab?.cwd ?? (settings.localStartPath || null))
               : (tab?.cwd ?? null);
-            /* 활성 탭에만 editor 높이 반영. layoutSignal 변하면 그 탭의 fit 트리거. */
-            const tabLayoutSignal = `tab:${tab.id}:editor:${isThisActive && activeFile ? editorHeight : 0}:active:${isThisActive ? 1 : 0}`;
+            /* 활성 탭에만 editor 높이 반영. layoutSignal 변하면 그 탭의 fit 트리거.
+               layout + paneCount 도 포함 — split 닫기/추가 시 grid 차원 변화에 맞춰 모든 pane 의
+               Terminal 이 다시 fit() 호출하도록. (없으면 닫기 후 화면 크기 안 맞아 깨짐.) */
+            const tabLayoutSignal = `tab:${tab.id}:editor:${isThisActive && activeFile ? editorHeight : 0}:active:${isThisActive ? 1 : 0}:layout:${tab.layout || 'single'}:n:${tab.panes?.length || 1}`;
             return (
               <div
                 key={tab.id}
@@ -1234,6 +1240,9 @@ function App() {
                       }
                     }}
                     busyTabIds={busyTabIds}
+                    /* EmptyPane Connections → 폴더 픽커. slot (tabId/paneId) 같이 넘겨 빈 슬롯에 채움. */
+                    onPickHostPath={(h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); }}
+                    onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
                   />
                 </div>
               </div>
@@ -1319,6 +1328,7 @@ function App() {
         isOpen={hostManagerOpen}
         onClose={() => setHostManagerOpen(false)}
         hosts={hosts}
+        localStartPath={settings.localStartPath || ''}
         onAdd={() => { setHostManagerOpen(false); setHostEditorState({ isOpen: true, host: null }); }}
         onEdit={(h) => { setHostManagerOpen(false); setHostEditorState({ isOpen: true, host: h }); }}
         onConnect={(h) => { setHostManagerOpen(false); openHostTab(h); }}
@@ -1329,10 +1339,12 @@ function App() {
       <RemoteFolderPicker
         isOpen={!!folderPickerHost}
         host={folderPickerHost}
-        onClose={() => setFolderPickerHost(null)}
+        onClose={() => { setFolderPickerHost(null); setFolderPickerSlot(null); }}
         onPick={async (chosen) => {
           const host = folderPickerHost;
+          const slot = folderPickerSlot;
           setFolderPickerHost(null);
+          setFolderPickerSlot(null);
           if (!host || !chosen) return;
           try {
             const token = localStorage.getItem('auth_token');
@@ -1344,7 +1356,13 @@ function App() {
           } catch {
             // 무시 — 갱신 실패해도 cwd 는 WS 로 직접 전달
           }
-          openHostTab(host, chosen);
+          if (slot?.tabId && slot?.paneId) {
+            // split 한 빈 pane 채우기 — 새 탭 X.
+            activatePane(slot.tabId, slot.paneId, { type: 'host', hostId: host.id, cwd: chosen });
+          } else {
+            // 홈 대시보드 케이스 — 새 탭으로 열기.
+            openHostTab(host, chosen);
+          }
           refreshHosts();
         }}
         t={t}

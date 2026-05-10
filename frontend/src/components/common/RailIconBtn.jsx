@@ -110,18 +110,23 @@ const S = {
     position: 'absolute',
     top: '-3px',
     right: '-3px',
-    minWidth: '13px',
-    height: '13px',
+    minWidth: '14px',
+    height: '14px',
     padding: '0 3px',
     background: color.accent,
     color: color.crust,
     borderRadius: '7px',
     fontSize: '9px',
     fontWeight: 700,
+    fontFamily: 'system-ui, -apple-system, sans-serif', // 모노/Nerd Font 의 baseline 편차 회피
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    lineHeight: 1,
+    // 텍스트가 박스 안에서 정확히 중앙에 오도록 — line-height 박스 높이와 동일.
+    // padding 이 아닌 line-height 로 베이스라인 보정 (font-metric 영향 ↓).
+    lineHeight: '14px',
+    textAlign: 'center',
+    boxSizing: 'border-box',
     boxShadow: `0 0 0 1.5px ${color.mantle}`,
   },
 };

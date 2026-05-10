@@ -26,8 +26,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REMOTE_TMUX_SESSION = "mobile"
 CONNECT_TIMEOUT = 15  # 초
-KEEPALIVE_INTERVAL = 30
-KEEPALIVE_COUNT_MAX = 3
+# RPi5 등 wifi/배터리 호스트의 idle drop 빠르게 감지 — 15s × 4 = 1분 안에 끊긴 것 검출.
+KEEPALIVE_INTERVAL = 15
+KEEPALIVE_COUNT_MAX = 4
 
 
 class HostConnectError(RuntimeError):
