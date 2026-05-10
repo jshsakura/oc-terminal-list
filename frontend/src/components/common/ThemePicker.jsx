@@ -48,6 +48,11 @@ const THEME_LABELS = {
   snazzy: 'Snazzy',
   andromeda: 'Andromeda',
   paperColor: 'PaperColor',
+  rosePineDawn: 'Rosé Pine Dawn',
+  vscodeLight: 'VS Code Light+',
+  tokyoNightDay: 'Tokyo Night Day',
+  flexokiLight: 'Flexoki Light',
+  everforestLight: 'Everforest Light',
 };
 
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
