@@ -27,11 +27,19 @@ const RailIconBtn = ({
   badge = null,     // 우상단 작은 카운트 배지
   ariaLabel,
 }) => {
+  const isDanger = tone === 'danger';
   const baseColor =
-    tone === 'danger' ? color.danger
+    isDanger ? color.danger
     : active ? color.accent
     : color.subtext;
-  const hoverColor = tone === 'danger' ? color.danger : color.text;
+  const hoverColor = isDanger ? '#fff' : color.text;
+  // danger 는 항상 살짝 보이게 (rail 안에 묻히지 않도록). active 면 surface1 우선.
+  const idleInnerBg = active
+    ? color.surface1
+    : isDanger
+      ? `${color.danger}1f`   // ~12% alpha
+      : 'transparent';
+  const hoverInnerBg = isDanger ? color.danger : color.surface0;
 
   return (
     <button
@@ -49,20 +57,21 @@ const RailIconBtn = ({
       onMouseEnter={(e) => {
         if (disabled) return;
         const inner = e.currentTarget.firstElementChild;
-        if (inner && !active) inner.style.background = color.surface0;
+        if (inner && !active) inner.style.background = hoverInnerBg;
         e.currentTarget.style.color = hoverColor;
       }}
       onMouseLeave={(e) => {
         if (disabled) return;
         const inner = e.currentTarget.firstElementChild;
-        if (inner && !active) inner.style.background = 'transparent';
+        if (inner && !active) inner.style.background = idleInnerBg;
         e.currentTarget.style.color = baseColor;
       }}
     >
       <span
         style={{
           ...S.inner,
-          background: active ? color.surface1 : 'transparent',
+          background: idleInnerBg,
+          border: isDanger ? `1px solid ${color.danger}33` : '1px solid transparent',
         }}
       >
         {Icon ? <Icon size={15} strokeWidth={1.8} /> : children}

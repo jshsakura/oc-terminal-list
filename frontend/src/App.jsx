@@ -427,9 +427,8 @@ function App() {
     const paneCount = tab.panes?.length || 0;
     const isEmpty = !pane.sessionId && !pane.hostId;
 
-    // 단일 pane (마지막 1개) = 탭 자체 닫기로 위임. 빈 picker 만 남기는 건 의미 없음.
+    // 단일 pane = 탭 자체 닫기로 위임. 빈 picker (새 탭) 든 활성 세션이든 동일.
     if (paneCount <= 1) {
-      if (isEmpty) return; // 이미 비어있음 → 닫을 게 없음
       closeTabRef.current?.(tabId);
       return;
     }

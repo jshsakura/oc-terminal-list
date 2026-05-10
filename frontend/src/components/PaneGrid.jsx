@@ -227,9 +227,10 @@ const Pane = ({
           onFolderSelect={onFolderSelect}
           onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null)}
           onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
-          /* pane 닫기 — 활성 pane 은 항상, 빈 pane 은 멀티팬일 때만 (단일 빈 pane = 탭 picker 라 의미 없음).
-             단일 pane 일 땐 closePane 이 closeTab 으로 위임 → 결과적으로 탭 닫힘. */
-          onCloseTerminal={(!isEmpty || isMultiple) ? onClose : null}
+          /* pane 닫기 — 항상 노출. closePane 이 케이스별 분기:
+             - 단일 pane (빈 picker 든 활성 세션이든) = closeTab 으로 위임 → 탭 닫힘
+             - 다중 pane = 해당 pane 만 제거 */
+          onCloseTerminal={onClose}
           settings={settings}
           updateSettings={updateSettings}
           language={language}

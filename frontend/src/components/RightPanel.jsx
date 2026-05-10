@@ -121,43 +121,48 @@ const RightPanel = ({
         </div>
       )}
 
-      {/* activity bar — pane 내부에서 항상 노출. disabled 면 흐리게 + 클릭 무시 */}
-      <div style={{ ...styles.activityBar, opacity: disabled ? 0.4 : 1, pointerEvents: disabled ? 'none' : 'auto' }}>
-        {TABS.map(({ id, icon: Icon, label }) => {
-          const isActive = activePanel === id;
-          const badge = id === 'git' && gitCount > 0 ? gitCount : null;
-          return (
-            <RailIconBtn
-              key={id}
-              icon={Icon}
-              onClick={() => !disabled && togglePanel(id)}
-              title={badge ? `${label} (${badge})` : label}
-              active={isActive}
-              disabled={disabled}
-              badge={badge}
-            />
-          );
-        })}
+      {/* activity bar — pane 내부에서 항상 노출. close 버튼은 disabled 영향 안 받게 분리. */}
+      <div style={styles.activityBar}>
+        {/* 1군: 주 네비 (Files/Git/Theme) — 빈 pane 일 땐 흐리게 + 클릭 무시. */}
+        <div style={{
+          display: 'flex', flexDirection: 'column', alignItems: 'center',
+          opacity: disabled ? 0.4 : 1,
+          pointerEvents: disabled ? 'none' : 'auto',
+        }}>
+          {TABS.map(({ id, icon: Icon, label }) => {
+            const isActive = activePanel === id;
+            const badge = id === 'git' && gitCount > 0 ? gitCount : null;
+            return (
+              <RailIconBtn
+                key={id}
+                icon={Icon}
+                onClick={() => !disabled && togglePanel(id)}
+                title={badge ? `${label} (${badge})` : label}
+                active={isActive}
+                disabled={disabled}
+                badge={badge}
+              />
+            );
+          })}
 
-        {/* 분리선 + 페이지 업/다운 (모바일에서 가장 자주 막히는 동작) +
-            화면 복사 / 텍스트로 보기 + 터미널 새로고침 */}
-        {!disabled && terminalKey && (
-          <>
-            <div style={styles.divider} />
-            <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} />
-            <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} />
-            <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} />
-          </>
-        )}
+          {!disabled && terminalKey && (
+            <>
+              <div style={styles.divider} />
+              <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} />
+              <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} />
+              <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} />
+            </>
+          )}
 
-        {onRefreshTerminal && !disabled && (
-          <>
-            <div style={styles.divider} />
-            <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} />
-          </>
-        )}
+          {onRefreshTerminal && !disabled && (
+            <>
+              <div style={styles.divider} />
+              <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} />
+            </>
+          )}
+        </div>
 
-        {/* pane / 세션 종료 — 활동바 맨 아래 (파괴적 액션은 가장 멀리). */}
+        {/* 2군: 파괴적 액션 — disabled 영향 받지 않음. 빈 pane (탭 닫기) 에서도 항상 동작. */}
         {onCloseTerminal && (
           <>
             <div style={{ flex: 1, minHeight: '6px' }} />
