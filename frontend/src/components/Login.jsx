@@ -1,13 +1,33 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Terminal as TerminalIcon, ShieldCheck } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
+import { buildThemeUI } from '../styles/themeUI';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
 
-const Login = ({ onLogin, language = 'en' }) => {
+const OTP_CODE_PATTERN = /^\d{6}$/;
+
+const readAuthResponse = async (response, fallbackMessage) => {
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    data = {};
+  }
+  if (!response.ok) throw new Error(data.detail || fallbackMessage);
+  return data;
+};
+
+const themeValue = (ui, key, fallback) => ui?.[key] || fallback;
+
+const alpha = (value, suffix, fallback) => (/^#[0-9a-f]{6}$/i.test(value || '') ? `${value}${suffix}` : fallback);
+
+const Login = ({ onLogin, language = 'en', theme = null }) => {
   const { t } = useTranslation(language);
+  const themeUi = useMemo(() => (theme ? buildThemeUI(theme) : {}), [theme]);
+  const viewStyles = useMemo(() => createStyles(themeUi), [themeUi]);
   const [step, setStep] = useState('credentials'); // 'credentials' | 'otp'
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -37,11 +57,11 @@ const Login = ({ onLogin, language = 'en' }) => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || 'Login failed');
+      const data = await readAuthResponse(response, 'Login failed');
       if (data.otp_required) {
         setPendingToken(data.pending_token);
         setStep('otp');
+        setPassword('');
         setOtpCode('');
         setUseBackupCode(false);
       } else {
@@ -63,6 +83,10 @@ const Login = ({ onLogin, language = 'en' }) => {
       setError(t('otpEnterCode') || 'Enter the code from your authenticator app');
       return;
     }
+    if (!useBackupCode && !OTP_CODE_PATTERN.test(trimmed)) {
+      setError(t('otpEnterSixDigitCode') || 'Enter the 6-digit code from your authenticator app');
+      return;
+    }
     setIsLoading(true);
     try {
       const response = await fetch('/api/auth/login/otp', {
@@ -74,8 +98,7 @@ const Login = ({ onLogin, language = 'en' }) => {
           is_backup_code: useBackupCode,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || 'OTP verification failed');
+      const data = await readAuthResponse(response, 'OTP verification failed');
       finishLogin(data);
     } catch (err) {
       setError(err.message);
@@ -89,22 +112,25 @@ const Login = ({ onLogin, language = 'en' }) => {
     setStep('credentials');
     setPendingToken('');
     setOtpCode('');
+    setPassword('');
     setError('');
   };
 
+  const canSubmitOtp = useBackupCode ? Boolean(otpCode.trim()) : OTP_CODE_PATTERN.test(otpCode.trim());
+
   return (
-    <div style={styles.overlay}>
+    <div style={viewStyles.overlay}>
       {step === 'credentials' ? (
-        <form onSubmit={handleCredentialsSubmit} style={styles.card}>
-          <div style={styles.brand}>
-            <div style={styles.brandIcon}>
+        <form onSubmit={handleCredentialsSubmit} style={viewStyles.card}>
+          <div style={viewStyles.brand}>
+            <div style={viewStyles.brandIcon}>
               <TerminalIcon size={16} strokeWidth={2} />
             </div>
-            <div style={styles.brandText}>Terminal List</div>
+            <div style={viewStyles.brandText}>Terminal List</div>
           </div>
 
-          <div style={styles.heading}>{t('login') || 'Sign in'}</div>
-          <div style={styles.sub}>{t('loginDescription') || 'Access your terminal sessions'}</div>
+          <div style={viewStyles.heading}>{t('login') || 'Sign in'}</div>
+          <div style={viewStyles.sub}>{t('loginDescription') || 'Access your terminal sessions'}</div>
 
           <Field
             label={t('username') || 'Username'}
@@ -113,6 +139,7 @@ const Login = ({ onLogin, language = 'en' }) => {
             placeholder={t('usernamePlaceholder')}
             disabled={isLoading}
             autoFocus
+            styles={viewStyles}
           />
           <Field
             label={t('password') || 'Password'}
@@ -121,29 +148,30 @@ const Login = ({ onLogin, language = 'en' }) => {
             onChange={setPassword}
             placeholder={t('passwordPlaceholder')}
             disabled={isLoading}
+            styles={viewStyles}
           />
 
-          {error && <div style={styles.error}>{error}</div>}
+          {error && <div style={viewStyles.error}>{error}</div>}
 
           <Button variant="primary" size="large" fullWidth type="submit" disabled={isLoading}>
             {isLoading ? (t('signingIn') || 'Signing in…') : (t('signIn') || 'Sign in')}
           </Button>
         </form>
       ) : (
-        <form onSubmit={handleOtpSubmit} style={styles.card}>
-          <div style={styles.brand}>
-            <div style={styles.brandIcon}>
+        <form onSubmit={handleOtpSubmit} style={viewStyles.card}>
+          <div style={viewStyles.brand}>
+            <div style={viewStyles.brandIcon}>
               <ShieldCheck size={16} strokeWidth={2} />
             </div>
-            <div style={styles.brandText}>Terminal List</div>
+            <div style={viewStyles.brandText}>Terminal List</div>
           </div>
 
-          <div style={styles.heading}>
+          <div style={viewStyles.heading}>
             {useBackupCode
               ? (t('otpBackupCodeTitle') || 'Use a backup code')
               : (t('otpStepTitle') || 'Two-factor authentication')}
           </div>
-          <div style={styles.sub}>
+          <div style={viewStyles.sub}>
             {useBackupCode
               ? (t('otpBackupCodeHint') || 'Enter one of the backup codes you saved.')
               : (t('otpStepHint') || 'Enter the 6-digit code from your authenticator app.')}
@@ -164,22 +192,23 @@ const Login = ({ onLogin, language = 'en' }) => {
             inputMode={useBackupCode ? 'text' : 'numeric'}
             mono
             autoComplete="one-time-code"
+            styles={viewStyles}
           />
 
-          {error && <div style={styles.error}>{error}</div>}
+          {error && <div style={viewStyles.error}>{error}</div>}
 
-          <Button variant="primary" size="large" fullWidth type="submit" disabled={isLoading}>
+          <Button variant="primary" size="large" fullWidth type="submit" disabled={isLoading || !canSubmitOtp}>
             {isLoading ? (t('verifying') || 'Verifying…') : (t('signIn') || 'Sign in')}
           </Button>
 
-          <div style={styles.linkRow}>
-            <button type="button" onClick={goBack} style={styles.linkBtn} disabled={isLoading}>
+          <div style={viewStyles.linkRow}>
+            <button type="button" onClick={goBack} style={viewStyles.linkBtn} disabled={isLoading}>
               {t('back') || 'Back'}
             </button>
             <button
               type="button"
               onClick={() => { setUseBackupCode((b) => !b); setOtpCode(''); setError(''); }}
-              style={styles.linkBtn}
+              style={viewStyles.linkBtn}
               disabled={isLoading}
             >
               {useBackupCode
@@ -193,7 +222,7 @@ const Login = ({ onLogin, language = 'en' }) => {
   );
 };
 
-const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, autoFocus, inputMode, mono, autoComplete }) => {
+const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, autoFocus, inputMode, mono, autoComplete, styles }) => {
   const [focused, setFocused] = useState(false);
   return (
     <label style={styles.field}>
@@ -211,8 +240,8 @@ const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, a
         onBlur={() => setFocused(false)}
         style={{
           ...styles.input,
-          borderColor: focused ? color.accentBorder : color.border,
-          background: focused ? color.crust : color.mantle,
+          borderColor: focused ? styles.inputFocusBorder : styles.inputBorderColor,
+          background: focused ? styles.inputFocusBackground : styles.inputBackground,
           fontFamily: mono ? font.mono : font.sans,
           letterSpacing: mono ? '0.25em' : 'normal',
           textAlign: mono ? 'center' : 'left',
@@ -222,11 +251,27 @@ const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, a
   );
 };
 
-const styles = {
-  overlay: {
+const createStyles = (ui) => {
+  const themed = {
+    crust: themeValue(ui, 'crust', color.crust),
+    mantle: themeValue(ui, 'mantle', color.mantle),
+    base: themeValue(ui, 'base', color.base),
+    surface0: themeValue(ui, 'surface0', color.surface0),
+    text: themeValue(ui, 'text', color.text),
+    subtext: themeValue(ui, 'subtext', color.subtext),
+    muted: themeValue(ui, 'muted', color.muted),
+    accent: themeValue(ui, 'accent', color.accent),
+    accentSubtle: themeValue(ui, 'accent-subtle', color.accentSubtle),
+    accentBorder: themeValue(ui, 'accent-border', color.accentBorder),
+    danger: themeValue(ui, 'danger', color.danger),
+    border: themeValue(ui, 'border', color.border),
+  };
+
+  return {
+    overlay: {
     position: 'fixed',
     inset: 0,
-    background: color.crust,
+    background: themed.crust,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -237,8 +282,8 @@ const styles = {
     width: '100%',
     maxWidth: '380px',
     padding: `${space['8']} ${space['8']} ${space['6']}`,
-    background: color.base,
-    border: `1px solid ${color.border}`,
+    background: themed.base,
+    border: `1px solid ${themed.border}`,
     borderRadius: radius.lg,
     boxShadow: shadow.pop,
     display: 'flex',
@@ -249,7 +294,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: space['2'],
-    color: color.subtext,
+    color: themed.subtext,
     fontSize: fontSize['12'],
     fontWeight: fontWeight.medium,
     letterSpacing: '0.02em',
@@ -261,24 +306,24 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
+    background: themed.surface0,
+    border: `1px solid ${themed.border}`,
     borderRadius: radius.xs,
-    color: color.accent,
+    color: themed.accent,
   },
   brandText: {
-    color: color.text,
+    color: themed.text,
   },
   heading: {
     fontSize: fontSize['20'],
     fontWeight: fontWeight.semibold,
-    color: color.text,
+    color: themed.text,
     margin: 0,
     lineHeight: 1.2,
   },
   sub: {
     fontSize: fontSize['13'],
-    color: color.muted,
+    color: themed.muted,
     margin: 0,
     marginBottom: space['1'],
   },
@@ -290,23 +335,23 @@ const styles = {
   label: {
     fontSize: fontSize['12'],
     fontWeight: fontWeight.medium,
-    color: color.subtext,
+    color: themed.subtext,
   },
   input: {
     height: '34px',
     padding: `0 ${space['3']}`,
     fontSize: fontSize['13'],
-    color: color.text,
-    border: `1px solid ${color.border}`,
+    color: themed.text,
+    border: `1px solid ${themed.border}`,
     borderRadius: radius.sm,
     outline: 'none',
     transition: `border-color ${motion.fast}, background ${motion.fast}`,
   },
   error: {
     fontSize: fontSize['12'],
-    color: color.danger,
-    background: 'rgba(243, 139, 168, 0.08)',
-    border: `1px solid rgba(243, 139, 168, 0.18)`,
+    color: themed.danger,
+    background: alpha(themed.danger, '14', 'rgba(243, 139, 168, 0.08)'),
+    border: `1px solid ${alpha(themed.danger, '2e', 'rgba(243, 139, 168, 0.18)')}`,
     borderRadius: radius.sm,
     padding: `${space['2']} ${space['3']}`,
   },
@@ -320,11 +365,16 @@ const styles = {
   linkBtn: {
     background: 'transparent',
     border: 'none',
-    color: color.accent,
+    color: themed.accent,
     fontSize: fontSize['12'],
     cursor: 'pointer',
     padding: `${space['1']} ${space['2']}`,
-  },
+    },
+    inputBackground: themed.mantle,
+    inputFocusBackground: themed.crust,
+    inputBorderColor: themed.border,
+    inputFocusBorder: themed.accentBorder,
+  };
 };
 
 export default Login;

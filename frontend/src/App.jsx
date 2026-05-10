@@ -1015,7 +1015,7 @@ function App() {
   // ── guards ────────────────────────────────────────────────────────────────
   if (isLoading) return <LoadingScreen currentTheme={currentTheme} t={t} />;
   if (needsSetup) return <Suspense fallback={null}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense>;
-  if (!isAuthenticated) return <Suspense fallback={null}><Login onLogin={login} language={settings.language} /></Suspense>;
+  if (!isAuthenticated) return <Suspense fallback={null}><Login onLogin={login} language={settings.language} theme={currentTheme} /></Suspense>;
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
