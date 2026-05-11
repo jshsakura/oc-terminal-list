@@ -409,30 +409,58 @@ const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
   </button>
 );
 
-const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal }) => (
-  <div
-    style={{
-      position: 'fixed',
-      top: Math.min(y, window.innerHeight - 200),
-      left: Math.min(x, window.innerWidth - 180),
-      zIndex: 200000,
-      ...styles.menu,
-    }}
-    onContextMenu={(e) => e.preventDefault()}
-    onClick={(e) => e.stopPropagation()}
-  >
-    <MenuItem icon={Plus} label={t('newFile') || 'New file'} onClick={onNewFile} />
-    <MenuItem icon={Folder} label={t('newFolder') || 'New folder'} onClick={onNewFolder} />
-    <MenuItem icon={Terminal} label={t('openTerminalHere') || 'Open terminal here'} onClick={onOpenTerminal} />
-    {target.path && (
-      <>
-        <div style={{ height: '1px', background: color.border, margin: '4px 0' }} />
-        <MenuItem icon={Pencil} label={t('rename') || 'Rename'} onClick={onRename} />
-        <MenuItem icon={Trash2} label={t('delete') || 'Delete'} onClick={onDelete} tone="danger" />
-      </>
-    )}
-  </div>
-);
+const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal }) => {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ x, y });
+
+  useEffect(() => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const margin = 8;
+      let nextX = x;
+      let nextY = y;
+
+      if (nextX + rect.width > window.innerWidth - margin) {
+        nextX = window.innerWidth - rect.width - margin;
+      }
+      if (nextX < margin) nextX = margin;
+
+      if (nextY + rect.height > window.innerHeight - margin) {
+        nextY = window.innerHeight - rect.height - margin;
+      }
+      if (nextY < margin) nextY = margin;
+
+      setPos({ x: nextX, y: nextY });
+    }
+  }, [x, y]);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: pos.y,
+        left: pos.x,
+        zIndex: 200000,
+        ...styles.menu,
+        opacity: pos.x === x && pos.y === y && ref.current ? 0 : 1,
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+      onClick={(e) => e.stopPropagation()}
+    >
+      <MenuItem icon={Plus} label={t('newFile') || 'New file'} onClick={onNewFile} />
+      <MenuItem icon={Folder} label={t('newFolder') || 'New folder'} onClick={onNewFolder} />
+      <MenuItem icon={Terminal} label={t('openTerminalHere') || 'Open terminal here'} onClick={onOpenTerminal} />
+      {target.path && (
+        <>
+          <div style={{ height: '1px', background: color.border, margin: '4px 0' }} />
+          <MenuItem icon={Pencil} label={t('rename') || 'Rename'} onClick={onRename} />
+          <MenuItem icon={Trash2} label={t('delete') || 'Delete'} onClick={onDelete} tone="danger" />
+        </>
+      )}
+    </div>
+  );
+};
 
 const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitContextPath = '', language = 'en', initialPath = '', hostId = null }) => {
   const isHostMode = !!hostId;

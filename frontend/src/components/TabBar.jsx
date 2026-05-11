@@ -321,6 +321,8 @@ const Tab = memo(({
 
 const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab }) => {
   const ref = useRef(null);
+  const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
+
   useEffect(() => {
     const handle = (e) => {
       if (!ref.current?.contains(e.target)) onClose();
@@ -330,21 +332,44 @@ const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab }) => {
     return () => document.removeEventListener('mousedown', handle);
   }, [onClose]);
 
+  // 화면 경계 밖으로 나가지 않게 보정
+  useEffect(() => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const margin = 8;
+      let nextX = ctx.x;
+      let nextY = ctx.y;
+
+      if (nextX + rect.width > window.innerWidth - margin) {
+        nextX = window.innerWidth - rect.width - margin;
+      }
+      if (nextX < margin) nextX = margin;
+
+      if (nextY + rect.height > window.innerHeight - margin) {
+        nextY = window.innerHeight - rect.height - margin;
+      }
+      if (nextY < margin) nextY = margin;
+
+      setPos({ x: nextX, y: nextY });
+    }
+  }, [ctx.x, ctx.y]);
+
   return (
     <div
       ref={ref}
       style={{
         position: 'fixed',
-        top: Math.min(ctx.y, window.innerHeight - 120),
-        left: Math.min(ctx.x, window.innerWidth - 180),
+        top: pos.y,
+        left: pos.x,
         background: color.surface0,
         border: `1px solid ${color.borderStrong}`,
         borderRadius: '6px',
         boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
         padding: '3px',
         zIndex: 200000,
-        minWidth: '120px',
+        minWidth: '140px',
         fontFamily: font.sans,
+        opacity: pos.x === ctx.x && pos.y === ctx.y && ref.current ? 0 : 1, // 첫 렌더링 시 측정 전 깜빡임 방지 (완벽하진 않음)
       }}
     >
       {onDuplicateTab && (
