@@ -1339,6 +1339,27 @@ function App() {
           <MobileToolbar
             onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}
             onOpenCommandInput={() => setCommandInputOpen(true)}
+            onAction={(type) => {
+              const session = window.terminalSessions?.[terminalKey];
+              if (!session) return;
+              if (type === 'copy') {
+                const sel = session.getSelection?.();
+                if (sel) {
+                  navigator.clipboard.writeText(sel).then(() => {
+                    setNotification({ isOpen: true, message: t('copied'), type: 'success' });
+                  });
+                } else {
+                  setNotification({ isOpen: true, message: t('noSelection') || 'No text selected', type: 'info' });
+                }
+              } else if (type === 'copyAll') {
+                const text = session.getBufferText?.() || '';
+                if (text) {
+                  navigator.clipboard.writeText(text).then(() => {
+                    setNotification({ isOpen: true, message: t('copied'), type: 'success' });
+                  });
+                }
+              }
+            }}
             language={settings.language}
             keys={settings.mobileKeys}
           />

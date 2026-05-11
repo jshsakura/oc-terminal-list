@@ -359,11 +359,50 @@ const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, 
   const iconHue = isFolder ? color.accent : fileIconColor(name);
   const nameColor = isChanged && !isFolder ? gitTone(gitStatus || 'M') : tone;
   
+  const touchTimerRef = useRef(null);
+  const touchPosRef = useRef({ x: 0, y: 0 });
+
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    touchPosRef.current = { x: touch.clientX, y: touch.clientY };
+    if (touchTimerRef.current) clearTimeout(touchTimerRef.current);
+    
+    touchTimerRef.current = setTimeout(() => {
+      onContextMenu({
+        preventDefault: () => {},
+        stopPropagation: () => {},
+        clientX: touchPosRef.current.x,
+        clientY: touchPosRef.current.y
+      });
+      touchTimerRef.current = null;
+    }, 600); // 600ms long press
+  };
+
+  const handleTouchMove = (e) => {
+    const touch = e.touches[0];
+    const dx = Math.abs(touch.clientX - touchPosRef.current.x);
+    const dy = Math.abs(touch.clientY - touchPosRef.current.y);
+    if ((dx > 10 || dy > 10) && touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
+  const handleTouchEnd = () => {
+    if (touchTimerRef.current) {
+      clearTimeout(touchTimerRef.current);
+      touchTimerRef.current = null;
+    }
+  };
+
   return (
     <div
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={onContextMenu}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
       style={{
         ...styles.row,
         background: isSelected ? color.accentSubtle : 'transparent',

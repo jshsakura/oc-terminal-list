@@ -568,6 +568,8 @@ export const locales = {
     verifying: 'Verifying…',
     back: 'Back',
     copyAll: 'Copy all',
+    copy: 'Copy',
+    noSelection: 'No text selected',
     copied: 'Copied',
   },
 
@@ -1136,6 +1138,8 @@ export const locales = {
     verifying: '확인 중...',
     back: '이전',
     copyAll: '전체 복사',
+    copy: '복사',
+    noSelection: '선택된 텍스트가 없습니다',
     copied: '복사됨',
   },
 };

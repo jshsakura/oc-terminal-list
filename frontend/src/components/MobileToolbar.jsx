@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { MessageSquare, ClipboardPaste } from 'lucide-react';
+import { MessageSquare, ClipboardPaste, Copy, FileText } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys } from '../utils/mobileKeys';
@@ -9,6 +9,8 @@ import HostIcon from '../utils/hostIcons';
 const DEFAULT_ICON_FOR_KIND = {
   cmdInput: MessageSquare,
   paste: ClipboardPaste,
+  copy: Copy,
+  copyAll: FileText,
 };
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -22,7 +24,7 @@ const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
  * 위치 전략: App.jsx wrapper 의 flex flow 마지막 child. 키보드 올라오면
  * wrapper 가 줄고 toolbar 도 자연스럽게 따라 올라감.
  */
-const MobileToolbar = ({ onSendKey, onOpenCommandInput, language = 'en', keys = null }) => {
+const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en', keys = null }) => {
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
@@ -83,6 +85,14 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, language = 'en', keys = 
 
   const renderItem = (k, idx) => {
     if (k.kind === 'sep') return <Divider key={k.id || `sep-${idx}`} />;
+
+    if (k.kind === 'copy' || k.kind === 'copyAll') {
+      return (
+        <Key key={k.id} tone={k.tone} title={t(k.kind)} onClick={() => onAction?.(k.kind)}>
+          {renderKeyContent(k)}
+        </Key>
+      );
+    }
 
     if (k.kind === 'cmdInput') {
       return (

@@ -279,6 +279,7 @@ const Pane = ({
               key={`${pane.id}:${refreshNonce}`}
               sessionId={pane.sessionId || pane.id}
               hostId={pane.hostId || undefined}
+              isMobile={isMobile}
               tmuxSuffix={tab?.tmuxSuffix || null}
               tmuxSessionName={pane.tmuxSessionName || null}
               /* preflight/폴링 용 effective tmux 세션명 — backend host_manager.effective_tmux_session 동기.

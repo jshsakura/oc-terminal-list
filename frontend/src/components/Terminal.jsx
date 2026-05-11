@@ -20,7 +20,7 @@ import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
-const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null }) => {
+const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -49,6 +49,11 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
   const [hasContent, setHasContent] = useState(false);
   const [evicted, setEvicted] = useState(false);
   const [ended, setEnded] = useState(false);
+
+  // 모바일 여부를 이벤트 리스너 내부에서 최신 상태로 참조하기 위함
+  const isMobileRef = useRef(isMobile);
+  useEffect(() => { isMobileRef.current = isMobile; }, [isMobile]);
+
   const [authPrompt, setAuthPrompt] = useState(null);
   // authPrompt 열고 닫을 때 전역 이벤트 — App.jsx 가 모바일 단축키바를 그동안 숨김.
   useEffect(() => {
@@ -198,8 +203,11 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     });
 
     // 우클릭: 네이티브 컨텍스트 메뉴를 막아 tmux 가 마우스 이벤트를 처리할 수 있게 함.
-    // 붙여넣기는 Cmd+V / Ctrl+V 가 paste 이벤트로 항상 작동하므로 별도 처리 불필요.
-    const handleContextMenu = (e) => e.preventDefault();
+    // 단, 모바일에서 텍스트 선택이 있는 경우엔 '복사' 등을 위해 네이티브 메뉴 허용.
+    const handleContextMenu = (e) => {
+      if (isMobileRef.current && term.hasSelection()) return;
+      e.preventDefault();
+    };
 
     /* 드래그 중 mousemove 마다 onSelectionChange fire — 정착(80ms idle) 후 한 번만 클립보드 write.
        race / 이중 발화 방지. */
@@ -208,7 +216,10 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       if (selectionTimer) clearTimeout(selectionTimer);
       selectionTimer = setTimeout(() => {
         const selection = term.getSelection();
-        if (selection) navigator.clipboard.writeText(selection).catch(() => {});
+        // 모바일은 자동 복사가 방해될 수 있으므로 (선택 핸들 유지 등) PC 에서만 자동 복사.
+        if (selection && !isMobileRef.current) {
+          navigator.clipboard.writeText(selection).catch(() => {});
+        }
       }, 80);
     });
 
