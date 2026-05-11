@@ -771,11 +771,8 @@ function App() {
       requestAnimationFrame(() => {
         pending = false;
         if (window.visualViewport) {
+          // 키보드가 올라오면 height 가 줄어듦.
           setViewportHeight(window.visualViewport.height);
-          // 키보드가 올라왔을 때 상단으로 스크롤되는 iOS 현상 방지
-          if (window.visualViewport.offsetTop > 0) {
-            window.scrollTo(0, 0);
-          }
         }
         check();
       });
@@ -1038,18 +1035,33 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      // 키보드 닫힌 모바일 = 100dvh (URL bar 동적 변화 자동 반영, 하단 빈공간 X).
-      // 키보드 열린 모바일 = visualViewport.height px (터미널이 키보드 위로 줄어들도록).
-      // 데스크탑 = 100vh.
-      height: isMobile
-        ? ((window.innerHeight - viewportHeight) > 100 ? `${viewportHeight}px` : '100dvh')
-        : '100vh',
+      // PC 에서는 100vh, 모바일은 visualViewport 가 알려준 실제 높이 사용.
+      height: isMobile ? `${viewportHeight}px` : '100vh',
+      width: '100vw',
       background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,
-      position: 'relative',
+      position: 'fixed', // relative/absolute 대신 fixed 로 전체 화면 고정
+      top: 0, left: 0,
     }}>
       <style>{`
+        /* 브라우저 기본 스크롤/바운스/밀어올리기 원천 차단 */
+        html, body {
+          position: fixed;
+          overflow: hidden;
+          width: 100%;
+          height: 100%;
+          margin: 0;
+          padding: 0;
+          overscroll-behavior: none;
+          -webkit-user-select: none; /* 터치 시 텍스트 선택 방해 요소 제거 (터미널 내부 제외) */
+        }
+        
+        #root {
+          width: 100%;
+          height: 100%;
+        }
+
         * { scrollbar-width: thin; scrollbar-color: ${currentTheme.ui.bgTertiary} transparent; }
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
