@@ -1037,6 +1037,9 @@ function App() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${currentTheme.ui.bgTertiary}; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: ${currentTheme.ui.accent}88; }
+        /* xterm 내부 스크롤바 — 우측 사이드바와 사이 갭 제거. 스크롤은 휠·tmux copy-mode 로 */
+        .xterm-viewport { scrollbar-width: none !important; }
+        .xterm-viewport::-webkit-scrollbar { display: none !important; width: 0 !important; }
 
         /* 모바일 모달 풀스크린 — 768px 이하면 모달이 전체 화면을 진짜 다 차지.
            inline transform/maxWidth/maxHeight 가 있어도 !important 로 reset.
@@ -1257,6 +1260,15 @@ function App() {
                     busyTabIds={busyTabIds}
                     /* EmptyPane Connections → 폴더 픽커. slot (tabId/paneId) 같이 넘겨 빈 슬롯에 채움. */
                     onPickHostPath={(h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); }}
+                    onPickLocalPath={(slot) => setLocalFolderPicker({
+                      open: true,
+                      initial: settings.localStartPath || '',
+                      onPick: (chosen) => {
+                        if (slot?.tabId && slot?.paneId) {
+                          activatePane(slot.tabId, slot.paneId, { type: 'local', cwd: chosen });
+                        }
+                      },
+                    })}
                     onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
                     refreshHosts={refreshHosts}
                   />

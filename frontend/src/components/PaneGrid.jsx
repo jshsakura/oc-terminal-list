@@ -54,8 +54,9 @@ const PaneGrid = ({
   onResumeHostSession,
   onTerminateHostSession,
   busyTabIds,
-  /* EmptyPane 의 호스트 카드용 — 새탭 (HomeDashboard) 과 동일한 폴더 픽커 / 호스트 설정 진입. */
+  /* EmptyPane 의 호스트/로컬 카드용 — 새탭 (HomeDashboard) 과 동일한 폴더 픽커 / 호스트 설정 진입. */
   onPickHostPath,
+  onPickLocalPath,
   onEditHost,
   refreshHosts,
   language = 'en',
@@ -110,6 +111,7 @@ const PaneGrid = ({
             onTerminateHostSession={onTerminateHostSession}
             busyTabIds={busyTabIds}
             onPickHostPath={onPickHostPath}
+            onPickLocalPath={onPickLocalPath}
             onEditHost={onEditHost}
             refreshHosts={refreshHosts}
             language={language}
@@ -165,7 +167,9 @@ const PaneGrid = ({
           onTerminateHostSession={onTerminateHostSession}
           busyTabIds={busyTabIds}
           onPickHostPath={onPickHostPath}
+          onPickLocalPath={onPickLocalPath}
           onEditHost={onEditHost}
+          refreshHosts={refreshHosts}
           language={language}
           t={t}
           viewportHeight={viewportHeight}
@@ -180,7 +184,7 @@ const Pane = ({
   isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
-  onPickHostPath = null, onEditHost = null, refreshHosts = null,
+  onPickHostPath = null, onPickLocalPath = null, onEditHost = null, refreshHosts = null,
   language, t, viewportHeight,
 }) => {
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
@@ -265,6 +269,7 @@ const Pane = ({
             busyTabIds={busyTabIds}
             /* 빈 pane 슬롯 정보 같이 — 폴더 픽업 후 새 탭이 아닌 이 슬롯 채우게. */
             onPickHostPath={onPickHostPath ? (h) => onPickHostPath(h, { tabId: tab?.id, paneId: pane.id }) : null}
+            onPickLocalPath={onPickLocalPath ? () => onPickLocalPath({ tabId: tab?.id, paneId: pane.id }) : null}
             onEditHost={onEditHost}
             refreshHosts={refreshHosts}
           />
@@ -449,7 +454,7 @@ const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
 const EmptyPane = ({
   onActivate, hosts = [], tab, allTabs = [], settings = {}, t,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
-  onPickHostPath = null, onEditHost = null, refreshHosts = null,
+  onPickHostPath = null, onPickLocalPath = null, onEditHost = null, refreshHosts = null,
 }) => {
   const [hoverId, setHoverId] = useState(null);
   // 서버 sort_index = SSoT. HomeDashboard / HostManager 와 동일한 hook → 한 곳에서 옮기면 다 동기.
@@ -491,6 +496,8 @@ const EmptyPane = ({
             isHovered={hoverId === 'local'}
             onHover={setHoverId}
             onClick={() => onActivate?.({ type: 'local' })}
+            onPickPath={onPickLocalPath || null}
+            pickPathTitle={t?.('pickStartPath') || 'Pick start path'}
           />
           {orderedHosts.map((h) => {
             const accent = color.dotPalette[(h.color_index ?? 0) % color.dotPalette.length];
