@@ -46,7 +46,7 @@ const NotificationModal = ({ isOpen, message, onClose, duration = 3000, tone = '
 
 const styles = {
   toast: {
-    position: 'fixed',
+    position: 'absolute',
     bottom: '24px',
     left: '50%',
     transform: 'translateX(-50%)',

@@ -651,7 +651,7 @@ const TailscalePicker = ({ data, onPick, onClose, t }) => {
 
   return (
     <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, zIndex: 50 }} />
       <div style={{
         position: 'absolute',
         top: 'calc(100% + 4px)',
@@ -721,7 +721,7 @@ const TailscalePicker = ({ data, onPick, onClose, t }) => {
 
 const styles = {
   overlay: {
-    position: 'fixed',
+    position: 'absolute',
     inset: 0,
     background: color.scrim,
     display: 'flex',

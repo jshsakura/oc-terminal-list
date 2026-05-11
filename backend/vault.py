@@ -14,12 +14,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import os
-import secrets
 from pathlib import Path
-from typing import Optional
 
 from cryptography.fernet import Fernet, InvalidToken
-
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_VAULT_KEY_PATH = _PROJECT_ROOT / "data" / ".vault-key"
@@ -59,8 +56,8 @@ def _legacy_jwt_derived_key() -> bytes:
     return base64.urlsafe_b64encode(digest)
 
 
-_fernet: Optional[Fernet] = None
-_legacy_fernet: Optional[Fernet] = None
+_fernet: Fernet | None = None
+_legacy_fernet: Fernet | None = None
 
 
 def _get_fernet() -> Fernet:
@@ -77,7 +74,7 @@ def _get_legacy_fernet() -> Fernet:
     return _legacy_fernet
 
 
-def encrypt_str(plaintext: Optional[str]) -> Optional[str]:
+def encrypt_str(plaintext: str | None) -> str | None:
     """평문 → urlsafe base64 인코딩된 암호문. None/빈문자열 → None."""
     if plaintext is None or plaintext == "":
         return None
@@ -85,7 +82,7 @@ def encrypt_str(plaintext: Optional[str]) -> Optional[str]:
     return token.decode("ascii")
 
 
-def decrypt_str(ciphertext: Optional[str]) -> Optional[str]:
+def decrypt_str(ciphertext: str | None) -> str | None:
     """암호문 → 평문. v2(vault key) → v1(JWT-derived) 순으로 시도."""
     if not ciphertext:
         return None
@@ -101,7 +98,7 @@ def decrypt_str(ciphertext: Optional[str]) -> Optional[str]:
         return None
 
 
-def reencrypt_legacy(ciphertext: Optional[str]) -> Optional[str]:
+def reencrypt_legacy(ciphertext: str | None) -> str | None:
     """레거시 JWT-derived 키로만 풀리는 암호문이면 새 vault 키로 재암호화한 결과 반환.
     이미 새 키 형식이거나 손상된 경우 None.
     """

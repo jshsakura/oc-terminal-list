@@ -30,14 +30,16 @@ _PROJECT_ROOT = _THIS_DIR.parent
 sys.path.insert(0, str(_THIS_DIR))
 
 from dotenv import load_dotenv  # noqa: E402
+
 load_dotenv(_PROJECT_ROOT / ".env", override=True)
 
 # OLD_JWT_SECRET_KEY 가 있으면 vault.py 가 그걸 레거시 키로 쓰도록 환경변수 치환
 if os.getenv("OLD_JWT_SECRET_KEY"):
     os.environ["JWT_SECRET_KEY"] = os.environ["OLD_JWT_SECRET_KEY"]
 
-from vault import reencrypt_legacy, _get_fernet, _vault_key_path  # noqa: E402
 from cryptography.fernet import InvalidToken  # noqa: E402
+
+from vault import _get_fernet, _vault_key_path, reencrypt_legacy  # noqa: E402
 
 DB_PATH = os.getenv("DB_PATH") or str(_PROJECT_ROOT / "data" / "iterminallist.db")
 

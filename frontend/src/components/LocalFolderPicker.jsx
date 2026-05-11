@@ -137,7 +137,7 @@ const LocalFolderPicker = ({ isOpen, initialPath = '', title, onPick, onClose, t
 
 const styles = {
   overlay: {
-    position: 'fixed', inset: 0,
+    position: 'absolute', inset: 0,
     background: color.scrim,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 10001,

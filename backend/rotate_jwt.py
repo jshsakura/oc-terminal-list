@@ -26,6 +26,7 @@ _THIS_DIR = Path(__file__).resolve().parent
 _PROJECT_ROOT = _THIS_DIR.parent
 
 from dotenv import load_dotenv  # noqa: E402
+
 load_dotenv(_PROJECT_ROOT / ".env", override=True)
 
 import os  # noqa: E402

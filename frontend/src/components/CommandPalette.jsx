@@ -122,7 +122,7 @@ const CommandPalette = ({
 
 const styles = {
   overlay: {
-    position: 'fixed',
+    position: 'absolute',
     inset: 0,
     background: color.scrim,
     display: 'flex',

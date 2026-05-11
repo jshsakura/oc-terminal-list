@@ -1,0 +1,25 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+# 기본 규칙: E (error), F (flake8), I (isort), B (bugbear)
+select = ["E", "F", "I", "B", "UP", "N"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.coverage.run]
+source = ["."]
+omit = ["tests/*", "main.py", "migrate_vault.py", "rotate_jwt.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 0

@@ -71,11 +71,11 @@ const ScreenDumpModal = ({ text, onClose, t }) => {
 
 const styles = {
   backdrop: {
-    position: 'fixed', inset: 0, background: color.scrim, zIndex: 10000,
+    position: 'absolute', inset: 0, background: color.scrim, zIndex: 10000,
     backdropFilter: 'blur(2px)',
   },
   modal: {
-    position: 'fixed',
+    position: 'absolute',
     top: '50%', left: '50%',
     transform: 'translate(-50%, -50%)',
     width: '98%', maxWidth: '1100px',

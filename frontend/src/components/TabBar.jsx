@@ -1,4 +1,5 @@
 import { memo, useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Terminal as TerminalIcon, Server,
   Settings as SettingsIcon, MoreHorizontal,
@@ -147,16 +148,17 @@ const TabBar = ({
         )}
         <RailIconBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
       </div>
-
-      {contextMenu && (
-        <TabContextMenu
-          ctx={contextMenu}
-          t={t}
-          onClose={() => setContextMenu(null)}
-          onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
-          onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
-        />
-      )}
+{/* context menu — 포탈로 최상단 렌더링 */}
+{contextMenu && createPortal(
+  <TabContextMenu
+    ctx={contextMenu}
+    t={t}
+    onClose={() => setContextMenu(null)}
+    onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
+    onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
+  />,
+  document.body
+)}
     </div>
   );
 };
@@ -333,14 +335,14 @@ const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab }) => {
       ref={ref}
       style={{
         position: 'fixed',
-        top: ctx.y,
-        left: ctx.x,
+        top: Math.min(ctx.y, window.innerHeight - 120),
+        left: Math.min(ctx.x, window.innerWidth - 180),
         background: color.surface0,
         border: `1px solid ${color.borderStrong}`,
         borderRadius: '6px',
         boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
         padding: '3px',
-        zIndex: 1000,
+        zIndex: 200000,
         minWidth: '120px',
         fontFamily: font.sans,
       }}

@@ -10,19 +10,19 @@ import asyncio
 import json
 import logging
 import os
+import shlex
 import shutil
 import time
 from pathlib import Path
-from typing import List, Optional
 
 from dotenv import load_dotenv
-
-# .env 로드 (프로젝트 루트). 실행 셸의 TMUX_SOCKET_NAME 이 앱 격리를 깨지 않도록 .env 를 우선한다.
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
-
 from fastapi import (
-    Depends, FastAPI, Header, HTTPException, Query, WebSocket,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    WebSocket,
     WebSocketDisconnect,
 )
 from fastapi.middleware.cors import CORSMiddleware
@@ -33,11 +33,15 @@ from pydantic import BaseModel
 from starlette.types import Receive, Scope, Send
 
 from auth_manager import AuthManager
+from host_manager import HostBridge, resolve_host_secrets
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
-from ws_bridge import TmuxClientBridge
-from host_manager import HostBridge, resolve_host_secrets
 from vault import encrypt_str
+from ws_bridge import TmuxClientBridge
+
+# .env 로드 (프로젝트 루트). 실행 셸의 TMUX_SOCKET_NAME 이 앱 격리를 깨지 않도록 .env 를 우선한다.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
@@ -107,8 +111,8 @@ class ResizeRequest(BaseModel):
 class SessionCreateRequest(BaseModel):
     cols: int = 80
     rows: int = 24
-    cwd: Optional[str] = None
-    shell: Optional[str] = None
+    cwd: str | None = None
+    shell: str | None = None
 
 
 class SessionNameRequest(BaseModel):
@@ -157,17 +161,17 @@ class FileMoveRequest(BaseModel):
 class SshKeyCreateRequest(BaseModel):
     name: str
     private_key: str
-    passphrase: Optional[str] = None
-    public_key: Optional[str] = None
+    passphrase: str | None = None
+    public_key: str | None = None
 
 
 class SshKeyUpdateRequest(BaseModel):
     # 모든 필드 옵셔널. private_key 가 비어있으면 기존 키 유지 (보안: 평문 노출 방지를 위한 write-once 정책 유지).
-    name: Optional[str] = None
-    private_key: Optional[str] = None  # 새 키로 교체할 때만 채움
-    passphrase: Optional[str] = None
+    name: str | None = None
+    private_key: str | None = None  # 새 키로 교체할 때만 채움
+    passphrase: str | None = None
     clear_passphrase: bool = False     # passphrase 제거 의도 명시 (빈 문자열과 구분)
-    public_key: Optional[str] = None
+    public_key: str | None = None
 
 
 class HostUpsertRequest(BaseModel):
@@ -176,15 +180,15 @@ class HostUpsertRequest(BaseModel):
     port: int = 22
     ssh_user: str
     auth_method: str = "key"        # 'key' | 'password'
-    key_id: Optional[str] = None
-    password: Optional[str] = None  # 평문으로 들어와서 vault 로 암호화 후 저장
+    key_id: str | None = None
+    password: str | None = None  # 평문으로 들어와서 vault 로 암호화 후 저장
     color_index: int = 0
-    group_name: Optional[str] = None
+    group_name: str | None = None
     use_remote_tmux: bool = True
-    remote_tmux_session: Optional[str] = "mobile"
-    start_path: Optional[str] = None
-    icon: Optional[str] = None
-    theme: Optional[str] = None  # pane.themeOverride 자동 적용용 (없으면 글로벌 settings.theme)
+    remote_tmux_session: str | None = "mobile"
+    start_path: str | None = None
+    icon: str | None = None
+    theme: str | None = None  # pane.themeOverride 자동 적용용 (없으면 글로벌 settings.theme)
 
 
 # ---------------------- 시스템 모니터 ----------------------
@@ -229,7 +233,9 @@ class SystemMonitor:
                 with open("/proc/stat") as f:
                     parts = f.readline().split()
                 if len(parts) >= 5:
-                    user = int(parts[1]); nice = int(parts[2]); system = int(parts[3])
+                    user = int(parts[1])
+                    nice = int(parts[2])
+                    system = int(parts[3])
                     idle = int(parts[4])
                     iowait = int(parts[5]) if len(parts) > 5 else 0
                     irq = int(parts[6]) if len(parts) > 6 else 0
@@ -281,7 +287,7 @@ system_monitor = SystemMonitor()
 
 # ---------------------- 라이프사이클 ----------------------
 
-auth_manager: Optional[AuthManager] = None
+auth_manager: AuthManager | None = None
 
 
 @app.on_event("startup")
@@ -308,8 +314,8 @@ async def shutdown_event():
 # ---------------------- 인증 ----------------------
 
 async def verify_auth_token(
-    authorization: Optional[str] = Header(None),
-    token: Optional[str] = Query(None),
+    authorization: str | None = Header(None),
+    token: str | None = Query(None),
 ) -> str:
     actual = None
     if authorization and authorization.startswith("Bearer "):
@@ -326,7 +332,7 @@ async def verify_auth_token(
     return username
 
 
-async def verify_auth_token_ws(token: str) -> Optional[str]:
+async def verify_auth_token_ws(token: str) -> str | None:
     if not token or not auth_manager:
         return None
     return await auth_manager.verify_token(token)
@@ -487,7 +493,7 @@ async def get_tailscale_peers(username: str = Depends(verify_auth_token)):
         if proc.returncode != 0:
             return {"available": True, "peers": [], "error": "tailscale status failed"}
         data = json.loads(stdout.decode("utf-8", errors="replace"))
-    except (asyncio.TimeoutError, json.JSONDecodeError, FileNotFoundError) as e:
+    except (TimeoutError, json.JSONDecodeError, FileNotFoundError) as e:
         return {"available": False, "peers": [], "error": str(e)}
 
     peers_raw = data.get("Peer") or {}
@@ -528,10 +534,10 @@ class UserSettingsRequest(BaseModel):
 
 class TabStateRequest(BaseModel):
     tabs: list
-    activeTabId: Optional[str] = None
+    activeTabId: str | None = None
 
 
-async def _sanitize_tab_state(tabs: list, active_tab_id: Optional[str]) -> tuple[list, Optional[str]]:
+async def _sanitize_tab_state(tabs: list, active_tab_id: str | None) -> tuple[list, str | None]:
     """현재 앱 tmux 소켓에 살아있지 않은 local 탭은 저장/복원하지 않는다."""
     live_local_sessions = {session.name for session in await tmux_manager.list_sessions()}
     kept_tabs = []
@@ -623,11 +629,11 @@ async def put_tab_state(
 
 # ---------------------- 세션 API ----------------------
 
-def _basename_or_none(p: Optional[str]) -> Optional[str]:
+def _basename_or_none(p: str | None) -> str | None:
     return os.path.basename(p) if p else None
 
 
-def _resolve_create_cwd(req_cwd: Optional[str]) -> str:
+def _resolve_create_cwd(req_cwd: str | None) -> str:
     """세션 생성 cwd 결정. 워크스페이스 외부는 차단."""
     if not req_cwd:
         return os.path.abspath(WORKSPACE_ROOT)
@@ -641,7 +647,7 @@ def _resolve_create_cwd(req_cwd: Optional[str]) -> str:
     return str(target.absolute())
 
 
-def _resolve_shell(requested: Optional[str]) -> Optional[str]:
+def _resolve_shell(requested: str | None) -> str | None:
     """프론트가 보내는 'auto'/'bash'/'zsh'/'sh' 를 실제 실행 경로로 변환."""
     candidates = {
         "bash": ["/bin/bash", "/usr/bin/bash"],
@@ -657,7 +663,7 @@ def _resolve_shell(requested: Optional[str]) -> Optional[str]:
     return None
 
 
-@app.get("/api/sessions", response_model=List[dict])
+@app.get("/api/sessions", response_model=list[dict])
 async def list_sessions(username: str = Depends(verify_auth_token)):
     """DB에 기록된 사용자 세션 목록 (tmux에 살아있는지 여부와 무관)."""
     db_sessions = await storage.get_user_sessions(username)
@@ -792,11 +798,11 @@ async def update_session_name(
 async def terminal_websocket(
     websocket: WebSocket,
     session_id: str,
-    token: Optional[str] = Query(None),
+    token: str | None = Query(None),
     cols: int = Query(80),
     rows: int = Query(24),
-    cwd: Optional[str] = Query(None),
-    shell: Optional[str] = Query(None),
+    cwd: str | None = Query(None),
+    shell: str | None = Query(None),
 ):
     username = await verify_auth_token_ws(token) if token else None
     if not username:
@@ -973,7 +979,7 @@ async def update_host(host_id: str, request: HostUpsertRequest, username: str = 
 
 
 class HostReorderRequest(BaseModel):
-    ids: List[str]
+    ids: list[str]
 
 
 @app.post("/api/hosts/reorder")
@@ -984,7 +990,7 @@ async def reorder_hosts(request: HostReorderRequest, username: str = Depends(ver
 
 
 class HostLastCwdRequest(BaseModel):
-    cwd: Optional[str] = None
+    cwd: str | None = None
 
 
 @app.post("/api/hosts/{host_id}/last-cwd")
@@ -1005,7 +1011,7 @@ async def update_host_last_cwd(
 async def kill_host_tmux(
     host_id: str,
     force: bool = Query(False, description="true 면 tmux kill-server (전체 nuke)"),
-    session: Optional[str] = Query(None, description="특정 세션 이름 직접 지정 (예: mobile.2). 없으면 호스트 기본"),
+    session: str | None = Query(None, description="특정 세션 이름 직접 지정 (예: mobile.2). 없으면 호스트 기본"),
     username: str = Depends(verify_auth_token),
 ):
     """원격 tmux 세션 종료.
@@ -1014,8 +1020,7 @@ async def kill_host_tmux(
     - session 지정: 그 세션만 kill (분할 pane 의 자동 부여된 세션 정리용)
     - 둘 다 없으면 호스트의 기본 세션 kill
     """
-    from host_manager import open_connection, DEFAULT_REMOTE_TMUX_SESSION
-    import shlex as _shlex
+    from host_manager import DEFAULT_REMOTE_TMUX_SESSION, open_connection
     host = await storage.get_host(host_id, username)
     if not host:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
@@ -1027,19 +1032,18 @@ async def kill_host_tmux(
         key_record = await storage.get_ssh_key(host["key_id"], username)
     secrets = resolve_host_secrets(host, key_record)
     target_session = (session or "").strip() or host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
-    safe = _shlex.quote(target_session)
+    safe = shlex.quote(target_session)
     cmd = "tmux kill-server 2>/dev/null; true" if force else f"tmux has-session -t {safe} 2>/dev/null && tmux kill-session -t {safe}"
     try:
         # tailscale auth 면 일반 ssh open_connection 안 됨 → tailscale ssh exec
         if host.get("auth_method") == "tailscale":
-            import asyncio as _asyncio
             target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
-            proc = await _asyncio.create_subprocess_exec(
+            proc = await asyncio.create_subprocess_exec(
                 "tailscale", "ssh", target, cmd,
-                stdout=_asyncio.subprocess.PIPE,
-                stderr=_asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
             )
-            await _asyncio.wait_for(proc.communicate(), timeout=10)
+            await asyncio.wait_for(proc.communicate(), timeout=10)
         else:
             conn = await open_connection(
                 host,
@@ -1261,19 +1265,64 @@ async def write_host_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/hosts/{host_id}/files/create")
+async def create_host_file(
+    host_id: str,
+    request: FileCreateRequest,
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    try:
+        await host_sftp.create_item(host, secrets, request.path, request.type)
+        return {"status": "created", "path": request.path, "host_id": host_id}
+    except Exception as e:
+        logger.warning("SFTP create failed (%s, %s): %s", host_id, request.path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hosts/{host_id}/files/move")
+async def move_host_file(
+    host_id: str,
+    request: FileMoveRequest,
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    try:
+        await host_sftp.move_item(host, secrets, request.source, request.destination)
+        return {"status": "moved", "source": request.source, "destination": request.destination, "host_id": host_id}
+    except Exception as e:
+        logger.warning("SFTP move failed (%s, %s -> %s): %s", host_id, request.source, request.destination, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/hosts/{host_id}/files")
+async def delete_host_file(
+    host_id: str,
+    path: str = Query(...),
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    try:
+        await host_sftp.delete_item(host, secrets, path)
+        return {"status": "deleted", "path": path, "host_id": host_id}
+    except Exception as e:
+        logger.warning("SFTP delete failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ---------------------- WebSocket: SSH 호스트 ----------------------
 
 @app.websocket("/ws/host/{host_id}")
 async def host_websocket(
     websocket: WebSocket,
     host_id: str,
-    token: Optional[str] = Query(None),
+    token: str | None = Query(None),
     cols: int = Query(80),
     rows: int = Query(24),
     pane_index: int = Query(0, description="0 이면 base 세션, 1+ 면 base.N+1 세션"),
-    cwd: Optional[str] = Query(None, description="이 연결에서 사용할 시작 디렉토리. 비우면 host.last_cwd → host.start_path 순으로 폴백."),
-    tmux_suffix: Optional[str] = Query(None, description="새 호스트 탭마다 base session 분리용 suffix. 영문/숫자/하이픈만, 32자 이내."),
-    tmux_session_name: Optional[str] = Query(None, description="명시적 tmux 세션명 override (기존 영속 세션 Resume). 주어지면 base/suffix/pane 계산 무시."),
+    cwd: str | None = Query(None, description="이 연결에서 사용할 시작 디렉토리. 비우면 host.last_cwd → host.start_path 순으로 폴백."),
+    tmux_suffix: str | None = Query(None, description="새 호스트 탭마다 base session 분리용 suffix. 영문/숫자/하이픈만, 32자 이내."),
+    tmux_session_name: str | None = Query(None, description="명시적 tmux 세션명 override (기존 영속 세션 Resume). 주어지면 base/suffix/pane 계산 무시."),
 ):
     username = await verify_auth_token_ws(token) if token else None
     if not username:
@@ -1309,7 +1358,7 @@ async def host_websocket(
 
     # tmux_suffix sanitize — 영문/숫자/하이픈만, 32자 이내. 호스트 새 탭마다
     # 이 값이 다르면 base session 자동 분리 (mobile-abc1, mobile-def2 ...).
-    safe_suffix: Optional[str] = None
+    safe_suffix: str | None = None
     if tmux_suffix:
         import re as _re
         s = _re.sub(r"[^a-zA-Z0-9-]", "", tmux_suffix)[:32]
@@ -1318,7 +1367,7 @@ async def host_websocket(
 
     # tmux_session_name sanitize — tmux 세션명 허용 문자: 영문/숫자/하이픈/언더스코어/점, 64자 이내.
     # 점 (.) 은 base.N+1 같은 분할 세션명을 그대로 받기 위함.
-    safe_session_name: Optional[str] = None
+    safe_session_name: str | None = None
     if tmux_session_name:
         import re as _re
         s = _re.sub(r"[^a-zA-Z0-9._-]", "", tmux_session_name)[:64]
@@ -1382,7 +1431,7 @@ async def get_git_status(_: Path) -> dict:
         return {}
 
 
-async def _find_repo_root(start_path: str) -> Optional[str]:
+async def _find_repo_root(start_path: str) -> str | None:
     """주어진 경로에서 위로 올라가며 git 저장소 루트를 찾는다. 없으면 None."""
     if not os.path.isdir(start_path):
         start_path = os.path.dirname(start_path) or start_path
@@ -1423,7 +1472,7 @@ async def _collect_repo_status(repo_root: str, workspace_abs: str, items_cap: in
         if repo_rel_prefix in (".", ""):
             repo_rel_prefix = ""
 
-        all_lines = [l for l in stdout.decode().splitlines() if len(l) >= 3]
+        all_lines = [line for line in stdout.decode().splitlines() if len(line) >= 3]
         total = len(all_lines)
         # 너무 시끄러운 repo (gitignore 누락된 build/cache 등) 는 메타만 반환,
         # items 는 비워 응답 비대화 방지.
@@ -1479,13 +1528,13 @@ _REPO_SCAN_CACHE: dict = {"ts": 0.0, "roots": []}
 _REPO_SCAN_TTL = 60.0
 
 
-async def _scan_workspace_repos(workspace_abs: str, max_depth: int = 2) -> List[str]:
+async def _scan_workspace_repos(workspace_abs: str, max_depth: int = 2) -> list[str]:
     """워크스페이스에서 git repo 들의 루트 경로를 탐색 (max_depth 까지). 60초 캐시."""
     now = time.time()
     if now - _REPO_SCAN_CACHE["ts"] < _REPO_SCAN_TTL and _REPO_SCAN_CACHE["roots"]:
         return list(_REPO_SCAN_CACHE["roots"])
 
-    found: List[str] = []
+    found: list[str] = []
     try:
         for entry in os.scandir(workspace_abs):
             if not entry.is_dir(follow_symlinks=False):

@@ -116,26 +116,6 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
 
     term.open(terminalRef.current);
 
-    // FitAddon은 기본적으로 overview ruler용 14px를 빼고 cols를 계산함 (overviewRuler?.width || 14).
-    // 스크롤바를 CSS로 숨기므로 이 공간이 필요 없음. proposeDimensions를 재정의해서 전체 폭을 활용.
-    fitAddon.proposeDimensions = () => {
-      const d = term._core?._renderService?.dimensions;
-      if (!d?.css?.cell?.width || !d?.css?.cell?.height) return undefined;
-      const p = term.element?.parentElement;
-      if (!p) return undefined;
-      const ps = window.getComputedStyle(p);
-      const ts = window.getComputedStyle(term.element);
-      const w = Math.max(0, parseInt(ps.getPropertyValue('width')));
-      const h = parseInt(ps.getPropertyValue('height'));
-      const ph = (parseInt(ts.paddingLeft) || 0) + (parseInt(ts.paddingRight) || 0);
-      const pv = (parseInt(ts.paddingTop) || 0) + (parseInt(ts.paddingBottom) || 0);
-      return {
-        cols: Math.max(2, Math.floor((w - ph) / d.css.cell.width)),
-        rows: Math.max(1, Math.floor((h - pv) / d.css.cell.height)),
-      };
-    };
-
-
     // WebGL 렌더러 — 디폴트 ON. 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
     // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
     // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
@@ -311,6 +291,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
 
       const socket = new WebSocket(wsUrl);
+      socket.binaryType = 'arraybuffer';
       wsRef.current = socket;
 
       socket.onopen = () => {
@@ -330,17 +311,9 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         }
       };
       setTimeout(sendResize, 0);
-      setTimeout(sendResize, 200);
 
-      // WebGL renderer 가 첫 paint 이후 변경 감지 못하는 케이스 — attach 직후 prompt 가
-      // 이미 그려져 있는데 화면이 비어보이는 증상. 강제로 viewport 전체를 refresh 해 화면 동기화.
-      const forceRedraw = () => {
-        try { term.refresh(0, term.rows - 1); } catch {}
-      };
-      setTimeout(forceRedraw, 100);
-      setTimeout(forceRedraw, 400);
       // 호스트 세션은 attach 후 SIGWINCH 한 번 더 흔들어서 tmux→shell 재그리기 유도.
-      // (Ctrl+L 은 zsh 키바인딩이 없는 환경에선 ^L 로 노출되므로 사용 안 함)
+      // (Ctrl+L 은 zsh 키바인딩이 없는 환경에선 ^L 노출되므로 사용 안 함)
       if (hostId) {
         setTimeout(() => {
           if (socket.readyState !== WebSocket.OPEN) return;
@@ -363,13 +336,23 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
 
       if (wsBufferRef.current.length === 0) return;
 
-      const mergedOutput = wsBufferRef.current.join('');
+      // wsBufferRef.current contains ArrayBuffers. We need to calculate total length and combine them.
+      let totalLength = 0;
+      for (const buffer of wsBufferRef.current) {
+        totalLength += buffer.byteLength;
+      }
+      
+      const mergedBuffer = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const buffer of wsBufferRef.current) {
+        mergedBuffer.set(new Uint8Array(buffer), offset);
+        offset += buffer.byteLength;
+      }
+
       wsBufferRef.current = [];
 
-      term.write(mergedOutput, () => {
+      term.write(mergedBuffer, () => {
         handleNewData();
-        // WebGL renderer 가 일부 update 를 누락하는 케이스 방어 — 매 flush 끝에 viewport 전체 강제 refresh.
-        try { term.refresh(0, term.rows - 1); } catch {}
         setHasContent(true);
       });
     };
@@ -390,6 +373,25 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     };
 
     socket.onmessage = (event) => {
+      // binary array buffer data
+      if (event.data instanceof ArrayBuffer) {
+        // Fast heuristic check for detached token without decoding large buffers
+        if (event.data.byteLength < 500) {
+          try {
+            const text = new TextDecoder('utf-8').decode(event.data);
+            if (text.includes('[detached (from session')) {
+              evictedRef.current = true;
+            }
+          } catch {}
+        }
+        
+        wsBufferRef.current.push(event.data);
+        dispatchActivity();
+        if (wsFlushTimeoutRef.current) return;
+        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, 16);
+        return;
+      }
+
       /* JSON 프로토콜 메시지 — 인증 prompt (TOTP/2FA) 등. 터미널 출력으로 가지 않게 일찍 분기. */
       if (typeof event.data === 'string' && event.data.length > 1 && event.data[0] === '{' && event.data[event.data.length - 1] === '}') {
         try {
@@ -405,10 +407,15 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       if (typeof event.data === 'string' && event.data.includes('[detached (from session')) {
         evictedRef.current = true;
       }
-      wsBufferRef.current.push(event.data);
-      dispatchActivity();
-      if (wsFlushTimeoutRef.current) return;
-      wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, 16);
+      
+      // string payload (like detached message, or unhandled json fallback)
+      if (typeof event.data === 'string') {
+        const encoder = new TextEncoder();
+        wsBufferRef.current.push(encoder.encode(event.data).buffer);
+        dispatchActivity();
+        if (wsFlushTimeoutRef.current) return;
+        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, 16);
+      }
     };
 
     socket.onclose = (event) => {
@@ -586,7 +593,12 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       xtermRef.current.options.fontFamily = normalizeTerminalFontFamily(settings.fontFamily);
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
       
-      // 폰트 변경 후 리사이즈 필요 (폰트 로드 대기를 위해 200ms 지연).
+      // 폰트 크기가 바뀌면 즉시 fit() 을 호출해 그리드 크기 재계산 (xterm.js 내부 캐시 갱신)
+      if (fitAddonRef.current) {
+        try { fitAddonRef.current.fit(); } catch (e) {}
+      }
+
+      // 폰트 변경 후 리사이즈 필요 (폰트 로드 대기를 위해 약간의 지연).
       // hidden(비활성) 탭이면 0×0 이라 fit 스킵 — 가시화될 때 layoutSignal 효과로 다시 fit 됨.
       setTimeout(() => {
         if (!fitAddonRef.current) return;
@@ -600,7 +612,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
             wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
           }
         }
-      }, 200);
+      }, 50); // 200ms 는 너무 길어 반응이 느려 보이므로 50ms 로 단축
     }
   }, [currentTheme, settings.fontSize, settings.fontFamily, settings.smoothScroll]);
 
@@ -1092,7 +1104,7 @@ const styles = {
     fontFamily: 'inherit',
   }),
   fixedModalOverlay: (themeUi, zIndex) => ({
-    position: 'fixed',
+    position: 'absolute',
     inset: 0,
     padding: space['3'],
     background: themeUi.scrim,

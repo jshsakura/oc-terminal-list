@@ -17,7 +17,6 @@ import shutil
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Deque, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -50,9 +49,9 @@ class TmuxManager:
         self.socket_name = socket_name
         self.history_limit = history_limit
         # 세션별 cwd 변화 타임라인 (ts, cwd) — 같은 cwd 가 연속으로 들어오면 갱신만
-        self._cwd_history: Dict[str, Deque[Tuple[float, str]]] = {}
+        self._cwd_history: dict[str, deque[tuple[float, str]]] = {}
 
-    def _base_args(self) -> List[str]:
+    def _base_args(self) -> list[str]:
         return [TMUX_BIN, "-L", self.socket_name]
 
     def _tmux_env(self) -> dict[str, str]:
@@ -112,8 +111,8 @@ class TmuxManager:
         session_id: str,
         cols: int = 80,
         rows: int = 24,
-        cwd: Optional[str] = None,
-        shell: Optional[str] = None,
+        cwd: str | None = None,
+        shell: str | None = None,
     ) -> None:
         """새 detached 세션 생성. 이미 존재하면 no-op."""
         if await self.session_exists(session_id):
@@ -209,7 +208,7 @@ class TmuxManager:
             check=False,
         )
 
-    async def list_sessions(self) -> List[TmuxSessionInfo]:
+    async def list_sessions(self) -> list[TmuxSessionInfo]:
         rc, out, _ = await self._run(
             "list-sessions",
             "-F", "#{session_name}\t#{session_windows}\t#{session_attached}\t#{session_created}",
@@ -217,7 +216,7 @@ class TmuxManager:
         )
         if rc != 0 or not out:
             return []
-        result: List[TmuxSessionInfo] = []
+        result: list[TmuxSessionInfo] = []
         for line in out.splitlines():
             parts = line.split("\t")
             if len(parts) != 4:
@@ -248,11 +247,11 @@ class TmuxManager:
         # 각 줄 = 클라이언트 1개. 빈 줄은 0 으로.
         return sum(1 for ln in out.splitlines() if ln.strip())
 
-    def attach_argv(self, session_id: str) -> List[str]:
+    def attach_argv(self, session_id: str) -> list[str]:
         """ws_bridge에서 PTY로 spawn할 때 쓰는 argv. 분리해서 권한·테스트 용이성 확보."""
         return [*self._base_args(), "attach-session", "-t", session_id]
 
-    async def get_pane_cwd(self, session_id: str) -> Optional[str]:
+    async def get_pane_cwd(self, session_id: str) -> str | None:
         """활성 pane 의 현재 작업 디렉토리. 세션이 없거나 실패하면 None.
         호출 시점에 cwd 가 직전 기록과 다르면 활동 타임라인에 push.
         """
@@ -277,7 +276,7 @@ class TmuxManager:
         else:
             history.append((time.time(), cwd))
 
-    def get_cwd_history(self, session_id: str) -> List[Dict]:
+    def get_cwd_history(self, session_id: str) -> list[dict]:
         history = self._cwd_history.get(session_id, deque())
         return [{"ts": ts, "cwd": cwd} for ts, cwd in history]
 

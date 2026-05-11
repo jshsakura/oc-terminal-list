@@ -1,732 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Folder, FolderOpen, File, FileText, FileCode, FileImage, FileJson, FileType,
   RefreshCw, Terminal, ChevronRight, ChevronDown, Plus, Pencil, Trash2, GitBranch, Filter,
-  ArrowUp, Home,
+  ArrowUp, Home, Search, X
 } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
 
-const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+const { color, font, fontSize, fontWeight, radius, space, motion, shadow: designShadow } = tokens;
 
 const ROW_HEIGHT = 24;
 
-// 파일 확장자 → 아이콘
-const iconForFile = (name) => {
-  const ext = name.split('.').pop().toLowerCase();
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'avif'].includes(ext)) return FileImage;
-  if (['json', 'yaml', 'yml', 'toml'].includes(ext)) return FileJson;
-  if (['md', 'mdx', 'rst', 'txt'].includes(ext)) return FileText;
-  if (['js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'go', 'rb', 'java', 'c', 'cpp', 'h', 'sh', 'lua'].includes(ext)) return FileCode;
-  return File;
-};
-
-const fileIconColor = (name) => {
-  const ext = name.split('.').pop().toLowerCase();
-  if (['md', 'mdx'].includes(ext)) return color.success;
-  if (['json', 'yaml', 'yml'].includes(ext)) return color.warning;
-  if (['js', 'jsx', 'ts', 'tsx'].includes(ext)) return color.info;
-  if (['py'].includes(ext)) return color.success;
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return color.dotPalette[5];
-  return color.muted;
-};
-
-const gitTone = (status) => {
-  if (status === 'M') return color.warning;
-  if (status === '??' || status === 'A') return color.success;
-  if (status === 'D') return color.danger;
-  return color.muted;
-};
-
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
-// path 의 부모 디렉토리 — 절대경로(/a/b/c → /a/b, /a → /, / → null) 와
-// 워크스페이스 상대(a/b → a, a → '', '' → null) 둘 다 지원.
-const computeParent = (p) => {
-  if (p === undefined || p === null) return null;
-  if (p === '') return null;        // 워크스페이스 루트 — 더 갈 곳 없음
-  if (p === '/') return null;       // 절대 루트 — 더 갈 곳 없음
-  const trimmed = p.replace(/\/+$/, '');
-  const idx = trimmed.lastIndexOf('/');
-  if (idx < 0) return '';            // 'a' → 워크스페이스 루트
-  if (idx === 0) return '/';         // '/a' → '/'
-  return trimmed.substring(0, idx);
-};
-
-const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitContextPath = '', language = 'en', initialPath = '', hostId = null }) => {
-  // 호스트 모드 (SFTP) 면 /api/hosts/{id}/files, 아니면 로컬 /api/files
-  const isHostMode = !!hostId;
-  const apiBase = isHostMode ? `/api/hosts/${hostId}/files` : '/api/files';
-  const { t } = useTranslation(language);
-  // 노드별 캐시: cacheKey → { items, loading, error }.
-  // 루트의 cacheKey 는 항상 '' — 백엔드에는 rootPath 로 매핑되어 호출됨.
-  const [nodes, setNodes] = useState({});
-  const [expanded, setExpanded] = useState(new Set(['']));
-  const [selectedPath, setSelectedPath] = useState(null);
-  const [contextMenu, setContextMenu] = useState(null); // {x,y,target:{path,type}}
-  const [renameTarget, setRenameTarget] = useState(null); // {path, draftName}
-  const [creating, setCreating] = useState(null); // {parentPath, type:'file'|'directory', draftName}
-  const [filterChangedOnly, setFilterChangedOnly] = useState(false);
-  // 트리의 implicit root — Up 버튼으로 위로 올라갈 때 변함.
-  // 로컬 모드도 initialPath(탭 cwd) 가 있으면 그 디렉토리를 루트로 — 다른 프로젝트가
-  // 섞여 보이지 않게 탭 단위로 트리를 좁힘. 워크스페이스 루트('')까지는 Up 으로 올라갈 수 있음.
-  const [rootPath, setRootPath] = useState(initialPath || '');
-  // 백엔드가 resolve 해준 rootPath 의 절대경로 (host 모드에서 부모 계산용).
-  const [resolvedRoot, setResolvedRoot] = useState(null);
-  const renameInputRef = useRef(null);
-  const createInputRef = useRef(null);
-
-  // gitContextPath (활성 터미널 cwd) 가 비어있으면 트리에서 마지막에 펼친 폴더로 폴백.
-  // 둘 다 빈 경우 워크스페이스 전체 repo 들을 집계 (백엔드).
-  const [treeFocus, setTreeFocus] = useState(initialPath || '');
-  const effectiveGitPath = gitContextPath || treeFocus;
-
-  /* "여기서 터미널 열기" 의 *진짜* 타겟 폴더 — 사용자가 트리에서 선택한 row 우선.
-       - 선택 = 폴더 → 그 폴더
-       - 선택 = 파일 → 그 파일의 상위 폴더
-       - 선택 없음 → effectiveGitPath (활성 터미널 cwd 또는 마지막 펼친 폴더)
-     이렇게 하면 트리에서 폴더 한 번 클릭 → footer 가 즉시 그 경로를 보여주고
-     같은 버튼이 그 폴더에서 터미널을 연다. 헤더 ⌨ 와 footer 둘 다 동일 소스를 씀. */
-  const findNodeType = useCallback((p) => {
-    if (!p) return null;
-    for (const cache of Object.values(nodes)) {
-      const hit = (cache.items || []).find((it) => it.path === p);
-      if (hit) return hit.type;
-    }
-    return null;
-  }, [nodes]);
-  const terminalTargetPath = useMemo(() => {
-    if (selectedPath) {
-      const type = findNodeType(selectedPath);
-      if (type === 'directory') return selectedPath;
-      if (type === 'file') return selectedPath.split('/').slice(0, -1).join('/');
-    }
-    return effectiveGitPath || '';
-  }, [selectedPath, findNodeType, effectiveGitPath]);
-  const terminalTargetDisplay = useMemo(() => {
-    const p = terminalTargetPath;
-    if (!p) return isHostMode ? '/' : '~/';
-    if (p.startsWith('/')) return p;          // host 모드 절대경로
-    return `~/${p}`;                           // 로컬 워크스페이스 상대경로
-  }, [terminalTargetPath, isHostMode]);
-  // 호스트 모드면 git 호출 비활성 (원격이라 로컬 git 의미 없음)
-  const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = useGitChanges({
-    enabled: !isHostMode,
-    path: effectiveGitPath,
-    intervalMs: effectiveGitPath ? 1500 : 8000,
-  });
-  const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
-
-  // cacheKey === '' 면 백엔드에는 rootPath 로 호출. 그 외엔 cacheKey 자체가 backend path.
-  const fetchChildren = useCallback(async (cacheKey) => {
-    const backendPath = cacheKey === '' ? rootPath : cacheKey;
-    setNodes((prev) => ({ ...prev, [cacheKey]: { ...(prev[cacheKey] || {}), loading: true } }));
-    try {
-      const ts = Date.now();
-      const res = await fetch(`${apiBase}?path=${encodeURIComponent(backendPath)}&_t=${ts}`, { headers: authHeader() });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setNodes((prev) => ({ ...prev, [cacheKey]: { items: data.items || [], loading: false, error: null } }));
-      // host 모드: resolved 절대경로를 보관해 "Up" 버튼이 부모를 계산할 수 있게 함.
-      if (cacheKey === '' && isHostMode && (data.resolved || data.path)) {
-        setResolvedRoot(data.resolved || data.path);
-      }
-    } catch (e) {
-      setNodes((prev) => ({ ...prev, [cacheKey]: { items: [], loading: false, error: e.message } }));
-    }
-  }, [apiBase, rootPath, isHostMode]);
-
-  // 마운트 / rootPath 변경: 캐시 비우고 루트 다시 로드. initialPath 안의 하위
-  // 경로는 절대(/a/b/c) 로 들어와도 이미 rootPath 가 그 위치라 추가 expand 불필요.
-  useEffect(() => {
-    setNodes({});
-    setExpanded(new Set(['']));
-    setResolvedRoot(null);
-    fetchChildren('');
-    // 로컬 워크스페이스 모드: initialPath 가 워크스페이스 상대일 때 그 경로까지 자동 expand.
-    // 호스트 모드는 rootPath 자체가 시작점이라 별도 expand 불필요.
-    if (!isHostMode && initialPath) {
-      const parts = initialPath.split('/').filter(Boolean);
-      let acc = '';
-      const set = new Set(['']);
-      for (const p of parts) {
-        acc = acc ? `${acc}/${p}` : p;
-        set.add(acc);
-        fetchChildren(acc);
-      }
-      setExpanded(set);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rootPath]);
-
-  // 컨텍스트 메뉴 외부 클릭 시 닫기
-  useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close, { capture: true });
-    return () => {
-      window.removeEventListener('click', close);
-      window.removeEventListener('contextmenu', close, { capture: true });
-    };
-  }, [contextMenu]);
-
-  useEffect(() => {
-    if (renameTarget && renameInputRef.current) {
-      renameInputRef.current.focus();
-      renameInputRef.current.select();
-    }
-  }, [renameTarget]);
-
-  useEffect(() => {
-    if (creating && createInputRef.current) {
-      createInputRef.current.focus();
-    }
-  }, [creating]);
-
-  const toggleFolder = useCallback((path) => {
-    setExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-        if (!nodes[path]) fetchChildren(path);
-      }
-      return next;
-    });
-    setTreeFocus(path);  // 폴더 펼치는 행위 = git context 후보로 등록 (활성 cwd 가 우선)
-    onFolderSelect?.(path);
-  }, [nodes, fetchChildren, onFolderSelect]);
-
-  const refreshPath = useCallback(async (path) => {
-    await fetchChildren(path);
-  }, [fetchChildren]);
-
-  const refreshAll = useCallback(async () => {
-    const paths = Array.from(expanded);
-    await Promise.all(paths.map(fetchChildren));
-  }, [expanded, fetchChildren]);
-
-  // ---------- 작업: 생성 / 이름변경 / 삭제 ----------
-  const apiCreate = async (path, type) => {
-    const res = await fetch('/api/files/create', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ path, type }),
-    });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'create failed');
-  };
-
-  const apiMove = async (source, destination) => {
-    const res = await fetch('/api/files/move', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
-      body: JSON.stringify({ source, destination }),
-    });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'move failed');
-  };
-
-  const apiDelete = async (path) => {
-    const res = await fetch(`/api/files?path=${encodeURIComponent(path)}`, { method: 'DELETE', headers: authHeader() });
-    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'delete failed');
-  };
-
-  const startCreate = (parentPath, type) => {
-    setExpanded((prev) => new Set([...prev, parentPath]));
-    if (!nodes[parentPath]) fetchChildren(parentPath);
-    setCreating({ parentPath, type, draftName: '' });
-  };
-
-  const commitCreate = async () => {
-    if (!creating) return;
-    const { parentPath, type, draftName } = creating;
-    const trimmed = draftName.trim();
-    if (!trimmed) {
-      setCreating(null);
-      return;
-    }
-    const newPath = parentPath ? `${parentPath}/${trimmed}` : trimmed;
-    try {
-      await apiCreate(newPath, type);
-      setCreating(null);
-      await refreshPath(parentPath);
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-
-  const startRename = (path) => {
-    const name = path.split('/').pop();
-    setRenameTarget({ path, draftName: name });
-  };
-
-  const commitRename = async () => {
-    if (!renameTarget) return;
-    const { path, draftName } = renameTarget;
-    const trimmed = draftName.trim();
-    if (!trimmed || trimmed === path.split('/').pop()) {
-      setRenameTarget(null);
-      return;
-    }
-    const parts = path.split('/');
-    parts[parts.length - 1] = trimmed;
-    const dest = parts.join('/');
-    try {
-      await apiMove(path, dest);
-      setRenameTarget(null);
-      const parent = path.split('/').slice(0, -1).join('/');
-      await refreshPath(parent);
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-
-  const removeNode = async (path, type) => {
-    if (!confirm(t('confirmDeleteFile')?.replace('{name}', path.split('/').pop()) || `Delete ${path}?`)) return;
-    try {
-      await apiDelete(path);
-      const parent = path.split('/').slice(0, -1).join('/');
-      await refreshPath(parent);
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-
-  // 폴더가 자손 중에 변경 파일을 갖고 있는지 (필터/시각화에 사용)
-  const hasChangedDescendant = useCallback((folderPath) => {
-    if (!folderPath) return changedSet.size > 0;
-    const prefix = folderPath + '/';
-    for (const p of changedSet) {
-      if (p.startsWith(prefix)) return true;
-    }
-    return false;
-  }, [changedSet]);
-
-  // ---------- 트리 평면화 (depth 포함) ----------
-  const visibleRows = useMemo(() => {
-    const rows = [];
-    const walk = (parentPath, depth) => {
-      const node = nodes[parentPath];
-      if (!node || !node.items) return;
-      for (const item of node.items) {
-        // 변경된 것만 필터: 변경 파일이거나, 그 자손에 변경 파일이 있는 폴더만 통과
-        if (filterChangedOnly) {
-          const isChanged = changedSet.has(item.path);
-          const folderHasChanges = item.type === 'directory' && hasChangedDescendant(item.path);
-          if (!isChanged && !folderHasChanges) continue;
-        }
-        rows.push({ ...item, depth });
-        if (item.type === 'directory' && expanded.has(item.path)) {
-          walk(item.path, depth + 1);
-        }
-      }
-    };
-    walk('', 0);
-    return rows;
-  }, [nodes, expanded, filterChangedOnly, changedSet, hasChangedDescendant]);
-
-  const rootError = nodes['']?.error;
-  const rootLoading = nodes['']?.loading && !nodes['']?.items;
-
-  // 호스트 모드: resolvedRoot 가 알려진 후에만 "Up" 가능 (루트=/ 면 비활성).
-  // 로컬 모드: rootPath 의 부모 (워크스페이스 루트 '' 까지 올라갈 수 있음, 그 위는 차단).
-  const parentOfRoot = isHostMode ? computeParent(resolvedRoot) : computeParent(rootPath);
-  const canGoUp = parentOfRoot !== null;
-
-  // 시작 경로 (initialPath) 가 있고 그 위/아래로 이동했을 때 다시 돌아갈 "홈" 버튼.
-  const startHome = initialPath || '';
-  const canGoHome = rootPath !== startHome;
-
-  // breadcrumb 표시용 — 너무 길면 끝쪽만 보여줌.
-  const rootDisplay = isHostMode
-    ? (resolvedRoot || (rootPath || '~'))
-    : (rootPath || '/');
-
-  return (
-    <div style={styles.wrap}>
-      {/* host 모드일 땐 path breadcrumb + Up 행을 추가 */}
-      {isHostMode && (
-        <div style={styles.crumb} title={rootDisplay}>
-          <button
-            onClick={() => canGoUp && setRootPath(parentOfRoot)}
-            disabled={!canGoUp}
-            title={canGoUp ? `${t('goUp') || 'Go up'} → ${parentOfRoot}` : (t('atRoot') || 'At root')}
-            style={{
-              ...styles.crumbBtn,
-              opacity: canGoUp ? 1 : 0.35,
-              cursor: canGoUp ? 'pointer' : 'not-allowed',
-            }}
-            onMouseEnter={(e) => { if (canGoUp) e.currentTarget.style.background = color.surface1; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-          >
-            <ArrowUp size={12} strokeWidth={2} />
-          </button>
-          {canGoHome && (
-            <button
-              onClick={() => setRootPath(startHome)}
-              title={`${t('goHome') || 'Go to start'}: ${startHome || '~'}`}
-              style={{ ...styles.crumbBtn, cursor: 'pointer' }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <Home size={12} strokeWidth={2} />
-            </button>
-          )}
-          <span style={styles.crumbPath}>{rootDisplay}</span>
-        </div>
-      )}
-
-      <div style={styles.head}>
-        <div
-          style={styles.headBranch}
-          title={gitRepo || (gitRepos && gitRepos.length ? `${gitRepos.length} repos` : (t('notInGitRepo') || 'Not inside a git repository'))}
-        >
-          <GitBranch size={11} strokeWidth={2} style={{ color: (gitRepo || gitRepos?.length) ? color.muted : color.faint, flexShrink: 0 }} />
-          <span style={{ ...styles.branchName, color: (gitRepo || gitRepos?.length) ? color.subtext : color.muted }}>
-            {gitBranch || (gitRepos?.length ? `${gitRepos.length} repos` : (gitRepo ? '—' : (t('noGitHere') || 'no git here')))}
-          </span>
-          {gitItems.length > 0 && (
-            <span style={styles.countBadge}>{gitItems.length}</span>
-          )}
-        </div>
-        <div style={styles.headActions}>
-          {/* 한 단계 위로 — head 액션의 맨 앞에 둬서 가장 먼저 눈에 띄게.
-              로컬도 워크스페이스 루트('')까지 올라갈 수 있게 노출 (그 위는 백엔드가 차단). */}
-          <HeadAction
-            icon={ArrowUp}
-            title={canGoUp ? `${t('goUp') || 'Go up'} → ${parentOfRoot || '/'}` : (t('atRoot') || 'At root')}
-            onClick={() => canGoUp && setRootPath(parentOfRoot)}
-            active={false}
-            disabled={!canGoUp}
-          />
-          {canGoHome && (
-            <HeadAction
-              icon={Home}
-              title={`${t('goHome') || 'Back to start'}: ${startHome || '~'}`}
-              onClick={() => setRootPath(startHome)}
-            />
-          )}
-          <HeadAction
-            icon={Filter}
-            title={t('filterChangedOnly') || 'Show only changed'}
-            onClick={() => setFilterChangedOnly((v) => !v)}
-            active={filterChangedOnly}
-          />
-          <HeadAction icon={Plus} title={t('newFile') || 'New file'} onClick={() => startCreate('', 'file')} />
-          <HeadAction icon={Folder} title={t('newFolder') || 'New folder'} onClick={() => startCreate('', 'directory')} />
-          <HeadAction
-            icon={Terminal}
-            title={`${t('openTerminalHere') || 'Open terminal here'}: ${terminalTargetDisplay}`}
-            onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)}
-          />
-          <HeadAction icon={RefreshCw} title={t('refresh') || 'Refresh'} onClick={refreshAll} />
-        </div>
-      </div>
-
-      <div
-        style={styles.list}
-        onContextMenu={(e) => {
-          e.preventDefault();
-          setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } });
-        }}
-      >
-        {rootError && (
-          <div style={styles.errorBox}>
-            <div>Error: {rootError}</div>
-            <button onClick={() => fetchChildren('')} style={styles.retryBtn}>{t('retry') || 'Retry'}</button>
-          </div>
-        )}
-
-        {rootLoading && !rootError && (
-          <div style={styles.muted}>{t('loading') || 'Loading…'}</div>
-        )}
-
-        {/* 루트에 새 항목 입력중 */}
-        {creating && creating.parentPath === '' && (
-          <CreateRow
-            depth={0}
-            type={creating.type}
-            value={creating.draftName}
-            inputRef={createInputRef}
-            onChange={(v) => setCreating({ ...creating, draftName: v })}
-            onCommit={commitCreate}
-            onCancel={() => setCreating(null)}
-          />
-        )}
-
-        {visibleRows.map((row) => {
-          const isFolder = row.type === 'directory';
-          const isOpen = isFolder && expanded.has(row.path);
-          const isSelected = selectedPath === row.path;
-          const tone = row.git_status ? gitTone(row.git_status) : (isSelected ? color.text : color.subtext);
-          return (
-            <div key={row.path}>
-              {/* 본 행 또는 인라인 rename */}
-              {renameTarget?.path === row.path ? (
-                <RenameRow
-                  depth={row.depth}
-                  isFolder={isFolder}
-                  value={renameTarget.draftName}
-                  inputRef={renameInputRef}
-                  onChange={(v) => setRenameTarget({ ...renameTarget, draftName: v })}
-                  onCommit={commitRename}
-                  onCancel={() => setRenameTarget(null)}
-                />
-              ) : (
-                <Row
-                  depth={row.depth}
-                  isOpen={isOpen}
-                  isFolder={isFolder}
-                  isSelected={isSelected}
-                  name={row.name}
-                  tone={tone}
-                  gitStatus={row.git_status}
-                  isChanged={changedSet.has(row.path)}
-                  onClick={() => {
-                    setSelectedPath(row.path);
-                    if (isFolder) toggleFolder(row.path);
-                    else onFileSelect?.(row.path);
-                  }}
-                  onDoubleClick={() => {
-                    if (!isFolder) onFileSelect?.(row.path);
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setSelectedPath(row.path);
-                    setContextMenu({ x: e.clientX, y: e.clientY, target: { path: row.path, type: row.type } });
-                  }}
-                />
-              )}
-
-              {/* 이 폴더 안에 새 항목 입력중 */}
-              {creating && creating.parentPath === row.path && isOpen && (
-                <CreateRow
-                  depth={row.depth + 1}
-                  type={creating.type}
-                  value={creating.draftName}
-                  inputRef={createInputRef}
-                  onChange={(v) => setCreating({ ...creating, draftName: v })}
-                  onCommit={commitCreate}
-                  onCancel={() => setCreating(null)}
-                />
-              )}
-            </div>
-          );
-        })}
-
-        {!rootLoading && !rootError && visibleRows.length === 0 && !creating && (
-          <div style={styles.muted}>{t('folderEmpty') || 'Empty folder'}</div>
-        )}
-      </div>
-
-      {/* 풋터 — 한 행에 (좌: 경로, 우: 열기 버튼). 라벨은 위 캡션으로 분리.
-          한 버튼에 라벨+경로+아이콘 다 우겨넣지 않아 모바일/좁은 패널에서도 즉시 식별. */}
-      <div style={styles.footerBar}>
-        <div style={styles.footerCaption}>
-          {t('openTerminalHere') || 'Open terminal here'}
-        </div>
-        <div style={styles.footerRow}>
-          <div style={styles.footerPathBox} title={terminalTargetDisplay}>
-            <span style={styles.footerPath} dir="rtl">
-              {terminalTargetDisplay}
-            </span>
-          </div>
-          <button
-            onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)}
-            style={styles.footerActionBtn}
-            onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.92'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
-            title={`${t('openTerminalHere') || 'Open terminal here'}: ${terminalTargetDisplay}`}
-            aria-label={t('openTerminalHere') || 'Open terminal here'}
-          >
-            <Terminal size={14} strokeWidth={2.2} />
-          </button>
-        </div>
-      </div>
-
-      {/* 컨텍스트 메뉴 */}
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x}
-          y={contextMenu.y}
-          target={contextMenu.target}
-          t={t}
-          onClose={() => setContextMenu(null)}
-          onNewFile={() => {
-            startCreate(contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'), 'file');
-            setContextMenu(null);
-          }}
-          onNewFolder={() => {
-            startCreate(contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'), 'directory');
-            setContextMenu(null);
-          }}
-          onRename={() => {
-            if (contextMenu.target.path) startRename(contextMenu.target.path);
-            setContextMenu(null);
-          }}
-          onDelete={() => {
-            if (contextMenu.target.path) removeNode(contextMenu.target.path, contextMenu.target.type);
-            setContextMenu(null);
-          }}
-          onOpenTerminal={() => {
-            const p = contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/');
-            onOpenTerminalAtFolder?.(p);
-            setContextMenu(null);
-          }}
-        />
-      )}
-    </div>
-  );
-};
-
-// ---------- 보조 컴포넌트 ----------
-
-const Row = ({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu }) => {
-  const FileIcon = isFolder ? (isOpen ? FolderOpen : Folder) : iconForFile(name);
-  const iconHue = isFolder ? color.accent : fileIconColor(name);
-  // 변경된 파일은 트리에서 살짝 강조 (이름 + git tag 색)
-  const nameColor = isChanged && !isFolder ? gitTone(gitStatus || 'M') : tone;
-  return (
-    <div
-      onClick={onClick}
-      onDoubleClick={onDoubleClick}
-      onContextMenu={onContextMenu}
-      style={{
-        ...styles.row,
-        background: isSelected ? color.accentSubtle : 'transparent',
-        paddingLeft: 4 + depth * 14,
-      }}
-      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = color.surface0; }}
-      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
-    >
-      <span style={styles.chevron}>
-        {isFolder ? (
-          isOpen ? <ChevronDown size={11} strokeWidth={2} /> : <ChevronRight size={11} strokeWidth={2} />
-        ) : null}
-      </span>
-      <FileIcon size={13} strokeWidth={2} style={{ color: iconHue, flexShrink: 0 }} />
-      <span style={{
-        ...styles.name,
-        color: nameColor,
-        fontWeight: isSelected ? fontWeight.medium : fontWeight.regular,
-      }}>
-        {name}
-      </span>
-      {gitStatus && (
-        <span style={{ ...styles.gitTag, color: gitTone(gitStatus) }}>
-          {gitStatus === '??' ? 'U' : gitStatus}
-        </span>
-      )}
-    </div>
-  );
-};
-
-const RenameRow = ({ depth, isFolder, value, onChange, onCommit, onCancel, inputRef }) => (
-  <div style={{ ...styles.row, paddingLeft: 4 + depth * 14, background: color.crust }}>
-    <span style={styles.chevron} />
-    {isFolder ? <Folder size={13} strokeWidth={2} style={{ color: color.accent }} /> : <File size={13} strokeWidth={2} style={{ color: color.muted }} />}
-    <input
-      ref={inputRef}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onCommit();
-        else if (e.key === 'Escape') onCancel();
-      }}
-      onBlur={onCommit}
-      style={styles.editInput}
-    />
-  </div>
-);
-
-const CreateRow = ({ depth, type, value, onChange, onCommit, onCancel, inputRef }) => (
-  <div style={{ ...styles.row, paddingLeft: 4 + depth * 14, background: color.crust }}>
-    <span style={styles.chevron} />
-    {type === 'directory' ? <Folder size={13} strokeWidth={2} style={{ color: color.accent }} /> : <File size={13} strokeWidth={2} style={{ color: color.muted }} />}
-    <input
-      ref={inputRef}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') onCommit();
-        else if (e.key === 'Escape') onCancel();
-      }}
-      onBlur={onCommit}
-      placeholder={type === 'directory' ? 'folder name' : 'file name'}
-      style={styles.editInput}
-    />
-  </div>
-);
-
-const HeadAction = ({ icon: Icon, title, onClick, active, disabled = false }) => (
-  <button
-    onClick={(e) => { e.stopPropagation(); if (!disabled) onClick?.(); }}
-    title={title}
-    disabled={disabled}
-    style={{
-      ...styles.headActionBtn,
-      color: active ? color.accent : color.muted,
-      background: active ? color.accentSubtle : 'transparent',
-      opacity: disabled ? 0.35 : 1,
-      cursor: disabled ? 'not-allowed' : 'pointer',
-    }}
-    onMouseEnter={(e) => { if (!active && !disabled) e.currentTarget.style.color = color.text; }}
-    onMouseLeave={(e) => { if (!active && !disabled) e.currentTarget.style.color = color.muted; }}
-  >
-    <Icon size={12} strokeWidth={2} />
-  </button>
-);
-
-const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal }) => {
-  const isFile = target.type === 'file';
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        top: Math.min(y, window.innerHeight - 240),
-        left: Math.min(x, window.innerWidth - 200),
-        zIndex: 200000,
-        ...styles.menu,
-      }}
-      onClick={(e) => e.stopPropagation()}
-    >
-      <MenuItem icon={Plus} label={t('newFile') || 'New file'} onClick={onNewFile} />
-      <MenuItem icon={Folder} label={t('newFolder') || 'New folder'} onClick={onNewFolder} />
-      <MenuItem icon={Terminal} label={t('openTerminalHere') || 'Open terminal here'} onClick={onOpenTerminal} />
-      {target.path && (
-        <>
-          <MenuDivider />
-          <MenuItem icon={Pencil} label={t('rename') || 'Rename'} onClick={onRename} />
-          <MenuItem icon={Trash2} label={t('delete') || 'Delete'} onClick={onDelete} tone="danger" />
-        </>
-      )}
-    </div>
-  );
-};
-
-const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
-  <button
-    onClick={onClick}
-    style={{
-      ...styles.menuItem,
-      color: tone === 'danger' ? color.danger : color.text,
-    }}
-    onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
-    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-  >
-    <Icon size={12} strokeWidth={2} style={{ color: tone === 'danger' ? color.danger : color.muted }} />
-    <span>{label}</span>
-  </button>
-);
-
-const MenuDivider = () => <div style={{ height: '1px', background: color.border, margin: '4px 0' }} />;
-
+// ─── Styles ──────────────────────────────────────────────────────────────────
 const styles = {
   wrap: {
     display: 'flex',
@@ -779,15 +66,8 @@ const styles = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    direction: 'rtl',  // 긴 경로는 끝(파일명 쪽)이 보이도록
+    direction: 'rtl',
     textAlign: 'left',
-  },
-  headLabel: {
-    fontSize: fontSize['11'],
-    fontWeight: fontWeight.medium,
-    color: color.muted,
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase',
   },
   headBranch: {
     flex: 1,
@@ -815,6 +95,36 @@ const styles = {
     flexShrink: 0,
   },
   headActions: { display: 'flex', gap: '2px' },
+  searchBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['2'],
+    padding: `0 ${space['2']} ${space['1.5']}`,
+    borderBottom: `1px solid ${color.border}`,
+    background: 'transparent',
+  },
+  searchInput: {
+    flex: 1,
+    height: '24px',
+    background: color.crust,
+    color: color.text,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
+    padding: '0 6px',
+    fontSize: fontSize['12'],
+    fontFamily: font.sans,
+    outline: 'none',
+  },
+  searchClearBtn: {
+    background: 'transparent',
+    border: 'none',
+    color: color.muted,
+    cursor: 'pointer',
+    padding: '2px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headActionBtn: {
     width: '22px',
     height: '22px',
@@ -834,6 +144,7 @@ const styles = {
     padding: `${space['1']} ${space['1']}`,
     display: 'flex',
     flexDirection: 'column',
+    position: 'relative',
   },
   row: {
     display: 'flex',
@@ -884,29 +195,15 @@ const styles = {
     fontFamily: 'inherit',
     outline: 'none',
   },
-  errorBox: {
-    color: color.danger,
-    padding: space['3'],
-    fontSize: fontSize['12'],
-    display: 'flex',
-    flexDirection: 'column',
-    gap: space['2'],
-    alignItems: 'flex-start',
-  },
-  retryBtn: {
-    background: 'transparent',
-    color: color.danger,
-    border: `1px solid ${color.danger}55`,
-    padding: `${space['1']} ${space['2']}`,
-    borderRadius: radius.xs,
-    cursor: 'pointer',
-    fontSize: fontSize['12'],
-  },
-  muted: {
-    padding: `${space['4']} ${space['3']}`,
+  statusBox: {
+    padding: `${space['8']} ${space['4']}`,
     textAlign: 'center',
     color: color.muted,
     fontSize: fontSize['12'],
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '8px',
   },
   footerBar: {
     padding: `${space['1.5']} ${space['1.5']} ${space['2']}`,
@@ -954,11 +251,8 @@ const styles = {
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
-    /* RTL 트릭 — 경로의 *끝쪽* (현재 폴더명) 이 항상 보이도록, 너무 길면 시작에 ... 가 붙음.
-       unicode-bidi: plaintext 로 segment 순서 유지. */
     textAlign: 'left',
     unicodeBidi: 'plaintext',
-    letterSpacing: '0',
   },
   footerActionBtn: {
     flexShrink: 0,
@@ -979,7 +273,7 @@ const styles = {
     background: color.base,
     border: `1px solid ${color.border}`,
     borderRadius: radius.md,
-    boxShadow: tokens.shadow.lg,
+    boxShadow: designShadow.lg,
     padding: `${space['1']} 0`,
     minWidth: '180px',
     fontFamily: font.sans,
@@ -998,6 +292,463 @@ const styles = {
     textAlign: 'left',
     transition: `background ${motion.fast}`,
   },
+  errorBox: {
+    color: color.danger,
+    padding: space['3'],
+    fontSize: fontSize['12'],
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['2'],
+    alignItems: 'flex-start',
+  },
+  retryBtn: {
+    background: 'transparent',
+    color: color.danger,
+    border: `1px solid ${color.danger}55`,
+    padding: `${space['1']} ${space['2']}`,
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    fontSize: fontSize['12'],
+  },
 };
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+const iconForFile = (name) => {
+  const ext = name.split('.').pop().toLowerCase();
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'avif'].includes(ext)) return FileImage;
+  if (['json', 'yaml', 'yml', 'toml'].includes(ext)) return FileJson;
+  if (['md', 'mdx', 'rst', 'txt'].includes(ext)) return FileText;
+  if (['js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'go', 'rb', 'java', 'c', 'cpp', 'h', 'sh', 'lua'].includes(ext)) return FileCode;
+  return File;
+};
+
+const fileIconColor = (name) => {
+  const ext = name.split('.').pop().toLowerCase();
+  if (['md', 'mdx'].includes(ext)) return color.success;
+  if (['json', 'yaml', 'yml'].includes(ext)) return color.warning;
+  if (['js', 'jsx', 'ts', 'tsx'].includes(ext)) return color.info;
+  if (['py'].includes(ext)) return color.success;
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return color.dotPalette[5];
+  return color.muted;
+};
+
+const gitTone = (status) => {
+  if (status === 'M') return color.warning;
+  if (status === '??' || status === 'A') return color.success;
+  if (status === 'D') return color.danger;
+  return color.muted;
+};
+
+const authHeader = () => {
+  const token = localStorage.getItem('auth_token');
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const computeParent = (p) => {
+  if (!p) return null;
+  const trimmed = p.replace(/\/+$/, '');
+  const idx = trimmed.lastIndexOf('/');
+  if (idx < 0) return '';
+  if (idx === 0) return '/';
+  return trimmed.substring(0, idx);
+};
+
+// ─── Components ──────────────────────────────────────────────────────────────
+const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu }) => {
+  const FileIcon = isFolder ? (isOpen ? FolderOpen : Folder) : iconForFile(name);
+  const iconHue = isFolder ? color.accent : fileIconColor(name);
+  const nameColor = isChanged && !isFolder ? gitTone(gitStatus || 'M') : tone;
+  
+  return (
+    <div
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onContextMenu={onContextMenu}
+      style={{
+        ...styles.row,
+        background: isSelected ? color.accentSubtle : 'transparent',
+        paddingLeft: 4 + depth * 14,
+      }}
+      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = color.surface0; }}
+      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+    >
+      <span style={styles.chevron}>
+        {isFolder ? (
+          isOpen ? <ChevronDown size={11} strokeWidth={2} /> : <ChevronRight size={11} strokeWidth={2} />
+        ) : null}
+      </span>
+      <FileIcon size={13} strokeWidth={2} style={{ color: iconHue, flexShrink: 0 }} />
+      <span style={{
+        ...styles.name,
+        color: nameColor,
+        fontWeight: isSelected ? fontWeight.medium : fontWeight.regular,
+      }}>
+        {name}
+      </span>
+      {gitStatus && (
+        <span style={{ ...styles.gitTag, color: gitTone(gitStatus) }}>
+          {gitStatus === '??' ? 'U' : gitStatus}
+        </span>
+      )}
+    </div>
+  );
+});
+
+const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
+  <button
+    onClick={(e) => { e.stopPropagation(); onClick(); }}
+    style={{
+      ...styles.menuItem,
+      color: tone === 'danger' ? color.danger : color.text,
+    }}
+    onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+  >
+    <Icon size={12} strokeWidth={2} style={{ color: tone === 'danger' ? color.danger : color.muted }} />
+    <span>{label}</span>
+  </button>
+);
+
+const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal }) => (
+  <div
+    style={{
+      position: 'fixed',
+      top: Math.min(y, window.innerHeight - 200),
+      left: Math.min(x, window.innerWidth - 180),
+      zIndex: 200000,
+      ...styles.menu,
+    }}
+    onContextMenu={(e) => e.preventDefault()}
+    onClick={(e) => e.stopPropagation()}
+  >
+    <MenuItem icon={Plus} label={t('newFile') || 'New file'} onClick={onNewFile} />
+    <MenuItem icon={Folder} label={t('newFolder') || 'New folder'} onClick={onNewFolder} />
+    <MenuItem icon={Terminal} label={t('openTerminalHere') || 'Open terminal here'} onClick={onOpenTerminal} />
+    {target.path && (
+      <>
+        <div style={{ height: '1px', background: color.border, margin: '4px 0' }} />
+        <MenuItem icon={Pencil} label={t('rename') || 'Rename'} onClick={onRename} />
+        <MenuItem icon={Trash2} label={t('delete') || 'Delete'} onClick={onDelete} tone="danger" />
+      </>
+    )}
+  </div>
+);
+
+const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitContextPath = '', language = 'en', initialPath = '', hostId = null }) => {
+  const isHostMode = !!hostId;
+  const apiBase = isHostMode ? `/api/hosts/${hostId}/files` : '/api/files';
+  const { t } = useTranslation(language);
+
+  const [nodes, setNodes] = useState({});
+  const [expanded, setExpanded] = useState(new Set(['']));
+  const [selectedPath, setSelectedPath] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [renameTarget, setRenameTarget] = useState(null);
+  const [creating, setCreating] = useState(null);
+  const [filterChangedOnly, setFilterChangedOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [rootPath, setRootPath] = useState(initialPath || '');
+  const [resolvedRoot, setResolvedRoot] = useState(null);
+  
+  const renameInputRef = useRef(null);
+  const createInputRef = useRef(null);
+  const [treeFocus, setTreeFocus] = useState(initialPath || '');
+  const effectiveGitPath = gitContextPath || treeFocus;
+
+  // Git changes hook
+  const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = useGitChanges({
+    enabled: !isHostMode,
+    path: effectiveGitPath,
+    intervalMs: effectiveGitPath ? 1500 : 8000,
+  });
+  const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
+
+  const fetchChildren = useCallback(async (cacheKey) => {
+    const backendPath = cacheKey === '' ? rootPath : cacheKey;
+    setNodes((prev) => ({ ...prev, [cacheKey]: { ...(prev[cacheKey] || {}), loading: true } }));
+    try {
+      const ts = Date.now();
+      const res = await fetch(`${apiBase}?path=${encodeURIComponent(backendPath)}&_t=${ts}`, { headers: authHeader() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setNodes((prev) => ({ ...prev, [cacheKey]: { items: data.items || [], loading: false, error: null } }));
+      if (cacheKey === '' && isHostMode && (data.resolved || data.path)) {
+        setResolvedRoot(data.resolved || data.path);
+      }
+    } catch (e) {
+      setNodes((prev) => ({ ...prev, [cacheKey]: { items: [], loading: false, error: e.message } }));
+    }
+  }, [apiBase, rootPath, isHostMode]);
+
+  useEffect(() => {
+    setNodes({});
+    setExpanded(new Set(['']));
+    setResolvedRoot(null);
+    fetchChildren('');
+    if (!isHostMode && initialPath) {
+      const parts = initialPath.split('/').filter(Boolean);
+      let acc = '';
+      const set = new Set(['']);
+      for (const p of parts) {
+        acc = acc ? `${acc}/${p}` : p;
+        set.add(acc);
+        fetchChildren(acc);
+      }
+      setExpanded(set);
+    }
+  }, [rootPath, initialPath, isHostMode, fetchChildren]);
+
+  // Outside click to close context menu
+  useEffect(() => {
+    if (!contextMenu) return;
+    const close = () => setContextMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('contextmenu', close, { capture: true });
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('contextmenu', close, { capture: true });
+    };
+  }, [contextMenu]);
+
+  useEffect(() => { if (renameTarget && renameInputRef.current) { renameInputRef.current.focus(); renameInputRef.current.select(); } }, [renameTarget]);
+  useEffect(() => { if (creating && createInputRef.current) createInputRef.current.focus(); }, [creating]);
+
+  const toggleFolder = useCallback((path) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else { next.add(path); if (!nodes[path]) fetchChildren(path); }
+      return next;
+    });
+    setTreeFocus(path);
+    onFolderSelect?.(path);
+  }, [nodes, fetchChildren, onFolderSelect]);
+
+  const refreshPath = useCallback(async (path) => await fetchChildren(path), [fetchChildren]);
+  const refreshAll = useCallback(async () => {
+    const paths = Array.from(expanded);
+    await Promise.all(paths.map(p => fetchChildren(p)));
+  }, [expanded, fetchChildren]);
+
+  // Actions
+  const apiCall = async (method, path, body = null) => {
+    const url = isHostMode ? `${apiBase}/${method}` : `/api/files/${method}`;
+    const opts = { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader() } };
+    if (method === 'delete') {
+      opts.method = 'DELETE';
+      const deleteUrl = isHostMode ? `${apiBase}?path=${encodeURIComponent(path)}` : `/api/files?path=${encodeURIComponent(path)}`;
+      const res = await fetch(deleteUrl, { headers: authHeader(), method: 'DELETE' });
+      if (!res.ok) throw new Error('delete failed');
+      return;
+    }
+    opts.body = JSON.stringify(body || { path });
+    const res = await fetch(isHostMode ? `${apiBase}/${method}` : `/api/files/${method}`, opts);
+    if (!res.ok) throw new Error('action failed');
+  };
+
+  const startCreate = (parentPath, type) => {
+    setExpanded((prev) => new Set([...prev, parentPath]));
+    if (!nodes[parentPath]) fetchChildren(parentPath);
+    setCreating({ parentPath, type, draftName: '' });
+  };
+
+  const commitCreate = async () => {
+    if (!creating) return;
+    const { parentPath, type, draftName } = creating;
+    if (!draftName.trim()) { setCreating(null); return; }
+    const newPath = parentPath ? `${parentPath}/${draftName.trim()}` : draftName.trim();
+    try {
+      await apiCall('create', newPath, { path: newPath, type });
+      setCreating(null);
+      await refreshPath(parentPath);
+    } catch (e) { alert(e.message); }
+  };
+
+  const commitRename = async () => {
+    if (!renameTarget) return;
+    const { path, draftName } = renameTarget;
+    const trimmed = draftName.trim();
+    if (!trimmed || trimmed === path.split('/').pop()) { setRenameTarget(null); return; }
+    const dest = path.split('/').slice(0, -1).concat(trimmed).join('/');
+    try {
+      await apiCall('move', path, { source: path, destination: dest });
+      setRenameTarget(null);
+      await refreshPath(path.split('/').slice(0, -1).join('/'));
+    } catch (e) { alert(e.message); }
+  };
+
+  const removeNode = async (path) => {
+    if (!confirm(t('confirmDeleteFile')?.replace('{name}', path.split('/').pop()) || `Delete ${path}?`)) return;
+    try {
+      await apiCall('delete', path);
+      await refreshPath(path.split('/').slice(0, -1).join('/'));
+    } catch (e) { alert(e.message); }
+  };
+
+  const hasChangedDescendant = useCallback((folderPath) => {
+    if (!folderPath) return changedSet.size > 0;
+    const prefix = folderPath + '/';
+    for (const p of changedSet) if (p.startsWith(prefix)) return true;
+    return false;
+  }, [changedSet]);
+
+  const visibleRows = useMemo(() => {
+    const rows = [];
+    const needle = searchQuery.trim().toLowerCase();
+    const walk = (parentPath, depth) => {
+      const node = nodes[parentPath];
+      if (!node || !node.items) return;
+      for (const item of node.items) {
+        if (filterChangedOnly) {
+          const isChanged = changedSet.has(item.path);
+          const folderHasChanges = item.type === 'directory' && hasChangedDescendant(item.path);
+          if (!isChanged && !folderHasChanges) continue;
+        }
+        const matchesSearch = !needle || item.name.toLowerCase().includes(needle);
+        const rowIndex = rows.length;
+        rows.push({ ...item, depth });
+        if (item.type === 'directory') {
+          const shouldWalk = needle || expanded.has(item.path);
+          if (shouldWalk) {
+            const beforeCount = rows.length;
+            walk(item.path, depth + 1);
+            if (needle && !matchesSearch && rows.length === beforeCount) rows.splice(rowIndex, 1);
+          } else if (needle && !matchesSearch) rows.splice(rowIndex, 1);
+        } else if (needle && !matchesSearch) rows.pop();
+      }
+    };
+    walk('', 0);
+    return rows;
+  }, [nodes, expanded, filterChangedOnly, changedSet, hasChangedDescendant, searchQuery]);
+
+  const terminalTargetPath = useMemo(() => {
+    if (selectedPath) {
+      const type = (Object.values(nodes).flatMap(n => n.items || []).find(it => it.path === selectedPath))?.type;
+      if (type === 'directory') return selectedPath;
+      if (type === 'file') return selectedPath.split('/').slice(0, -1).join('/');
+    }
+    return effectiveGitPath || '';
+  }, [selectedPath, nodes, effectiveGitPath]);
+
+  const terminalTargetDisplay = useMemo(() => {
+    const p = terminalTargetPath;
+    if (!p) return isHostMode ? '/' : '~/';
+    return isHostMode ? p : `~/${p}`;
+  }, [terminalTargetPath, isHostMode]);
+
+  const rootError = nodes['']?.error;
+  const rootLoading = nodes['']?.loading && !nodes['']?.items;
+  const parentOfRoot = isHostMode ? computeParent(resolvedRoot) : computeParent(rootPath);
+  const canGoUp = parentOfRoot !== null;
+  const rootDisplay = isHostMode ? (resolvedRoot || (rootPath || '~')) : (rootPath || '/');
+
+  return (
+    <div style={styles.wrap}>
+      {isHostMode && (
+        <div style={styles.crumb} title={rootDisplay}>
+          <button onClick={() => canGoUp && setRootPath(parentOfRoot)} disabled={!canGoUp} style={{ ...styles.crumbBtn, opacity: canGoUp ? 1 : 0.35, cursor: canGoUp ? 'pointer' : 'not-allowed' }}>
+            <ArrowUp size={12} strokeWidth={2} />
+          </button>
+          {rootPath !== (initialPath || '') && (
+            <button onClick={() => setRootPath(initialPath || '')} style={{ ...styles.crumbBtn, cursor: 'pointer' }}>
+              <Home size={12} strokeWidth={2} />
+            </button>
+          )}
+          <span style={styles.crumbPath}>{rootDisplay}</span>
+        </div>
+      )}
+
+      <div style={styles.head}>
+        <div style={styles.headBranch}>
+          <GitBranch size={11} strokeWidth={2} style={{ color: (gitRepo || gitRepos?.length) ? color.muted : color.faint }} />
+          <span style={styles.branchName}>{gitBranch || (gitRepos?.length ? `${gitRepos.length} repos` : 'no git')}</span>
+        </div>
+        <div style={styles.headActions}>
+          <HeadAction icon={ArrowUp} title={t('goUp')} onClick={() => canGoUp && setRootPath(parentOfRoot)} disabled={!canGoUp} />
+          <HeadAction icon={Filter} title={t('filterChangedOnly')} onClick={() => setFilterChangedOnly(!filterChangedOnly)} active={filterChangedOnly} />
+          <HeadAction icon={Plus} title={t('newFile')} onClick={() => startCreate('', 'file')} />
+          <HeadAction icon={Folder} title={t('newFolder')} onClick={() => startCreate('', 'directory')} />
+          <HeadAction icon={Terminal} title={t('openTerminalHere')} onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)} />
+          <HeadAction icon={RefreshCw} title={t('refresh')} onClick={refreshAll} />
+        </div>
+      </div>
+
+      <div style={styles.searchBar}>
+        <Search size={12} style={{ color: color.muted }} />
+        <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t('searchFiles')} style={styles.searchInput} />
+        {searchQuery && <button onClick={() => setSearchQuery('')} style={styles.searchClearBtn}><X size={12} /></button>}
+      </div>
+
+      <div style={styles.list} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
+        {rootError && <div style={styles.errorBox}><div>Error: {rootError}</div><button onClick={() => fetchChildren('')} style={styles.retryBtn}>{t('retry')}</button></div>}
+        {rootLoading && !rootError && <div style={styles.statusBox}><RefreshCw size={14} className="spin" /><span>{t('loading')}</span></div>}
+        
+        {creating && creating.parentPath === '' && (
+          <div style={{ ...styles.row, background: color.crust }}>
+            <span style={styles.chevron} />
+            {creating.type === 'directory' ? <Folder size={13} style={{ color: color.accent }} /> : <File size={13} />}
+            <input ref={createInputRef} value={creating.draftName} onChange={(e) => setCreating({ ...creating, draftName: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(); else if (e.key === 'Escape') setCreating(null); }} onBlur={commitCreate} style={styles.editInput} />
+          </div>
+        )}
+
+        {visibleRows.map((row) => (
+          <div key={row.path}>
+            {renameTarget?.path === row.path ? (
+              <div style={{ ...styles.row, background: color.crust, paddingLeft: 4 + row.depth * 14 }}>
+                <span style={styles.chevron} />
+                {row.type === 'directory' ? <Folder size={13} style={{ color: color.accent }} /> : <File size={13} />}
+                <input ref={renameInputRef} value={renameTarget.draftName} onChange={(e) => setRenameTarget({ ...renameTarget, draftName: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') commitRename(); else if (e.key === 'Escape') setRenameTarget(null); }} onBlur={commitRename} style={styles.editInput} />
+              </div>
+            ) : (
+              <Row
+                depth={row.depth} isOpen={row.type === 'directory' && expanded.has(row.path)} isFolder={row.type === 'directory'} isSelected={selectedPath === row.path} name={row.name} tone={row.git_status ? gitTone(row.git_status) : (selectedPath === row.path ? color.text : color.subtext)} gitStatus={row.git_status} isChanged={changedSet.has(row.path)}
+                onClick={() => { setSelectedPath(row.path); if (row.type === 'directory') toggleFolder(row.path); else onFileSelect?.(row.path); }}
+                onDoubleClick={() => { if (row.type !== 'directory') onFileSelect?.(row.path); }}
+                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedPath(row.path); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: row.path, type: row.type } }); }}
+              />
+            )}
+            {creating && creating.parentPath === row.path && (expanded.has(row.path) || searchQuery) && (
+               <div style={{ ...styles.row, background: color.crust, paddingLeft: 4 + (row.depth + 1) * 14 }}>
+                <span style={styles.chevron} />
+                {creating.type === 'directory' ? <Folder size={13} style={{ color: color.accent }} /> : <File size={13} />}
+                <input ref={createInputRef} value={creating.draftName} onChange={(e) => setCreating({ ...creating, draftName: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') commitCreate(); else if (e.key === 'Escape') setCreating(null); }} onBlur={commitCreate} style={styles.editInput} />
+              </div>
+            )}
+          </div>
+        ))}
+
+        {!rootLoading && !rootError && visibleRows.length === 0 && !creating && (
+          <div style={styles.statusBox}><Search size={16} /><span style={{ marginTop: '4px' }}>{searchQuery ? t('noResults') : t('folderEmpty')}</span></div>
+        )}
+      </div>
+
+      <div style={styles.footerBar}>
+        <div style={styles.footerCaption}>{t('openTerminalHere')}</div>
+        <div style={styles.footerRow}>
+          <div style={styles.footerPathBox} title={terminalTargetDisplay}><span style={styles.footerPath}>{terminalTargetDisplay}</span></div>
+          <button onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)} style={styles.footerActionBtn}><Terminal size={14} strokeWidth={2.2} /></button>
+        </div>
+      </div>
+
+      {contextMenu && createPortal(
+        <ContextMenu
+          x={contextMenu.x} y={contextMenu.y} target={contextMenu.target} t={t} onClose={() => setContextMenu(null)}
+          onNewFile={() => { startCreate(contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'), 'file'); setContextMenu(null); }}
+          onNewFolder={() => { startCreate(contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'), 'directory'); setContextMenu(null); }}
+          onRename={() => { if (contextMenu.target.path) setRenameTarget({ path: contextMenu.target.path, draftName: contextMenu.target.path.split('/').pop() }); setContextMenu(null); }}
+          onDelete={() => { if (contextMenu.target.path) removeNode(contextMenu.target.path); setContextMenu(null); }}
+          onOpenTerminal={() => { const p = contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'); onOpenTerminalAtFolder?.(p); setContextMenu(null); }}
+        />,
+        document.body
+      )}
+    </div>
+  );
+};
+
+const HeadAction = ({ icon: Icon, title, onClick, active, disabled = false }) => (
+  <button onClick={(e) => { e.stopPropagation(); if (!disabled) onClick?.(); }} onContextMenu={(e) => e.stopPropagation()} title={title} disabled={disabled} style={{ ...styles.headActionBtn, color: active ? color.accent : color.muted, background: active ? color.accentSubtle : 'transparent', opacity: disabled ? 0.35 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+    <Icon size={12} strokeWidth={2} />
+  </button>
+);
 
 export default FileTree;

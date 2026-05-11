@@ -5,7 +5,7 @@ WebSocket ↔ tmux client PTY 양방향 브리지
 - WS 연결 종료 → PTY terminate → tmux 클라이언트만 detach (세션은 유지)
 - 같은 session_id에 여러 WS가 동시 attach 가능 (웹/PC 동시 접속)
 - 사용자 입력은 그대로 PTY에 write (tmux escape 가공 금지)
-- 출력은 chunk 단위로 WS에 send_text
+- 출력은 chunk 단위로 WS에 send_bytes
 """
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ import asyncio
 import codecs
 import logging
 import os
-from typing import List, Optional
 
 import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
@@ -28,13 +27,13 @@ MAX_BACKPRESSURE_BYTES = 4 * 1024 * 1024
 class TmuxClientBridge:
     """단일 WebSocket과 tmux attach PTY 한 쌍의 라이프사이클."""
 
-    def __init__(self, websocket: WebSocket, session_id: str, attach_argv: List[str], cols: int, rows: int):
+    def __init__(self, websocket: WebSocket, session_id: str, attach_argv: list[str], cols: int, rows: int):
         self.websocket = websocket
         self.session_id = session_id
         self.attach_argv = attach_argv
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)
-        self.process: Optional[ptyprocess.PtyProcess] = None
+        self.process: ptyprocess.PtyProcess | None = None
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
 
@@ -87,9 +86,9 @@ class TmuxClientBridge:
         assert self.process is not None
         process = self.process
         loop = asyncio.get_event_loop()
-        pending: List[bytes] = []
+        pending: list[bytes] = []
         pending_bytes = 0
-        flush_task: Optional[asyncio.Task] = None
+        flush_task: asyncio.Task | None = None
 
         def on_readable() -> None:
             nonlocal pending_bytes
@@ -113,22 +112,16 @@ class TmuxClientBridge:
         async def _flush() -> None:
             nonlocal pending_bytes
             while pending:
-                buf: List[bytes] = []
+                buf: list[bytes] = []
                 size = 0
                 while pending and size < READ_CHUNK_FLUSH_BYTES:
                     chunk = pending.pop(0)
                     buf.append(chunk)
                     size += len(chunk)
                     pending_bytes = max(0, pending_bytes - len(chunk))
+                
                 try:
-                    text = self.decoder.decode(b"".join(buf))
-                except Exception as e:
-                    logger.warning("decode error (%s): %s", self.session_id, e)
-                    continue
-                if not text:
-                    continue
-                try:
-                    await self.websocket.send_text(text)
+                    await self.websocket.send_bytes(b"".join(buf))
                 except Exception as e:
                     logger.info("ws send failed, closing bridge (%s): %s", self.session_id, e)
                     self._closed.set()

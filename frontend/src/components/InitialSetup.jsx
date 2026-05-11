@@ -127,7 +127,7 @@ const Field = ({ label, value, onChange, type = 'text', placeholder, hint, disab
 
 const styles = {
   overlay: {
-    position: 'fixed',
+    position: 'absolute',
     inset: 0,
     background: color.crust,
     display: 'flex',

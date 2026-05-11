@@ -190,7 +190,7 @@ const Row = ({
 
 const styles = {
   overlay: {
-    position: 'fixed', inset: 0,
+    position: 'absolute', inset: 0,
     background: color.scrim,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 200, fontFamily: font.sans,

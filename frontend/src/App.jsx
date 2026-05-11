@@ -740,43 +740,60 @@ function App() {
 
   // 활성 viewport 기준 effective settings — fontSize 를 PC/모바일 분리. 자식들
   // (PaneGrid, Terminal) 은 settings.fontSize 만 보면 자동으로 알맞은 값 적용.
-  const effectiveSettings = useMemo(() => ({
-    ...settings,
-    fontSize: isMobile
-      ? (settings.fontSizeMobile ?? settings.fontSize ?? 13)
-      : (settings.fontSize ?? 12),
-  }), [settings, isMobile]);
+  const effectiveSettings = useMemo(() => {
+    // isMobile 이 true 면 fontSizeMobile 을, false 면 fontSize 를 사용.
+    // null-ish coalescing 으로 기본값(13/12) 보장.
+    const size = isMobile
+      ? (settings.fontSizeMobile ?? 13)
+      : (settings.fontSize ?? 12);
+    return { ...settings, fontSize: size };
+  }, [settings, isMobile]);
 
   // ── responsive ────────────────────────────────────────────────────────────
   useEffect(() => {
     const check = () => {
-      const m = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 768;
+      const isMobileUA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      const isNarrow = window.innerWidth < 768;
+      const m = isMobileUA || isNarrow;
       setIsMobile(m);
       isMobileViewportRef.current = m;
     };
+
     check();
     window.addEventListener('resize', check);
-    if (window.visualViewport) {
-      // raf throttle — 키보드 애니메이션 중 resize 이벤트 폭주 방지.
-      // setState 마다 wrapper height 갱신 + 자식 ResizeObserver 트리거 → 떨림 원인.
-      let pending = false;
-      const vp = () => {
-        if (pending) return;
-        pending = true;
-        requestAnimationFrame(() => {
-          pending = false;
+    window.addEventListener('orientationchange', check);
+
+    // visualViewport — 모바일 키보드 감지용
+    let pending = false;
+    const handleVV = () => {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(() => {
+        pending = false;
+        if (window.visualViewport) {
           setViewportHeight(window.visualViewport.height);
-        });
-      };
-      window.visualViewport.addEventListener('resize', vp);
-      window.visualViewport.addEventListener('scroll', vp);
-      return () => {
-        window.removeEventListener('resize', check);
-        window.visualViewport.removeEventListener('resize', vp);
-        window.visualViewport.removeEventListener('scroll', vp);
-      };
+          // 키보드가 올라왔을 때 상단으로 스크롤되는 iOS 현상 방지
+          if (window.visualViewport.offsetTop > 0) {
+            window.scrollTo(0, 0);
+          }
+        }
+        check();
+      });
+    };
+
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleVV);
+      window.visualViewport.addEventListener('scroll', handleVV);
     }
-    return () => window.removeEventListener('resize', check);
+    
+    return () => {
+      window.removeEventListener('resize', check);
+      window.removeEventListener('orientationchange', check);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleVV);
+        window.visualViewport.removeEventListener('scroll', handleVV);
+      }
+    };
   }, []);
 
   useEffect(() => { localStorage.setItem('editor_height', editorHeight.toString()); }, [editorHeight]);
@@ -1030,6 +1047,7 @@ function App() {
       background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,
+      position: 'relative',
     }}>
       <style>{`
         * { scrollbar-width: thin; scrollbar-color: ${currentTheme.ui.bgTertiary} transparent; }
@@ -1040,6 +1058,9 @@ function App() {
         /* xterm 내부 스크롤바 — 우측 사이드바와 사이 갭 제거. 스크롤은 휠·tmux copy-mode 로 */
         .xterm-viewport { scrollbar-width: none !important; }
         .xterm-viewport::-webkit-scrollbar { display: none !important; width: 0 !important; }
+
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        .spin { animation: spin 1s linear infinite; }
 
         /* 모바일 모달 풀스크린 — 768px 이하면 모달이 전체 화면을 진짜 다 차지.
            inline transform/maxWidth/maxHeight 가 있어도 !important 로 reset.
@@ -1282,7 +1303,7 @@ function App() {
       {/* ── terminal search overlay ── */}
       {isTerminalSearchOpen && (
         <div style={{
-          position: 'fixed', top: '80px', right: '56px', zIndex: 1002,
+          position: 'absolute', top: '80px', right: '56px', zIndex: 1002,
           width: '360px', display: 'flex', alignItems: 'center', gap: '6px',
           background: currentTheme.ui.bgSecondary,
           border: `1px solid ${currentTheme.ui.border}`,

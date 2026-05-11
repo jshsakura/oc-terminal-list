@@ -9,14 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import codecs
+import json
 import logging
 import os
 import re
 import shlex
 import shutil as _shutil
-from typing import List, Optional
 
-import json
 import asyncssh
 import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
@@ -64,7 +63,7 @@ def effective_tmux_session(base: str, pane_index: int = 0) -> str:
     return f"{base}_{int(pane_index) + 1}"
 
 
-def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: Optional[str] = None) -> Optional[str]:
+def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: str | None = None) -> str | None:
     """원격에서 실행할 명령. tmux 없으면 기본 셸로 fallback.
 
     - tmux -CC (control mode) 는 xterm.js 와 프로토콜 불일치라 사용 안 함.
@@ -135,9 +134,9 @@ def _make_kbdint_client(on_prompt):
 async def open_connection(
     host: dict,
     *,
-    private_key: Optional[str] = None,
-    passphrase: Optional[str] = None,
-    password: Optional[str] = None,
+    private_key: str | None = None,
+    passphrase: str | None = None,
+    password: str | None = None,
     known_hosts: bool = False,  # v1: TOFU off (모든 호스트 키 수락). v2: known_hosts 관리.
     kbdint_prompter=None,  # async (name, instructions, prompts) → list[str], OTP/2FA 인터랙티브용
 ) -> asyncssh.SSHClientConnection:
@@ -178,7 +177,7 @@ async def open_connection(
         return conn
     except (asyncssh.PermissionDenied, asyncssh.misc.ChannelOpenError) as e:
         raise HostConnectError(f"인증 실패: {e}") from e
-    except (OSError, asyncio.TimeoutError) as e:
+    except (TimeoutError, OSError) as e:
         raise HostConnectError(f"연결 실패: {e}") from e
 
 
@@ -190,15 +189,15 @@ class HostBridge:
         websocket: WebSocket,
         host: dict,
         *,
-        private_key: Optional[str],
-        passphrase: Optional[str],
-        password: Optional[str],
+        private_key: str | None,
+        passphrase: str | None,
+        password: str | None,
         cols: int,
         rows: int,
         pane_index: int = 0,
-        cwd: Optional[str] = None,
-        tmux_suffix: Optional[str] = None,
-        tmux_session_name: Optional[str] = None,
+        cwd: str | None = None,
+        tmux_suffix: str | None = None,
+        tmux_session_name: str | None = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -212,12 +211,12 @@ class HostBridge:
         self.tmux_suffix = (tmux_suffix or "").strip() or None
         # 명시적 세션명 override (Home 의 영속 세션 Resume 등). 주어지면 base/suffix/pane 계산 무시.
         self.tmux_session_name = (tmux_session_name or "").strip() or None
-        self.conn: Optional[asyncssh.SSHClientConnection] = None
-        self.process: Optional[asyncssh.SSHClientProcess] = None
+        self.conn: asyncssh.SSHClientConnection | None = None
+        self.process: asyncssh.SSHClientProcess | None = None
         self._closed = asyncio.Event()
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
 
-    async def _ws_kbdint_prompter(self, name: str, instructions: str, prompts: list) -> Optional[list]:
+    async def _ws_kbdint_prompter(self, name: str, instructions: str, prompts: list) -> list | None:
         """asyncssh keyboard-interactive 챌린지를 WS 로 사용자에게 전달하고 응답 수신.
         TOTP 같은 동적 2FA 에 필요. _connect 도중 호출되며 _input_pump 가 아직 안 켜져있어
         websocket.receive_text 직접 사용 가능."""
@@ -252,7 +251,7 @@ class HostBridge:
                             return [str(v) for v in values]
                         if msg.get("type") == "auth-cancel":
                             return None
-        except (asyncio.TimeoutError, WebSocketDisconnect):
+        except (TimeoutError, WebSocketDisconnect):
             return None
         except Exception as e:
             logger.warning("auth-prompt response wait failed: %s", e)
@@ -305,7 +304,7 @@ class HostBridge:
                 if self.websocket.client_state.name != "CONNECTED":
                     break
                 try:
-                    await self.websocket.send_text(self._decoder.decode(chunk))
+                    await self.websocket.send_bytes(chunk)
                 except Exception as e:
                     logger.info("ws send failed (host bridge): %s", e)
                     break
@@ -406,9 +405,9 @@ class TailscaleHostBridge:
         cols: int,
         rows: int,
         pane_index: int = 0,
-        cwd: Optional[str] = None,
-        tmux_suffix: Optional[str] = None,
-        tmux_session_name: Optional[str] = None,
+        cwd: str | None = None,
+        tmux_suffix: str | None = None,
+        tmux_session_name: str | None = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -418,11 +417,11 @@ class TailscaleHostBridge:
         self.cwd = (cwd or "").strip() or None
         self.tmux_suffix = (tmux_suffix or "").strip() or None
         self.tmux_session_name = (tmux_session_name or "").strip() or None
-        self.process: Optional[ptyprocess.PtyProcess] = None
+        self.process: ptyprocess.PtyProcess | None = None
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
 
-    def _build_argv(self) -> List[str]:
+    def _build_argv(self) -> list[str]:
         ssh_user = self.host.get("ssh_user") or os.environ.get("USER") or "root"
         hostname = self.host["hostname"]
         target = f"{ssh_user}@{hostname}"
@@ -468,7 +467,7 @@ class TailscaleHostBridge:
     async def _stdout_pump(self) -> None:
         assert self.process is not None
         loop = asyncio.get_event_loop()
-        pending: List[bytes] = []
+        pending: list[bytes] = []
 
         def on_readable() -> None:
             try:
@@ -492,13 +491,9 @@ class TailscaleHostBridge:
                 if pending:
                     buf = b"".join(pending)
                     pending.clear()
-                    try:
-                        text = self._decoder.decode(buf)
-                    except Exception:
-                        text = buf.decode("utf-8", errors="replace")
-                    if text and self.websocket.client_state.name == "CONNECTED":
+                    if self.websocket.client_state.name == "CONNECTED":
                         try:
-                            await self.websocket.send_text(text)
+                            await self.websocket.send_bytes(buf)
                         except Exception:
                             self._closed.set()
                             break
@@ -507,8 +502,10 @@ class TailscaleHostBridge:
                     break
                 await asyncio.sleep(0.02)
         finally:
-            try: loop.remove_reader(self.process.fd)
-            except Exception: pass
+            try:
+                loop.remove_reader(self.process.fd)
+            except Exception:
+                pass
 
     async def _input_pump(self) -> None:
         assert self.process is not None
@@ -525,8 +522,10 @@ class TailscaleHostBridge:
                             rows = max(int(msg.get("rows") or self.rows), 1)
                             if cols != self.cols or rows != self.rows:
                                 self.cols, self.rows = cols, rows
-                                try: self.process.setwinsize(rows, cols)
-                                except Exception: pass
+                                try:
+                                    self.process.setwinsize(rows, cols)
+                                except Exception:
+                                    pass
                             continue
                     except Exception:
                         pass
@@ -569,8 +568,10 @@ class TailscaleHostBridge:
                 if not t.done():
                     t.cancel()
             for t in (out_task, in_task):
-                try: await t
-                except (asyncio.CancelledError, Exception): pass
+                try:
+                    await t
+                except (asyncio.CancelledError, Exception):
+                    pass
             try:
                 if self.process and self.process.isalive():
                     self.process.terminate(force=True)
@@ -578,13 +579,13 @@ class TailscaleHostBridge:
                 pass
 
 
-def resolve_host_secrets(host: dict, key_record: Optional[dict]) -> dict:
+def resolve_host_secrets(host: dict, key_record: dict | None) -> dict:
     """저장된 호스트/키 레코드에서 vault 복호화한 secret 들을 추출.
     auth_method=key 는 password 로드 X — kbd-interactive 챌린지는 사용자 인터랙티브 prompt 로 처리.
     (저장된 password 가 자동 응답되어 우리 핸들러가 우회되는 사고 방지.)"""
-    private_key: Optional[str] = None
-    passphrase: Optional[str] = None
-    password: Optional[str] = None
+    private_key: str | None = None
+    passphrase: str | None = None
+    password: str | None = None
 
     auth_method = host.get("auth_method") or "key"
     if auth_method == "key" and key_record is not None:

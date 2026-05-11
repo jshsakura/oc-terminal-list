@@ -11,11 +11,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Tuple
 
 import asyncssh
 
-from host_manager import open_connection, resolve_host_secrets, HostConnectError
+from host_manager import HostConnectError, open_connection
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +22,7 @@ CONNECTION_IDLE_TTL = 300  # 5분
 MAX_FILE_BYTES = 10 * 1024 * 1024  # 10MB 읽기 상한
 
 # host_id → (conn, last_used_ts)
-_pool: Dict[str, Tuple[asyncssh.SSHClientConnection, float]] = {}
+_pool: dict[str, tuple[asyncssh.SSHClientConnection, float]] = {}
 _pool_lock = asyncio.Lock()
 
 
@@ -62,7 +61,7 @@ def _drop(host_id: str) -> None:
         except Exception: pass
 
 
-async def list_directory(host: dict, secrets: dict, path: str = ".") -> Dict:
+async def list_directory(host: dict, secrets: dict, path: str = ".") -> dict:
     """원격 디렉토리 목록. {items, resolved} 반환.
 
     path 가 빈문자열/None 이면 "." (홈) 사용.
@@ -91,7 +90,7 @@ async def list_directory(host: dict, secrets: dict, path: str = ".") -> Dict:
                 resolved = await sftp.realpath(".")
 
             entries = await sftp.readdir(resolved)
-            items: List[Dict] = []
+            items: list[dict] = []
             for entry in entries:
                 name = entry.filename
                 if name in (".", ".."):
@@ -114,7 +113,7 @@ async def list_directory(host: dict, secrets: dict, path: str = ".") -> Dict:
                 })
             items.sort(key=lambda x: (x["type"] == "file", x["name"].lower()))
             return {"items": items, "resolved": resolved}
-    except HostConnectError as e:
+    except HostConnectError:
         _drop(host["id"])
         raise
     except (asyncssh.Error, OSError) as e:
@@ -160,10 +159,57 @@ async def write_file(host: dict, secrets: dict, path: str, content: str) -> None
         raise HostConnectError(f"SFTP write failed: {e}") from e
 
 
+async def create_item(host: dict, secrets: dict, path: str, kind: str) -> None:
+    """원격 파일/폴더 생성."""
+    try:
+        conn = await _get_or_open(host, secrets)
+        async with conn.start_sftp_client() as sftp:
+            if kind == "directory":
+                await sftp.mkdir(path)
+            else:
+                async with sftp.open(path, "wb") as f:
+                    pass
+    except (asyncssh.Error, OSError) as e:
+        _drop(host["id"])
+        raise HostConnectError(f"SFTP create failed: {e}") from e
+
+
+async def move_item(host: dict, secrets: dict, source: str, destination: str) -> None:
+    """원격 파일/폴더 이동(rename)."""
+    try:
+        conn = await _get_or_open(host, secrets)
+        async with conn.start_sftp_client() as sftp:
+            await sftp.rename(source, destination)
+    except (asyncssh.Error, OSError) as e:
+        _drop(host["id"])
+        raise HostConnectError(f"SFTP move failed: {e}") from e
+
+
+async def delete_item(host: dict, secrets: dict, path: str) -> None:
+    """원격 파일/폴더 삭제."""
+    try:
+        conn = await _get_or_open(host, secrets)
+        async with conn.start_sftp_client() as sftp:
+            try:
+                attrs = await sftp.stat(path)
+                import stat
+                if stat.S_ISDIR(attrs.permissions):
+                    await sftp.rmdir(path)
+                else:
+                    await sftp.remove(path)
+            except (asyncssh.Error, OSError) as e:
+                # 폴더가 비어있지 않으면 rmdir 실패 가능성 있음. 
+                # 하지만 sftp client 가 recursive remove 를 직접 지원하지 않으므로 단순 구현.
+                raise e
+    except (asyncssh.Error, OSError) as e:
+        _drop(host["id"])
+        raise HostConnectError(f"SFTP delete failed: {e}") from e
+
+
 async def close_pool() -> None:
     """앱 종료 시 모든 풀 연결 정리."""
     async with _pool_lock:
-        for host_id, (conn, _) in list(_pool.items()):
+        for _host_id, (conn, _) in list(_pool.items()):
             try:
                 conn.close()
                 await conn.wait_closed()

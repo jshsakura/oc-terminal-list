@@ -269,7 +269,7 @@ const createStyles = (ui) => {
 
   return {
     overlay: {
-    position: 'fixed',
+    position: 'absolute',
     inset: 0,
     background: themed.crust,
     display: 'flex',

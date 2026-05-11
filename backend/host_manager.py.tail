@@ -1,0 +1,9 @@
+        passphrase = decrypt_str(host.get("passphrase_enc"))
+        password = decrypt_str(host.get("password_enc"))
+    # 'tailscale' 은 secret 불필요 (tailscale auth 가 알아서 함)
+
+    return {
+        "private_key": private_key,
+        "passphrase": passphrase,
+        "password": password,
+    }

@@ -33,7 +33,7 @@ const LoadingScreen = ({ currentTheme, t }) => {
 
 const S = {
   container: {
-    position: 'fixed',
+    position: 'absolute',
     inset: 0,
     display: 'flex',
     alignItems: 'center',

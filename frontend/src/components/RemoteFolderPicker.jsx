@@ -140,7 +140,7 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
 
 const styles = {
   overlay: {
-    position: 'fixed', inset: 0,
+    position: 'absolute', inset: 0,
     background: color.scrim,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 10001,

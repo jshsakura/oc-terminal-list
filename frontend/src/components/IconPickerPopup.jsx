@@ -116,7 +116,7 @@ const Tile = ({ selected, onClick, title, children }) => (
 
 const styles = {
   overlay: {
-    position: 'fixed', inset: 0,
+    position: 'absolute', inset: 0,
     background: color.scrim,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 10002,

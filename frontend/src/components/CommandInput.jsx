@@ -176,7 +176,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
 
 const styles = {
   overlay: {
-    position: 'fixed',
+    position: 'absolute',
     inset: 0,
     padding: space['3'],
     background: color.scrim,

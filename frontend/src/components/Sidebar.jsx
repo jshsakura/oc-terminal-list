@@ -5,6 +5,7 @@ import FileTree from './FileTree';
 import HostList from './HostList';
 import SessionActivity from './SessionActivity';
 import ChangesList from './ChangesList';
+import RailIconBtn from './common/RailIconBtn';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -116,7 +117,7 @@ const Sidebar = ({
       {isMobile && (
         <div
           onClick={onClose}
-          style={{ position: 'fixed', inset: 0, background: color.scrim, zIndex: 10000, animation: 'fadeIn 150ms ease' }}
+          style={{ position: 'absolute', inset: 0, background: color.scrim, zIndex: 10000, animation: 'fadeIn 150ms ease' }}
         />
       )}
       <aside
@@ -131,15 +132,36 @@ const Sidebar = ({
       >
         {/* 좌측 세로 아이콘 스트립 (Jupyter 식 activity bar) */}
         <nav style={styles.activityBar}>
-          <ActivityIcon active={activeTab === 'hosts'} onClick={() => setActiveTab('hosts')} icon={Server} title={t('hosts') || 'Hosts'} />
-          <ActivityIcon active={activeTab === 'files'} onClick={() => setActiveTab('files')} icon={FolderTree} title={t('files')} />
-          <ActivityIcon active={activeTab === 'git'} onClick={() => setActiveTab('git')} icon={GitBranch} title={t('git') || 'Git'} />
-          <ActivityIcon active={activeTab === 'sessions'} onClick={() => setActiveTab('sessions')} icon={Terminal} title={t('active') || t('sessions')} badge={sessions.length} />
+          <div style={styles.activityInner}>
+            <RailIconBtn
+              active={activeTab === 'hosts'}
+              onClick={() => setActiveTab('hosts')}
+              icon={Server}
+              title={t('hosts') || 'Hosts'}
+            />
+            <RailIconBtn
+              active={activeTab === 'files'}
+              onClick={() => setActiveTab('files')}
+              icon={FolderTree}
+              title={t('files') || 'Files'}
+            />
+            <RailIconBtn
+              active={activeTab === 'git'}
+              onClick={() => setActiveTab('git')}
+              icon={GitBranch}
+              title={t('git') || 'Git'}
+            />
+            <RailIconBtn
+              active={activeTab === 'sessions'}
+              onClick={() => setActiveTab('sessions')}
+              icon={Terminal}
+              title={t('active') || t('sessions')}
+              badge={sessions.length}
+            />
+          </div>
           {isMobile && (
-            <div style={{ marginTop: 'auto', paddingBottom: space['1'] }}>
-              <button onClick={onClose} title={t('closeSidebar')} style={styles.closeBtn}>
-                <X size={14} strokeWidth={2} />
-              </button>
+            <div style={{ marginTop: 'auto', paddingBottom: space['1.5'], display: 'flex', justifyContent: 'center' }}>
+              <RailIconBtn onClick={onClose} title={t('closeSidebar')} icon={X} />
             </div>
           )}
         </nav>
@@ -376,50 +398,6 @@ const Sidebar = ({
 };
 
 // 좌측 세로 아이콘 (JupyterLab/VS Code activity bar 식)
-const ActivityIcon = ({ active, onClick, icon: Icon, title, badge }) => (
-  <button
-    onClick={onClick}
-    title={badge != null && badge > 0 ? `${title} (${badge})` : title}
-    style={{
-      position: 'relative',
-      width: '36px',
-      height: '38px',
-      display: 'inline-flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      background: 'transparent',
-      color: active ? color.text : color.muted,
-      border: 'none',
-      borderLeft: `2px solid ${active ? color.accent : 'transparent'}`,
-      cursor: 'pointer',
-      transition: 'color 120ms ease, border-left-color 120ms ease',
-    }}
-    onMouseEnter={(e) => { if (!active) e.currentTarget.style.color = color.text; }}
-    onMouseLeave={(e) => { if (!active) e.currentTarget.style.color = color.muted; }}
-  >
-    <Icon size={16} strokeWidth={2} />
-    {badge != null && badge > 0 && (
-      <span style={{
-        position: 'absolute',
-        top: '4px',
-        right: '4px',
-        minWidth: '14px',
-        height: '14px',
-        padding: '0 3px',
-        fontSize: '9px',
-        lineHeight: '14px',
-        textAlign: 'center',
-        fontFamily: font.mono,
-        color: color.crust,
-        background: color.accent,
-        borderRadius: '999px',
-      }}>
-        {badge}
-      </span>
-    )}
-  </button>
-);
-
 const RowAction = ({ onClick, icon: Icon, title, tone }) => (
   <button
     onClick={onClick}
@@ -444,7 +422,7 @@ const Stat = ({ icon: Icon, value, hue }) => (
 
 const styles = {
   aside: {
-    position: 'fixed',
+    position: 'absolute',
     top: 0,
     left: 0,
     display: 'flex',
@@ -464,6 +442,13 @@ const styles = {
     background: color.crust,
     borderRight: `1px solid ${color.border}`,
     paddingTop: 0,
+  },
+  activityInner: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '2px',
+    paddingTop: '2px',
   },
   panelArea: {
     flex: 1,

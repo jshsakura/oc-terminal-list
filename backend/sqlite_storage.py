@@ -8,8 +8,6 @@ import json
 import os
 import sqlite3
 from datetime import datetime
-from typing import Dict, List, Optional
-
 
 DEFAULT_DB_PATH = os.getenv("DB_PATH") or os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -21,7 +19,7 @@ DEFAULT_DB_PATH = os.getenv("DB_PATH") or os.path.join(
 class SQLiteStorage:
     """SQLite 기반 저장소 (admin / sessions / system_config)"""
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
         self._ensure_directory()
         self._init_db()
@@ -220,7 +218,7 @@ class SQLiteStorage:
                 conn.close()
         return await asyncio.to_thread(_create)
 
-    async def get_admin(self) -> Optional[Dict[str, str]]:
+    async def get_admin(self) -> dict[str, str] | None:
         def _get():
             conn = self._get_connection()
             try:
@@ -241,7 +239,7 @@ class SQLiteStorage:
                 conn.close()
         return await asyncio.to_thread(_get)
 
-    async def set_admin_otp(self, username: str, secret_enc: Optional[str], enabled: bool) -> None:
+    async def set_admin_otp(self, username: str, secret_enc: str | None, enabled: bool) -> None:
         def _set():
             conn = self._get_connection()
             try:
@@ -255,7 +253,7 @@ class SQLiteStorage:
                 conn.close()
         await asyncio.to_thread(_set)
 
-    async def replace_backup_codes(self, username: str, code_hashes: List[str]) -> None:
+    async def replace_backup_codes(self, username: str, code_hashes: list[str]) -> None:
         """기존 코드 모두 삭제하고 새 코드로 교체."""
         def _replace():
             conn = self._get_connection()
@@ -271,7 +269,7 @@ class SQLiteStorage:
                 conn.close()
         await asyncio.to_thread(_replace)
 
-    async def list_unused_backup_codes(self, username: str) -> List[Dict[str, str]]:
+    async def list_unused_backup_codes(self, username: str) -> list[dict[str, str]]:
         def _list():
             conn = self._get_connection()
             try:
@@ -323,7 +321,7 @@ class SQLiteStorage:
 
     # -------- sessions --------
 
-    async def create_session(self, session_id: str, username: str, cwd: Optional[str] = None, name: Optional[str] = None) -> None:
+    async def create_session(self, session_id: str, username: str, cwd: str | None = None, name: str | None = None) -> None:
         def _create():
             now = datetime.utcnow().isoformat()
             conn = self._get_connection()
@@ -337,7 +335,7 @@ class SQLiteStorage:
                 conn.close()
         await asyncio.to_thread(_create)
 
-    async def get_user_sessions(self, username: str) -> List[Dict[str, str]]:
+    async def get_user_sessions(self, username: str) -> list[dict[str, str]]:
         def _get():
             conn = self._get_connection()
             try:
@@ -397,7 +395,7 @@ class SQLiteStorage:
 
     # -------- ssh keys --------
 
-    async def list_ssh_keys(self, username: str) -> List[Dict]:
+    async def list_ssh_keys(self, username: str) -> list[dict]:
         def _get():
             conn = self._get_connection()
             try:
@@ -410,7 +408,7 @@ class SQLiteStorage:
                 conn.close()
         return await asyncio.to_thread(_get)
 
-    async def get_ssh_key(self, key_id: str, username: str) -> Optional[Dict]:
+    async def get_ssh_key(self, key_id: str, username: str) -> dict | None:
         def _get():
             conn = self._get_connection()
             try:
@@ -428,9 +426,9 @@ class SQLiteStorage:
         key_id: str,
         username: str,
         name: str,
-        public_key: Optional[str],
+        public_key: str | None,
         private_key_enc: str,
-        passphrase_enc: Optional[str],
+        passphrase_enc: str | None,
     ) -> None:
         def _create():
             now = datetime.utcnow().isoformat()
@@ -450,16 +448,16 @@ class SQLiteStorage:
         self,
         key_id: str,
         username: str,
-        name: Optional[str] = None,
-        public_key: Optional[str] = None,
-        private_key_enc: Optional[str] = None,
-        passphrase_enc: Optional[str] = None,
+        name: str | None = None,
+        public_key: str | None = None,
+        private_key_enc: str | None = None,
+        passphrase_enc: str | None = None,
         clear_passphrase: bool = False,
     ) -> bool:
         """필드별 부분 업데이트. None 은 미변경, clear_passphrase=True 면 passphrase 제거."""
         def _update():
             sets = []
-            params: List = []
+            params: list = []
             if name is not None:
                 sets.append("name = ?")
                 params.append(name)
@@ -502,7 +500,7 @@ class SQLiteStorage:
 
     # -------- hosts --------
 
-    async def list_hosts(self, username: str) -> List[Dict]:
+    async def list_hosts(self, username: str) -> list[dict]:
         def _get():
             conn = self._get_connection()
             try:
@@ -520,7 +518,7 @@ class SQLiteStorage:
                 conn.close()
         return await asyncio.to_thread(_get)
 
-    async def get_host(self, host_id: str, username: str) -> Optional[Dict]:
+    async def get_host(self, host_id: str, username: str) -> dict | None:
         def _get():
             conn = self._get_connection()
             try:
@@ -602,7 +600,7 @@ class SQLiteStorage:
                 conn.close()
         await asyncio.to_thread(_touch)
 
-    async def reorder_hosts(self, username: str, ids: List[str]) -> None:
+    async def reorder_hosts(self, username: str, ids: list[str]) -> None:
         """주어진 id 순서대로 sort_index 0..N-1 으로 갱신. 목록에 없는 호스트는 그대로."""
         def _reorder():
             conn = self._get_connection()
@@ -617,7 +615,7 @@ class SQLiteStorage:
                 conn.close()
         await asyncio.to_thread(_reorder)
 
-    async def update_host_last_cwd(self, host_id: str, username: str, cwd: Optional[str]) -> None:
+    async def update_host_last_cwd(self, host_id: str, username: str, cwd: str | None) -> None:
         """호스트의 마지막 cwd 갱신. 빈 문자열은 None 으로 정규화."""
         normalized = (cwd or "").strip() or None
         def _update():
@@ -645,7 +643,7 @@ class SQLiteStorage:
 
     # -------- user settings (UI 환경설정 — 테마/폰트 등) --------
 
-    async def get_user_settings(self, username: str) -> Optional[Dict]:
+    async def get_user_settings(self, username: str) -> dict | None:
         """사용자의 저장된 UI 설정. 없으면 None."""
         def _get():
             conn = self._get_connection()
@@ -663,7 +661,7 @@ class SQLiteStorage:
                 conn.close()
         return await asyncio.to_thread(_get)
 
-    async def save_user_settings(self, username: str, settings: Dict) -> None:
+    async def save_user_settings(self, username: str, settings: dict) -> None:
         """사용자 설정 upsert. 단일 JSON blob 으로 보관."""
         payload = json.dumps(settings, ensure_ascii=False)
         def _save():
@@ -680,7 +678,7 @@ class SQLiteStorage:
 
     # -------- tab state (탭 순서/레이아웃 전체 — 기기 간 완전 복원) --------
 
-    async def get_tab_state(self, username: str) -> Optional[Dict]:
+    async def get_tab_state(self, username: str) -> dict | None:
         """저장된 탭 전체 상태. 없으면 None.
         updatedAt 은 다른 기기에서의 변경 감지를 위한 ETag 역할.
         """
@@ -705,7 +703,7 @@ class SQLiteStorage:
                 conn.close()
         return await asyncio.to_thread(_get)
 
-    async def get_tab_state_updated_at(self, username: str) -> Optional[str]:
+    async def get_tab_state_updated_at(self, username: str) -> str | None:
         """탭 상태의 마지막 수정 시각만 가볍게 조회 (폴링용)."""
         def _get():
             conn = self._get_connection()
@@ -719,7 +717,7 @@ class SQLiteStorage:
                 conn.close()
         return await asyncio.to_thread(_get)
 
-    async def save_tab_state(self, username: str, tabs: list, active_tab_id: Optional[str]) -> str:
+    async def save_tab_state(self, username: str, tabs: list, active_tab_id: str | None) -> str:
         """탭 전체 상태 upsert. 새 updated_at 을 반환 — 호출자가 자기 변경의 버전을 기억하게."""
         tabs_json = json.dumps(tabs, ensure_ascii=False)
         new_updated_at = datetime.utcnow().isoformat()
@@ -738,7 +736,7 @@ class SQLiteStorage:
 
     # -------- system config --------
 
-    async def get_config(self, key: str) -> Optional[str]:
+    async def get_config(self, key: str) -> str | None:
         def _get():
             conn = self._get_connection()
             try:

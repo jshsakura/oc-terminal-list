@@ -3,15 +3,15 @@ Authentication Manager
 Handles password hashing, JWT token generation, and user authentication
 SQLite 기반 저장
 """
-from datetime import datetime, timedelta
-from typing import List, Optional, Tuple
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-import secrets
 import asyncio
-import pyotp
+import secrets
+from datetime import datetime, timedelta
 
-from vault import encrypt_str, decrypt_str
+import pyotp
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+
+from vault import decrypt_str, encrypt_str
 
 # Password hashing context
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -104,7 +104,7 @@ class AuthManager:
         encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
         return encoded_jwt
 
-    async def verify_token(self, token: str) -> Optional[str]:
+    async def verify_token(self, token: str) -> str | None:
         """Verify JWT token and return username (단, otp_pending 토큰은 거부)."""
         try:
             secret_key = await self.ensure_secret_key()
@@ -159,7 +159,7 @@ class AuthManager:
             "period": TOTP_PERIOD,
         }
 
-    async def _load_otp_secret(self, username: str) -> Optional[str]:
+    async def _load_otp_secret(self, username: str) -> str | None:
         admin = await self.storage.get_admin()
         if not admin or admin.get("username") != username:
             return None
@@ -196,14 +196,14 @@ class AuthManager:
         import base64
         return base64.b32encode(raw).decode("ascii").rstrip("=")[:8]
 
-    async def issue_backup_codes(self, username: str) -> List[str]:
+    async def issue_backup_codes(self, username: str) -> list[str]:
         """평문 코드 리스트 반환 (한 번만 사용자에게 노출). 해시는 DB 에 저장."""
         plain_codes = [self._generate_backup_code() for _ in range(BACKUP_CODE_COUNT)]
         hashes = [pwd_context.hash(c) for c in plain_codes]
         await self.storage.replace_backup_codes(username, hashes)
         return plain_codes
 
-    async def enable_otp(self, username: str, code: str) -> Optional[List[str]]:
+    async def enable_otp(self, username: str, code: str) -> list[str] | None:
         """begin_otp_setup 으로 받은 비밀키로 첫 코드 검증 후 활성화. 백업코드 반환."""
         secret = await self._load_otp_secret(username)
         if not secret:
@@ -231,7 +231,7 @@ class AuthManager:
         }
         return jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
 
-    async def verify_otp_pending_token(self, token: str) -> Optional[str]:
+    async def verify_otp_pending_token(self, token: str) -> str | None:
         """otp_pending 토큰만 받아 username 반환."""
         try:
             secret_key = await self.ensure_secret_key()
