@@ -863,9 +863,6 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         style={{
           width: '100%',
           height: '100%',
-          paddingLeft: '6px',
-          paddingRight: '4px',
-          paddingTop: '2px',
           boxSizing: 'border-box',
           opacity: hasContent ? 1 : 0,
           transition: 'opacity 0.18s ease',
