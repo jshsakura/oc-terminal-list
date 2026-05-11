@@ -171,29 +171,14 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
        추가: 휠로 copy-mode 진입한 상태에서 셸 입력 키 누르면 자동 'q' 먼저 보내 copy-mode 종료. */
     const COPY_MODE_GRACE_MS = 8000; // wheel 후 8초 내 셸 입력 = copy-mode 활성으로 간주
 
-    // 대용량 붙여넣기: 3000자 단위로 나눠서 16ms 간격 전송 → 브라우저 이벤트루프 블로킹 방지.
-    const PASTE_CHUNK = 3000;
-    const sendPasteChunked = (text) => {
-      if (!text) return;
-      if (text.length <= PASTE_CHUNK) { term.paste(text); return; }
-      let i = 0;
-      const next = () => {
-        if (!xtermRef.current) return;
-        xtermRef.current.paste(text.slice(i, i + PASTE_CHUNK));
-        i += PASTE_CHUNK;
-        if (i < text.length) setTimeout(next, 16);
-      };
-      next();
-    };
-
     // paste 이벤트: ClipboardEvent.clipboardData → clipboard-read 권한 불필요.
-    // capture 단계(true)에서 먼저 가로채 xterm 자체 paste 핸들러 실행 전에 청크 전송.
+    // capture 단계(true)에서 xterm 자체 핸들러보다 먼저 실행해 중복 전송 방지.
     const handlePaste = (e) => {
       const text = e.clipboardData?.getData('text/plain');
       if (!text) return;
       e.preventDefault();
       e.stopPropagation();
-      sendPasteChunked(text);
+      term.paste(text);
     };
     container.addEventListener('paste', handlePaste, true);
     const isShellInputKey = (e) => {
