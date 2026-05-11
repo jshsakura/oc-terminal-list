@@ -135,6 +135,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       };
     };
 
+
     // WebGL 렌더러 — 디폴트 ON. 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
     // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
     // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
@@ -180,7 +181,6 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       e.stopPropagation();
       term.paste(text);
     };
-    container.addEventListener('paste', handlePaste, true);
     const isShellInputKey = (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return false;
       if (e.key.length === 1) return true; // 인쇄 가능 문자
@@ -235,6 +235,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     const container = terminalRef.current;
     container.addEventListener('contextmenu', handleContextMenu);
     container.addEventListener('keydown', handleKeyDown);
+    container.addEventListener('paste', handlePaste, true);
 
     /* 휠 → PgUp/PgDn. xterm v6 의 attachCustomWheelEventHandler 사용 — xterm 내장 wheel 처리 직전에
        호출되며, return false → xterm 의 default 처리 skip. capture/bubble race 없음. tmux mouse off
@@ -835,6 +836,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
           50%  { opacity: 0.7; }
           100% { opacity: 0.35; }
         }
+        .xterm-scrollable-element { height: 100% !important; }
       `}</style>
 
       {/* 스켈레톤: 첫 콘텐츠가 그려지기 전까지 표시 */}
@@ -880,6 +882,8 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
           width: '100%',
           height: '100%',
           boxSizing: 'border-box',
+          background: currentTheme.background,
+          overflow: 'hidden',
           opacity: hasContent ? 1 : 0,
           transition: 'opacity 0.18s ease',
           caretColor: 'transparent',
