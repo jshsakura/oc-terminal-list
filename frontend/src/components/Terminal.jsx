@@ -167,12 +167,15 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       if (e.key === 'F12') return false;
-      if (e.ctrlKey && !e.altKey && (e.key === 'v' || e.key === 'V')) {
+      // Ctrl+V (Linux/Win) 또는 Cmd+V (Mac) → paste
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')) {
         pasteFromClipboard(e);
         wheelStateRef.current.inCopyMode = false;
         return false;
       }
-      if (e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) {
+      // Ctrl+Shift+C (Linux/Win) 또는 Cmd+C (Mac, 선택 있을 때) → copy
+      if ((e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) ||
+          (e.metaKey && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C'))) {
         const sel = term.getSelection();
         if (sel) {
           e.preventDefault();
@@ -263,6 +266,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       try {
         const res = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(5000),
         });
         if (!res.ok) return { attached: false, exists: true };
         const data = await res.json();
@@ -969,6 +973,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
               wsRef.current?.send(JSON.stringify({ type: 'auth-response', values }));
             } catch { /* noop */ }
             setAuthPrompt(null);
+            setTimeout(() => xtermRef.current?.focus(), 100);
           }}
           onCancel={() => {
             try {
