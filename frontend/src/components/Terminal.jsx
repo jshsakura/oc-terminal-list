@@ -48,9 +48,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
   const [isReady, setIsReady] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const [evicted, setEvicted] = useState(false);
-  // 셸이 종료(`exit` 등)되어 tmux 세션이 사라진 상태 — 자동 재생성 막고 사용자에게 명시적 restart.
   const [ended, setEnded] = useState(false);
-  // SSH keyboard-interactive (TOTP/OTP 등 2FA) 챌린지 — 백엔드가 WS 로 보내고 사용자 응답 받음.
   const [authPrompt, setAuthPrompt] = useState(null);
   // authPrompt 열고 닫을 때 전역 이벤트 — App.jsx 가 모바일 단축키바를 그동안 숨김.
   useEffect(() => {
@@ -118,6 +116,25 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
 
     term.open(terminalRef.current);
 
+    // FitAddon은 기본적으로 overview ruler용 14px를 빼고 cols를 계산함 (overviewRuler?.width || 14).
+    // 스크롤바를 CSS로 숨기므로 이 공간이 필요 없음. proposeDimensions를 재정의해서 전체 폭을 활용.
+    fitAddon.proposeDimensions = () => {
+      const d = term._core?._renderService?.dimensions;
+      if (!d?.css?.cell?.width || !d?.css?.cell?.height) return undefined;
+      const p = term.element?.parentElement;
+      if (!p) return undefined;
+      const ps = window.getComputedStyle(p);
+      const ts = window.getComputedStyle(term.element);
+      const w = Math.max(0, parseInt(ps.getPropertyValue('width')));
+      const h = parseInt(ps.getPropertyValue('height'));
+      const ph = (parseInt(ts.paddingLeft) || 0) + (parseInt(ts.paddingRight) || 0);
+      const pv = (parseInt(ts.paddingTop) || 0) + (parseInt(ts.paddingBottom) || 0);
+      return {
+        cols: Math.max(2, Math.floor((w - ph) / d.css.cell.width)),
+        rows: Math.max(1, Math.floor((h - pv) / d.css.cell.height)),
+      };
+    };
+
     // WebGL 렌더러 — 디폴트 ON. 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
     // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
     // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
@@ -153,12 +170,32 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     /* xterm 키 가로채기 — Ctrl+V → paste, Ctrl+Shift+C → copy, F12 → DevTools.
        추가: 휠로 copy-mode 진입한 상태에서 셸 입력 키 누르면 자동 'q' 먼저 보내 copy-mode 종료. */
     const COPY_MODE_GRACE_MS = 8000; // wheel 후 8초 내 셸 입력 = copy-mode 활성으로 간주
-    const pasteFromClipboard = (e) => {
-      e.preventDefault();
-      navigator.clipboard.readText().then((text) => {
-        if (text) term.paste(text);
-      }).catch(() => {});
+
+    // 대용량 붙여넣기: 3000자 단위로 나눠서 16ms 간격 전송 → 브라우저 이벤트루프 블로킹 방지.
+    const PASTE_CHUNK = 3000;
+    const sendPasteChunked = (text) => {
+      if (!text) return;
+      if (text.length <= PASTE_CHUNK) { term.paste(text); return; }
+      let i = 0;
+      const next = () => {
+        if (!xtermRef.current) return;
+        xtermRef.current.paste(text.slice(i, i + PASTE_CHUNK));
+        i += PASTE_CHUNK;
+        if (i < text.length) setTimeout(next, 16);
+      };
+      next();
     };
+
+    // paste 이벤트: ClipboardEvent.clipboardData → clipboard-read 권한 불필요.
+    // capture 단계(true)에서 먼저 가로채 xterm 자체 paste 핸들러 실행 전에 청크 전송.
+    const handlePaste = (e) => {
+      const text = e.clipboardData?.getData('text/plain');
+      if (!text) return;
+      e.preventDefault();
+      e.stopPropagation();
+      sendPasteChunked(text);
+    };
+    container.addEventListener('paste', handlePaste, true);
     const isShellInputKey = (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return false;
       if (e.key.length === 1) return true; // 인쇄 가능 문자
@@ -167,9 +204,9 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       if (e.key === 'F12') return false;
-      // Ctrl+V (Linux/Win) 또는 Cmd+V (Mac) → paste
+      // Ctrl+V / Cmd+V: return false(xterm 처리 중단) but e.preventDefault() 호출 안 함 →
+      // 브라우저가 paste 이벤트를 발화 → handlePaste 가 clipboardData 로 권한 없이 읽음.
       if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')) {
-        pasteFromClipboard(e);
         wheelStateRef.current.inCopyMode = false;
         return false;
       }
@@ -195,16 +232,9 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       return true;
     });
 
-    const handleContextMenu = async (e) => {
-      // 브라우저 native 컨텍스트 메뉴 차단. tmux 의 right-click popup 메뉴는 unbind-key 로
-      // 백엔드에서 따로 끔. 클립보드 → term.paste() 로 bracketed-paste 송신.
-      e.preventDefault();
-      try {
-        const text = await navigator.clipboard.readText();
-        if (text) term.paste(text);
-      } catch (err) {
-      }
-    };
+    // 우클릭: 네이티브 컨텍스트 메뉴를 막아 tmux 가 마우스 이벤트를 처리할 수 있게 함.
+    // 붙여넣기는 Cmd+V / Ctrl+V 가 paste 이벤트로 항상 작동하므로 별도 처리 불필요.
+    const handleContextMenu = (e) => e.preventDefault();
 
     /* 드래그 중 mousemove 마다 onSelectionChange fire — 정착(80ms idle) 후 한 번만 클립보드 write.
        race / 이중 발화 방지. */
@@ -513,6 +543,7 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
       if (container) {
         container.removeEventListener('contextmenu', handleContextMenu);
         container.removeEventListener('keydown', handleKeyDown);
+        container.removeEventListener('paste', handlePaste, true);
       }
       try { wsRef.current?.close(); } catch {}
       connectRef.current = null;
@@ -871,29 +902,16 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
         }}
       />
 
-      {/* takeover 오버레이 — 다른 기기/탭이 같은 tmux 세션을 가져갔을 때.
-          이 단말은 가만히 멈춰 있고, 사용자가 버튼을 눌러야만 다시 attach. */}
+      {/* takeover 배너 — 패널 하단 인라인, 여러 패널에 동시 노출 가능 */}
       {evicted && (
-        <div style={styles.modalOverlay(themeUi, 12)}>
-          <div style={styles.modalCard(themeUi)}>
-            <header style={styles.modalHeader(themeUi)}>
-              <div style={styles.iconTile(themeUi)}>
-                <MonitorSmartphone size={18} strokeWidth={1.8} />
-              </div>
-              <div style={styles.modalTitle(themeUi)}>
-                {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
-              </div>
-            </header>
-            <div style={styles.modalBody(themeUi)}>
-              {t('takenOverBody') ||
-                'tmux 세션은 한 번에 한 화면에서만 안정적으로 보입니다. 이 화면으로 다시 가져오면 저쪽이 같은 안내로 바뀝니다.'}
-            </div>
-            <footer style={styles.modalFooter(themeUi)}>
+        <div style={styles.inlineBanner(themeUi)}>
+          <MonitorSmartphone size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+          <span style={styles.bannerText(themeUi)}>
+            {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
+          </span>
           <button
             type="button"
             onClick={() => {
-              /* 사용자 명시적 액션 — preflight skip 하고 즉시 attach -d (저쪽 떨어뜨림).
-                 connectRef 를 직접 호출해서 Terminal remount 없이 WS 만 새로 엶. */
               evictedRef.current = false;
               setEvicted(false);
               if (connectRef.current) {
@@ -904,58 +922,35 @@ const TerminalComponent = ({ sessionId, hostId, tmuxSuffix = null, tmuxSessionNa
                 window.location.reload();
               }
             }}
-            style={{
-              ...styles.primaryModalButton(themeUi),
-              background: themeUi.accent,
-              color: themeUi.crust,
-            }}
+            style={styles.bannerButton(themeUi)}
           >
             {t('takeOver') || '내가 가져오기'}
           </button>
-            </footer>
-          </div>
         </div>
       )}
 
-      {/* shell 종료 오버레이 — 사용자가 `exit` 등으로 셸을 끝내 tmux 세션이 사라진 상태.
-          자동 재생성 X. Restart 누르면 새 셸 spawn. */}
+      {/* shell 종료 배너 — 패널 하단 인라인 */}
       {ended && !evicted && (
-        <div style={styles.modalOverlay(themeUi, 12)}>
-          <div style={styles.modalCard(themeUi)}>
-            <header style={styles.modalHeader(themeUi)}>
-              <div style={styles.iconTile(themeUi)}>
-                <PowerOff size={18} strokeWidth={1.8} />
-              </div>
-              <div style={styles.modalTitle(themeUi)}>
-                {t('shellEndedTitle') || '셸이 종료되었습니다'}
-              </div>
-            </header>
-            <div style={styles.modalBody(themeUi)}>
-              {t('shellEndedBody') || '터미널 안에서 exit 을 입력하면 tmux 세션이 사라집니다. 같은 슬롯에서 새 셸로 다시 시작할 수 있습니다.'}
-            </div>
-            <footer style={styles.modalFooter(themeUi)}>
+        <div style={styles.inlineBanner(themeUi)}>
+          <PowerOff size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+          <span style={styles.bannerText(themeUi)}>
+            {t('shellEndedTitle') || '셸이 종료되었습니다'}
+          </span>
           <button
             type="button"
             onClick={() => {
               setEnded(false);
               reconnectAttemptsRef.current = 0;
               if (connectRef.current) {
-                // backend WS attach 가 세션 없으면 새로 만들어 주므로 그대로 connect.
                 connectRef.current();
               } else {
                 window.location.reload();
               }
             }}
-            style={{
-              ...styles.primaryModalButton(themeUi),
-              background: themeUi.accent,
-              color: themeUi.crust,
-            }}
+            style={styles.bannerButton(themeUi)}
           >
             {t('restartShell') || '새 셸 시작'}
           </button>
-            </footer>
-          </div>
         </div>
       )}
 
@@ -1230,6 +1225,43 @@ const styles = {
     outline: 'none',
     fontSize: fontSize['14'],
     fontFamily: 'inherit',
+  }),
+  inlineBanner: (themeUi) => ({
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['2'],
+    padding: `${space['1']} ${space['3']}`,
+    background: themeUi.surface1,
+    borderTop: `1px solid ${themeUi.border}`,
+    zIndex: 12,
+    fontSize: fontSize['11'],
+    fontFamily: 'inherit',
+  }),
+  bannerText: (themeUi) => ({
+    flex: 1,
+    color: themeUi.subtext,
+    fontSize: fontSize['11'],
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  }),
+  bannerButton: (themeUi) => ({
+    height: '24px',
+    padding: `0 ${space['2']}`,
+    borderRadius: radius.sm,
+    border: `1px solid ${themeUi.border}`,
+    background: themeUi.accent,
+    color: themeUi.crust,
+    fontSize: fontSize['11'],
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   }),
   promptPasteButton: (themeUi) => ({
     height: '40px',
