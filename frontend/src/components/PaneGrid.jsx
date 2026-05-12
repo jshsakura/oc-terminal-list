@@ -640,6 +640,24 @@ const SubTabBar = ({
                 opacity: isDragging ? 0.4 : 1,
               }}
             >
+              {idx + 1 <= 9 && (
+                <span
+                  aria-hidden
+                  style={{
+                    fontFamily: font.mono,
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: isActive ? color.subtext : color.muted,
+                    opacity: isActive ? 0.95 : 0.75,
+                    flexShrink: 0,
+                    lineHeight: 1,
+                    width: '10px',
+                    textAlign: 'center',
+                  }}
+                >
+                  {idx + 1}
+                </span>
+              )}
               <span style={{
                 position: 'relative',
                 display: 'inline-flex',
@@ -669,7 +687,7 @@ const SubTabBar = ({
                 )}
               </span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                {idx + 1}. {label}
+                {label}
               </span>
               <button
                 data-pane-more="true"
