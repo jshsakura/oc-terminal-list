@@ -2,7 +2,7 @@ import { Suspense, lazy, useState, useEffect, useRef, useMemo, useCallback, forw
 import { createPortal } from 'react-dom';
 import {
   X, Plus, Server, Terminal as TerminalIcon, Monitor, Copy, Plug, History, ArrowRightLeft, Settings as SettingsIcon,
-  MoreHorizontal, Edit3, Trash2,
+  MoreHorizontal, Edit3, Trash2, ChevronLeft, ChevronRight, GripVertical,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -95,6 +95,7 @@ const PaneGrid = ({
           onClose={(paneId) => onClosePane?.(tab.id, paneId)}
           onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}
           onRenamePane={onRenamePane ? (paneId) => onRenamePane(tab.id, paneId) : null}
+          isMobile={isMobile}
           t={t}
         />
         {/* display:grid; gridTemplateRows:1fr → 단일 자식(Pane) 이 부모 높이를 100% 채움.
@@ -455,7 +456,8 @@ const Pane = ({
 
 // 분할 서브탭 — pane 들 가로로 나열. 활성 pane 강조 + 머신 아이콘 + busy dot.
 // 모바일/데스크탑 모두 touch-drag reorder (꾹 → 드래그) 가능. X 닫기 버튼은 RightPanel 에 있어 생략.
-const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, onRename, onClose, onDismiss }, ref) => {
+const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, onRename, onClose, onDismiss,
+  canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null }, ref) => {
   const innerRef = useRef(null);
   const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
   const [measured, setMeasured] = useState(false);
@@ -502,6 +504,26 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
           {label}
         </span>
       </div>
+      {(onMoveLeft || onMoveRight) && (
+        <>
+          <button onClick={onMoveLeft} disabled={!canMoveLeft} style={{
+            display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
+            background: 'transparent', border: 'none', borderRadius: '4px', cursor: canMoveLeft ? 'pointer' : 'default',
+            color: canMoveLeft ? color.text : color.surface2, fontSize: fontSize['11'], fontFamily: font.sans, opacity: canMoveLeft ? 1 : 0.4,
+          }}>
+            <ChevronLeft size={12} strokeWidth={1.8} />
+            {t?.('moveLeft') || 'Move left'}
+          </button>
+          <button onClick={onMoveRight} disabled={!canMoveRight} style={{
+            display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
+            background: 'transparent', border: 'none', borderRadius: '4px', cursor: canMoveRight ? 'pointer' : 'default',
+            color: canMoveRight ? color.text : color.surface2, fontSize: fontSize['11'], fontFamily: font.sans, opacity: canMoveRight ? 1 : 0.4,
+          }}>
+            <ChevronRight size={12} strokeWidth={1.8} />
+            {t?.('moveRight') || 'Move right'}
+          </button>
+        </>
+      )}
       {!isEmpty && onRename && (
         <button onClick={onRename} style={{
           display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
@@ -528,7 +550,7 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
 
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
-  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, t,
+  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, isMobile = false, t,
 }) => {
   const scrollRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -560,23 +582,43 @@ const SubTabBar = ({
     return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('keydown', handleKey); };
   }, [!!ctxMenu]);
 
+  const activeIdx = panes.findIndex((p) => p.id === activePaneId);
+
+  const movePane = useCallback((fromIdx, toIdx) => {
+    if (toIdx < 0 || toIdx >= panes.length || !onReorder) return;
+    onReorder(panes[fromIdx].id, panes[toIdx].id);
+  }, [panes, onReorder]);
+
   return (
     <>
       <style>{`
         .iterm-subtabbar-scroll { scrollbar-width: none; -ms-overflow-style: none; }
         .iterm-subtabbar-scroll::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
       `}</style>
+      <div style={{ display: 'flex', height: '32px', flexShrink: 0, background: `${tabBarAccent}18`, borderBottom: `1px solid ${color.border}` }}>
+        {isMobile && (
+          <button
+            onClick={() => { if (activeIdx > 0) { onSelect(panes[activeIdx - 1].id); scrollRef.current?.children[activeIdx - 1]?.scrollIntoView({ behavior: 'smooth', inline: 'center' }); } }}
+            disabled={activeIdx <= 0}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '36px', height: '100%', flexShrink: 0,
+              background: 'transparent', border: 'none', cursor: activeIdx > 0 ? 'pointer' : 'default',
+              color: activeIdx > 0 ? tabBarAccent : color.surface2,
+              opacity: activeIdx > 0 ? 1 : 0.4,
+            }}
+          >
+            <ChevronLeft size={14} strokeWidth={2} />
+          </button>
+        )}
       <div
         ref={scrollRef}
         className="iterm-subtabbar-scroll"
         style={{
           display: 'flex',
-          height: '32px',
-          background: `${tabBarAccent}18`,
-          borderBottom: `1px solid ${color.border}`,
+          flex: 1,
           overflowX: 'auto',
           overflowY: 'hidden',
-          flexShrink: 0,
         }}
       >
         {panes.map((pane, idx) => {
@@ -679,10 +721,38 @@ const SubTabBar = ({
               if (pane) onRenamePane(pane.id);
               setCtxMenu(null);
             } : null}
+            canMoveLeft={panes.findIndex((p) => p.id === ctxMenu.paneId) > 0}
+            canMoveRight={panes.findIndex((p) => p.id === ctxMenu.paneId) < panes.length - 1}
+            onMoveLeft={onReorder && panes.findIndex((p) => p.id === ctxMenu.paneId) > 0 ? () => {
+              const idx = panes.findIndex((p) => p.id === ctxMenu.paneId);
+              onReorder(panes[idx].id, panes[idx - 1].id);
+              setCtxMenu(null);
+            } : null}
+            onMoveRight={onReorder && panes.findIndex((p) => p.id === ctxMenu.paneId) < panes.length - 1 ? () => {
+              const idx = panes.findIndex((p) => p.id === ctxMenu.paneId);
+              onReorder(panes[idx].id, panes[idx + 1].id);
+              setCtxMenu(null);
+            } : null}
             onClose={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
             onDismiss={() => setCtxMenu(null)}
           />,
           document.body,
+        )}
+      </div>
+      {isMobile && (
+          <button
+            onClick={() => { if (activeIdx < panes.length - 1) { onSelect(panes[activeIdx + 1].id); scrollRef.current?.children[activeIdx + 1]?.scrollIntoView({ behavior: 'smooth', inline: 'center' }); } }}
+            disabled={activeIdx >= panes.length - 1}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '36px', height: '100%', flexShrink: 0,
+              background: 'transparent', border: 'none', cursor: activeIdx < panes.length - 1 ? 'pointer' : 'default',
+              color: activeIdx < panes.length - 1 ? tabBarAccent : color.surface2,
+              opacity: activeIdx < panes.length - 1 ? 1 : 0.4,
+            }}
+          >
+            <ChevronRight size={14} strokeWidth={2} />
+          </button>
         )}
       </div>
     </>
