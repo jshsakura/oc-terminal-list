@@ -688,7 +688,6 @@ function App() {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(window.visualViewport?.height ?? window.innerHeight);
-  const [viewportOffset, setViewportOffset] = useState(window.visualViewport?.offsetTop ?? 0);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
@@ -764,20 +763,18 @@ function App() {
     window.addEventListener('resize', check);
     window.addEventListener('orientationchange', check);
 
-    // visualViewport — 모바일 키보드 감지용
-    let pending = false;
+    // visualViewport — 모바일 키보드 대응 핵심 로직
     const handleVV = () => {
-      if (pending) return;
-      pending = true;
-      requestAnimationFrame(() => {
-        pending = false;
-        if (window.visualViewport) {
-          // 키보드가 올라오면 height 가 줄어들고 offsetTop 이 생길 수 있음.
-          setViewportHeight(window.visualViewport.height);
-          setViewportOffset(window.visualViewport.offsetTop);
+      if (window.visualViewport) {
+        setViewportHeight(window.visualViewport.height);
+        
+        // [iOS 근본 해결] 브라우저가 키보드 때문에 화면을 밀어올리면(panning), 
+        // offsetTop 이 생김. 이를 0으로 강제 고정하여 레이아웃 이탈 방지.
+        if (window.visualViewport.offsetTop > 0) {
+          window.scrollTo(0, 0);
         }
-        check();
-      });
+      }
+      check();
     };
 
     if (window.visualViewport) {
@@ -1043,10 +1040,8 @@ function App() {
       background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,
-      position: 'fixed',
+      position: 'absolute', // fixed 대신 absolute 사용하여 밀어올림 시 jitter 최소화
       top: 0, left: 0,
-      // 브라우저가 밀어올린 만큼(viewportOffset) 다시 아래로 내려서 가시 영역에 박제.
-      transform: isMobile ? `translateY(${viewportOffset}px)` : 'none',
     }}>
       <style>{`
         /* 브라우저 기본 스크롤/바운스/밀어올리기 원천 차단 */
@@ -1058,6 +1053,7 @@ function App() {
           padding: 0;
           overscroll-behavior: none;
           -webkit-user-select: none;
+          position: fixed; /* iOS Safari Panning 차단 핵심 */
         }
         
         #root {

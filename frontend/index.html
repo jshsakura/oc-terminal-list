@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -35,16 +35,12 @@
 
       html, body, #root {
         width: 100%;
-        /* 100% = iOS layout viewport (가장 큰 = URL bar 숨김 기준). dvh 안 쓰면 App wrapper 보다
-           커져 하단 빈공간 발생. dvh 로 동적 visible viewport 추적 → URL bar 표시/숨김 모두 정상. */
-        height: 100vh; /* legacy fallback */
-        height: 100dvh;
+        height: 100%;
         overflow: hidden;
-        position: fixed;
+        margin: 0;
+        padding: 0;
         background: #0f0f17; /* tokens.color.crust */
         color: #e4e6f1;
-        scrollbar-width: none; /* Firefox */
-        -ms-overflow-style: none; /* IE/Edge */
       }
 
       html::-webkit-scrollbar, body::-webkit-scrollbar, #root::-webkit-scrollbar {
