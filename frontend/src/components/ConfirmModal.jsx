@@ -18,6 +18,7 @@ const ConfirmModal = ({
   onConfirm,
   onCancel,
   title,
+  titleIcon: TitleIcon = null,
   message,
   confirmText,
   cancelText,
@@ -78,7 +79,8 @@ const ConfirmModal = ({
         onClick={(e) => e.stopPropagation()}
       >
         <header style={styles.header}>
-          <div style={{ ...styles.title, color: danger ? color.danger : color.text }}>
+          <div style={{ ...styles.title, color: danger ? color.danger : color.text, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            {TitleIcon && <TitleIcon size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />}
             {headerLabel}
           </div>
           <button

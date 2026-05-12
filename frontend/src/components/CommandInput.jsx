@@ -175,7 +175,10 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
         onTouchMove={(e) => e.stopPropagation()}
       >
         <header style={styles.header}>
-          <div style={styles.title}>{t?.('commandInput') || 'Send command'}</div>
+          <div style={{ ...styles.title, display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <Send size={12} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+            {t?.('commandInput') || 'Send command'}
+          </div>
           <button onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
         </header>
 

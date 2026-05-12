@@ -598,7 +598,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       connectRef.current = null;
       runPreflightRef.current = null;
       wsBufferRef.current = [];
-      term.dispose();
+      try { term.dispose(); } catch {}
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);

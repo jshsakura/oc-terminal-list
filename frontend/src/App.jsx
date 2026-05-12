@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
 import uFuzzy from '@leeoniya/ufuzzy';
-import { Terminal as TerminalIcon, Menu } from 'lucide-react';
+import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare } from 'lucide-react';
 import useSettings from './hooks/useSettings';
 import useTranslation from './hooks/useTranslation';
 import useAuth from './hooks/useAuth';
@@ -20,6 +20,7 @@ import LocalFolderPicker from './components/LocalFolderPicker';
 import { tokens as designTokens } from './styles/tokens';
 import HostManager from './components/HostManager';
 import PaneGrid from './components/PaneGrid';
+import PaneErrorBoundary from './components/PaneErrorBoundary';
 import LoadingScreen from './components/layout/LoadingScreen';
 
 const Terminal        = lazy(() => import('./components/Terminal'));
@@ -573,7 +574,9 @@ function App() {
 
     setConfirmModal({
       isOpen: true,
-      title, message,
+      title,
+      titleIcon: Columns3,
+      message,
       onConfirm: doClose,
     });
   }, [tabs, t, hosts, computePaneTmuxSession, killRemoteTmuxSession]);
@@ -721,6 +724,7 @@ function App() {
     setConfirmModal({
       isOpen: true,
       title: t('closeTab') || 'Close tab',
+      titleIcon: XCircle,
       message,
       onConfirm: doClose,
     });
@@ -974,6 +978,7 @@ function App() {
   const handleLogoutRequest = () => setConfirmModal({
     isOpen: true,
     title: t('confirmLogout'),
+    titleIcon: LogOut,
     message: t('logoutMessage'),
     onConfirm: logout,
   });
@@ -1459,6 +1464,7 @@ function App() {
                   </div>
                 )}
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: '150px' }}>
+                  <PaneErrorBoundary>
                   <PaneGrid
                     tab={tab}
                     allTabs={tabs}
@@ -1527,6 +1533,7 @@ function App() {
                     onEditLocal={() => setLocalEditorOpen(true)}
                     refreshHosts={refreshHosts}
                   />
+                  </PaneErrorBoundary>
                 </div>
               </div>
             );
@@ -1769,6 +1776,7 @@ function App() {
           <ConfirmModal
             isOpen={confirmModal.isOpen}
             title={confirmModal.title}
+            titleIcon={confirmModal.titleIcon}
             message={confirmModal.message}
             confirmText={confirmModal.confirmText}
             cancelText={confirmModal.cancelText}
