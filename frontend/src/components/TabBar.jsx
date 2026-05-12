@@ -266,7 +266,7 @@ const Tab = memo(({
       }}
     >
       {/* Ctrl+N 번호 — 박스 없이 모노 숫자만. 알림 뱃지 느낌 없이 식별만. */}
-      {!isMobile && index != null && index <= 9 && (
+      {index != null && index <= 9 && (
         <span
           aria-hidden
           title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
