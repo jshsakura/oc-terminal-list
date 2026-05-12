@@ -550,7 +550,7 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
 
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
-  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, isMobile = false, t,
+  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, t,
 }) => {
   const scrollRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -582,43 +582,23 @@ const SubTabBar = ({
     return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('keydown', handleKey); };
   }, [!!ctxMenu]);
 
-  const activeIdx = panes.findIndex((p) => p.id === activePaneId);
-
-  const movePane = useCallback((fromIdx, toIdx) => {
-    if (toIdx < 0 || toIdx >= panes.length || !onReorder) return;
-    onReorder(panes[fromIdx].id, panes[toIdx].id);
-  }, [panes, onReorder]);
-
   return (
     <>
       <style>{`
         .iterm-subtabbar-scroll { scrollbar-width: none; -ms-overflow-style: none; }
         .iterm-subtabbar-scroll::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
       `}</style>
-      <div style={{ display: 'flex', height: '32px', flexShrink: 0, background: `${tabBarAccent}18`, borderBottom: `1px solid ${color.border}` }}>
-        {isMobile && (
-          <button
-            onClick={() => { if (activeIdx > 0) { onSelect(panes[activeIdx - 1].id); scrollRef.current?.children[activeIdx - 1]?.scrollIntoView({ behavior: 'smooth', inline: 'center' }); } }}
-            disabled={activeIdx <= 0}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: '36px', height: '100%', flexShrink: 0,
-              background: 'transparent', border: 'none', cursor: activeIdx > 0 ? 'pointer' : 'default',
-              color: activeIdx > 0 ? tabBarAccent : color.surface2,
-              opacity: activeIdx > 0 ? 1 : 0.4,
-            }}
-          >
-            <ChevronLeft size={14} strokeWidth={2} />
-          </button>
-        )}
       <div
         ref={scrollRef}
         className="iterm-subtabbar-scroll"
         style={{
           display: 'flex',
-          flex: 1,
+          height: '32px',
+          background: `${tabBarAccent}18`,
+          borderBottom: `1px solid ${color.border}`,
           overflowX: 'auto',
           overflowY: 'hidden',
+          flexShrink: 0,
         }}
       >
         {panes.map((pane, idx) => {
@@ -689,7 +669,7 @@ const SubTabBar = ({
                 )}
               </span>
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
-                {label}
+                {idx + 1}. {label}
               </span>
               <button
                 data-pane-more="true"
@@ -737,22 +717,6 @@ const SubTabBar = ({
             onDismiss={() => setCtxMenu(null)}
           />,
           document.body,
-        )}
-      </div>
-      {isMobile && (
-          <button
-            onClick={() => { if (activeIdx < panes.length - 1) { onSelect(panes[activeIdx + 1].id); scrollRef.current?.children[activeIdx + 1]?.scrollIntoView({ behavior: 'smooth', inline: 'center' }); } }}
-            disabled={activeIdx >= panes.length - 1}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              width: '36px', height: '100%', flexShrink: 0,
-              background: 'transparent', border: 'none', cursor: activeIdx < panes.length - 1 ? 'pointer' : 'default',
-              color: activeIdx < panes.length - 1 ? tabBarAccent : color.surface2,
-              opacity: activeIdx < panes.length - 1 ? 1 : 0.4,
-            }}
-          >
-            <ChevronRight size={14} strokeWidth={2} />
-          </button>
         )}
       </div>
     </>
