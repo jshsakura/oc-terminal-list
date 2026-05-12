@@ -580,11 +580,15 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     // [중요] ResizeObserver를 통한 컨테이너 크기 변화 감지 (에디터 열고 닫기 등 레이아웃 변화 대응)
     const observer = new ResizeObserver(() => handleResize());
     if (terminalRef.current) observer.observe(terminalRef.current);
+    // window resize fallback — DevTools 도킹/해제 시 컨테이너 사이즈는 그대로여도
+    // viewport 가 변하므로 fit() 을 다시 트리거해야 함.
+    window.addEventListener('resize', handleResize);
 
     return () => {
       cancelled = true;
       intentionalCloseRef.current = true;
       if (observer) observer.disconnect();
+      window.removeEventListener('resize', handleResize);
       if (container) {
         container.removeEventListener('contextmenu', handleContextMenu);
         container.removeEventListener('keydown', handleKeyDown);
