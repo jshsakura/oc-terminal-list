@@ -716,6 +716,7 @@ function App() {
   // 디스패치 → 여기서 paneId → ts 맵에 기록 → 250ms 마다 만료 (>700ms 비활성) 검사 후
   // tabId 단위 busy 집합으로 변환. tabs 는 ref 로 잡아 stale closure 방지.
   const [busyTabIds, setBusyTabIds] = useState(() => new Set());
+  const [busyPaneIds, setBusyPaneIds] = useState(() => new Set());
   const tabsRef = useRef(tabs);
   useEffect(() => { tabsRef.current = tabs; }, [tabs]);
   useEffect(() => {
@@ -737,6 +738,10 @@ function App() {
         if (now - ts < BUSY_WINDOW_MS) busyPaneIds.add(pid);
         else activity.delete(pid);
       }
+      setBusyPaneIds((prev) => {
+        if (prev.size === busyPaneIds.size && [...prev].every((x) => busyPaneIds.has(x))) return prev;
+        return busyPaneIds;
+      });
       const next = new Set();
       for (const tb of tabsRef.current) {
         if (tb.panes?.some((p) => busyPaneIds.has(p.id))) next.add(tb.id);
@@ -1372,6 +1377,7 @@ function App() {
                       }
                     }}
                     busyTabIds={busyTabIds}
+                    busyPaneIds={busyPaneIds}
                     /* EmptyPane Connections → 폴더 픽커. slot (tabId/paneId) 같이 넘겨 빈 슬롯에 채움. */
                     onPickHostPath={(h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); }}
                     onPickLocalPath={(slot) => setLocalFolderPicker({

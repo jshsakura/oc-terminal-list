@@ -42,9 +42,6 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
      호출할 수 있게 ref 로 공개. */
   const connectRef = useRef(null);
   const runPreflightRef = useRef(null);
-  // 휠로 copy-mode 진입한 상태 트래킹 — 사용자가 셸 입력 키를 누르면 자동으로 'q' 먼저 보내
-  // copy-mode 빠져나오게 한다. wheel up 시 set, 일정 시간 idle 후 자동 reset.
-  const wheelStateRef = useRef({ inCopyMode: false, lastWheelTs: 0 });
   const [isReady, setIsReady] = useState(false);
   const [hasContent, setHasContent] = useState(false);
   const [evicted, setEvicted] = useState(false);
@@ -175,9 +172,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
     };
 
-    /* xterm 키 가로채기 — Ctrl+V → paste, Ctrl+Shift+C → copy, F12 → DevTools.
-       추가: 휠로 copy-mode 진입한 상태에서 셸 입력 키 누르면 자동 'q' 먼저 보내 copy-mode 종료. */
-    const COPY_MODE_GRACE_MS = 8000; // wheel 후 8초 내 셸 입력 = copy-mode 활성으로 간주
+    /* xterm 키 가로채기 — Ctrl+V → paste, Ctrl+Shift+C → copy, F12 → DevTools. */
 
     // paste 이벤트: ClipboardEvent.clipboardData → clipboard-read 권한 불필요.
     // capture 단계(true)에서 xterm 자체 핸들러보다 먼저 실행해 중복 전송 방지.
@@ -188,18 +183,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       e.stopPropagation();
       term.paste(text);
     };
-    const isShellInputKey = (e) => {
-      if (e.ctrlKey || e.metaKey || e.altKey) return false;
-      if (e.key.length === 1) return true; // 인쇄 가능 문자
-      return e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Tab';
-    };
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== 'keydown') return true;
       if (e.key === 'F12') return false;
       // Ctrl+V / Cmd+V: return false(xterm 처리 중단) but e.preventDefault() 호출 안 함 →
       // 브라우저가 paste 이벤트를 발화 → handlePaste 가 clipboardData 로 권한 없이 읽음.
       if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')) {
-        wheelStateRef.current.inCopyMode = false;
         return false;
       }
       // Ctrl+Shift+C (Linux/Win) 또는 Cmd+C (Mac, 선택 있을 때) → copy
@@ -211,15 +200,6 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           navigator.clipboard.writeText(sel).catch(() => {});
           return false;
         }
-      }
-      // copy-mode 자동 종료 — 휠로 진입했고 grace period 안에 셸 입력 키면 'q' 먼저.
-      if (wheelStateRef.current.inCopyMode && isShellInputKey(e)) {
-        const grace = Date.now() - wheelStateRef.current.lastWheelTs < COPY_MODE_GRACE_MS;
-        if (grace) {
-          const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) ws.send('q');
-        }
-        wheelStateRef.current.inCopyMode = false;
       }
       return true;
     });
@@ -260,9 +240,6 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         const ws = wsRef.current;
         if (!ws || ws.readyState !== WebSocket.OPEN) return true;
         ws.send(e.deltaY > 0 ? '\x1b[6~' : '\x1b[5~');
-        // wheel up = copy-mode 진입(또는 더 위로). 사용자가 그 후 셸 입력하면 자동 'q' 보내야.
-        if (e.deltaY < 0) wheelStateRef.current.inCopyMode = true;
-        wheelStateRef.current.lastWheelTs = Date.now();
         return false;
       });
     }

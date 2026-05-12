@@ -26,20 +26,22 @@ const RailIconBtn = ({
   disabled = false,
   badge = null,     // 우상단 작은 카운트 배지
   ariaLabel,
+  ui = null,
 }) => {
   const isDanger = tone === 'danger';
+  const palette = ui || color;
   const baseColor =
-    isDanger ? color.danger
-    : active ? color.accent
-    : color.subtext;
-  const hoverColor = isDanger ? '#fff' : color.text;
+    isDanger ? palette.danger
+    : active ? palette.accent
+    : palette.subtext;
+  const hoverColor = isDanger ? '#fff' : palette.text;
   // danger 는 항상 살짝 보이게 (rail 안에 묻히지 않도록). active 면 surface1 우선.
   const idleInnerBg = active
-    ? color.surface1
+    ? palette.surface1
     : isDanger
-      ? `${color.danger}1f`   // ~12% alpha
+      ? `${palette.danger}1f`   // ~12% alpha
       : 'transparent';
-  const hoverInnerBg = isDanger ? color.danger : color.surface0;
+  const hoverInnerBg = isDanger ? palette.danger : palette.surface0;
 
   return (
     <button
@@ -71,12 +73,14 @@ const RailIconBtn = ({
         style={{
           ...S.inner,
           background: idleInnerBg,
-          border: isDanger ? `1px solid ${color.danger}33` : '1px solid transparent',
+          border: isDanger ? `1px solid ${palette.danger}33` : '1px solid transparent',
         }}
       >
         {Icon ? <Icon size={15} strokeWidth={1.8} /> : children}
         {badge != null && badge > 0 && (
-          <span style={S.badge}>{badge > 99 ? '99+' : badge}</span>
+          <span style={{ ...S.badge, background: palette.accent, color: palette.crust, boxShadow: `0 0 0 1.5px ${palette.mantle}` }}>
+            {badge > 99 ? '99+' : badge}
+          </span>
         )}
       </span>
     </button>

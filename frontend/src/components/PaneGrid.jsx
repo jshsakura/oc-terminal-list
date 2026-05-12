@@ -55,6 +55,7 @@ const PaneGrid = ({
   onResumeHostSession,
   onTerminateHostSession,
   busyTabIds,
+  busyPaneIds,
   /* EmptyPane 의 호스트/로컬 카드용 — 새탭 (HomeDashboard) 과 동일한 폴더 픽커 / 호스트 설정 진입. */
   onPickHostPath,
   onPickLocalPath,
@@ -81,6 +82,7 @@ const PaneGrid = ({
           panes={panes}
           activePaneId={activePane.id}
           hosts={hosts}
+          busyPaneIds={busyPaneIds}
           onSelect={(paneId) => onFocusPane?.(tab.id, paneId)}
           onClose={(paneId) => onClosePane?.(tab.id, paneId)}
           t={t}
@@ -114,6 +116,7 @@ const PaneGrid = ({
             onResumeHostSession={onResumeHostSession}
             onTerminateHostSession={onTerminateHostSession}
             busyTabIds={busyTabIds}
+            busyPaneIds={busyPaneIds}
             onPickHostPath={onPickHostPath}
             onPickLocalPath={onPickLocalPath}
             onEditHost={onEditHost}
@@ -177,6 +180,7 @@ const PaneGrid = ({
           onResumeHostSession={onResumeHostSession}
           onTerminateHostSession={onTerminateHostSession}
           busyTabIds={busyTabIds}
+          busyPaneIds={busyPaneIds}
           onPickHostPath={onPickHostPath}
           onPickLocalPath={onPickLocalPath}
           onEditHost={onEditHost}
@@ -200,7 +204,7 @@ const Pane = ({
   pane, paneIndex = 0, tab, hosts, allTabs = [], isMobile = false, isFocused, isMultiple, onFocus, onClose, onActivate,
   isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
-  onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
+  onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds, busyPaneIds,
   onPickHostPath = null, onPickLocalPath = null, onEditHost = null, refreshHosts = null,
   language, t, viewportHeight,
   onExtractPane = null,
@@ -233,6 +237,8 @@ const Pane = ({
   }, [effectiveThemeId]);
   const isEmpty = !pane.sessionId && !pane.hostId;
   const isLocal = !!pane.sessionId && !pane.hostId;
+  const isPaneBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
+  const showBusyBreath = isPaneBusy && !isFocused;
 
   // pane 마다 자기 cwd 추적
   const { workspaceRelative: paneCwdRel } = useActiveTerminalCwd({
@@ -264,6 +270,16 @@ const Pane = ({
         minWidth: 0,
       }}
     >
+      <style>{`
+        @keyframes iterm-pane-busy-breath {
+          0%, 100% { opacity: 0.22; transform: scaleX(0.92); }
+          50% { opacity: 0.62; transform: scaleX(1); }
+        }
+        @keyframes iterm-pane-busy-dot {
+          0%, 100% { opacity: 0.48; transform: scale(0.9); }
+          50% { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
       {/* 본문 영역 — RightPanel 활동바 폭(36px)만큼 우측 마진 (rail 영역 침범 안 함). */}
       <div style={{
         flex: 1,
@@ -272,6 +288,26 @@ const Pane = ({
         overflow: 'hidden',
         marginRight: '36px',
       }}>
+        {isPaneBusy && (
+          <span
+            className="iterm-pane-busy-dot"
+            aria-hidden
+            title={t?.('terminalBusy') || 'Terminal is active'}
+            style={{
+              position: 'absolute',
+              top: '8px',
+              right: '8px',
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: 'var(--ui-accent, #89b4fa)',
+              boxShadow: '0 0 0 2px var(--ui-base, rgba(0,0,0,.55)), 0 0 14px var(--ui-accent, #89b4fa)',
+              zIndex: 8,
+              pointerEvents: 'none',
+              animation: 'iterm-pane-busy-dot 1.15s ease-in-out infinite',
+            }}
+          />
+        )}
         {isEmpty ? (
           <EmptyPane
             onActivate={onActivate}
@@ -321,6 +357,24 @@ const Pane = ({
               onTakeOver={() => setRefreshNonce((n) => n + 1)}
             />
           </Suspense>
+        )}
+        {showBusyBreath && (
+          <div
+            aria-hidden
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: '34%',
+              pointerEvents: 'none',
+              zIndex: 7,
+              transformOrigin: 'right center',
+              background: 'linear-gradient(90deg, transparent 0%, var(--ui-accent-subtle, rgba(137,180,250,.12)) 58%, var(--ui-accent-border, rgba(137,180,250,.32)) 100%)',
+              boxShadow: 'inset -3px 0 0 var(--ui-accent, #89b4fa)',
+              animation: 'iterm-pane-busy-breath 1.8s ease-in-out infinite',
+            }}
+          />
         )}
       </div>
 
@@ -405,7 +459,7 @@ const Pane = ({
 };
 
 // 모바일 서브탭 — pane 들 가로로 나열. 활성 pane 강조 + X 닫기
-const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
+const SubTabBar = ({ panes, activePaneId, hosts, busyPaneIds = null, onSelect, onClose, t }) => (
   <div style={{
     display: 'flex',
     height: '32px',
@@ -417,6 +471,7 @@ const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
     {panes.map((pane, idx) => {
       const isActive = pane.id === activePaneId;
       const isEmpty = !pane.sessionId && !pane.hostId;
+      const isBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
       const host = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
       const label = host?.name || (pane.sessionId ? (t?.('thisMachine') || 'Local') : (t?.('startSession') || 'Empty'));
       const Icon = pane.hostId ? Server : TerminalIcon;
@@ -442,6 +497,19 @@ const SubTabBar = ({ panes, activePaneId, hosts, onSelect, onClose, t }) => (
           }}
         >
           {isEmpty ? <Plus size={11} strokeWidth={2} /> : <Icon size={11} strokeWidth={1.8} />}
+          {isBusy && (
+            <span
+              aria-hidden
+              style={{
+                width: '6px',
+                height: '6px',
+                borderRadius: '50%',
+                background: color.accent,
+                boxShadow: `0 0 10px ${color.accent}`,
+                flexShrink: 0,
+              }}
+            />
+          )}
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {idx + 1}. {label}
           </span>

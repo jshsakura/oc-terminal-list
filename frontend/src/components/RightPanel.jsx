@@ -5,6 +5,8 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import themes from '../styles/themes';
+import { buildThemeUI } from '../styles/themeUI';
 import FileTree from './FileTree';
 import ChangesList from './ChangesList';
 import ThemePicker from './common/ThemePicker';
@@ -51,6 +53,8 @@ const RightPanel = ({
   /* 분할 pane 을 새 탭으로 detach — null 이면 버튼 숨김 (단일 pane / 빈 pane). */
   onExtractPane = null,
 }) => {
+  const panelTheme = themes[paneThemeId || settings?.theme] || themes.catppuccin;
+  const panelUi = buildThemeUI(panelTheme);
   // 페이지 단위 스크롤 — 모바일에서는 물리 PgUp/PgDn 키가 없어서 가장 자주
   // 막히는 동작. xterm.js 의 viewport 를 직접 스크롤 (tmux scrollback 와는
   // 별개의 클라이언트 버퍼) 해 즉시 반응.
@@ -92,7 +96,7 @@ const RightPanel = ({
   };
 
   return (
-    <div style={styles.root}>
+    <div style={{ ...styles.root, background: panelUi.mantle, borderLeftColor: panelUi.border }}>
       {/* content panel — absolute overlay (활동바 우측 → 본문 위로 떠서 터미널 폭 안 밀어냄) */}
       {activePanel && !disabled && (
         <div
@@ -101,6 +105,9 @@ const RightPanel = ({
           onKeyDown={onPanelKeyDown}
           style={{
             ...styles.panel,
+            background: panelUi.base,
+            borderColor: panelUi.border,
+            color: panelUi.text,
             width: `${PANEL_WIDTH}px`,
             position: 'absolute',
             top: 0,
@@ -110,8 +117,8 @@ const RightPanel = ({
             boxShadow: '-4px 0 16px rgba(0,0,0,0.35)',
             outline: 'none', // tabIndex=-1 의 focus ring 제거
           }}>
-          <div style={styles.panelHeader}>
-            <span style={styles.panelTitle}>
+          <div style={{ ...styles.panelHeader, background: panelUi.mantle, borderBottomColor: panelUi.border }}>
+            <span style={{ ...styles.panelTitle, color: panelUi.text }}>
               {TABS.find((t) => t.id === activePanel)?.label}
             </span>
             <button
@@ -123,7 +130,7 @@ const RightPanel = ({
               <X size={12} strokeWidth={2.5} />
             </button>
           </div>
-          <div style={styles.panelBody}>
+          <div style={{ ...styles.panelBody, background: panelUi.base, color: panelUi.text }}>
             {activePanel === 'files' && (
               <FileTree
                 /* host 면 paneCwd 가 트리의 시작 절대경로. local 은 paneCwd(탭 cwd) 가 있으면
@@ -170,7 +177,7 @@ const RightPanel = ({
 
       {/* activity bar — floating overlay. 터미널이 rail 뒤로 깔려 가로 공간 회수.
           close 는 우상단 (파괴적이라 가장 멀리), 주 네비는 그 아래. */}
-      <div style={styles.activityBar}>
+      <div style={{ ...styles.activityBar, background: panelUi.mantle, borderLeftColor: panelUi.border }}>
         {/* 1군: close — 항상 동작 (disabled 영향 안 받음). 우상단. */}
         {onCloseTerminal && (
           <RailIconBtn
@@ -178,10 +185,11 @@ const RightPanel = ({
             onClick={onCloseTerminal}
             title={t?.('closeTerminal') || 'Close terminal'}
             tone="danger"
+            ui={panelUi}
           />
         )}
 
-        {onCloseTerminal && <div style={styles.divider} />}
+        {onCloseTerminal && <div style={{ ...styles.divider, background: panelUi.border }} />}
 
         {/* 2군: 주 네비 — 빈 pane 일 땐 흐리게 + 클릭 무시. */}
         <div style={{
@@ -201,35 +209,37 @@ const RightPanel = ({
                 active={isActive}
                 disabled={disabled}
                 badge={badge}
+                ui={panelUi}
               />
             );
           })}
 
           {!disabled && terminalKey && (
             <>
-              <div style={styles.divider} />
-              <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} />
-              <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} />
-              <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} />
+              <div style={{ ...styles.divider, background: panelUi.border }} />
+              <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} ui={panelUi} />
+              <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} ui={panelUi} />
+              <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} ui={panelUi} />
             </>
           )}
 
           {onExtractPane && (
             <>
-              <div style={styles.divider} />
+              <div style={{ ...styles.divider, background: panelUi.border }} />
               {/* 분할 pane → 새 단독 탭으로 분리 (detach). */}
               <RailIconBtn
                 icon={ExternalLink}
                 onClick={onExtractPane}
                 title={t?.('detachPane') || 'Detach to new tab'}
+                ui={panelUi}
               />
             </>
           )}
 
           {onRefreshTerminal && !disabled && (
             <>
-              <div style={styles.divider} />
-              <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} />
+              <div style={{ ...styles.divider, background: panelUi.border }} />
+              <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} ui={panelUi} />
             </>
           )}
         </div>
