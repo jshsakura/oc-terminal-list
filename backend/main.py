@@ -22,6 +22,9 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    UploadFile,
+    File as FastAPIFile,
+    Form,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -1280,6 +1283,24 @@ async def create_host_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/hosts/{host_id}/files/upload")
+async def upload_host_files(
+    host_id: str,
+    files: list[UploadFile] = FastAPIFile(...),
+    dest: str = Form(""),
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    remote_dir = dest or "/"
+    results = []
+    for f in files:
+        remote_path = f"{remote_dir.rstrip('/')}/{f.filename}"
+        content = await f.read()
+        await host_sftp.write_file(host, secrets, remote_path, content)
+        results.append({"name": f.filename, "path": remote_path, "size": len(content)})
+    return {"status": "uploaded", "host_id": host_id, "files": results}
+
+
 @app.post("/api/hosts/{host_id}/files/move")
 async def move_host_file(
     host_id: str,
@@ -1950,6 +1971,29 @@ async def create_file(request: FileCreateRequest, username: str = Depends(verify
         raise HTTPException(status_code=400, detail="Invalid type (must be 'file' or 'directory')")
     _invalidate_file_index()
     return {"status": "created", "path": request.path, "type": request.type}
+
+
+@app.post("/api/files/upload")
+async def upload_files(
+    files: list[UploadFile] = FastAPIFile(...),
+    dest: str = Form(""),
+    username: str = Depends(verify_auth_token),
+):
+    dest_path = validate_path(dest) if dest else WORKSPACE
+    if not dest_path.is_dir():
+        raise HTTPException(status_code=400, detail="Destination is not a directory")
+    results = []
+    for f in files:
+        target = dest_path / f.filename
+        if not str(target).startswith(str(WORKSPACE)):
+            raise HTTPException(status_code=403, detail="Path outside workspace")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        content = await f.read()
+        target.write_bytes(content)
+        rel = str(target.relative_to(WORKSPACE))
+        results.append({"name": f.filename, "path": rel, "size": len(content)})
+    _invalidate_file_index()
+    return {"status": "uploaded", "files": results}
 
 
 @app.delete("/api/files")

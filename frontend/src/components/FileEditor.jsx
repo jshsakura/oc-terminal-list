@@ -355,92 +355,107 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
       {/* 탭 바 */}
       <div style={{
         display: 'flex',
-        backgroundColor: theme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0,0,0,0.3)'),
-        backdropFilter: isLightTheme ? 'blur(10px)' : 'blur(12px) saturate(180%)',
-        WebkitBackdropFilter: isLightTheme ? 'blur(10px)' : 'blur(12px) saturate(180%)',
-        height: '40px',
-        minHeight: '40px',
-        maxHeight: '40px',
+        height: '32px',
+        minHeight: '32px',
+        maxHeight: '32px',
         overflowX: 'auto',
         scrollbarWidth: 'none',
         msOverflowStyle: 'none',
+        background: theme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0,0,0,0.3)'),
+        backdropFilter: isLightTheme ? 'blur(10px)' : 'blur(12px) saturate(180%)',
+        WebkitBackdropFilter: isLightTheme ? 'blur(10px)' : 'blur(12px) saturate(180%)',
         borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}`,
       }}>        {openFiles.map((path) => {
           const isActive = path === activeFile;
           const { path: filePath } = parseFileKey(path);
           const filename = (filePath || path).split('/').pop();
           const fileHasChanges = fileStates[path]?.hasChanges;
+          const dotColor = theme.ui.accent || '#89b4fa';
 
           return (
             <div
               key={path}
               onClick={() => onFileSelect(path)}
               onAuxClick={(e) => {
-                if (e.button === 1) { // Middle click
-                  e.preventDefault();
-                  handleCloseClick(path);
-                }
+                if (e.button === 1) { e.preventDefault(); handleCloseClick(path); }
               }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                padding: '0 12px',
+                gap: '6px',
+                padding: '0 10px',
                 height: '100%',
                 cursor: 'pointer',
-                backgroundColor: isActive ? theme.ui.bg : 'transparent',
+                background: isActive ? theme.ui.bg : 'transparent',
                 borderRight: `1px solid ${theme.ui.border}`,
-                borderTop: isActive ? `2px solid ${theme.ui.accent}` : '2px solid transparent',
                 minWidth: '100px',
-                maxWidth: '200px',
-                transition: 'all 0.15s ease',
-                position: 'relative',
+                maxWidth: '180px',
+                flexShrink: 0,
               }}
             >
-              <div style={{ marginRight: '8px', display: 'flex', alignItems: 'center' }}>
-                {getFileIcon(filename, theme.ui.iconColor)}
-              </div>
+              <span style={{
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '18px',
+                height: '18px',
+                flexShrink: 0,
+                background: isActive ? `${dotColor}26` : `${dotColor}12`,
+                border: `1px solid ${isActive ? `${dotColor}55` : `${dotColor}22`}`,
+                borderRadius: '4px',
+                color: isActive ? theme.ui.text : dotColor,
+              }}>
+                {getFileIcon(filename, isActive ? theme.ui.text : dotColor)}
+                {fileHasChanges && (
+                  <span style={{
+                    position: 'absolute',
+                    top: '-3px',
+                    right: '-3px',
+                    width: '7px',
+                    height: '7px',
+                    borderRadius: '50%',
+                    background: dotColor,
+                    boxShadow: `0 0 0 1.5px ${theme.ui.bg}`,
+                    pointerEvents: 'none',
+                  }} />
+                )}
+              </span>
               <span style={{ 
-                fontSize: '12px', 
+                fontSize: '11px', 
                 color: isActive ? theme.ui.text : theme.ui.textSecondary,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 flex: 1,
-                fontWeight: isActive ? '600' : '400',
+                minWidth: 0,
+                fontWeight: isActive ? 600 : 400,
+                fontFamily: theme.ui.fontFamily,
               }}>
                 {filename}
               </span>
-              <div
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleCloseClick(path);
-                }}
+              <button
+                onClick={(e) => { e.stopPropagation(); handleCloseClick(path); }}
+                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
+                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                 style={{
-                  marginLeft: '8px',
-                  display: 'flex',
+                  display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  borderRadius: '2px',
-                  padding: '2px',
-                  opacity: 0.6,
-                  color: isActive ? theme.ui.text : theme.ui.textSecondary,
+                  width: '16px',
+                  height: '16px',
+                  flexShrink: 0,
+                  background: 'transparent',
+                  border: 'none',
+                  borderRadius: '3px',
+                  padding: 0,
+                  cursor: 'pointer',
+                  color: isActive ? theme.ui.textSecondary : theme.ui.iconColor,
+                  opacity: isActive ? 0.6 : 0.4,
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
               >
-                <X size={14} />
-              </div>
-              {fileHasChanges && (
-                <div style={{ 
-                  position: 'absolute', 
-                  bottom: '4px', 
-                  right: '4px', 
-                  width: '6px', 
-                  height: '6px', 
-                  borderRadius: '50%', 
-                  backgroundColor: theme.ui.accent 
-                }} />
-              )}
+                <X size={10} strokeWidth={2} />
+              </button>
             </div>
           );
         })}

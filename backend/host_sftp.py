@@ -145,15 +145,15 @@ async def read_file(host: dict, secrets: dict, path: str) -> str:
         raise HostConnectError(f"SFTP read failed: {e}") from e
 
 
-async def write_file(host: dict, secrets: dict, path: str, content: str) -> None:
-    """원격 파일 덮어쓰기 (utf-8)."""
+async def write_file(host: dict, secrets: dict, path: str, content: str | bytes) -> None:
+    """원격 파일 덮어쓰기."""
     if not path or not path.strip():
         raise HostConnectError("path is required")
     try:
         conn = await _get_or_open(host, secrets)
         async with conn.start_sftp_client() as sftp:
             async with sftp.open(path, "wb") as f:
-                await f.write(content.encode("utf-8"))
+                await f.write(content if isinstance(content, bytes) else content.encode("utf-8"))
     except (asyncssh.Error, OSError) as e:
         _drop(host["id"])
         raise HostConnectError(f"SFTP write failed: {e}") from e

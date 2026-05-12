@@ -524,7 +524,9 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   const [searchQuery, setSearchQuery] = useState('');
   const [rootPath, setRootPath] = useState(initialPath || '');
   const [resolvedRoot, setResolvedRoot] = useState(null);
-  
+  const [uploadState, setUploadState] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
   const [treeFocus, setTreeFocus] = useState(initialPath || '');
@@ -626,6 +628,29 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
     if (!res.ok) throw new Error('action failed');
   };
 
+  const uploadFiles = async (files, destPath) => {
+    if (!files || files.length === 0) return;
+    const total = files.length;
+    setUploadState({ current: 0, total, fileName: files[0].name, done: false });
+    const uploadBase = isHostMode ? `/api/hosts/${hostId}/files/upload` : '/api/files/upload';
+    for (let i = 0; i < total; i++) {
+      const fd = new FormData();
+      fd.append('dest', destPath || resolvedRoot || rootPath || '');
+      fd.append('files', files[i]);
+      setUploadState({ current: i, total, fileName: files[i].name, done: false });
+      try {
+        const res = await fetch(uploadBase, { method: 'POST', headers: authHeader(), body: fd });
+        if (!res.ok) throw new Error('upload failed');
+      } catch (e) {
+        console.error('Upload error:', e);
+      }
+      if (nodes[destPath]) fetchChildren(destPath);
+      else { fetchChildren(''); }
+    }
+    setUploadState({ current: total, total, fileName: '', done: true });
+    setTimeout(() => setUploadState(null), 1500);
+  };
+
   const startCreate = (parentPath, type) => {
     setExpanded((prev) => new Set([...prev, parentPath]));
     if (!nodes[parentPath]) fetchChildren(parentPath);
@@ -723,7 +748,16 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   const rootDisplay = isHostMode ? (resolvedRoot || (rootPath || '~')) : (rootPath || '/');
 
   return (
-    <div style={styles.wrap}>
+    <div
+      style={{ ...styles.wrap, ...(dragOver ? { outline: `2px dashed ${color.accent}`, outlineOffset: '-2px', background: `${color.accent}08` } : {}) }}
+      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.types.includes('Files')) setDragOver(true); }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
+      onDrop={(e) => {
+        e.preventDefault(); e.stopPropagation(); setDragOver(false);
+        const files = Array.from(e.dataTransfer.files);
+        if (files.length > 0) uploadFiles(files, '');
+      }}
+    >
       {isHostMode && (
         <div style={styles.crumb} title={rootDisplay}>
           <button onClick={() => canGoUp && setRootPath(parentOfRoot)} disabled={!canGoUp} style={{ ...styles.crumbBtn, opacity: canGoUp ? 1 : 0.35, cursor: canGoUp ? 'pointer' : 'not-allowed' }}>
@@ -758,6 +792,17 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
         <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t('searchFiles')} style={styles.searchInput} />
         {searchQuery && <button onClick={() => setSearchQuery('')} style={styles.searchClearBtn}><X size={12} /></button>}
       </div>
+
+      {uploadState && (
+        <div style={{ padding: '6px 8px', background: `${color.accent}12`, borderBottom: `1px solid ${color.border}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ flex: 1, height: '4px', background: color.surface0, borderRadius: '2px', overflow: 'hidden' }}>
+            <div style={{ width: `${(uploadState.current / Math.max(uploadState.total, 1)) * 100}%`, height: '100%', background: color.accent, borderRadius: '2px', transition: 'width 0.3s ease' }} />
+          </div>
+          <span style={{ fontSize: '10px', color: color.subtext, whiteSpace: 'nowrap', fontFamily: font.sans }}>
+            {uploadState.done ? (t('done') || 'Done') : `${uploadState.current + 1}/${uploadState.total} ${uploadState.fileName}`}
+          </span>
+        </div>
+      )}
 
       <div style={styles.list} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
         {rootError && <div style={styles.errorBox}><div>Error: {rootError}</div><button onClick={() => fetchChildren('')} style={styles.retryBtn}>{t('retry')}</button></div>}
