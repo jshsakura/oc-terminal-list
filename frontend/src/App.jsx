@@ -767,6 +767,14 @@ function App() {
     const handleVV = () => {
       if (window.visualViewport) {
         setViewportHeight(window.visualViewport.height);
+
+        // [iOS 근본 해결] 브라우저가 키보드 때문에 화면을 밀어올리면(panning) 
+        // 뷰포트 오프셋이 발생함. 이를 즉시 0으로 되돌려 레이아웃 이탈 방지.
+        if (window.visualViewport.offsetTop > 0 || window.scrollY > 0) {
+          requestAnimationFrame(() => {
+            window.scrollTo(0, 0);
+          });
+        }
       }
       check();
     };
