@@ -772,23 +772,6 @@ const EmptyPane = ({
       {/* 1) 기본 연결 — 로컬 + 저장된 호스트. 가장 자주 쓰는 액션. */}
       <Section icon={Plug} title={t?.('connections') || 'Connections'}>
         <div style={emptyStyles.grid}>
-          <div style={{ position: 'relative' }}>
-            {onEditLocal && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onEditLocal(); }}
-                title={t?.('localSettings') || 'Local settings'}
-                style={{
-                  position: 'absolute', top: '6px', right: '6px', zIndex: 2,
-                  background: 'transparent', border: 'none', padding: '2px',
-                  cursor: 'pointer', color: color.subtext,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
-                onMouseLeave={(e) => { e.currentTarget.style.color = color.subtext; }}
-              >
-                <SettingsIcon size={13} strokeWidth={1.8} />
-              </button>
-            )}
             <HostRow
               id="local"
               draggable={false}
@@ -811,8 +794,9 @@ const EmptyPane = ({
               onClick={() => onActivate?.({ type: 'local' })}
               onPickPath={onPickLocalPath || null}
               pickPathTitle={t?.('pickStartPath') || 'Pick start path'}
+              onEdit={onEditLocal || null}
+              editTitle={t?.('localSettings') || 'Local settings'}
             />
-          </div>
           {orderedHosts.map((h) => {
             const accent = color.dotPalette[(h.color_index ?? 0) % color.dotPalette.length];
             return (
