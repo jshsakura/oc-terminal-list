@@ -31,9 +31,9 @@ const variantStyle = {
 };
 
 const sizeStyle = {
-  small:  { height: '24px', fontSize: fontSize['11'], padding: `0 ${space['2']}` },
-  medium: { height: '30px', fontSize: fontSize['13'], padding: `0 ${space['3']}` },
-  large:  { height: '36px', fontSize: fontSize['13'], padding: `0 ${space['4']}` },
+  small:  { height: '24px', fontSize: fontSize['11'], padding: `0 10px` },
+  medium: { height: '30px', fontSize: fontSize['13'], padding: `0 ${space['4']}` },
+  large:  { height: '36px', fontSize: fontSize['13'], padding: `0 ${space['5']}` },
   icon:   { width: '28px', height: '28px', padding: 0 },
 };
 
