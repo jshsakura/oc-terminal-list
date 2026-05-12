@@ -67,3 +67,4 @@ backend/data/.vault-key
 # Backup files
 backup-*.tar.gz
 .playwright-mcp/
+opencode-resolve/
