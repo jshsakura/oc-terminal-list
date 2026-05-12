@@ -146,9 +146,6 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       };
     };
 
-    // fit() 직전 컨테이너(terminalRef) 크기를 cell grid 에 snap-down.
-    // 나머지 픽셀이 생기지 않아 우측/하단 빈틈이 원천 제거됨.
-    // snap 된 컨테이너 바깥 여백은 overflow:hidden + 동일 배경색으로 보이지 않음.
     const origFit = fitAddon.fit.bind(fitAddon);
     fitAddon.fit = function() {
       const container = terminalRef.current;
@@ -555,40 +552,46 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     // 모바일 키보드 애니메이션 (~250-300ms) 중간에 fit() 가 여러 번 호출되면
     // xterm grid + tmux 가 매번 다시 그려서 화면이 "득득" 떨림. 한 박자 늦춰서
     // 애니메이션 끝난 후 한 번만 fit → 최종 사이즈 확정 → 한 번만 reflow.
+    const doFit = () => {
+      if (!fitAddonRef.current) return;
+      const proposed = fitAddonRef.current.proposeDimensions();
+      if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
+      fitAddonRef.current.fit();
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        const dims = fitAddonRef.current.proposeDimensions();
+        if (dims && dims.cols > 0 && dims.rows > 0
+            && (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows)) {
+          lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
+          wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
+        }
+      }
+    };
+
     const handleResize = () => {
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
       }
       resizeTimeoutRef.current = setTimeout(() => {
-        if (!fitAddonRef.current) return;
-        /* 비활성 탭은 컨테이너가 display:none → 0×0. fit() 호출하면 cols=0, rows=0 이 되고
-           tmux 에 그 사이즈로 resize 메시지가 가서 세션이 망가짐. 가시 영역 있을 때만 fit. */
-        const proposed = fitAddonRef.current.proposeDimensions();
-        if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
-        fitAddonRef.current.fit();
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const dims = fitAddonRef.current.proposeDimensions();
-          if (dims && dims.cols > 0 && dims.rows > 0
-              && (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows)) {
-            lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
-            wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
-          }
-        }
-      }, 350);
+        doFit();
+      }, 150);
     };
 
     // [중요] ResizeObserver를 통한 컨테이너 크기 변화 감지 (에디터 열고 닫기 등 레이아웃 변화 대응)
     const observer = new ResizeObserver(() => handleResize());
     if (terminalRef.current) observer.observe(terminalRef.current);
-    // window resize fallback — DevTools 도킹/해제 시 컨테이너 사이즈는 그대로여도
-    // viewport 가 변하므로 fit() 을 다시 트리거해야 함.
     window.addEventListener('resize', handleResize);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', handleResize);
+    }
 
     return () => {
       cancelled = true;
       intentionalCloseRef.current = true;
       if (observer) observer.disconnect();
       window.removeEventListener('resize', handleResize);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', handleResize);
+      }
       if (container) {
         container.removeEventListener('contextmenu', handleContextMenu);
         container.removeEventListener('keydown', handleKeyDown);
