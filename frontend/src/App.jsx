@@ -688,6 +688,7 @@ function App() {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(window.visualViewport?.height ?? window.innerHeight);
+  const [viewportOffset, setViewportOffset] = useState(window.visualViewport?.offsetTop ?? 0);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
@@ -767,10 +768,11 @@ function App() {
     const handleVV = () => {
       if (window.visualViewport) {
         setViewportHeight(window.visualViewport.height);
+        setViewportOffset(window.visualViewport.offsetTop);
         
         // [iOS 근본 해결] 브라우저가 키보드 때문에 화면을 밀어올리면(panning), 
-        // offsetTop 이 생김. 이를 0으로 강제 고정하여 레이아웃 이탈 방지.
-        if (window.visualViewport.offsetTop > 0) {
+        // offsetTop 이나 scrollY 가 생김. 이를 0으로 강제 고정하여 레이아웃 이탈 방지.
+        if (window.visualViewport.offsetTop > 0 || window.scrollY > 0) {
           window.scrollTo(0, 0);
         }
       }
@@ -781,10 +783,12 @@ function App() {
       window.visualViewport.addEventListener('resize', handleVV);
       window.visualViewport.addEventListener('scroll', handleVV);
     }
+    window.addEventListener('scroll', handleVV);
     
     return () => {
       window.removeEventListener('resize', check);
       window.removeEventListener('orientationchange', check);
+      window.removeEventListener('scroll', handleVV);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleVV);
         window.visualViewport.removeEventListener('scroll', handleVV);
@@ -1034,14 +1038,15 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      // PC 에서는 100vh, 모바일은 visualViewport 가 알려준 실제 높이 사용.
+      // fixed position 과 top: offset 조합으로 브라우저 panning 상쇄
+      position: 'fixed',
+      top: isMobile ? `${viewportOffset}px` : 0,
+      left: 0, right: 0,
       height: isMobile ? `${viewportHeight}px` : '100vh',
       width: '100vw',
       background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,
-      position: 'absolute', // fixed 대신 absolute 사용하여 밀어올림 시 jitter 최소화
-      top: 0, left: 0,
     }}>
       <style>{`
         /* 브라우저 기본 스크롤/바운스/밀어올리기 원천 차단 */
