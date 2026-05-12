@@ -1,7 +1,7 @@
 import { memo, useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Terminal as TerminalIcon, Server,
+  Terminal as TerminalIcon, Server, Monitor,
   Settings as SettingsIcon, MoreHorizontal,
   SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Square,
   ChevronLeft, ChevronRight,
@@ -218,7 +218,8 @@ const Tab = memo(({
   t,
 }) => {
   const isHostTab = tab.type === 'host' || tab.hostId;
-  const Icon = isHostTab ? Server : TerminalIcon;
+  const isLocalTab = tab.type === 'local';
+  const Icon = isHostTab ? Server : (isLocalTab ? Monitor : TerminalIcon);
   const dotColor = tab.color_index != null
     ? color.dotPalette?.[tab.color_index % (color.dotPalette?.length || 8)] || color.accent
     : color.accent;
