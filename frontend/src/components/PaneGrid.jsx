@@ -599,6 +599,7 @@ const SubTabBar = ({
           overflowX: 'auto',
           overflowY: 'hidden',
           flexShrink: 0,
+          padding: '0 4px',
         }}
       >
         {panes.map((pane, idx) => {
