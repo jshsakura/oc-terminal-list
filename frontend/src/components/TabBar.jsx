@@ -24,6 +24,8 @@ const TabBar = ({
   onSplit,
   onDuplicate,
   onReorder,
+  /* (tabId) → 해당 탭의 viewMode 토글 (grid ↔ tabs). panes.length > 1 인 탭에서만 의미. */
+  onToggleViewMode,
   canSplit = false,
   isMobile = false,
   t,
@@ -150,13 +152,23 @@ const TabBar = ({
       </div>
 {/* context menu — 포탈로 최상단 렌더링 */}
 {contextMenu && createPortal(
-  <TabContextMenu
-    ctx={contextMenu}
-    t={t}
-    onClose={() => setContextMenu(null)}
-    onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
-    onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
-  />,
+  (() => {
+    const ctxTab = tabs.find((tt) => tt.id === contextMenu.tabId);
+    const ctxPaneCount = ctxTab?.panes?.length || 1;
+    const ctxViewMode = ctxTab?.viewMode || 'grid';
+    return (
+      <TabContextMenu
+        ctx={contextMenu}
+        t={t}
+        viewMode={ctxViewMode}
+        canToggleViewMode={ctxPaneCount > 1 && !!onToggleViewMode}
+        onClose={() => setContextMenu(null)}
+        onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
+        onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
+        onToggleViewMode={() => { onToggleViewMode?.(contextMenu.tabId); setContextMenu(null); }}
+      />
+    );
+  })(),
   document.body
 )}
     </div>
@@ -319,7 +331,7 @@ const Tab = memo(({
   );
 });
 
-const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab }) => {
+const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab, canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
 
@@ -375,6 +387,13 @@ const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab }) => {
       {onDuplicateTab && (
         <MenuItem onClick={onDuplicateTab}>
           {t?.('duplicateTab') || 'Duplicate (same path)'}
+        </MenuItem>
+      )}
+      {canToggleViewMode && onToggleViewMode && (
+        <MenuItem onClick={onToggleViewMode}>
+          {viewMode === 'tabs'
+            ? (t?.('switchToGridView') || 'Switch to split view')
+            : (t?.('switchToTabsView') || 'Switch to tabs view')}
         </MenuItem>
       )}
       <MenuItem onClick={onCloseTab} danger>{t?.('closeTab') || 'Close tab'}</MenuItem>

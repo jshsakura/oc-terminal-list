@@ -13,6 +13,7 @@ import asyncio
 import codecs
 import logging
 import os
+from collections import deque
 
 import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
@@ -86,7 +87,7 @@ class TmuxClientBridge:
         assert self.process is not None
         process = self.process
         loop = asyncio.get_event_loop()
-        pending: list[bytes] = []
+        pending: deque[bytes] = deque()
         pending_bytes = 0
         flush_task: asyncio.Task | None = None
 
@@ -104,7 +105,7 @@ class TmuxClientBridge:
             pending_bytes += len(data)
             # 백프레셔: 너무 쌓이면 가장 오래된 청크 폐기
             while pending_bytes > MAX_BACKPRESSURE_BYTES and len(pending) > 1:
-                pending_bytes -= len(pending.pop(0))
+                pending_bytes -= len(pending.popleft())
             nonlocal flush_task
             if flush_task is None or flush_task.done():
                 flush_task = asyncio.create_task(_flush())
@@ -115,7 +116,7 @@ class TmuxClientBridge:
                 buf: list[bytes] = []
                 size = 0
                 while pending and size < READ_CHUNK_FLUSH_BYTES:
-                    chunk = pending.pop(0)
+                    chunk = pending.popleft()
                     buf.append(chunk)
                     size += len(chunk)
                     pending_bytes = max(0, pending_bytes - len(chunk))

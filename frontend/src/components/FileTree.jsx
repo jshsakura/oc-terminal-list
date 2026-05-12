@@ -501,7 +501,7 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
   );
 };
 
-const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitContextPath = '', language = 'en', initialPath = '', hostId = null }) => {
+const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitContextPath = '', sharedGitChanges = null, language = 'en', initialPath = '', hostId = null }) => {
   const isHostMode = !!hostId;
   const apiBase = isHostMode ? `/api/hosts/${hostId}/files` : '/api/files';
   const { t } = useTranslation(language);
@@ -522,12 +522,15 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   const [treeFocus, setTreeFocus] = useState(initialPath || '');
   const effectiveGitPath = gitContextPath || treeFocus;
 
-  // Git changes hook
-  const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = useGitChanges({
-    enabled: !isHostMode,
+  const canUseSharedGitChanges = !!sharedGitChanges && !!gitContextPath && effectiveGitPath === gitContextPath;
+  const localGitChanges = useGitChanges({
+    enabled: !isHostMode && !canUseSharedGitChanges,
     path: effectiveGitPath,
     intervalMs: effectiveGitPath ? 1500 : 8000,
   });
+  const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = canUseSharedGitChanges
+    ? sharedGitChanges
+    : localGitChanges;
   const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
 
   const fetchChildren = useCallback(async (cacheKey) => {

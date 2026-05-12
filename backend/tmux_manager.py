@@ -145,6 +145,7 @@ class TmuxManager:
             ("history-limit", str(self.history_limit)),
             # mouse off — DECSET 1000 안 보내야 xterm.js 가 드래그를 native 선택으로 처리 (Shift 불필요).
             # 휠은 frontend 의 `attachCustomWheelEventHandler` 가 PgUp 으로 변환 → tmux root binding.
+            # mouse on 으로 시도했었으나 mouse 이벤트 round-trip 이 직접 PgUp 송신보다 느려 스크롤 지연 발생 → 후퇴.
             ("mouse", "off"),
             ("window-size", "latest"),         # 다중 클라이언트시 최근 활성 사이즈
             ("default-terminal", "tmux-256color"),
@@ -176,9 +177,9 @@ class TmuxManager:
             "send-keys PageDown", "",
             check=False,
         )
-        # mouse on 인데 휠 외 모든 마우스 바인딩 해제 — 드래그 시 tmux copy-mode 자동 진입 / 우클릭
-        # 팝업 / 더블클릭 단어선택 등 방해 동작 차단. 텍스트 선택은 Shift+드래그 (xterm.js native).
-        # 휠 (WheelUpPane, WheelDownPane) 은 그대로 두어 native 스크롤 유지.
+        # mouse off 라 사실상 mouse 이벤트가 안 가지만, 혹시 다른 코드 경로에서 mouse on 잠깐 켜져도
+        # 드래그 시 tmux copy-mode 자동 진입 / 우클릭 팝업 / 더블클릭 단어선택 등 방해 동작 차단.
+        # 휠 (WheelUpPane, WheelDownPane) 은 그대로 두어 mouse on 케이스에서도 스크롤 동작.
         for _ev in (
             "MouseDown1Pane", "MouseDown1Status", "MouseDown1StatusLeft", "MouseDown1StatusRight", "MouseDown1Border",
             "MouseDrag1Pane", "MouseDrag1Border", "MouseDragEnd1Pane",

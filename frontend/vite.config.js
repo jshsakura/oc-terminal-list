@@ -11,6 +11,21 @@ export default defineConfig({
     // 백엔드(FastAPI)가 바로 서빙하는 폴더로 출력 → frontend/dist 와 backend/static 분리되던 sync 누락 방지
     outDir: path.resolve(__dirname, '../backend/static'),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('/react/') || id.includes('/react-dom/')) return 'react-vendor';
+          if (id.includes('/@xterm/xterm/')) return 'xterm-core';
+          if (id.includes('/@xterm/addon-webgl/')) return 'xterm-webgl';
+          if (id.includes('/@xterm/')) return 'xterm-addons';
+          if (id.includes('/@monaco-editor/') || id.includes('/monaco-editor/')) return 'monaco-vendor';
+          if (id.includes('/lucide-react/')) return 'icons-vendor';
+          if (id.includes('/react-markdown/') || id.includes('/remark-gfm/')) return 'markdown-vendor';
+          return 'vendor';
+        },
+      },
+    },
   },
   server: {
     host: '0.0.0.0',

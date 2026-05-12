@@ -52,7 +52,7 @@ const buildTree = (items, stripPrefix = '') => {
  * 파일 클릭 → onSelectFile (우측 diff peek 패널 열림)
  * 더블클릭 → onOpenFile (메인 에디터)
  */
-const ChangesList = ({ gitContextPath = '', onSelectFile, onOpenFile, t }) => {
+const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFile, onOpenFile, t }) => {
   // 경로 오버라이드 — null 이면 활성 터미널을 따라가고, 문자열이면 사용자 지정 경로 사용
   const [overridePath, setOverridePath] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -61,11 +61,15 @@ const ChangesList = ({ gitContextPath = '', onSelectFile, onOpenFile, t }) => {
   const effectivePath = overridePath != null ? overridePath : gitContextPath;
   const isFollowing = overridePath == null;
 
-  const { items, branch, repo, error, refresh, loading } = useGitChanges({
-    enabled: true,
+  const canUseSharedGitChanges = !!sharedGitChanges && !!gitContextPath && isFollowing;
+  const localGitChanges = useGitChanges({
+    enabled: !canUseSharedGitChanges,
     path: effectivePath,
     intervalMs: 1500,
   });
+  const { items, branch, repo, error, refresh, loading } = canUseSharedGitChanges
+    ? sharedGitChanges
+    : localGitChanges;
   const [collapsed, setCollapsed] = useState(() => new Set());
   const repoBasename = repo ? repo.split('/').pop() : null;
 

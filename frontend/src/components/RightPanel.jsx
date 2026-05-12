@@ -2,6 +2,7 @@ import { useState, memo, useCallback, useEffect, useRef } from 'react';
 import {
   Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, Trash2,
   Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound, HelpCircle,
+  ExternalLink,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import FileTree from './FileTree';
@@ -47,6 +48,8 @@ const RightPanel = ({
   paneCwd = null,     // 호스트 모드 FileTree 시작 경로 (없으면 host.start_path)
   onScreenDump = null, // 텍스트 덤프 모달 열기 콜백 (App.jsx 가 처리)
   onCloseTerminal = null, // pane 닫기 — 단일 pane 이면 closePane 이 closeTab 으로 위임
+  /* 분할 pane 을 새 탭으로 detach — null 이면 버튼 숨김 (단일 pane / 빈 pane). */
+  onExtractPane = null,
 }) => {
   // 페이지 단위 스크롤 — 모바일에서는 물리 PgUp/PgDn 키가 없어서 가장 자주
   // 막히는 동작. xterm.js 의 viewport 를 직접 스크롤 (tmux scrollback 와는
@@ -76,11 +79,12 @@ const RightPanel = ({
   };
 
   // Git 변경 카운트 — 활동 바 뱃지에 표시. 경로 없으면 fetch 안 함 (전체 워크스페이스 집계 X).
-  const { items: gitItems } = useGitChanges({
+  const gitChanges = useGitChanges({
     enabled: !!gitContextPath && activeTabType === 'local',
     path: gitContextPath,
     intervalMs: 4000,
   });
+  const { items: gitItems } = gitChanges;
   const gitCount = gitContextPath ? (gitItems || []).length : 0;
 
   const togglePanel = (id) => {
@@ -130,6 +134,7 @@ const RightPanel = ({
                 onFolderSelect={onFolderSelect}
                 onOpenTerminalAtFolder={onOpenTerminalAtFolder}
                 gitContextPath={gitContextPath}
+                sharedGitChanges={gitChanges}
                 language={language}
                 initialPath={activeHostId ? (paneCwd || '') : (paneCwd || gitContextPath || selectedFolderPath)}
               />
@@ -137,6 +142,7 @@ const RightPanel = ({
             {activePanel === 'git' && (
               <ChangesList
                 gitContextPath={gitContextPath}
+                sharedGitChanges={gitChanges}
                 onSelectFile={onFileSelect}
                 onOpenFile={onFileSelect}
                 t={t}
@@ -205,6 +211,18 @@ const RightPanel = ({
               <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} />
               <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} />
               <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} />
+            </>
+          )}
+
+          {onExtractPane && (
+            <>
+              <div style={styles.divider} />
+              {/* 분할 pane → 새 단독 탭으로 분리 (detach). */}
+              <RailIconBtn
+                icon={ExternalLink}
+                onClick={onExtractPane}
+                title={t?.('detachPane') || 'Detach to new tab'}
+              />
             </>
           )}
 

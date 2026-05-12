@@ -253,7 +253,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     /* 휠 → PgUp/PgDn. xterm v6 의 attachCustomWheelEventHandler 사용 — xterm 내장 wheel 처리 직전에
        호출되며, return false → xterm 의 default 처리 skip. capture/bubble race 없음. tmux mouse off
        이라 native 드래그 선택은 그대로 살아있고, 휠만 PgUp 으로 변환해 PTY 송신 → tmux root binding
-       이 normal/alternate 자동 분기 (normal=copy-mode 진입). */
+       이 normal/alternate 자동 분기 (normal=copy-mode 진입). mouse 이벤트 round-trip 보다 직접 PgUp
+       송신이 더 빠르고 부드러움. */
     if (typeof term.attachCustomWheelEventHandler === 'function') {
       term.attachCustomWheelEventHandler((e) => {
         const ws = wsRef.current;
@@ -265,8 +266,6 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         return false;
       });
     }
-
-
 
     // ⚠️  WS 연결 전에 fit() 동기 호출 — xterm.js 의 cols/rows 와 백엔드/tmux 에
     // 알리는 차원이 일치하도록 한다. 늦게 fit 하면 첫 렌더가 80x24 로 나간 뒤

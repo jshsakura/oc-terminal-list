@@ -38,6 +38,7 @@ const PaneGrid = ({
   onFocusPane,
   onClosePane,
   onActivatePane,
+  onExtractPaneToTab, // (tabId, paneId) → 분할 pane 을 새 단독 탭으로 분리 (detach)
   onPaneCwdChange,    // (paneId, workspaceRel, isLocal) → 부모로 cwd 변화 보고 (자동 탭명 등)
   onPaneThemeChange,  // (paneId, themeId|null) → pane 별 테마 오버라이드 설정/해제
   layoutSignal,
@@ -67,7 +68,9 @@ const PaneGrid = ({
   if (panes.length === 0) return null;
 
   const layout = tab.layout || 'single';
-  const useSubTabs = isMobile && panes.length > 1;
+  // sub-tabs 모드: 모바일은 자동, 데스크탑은 사용자가 viewMode='tabs' 토글로 명시.
+  // panes.length > 1 일 때만 의미 있음 (단일 pane 은 grid/tabs 차이 없음).
+  const useSubTabs = panes.length > 1 && (isMobile || tab.viewMode === 'tabs');
 
   // 모바일 분할: 서브탭 바 + 활성 pane 만 fullscreen
   if (useSubTabs) {
@@ -88,6 +91,7 @@ const PaneGrid = ({
             pane={activePane}
             tab={tab}
             hosts={hosts}
+            isMobile={isMobile}
             isFocused={true}
             isMultiple={false}    /* 모바일에선 X 버튼 안 띄움 (서브탭에서 처리) */
             onFocus={() => onFocusPane?.(tab.id, activePane.id)}
@@ -117,6 +121,12 @@ const PaneGrid = ({
             language={language}
             t={t}
             viewportHeight={viewportHeight}
+            /* 빈 pane 은 추출 의미 없어 disabled. panes.length > 1 일 때만 의미 있음. */
+            onExtractPane={
+              panes.length > 1 && onExtractPaneToTab && (activePane.sessionId || activePane.hostId)
+                ? () => onExtractPaneToTab(tab.id, activePane.id)
+                : null
+            }
           />
         </div>
       </div>
@@ -144,6 +154,7 @@ const PaneGrid = ({
           paneIndex={idx}
           tab={tab}
           hosts={hosts}
+          isMobile={isMobile}
           isFocused={pane.id === tab.activePaneId}
           isMultiple={panes.length > 1}
           onFocus={() => onFocusPane?.(tab.id, pane.id)}
@@ -173,6 +184,12 @@ const PaneGrid = ({
           language={language}
           t={t}
           viewportHeight={viewportHeight}
+          /* 분할 → 단독 탭 추출. 단일 pane / 빈 pane 은 비활성. */
+          onExtractPane={
+            panes.length > 1 && onExtractPaneToTab && (pane.sessionId || pane.hostId)
+              ? () => onExtractPaneToTab(tab.id, pane.id)
+              : null
+          }
         />
       ))}
     </div>
@@ -180,12 +197,13 @@ const PaneGrid = ({
 };
 
 const Pane = ({
-  pane, paneIndex = 0, tab, hosts, allTabs = [], isFocused, isMultiple, onFocus, onClose, onActivate,
+  pane, paneIndex = 0, tab, hosts, allTabs = [], isMobile = false, isFocused, isMultiple, onFocus, onClose, onActivate,
   isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
   onPickHostPath = null, onPickLocalPath = null, onEditHost = null, refreshHosts = null,
   language, t, viewportHeight,
+  onExtractPane = null,
 }) => {
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
      Terminal/RightPanel 에 내려보냄. 전역 settings.theme 자체는 안 건드리므로 다른 pane / 앱 UI
@@ -363,6 +381,8 @@ const Pane = ({
              탭별로 트리 루트를 좁혀서 다른 프로젝트가 섞여 보이지 않게 함. */
           paneCwd={cwd || null}
           onScreenDump={onScreenDump}
+          /* 분할 pane → 새 단독 탭으로 detach. null 이면 버튼 안 띄움. */
+          onExtractPane={onExtractPane}
         />
       </div>
 

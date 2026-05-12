@@ -39,7 +39,8 @@ const ScreenDumpModal = lazy(() => import('./components/ScreenDumpModal'));
 const { color, font, fontSize, fontWeight, space } = tokens;
 
 // ── tab helpers ──────────────────────────────────────────────────────────────
-// 모델: tab = { id, type, name, ..., panes:[Pane], layout:'single'|'h'|'v', activePaneId }
+// 모델: tab = { id, type, name, ..., panes:[Pane], layout:'single'|'h'|'v'|'2x2', activePaneId, viewMode? }
+// viewMode? : 'grid' (기본, undefined 동일) | 'tabs' — panes.length > 1 일 때 grid 분할 대신 sub-tabs 로 표시.
 // Pane = { id, mode:'terminal'|'editor', sessionId?, hostId?, openFiles?, activeFile? }
 
 const makePane = (extra = {}) => ({
@@ -406,7 +407,9 @@ function App() {
           const extra = ordered.slice(1, 1 + Math.max(0, slotsLeft)).map((sp) => ({
             ...makePane({ sessionId: sp.sessionId, hostId: sp.hostId }),
           }));
-          const allPanes = [...replacedPanes, ...extra];
+          // 3 panes → 2x2 grid 의 4번째 빈 셀이 클릭 불가로 남는 버그 방지. closePane 과 동일 로직.
+          const combined = [...replacedPanes, ...extra];
+          const allPanes = combined.length === 3 ? [...combined, makePane({})] : combined;
           const total = allPanes.length;
           let layout = t.layout || 'single';
           if (total === 1) layout = 'single';
@@ -457,9 +460,13 @@ function App() {
         // 다중 pane → 해당 pane 제거 (단일 pane 케이스는 closeTab 으로 위임됨)
         const remaining = panes.filter((p) => p.id !== paneId);
         if (remaining.length === 0) return t;
-        const layout = remaining.length === 1 ? 'single' : (remaining.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
-        const activePaneId = t.activePaneId === paneId ? remaining[0].id : t.activePaneId;
-        return { ...t, panes: remaining, layout, activePaneId };
+        // 2x2 grid에서 1개 닫아 3개 남으면 4번째 grid cell이 "클릭 불가능한 빈 칸"으로 남는 버그 방지.
+        // split 경로 (335~363줄) 와 대칭으로 빈 pane 1개 보충 → EmptyPane picker 가 떠서 재활용 가능.
+        // 사용자가 정말 줄이고 싶으면 그 빈 EmptyPane 을 한 번 더 닫으면 2 panes ('h'/'v') 로 떨어짐.
+        const filled = remaining.length === 3 ? [...remaining, makePane({})] : remaining;
+        const layout = filled.length === 1 ? 'single' : (filled.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
+        const activePaneId = t.activePaneId === paneId ? filled[0].id : t.activePaneId;
+        return { ...t, panes: filled, layout, activePaneId };
       }));
       const token = localStorage.getItem('auth_token');
       // 로컬 세션 정리
@@ -516,6 +523,67 @@ function App() {
   const focusPane = useCallback((tabId, paneId) => {
     setTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, activePaneId: paneId } : t));
   }, []);
+
+  // grid ↔ sub-tabs 보기 모드 토글 — 좁은 화면에서 4분할이 답답할 때 탭 형태로 전환.
+  // panes.length > 1 일 때만 의미 있음. 모바일은 자동 sub-tabs 라 토글 별개로 적용.
+  const toggleViewMode = useCallback((tabId) => {
+    setTabs((prev) => prev.map((t) => {
+      if (t.id !== tabId) return t;
+      const next = (t.viewMode === 'tabs') ? 'grid' : 'tabs';
+      return { ...t, viewMode: next };
+    }));
+  }, []);
+
+  // 분할 pane → 새 단독 탭으로 분리 (detach). 원본 탭은 closePane 과 동일한 후처리 적용
+  // (3 panes 남으면 빈 pane 보충, 2 면 'h'/'v', 1 면 'single'). 빈 pane (sessionId/hostId 없음) 은
+  // 추출 의미 없으므로 무시. 새 탭은 원본 바로 뒤에 삽입되고 즉시 활성화.
+  const extractPaneToTab = useCallback((tabId, paneId) => {
+    const src = tabs.find((tt) => tt.id === tabId);
+    if (!src) return;
+    const pane = src.panes?.find((p) => p.id === paneId);
+    if (!pane || (!pane.sessionId && !pane.hostId)) return;
+
+    // 새 탭/pane id 를 한 번만 계산 — setTabs 클로저에 캡처해 setActiveTabId 와 일관성 유지.
+    const newPane = makePane({
+      sessionId: pane.sessionId,
+      hostId: pane.hostId,
+      ...(pane.tmuxSessionName ? { tmuxSessionName: pane.tmuxSessionName } : null),
+      ...(pane.themeOverride ? { themeOverride: pane.themeOverride } : null),
+    });
+    const newTabId = pane.hostId
+      ? `host:${pane.hostId}:${Date.now()}:${newPane.id.slice(0, 6)}`
+      : `local:${pane.sessionId}:${Date.now()}:${newPane.id.slice(0, 6)}`;
+
+    setTabs((prev) => {
+      const remaining = (src.panes || []).filter((p) => p.id !== paneId);
+      const filled = remaining.length === 3 ? [...remaining, makePane({})] : remaining;
+      const layout = filled.length === 1 ? 'single' : (filled.length === 2 ? (src.layout === 'v' ? 'v' : 'h') : '2x2');
+      const trimmedSrc = {
+        ...src,
+        panes: filled,
+        layout,
+        activePaneId: filled[0]?.id || null,
+      };
+      const newTab = {
+        id: newTabId,
+        type: src.type,
+        name: src.name,
+        cwd: src.cwd ?? null,
+        icon: src.icon || null,
+        color_index: src.color_index ?? 0,
+        panes: [newPane],
+        layout: 'single',
+        activePaneId: newPane.id,
+        ...(src.hostId ? { hostId: src.hostId } : null),
+        ...(src.tmuxSuffix ? { tmuxSuffix: src.tmuxSuffix } : null),
+        ...(src.sessionId && src.type === 'local' ? { sessionId: pane.sessionId } : null),
+      };
+      const next = prev.map((t) => (t.id === tabId ? trimmedSrc : t));
+      const idx = next.findIndex((t) => t.id === tabId);
+      return [...next.slice(0, idx + 1), newTab, ...next.slice(idx + 1)];
+    });
+    setActiveTabId(newTabId);
+  }, [tabs]);
 
   const closeTab = useCallback((tabId) => {
     const tab = tabs.find((t) => t.id === tabId);
@@ -751,11 +819,12 @@ function App() {
 
   // ── responsive ────────────────────────────────────────────────────────────
   useEffect(() => {
+    let viewportRaf = 0;
     const check = () => {
       const isMobileUA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       const isNarrow = window.innerWidth < 768;
       const m = isMobileUA || isNarrow;
-      setIsMobile(m);
+      if (isMobileViewportRef.current !== m) setIsMobile(m);
       isMobileViewportRef.current = m;
     };
 
@@ -765,18 +834,21 @@ function App() {
 
     // visualViewport — 단순 가시 영역 높이 트래킹
     const handleVV = () => {
-      if (window.visualViewport) {
-        setViewportHeight(window.visualViewport.height);
+      if (viewportRaf) return;
+      viewportRaf = requestAnimationFrame(() => {
+        viewportRaf = 0;
+        if (window.visualViewport) {
+          const nextHeight = window.visualViewport.height;
+          setViewportHeight((prev) => (Math.abs(prev - nextHeight) > 0.5 ? nextHeight : prev));
 
-        // [iOS 근본 해결] 브라우저가 키보드 때문에 화면을 밀어올리면(panning) 
-        // 뷰포트 오프셋이 발생함. 이를 즉시 0으로 되돌려 레이아웃 이탈 방지.
-        if (window.visualViewport.offsetTop > 0 || window.scrollY > 0) {
-          requestAnimationFrame(() => {
+          // [iOS 근본 해결] 브라우저가 키보드 때문에 화면을 밀어올리면(panning)
+          // 뷰포트 오프셋이 발생함. 이를 즉시 0으로 되돌려 레이아웃 이탈 방지.
+          if (window.visualViewport.offsetTop > 0 || window.scrollY > 0) {
             window.scrollTo(0, 0);
-          });
+          }
         }
-      }
-      check();
+        check();
+      });
     };
 
     if (window.visualViewport) {
@@ -787,6 +859,7 @@ function App() {
     return () => {
       window.removeEventListener('resize', check);
       window.removeEventListener('orientationchange', check);
+      if (viewportRaf) cancelAnimationFrame(viewportRaf);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleVV);
         window.visualViewport.removeEventListener('scroll', handleVV);
@@ -794,7 +867,10 @@ function App() {
     };
   }, []);
 
-  useEffect(() => { localStorage.setItem('editor_height', editorHeight.toString()); }, [editorHeight]);
+  useEffect(() => {
+    const id = setTimeout(() => localStorage.setItem('editor_height', editorHeight.toString()), 150);
+    return () => clearTimeout(id);
+  }, [editorHeight]);
 
   // ── actions ───────────────────────────────────────────────────────────────
   const handleLogoutRequest = () => setConfirmModal({
@@ -862,17 +938,31 @@ function App() {
     setIsResizingEditor(true);
     const startY = e.clientY || e.touches?.[0]?.clientY;
     const startH = editorHeight;
+    let resizeRaf = 0;
+    let nextHeight = startH;
     const onMove = (me) => {
       const y = me.clientY || me.touches?.[0]?.clientY;
-      setEditorHeight(Math.max(150, Math.min(window.innerHeight - 150, startH + y - startY)));
+      nextHeight = Math.max(150, Math.min(window.innerHeight - 150, startH + y - startY));
+      if (resizeRaf) return;
+      resizeRaf = requestAnimationFrame(() => {
+        resizeRaf = 0;
+        setEditorHeight(nextHeight);
+      });
     };
     const onUp = () => {
       setIsResizingEditor(false);
+      if (resizeRaf) cancelAnimationFrame(resizeRaf);
+      setEditorHeight(nextHeight);
+      localStorage.setItem('editor_height', nextHeight.toString());
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      document.removeEventListener('touchmove', onMove);
+      document.removeEventListener('touchend', onUp);
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+    document.addEventListener('touchmove', onMove, { passive: true });
+    document.addEventListener('touchend', onUp);
   };
 
   // ── keyboard shortcuts ────────────────────────────────────────────────────
@@ -1104,6 +1194,7 @@ function App() {
         }}
         onSelect={setActiveTabId}
         onClose={closeTab}
+        onToggleViewMode={toggleViewMode}
         onHome={() => setActiveTabId(null)}
         onOpenHosts={() => setHostManagerOpen(true)}
         onOpenKeys={() => { setEditingKey(null); setKeyManagerOpen(true); }}
@@ -1239,6 +1330,7 @@ function App() {
                     onFocusPane={focusPane}
                     onClosePane={closePane}
                     onActivatePane={activatePane}
+                    onExtractPaneToTab={extractPaneToTab}
                     onPaneCwdChange={handlePaneCwdChange}
                     onPaneThemeChange={handlePaneThemeChange}
                     layoutSignal={tabLayoutSignal}
