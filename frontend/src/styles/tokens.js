@@ -53,21 +53,50 @@ const palette = {
     '#a855f7', // purple
     '#8b5cf6', // violet
     '#6366f1', // indigo
-    '#3b82f6', // blue-500
-    '#0ea5e9', // sky-500
-    '#06b6d4', // cyan-500
-    '#14b8a6', // teal-500
-    '#22c55e', // green-500
-    '#eab308', // yellow-500
-    '#f97316', // orange-500
-    '#dc2626', // red-600
-    '#db2777', // pink-600
-    '#9333ea', // purple-600
-    '#7c3aed', // violet-600
     '#a8d8c9', // sage
     '#d6a692', // sand
     '#f5c2e7', // light pink
     '#b4befe', // lavender
+    '#f38ba8', // maroon-rose
+    '#fab387', // peach
+    '#f9e2af', // gold
+    '#a6e3a1', // mint
+    '#94e2d5', // seafoam
+    '#89dceb', // light blue
+    '#cba6f7', // mauve
+    '#eba0ac', // blush
+    '#f2cdcd', // flamingo
+    '#cdd6f4', // text-light
+    '#bac2de', // overlay
+    '#e64553', // scarlet
+    '#d20f39', // crimson
+    '#fe640b', // tangerine
+    '#df8e1d', // amber
+    '#40a02b', // emerald
+    '#179299', // pine
+    '#1e66f5', // sapphire
+    '#7287fd', // cornflower
+    '#8839ef', // amethyst
+    '#ea76cb', // orchid
+    '#e34234', // vermilion
+    '#ff6f61', // coral
+    '#00b4d8', // ocean
+    '#48bfe3', // arctic
+    '#06d6a0', // jade
+    '#118ab2', // steel blue
+    '#073b4c', // midnight
+    '#ffd166', // sunbeam
+    '#ef476f', // watermelon
+    '#06d6a0', // neon mint
+    '#8338ec', // electric violet
+    '#ff006e', // hot magenta
+    '#fb5607', // tangerine burst
+    '#ffbe0b', // neon yellow
+    '#3a86ff', // vivid blue
+    '#8ac926', // lime zest
+    '#1982c4', // cobalt
+    '#6a4c93', // grape
+    '#ff595e', // salmon
   ],
 
   // 보더
