@@ -75,6 +75,26 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   useEffect(() => {
     if (!terminalRef.current) return;
 
+    // 모바일에서 키보드 팝업 시 화면 밀림 방지를 위한 CSS 주입
+    const styleId = 'xterm-mobile-fix';
+    if (!document.getElementById(styleId)) {
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.innerHTML = `
+        /* xterm.js 의 숨겨진 입력창이 브라우저 스크롤을 유발하지 않게 좌상단 고정 */
+        .xterm .xterm-helper-textarea {
+          top: 0 !important;
+          left: 0 !important;
+          position: fixed !important;
+          width: 0 !important;
+          height: 0 !important;
+          z-index: -1 !important;
+          opacity: 0 !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
     setIsReady(false);
     setHasContent(false);
 
