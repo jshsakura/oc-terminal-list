@@ -101,6 +101,7 @@ const SectionHeader = ({ isDark, label }) => (
 
 const ThemeRow = ({ id, theme, isActive, isGlobal, isCurrent, onClick }) => {
   const label = THEME_LABELS[id] || id;
+  const showIcon = isGlobal || isCurrent;
   return (
     <button
       onClick={() => onClick(id)}
@@ -119,18 +120,18 @@ const ThemeRow = ({ id, theme, isActive, isGlobal, isCurrent, onClick }) => {
         cursor: 'pointer',
         fontFamily: font.sans,
         transition: 'background 120ms, border-color 120ms',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
       }}
       onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.background = color.surface1; }}
       onMouseLeave={(e) => { if (!isActive) e.currentTarget.style.background = color.surface0; }}
     >
       <ThemeSwatch theme={theme} />
-      <span style={{ flex: 1 }}>{label}</span>
-      {isGlobal && (
-        <Globe size={11} style={{ color: color.muted, flexShrink: 0 }} />
-      )}
-      {isCurrent && !isGlobal && (
-        <Check size={11} style={{ color: color.accent, flexShrink: 0 }} />
-      )}
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{label}</span>
+      <span style={{ width: '11px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {isGlobal && <Globe size={11} style={{ color: color.muted }} />}
+        {isCurrent && !isGlobal && <Check size={11} style={{ color: color.accent }} />}
+      </span>
     </button>
   );
 };

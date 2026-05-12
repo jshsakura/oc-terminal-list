@@ -189,8 +189,9 @@ export const HostRow = memo(({
         : (isDragOver ? color.surface2 : (isHovered ? color.surface1 : color.surface0)),
       borderColor: isDragging
         ? color.accent
-        : (isDragOver ? color.accent : (isHovered ? accentColor : color.border)),
+        : (isDragOver ? color.accent : color.border),
       borderStyle: isDragOver && !isDragging ? 'dashed' : 'solid',
+      borderWidth: isDragOver ? '2px' : '1px',
       transform: isDragging
         ? 'translateY(-1px) scale(1.01)'
         : (isHovered ? 'translateY(-1px)' : 'translateY(0)'),
@@ -282,6 +283,7 @@ const EmptyRow = ({ onClick, t }) => {
         background: hovered ? color.surface0 : 'transparent',
         borderColor: hovered ? color.accent : color.border,
         borderStyle: 'dashed',
+        borderWidth: '2px',
         color: hovered ? color.accent : color.muted,
       }}
     >

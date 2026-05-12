@@ -21,6 +21,9 @@ export const DEFAULT_MOBILE_KEYS = [
    { id: 'sep2',  kind: 'sep' },
    { id: 'esc',   kind: 'send', label: 'ESC', payload: '\x1b' },
    { id: 'tab',   kind: 'send', label: 'TAB', payload: '\t' },
+   // ^C 는 터미널 작업 중단(SIGINT) 의 표준 단축키 — CTRL 토글 + 'c' 입력은 모바일에 별도
+   // 알파벳 키가 없어 실제로 못 보내므로 디폴트 툴바에 직접 박아 둔다.
+   { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', tone: 'danger' },
    { id: 'sep3',  kind: 'sep' },
    { id: 'ctrl',  kind: 'mod',  label: 'CTRL', modifier: 'ctrl' },
    { id: 'alt',   kind: 'mod',  label: 'ALT',  modifier: 'alt' },

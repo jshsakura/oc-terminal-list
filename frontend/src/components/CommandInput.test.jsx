@@ -13,7 +13,7 @@ const t = (key) => ({
 }[key] || key);
 
 describe('CommandInput', () => {
-  it('renders as a centered modal instead of sitting over the mobile hotkeys', () => {
+  it('docks the modal to the visible viewport bottom so it sits above the on-screen keyboard', () => {
     render(
       <CommandInput
         isOpen={true}
@@ -28,8 +28,15 @@ describe('CommandInput', () => {
     const overlay = screen.getByTestId('command-input-overlay');
     const dialog = screen.getByRole('dialog', { name: /Send command/i });
 
-    expect(overlay).toHaveStyle({ alignItems: 'center', justifyContent: 'center' });
-    expect(dialog).toHaveStyle({ maxHeight: '80dvh', maxWidth: '420px' });
+    // overlay 는 visualViewport 좌표로 고정돼야 한다 — 키보드가 올라와도 가시 영역 안에서만 그려지고
+    // 모달은 하단(키보드 위) 에 도크.
+    expect(overlay).toHaveStyle({
+      position: 'fixed',
+      alignItems: 'flex-end',
+      justifyContent: 'center',
+    });
+    // 모달 자체는 기존 너비 한계 유지.
+    expect(dialog).toHaveStyle({ maxWidth: '420px' });
   });
 
   it('sends the command and clears the preserved input', () => {

@@ -40,28 +40,34 @@ const palette = {
   dotPalette: [
     '#89b4fa', // blue
     '#74c7ec', // sky
-    '#7dd3fc', // light sky
-    '#94e2d5', // teal
     '#22d3ee', // cyan
-    '#a6e3a1', // green
-    '#86efac', // mint
-    '#dffac6', // lime
-    '#fde68a', // gold
-    '#f9e2af', // yellow
-    '#fab387', // peach
+    '#2dd4bf', // teal
+    '#4ade80', // green
+    '#a3e635', // lime
+    '#facc15', // yellow
     '#fb923c', // orange
-    '#eba0ac', // maroon
-    '#f87171', // red
-    '#f38ba8', // pink
-    '#f472b6', // hot pink
-    '#f5c2e7', // rose
-    '#cba6f7', // mauve
-    '#a78bfa', // violet
-    '#b4befe', // lavender
-    '#9aa6f5', // indigo
-    '#c0caf5', // pale blue
+    '#ef4444', // red
+    '#f43f5e', // rose
+    '#ec4899', // pink
+    '#d946ef', // fuchsia
+    '#a855f7', // purple
+    '#8b5cf6', // violet
+    '#6366f1', // indigo
+    '#3b82f6', // blue-500
+    '#0ea5e9', // sky-500
+    '#06b6d4', // cyan-500
+    '#14b8a6', // teal-500
+    '#22c55e', // green-500
+    '#eab308', // yellow-500
+    '#f97316', // orange-500
+    '#dc2626', // red-600
+    '#db2777', // pink-600
+    '#9333ea', // purple-600
+    '#7c3aed', // violet-600
     '#a8d8c9', // sage
     '#d6a692', // sand
+    '#f5c2e7', // light pink
+    '#b4befe', // lavender
   ],
 
   // 보더

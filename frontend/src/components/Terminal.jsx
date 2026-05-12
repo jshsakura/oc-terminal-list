@@ -9,7 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { Loader2, MonitorSmartphone, PowerOff } from 'lucide-react';
+import { Loader2, MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
@@ -52,6 +52,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   useEffect(() => { isMobileRef.current = isMobile; }, [isMobile]);
 
   const [authPrompt, setAuthPrompt] = useState(null);
+  const [contextMenu, setContextMenu] = useState(null);
   // authPrompt 열고 닫을 때 전역 이벤트 — App.jsx 가 모바일 단축키바를 그동안 숨김.
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('iterm:auth-prompt', { detail: { open: !!authPrompt } }));
@@ -124,6 +125,40 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
 
+    // FitAddon v0.11.0 이 scrollbarWidth 만큼 cols 를 과소계산해서 우측 빈틈 생기는 문제 해결.
+    // proposeDimensions 를 덮어써 scrollbarWidth 공제를 완전히 스킵.
+    const origPropose = fitAddon.proposeDimensions.bind(fitAddon);
+    fitAddon.proposeDimensions = function() {
+      const t = this._terminal;
+      if (!t?.element?.parentElement) return origPropose();
+      const core = t._core;
+      const dims = core?._renderService?.dimensions;
+      if (!dims || dims.css.cell.width === 0) return origPropose();
+      const parentStyle = window.getComputedStyle(t.element.parentElement);
+      const parentH = parseInt(parentStyle.getPropertyValue('height'));
+      const parentW = Math.max(0, parseInt(parentStyle.getPropertyValue('width')));
+      const elStyle = window.getComputedStyle(t.element);
+      const padH = parseInt(elStyle.getPropertyValue('padding-left')) + parseInt(elStyle.getPropertyValue('padding-right'));
+      const padV = parseInt(elStyle.getPropertyValue('padding-top')) + parseInt(elStyle.getPropertyValue('padding-bottom'));
+      return {
+        cols: Math.max(2, Math.floor((parentW - padH) / dims.css.cell.width)),
+        rows: Math.max(1, Math.floor((parentH - padV) / dims.css.cell.height)),
+      };
+    };
+
+    // fit() 직전 컨테이너(terminalRef) 크기를 cell grid 에 snap-down.
+    // 나머지 픽셀이 생기지 않아 우측/하단 빈틈이 원천 제거됨.
+    // snap 된 컨테이너 바깥 여백은 overflow:hidden + 동일 배경색으로 보이지 않음.
+    const origFit = fitAddon.fit.bind(fitAddon);
+    fitAddon.fit = function() {
+      const container = terminalRef.current;
+      if (container) {
+        container.style.width = '100%';
+        container.style.height = '100%';
+      }
+      origFit();
+    };
+
     const webLinksAddon = new WebLinksAddon();
     term.loadAddon(webLinksAddon);
 
@@ -139,6 +174,21 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     fitAddonRef.current = fitAddon;
 
     term.open(terminalRef.current);
+
+    // NOTE: xterm v6 에서 FitAddon 은 core.viewport.scrollBarWidth 대신
+    // options.overviewRuler?.width || DEFAULT_SCROLL_BAR_WIDTH(=14) 를 사용하므로
+    // 위에서 proposeDimensions 를 monkey-patch 해서 scrollbarWidth 공제를 스킵함.
+    // 아래 defineProperty 도 혹시 모를 내부 viewport 참조용으로 유지.
+    try {
+      const core = term._core;
+      if (core?.viewport) {
+        Object.defineProperty(core.viewport, 'scrollBarWidth', {
+          configurable: true,
+          get: () => 0,
+          set: () => {},
+        });
+      }
+    } catch {}
 
     // WebGL 렌더러 — 디폴트 ON. 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
     // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
@@ -207,8 +257,14 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     // 우클릭: 네이티브 컨텍스트 메뉴를 막아 tmux 가 마우스 이벤트를 처리할 수 있게 함.
     // 단, 모바일에서 텍스트 선택이 있는 경우엔 '복사' 등을 위해 네이티브 메뉴 허용.
     const handleContextMenu = (e) => {
-      if (isMobileRef.current && term.hasSelection()) return;
       e.preventDefault();
+      const term = xtermRef.current;
+      if (!term) return;
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        hasSelection: !!term.hasSelection(),
+      });
     };
 
     /* 드래그 중 mousemove 마다 onSelectionChange fire — 정착(80ms idle) 후 한 번만 클립보드 write.
@@ -230,19 +286,6 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     container.addEventListener('keydown', handleKeyDown);
     container.addEventListener('paste', handlePaste, true);
 
-    /* 휠 → PgUp/PgDn. xterm v6 의 attachCustomWheelEventHandler 사용 — xterm 내장 wheel 처리 직전에
-       호출되며, return false → xterm 의 default 처리 skip. capture/bubble race 없음. tmux mouse off
-       이라 native 드래그 선택은 그대로 살아있고, 휠만 PgUp 으로 변환해 PTY 송신 → tmux root binding
-       이 normal/alternate 자동 분기 (normal=copy-mode 진입). mouse 이벤트 round-trip 보다 직접 PgUp
-       송신이 더 빠르고 부드러움. */
-    if (typeof term.attachCustomWheelEventHandler === 'function') {
-      term.attachCustomWheelEventHandler((e) => {
-        const ws = wsRef.current;
-        if (!ws || ws.readyState !== WebSocket.OPEN) return true;
-        ws.send(e.deltaY > 0 ? '\x1b[6~' : '\x1b[5~');
-        return false;
-      });
-    }
 
     // ⚠️  WS 연결 전에 fit() 동기 호출 — xterm.js 의 cols/rows 와 백엔드/tmux 에
     // 알리는 차원이 일치하도록 한다. 늦게 fit 하면 첫 렌더가 80x24 로 나간 뒤
@@ -336,7 +379,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
               socket.send(JSON.stringify({ type: 'resize', cols: c, rows: r }));
             }
           }, 60);
-        }, 350);
+      }, 150);
       }
     };
 
@@ -858,6 +901,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           100% { opacity: 0.35; }
         }
         .xterm-scrollable-element { height: 100% !important; }
+        .xterm { height: 100% !important; overflow: visible !important; }
+        .xterm-viewport { height: 100% !important; }
       `}</style>
 
       {/* 스켈레톤: 첫 콘텐츠가 그려지기 전까지 표시 */}
@@ -911,6 +956,44 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           outline: 'none',
         }}
       />
+
+      {/* context menu — 우클릭 시 복사/붙여넣기/전체복사/하단스크롤 */}
+      {contextMenu && (
+        <TerminalContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          hasSelection={contextMenu.hasSelection}
+          themeUi={themeUi}
+          t={t}
+          onCopy={() => {
+            const sel = xtermRef.current?.getSelection();
+            if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+            setContextMenu(null);
+          }}
+          onCopyAll={() => {
+            copyAll();
+            setContextMenu(null);
+          }}
+          onPaste={async () => {
+            try {
+              const text = await navigator.clipboard.readText();
+              if (text && wsRef.current?.readyState === WebSocket.OPEN) {
+                wsRef.current.send(text);
+              }
+            } catch {}
+            setContextMenu(null);
+          }}
+          onClear={() => {
+            xtermRef.current?.clear();
+            setContextMenu(null);
+          }}
+          onScrollToBottom={() => {
+            xtermRef.current?.scrollToBottom();
+            setContextMenu(null);
+          }}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
 
       {/* takeover 배너 — 패널 하단 인라인, 여러 패널에 동시 노출 가능 */}
       {evicted && (
@@ -1086,6 +1169,96 @@ const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
   );
 };
 
+const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll, onPaste, onClear, onScrollToBottom, onClose }) => {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ x, y });
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const handleClick = (e) => {
+      if (e.button === 2) return;
+      if (ref.current && !ref.current.contains(e.target)) onCloseRef.current();
+    };
+    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const margin = 8;
+      let nx = x, ny = y;
+      if (nx + rect.width > window.innerWidth - margin) nx = window.innerWidth - rect.width - margin;
+      if (nx < margin) nx = margin;
+      if (ny + rect.height > window.innerHeight - margin) ny = window.innerHeight - rect.height - margin;
+      if (ny < margin) ny = margin;
+      setPos({ x: nx, y: ny });
+    }
+  }, [x, y]);
+
+  const items = [];
+  if (hasSelection) {
+    items.push({ icon: Copy, label: t('copy') || 'Copy', action: onCopy });
+  }
+  items.push({ icon: Scissors, label: t('copyAll') || 'Copy all', action: onCopyAll });
+  items.push({ icon: ClipboardPaste, label: t('paste') || 'Paste', action: onPaste });
+  items.push({ icon: RotateCcw, label: t('clear') || 'Clear', action: onClear });
+  items.push({ icon: ArrowDownToLine, label: t('scrollToBottom') || 'Scroll to bottom', action: onScrollToBottom });
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: pos.y,
+        left: pos.x,
+        zIndex: 200000,
+        background: themeUi.base,
+        border: `1px solid ${themeUi.border}`,
+        borderRadius: '6px',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
+        padding: '4px 0',
+        minWidth: '160px',
+        fontFamily: tokens.font.sans,
+      }}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {items.map((item, i) => (
+        <button
+          key={i}
+          onClick={item.action}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            width: '100%',
+            padding: '6px 12px',
+            border: 'none',
+            background: 'transparent',
+            color: themeUi.text,
+            fontSize: tokens.fontSize['12'],
+            fontFamily: tokens.font.sans,
+            cursor: 'pointer',
+            textAlign: 'left',
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = themeUi.surface1; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+        >
+          <item.icon size={13} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.7 }} />
+          {item.label}
+        </button>
+      ))}
+    </div>
+  );
+};
+
 const styles = {
   statusOverlay: {
     position: 'absolute',
@@ -1128,7 +1301,7 @@ const styles = {
   modalCard: (themeUi) => ({
     width: '90%',
     maxWidth: '420px',
-    maxHeight: '80dvh',
+    maxHeight: '80%',
     background: themeUi.base,
     color: themeUi.text,
     border: `1px solid ${themeUi.border}`,

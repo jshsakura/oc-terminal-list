@@ -79,8 +79,8 @@ const styles = {
     top: '50%', left: '50%',
     transform: 'translate(-50%, -50%)',
     width: '98%', maxWidth: '1100px',
-    height: '96vh',          // 거의 풀스크린 — 사용자 요청 "좀 더 높게"
-    maxHeight: '96vh',
+    height: '96%',
+    maxHeight: '96%',
     zIndex: 10001,
     background: color.base,
     border: `1px solid ${color.border}`,

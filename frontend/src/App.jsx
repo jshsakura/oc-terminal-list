@@ -104,14 +104,15 @@ const migrateTab = (t) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function App() {
-  const { settings, updateSettings } = useSettings();
+  // useAuth 를 먼저 — isAuthenticated 가 useSettings 의 fetch 트리거 dep 으로 들어간다.
+  // (로그인 후 처음 로드되는 경우에도 server 의 mobile fontSize 등을 가져오기 위함.)
+  const { isLoading, needsSetup, isAuthenticated, username, login, logout, completeSetup } = useAuth();
+  const { settings, updateSettings } = useSettings(isAuthenticated);
   const { t } = useTranslation(settings.language);
   const currentTheme = useMemo(() => themes[settings.theme] || themes.catppuccin, [settings.theme]);
   // 초기 1회 — focusedPane 이 아직 안 정의된 첫 렌더에 글로벌 테마 즉시 적용 (FOUC 방지).
   // 활성 pane 의 themeOverride 가 잡히면 아래쪽 effect 가 덮어씀.
   useEffect(() => { applyThemeVars(currentTheme); }, [currentTheme]);
-
-  const { isLoading, needsSetup, isAuthenticated, username, login, logout, completeSetup } = useAuth();
   const { hosts, refresh: refreshHosts, createHost, updateHost, deleteHost } = useHosts(isAuthenticated);
   const { keys: sshKeys, createKey, updateKey, deleteKey } = useSshKeys(isAuthenticated);
 
@@ -295,21 +296,45 @@ function App() {
   const tabsWithMeta = useMemo(() => tabs.map((tt) => {
     const host = tt.type === 'host' ? hosts.find((h) => h.id === tt.hostId) : null;
     const isPersistent = tt.type === 'local' || !!host?.use_remote_tmux;
+    // 호스트/로컬 메타가 바뀌면(이름/아이콘/색/테마 변경) 탭에 즉시 반영 — tab 객체에 캡처된 값은
+    // 생성 시점 스냅샷이라 사용자가 호스트 편집해도 안 따라가던 문제 해결.
+    if (host) {
+      return {
+        ...tt,
+        isPersistent,
+        name: host.name || tt.name,
+        icon: host.icon ?? tt.icon ?? null,
+        color_index: host.color_index ?? tt.color_index ?? 0,
+      };
+    }
+    if (tt.type === 'local') {
+      return {
+        ...tt,
+        isPersistent,
+        // 로컬은 사용자가 Settings → This machine 에서 바꾼 값을 따라가도록.
+        name: (settings.localName || '').trim() || tt.name || 'terminal',
+        icon: settings.localIcon || tt.icon || null,
+        color_index: settings.localColorIndex ?? tt.color_index ?? 0,
+      };
+    }
     return { ...tt, isPersistent };
-  }), [tabs, hosts]);
+  }), [tabs, hosts, settings.localName, settings.localIcon, settings.localColorIndex]);
 
   // ── open / close tabs ─────────────────────────────────────────────────────
+  // 새 로컬 터미널 — 명시 cwd 없으면 settings.localStartPath 사용. 비어 있어도 '' (= 워크스페이스 루트)
+  // 로 명시 전달해 backend 가 임의 위치($HOME 등) 에서 spawn 하지 않도록 함.
   const openLocalTab = useCallback(async (cwd = null) => {
     const sessionId = generateUUID();
     const name = (settings.localName || '').trim() || 'terminal';
-    const tab = makLocalTab(sessionId, name, cwd, {
+    const startCwd = cwd ?? settings.localStartPath ?? '';
+    const tab = makLocalTab(sessionId, name, startCwd, {
       icon: settings.localIcon || null,
       colorIndex: settings.localColorIndex ?? 0,
       themeOverride: settings.localTheme || null,
     });
     setTabs((prev) => [...prev, tab]);
     setActiveTabId(tab.id);
-  }, [settings.localName, settings.localIcon, settings.localColorIndex, settings.localTheme]);
+  }, [settings.localName, settings.localIcon, settings.localColorIndex, settings.localTheme, settings.localStartPath]);
 
   const openHostTab = useCallback((host, cwd = null, tmuxSessionName = null) => {
     if (!host || host.isLocal || host.id === 'local') {
@@ -380,44 +405,66 @@ function App() {
       // 병합인 경우 원본 탭의 pane 들을 빈 슬롯에 채워넣는 로직을 한 번에 처리.
       if (target?.type === 'tab' && target.sourceTabId) {
         const src = prev.find((tt) => tt.id === target.sourceTabId);
-        const srcPanes = (src?.panes || []).filter((p) => p.sessionId || p.hostId);
-        if (srcPanes.length === 0) {
-          // 빈 탭 흡수 — 그냥 원본만 제거
+        if (!src) return prev;
+        const srcActivePanes = (src.panes || []).filter((p) => p.sessionId || p.hostId);
+        if (srcActivePanes.length === 0) {
           return prev.filter((t) => t.id !== target.sourceTabId);
         }
-        // 활성 pane 이 첫 번째가 되도록 정렬
-        const active = srcPanes.find((p) => p.id === src.activePaneId) || srcPanes[0];
-        const rest = srcPanes.filter((p) => p.id !== active.id);
-        const ordered = [active, ...rest];
 
-        const merged = prev.map((t) => {
-          if (t.id !== tabId) return t;
-          const currentPanes = t.panes || [];
-          const targetIdx = currentPanes.findIndex((p) => p.id === paneId);
-          if (targetIdx < 0) return t;
-          // 빈 슬롯을 첫 흡수 pane 으로 교체
-          const filledTarget = {
-            ...currentPanes[targetIdx],
-            sessionId: ordered[0].sessionId,
-            hostId: ordered[0].hostId,
-          };
-          const replacedPanes = currentPanes.map((p, i) => (i === targetIdx ? filledTarget : p));
-          // 남은 흡수 pane 들 — 새 pane id 부여 후 뒤에 append, 4개 까지만
-          const slotsLeft = MAX_PANES - replacedPanes.length;
-          const extra = ordered.slice(1, 1 + Math.max(0, slotsLeft)).map((sp) => ({
-            ...makePane({ sessionId: sp.sessionId, hostId: sp.hostId }),
-          }));
-          // 3 panes → 2x2 grid 의 4번째 빈 셀이 클릭 불가로 남는 버그 방지. closePane 과 동일 로직.
-          const combined = [...replacedPanes, ...extra];
-          const allPanes = combined.length === 3 ? [...combined, makePane({})] : combined;
-          const total = allPanes.length;
-          let layout = t.layout || 'single';
-          if (total === 1) layout = 'single';
-          else if (total === 2) layout = (layout === 'v' ? 'v' : 'h');
-          else layout = '2x2';
-          return { ...t, panes: allPanes, layout, activePaneId: filledTarget.id };
+        const destTab = prev.find((t) => t.id === tabId);
+        const currentPanes = [...(destTab?.panes || [])];
+
+        const emptyIndices = [];
+        currentPanes.forEach((p, i) => {
+          if (!p.sessionId && !p.hostId) emptyIndices.push(i);
         });
-        return merged.filter((t) => t.id !== target.sourceTabId);
+
+        let srcIdx = 0;
+        const filledPanes = currentPanes.map((p, i) => {
+          if (emptyIndices.includes(i) && srcIdx < srcActivePanes.length) {
+            return { ...p, sessionId: srcActivePanes[srcIdx].sessionId, hostId: srcActivePanes[srcIdx++].hostId };
+          }
+          return p;
+        });
+
+        const overflowSrcIds = new Set(srcActivePanes.slice(srcIdx).map((p) => p.id));
+        const movedSrcIds = new Set(srcActivePanes.slice(0, srcIdx).map((p) => p.id));
+
+        const srcRemaining = (src.panes || []).filter((p) => !movedSrcIds.has(p.id));
+        const srcStillActive = srcRemaining.some((p) => p.sessionId || p.hostId);
+
+        let result = prev.map((t) => {
+          if (t.id === tabId) {
+            const allP = filledPanes.length === 3 ? [...filledPanes, makePane({})] : filledPanes;
+            const total = allP.length;
+            let layout = t.layout || 'single';
+            if (total === 1) layout = 'single';
+            else if (total === 2) layout = (layout === 'v' ? 'v' : 'h');
+            else layout = '2x2';
+            return { ...t, panes: allP, layout };
+          }
+          if (t.id === target.sourceTabId) {
+            if (!srcStillActive && overflowSrcIds.size === 0) return null;
+            const keep = [...srcRemaining];
+            if (overflowSrcIds.size > 0) {
+              overflowSrcIds.forEach(() => keep.push(makePane({})));
+            }
+            const cleaned = keep.filter((p) => p.sessionId || p.hostId).length > 0
+              ? keep : [makePane({})];
+            const active = cleaned.filter((p) => p.sessionId || p.hostId);
+            const finalPanes = active.length === 0
+              ? [makePane({})]
+              : (active.length === 3 ? [...active, makePane({})] : active);
+            const nTotal = finalPanes.length;
+            let nLayout = t.layout || 'single';
+            if (nTotal === 1) nLayout = 'single';
+            else if (nTotal === 2) nLayout = (nLayout === 'v' ? 'v' : 'h');
+            else nLayout = '2x2';
+            return { ...t, panes: finalPanes, layout: nLayout, activePaneId: (active[0] || finalPanes[0]).id };
+          }
+          return t;
+        }).filter(Boolean);
+        return result;
       }
 
       // 병합이 아닌 단순 활성화 케이스
@@ -460,13 +507,24 @@ function App() {
         // 다중 pane → 해당 pane 제거 (단일 pane 케이스는 closeTab 으로 위임됨)
         const remaining = panes.filter((p) => p.id !== paneId);
         if (remaining.length === 0) return t;
-        // 2x2 grid에서 1개 닫아 3개 남으면 4번째 grid cell이 "클릭 불가능한 빈 칸"으로 남는 버그 방지.
-        // split 경로 (335~363줄) 와 대칭으로 빈 pane 1개 보충 → EmptyPane picker 가 떠서 재활용 가능.
-        // 사용자가 정말 줄이고 싶으면 그 빈 EmptyPane 을 한 번 더 닫으면 2 panes ('h'/'v') 로 떨어짐.
-        const filled = remaining.length === 3 ? [...remaining, makePane({})] : remaining;
+        const activeCount = remaining.filter((p) => p.sessionId || p.hostId).length;
+        const emptyCount = remaining.length - activeCount;
+        let filled;
+        if (activeCount === 0) {
+          filled = [remaining[0]];
+        } else if (activeCount <= 2 && emptyCount > 0) {
+          filled = remaining.filter((p) => p.sessionId || p.hostId);
+          if (filled.length === 1) filled = [filled[0]];
+        } else if (activeCount === 3) {
+          filled = [...remaining, makePane({})];
+        } else {
+          filled = remaining;
+        }
         const layout = filled.length === 1 ? 'single' : (filled.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
-        const activePaneId = t.activePaneId === paneId ? filled[0].id : t.activePaneId;
-        return { ...t, panes: filled, layout, activePaneId };
+        const newActiveId = t.activePaneId === paneId
+          ? (filled.find((p) => p.sessionId || p.hostId) || filled[0])?.id
+          : t.activePaneId;
+        return { ...t, panes: filled, layout, activePaneId: newActiveId };
       }));
       const token = localStorage.getItem('auth_token');
       // 로컬 세션 정리
@@ -584,6 +642,23 @@ function App() {
     });
     setActiveTabId(newTabId);
   }, [tabs]);
+
+  // 분할 pane 순서 변경 — subTabs 컨텍스트 메뉴(Move left/right) 에서 사용.
+  // (tabId, fromPaneId, toPaneId) → 해당 탭의 panes 배열에서 fromPaneId 를 toPaneId 위치로 이동.
+  const reorderPane = useCallback((tabId, fromPaneId, toPaneId) => {
+    if (!fromPaneId || !toPaneId || fromPaneId === toPaneId) return;
+    setTabs((prev) => prev.map((tt) => {
+      if (tt.id !== tabId) return tt;
+      const panes = tt.panes || [];
+      const fromIdx = panes.findIndex((p) => p.id === fromPaneId);
+      const toIdx = panes.findIndex((p) => p.id === toPaneId);
+      if (fromIdx < 0 || toIdx < 0) return tt;
+      const next = [...panes];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return { ...tt, panes: next };
+    }));
+  }, []);
 
   const closeTab = useCallback((tabId) => {
     const tab = tabs.find((t) => t.id === tabId);
@@ -759,8 +834,17 @@ function App() {
   }, []);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  const [isMobile, setIsMobile] = useState(false);
-  const [viewportHeight, setViewportHeight] = useState(window.visualViewport?.height ?? window.innerHeight);
+  // isMobile 초기값을 동기적으로 결정 — Hard refresh 직후 1프레임 동안 PC fontSize 로
+  // 렌더되던 깜박임 제거. effectiveSettings.fontSize 가 처음부터 mobile 값으로 잡혀
+  // xterm 이 mount 시점부터 올바른 사이즈로 그려진다.
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    const ua = navigator.userAgent || '';
+    const isMobileUA = /iPhone|iPad|iPod|Android/i.test(ua);
+    const isNarrow = window.innerWidth < 768;
+    return isMobileUA || isNarrow;
+  });
+  const [viewportHeight, setViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
@@ -837,24 +921,33 @@ function App() {
     window.addEventListener('resize', check);
     window.addEventListener('orientationchange', check);
 
-    // visualViewport — 단순 가시 영역 높이 트래킹
+    // visualViewport — 가시 영역 높이 + offsetTop 트래킹.
+    // iOS Safari 는 viewport meta 의 interactive-widget=resizes-content 를 무시한다.
+    // 키보드가 올라오면 visualViewport.height 만 줄어들고 layout viewport 는 그대로라서
+    // position:fixed; inset:0 가 키보드 영역까지 덮음 → CommandInput 모달이 키보드에 가림.
+    // 여기서 visualViewport 값을 state/CSS 변수로 노출해 외곽 컨테이너와 모달이 가시 영역에
+    // 맞춰 줄어들도록 한다.
     const handleVV = () => {
       if (viewportRaf) return;
       viewportRaf = requestAnimationFrame(() => {
         viewportRaf = 0;
-        if (window.visualViewport) {
-          const nextHeight = window.visualViewport.height;
-          setViewportHeight((prev) => (Math.abs(prev - nextHeight) > 0.5 ? nextHeight : prev));
-
-          // [iOS 근본 해결] 브라우저가 키보드 때문에 화면을 밀어올리면(panning)
-          // 뷰포트 오프셋이 발생함. 이를 즉시 0으로 되돌려 레이아웃 이탈 방지.
-          if (window.visualViewport.offsetTop > 0 || window.scrollY > 0) {
+        const vv = window.visualViewport;
+        if (vv) {
+          if (vv.offsetTop > 0 || window.scrollY > 0) {
             window.scrollTo(0, 0);
           }
+          setViewportHeight(vv.height);
+          document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
+          document.documentElement.style.setProperty('--vvt', `${vv.offsetTop}px`);
         }
         check();
       });
     };
+    // 최초 1회 — mount 시점 visualViewport 값을 CSS 변수에 반영.
+    if (window.visualViewport) {
+      document.documentElement.style.setProperty('--vvh', `${window.visualViewport.height}px`);
+      document.documentElement.style.setProperty('--vvt', `${window.visualViewport.offsetTop}px`);
+    }
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', handleVV);
@@ -1131,18 +1224,25 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      height: isMobile ? `${viewportHeight}px` : '100vh',
+      // 모바일에선 visualViewport.height 를 우선 (iOS 키보드/주소표시줄 대응).
+      // 데스크탑은 100% 유지 — visualViewport 가 없어도 영향 없음.
+      height: isMobile ? 'var(--vvh, 100%)' : '100%',
       width: '100%',
       background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,
     }}>
       <style>{`
-        html, body, #root {
+        html, body {
           width: 100%;
           height: 100%;
           margin: 0;
           padding: 0;
+          overflow: hidden;
+        }
+        #root {
+          position: fixed;
+          inset: 0;
           overflow: hidden;
         }
 
@@ -1151,9 +1251,40 @@ function App() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${currentTheme.ui.bgTertiary}; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: ${currentTheme.ui.accent}88; }
-        /* xterm 내부 스크롤바 — 우측 사이드바와 사이 갭 제거. 스크롤은 휠·tmux copy-mode 로 */
-        .xterm-viewport { scrollbar-width: none !important; }
-        .xterm-viewport::-webkit-scrollbar { display: none !important; width: 0 !important; }
+        /* xterm 스크롤바 — 핵심: xterm.css 기본값이 'overflow-y: scroll' 이라 *항상* gutter 가
+           예약돼서 TUI 가 그 폭만큼 짧게 그려진다 (opencode 등이 가득 안 차는 이유).
+           해법:
+             1) overflow-y: auto — 콘텐츠 넘칠 때만 스크롤바, 안 보이면 gutter 없음.
+             2) scrollbar-gutter: auto — gutter 예약 명시적 해제 (기본값이지만 일부 vendor 보정용).
+             3) scrollbar-width / -ms-overflow-style — Firefox + IE/Edge legacy.
+             4) ::-webkit-scrollbar 모두 display:none + appearance:none — Chrome/Safari overlay 까지.
+           가로 스크롤은 항상 hidden — xterm 은 cols 정확히 fit 해서 가로 overflow 가 절대 없어야 함. */
+        .xterm,
+        .xterm *,
+        .xterm-viewport,
+        .xterm-screen,
+        .xterm-scroll-area {
+          scrollbar-width: none !important;
+          -ms-overflow-style: none !important;
+        }
+        .xterm-viewport {
+          overflow-y: auto !important;
+          overflow-x: hidden !important;
+          scrollbar-gutter: auto !important;
+        }
+        .xterm::-webkit-scrollbar,
+        .xterm *::-webkit-scrollbar,
+        .xterm-viewport::-webkit-scrollbar,
+        .xterm-viewport::-webkit-scrollbar-track,
+        .xterm-viewport::-webkit-scrollbar-thumb,
+        .xterm-viewport::-webkit-scrollbar-corner {
+          display: none !important;
+          width: 0 !important;
+          height: 0 !important;
+          background: transparent !important;
+          -webkit-appearance: none !important;
+          appearance: none !important;
+        }
 
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         .spin { animation: spin 1s linear infinite; }
@@ -1291,8 +1422,10 @@ function App() {
               : (tab?.cwd ?? null);
             /* 활성 탭에만 editor 높이 반영. layoutSignal 변하면 그 탭의 fit 트리거.
                layout + paneCount 도 포함 — split 닫기/추가 시 grid 차원 변화에 맞춰 모든 pane 의
-               Terminal 이 다시 fit() 호출하도록. (없으면 닫기 후 화면 크기 안 맞아 깨짐.) */
-            const tabLayoutSignal = `tab:${tab.id}:editor:${isThisActive && activeFile ? editorHeight : 0}:active:${isThisActive ? 1 : 0}:layout:${tab.layout || 'single'}:n:${tab.panes?.length || 1}`;
+               Terminal 이 다시 fit() 호출하도록. (없으면 닫기 후 화면 크기 안 맞아 깨짐.)
+               viewportHeight 도 포함 — iOS 키보드 올라와 visualViewport 가 줄어들 때 즉시 fit.
+               (ResizeObserver 도 깨우지만 350ms debounce 가 있어 사용자 체감은 layoutSignal 경로가 빠름.) */
+            const tabLayoutSignal = `tab:${tab.id}:editor:${isThisActive && activeFile ? editorHeight : 0}:active:${isThisActive ? 1 : 0}:layout:${tab.layout || 'single'}:n:${tab.panes?.length || 1}:vh:${isMobile ? Math.round(viewportHeight) : 0}`;
             return (
               <div
                 key={tab.id}
@@ -1336,6 +1469,7 @@ function App() {
                     onClosePane={closePane}
                     onActivatePane={activatePane}
                     onExtractPaneToTab={extractPaneToTab}
+                    onReorderPane={reorderPane}
                     onPaneCwdChange={handlePaneCwdChange}
                     onPaneThemeChange={handlePaneThemeChange}
                     layoutSignal={tabLayoutSignal}
@@ -1390,6 +1524,7 @@ function App() {
                       },
                     })}
                     onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
+                    onEditLocal={() => setLocalEditorOpen(true)}
                     refreshHosts={refreshHosts}
                   />
                 </div>

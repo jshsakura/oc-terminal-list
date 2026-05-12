@@ -280,7 +280,7 @@ const HostsPanel = ({ hosts, refreshHosts, onAdd, onEdit, t }) => {
                 cursor: rp.isDragging ? 'grabbing' : 'pointer',
                 border: rp.isDragging
                   ? `1px solid ${color.accent}`
-                  : (rp.isDragOver ? `1px dashed ${color.accent}` : `1px solid ${color.border}`),
+                  : (rp.isDragOver ? `2px dashed ${color.accent}` : `1px solid ${color.border}`),
                 background: rp.isDragging
                   ? color.surface2
                   : (rp.isDragOver ? color.surface2 : color.surface0),
@@ -426,7 +426,7 @@ const Toggle = ({ label, checked, onChange }) => (
 );
 
 // 폰트 크기 — 숫자 input + 슬라이더 + ± 버튼 한 줄. 변경 빠르게.
-const FontSizeRow = ({ value, onChange, min = 9, max = 28 }) => {
+const FontSizeRow = ({ value, onChange, min = 8, max = 28 }) => {
   const clamp = (v) => Math.max(min, Math.min(max, v));
   const set = (v) => onChange(clamp(parseInt(v, 10) || min));
   return (

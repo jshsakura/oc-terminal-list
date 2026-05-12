@@ -90,7 +90,9 @@ const clearSettingsDirty = (savedPayload, currentSettings) => {
   }
 };
 
-export const useSettings = () => {
+// isAuthenticated 가 false → true 로 바뀌는 순간에도 fetch 가 다시 트리거되도록 dep 으로 받음.
+// (생략하면 mount 1회만 실행 → 로그인 *후* 처음 로드 케이스에서 서버 설정 영원히 못 가져옴.)
+export const useSettings = (isAuthenticated = null) => {
   const [settings, setSettings] = useState(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
@@ -114,12 +116,17 @@ export const useSettings = () => {
   }, [settings]);
 
   // ── 서버에서 가져오기 (인증 후 한 번) — 다른 디바이스에서 저장된 값 반영 ──
+  // isAuthenticated 가 dep — 로그인 *후* 처음 로드되는 케이스에서도 한 번 실행되도록.
+  // (이전엔 deps=[] 라 mount 시 token 이 없으면 영원히 fetch 안 됨 → 모바일 폰트 등 서버측
+  //  값이 절대 안 내려오는 버그.)
   const fetchedRef = useRef(false);
   const fetchStartedRef = useRef(false);
   useEffect(() => {
     if (fetchStartedRef.current) return;
     const token = localStorage.getItem('auth_token');
     if (!token) return;
+    // isAuthenticated 를 명시적으로 전달받았는데 아직 false 면 보류 — useAuth 가 verify 끝나길 기다림.
+    if (isAuthenticated === false) return;
     fetchStartedRef.current = true;
     (async () => {
       try {
@@ -150,7 +157,7 @@ export const useSettings = () => {
         fetchedRef.current = true;
       }
     })();
-  }, []);
+  }, [isAuthenticated]);
 
   // ── 변경 시: localStorage 즉시, 서버는 디바운스 ──
   const saveDebounceRef = useRef(null);

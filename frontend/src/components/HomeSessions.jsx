@@ -114,8 +114,10 @@ const HomeSessions = ({
     return entry.sessions.some((s) => !isCompanionSession(s.name) && !isClaimedSession(h.id, s.name));
   });
   const anyLoading = tmuxHosts.some((h) => tmuxByHost[h.id]?.loading);
+  // tmux 호스트가 있는데 resume 가능 세션이 0 이고 로딩도 안 함 — 빈 상태 카드 노출 대상.
+  const showEmptyResumable = !hasAnyResumable && !anyLoading && tmuxHosts.length > 0;
 
-  if (openTabs.length === 0 && !hasAnyResumable && !anyLoading) return null;
+  if (openTabs.length === 0 && !hasAnyResumable && !anyLoading && !showEmptyResumable) return null;
 
   return (
     <section style={S.section}>
@@ -148,8 +150,8 @@ const HomeSessions = ({
         </>
       )}
 
-      {/* Resumable 그룹 — 호스트의 영속 tmux 세션 (열려있지 않은 것) */}
-      {(hasAnyResumable || anyLoading) && (
+      {/* Resumable 그룹 — 호스트의 영속 tmux 세션 (열려있지 않은 것). 비어 있어도 빈 카드로 자리 채움. */}
+      {(hasAnyResumable || anyLoading || showEmptyResumable) && (
         <>
           {!hideHeader && (
             <div style={S.head}>
@@ -163,7 +165,10 @@ const HomeSessions = ({
             </div>
           )}
           <div style={S.grid}>
-            {tmuxHosts.map((host) => {
+            {showEmptyResumable && (
+              <EmptyResumableCard t={t} />
+            )}
+            {!showEmptyResumable && tmuxHosts.map((host) => {
               const entry = tmuxByHost[host.id];
               if (!entry || entry.loading) {
                 return <SkeletonCard key={`skel-${host.id}`} host={host} t={t} />;
@@ -317,6 +322,27 @@ const SkeletonCard = ({ host }) => {
   );
 };
 
+// 빈 상태 카드 — 이어할 수 있는 세션이 하나도 없을 때 자리를 채워서 허전함 방지.
+const EmptyResumableCard = ({ t }) => (
+  <div
+    style={{
+      ...S.card,
+      cursor: 'default',
+      background: color.surface0,
+      borderStyle: 'dashed',
+      borderColor: color.border,
+      justifyContent: 'center',
+      color: color.muted,
+      fontSize: fontSize['12'],
+      fontWeight: fontWeight.medium,
+      textAlign: 'center',
+    }}
+  >
+    <Anchor size={14} strokeWidth={2} style={{ opacity: 0.6 }} />
+    <span>{t?.('noResumableSessions') || 'No resumable sessions'}</span>
+  </div>
+);
+
 const ErrorCard = ({ host, message, onRetry, t }) => (
   <Card accent={color.danger} onClick={onRetry}>
     <IconBox accent={color.danger}>
@@ -466,12 +492,13 @@ const S = {
   grid: {
     display: 'grid',
     gap: '8px',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+    // Connections 섹션과 동일한 컬럼 폭 — 같은 화면에서 위 섹션 3개, 아래 섹션 2개 같은 어긋남 방지.
+    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
   },
   card: {
     display: 'flex',
     alignItems: 'center',
-    gap: '10px',
+    gap: '12px',         // HostRow 와 동일 — 빈 pane 안에서 카드 시각 정렬.
     padding: '10px 12px',
     background: color.surface0,
     border: `1px solid ${color.border}`,
@@ -479,7 +506,7 @@ const S = {
     cursor: 'pointer',
     transition: `background ${motion.fast}, border-color ${motion.fast}, transform ${motion.fast}, box-shadow ${motion.fast}`,
     fontFamily: font.sans,
-    minHeight: '60px',
+    minHeight: '68px',
     boxSizing: 'border-box',
     position: 'relative',
   },
@@ -487,8 +514,8 @@ const S = {
     background: color.surface0,
   },
   iconBox: {
-    width: '36px',
-    height: '36px',
+    width: '40px',       // HostRow 와 동일 — 빈 pane 의 호스트 카드와 같은 크기.
+    height: '40px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { MessageSquare, ClipboardPaste, Copy, FileText } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
@@ -29,6 +29,13 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
   const scrollRef = useRef(null);
+
+  // CommandInput 은 App.jsx 에서 lazy() 로 분리돼 있다. 모바일 진입 시점에 미리 prefetch 해 둬야
+  // 사용자가 cmdInput 버튼을 처음 누를 때 Suspense fallback (null) 으로 잠시 비었다가 mount 되는
+  // 비동기 갭이 없어진다. 이 갭 동안 user gesture 컨텍스트가 끊겨 iOS 키보드가 안 따라옴.
+  useEffect(() => {
+    import('./CommandInput').catch(() => { /* offline 등 — 첫 클릭 때 다시 시도 */ });
+  }, []);
 
   const list = sanitizeMobileKeys(keys ?? DEFAULT_MOBILE_KEYS);
 
@@ -100,6 +107,12 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
           key={k.id}
           tone={k.tone || 'accent'}
           title={t('commandInput')}
+          // mousedown 에서 preventDefault — 버튼이 focus 를 뺏지 않게 한다.
+          // 안 그러면 xterm hidden textarea 가 blur 되며 iOS 키보드가 내려가고,
+          // 그 뒤에 lazy-load 된 CommandInput textarea 의 .focus() 가 user gesture
+          // 컨텍스트 밖에서 호출돼 키보드가 다시 안 올라옴.
+          // (기존 send 키들도 같은 패턴으로 focus 안 뺏음.)
+          onMouseDown={(e) => e.preventDefault()}
           onClick={() => onOpenCommandInput?.()}
         >
           {renderKeyContent(k)}
@@ -109,7 +122,13 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
 
     if (k.kind === 'paste') {
       return (
-        <Key key={k.id} tone={k.tone} title={t('paste')} onClick={handlePaste}>
+        <Key
+          key={k.id}
+          tone={k.tone}
+          title={t('paste')}
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={handlePaste}
+        >
           {renderKeyContent(k)}
         </Key>
       );

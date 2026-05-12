@@ -27,6 +27,7 @@ const RailIconBtn = ({
   badge = null,     // 우상단 작은 카운트 배지
   ariaLabel,
   ui = null,
+  compact = false,  // 좁은 rail 용 (RightPanel 활동바 등) — outer 24×24 / inner 18×18.
 }) => {
   const isDanger = tone === 'danger';
   const palette = ui || color;
@@ -35,12 +36,9 @@ const RailIconBtn = ({
     : active ? palette.accent
     : palette.subtext;
   const hoverColor = isDanger ? '#fff' : palette.text;
-  // danger 는 항상 살짝 보이게 (rail 안에 묻히지 않도록). active 면 surface1 우선.
-  const idleInnerBg = active
-    ? palette.surface1
-    : isDanger
-      ? `${palette.danger}1f`   // ~12% alpha
-      : 'transparent';
+  // 모든 톤 동일 — idle 은 transparent, 호버에만 배경. (이전엔 danger 만 idle bg+border 가
+  // 있어서 혼자 큰 버튼처럼 보이는 사고. 시각 무게는 icon color 만으로 충분히 전달.)
+  const idleInnerBg = active ? palette.surface1 : 'transparent';
   const hoverInnerBg = isDanger ? palette.danger : palette.surface0;
 
   return (
@@ -52,6 +50,7 @@ const RailIconBtn = ({
       disabled={disabled}
       style={{
         ...S.outer,
+        ...(compact ? S.outerCompact : null),
         color: baseColor,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.4 : 1,
@@ -72,11 +71,12 @@ const RailIconBtn = ({
       <span
         style={{
           ...S.inner,
+          ...(compact ? S.innerCompact : null),
           background: idleInnerBg,
-          border: isDanger ? `1px solid ${palette.danger}33` : '1px solid transparent',
+          border: '1px solid transparent',
         }}
       >
-        {Icon ? <Icon size={15} strokeWidth={1.8} /> : children}
+        {Icon ? <Icon size={compact ? 13 : 15} strokeWidth={1.8} /> : children}
         {badge != null && badge > 0 && (
           <span style={{ ...S.badge, background: palette.accent, color: palette.crust, boxShadow: `0 0 0 1.5px ${palette.mantle}` }}>
             {badge > 99 ? '99+' : badge}
@@ -100,6 +100,10 @@ const S = {
     flexShrink: 0,
     transition: `color ${motion.fast}`,
   },
+  outerCompact: {
+    width: '28px',
+    height: '28px',
+  },
   inner: {
     position: 'relative',
     width: '24px',
@@ -109,6 +113,10 @@ const S = {
     justifyContent: 'center',
     borderRadius: radius.sm,
     transition: `background ${motion.fast}`,
+  },
+  innerCompact: {
+    width: '22px',
+    height: '22px',
   },
   badge: {
     position: 'absolute',

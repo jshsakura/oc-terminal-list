@@ -2,7 +2,7 @@ import { useState, memo, useCallback, useEffect, useRef } from 'react';
 import {
   Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, Trash2,
   Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound, HelpCircle,
-  ExternalLink,
+  ExternalLink, Eye, EyeOff,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -15,7 +15,9 @@ import RailIconBtn from './common/RailIconBtn';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
-const PANEL_WIDTH = 260;
+const DEFAULT_PANEL_WIDTH = 260;
+const MIN_PANEL_WIDTH = 180;
+const MAX_PANEL_WIDTH = 500;
 
 const TABS = [
   { id: 'files', icon: Folder, label: 'Files' },
@@ -25,6 +27,8 @@ const TABS = [
 ];
 
 const RightPanel = ({
+  isFocused = false, // pane 포커스 여부 — 사이드바 하단 눈 아이콘 (Eye/EyeOff) 으로 표시.
+  showFocusEye = false, // true 일 때만 눈 아이콘 노출. 분할(isMultiple) 있을 때만 보여줌.
   activeTabType,    // 'local' | 'host' | null
   activeHostId = null,
   gitContextPath = '',
@@ -69,6 +73,10 @@ const RightPanel = ({
     onScreenDump?.(text);
   }, [terminalKey, onScreenDump]);
   const [activePanel, setActivePanel] = useState(null); // null | 'files' | 'git' | 'theme'
+  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const resizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
   const panelRef = useRef(null);
   // 패널 열릴 때 자동 포커스 → ESC 한 방으로 닫기 가능. 사용자가 패널 안 입력 (검색 등) 으로
   // 옮겨가면 그 요소에 포커스 위임되고, 빈 영역 클릭하면 다시 컨테이너로 돌아감.
@@ -81,6 +89,31 @@ const RightPanel = ({
       setActivePanel(null);
     }
   };
+
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    resizingRef.current = true;
+    startXRef.current = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
+    startWidthRef.current = panelWidth;
+    const onMove = (ev) => {
+      if (!resizingRef.current) return;
+      const cx = ev.clientX ?? ev.touches?.[0]?.clientX ?? 0;
+      const delta = startXRef.current - cx;
+      const next = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidthRef.current + delta));
+      setPanelWidth(next);
+    };
+    const onUp = () => {
+      resizingRef.current = false;
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('touchend', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+  }, [panelWidth]);
 
   // Git 변경 카운트 — 활동 바 뱃지에 표시. 경로 없으면 fetch 안 함 (전체 워크스페이스 집계 X).
   const gitChanges = useGitChanges({
@@ -96,7 +129,31 @@ const RightPanel = ({
   };
 
   return (
-    <div style={{ ...styles.root, background: panelUi.mantle, borderLeftColor: panelUi.border }}>
+    <div style={{ ...styles.root, borderLeftColor: panelUi.border }}>
+      {/* 사이드바 내부 스크롤바 — 현재 pane 의 테마(panelUi) 색으로 직접 박음.
+          글로벌 스크롤바 룰보다 더 specific + !important 로 확실히 오버라이드.
+          폭 6px, 색은 surface1 (mid-tone) — 너무 찐한 느낌 완화. */}
+      <style>{`
+        .iterm-rp-panelbody, .iterm-rp-panelbody * {
+          scrollbar-width: thin !important;
+          scrollbar-color: ${panelUi.surface1} transparent !important;
+        }
+        .iterm-rp-panelbody::-webkit-scrollbar,
+        .iterm-rp-panelbody *::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
+        .iterm-rp-panelbody::-webkit-scrollbar-thumb,
+        .iterm-rp-panelbody *::-webkit-scrollbar-thumb {
+          background: ${panelUi.surface1} !important;
+          border-radius: 3px !important;
+        }
+        .iterm-rp-panelbody::-webkit-scrollbar-thumb:hover,
+        .iterm-rp-panelbody *::-webkit-scrollbar-thumb:hover {
+          background: ${panelUi.accent} !important;
+        }
+        .iterm-rp-panelbody::-webkit-scrollbar-track,
+        .iterm-rp-panelbody *::-webkit-scrollbar-track {
+          background: transparent !important;
+        }
+      `}</style>
       {/* content panel — absolute overlay (활동바 우측 → 본문 위로 떠서 터미널 폭 안 밀어냄) */}
       {activePanel && !disabled && (
         <div
@@ -105,32 +162,46 @@ const RightPanel = ({
           onKeyDown={onPanelKeyDown}
           style={{
             ...styles.panel,
-            background: panelUi.base,
+            background: `color-mix(in srgb, ${panelUi.base} 85%, transparent)`,
+            backdropFilter: 'blur(14px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(14px) saturate(160%)',
             borderColor: panelUi.border,
             color: panelUi.text,
-            width: `${PANEL_WIDTH}px`,
+            width: `${panelWidth}px`,
             position: 'absolute',
             top: 0,
-            right: '36px',  // 활동바 폭만큼 띄움
+            right: '30px',
             bottom: 0,
             zIndex: 10,
             boxShadow: '-4px 0 16px rgba(0,0,0,0.35)',
-            outline: 'none', // tabIndex=-1 의 focus ring 제거
+            outline: 'none',
           }}>
-          <div style={{ ...styles.panelHeader, background: panelUi.mantle, borderBottomColor: panelUi.border }}>
+          {/* 리사이즈 드래그 핸들 — 패널 좌측 가장자리 */}
+          <div
+            onMouseDown={handleResizeStart}
+            onTouchStart={handleResizeStart}
+            style={{
+              position: 'absolute',
+              top: 0, left: 0, bottom: 0,
+              width: '5px',
+              cursor: 'col-resize',
+              zIndex: 2,
+            }}
+          />
+          <div style={{ ...styles.panelHeader, background: `color-mix(in srgb, ${panelUi.mantle} 75%, transparent)`, borderBottomColor: panelUi.border }}>
             <span style={{ ...styles.panelTitle, color: panelUi.text }}>
               {TABS.find((t) => t.id === activePanel)?.label}
             </span>
             <button
               style={styles.closeBtn}
               onClick={() => setActivePanel(null)}
-              onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = panelUi.surface1; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
               <X size={12} strokeWidth={2.5} />
             </button>
           </div>
-          <div style={{ ...styles.panelBody, background: panelUi.base, color: panelUi.text }}>
+          <div className="iterm-rp-panelbody" style={{ ...styles.panelBody, background: 'transparent', color: panelUi.text }}>
             {activePanel === 'files' && (
               <FileTree
                 /* host 면 paneCwd 가 트리의 시작 절대경로. local 은 paneCwd(탭 cwd) 가 있으면
@@ -175,10 +246,18 @@ const RightPanel = ({
         </div>
       )}
 
-      {/* activity bar — floating overlay. 터미널이 rail 뒤로 깔려 가로 공간 회수.
-          close 는 우상단 (파괴적이라 가장 멀리), 주 네비는 그 아래. */}
-      <div style={{ ...styles.activityBar, background: panelUi.mantle, borderLeftColor: panelUi.border }}>
-        {/* 1군: close — 항상 동작 (disabled 영향 안 받음). 우상단. */}
+      {/* activity bar — floating overlay. 구분선 없이 gap 으로 spacing.
+          순서: close(파괴적) → extract(분리) → 주 네비(pane 상태에 의존) → 스크롤 → refresh → 하단 eye. */}
+      <div style={{
+        ...styles.activityBar,
+        // 글래스모피즘 — 테마의 surface0 (밝은 톤) 을 65% 알파로 칠해 터미널이 살짝 비치고,
+        // backdrop-filter 로 그 뒤를 흐려서 사이드바가 떠 있는 듯한 느낌.
+        background: `color-mix(in srgb, ${panelUi.surface0} 65%, transparent)`,
+        backdropFilter: 'blur(14px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(14px) saturate(160%)',
+        borderLeftColor: panelUi.border,
+      }}>
+        {/* close — 항상 동작 (disabled 영향 안 받음). */}
         {onCloseTerminal && (
           <RailIconBtn
             icon={Trash2}
@@ -186,14 +265,26 @@ const RightPanel = ({
             title={t?.('closeTerminal') || 'Close terminal'}
             tone="danger"
             ui={panelUi}
+            compact
           />
         )}
 
-        {onCloseTerminal && <div style={{ ...styles.divider, background: panelUi.border }} />}
+        {/* 분할 pane → 새 단독 탭으로 분리 (detach). close 바로 아래로 — 구조 변경 액션 그룹. */}
+        {onExtractPane && (
+          <RailIconBtn
+            icon={ExternalLink}
+            onClick={onExtractPane}
+            title={t?.('detachPane') || 'Detach to new tab'}
+            ui={panelUi}
+            compact
+          />
+        )}
 
-        {/* 2군: 주 네비 — 빈 pane 일 땐 흐리게 + 클릭 무시. */}
+        {/* 주 네비 + 보조 액션 — 빈 pane 일 땐 흐리게 + 클릭 무시. */}
         <div style={{
+          alignSelf: 'stretch',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
+          gap: '6px',
           opacity: disabled ? 0.4 : 1,
           pointerEvents: disabled ? 'none' : 'auto',
         }}>
@@ -210,39 +301,70 @@ const RightPanel = ({
                 disabled={disabled}
                 badge={badge}
                 ui={panelUi}
+                compact
               />
             );
           })}
 
           {!disabled && terminalKey && (
             <>
-              <div style={{ ...styles.divider, background: panelUi.border }} />
-              <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} ui={panelUi} />
-              <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} ui={panelUi} />
-              <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} ui={panelUi} />
-            </>
-          )}
-
-          {onExtractPane && (
-            <>
-              <div style={{ ...styles.divider, background: panelUi.border }} />
-              {/* 분할 pane → 새 단독 탭으로 분리 (detach). */}
-              <RailIconBtn
-                icon={ExternalLink}
-                onClick={onExtractPane}
-                title={t?.('detachPane') || 'Detach to new tab'}
-                ui={panelUi}
-              />
+              <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} ui={panelUi} compact />
+              <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} ui={panelUi} compact />
+              <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} ui={panelUi} compact />
             </>
           )}
 
           {onRefreshTerminal && !disabled && (
-            <>
-              <div style={{ ...styles.divider, background: panelUi.border }} />
-              <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} ui={panelUi} />
-            </>
+            <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} ui={panelUi} compact />
           )}
         </div>
+
+        {/* 사이드바 하단 — 포커스 인디케이터. Eye 면 포커스됨, EyeOff 면 미포커스.
+            클릭 비활성 (display only). 보더 강조 효과를 뺀 대신 시각적으로 어느 터미널이 포커스인지 알려줌.
+            분할(isMultiple) 일 때만 노출 — 단일 pane / 모바일 단일에선 의미 없음. */}
+        {showFocusEye && (
+          <FocusEye isFocused={isFocused} panelUi={panelUi} t={t} />
+        )}
+      </div>
+    </div>
+  );
+};
+
+// 사이드바 하단 포커스 인디케이터 — Eye(포커스) / EyeOff(미포커스).
+// 호버 시 더 보이게 (focused 도 살짝 강조, unfocused 는 0.55 → 0.9).
+// React state 로 hover 관리 — 인라인 onMouseEnter 가 재렌더 시 리셋되던 문제 회피.
+const FocusEye = ({ isFocused, panelUi, t }) => {
+  const [hover, setHover] = useState(false);
+  const opacity = isFocused
+    ? (hover ? 1 : 0.9)
+    : (hover ? 0.9 : 0.5);
+  // 호버 시 색도 한 단계 밝게:
+  //   focused  : accent → text (가장 밝은 fg) 로 살짝 화이트화
+  //   unfocused: muted → subtext (한 단계 밝은 회색)
+  const color = isFocused
+    ? (hover ? panelUi.text : panelUi.accent)
+    : (hover ? panelUi.subtext : panelUi.muted);
+  return (
+    <div style={{ marginTop: 'auto', alignSelf: 'stretch', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: '2px' }}>
+      <div
+        aria-hidden
+        title={isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused')}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+        style={{
+          width: '22px',
+          height: '22px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          color,
+          opacity,
+          transition: 'opacity 220ms ease, color 220ms ease',
+        }}
+      >
+        {isFocused
+          ? <Eye size={13} strokeWidth={1.9} />
+          : <EyeOff size={13} strokeWidth={1.9} />}
       </div>
     </div>
   );
@@ -251,6 +373,8 @@ const RightPanel = ({
 const ThemeSettings = memo(({ paneThemeId, globalThemeId, onPaneThemeChange, t }) => {
   const effectiveId = paneThemeId || globalThemeId;
   const isOverridden = !!paneThemeId && !!globalThemeId && paneThemeId !== globalThemeId;
+  const theme = themes[effectiveId] || themes.catppuccin;
+  const ui = buildThemeUI(theme);
 
   return (
     <div style={{ padding: space['3'], display: 'flex', flexDirection: 'column', gap: space['4'] }}>
@@ -268,8 +392,8 @@ const ThemeSettings = memo(({ paneThemeId, globalThemeId, onPaneThemeChange, t }
               onClick={() => onPaneThemeChange(globalThemeId)}
               style={{
                 background: 'transparent',
-                border: `1px solid ${color.border}`,
-                color: color.subtext,
+                border: `1px solid ${ui.border}`,
+                color: ui.subtext,
                 fontSize: fontSize['11'],
                 fontFamily: font.sans,
                 padding: '2px 8px',
@@ -351,6 +475,8 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
   const stats = useSystemStats(true);
   const themeOverridden = !!paneThemeId && !!globalThemeId && paneThemeId !== globalThemeId;
   const activeThemeId = paneThemeId || globalThemeId;
+  const infoTheme = themes[activeThemeId] || themes.catppuccin;
+  const infoUi = buildThemeUI(infoTheme);
   const [copiedKey, setCopiedKey] = useState(null);
   const handleCopy = (key, value) => {
     if (!value) return;
@@ -412,7 +538,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
   return (
     <div style={infoStyles.root}>
       {/* 인접 섹션 사이 풀폭 구분선 — first/last 자동 제외 (`+` 형제 셀렉터). */}
-      <style>{`.iterm-info-section + .iterm-info-section { border-top: 1px solid ${color.border}; }`}</style>
+      <style>{`.iterm-info-section + .iterm-info-section { border-top: 1px solid var(--ui-border, ${infoUi?.border || color.border}); }`}</style>
       {/* 세션 */}
       <InfoSection title={t?.('infoSession') || 'Session'} icon={TerminalIcon}>
         <InfoRow label={t?.('infoTabName') || 'Tab'} value={info?.tabName || '—'} mono={false} />
@@ -605,10 +731,10 @@ const ShortcutRow = memo(({ keys, desc }) => (
   <div style={shortcutStyles.row}>
     <div style={shortcutStyles.keys}>
       {keys.map((k, i) => (
-        <span key={`${k}-${i}`} style={shortcutStyles.kbd}>{k}</span>
+        <span key={`${k}-${i}`} style={{ ...shortcutStyles.kbd, color: 'var(--ui-text)', background: 'var(--ui-surface1)', borderColor: 'var(--ui-border)' }}>{k}</span>
       ))}
     </div>
-    <div style={shortcutStyles.desc}>{desc}</div>
+    <div style={{ ...shortcutStyles.desc, color: 'var(--ui-subtext)' }}>{desc}</div>
   </div>
 ));
 
@@ -631,16 +757,14 @@ const shortcutStyles = {
     fontFamily: font.mono,
     fontSize: fontSize['11'],
     fontWeight: fontWeight.medium,
-    color: color.text,
-    background: color.surface1,
-    border: `1px solid ${color.border}`,
     borderRadius: radius.sm,
     padding: '1px 5px',
     lineHeight: 1.4,
+    border: '1px solid',
   },
   desc: {
     fontSize: fontSize['11'],
-    color: color.subtext,
+    color: 'var(--ui-subtext)',
     textAlign: 'right',
     lineHeight: 1.35,
   },
@@ -649,9 +773,9 @@ const shortcutStyles = {
 const InfoSection = ({ title, icon: Icon, subtitle = null, children }) => (
   <div className="iterm-info-section" style={infoStyles.section}>
     <div style={infoStyles.sectionHeader}>
-      {Icon && <Icon size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />}
-      <span style={infoStyles.sectionTitle}>{title}</span>
-      {subtitle && <span style={infoStyles.sectionSubtitle}>{subtitle}</span>}
+      {Icon && <Icon size={11} strokeWidth={2} style={{ color: 'var(--ui-subtext)', flexShrink: 0 }} />}
+      <span style={{ ...infoStyles.sectionTitle, color: 'var(--ui-subtext)' }}>{title}</span>
+      {subtitle && <span style={{ ...infoStyles.sectionSubtitle, color: 'var(--ui-subtext)' }}>{subtitle}</span>}
     </div>
     <div style={infoStyles.sectionBody}>
       {children}
@@ -661,11 +785,11 @@ const InfoSection = ({ title, icon: Icon, subtitle = null, children }) => (
 
 const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, onCopy, copied = false, icon: Icon = null }) => (
   <div style={infoStyles.row}>
-    <span style={infoStyles.rowLabel}>{label}</span>
+    <span style={{ ...infoStyles.rowLabel, color: 'var(--ui-subtext)' }}>{label}</span>
     <span style={{
       ...infoStyles.rowValue,
       ...(mono ? infoStyles.rowValueMono : null),
-      color: accent ? color.accent : color.text,
+      color: accent ? 'var(--ui-accent)' : 'var(--ui-text)',
     }}>
       {Icon && <Icon size={10} strokeWidth={2} style={{ marginRight: '4px', opacity: 0.7 }} />}
       <span style={infoStyles.rowValueText} title={typeof value === 'string' ? value : undefined}>{value}</span>
@@ -675,8 +799,8 @@ const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, 
           onClick={onCopy}
           style={infoStyles.copyBtn}
           title="Copy"
-          onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = color.muted; }}
+          onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--ui-text)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ui-subtext)'; }}
         >
           {copied ? <Check size={10} strokeWidth={2.4} /> : <Copy size={10} strokeWidth={2} />}
         </button>
@@ -688,9 +812,9 @@ const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, 
 const StatBar = ({ label, percent = 0, right = '' }) => {
   const safe = Math.max(0, Math.min(100, Number(percent) || 0));
   const tone =
-    safe >= 90 ? color.danger
-    : safe >= 75 ? color.warning
-    : color.accent;
+    safe >= 90 ? 'var(--ui-danger, #f38ba8)'
+    : safe >= 75 ? 'var(--ui-warning, #f9e2af)'
+    : 'var(--ui-accent, #89b4fa)';
   return (
     <div style={infoStyles.statRow}>
       <div style={infoStyles.statHeader}>
@@ -731,14 +855,12 @@ const infoStyles = {
   sectionTitle: {
     fontSize: fontSize['11'],
     fontWeight: fontWeight.semibold,
-    color: color.subtext,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
   },
   sectionSubtitle: {
     marginLeft: 'auto',
     fontSize: '10.5px',
-    color: color.muted,
     fontFamily: font.mono,
     letterSpacing: 0,
     overflow: 'hidden',
@@ -761,9 +883,9 @@ const infoStyles = {
   rowLabel: {
     flexShrink: 0,
     minWidth: '64px',
-    color: color.muted,
     fontSize: '11px',
     letterSpacing: '0.02em',
+    color: 'var(--ui-subtext)',
   },
   rowValue: {
     flex: 1,
@@ -771,7 +893,7 @@ const infoStyles = {
     display: 'inline-flex',
     alignItems: 'center',
     gap: '4px',
-    color: color.text,
+    color: 'var(--ui-text)',
   },
   rowValueText: {
     flex: 1,
@@ -795,14 +917,14 @@ const infoStyles = {
     background: 'transparent',
     border: 'none',
     cursor: 'pointer',
-    color: color.muted,
+    color: 'var(--ui-subtext)',
     padding: 0,
     borderRadius: '3px',
     transition: 'color 120ms',
   },
   note: {
     fontSize: '10.5px',
-    color: color.accent,
+    color: 'var(--ui-accent)',
     opacity: 0.85,
     lineHeight: 1.4,
     paddingTop: '2px',
@@ -823,13 +945,13 @@ const infoStyles = {
   statLabel: {
     fontSize: '11px',
     fontWeight: fontWeight.semibold,
-    color: color.subtext,
+    color: 'var(--ui-subtext)',
     letterSpacing: '0.04em',
   },
   statRight: {
     fontFamily: font.mono,
     fontSize: '10.5px',
-    color: color.muted,
+    color: 'var(--ui-subtext)',
     letterSpacing: 0,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -839,10 +961,10 @@ const infoStyles = {
   barTrack: {
     width: '100%',
     height: '6px',
-    background: color.crust,
+    background: 'var(--ui-crust)',
     borderRadius: '3px',
     overflow: 'hidden',
-    border: `1px solid ${color.border}`,
+    border: '1px solid var(--ui-border)',
   },
   barFill: {
     height: '100%',
@@ -865,7 +987,7 @@ const Field = ({ label, hint = null, action = null, children }) => (
       <div style={{
         fontSize: fontSize['11'],
         fontWeight: fontWeight.semibold,
-        color: color.subtext,
+        color: 'var(--ui-subtext)',
         textTransform: 'uppercase',
         letterSpacing: '0.07em',
       }}>
@@ -876,7 +998,7 @@ const Field = ({ label, hint = null, action = null, children }) => (
     {hint && (
       <div style={{
         fontSize: '11px',
-        color: color.muted,
+        color: 'var(--ui-subtext)',
         marginBottom: space['2'],
         lineHeight: 1.4,
       }}>
@@ -898,8 +1020,10 @@ const styles = {
   panel: {
     display: 'flex',
     flexDirection: 'column',
-    borderLeft: `1px solid ${color.border}`,
-    background: color.base,
+    borderLeft: '1px solid var(--ui-border)',
+    // 같은 테마의 패널이 위/아래로 스택될 때 경계가 모호해서 하단 라인으로 분리.
+    borderBottom: '1px solid var(--ui-border)',
+    background: 'var(--ui-base)',
     overflow: 'hidden',
     fontFamily: font.sans,
   },
@@ -908,13 +1032,13 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: `${space['2']} ${space['3']}`,
-    borderBottom: `1px solid ${color.border}`,
+    borderBottom: '1px solid var(--ui-border)',
     flexShrink: 0,
   },
   panelTitle: {
     fontSize: fontSize['12'],
     fontWeight: fontWeight.semibold,
-    color: color.text,
+    color: 'var(--ui-subtext)',
     textTransform: 'uppercase',
     letterSpacing: '0.07em',
   },
@@ -922,7 +1046,7 @@ const styles = {
     background: 'transparent',
     border: 'none',
     cursor: 'pointer',
-    color: color.subtext,
+    color: 'var(--ui-subtext)',
     padding: '3px',
     borderRadius: '3px',
     display: 'flex',
@@ -933,21 +1057,23 @@ const styles = {
     overflow: 'auto',
   },
   activityBar: {
-    width: '36px',
+    width: '30px',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    paddingTop: '2px',
-    paddingBottom: '2px',
-    gap: '0px',
-    background: color.mantle,
-    borderLeft: `1px solid ${color.border}`,
+    paddingTop: '6px',
+    paddingBottom: '6px',
+    gap: '6px',
+    background: 'var(--ui-surface0)',
+    borderLeft: '1px solid var(--ui-border)',
+    // 세로 스택(v/2x2 split) 시 같은 테마 사이드바끼리 경계가 안 보여 묘한 느낌 — 하단 라인 추가.
+    borderBottom: '1px solid var(--ui-border)',
   },
   divider: {
     alignSelf: 'stretch',
     height: '1px',
-    background: color.border,
+    background: 'var(--ui-border)',
     margin: '1px 0',
   },
 };

@@ -206,47 +206,49 @@ const styles = {
     gap: '8px',
   },
   footerBar: {
-    padding: `${space['1.5']} ${space['1.5']} ${space['2']}`,
-    borderTop: `1px solid ${color.border}`,
-    background: color.crust,
+    padding: `${space['1']} ${space['1.5']} ${space['1.5']}`,
+    borderTop: `1px solid var(--ui-border)`,
+    background: 'var(--ui-surface0)',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: '4px',
+    gap: '3px',
   },
   footerCaption: {
-    fontSize: '10.5px',
+    fontSize: '10px',
     fontWeight: fontWeight.semibold,
-    color: color.muted,
+    color: 'var(--ui-muted)',
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
     paddingLeft: '2px',
   },
+  // 경로 상자 + 액션 버튼을 한 몸으로 — 컨테이너에 테두리/라운드 두고
+  // 내부 자식은 테두리 없이 붙여 input-group 스타일로 묶음.
   footerRow: {
     display: 'flex',
     alignItems: 'stretch',
-    gap: space['1.5'],
     width: '100%',
     minWidth: 0,
+    height: '22px',
+    background: 'var(--ui-base)',
+    border: `1px solid var(--ui-border)`,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
   },
   footerPathBox: {
     flex: 1,
     minWidth: 0,
     display: 'flex',
     alignItems: 'center',
-    height: '30px',
-    padding: `0 ${space['2']}`,
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.sm,
+    padding: `0 6px`,
   },
   footerPath: {
     display: 'block',
     flex: 1,
     minWidth: 0,
     fontFamily: font.mono,
-    fontSize: '11.5px',
-    color: color.text,
+    fontSize: '10.5px',
+    color: 'var(--ui-text)',
     opacity: 0.92,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
@@ -256,22 +258,25 @@ const styles = {
   },
   footerActionBtn: {
     flexShrink: 0,
-    width: '34px',
-    height: '30px',
+    width: '26px',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: color.accent,
-    color: color.crust,
+    background: 'var(--ui-accent)',
+    color: 'var(--ui-crust)',
     border: 'none',
-    borderRadius: radius.sm,
+    borderLeft: `1px solid var(--ui-border)`,
+    borderRadius: 0,
     cursor: 'pointer',
     transition: 'opacity 120ms ease',
     padding: 0,
   },
   menu: {
-    background: color.base,
-    border: `1px solid ${color.border}`,
+    // 컨텍스트 메뉴 — 현재 포커스 pane 의 테마 따라가도록 var(--ui-*) 사용.
+    // (포커스 pane 의 테마가 :root 에 자동 적용 → 포털로 document.body 에 렌더돼도 동작.)
+    background: 'var(--ui-base)',
+    color: 'var(--ui-text)',
+    border: `1px solid var(--ui-border)`,
     borderRadius: radius.md,
     boxShadow: designShadow.lg,
     padding: `${space['1']} 0`,
@@ -285,6 +290,7 @@ const styles = {
     gap: space['2'],
     padding: `${space['1.5']} ${space['3']}`,
     background: 'transparent',
+    color: 'var(--ui-text)',
     border: 'none',
     cursor: 'pointer',
     fontSize: fontSize['13'],
@@ -438,12 +444,12 @@ const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
     onClick={(e) => { e.stopPropagation(); onClick(); }}
     style={{
       ...styles.menuItem,
-      color: tone === 'danger' ? color.danger : color.text,
+      color: tone === 'danger' ? 'var(--ui-danger)' : 'var(--ui-text)',
     }}
-    onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ui-surface1)'; }}
     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
   >
-    <Icon size={12} strokeWidth={2} style={{ color: tone === 'danger' ? color.danger : color.muted }} />
+    <Icon size={12} strokeWidth={2} style={{ color: tone === 'danger' ? 'var(--ui-danger)' : 'var(--ui-subtext)' }} />
     <span>{label}</span>
   </button>
 );
@@ -451,6 +457,7 @@ const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
 const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
+  const [measured, setMeasured] = useState(false);
 
   useEffect(() => {
     if (ref.current) {
@@ -470,6 +477,7 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
       if (nextY < margin) nextY = margin;
 
       setPos({ x: nextX, y: nextY });
+      setMeasured(true);
     }
   }, [x, y]);
 
@@ -482,9 +490,9 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
         left: pos.x,
         zIndex: 200000,
         ...styles.menu,
-        opacity: pos.x === x && pos.y === y && ref.current ? 0 : 1,
+        opacity: measured ? 1 : 0,
       }}
-      onContextMenu={(e) => e.preventDefault()}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
       onClick={(e) => e.stopPropagation()}
     >
       <MenuItem icon={Plus} label={t('newFile') || 'New file'} onClick={onNewFile} />
@@ -492,7 +500,7 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
       <MenuItem icon={Terminal} label={t('openTerminalHere') || 'Open terminal here'} onClick={onOpenTerminal} />
       {target.path && (
         <>
-          <div style={{ height: '1px', background: color.border, margin: '4px 0' }} />
+          <div style={{ height: '1px', background: 'var(--ui-border)', margin: '4px 0' }} />
           <MenuItem icon={Pencil} label={t('rename') || 'Rename'} onClick={onRename} />
           <MenuItem icon={Trash2} label={t('delete') || 'Delete'} onClick={onDelete} tone="danger" />
         </>
@@ -568,15 +576,17 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
     }
   }, [rootPath, initialPath, isHostMode, fetchChildren]);
 
-  // Outside click to close context menu
+  // Outside click to close context menu.
+  // contextmenu 는 capture:false 로 — 메뉴 내부에서 stopPropagation 으로 막아 자기 닫힘 방지.
+  // (이전엔 capture:true 라 어디서 우클릭하든 무조건 닫혀, 메뉴 내부 텍스트 우클릭 시도 종료.)
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
     window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close, { capture: true });
+    window.addEventListener('contextmenu', close);
     return () => {
       window.removeEventListener('click', close);
-      window.removeEventListener('contextmenu', close, { capture: true });
+      window.removeEventListener('contextmenu', close);
     };
   }, [contextMenu]);
 
@@ -749,7 +759,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
         {searchQuery && <button onClick={() => setSearchQuery('')} style={styles.searchClearBtn}><X size={12} /></button>}
       </div>
 
-      <div style={styles.list} onContextMenu={(e) => { e.preventDefault(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
+      <div style={styles.list} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
         {rootError && <div style={styles.errorBox}><div>Error: {rootError}</div><button onClick={() => fetchChildren('')} style={styles.retryBtn}>{t('retry')}</button></div>}
         {rootLoading && !rootError && <div style={styles.statusBox}><RefreshCw size={14} className="spin" /><span>{t('loading')}</span></div>}
         

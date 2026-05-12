@@ -1,5 +1,5 @@
-import { useMemo, useState, useEffect } from 'react';
-import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, Pencil, Link2, Check } from 'lucide-react';
+import { useMemo, useState, useEffect, useRef } from 'react';
+import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, Pencil, Link2, Check, Search, X } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
 
@@ -71,7 +71,18 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
     ? sharedGitChanges
     : localGitChanges;
   const [collapsed, setCollapsed] = useState(() => new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchRef = useRef(null);
   const repoBasename = repo ? repo.split('/').pop() : null;
+
+  useEffect(() => { if (searchOpen && searchRef.current) searchRef.current.focus(); }, [searchOpen]);
+
+  const filteredItems = useMemo(() => {
+    if (!searchQuery.trim()) return items;
+    const q = searchQuery.toLowerCase();
+    return items.filter((it) => it.path.toLowerCase().includes(q));
+  }, [items, searchQuery]);
 
   useEffect(() => { if (editing) setDraftPath(effectivePath || ''); }, [editing]);
 
@@ -84,7 +95,7 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
   const cancelEdit = () => setEditing(false);
   const followTerminal = () => { setOverridePath(null); setEditing(false); };
 
-  const tree = useMemo(() => buildTree(items), [items]);
+  const tree = useMemo(() => buildTree(filteredItems), [filteredItems]);
 
   const toggle = (p) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -152,16 +163,46 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
           )}
           {items.length > 0 && <span style={styles.countBadge}>{items.length}</span>}
         </div>
-        <button
-          onClick={refresh}
-          title={t('refresh') || 'Refresh'}
-          style={styles.refreshBtn}
-          onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
-          onMouseLeave={(e) => { e.currentTarget.style.color = color.muted; }}
-        >
-          <RefreshCw size={11} strokeWidth={2} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
+          <button
+            onClick={() => { setSearchOpen((v) => !v); setSearchQuery(''); }}
+            title={t('search') || 'Search'}
+            style={styles.refreshBtn}
+            onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = searchOpen ? color.accent : color.muted; }}
+          >
+            <Search size={11} strokeWidth={2} />
+          </button>
+          <button
+            onClick={refresh}
+            title={t('refresh') || 'Refresh'}
+            style={styles.refreshBtn}
+            onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = color.muted; }}
+          >
+            <RefreshCw size={11} strokeWidth={2} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
+
+      {searchOpen && (
+        <div style={styles.searchBar}>
+          <Search size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+          <input
+            ref={searchRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape') { setSearchQuery(''); setSearchOpen(false); } }}
+            placeholder={t('searchFiles') || 'Search files…'}
+            style={styles.searchInput}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} style={styles.searchClear}>
+              <X size={10} strokeWidth={2} />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* 경로 바 — 클릭 또는 편집 아이콘으로 자유 입력, 잠금 아이콘으로 활성 터미널 따라가기 */}
       <div style={styles.pathBar}>
@@ -294,6 +335,40 @@ const styles = {
     borderRadius: radius.xs,
     cursor: 'pointer',
     transition: `color ${motion.fast}`,
+  },
+  searchBar: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1'],
+    padding: `${space['1']} ${space['2']}`,
+    borderBottom: `1px solid ${color.border}`,
+    background: color.crust,
+    minHeight: '28px',
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    height: '20px',
+    padding: `0 ${space['1']}`,
+    background: 'transparent',
+    border: 'none',
+    color: color.text,
+    fontSize: fontSize['11'],
+    fontFamily: font.mono,
+    outline: 'none',
+  },
+  searchClear: {
+    width: '18px',
+    height: '18px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: color.muted,
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    flexShrink: 0,
   },
   list: {
     flex: 1,

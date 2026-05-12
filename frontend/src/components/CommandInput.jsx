@@ -1,9 +1,14 @@
-import { useEffect, useLayoutEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Send, X, Eraser, ClipboardPaste, Copy } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
+
+// 키보드 위에 살짝 띄우는 여백 — 입력창이 키보드 / suggestion bar 와 딱 붙지 않게.
+const MOBILE_BOTTOM_GAP = 8;
+// 모달과 가시 영역 상단 사이 최소 간격 — 키보드 + 모달이 화면을 다 차지해도 위로 빈틈이 보이게.
+const MOBILE_TOP_GAP = 12;
 
 // textarea 의 caret 을 항상 텍스트 끝으로 — 다시 열 때, 붙여넣기 후, clear 후 등
 // 사용자가 이어서 입력하기 좋은 위치에 두기 위함.
@@ -27,6 +32,37 @@ const focusToEnd = (ta) => {
  */
 const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   const textareaRef = useRef(null);
+  // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
+  // iOS Safari 는 layout viewport 가 키보드를 무시하기 때문에 absolute/fixed inset:0 만으로는
+  // 가운데 정렬이 키보드 밑까지 내려가 입력창 일부가 가려진다.
+  const [vv, setVv] = useState(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) {
+      return { height: typeof window !== 'undefined' ? window.innerHeight : 0, offsetTop: 0 };
+    }
+    return { height: window.visualViewport.height, offsetTop: window.visualViewport.offsetTop };
+  });
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const target = window.visualViewport;
+    if (!target) return undefined;
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      setVv({ height: target.height, offsetTop: target.offsetTop });
+    };
+    const onChange = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(update);
+    };
+    target.addEventListener('resize', onChange);
+    target.addEventListener('scroll', onChange);
+    return () => {
+      target.removeEventListener('resize', onChange);
+      target.removeEventListener('scroll', onChange);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [isOpen]);
 
   // 모달이 mount 되는 즉시 caret 을 텍스트 끝으로 두고 focus.
   // useLayoutEffect — paint 직전에 실행돼 사용자가 모달을 본 시점에 이미 커서 위치 완료.
@@ -102,10 +138,30 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   // 모달 뒤 터미널 등으로 touch drag 가 leak 되지 않도록 overlay 에서 명시 차단.
   // (z-index 만으론 일부 모바일 브라우저에서 touchmove 가 underlying 에 forward 될 수 있음.)
   const blockTouch = (e) => { e.preventDefault(); };
+
+  // 가시 영역 안에서만 모달이 보이도록 overlay 를 visualViewport 좌표로 클램프.
+  // 키보드가 올라오면 vv.height 가 줄고 vv.offsetTop 이 양수가 될 수 있다.
+  // 모달은 가시 영역 *하단* (키보드 suggestion bar 바로 위) 에 붙임 — 사용자 의도는
+  // "단축키 바 위에 떠있는 입력 도크" 라 상단에 띄우면 어색하다.
+  const overlayStyle = {
+    ...styles.overlay,
+    top: `${vv.offsetTop}px`,
+    height: `${vv.height}px`,
+    alignItems: 'flex-end',
+    paddingTop: `${MOBILE_TOP_GAP}px`,
+    paddingBottom: `${MOBILE_BOTTOM_GAP}px`,
+    touchAction: 'none',
+  };
+  const modalStyle = {
+    ...styles.modal,
+    // 가시 영역 내 위/아래 여백을 빼고 남은 높이만 차지 — 키보드 떠있어도 푸터 버튼 안 잘림.
+    maxHeight: `calc(${vv.height}px - ${MOBILE_TOP_GAP + MOBILE_BOTTOM_GAP}px)`,
+  };
+
   return (
     <div
       data-testid="command-input-overlay"
-      style={{ ...styles.overlay, touchAction: 'none' }}
+      style={overlayStyle}
       onClick={onClose}
       onTouchMove={blockTouch}
     >
@@ -114,7 +170,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
       <div
         role="dialog"
         aria-label={t?.('commandInput') || 'Send command'}
-        style={styles.modal}
+        style={modalStyle}
         onClick={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
       >
@@ -176,8 +232,10 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
 
 const styles = {
   overlay: {
-    position: 'absolute',
-    inset: 0,
+    // position:fixed + visualViewport 좌표 — 키보드가 올라와도 가시 영역 안에서만 그려진다.
+    position: 'fixed',
+    left: 0,
+    right: 0,
     padding: space['3'],
     background: color.scrim,
     display: 'flex',
@@ -191,7 +249,7 @@ const styles = {
   modal: {
     width: '90%',
     maxWidth: '420px',
-    maxHeight: '80dvh',
+    maxHeight: '80%',
     background: color.base,
     border: `1px solid ${color.border}`,
     borderRadius: radius.lg,

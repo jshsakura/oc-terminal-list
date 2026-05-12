@@ -140,7 +140,7 @@ const Row = ({
       // 드래그 중 = 들린 카드처럼 accent 보더 + glow. opacity 안 깎음 (이전엔 너무 흐려서 안 보였음).
       border: isDragging
         ? `1px solid ${color.accent}`
-        : isDragOver ? `1px dashed ${color.accent}` : '1px solid transparent',
+        : isDragOver ? `2px dashed ${color.accent}` : '1px solid transparent',
       background: isDragging ? color.surface2 : (isDragOver ? color.surface1 : 'transparent'),
       boxShadow: isDragging ? `0 6px 18px ${color.accent}40, 0 0 0 1px ${color.accent}` : 'none',
       transform: isDragging ? 'translateY(-1px) scale(1.01)' : 'none',

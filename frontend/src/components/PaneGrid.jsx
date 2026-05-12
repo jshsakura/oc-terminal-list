@@ -1,6 +1,6 @@
-import { Suspense, lazy, useState, useEffect, useRef } from 'react';
+import { Suspense, lazy, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  X, Plus, Server, Terminal as TerminalIcon, Monitor, Copy, Plug, Anchor,
+  X, Plus, Server, Terminal as TerminalIcon, Monitor, Copy, Plug, History, ArrowRightLeft, Settings as SettingsIcon,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -11,6 +11,7 @@ import HomeSessions from './HomeSessions';
 import HostIcon from '../utils/hostIcons';
 import useActiveTerminalCwd from '../hooks/useActiveTerminalCwd';
 import useHostReorder from '../hooks/useHostReorder';
+import useTouchDragReorder from '../hooks/useTouchDragReorder';
 
 const Terminal = lazy(() => import('./Terminal'));
 
@@ -39,6 +40,7 @@ const PaneGrid = ({
   onClosePane,
   onActivatePane,
   onExtractPaneToTab, // (tabId, paneId) → 분할 pane 을 새 단독 탭으로 분리 (detach)
+  onReorderPane,      // (tabId, fromPaneId, toPaneId) → 분할 pane 순서 변경 (subTabs 컨텍스트 메뉴)
   onPaneCwdChange,    // (paneId, workspaceRel, isLocal) → 부모로 cwd 변화 보고 (자동 탭명 등)
   onPaneThemeChange,  // (paneId, themeId|null) → pane 별 테마 오버라이드 설정/해제
   layoutSignal,
@@ -60,6 +62,7 @@ const PaneGrid = ({
   onPickHostPath,
   onPickLocalPath,
   onEditHost,
+  onEditLocal,
   refreshHosts,
   language = 'en',
   t,
@@ -83,11 +86,18 @@ const PaneGrid = ({
           activePaneId={activePane.id}
           hosts={hosts}
           busyPaneIds={busyPaneIds}
+          settings={settings}
+          tabColorIndex={tab.color_index}
           onSelect={(paneId) => onFocusPane?.(tab.id, paneId)}
           onClose={(paneId) => onClosePane?.(tab.id, paneId)}
+          onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}
           t={t}
         />
-        <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+        {/* display:grid; gridTemplateRows:1fr → 단일 자식(Pane) 이 부모 높이를 100% 채움.
+            grid item 의 기본 align/justify=stretch 라 명시적 height 없이도 늘어남.
+            (단순 position:relative 컨테이너 면 자식 Pane 이 explicit 높이를 못 받아
+             xterm 의 intrinsic 24행 크기로 고정되며 모바일 화면의 ~2/3 만 채움.) */}
+        <div style={{ flex: 1, position: 'relative', minHeight: 0, display: 'grid', gridTemplateRows: '1fr' }}>
           <Pane
             key={activePane.id}
             pane={activePane}
@@ -120,6 +130,7 @@ const PaneGrid = ({
             onPickHostPath={onPickHostPath}
             onPickLocalPath={onPickLocalPath}
             onEditHost={onEditHost}
+            onEditLocal={onEditLocal}
             refreshHosts={refreshHosts}
             language={language}
             t={t}
@@ -140,8 +151,9 @@ const PaneGrid = ({
     display: 'grid',
     width: '100%',
     height: '100%',
-    gap: '2px',
-    background: color.border,
+    // gap 제거 — 기존 2px 회색 띠가 pane border 와 어긋나서 "안쪽" 느낌 만들었음.
+    // 이제 pane 자체 border 가 분할선 역할 (포커스 시 accent, 평소엔 subtle gray).
+    gap: 0,
     ...(layout === 'h' && { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr' }),
     ...(layout === 'v' && { gridTemplateColumns: '1fr', gridTemplateRows: '1fr 1fr' }),
     ...(layout === '2x2' && { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr' }),
@@ -183,8 +195,9 @@ const PaneGrid = ({
           busyPaneIds={busyPaneIds}
           onPickHostPath={onPickHostPath}
           onPickLocalPath={onPickLocalPath}
-          onEditHost={onEditHost}
-          refreshHosts={refreshHosts}
+            onEditHost={onEditHost}
+            onEditLocal={onEditLocal}
+            refreshHosts={refreshHosts}
           language={language}
           t={t}
           viewportHeight={viewportHeight}
@@ -205,7 +218,7 @@ const Pane = ({
   isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds, busyPaneIds,
-  onPickHostPath = null, onPickLocalPath = null, onEditHost = null, refreshHosts = null,
+  onPickHostPath = null, onPickLocalPath = null, onEditHost = null, onEditLocal = null, refreshHosts = null,
   language, t, viewportHeight,
   onExtractPane = null,
 }) => {
@@ -227,6 +240,9 @@ const Pane = ({
   // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — RightPanel 등 팬 내부 UI 가 이 변수를 씀.
   // :root 는 건드리지 않으므로 좌측 레일·상단 헤더는 글로벌 테마 유지.
   const paneRef = useRef(null);
+  const setPaneRef = useCallback((el) => {
+    paneRef.current = el;
+  }, []);
   useEffect(() => {
     if (!paneRef.current) return;
     const theme = themes[effectiveThemeId] || themes.catppuccin;
@@ -238,7 +254,6 @@ const Pane = ({
   const isEmpty = !pane.sessionId && !pane.hostId;
   const isLocal = !!pane.sessionId && !pane.hostId;
   const isPaneBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
-  const showBusyBreath = isPaneBusy && !isFocused;
 
   // pane 마다 자기 cwd 추적
   const { workspaceRelative: paneCwdRel } = useActiveTerminalCwd({
@@ -255,7 +270,7 @@ const Pane = ({
 
   return (
     <div
-      ref={paneRef}
+      ref={setPaneRef}
       // capture phase 로 받아서 xterm.js 가 mouse 이벤트 소비 전에 pane focus 를 보장
       onPointerDownCapture={() => { onFocus?.(); }}
       onMouseEnter={() => setHover(true)}
@@ -268,25 +283,29 @@ const Pane = ({
         overflow: 'hidden',
         minHeight: 0,
         minWidth: 0,
+        // 보더/강조 모두 제거 — pane 끼리 딱 붙어서 한 화면처럼 보이도록.
+        border: 'none',
+        zIndex: isFocused ? 2 : hover ? 1 : 0,
       }}
     >
       <style>{`
-        @keyframes iterm-pane-busy-breath {
-          0%, 100% { opacity: 0.22; transform: scaleX(0.92); }
-          50% { opacity: 0.62; transform: scaleX(1); }
-        }
         @keyframes iterm-pane-busy-dot {
           0%, 100% { opacity: 0.48; transform: scale(0.9); }
           50% { opacity: 1; transform: scale(1); }
         }
+        /* 포커스된 pane 이 busy 일 때 — 보더 색이 은은하게 숨쉬기 (75% ↔ 35%). */
+        @keyframes iterm-pane-focused-busy-breath {
+          0%, 100% { border-color: color-mix(in srgb, var(--ui-accent, #89b4fa) 75%, transparent); }
+          50%      { border-color: color-mix(in srgb, var(--ui-accent, #89b4fa) 35%, transparent); }
+        }
       `}</style>
-      {/* 본문 영역 — RightPanel 활동바 폭(36px)만큼 우측 마진 (rail 영역 침범 안 함). */}
+      {/* 본문 영역 — RightPanel 활동바 30px 만큼 우측 마진 (rail 영역 침범 안 함, 데스크탑/모바일 동일). */}
       <div style={{
         flex: 1,
         position: 'relative',
         minWidth: 0,
         overflow: 'hidden',
-        marginRight: '36px',
+        marginRight: '30px',
       }}>
         {isPaneBusy && (
           <span
@@ -302,7 +321,8 @@ const Pane = ({
               borderRadius: '50%',
               background: 'var(--ui-accent, #89b4fa)',
               boxShadow: '0 0 0 2px var(--ui-base, rgba(0,0,0,.55)), 0 0 14px var(--ui-accent, #89b4fa)',
-              zIndex: 8,
+              // 사이드바 wrapper(zIndex 6) 보다 낮게 — 사이드바가 도트 위로 깔리도록.
+              zIndex: 4,
               pointerEvents: 'none',
               animation: 'iterm-pane-busy-dot 1.15s ease-in-out infinite',
             }}
@@ -321,10 +341,10 @@ const Pane = ({
             onResumeHostSession={onResumeHostSession}
             onTerminateHostSession={onTerminateHostSession}
             busyTabIds={busyTabIds}
-            /* 빈 pane 슬롯 정보 같이 — 폴더 픽업 후 새 탭이 아닌 이 슬롯 채우게. */
             onPickHostPath={onPickHostPath ? (h) => onPickHostPath(h, { tabId: tab?.id, paneId: pane.id }) : null}
             onPickLocalPath={onPickLocalPath ? () => onPickLocalPath({ tabId: tab?.id, paneId: pane.id }) : null}
             onEditHost={onEditHost}
+            onEditLocal={onEditLocal}
             refreshHosts={refreshHosts}
           />
         ) : (
@@ -358,24 +378,6 @@ const Pane = ({
             />
           </Suspense>
         )}
-        {showBusyBreath && (
-          <div
-            aria-hidden
-            style={{
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              bottom: 0,
-              width: '34%',
-              pointerEvents: 'none',
-              zIndex: 7,
-              transformOrigin: 'right center',
-              background: 'linear-gradient(90deg, transparent 0%, var(--ui-accent-subtle, rgba(137,180,250,.12)) 58%, var(--ui-accent-border, rgba(137,180,250,.32)) 100%)',
-              boxShadow: 'inset -3px 0 0 var(--ui-accent, #89b4fa)',
-              animation: 'iterm-pane-busy-breath 1.8s ease-in-out infinite',
-            }}
-          />
-        )}
       </div>
 
       {/* RightPanel — 항상 노출. zIndex 가 pane X(5) 보다 높아야 패널 열렸을 때
@@ -388,6 +390,8 @@ const Pane = ({
         }}
       >
         <RightPanel
+          isFocused={isFocused}
+          showFocusEye={isMultiple && !isMobile}
           activeTabType={pane.hostId ? 'host' : 'local'}
           activeHostId={pane.hostId || null}
           gitContextPath={paneGitContext}
@@ -440,102 +444,109 @@ const Pane = ({
         />
       </div>
 
-      {/* 활성 pane 테두리 — 모든 absolute 레이어 위 (pointer-events 무시) */}
-      {isFocused && isMultiple && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            pointerEvents: 'none',
-            outline: `2px dashed ${color.text}`,
-            outlineOffset: '-2px',
-            opacity: 0.4,
-            zIndex: 20,
-          }}
-        />
-      )}
+      {/* 활성 pane 테두리 — isMultiple 이면 accent 실선으로 대체 (위 outline 스타일이 이미 그 역할) */}
     </div>
   );
 };
 
-// 모바일 서브탭 — pane 들 가로로 나열. 활성 pane 강조 + X 닫기
-const SubTabBar = ({ panes, activePaneId, hosts, busyPaneIds = null, onSelect, onClose, t }) => (
-  <div style={{
-    display: 'flex',
-    height: '32px',
-    background: color.crust,
-    borderBottom: `1px solid ${color.border}`,
-    overflowX: 'auto',
-    flexShrink: 0,
-  }}>
-    {panes.map((pane, idx) => {
-      const isActive = pane.id === activePaneId;
-      const isEmpty = !pane.sessionId && !pane.hostId;
-      const isBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
-      const host = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
-      const label = host?.name || (pane.sessionId ? (t?.('thisMachine') || 'Local') : (t?.('startSession') || 'Empty'));
-      const Icon = pane.hostId ? Server : TerminalIcon;
-      return (
-        <div
-          key={pane.id}
-          onClick={() => onSelect(pane.id)}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-            padding: '0 10px',
-            background: isActive ? color.base : color.surface0,
-            borderRight: `1px solid ${color.border}`,
-            color: isActive ? color.text : color.subtext,
-            fontSize: fontSize['11'],
-            fontWeight: fontWeight.medium,
-            cursor: 'pointer',
-            flexShrink: 0,
-            minWidth: 0,
-            maxWidth: '160px',
-            fontFamily: font.sans,
-          }}
-        >
-          {isEmpty ? <Plus size={11} strokeWidth={2} /> : <Icon size={11} strokeWidth={1.8} />}
-          {isBusy && (
-            <span
-              aria-hidden
+// 분할 서브탭 — pane 들 가로로 나열. 활성 pane 강조 + 머신 아이콘 + busy dot.
+// 모바일/데스크탑 모두 touch-drag reorder (꾹 → 드래그) 가능. X 닫기 버튼은 RightPanel 에 있어 생략.
+const SubTabBar = ({
+  panes, activePaneId, hosts, busyPaneIds = null,
+  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, t,
+}) => {
+  const scrollRef = useRef(null);
+  const touchReorder = useTouchDragReorder({
+    dataAttr: 'data-pane-id',
+    scrollContainerRef: scrollRef,
+    onReorder,
+  });
+
+  const tabBarAccent = tabColorIndex != null
+    ? (color.dotPalette || ['#89b4fa'])[tabColorIndex % (color.dotPalette || ['#89b4fa']).length]
+    : color.accent;
+
+  return (
+    <>
+      <style>{`
+        .iterm-subtabbar-scroll { scrollbar-width: none; -ms-overflow-style: none; }
+        .iterm-subtabbar-scroll::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+      `}</style>
+      <div
+        ref={scrollRef}
+        className="iterm-subtabbar-scroll"
+        style={{
+          display: 'flex',
+          height: '32px',
+          background: `${tabBarAccent}18`,
+          borderBottom: `1px solid ${color.border}`,
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          flexShrink: 0,
+        }}
+      >
+        {panes.map((pane, idx) => {
+          const isActive = pane.id === activePaneId;
+          const isEmpty = !pane.sessionId && !pane.hostId;
+          const isLocal = !!pane.sessionId && !pane.hostId;
+          const isBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
+          const host = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
+          const label = host?.name
+            || (isLocal ? ((settings.localName || '').trim() || (t?.('thisMachine') || 'Local')) : (t?.('startSession') || 'Empty'));
+          // 머신 아이콘 — host.icon 또는 settings.localIcon. fallback 은 Server/Monitor/Plus.
+          const iconValue = host?.icon || (isLocal ? (settings.localIcon || '') : '');
+          const FallbackIcon = host ? Server : (isLocal ? Monitor : Plus);
+          const isDragging = touchReorder.draggingId === pane.id;
+          const isDragOver = touchReorder.dragOverId === pane.id && touchReorder.draggingId && touchReorder.draggingId !== pane.id;
+          const touchProps = onReorder ? touchReorder.getItemProps(pane.id) : null;
+          return (
+            <div
+              key={pane.id}
+              {...(touchProps || {})}
+              onClick={() => onSelect(pane.id)}
               style={{
-                width: '6px',
-                height: '6px',
-                borderRadius: '50%',
-                background: color.accent,
-                boxShadow: `0 0 10px ${color.accent}`,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '0 10px',
+                background: isActive ? color.base : color.surface0,
+                borderRight: `1px solid ${color.border}`,
+                border: isDragOver ? `2px solid ${color.accent}` : undefined,
+                color: isActive ? color.text : color.subtext,
+                fontSize: fontSize['11'],
+                fontWeight: fontWeight.medium,
+                cursor: 'pointer',
                 flexShrink: 0,
+                minWidth: 0,
+                maxWidth: '160px',
+                fontFamily: font.sans,
+                opacity: isDragging ? 0.4 : 1,
               }}
-            />
-          )}
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {idx + 1}. {label}
-          </span>
-          <button
-            onClick={(e) => { e.stopPropagation(); onClose(pane.id); }}
-            title={t?.('closePane') || 'Close pane'}
-            style={{
-              width: '16px', height: '16px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: 'transparent',
-              border: 'none', borderRadius: '3px',
-              cursor: 'pointer',
-              color: color.muted,
-              padding: 0,
-              flexShrink: 0,
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = color.danger; e.currentTarget.style.color = '#fff'; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.muted; }}
-          >
-            <X size={10} strokeWidth={2.4} />
-          </button>
-        </div>
-      );
-    })}
-  </div>
-);
+            >
+              <HostIcon value={iconValue} fallback={FallbackIcon} size={12} strokeWidth={1.9} />
+              {isBusy && (
+                <span
+                  aria-hidden
+                  style={{
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: color.accent,
+                    boxShadow: `0 0 10px ${color.accent}`,
+                    flexShrink: 0,
+                  }}
+                />
+              )}
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {idx + 1}. {label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+};
 
 // 빈 pane = 메인 홈 대시보드 그대로 재사용. 호스트 카드 클릭 시 onActivate 호출.
 // onPickHostPath(host) → 폴더 픽커 띄워 cwd 선택 후 활성화 (홈과 동일).
@@ -543,7 +554,7 @@ const SubTabBar = ({ panes, activePaneId, hosts, busyPaneIds = null, onSelect, o
 const EmptyPane = ({
   onActivate, hosts = [], tab, allTabs = [], settings = {}, t,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
-  onPickHostPath = null, onPickLocalPath = null, onEditHost = null, refreshHosts = null,
+  onPickHostPath = null, onPickLocalPath = null, onEditHost = null, onEditLocal = null, refreshHosts = null,
 }) => {
   const [hoverId, setHoverId] = useState(null);
   // 서버 sort_index = SSoT. HomeDashboard / HostManager 와 동일한 hook → 한 곳에서 옮기면 다 동기.
@@ -568,26 +579,47 @@ const EmptyPane = ({
       {/* 1) 기본 연결 — 로컬 + 저장된 호스트. 가장 자주 쓰는 액션. */}
       <Section icon={Plug} title={t?.('connections') || 'Connections'}>
         <div style={emptyStyles.grid}>
-          <HostRow
-            id="local"
-            draggable={false}
-            icon={<HostIcon value={settings.localIcon || ''} fallback={Monitor} size={20} />}
-            name={localName}
-            subtitle={
-              <>
-                <span style={SUB_LINE}>localhost</span>
-                <span style={{ ...SUB_LINE, color: (settings.localStartPath || '').trim() ? color.subtext : color.faint }}>
-                  {(settings.localStartPath || '').trim() || (t?.('noStartPath') || 'No start path')}
-                </span>
-              </>
-            }
-            accentColor={localAccent}
-            isHovered={hoverId === 'local'}
-            onHover={setHoverId}
-            onClick={() => onActivate?.({ type: 'local' })}
-            onPickPath={onPickLocalPath || null}
-            pickPathTitle={t?.('pickStartPath') || 'Pick start path'}
-          />
+          <div style={{ position: 'relative' }}>
+            {onEditLocal && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onEditLocal(); }}
+                title={t?.('localSettings') || 'Local settings'}
+                style={{
+                  position: 'absolute', top: '6px', right: '6px', zIndex: 2,
+                  background: 'transparent', border: 'none', padding: '2px',
+                  cursor: 'pointer', color: color.subtext,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
+                onMouseLeave={(e) => { e.currentTarget.style.color = color.subtext; }}
+              >
+                <SettingsIcon size={13} strokeWidth={1.8} />
+              </button>
+            )}
+            <HostRow
+              id="local"
+              draggable={false}
+              icon={<HostIcon value={settings.localIcon || ''} fallback={Monitor} size={20} />}
+              name={localName}
+              subtitle={
+                <>
+                  <span style={SUB_LINE} title="localhost">localhost</span>
+                  <span
+                    style={{ ...SUB_LINE, color: color.faint }}
+                    title={(settings.localStartPath || '').trim() || (t?.('noStartPath') || 'No start path')}
+                  >
+                    {(settings.localStartPath || '').trim() || (t?.('noStartPath') || 'No start path')}
+                  </span>
+                </>
+              }
+              accentColor={localAccent}
+              isHovered={hoverId === 'local'}
+              onHover={setHoverId}
+              onClick={() => onActivate?.({ type: 'local' })}
+              onPickPath={onPickLocalPath || null}
+              pickPathTitle={t?.('pickStartPath') || 'Pick start path'}
+            />
+          </div>
           {orderedHosts.map((h) => {
             const accent = color.dotPalette[(h.color_index ?? 0) % color.dotPalette.length];
             return (
@@ -599,8 +631,12 @@ const EmptyPane = ({
                 name={h.name}
                 subtitle={
                   <>
-                    <span style={SUB_LINE}>{h.ssh_user || ''}@{h.hostname || ''}</span>
-                    <span style={{ ...SUB_LINE, color: h.start_path ? color.subtext : color.faint }}>
+                    <span style={SUB_LINE} title={`${h.ssh_user || ''}@${h.hostname || ''}`}>{h.ssh_user || ''}@{h.hostname || ''}</span>
+                    {/* 경로 라인은 참고용 — 항상 faint 로 호스트 이름과 시각 위계 차이 둠. */}
+                    <span
+                      style={{ ...SUB_LINE, color: color.faint }}
+                      title={h.start_path || (t?.('noStartPath') || 'No start path')}
+                    >
                       {h.start_path || (t?.('noStartPath') || 'No start path')}
                     </span>
                   </>
@@ -621,12 +657,13 @@ const EmptyPane = ({
 
       {/* 2) 열린 탭 미러 — 다른 탭을 이 자리로 흡수. (이어할 수 있는 세션 위로 스왑됨) */}
       {otherTabs.length > 0 && (
-        <Section icon={Copy} title={t?.('mirrorOpenTab') || 'Open tabs'}>
+        <Section icon={ArrowRightLeft} title={t?.('mirrorOpenTab') || 'Open tabs'}>
           <OpenTabPicker
             tabs={otherTabs}
             hosts={hosts}
             t={t}
             onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
+            emptySlotCount={(tab?.panes || []).filter((p) => !p.sessionId && !p.hostId).length}
             embedded
           />
         </Section>
@@ -634,7 +671,7 @@ const EmptyPane = ({
 
       {/* 3) 이어할 수 있는 세션 — 원격 호스트의 살아있는 tmux 세션 (현재 탭 컴패니언 제외). */}
       {hosts.some((h) => h.use_remote_tmux) && (
-        <Section icon={Anchor} title={t?.('resumableSessions') || 'Resumable'}>
+        <Section icon={History} title={t?.('resumableSessions') || 'Resumable'}>
           <HomeSessions
             tabs={allTabs}
             hosts={hosts}
@@ -705,7 +742,7 @@ const emptyStyles = {
   },
 };
 
-const OpenTabPicker = ({ tabs, hosts = [], onPick, t, embedded = false }) => {
+const OpenTabPicker = ({ tabs, hosts = [], onPick, t, embedded = false, emptySlotCount = 0 }) => {
   const palette = color.dotPalette || ['#89b4fa'];
   const [hoverId, setHoverId] = useState(null);
   const innerStyle = embedded
@@ -729,38 +766,65 @@ const OpenTabPicker = ({ tabs, hosts = [], onPick, t, embedded = false }) => {
             const accent = tb.color_index != null
               ? palette[tb.color_index % palette.length]
               : color.accent;
+            const paneCount = (tb.panes || []).filter((p) => p.sessionId || p.hostId).length;
+            const disabled = paneCount > emptySlotCount;
             return (
               <HostRow
                 key={tb.id}
                 id={tb.id}
                 accentColor={accent}
-                leadingBadge={
-                  index <= 9 ? (
-                    <span
-                      title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
-                      style={mirrorStyles.numberBadge}
-                      aria-hidden
-                    >
-                      {index}
-                    </span>
-                  ) : null
-                }
+                leadingBadge={null}
+                disabled={disabled}
                 icon={
-                  <HostIcon
-                    value={tb.icon || (hostMeta?.icon || '')}
-                    fallback={isHost ? Server : TerminalIcon}
-                    size={20}
-                  />
+                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 }}>
+                    <HostIcon
+                      value={tb.icon || (hostMeta?.icon || '')}
+                      fallback={isHost ? Server : TerminalIcon}
+                      size={20}
+                    />
+                    {index <= 9 && (
+                      <span style={{
+                        position: 'absolute',
+                        top: '-6px',
+                        left: '-6px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: '14px',
+                        height: '14px',
+                        padding: '0 3px',
+                        fontSize: '9px',
+                        fontWeight: 700,
+                        color: color.base,
+                        fontFamily: font.mono,
+                        background: accent,
+                        borderRadius: '3px',
+                        lineHeight: 1,
+                        pointerEvents: 'none',
+                      }}>
+                        {index}
+                      </span>
+                    )}
+                  </div>
                 }
                 name={tb.name}
                 subtitle={
-                  isHost
-                    ? (hostMeta ? `${hostMeta.ssh_user}@${hostMeta.hostname}` : tb.hostId)
-                    : (t?.('thisMachine') || 'This machine')
+                  <>
+                    <span style={{ ...SUB_LINE, opacity: disabled ? 0.35 : 1 }}>
+                      {isHost
+                        ? (hostMeta ? `${hostMeta.ssh_user}@${hostMeta.hostname}` : tb.hostId)
+                        : (t?.('thisMachine') || 'This machine')}
+                    </span>
+                    <span style={{ ...SUB_LINE, color: color.faint, opacity: disabled ? 0.35 : 1 }}>
+                      {paneCount > 1
+                        ? `${paneCount} ${t?.('panesInTab') || 'panes'}`
+                        : (tb.cwd || '')}
+                    </span>
+                  </>
                 }
-                isHovered={hoverId === tb.id}
-                onHover={setHoverId}
-                onClick={() => onPick(tb.id)}
+                isHovered={disabled ? false : hoverId === tb.id}
+                onHover={disabled ? null : setHoverId}
+                onClick={disabled ? null : () => onPick(tb.id)}
               />
             );
           })}
@@ -802,22 +866,24 @@ const mirrorStyles = {
     gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
     gap: '8px',
   },
-  numberBadge: {
+  numberBadgeOverlay: {
+    position: 'absolute',
+    top: '-5px',
+    left: '-6px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: '20px',
-    height: '20px',
-    padding: '0 5px',
-    fontSize: '11px',
+    minWidth: '14px',
+    height: '14px',
+    padding: '0 3px',
+    fontSize: '9px',
     fontWeight: 700,
-    color: color.subtext,
+    color: color.base,
     fontFamily: font.mono,
-    background: color.crust,
-    border: `1px solid ${color.border}`,
-    borderRadius: '4px',
-    flexShrink: 0,
+    background: color.accent,
+    borderRadius: '3px',
     lineHeight: 1,
+    pointerEvents: 'none',
   },
 };
 

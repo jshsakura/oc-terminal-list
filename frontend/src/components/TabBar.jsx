@@ -4,10 +4,12 @@ import {
   Terminal as TerminalIcon, Server,
   Settings as SettingsIcon, MoreHorizontal,
   SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Square,
+  ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import RailIconBtn from './common/RailIconBtn';
+import useTouchDragReorder from '../hooks/useTouchDragReorder';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
@@ -33,6 +35,17 @@ const TabBar = ({
   const [contextMenu, setContextMenu] = useState(null);  // {tabId, x, y}
   const [draggingTabId, setDraggingTabId] = useState(null);
   const [dragOverTabId, setDragOverTabId] = useState(null);
+
+  // 모바일 터치 드래그 — TabBar scroll 컨테이너에 ref 를 걸고 훅에 넘김 (드래그 모드 시 가로 스크롤 락).
+  const tabListRef = useRef(null);
+  const touchReorder = useTouchDragReorder({
+    dataAttr: 'data-tab-id',
+    scrollContainerRef: tabListRef,
+    onReorder,
+  });
+  // 데스크탑 HTML5 드래그 상태와 통합 — 한 군데에서만 active id/over id 를 신뢰.
+  const activeDraggingId = draggingTabId || touchReorder.draggingId;
+  const activeDragOverId = dragOverTabId || touchReorder.dragOverId;
 
   const isHome = activeTabId === null;
 
@@ -67,6 +80,7 @@ const TabBar = ({
 
       {/* tabs */}
       <div
+        ref={tabListRef}
         className="tabbar-list"
         style={{ ...styles.tabList, ...(isMobile ? styles.tabListMobile : null) }}
         onWheel={(e) => {
@@ -83,8 +97,9 @@ const TabBar = ({
             index={idx + 1}
             isActive={tab.id === activeTabId}
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
-            isDragging={draggingTabId === tab.id}
-            isDragOver={dragOverTabId === tab.id && draggingTabId && draggingTabId !== tab.id}
+            isDragging={activeDraggingId === tab.id}
+            isDragOver={activeDragOverId === tab.id && activeDraggingId && activeDraggingId !== tab.id}
+            touchProps={isMobile ? touchReorder.getItemProps(tab.id) : null}
             isMobile={isMobile}
             onSelect={() => onSelect(tab.id)}
             onClose={() => onClose(tab.id)}
@@ -126,9 +141,9 @@ const TabBar = ({
 
       {/* right action group — 모바일에선 분할 버튼 숨김 (sub-tab 으로 전환).
           데스크탑: h/v 한 칸씩 추가, 2x2 는 4 pane 으로 즉시 채움. 각 pane 은 활성 pane 의 컨텍스트 상속. */}
-      <div style={{ ...styles.actionGroup, ...(isMobile ? styles.actionGroupMobile : null) }}>
+      <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0, borderLeft: `1px solid ${color.border}` }}>
         {!isMobile && (
-          <>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', padding: '0 2px' }}>
             <RailIconBtn
               icon={SquareSplitHorizontal}
               onClick={() => onSplit?.('h')}
@@ -146,9 +161,17 @@ const TabBar = ({
               onClick={() => onSplit?.('2x2')}
               title={t?.('layout2x2') || '2 × 2 grid'}
             />
-          </>
+          </div>
         )}
-        <RailIconBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} />
+        <div style={{
+          width: '30px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderLeft: isMobile ? 'none' : `1px solid ${color.border}`,
+        }}>
+          <RailIconBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} compact />
+        </div>
       </div>
 {/* context menu — 포탈로 최상단 렌더링 */}
 {contextMenu && createPortal(
@@ -156,16 +179,27 @@ const TabBar = ({
     const ctxTab = tabs.find((tt) => tt.id === contextMenu.tabId);
     const ctxPaneCount = ctxTab?.panes?.length || 1;
     const ctxViewMode = ctxTab?.viewMode || 'grid';
+    const ctxIdx = tabs.findIndex((tt) => tt.id === contextMenu.tabId);
     return (
       <TabContextMenu
         ctx={contextMenu}
         t={t}
         viewMode={ctxViewMode}
         canToggleViewMode={ctxPaneCount > 1 && !!onToggleViewMode}
+        canMoveLeft={ctxIdx > 0 && !!onReorder}
+        canMoveRight={ctxIdx >= 0 && ctxIdx < tabs.length - 1 && !!onReorder}
         onClose={() => setContextMenu(null)}
         onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
         onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
         onToggleViewMode={() => { onToggleViewMode?.(contextMenu.tabId); setContextMenu(null); }}
+        onMoveLeft={() => {
+          if (ctxIdx > 0) onReorder?.(contextMenu.tabId, tabs[ctxIdx - 1].id);
+          setContextMenu(null);
+        }}
+        onMoveRight={() => {
+          if (ctxIdx >= 0 && ctxIdx < tabs.length - 1) onReorder?.(contextMenu.tabId, tabs[ctxIdx + 1].id);
+          setContextMenu(null);
+        }}
       />
     );
   })(),
@@ -178,47 +212,29 @@ const TabBar = ({
 const Tab = memo(({
   tab, index, isActive, isBusy = false, isDragging = false, isDragOver = false,
   isMobile = false,
+  touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
   onSelect, onClose, onContextMenu, onMore,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   t,
 }) => {
-  const Icon = tab.type === 'host' ? Server : TerminalIcon;
+  const isHostTab = tab.type === 'host' || tab.hostId;
+  const Icon = isHostTab ? Server : TerminalIcon;
   const dotColor = tab.color_index != null
     ? color.dotPalette?.[tab.color_index % (color.dotPalette?.length || 8)] || color.accent
     : color.accent;
 
-  // 모바일 long-press → context menu (실수 닫기 방지: X 버튼 대신 의도된 제스처)
-  const longPressTimerRef = useRef(null);
-  const onTouchStartLP = (e) => {
-    if (!isMobile) return;
-    const touch = e.touches?.[0];
-    const x = touch?.clientX ?? 0;
-    const y = touch?.clientY ?? 0;
-    longPressTimerRef.current = setTimeout(() => {
-      onContextMenu?.({ preventDefault: () => {}, clientX: x, clientY: y });
-      longPressTimerRef.current = null;
-    }, 450);
-  };
-  const cancelLP = () => {
-    if (longPressTimerRef.current) {
-      clearTimeout(longPressTimerRef.current);
-      longPressTimerRef.current = null;
-    }
-  };
-
   return (
     <div
-      draggable={!isMobile /* 모바일은 드래그 비활성 — 탭 누르려다 잘못 끌리는 사고 방지 */}
+      // 모바일은 HTML5 draggable 대신 useTouchDragReorder 의 터치 이벤트를 spread.
+      // 모바일 컨텍스트 메뉴는 우측 More 버튼으로 접근 (long-press 는 이제 드래그 진입).
+      draggable={!isMobile}
+      {...(touchProps || {})}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
       onContextMenu={onContextMenu}
-      onTouchStart={onTouchStartLP}
-      onTouchEnd={cancelLP}
-      onTouchMove={cancelLP}
-      onTouchCancel={cancelLP}
       style={{
         ...styles.tab,
         ...(isMobile ? styles.tabMobile : null),
@@ -331,20 +347,35 @@ const Tab = memo(({
   );
 });
 
-const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab, canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null }) => {
+const TabContextMenu = ({
+  ctx, t, onClose, onCloseTab, onDuplicateTab,
+  canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null,
+  canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null,
+}) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
+  const [measured, setMeasured] = useState(false);
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     const handle = (e) => {
-      if (!ref.current?.contains(e.target)) onClose();
+      if (e.target?.closest?.('[data-more="true"]')) return;
+      if (!ref.current?.contains(e.target)) onCloseRef.current();
     };
-    document.addEventListener('mousedown', handle);
-    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') onClose(); });
-    return () => document.removeEventListener('mousedown', handle);
-  }, [onClose]);
+    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
+    const id = setTimeout(() => {
+      document.addEventListener('mousedown', handle);
+      document.addEventListener('keydown', handleKey);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener('mousedown', handle);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, []);
 
-  // 화면 경계 밖으로 나가지 않게 보정
   useEffect(() => {
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
@@ -363,6 +394,7 @@ const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab, canToggle
       if (nextY < margin) nextY = margin;
 
       setPos({ x: nextX, y: nextY });
+      setMeasured(true);
     }
   }, [ctx.x, ctx.y]);
 
@@ -381,9 +413,19 @@ const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab, canToggle
         zIndex: 200000,
         minWidth: '140px',
         fontFamily: font.sans,
-        opacity: pos.x === ctx.x && pos.y === ctx.y && ref.current ? 0 : 1, // 첫 렌더링 시 측정 전 깜빡임 방지 (완벽하진 않음)
+        opacity: measured ? 1 : 0,
       }}
     >
+      {(onMoveLeft || onMoveRight) && (
+        <>
+          <MenuItem onClick={onMoveLeft} disabled={!canMoveLeft} icon={ChevronLeft}>
+            {t?.('moveLeft') || 'Move left'}
+          </MenuItem>
+          <MenuItem onClick={onMoveRight} disabled={!canMoveRight} icon={ChevronRight}>
+            {t?.('moveRight') || 'Move right'}
+          </MenuItem>
+        </>
+      )}
       {onDuplicateTab && (
         <MenuItem onClick={onDuplicateTab}>
           {t?.('duplicateTab') || 'Duplicate (same path)'}
@@ -401,26 +443,32 @@ const TabContextMenu = ({ ctx, t, onClose, onCloseTab, onDuplicateTab, canToggle
   );
 };
 
-const MenuItem = ({ onClick, children, danger }) => (
+const MenuItem = ({ onClick, children, danger, disabled = false, icon: Icon = null }) => (
   <button
-    onClick={onClick}
+    onClick={disabled ? undefined : onClick}
+    disabled={disabled}
     style={{
       width: '100%',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '8px',
       textAlign: 'left',
       padding: '5px 8px',
       background: 'transparent',
       border: 'none',
       borderRadius: '3px',
-      cursor: 'pointer',
-      color: danger ? color.danger : color.text,
+      cursor: disabled ? 'default' : 'pointer',
+      color: disabled ? color.muted : (danger ? color.danger : color.text),
       fontSize: '11.5px',
       fontFamily: 'inherit',
       transition: 'background 120ms',
       lineHeight: 1.3,
+      opacity: disabled ? 0.5 : 1,
     }}
-    onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+    onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = color.surface1; }}
     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
   >
+    {Icon && <Icon size={12} strokeWidth={1.8} />}
     {children}
   </button>
 );
