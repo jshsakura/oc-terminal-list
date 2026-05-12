@@ -28,9 +28,9 @@ const EMPTY = {
 
 
 const HE_TABS = [
-  { id: 'connection', icon: Globe, label: 'Connection' },
-  { id: 'session', icon: TerminalIcon, label: 'Session' },
-  { id: 'appearance', icon: Palette, label: 'Appearance' },
+  { id: 'connection', icon: Globe, labelKey: 'connection' },
+  { id: 'session', icon: TerminalIcon, labelKey: 'session' },
+  { id: 'appearance', icon: Palette, labelKey: 'appearance' },
 ];
 
 const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t }) => {
@@ -166,7 +166,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                 }}
               >
                 <Icon size={12} strokeWidth={1.8} />
-                <span>{td.label}</span>
+                <span>{t(td.labelKey) || td.labelKey}</span>
               </button>
             );
           })}
@@ -737,7 +737,7 @@ const heStyles = {
     alignItems: 'center',
     gap: '6px',
     height: '28px',
-    padding: `0 ${space['2.5']}`,
+    padding: `0 10px`,
     background: 'transparent',
     border: `1px solid transparent`,
     borderRadius: radius.sm,
