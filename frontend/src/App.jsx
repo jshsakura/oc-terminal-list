@@ -688,7 +688,6 @@ function App() {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(window.visualViewport?.height ?? window.innerHeight);
-  const [viewportOffset, setViewportOffset] = useState(window.visualViewport?.offsetTop ?? 0);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
@@ -764,17 +763,10 @@ function App() {
     window.addEventListener('resize', check);
     window.addEventListener('orientationchange', check);
 
-    // visualViewport — 모바일 키보드 대응 핵심 로직
+    // visualViewport — 단순 가시 영역 높이 트래킹
     const handleVV = () => {
       if (window.visualViewport) {
         setViewportHeight(window.visualViewport.height);
-        setViewportOffset(window.visualViewport.offsetTop);
-        
-        // [iOS 근본 해결] 브라우저가 키보드 때문에 화면을 밀어올리면(panning), 
-        // offsetTop 이나 scrollY 가 생김. 이를 0으로 강제 고정하여 레이아웃 이탈 방지.
-        if (window.visualViewport.offsetTop > 0 || window.scrollY > 0) {
-          window.scrollTo(0, 0);
-        }
       }
       check();
     };
@@ -783,12 +775,10 @@ function App() {
       window.visualViewport.addEventListener('resize', handleVV);
       window.visualViewport.addEventListener('scroll', handleVV);
     }
-    window.addEventListener('scroll', handleVV);
     
     return () => {
       window.removeEventListener('resize', check);
       window.removeEventListener('orientationchange', check);
-      window.removeEventListener('scroll', handleVV);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleVV);
         window.visualViewport.removeEventListener('scroll', handleVV);
@@ -1038,32 +1028,19 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      // fixed position 과 top: offset 조합으로 브라우저 panning 상쇄
-      position: 'fixed',
-      top: isMobile ? `${viewportOffset}px` : 0,
-      left: 0, right: 0,
       height: isMobile ? `${viewportHeight}px` : '100vh',
-      width: '100vw',
+      width: '100%',
       background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,
     }}>
       <style>{`
-        /* 브라우저 기본 스크롤/바운스/밀어올리기 원천 차단 */
-        html, body {
-          overflow: hidden;
+        html, body, #root {
           width: 100%;
           height: 100%;
           margin: 0;
           padding: 0;
-          overscroll-behavior: none;
-          -webkit-user-select: none;
-          position: fixed; /* iOS Safari Panning 차단 핵심 */
-        }
-        
-        #root {
-          width: 100%;
-          height: 100%;
+          overflow: hidden;
         }
 
         * { scrollbar-width: thin; scrollbar-color: ${currentTheme.ui.bgTertiary} transparent; }
