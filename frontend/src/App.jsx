@@ -1451,7 +1451,7 @@ function App() {
               >
                 {isThisActive && activeFile && (
                   <div style={{ height: `${editorHeight}px`, flexShrink: 0, position: 'relative', minHeight: '150px', zIndex: 10 }}>
-                    <Suspense fallback={null}>
+                    <LazyErrorBoundary><Suspense fallback={null}>
                       <FileEditor
                         activeFile={activeFile}
                         openFiles={openFiles}
@@ -1461,7 +1461,7 @@ function App() {
                         language={settings.language}
                         onResizeStart={onEditorResizeStart}
                       />
-                    </Suspense>
+                    </Suspense></LazyErrorBoundary>
                   </div>
                 )}
                 <div style={{ flex: 1, position: 'relative', overflow: 'hidden', minHeight: '150px' }}>
@@ -1577,7 +1577,7 @@ function App() {
           빈 pane (picker 상태) 이면 키 보낼 곳이 없어서 어차피 동작 안 함 → 숨김.
           SSH 2FA 인증 prompt 열려 있을 때도 키보드와 같이 따라 올라와 모달 가리므로 숨김. */}
       {isMobile && activeTabId !== null && !!focusedPane && (focusedPane.sessionId || focusedPane.hostId) && !authPromptOpen && (
-        <Suspense fallback={null}>
+        <LazyErrorBoundary><Suspense fallback={null}>
           <MobileToolbar
             onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}
             onOpenCommandInput={() => setCommandInputOpen(true)}
@@ -1605,23 +1605,23 @@ function App() {
             language={settings.language}
             keys={settings.mobileKeys}
           />
-        </Suspense>
+        </Suspense></LazyErrorBoundary>
       )}
 
       {/* ── screen dump modal — 모바일에서 터미널 텍스트 자유 선택/복사 ── */}
       {screenDumpText && (
-        <Suspense fallback={null}>
+        <LazyErrorBoundary><Suspense fallback={null}>
           <ScreenDumpModal
             text={screenDumpText}
             onClose={() => setScreenDumpText(null)}
             t={t}
           />
-        </Suspense>
+        </Suspense></LazyErrorBoundary>
       )}
 
       {/* ── command input (모바일 한글 IME 우회) ── */}
       {commandInputOpen && (
-        <Suspense fallback={null}>
+        <LazyErrorBoundary><Suspense fallback={null}>
           <CommandInput
             isOpen={commandInputOpen}
             onClose={() => setCommandInputOpen(false)}
@@ -1633,7 +1633,7 @@ function App() {
             setCommand={setCommandText}
             t={t}
           />
-        </Suspense>
+        </Suspense></LazyErrorBoundary>
       )}
 
       {/* ── host manager modal (top action) ── */}
@@ -1710,7 +1710,7 @@ function App() {
       />
 
       {/* ── modals ── */}
-      <Suspense fallback={null}>
+      <LazyErrorBoundary><Suspense fallback={null}>
         {isSettingsOpen && (
           <Settings
             isOpen={isSettingsOpen}
@@ -1843,7 +1843,7 @@ function App() {
             language={settings.language}
           />
         )}
-      </Suspense>
+      </Suspense></LazyErrorBoundary>
     </div>
   );
 }
