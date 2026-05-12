@@ -626,9 +626,11 @@ const SubTabBar = ({
                 alignItems: 'center',
                 gap: '6px',
                 padding: '0 10px',
-                background: isActive ? color.base : color.surface0,
-                borderRight: `1px solid ${color.border}`,
-                border: isDragOver ? `2px solid ${color.accent}` : undefined,
+                margin: isActive ? '3px 2px' : undefined,
+                height: isActive ? undefined : '100%',
+                background: isActive ? color.surface0 : 'transparent',
+                border: isDragOver ? `2px solid ${color.accent}` : 'none',
+                borderRadius: isActive ? '6px' : undefined,
                 color: isActive ? color.text : color.subtext,
                 fontSize: fontSize['11'],
                 fontWeight: fontWeight.medium,
@@ -638,6 +640,7 @@ const SubTabBar = ({
                 maxWidth: '160px',
                 fontFamily: font.sans,
                 opacity: isDragging ? 0.4 : 1,
+                transition: 'background 0.15s, border-radius 0.15s',
               }}
             >
               {idx + 1 <= 9 && (
