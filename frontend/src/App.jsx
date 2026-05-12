@@ -21,6 +21,7 @@ import { tokens as designTokens } from './styles/tokens';
 import HostManager from './components/HostManager';
 import PaneGrid from './components/PaneGrid';
 import PaneErrorBoundary from './components/PaneErrorBoundary';
+import LazyErrorBoundary from './components/LazyErrorBoundary';
 import LoadingScreen from './components/layout/LoadingScreen';
 
 const Terminal        = lazy(() => import('./components/Terminal'));
@@ -1222,8 +1223,8 @@ function App() {
 
   // ── guards ────────────────────────────────────────────────────────────────
   if (isLoading) return <LoadingScreen currentTheme={currentTheme} t={t} />;
-  if (needsSetup) return <Suspense fallback={null}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense>;
-  if (!isAuthenticated) return <Suspense fallback={null}><Login onLogin={login} language={settings.language} theme={currentTheme} /></Suspense>;
+  if (needsSetup) return <LazyErrorBoundary><Suspense fallback={null}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense></LazyErrorBoundary>;
+  if (!isAuthenticated) return <LazyErrorBoundary><Suspense fallback={null}><Login onLogin={login} language={settings.language} theme={currentTheme} /></Suspense></LazyErrorBoundary>;
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -1467,7 +1468,7 @@ function App() {
                   <PaneErrorBoundary>
                   <PaneGrid
                     tab={tab}
-                    allTabs={tabs}
+                    allTabs={tabsWithMeta}
                     hosts={hosts}
                     isActive={isThisActive}
                     isMobile={isMobile}
