@@ -1,6 +1,8 @@
-import { Suspense, lazy, useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Suspense, lazy, useState, useEffect, useRef, useMemo, useCallback, forwardRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   X, Plus, Server, Terminal as TerminalIcon, Monitor, Copy, Plug, History, ArrowRightLeft, Settings as SettingsIcon,
+  MoreHorizontal, Edit3, Trash2,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -67,6 +69,7 @@ const PaneGrid = ({
   language = 'en',
   t,
   viewportHeight,
+  onRenamePane,
 }) => {
   const panes = tab?.panes || [];
   if (panes.length === 0) return null;
@@ -91,6 +94,7 @@ const PaneGrid = ({
           onSelect={(paneId) => onFocusPane?.(tab.id, paneId)}
           onClose={(paneId) => onClosePane?.(tab.id, paneId)}
           onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}
+          onRenamePane={onRenamePane ? (paneId) => onRenamePane(tab.id, paneId) : null}
           t={t}
         />
         {/* display:grid; gridTemplateRows:1fr → 단일 자식(Pane) 이 부모 높이를 100% 채움.
@@ -451,11 +455,86 @@ const Pane = ({
 
 // 분할 서브탭 — pane 들 가로로 나열. 활성 pane 강조 + 머신 아이콘 + busy dot.
 // 모바일/데스크탑 모두 touch-drag reorder (꾹 → 드래그) 가능. X 닫기 버튼은 RightPanel 에 있어 생략.
+const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, onRename, onClose, onDismiss }, ref) => {
+  const innerRef = useRef(null);
+  const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
+  const [measured, setMeasured] = useState(false);
+
+  useEffect(() => {
+    const el = innerRef.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      let nx = ctx.x, ny = ctx.y;
+      if (nx + rect.width > window.innerWidth - 8) nx = window.innerWidth - rect.width - 8;
+      if (nx < 8) nx = 8;
+      if (ny + rect.height > window.innerHeight - 8) ny = window.innerHeight - rect.height - 8;
+      if (ny < 8) ny = 8;
+      setPos({ x: nx, y: ny });
+      setMeasured(true);
+    }
+  }, [ctx.x, ctx.y]);
+
+  const host = pane?.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
+  const isLocal = !!pane?.sessionId && !pane?.hostId;
+  const isEmpty = !pane?.sessionId && !pane?.hostId;
+  const iconValue = host?.icon || (isLocal ? (settings.localIcon || '') : '');
+  const FallbackIcon = host ? Server : (isLocal ? Monitor : Plus);
+  const label = pane?.name || host?.name || (isLocal ? ((settings.localName || '').trim() || (t?.('thisMachine') || 'Local')) : (t?.('startSession') || 'Empty'));
+
+  return (
+    <div ref={(el) => { innerRef.current = el; if (typeof ref === 'function') ref(el); else if (ref) ref.current = el; }} style={{
+      position: 'fixed', top: pos.y, left: pos.x,
+      background: color.surface0, border: `1px solid ${color.borderStrong}`,
+      borderRadius: '6px', boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+      padding: '3px', zIndex: 200000, minWidth: '160px',
+      fontFamily: font.sans, opacity: measured ? 1 : 0,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', borderBottom: `1px solid ${color.border}`, marginBottom: '2px' }}>
+        <span style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: '18px', height: '18px', flexShrink: 0,
+          background: `${tabBarAccent}22`, border: `1px solid ${tabBarAccent}44`,
+          borderRadius: '3px', color: tabBarAccent,
+        }}>
+          <HostIcon value={iconValue} fallback={FallbackIcon} size={10} strokeWidth={1.9} />
+        </span>
+        <span style={{ fontSize: fontSize['11'], color: color.text, fontWeight: fontWeight.medium, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {label}
+        </span>
+      </div>
+      {!isEmpty && onRename && (
+        <button onClick={onRename} style={{
+          display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
+          background: 'transparent', border: 'none', borderRadius: '4px', cursor: 'pointer',
+          color: color.text, fontSize: fontSize['11'], fontFamily: font.sans,
+        }}>
+          <Edit3 size={12} strokeWidth={1.8} />
+          {t?.('rename') || 'Rename'}
+        </button>
+      )}
+      {!isEmpty && (
+        <button onClick={onClose} style={{
+          display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
+          background: 'transparent', border: 'none', borderRadius: '4px', cursor: 'pointer',
+          color: color.red, fontSize: fontSize['11'], fontFamily: font.sans,
+        }}>
+          <Trash2 size={12} strokeWidth={1.8} />
+          {t?.('closePane') || 'Close pane'}
+        </button>
+      )}
+    </div>
+  );
+});
+
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
-  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, t,
+  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, t,
 }) => {
   const scrollRef = useRef(null);
+  const [ctxMenu, setCtxMenu] = useState(null);
+  const ctxRef = useRef(null);
+  const ctxCloseRef = useRef(() => setCtxMenu(null));
+  ctxCloseRef.current = () => setCtxMenu(null);
   const touchReorder = useTouchDragReorder({
     dataAttr: 'data-pane-id',
     scrollContainerRef: scrollRef,
@@ -465,6 +544,21 @@ const SubTabBar = ({
   const tabBarAccent = tabColorIndex != null
     ? (color.dotPalette || ['#89b4fa'])[tabColorIndex % (color.dotPalette || ['#89b4fa']).length]
     : color.accent;
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const handle = (e) => {
+      if (ctxRef.current && !ctxRef.current.contains(e.target) && !e.target?.closest?.('[data-pane-more="true"]')) {
+        ctxCloseRef.current();
+      }
+    };
+    const handleKey = (e) => { if (e.key === 'Escape') ctxCloseRef.current(); };
+    const id = setTimeout(() => {
+      document.addEventListener('mousedown', handle);
+      document.addEventListener('keydown', handleKey);
+    }, 0);
+    return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('keydown', handleKey); };
+  }, [!!ctxMenu]);
 
   return (
     <>
@@ -491,8 +585,9 @@ const SubTabBar = ({
           const isLocal = !!pane.sessionId && !pane.hostId;
           const isBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
           const host = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
-          const label = host?.name
-            || (isLocal ? ((settings.localName || '').trim() || (t?.('thisMachine') || 'Local')) : (t?.('startSession') || 'Empty'));
+          const label = pane.manualName ? pane.name
+            : (pane.name || host?.name
+              || (isLocal ? ((settings.localName || '').trim() || (t?.('thisMachine') || 'Local')) : (t?.('startSession') || 'Empty')));
           // 머신 아이콘 — host.icon 또는 settings.localIcon. fallback 은 Server/Monitor/Plus.
           const iconValue = host?.icon || (isLocal ? (settings.localIcon || '') : '');
           const FallbackIcon = host ? Server : (isLocal ? Monitor : Plus);
@@ -523,26 +618,72 @@ const SubTabBar = ({
                 opacity: isDragging ? 0.4 : 1,
               }}
             >
-              <HostIcon value={iconValue} fallback={FallbackIcon} size={12} strokeWidth={1.9} />
-              {isBusy && (
-                <span
-                  aria-hidden
-                  style={{
-                    width: '6px',
-                    height: '6px',
-                    borderRadius: '50%',
-                    background: color.accent,
-                    boxShadow: `0 0 10px ${color.accent}`,
-                    flexShrink: 0,
-                  }}
-                />
-              )}
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {idx + 1}. {label}
+              <span style={{
+                position: 'relative',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '16px',
+                height: '16px',
+                flexShrink: 0,
+                color: isActive ? color.text : tabBarAccent,
+              }}>
+                <HostIcon value={iconValue} fallback={FallbackIcon} size={14} strokeWidth={1.8} />
+                {isBusy && (
+                  <span
+                    aria-hidden
+                    style={{
+                      position: 'absolute',
+                      top: '-2px',
+                      right: '-2px',
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      background: tabBarAccent,
+                      boxShadow: `0 0 0 1px ${color.crust}`,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )}
               </span>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+                {label}
+              </span>
+              <button
+                data-pane-more="true"
+                onClick={(e) => { e.stopPropagation(); setCtxMenu(ctxMenu?.paneId === pane.id ? null : { paneId: pane.id, x: e.clientX, y: e.clientY }); }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: '18px', height: '18px', flexShrink: 0,
+                  background: 'transparent', border: 'none', cursor: 'pointer',
+                  color: isActive ? color.subtext : color.surface2,
+                  borderRadius: '3px', padding: 0,
+                }}
+              >
+                <MoreHorizontal size={11} strokeWidth={2} />
+              </button>
             </div>
           );
         })}
+        {ctxMenu && createPortal(
+          <PaneCtxMenu
+            ctx={ctxMenu}
+            ref={ctxRef}
+            pane={panes.find((p) => p.id === ctxMenu.paneId)}
+            hosts={hosts}
+            settings={settings}
+            tabBarAccent={tabBarAccent}
+            t={t}
+            onRename={onRenamePane ? () => {
+              const pane = panes.find((p) => p.id === ctxMenu.paneId);
+              if (pane) onRenamePane(pane.id);
+              setCtxMenu(null);
+            } : null}
+            onClose={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
+            onDismiss={() => setCtxMenu(null)}
+          />,
+          document.body,
+        )}
       </div>
     </>
   );

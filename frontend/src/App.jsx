@@ -757,17 +757,49 @@ function App() {
   // 활성 pane 의 cwd basename 으로 탭 이름 갱신. 호스트 탭/사용자가 직접 이름 박은 탭
   // (manualName=true) 은 건드리지 않는다.
   const handlePaneCwdChange = useCallback((paneId, workspaceRel, isLocalPane) => {
-    if (!isLocalPane || !paneId) return;
+    if (!paneId) return;
+    const trimmed = (workspaceRel || '').replace(/\/+$/, '');
+    const cwdName = trimmed ? trimmed.split('/').pop() : null;
     setTabs((prev) => prev.map((tb) => {
-      if (tb.type !== 'local' || tb.manualName) return tb;
-      // 활성 pane 만 반영 (다중 pane 일 때 비활성 pane 의 cwd 가 탭 이름 흔들지 않게).
-      if (tb.activePaneId && tb.activePaneId !== paneId) return tb;
-      const trimmed = (workspaceRel || '').replace(/\/+$/, '');
-      const next = trimmed ? trimmed.split('/').pop() : (settings.localName || 'workspace');
-      if (!next || next === tb.name) return tb;
-      return { ...tb, name: next };
+      const paneIdx = (tb.panes || []).findIndex((p) => p.id === paneId);
+      if (paneIdx < 0) return tb;
+      let next = { ...tb };
+      if (isLocalPane && !tb.manualName) {
+        if (tb.activePaneId === paneId && cwdName && cwdName !== tb.name) {
+          next = { ...next, name: cwdName || (settings.localName || 'workspace') };
+        }
+      }
+      const pane = next.panes[paneIdx];
+      if (!pane.manualName && cwdName && cwdName !== pane.name) {
+        const newPanes = [...next.panes];
+        newPanes[paneIdx] = { ...pane, name: cwdName };
+        next = { ...next, panes: newPanes };
+      }
+      return next === tb ? tb : next;
     }));
   }, [settings.localName]);
+
+  const handleRenamePane = useCallback((tabId, paneId) => {
+    const newName = prompt(t?.('enterNewName') || 'Enter name:');
+    if (!newName || !newName.trim()) return;
+    setTabs((prev) => prev.map((tb) => {
+      if (tb.id !== tabId) return tb;
+      const paneIdx = (tb.panes || []).findIndex((p) => p.id === paneId);
+      if (paneIdx < 0) return tb;
+      const newPanes = [...tb.panes];
+      newPanes[paneIdx] = { ...newPanes[paneIdx], name: newName.trim(), manualName: true };
+      return { ...tb, panes: newPanes };
+    }));
+  }, [t]);
+
+  const handleRenameTab = useCallback((tabId) => {
+    const tb = tabs.find((t) => t.id === tabId);
+    const newName = prompt(t?.('enterNewName') || 'Enter name:', tb?.name || '');
+    if (!newName || !newName.trim()) return;
+    setTabs((prev) => prev.map((t) =>
+      t.id === tabId ? { ...t, name: newName.trim(), manualName: true } : t
+    ));
+  }, [tabs, t]);
 
   // ── per-pane 테마 오버라이드 ─────────────────────────────────────────────
   // 우측 사이드바의 테마 픽커는 "이 터미널만" 적용 — 전역 settings.theme 은 안 건드림.
@@ -1479,6 +1511,7 @@ function App() {
                     onReorderPane={reorderPane}
                     onPaneCwdChange={handlePaneCwdChange}
                     onPaneThemeChange={handlePaneThemeChange}
+                    onRenamePane={handleRenamePane}
                     layoutSignal={tabLayoutSignal}
                     settings={effectiveSettings}
                     updateSettings={updateSettings}

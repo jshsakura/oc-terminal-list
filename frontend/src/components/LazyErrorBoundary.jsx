@@ -1,8 +1,7 @@
 import { Component } from 'react';
-import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 
-const { color, font, fontSize, radius, space } = tokens;
+const { font, color, fontSize } = tokens;
 
 class LazyErrorBoundary extends Component {
   constructor(props) {
@@ -18,28 +17,14 @@ class LazyErrorBoundary extends Component {
     const msg = error?.message || '';
     if (msg.includes('Failed to fetch dynamically imported module') || msg.includes('Loading chunk')) {
       console.warn('[LazyErrorBoundary] stale chunk detected, reloading...');
-      setTimeout(() => {
-        if (typeof window !== 'undefined') window.location.reload();
-      }, 800);
+      if (typeof window !== 'undefined') window.location.reload();
+      return;
     }
   }
 
   render() {
     if (this.state.hasError) {
-      return (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: space['2'],
-          padding: space['4'],
-          fontFamily: font.sans,
-        }}>
-          <AlertTriangle size={16} strokeWidth={1.5} style={{ color: color.peach || '#fab387' }} />
-          <span style={{ fontSize: fontSize['11'], color: color.muted }}>Reloading…</span>
-        </div>
-      );
+      return null;
     }
     return this.props.children;
   }

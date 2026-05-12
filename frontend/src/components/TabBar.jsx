@@ -4,7 +4,7 @@ import {
   Terminal as TerminalIcon, Server, Monitor,
   Settings as SettingsIcon, MoreHorizontal,
   SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Square,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Edit3,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -349,7 +349,7 @@ const Tab = memo(({
 });
 
 const TabContextMenu = ({
-  ctx, t, onClose, onCloseTab, onDuplicateTab,
+  ctx, t, onClose, onCloseTab, onDuplicateTab, onRenameTab = null,
   canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null,
   canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null,
 }) => {
@@ -426,6 +426,11 @@ const TabContextMenu = ({
             {t?.('moveRight') || 'Move right'}
           </MenuItem>
         </>
+      )}
+      {onRenameTab && (
+        <MenuItem onClick={onRenameTab} icon={Edit3}>
+          {t?.('rename') || 'Rename'}
+        </MenuItem>
       )}
       {onDuplicateTab && (
         <MenuItem onClick={onDuplicateTab}>
