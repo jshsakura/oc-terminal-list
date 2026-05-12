@@ -688,6 +688,7 @@ function App() {
   // ── UI state ──────────────────────────────────────────────────────────────
   const [isMobile, setIsMobile] = useState(false);
   const [viewportHeight, setViewportHeight] = useState(window.visualViewport?.height ?? window.innerHeight);
+  const [viewportOffset, setViewportOffset] = useState(window.visualViewport?.offsetTop ?? 0);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
@@ -771,8 +772,9 @@ function App() {
       requestAnimationFrame(() => {
         pending = false;
         if (window.visualViewport) {
-          // 키보드가 올라오면 height 가 줄어듦.
+          // 키보드가 올라오면 height 가 줄어들고 offsetTop 이 생길 수 있음.
           setViewportHeight(window.visualViewport.height);
+          setViewportOffset(window.visualViewport.offsetTop);
         }
         check();
       });
@@ -1041,20 +1043,21 @@ function App() {
       background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,
-      position: 'fixed', // relative/absolute 대신 fixed 로 전체 화면 고정
+      position: 'fixed',
       top: 0, left: 0,
+      // 브라우저가 밀어올린 만큼(viewportOffset) 다시 아래로 내려서 가시 영역에 박제.
+      transform: isMobile ? `translateY(${viewportOffset}px)` : 'none',
     }}>
       <style>{`
         /* 브라우저 기본 스크롤/바운스/밀어올리기 원천 차단 */
         html, body {
-          position: fixed;
           overflow: hidden;
           width: 100%;
           height: 100%;
           margin: 0;
           padding: 0;
           overscroll-behavior: none;
-          -webkit-user-select: none; /* 터치 시 텍스트 선택 방해 요소 제거 (터미널 내부 제외) */
+          -webkit-user-select: none;
         }
         
         #root {
