@@ -266,11 +266,12 @@ const Pane = ({
   }, [isEmpty, pane.sessionId, pane.id, refreshNonce]);
 
   // pane 마다 자기 cwd 추적
-  const { workspaceRelative: paneCwdRel } = useActiveTerminalCwd({
+  const { workspaceRelative: paneCwdRel, absolutePath: paneCwdAbs } = useActiveTerminalCwd({
     sessionId: isLocal ? pane.sessionId : null,
     isLocal,
   });
   const paneGitContext = paneCwdRel ?? '';
+  const livePaneCwd = isLocal ? paneCwdRel : (pane.cwd ?? cwd ?? null);
 
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭 이름 같은 곳에 활용
   useEffect(() => {
@@ -431,8 +432,9 @@ const Pane = ({
               ? !!(hosts.find((h) => h.id === pane.hostId)?.use_remote_tmux) || !!pane.tmuxSessionName
               : true,
             host: pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null,
-            cwd: cwd || null,
-            paneCwdRel: paneCwdRel || null,
+            cwd: isLocal ? null : (pane.cwd ?? cwd ?? null),
+            cwdAbsolute: isLocal ? (paneCwdAbs || null) : null,
+            paneCwdRel: paneCwdRel ?? null,
             /* takeover 모델 알림용 — PC ↔ 모바일 동시 attach 안 되는 정책을 Info 패널에서도 안내. */
             takeoverPolicy: 'last-attach-wins',
           }}
@@ -457,7 +459,7 @@ const Pane = ({
           terminalKey={pane.sessionId || pane.id}
           /* FileTree 시작 경로 — host 면 절대경로, local 이면 워크스페이스 상대경로.
              탭별로 트리 루트를 좁혀서 다른 프로젝트가 섞여 보이지 않게 함. */
-          paneCwd={cwd || null}
+          paneCwd={livePaneCwd}
           onScreenDump={onScreenDump}
           /* 분할 pane → 새 단독 탭으로 detach. null 이면 버튼 안 띄움. */
           onExtractPane={onExtractPane}

@@ -562,7 +562,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
 
   const cwdDisplay = info?.cwd
     ? info.cwd
-    : (info?.paneCwdRel ? `~/${info.paneCwdRel}` : '—');
+    : (info?.paneCwdRel != null ? `~/${info.paneCwdRel}` : '—');
 
   /* 라이브 연결 상태 — Terminal.jsx 가 노출한 getDims/getConnectionState 폴링.
      1초 간격이면 충분 (사이즈는 자주 안 바뀜). */
@@ -718,6 +718,15 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
           onCopy={() => handleCopy('cwd', cwdDisplay)}
           copied={copiedKey === 'cwd'}
         />
+        {info?.cwdAbsolute && (
+          <InfoRow
+            label={t?.('infoAbsolutePath') || 'Absolute'}
+            value={info.cwdAbsolute}
+            copyable
+            onCopy={() => handleCopy('cwdAbsolute', info.cwdAbsolute)}
+            copied={copiedKey === 'cwdAbsolute'}
+          />
+        )}
       </InfoSection>
 
       {/* 테마 */}

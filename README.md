@@ -1,6 +1,6 @@
 # OC Terminal List
 
-🌐 English-ready | 🇰🇷 한국어 중심 문서 | 🐳 GHCR Container | 🖥️ Host-native recommended
+🌐 [English](./README.md) | 🇰🇷 [한국어](./README.ko.md) | 🐳 GHCR Container | 🖥️ Host-native recommended
 
 [![GHCR Publish](https://github.com/jshsakura/oc-terminal-list/actions/workflows/ghcr-publish.yml/badge.svg)](https://github.com/jshsakura/oc-terminal-list/actions/workflows/ghcr-publish.yml)
 [![GHCR Image](https://img.shields.io/badge/ghcr.io-jshsakura%2Foc--terminal--list-blue?logo=docker)](https://github.com/jshsakura/oc-terminal-list/pkgs/container/oc-terminal-list)
