@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { X, Folder, ArrowUp, ChevronRight, Home } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import SkeletonRow from './common/SkeletonRow';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -99,7 +100,17 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
         </div>
 
         <div style={styles.body}>
-          {loading && <div style={styles.notice}>{t?.('loading') || 'Loading…'}</div>}
+          {loading && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: `${space['2']} ${space['3']}` }}>
+              {[0, 1, 2, 3, 4, 5].map((i) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px' }}>
+                  <SkeletonRow width="14px" height="14px" borderRadius="3px" />
+                  <SkeletonRow width={`${55 + ((i * 9) % 25)}%`} height="13px" />
+                  <SkeletonRow width="12px" height="12px" borderRadius="2px" style={{ marginLeft: 'auto' }} />
+                </div>
+              ))}
+            </div>
+          )}
           {error && !loading && <div style={{ ...styles.notice, color: color.danger }}>{error}</div>}
           {!loading && !error && items.length === 0 && (
             <div style={styles.notice}>{t?.('emptyFolder') || 'No subfolders here.'}</div>
@@ -218,6 +229,7 @@ const styles = {
     flex: 1,
     overflow: 'auto',
     padding: `4px 0`,
+    minHeight: '160px',
   },
   notice: {
     padding: `${space['4']} ${space['4']}`,

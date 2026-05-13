@@ -241,6 +241,7 @@ const Pane = ({
   };
   const [hover, setHover] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [terminalReady, setTerminalReady] = useState(false);
 
   // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — RightPanel 등 팬 내부 UI 가 이 변수를 씀.
   // :root 는 건드리지 않으므로 좌측 레일·상단 헤더는 글로벌 테마 유지.
@@ -259,6 +260,22 @@ const Pane = ({
   const isEmpty = !pane.sessionId && !pane.hostId;
   const isLocal = !!pane.sessionId && !pane.hostId;
   const isPaneBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
+
+  useEffect(() => {
+    if (isEmpty) { setTerminalReady(false); return undefined; }
+    const key = pane.sessionId || pane.id;
+    const check = () => {
+      if (window.terminalSessions?.[key]) {
+        setTerminalReady(true);
+        return true;
+      }
+      return false;
+    };
+    if (check()) return undefined;
+    setTerminalReady(false);
+    const id = setInterval(() => { if (check()) clearInterval(id); }, 200);
+    return () => clearInterval(id);
+  }, [isEmpty, pane.sessionId, pane.id, refreshNonce]);
 
   // pane 마다 자기 cwd 추적
   const { workspaceRelative: paneCwdRel } = useActiveTerminalCwd({
@@ -438,6 +455,7 @@ const Pane = ({
           t={t}
           viewportHeight={viewportHeight}
           disabled={isEmpty}
+          loading={!isEmpty && !terminalReady}
           /* Terminal.jsx 가 등록한 sessionId 와 동일한 키 — local 은 sessionId, host 는 pane.id */
           terminalKey={pane.sessionId || pane.id}
           /* FileTree 시작 경로 — host 면 절대경로, local 이면 워크스페이스 상대경로.

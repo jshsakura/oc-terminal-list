@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef } from 'react';
 import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, Pencil, Link2, Check, Search, X } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
+import SkeletonRow from './common/SkeletonRow';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -251,7 +252,17 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
 
       <div style={styles.list}>
         {error && <div style={styles.notice}>{error}</div>}
-        {!error && items.length === 0 && (
+        {!error && loading && items.length === 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px 4px' }}>
+            {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '6px', height: '24px', paddingLeft: `${4 + (i > 3 ? 16 : 0)}px` }}>
+                {(i === 0 || i > 3) && <SkeletonRow width="13px" height="13px" borderRadius="2px" />}
+                <SkeletonRow width={`${50 + ((i * 11) % 30)}%`} height="12px" />
+              </div>
+            ))}
+          </div>
+        )}
+        {!error && !loading && items.length === 0 && (
           <div style={styles.notice}>
             <div style={styles.noticeTitle}>
               {repoBasename ? `${repoBasename}: ${t('noChanges') || 'No changes'}` : (t('noChanges') || 'No changes')}
@@ -374,6 +385,7 @@ const styles = {
     flex: 1,
     overflowY: 'auto',
     padding: `${space['1']} ${space['1']}`,
+    minHeight: '200px',
   },
   pathBar: {
     display: 'flex',

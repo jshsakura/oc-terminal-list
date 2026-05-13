@@ -8,6 +8,7 @@ import {
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
+import SkeletonRow from './common/SkeletonRow';
 
 const { color, font, fontSize, fontWeight, radius, space, motion, shadow: designShadow } = tokens;
 
@@ -145,6 +146,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     position: 'relative',
+    minHeight: '200px',
   },
   row: {
     display: 'flex',
@@ -806,7 +808,16 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
 
       <div style={styles.list} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
         {rootError && <div style={styles.errorBox}><div>Error: {rootError}</div><button onClick={() => fetchChildren('')} style={styles.retryBtn}>{t('retry')}</button></div>}
-        {rootLoading && !rootError && <div style={styles.statusBox}><RefreshCw size={14} className="spin" /><span>{t('loading')}</span></div>}
+        {rootLoading && !rootError && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px 4px' }}>
+            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '4px', height: `${ROW_HEIGHT}px`, paddingLeft: `${4 + (i > 3 ? 14 : 0)}px` }}>
+                {(i === 0 || i > 3) && <SkeletonRow width="13px" height="13px" borderRadius="2px" />}
+                <SkeletonRow width={`${55 + ((i * 7) % 30)}%`} height="13px" />
+              </div>
+            ))}
+          </div>
+        )}
         
         {creating && creating.parentPath === '' && (
           <div style={{ ...styles.row, background: color.crust }}>

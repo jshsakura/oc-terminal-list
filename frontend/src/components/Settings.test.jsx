@@ -89,6 +89,60 @@ describe('Settings', () => {
     }));
   });
 
+  it('hosts tab add-row has same height as tab buttons', () => {
+    const onAddHost = vi.fn();
+    render(
+      <Settings
+        isOpen={true}
+        onClose={vi.fn()}
+        settings={fullSettings}
+        onSave={vi.fn()}
+        hosts={[]}
+        onAddHost={onAddHost}
+      />
+    );
+
+    fireEvent.click(screen.getByText(/Hosts/i));
+
+    const tabBtns = screen.getAllByRole('button').filter(
+      (btn) => btn.textContent && (btn.textContent.match(/General|Mobile|Hosts|Keys/))
+    );
+    const addBtn = screen.getByText(/Add host/i).closest('button');
+
+    const tabHeight = tabBtns[0].style.height;
+    const addHeight = addBtn.style.height;
+
+    expect(addHeight).toBe(tabHeight);
+    expect(addHeight).toBe('30px');
+  });
+
+  it('keys tab add-row has same height as tab buttons', () => {
+    const onAddKey = vi.fn();
+    render(
+      <Settings
+        isOpen={true}
+        onClose={vi.fn()}
+        settings={fullSettings}
+        onSave={vi.fn()}
+        sshKeys={[]}
+        onAddKey={onAddKey}
+      />
+    );
+
+    fireEvent.click(screen.getByText(/Keys/i));
+
+    const tabBtns = screen.getAllByRole('button').filter(
+      (btn) => btn.textContent && (btn.textContent.match(/General|Mobile|Hosts|Keys/))
+    );
+    const addBtn = screen.getByText(/Add SSH key/i).closest('button');
+
+    const tabHeight = tabBtns[0].style.height;
+    const addHeight = addBtn.style.height;
+
+    expect(addHeight).toBe(tabHeight);
+    expect(addHeight).toBe('30px');
+  });
+
   it('resets mobile font size with the shared defaults', () => {
     const onSave = vi.fn();
     vi.stubGlobal('confirm', vi.fn(() => true));

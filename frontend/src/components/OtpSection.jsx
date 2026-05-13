@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { ShieldCheck, ShieldAlert, Copy, Check, RefreshCw } from 'lucide-react';
 import Button from './common/Button';
+import SkeletonRow from './common/SkeletonRow';
 import { tokens } from '../styles/tokens';
 
 const { color, fontSize, fontWeight, radius, space, font } = tokens;
@@ -134,7 +135,13 @@ const OtpSection = ({ t }) => {
     }
   };
 
-  if (loading) return <div style={styles.muted}>{t('loading') || 'Loading…'}</div>;
+  if (loading) return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: space['2'], padding: space['3'] }}>
+      <SkeletonRow width="40%" height="14px" />
+      <SkeletonRow width="100%" height="160px" borderRadius={radius.md} />
+      <SkeletonRow width="60%" height="12px" />
+    </div>
+  );
 
   // Backup codes one-time display takes priority over everything else
   if (backupCodes) {

@@ -24,11 +24,27 @@ const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
  * 위치 전략: App.jsx wrapper 의 flex flow 마지막 child. 키보드 올라오면
  * wrapper 가 줄고 toolbar 도 자연스럽게 따라 올라감.
  */
-const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en', keys = null }) => {
+const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en', keys = null, terminalSessionId = null }) => {
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
   const scrollRef = useRef(null);
+  const [terminalReady, setTerminalReady] = useState(false);
+
+  useEffect(() => {
+    if (!terminalSessionId) { setTerminalReady(false); return undefined; }
+    const check = () => {
+      if (window.terminalSessions?.[terminalSessionId]) {
+        setTerminalReady(true);
+        return true;
+      }
+      return false;
+    };
+    if (check()) return undefined;
+    setTerminalReady(false);
+    const id = setInterval(() => { if (check()) clearInterval(id); }, 200);
+    return () => clearInterval(id);
+  }, [terminalSessionId]);
 
   // CommandInput 은 App.jsx 에서 lazy() 로 분리돼 있다. 모바일 진입 시점에 미리 prefetch 해 둬야
   // 사용자가 cmdInput 버튼을 처음 누를 때 Suspense fallback (null) 으로 잠시 비었다가 mount 되는
@@ -181,7 +197,22 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
       <div style={styles.toolbar}>
         <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
           <div style={styles.row}>
-            {list.map(renderItem)}
+            {!terminalReady && terminalSessionId ? (
+              list.map((_, i) => (
+                <div key={i} style={{
+                  ...styles.key,
+                  background: color.surface0,
+                  borderRadius: radius.md,
+                  minWidth: '42px',
+                  height: '34px',
+                  animation: 'skel-pulse 1.4s ease-in-out infinite',
+                  animationDelay: `${i * 80}ms`,
+                  border: `1px solid ${color.border}`,
+                }} />
+              ))
+            ) : (
+              list.map(renderItem)
+            )}
           </div>
         </div>
       </div>

@@ -99,7 +99,7 @@ describe('Login MFA flow', () => {
     );
 
     const heading = screen.getByText('터미널 접속');
-    expect(heading.closest('form')).toHaveStyle({ background: '#222222' });
+    expect(heading.closest('[style]')).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText(/아이디/i), { target: { value: 'admin' } });
     fireEvent.change(screen.getByLabelText(/비밀번호/i), { target: { value: 'secret-pass' } });

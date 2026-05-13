@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Clock } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
+import SkeletonRow from './common/SkeletonRow';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -10,12 +11,12 @@ const authHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const formatRelative = (ts) => {
+const formatRelative = (ts, t) => {
   const ms = Date.now() - ts * 1000;
-  if (ms < 60_000) return `${Math.max(1, Math.floor(ms / 1000))}s ago`;
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
-  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
-  return `${Math.floor(ms / 86_400_000)}d ago`;
+  if (ms < 60_000) return (t('timeSecondsAgo') || '{n}s ago').replace('{n}', Math.max(1, Math.floor(ms / 1000)));
+  if (ms < 3_600_000) return (t('timeMinutesAgo') || '{n}m ago').replace('{n}', Math.floor(ms / 60_000));
+  if (ms < 86_400_000) return (t('timeHoursAgo') || '{n}h ago').replace('{n}', Math.floor(ms / 3_600_000));
+  return (t('timeDaysAgo') || '{n}d ago').replace('{n}', Math.floor(ms / 86_400_000));
 };
 
 /**
@@ -24,7 +25,8 @@ const formatRelative = (ts) => {
  * - 절대 경로 대신 워크스페이스 상대 경로 우선
  * - 같은 cwd 가 연속이면 백엔드에서 이미 ts 만 갱신해두므로 중복 표시 없음
  */
-const SessionActivity = ({ sessionId }) => {
+const SessionActivity = ({ sessionId, language = 'en' }) => {
+  const { t } = useTranslation(language);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -53,13 +55,22 @@ const SessionActivity = ({ sessionId }) => {
   }, [sessionId]);
 
   if (loading && items.length === 0) {
-    return <div style={styles.muted}>로딩 중…</div>;
+    return (
+      <div style={{ ...styles.list, background: color.crust, borderTop: `1px solid ${color.border}`, borderBottomLeftRadius: radius.md, borderBottomRightRadius: radius.md }}>
+        {[0, 1, 2].map((i) => (
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: space['1.5'], minHeight: '18px' }}>
+            <SkeletonRow width="54px" height="10px" />
+            <SkeletonRow width={`${50 + ((i * 15) % 30)}%`} height="10px" />
+          </div>
+        ))}
+      </div>
+    );
   }
   if (error) {
     return <div style={styles.muted}>{error}</div>;
   }
   if (items.length === 0) {
-    return <div style={styles.muted}>아직 활동 기록 없음</div>;
+    return <div style={styles.muted}>{t('activityEmpty')}</div>;
   }
 
   return (
@@ -67,7 +78,7 @@ const SessionActivity = ({ sessionId }) => {
       {items.map((it, idx) => (
         <div key={`${it.ts}-${idx}`} style={styles.row}>
           <Clock size={9} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
-          <span style={styles.time}>{formatRelative(it.ts)}</span>
+          <span style={styles.time}>{formatRelative(it.ts, t)}</span>
           <span style={styles.path} title={it.cwd}>
             {it.workspace_relative === '' ? '~/' : (it.workspace_relative ?? it.cwd)}
           </span>

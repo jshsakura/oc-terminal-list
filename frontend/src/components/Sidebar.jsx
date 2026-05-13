@@ -321,7 +321,7 @@ const Sidebar = ({
                       </div>
 
                       {isExpanded && !isHostTab && (
-                        <SessionActivity sessionId={session.id} />
+                        <SessionActivity sessionId={session.id} language={language} />
                       )}
                     </div>
                   );

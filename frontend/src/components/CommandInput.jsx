@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Lightbulb } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 
@@ -143,13 +143,15 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   // 키보드가 올라오면 vv.height 가 줄고 vv.offsetTop 이 양수가 될 수 있다.
   // 모달은 가시 영역 *하단* (키보드 suggestion bar 바로 위) 에 붙임 — 사용자 의도는
   // "단축키 바 위에 떠있는 입력 도크" 라 상단에 띄우면 어색하다.
+  const keyboardUp = vv.height < window.innerHeight - 60;
+
   const overlayStyle = {
     ...styles.overlay,
     top: `${vv.offsetTop}px`,
     height: `${vv.height}px`,
-    alignItems: 'flex-end',
+    alignItems: keyboardUp ? 'flex-end' : 'center',
     paddingTop: `${MOBILE_TOP_GAP}px`,
-    paddingBottom: `${MOBILE_BOTTOM_GAP}px`,
+    paddingBottom: keyboardUp ? `${MOBILE_BOTTOM_GAP}px` : '0',
     touchAction: 'none',
   };
   const modalStyle = {
@@ -175,11 +177,13 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
         onTouchMove={(e) => e.stopPropagation()}
       >
         <header style={styles.header}>
-          <div style={{ ...styles.title, display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <Send size={12} strokeWidth={1.8} style={{ flexShrink: 0 }} />
+          <div style={styles.title}>
+            <Send size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
             {t?.('commandInput') || 'Send command'}
           </div>
-          <button onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
+          <button onClick={onClose} style={styles.closeBtn}>
+            <X size={14} strokeWidth={2} />
+          </button>
         </header>
 
         <div style={styles.body}>
@@ -194,7 +198,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
             autoFocus
           />
           <div style={styles.hint}>
-            {t?.('commandInputHint') || 'Ctrl+Enter to send · ESC to close'}
+            <Lightbulb size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+            <span>{t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}</span>
           </div>
         </div>
 
@@ -265,21 +270,23 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: `${space['1.5']} ${space['3']}`,
+    padding: `${space['2']} ${space['3']}`,
     borderBottom: `1px solid ${color.border}`,
+    background: color.mantle,
   },
-  title: { fontSize: fontSize['12'], fontWeight: fontWeight.semibold, color: color.text },
+  title: { fontSize: fontSize['12'], fontWeight: fontWeight.semibold, color: color.text, display: 'flex', alignItems: 'center', gap: '6px' },
   closeBtn: {
-    width: '20px',
-    height: '20px',
+    width: '28px',
+    height: '28px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'transparent',
-    color: color.muted,
-    border: 'none',
-    borderRadius: radius.xs,
+    background: color.surface0,
+    color: color.subtext,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
     cursor: 'pointer',
+    transition: `background ${motion.fast}, color ${motion.fast}`,
   },
   body: {
     flex: 1,
@@ -306,9 +313,12 @@ const styles = {
     transition: `border-color ${motion.fast}`,
   },
   hint: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '4px',
     fontSize: fontSize['11'],
     color: color.muted,
-    textAlign: 'center',
   },
   footer: {
     display: 'flex',

@@ -8,6 +8,7 @@ import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
 import FileTree from './FileTree';
+import SkeletonRow from './common/SkeletonRow';
 import ChangesList from './ChangesList';
 import ThemePicker from './common/ThemePicker';
 import useGitChanges from '../hooks/useGitChanges';
@@ -50,6 +51,7 @@ const RightPanel = ({
   t,
   viewportHeight,
   disabled = false,  // 빈 pane 일 때 활동바만 표시 / 클릭 무효
+  loading = false,   // 터미널 연결 중 — 레일 아이콘 스켈레톤
   terminalKey = null, // window.terminalSessions[key] lookup — 페이지 업/다운 송신용
   paneCwd = null,     // 호스트 모드 FileTree 시작 경로 (없으면 host.start_path)
   onScreenDump = null, // 텍스트 덤프 모달 열기 콜백 (App.jsx 가 처리)
@@ -72,23 +74,53 @@ const RightPanel = ({
     const text = sess?.getBufferText?.(true) || '';
     onScreenDump?.(text);
   }, [terminalKey, onScreenDump]);
-  const [activePanel, setActivePanel] = useState(null); // null | 'files' | 'git' | 'theme'
+  const [activePanel, setActivePanel] = useState(null);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
   const panelRef = useRef(null);
-  // 패널 열릴 때 자동 포커스 → ESC 한 방으로 닫기 가능. 사용자가 패널 안 입력 (검색 등) 으로
-  // 옮겨가면 그 요소에 포커스 위임되고, 빈 영역 클릭하면 다시 컨테이너로 돌아감.
+  const closedAtRef = useRef(0);
+
+  const closePanel = useCallback(() => {
+    setActivePanel(null);
+    closedAtRef.current = Date.now();
+  }, []);
+
   useEffect(() => {
     if (activePanel && panelRef.current) panelRef.current.focus();
   }, [activePanel]);
-  const onPanelKeyDown = (e) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      setActivePanel(null);
-    }
-  };
+
+  useEffect(() => {
+    if (!activePanel) return;
+    const id = setTimeout(() => {
+      const handleKeyDown = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          closePanel();
+        }
+      };
+      const handleMouseDown = (e) => {
+        if (panelRef.current && !panelRef.current.contains(e.target)) {
+          closePanel();
+        }
+      };
+      document.addEventListener('keydown', handleKeyDown);
+      document.addEventListener('mousedown', handleMouseDown);
+      return () => {
+        document.removeEventListener('keydown', handleKeyDown);
+        document.removeEventListener('mousedown', handleMouseDown);
+      };
+    }, 0);
+    return () => clearTimeout(id);
+  }, [activePanel, closePanel]);
+
+  const togglePanel = useCallback((id) => {
+    const now = Date.now();
+    if (now - closedAtRef.current < 300) return;
+    setActivePanel((prev) => (prev === id ? null : id));
+  }, []);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
@@ -124,10 +156,6 @@ const RightPanel = ({
   const { items: gitItems } = gitChanges;
   const gitCount = gitContextPath ? (gitItems || []).length : 0;
 
-  const togglePanel = (id) => {
-    setActivePanel((prev) => (prev === id ? null : id));
-  };
-
   return (
     <div style={{ ...styles.root, borderLeftColor: panelUi.border }}>
       {/* 사이드바 내부 스크롤바 — 현재 pane 의 테마(panelUi) 색으로 직접 박음.
@@ -159,7 +187,6 @@ const RightPanel = ({
         <div
           ref={panelRef}
           tabIndex={-1}
-          onKeyDown={onPanelKeyDown}
           style={{
             ...styles.panel,
             background: `color-mix(in srgb, ${panelUi.base} 85%, transparent)`,
@@ -194,7 +221,7 @@ const RightPanel = ({
             </span>
             <button
               style={styles.closeBtn}
-              onClick={() => setActivePanel(null)}
+              onClick={closePanel}
               onMouseEnter={(e) => { e.currentTarget.style.background = panelUi.surface1; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
@@ -280,42 +307,69 @@ const RightPanel = ({
           />
         )}
 
-        {/* 주 네비 + 보조 액션 — 빈 pane 일 땐 흐리게 + 클릭 무시. */}
+        {/* 주 네비 + 보조 액션 — 빈 pane 일 땐 흐리게 + 클릭 무시. 로딩 중엔 스켈레톤. */}
         <div style={{
           alignSelf: 'stretch',
           display: 'flex', flexDirection: 'column', alignItems: 'center',
           gap: '6px',
           opacity: disabled ? 0.4 : 1,
-          pointerEvents: disabled ? 'none' : 'auto',
+          pointerEvents: (disabled || loading) ? 'none' : 'auto',
         }}>
-          {TABS.map(({ id, icon: Icon, label }) => {
-            const isActive = activePanel === id;
-            const badge = id === 'git' && gitCount > 0 ? gitCount : null;
-            return (
-              <RailIconBtn
-                key={id}
-                icon={Icon}
-                onClick={() => !disabled && togglePanel(id)}
-                title={badge ? `${label} (${badge})` : label}
-                active={isActive}
-                disabled={disabled}
-                badge={badge}
-                ui={panelUi}
-                compact
-              />
-            );
-          })}
-
-          {!disabled && terminalKey && (
+          {loading ? (
             <>
-              <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} ui={panelUi} compact />
-              <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} ui={panelUi} compact />
-              <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} ui={panelUi} compact />
+              {TABS.map((_, i) => (
+                <div key={i} style={{
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: radius.md,
+                  background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
+                  animation: 'skel-pulse 1.4s ease-in-out infinite',
+                  animationDelay: `${i * 100}ms`,
+                }} />
+              ))}
+              {[0, 1, 2].map((i) => (
+                <div key={`s${i}`} style={{
+                  width: '26px',
+                  height: '26px',
+                  borderRadius: radius.md,
+                  background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
+                  animation: 'skel-pulse 1.4s ease-in-out infinite',
+                  animationDelay: `${(TABS.length + i) * 100}ms`,
+                }} />
+              ))}
             </>
-          )}
+          ) : (
+            <>
+              {TABS.map(({ id, icon: Icon, label }) => {
+                const isActive = activePanel === id;
+                const badge = id === 'git' && gitCount > 0 ? gitCount : null;
+                return (
+                  <RailIconBtn
+                    key={id}
+                    icon={Icon}
+                    onClick={() => !disabled && togglePanel(id)}
+                    title={badge ? `${label} (${badge})` : label}
+                    active={isActive}
+                    disabled={disabled}
+                    badge={badge}
+                    ui={panelUi}
+                    compact
+                  />
+                );
+              })}
 
-          {onRefreshTerminal && !disabled && (
-            <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} ui={panelUi} compact />
+              {!disabled && terminalKey && (
+                <>
+                  <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} ui={panelUi} compact />
+                  <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} ui={panelUi} compact />
+                  <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} ui={panelUi} compact />
+                </>
+              )}
+
+              {onRefreshTerminal && !disabled && (
+                <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} ui={panelUi} compact />
+              )}
+            </>
           )}
         </div>
 
@@ -676,37 +730,53 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
         icon={Info}
         subtitle={stats?.hostname ? `${stats.hostname}` : null}
       >
-        <StatBar
-          label="CPU"
-          percent={stats?.cpu ?? 0}
-          right={stats?.cpu_count ? `${(stats?.cpu ?? 0).toFixed(1)}% · ${stats.cpu_count} cores` : `${(stats?.cpu ?? 0).toFixed(1)}%`}
-        />
-        <StatBar
-          label="RAM"
-          percent={stats?.ram ?? 0}
-          right={stats?.mem_total
-            ? `${formatBytes(stats.mem_used)} / ${formatBytes(stats.mem_total)}`
-            : `${(stats?.ram ?? 0).toFixed(1)}%`}
-        />
-        <StatBar
-          label="Disk"
-          percent={stats?.disk ?? 0}
-          right={stats?.disk_total
-            ? `${formatBytes(stats.disk_used)} / ${formatBytes(stats.disk_total)}`
-            : `${(stats?.disk ?? 0).toFixed(1)}%`}
-        />
-        {Array.isArray(stats?.load_avg) && stats.load_avg.length === 3 && (
-          <InfoRow
-            label="Load"
-            value={stats.load_avg.map((x) => x.toFixed(2)).join(' · ')}
-          />
-        )}
-        {stats?.uptime != null && (
-          <InfoRow
-            label={t?.('infoUptime') || 'Uptime'}
-            value={formatUptime(stats.uptime)}
-            mono={false}
-          />
+        {!stats ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <SkeletonRow width="32px" height="10px" />
+                  <SkeletonRow width="60px" height="10px" />
+                </div>
+                <SkeletonRow width="100%" height="6px" borderRadius="3px" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <>
+            <StatBar
+              label="CPU"
+              percent={stats.cpu ?? 0}
+              right={stats.cpu_count ? `${(stats.cpu ?? 0).toFixed(1)}% · ${stats.cpu_count} cores` : `${(stats.cpu ?? 0).toFixed(1)}%`}
+            />
+            <StatBar
+              label="RAM"
+              percent={stats.ram ?? 0}
+              right={stats.mem_total
+                ? `${formatBytes(stats.mem_used)} / ${formatBytes(stats.mem_total)}`
+                : `${(stats.ram ?? 0).toFixed(1)}%`}
+            />
+            <StatBar
+              label="Disk"
+              percent={stats.disk ?? 0}
+              right={stats.disk_total
+                ? `${formatBytes(stats.disk_used)} / ${formatBytes(stats.disk_total)}`
+                : `${(stats.disk ?? 0).toFixed(1)}%`}
+            />
+            {Array.isArray(stats.load_avg) && stats.load_avg.length === 3 && (
+              <InfoRow
+                label="Load"
+                value={stats.load_avg.map((x) => x.toFixed(2)).join(' · ')}
+              />
+            )}
+            {stats.uptime != null && (
+              <InfoRow
+                label={t?.('infoUptime') || 'Uptime'}
+                value={formatUptime(stats.uptime)}
+                mono={false}
+              />
+            )}
+          </>
         )}
       </InfoSection>
 
@@ -827,6 +897,7 @@ const StatBar = ({ label, percent = 0, right = '' }) => {
           width: `${safe}%`,
           background: tone,
           boxShadow: `0 0 12px ${tone}55`,
+          transition: 'width 0.6s cubic-bezier(0.16, 1, 0.3, 1)',
         }} />
       </div>
     </div>

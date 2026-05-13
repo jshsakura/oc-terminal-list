@@ -3,6 +3,7 @@ import { X, Trash2, Network, ChevronDown, FolderOpen, Globe, Terminal as Termina
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
+import SkeletonRow from './common/SkeletonRow';
 import IconPickerPopup from './IconPickerPopup';
 import ThemePicker from './common/ThemePicker';
 import RemoteFolderPicker from './RemoteFolderPicker';
@@ -366,6 +367,16 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                         </span>
                       )}
                     </div>
+                    {sessions.open && sessions.loading && sessions.items.length === 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: `${space['2']} 0` }}>
+                        {[0, 1, 2].map((i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: space['2'], padding: `${space['1.5']} ${space['2']}` }}>
+                            <SkeletonRow width="8px" height="8px" borderRadius="50%" />
+                            <SkeletonRow width={`${55 + ((i * 13) % 25)}%`} height="13px" />
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {sessions.open && sessions.error && (
                       <div style={{ fontSize: fontSize['11'], color: color.danger }}>{sessions.error}</div>
                     )}
@@ -675,8 +686,16 @@ const TailscalePicker = ({ data, onPick, onClose, t }) => {
             {t?.('tailscaleUnavailable') || 'Tailscale not available on the server.'}
           </div>
         ) : data.loading ? (
-          <div style={{ padding: '12px', fontSize: fontSize['12'], color: color.subtext, textAlign: 'center' }}>
-            {t?.('loading') || 'Loading…'}
+          <div style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '6px 0' }}>
+                <SkeletonRow width="8px" height="8px" borderRadius="50%" />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  <SkeletonRow width={`${55 + ((i * 11) % 25)}%`} height="12px" />
+                  <SkeletonRow width="40%" height="10px" />
+                </div>
+              </div>
+            ))}
           </div>
         ) : data.peers.length === 0 ? (
           <div style={{ padding: '12px', fontSize: fontSize['12'], color: color.subtext, textAlign: 'center' }}>

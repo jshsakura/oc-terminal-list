@@ -1637,6 +1637,7 @@ function App() {
             }}
             language={settings.language}
             keys={settings.mobileKeys}
+            terminalSessionId={terminalKey}
           />
         </Suspense></LazyErrorBoundary>
       )}

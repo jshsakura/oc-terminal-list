@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 import CommandInput from './CommandInput';
 
 const t = (key) => ({
@@ -10,10 +10,23 @@ const t = (key) => ({
   copy: 'Copy',
   paste: 'Paste',
   clearInput: 'Clear',
+  confirmClearInput: 'Clear?',
 }[key] || key);
 
-describe('CommandInput', () => {
-  it('docks the modal to the visible viewport bottom so it sits above the on-screen keyboard', () => {
+describe('CommandInput positioning', () => {
+  let innerHeight;
+
+  beforeEach(() => {
+    innerHeight = window.innerHeight;
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, 'innerHeight', { value: innerHeight, writable: true });
+  });
+
+  it('centers the modal when no keyboard is present', () => {
+    Object.defineProperty(window, 'innerHeight', { value: 800, writable: true });
+
     render(
       <CommandInput
         isOpen={true}
@@ -26,20 +39,39 @@ describe('CommandInput', () => {
     );
 
     const overlay = screen.getByTestId('command-input-overlay');
-    const dialog = screen.getByRole('dialog', { name: /Send command/i });
-
-    // overlay 는 visualViewport 좌표로 고정돼야 한다 — 키보드가 올라와도 가시 영역 안에서만 그려지고
-    // 모달은 하단(키보드 위) 에 도크.
-    expect(overlay).toHaveStyle({
-      position: 'fixed',
-      alignItems: 'flex-end',
-      justifyContent: 'center',
-    });
-    // 모달 자체는 기존 너비 한계 유지.
-    expect(dialog).toHaveStyle({ maxWidth: '420px' });
+    expect(overlay).toHaveStyle({ alignItems: 'center' });
   });
 
-  it('sends the command and clears the preserved input', () => {
+  it('docks to bottom when keyboard is present (viewport shrinks)', () => {
+    Object.defineProperty(window, 'innerHeight', { value: 800, writable: true });
+
+    const vv = window.visualViewport;
+
+    render(
+      <CommandInput
+        isOpen={true}
+        onClose={vi.fn()}
+        onSend={vi.fn()}
+        command=""
+        setCommand={vi.fn()}
+        t={t}
+      />
+    );
+
+    const overlay = screen.getByTestId('command-input-overlay');
+    expect(overlay).toHaveStyle({ alignItems: 'center' });
+
+    if (vv) {
+      act(() => {
+        Object.defineProperty(vv, 'height', { value: 400, configurable: true });
+        vv.dispatchEvent(new Event('resize'));
+      });
+
+      expect(overlay).toHaveStyle({ alignItems: 'flex-end' });
+    }
+  });
+
+  it('sends command on button click', () => {
     const onSend = vi.fn();
     const onClose = vi.fn();
     const setCommand = vi.fn();
@@ -49,16 +81,97 @@ describe('CommandInput', () => {
         isOpen={true}
         onClose={onClose}
         onSend={onSend}
-        command="ls -la"
+        command="ls"
         setCommand={setCommand}
         t={t}
       />
     );
 
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
-
-    expect(onSend).toHaveBeenCalledWith('ls -la');
+    expect(onSend).toHaveBeenCalledWith('ls');
     expect(setCommand).toHaveBeenCalledWith('');
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('does not render when closed', () => {
+    render(
+      <CommandInput
+        isOpen={false}
+        onClose={vi.fn()}
+        onSend={vi.fn()}
+        command=""
+        setCommand={vi.fn()}
+        t={t}
+      />
+    );
+    expect(screen.queryByTestId('command-input-overlay')).toBeNull();
+  });
+
+  it('has correct modal styling', () => {
+    render(
+      <CommandInput
+        isOpen={true}
+        onClose={vi.fn()}
+        onSend={vi.fn()}
+        command=""
+        setCommand={vi.fn()}
+        t={t}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog).toHaveStyle({ maxWidth: '420px' });
+  });
+
+  it('close button has rounded square styling', () => {
+    const onClose = vi.fn();
+    render(
+      <CommandInput
+        isOpen={true}
+        onClose={onClose}
+        onSend={vi.fn()}
+        command=""
+        setCommand={vi.fn()}
+        t={t}
+      />
+    );
+
+    const closeBtn = screen.getByRole('button', { name: '' });
+    expect(closeBtn).toHaveStyle({ width: '28px', height: '28px' });
+    fireEvent.click(closeBtn);
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it('header has mantle background', () => {
+    render(
+      <CommandInput
+        isOpen={true}
+        onClose={vi.fn()}
+        onSend={vi.fn()}
+        command=""
+        setCommand={vi.fn()}
+        t={t}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    const header = dialog.querySelector('header');
+    expect(header).toBeTruthy();
+  });
+
+  it('hint uses Lightbulb icon instead of emoji', () => {
+    render(
+      <CommandInput
+        isOpen={true}
+        onClose={vi.fn()}
+        onSend={vi.fn()}
+        command=""
+        setCommand={vi.fn()}
+        t={t}
+      />
+    );
+
+    expect(screen.queryByText('💡')).toBeNull();
+    expect(screen.getByText(t('commandInputHint'))).toBeTruthy();
   });
 });

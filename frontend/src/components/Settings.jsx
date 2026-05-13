@@ -670,7 +670,7 @@ const styles = {
     justifyContent: 'center',
     gap: '6px',
     width: '100%',
-    height: '34px',
+    height: '30px',
     background: 'transparent',
     border: `1px dashed ${color.border}`,
     borderRadius: radius.sm,
