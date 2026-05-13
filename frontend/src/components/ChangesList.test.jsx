@@ -40,4 +40,12 @@ describe('ChangesList skeleton loading', () => {
     const list = container.querySelector('[style*="min-height"]');
     expect(list).toBeTruthy();
   });
+
+  it('treats empty string gitContextPath as valid (not "no active terminal")', () => {
+    const { container } = render(
+      <ChangesList t={mockT} gitContextPath="" sharedGitChanges={{ items: [], branch: '', repo: null, repos: [], error: null, refresh: () => {}, loading: false }} />
+    );
+    // With empty string path, should show "no git here" not "no active terminal"
+    expect(container.textContent).not.toContain('noActiveTerminal');
+  });
 });

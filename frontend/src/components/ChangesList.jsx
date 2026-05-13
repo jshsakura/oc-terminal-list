@@ -62,7 +62,7 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
   const effectivePath = overridePath != null ? overridePath : gitContextPath;
   const isFollowing = overridePath == null;
 
-  const canUseSharedGitChanges = !!sharedGitChanges && !!gitContextPath && isFollowing;
+  const canUseSharedGitChanges = !!sharedGitChanges && gitContextPath != null && isFollowing;
   const localGitChanges = useGitChanges({
     enabled: !canUseSharedGitChanges,
     path: effectivePath,
@@ -159,7 +159,7 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
             </>
           ) : (
             <span style={styles.branchName}>
-              {effectivePath ? (t('noGitHere') || 'no git here') : (t('noActiveTerminal') || 'no active terminal')}
+              {effectivePath != null ? (t('noGitHere') || 'no git here') : (t('noActiveTerminal') || 'no active terminal')}
             </span>
           )}
           {items.length > 0 && <span style={styles.countBadge}>{items.length}</span>}

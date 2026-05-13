@@ -149,12 +149,12 @@ const RightPanel = ({
 
   // Git 변경 카운트 — 활동 바 뱃지에 표시. 경로 없으면 fetch 안 함 (전체 워크스페이스 집계 X).
   const gitChanges = useGitChanges({
-    enabled: !!gitContextPath && activeTabType === 'local',
+    enabled: gitContextPath != null && activeTabType === 'local',
     path: gitContextPath,
     intervalMs: 4000,
   });
   const { items: gitItems } = gitChanges;
-  const gitCount = gitContextPath ? (gitItems || []).length : 0;
+  const gitCount = gitContextPath != null ? (gitItems || []).length : 0;
 
   return (
     <div style={{ ...styles.root, borderLeftColor: panelUi.border }}>
@@ -606,7 +606,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
       <style>{`.iterm-info-section + .iterm-info-section { border-top: 1px solid var(--ui-border, ${infoUi?.border || color.border}); }`}</style>
       {/* 세션 */}
       <InfoSection title={t?.('infoSession') || 'Session'} icon={TerminalIcon}>
-        <InfoRow label={t?.('infoTabName') || 'Tab'} value={info?.tabName || '—'} mono={false} />
+        <InfoRow label={t?.('infoTabName') || 'Tab'} value={info?.paneName || info?.tabName || '—'} mono={false} />
         <InfoRow
           label={t?.('infoMode') || 'Mode'}
           value={isHost ? (t?.('infoModeRemote') || 'SSH (remote)') : (t?.('infoModeLocal') || 'Local')}

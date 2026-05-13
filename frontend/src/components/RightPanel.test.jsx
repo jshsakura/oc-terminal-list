@@ -74,4 +74,87 @@ describe('RightPanel', () => {
                 container.querySelector('[style*="pointerEvents: none"]');
     expect(nav).toBeTruthy();
   });
+
+  describe('Info panel — pane identity and cwd', () => {
+    const openInfoPanel = (paneInfoOverrides = {}) => {
+      const props = baseProps({
+        activeTabType: 'local',
+        gitContextPath: '',
+        paneInfo: {
+          tabName: 'My Tab',
+          tabType: 'local',
+          sessionId: 'sess-1',
+          paneId: 'pane-1',
+          paneIndex: 0,
+          paneCount: 1,
+          isPersistent: true,
+          host: null,
+          paneName: null,
+          cwd: '',
+          cwdAbsolute: '/home/user/workspace',
+          paneCwdRel: '',
+          ...paneInfoOverrides,
+        },
+      });
+      const result = render(<RightPanel {...props} />);
+      // Click the Info tab to open the info panel
+      const infoBtn = result.container.querySelector('[title="Info"]');
+      if (infoBtn) fireEvent.click(infoBtn);
+      return result;
+    };
+
+    it('shows paneName in Tab row when paneInfo.paneName is set', async () => {
+      const { findByText } = openInfoPanel({ paneName: 'my-pane' });
+      expect(await findByText('my-pane')).toBeTruthy();
+    });
+
+    it('falls back to tabName when paneName is null', async () => {
+      const { findByText } = openInfoPanel({ paneName: null });
+      expect(await findByText('My Tab')).toBeTruthy();
+    });
+
+    it('shows workspace root cwd (empty string) as ~/', async () => {
+      const { findByText } = openInfoPanel({ cwd: '', paneCwdRel: '' });
+      // cwdDisplay for empty paneCwdRel should be '~/' (~/ + '' = ~/)
+      expect(await findByText('~/')).toBeTruthy();
+    });
+
+    it('shows workspace-relative cwd when non-empty', async () => {
+      const { findByText } = openInfoPanel({ cwd: 'src/app', paneCwdRel: 'src/app' });
+      expect(await findByText('src/app')).toBeTruthy();
+    });
+  });
+
+  describe('Git context — empty string path (workspace root)', () => {
+    it('enables git changes polling for gitContextPath="" (workspace root)', () => {
+      // Should NOT crash or skip rendering — empty string is a valid path
+      const { container } = render(
+        <RightPanel
+          {...baseProps({
+            activeTabType: 'local',
+            gitContextPath: '',
+          })}
+        />
+      );
+      expect(container.firstChild).toBeTruthy();
+      // The git icon button should exist and be clickable
+      const gitBtn = container.querySelector('[title="Git"]') ||
+                     container.querySelector('[title="Git (0)"]');
+      expect(gitBtn).toBeTruthy();
+    });
+
+    it('shows git badge count 0 for empty path (not disabled)', () => {
+      const { container } = render(
+        <RightPanel
+          {...baseProps({
+            activeTabType: 'local',
+            gitContextPath: '',
+          })}
+        />
+      );
+      // Badge should not show when count is 0, but git button must exist
+      const gitBtn = container.querySelector('[title="Git"]');
+      expect(gitBtn).toBeTruthy();
+    });
+  });
 });

@@ -432,7 +432,8 @@ const Pane = ({
               ? !!(hosts.find((h) => h.id === pane.hostId)?.use_remote_tmux) || !!pane.tmuxSessionName
               : true,
             host: pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null,
-            cwd: isLocal ? null : (pane.cwd ?? cwd ?? null),
+            paneName: pane.name || null,
+            cwd: isLocal ? (paneCwdRel ?? '') : (pane.cwd ?? cwd ?? null),
             cwdAbsolute: isLocal ? (paneCwdAbs || null) : null,
             paneCwdRel: paneCwdRel ?? null,
             /* takeover 모델 알림용 — PC ↔ 모바일 동시 attach 안 되는 정책을 Info 패널에서도 안내. */
