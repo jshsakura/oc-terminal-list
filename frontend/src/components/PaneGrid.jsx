@@ -2,7 +2,8 @@ import { Suspense, lazy, useState, useEffect, useRef, useMemo, useCallback, forw
 import { createPortal } from 'react-dom';
 import {
   X, Plus, Server, Terminal as TerminalIcon, Monitor, Copy, Plug, History, ArrowRightLeft, Settings as SettingsIcon,
-  MoreHorizontal, Edit3, Trash2, ChevronLeft, ChevronRight, GripVertical,
+  Edit3, Trash2, ChevronLeft, ChevronRight, GripVertical,
+  SquareSplitHorizontal, SquareSplitVertical,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -45,6 +46,7 @@ const PaneGrid = ({
   onReorderPane,      // (tabId, fromPaneId, toPaneId) → 분할 pane 순서 변경 (subTabs 컨텍스트 메뉴)
   onPaneCwdChange,    // (paneId, workspaceRel, isLocal) → 부모로 cwd 변화 보고 (자동 탭명 등)
   onPaneThemeChange,  // (paneId, themeId|null) → pane 별 테마 오버라이드 설정/해제
+  onSplitPane,        // (tabId, paneId, dir) → pane rail 의 split 버튼에서 호출
   layoutSignal,
   settings,
   updateSettings,
@@ -95,6 +97,7 @@ const PaneGrid = ({
           onClose={(paneId) => onClosePane?.(tab.id, paneId)}
           onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}
           onRenamePane={onRenamePane ? (paneId) => onRenamePane(tab.id, paneId) : null}
+          onSplitPane={onSplitPane ? (paneId, dir) => onSplitPane(tab.id, paneId, dir) : null}
           isMobile={isMobile}
           t={t}
         />
@@ -146,18 +149,121 @@ const PaneGrid = ({
                 ? () => onExtractPaneToTab(tab.id, activePane.id)
                 : null
             }
+            onSplitPane={onSplitPane ? (dir) => onSplitPane(tab.id, activePane.id, dir) : null}
+            onReorderPane={onReorderPane}
           />
         </div>
       </div>
     );
   }
 
+  // ── recursive split tree rendering ──────────────────────────────────────────
+  // If tab has a splitTree, render recursively. Otherwise fall back to legacy grid.
+  const splitTree = tab.splitTree;
+
+  if (splitTree) {
+    // Build a paneId→pane lookup for quick access
+    const paneMap = new Map(panes.map((p) => [p.id, p]));
+
+    // Recursive renderer — returns a React element for the subtree
+    const renderNode = (node) => {
+      if (node.type === 'pane') {
+        const pane = paneMap.get(node.paneId);
+        if (!pane) return null;
+        return (
+          <Pane
+            key={pane.id}
+            pane={pane}
+            paneIndex={panes.indexOf(pane)}
+            tab={tab}
+            hosts={hosts}
+            isMobile={isMobile}
+            isFocused={pane.id === tab.activePaneId}
+            isMultiple={panes.length > 1}
+            onFocus={() => onFocusPane?.(tab.id, pane.id)}
+            onClose={() => onClosePane?.(tab.id, pane.id)}
+            onActivate={(target) => onActivatePane?.(tab.id, pane.id, target)}
+            isActive={isActive}
+            layoutSignal={layoutSignal}
+            settings={settings}
+            updateSettings={updateSettings}
+            onPaneThemeChange={onPaneThemeChange}
+            cwd={cwd}
+            onFileSelect={onFileSelect}
+            onFolderSelect={onFolderSelect}
+            allTabs={allTabs}
+            onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+            onPaneCwdChange={onPaneCwdChange}
+            onScreenDump={onScreenDump}
+            onConfirm={onConfirm}
+            onNotify={onNotify}
+            onResumeHostSession={onResumeHostSession}
+            onTerminateHostSession={onTerminateHostSession}
+            busyTabIds={busyTabIds}
+            busyPaneIds={busyPaneIds}
+            onPickHostPath={onPickHostPath}
+            onPickLocalPath={onPickLocalPath}
+            onEditHost={onEditHost}
+            onEditLocal={onEditLocal}
+            refreshHosts={refreshHosts}
+            language={language}
+            t={t}
+            viewportHeight={viewportHeight}
+            onExtractPane={
+              panes.length > 1 && onExtractPaneToTab && (pane.sessionId || pane.hostId)
+                ? () => onExtractPaneToTab(tab.id, pane.id)
+                : null
+            }
+            onSplitPane={onSplitPane ? (dir) => onSplitPane(tab.id, pane.id, dir) : null}
+            onReorderPane={onReorderPane}
+          />
+        );
+      }
+
+      // split node
+      const { direction, children } = node;
+      return (
+        <div style={{
+          display: 'flex',
+          flexDirection: direction === 'column' ? 'column' : 'row',
+          width: '100%',
+          height: '100%',
+          minWidth: 0,
+          minHeight: 0,
+        }}>
+          {children.map((child, i) => (
+            <div
+              key={i}
+              style={{
+                flex: '1 1 0',
+                minWidth: 0,
+                minHeight: 0,
+                boxSizing: 'border-box',
+                // border separators between siblings
+                ...(direction === 'row' && i < children.length - 1
+                  ? { borderRight: `1px solid var(--ui-border, ${tokens.color.border})` }
+                  : {}),
+                ...(direction === 'column' && i < children.length - 1
+                  ? { borderBottom: `1px solid var(--ui-border, ${tokens.color.border})` }
+                  : {}),
+                overflow: 'hidden',
+              }}
+            >
+              {renderNode(child)}
+            </div>
+          ))}
+        </div>
+      );
+    };
+
+    return <div style={{ width: '100%', height: '100%', minHeight: 0, minWidth: 0 }}>{renderNode(splitTree)}</div>;
+  }
+
+  // ── legacy grid fallback (no splitTree) ─────────────────────────────────────
   const gridStyle = {
     display: 'grid',
     width: '100%',
     height: '100%',
-    // gap 제거 — 기존 2px 회색 띠가 pane border 와 어긋나서 "안쪽" 느낌 만들었음.
-    // 이제 pane 자체 border 가 분할선 역할 (포커스 시 accent, 평소엔 subtle gray).
     gap: 0,
     ...(layout === 'h' && { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr' }),
     ...(layout === 'v' && { gridTemplateColumns: '1fr', gridTemplateRows: '1fr 1fr' }),
@@ -172,6 +278,7 @@ const PaneGrid = ({
           key={pane.id}
           pane={pane}
           paneIndex={idx}
+          hasBottomBorder={layout === 'v' ? idx === 0 : layout === '2x2' ? idx < 2 : false}
           tab={tab}
           hosts={hosts}
           isMobile={isMobile}
@@ -212,6 +319,8 @@ const PaneGrid = ({
               ? () => onExtractPaneToTab(tab.id, pane.id)
               : null
           }
+          onSplitPane={onSplitPane ? (dir) => onSplitPane(tab.id, pane.id, dir) : null}
+          onReorderPane={onReorderPane}
         />
       ))}
     </div>
@@ -219,13 +328,15 @@ const PaneGrid = ({
 };
 
 const Pane = ({
-  pane, paneIndex = 0, tab, hosts, allTabs = [], isMobile = false, isFocused, isMultiple, onFocus, onClose, onActivate,
+  pane, paneIndex = 0, hasBottomBorder = false, tab, hosts, allTabs = [], isMobile = false, isFocused, isMultiple, onFocus, onClose, onActivate,
   isActive, layoutSignal, settings, updateSettings, onPaneThemeChange, cwd,
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds, busyPaneIds,
   onPickHostPath = null, onPickLocalPath = null, onEditHost = null, onEditLocal = null, refreshHosts = null,
   language, t, viewportHeight,
   onExtractPane = null,
+  onSplitPane = null,
+  onReorderPane = null,
 }) => {
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
      Terminal/RightPanel 에 내려보냄. 전역 settings.theme 자체는 안 건드리므로 다른 pane / 앱 UI
@@ -242,6 +353,52 @@ const Pane = ({
   const [hover, setHover] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [terminalReady, setTerminalReady] = useState(false);
+  const [terminalStatus, setTerminalStatus] = useState(null);
+  const [paneDragOver, setPaneDragOver] = useState(false);
+
+  /** Parse pane drag payload from custom MIME or text/plain fallback.
+   *  Returns {type:'pane', tabId, paneId} or null. */
+  const parsePanePayload = useCallback((dataTransfer) => {
+    const raw = dataTransfer.getData('application/x-iterminallist-pane')
+      || dataTransfer.getData('text/plain');
+    if (!raw) return null;
+    try {
+      const obj = JSON.parse(raw);
+      if (obj && obj.type === 'pane' && obj.paneId) return obj;
+    } catch { /* not JSON — ignore (could be a tab id from tab drag) */ }
+    return null;
+  }, []);
+
+  const handlePaneDragOver = useCallback((e) => {
+    // Only accept pane MIME or text/plain with pane JSON payload
+    const hasCustomMime = e.dataTransfer.types.includes('application/x-iterminallist-pane');
+    const hasTextPlain = e.dataTransfer.types.includes('text/plain');
+    if (!hasCustomMime && !hasTextPlain) return; // skip FileTree file uploads etc.
+    // Peek at payload to verify it's a pane drag and same-tab, different-pane
+    // Can't read data during dragover in most browsers, so just accept if MIME matches
+    if (hasCustomMime || hasTextPlain) {
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch {}
+      setPaneDragOver(true);
+    }
+  }, []);
+
+  const handlePaneDragLeave = useCallback((e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) setPaneDragOver(false);
+  }, []);
+
+  const handlePaneDrop = useCallback((e) => {
+    setPaneDragOver(false);
+    const payload = parsePanePayload(e.dataTransfer);
+    if (!payload) return;
+    if (payload.paneId === pane.id) return; // same pane, ignore
+    // Only reorder within same tab
+    const currentTabId = tab?.id;
+    if (!currentTabId || payload.tabId !== currentTabId) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onReorderPane?.(currentTabId, payload.paneId, pane.id);
+  }, [pane.id, tab?.id, onReorderPane, parsePanePayload]);
 
   // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — RightPanel 등 팬 내부 UI 가 이 변수를 씀.
   // :root 는 건드리지 않으므로 좌측 레일·상단 헤더는 글로벌 테마 유지.
@@ -263,6 +420,7 @@ const Pane = ({
 
   useEffect(() => {
     setTerminalReady(false);
+    setTerminalStatus(null);
   }, [isEmpty, pane.sessionId, pane.id, refreshNonce]);
 
   // pane 마다 자기 cwd 추적
@@ -270,8 +428,14 @@ const Pane = ({
     sessionId: isLocal ? pane.sessionId : null,
     isLocal,
   });
-  const paneGitContext = paneCwdRel ?? '';
-  const livePaneCwd = isLocal ? paneCwdRel : (pane.cwd ?? cwd ?? null);
+  // Git context: only meaningful for local sessions (workspace-relative path).
+  // '' = workspace root (valid), null = outside workspace or non-local.
+  // Use nullish coalescing so empty-string root is preserved.
+  const paneGitContext = isLocal ? paneCwdRel : null;
+  // Live pane cwd for FileTree navigation:
+  //   local: paneCwdRel (including '' for root; null = outside workspace)
+  //   host:  pane.cwd → fallback cwd → '' root
+  const livePaneCwd = isLocal ? paneCwdRel : (pane.cwd ?? cwd ?? '');
 
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭 이름 같은 곳에 활용
   useEffect(() => {
@@ -286,17 +450,23 @@ const Pane = ({
       onPointerDownCapture={() => { onFocus?.(); }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      onDragOver={handlePaneDragOver}
+      onDragLeave={handlePaneDragLeave}
+      onDrop={handlePaneDrop}
       style={{
         position: 'relative',
         display: 'flex',
-        flexDirection: 'row',
+        flexDirection: 'column',
+        height: '100%',
         background: themes[effectiveThemeId]?.background || color.base,
         overflow: 'hidden',
         minHeight: 0,
         minWidth: 0,
-        // 보더/강조 모두 제거 — pane 끼리 딱 붙어서 한 화면처럼 보이도록.
-        border: 'none',
+        boxSizing: 'border-box',
+        border: paneDragOver ? `2px solid var(--ui-accent, ${color.accent})` : 'none',
+        borderBottom: hasBottomBorder ? `1px solid var(--ui-border, ${color.border})` : (paneDragOver ? `2px solid var(--ui-accent, ${color.accent})` : 'none'),
         zIndex: isFocused ? 2 : hover ? 1 : 0,
+        transition: 'border 120ms ease',
       }}
     >
       <style>{`
@@ -310,35 +480,84 @@ const Pane = ({
           50%      { border-color: color-mix(in srgb, var(--ui-accent, #89b4fa) 35%, transparent); }
         }
       `}</style>
-      {/* 본문 영역 — RightPanel 활동바 30px 만큼 우측 마진 (rail 영역 침범 안 함, 데스크탑/모바일 동일). */}
+      {/* RightPanel — top rail (30px) + optional right-side panel overlay.
+          Absolute overlay covers full pane; rail sits at top with pointer-events. */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 0, left: 0, right: 0, bottom: 0,
+          zIndex: 6,
+          pointerEvents: 'none',
+        }}
+      >
+        <RightPanel
+          isFocused={isFocused}
+          showFocusEye={isMultiple && !isMobile}
+          activeTabType={pane.hostId ? 'host' : 'local'}
+          activeHostId={pane.hostId || null}
+          gitContextPath={paneGitContext}
+          paneInfo={{
+            tabName: tab?.name || '',
+            tabType: pane.hostId ? 'host' : 'local',
+            tabId: tab?.id || null,
+            sessionId: pane.sessionId || pane.id,
+            paneId: pane.id,
+            paneIndex,
+            paneCount: tab?.panes?.length || 1,
+            tmuxSessionName: pane.tmuxSessionName || null,
+            effectiveTmuxSession: pane.hostId ? (() => {
+              if (pane.tmuxSessionName) return pane.tmuxSessionName;
+              const host = hosts.find((h) => h.id === pane.hostId);
+              if (!host?.use_remote_tmux) return null;
+              const baseFromHost = host.remote_tmux_session || 'mobile';
+              const base = tab?.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
+              return paneIndex === 0 ? base : `${base}_${paneIndex + 1}`;
+            })() : null,
+            tmuxSuffix: tab?.tmuxSuffix || null,
+            isPersistent: pane.hostId
+              ? !!(hosts.find((h) => h.id === pane.hostId)?.use_remote_tmux) || !!pane.tmuxSessionName
+              : true,
+            host: pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null,
+            paneName: pane.name || null,
+            cwd: isLocal ? (paneCwdRel ?? '') : (pane.cwd ?? cwd ?? null),
+            cwdAbsolute: isLocal ? (paneCwdAbs || null) : null,
+            paneCwdRel: paneCwdRel ?? null,
+            takeoverPolicy: 'last-attach-wins',
+          }}
+          onFileSelect={(path) => onFileSelect?.(path, pane.hostId || null)}
+          onFolderSelect={onFolderSelect}
+          onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null)}
+          onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
+          onCloseTerminal={onClose}
+          settings={settings}
+          updateSettings={updateSettings}
+          paneThemeId={effectiveThemeId}
+          onPaneThemeChange={handlePaneThemeChange}
+          language={language}
+          t={t}
+          viewportHeight={viewportHeight}
+          disabled={isEmpty}
+          loading={!isEmpty && !terminalReady}
+          terminalKey={pane.sessionId || pane.id}
+          paneCwd={livePaneCwd}
+          onScreenDump={onScreenDump}
+          onExtractPane={onExtractPane}
+          isBusy={isPaneBusy}
+          sessionStatus={terminalStatus}
+          onSplitPane={onSplitPane}
+          isMobile={isMobile}
+        />
+      </div>
+
+      {/* 본문 영역 — top rail 30px 만큼 상단 마진. */}
       <div style={{
         flex: 1,
         position: 'relative',
         minWidth: 0,
+        minHeight: 0,
         overflow: 'hidden',
-        marginRight: '30px',
+        marginTop: '30px',
       }}>
-        {isPaneBusy && (
-          <span
-            className="iterm-pane-busy-dot"
-            aria-hidden
-            title={t?.('terminalBusy') || 'Terminal is active'}
-            style={{
-              position: 'absolute',
-              top: '8px',
-              right: '8px',
-              width: '8px',
-              height: '8px',
-              borderRadius: '50%',
-              background: 'var(--ui-accent, #89b4fa)',
-              boxShadow: '0 0 0 2px var(--ui-base, rgba(0,0,0,.55)), 0 0 14px var(--ui-accent, #89b4fa)',
-              // 사이드바 wrapper(zIndex 6) 보다 낮게 — 사이드바가 도트 위로 깔리도록.
-              zIndex: 4,
-              pointerEvents: 'none',
-              animation: 'iterm-pane-busy-dot 1.15s ease-in-out infinite',
-            }}
-          />
-        )}
         {isEmpty ? (
           <EmptyPane
             onActivate={onActivate}
@@ -367,8 +586,6 @@ const Pane = ({
               isMobile={isMobile}
               tmuxSuffix={tab?.tmuxSuffix || null}
               tmuxSessionName={pane.tmuxSessionName || null}
-              /* preflight/폴링 용 effective tmux 세션명 — backend host_manager.effective_tmux_session 동기.
-                 host 모드에서만 의미. resume 면 그 이름 그대로, 아니면 base+suffix+pane idx. */
               effectiveTmuxSession={pane.hostId ? (() => {
                 if (pane.tmuxSessionName) return pane.tmuxSessionName;
                 const host = hosts.find((h) => h.id === pane.hostId);
@@ -383,88 +600,12 @@ const Pane = ({
               settings={paneSettings}
               isActive={isActive && isFocused}
               layoutSignal={`${layoutSignal}:${pane.id}`}
-              /* takeover 시: refreshNonce++ 로 Terminal 통째 remount → 새 WS → tmux attach -d
-                 → 저쪽 클라이언트가 같은 [detached ...] 토큰을 받아 우리와 같은 오버레이로 전환. */
               onTakeOver={() => setRefreshNonce((n) => n + 1)}
               onReadyChange={setTerminalReady}
+              onStatusChange={setTerminalStatus}
             />
           </Suspense>
         )}
-      </div>
-
-      {/* RightPanel — 항상 노출. zIndex 가 pane X(5) 보다 높아야 패널 열렸을 때
-          pane X 가 패널을 뚫고 올라와 미스클릭 유발하는 걸 막음. */}
-      <div
-        style={{
-          position: 'absolute',
-          top: 0, right: 0, bottom: 0,
-          zIndex: 6,
-        }}
-      >
-        <RightPanel
-          isFocused={isFocused}
-          showFocusEye={isMultiple && !isMobile}
-          activeTabType={pane.hostId ? 'host' : 'local'}
-          activeHostId={pane.hostId || null}
-          gitContextPath={paneGitContext}
-          /* Info 패널 컨텍스트 — 세션/탭/호스트 메타데이터를 한 객체로 묶어 전달.
-             RightPanel 이 파편적으로 props 받지 않게 정리. */
-          paneInfo={{
-            tabName: tab?.name || '',
-            tabType: pane.hostId ? 'host' : 'local',
-            sessionId: pane.sessionId || pane.id,
-            paneId: pane.id,
-            paneIndex,
-            paneCount: tab?.panes?.length || 1,
-            tmuxSessionName: pane.tmuxSessionName || null,
-            effectiveTmuxSession: pane.hostId ? (() => {
-              if (pane.tmuxSessionName) return pane.tmuxSessionName;
-              const host = hosts.find((h) => h.id === pane.hostId);
-              if (!host?.use_remote_tmux) return null;
-              const baseFromHost = host.remote_tmux_session || 'mobile';
-              const base = tab?.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
-              return paneIndex === 0 ? base : `${base}_${paneIndex + 1}`;
-            })() : null,
-            tmuxSuffix: tab?.tmuxSuffix || null,
-            /* 영속 여부 — local 은 항상 true, host 는 use_remote_tmux 따름.
-               Resume 으로 attach 한 탭(`pane.tmuxSessionName`) 은 명시적으로 영속. */
-            isPersistent: pane.hostId
-              ? !!(hosts.find((h) => h.id === pane.hostId)?.use_remote_tmux) || !!pane.tmuxSessionName
-              : true,
-            host: pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null,
-            paneName: pane.name || null,
-            cwd: isLocal ? (paneCwdRel ?? '') : (pane.cwd ?? cwd ?? null),
-            cwdAbsolute: isLocal ? (paneCwdAbs || null) : null,
-            paneCwdRel: paneCwdRel ?? null,
-            /* takeover 모델 알림용 — PC ↔ 모바일 동시 attach 안 되는 정책을 Info 패널에서도 안내. */
-            takeoverPolicy: 'last-attach-wins',
-          }}
-          onFileSelect={(path) => onFileSelect?.(path, pane.hostId || null)}
-          onFolderSelect={onFolderSelect}
-          onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null)}
-          onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
-          /* pane 닫기 — 항상 노출. closePane 이 케이스별 분기:
-             - 단일 pane (빈 picker 든 활성 세션이든) = closeTab 으로 위임 → 탭 닫힘
-             - 다중 pane = 해당 pane 만 제거 */
-          onCloseTerminal={onClose}
-          settings={settings}
-          updateSettings={updateSettings}
-          paneThemeId={effectiveThemeId}
-          onPaneThemeChange={handlePaneThemeChange}
-          language={language}
-          t={t}
-          viewportHeight={viewportHeight}
-          disabled={isEmpty}
-          loading={!isEmpty && !terminalReady}
-          /* Terminal.jsx 가 등록한 sessionId 와 동일한 키 — local 은 sessionId, host 는 pane.id */
-          terminalKey={pane.sessionId || pane.id}
-          /* FileTree 시작 경로 — host 면 절대경로, local 이면 워크스페이스 상대경로.
-             탭별로 트리 루트를 좁혀서 다른 프로젝트가 섞여 보이지 않게 함. */
-          paneCwd={livePaneCwd}
-          onScreenDump={onScreenDump}
-          /* 분할 pane → 새 단독 탭으로 detach. null 이면 버튼 안 띄움. */
-          onExtractPane={onExtractPane}
-        />
       </div>
 
       {/* 활성 pane 테두리 — isMultiple 이면 accent 실선으로 대체 (위 outline 스타일이 이미 그 역할) */}
@@ -475,7 +616,7 @@ const Pane = ({
 // 분할 서브탭 — pane 들 가로로 나열. 활성 pane 강조 + 머신 아이콘 + busy dot.
 // 모바일/데스크탑 모두 touch-drag reorder (꾹 → 드래그) 가능. X 닫기 버튼은 RightPanel 에 있어 생략.
 const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, onRename, onClose, onDismiss,
-  canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null }, ref) => {
+  canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null, onSplitPane = null }, ref) => {
   const innerRef = useRef(null);
   const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
   const [measured, setMeasured] = useState(false);
@@ -524,7 +665,7 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
       </div>
       {(onMoveLeft || onMoveRight) && (
         <>
-          <button onClick={onMoveLeft} disabled={!canMoveLeft} style={{
+          <button onClick={(e) => { e.stopPropagation(); onMoveLeft?.(); }} disabled={!canMoveLeft} style={{
             display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
             background: 'transparent', border: 'none', borderRadius: '4px', cursor: canMoveLeft ? 'pointer' : 'default',
             color: canMoveLeft ? color.text : color.surface2, fontSize: fontSize['11'], fontFamily: font.sans, opacity: canMoveLeft ? 1 : 0.4,
@@ -532,7 +673,7 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
             <ChevronLeft size={12} strokeWidth={1.8} />
             {t?.('moveLeft') || 'Move left'}
           </button>
-          <button onClick={onMoveRight} disabled={!canMoveRight} style={{
+          <button onClick={(e) => { e.stopPropagation(); onMoveRight?.(); }} disabled={!canMoveRight} style={{
             display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
             background: 'transparent', border: 'none', borderRadius: '4px', cursor: canMoveRight ? 'pointer' : 'default',
             color: canMoveRight ? color.text : color.surface2, fontSize: fontSize['11'], fontFamily: font.sans, opacity: canMoveRight ? 1 : 0.4,
@@ -542,8 +683,44 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
           </button>
         </>
       )}
+      {!isEmpty && onSplitPane && (
+        <>
+          <button onClick={(e) => { e.stopPropagation(); onSplitPane('right'); }} style={{
+            display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
+            background: 'transparent', border: 'none', borderRadius: '4px', cursor: 'pointer',
+            color: color.text, fontSize: fontSize['11'], fontFamily: font.sans,
+          }}>
+            <SquareSplitHorizontal size={12} strokeWidth={1.8} />
+            {t?.('splitRight') || 'Split right'}
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onSplitPane('left'); }} style={{
+            display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
+            background: 'transparent', border: 'none', borderRadius: '4px', cursor: 'pointer',
+            color: color.text, fontSize: fontSize['11'], fontFamily: font.sans,
+          }}>
+            <SquareSplitHorizontal size={12} strokeWidth={1.8} style={{ transform: 'scaleX(-1)' }} />
+            {t?.('splitLeft') || 'Split left'}
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onSplitPane('down'); }} style={{
+            display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
+            background: 'transparent', border: 'none', borderRadius: '4px', cursor: 'pointer',
+            color: color.text, fontSize: fontSize['11'], fontFamily: font.sans,
+          }}>
+            <SquareSplitVertical size={12} strokeWidth={1.8} />
+            {t?.('splitDown') || 'Split down'}
+          </button>
+          <button onClick={(e) => { e.stopPropagation(); onSplitPane('up'); }} style={{
+            display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
+            background: 'transparent', border: 'none', borderRadius: '4px', cursor: 'pointer',
+            color: color.text, fontSize: fontSize['11'], fontFamily: font.sans,
+          }}>
+            <SquareSplitVertical size={12} strokeWidth={1.8} style={{ transform: 'scaleY(-1)' }} />
+            {t?.('splitUp') || 'Split up'}
+          </button>
+        </>
+      )}
       {!isEmpty && onRename && (
-        <button onClick={onRename} style={{
+        <button onClick={(e) => { e.stopPropagation(); onRename(); }} style={{
           display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
           background: 'transparent', border: 'none', borderRadius: '4px', cursor: 'pointer',
           color: color.text, fontSize: fontSize['11'], fontFamily: font.sans,
@@ -553,7 +730,7 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
         </button>
       )}
       {!isEmpty && (
-        <button onClick={onClose} style={{
+        <button onClick={(e) => { e.stopPropagation(); onClose?.(); }} style={{
           display: 'flex', alignItems: 'center', gap: '8px', width: '100%', padding: '6px 8px',
           background: 'transparent', border: 'none', borderRadius: '4px', cursor: 'pointer',
           color: color.red, fontSize: fontSize['11'], fontFamily: font.sans,
@@ -568,7 +745,7 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
 
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
-  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, t,
+  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, onSplitPane = null, t,
 }) => {
   const scrollRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -595,9 +772,10 @@ const SubTabBar = ({
     const handleKey = (e) => { if (e.key === 'Escape') ctxCloseRef.current(); };
     const id = setTimeout(() => {
       document.addEventListener('mousedown', handle);
+      document.addEventListener('touchstart', handle);
       document.addEventListener('keydown', handleKey);
     }, 0);
-    return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('keydown', handleKey); };
+    return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('touchstart', handle); document.removeEventListener('keydown', handleKey); };
   }, [!!ctxMenu]);
 
   return (
@@ -611,13 +789,15 @@ const SubTabBar = ({
         className="iterm-subtabbar-scroll"
         style={{
           display: 'flex',
+          alignItems: 'center',
           height: '32px',
           background: `${tabBarAccent}18`,
           borderBottom: `1px solid ${color.border}`,
           overflowX: 'auto',
           overflowY: 'hidden',
           flexShrink: 0,
-          padding: '0 4px',
+          padding: '0 2px',
+          gap: '1px',
         }}
       >
         {panes.map((pane, idx) => {
@@ -644,22 +824,26 @@ const SubTabBar = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '0 10px',
-                margin: isActive ? '3px 2px' : undefined,
-                height: isActive ? undefined : '100%',
+                padding: '0 7px',
+                height: isActive ? 'calc(100% - 4px)' : '100%',
                 background: isActive ? color.surface1 : 'transparent',
-                border: isDragOver ? `2px solid ${color.accent}` : (isActive ? `1px solid ${color.border}` : 'none'),
-                borderRadius: isActive ? '6px' : undefined,
+                border: isDragOver
+                  ? `2px solid ${color.accent}`
+                  : isActive
+                    ? `1px solid ${color.border}`
+                    : 'none',
+                borderRadius: isActive ? '6px' : '0',
+                margin: isActive ? '2px 1px' : 0,
                 color: isActive ? color.text : color.subtext,
                 fontSize: fontSize['11'],
                 fontWeight: fontWeight.medium,
                 cursor: 'pointer',
                 flexShrink: 0,
-                minWidth: 0,
-                maxWidth: '160px',
+                minWidth: 'max-content',
+                maxWidth: 'none',
                 fontFamily: font.sans,
                 opacity: isDragging ? 0.4 : (isActive ? 1 : 0.55),
-                transition: 'background 0.15s, border-radius 0.15s, opacity 0.15s',
+                transition: 'background 0.15s, opacity 0.15s',
               }}
             >
               {idx + 1 <= 9 && (
@@ -711,53 +895,9 @@ const SubTabBar = ({
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
                 {label}
               </span>
-              <button
-                data-pane-more="true"
-                onClick={(e) => { e.stopPropagation(); setCtxMenu(ctxMenu?.paneId === pane.id ? null : { paneId: pane.id, x: e.clientX, y: e.clientY }); }}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  width: '18px', height: '18px', flexShrink: 0,
-                  background: 'transparent', border: 'none', cursor: 'pointer',
-                  color: isActive ? color.subtext : color.surface2,
-                  borderRadius: '3px', padding: 0,
-                }}
-              >
-                <MoreHorizontal size={11} strokeWidth={2} />
-              </button>
             </div>
           );
         })}
-        {ctxMenu && createPortal(
-          <PaneCtxMenu
-            ctx={ctxMenu}
-            ref={ctxRef}
-            pane={panes.find((p) => p.id === ctxMenu.paneId)}
-            hosts={hosts}
-            settings={settings}
-            tabBarAccent={tabBarAccent}
-            t={t}
-            onRename={onRenamePane ? () => {
-              const pane = panes.find((p) => p.id === ctxMenu.paneId);
-              if (pane) onRenamePane(pane.id);
-              setCtxMenu(null);
-            } : null}
-            canMoveLeft={panes.findIndex((p) => p.id === ctxMenu.paneId) > 0}
-            canMoveRight={panes.findIndex((p) => p.id === ctxMenu.paneId) < panes.length - 1}
-            onMoveLeft={onReorder && panes.findIndex((p) => p.id === ctxMenu.paneId) > 0 ? () => {
-              const idx = panes.findIndex((p) => p.id === ctxMenu.paneId);
-              onReorder(panes[idx].id, panes[idx - 1].id);
-              setCtxMenu(null);
-            } : null}
-            onMoveRight={onReorder && panes.findIndex((p) => p.id === ctxMenu.paneId) < panes.length - 1 ? () => {
-              const idx = panes.findIndex((p) => p.id === ctxMenu.paneId);
-              onReorder(panes[idx].id, panes[idx + 1].id);
-              setCtxMenu(null);
-            } : null}
-            onClose={() => { onClose(ctxMenu.paneId); setCtxMenu(null); }}
-            onDismiss={() => setCtxMenu(null)}
-          />,
-          document.body,
-        )}
       </div>
     </>
   );

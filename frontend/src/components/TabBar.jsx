@@ -78,7 +78,6 @@ const TabBar = ({
         <TerminalIcon size={13} strokeWidth={2} />
       </button>
 
-      {/* tabs */}
       <div
         ref={tabListRef}
         className="tabbar-list"
@@ -95,8 +94,10 @@ const TabBar = ({
             key={tab.id}
             tab={tab}
             index={idx + 1}
+            isFirst={idx === 0}
             isActive={tab.id === activeTabId}
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
+            isEvenWidth={tabs.length > 0 && tabs.length <= 3}
             isDragging={activeDraggingId === tab.id}
             isDragOver={activeDragOverId === tab.id && activeDraggingId && activeDraggingId !== tab.id}
             touchProps={isMobile ? touchReorder.getItemProps(tab.id) : null}
@@ -139,36 +140,13 @@ const TabBar = ({
         ))}
       </div>
 
-      {/* right action group — 모바일에선 분할 버튼 숨김 (sub-tab 으로 전환).
-          데스크탑: h/v 한 칸씩 추가, 2x2 는 4 pane 으로 즉시 채움. 각 pane 은 활성 pane 의 컨텍스트 상속. */}
-      <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0, borderLeft: `1px solid ${color.border}` }}>
-        {!isMobile && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '2px', padding: '0 2px' }}>
-            <RailIconBtn
-              icon={SquareSplitHorizontal}
-              onClick={() => onSplit?.('h')}
-              title={`${t?.('splitHorizontal') || 'Split right'} (Ctrl+\\)`}
-              disabled={!canSplit}
-            />
-            <RailIconBtn
-              icon={SquareSplitVertical}
-              onClick={() => onSplit?.('v')}
-              title={`${t?.('splitVertical') || 'Split down'} (Ctrl+Shift+\\)`}
-              disabled={!canSplit}
-            />
-            <RailIconBtn
-              icon={Grid2x2}
-              onClick={() => onSplit?.('2x2')}
-              title={t?.('layout2x2') || '2 × 2 grid'}
-            />
-          </div>
-        )}
+      {/* right action group — Settings only; split actions live in per-tab More menu */}
+      <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0, borderLeft: isMobile ? 'none' : `1px solid ${color.border}` }}>
         <div style={{
           width: '30px',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          borderLeft: isMobile ? 'none' : `1px solid ${color.border}`,
         }}>
           <RailIconBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} compact />
         </div>
@@ -180,6 +158,7 @@ const TabBar = ({
     const ctxPaneCount = ctxTab?.panes?.length || 1;
     const ctxViewMode = ctxTab?.viewMode || 'grid';
     const ctxIdx = tabs.findIndex((tt) => tt.id === contextMenu.tabId);
+    const isCtxActive = contextMenu.tabId === activeTabId;
     return (
       <TabContextMenu
         ctx={contextMenu}
@@ -188,6 +167,8 @@ const TabBar = ({
         canToggleViewMode={ctxPaneCount > 1 && !!onToggleViewMode}
         canMoveLeft={ctxIdx > 0 && !!onReorder}
         canMoveRight={ctxIdx >= 0 && ctxIdx < tabs.length - 1 && !!onReorder}
+        canSplit={isCtxActive && canSplit && !!onSplit}
+        onSplit={onSplit ? (dir) => { onSplit(dir); setContextMenu(null); } : null}
         onClose={() => setContextMenu(null)}
         onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
         onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
@@ -210,7 +191,8 @@ const TabBar = ({
 };
 
 const Tab = memo(({
-  tab, index, isActive, isBusy = false, isDragging = false, isDragOver = false,
+  tab, index, isFirst = false, isActive, isBusy = false, isDragging = false, isDragOver = false,
+  isEvenWidth = false,
   isMobile = false,
   touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
   onSelect, onClose, onContextMenu, onMore,
@@ -239,10 +221,16 @@ const Tab = memo(({
       style={{
         ...styles.tab,
         ...(isMobile ? styles.tabMobile : null),
-        background: isActive ? color.surface1 : 'transparent',
+        background: isActive ? color.base : color.crust,
         color: isActive ? color.text : color.muted,
         fontWeight: isActive ? fontWeight.semibold : fontWeight.medium,
-        border: `1px solid ${isDragOver ? color.accent : (isActive ? color.borderStrong : 'transparent')}`,
+        border: `1px solid ${isDragOver ? color.accent : (isActive ? color.borderStrong : color.border)}`,
+        // 하단 라인은 TabBar 자체 borderBottom 하나만 쓰게 한다.
+        // inactive tab 의 개별 bottom border 가 보이면 바닥선 위에 떠 보인다.
+        borderBottom: isDragOver ? `1px solid ${color.accent}` : `1px solid ${isActive ? color.base : color.crust}`,
+        flex: isEvenWidth ? '1 1 0' : styles.tab.flex,
+        maxWidth: isEvenWidth ? 'none' : styles.tab.maxWidth,
+        marginLeft: isFirst ? 0 : styles.tab.marginLeft,
         opacity: isDragging ? 0.4 : 1,
         cursor: isMobile ? 'pointer' : 'grab',
       }}
@@ -262,7 +250,7 @@ const Tab = memo(({
       }}
       onMouseLeave={(e) => {
         if (isMobile) return;
-        if (!isActive) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.muted; }
+        if (!isActive) { e.currentTarget.style.background = color.crust; e.currentTarget.style.color = color.muted; }
       }}
     >
       {/* Ctrl+N 번호 — 박스 없이 모노 숫자만. 알림 뱃지 느낌 없이 식별만. */}
@@ -326,23 +314,27 @@ const Tab = memo(({
       </span>
       <span style={styles.tabName}>{tab.name}</span>
 
-      {/* More 버튼 — X 닫기 버튼은 메뉴 안으로 흡수, 휠 클릭으로 즉시 닫기.
-          항상 노출 — 활성/비활성, 데스크톱/모바일 모두 동일하게 일관된 hit-target. */}
-      <button
-        data-more="true"
-        onClick={(e) => { e.stopPropagation(); onMore(e); }}
-        style={{
-          ...styles.miniBtn,
-          ...(isMobile ? styles.miniBtnMobile : null),
-          opacity: isActive ? 1 : 0.7,
-          color: color.subtext,
-        }}
-        onMouseEnter={(e) => { if (isMobile) return; e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; e.currentTarget.style.opacity = '1'; }}
-        onMouseLeave={(e) => { if (isMobile) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; e.currentTarget.style.opacity = isActive ? '1' : '0.7'; }}
-        title={t?.('more') || 'More'}
-      >
-        <MoreHorizontal size={isMobile ? 14 : 11} strokeWidth={2} />
-      </button>
+      {/* More 버튼 — 활성 탭에서만 노출해 비활성 탭의 가로 공간 낭비를 줄인다. */}
+      {isActive && (
+        <button
+          data-more="true"
+          onClick={(e) => { e.stopPropagation(); onMore(e); }}
+          onTouchStart={(e) => e.stopPropagation()}
+          onTouchMove={(e) => e.stopPropagation()}
+          onTouchEnd={(e) => e.stopPropagation()}
+          style={{
+            ...styles.miniBtn,
+            ...(isMobile ? styles.miniBtnMobile : null),
+            opacity: 1,
+            color: color.subtext,
+          }}
+          onMouseEnter={(e) => { if (isMobile) return; e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; }}
+          onMouseLeave={(e) => { if (isMobile) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+          title={t?.('more') || 'More'}
+        >
+          <MoreHorizontal size={isMobile ? 14 : 11} strokeWidth={2} />
+        </button>
+      )}
 
     </div>
   );
@@ -352,6 +344,7 @@ const TabContextMenu = ({
   ctx, t, onClose, onCloseTab, onDuplicateTab, onRenameTab = null,
   canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null,
   canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null,
+  canSplit = false, onSplit = null,
 }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
@@ -368,11 +361,13 @@ const TabContextMenu = ({
     const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
     const id = setTimeout(() => {
       document.addEventListener('mousedown', handle);
+      document.addEventListener('touchstart', handle);
       document.addEventListener('keydown', handleKey);
     }, 0);
     return () => {
       clearTimeout(id);
       document.removeEventListener('mousedown', handle);
+      document.removeEventListener('touchstart', handle);
       document.removeEventListener('keydown', handleKey);
     };
   }, []);
@@ -444,6 +439,25 @@ const TabContextMenu = ({
             : (t?.('switchToTabsView') || 'Switch to tabs view')}
         </MenuItem>
       )}
+      {canSplit && onSplit && (
+        <>
+          <MenuItem onClick={() => onSplit('right')} icon={SquareSplitHorizontal}>
+            {`${t?.('splitRight') || 'Split right'} (Ctrl+\\)`}
+          </MenuItem>
+          <MenuItem onClick={() => onSplit('left')} icon={SquareSplitHorizontal}>
+            {t?.('splitLeft') || 'Split left'}
+          </MenuItem>
+          <MenuItem onClick={() => onSplit('down')} icon={SquareSplitVertical}>
+            {`${t?.('splitDown') || 'Split down'} (Ctrl+Shift+\\)`}
+          </MenuItem>
+          <MenuItem onClick={() => onSplit('up')} icon={SquareSplitVertical}>
+            {t?.('splitUp') || 'Split up'}
+          </MenuItem>
+          <MenuItem onClick={() => onSplit('2x2')} icon={Grid2x2}>
+            {t?.('layout2x2') || '2 × 2 grid'}
+          </MenuItem>
+        </>
+      )}
       <MenuItem onClick={onCloseTab} danger>{t?.('closeTab') || 'Close tab'}</MenuItem>
     </div>
   );
@@ -451,7 +465,7 @@ const TabContextMenu = ({
 
 const MenuItem = ({ onClick, children, danger, disabled = false, icon: Icon = null }) => (
   <button
-    onClick={disabled ? undefined : onClick}
+    onClick={disabled ? undefined : (e) => { e.stopPropagation(); onClick?.(); }}
     disabled={disabled}
     style={{
       width: '100%',
@@ -485,32 +499,32 @@ const styles = {
     alignItems: 'stretch',
     height: '38px',
     background: color.crust,
-    borderBottom: `1px solid ${color.border}`,
+    borderBottom: 'none',
     fontFamily: font.sans,
     overflow: 'hidden',
     flexShrink: 0,
-    // 우측 padding 0 — Settings 버튼 중심이 우측 활동바(36px) 중심과 동일선이 되게.
-    // 좌측도 2px 만 — brandBtn 자체 마진으로 hit-area 확보.
-    padding: '0 0 0 2px',
-    gap: '4px',
+    // 화면 양끝에 너무 붙지 않도록 좌우에 미세한 breathing room 을 둔다.
+    padding: '0 4px 0 6px',
+    gap: '0',
   },
   barMobile: {
     /* 모바일은 상단 호흡공간을 공격적으로 줄임 — 네이티브 앱 헤더 톤.
-       좌측 inset 0 — brandBtn 자체 패딩만으로 안전 영역 확보. */
+       좌우 2px inset 으로 화면 끝에 붙는 느낌만 완화. */
     height: '30px',
-    padding: '0',
+    padding: '0 2px 0 4px',
     gap: '2px',
   },
   tabMobile: {
     /* 모바일 — touch hit-area 는 유지하되 가로/세로 모두 컴팩트하게.
        단축번호 뱃지가 빠지므로 leading 패딩을 더 줄임. 많이 열려도 인디케이터 다 보이게 minWidth ↓. */
-    height: '26px',
+    height: '100%',
     minWidth: '54px',
     maxWidth: '180px',
     fontSize: fontSize['13'],
     paddingLeft: '7px',
     paddingRight: '4px',
     gap: '5px',
+    borderRadius: 0,
   },
   miniBtnMobile: {
     width: '28px',
@@ -531,39 +545,41 @@ const styles = {
     cursor: 'pointer',
     transition: 'background 150ms',
     padding: 0,
-    borderRadius: '5px',
-    margin: '7px 4px 7px 2px',
+    borderRadius: '3px',
+    margin: '7px 7px 0 0',
   },
   brandBtnMobile: {
     /* 모바일은 더 공격적으로 — 20px 정사각, 좌측 inset 2 만. */
     width: '20px',
     height: '20px',
-    margin: '5px 1px 5px 2px',
-    borderRadius: '4px',
+    margin: '5px 5px 5px 0',
+    borderRadius: '3px',
   },
   tabList: {
     display: 'flex',
-    alignItems: 'center',
-    gap: '4px',
+    alignItems: 'stretch',
+    gap: '0',
     overflowX: 'auto',
     overflowY: 'hidden',
-    flex: 1,
-    paddingTop: '5px',
-    paddingBottom: '5px',
+    flex: '0 1 auto',
+    paddingTop: '0',
+    paddingBottom: '0',
+    paddingRight: '0',
+    boxSizing: 'border-box',
     scrollbarWidth: 'none',           // Firefox
     msOverflowStyle: 'none',           // IE/Edge legacy
   },
   tabListMobile: {
-    gap: '3px',
-    paddingTop: '1px',
-    paddingBottom: '1px',
+    gap: '0',
+    paddingTop: '0',
+    paddingBottom: '0',
   },
   tab: {
     display: 'flex',
     alignItems: 'center',
     gap: '7px',
     padding: '0 8px 0 10px',
-    height: '28px',
+    height: 'calc(100% + 1px)',
     /* 탭 많을 때 인디케이터를 다 보이게 — flex-shrink 1 + 작은 minWidth 로 자동 압축.
        이름은 tabName 의 ellipsis 가 처리. 너무 좁아지면 결국 아이콘 타일 + 점 정도만 남아도 OK. */
     minWidth: '46px',
@@ -574,7 +590,9 @@ const styles = {
     flex: '1 1 auto',
     fontSize: fontSize['12'],
     fontWeight: fontWeight.medium,
-    borderRadius: '6px',
+    borderRadius: 0,
+    boxSizing: 'border-box',
+    marginLeft: '-1px',
   },
   tabName: {
     flex: 1,

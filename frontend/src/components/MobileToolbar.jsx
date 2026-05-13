@@ -34,7 +34,9 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
   useEffect(() => {
     if (!terminalSessionId) { setTerminalReady(false); return undefined; }
     const check = () => {
-      if (window.terminalSessions?.[terminalSessionId]) {
+      const session = window.terminalSessions?.[terminalSessionId];
+      const status = session?.getSessionStatus?.();
+      if (session && (status?.isReady || !session.getSessionStatus)) {
         setTerminalReady(true);
         return true;
       }
@@ -183,6 +185,10 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
           -ms-overflow-style: none;
         }
         .mobile-toolbar-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
+        @keyframes skel-pulse {
+          0%, 100% { opacity: 0.42; }
+          50% { opacity: 0.9; }
+        }
         .mt-key:active {
           background: ${color.surface1} !important;
           transform: translateY(0.5px);
@@ -198,16 +204,19 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
         <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
           <div style={styles.row}>
             {!terminalReady && terminalSessionId ? (
-              list.map((_, i) => (
+              list.map((k, i) => (
                 <div key={i} style={{
                   ...styles.key,
                   background: color.surface0,
-                  borderRadius: radius.md,
-                  minWidth: '42px',
-                  height: '34px',
+                  borderRadius: radius.xs,
+                  minWidth: k.kind === 'sep' ? '1px' : styles.key.minWidth,
+                  width: k.kind === 'sep' ? '1px' : undefined,
+                  padding: k.kind === 'sep' ? 0 : styles.key.padding,
+                  height: styles.key.height,
                   animation: 'skel-pulse 1.4s ease-in-out infinite',
                   animationDelay: `${i * 80}ms`,
                   border: `1px solid ${color.border}`,
+                  margin: k.kind === 'sep' ? `0 ${space['1']}` : 0,
                 }} />
               ))
             ) : (

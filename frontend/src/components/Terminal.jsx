@@ -9,7 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { Loader2, MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, AlertTriangle, X } from 'lucide-react';
+import { MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, AlertTriangle, X } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
@@ -20,7 +20,7 @@ import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
-const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null }) => {
+const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -38,6 +38,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
      `[detached (from session ...)]` 토큰을 감지해 evictedRef 를 세움. WS close 시 이 ref 가
      true 면 자동 재접속 로직을 모두 skip — 사용자가 직접 "내가 가져오기" 버튼을 눌러야만 재attach. */
   const evictedRef = useRef(false);
+  const endedRef = useRef(false);
+  const hasContentRef = useRef(false);
   /* useEffect 내부의 connect()/runPreflight() 를 takeover 버튼/자동 재attach 폴링/탭 활성 변경에서
      호출할 수 있게 ref 로 공개. */
   const connectRef = useRef(null);
@@ -49,6 +51,27 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const contentReadyRef = useRef(false);
   const onReadyChangeRef = useRef(onReadyChange);
   onReadyChangeRef.current = onReadyChange;
+  const onStatusChangeRef = useRef(onStatusChange);
+  onStatusChangeRef.current = onStatusChange;
+
+  // 상태 변화 시 부모에 통지 — evicted, ended, isReady, hasContent 변경마다 호출
+  const notifyStatus = useCallback(() => {
+    onStatusChangeRef.current?.({
+      evicted: evictedRef.current,
+      ended: endedRef.current,
+      isReady,
+      hasContent: hasContentRef.current,
+      sessionId,
+      paneId,
+      tabId,
+    });
+  }, [sessionId, paneId, tabId, isReady]);
+
+  // 터미널 상태 변화 시마다 부모 통지 (evicted, ended, isReady, hasContent ref 동기화)
+  useEffect(() => {
+    hasContentRef.current = hasContent;
+    notifyStatus();
+  }, [evicted, ended, isReady, hasContent, notifyStatus]);
 
   // 모바일 여부를 이벤트 리스너 내부에서 최신 상태로 참조하기 위함
   const isMobileRef = useRef(isMobile);
@@ -104,6 +127,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     setIsReady(false);
     setHasContent(false);
     contentReadyRef.current = false;
+    hasContentRef.current = false;
+    evictedRef.current = false;
+    endedRef.current = false;
     onReadyChangeRef.current?.(false);
 
     // 1. xterm.js 인스턴스 생성 (최신 프리미엄 옵션 적용)
@@ -462,6 +488,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       term.write(mergedBuffer, () => {
         handleNewDataRef.current();
         setHasContent(true);
+        hasContentRef.current = true;
         if (!contentReadyRef.current) {
           contentReadyRef.current = true;
           onReadyChangeRef.current?.(true);
@@ -556,6 +583,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           }
           if (pf.exists === false) {
             // 셸이 exit 으로 tmux 세션이 죽음. 자동 재생성 X — 사용자가 명시적으로 Restart 누르게.
+            endedRef.current = true;
             setEnded(true);
             return;
           }
@@ -572,6 +600,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           }, delay);
         } else {
           // 끝까지 실패 — ended 오버레이로 사용자 명시 액션 유도.
+          endedRef.current = true;
           setEnded(true);
         }
       };
@@ -958,6 +987,15 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           default:                   return 'closed';
         }
       },
+      getSessionStatus: () => ({
+        evicted: evictedRef.current,
+        ended: endedRef.current,
+        isReady,
+        hasContent: hasContentRef.current,
+        sessionId,
+        paneId,
+        tabId,
+      }),
     };
 
     return () => {
@@ -965,7 +1003,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         delete window.terminalSessions[sessionId];
       }
     };
-  }, [sessionId, sendData, getSelection, getBufferText, copyAll, scrollToBottom, scrollToTop, scrollPages, scrollLines, focus, clear, searchNext, searchPrevious, closeSearch]);
+  }, [sessionId, sendData, getSelection, getBufferText, copyAll, scrollToBottom, scrollToTop, scrollPages, scrollLines, focus, clear, searchNext, searchPrevious, closeSearch, isReady]);
 
   // 로깅 헬퍼
   const logger = {
@@ -1106,11 +1144,43 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       )}
 
       {evicted && (
-        <div style={styles.inlineBanner(themeUi)}>
-          <MonitorSmartphone size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-          <span style={styles.bannerText(themeUi)}>
-            {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
-          </span>
+        <div style={{
+          ...styles.statusOverlay,
+          backgroundColor: `color-mix(in srgb, ${themeUi.base} 88%, transparent)`,
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
+          zIndex: 20,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '14px',
+          padding: '24px',
+        }}>
+          <div style={{
+            width: '48px', height: '48px',
+            borderRadius: '50%',
+            background: `color-mix(in srgb, ${themeUi.accent} 18%, transparent)`,
+            border: `2px solid ${themeUi.accent}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: themeUi.accent,
+          }}>
+            <MonitorSmartphone size={22} strokeWidth={1.8} />
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+            <span style={{
+              fontSize: '14px', fontWeight: 600, color: themeUi.text,
+              fontFamily: tokens.font.sans,
+            }}>
+              {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
+            </span>
+            <span style={{
+              fontSize: '11px', color: themeUi.subtext,
+              fontFamily: tokens.font.sans, textAlign: 'center', lineHeight: 1.4,
+            }}>
+              {t('takenOverHint') || '다른 기기/브라우저에서 이 세션을 열었습니다. 아래 버튼으로 다시 가져올 수 있습니다.'}
+            </span>
+          </div>
           <button
             type="button"
             onClick={() => {
@@ -1124,7 +1194,18 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
                 window.location.reload();
               }
             }}
-            style={styles.bannerButton(themeUi)}
+            style={{
+              padding: '8px 20px',
+              borderRadius: tokens.radius.md,
+              border: `1px solid ${themeUi.accent}`,
+              background: themeUi.accent,
+              color: themeUi.crust,
+              fontSize: '12px',
+              fontWeight: 600,
+              fontFamily: tokens.font.sans,
+              cursor: 'pointer',
+              transition: 'opacity 120ms',
+            }}
           >
             {t('takeOver') || '내가 가져오기'}
           </button>
@@ -1141,6 +1222,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           <button
             type="button"
             onClick={() => {
+              endedRef.current = false;
               setEnded(false);
               reconnectAttemptsRef.current = 0;
               if (connectRef.current) {
@@ -1178,6 +1260,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
             intentionalCloseRef.current = true;
             try { wsRef.current?.close(); } catch { /* noop */ }
             // 화면에 cancelled 상태 — ended 오버레이로 "다시 시작" 노출.
+            endedRef.current = true;
             setEnded(true);
           }}
         />

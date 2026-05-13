@@ -6,6 +6,8 @@ import { tokens } from '../../styles/tokens';
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
 const THEME_LABELS = {
+  // Dark — default first
+  default:              'Default',
   // Dark — 차갑고 어두운
   catppuccin:          'Catppuccin Mocha',
   catppuccinMacchiato: 'Catppuccin Macchiato',

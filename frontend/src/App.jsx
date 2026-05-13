@@ -11,6 +11,10 @@ import themes from './styles/themes';
 import { applyThemeVars } from './styles/themeUI';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
+import {
+  makeLeaf, treeFromLegacyLayout, splitLeaf, removeLeaf, ensureTree,
+  swapLeaves,
+} from './utils/splitTree';
 
 import TabBar from './components/TabBar';
 import HomeDashboard from './components/HomeDashboard';
@@ -63,6 +67,7 @@ const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = nu
     color_index: colorIndex ?? 0,
     panes: [pane],
     layout: 'single',
+    splitTree: makeLeaf(pane.id),
     activePaneId: pane.id,
   };
 };
@@ -92,15 +97,22 @@ const makeHostTab = (host, cwd = null, tmuxSessionName = null) => {
     cwd: cwd ?? null,
     panes: [pane],
     layout: 'single',
+    splitTree: makeLeaf(pane.id),
     activePaneId: pane.id,
   };
 };
 
 // 옛 탭 (panes 없음) 자동 마이그레이션 — localStorage 호환
 const migrateTab = (t) => {
-  if (t.panes && t.panes.length > 0) return t;
+  if (t.panes && t.panes.length > 0) {
+    // Ensure splitTree exists
+    if (!t.splitTree) {
+      return { ...t, splitTree: treeFromLegacyLayout(t.panes, t.layout) };
+    }
+    return t;
+  }
   const pane = makePane({ sessionId: t.sessionId, hostId: t.hostId });
-  return { ...t, panes: [pane], layout: 'single', activePaneId: pane.id };
+  return { ...t, panes: [pane], layout: 'single', splitTree: makeLeaf(pane.id), activePaneId: pane.id };
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -375,45 +387,55 @@ function App() {
   }, [openLocalTab]);
 
   // ── pane operations ───────────────────────────────────────────────────────
-  // 활성 탭에 *빈* pane 을 분할 추가. 사용자가 클릭해야 세션이 시작됨.
-  // dir = 'h' (좌우) | 'v' (상하)
+  // Split active pane — creates an empty pane picker. The user chooses local/host/tab there.
+  // dir = 'right' | 'left' | 'up' | 'down' | 'h' (→right) | 'v' (→down) | '2x2'
   // 중요: prev (latest) 에서 panes 길이 판단 → useCallback 클로저의 stale activeTab 영향 안 받음
-  // 모바일에서는 가로/세로 분할이 의미 없음 (화면 좁음 + sub-tab 으로 변환됨).
-  // → 키보드 단축키로도 호출 못 막게 진입에서 차단.
+  // 모바일에서는 실제 화면 분할 대신 새 빈 pane 을 sub-tab 으로 연다.
   const isMobileViewportRef = useRef(false);
-  const splitActivePane = useCallback((dir = 'h') => {
-    if (isMobileViewportRef.current) return;
+  const splitActivePane = useCallback((dir = 'h', targetTabId, targetPaneId) => {
     setTabs((prev) => {
-      const targetId = activeTabIdRef.current;
-      if (!targetId) return prev;
+      const tid = targetTabId || activeTabIdRef.current;
+      if (!tid) return prev;
       return prev.map((t) => {
-        if (t.id !== targetId) return t;
+        if (t.id !== tid) return t;
         const currentPanes = t.panes || [];
+        const activeId = targetPaneId || t.activePaneId || currentPanes[0]?.id;
 
-        /* 새 pane 은 *빈* (sessionId / hostId 미설정) → EmptyPane picker 가 떠서 사용자가 직접 선택.
-           로컬, 같은 호스트, 다른 호스트, 다른 탭 흡수 등 자유롭게 골라 "한 화면에 멀티 호스트" 구성 가능. */
-
-        /* '2x2' — 4 pane 채움. 부족한 만큼 빈 pane 추가, 각자 picker 표시. */
+        /* '2x2' — up to 4 empty picker panes. */
         if (dir === '2x2') {
-          if (currentPanes.length >= 4) return { ...t, layout: '2x2' };
+          if (currentPanes.length >= 4) return { ...t, layout: '2x2', splitTree: treeFromLegacyLayout(currentPanes, '2x2') };
           const panes = [...currentPanes];
           while (panes.length < 4) panes.push(makePane({}));
           return {
             ...t,
             panes,
             layout: '2x2',
-            activePaneId: t.activePaneId || panes[0].id,
+            splitTree: treeFromLegacyLayout(panes, '2x2'),
+            activePaneId: panes[panes.length - 1]?.id || t.activePaneId || panes[0].id,
+            ...(isMobileViewportRef.current ? { viewMode: 'tabs' } : null),
           };
         }
 
-        /* 'h' / 'v' — 빈 pane 1개 추가. 4개 도달 시 더 못 추가. */
-        if ((currentPanes.length || 1) >= 4) return t;
+        /* direction split — no pane limit, creates an empty picker pane */
+        const effectiveDir = dir === 'h' ? 'right' : dir === 'v' ? 'down' : dir;
         const newPane = makePane({});
         const panes = [...currentPanes, newPane];
+        const currentTree = ensureTree(currentPanes, t.splitTree) || makeLeaf(activeId);
+        const { tree: newTree } = splitLeaf(currentTree, activeId, effectiveDir, newPane.id);
+
+        // Legacy layout hint for compatibility
         let layout = t.layout || 'single';
-        if (panes.length === 2) layout = dir === 'v' ? 'v' : 'h';
+        if (panes.length === 2) layout = (effectiveDir === 'down' || effectiveDir === 'up') ? 'v' : 'h';
         else if (panes.length >= 3) layout = '2x2';
-        return { ...t, panes, layout, activePaneId: newPane.id };
+
+        return {
+          ...t,
+          panes,
+          layout,
+          splitTree: newTree,
+          activePaneId: newPane.id,
+          ...(isMobileViewportRef.current ? { viewMode: 'tabs' } : null),
+        };
       });
     });
   }, []);
@@ -423,9 +445,8 @@ function App() {
   //  - { type: 'host', hostId } 호스트 새 pane
   //  - { type: 'tab',  sourceTabId } 다른 열린 탭 전체를 이 자리로 흡수 (병합)
   //                                  → 원본 탭은 상단 탭바에서 사라지고, 그 탭의 pane 들이
-  //                                    대상 탭에 합류 (총 4개까지).
+  //                                    대상 탭에 합류.
   // target 없으면 부모 탭 타입 그대로 따라감 (단순 클릭 케이스)
-  const MAX_PANES = 4;
   const activatePane = useCallback((tabId, paneId, target = null) => {
     setTabs((prev) => {
       // 병합인 경우 원본 탭의 pane 들을 빈 슬롯에 채워넣는 로직을 한 번에 처리.
@@ -461,32 +482,26 @@ function App() {
 
         let result = prev.map((t) => {
           if (t.id === tabId) {
-            const allP = filledPanes.length === 3 ? [...filledPanes, makePane({})] : filledPanes;
+            const allP = filledPanes;
             const total = allP.length;
             let layout = t.layout || 'single';
             if (total === 1) layout = 'single';
             else if (total === 2) layout = (layout === 'v' ? 'v' : 'h');
             else layout = '2x2';
-            return { ...t, panes: allP, layout };
+            // Rebuild splitTree from panes — simplest correct approach
+            const splitTree = treeFromLegacyLayout(allP, layout);
+            return { ...t, panes: allP, layout, splitTree };
           }
           if (t.id === target.sourceTabId) {
-            if (!srcStillActive && overflowSrcIds.size === 0) return null;
-            const keep = [...srcRemaining];
-            if (overflowSrcIds.size > 0) {
-              overflowSrcIds.forEach(() => keep.push(makePane({})));
-            }
-            const cleaned = keep.filter((p) => p.sessionId || p.hostId).length > 0
-              ? keep : [makePane({})];
-            const active = cleaned.filter((p) => p.sessionId || p.hostId);
-            const finalPanes = active.length === 0
-              ? [makePane({})]
-              : (active.length === 3 ? [...active, makePane({})] : active);
-            const nTotal = finalPanes.length;
+            const realRemaining = srcRemaining.filter((p) => p.sessionId || p.hostId);
+            if (realRemaining.length === 0) return null;
+            const nTotal = realRemaining.length;
             let nLayout = t.layout || 'single';
             if (nTotal === 1) nLayout = 'single';
             else if (nTotal === 2) nLayout = (nLayout === 'v' ? 'v' : 'h');
             else nLayout = '2x2';
-            return { ...t, panes: finalPanes, layout: nLayout, activePaneId: (active[0] || finalPanes[0]).id };
+            const nSplitTree = treeFromLegacyLayout(realRemaining, nLayout);
+            return { ...t, panes: realRemaining, layout: nLayout, splitTree: nSplitTree, activePaneId: realRemaining[0].id };
           }
           return t;
         }).filter(Boolean);
@@ -533,24 +548,17 @@ function App() {
         // 다중 pane → 해당 pane 제거 (단일 pane 케이스는 closeTab 으로 위임됨)
         const remaining = panes.filter((p) => p.id !== paneId);
         if (remaining.length === 0) return t;
-        const activeCount = remaining.filter((p) => p.sessionId || p.hostId).length;
-        const emptyCount = remaining.length - activeCount;
-        let filled;
-        if (activeCount === 0) {
-          filled = [remaining[0]];
-        } else if (activeCount <= 2 && emptyCount > 0) {
-          filled = remaining.filter((p) => p.sessionId || p.hostId);
-          if (filled.length === 1) filled = [filled[0]];
-        } else if (activeCount === 3) {
-          filled = [...remaining, makePane({})];
-        } else {
-          filled = remaining;
-        }
-        const layout = filled.length === 1 ? 'single' : (filled.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
+
+        // Remove from splitTree and collapse
+        const currentTree = ensureTree(panes, t.splitTree);
+        const newTree = removeLeaf(currentTree, paneId);
+        const finalTree = ensureTree(remaining, newTree);
+
+        const layout = remaining.length === 1 ? 'single' : (remaining.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
         const newActiveId = t.activePaneId === paneId
-          ? (filled.find((p) => p.sessionId || p.hostId) || filled[0])?.id
+          ? (remaining.find((p) => p.sessionId || p.hostId) || remaining[0])?.id
           : t.activePaneId;
-        return { ...t, panes: filled, layout, activePaneId: newActiveId };
+        return { ...t, panes: remaining, layout, splitTree: finalTree, activePaneId: newActiveId };
       }));
       const token = localStorage.getItem('auth_token');
       // 로컬 세션 정리
@@ -620,8 +628,7 @@ function App() {
     }));
   }, []);
 
-  // 분할 pane → 새 단독 탭으로 분리 (detach). 원본 탭은 closePane 과 동일한 후처리 적용
-  // (3 panes 남으면 빈 pane 보충, 2 면 'h'/'v', 1 면 'single'). 빈 pane (sessionId/hostId 없음) 은
+  // 분할 pane → 새 단독 탭으로 분리 (detach). 빈 pane (sessionId/hostId 없음) 은
   // 추출 의미 없으므로 무시. 새 탭은 원본 바로 뒤에 삽입되고 즉시 활성화.
   const extractPaneToTab = useCallback((tabId, paneId) => {
     const src = tabs.find((tt) => tt.id === tabId);
@@ -642,13 +649,17 @@ function App() {
 
     setTabs((prev) => {
       const remaining = (src.panes || []).filter((p) => p.id !== paneId);
-      const filled = remaining.length === 3 ? [...remaining, makePane({})] : remaining;
-      const layout = filled.length === 1 ? 'single' : (filled.length === 2 ? (src.layout === 'v' ? 'v' : 'h') : '2x2');
+      const layout = remaining.length === 1 ? 'single' : (remaining.length === 2 ? (src.layout === 'v' ? 'v' : 'h') : '2x2');
+      // Update splitTree: remove the extracted pane
+      const currentTree = ensureTree(src.panes, src.splitTree);
+      const newSrcTree = removeLeaf(currentTree, paneId);
+      const finalSrcTree = ensureTree(remaining, newSrcTree);
       const trimmedSrc = {
         ...src,
-        panes: filled,
+        panes: remaining,
         layout,
-        activePaneId: filled[0]?.id || null,
+        splitTree: finalSrcTree,
+        activePaneId: remaining[0]?.id || null,
       };
       const newTab = {
         id: newTabId,
@@ -659,6 +670,7 @@ function App() {
         color_index: src.color_index ?? 0,
         panes: [newPane],
         layout: 'single',
+        splitTree: makeLeaf(newPane.id),
         activePaneId: newPane.id,
         ...(src.hostId ? { hostId: src.hostId } : null),
         ...(src.tmuxSuffix ? { tmuxSuffix: src.tmuxSuffix } : null),
@@ -671,8 +683,9 @@ function App() {
     setActiveTabId(newTabId);
   }, [tabs]);
 
-  // 분할 pane 순서 변경 — subTabs 컨텍스트 메뉴(Move left/right) 에서 사용.
+  // 분할 pane 순서 변경 — subTabs 컨텍스트 메뉴(Move left/right) 및 드래그 핸들에서 사용.
   // (tabId, fromPaneId, toPaneId) → 해당 탭의 panes 배열에서 fromPaneId 를 toPaneId 위치로 이동.
+  // splitTree 가 있으면 leaf paneId 도 swap 해서 시각적 위치가 바뀌도록 함.
   const reorderPane = useCallback((tabId, fromPaneId, toPaneId) => {
     if (!fromPaneId || !toPaneId || fromPaneId === toPaneId) return;
     setTabs((prev) => prev.map((tt) => {
@@ -684,7 +697,11 @@ function App() {
       const next = [...panes];
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
-      return { ...tt, panes: next };
+      // Swap leaf positions in the split tree so the visual layout reflects the reorder
+      const nextSplitTree = tt.splitTree
+        ? swapLeaves(tt.splitTree, fromPaneId, toPaneId)
+        : null;
+      return { ...tt, panes: next, ...(nextSplitTree ? { splitTree: nextSplitTree } : {}) };
     }));
   }, []);
 
@@ -1143,7 +1160,7 @@ function App() {
       if (ctrl && e.key === 't') { e.preventDefault(); handleAddTab(); return; }
       if (ctrl && (e.key === '\\' || e.code === 'Backslash')) {
         e.preventDefault();
-        splitActivePane(e.shiftKey ? 'v' : 'h');
+        splitActivePane(e.shiftKey ? 'down' : 'right');
         return;
       }
       if (ctrl && e.key === 'w') {
@@ -1417,7 +1434,7 @@ function App() {
             openLocalTab(src.cwd ?? null);
           }
         }}
-        canSplit={!!activeTab && (activeTab.panes?.length || 1) < 4}
+        canSplit={!!activeTab && !isMobile}
         t={t}
       />
 
@@ -1493,7 +1510,7 @@ function App() {
                Terminal 이 다시 fit() 호출하도록. (없으면 닫기 후 화면 크기 안 맞아 깨짐.)
                viewportHeight 도 포함 — iOS 키보드 올라와 visualViewport 가 줄어들 때 즉시 fit.
                (ResizeObserver 도 깨우지만 350ms debounce 가 있어 사용자 체감은 layoutSignal 경로가 빠름.) */
-            const tabLayoutSignal = `tab:${tab.id}:editor:${isThisActive && activeFile ? editorHeight : 0}:active:${isThisActive ? 1 : 0}:layout:${tab.layout || 'single'}:n:${tab.panes?.length || 1}:vh:${isMobile ? Math.round(viewportHeight) : 0}`;
+            const tabLayoutSignal = `tab:${tab.id}:editor:${isThisActive && activeFile ? editorHeight : 0}:active:${isThisActive ? 1 : 0}:layout:${tab.layout || 'single'}:n:${tab.panes?.length || 1}:vh:${isMobile ? Math.round(viewportHeight) : 0}:tree:${tab.splitTree ? JSON.stringify(tab.splitTree).length : 0}`;
             return (
               <div
                 key={tab.id}
@@ -1539,6 +1556,7 @@ function App() {
                     onActivatePane={activatePane}
                     onExtractPaneToTab={extractPaneToTab}
                     onReorderPane={reorderPane}
+                    onSplitPane={(tabId, paneId, dir) => splitActivePane(dir, tabId, paneId)}
                     onPaneCwdChange={handlePaneCwdChange}
                     onPaneThemeChange={handlePaneThemeChange}
                     onRenamePane={handleRenamePane}

@@ -807,7 +807,19 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
       )}
 
       <div style={styles.list} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
-        {rootError && <div style={styles.errorBox}><div>Error: {rootError}</div><button onClick={() => fetchChildren('')} style={styles.retryBtn}>{t('retry')}</button></div>}
+        {rootError && (
+          <div style={styles.errorBox}>
+            <div style={{ fontSize: fontSize['13'], color: color.subtext, fontWeight: fontWeight.medium }}>
+              {t('couldNotLoadFiles') || 'Could not load files'}
+            </div>
+            <div style={{ fontSize: fontSize['11'], color: color.muted, fontFamily: font.mono, wordBreak: 'break-all' }}>
+              {rootError}
+            </div>
+            <button onClick={() => fetchChildren('')} style={styles.retryBtn}>
+              {t('retry') || 'Retry'}
+            </button>
+          </div>
+        )}
         {rootLoading && !rootError && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: '4px 4px' }}>
             {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((i) => (

@@ -1,8 +1,10 @@
 import { useState, memo, useCallback, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, Trash2,
   Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound, HelpCircle,
-  ExternalLink, Eye, EyeOff,
+  ExternalLink, Eye, EyeOff, MoreHorizontal,
+  GripVertical, Columns2, Rows2, LayoutGrid,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -15,6 +17,10 @@ import useGitChanges from '../hooks/useGitChanges';
 import RailIconBtn from './common/RailIconBtn';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
+
+/** Mirrored icons for split-left / split-up — same shape, flipped for visual distinction. */
+const ColumnsFlipX = (props) => <Columns2 {...props} style={{ transform: 'scaleX(-1)' }} />;
+const RowsFlipY = (props) => <Rows2 {...props} style={{ transform: 'scaleY(-1)' }} />;
 
 const DEFAULT_PANEL_WIDTH = 260;
 const MIN_PANEL_WIDTH = 180;
@@ -58,6 +64,13 @@ const RightPanel = ({
   onCloseTerminal = null, // pane 닫기 — 단일 pane 이면 closePane 이 closeTab 으로 위임
   /* 분할 pane 을 새 탭으로 detach — null 이면 버튼 숨김 (단일 pane / 빈 pane). */
   onExtractPane = null,
+  /* pane rail 분할 버튼 — (dir) => void. dir = 'right'|'left'|'down'|'up'|'2x2'. */
+  onSplitPane = null,
+  /* busy 인디케이터 — 터미널 활동 점멸 여부. */
+  isBusy = false,
+  /* 터미널 세션 상태 — { evicted, ended, isReady, hasContent }. */
+  sessionStatus = null,
+  isMobile = false,
 }) => {
   const panelTheme = themes[paneThemeId || settings?.theme] || themes.catppuccin;
   const panelUi = buildThemeUI(panelTheme);
@@ -81,10 +94,53 @@ const RightPanel = ({
   const startWidthRef = useRef(0);
   const panelRef = useRef(null);
   const closedAtRef = useRef(0);
+  const [railMenu, setRailMenu] = useState(null);
+  const moreBtnRef = useRef(null);
+  const railMenuClosedAtRef = useRef(0);
+  const [splitMenu, setSplitMenu] = useState(null);
+  const splitBtnRef = useRef(null);
+  const splitMenuClosedAtRef = useRef(0);
 
   const closePanel = useCallback(() => {
     setActivePanel(null);
     closedAtRef.current = Date.now();
+  }, []);
+
+  const handleMoreClick = useCallback(() => {
+    if (railMenu) {
+      setRailMenu(null);
+      railMenuClosedAtRef.current = Date.now();
+      return;
+    }
+    // Prevent immediate reopen from outside-click close
+    if (Date.now() - railMenuClosedAtRef.current < 300) return;
+    if (moreBtnRef.current) {
+      const rect = moreBtnRef.current.getBoundingClientRect();
+      setRailMenu({ x: rect.right, y: rect.bottom + 4 });
+    }
+  }, [railMenu]);
+
+  const closeRailMenu = useCallback(() => {
+    setRailMenu(null);
+    railMenuClosedAtRef.current = Date.now();
+  }, []);
+
+  const handleSplitClick = useCallback(() => {
+    if (splitMenu) {
+      setSplitMenu(null);
+      splitMenuClosedAtRef.current = Date.now();
+      return;
+    }
+    if (Date.now() - splitMenuClosedAtRef.current < 300) return;
+    if (splitBtnRef.current) {
+      const rect = splitBtnRef.current.getBoundingClientRect();
+      setSplitMenu({ x: rect.right, y: rect.bottom + 4 });
+    }
+  }, [splitMenu]);
+
+  const closeSplitMenu = useCallback(() => {
+    setSplitMenu(null);
+    splitMenuClosedAtRef.current = Date.now();
   }, []);
 
   useEffect(() => {
@@ -130,7 +186,7 @@ const RightPanel = ({
     const onMove = (ev) => {
       if (!resizingRef.current) return;
       const cx = ev.clientX ?? ev.touches?.[0]?.clientX ?? 0;
-      const delta = startXRef.current - cx;
+      const delta = cx - startXRef.current;
       const next = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidthRef.current + delta));
       setPanelWidth(next);
     };
@@ -157,11 +213,15 @@ const RightPanel = ({
   const gitCount = gitContextPath != null ? (gitItems || []).length : 0;
 
   return (
-    <div style={{ ...styles.root, borderLeftColor: panelUi.border }}>
+    <div style={{ ...styles.root, borderTopColor: panelUi.border }}>
       {/* 사이드바 내부 스크롤바 — 현재 pane 의 테마(panelUi) 색으로 직접 박음.
           글로벌 스크롤바 룰보다 더 specific + !important 로 확실히 오버라이드.
           폭 6px, 색은 surface1 (mid-tone) — 너무 찐한 느낌 완화. */}
       <style>{`
+        @keyframes iterm-pane-busy-dot {
+          0%, 100% { opacity: 0.48; transform: scale(0.9); }
+          50% { opacity: 1; transform: scale(1); }
+        }
         .iterm-rp-panelbody, .iterm-rp-panelbody * {
           scrollbar-width: thin !important;
           scrollbar-color: ${panelUi.surface1} transparent !important;
@@ -182,7 +242,245 @@ const RightPanel = ({
           background: transparent !important;
         }
       `}</style>
-      {/* content panel — absolute overlay (활동바 우측 → 본문 위로 떠서 터미널 폭 안 밀어냄) */}
+
+      {/* activity bar — drag handle + tab strip + split/status/eye/close cluster */}
+      <div style={{
+        ...styles.activityBar,
+        background: `color-mix(in srgb, ${panelUi.surface0} 65%, transparent)`,
+        backdropFilter: 'blur(14px) saturate(160%)',
+        WebkitBackdropFilter: 'blur(14px) saturate(160%)',
+        borderBottomColor: panelUi.border,
+      }}>
+        {/* Far-left: drag/move handle affordance */}
+        {!isMobile && !disabled && !loading && (
+          <div
+            title={t?.('paneHandle') || 'Move / split handle'}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '18px',
+              height: '22px',
+              flexShrink: 0,
+              color: panelUi.muted,
+              opacity: 0.6,
+              cursor: 'grab',
+              marginRight: '1px',
+              pointerEvents: loading ? 'none' : 'auto',
+            }}
+            draggable
+            onDragStart={(e) => {
+              const payload = JSON.stringify({
+                type: 'pane',
+                tabId: paneInfo?.tabId || paneInfo?.sessionId,
+                paneId: paneInfo?.paneId,
+              });
+              e.dataTransfer.setData('text/plain', payload);
+              e.dataTransfer.setData('application/x-iterminallist-pane', payload);
+              e.dataTransfer.effectAllowed = 'move';
+            }}
+            onPointerDown={() => {
+              /* focus this pane on handle touch */
+              if (paneInfo?.paneId) {
+                // no-op: just focus affordance, actual reorder via context menu
+              }
+            }}
+          >
+            <GripVertical size={13} strokeWidth={1.8} />
+          </div>
+        )}
+
+        {/* Left: tab strip — 4 main panel tabs only */}
+        <div style={{
+          display: 'flex', flexDirection: 'row', alignItems: 'center',
+          gap: '2px',
+          opacity: disabled ? 0.4 : 1,
+          pointerEvents: (disabled || loading) ? 'none' : 'auto',
+        }}>
+          {loading ? (
+            TABS.map((_, i) => (
+              <div key={i} style={{
+                width: '22px',
+                height: '22px',
+                borderRadius: radius.md,
+                background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
+                animation: 'skel-pulse 1.4s ease-in-out infinite',
+                animationDelay: `${i * 100}ms`,
+              }} />
+            ))
+          ) : (
+            TABS.map(({ id, icon: Icon, label }) => {
+              const isActive = activePanel === id;
+              const badge = id === 'git' && gitCount > 0 ? gitCount : null;
+              return (
+                <RailIconBtn
+                  key={id}
+                  icon={Icon}
+                  onClick={() => !disabled && togglePanel(id)}
+                  title={badge ? `${label} (${badge})` : label}
+                  active={isActive}
+                  disabled={disabled}
+                  badge={badge}
+                  ui={panelUi}
+                  compact
+                />
+              );
+            })
+          )}
+        </div>
+
+        {/* Spacer */}
+        <div style={{ flex: 1, minWidth: '4px' }} />
+
+        {/* Right cluster: split buttons → focus eye (dot only on busy/evicted) → … menu */}
+        <div style={{
+          display: 'flex', flexDirection: 'row', alignItems: 'center',
+          gap: '1px', flexShrink: 0,
+        }}>
+          {/* Single split button — opens dropdown with left/right/up/down choices */}
+          {loading && onSplitPane && (
+            <div style={{
+              width: '22px',
+              height: '22px',
+              borderRadius: radius.md,
+              background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
+              animation: 'skel-pulse 1.4s ease-in-out infinite',
+              animationDelay: '400ms',
+            }} />
+          )}
+          {!disabled && !loading && onSplitPane && (
+            <div ref={splitBtnRef}>
+              <RailIconBtn
+                icon={Columns2}
+                onClick={handleSplitClick}
+                title={t?.('splitPane') || 'Split pane'}
+                active={!!splitMenu}
+                ui={panelUi}
+                compact
+              />
+            </div>
+          )}
+
+          {/* Focus eye indicator — dot badge only when busy or evicted, never rendered idle */}
+          {loading && showFocusEye && (
+            <div style={{
+              width: '22px',
+              height: '22px',
+              borderRadius: radius.md,
+              background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
+              animation: 'skel-pulse 1.4s ease-in-out infinite',
+              animationDelay: '500ms',
+            }} />
+          )}
+          {showFocusEye && (
+            <FocusEye
+              isFocused={isFocused}
+              panelUi={panelUi}
+              t={t}
+              isBusy={isBusy}
+              sessionStatus={sessionStatus}
+            />
+          )}
+
+          {/* More menu button — rightmost item in the topbar */}
+          <div ref={moreBtnRef}>
+            {loading ? (
+              <div style={{
+                width: '22px',
+                height: '22px',
+                borderRadius: radius.md,
+                background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
+                animation: 'skel-pulse 1.4s ease-in-out infinite',
+                animationDelay: '600ms',
+              }} />
+            ) : (
+              <RailIconBtn
+                icon={MoreHorizontal}
+                onClick={handleMoreClick}
+                title={t?.('more') || 'More'}
+                active={!!railMenu}
+                ui={panelUi}
+                compact
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* RailSubMenu — portal to document.body */}
+      {railMenu && createPortal(
+        <RailSubMenu
+          anchor={railMenu}
+          ui={panelUi}
+          onClose={closeRailMenu}
+          t={t}
+        >
+          {onCloseTerminal && (
+            <MenuBtn icon={Trash2} onClick={() => { closeRailMenu(); onCloseTerminal(); }} danger ui={panelUi}>
+              {t?.('closeTerminal') || 'Close terminal'}
+            </MenuBtn>
+          )}
+          {onExtractPane && (
+            <MenuBtn icon={ExternalLink} onClick={() => { closeRailMenu(); onExtractPane(); }} ui={panelUi}>
+              {t?.('detachPane') || 'Detach to new tab'}
+            </MenuBtn>
+          )}
+          {!disabled && terminalKey && (
+            <>
+              <MenuBtn icon={ChevronsUp} onClick={() => { closeRailMenu(); sendScroll(-1); }} ui={panelUi}>
+                {t?.('pageUp') || 'Page up'}
+              </MenuBtn>
+              <MenuBtn icon={ChevronsDown} onClick={() => { closeRailMenu(); sendScroll(1); }} ui={panelUi}>
+                {t?.('pageDown') || 'Page down'}
+              </MenuBtn>
+              <MenuBtn icon={FileText} onClick={() => { closeRailMenu(); handleDump(); }} ui={panelUi}>
+                {t?.('viewAsText') || 'View as text'}
+              </MenuBtn>
+            </>
+          )}
+          {onRefreshTerminal && !disabled && (
+            <MenuBtn icon={RefreshCw} onClick={() => { closeRailMenu(); onRefreshTerminal(); }} ui={panelUi}>
+              {t?.('refreshTerminal') || 'Reload terminal'}
+            </MenuBtn>
+          )}
+          {showFocusEye && (
+            <MenuBtn
+              icon={isFocused ? Eye : EyeOff}
+              ui={panelUi}
+              display
+            >
+              {isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused')}
+            </MenuBtn>
+          )}
+        </RailSubMenu>,
+        document.body
+      )}
+
+      {/* Split pane dropdown — portal to document.body */}
+      {splitMenu && createPortal(
+        <RailSubMenu
+          anchor={splitMenu}
+          ui={panelUi}
+          onClose={closeSplitMenu}
+          t={t}
+        >
+          <MenuBtn icon={ColumnsFlipX} onClick={() => { closeSplitMenu(); onSplitPane('left'); }} ui={panelUi}>
+            {t?.('splitLeft') || 'Split left'}
+          </MenuBtn>
+          <MenuBtn icon={Columns2} onClick={() => { closeSplitMenu(); onSplitPane('right'); }} ui={panelUi}>
+            {t?.('splitRight') || 'Split right'}
+          </MenuBtn>
+          <MenuBtn icon={RowsFlipY} onClick={() => { closeSplitMenu(); onSplitPane('up'); }} ui={panelUi}>
+            {t?.('splitUp') || 'Split up'}
+          </MenuBtn>
+          <MenuBtn icon={Rows2} onClick={() => { closeSplitMenu(); onSplitPane('down'); }} ui={panelUi}>
+            {t?.('splitDown') || 'Split down'}
+          </MenuBtn>
+        </RailSubMenu>,
+        document.body
+      )}
+
+      {/* content panel — absolute overlay below top rail (left-side panel) */}
       {activePanel && !disabled && (
         <div
           ref={panelRef}
@@ -196,20 +494,21 @@ const RightPanel = ({
             color: panelUi.text,
             width: `${panelWidth}px`,
             position: 'absolute',
-            top: 0,
-            right: '30px',
+            top: '30px',
+            left: 0,
             bottom: 0,
             zIndex: 10,
-            boxShadow: '-4px 0 16px rgba(0,0,0,0.35)',
+            boxShadow: '4px 0 16px rgba(0,0,0,0.35)',
             outline: 'none',
+            pointerEvents: 'auto',
           }}>
-          {/* 리사이즈 드래그 핸들 — 패널 좌측 가장자리 */}
+          {/* 리사이즈 드래그 핸들 — 패널 우측 가장자리 */}
           <div
             onMouseDown={handleResizeStart}
             onTouchStart={handleResizeStart}
             style={{
               position: 'absolute',
-              top: 0, left: 0, bottom: 0,
+              top: 0, right: 0, bottom: 0,
               width: '5px',
               cursor: 'col-resize',
               zIndex: 2,
@@ -231,9 +530,7 @@ const RightPanel = ({
           <div className="iterm-rp-panelbody" style={{ ...styles.panelBody, background: 'transparent', color: panelUi.text }}>
             {activePanel === 'files' && (
               <FileTree
-                /* host 면 paneCwd 가 트리의 시작 절대경로. local 은 paneCwd(탭 cwd) 가 있으면
-                   그 디렉토리를 트리 루트로 — 워크스페이스 전체가 아니라 프로젝트 단위로 좁힘. */
-                key={`${activeHostId || 'local'}:${activeHostId ? (paneCwd || 'home') : (paneCwd || gitContextPath || selectedFolderPath || 'root')}`}
+                key={`${activeHostId ?? 'local'}:${activeHostId ? (paneCwd ?? 'home') : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? 'root')}`}
                 hostId={activeHostId}
                 onFileSelect={onFileSelect}
                 onFolderSelect={onFolderSelect}
@@ -241,7 +538,7 @@ const RightPanel = ({
                 gitContextPath={gitContextPath}
                 sharedGitChanges={gitChanges}
                 language={language}
-                initialPath={activeHostId ? (paneCwd || '') : (paneCwd || gitContextPath || selectedFolderPath)}
+                initialPath={activeHostId ? (paneCwd ?? '') : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? '')}
               />
             )}
             {activePanel === 'git' && (
@@ -272,125 +569,6 @@ const RightPanel = ({
           </div>
         </div>
       )}
-
-      {/* activity bar — floating overlay. 구분선 없이 gap 으로 spacing.
-          순서: close(파괴적) → extract(분리) → 주 네비(pane 상태에 의존) → 스크롤 → refresh → 하단 eye. */}
-      <div style={{
-        ...styles.activityBar,
-        // 글래스모피즘 — 테마의 surface0 (밝은 톤) 을 65% 알파로 칠해 터미널이 살짝 비치고,
-        // backdrop-filter 로 그 뒤를 흐려서 사이드바가 떠 있는 듯한 느낌.
-        background: `color-mix(in srgb, ${panelUi.surface0} 65%, transparent)`,
-        backdropFilter: 'blur(14px) saturate(160%)',
-        WebkitBackdropFilter: 'blur(14px) saturate(160%)',
-        borderLeftColor: panelUi.border,
-      }}>
-        {/* close — loading 중엔 스켈레톤. */}
-        {onCloseTerminal && !loading && (
-          <RailIconBtn
-            icon={Trash2}
-            onClick={onCloseTerminal}
-            title={t?.('closeTerminal') || 'Close terminal'}
-            tone="danger"
-            ui={panelUi}
-            compact
-          />
-        )}
-        {onCloseTerminal && loading && (
-          <div style={{ width: '26px', height: '26px', borderRadius: radius.md, background: panelUi.surface1 || 'rgba(255,255,255,0.06)', animation: 'skel-pulse 1.4s ease-in-out infinite' }} />
-        )}
-
-        {/* 분할 pane → detach. loading 중엔 스켈레톤. */}
-        {onExtractPane && !loading && (
-          <RailIconBtn
-            icon={ExternalLink}
-            onClick={onExtractPane}
-            title={t?.('detachPane') || 'Detach to new tab'}
-            ui={panelUi}
-            compact
-          />
-        )}
-        {onExtractPane && loading && (
-          <div style={{ width: '26px', height: '26px', borderRadius: radius.md, background: panelUi.surface1 || 'rgba(255,255,255,0.06)', animation: 'skel-pulse 1.4s ease-in-out infinite', animationDelay: '80ms' }} />
-        )}
-
-        {/* 주 네비 + 보조 액션 — 빈 pane 일 땐 흐리게 + 클릭 무시. 로딩 중엔 스켈레톤. */}
-        <div style={{
-          alignSelf: 'stretch',
-          display: 'flex', flexDirection: 'column', alignItems: 'center',
-          gap: '6px',
-          opacity: disabled ? 0.4 : 1,
-          pointerEvents: (disabled || loading) ? 'none' : 'auto',
-        }}>
-          {loading ? (
-            <>
-              {TABS.map((_, i) => (
-                <div key={i} style={{
-                  width: '26px',
-                  height: '26px',
-                  borderRadius: radius.md,
-                  background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
-                  animation: 'skel-pulse 1.4s ease-in-out infinite',
-                  animationDelay: `${i * 100}ms`,
-                }} />
-              ))}
-              {[0, 1, 2].map((i) => (
-                <div key={`s${i}`} style={{
-                  width: '26px',
-                  height: '26px',
-                  borderRadius: radius.md,
-                  background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
-                  animation: 'skel-pulse 1.4s ease-in-out infinite',
-                  animationDelay: `${(TABS.length + i) * 100}ms`,
-                }} />
-              ))}
-            </>
-          ) : (
-            <>
-              {TABS.map(({ id, icon: Icon, label }) => {
-                const isActive = activePanel === id;
-                const badge = id === 'git' && gitCount > 0 ? gitCount : null;
-                return (
-                  <RailIconBtn
-                    key={id}
-                    icon={Icon}
-                    onClick={() => !disabled && togglePanel(id)}
-                    title={badge ? `${label} (${badge})` : label}
-                    active={isActive}
-                    disabled={disabled}
-                    badge={badge}
-                    ui={panelUi}
-                    compact
-                  />
-                );
-              })}
-
-              {!disabled && terminalKey && (
-                <>
-                  <RailIconBtn icon={ChevronsUp}   onClick={() => sendScroll(-1)} title={t?.('pageUp')   || 'Page up'} ui={panelUi} compact />
-                  <RailIconBtn icon={ChevronsDown} onClick={() => sendScroll(1)}  title={t?.('pageDown') || 'Page down'} ui={panelUi} compact />
-                  <RailIconBtn icon={FileText}     onClick={handleDump}           title={t?.('viewAsText') || 'View as text (free select)'} ui={panelUi} compact />
-                </>
-              )}
-
-              {onRefreshTerminal && !disabled && (
-                <RailIconBtn icon={RefreshCw} onClick={onRefreshTerminal} title={t?.('refreshTerminal') || 'Reload terminal'} ui={panelUi} compact />
-              )}
-            </>
-          )}
-        </div>
-
-        {/* 사이드바 하단 — 포커스 인디케이터. Eye 면 포커스됨, EyeOff 면 미포커스.
-            클릭 비활성 (display only). 보더 강조 효과를 뺀 대신 시각적으로 어느 터미널이 포커스인지 알려줌.
-            분할(isMultiple) 일 때만 노출 — 단일 pane / 모바일 단일에선 의미 없음. */}
-        {loading && showFocusEye && (
-          <div style={{ marginTop: 'auto', alignSelf: 'stretch', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: '2px' }}>
-            <div style={{ width: '22px', height: '22px', borderRadius: radius.md, background: panelUi.surface1 || 'rgba(255,255,255,0.06)', animation: 'skel-pulse 1.4s ease-in-out infinite', animationDelay: '700ms' }} />
-          </div>
-        )}
-        {!loading && showFocusEye && (
-          <FocusEye isFocused={isFocused} panelUi={panelUi} t={t} />
-        )}
-      </div>
     </div>
   );
 };
@@ -398,7 +576,7 @@ const RightPanel = ({
 // 사이드바 하단 포커스 인디케이터 — Eye(포커스) / EyeOff(미포커스).
 // 호버 시 더 보이게 (focused 도 살짝 강조, unfocused 는 0.55 → 0.9).
 // React state 로 hover 관리 — 인라인 onMouseEnter 가 재렌더 시 리셋되던 문제 회피.
-const FocusEye = ({ isFocused, panelUi, t }) => {
+const FocusEye = ({ isFocused, panelUi, t, isBusy = false, sessionStatus = null }) => {
   const [hover, setHover] = useState(false);
   const opacity = isFocused
     ? (hover ? 1 : 0.9)
@@ -406,11 +584,21 @@ const FocusEye = ({ isFocused, panelUi, t }) => {
   // 호버 시 색도 한 단계 밝게:
   //   focused  : accent → text (가장 밝은 fg) 로 살짝 화이트화
   //   unfocused: muted → subtext (한 단계 밝은 회색)
-  const color = isFocused
+  const eyeColor = isFocused
     ? (hover ? panelUi.text : panelUi.accent)
     : (hover ? panelUi.subtext : panelUi.muted);
+
+  const isEvicted = !!sessionStatus?.evicted;
+  const showDot = isBusy || isEvicted;
+  const dotBg = isEvicted
+    ? (panelUi.warning || '#f9e2af')
+    : panelUi.accent;
+  const dotTitle = isEvicted
+    ? (t?.('sessionTakenOver') || 'Session taken over')
+    : (t?.('terminalBusy') || 'Terminal is active');
+
   return (
-    <div style={{ marginTop: 'auto', alignSelf: 'stretch', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: '2px' }}>
+    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
       <div
         aria-hidden
         title={isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused')}
@@ -422,7 +610,7 @@ const FocusEye = ({ isFocused, panelUi, t }) => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          color,
+          color: eyeColor,
           opacity,
           transition: 'opacity 220ms ease, color 220ms ease',
         }}
@@ -431,7 +619,134 @@ const FocusEye = ({ isFocused, panelUi, t }) => {
           ? <Eye size={13} strokeWidth={1.9} />
           : <EyeOff size={13} strokeWidth={1.9} />}
       </div>
+      {/* Status badge dot — top-right corner of the eye box. Only renders when active (busy or evicted). */}
+      {showDot && (
+        <span
+          aria-hidden
+          title={dotTitle}
+          style={{
+            position: 'absolute',
+            top: '1px',
+            right: '1px',
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            background: dotBg,
+            boxShadow: isEvicted
+              ? `0 0 0 1px ${panelUi.base}, 0 0 6px ${panelUi.warning || '#f9e2af'}`
+              : `0 0 0 1px ${panelUi.base}, 0 0 6px ${panelUi.accent}`,
+            animation: 'iterm-pane-busy-dot 1.15s ease-in-out infinite',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
     </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RailSubMenu — per-pane "…" dropdown for secondary actions (close, detach,
+// page scroll, log dump, refresh, focus indicator). Positioned via measured
+// pattern; uses stable ref + setTimeout(0) for outside-click / Escape per AGENTS.md.
+
+const RailSubMenu = ({ anchor, ui, onClose, t, children }) => {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ x: anchor.x, y: anchor.y });
+  const [measured, setMeasured] = useState(false);
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const handle = (e) => {
+      if (!ref.current?.contains(e.target)) onCloseRef.current();
+    };
+    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
+    const id = setTimeout(() => {
+      document.addEventListener('mousedown', handle);
+      document.addEventListener('keydown', handleKey);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener('mousedown', handle);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const margin = 8;
+      let nextX = anchor.x - rect.width;
+      let nextY = anchor.y;
+      if (nextX < margin) nextX = margin;
+      if (nextX + rect.width > window.innerWidth - margin) {
+        nextX = window.innerWidth - rect.width - margin;
+      }
+      if (nextY + rect.height > window.innerHeight - margin) {
+        nextY = window.innerHeight - rect.height - margin;
+      }
+      if (nextY < margin) nextY = margin;
+      setPos({ x: nextX, y: nextY });
+      setMeasured(true);
+    }
+  }, [anchor.x, anchor.y]);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: pos.y,
+        left: pos.x,
+        background: ui.surface0 || '#1e1e2e',
+        border: `1px solid ${ui.borderStrong || ui.border}`,
+        borderRadius: '6px',
+        boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+        padding: '3px',
+        zIndex: 200000,
+        minWidth: '160px',
+        fontFamily: font.sans,
+        opacity: measured ? 1 : 0,
+        transition: 'opacity 120ms',
+      }}
+    >
+      {children}
+    </div>
+  );
+};
+
+const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = false, display = false, ui }) => {
+  const fg = danger ? (ui?.danger || color.danger) : (ui?.text || color.text);
+  return (
+    <button
+      type="button"
+      onClick={display ? undefined : onClick}
+      disabled={disabled}
+      style={{
+        width: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        textAlign: 'left',
+        padding: '5px 8px',
+        background: 'transparent',
+        border: 'none',
+        borderRadius: '3px',
+        cursor: display ? 'default' : (disabled ? 'default' : 'pointer'),
+        color: fg,
+        fontSize: '11.5px',
+        fontFamily: 'inherit',
+        transition: 'background 120ms',
+        lineHeight: 1.3,
+        opacity: disabled ? 0.5 : 1,
+      }}
+      onMouseEnter={(e) => { if (!disabled && !display) e.currentTarget.style.background = ui?.surface1 || color.surface1; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {Icon && <Icon size={12} strokeWidth={1.8} />}
+      {children}
+    </button>
   );
 };
 
@@ -1111,16 +1426,17 @@ const Field = ({ label, hint = null, action = null, children }) => (
 const styles = {
   root: {
     display: 'flex',
-    flexDirection: 'row',
+    flexDirection: 'column',
     height: '100%',
+    width: '100%',
     flexShrink: 0,
     position: 'relative',
+    pointerEvents: 'none',
   },
   panel: {
     display: 'flex',
     flexDirection: 'column',
-    borderLeft: '1px solid var(--ui-border)',
-    // 같은 테마의 패널이 위/아래로 스택될 때 경계가 모호해서 하단 라인으로 분리.
+    borderRight: '1px solid var(--ui-border)',
     borderBottom: '1px solid var(--ui-border)',
     background: 'var(--ui-base)',
     overflow: 'hidden',
@@ -1156,24 +1472,25 @@ const styles = {
     overflow: 'auto',
   },
   activityBar: {
-    width: '30px',
+    height: '30px',
+    width: '100%',
     flexShrink: 0,
     display: 'flex',
-    flexDirection: 'column',
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: '6px',
-    paddingBottom: '6px',
-    gap: '6px',
+    paddingLeft: '4px',
+    paddingRight: '4px',
+    gap: '2px',
     background: 'var(--ui-surface0)',
-    borderLeft: '1px solid var(--ui-border)',
-    // 세로 스택(v/2x2 split) 시 같은 테마 사이드바끼리 경계가 안 보여 묘한 느낌 — 하단 라인 추가.
     borderBottom: '1px solid var(--ui-border)',
+    pointerEvents: 'auto',
   },
   divider: {
     alignSelf: 'stretch',
-    height: '1px',
+    width: '1px',
+    height: '18px',
     background: 'var(--ui-border)',
-    margin: '1px 0',
+    margin: '0 2px',
   },
 };
 

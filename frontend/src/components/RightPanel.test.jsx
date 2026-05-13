@@ -64,8 +64,9 @@ describe('RightPanel', () => {
         onExtractPane: vi.fn(),
       })} />
     );
+    // 4 tab skeletons + 1 more-button skeleton (secondary actions consolidated behind menu)
     const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
-    expect(skeletons.length).toBeGreaterThanOrEqual(6);
+    expect(skeletons.length).toBeGreaterThanOrEqual(5);
   });
 
   it('disables nav section pointer events when disabled=true', () => {

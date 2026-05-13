@@ -43,7 +43,7 @@ const detectBrowserLanguage = () => {
 };
 
 export const DEFAULT_SETTINGS = {
-  theme: 'catppuccin',
+  theme: 'default',
   language: detectBrowserLanguage(), // 브라우저 언어 자동 감지
   fontSize: 12,            // PC 글자크기
   fontSizeMobile: 13,      // 모바일 글자크기 (별도 — 작은 화면 보정)

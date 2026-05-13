@@ -11,7 +11,49 @@ const commonUI = {
   gap: '8px',
 };
 
-// 1. Catppuccin Mocha (기본 테마)
+// 0. Default (Zed One Dark–inspired palette)
+export const defaultThemeObj = {
+  background: '#282c34',
+  foreground: '#abb2bf',
+  cursor: '#74ade8',
+  cursorAccent: '#282c34',
+  selection: 'rgba(116, 173, 232, 0.25)',
+  black: '#3b414d',
+  red: '#e06c75',
+  green: '#98c379',
+  yellow: '#e5c07b',
+  blue: '#61afef',
+  magenta: '#c678dd',
+  cyan: '#56b6c2',
+  white: '#abb2bf',
+  brightBlack: '#5c6370',
+  brightRed: '#e06c75',
+  brightGreen: '#98c379',
+  brightYellow: '#e5c07b',
+  brightBlue: '#61afef',
+  brightMagenta: '#c678dd',
+  brightCyan: '#56b6c2',
+  brightWhite: '#dce0e5',
+  ui: {
+    ...commonUI,
+    bg: '#3b414d',
+    bgSecondary: '#2f343e',
+    bgTertiary: '#444b56',
+    glassBg: 'rgba(59, 65, 77, 0.75)',
+    cardBg: '#444b56',
+    border: 'rgba(220, 224, 229, 0.08)',
+    borderLight: 'rgba(220, 224, 229, 0.14)',
+    text: '#dce0e5',
+    textSecondary: '#8b919a',
+    accent: '#74ade8',
+    accentMuted: 'rgba(116, 173, 232, 0.14)',
+    iconColor: '#8b919a',
+    shadow: '0 8px 32px rgba(0,0,0,0.45)',
+    innerShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+  }
+};
+
+// 1. Catppuccin Mocha
 export const catppuccinTheme = {
   background: '#1e1e2e',
   foreground: '#cdd6f4',
@@ -2410,6 +2452,7 @@ export const blossomTheme = {
 
 export const themes = {
   // ── Dark ────────────────────────────────────────────────────────────
+  default:            defaultThemeObj,
   // 차갑고 어두운 계열
   catppuccin:         catppuccinTheme,
   catppuccinMacchiato: catppuccinMacchiatoTheme,
@@ -2466,5 +2509,5 @@ export const themes = {
 };
 
 export const themeNames = Object.keys(themes);
-export const defaultTheme = 'catppuccin';
+export const defaultTheme = 'default';
 export default themes;
