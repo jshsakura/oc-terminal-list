@@ -1,0 +1,59 @@
+# Git
+.git/
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# Node
+node_modules/
+frontend/.vite/
+
+# Build artifacts (rebuilt inside Docker)
+backend/static/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.local
+.env.production
+
+# Data / runtime
+data/
+workspace/
+*.db
+*.db-journal
+*.db.bak*
+
+# Agent / tool state
+.claude/
+.sisyphus/
+.playwright-mcp/
+opencode-resolve/
+
+# Docker
+compose.yml
+docker-compose.yml
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Backup
+backup-*.tar.gz
+
+# Docs / meta (not needed in image)
+*.md
+LICENSE

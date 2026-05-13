@@ -1,354 +1,450 @@
 # OC Terminal List
 
-[![Docker Build](https://github.com/jshsakura/oc-terminal-list/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/jshsakura/oc-terminal-list/actions/workflows/docker-publish.yml)
-[![Docker Pulls](https://img.shields.io/docker/pulls/jshsakura/oc-terminal-list)](https://hub.docker.com/r/jshsakura/oc-terminal-list)
-[![Docker Image Version](https://img.shields.io/docker/v/jshsakura/oc-terminal-list?sort=semver)](https://hub.docker.com/r/jshsakura/oc-terminal-list/tags)
+🌐 English-ready | 🇰🇷 한국어 중심 문서 | 🐳 GHCR Container | 🖥️ Host-native recommended
 
-**초고속 웹 기반 터미널 에뮬레이터 with 영속적 세션 및 파일 브라우저**
+[![GHCR Publish](https://github.com/jshsakura/oc-terminal-list/actions/workflows/ghcr-publish.yml/badge.svg)](https://github.com/jshsakura/oc-terminal-list/actions/workflows/ghcr-publish.yml)
+[![GHCR Image](https://img.shields.io/badge/ghcr.io-jshsakura%2Foc--terminal--list-blue?logo=docker)](https://github.com/jshsakura/oc-terminal-list/pkgs/container/oc-terminal-list)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 
-> Jupyter Notebook보다 빠른 반응성과 부드러운 UX를 제공합니다.
+Fast, self-hosted web terminal for persistent `tmux` sessions, file browsing, SSH host management, and mobile-friendly server access.
 
-## ✨ 주요 기능
+> Docker is supported for quick isolated deployment. **Host-native install is recommended** when you want the app to control the real host shell, host `tmux`, SSH tools, and local workspace directly.
 
-- 🖥️ **웹 터미널**: xterm.js 기반 풀 기능 터미널 에뮬레이터
-- ⚡ **초고속 성능**: 배치 처리, 코드 스플리팅, Gzip 압축으로 최적화
-- 💾 **영속적 세션**: SQLite 기반 세션 복원 및 히스토리
-- 📁 **파일 브라우저**: VS Code 스타일 파일 탐색 및 편집
-- 🔐 **인증 시스템**: JWT 기반 관리자 인증 + TOTP 2단계 인증 (Google/Microsoft Authenticator 등)
-- 🎨 **5가지 테마**: Catppuccin, Dracula, Monokai, Solarized Dark, GitHub Dark
-- 🌐 **다국어 지원**: 한국어/English
-- 📱 **반응형 UI**: 모바일/태블릿/데스크톱 최적화
-- 🐳 **Docker 배포**: 단일 명령으로 쉬운 배포
+```text
+# Paste this into any AI coding assistant for guided setup
+Install OC Terminal List from this repository and choose the best mode for my server:
+https://github.com/jshsakura/oc-terminal-list
 
-## 🚀 빠른 시작
-
-### Docker Compose 사용 (권장)
-
-#### 1. 완전한 docker-compose.yml 예제
-
-```yaml
-version: '3.8'
-
-services:
-  backend:
-    image: jshsakura/oc-terminal-list:latest
-    container_name: oc-terminal-backend
-    ports:
-      - "8000:8000"
-    environment:
-      - DB_PATH=/app/data/octerminallist.db
-      - WORKSPACE_ROOT=/workspace
-      - JWT_SECRET_KEY=your-super-secret-jwt-key-change-this
-      - JWT_ALGORITHM=HS256
-      - ACCESS_TOKEN_EXPIRE_MINUTES=1440
-    volumes:
-      - ./data:/app/data
-      - ./workspace:/workspace
-    restart: unless-stopped
-    networks:
-      - terminal-net
-
-networks:
-  terminal-net:
-    driver: bridge
-
-volumes:
-  app-data:
+Prefer host-native systemd for full host integration.
+Use GHCR Docker only if I want an isolated container terminal.
 ```
 
-#### 2. 환경 변수 설정 (.env 파일)
+---
+
+## Table of Contents
+
+- [What it is](#what-it-is)
+- [Features](#features)
+- [Install modes](#install-modes)
+- [Quick Start: Docker / GHCR](#quick-start-docker--ghcr)
+- [Recommended: Host-native systemd](#recommended-host-native-systemd)
+- [Data model: Docker vs host-native](#data-model-docker-vs-host-native)
+- [Configuration](#configuration)
+- [First login and 2FA](#first-login-and-2fa)
+- [Using the app](#using-the-app)
+- [Operations](#operations)
+- [Security model](#security-model)
+- [Reverse proxy / HTTPS](#reverse-proxy--https)
+- [Developer setup](#developer-setup)
+- [Project structure](#project-structure)
+- [Troubleshooting](#troubleshooting)
+- [Roadmap](#roadmap)
+- [License](#license)
+
+---
+
+## What it is
+
+OC Terminal List is a browser-based terminal workspace for machines you own.
+
+It combines:
+
+- a web terminal backed by persistent host `tmux` sessions
+- a VS Code-style file browser and editor scoped to a workspace directory
+- SSH host/key management
+- single-admin login with optional TOTP 2FA
+- a responsive UI that works on desktop, tablet, and mobile
+
+It is useful when you want a lightweight terminal dashboard that feels faster and more direct than notebook-style remote shells.
+
+---
+
+## Features
+
+| Area | Capability |
+| --- | --- |
+| Terminal | xterm.js terminal UI, persistent `tmux` sessions, reconnect-friendly WebSocket bridge |
+| Sessions | SQLite-backed session metadata and restoration |
+| Files | Workspace-scoped file browser, editor, create/move/delete actions |
+| SSH | Host and key management with encrypted secret storage |
+| Auth | Initial admin setup, JWT sessions, optional TOTP 2FA, one-time backup codes |
+| Vault | SSH passwords, private-key passphrases, and OTP secrets encrypted with `data/.vault-key` |
+| UI | Themes, language switch, mobile toolbar, responsive layout |
+| Performance | Gzip, long-lived static asset cache, lazy loaded frontend chunks, WebSocket batching |
+| Deployment | GHCR Docker image, Compose example, systemd host-native service |
+
+---
+
+## Install modes
+
+| Mode | Best for | Terminal runs in | Data lives in | Recommendation |
+| --- | --- | --- | --- | --- |
+| **Host-native / systemd** | Real server control, host shell, host `tmux`, direct workspace access | The host | Host paths from `.env` | **Recommended** |
+| **Docker / GHCR** | Quick trial, isolated deployment, simple rollback | The container | Mounted `./data` and `./workspace` | Supported |
+| **Local dev** | Hacking on backend/frontend | Your dev shell | Local paths | Developers |
+
+Why host-native is the primary mode: this project is a terminal tool. Container isolation is great for packaging, but it also means the shell, filesystem, SSH agent, and `tmux` server are container-scoped unless you intentionally mount and wire host resources.
+
+---
+
+## Quick Start: Docker / GHCR
+
+Docker is the fastest way to try the app.
+
+> Default port: **38822**. It avoids common development ports like `3000`, `5173`, `8000`, `8080`, and `8888`. Change it freely with `APP_PORT`.
+
+### Option A: use the checked-in `compose.yml`
 
 ```bash
-# 포트 설정
-BACKEND_PORT=8000
-
-# JWT 설정 (반드시 변경하세요!)
-JWT_SECRET_KEY=your-super-secret-jwt-key-at-least-32-characters-long
-JWT_ALGORITHM=HS256
-ACCESS_TOKEN_EXPIRE_MINUTES=1440
-
-# 데이터베이스
-DB_PATH=/app/data/octerminallist.db
-
-# 워크스페이스
-WORKSPACE_ROOT=/workspace
-```
-
-#### 3. 실행
-
-```bash
-# 저장소 클론
 git clone https://github.com/jshsakura/oc-terminal-list.git
 cd oc-terminal-list
 
-# 환경 변수 설정
-cp .env.example .env
-# .env 파일을 편집하여 JWT_SECRET_KEY를 반드시 변경하세요!
-
-# 실행
 docker compose up -d
-
-# 로그 확인
 docker compose logs -f backend
-
-# 접속
-open http://localhost:8000
 ```
 
-### Docker Hub에서 직접 실행
+Open:
+
+```text
+http://localhost:38822
+```
+
+Use a different port:
 
 ```bash
-# docker-compose.yml 생성
-cat > docker-compose.yml << 'EOF'
-version: '3.8'
+# One-off
+APP_PORT=9000 docker compose up -d
 
+# Persistent for this checkout
+echo "APP_PORT=9000" >> .env
+docker compose up -d
+```
+
+### Option B: create a minimal Compose file
+
+```bash
+mkdir oc-terminal-list && cd oc-terminal-list
+
+cat > compose.yml <<'EOF'
 services:
   backend:
-    image: jshsakura/oc-terminal-list:latest
-    container_name: oc-terminal-backend
+    image: ghcr.io/jshsakura/oc-terminal-list:latest
+    container_name: oc-terminal-list
     ports:
-      - "8000:8000"
+      - "${APP_PORT:-38822}:${APP_PORT:-38822}"
     environment:
-      - DB_PATH=/app/data/octerminallist.db
+      - HOST=0.0.0.0
+      - APP_PORT=${APP_PORT:-38822}
+      - DB_PATH=/app/data/iterminallist.db
       - WORKSPACE_ROOT=/workspace
-      - JWT_SECRET_KEY=CHANGE-THIS-SECRET-KEY-NOW
     volumes:
       - ./data:/app/data
       - ./workspace:/workspace
     restart: unless-stopped
 EOF
 
-# 실행
 docker compose up -d
 ```
 
-### 셀프호스트 (systemd, 비-Docker)
+### Docker behavior
 
-호스트에 직접 설치해 부팅 시 자동시작 + 비정상 종료 시 자동 재시작:
+- Web service listens on `${APP_PORT:-38822}`.
+- The terminal shell is inside the container.
+- App data is mounted from `./data` to `/app/data`.
+- Editable workspace files are mounted from `./workspace` to `/workspace`.
+- JWT signing key is generated and stored by the app in DB config.
+- Vault encryption key is generated as `/app/data/.vault-key`.
+
+---
+
+## Recommended: Host-native systemd
+
+Use this when OC Terminal List should operate on the actual host environment.
+
+### Prerequisites
+
+- Linux host
+- Python 3.12 recommended
+- Node.js 20 recommended for frontend build
+- `tmux`
+- `sqlite3` CLI recommended for backup operations
+- `bash` or your preferred host shell
+
+Install OS packages on Debian/Ubuntu-like systems:
 
 ```bash
-# venv + 의존성 + 프론트 빌드
+sudo apt-get update
+sudo apt-get install -y python3 python3-venv nodejs npm tmux sqlite3
+```
+
+### Install
+
+```bash
+git clone https://github.com/jshsakura/oc-terminal-list.git
+cd oc-terminal-list
+
+cp .env.example .env
+```
+
+Edit `.env` for your host:
+
+```bash
+# Example host-native values
+APP_PORT=38822
+HOST=0.0.0.0
+DB_PATH=/var/lib/iterminallist/iterminallist.db
+VAULT_KEY_PATH=/var/lib/iterminallist/.vault-key
+WORKSPACE_ROOT=/srv/iterminallist/workspace
+TMUX_SOCKET_NAME=iterminallist-app
+LOG_LEVEL=INFO
+```
+
+Create host-owned runtime directories:
+
+```bash
+sudo mkdir -p /var/lib/iterminallist /srv/iterminallist/workspace
+sudo chown -R "$USER:$USER" /var/lib/iterminallist /srv/iterminallist/workspace
+```
+
+Install dependencies and build the frontend:
+
+```bash
 python3 -m venv .venv
 .venv/bin/pip install -r backend/requirements.txt
-cd frontend && npm install && npm run build && cd ..
 
-# 서비스 등록
-sudo cp deploy/iterminallist.service /etc/systemd/system/
+cd frontend
+npm install
+npm run build
+cd ..
+```
+
+Register the service:
+
+```bash
+# IMPORTANT: review deploy/iterminallist.service first.
+# It contains host-specific User, Group, WorkingDirectory, EnvironmentFile, and ExecStart paths.
+sudo cp deploy/iterminallist.service /etc/systemd/system/iterminallist.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now iterminallist.service
+```
 
-# 상태 / 로그
+Check status:
+
+```bash
 systemctl status iterminallist.service
 journalctl -u iterminallist.service -f
 ```
 
-자세한 절차 (JWT 회전, vault 키 관리, 백업/복구, 트러블슈팅)는 **[deploy/README.md](./deploy/README.md)**.
+Open:
 
-### 로컬 개발
+```text
+http://localhost:38822
+```
+
+> Full host operations guide: [`deploy/README.md`](./deploy/README.md)
+
+---
+
+## Data model: Docker vs host-native
+
+Keep Docker and host-native data separate unless you are intentionally migrating.
+
+| Mode | DB | Vault key | Workspace |
+| --- | --- | --- | --- |
+| Docker | `./data/iterminallist.db` mounted as `/app/data/iterminallist.db` | `./data/.vault-key` mounted as `/app/data/.vault-key` | `./workspace` mounted as `/workspace` |
+| Host-native | `DB_PATH` in `.env` | `VAULT_KEY_PATH` in `.env` (or repo `data/.vault-key` default) | `WORKSPACE_ROOT` in `.env` |
+
+Rules:
+
+1. Back up `iterminallist.db` and `.vault-key` together.
+2. Losing `.vault-key` makes encrypted SSH passwords, private-key passphrases, and OTP secrets unrecoverable.
+3. Do not casually point Docker and systemd at the same `data/` directory. File ownership and vault-key mismatch can break secrets.
+4. For migration, stop the app first, copy both DB and `.vault-key`, then restart in the target mode.
+
+---
+
+## Configuration
+
+Core environment variables:
+
+| Variable | Default / example | Description |
+| --- | --- | --- |
+| `HOST` | `0.0.0.0` | Bind address for FastAPI / uvicorn |
+| `APP_PORT` | `38822` | Web service port |
+| `DB_PATH` | `/var/lib/iterminallist/iterminallist.db` or `/app/data/iterminallist.db` | SQLite database path |
+| `VAULT_KEY_PATH` | `/var/lib/iterminallist/.vault-key` or `/app/data/.vault-key` | Fernet master key path for encrypted secrets |
+| `WORKSPACE_ROOT` | `/srv/iterminallist/workspace` or `/workspace` | Root directory exposed in the file browser |
+| `TMUX_SOCKET_NAME` | `iterminallist-app` | Dedicated `tmux -L` socket namespace |
+| `TMUX_HISTORY_LIMIT` | `100000` | tmux scrollback/history limit |
+| `LOG_LEVEL` | `INFO` | Python logging level |
+| `RELOAD` | `false` for production | Uvicorn reload flag |
+
+Security keys:
+
+- Do **not** put JWT signing keys in `.env`.
+- JWT signing key is generated and stored in DB config.
+- Vault master key is stored at `VAULT_KEY_PATH` if set; otherwise the app default is `data/.vault-key` under the project root. It must be backed up with the DB.
+- JWT rotation command is available for host-native installs:
 
 ```bash
-# 백엔드 + Vite dev server 동시 (자식 죽으면 자동 재시작)
-python run.py
-
-# 백엔드만
-python run.py --backend
-
-# 프론트엔드만
-python run.py --frontend
+.venv/bin/python backend/rotate_jwt.py --confirm
+sudo systemctl restart iterminallist.service
 ```
 
-수동으로 따로 띄우고 싶다면:
+---
+
+## First login and 2FA
+
+1. Open `http://localhost:38822` or your configured domain.
+2. The initial setup screen appears when no admin exists.
+3. Create the admin account:
+   - username: at least 3 characters
+   - password: at least 8 characters; 12+ recommended
+4. Log in.
+5. Optional but recommended: enable TOTP 2FA in **Settings → 2-step authentication**.
+
+2FA flow:
+
+1. Click **Enable 2FA**.
+2. Scan the QR code with Google Authenticator, Microsoft Authenticator, 1Password, Bitwarden, or any RFC 6238-compatible app.
+3. Enter the 6-digit code.
+4. Store the 10 one-time backup codes safely. They are not shown again.
+
+---
+
+## Using the app
+
+### Terminal
+
+- Create a terminal from the sidebar or top action button.
+- Switch sessions from the session list.
+- Rename sessions by editing the session name.
+- Reconnect after browser refresh; backend reattaches to persistent `tmux` sessions.
+- Use mobile toolbar keys for `Esc`, `Tab`, `Ctrl+C`, arrows, and paste on touch devices.
+
+### File browser
+
+- Browse under `WORKSPACE_ROOT` only.
+- Open and edit files in the built-in editor.
+- Create files/directories.
+- Move or delete workspace entries.
+- Open a terminal in a selected folder.
+
+### Settings
+
+- Theme selection: Catppuccin, Dracula, Monokai, Solarized Dark, GitHub Dark.
+- Language: Korean / English.
+- Font size.
+- Terminal auto-scroll behavior.
+- TOTP 2FA and backup-code management.
+
+---
+
+## Operations
+
+### Service commands
 
 ```bash
-# 백엔드
-cd backend
-pip install -r requirements.txt
-DB_PATH=./data/iterminallist.db python3 main.py
-
-# 프론트엔드 (새 터미널)
-cd frontend
-npm install
-npm run dev
+sudo systemctl restart iterminallist.service
+sudo systemctl stop iterminallist.service
+sudo systemctl start iterminallist.service
+journalctl -u iterminallist.service -f
 ```
 
-## ⚡ 성능 최적화
-
-OC Terminal List는 다음과 같은 최적화로 Jupyter Notebook보다 빠른 성능을 제공합니다:
-
-### 백엔드 최적화
-- **Gzip 압축**: 모든 HTTP 응답을 자동 압축 (70% 크기 감소)
-- **정적 파일 캐싱**: JS/CSS 파일을 1년간 캐시 (브라우저 캐시 활용)
-- **데이터베이스 인덱스**: SQLite 쿼리 최적화
-
-### 프론트엔드 최적화
-- **코드 스플리팅**: 메인 번들 522KB → 174KB로 67% 감소
-- **Lazy Loading**: 컴포넌트를 필요할 때만 로드
-- **React.memo()**: Terminal, Sidebar 등 주요 컴포넌트 메모이제이션
-- **WebSocket 배치 처리**: 메시지를 32ms마다 배치로 처리 (부드러운 30fps)
-- **터미널 버퍼 최적화**: 스크롤백 1000줄로 제한 (메모리 절약)
-- **캔버스 렌더링**: WebGL 대신 안정적인 Canvas 렌더러 사용
-
-### 번들 크기 비교
-```
-Before:
-- dist/assets/index-*.js: 522 kB (gzip: 139 kB)
-
-After:
-- dist/assets/index-*.js: 174 kB (gzip: 56 kB)  ← 메인 번들
-- dist/assets/Terminal-*.js: 288 kB (gzip: 72 kB)  ← 지연 로드
-- dist/assets/Sidebar-*.js: 23 kB (gzip: 6.5 kB)  ← 지연 로드
-- 기타 컴포넌트: 각 2-7 kB  ← 지연 로드
-
-총 초기 로드: 56 kB (이전 139 kB에서 60% 감소)
-```
-
-## 🔐 초기 설정
-
-1. 브라우저에서 `http://localhost:8000` 접속
-2. **초기 설정 화면**에서 관리자 계정 생성
-   - 사용자명: 최소 3자
-   - 비밀번호: 최소 8자
-3. 로그인 후 터미널 사용
-
-### 2단계 인증 (TOTP) — 권장
-
-로그인 후 ⚙️ Settings → **2단계 인증** 섹션에서 활성화:
-
-1. **Enable 2FA** 클릭
-2. Google Authenticator / Microsoft Authenticator / 1Password / Bitwarden 등 인증앱으로 QR 스캔
-3. 인증앱이 보여주는 6자리 코드 입력 → 활성화
-4. **백업 코드 10개** 표시 — 안전한 곳에 보관 (다시 표시되지 않음)
-
-이후 로그인은 비밀번호 + 6자리 코드 2단계. 디바이스 분실 시 백업 코드(일회용)로 우회.
-
-자세한 운영 절차는 [deploy/README.md](./deploy/README.md) 참조.
-
-## 📝 사용 방법
-
-### 터미널 사용
-- **새 터미널**: 상단 "+ 버튼" 또는 사이드바 "+ 새 터미널"
-- **세션 전환**: 사이드바에서 세션 클릭
-- **세션 이름 변경**: 세션을 더블클릭
-- **세션 닫기**: 세션 우측 X 버튼
-- **맨 아래로 스크롤**: 상단 ⬇️ 버튼
-
-### 파일 브라우저
-1. **파일 탭**: 사이드바에서 "파일" 탭 선택
-2. **폴더 탐색**: 폴더 클릭으로 확장/축소
-3. **파일 편집**: 파일 클릭 → 에디터 열림 → 편집 → 저장
-4. **우클릭 메뉴**: 파일/폴더에서 우클릭
-   - 새 파일 생성
-   - 새 폴더 생성
-   - 경로 복사
-   - 터미널에서 열기
-   - 삭제
-
-### 설정
-- **테마 변경**: 상단 ⚙️ → 테마 선택
-- **언어 변경**: 상단 ⚙️ → 언어 선택
-- **폰트 크기**: 10-24px 조절
-- **자동 스크롤**: Always / Smart / Never
-
-## 📁 프로젝트 구조
-
-```
-oc-terminal-list/
-├── backend/                    # FastAPI 백엔드
-│   ├── main.py                # API 엔트리포인트
-│   ├── auth_manager.py        # JWT 인증
-│   ├── pty_manager.py         # PTY 세션 관리
-│   ├── sqlite_storage.py      # SQLite 저장소
-│   └── requirements.txt
-├── frontend/                   # React + Vite 프론트엔드
-│   ├── src/
-│   │   ├── App.jsx
-│   │   ├── components/
-│   │   ├── hooks/
-│   │   ├── styles/
-│   │   └── i18n/
-│   └── package.json
-├── data/                       # SQLite 데이터 (자동 생성)
-│   └── octerminallist.db
-├── workspace/                  # 작업 디렉토리
-├── run_standalone.py           # 단독 실행 스크립트
-├── compose.yml                 # Docker Compose 설정
-├── Dockerfile                  # Docker 이미지 빌드
-└── README.md
-```
-
-## 🛠️ 기술 스택
-
-### 백엔드
-- **Python 3.8+**
-- FastAPI (웹 프레임워크)
-- ptyprocess (가상 터미널)
-- SQLite (데이터 저장)
-- passlib + bcrypt (비밀번호 / 백업 코드 해싱)
-- python-jose (JWT)
-- pyotp (TOTP RFC 6238)
-- cryptography Fernet (vault 암호화)
-- Gzip 압축 미들웨어
-
-### 프론트엔드
-- **React 18**
-- Vite (빌드 도구)
-- xterm.js (터미널 렌더링)
-- xterm-addon-fit (반응형 크기)
-- Lucide React (아이콘)
-- qrcode.react (TOTP QR 렌더 — 외부 서비스 송출 없음, 클라이언트 렌더)
-- Code Splitting & Lazy Loading
-
-## 🔧 개발 모드
-
-### 백엔드만 실행
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
-### 프론트엔드만 실행
-```bash
-cd frontend
-npm install
-npm run dev -- --port 5173
-```
-
-## 🐳 Docker Hub 배포
-
-### 이미지 빌드 및 푸시
+### Docker commands
 
 ```bash
-# 이미지 빌드
-docker build -t jshsakura/oc-terminal-list:latest .
-
-# 버전 태그 추가
-docker tag jshsakura/oc-terminal-list:latest jshsakura/oc-terminal-list:1.0.0
-
-# Docker Hub 로그인
-docker login
-
-# 푸시
-docker push jshsakura/oc-terminal-list:latest
-docker push jshsakura/oc-terminal-list:1.0.0
+docker compose ps
+docker compose logs -f backend
+docker compose restart backend
+docker compose pull
+docker compose up -d
 ```
 
-### 데이터 영속성
-- SQLite 데이터: `./data` 디렉토리에 저장
-- 워크스페이스: `./workspace` 디렉토리
-- 컨테이너 재시작 시에도 데이터 유지
+### Backup
 
-## 🌐 도메인 연결
+Host-native example:
 
-### Nginx 리버스 프록시 예시
+```bash
+DEST=/backup/iterminallist-$(date +%Y%m%d-%H%M)
+mkdir -p "$DEST"
+
+sqlite3 /var/lib/iterminallist/iterminallist.db ".backup $DEST/iterminallist.db" 2>/dev/null \
+  || cp /var/lib/iterminallist/iterminallist.db "$DEST/iterminallist.db"
+
+cp /var/lib/iterminallist/.vault-key "$DEST/.vault-key"
+chmod 600 "$DEST/.vault-key"
+```
+
+Docker example:
+
+```bash
+DEST=./backup/iterminallist-$(date +%Y%m%d-%H%M)
+mkdir -p "$DEST"
+
+sqlite3 ./data/iterminallist.db ".backup $DEST/iterminallist.db" 2>/dev/null \
+  || cp ./data/iterminallist.db "$DEST/iterminallist.db"
+
+cp ./data/.vault-key "$DEST/.vault-key"
+chmod 600 "$DEST/.vault-key"
+```
+
+### Restore
+
+Host-native:
+
+```bash
+sudo systemctl stop iterminallist.service
+cp /backup/iterminallist-YYYYMMDD-HHMM/iterminallist.db /var/lib/iterminallist/iterminallist.db
+cp /backup/iterminallist-YYYYMMDD-HHMM/.vault-key /var/lib/iterminallist/.vault-key
+chmod 600 /var/lib/iterminallist/.vault-key
+sudo systemctl start iterminallist.service
+```
+
+Docker:
+
+```bash
+docker compose down
+cp ./backup/iterminallist-YYYYMMDD-HHMM/iterminallist.db ./data/iterminallist.db
+cp ./backup/iterminallist-YYYYMMDD-HHMM/.vault-key ./data/.vault-key
+chmod 600 ./data/.vault-key
+docker compose up -d
+```
+
+---
+
+## Security model
+
+| Control | Behavior |
+| --- | --- |
+| Admin auth | Single-admin setup flow, password hashing with bcrypt/passlib |
+| Session auth | JWT access token; signing key generated and stored by the app |
+| 2FA | TOTP with one-time backup codes |
+| Secret storage | Fernet-encrypted vault values using `data/.vault-key` |
+| File access | Server validates paths and confines file operations to `WORKSPACE_ROOT` |
+| API access | Auth-protected API endpoints |
+
+Recommendations:
+
+1. Enable TOTP 2FA.
+2. Put the app behind HTTPS for anything beyond local-only use.
+3. Keep `APP_PORT` firewalled if using a reverse proxy.
+4. Back up DB and `.vault-key` together.
+5. Do not commit `.env`, `data/`, DB files, or `.vault-key`.
+
+---
+
+## Reverse proxy / HTTPS
+
+Example Nginx configuration:
+
 ```nginx
 server {
     listen 80;
-    server_name terminal.yourdomain.com;
+    server_name terminal.example.com;
 
-    # 프론트엔드 (정적 파일)
     location / {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://127.0.0.1:38822;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -356,9 +452,8 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # WebSocket 연결
     location /ws/ {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://127.0.0.1:38822;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "Upgrade";
@@ -366,211 +461,214 @@ server {
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }
-
-    # API 엔드포인트
-    location /api/ {
-        proxy_pass http://localhost:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-    }
 }
 ```
 
-### HTTPS 설정 (Let's Encrypt)
+Enable HTTPS with Certbot:
+
 ```bash
-# Certbot 설치
-sudo apt-get install certbot python3-certbot-nginx
-
-# SSL 인증서 발급
-sudo certbot --nginx -d terminal.yourdomain.com
-
-# 자동 갱신 확인
+sudo apt-get install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d terminal.example.com
 sudo certbot renew --dry-run
 ```
 
-## 📱 모바일 최적화
+---
 
-- **iOS Safari**: Visual Viewport API로 키보드 위치 자동 조정
-- **특수키 툴바**: ESC, Tab, Ctrl+C, 방향키, 붙여넣기
-- **스마트 스크롤**: AI 채팅 스타일 자동 스크롤
-- **터치 최적화**: 사이드바 스와이프, 터치 제스처
+## Developer setup
 
-## 🎨 커스터마이징
+### Run both backend and frontend
 
-### 테마 추가
-`frontend/src/styles/themes.js`에서 새 테마 정의:
-
-```javascript
-export const myCustomTheme = {
-  background: '#1a1b26',
-  foreground: '#a9b1d6',
-  // ... 나머지 색상
-  ui: {
-    bg: '#1a1b26',
-    text: '#a9b1d6',
-    accent: '#7aa2f7',
-    // ...
-  }
-};
-
-export const themes = {
-  // ... 기존 테마
-  myCustom: myCustomTheme,
-};
-```
-
-### 언어 추가
-`frontend/src/i18n/locales.js`에서 번역 추가:
-
-```javascript
-export const translations = {
-  // ... 기존 언어
-  ja: {
-    appName: 'ターミナルリスト',
-    // ... 번역
-  },
-};
-```
-
-## 🔒 보안
-
-- **비밀번호**: bcrypt 해싱 (단방향, salt 자동 생성)
-- **JWT 토큰**: 24시간 유효, HS256. 서명 키는 DB 자동 생성/관리 (`.env` 에 두지 않음)
-- **2단계 인증 (TOTP, 옵션)**: RFC 6238 표준, Google/Microsoft Authenticator 등 호환 + 일회용 백업 코드 10개
-- **Vault**: SSH 비밀키 / 호스트 비밀번호 / OTP 비밀키는 `data/.vault-key` (0600, 자동 생성) 로 Fernet 암호화. JWT 와 분리되어 있어 JWT 회전이 vault 데이터에 영향 없음
-- **인증 필수**: 모든 API 엔드포인트 보호
-- **파일 접근**: workspace 디렉토리로 제한
-- **Path Traversal 방지**: 경로 검증 및 정규화
-
-### 보안 권장사항
-1. **2단계 인증 활성화** (Settings → 2단계 인증)
-2. **강력한 관리자 비밀번호** (최소 12자 이상)
-3. **`data/.vault-key` 와 DB 를 함께 백업** — 한쪽만 살아있으면 vault 항목 복구 불가
-4. **HTTPS 사용 권장** (Nginx + Let's Encrypt — 아래 [도메인 연결](#-도메인-연결) 참조)
-5. **방화벽으로 백엔드 포트 보호** (Nginx 리버스 프록시 사용 권장)
-
-### JWT 키 회전 (셀프호스트 systemd)
 ```bash
-.venv/bin/python backend/rotate_jwt.py --confirm
+python run.py
+```
+
+Options:
+
+```bash
+python run.py --backend
+python run.py --frontend
+python run.py --no-restart
+```
+
+### Manual backend
+
+```bash
+cd backend
+pip install -r requirements.txt
+DB_PATH=../data/iterminallist.db APP_PORT=8000 python3 main.py
+```
+
+### Manual frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Vite dev server defaults to `5173` and proxies `/api` and `/ws` to `localhost:8000` unless `VITE_BACKEND_HOST` / `VITE_BACKEND_PORT` are set.
+
+### Tests and build
+
+```bash
+# Frontend tests
+cd frontend
+npx vitest run
+
+# Frontend production build -> backend/static
+npm run build
+
+# Backend tests
+cd ../backend
+pytest
+```
+
+### Docker image build
+
+```bash
+docker build -t ghcr.io/jshsakura/oc-terminal-list:latest .
+docker compose config --quiet
+docker compose up -d
+```
+
+### GHCR publishing
+
+The workflow at `.github/workflows/ghcr-publish.yml` publishes to:
+
+```text
+ghcr.io/jshsakura/oc-terminal-list
+```
+
+Triggers:
+
+- push to `main` or `master`
+- tags matching `v*.*.*`
+- manual `workflow_dispatch`
+
+Generated tags include `latest` for the default branch, semantic version tags for releases, and `sha-*` tags.
+
+---
+
+## Project structure
+
+```text
+oc-terminal-list/
+├── backend/                    # FastAPI backend
+│   ├── main.py                 # API, WebSocket bridge, static serving
+│   ├── auth_manager.py         # Admin auth, JWT, 2FA flow
+│   ├── sqlite_storage.py       # SQLite persistence
+│   ├── tmux_manager.py         # tmux session management
+│   ├── vault.py                # encrypted secret storage
+│   ├── requirements.txt
+│   └── tests/
+├── frontend/                   # React + Vite frontend
+│   ├── src/
+│   ├── public/
+│   ├── package.json
+│   └── vite.config.js          # builds into backend/static
+├── deploy/
+│   ├── README.md               # host-native operations guide
+│   └── iterminallist.service   # systemd unit template/example
+├── compose.yml                 # GHCR Compose example
+├── Dockerfile                  # multi-stage frontend + backend image
+├── .dockerignore
+├── .env.example
+├── run.py                      # development supervisor
+└── README.md
+```
+
+---
+
+## Troubleshooting
+
+### Port already in use
+
+Docker:
+
+```bash
+APP_PORT=9000 docker compose up -d
+```
+
+Persist it:
+
+```bash
+echo "APP_PORT=9000" >> .env
+docker compose up -d
+```
+
+Host-native:
+
+```bash
+# edit .env
+APP_PORT=9000
+
 sudo systemctl restart iterminallist.service
 ```
-회전 시 모든 access token 무효 → 사용자 재로그인 필요. 자세한 절차는 [deploy/README.md](./deploy/README.md).
 
-## 📊 데이터 관리
+### Docker container does not start
 
-### SQLite 데이터베이스 위치
 ```bash
-# Docker
-./data/octerminallist.db
-
-# 로컬 개발
-./backend/data/iterminallist.db
-```
-
-### 데이터 백업
-```bash
-# 로컬
-cp ./data/octerminallist.db ./backup/octerminallist_$(date +%Y%m%d).db
-
-# Docker
-docker cp oc-terminal-backend:/app/data/octerminallist.db ./backup/
-```
-
-### 데이터 복원
-```bash
-# 로컬
-cp ./backup/octerminallist_20231215.db ./data/octerminallist.db
-
-# Docker
-docker cp ./backup/octerminallist_20231215.db oc-terminal-backend:/app/data/octerminallist.db
-docker compose restart backend
-```
-
-## 🐛 트러블슈팅
-
-### 컨테이너가 시작되지 않음
-```bash
-# 로그 확인
-docker compose logs backend
-
-# 컨테이너 상태 확인
 docker compose ps
-
-# 재시작
-docker compose restart backend
+docker compose logs backend
+docker compose config
 ```
 
-### 포트 충돌
-`.env` 파일 또는 `docker-compose.yml`에서 포트 변경:
-```yaml
-ports:
-  - "9000:8000"  # 9000번 포트로 변경
-```
+### systemd service fails
 
-### 데이터 초기화
 ```bash
-# SQLite 데이터베이스 삭제
-rm -f ./data/octerminallist.db
-
-# 컨테이너 재시작
-docker compose restart backend
+journalctl -u iterminallist.service -n 100 --no-pager
+systemctl status iterminallist.service
 ```
 
-### 권한 문제 (Linux)
-```bash
-# data 디렉토리 권한 설정
-sudo chown -R $USER:$USER ./data ./workspace
+Common causes:
 
-# Docker 볼륨 권한
+- `deploy/iterminallist.service` still contains the wrong `User`, `Group`, or path.
+- `.env` points `DB_PATH` or `WORKSPACE_ROOT` to a directory the service user cannot write.
+- `tmux` is missing.
+- frontend was not built into `backend/static`.
+
+### Login succeeds but immediately logs out
+
+JWT signing key may have rotated. Clear browser localStorage and log in again.
+
+### Vault decrypt errors
+
+The DB and `.vault-key` do not match. Restore both from the same backup set, or re-register affected SSH/host secrets.
+
+### Reset Docker data
+
+```bash
 docker compose down
-sudo rm -rf ./data ./workspace
+rm -rf ./data ./workspace
 mkdir -p ./data ./workspace
 docker compose up -d
 ```
 
-## 🚧 향후 계획
+---
 
-- [ ] Swift 네이티브 iOS 앱
-- [ ] Kotlin 네이티브 Android 앱
-- [ ] 멀티 사용자 지원
-- [ ] 세션 공유 기능
-- [ ] 터미널 녹화/재생
-- [ ] WebRTC P2P 터미널 공유
-- [ ] 플러그인 시스템
+## Roadmap
 
-## 📊 벤치마크
+- [ ] install.sh guided host-native installer
+- [ ] PyPI / pipx packaging after CLI and static asset layout are cleaned up
+- [ ] multi-user support
+- [ ] session sharing
+- [ ] terminal recording/replay
+- [ ] plugin system
+- [ ] native mobile companion apps
 
-### Jupyter Notebook vs OC Terminal List
+---
 
-| 항목 | Jupyter Notebook | OC Terminal List |
-|------|------------------|------------------|
-| 초기 로드 | ~2.5s | ~0.8s (68% 빠름) |
-| 번들 크기 | ~4 MB | ~174 KB (95% 작음) |
-| 메모리 사용 | ~150 MB | ~80 MB (47% 절약) |
-| 터미널 반응성 | ~50ms | ~32ms (36% 빠름) |
-| 코드 스플리팅 | ❌ | ✅ |
-| 모바일 최적화 | ⚠️ 제한적 | ✅ 완전 지원 |
+## Related docs
 
-## 📄 라이선스
+- [`deploy/README.md`](./deploy/README.md) — systemd operations, JWT rotation, vault key handling, backup/restore
+- [GHCR package](https://github.com/jshsakura/oc-terminal-list/pkgs/container/oc-terminal-list)
+- [GitHub Issues](https://github.com/jshsakura/oc-terminal-list/issues)
 
-MIT License
+---
 
-## 🙏 기여
+## License
 
-이슈 및 PR 환영합니다!
-
-### 기여 방법
-1. Fork the repo
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## 📮 문의
-
-- GitHub Issues: https://github.com/jshsakura/oc-terminal-list/issues
-- Docker Hub: https://hub.docker.com/r/jshsakura/oc-terminal-list
+MIT License.
 
 ---
 

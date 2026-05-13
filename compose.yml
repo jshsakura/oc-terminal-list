@@ -1,0 +1,21 @@
+# Quick-start compose for GHCR image.
+# For full-feature mode (host tmux, native shell integrations) run natively instead.
+#
+# Change the exposed port:
+#   APP_PORT=9000 docker compose up -d
+# Or set APP_PORT in .env / compose env vars. Default: 38822.
+services:
+  backend:
+    image: ghcr.io/jshsakura/oc-terminal-list:latest
+    container_name: oc-terminal-list
+    ports:
+      - "${APP_PORT:-38822}:${APP_PORT:-38822}"
+    environment:
+      - HOST=0.0.0.0
+      - APP_PORT=${APP_PORT:-38822}
+      - DB_PATH=/app/data/iterminallist.db
+      - WORKSPACE_ROOT=/workspace
+    volumes:
+      - ./data:/app/data
+      - ./workspace:/workspace
+    restart: unless-stopped
