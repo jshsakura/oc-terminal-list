@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { X, Trash2, Network, ChevronDown, FolderOpen, Globe, Terminal as TerminalIcon, Palette } from 'lucide-react';
+import { useEffect, useState, useCallback } from 'react';
+import { X, Trash2, Network, ChevronDown, FolderOpen, Globe, Terminal as TerminalIcon, Palette, AlertTriangle } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -45,6 +45,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   const [sessions, setSessions] = useState({ open: false, items: [], loading: false, error: null, killing: null });
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [heTab, setHeTab] = useState('connection');
+  const [tmuxWarning, setTmuxWarning] = useState('');
+  const [tmuxChecking, setTmuxChecking] = useState(false);
 
   useEffect(() => {
     setConfirmingDelete(false);
@@ -66,6 +68,37 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   if (!isOpen) return null;
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+
+  const handleTmuxToggle = useCallback(async (v) => {
+    setTmuxWarning('');
+    if (!v) {
+      set('use_remote_tmux', false);
+      return;
+    }
+    if (!host?.id) {
+      set('use_remote_tmux', true);
+      return;
+    }
+    setTmuxChecking(true);
+    try {
+      const res = await fetch(`/api/hosts/${host.id}/tmux-check`, {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.available) {
+          set('use_remote_tmux', true);
+        } else {
+          setTmuxWarning(t('tmuxNotAvailable') || 'tmux not found on this host — sessions will not persist.');
+        }
+      } else {
+        set('use_remote_tmux', true);
+      }
+    } catch {
+      set('use_remote_tmux', true);
+    }
+    setTmuxChecking(false);
+  }, [host?.id, t]);
 
   const openTailscalePicker = async () => {
     setTsPicker({ open: true, peers: [], loading: true, available: true });
@@ -273,13 +306,26 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                 <Toggle
                   label={t('useRemoteTmux') || 'Persist sessions across disconnects (tmux)'}
                   hint={
-                    draft.use_remote_tmux
-                      ? (t('useRemoteTmuxHintOn') || 'ON: 연결 끊겨도 원격 tmux 가 세션을 살려둠.')
-                      : (t('useRemoteTmuxHintOff') || 'OFF: 일반 SSH 셸. 연결 끊기면 실행 중이던 작업 사라짐.')
+                    tmuxChecking
+                      ? (t('tmuxChecking') || 'Checking tmux on remote host…')
+                      : draft.use_remote_tmux
+                        ? (t('useRemoteTmuxHintOn') || 'ON: 연결 끊겨도 원격 tmux 가 세션을 살려둠.')
+                        : (t('useRemoteTmuxHintOff') || 'OFF: 일반 SSH 셸. 연결 끊기면 실행 중이던 작업 사라짐.')
                   }
                   checked={draft.use_remote_tmux}
-                  onChange={(v) => set('use_remote_tmux', v)}
+                  onChange={handleTmuxToggle}
                 />
+                {tmuxWarning && (
+                  <div style={{
+                    display: 'flex', alignItems: 'flex-start', gap: space['2'],
+                    padding: space['2'], borderRadius: radius.md,
+                    background: 'var(--ui-surface1)', border: `1px solid var(--ui-border)`,
+                    fontSize: fontSize['12'], color: 'var(--ui-subtext)', lineHeight: 1.4,
+                  }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'var(--ui-warning, #f9e2af)' }} />
+                    <span>{tmuxWarning}</span>
+                  </div>
+                )}
                 {draft.use_remote_tmux && (
                   <Field
                     label={t('tmuxSessionName') || 'tmux session name'}

@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { Terminal as TerminalIcon, ShieldCheck, Lock, User, ChevronRight, ClipboardPaste, Check } from 'lucide-react';
+import { Terminal as TerminalIcon, ShieldCheck, Lock, User, ChevronRight, ClipboardPaste, Check, ArrowLeft, KeyRound, Smartphone } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
@@ -82,8 +82,9 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
         left: `${vv.offsetLeft}px`,
         alignItems: keyboardUp ? 'flex-start' : 'center',
         overflowY: 'auto',
-        paddingTop: keyboardUp ? '16px' : '0',
-        paddingBottom: keyboardUp ? '16px' : '0',
+        WebkitOverflowScrolling: 'touch',
+        paddingTop: keyboardUp ? '20px' : '0',
+        paddingBottom: keyboardUp ? '20px' : '0',
       });
     };
     update();
@@ -183,8 +184,13 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
   const dotBg = `radial-gradient(circle, ${themed.dot} ${dotSize}, transparent ${dotSize})`;
   const dotSizeBg = `${dotGap} ${dotGap}`;
 
+  const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || window.innerWidth < 768);
+
   return (
-    <div ref={scrollRef} className="login-scroll" style={{ ...themed.overlay, ...vpStyle }}>
+    <div ref={scrollRef} className="login-scroll" style={{
+      ...themed.overlay,
+      ...(isMobile && vpStyle ? vpStyle : {}),
+    }}>
       <div style={{
         ...themed.bgDots,
         backgroundImage: dotBg,
@@ -299,9 +305,10 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
 
             <div style={themed.linkRow}>
               <button type="button" onClick={goBack} style={themed.linkBtn} disabled={isLoading}
-                onMouseEnter={(e) => { e.currentTarget.style.background = t.accentSubtle; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = themed.accentSubtle; e.currentTarget.style.borderColor = themed.accentBorder; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = themed.border; }}
               >
+                <ArrowLeft size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
                 {t('back') || 'Back'}
               </button>
               <button
@@ -309,12 +316,12 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
                 onClick={() => { setUseBackupCode((b) => !b); setOtpCode(''); setError(''); }}
                 style={themed.linkBtn}
                 disabled={isLoading}
-                onMouseEnter={(e) => { e.currentTarget.style.background = t.accentSubtle; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = themed.accentSubtle; e.currentTarget.style.borderColor = themed.accentBorder; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = themed.border; }}
               >
                 {useBackupCode
-                  ? (t('otpUseAuthApp') || 'Use authenticator app')
-                  : (t('otpUseBackupCode') || 'Use a backup code')}
+                  ? <><Smartphone size={12} strokeWidth={2} style={{ flexShrink: 0 }} />{t('otpUseAuthApp') || 'Use authenticator app'}</>
+                  : <><KeyRound size={12} strokeWidth={2} style={{ flexShrink: 0 }} />{t('otpUseBackupCode') || 'Use a backup code'}</>}
               </button>
             </div>
           </form>
@@ -427,8 +434,8 @@ const buildThemed = (ui) => {
       justifyContent: 'center',
       zIndex: 10000,
       fontFamily: font.sans,
-      overflow: 'hidden',
-      transition: 'height 0.15s, top 0.15s',
+      overflowY: 'auto',
+      WebkitOverflowScrolling: 'touch',
     },
 
     bgDots: {
@@ -455,7 +462,8 @@ const buildThemed = (ui) => {
       borderRadius: radius.lg,
       boxShadow: shadow.lg,
       overflow: 'hidden',
-      margin: `${space['5']} ${space['5']}`,
+      margin: `${space['5']} 0`,
+      flexShrink: 0,
     },
 
     accentBar: {
@@ -464,10 +472,10 @@ const buildThemed = (ui) => {
     },
 
     form: {
-      padding: `${space['7']} ${space['6']} ${space['6']}`,
+      padding: `${space['8']} ${space['7']} ${space['7']}`,
       display: 'flex',
       flexDirection: 'column',
-      gap: space['4'],
+      gap: space['5'],
     },
 
     brand: {
@@ -558,15 +566,18 @@ const buildThemed = (ui) => {
       marginTop: space['1'],
     },
     linkBtn: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: space['1.5'],
       background: 'transparent',
-      border: 'none',
-      color: t.accent,
+      border: `1px solid ${t.border}`,
+      color: t.subtext,
       fontSize: fontSize['12'],
       cursor: 'pointer',
-      padding: `${space['1']} ${space['2']}`,
+      padding: `${space['1.5']} ${space['2.5']}`,
       fontFamily: 'inherit',
-      borderRadius: radius.xs,
-      transition: `background ${motion.fast}, color ${motion.fast}`,
+      borderRadius: radius.sm,
+      transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}`,
     },
 
     _inputBg: t.surface0,

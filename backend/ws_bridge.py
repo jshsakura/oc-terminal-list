@@ -78,7 +78,12 @@ class TmuxClientBridge:
         if not self.process:
             return
         try:
-            self.process.write(data.encode("utf-8") if isinstance(data, str) else data)
+            raw = data.encode("utf-8") if isinstance(data, str) else data
+            CHUNK = 8192
+            off = 0
+            while off < len(raw):
+                self.process.write(raw[off:off + CHUNK])
+                off += CHUNK
         except Exception as e:
             logger.warning("pty write failed (%s): %s", self.session_id, e)
 

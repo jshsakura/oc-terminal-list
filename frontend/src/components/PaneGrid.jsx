@@ -427,6 +427,14 @@ const Pane = ({
             paneIndex,
             paneCount: tab?.panes?.length || 1,
             tmuxSessionName: pane.tmuxSessionName || null,
+            effectiveTmuxSession: pane.hostId ? (() => {
+              if (pane.tmuxSessionName) return pane.tmuxSessionName;
+              const host = hosts.find((h) => h.id === pane.hostId);
+              if (!host?.use_remote_tmux) return null;
+              const baseFromHost = host.remote_tmux_session || 'mobile';
+              const base = tab?.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
+              return paneIndex === 0 ? base : `${base}_${paneIndex + 1}`;
+            })() : null,
             tmuxSuffix: tab?.tmuxSuffix || null,
             /* 영속 여부 — local 은 항상 true, host 는 use_remote_tmux 따름.
                Resume 으로 attach 한 탭(`pane.tmuxSessionName`) 은 명시적으로 영속. */

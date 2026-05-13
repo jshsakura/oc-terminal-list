@@ -285,6 +285,22 @@ class HostBridge:
         )
         cmd = _build_remote_command(use_tmux, tmux_session, start_path)
 
+        if use_tmux:
+            try:
+                chk = await self.conn.run("command -v tmux 2>/dev/null", check=False)
+                _tmux_found = bool((chk.stdout or "").strip())
+            except Exception:
+                _tmux_found = False
+            if not _tmux_found:
+                try:
+                    import json as _json
+                    await self.websocket.send_text(_json.dumps({
+                        "type": "tmux-missing",
+                        "message": "tmux not found on remote host — session will not persist",
+                    }))
+                except Exception:
+                    pass
+
         # PTY 요청해서 인터랙티브 셸로 동작
         # encoding=None → bytes 스트림. read(n) 으로 비라인버퍼 읽기 (async for 는 줄단위라 화면갱신 지연됨)
         self.process = await self.conn.create_process(
@@ -332,7 +348,12 @@ class HostBridge:
                             continue
                     except Exception:
                         pass
-                self.process.stdin.write(data.encode("utf-8", errors="replace") if isinstance(data, str) else data)
+                raw = data.encode("utf-8", errors="replace") if isinstance(data, str) else data
+                CHUNK = 8192
+                off = 0
+                while off < len(raw):
+                    self.process.stdin.write(raw[off:off + CHUNK])
+                    off += CHUNK
         except WebSocketDisconnect:
             pass
         except Exception as e:
@@ -530,7 +551,12 @@ class TailscaleHostBridge:
                     except Exception:
                         pass
                 try:
-                    self.process.write(data.encode("utf-8") if isinstance(data, str) else data)
+                    raw = data.encode("utf-8") if isinstance(data, str) else data
+                    CHUNK = 8192
+                    off = 0
+                    while off < len(raw):
+                        self.process.write(raw[off:off + CHUNK])
+                        off += CHUNK
                 except Exception as e:
                     logger.warning("tailscale write failed: %s", e)
         except WebSocketDisconnect:

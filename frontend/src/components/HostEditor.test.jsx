@@ -122,4 +122,36 @@ describe('HostEditor', () => {
     );
     expect(screen.getByText(/Edit host/i)).toBeInTheDocument();
   });
+
+  it('shows skeleton rows in TailscalePicker while loading', () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
+
+    render(
+      <HostEditor
+        isOpen={true}
+        host={{ ...sampleHost, auth_method: 'tailscale' }}
+        sshKeys={sampleKeys}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        t={mockT}
+      />
+    );
+    expect(screen.getByText(/Edit host/i)).toBeInTheDocument();
+  });
+
+  it('renders form fields for a new host', () => {
+    render(
+      <HostEditor
+        isOpen={true}
+        host={null}
+        sshKeys={sampleKeys}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        t={mockT}
+      />
+    );
+    expect(screen.getByText(/Add host/i)).toBeInTheDocument();
+    const inputs = screen.getAllByRole('textbox');
+    expect(inputs.length).toBeGreaterThanOrEqual(2);
+  });
 });

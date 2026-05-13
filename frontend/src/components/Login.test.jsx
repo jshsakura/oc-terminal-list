@@ -109,3 +109,102 @@ describe('Login MFA flow', () => {
     expect(screen.getByText('인증 앱의 6자리 코드를 입력하세요.')).toBeInTheDocument();
   });
 });
+
+describe('Login paste button', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it('shows paste button on OTP field', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ otp_required: true, pending_token: 'pt', username: 'admin' }),
+    }));
+
+    render(<Login onLogin={vi.fn()} language="en" />);
+
+    fireEvent.change(screen.getByLabelText(/ID/i), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByLabelText(/Key/i), { target: { value: 'pass' } });
+    fireEvent.click(screen.getByRole('button', { name: /Authorize/i }));
+
+    await screen.findByLabelText(/Verification code/i);
+
+    const pasteBtn = screen.getByLabelText('Paste from clipboard');
+    expect(pasteBtn).toBeTruthy();
+  });
+
+  it('pastes clipboard text into OTP field', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ otp_required: true, pending_token: 'pt', username: 'admin' }),
+    }));
+    vi.stubGlobal('navigator', {
+      clipboard: { readText: vi.fn().mockResolvedValue('654321') },
+    });
+
+    render(<Login onLogin={vi.fn()} language="en" />);
+
+    fireEvent.change(screen.getByLabelText(/ID/i), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByLabelText(/Key/i), { target: { value: 'pass' } });
+    fireEvent.click(screen.getByRole('button', { name: /Authorize/i }));
+
+    const codeInput = await screen.findByLabelText(/Verification code/i);
+    const pasteBtn = screen.getByLabelText('Paste from clipboard');
+    fireEvent.click(pasteBtn);
+
+    await waitFor(() => {
+      expect(codeInput).toHaveValue('654321');
+    });
+  });
+});
+
+describe('Login shake animation on error', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it('shows shake animation on error message', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ detail: 'Invalid credentials' }),
+    }));
+
+    render(<Login onLogin={vi.fn()} language="en" />);
+
+    fireEvent.change(screen.getByLabelText(/ID/i), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByLabelText(/Key/i), { target: { value: 'wrong' } });
+    fireEvent.click(screen.getByRole('button', { name: /Authorize/i }));
+
+    const errorEl = await screen.findByText(/Invalid credentials/i);
+    expect(errorEl.style.animation).toContain('login-shake');
+  });
+});
+
+describe('Login dot pattern and card styling', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it('has dot pattern background', () => {
+    const { container } = render(<Login onLogin={vi.fn()} language="en" />);
+    const overlay = container.firstChild;
+    const dotsDiv = overlay?.children?.[0];
+    expect(dotsDiv).toBeTruthy();
+    expect(dotsDiv.style.backgroundImage || dotsDiv.style.cssText).toBeTruthy();
+  });
+
+  it('has card with side margins and max-width', () => {
+    const { container } = render(<Login onLogin={vi.fn()} language="en" />);
+    const card = container.querySelector('[style*="calc(100% - 40px)"]');
+    expect(card).toBeTruthy();
+  });
+
+  it('has scrollable container with hidden scrollbar class', () => {
+    const { container } = render(<Login onLogin={vi.fn()} language="en" />);
+    const scrollEl = container.querySelector('.login-scroll');
+    expect(scrollEl).toBeTruthy();
+  });
+});

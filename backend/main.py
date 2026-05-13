@@ -1122,6 +1122,54 @@ async def get_host_tmux_clients(
     return {"host_id": host_id, "session": session, "count": n, "attached": n > 0}
 
 
+@app.get("/api/hosts/{host_id}/tmux-check")
+async def check_host_tmux(
+    host_id: str,
+    username: str = Depends(verify_auth_token),
+):
+    """원격 호스트에 tmux 가 설치되어 있는지 사전 체크.
+    설정 토글 전 프론트엔드에서 호출 → available=false 면 토글 차단/경고."""
+    host = await storage.get_host(host_id, username)
+    if not host:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+
+    cmd = "command -v tmux 2>/dev/null && echo YES || echo NO"
+    try:
+        if host.get("auth_method") == "tailscale":
+            target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
+            proc = await asyncio.create_subprocess_exec(
+                "tailscale", "ssh", target, cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=8)
+            output = stdout.decode("utf-8", errors="replace")
+        else:
+            from host_manager import open_connection
+            key_record = None
+            if host.get("auth_method") == "key" and host.get("key_id"):
+                key_record = await storage.get_ssh_key(host["key_id"], username)
+            secrets = resolve_host_secrets(host, key_record)
+            conn = await open_connection(
+                host,
+                private_key=secrets["private_key"],
+                passphrase=secrets["passphrase"],
+                password=secrets["password"],
+            )
+            try:
+                result = await conn.run(cmd, check=False)
+                output = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace")
+            finally:
+                conn.close()
+                await conn.wait_closed()
+    except Exception as e:
+        logger.warning("tmux-check failed (%s): %s", host_id, e)
+        return {"host_id": host_id, "available": False, "error": str(e)}
+
+    available = "YES" in (output or "").strip()
+    return {"host_id": host_id, "available": available}
+
+
 @app.get("/api/hosts/{host_id}/tmux-sessions")
 async def list_host_tmux_sessions(
     host_id: str,

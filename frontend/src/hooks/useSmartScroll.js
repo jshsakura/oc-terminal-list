@@ -1,117 +1,72 @@
 /**
- * useSmartScroll 훅
- * AI 스트리밍 출력 시 스크롤 안정화
+ * useSmartScroll hook
+ * xterm.js buffer-aware smart scroll management
  *
- * 동작 원리:
- * 1. 사용자가 수동으로 스크롤하면 자동 스크롤 비활성화
- * 2. 사용자가 맨 아래로 스크롤하면 다시 자동 스크롤 활성화
- * 3. sensitivity로 "맨 아래"의 범위 조정 (AI 스트리밍 대응)
+ * Uses xterm buffer API (viewportY, length, rows) instead of DOM scrollTop
+ * to correctly detect scroll position within the terminal viewport.
+ *
+ * Modes:
+ * - 'always': scrollToBottom on every new data write
+ * - 'smart':  xterm's native behavior (stays at bottom if at bottom,
+ *             doesn't force-scroll if user scrolled up)
+ * - 'never':  never auto-scroll
+ *
+ * Why not DOM scrollTop:
+ *   The outer container div has overflow:hidden. Actual scrolling lives inside
+ *   xterm's viewport/buffer. Reading containerRef.scrollTop always returns 0,
+ *   so the old DOM-based isNearBottom() always returned true, causing every
+ *   new-data callback to force scrollToBottom — snapping users back down.
  */
 import { useRef, useCallback } from 'react';
 
-export const useSmartScroll = (containerRef, options = {}) => {
+export const useSmartScroll = (xtermRef, options = {}) => {
   const {
     autoScroll = 'smart', // 'always' | 'smart' | 'never'
-    sensitivity = 0.8, // 0~1, 높을수록 민감
-    smoothScroll = true,
   } = options;
 
   const userScrolledUpRef = useRef(false);
-  const lastScrollTimeRef = useRef(0);
-  const scrollTimeoutRef = useRef(null);
 
-  // 맨 아래에 있는지 확인
+  // Check whether the xterm viewport is at/near the bottom of the buffer.
+  // Uses xterm buffer API: viewportY is the row index of the first visible line.
+  // At bottom: viewportY >= length - rows
   const isNearBottom = useCallback(() => {
-    if (!containerRef.current) return false;
+    const term = xtermRef?.current;
+    if (!term) return true;
+    const buf = term.buffer?.active;
+    if (!buf) return true;
+    const maxY = Math.max(0, buf.length - term.rows);
+    return buf.viewportY >= maxY;
+  }, []);
 
-    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
-    const scrollableHeight = scrollHeight - clientHeight;
-
-    if (scrollableHeight === 0) return true;
-
-    // sensitivity가 높을수록 더 넓은 범위를 "맨 아래"로 간주
-    // 예: sensitivity=0.8 → 하위 20% 영역
-    const threshold = scrollableHeight * (1 - sensitivity * 0.2);
-
-    return scrollTop >= threshold;
-  }, [containerRef, sensitivity]);
-
-  // 맨 아래로 스크롤
-  const scrollToBottom = useCallback(() => {
-    if (!containerRef.current) return;
-
-    const { scrollHeight, clientHeight } = containerRef.current;
-
-    if (smoothScroll) {
-      containerRef.current.scrollTo({
-        top: scrollHeight - clientHeight,
-        behavior: 'smooth',
-      });
-    } else {
-      containerRef.current.scrollTop = scrollHeight - clientHeight;
-    }
-  }, [containerRef, smoothScroll]);
-
-  // 사용자 스크롤 감지
+  // Called from term.onScroll(). Tracks whether user has scrolled up
+  // so that handleNewData can decide whether to force-scroll to bottom.
   const handleUserScroll = useCallback(() => {
-    if (!containerRef.current) return;
+    userScrolledUpRef.current = !isNearBottom();
+  }, [isNearBottom]);
 
-    const now = Date.now();
-
-    // 짧은 시간에 연속된 스크롤 이벤트는 무시 (성능 최적화)
-    if (now - lastScrollTimeRef.current < 100) {
-      return;
-    }
-
-    lastScrollTimeRef.current = now;
-
-    // 맨 아래에 있으면 자동 스크롤 활성화
-    if (isNearBottom()) {
-      userScrolledUpRef.current = false;
-    } else {
-      // 사용자가 위로 스크롤함
-      userScrolledUpRef.current = true;
-    }
-
-    // 스크롤 후 일정 시간 동안 움직임이 없으면 상태 확인
-    if (scrollTimeoutRef.current) {
-      clearTimeout(scrollTimeoutRef.current);
-    }
-
-    scrollTimeoutRef.current = setTimeout(() => {
-      if (isNearBottom()) {
-        userScrolledUpRef.current = false;
-      }
-    }, 500);
-  }, [containerRef, isNearBottom]);
-
-  // 새 데이터가 추가되었을 때 호출
+  // Called after term.write() completes. For 'always' mode, forces
+  // scrollToBottom. For 'smart' and 'never', xterm handles natively
+  // (stays at bottom if already there, doesn't force-scroll if user
+  // scrolled up).
   const handleNewData = useCallback(() => {
-    if (autoScroll === 'never') return;
-
     if (autoScroll === 'always') {
-      // 항상 자동 스크롤
-      setTimeout(scrollToBottom, 10);
-      return;
+      xtermRef?.current?.scrollToBottom();
     }
+    // 'smart' and 'never': no forced scrollToBottom — xterm handles natively
+  }, [autoScroll, xtermRef]);
 
-    // 'smart' 모드: 사용자가 위로 스크롤하지 않았으면 자동 스크롤
-    if (!userScrolledUpRef.current) {
-      setTimeout(scrollToBottom, 10);
-    }
-  }, [autoScroll, scrollToBottom]);
-
-  // 강제로 맨 아래로 스크롤 (사용자 클릭 등)
+  // Force scroll to bottom and re-enable auto-scroll
   const forceScrollToBottom = useCallback(() => {
     userScrolledUpRef.current = false;
-    scrollToBottom();
-  }, [scrollToBottom]);
+    xtermRef?.current?.scrollToBottom();
+  }, [xtermRef]);
 
   return {
     handleUserScroll,
     handleNewData,
     forceScrollToBottom,
     isNearBottom,
+    userScrolledUpRef,
   };
 };
 

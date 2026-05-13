@@ -9,7 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { Loader2, MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw } from 'lucide-react';
+import { Loader2, MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, AlertTriangle, X } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
@@ -53,17 +53,20 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
   const [authPrompt, setAuthPrompt] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
+  const [tmuxFallback, setTmuxFallback] = useState(false);
   // authPrompt 열고 닫을 때 전역 이벤트 — App.jsx 가 모바일 단축키바를 그동안 숨김.
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('iterm:auth-prompt', { detail: { open: !!authPrompt } }));
   }, [authPrompt]);
 
-  // 스마트 스크롤 훅
-  const { handleUserScroll, handleNewData } = useSmartScroll(terminalRef, {
+  // 스마트 스크롤 훅 — xterm buffer API 기반 (DOM scrollTop 아님)
+  const { handleUserScroll, handleNewData } = useSmartScroll(xtermRef, {
     autoScroll: settings.autoScroll,
-    sensitivity: settings.scrollSensitivity,
-    smoothScroll: settings.smoothScroll,
   });
+  // handleNewData 는 autoScroll 설정에 의존하므로 렌더링마다 바뀔 수 있음.
+  // useEffect 내부의 flushBufferedOutput 클로저가 항상 최신 콜백을 참조하도록 ref 유지.
+  const handleNewDataRef = useRef(handleNewData);
+  handleNewDataRef.current = handleNewData;
 
   // 테마 가져오기
   const currentTheme = themes[settings.theme] || themes.catppuccin;
@@ -186,6 +189,57 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         });
       }
     } catch {}
+
+    // Custom wheel handler: routes wheel events intentionally.
+    // attachCustomWheelEventHandler return semantics (from xterm.d.ts):
+    //   return true  → allow xterm.js default processing
+    //   return false → cancel xterm.js processing (we handled it)
+    //
+    // - Normal buffer with local scrollback available: return true → xterm scrolls locally.
+    // - At top of local scrollback + scrolling up: send PageUp to PTY so tmux root
+    //   bindings enter copy-mode for deeper history access. return false → cancel xterm.
+    // - Alternate buffer (vim/less/htop): send PageUp/PageDown to PTY. return false → cancel xterm.
+    // Throttled to WHEEL_PAGE_INTERVAL ms to avoid spamming the PTY on trackpad gestures.
+    let _lastWheelPageSentAt = 0;
+    const _WHEEL_PAGE_INTERVAL = 80;
+    term.attachCustomWheelEventHandler((e) => {
+      const buf = term.buffer?.active;
+      if (!buf) return true; // no buffer yet — let xterm handle normally
+
+      // Alternate buffer: forward wheel as PageUp/PageDown sequences to the application,
+      // then cancel xterm default (alternate buffer has no local scrollback).
+      if (buf.type === 'alternate') {
+        e.preventDefault();
+        const now = Date.now();
+        if (now - _lastWheelPageSentAt >= _WHEEL_PAGE_INTERVAL) {
+          _lastWheelPageSentAt = now;
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send(e.deltaY < 0 ? '\x1b[5~' : '\x1b[6~');
+          }
+        }
+        return false; // cancel xterm processing — we sent PTY sequences instead
+      }
+
+      // Normal buffer: at top of local scrollback and still scrolling up →
+      // send PageUp to PTY so tmux root key bindings enter copy-mode for deeper history.
+      // Cancel xterm since there's nothing left to scroll locally.
+      if (e.deltaY < 0 && buf.viewportY <= 0) {
+        e.preventDefault();
+        const now = Date.now();
+        if (now - _lastWheelPageSentAt >= _WHEEL_PAGE_INTERVAL) {
+          _lastWheelPageSentAt = now;
+          const ws = wsRef.current;
+          if (ws?.readyState === WebSocket.OPEN) {
+            ws.send('\x1b[5~');
+          }
+        }
+        return false; // cancel xterm — nothing left to scroll locally
+      }
+
+      // Normal buffer with local scrollback available: let xterm handle naturally
+      return true;
+    });
 
     // WebGL 렌더러 — 디폴트 ON. 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
     // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
@@ -401,7 +455,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       wsBufferRef.current = [];
 
       term.write(mergedBuffer, () => {
-        handleNewData();
+        handleNewDataRef.current();
         setHasContent(true);
       });
     };
@@ -447,6 +501,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           const msg = JSON.parse(event.data);
           if (msg && msg.type === 'auth-prompt') {
             setAuthPrompt(msg);
+            return;
+          }
+          if (msg && msg.type === 'tmux-missing') {
+            setTmuxFallback(true);
             return;
           }
         } catch { /* JSON 아님, 일반 출력으로 통과 */ }
@@ -536,11 +594,21 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     });
 
     // 4. 사용자 입력 처리 — connect() 가 여러 번 호출돼도 (takeover/auto-resume) 항상 최신 ws 를 잡게 ref 사용.
+    const WS_CHUNK = 8192;
+    const WS_CHUNK_DELAY = 4;
     term.onData((data) => {
       const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(data);
-      }
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (data.length <= WS_CHUNK) { ws.send(data); return; }
+      let off = 0;
+      const sendNext = () => {
+        if (off >= data.length || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+        const end = Math.min(off + WS_CHUNK, data.length);
+        wsRef.current.send(data.slice(off, end));
+        off = end;
+        if (off < data.length) setTimeout(sendNext, WS_CHUNK_DELAY);
+      };
+      sendNext();
     });
 
     // 스크롤 이벤트 연결
@@ -984,8 +1052,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           onPaste={async () => {
             try {
               const text = await navigator.clipboard.readText();
-              if (text && wsRef.current?.readyState === WebSocket.OPEN) {
-                wsRef.current.send(text);
+              if (text && xtermRef.current) {
+                xtermRef.current.paste(text);
               }
             } catch {}
             setContextMenu(null);
@@ -1003,6 +1071,22 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       )}
 
       {/* takeover 배너 — 패널 하단 인라인, 여러 패널에 동시 노출 가능 */}
+      {tmuxFallback && (
+        <div style={styles.inlineBanner(themeUi)}>
+          <AlertTriangle size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: themeUi.warning || '#f9e2af' }} />
+          <span style={styles.bannerText(themeUi)}>
+            {t('tmuxFallbackWarning') || 'tmux not found on this host — session will not persist across disconnects'}
+          </span>
+          <button
+            type="button"
+            onClick={() => setTmuxFallback(false)}
+            style={styles.bannerButton(themeUi)}
+          >
+            <X size={11} strokeWidth={2} />
+          </button>
+        </div>
+      )}
+
       {evicted && (
         <div style={styles.inlineBanner(themeUi)}>
           <MonitorSmartphone size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />

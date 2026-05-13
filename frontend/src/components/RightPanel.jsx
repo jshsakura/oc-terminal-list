@@ -284,8 +284,8 @@ const RightPanel = ({
         WebkitBackdropFilter: 'blur(14px) saturate(160%)',
         borderLeftColor: panelUi.border,
       }}>
-        {/* close — 항상 동작 (disabled 영향 안 받음). */}
-        {onCloseTerminal && (
+        {/* close — loading 중엔 스켈레톤. */}
+        {onCloseTerminal && !loading && (
           <RailIconBtn
             icon={Trash2}
             onClick={onCloseTerminal}
@@ -295,9 +295,12 @@ const RightPanel = ({
             compact
           />
         )}
+        {onCloseTerminal && loading && (
+          <div style={{ width: '26px', height: '26px', borderRadius: radius.md, background: panelUi.surface1 || 'rgba(255,255,255,0.06)', animation: 'skel-pulse 1.4s ease-in-out infinite' }} />
+        )}
 
-        {/* 분할 pane → 새 단독 탭으로 분리 (detach). close 바로 아래로 — 구조 변경 액션 그룹. */}
-        {onExtractPane && (
+        {/* 분할 pane → detach. loading 중엔 스켈레톤. */}
+        {onExtractPane && !loading && (
           <RailIconBtn
             icon={ExternalLink}
             onClick={onExtractPane}
@@ -305,6 +308,9 @@ const RightPanel = ({
             ui={panelUi}
             compact
           />
+        )}
+        {onExtractPane && loading && (
+          <div style={{ width: '26px', height: '26px', borderRadius: radius.md, background: panelUi.surface1 || 'rgba(255,255,255,0.06)', animation: 'skel-pulse 1.4s ease-in-out infinite', animationDelay: '80ms' }} />
         )}
 
         {/* 주 네비 + 보조 액션 — 빈 pane 일 땐 흐리게 + 클릭 무시. 로딩 중엔 스켈레톤. */}
@@ -376,7 +382,12 @@ const RightPanel = ({
         {/* 사이드바 하단 — 포커스 인디케이터. Eye 면 포커스됨, EyeOff 면 미포커스.
             클릭 비활성 (display only). 보더 강조 효과를 뺀 대신 시각적으로 어느 터미널이 포커스인지 알려줌.
             분할(isMultiple) 일 때만 노출 — 단일 pane / 모바일 단일에선 의미 없음. */}
-        {showFocusEye && (
+        {loading && showFocusEye && (
+          <div style={{ marginTop: 'auto', alignSelf: 'stretch', display: 'flex', flexDirection: 'column', alignItems: 'center', paddingBottom: '2px' }}>
+            <div style={{ width: '22px', height: '22px', borderRadius: radius.md, background: panelUi.surface1 || 'rgba(255,255,255,0.06)', animation: 'skel-pulse 1.4s ease-in-out infinite', animationDelay: '700ms' }} />
+          </div>
+        )}
+        {!loading && showFocusEye && (
           <FocusEye isFocused={isFocused} panelUi={panelUi} t={t} />
         )}
       </div>
@@ -616,12 +627,12 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
           onCopy={() => handleCopy('sessionId', info?.sessionId)}
           copied={copiedKey === 'sessionId'}
         />
-        {info?.tmuxSessionName && (
+        {info?.effectiveTmuxSession && (
           <InfoRow
             label={t?.('infoTmuxSession') || 'tmux session'}
-            value={info.tmuxSessionName}
+            value={info.effectiveTmuxSession}
             copyable
-            onCopy={() => handleCopy('tmux', info.tmuxSessionName)}
+            onCopy={() => handleCopy('tmux', info.effectiveTmuxSession)}
             copied={copiedKey === 'tmux'}
             icon={Anchor}
           />
@@ -786,12 +797,20 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
         <ShortcutRow keys={[t?.('doubleClick') || 'Double-click']} desc={t?.('shortcutSelectWord') || 'Select word'} />
         <ShortcutRow keys={[t?.('tripleClick') || 'Triple-click']} desc={t?.('shortcutSelectLine') || 'Select line'} />
         <ShortcutRow keys={['Ctrl', 'V']}                       desc={t?.('shortcutPaste')     || 'Paste (bracketed)'} />
-        <ShortcutRow keys={[t?.('rightClick') || 'Right-click']} desc={t?.('shortcutPaste')     || 'Paste (bracketed)'} />
+        <ShortcutRow keys={[t?.('rightClick') || 'Right-click']} desc={t?.('shortcutContextMenu') || 'Context menu'} />
         <ShortcutRow keys={['Ctrl', 'Shift', 'C']}              desc={t?.('shortcutCopy')      || 'Copy selection'} />
         <ShortcutRow keys={[t?.('wheel') || 'Wheel']}            desc={t?.('shortcutScroll')   || 'Scroll (auto copy-mode)'} />
         <ShortcutRow keys={['Ctrl', 'C']}                       desc={t?.('shortcutSigint')    || 'Interrupt (SIGINT)'} />
         <ShortcutRow keys={['Ctrl', 'Shift', 'F']}              desc={t?.('shortcutSearch')    || 'Find in terminal'} />
         <ShortcutRow keys={['F12']}                             desc={t?.('shortcutDevtools')  || 'Open DevTools'} />
+        <div style={{ height: space['1'] }} />
+        <ShortcutRow keys={['Ctrl', 'Shift', 'P']}              desc={t?.('shortcutCommandPalette') || 'Command palette'} />
+        <ShortcutRow keys={['Ctrl', 'T']}                       desc={t?.('shortcutNewTab')    || 'New tab'} />
+        <ShortcutRow keys={['Ctrl', 'W']}                       desc={t?.('shortcutCloseTab')  || 'Close tab'} />
+        <ShortcutRow keys={['Ctrl', '\\']}                      desc={t?.('shortcutSplitRight') || 'Split right'} />
+        <ShortcutRow keys={['Ctrl', 'Shift', '\\']}             desc={t?.('shortcutSplitDown') || 'Split down'} />
+        <ShortcutRow keys={['Ctrl', 'P']}                       desc={t?.('shortcutQuickOpen') || 'Quick open files'} />
+        <ShortcutRow keys={['Ctrl', 'S']}                       desc={t?.('shortcutSave')      || 'Save file'} />
       </InfoSection>
     </div>
   );
