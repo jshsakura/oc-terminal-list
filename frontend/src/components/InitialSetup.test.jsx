@@ -107,6 +107,14 @@ describe('InitialSetup', () => {
     expect(card).toBeTruthy();
   });
 
+  it('keeps real form padding inside the card', () => {
+    const { container } = render(<InitialSetup onComplete={vi.fn()} language="en" />);
+    const form = container.querySelector('form');
+    expect(form).toBeTruthy();
+    expect(form.style.padding).toBe('32px 28px 28px');
+    expect(form.style.padding).not.toContain('undefined');
+  });
+
   it('disables submit button while loading', async () => {
     vi.stubGlobal('fetch', vi.fn().mockImplementation(() => new Promise(() => {})));
 

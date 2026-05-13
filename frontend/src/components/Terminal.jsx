@@ -20,7 +20,7 @@ import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
-const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null }) => {
+const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const xtermRef = useRef(null);
@@ -46,6 +46,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const [hasContent, setHasContent] = useState(false);
   const [evicted, setEvicted] = useState(false);
   const [ended, setEnded] = useState(false);
+  const contentReadyRef = useRef(false);
+  const onReadyChangeRef = useRef(onReadyChange);
+  onReadyChangeRef.current = onReadyChange;
 
   // 모바일 여부를 이벤트 리스너 내부에서 최신 상태로 참조하기 위함
   const isMobileRef = useRef(isMobile);
@@ -100,6 +103,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
     setIsReady(false);
     setHasContent(false);
+    contentReadyRef.current = false;
+    onReadyChangeRef.current?.(false);
 
     // 1. xterm.js 인스턴스 생성 (최신 프리미엄 옵션 적용)
     const terminalFont = normalizeTerminalFontFamily(settings.fontFamily);
@@ -457,6 +462,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       term.write(mergedBuffer, () => {
         handleNewDataRef.current();
         setHasContent(true);
+        if (!contentReadyRef.current) {
+          contentReadyRef.current = true;
+          onReadyChangeRef.current?.(true);
+        }
       });
     };
 
@@ -655,6 +664,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     return () => {
       cancelled = true;
       intentionalCloseRef.current = true;
+      contentReadyRef.current = false;
+      onReadyChangeRef.current?.(false);
       if (observer) observer.disconnect();
       window.removeEventListener('resize', handleResize);
       if (window.visualViewport) {
@@ -975,8 +986,15 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           50%  { opacity: 0.7; }
           100% { opacity: 0.35; }
         }
+        /* Bottom/right overscan: keep xterm sizing math tied to the wrapper,
+           but let the rendered surface bleed a few pixels into the clipped edge.
+           This hides fractional cell remainders without shifting the top/left origin. */
+        .xterm {
+          width: calc(100% + 4px) !important;
+          height: calc(100% + 4px) !important;
+          overflow: visible !important;
+        }
         .xterm-scrollable-element { height: 100% !important; }
-        .xterm { height: 100% !important; overflow: visible !important; }
         .xterm-viewport { height: 100% !important; }
       `}</style>
 

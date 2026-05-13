@@ -262,19 +262,7 @@ const Pane = ({
   const isPaneBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
 
   useEffect(() => {
-    if (isEmpty) { setTerminalReady(false); return undefined; }
-    const key = pane.sessionId || pane.id;
-    const check = () => {
-      if (window.terminalSessions?.[key]) {
-        setTerminalReady(true);
-        return true;
-      }
-      return false;
-    };
-    if (check()) return undefined;
     setTerminalReady(false);
-    const id = setInterval(() => { if (check()) clearInterval(id); }, 200);
-    return () => clearInterval(id);
   }, [isEmpty, pane.sessionId, pane.id, refreshNonce]);
 
   // pane 마다 자기 cwd 추적
@@ -397,6 +385,7 @@ const Pane = ({
               /* takeover 시: refreshNonce++ 로 Terminal 통째 remount → 새 WS → tmux attach -d
                  → 저쪽 클라이언트가 같은 [detached ...] 토큰을 받아 우리와 같은 오버레이로 전환. */
               onTakeOver={() => setRefreshNonce((n) => n + 1)}
+              onReadyChange={setTerminalReady}
             />
           </Suspense>
         )}

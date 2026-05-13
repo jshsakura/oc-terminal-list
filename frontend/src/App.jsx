@@ -119,6 +119,8 @@ function App() {
   const { keys: sshKeys, createKey, updateKey, deleteKey } = useSshKeys(isAuthenticated);
 
   // ── tabs ──────────────────────────────────────────────────────────────────
+  const [isRestoringWorkspace, setIsRestoringWorkspace] = useState(() => !!localStorage.getItem('auth_token'));
+
   const [tabs, setTabs] = useState(() => {
     try {
       const stored = JSON.parse(localStorage.getItem('tabs_v2') || '[]');
@@ -181,14 +183,36 @@ function App() {
     if (serverState?.updatedAt) lastAppliedTabVersionRef.current = serverState.updatedAt;
   }, []);
 
-  // 로그인 후 서버 탭 상태(canonical)와 alive 세션을 함께 조회해 완전 복원
+  // 로그인 후 서버 탭 상태(canonical)와 alive 세션을 함께 조회해 완전 복원.
+  // 복원 중에는 앱 shell 을 바로 보여주지 않아 저장된 탭/패널로 휙 넘어가는 느낌을 줄인다.
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated) {
+      setIsRestoringWorkspace(false);
+      return;
+    }
+    let cancelled = false;
     const token = localStorage.getItem('auth_token');
-    fetch('/api/tab-state', { headers: { Authorization: `Bearer ${token}` } })
-      .then((r) => (r.ok ? r.json() : null))
-      .catch(() => null)
-      .then((serverState) => applyServerTabState(serverState));
+    const startedAt = Date.now();
+    setIsRestoringWorkspace(true);
+
+    const finish = async () => {
+      try {
+        const r = await fetch('/api/tab-state', { headers: { Authorization: `Bearer ${token}` } });
+        const serverState = r.ok ? await r.json() : null;
+        if (!cancelled) await applyServerTabState(serverState);
+      } catch {
+        if (!cancelled) await applyServerTabState(null);
+      } finally {
+        const elapsed = Date.now() - startedAt;
+        const wait = Math.max(0, 420 - elapsed);
+        window.setTimeout(() => {
+          if (!cancelled) setIsRestoringWorkspace(false);
+        }, wait);
+      }
+    };
+
+    finish();
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
@@ -1253,10 +1277,16 @@ function App() {
     : (activeTab?.sessionId || activeTab?.id || null);
   const terminalLayoutSignal = `tab:${activeTabId}:editor:${activeFile ? editorHeight : 0}`;
 
+  const handleLogin = useCallback((token, nextUsername) => {
+    setIsRestoringWorkspace(true);
+    login(token, nextUsername);
+  }, [login]);
+
   // ── guards ────────────────────────────────────────────────────────────────
-  if (isLoading) return <LoadingScreen currentTheme={currentTheme} t={t} />;
-  if (needsSetup) return <LazyErrorBoundary><Suspense fallback={null}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense></LazyErrorBoundary>;
-  if (!isAuthenticated) return <LazyErrorBoundary><Suspense fallback={null}><Login onLogin={login} language={settings.language} theme={currentTheme} /></Suspense></LazyErrorBoundary>;
+  const authLoadingFallback = <LoadingScreen currentTheme={currentTheme} t={t} />;
+  if (isLoading || isRestoringWorkspace) return authLoadingFallback;
+  if (needsSetup) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense></LazyErrorBoundary>;
+  if (!isAuthenticated) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><Login onLogin={handleLogin} language={settings.language} theme={currentTheme} /></Suspense></LazyErrorBoundary>;
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (

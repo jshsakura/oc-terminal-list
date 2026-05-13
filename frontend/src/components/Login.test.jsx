@@ -98,7 +98,7 @@ describe('Login MFA flow', () => {
       />
     );
 
-    const heading = screen.getByText('터미널 접속');
+    const heading = screen.getByText('Terminal List');
     expect(heading.closest('[style]')).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText(/아이디/i), { target: { value: 'admin' } });
@@ -206,5 +206,13 @@ describe('Login dot pattern and card styling', () => {
     const { container } = render(<Login onLogin={vi.fn()} language="en" />);
     const scrollEl = container.querySelector('.login-scroll');
     expect(scrollEl).toBeTruthy();
+  });
+
+  it('keeps real form padding inside the card', () => {
+    const { container } = render(<Login onLogin={vi.fn()} language="en" />);
+    const form = container.querySelector('form');
+    expect(form).toBeTruthy();
+    expect(form.style.padding).toBe('32px 28px 28px');
+    expect(form.style.padding).not.toContain('undefined');
   });
 });

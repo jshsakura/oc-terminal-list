@@ -17,7 +17,7 @@ const Field = ({ label, value, onChange, type = 'text', placeholder, hint, disab
       <div style={{
         ...styles.inputWrap,
         borderColor: focused ? color.accentBorder : color.border,
-        boxShadow: focused ? `0 0 0 2px ${color.accent}18` : 'none',
+        boxShadow: focused ? `0 0 0 1px ${color.accentBorder}88` : 'none',
         background: focused ? color.crust : color.surface0,
       }}>
         {Icon && <Icon size={14} strokeWidth={2} style={{ color: focused ? color.accentBorder : color.muted, flexShrink: 0 }} />}
@@ -60,7 +60,10 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
         top: `${vv.offsetTop}px`,
         left: `${vv.offsetLeft}px`,
         alignItems: keyboardUp ? 'flex-start' : 'center',
-        overflowY: keyboardUp ? 'auto' : 'hidden',
+        overflowY: 'auto',
+        WebkitOverflowScrolling: 'touch',
+        paddingTop: keyboardUp ? '20px' : '0',
+        paddingBottom: keyboardUp ? '20px' : '0',
       });
     };
     update();
@@ -99,6 +102,7 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
   return (
     <div style={{ ...styles.overlay, ...vpStyle }}>
       <div style={styles.bgDots} />
+      <div style={styles.bgGlow} />
       <div style={styles.bgVignette} />
 
       <div style={{
@@ -176,14 +180,14 @@ const styles = {
   overlay: {
     position: 'fixed',
     inset: 0,
-    background: color.crust,
+    background: `linear-gradient(135deg, ${color.crust} 0%, ${color.mantle} 48%, ${color.crust} 100%)`,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10000,
     fontFamily: font.sans,
-    overflow: 'hidden',
-    transition: 'height 0.15s, top 0.15s',
+    overflowY: 'auto',
+    WebkitOverflowScrolling: 'touch',
   },
   bgDots: {
     position: 'absolute',
@@ -191,32 +195,48 @@ const styles = {
     backgroundImage: `radial-gradient(circle, ${color.border} 1px, transparent 1px)`,
     backgroundSize: '24px 24px',
     backgroundRepeat: 'repeat',
-    opacity: 0.7,
+    opacity: 0.42,
+    pointerEvents: 'none',
+    maskImage: 'linear-gradient(to bottom, transparent 0%, black 18%, black 78%, transparent 100%)',
+    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 18%, black 78%, transparent 100%)',
+  },
+  bgGlow: {
+    position: 'absolute',
+    inset: 0,
+    background: [
+      `radial-gradient(circle at 18% 18%, ${color.accent}24 0, transparent 28%)`,
+      `radial-gradient(circle at 78% 12%, ${color.borderStrong}22 0, transparent 24%)`,
+      `radial-gradient(circle at 62% 88%, ${color.accent}16 0, transparent 30%)`,
+    ].join(', '),
+    opacity: 0.95,
     pointerEvents: 'none',
   },
   bgVignette: {
     position: 'absolute',
     inset: 0,
-    background: `radial-gradient(ellipse at center, transparent 40%, ${color.crust} 100%)`,
+    background: `radial-gradient(ellipse at center, transparent 34%, ${color.crust}66 68%, ${color.crust} 100%), linear-gradient(180deg, transparent 0%, ${color.crust}88 100%)`,
     pointerEvents: 'none',
   },
   card: {
     position: 'relative',
     width: 'calc(100% - 40px)',
     maxWidth: '400px',
-    background: color.mantle,
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.lg,
-    boxShadow: shadow.lg,
+    background: `${color.mantle}ee`,
+    border: `1px solid ${color.border}18`,
+    borderRadius: radius.xl,
+    boxShadow: '0 28px 90px rgba(0, 0, 0, 0.28)',
+    backdropFilter: 'blur(18px)',
+    WebkitBackdropFilter: 'blur(18px)',
     overflow: 'hidden',
-    margin: `${space['5']} ${space['5']}`,
+    margin: `${space['5']} 0`,
+    flexShrink: 0,
   },
   accentBar: {
     height: '1px',
-    background: `linear-gradient(90deg, transparent, ${color.accent}66, transparent)`,
+    background: `linear-gradient(90deg, transparent, ${color.border}18, transparent)`,
   },
   form: {
-    padding: `${space['7']} ${space['6']} ${space['6']}`,
+    padding: '32px 28px 28px',
     display: 'flex',
     flexDirection: 'column',
     gap: space['4'],
@@ -232,10 +252,10 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
+    background: `${color.surface0}8c`,
+    border: `1px solid ${color.border}18`,
     borderRadius: radius.md,
-    color: color.muted,
+    color: color.subtext,
   },
   tag: {
     alignSelf: 'center',

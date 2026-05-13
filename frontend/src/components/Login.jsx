@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { Terminal as TerminalIcon, ShieldCheck, Lock, User, ChevronRight, ClipboardPaste, Check, ArrowLeft, KeyRound, Smartphone } from 'lucide-react';
+import { Terminal as TerminalIcon, Lock, User, ClipboardPaste, Check, ArrowLeft, KeyRound, Smartphone } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
@@ -196,6 +196,7 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
         backgroundImage: dotBg,
         backgroundSize: dotSizeBg,
       }} />
+      <div style={themed.bgGlow} />
       <div style={themed.bgVignette} />
 
       <div style={{
@@ -209,11 +210,11 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
           <form onSubmit={handleCredentialsSubmit} style={themed.form}>
             <div style={themed.brand}>
               <div style={themed.brandIcon}>
-                <TerminalIcon size={18} strokeWidth={2} />
+                <TerminalIcon size={17} strokeWidth={2} />
               </div>
             </div>
-            <div style={themed.heading}>{t('login') || 'Sign in'}</div>
-            <div style={themed.sub}>{t('loginDescription') || 'Access your terminal sessions'}</div>
+            <div style={themed.heading}>{t('appName') || 'Terminal List'}</div>
+            <div style={themed.sub}>{t('loginDescription') || 'Secure workspace access'}</div>
 
             <div style={themed.divider} />
 
@@ -246,7 +247,6 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
               fullWidth
               type="submit"
               disabled={isLoading}
-              icon={ChevronRight}
             >
               {isLoading ? (t('signingIn') || 'Signing in...') : (t('signIn') || 'Sign in')}
             </Button>
@@ -255,7 +255,7 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
           <form onSubmit={handleOtpSubmit} style={themed.form}>
             <div style={themed.brand}>
               <div style={themed.brandIcon}>
-                <ShieldCheck size={18} strokeWidth={2} />
+                <KeyRound size={17} strokeWidth={2} />
               </div>
             </div>
             <div style={themed.heading}>
@@ -298,15 +298,14 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
               fullWidth
               type="submit"
               disabled={isLoading || !canSubmitOtp}
-              icon={ChevronRight}
             >
               {isLoading ? (t('verifying') || 'Verifying...') : (t('signIn') || 'Sign in')}
             </Button>
 
             <div style={themed.linkRow}>
               <button type="button" onClick={goBack} style={themed.linkBtn} disabled={isLoading}
-                onMouseEnter={(e) => { e.currentTarget.style.background = themed.accentSubtle; e.currentTarget.style.borderColor = themed.accentBorder; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = themed.border; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = themed.accentSubtle; e.currentTarget.style.color = themed.text; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = themed.subtext; }}
               >
                 <ArrowLeft size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
                 {t('back') || 'Back'}
@@ -316,8 +315,8 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
                 onClick={() => { setUseBackupCode((b) => !b); setOtpCode(''); setError(''); }}
                 style={themed.linkBtn}
                 disabled={isLoading}
-                onMouseEnter={(e) => { e.currentTarget.style.background = themed.accentSubtle; e.currentTarget.style.borderColor = themed.accentBorder; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = themed.border; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = themed.accentSubtle; e.currentTarget.style.color = themed.text; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = themed.subtext; }}
               >
                 {useBackupCode
                   ? <><Smartphone size={12} strokeWidth={2} style={{ flexShrink: 0 }} />{t('otpUseAuthApp') || 'Use authenticator app'}</>
@@ -428,7 +427,7 @@ const buildThemed = (ui) => {
     overlay: {
       position: 'fixed',
       inset: 0,
-      background: t.crust,
+      background: `linear-gradient(135deg, ${t.crust} 0%, ${t.mantle} 48%, ${t.crust} 100%)`,
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
@@ -442,14 +441,28 @@ const buildThemed = (ui) => {
       position: 'absolute',
       inset: 0,
       backgroundRepeat: 'repeat',
-      opacity: 0.7,
+      opacity: 0.42,
+      pointerEvents: 'none',
+      maskImage: 'linear-gradient(to bottom, transparent 0%, black 18%, black 78%, transparent 100%)',
+      WebkitMaskImage: 'linear-gradient(to bottom, transparent 0%, black 18%, black 78%, transparent 100%)',
+    },
+
+    bgGlow: {
+      position: 'absolute',
+      inset: 0,
+      background: [
+        `radial-gradient(circle at 18% 18%, ${alpha(t.accent, '24', 'rgba(137, 180, 250, 0.14)')} 0, transparent 28%)`,
+        `radial-gradient(circle at 78% 12%, ${alpha(t.borderStrong, '22', 'rgba(255,255,255,0.10)')} 0, transparent 24%)`,
+        `radial-gradient(circle at 62% 88%, ${alpha(t.accent, '16', 'rgba(137, 180, 250, 0.08)')} 0, transparent 30%)`,
+      ].join(', '),
+      opacity: 0.95,
       pointerEvents: 'none',
     },
 
     bgVignette: {
       position: 'absolute',
       inset: 0,
-      background: `radial-gradient(ellipse at center, transparent 40%, ${t.crust} 100%)`,
+      background: `radial-gradient(ellipse at center, transparent 34%, ${alpha(t.crust, '66', 'rgba(17,17,27,0.40)')} 68%, ${t.crust} 100%), linear-gradient(180deg, transparent 0%, ${alpha(t.crust, '88', 'rgba(17,17,27,0.52)')} 100%)`,
       pointerEvents: 'none',
     },
 
@@ -457,10 +470,12 @@ const buildThemed = (ui) => {
       position: 'relative',
       width: 'calc(100% - 40px)',
       maxWidth: '380px',
-      background: t.mantle,
-      border: `1px solid ${t.border}`,
-      borderRadius: radius.lg,
-      boxShadow: shadow.lg,
+      background: alpha(t.mantle, 'ee', 'rgba(24,24,37,0.93)'),
+      border: `1px solid ${alpha(t.border, '18', 'rgba(255,255,255,0.035)')}`,
+      borderRadius: radius.xl,
+      boxShadow: '0 28px 90px rgba(0, 0, 0, 0.28)',
+      backdropFilter: 'blur(18px)',
+      WebkitBackdropFilter: 'blur(18px)',
       overflow: 'hidden',
       margin: `${space['5']} 0`,
       flexShrink: 0,
@@ -468,11 +483,11 @@ const buildThemed = (ui) => {
 
     accentBar: {
       height: '1px',
-      background: `linear-gradient(90deg, transparent, ${t.accent}66, transparent)`,
+      background: `linear-gradient(90deg, transparent, ${alpha(t.border, '18', 'rgba(255,255,255,0.035)')}, transparent)`,
     },
 
     form: {
-      padding: `${space['8']} ${space['7']} ${space['7']}`,
+      padding: '32px 28px 28px',
       display: 'flex',
       flexDirection: 'column',
       gap: space['5'],
@@ -489,10 +504,10 @@ const buildThemed = (ui) => {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: t.surface0,
-      border: `1px solid ${t.border}`,
+      background: alpha(t.surface0, '8c', 'rgba(49,50,68,0.55)'),
+      border: `1px solid ${alpha(t.border, '18', 'rgba(255,255,255,0.035)')}`,
       borderRadius: radius.md,
-      color: t.muted,
+      color: t.subtext,
     },
 
     heading: {
@@ -570,21 +585,21 @@ const buildThemed = (ui) => {
       alignItems: 'center',
       gap: space['1.5'],
       background: 'transparent',
-      border: `1px solid ${t.border}`,
+      border: 'none',
       color: t.subtext,
       fontSize: fontSize['12'],
       cursor: 'pointer',
       padding: `${space['1.5']} ${space['2.5']}`,
       fontFamily: 'inherit',
       borderRadius: radius.sm,
-      transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}`,
+      transition: `background ${motion.fast}, color ${motion.fast}, opacity ${motion.fast}`,
     },
 
     _inputBg: t.surface0,
     _inputFocusBg: t.crust,
     _inputBorder: t.border,
     _inputFocusBorder: t.accentBorder,
-    _inputFocusShadow: `0 0 0 2px ${alpha(t.accent, '18', 'rgba(137, 180, 250, 0.10)')}`,
+    _inputFocusShadow: `0 0 0 1px ${alpha(t.accentBorder, '88', 'rgba(137, 180, 250, 0.54)')}`,
     _iconMuted: t.muted,
   };
 };
