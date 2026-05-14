@@ -1272,6 +1272,86 @@ async def get_host_cwd(
     return {"host_id": host_id, "cwd": cwd}
 
 
+async def _run_remote_cmd(host: dict, secrets: dict, cmd: str, timeout: float = 10.0) -> str:
+    """원격 호스트에서 셸 명령을 실행하고 stdout 문자열을 반환. tailscale/SSH 자동 분기."""
+    if host.get("auth_method") == "tailscale":
+        target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
+        proc = await asyncio.create_subprocess_exec(
+            "tailscale", "ssh", target, cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        return stdout.decode("utf-8", errors="replace")
+    from host_manager import open_connection
+    conn = await open_connection(
+        host,
+        private_key=secrets["private_key"],
+        passphrase=secrets["passphrase"],
+        password=secrets["password"],
+    )
+    try:
+        result = await asyncio.wait_for(conn.run(cmd, check=False), timeout=timeout)
+        return (result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace"))
+    finally:
+        conn.close()
+        await conn.wait_closed()
+
+
+@app.get("/api/hosts/{host_id}/git/status")
+async def host_git_status(
+    host_id: str,
+    path: str = Query("", description="원격 디렉토리. 비우면 cwd 사용."),
+    username: str = Depends(verify_auth_token),
+):
+    """원격 호스트의 git status — SSH 로 직접 실행."""
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    target = (path or "").strip()
+    if not target:
+        # cwd fallback
+        cwd = await host_sftp.get_tmux_cwd(host, secrets) if host.get("use_remote_tmux") else None
+        target = cwd or host.get("start_path") or "."
+    safe = shlex.quote(target)
+    cmd = f"git -C {safe} status --porcelain=v1 -uall 2>&1"
+    try:
+        output = await _run_remote_cmd(host, secrets, cmd, timeout=8)
+    except Exception as e:
+        logger.warning("host git status failed (%s): %s", host_id, e)
+        return {"items": [], "branch": None, "repo": None, "error": str(e)}
+    # not a git repo?
+    if "not a git repository" in output.lower() or "fatal:" in output.lower():
+        return {"items": [], "branch": None, "repo": None, "error": None}
+    items = []
+    for line in output.strip().splitlines():
+        if len(line) < 3:
+            continue
+        staged_code = line[0]
+        unstaged_code = line[1]
+        file_path = line[3:].strip().strip('"')
+        kind = (
+            "untracked" if line[:2] == "??"
+            else "deleted" if "D" in line[:2]
+            else "added" if "A" in line[:2]
+            else "modified"
+        )
+        items.append({
+            "path": file_path,
+            "repo_path": file_path,
+            "code": (staged_code + unstaged_code).strip(),
+            "kind": kind,
+            "staged": staged_code not in (" ", "?"),
+        })
+    # branch
+    branch = None
+    try:
+        b_cmd = f"git -C {safe} rev-parse --abbrev-ref HEAD 2>/dev/null"
+        b_out = await _run_remote_cmd(host, secrets, b_cmd, timeout=5)
+        branch = b_out.strip() or None
+    except Exception:
+        pass
+    return {"items": items, "branch": branch, "repo": target, "error": None}
+
+
 @app.get("/api/hosts/{host_id}/files")
 async def list_host_files(
     host_id: str,

@@ -210,10 +210,13 @@ const RightPanel = ({
     window.addEventListener('touchend', onUp);
   }, [panelWidth]);
 
-  // Git 변경 카운트 — 활동 바 뱃지에 표시. 경로 없으면 fetch 안 함 (전체 워크스페이스 집계 X).
+  // Git 변경 카운트 — 활동 바 뱃지에 표시.
+  // local: 로컬 워크스페이스 git API
+  // host:  원격 호스트 SSH git API (hostId + remoteCwd)
   const gitChanges = useGitChanges({
-    enabled: gitContextPath != null && activeTabType === 'local',
-    path: gitContextPath,
+    enabled: gitContextPath != null || !!activeHostId,
+    path: activeHostId ? (paneCwd || '') : (gitContextPath || ''),
+    hostId: activeHostId || null,
     intervalMs: 4000,
   });
   const { items: gitItems, refresh: refreshGitChanges } = gitChanges;

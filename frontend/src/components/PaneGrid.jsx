@@ -647,10 +647,8 @@ const Pane = ({
   });
   // Git context path for sidebar Files/Git tabs:
   //   local: workspace-relative path ('' = root, null = outside workspace)
-  //   host:  absolute remote cwd — lets FileTree start at the right folder
-  const paneGitContext = isLocal
-    ? paneCwdRel
-    : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null);
+  //   host:  null — remote git uses separate API, not local git endpoint
+  const paneGitContext = isLocal ? paneCwdRel : null;
   // Live pane cwd for FileTree navigation:
   //   local: paneCwdRel ('' = root, null = outside workspace)
   //   host:  paneCwdAbs (latest explicit tmux read) → pane.cwd → tab.cwd → host.last_cwd → host.start_path → null

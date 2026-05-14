@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy, Lightbulb } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 
@@ -232,15 +232,11 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
                 focusToEnd(textareaRef.current);
               });
             }}
-            placeholder={t?.('commandInputPlaceholder')}
+            placeholder={t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}
             className="command-input-textarea"
             style={styles.textarea}
             autoFocus
           />
-          <div style={styles.hint}>
-            <Lightbulb size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
-            <span>{t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}</span>
-          </div>
         </div>
 
         <footer style={styles.footer}>
@@ -333,7 +329,6 @@ const styles = {
     padding: `${space['2']} ${space['3']}`,
     display: 'flex',
     flexDirection: 'column',
-    gap: space['1.5'],
     overflow: 'auto',
   },
   textarea: {
@@ -351,14 +346,6 @@ const styles = {
     outline: 'none',
     resize: 'vertical',
     transition: `border-color ${motion.fast}`,
-  },
-  hint: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '4px',
-    fontSize: fontSize['11'],
-    color: color.muted,
   },
   footer: {
     display: 'flex',
