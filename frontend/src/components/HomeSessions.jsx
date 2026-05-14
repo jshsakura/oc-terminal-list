@@ -28,6 +28,7 @@ const HomeSessions = ({
   onTerminateHostSession, // (host, sessionName) => Promise — kill-tmux. throw 가능.
   onConfirm,            // ({title, message, onConfirm, danger?}) => 표준 ConfirmModal 호출
   onNotify,             // (message) => 표준 NotificationModal 호출 (에러 알림)
+  refreshSignal = 0,    // nonce — 변경 시 tmux 호스트 재조회
   t,
 }) => {
   // host_id → { loading, error, sessions: [{name, created, attached}] }
@@ -71,6 +72,14 @@ const HomeSessions = ({
     tmuxHosts.forEach(fetchHostSessions);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tmuxHostIds, fetchHostSessions]);
+
+  // 외부 nonce 변화(세션 닫기/열기 등) 시 즉시 재조회
+  useEffect(() => {
+    if (refreshSignal > 0) {
+      tmuxHosts.forEach(fetchHostSessions);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshSignal]);
 
   // 현재 탭이 점유 중인 *워크스페이스 prefix* set (host_id → Set<prefix>).
   // 한 호스트 탭 = 한 suffix = 한 워크스페이스. pane 0 = `${base}-${suffix}`, pane>0 = `${base}-${suffix}_N`.

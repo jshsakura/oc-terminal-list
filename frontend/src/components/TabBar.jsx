@@ -87,13 +87,13 @@ const TabBar = ({
         style={{
           ...styles.brandBtn,
           ...(isMobile ? styles.brandBtnMobile : null),
-          background: isHome ? color.surface1 : 'transparent',
+          background: isHome ? 'var(--ui-surface1)' : 'transparent',
           border: `1px solid ${isHome ? color.accentBorder : 'transparent'}`,
           color: isHome ? color.accent : color.subtext,
         }}
         onClick={onHome}
         title={t?.('home') || 'Home'}
-        onMouseEnter={(e) => { if (!isHome) e.currentTarget.style.background = color.surface0; }}
+        onMouseEnter={(e) => { if (!isHome) e.currentTarget.style.background = 'var(--ui-surface0)'; }}
         onMouseLeave={(e) => { if (!isHome) e.currentTarget.style.background = 'transparent'; }}
       >
         <TerminalIcon
@@ -127,7 +127,7 @@ const TabBar = ({
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
             isDragging={activeDraggingId === tab.id}
             isDragOver={activeDragOverId === tab.id && activeDraggingId && activeDraggingId !== tab.id}
-            touchProps={isMobile ? touchReorder.getItemProps(tab.id) : null}
+            touchProps={null}
             isMobile={isMobile}
             isPendingClose={pendingCloseTabId === tab.id}
             onSelect={() => { if (pendingCloseTabId === tab.id) return; onSelect(tab.id); }}
@@ -173,7 +173,7 @@ const TabBar = ({
       </div>
 
       {/* right action group — Settings menu */}
-      <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0, borderLeft: isMobile ? 'none' : `1px solid ${color.border}` }}>
+      <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0, borderLeft: '1px solid var(--ui-border)' }}>
         <div ref={settingsBtnRef} style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <RailIconBtn icon={SettingsIcon} onClick={handleSettingsClick} active={!!settingsMenu} title={t?.('settings') || 'Settings'} compact />
         </div>
@@ -259,15 +259,15 @@ const Tab = memo(({
       style={{
         ...styles.tab,
         ...(isMobile ? styles.tabMobile : null),
-        background: isActive ? color.base : color.crust,
+        background: isActive ? 'var(--ui-base)' : 'var(--ui-mantle)',
         color: isActive ? color.text : color.muted,
         fontWeight: isActive ? fontWeight.semibold : fontWeight.medium,
-        border: `1px solid ${isDragOver ? color.accent : (isActive ? color.borderStrong : color.border)}`,
+        border: `1px solid ${isDragOver ? color.accent : (isActive ? 'var(--ui-border-strong)' : 'var(--ui-border)')}`,
         // 하단 라인은 TabBar 자체 borderBottom 하나만 쓰게 한다.
         // inactive tab 의 개별 bottom border 가 보이면 바닥선 위에 떠 보인다.
-        borderBottom: isDragOver ? `1px solid ${color.accent}` : `1px solid ${isActive ? color.base : color.crust}`,
-        flex: styles.tab.flex,
-        maxWidth: styles.tab.maxWidth,
+        borderBottom: isDragOver ? `1px solid ${color.accent}` : `1px solid ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'}`,
+        flex: isMobile ? styles.tabMobile.flex : styles.tab.flex,
+        maxWidth: isMobile ? styles.tabMobile.maxWidth : styles.tab.maxWidth,
         marginLeft: isFirst ? 0 : styles.tab.marginLeft,
         opacity: isDragging ? 0.4 : 1,
         cursor: isMobile ? 'pointer' : 'grab',
@@ -284,11 +284,11 @@ const Tab = memo(({
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); } }}
       onMouseEnter={(e) => {
         if (isMobile) return;
-        if (!isActive) { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.subtext; }
+        if (!isActive) { e.currentTarget.style.background = 'var(--ui-surface0)'; e.currentTarget.style.color = color.subtext; }
       }}
       onMouseLeave={(e) => {
         if (isMobile) return;
-        if (!isActive) { e.currentTarget.style.background = color.crust; e.currentTarget.style.color = color.muted; }
+        if (!isActive) { e.currentTarget.style.background = 'var(--ui-mantle)'; e.currentTarget.style.color = color.muted; }
       }}
     >
       {/* Ctrl+N 번호 — 박스 없이 모노 숫자만. 알림 뱃지 느낌 없이 식별만. */}
@@ -389,7 +389,6 @@ const Tab = memo(({
           onTouchEnd={(e) => e.stopPropagation()}
           style={{
             ...styles.miniBtn,
-            ...(isMobile ? styles.miniBtnMobile : null),
             opacity: 1,
             color: color.subtext,
           }}
@@ -397,7 +396,7 @@ const Tab = memo(({
           onMouseLeave={(e) => { if (isMobile) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
           title={t?.('more') || 'More'}
         >
-          <MoreHorizontal size={isMobile ? 14 : 11} strokeWidth={2} />
+          <MoreHorizontal size={11} strokeWidth={2} />
         </button>
       )}
 
@@ -563,8 +562,8 @@ const styles = {
     display: 'flex',
     alignItems: 'stretch',
     height: '34px',
-    background: color.crust,
-    borderBottom: 'none',
+    background: `linear-gradient(180deg, var(--ui-mantle, ${color.crust}), var(--ui-crust, ${color.crust}))`,
+    borderBottom: '1px solid var(--ui-border)',
     fontFamily: font.sans,
     overflow: 'hidden',
     flexShrink: 0,
@@ -573,21 +572,20 @@ const styles = {
     gap: '0',
   },
   barMobile: {
-    /* 모바일은 상단 호흡공간을 공격적으로 줄임 — 네이티브 앱 헤더 톤.
-       좌우 2px inset 으로 화면 끝에 붙는 느낌만 완화. */
-    height: '30px',
-    padding: '0 2px 0 4px',
-    gap: '2px',
+    /* 모바일도 데스크탑 탭바처럼 유지한다. 탭을 억지로 압축/드래그하지 않고
+       중앙 탭 스트립만 자연스럽게 좌우 스크롤한다. */
+    height: '34px',
+    padding: '0 4px 0 6px',
+    gap: '0',
   },
   tabMobile: {
-    /* 모바일 — touch hit-area 는 유지하되 가로/세로 모두 컴팩트하게.
-       단축번호 뱃지가 빠지므로 leading 패딩을 더 줄임. 많이 열려도 인디케이터 다 보이게 minWidth ↓. */
-    height: '100%',
-    minWidth: '54px',
-    maxWidth: '180px',
-    fontSize: fontSize['13'],
-    paddingLeft: '7px',
-    paddingRight: '4px',
+    height: 'calc(100% + 1px)',
+    minWidth: '128px',
+    maxWidth: '190px',
+    flex: '0 0 150px',
+    fontSize: fontSize['12'],
+    paddingLeft: '10px',
+    paddingRight: '8px',
     gap: '5px',
     borderRadius: 0,
   },
@@ -614,10 +612,9 @@ const styles = {
     margin: '5px 7px 0 0',
   },
   brandBtnMobile: {
-    /* 모바일은 더 공격적으로 — 20px 정사각, 좌측 inset 2 만. */
-    width: '20px',
-    height: '20px',
-    margin: '5px 5px 5px 0',
+    width: '24px',
+    height: '24px',
+    margin: '5px 7px 0 0',
     borderRadius: '3px',
   },
   tabList: {
@@ -636,9 +633,10 @@ const styles = {
   },
   tabListMobile: {
     gap: '0',
-    flex: '0 1 auto',
+    flex: '1 1 auto',
     paddingTop: '0',
     paddingBottom: '0',
+    WebkitOverflowScrolling: 'touch',
   },
   tab: {
     display: 'flex',

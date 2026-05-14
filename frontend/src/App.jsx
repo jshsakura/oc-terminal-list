@@ -44,6 +44,14 @@ const ScreenDumpModal = lazy(() => import('./components/ScreenDumpModal'));
 
 const { color, font, fontSize, fontWeight, space } = tokens;
 
+const isPhoneViewport = () => {
+  if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isPhoneUA = /iPhone|iPod/i.test(ua) || (/Android/i.test(ua) && !/Tablet|iPad/i.test(ua));
+  const isTouchLike = window.matchMedia?.('(pointer: coarse)')?.matches || navigator.maxTouchPoints > 0;
+  return window.innerWidth < 768 && (isPhoneUA || isTouchLike);
+};
+
 // ── tab helpers ──────────────────────────────────────────────────────────────
 // 모델: tab = { id, type, name, ..., panes:[Pane], layout:'single'|'h'|'v'|'2x2', activePaneId, viewMode? }
 // viewMode? : 'grid' (기본, undefined 동일) | 'tabs' — panes.length > 1 일 때 grid 분할 대신 sub-tabs 로 표시.
@@ -682,14 +690,15 @@ function App() {
             // 호스트의 기본 테마가 있으면 themeOverride 자동 적용 (연결 직후 chrome 까지 그 테마로).
             const h = hosts.find((hh) => hh.id === target.hostId);
             const themePatch = h?.theme ? { themeOverride: h.theme } : {};
-            return { ...p, hostId: target.hostId, sessionId: undefined, ...cwdPatch, ...themePatch };
+            const tmuxPatch = target.tmuxSessionName ? { tmuxSessionName: target.tmuxSessionName } : { tmuxSessionName: undefined };
+            return { ...p, hostId: target.hostId, sessionId: undefined, ...tmuxPatch, ...cwdPatch, ...themePatch };
           }
           if (target?.type === 'local') {
             const themePatch = settings.localTheme ? { themeOverride: settings.localTheme } : {};
-            return { ...p, sessionId: generateUUID(), hostId: undefined, ...cwdPatch, ...themePatch };
+            return { ...p, sessionId: generateUUID(), hostId: undefined, tmuxSessionName: undefined, ...cwdPatch, ...themePatch };
           }
-          if (t.type === 'host') return { ...p, hostId: t.hostId, ...cwdPatch };
-          return { ...p, sessionId: generateUUID(), ...cwdPatch };
+          if (t.type === 'host') return { ...p, hostId: t.hostId, tmuxSessionName: undefined, ...cwdPatch };
+          return { ...p, sessionId: generateUUID(), tmuxSessionName: undefined, ...cwdPatch };
         });
         return { ...t, panes, activePaneId: paneId };
       });
@@ -740,6 +749,8 @@ function App() {
           killRemoteTmuxSession(pane.hostId, targetSession);
         }
       }
+      // 홈 Resumable 목록 즉시 갱신
+      bumpSessionRefresh();
     };
 
     const paneCount = tab.panes?.length || 0;
@@ -926,6 +937,8 @@ function App() {
           });
         }
       }
+      // 홈 Resumable 목록 즉시 갱신
+      bumpSessionRefresh();
     };
 
     // 탭 안에 tmux 꺼진 호스트 pane 이 하나라도 있으면 경고 (작업 소실 가능)
@@ -1103,17 +1116,13 @@ function App() {
   }, []);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  // isMobile 초기값을 동기적으로 결정 — Hard refresh 직후 1프레임 동안 PC fontSize 로
-  // 렌더되던 깜박임 제거. effectiveSettings.fontSize 가 처음부터 mobile 값으로 잡혀
-  // xterm 이 mount 시점부터 올바른 사이즈로 그려진다.
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    const ua = navigator.userAgent || '';
-    const isMobileUA = /iPhone|iPad|iPod|Android/i.test(ua);
-    const isNarrow = window.innerWidth < 768;
-    return isMobileUA || isNarrow;
-  });
+  // isMobile 은 "작은 핸드폰 UI" 기준이다. 데스크탑 브라우저 폭을 좁히거나 태블릿에서
+  // 모바일 전용 폰트/서브탭 UX가 먹지 않게 phone viewport 로만 판정한다.
+  const [isMobile, setIsMobile] = useState(() => isPhoneViewport());
   const [viewportHeight, setViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
+  // 세션 닫기/열기 후 홈 Resumable 목록 즉시 갱신용 nonce
+  const [sessionRefreshNonce, setSessionRefreshNonce] = useState(0);
+  const bumpSessionRefresh = useCallback(() => setSessionRefreshNonce((n) => n + 1), []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
@@ -1169,7 +1178,7 @@ function App() {
   // 활성 viewport 기준 effective settings — fontSize 를 PC/모바일 분리. 자식들
   // (PaneGrid, Terminal) 은 settings.fontSize 만 보면 자동으로 알맞은 값 적용.
   const effectiveSettings = useMemo(() => {
-    // isMobile 이 true 면 fontSizeMobile 을, false 면 fontSize 를 사용.
+    // 진짜 핸드폰 UI일 때만 fontSizeMobile 을 사용한다.
     // null-ish coalescing 으로 기본값(13/12) 보장.
     const size = isMobile
       ? (settings.fontSizeMobile ?? 13)
@@ -1181,9 +1190,7 @@ function App() {
   useEffect(() => {
     let viewportRaf = 0;
     const check = () => {
-      const isMobileUA = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      const isNarrow = window.innerWidth < 768;
-      const m = isMobileUA || isNarrow;
+      const m = isPhoneViewport();
       if (isMobileViewportRef.current !== m) setIsMobile(m);
       isMobileViewportRef.current = m;
     };
@@ -1615,7 +1622,7 @@ function App() {
         onOpenKeys={() => { setEditingKey(null); setKeyManagerOpen(true); }}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onReloadTerminals={() => setTerminalReloadSignal((s) => s + 1)}
-        onEqualizePanes={() => equalizeTabRef.current?.()}
+        onEqualizePanes={!isMobile ? () => equalizeTabRef.current?.() : null}
         onLogout={handleLogoutRequest}
         onSplit={splitActivePane}
         onDuplicate={(tabId) => {
@@ -1692,6 +1699,7 @@ function App() {
               onNotify={(message) => setNotification({ isOpen: true, message })}
               t={t}
               settings={settings}
+              refreshSignal={sessionRefreshNonce}
             />
           </div>
 

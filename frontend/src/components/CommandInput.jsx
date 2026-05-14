@@ -32,6 +32,7 @@ const focusToEnd = (ta) => {
  */
 const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
   const textareaRef = useRef(null);
+  const modalRef = useRef(null);
   // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
   // iOS Safari 는 layout viewport 가 키보드를 무시하기 때문에 absolute/fixed inset:0 만으로는
   // 가운데 정렬이 키보드 밑까지 내려가 입력창 일부가 가려진다.
@@ -79,6 +80,33 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
     if (!isOpen) return;
     const raf = requestAnimationFrame(() => focusToEnd(textareaRef.current));
     return () => cancelAnimationFrame(raf);
+  }, [isOpen]);
+
+  // 모달이 떠있는 동안 포커스가 뒤쪽 xterm/input 으로 빠지면 즉시 되돌린다.
+  // xterm 이 상태 변경/클릭 잔상으로 focus() 를 다시 호출하는 타이밍이 있어
+  // document focusin + textarea blur 양쪽에서 방어한다.
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let raf = 0;
+    const refocus = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const modal = modalRef.current;
+        const active = document.activeElement;
+        if (!modal || modal.contains(active)) return;
+        focusToEnd(textareaRef.current);
+      });
+    };
+    const handleFocusIn = (e) => {
+      if (modalRef.current?.contains(e.target)) return;
+      refocus();
+    };
+    document.addEventListener('focusin', handleFocusIn, true);
+    return () => {
+      document.removeEventListener('focusin', handleFocusIn, true);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, [isOpen]);
 
   if (!isOpen) return null;
@@ -165,15 +193,20 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
       data-testid="command-input-overlay"
       style={overlayStyle}
       onClick={onClose}
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onPointerDown={(e) => { e.stopPropagation(); }}
       onTouchMove={blockTouch}
     >
       <style>{`.command-input-textarea::placeholder { color: ${color.muted}; }`}</style>
 
       <div
+        ref={modalRef}
         role="dialog"
         aria-label={t?.('commandInput') || 'Send command'}
         style={modalStyle}
         onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
       >
         <header style={styles.header}>
@@ -192,6 +225,13 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={handleKeyDown}
+            onBlur={() => {
+              requestAnimationFrame(() => {
+                const active = document.activeElement;
+                if (!isOpen || modalRef.current?.contains(active)) return;
+                focusToEnd(textareaRef.current);
+              });
+            }}
             placeholder={t?.('commandInputPlaceholder')}
             className="command-input-textarea"
             style={styles.textarea}

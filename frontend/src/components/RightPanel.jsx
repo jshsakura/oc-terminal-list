@@ -4,7 +4,7 @@ import {
   Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, Trash2,
   Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound, HelpCircle,
   ExternalLink, MoreHorizontal,
-  GripVertical, Columns2, Rows2, LayoutGrid,
+  GripVertical, Columns2, Rows2,
   Eye, EyeOff,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
@@ -265,10 +265,8 @@ const RightPanel = ({
       {/* activity bar — drag handle + tab strip + split/status/eye/close cluster */}
       <div style={{
         ...styles.activityBar,
-        background: `color-mix(in srgb, ${panelUi.surface0} 65%, transparent)`,
-        backdropFilter: 'blur(14px) saturate(160%)',
-        WebkitBackdropFilter: 'blur(14px) saturate(160%)',
-        borderBottomColor: panelUi.border,
+        background: panelUi.base,
+        borderBottomColor: panelUi.borderSubtle || panelUi.border,
       }}>
         {/* Far-left: drag/move handle affordance — empty panes can be dragged too */}
         {!isMobile && !loading && (
@@ -497,11 +495,6 @@ const RightPanel = ({
               </MenuBtn>
             </>
           )}
-          {onEqualizePane && (
-            <MenuBtn icon={LayoutGrid} onClick={() => { closeRailMenu(); onEqualizePane(); }} ui={panelUi}>
-              {t?.('equalizePane') || 'Equalize panes'}
-            </MenuBtn>
-          )}
           {onRefreshTerminal && !disabled && (
             <MenuBtn icon={RefreshCw} onClick={() => { closeRailMenu(); onRefreshTerminal(); }} ui={panelUi}>
               {t?.('refreshTerminal') || 'Reload terminal'}
@@ -543,9 +536,7 @@ const RightPanel = ({
           tabIndex={-1}
           style={{
             ...styles.panel,
-            background: `color-mix(in srgb, ${panelUi.base} 85%, transparent)`,
-            backdropFilter: 'blur(14px) saturate(160%)',
-            WebkitBackdropFilter: 'blur(14px) saturate(160%)',
+            background: panelUi.base,
             borderColor: panelUi.border,
             color: panelUi.text,
             width: `${panelWidth}px`,
@@ -554,7 +545,7 @@ const RightPanel = ({
             left: 0,
             bottom: 0,
             zIndex: 10,
-            boxShadow: '4px 0 16px rgba(0,0,0,0.35)',
+            boxShadow: 'none',
             outline: 'none',
             pointerEvents: 'auto',
           }}>
@@ -570,7 +561,7 @@ const RightPanel = ({
               zIndex: 2,
             }}
           />
-          <div style={{ ...styles.panelHeader, background: `color-mix(in srgb, ${panelUi.mantle} 75%, transparent)`, borderBottomColor: panelUi.border }}>
+          <div style={{ ...styles.panelHeader, background: panelUi.base, borderBottomColor: panelUi.borderSubtle || panelUi.border }}>
             <span style={{ ...styles.panelTitle, color: panelUi.text }}>
               {TABS.find((t) => t.id === activePanel)?.label}
             </span>

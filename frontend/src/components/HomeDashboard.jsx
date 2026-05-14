@@ -39,6 +39,7 @@ const HomeDashboard = ({
   // 콘텐츠 높이만 차지하게 한다 (분할 pane 의 빈 슬롯에서 미러 picker 와 같이 stack 가능).
   embedded = false,
   refreshHosts = null,
+  refreshSignal = 0,
   t,
 }) => {
   const [hoverId, setHoverId] = useState(null);
@@ -82,9 +83,10 @@ const HomeDashboard = ({
             onJumpTab={onJumpTab}
             onResumeHostSession={onResumeHostSession}
             onTerminateHostSession={onTerminateHostSession}
-            onConfirm={onConfirm}
-            onNotify={onNotify}
-            t={t}
+             onConfirm={onConfirm}
+             onNotify={onNotify}
+             refreshSignal={refreshSignal}
+             t={t}
           />
         )}
 

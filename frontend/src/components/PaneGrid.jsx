@@ -154,6 +154,7 @@ const PaneGrid = ({
           busyPaneIds={busyPaneIds}
           settings={settings}
           tabColorIndex={tab.color_index}
+          activeThemeId={activePane?.themeOverride || settings?.theme}
           onSelect={(paneId) => onFocusPane?.(tab.id, paneId)}
           onClose={(paneId) => onClosePane?.(tab.id, paneId)}
           onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}
@@ -1149,7 +1150,7 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
 
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
-  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, onSplitPane = null, t,
+  settings = {}, tabColorIndex, activeThemeId = null, onSelect, onClose, onReorder = null, onRenamePane = null, onSplitPane = null, t,
 }) => {
   const scrollRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState(null);
@@ -1165,6 +1166,8 @@ const SubTabBar = ({
   const tabBarAccent = tabColorIndex != null
     ? (color.dotPalette || ['#89b4fa'])[tabColorIndex % (color.dotPalette || ['#89b4fa']).length]
     : color.accent;
+  const activeTheme = themes[activeThemeId || settings?.theme] || themes.catppuccin;
+  const subUi = buildThemeUI(activeTheme);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -1195,13 +1198,15 @@ const SubTabBar = ({
           display: 'flex',
           alignItems: 'stretch',
           height: '32px',
-          background: color.crust,
-          borderBottom: 'none',
+          background: `linear-gradient(180deg, ${subUi.surface0}, ${subUi.base})`,
+          borderTop: 'none',
+          borderBottom: `1px solid color-mix(in srgb, ${subUi.accent} 34%, ${subUi.base})`,
+          boxShadow: `inset 0 -1px 0 color-mix(in srgb, ${subUi.text} 6%, transparent)`,
           overflowX: 'auto',
           overflowY: 'hidden',
           flexShrink: 0,
-          padding: '0 2px',
-          gap: '0',
+          padding: 0,
+          gap: 0,
         }}
       >
         {panes.map((pane, idx) => {
@@ -1216,6 +1221,15 @@ const SubTabBar = ({
           // 머신 아이콘 — host.icon 또는 settings.localIcon. fallback 은 Server/Monitor/Plus.
           const iconValue = host?.icon || (isLocal ? (settings.localIcon || '') : '');
           const FallbackIcon = host ? Server : (isLocal ? Monitor : Plus);
+          const paneTheme = themes[pane.themeOverride || settings?.theme] || activeTheme;
+          const paneUi = buildThemeUI(paneTheme);
+          const hostAccent = host?.color_index != null
+            ? color.dotPalette[(host.color_index ?? 0) % color.dotPalette.length]
+            : null;
+          const localAccent = isLocal && settings?.localColorIndex != null
+            ? color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length]
+            : null;
+          const paneAccent = hostAccent || localAccent || paneUi.accent || tabBarAccent;
           const isDragging = touchReorder.draggingId === pane.id;
           const isDragOver = touchReorder.dragOverId === pane.id && touchReorder.draggingId && touchReorder.draggingId !== pane.id;
           const touchProps = onReorder ? touchReorder.getItemProps(pane.id) : null;
@@ -1228,21 +1242,24 @@ const SubTabBar = ({
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '0 7px',
+                padding: '0 10px',
                 height: 'calc(100% + 1px)',
-                background: isActive ? color.base : color.crust,
+                background: isActive
+                  ? `linear-gradient(180deg, ${paneUi.base}, color-mix(in srgb, ${paneUi.base} 86%, ${paneAccent}))`
+                  : `linear-gradient(180deg, ${paneUi.surface0}, color-mix(in srgb, ${paneUi.surface0} 88%, ${paneUi.base}))`,
                 border: isDragOver
                   ? `2px solid ${color.accent}`
-                  : `1px solid ${color.border}`,
+                  : `1px solid color-mix(in srgb, ${isActive ? paneAccent : paneUi.text} ${isActive ? 38 : 10}%, ${paneUi.surface0})`,
                 borderBottom: isDragOver
                   ? `2px solid ${color.accent}`
                   : isActive
-                    ? `1px solid ${color.base}`
-                    : `1px solid ${color.crust}`,
-                borderRadius: '0',
+                    ? `1px solid ${paneUi.base}`
+                    : `1px solid color-mix(in srgb, ${paneUi.text} 8%, ${paneUi.surface0})`,
+                borderTop: isActive ? `2px solid ${paneAccent}` : undefined,
+                borderRadius: 0,
                 margin: 0,
                 marginLeft: idx === 0 ? 0 : '-1px',
-                color: isActive ? color.text : color.subtext,
+                color: isActive ? paneUi.text : paneUi.subtext,
                 fontSize: fontSize['11'],
                 fontWeight: fontWeight.medium,
                 cursor: 'pointer',
@@ -1251,7 +1268,10 @@ const SubTabBar = ({
                 maxWidth: 'none',
                 fontFamily: font.sans,
                 opacity: isDragging ? 0.4 : (isActive ? 1 : 0.78),
-                transition: 'background 0.15s, opacity 0.15s',
+                boxShadow: isActive
+                  ? `inset 0 1px 0 color-mix(in srgb, ${paneUi.text} 10%, transparent)`
+                  : 'none',
+                transition: 'background 0.15s, opacity 0.15s, border-color 0.15s, box-shadow 0.15s',
               }}
             >
               {idx + 1 <= 9 && (
@@ -1261,7 +1281,7 @@ const SubTabBar = ({
                     fontFamily: font.mono,
                     fontSize: '10px',
                     fontWeight: 600,
-                    color: isActive ? color.subtext : color.muted,
+                    color: isActive ? paneUi.subtext : paneUi.muted,
                     opacity: isActive ? 0.95 : 0.75,
                     flexShrink: 0,
                     lineHeight: 1,
@@ -1280,7 +1300,7 @@ const SubTabBar = ({
                 width: '16px',
                 height: '16px',
                 flexShrink: 0,
-                color: isActive ? color.text : tabBarAccent,
+                color: isActive ? paneUi.text : paneAccent,
               }}>
                 <HostIcon value={iconValue} fallback={FallbackIcon} size={14} strokeWidth={1.8} />
                 {isBusy && (
@@ -1293,8 +1313,8 @@ const SubTabBar = ({
                       width: '6px',
                       height: '6px',
                       borderRadius: '50%',
-                      background: tabBarAccent,
-                      boxShadow: `0 0 0 1px ${color.crust}`,
+                      background: paneAccent,
+                      boxShadow: `0 0 0 1px ${paneUi.surface0}`,
                       pointerEvents: 'none',
                     }}
                   />
@@ -1426,8 +1446,9 @@ const EmptyPane = ({
             hideHeader
             onJumpTab={() => {}}
             onResumeHostSession={(host, sessionName) => {
-              onResumeHostSession?.(host, sessionName);
-              // 새 탭이 열림 — 이 빈 pane 은 그대로 유지 (사용자가 다시 선택 가능).
+              // EmptyPane/서브탭 컨텍스트에서는 이어하기가 새 메인 탭을 열면 안 된다.
+              // 현재 빈 pane 을 해당 원격 tmux 세션으로 채워 모바일 서브탭 흐름을 유지한다.
+              onActivate?.({ type: 'host', hostId: host.id, tmuxSessionName: sessionName });
             }}
             onTerminateHostSession={onTerminateHostSession}
             onConfirm={onConfirm}
