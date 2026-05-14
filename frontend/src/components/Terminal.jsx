@@ -28,6 +28,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const searchAddonRef = useRef(null);
   const wsRef = useRef(null);
   const resizeTimeoutRef = useRef(null);
+  const resizeTrailingTimeoutRef = useRef(null);
+  const fitNowRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const wsFlushTimeoutRef = useRef(null);
   const wsBufferRef = useRef([]);
@@ -738,11 +740,11 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       handleUserScroll();
     });
 
-    // 윈도우 리사이즈 대응 — debounce 350ms.
-    // 모바일 키보드 애니메이션 (~250-300ms) 중간에 fit() 가 여러 번 호출되면
-    // xterm grid + tmux 가 매번 다시 그려서 화면이 "득득" 떨림. 한 박자 늦춰서
-    // 애니메이션 끝난 후 한 번만 fit → 최종 사이즈 확정 → 한 번만 reflow.
-    const doFit = () => {
+    // 윈도우/패널 리사이즈 대응.
+    // - 데스크탑: rAF 직후 빠르게 1회 fit 해서 열린 pane 들이 즉시 따라오게 한다.
+    // - 모바일 visualViewport/키보드: 최종 크기 안정화 후 trailing fit 을 한 번 더 쏴서 떨림과
+    //   중간 크기 고정을 동시에 피한다.
+    const doFit = (reason = 'resize') => {
       if (!fitAddonRef.current) return;
       const proposed = fitAddonRef.current.proposeDimensions();
       if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
@@ -756,22 +758,36 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         }
       }
     };
+    fitNowRef.current = doFit;
+
+    const scheduleFit = (delay = 0, reason = 'resize') => {
+      if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+      resizeTimeoutRef.current = setTimeout(() => {
+        resizeTimeoutRef.current = null;
+        requestAnimationFrame(() => doFit(reason));
+      }, delay);
+    };
 
     const handleResize = () => {
       // Skip intermediate fits during pane drag — a single fit fires via layoutSignal on mouseup
       if (window.__paneResizingActive) return;
-      if (resizeTimeoutRef.current) {
-        clearTimeout(resizeTimeoutRef.current);
-      }
-      resizeTimeoutRef.current = setTimeout(() => {
-        doFit();
-      }, 150);
+      scheduleFit(isMobileRef.current ? 160 : 32, 'observer');
+      if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
+      resizeTrailingTimeoutRef.current = setTimeout(() => doFit('observer-trailing'), isMobileRef.current ? 360 : 140);
+    };
+
+    const handleGlobalFit = () => {
+      if (window.__paneResizingActive) return;
+      scheduleFit(0, 'global');
+      if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
+      resizeTrailingTimeoutRef.current = setTimeout(() => doFit('global-trailing'), 120);
     };
 
     // [중요] ResizeObserver를 통한 컨테이너 크기 변화 감지 (에디터 열고 닫기 등 레이아웃 변화 대응)
     const observer = new ResizeObserver(() => handleResize());
     if (terminalRef.current) observer.observe(terminalRef.current);
     window.addEventListener('resize', handleResize);
+    window.addEventListener('iterm:fit-terminals', handleGlobalFit);
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', handleResize);
     }
@@ -783,6 +799,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       onReadyChangeRef.current?.(false);
       if (observer) observer.disconnect();
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('iterm:fit-terminals', handleGlobalFit);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleResize);
       }
@@ -797,10 +814,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       wsBufferRef.current = [];
       try { term.dispose(); } catch {}
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
+      if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
       if (inputFlushTimeoutRef.current) clearTimeout(inputFlushTimeoutRef.current);
       inputQueueRef.current = [];
+      fitNowRef.current = null;
     };
   }, [sessionId]);
 
@@ -1043,6 +1062,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       scrollLines,
       focus,
       clear,
+      fit: () => fitNowRef.current?.('api'),
       searchNext,
       searchPrevious,
       closeSearch,

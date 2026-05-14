@@ -69,5 +69,10 @@ backup-*.tar.gz
 .playwright-mcp/
 opencode-resolve/
 
+# Local screenshots / debug captures (may contain private UI data)
+app-current.png
+*.screenshot.png
+*-current.png
+
 # Local deployment helper (machine-specific service/user assumptions)
 deploy/local-deploy.sh

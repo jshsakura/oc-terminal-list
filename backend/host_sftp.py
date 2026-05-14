@@ -419,13 +419,25 @@ async def get_tmux_cwd(host: dict, secrets: dict, session: str | None = None) ->
     session 지정 시 해당 세션 타겟, 실패하면 현재 활성 세션으로 폴백.
     Tailscale 호스트는 `tailscale ssh` 서브프로세스 사용 (asyncssh 미지원).
     """
-    if session:
-        cmd = (
-            f"tmux display-message -t {session} -p '#{{pane_current_path}}' 2>/dev/null"
-            f" || tmux display-message -p '#{{pane_current_path}}' 2>/dev/null"
-        )
-    else:
-        cmd = "tmux display-message -p '#{pane_current_path}' 2>/dev/null"
+    import shlex as _shlex
+
+    # Raspberry Pi / minimal distros sometimes expose a thinner non-login PATH over
+    # ssh/tailscale ssh, and `display-message` can return empty when there is no
+    # current client context. Resolve tmux explicitly and fall back to list-panes
+    # against the exact session target so detached/attached remote tmux both work.
+    target = session or ""
+    qtarget = _shlex.quote(target)
+    target_arg = f"-t {qtarget}" if target else ""
+    cmd = (
+        "TMUX_BIN=$(command -v tmux 2>/dev/null); "
+        "[ -n \"$TMUX_BIN\" ] || [ ! -x /usr/bin/tmux ] || TMUX_BIN=/usr/bin/tmux; "
+        "[ -n \"$TMUX_BIN\" ] || [ ! -x /usr/local/bin/tmux ] || TMUX_BIN=/usr/local/bin/tmux; "
+        "[ -n \"$TMUX_BIN\" ] || exit 0; "
+        f"CWD=$($TMUX_BIN display-message {target_arg} -p '#{{pane_current_path}}' 2>/dev/null || true); "
+        "if [ -n \"$CWD\" ]; then printf '%s\\n' \"$CWD\"; exit 0; fi; "
+        f"$TMUX_BIN list-panes {target_arg} -F '#{{pane_active}}\t#{{pane_current_path}}' 2>/dev/null "
+        "| awk -F '\\t' 'BEGIN{p=\"\"} $1==1{print $2; found=1; exit} !p{p=$2} END{if(!found && p) print p}'"
+    )
 
     auth_method = (host.get("auth_method") or "key").lower()
 

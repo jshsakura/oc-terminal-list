@@ -124,6 +124,7 @@ const PaneGrid = ({
         window.__paneResizingActive = false;
         // Bump signal → layoutSignal change → each Terminal does a single clean fit
         setResizeSignal((s) => s + 1);
+        requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('iterm:fit-terminals')));
       }
       resizeDragRef.current = null;
     };
