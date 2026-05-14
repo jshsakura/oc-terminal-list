@@ -68,3 +68,6 @@ backend/data/.vault-key
 backup-*.tar.gz
 .playwright-mcp/
 opencode-resolve/
+
+# Local deployment helper (machine-specific service/user assumptions)
+deploy/local-deploy.sh

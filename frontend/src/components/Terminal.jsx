@@ -9,7 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, AlertTriangle, X } from 'lucide-react';
+import { MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, AlertTriangle, X, KeyRound } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
@@ -31,6 +31,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const reconnectTimeoutRef = useRef(null);
   const wsFlushTimeoutRef = useRef(null);
   const wsBufferRef = useRef([]);
+  const inputQueueRef = useRef([]);
+  const inputFlushTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const intentionalCloseRef = useRef(false);
   const lastDimsRef = useRef({ cols: 0, rows: 0 });
@@ -119,6 +121,42 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           opacity: 0 !important;
           padding: 0 !important;
           margin: 0 !important;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // xterm 스크롤바 완전 제거
+    // 1) .xterm-viewport 네이티브 브라우저 스크롤바
+    // 2) .xterm-scrollable-element > .scrollbar — xterm 자체 DOM 오버레이 스크롤바 (스크롤 시 .visible 추가됨)
+    const scrollbarFixId = 'xterm-scrollbar-fix-v2';
+    if (!document.getElementById(scrollbarFixId)) {
+      document.getElementById('xterm-scrollbar-fix')?.remove();
+      const style = document.createElement('style');
+      style.id = scrollbarFixId;
+      style.innerHTML = `
+        .xterm .xterm-viewport {
+          scrollbar-width: none !important;
+          -ms-overflow-style: none !important;
+          overflow-x: hidden !important;
+        }
+        .xterm .xterm-viewport::-webkit-scrollbar {
+          width: 0 !important;
+          height: 0 !important;
+          display: none !important;
+          background: transparent !important;
+        }
+        .xterm-scroll-area {
+          scrollbar-width: none !important;
+        }
+        .xterm-scroll-area::-webkit-scrollbar {
+          display: none !important;
+        }
+        .xterm .xterm-scrollable-element > .scrollbar {
+          display: none !important;
+        }
+        .xterm .xterm-scrollable-element > .shadow {
+          display: none !important;
         }
       `;
       document.head.appendChild(style);
@@ -227,45 +265,23 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     //   return false → cancel xterm.js processing (we handled it)
     //
     // - Normal buffer with local scrollback available: return true → xterm scrolls locally.
-    // - At top of local scrollback + scrolling up: send PageUp to PTY so tmux root
-    //   bindings enter copy-mode for deeper history access. return false → cancel xterm.
-    // - Alternate buffer (vim/less/htop): send PageUp/PageDown to PTY. return false → cancel xterm.
-    // Throttled to WHEEL_PAGE_INTERVAL ms to avoid spamming the PTY on trackpad gestures.
-    let _lastWheelPageSentAt = 0;
-    const _WHEEL_PAGE_INTERVAL = 80;
+    // - Never synthesize PageUp/PageDown into the PTY from wheel events. Some editors or
+    //   shells do not consume those escape sequences, so they can be inserted literally
+    //   into the file/prompt as `^[[5~` / `^[[6~`.
     term.attachCustomWheelEventHandler((e) => {
       const buf = term.buffer?.active;
       if (!buf) return true; // no buffer yet — let xterm handle normally
 
-      // Alternate buffer: forward wheel as PageUp/PageDown sequences to the application,
-      // then cancel xterm default (alternate buffer has no local scrollback).
+      // Alternate buffer: let the application/xterm handle wheel/mouse reporting.
+      // Do not convert wheel to key sequences; that can corrupt text being edited.
       if (buf.type === 'alternate') {
-        e.preventDefault();
-        const now = Date.now();
-        if (now - _lastWheelPageSentAt >= _WHEEL_PAGE_INTERVAL) {
-          _lastWheelPageSentAt = now;
-          const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
-            ws.send(e.deltaY < 0 ? '\x1b[5~' : '\x1b[6~');
-          }
-        }
-        return false; // cancel xterm processing — we sent PTY sequences instead
+        return true;
       }
 
       // Normal buffer: at top of local scrollback and still scrolling up →
-      // send PageUp to PTY so tmux root key bindings enter copy-mode for deeper history.
-      // Cancel xterm since there's nothing left to scroll locally.
+      // let xterm/browser ignore it rather than injecting keys into the shell prompt.
       if (e.deltaY < 0 && buf.viewportY <= 0) {
-        e.preventDefault();
-        const now = Date.now();
-        if (now - _lastWheelPageSentAt >= _WHEEL_PAGE_INTERVAL) {
-          _lastWheelPageSentAt = now;
-          const ws = wsRef.current;
-          if (ws?.readyState === WebSocket.OPEN) {
-            ws.send('\x1b[5~');
-          }
-        }
-        return false; // cancel xterm — nothing left to scroll locally
+        return true;
       }
 
       // Normal buffer with local scrollback available: let xterm handle naturally
@@ -409,6 +425,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
     const connect = () => {
       if (cancelled) return;
+      /* 재연결 시작 — evicted 플래그 리셋. tmux 가 재attach 후 버퍼 리플레이 시
+         이전 [detached] 메시지를 다시 내려보내므로 오픈 후 1.5초간 무시. */
+      evictedRef.current = false;
+      let ignoreDetachUntil = 0;
       const proposed = fitAddon.proposeDimensions();
       const cols = proposed?.cols || term.cols || 80;
       const rows = proposed?.rows || term.rows || 24;
@@ -430,6 +450,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
       socket.onopen = () => {
       logger.info(`WebSocket 연결 성공: ${sessionId}`);
+      ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
       setIsReady(true);
       reconnectAttemptsRef.current = 0;
       
@@ -518,7 +539,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         if (event.data.byteLength < 500) {
           try {
             const text = new TextDecoder('utf-8').decode(event.data);
-            if (text.includes('[detached (from session')) {
+            if (text.includes('[detached (from session') && Date.now() > ignoreDetachUntil) {
               evictedRef.current = true;
             }
           } catch {}
@@ -547,7 +568,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
       /* tmux 가 다른 클라이언트에게 takeover 당해 우리를 detach 시킬 때, 마지막에 보내는
          `[detached (from session ...)]` 한 줄로 의도적 detach 임을 식별 — 네트워크 끊김과 분리. */
-      if (typeof event.data === 'string' && event.data.includes('[detached (from session')) {
+      if (typeof event.data === 'string' && event.data.includes('[detached (from session')
+          && Date.now() > ignoreDetachUntil) {
         evictedRef.current = true;
       }
       
@@ -573,21 +595,43 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       // detach token 못 봤어도 server-initiated close 면 takeover 또는 셸 종료 가능성.
       // preflight: attached 면 takeover 오버레이 / exists=false 면 종료 오버레이 / 그 외 reconnect.
       const checkAndRecover = async () => {
-        try {
-          const pf = await (runPreflightRef.current?.() || Promise.resolve({ attached: false, exists: true }));
+        const getPf = async () => {
+          try {
+            return await (runPreflightRef.current?.() || Promise.resolve({ attached: false, exists: true }));
+          } catch {
+            return { attached: false, exists: true };
+          }
+        };
+
+        const pf = await getPf();
+        if (cancelled) return;
+
+        if (pf.attached) {
+          evictedRef.current = true;
+          setEvicted(true);
+          return;
+        }
+
+        if (pf.exists === false) {
+          // exists=false 직후는 race condition (tmux 재기동 중, 다른 기기 세션 종료 등) 일 수 있음.
+          // 2초 뒤 한 번 더 확인 후 판정 — 오검출 방지.
+          await new Promise((r) => setTimeout(r, 2000));
           if (cancelled) return;
-          if (pf.attached) {
+          const pf2 = await getPf();
+          if (cancelled) return;
+          if (pf2.attached) {
             evictedRef.current = true;
             setEvicted(true);
             return;
           }
-          if (pf.exists === false) {
-            // 셸이 exit 으로 tmux 세션이 죽음. 자동 재생성 X — 사용자가 명시적으로 Restart 누르게.
+          if (pf2.exists === false) {
             endedRef.current = true;
             setEnded(true);
             return;
           }
-        } catch {}
+          // pf2.exists = true → 세션 살아남음, 재접속으로 fall-through
+        }
+
         if (cancelled) return;
         // 호스트 네트워크 불안정 (RPi5 wifi 등) 케이스 대응 — 시도 횟수 늘리고 cap 도 큼.
         // 1→2→4→8→8→8…s, 최대 12회 ≈ 1분 30초. 그 후 ended 화면.
@@ -632,21 +676,61 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     });
 
     // 4. 사용자 입력 처리 — connect() 가 여러 번 호출돼도 (takeover/auto-resume) 항상 최신 ws 를 잡게 ref 사용.
-    const WS_CHUNK = 8192;
-    const WS_CHUNK_DELAY = 4;
+    // 대용량 paste 는 절대 동기 while 루프로 WebSocket.send() 를 몰아넣지 않는다.
+    // 브라우저 WebSocket buffer / 서버 receive_text / PTY / tmux / vim 이 모두 별도 속도로 drain 되므로
+    // 수 MB~수십 MB 를 한 번에 밀면 UI freeze, WS close, tmux/vim 입력 유실이 생길 수 있다.
+    const INPUT_CHUNK = 16 * 1024;
+    const INPUT_BYTES_PER_TICK = 128 * 1024;
+    const WS_BUFFER_HIGH_WATER = 512 * 1024;
+
+    const scheduleInputFlush = (delay = 0) => {
+      if (inputFlushTimeoutRef.current) return;
+      inputFlushTimeoutRef.current = setTimeout(flushInputQueue, delay);
+    };
+
+    const flushInputQueue = () => {
+      inputFlushTimeoutRef.current = null;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (inputQueueRef.current.length === 0) return;
+
+      if (ws.bufferedAmount > WS_BUFFER_HIGH_WATER) {
+        scheduleInputFlush(16);
+        return;
+      }
+
+      let sent = 0;
+      while (inputQueueRef.current.length > 0 && sent < INPUT_BYTES_PER_TICK) {
+        if (ws.bufferedAmount > WS_BUFFER_HIGH_WATER) break;
+        let next = inputQueueRef.current[0];
+        if (!next) {
+          inputQueueRef.current.shift();
+          continue;
+        }
+        const chunk = next.length > INPUT_CHUNK ? next.slice(0, INPUT_CHUNK) : next;
+        ws.send(chunk);
+        sent += chunk.length;
+        if (next.length > INPUT_CHUNK) {
+          inputQueueRef.current[0] = next.slice(INPUT_CHUNK);
+        } else {
+          inputQueueRef.current.shift();
+        }
+      }
+
+      if (inputQueueRef.current.length > 0) {
+        scheduleInputFlush(ws.bufferedAmount > WS_BUFFER_HIGH_WATER ? 16 : 1);
+      }
+    };
+
     term.onData((data) => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      if (data.length <= WS_CHUNK) { ws.send(data); return; }
-      let off = 0;
-      const sendNext = () => {
-        if (off >= data.length || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-        const end = Math.min(off + WS_CHUNK, data.length);
-        wsRef.current.send(data.slice(off, end));
-        off = end;
-        if (off < data.length) setTimeout(sendNext, WS_CHUNK_DELAY);
-      };
-      sendNext();
+      if (data.length <= INPUT_CHUNK && inputQueueRef.current.length === 0 && ws.bufferedAmount < WS_BUFFER_HIGH_WATER) {
+        ws.send(data);
+        return;
+      }
+      inputQueueRef.current.push(data);
+      scheduleInputFlush(0);
     });
 
     // 스크롤 이벤트 연결
@@ -674,6 +758,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     };
 
     const handleResize = () => {
+      // Skip intermediate fits during pane drag — a single fit fires via layoutSignal on mouseup
+      if (window.__paneResizingActive) return;
       if (resizeTimeoutRef.current) {
         clearTimeout(resizeTimeoutRef.current);
       }
@@ -713,6 +799,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
+      if (inputFlushTimeoutRef.current) clearTimeout(inputFlushTimeoutRef.current);
+      inputQueueRef.current = [];
     };
   }, [sessionId]);
 
@@ -833,23 +921,16 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     xtermRef.current?.scrollToBottom();
   }, []);
 
-  // 페이지/라인 단위 스크롤 — 두 가지 경로를 동시에 trigger 해 한쪽이 동작하면 OK.
-  //  1) xterm.js 자체 client-side scrollback (normal buffer + 충분한 history 일 때)
-  //  2) PgUp/PgDn 키 시퀀스 PTY 송신 (tmux 가 #{alternate_on} root binding 으로
-  //     자동 분기 — alt-buffer 면 응용 프로그램으로 통과, normal 이면 copy-mode 진입)
-  // 둘 다 trigger 해도 normal+xterm 케이스는 시각 변화 한 번만 일어남.
+  // 페이지/라인 단위 스크롤 — xterm.js client-side scrollback 만 조작한다.
+  // 편집기/셸이 해석하지 못하는 PgUp/PgDn escape sequence 를 PTY 로 보내면
+  // 파일이나 prompt 에 `^[[5~` / `^[[6~` 가 그대로 들어갈 수 있다.
   const scrollPages = useCallback((pages) => {
     const term = xtermRef.current;
     if (!term || pages === 0) return;
-    // 1. xterm 자체 scrollback — normal buffer 면 즉시 화면 위로 이동
     if (term.buffer?.active?.type === 'normal') {
       try { term.scrollPages(pages); } catch { /* noop */ }
     }
-    // 2. PTY 로 키 시퀀스 송신 — tmux/vim/less 가 처리
-    const seq = pages > 0 ? '\x1b[6~' : '\x1b[5~';
-    const n = Math.max(1, Math.abs(pages));
-    for (let i = 0; i < n; i++) sendData(seq);
-  }, [sendData]);
+  }, []);
 
   const scrollLines = useCallback((lines) => {
     const term = xtermRef.current;
@@ -857,13 +938,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     if (term.buffer?.active?.type === 'normal') {
       try { term.scrollLines(lines); } catch { /* noop */ }
     }
-    // alternate buffer 일 때만 화살표 송신 (normal 셸에선 prompt 흔들림 방지)
-    if (term.buffer?.active?.type === 'alternate') {
-      const seq = lines > 0 ? '\x1b[B' : '\x1b[A';
-      const n = Math.max(1, Math.abs(lines));
-      for (let i = 0; i < n; i++) sendData(seq);
-    }
-  }, [sendData]);
+  }, []);
 
   const scrollToTop = useCallback(() => {
     const term = xtermRef.current;
@@ -871,10 +946,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     if (term.buffer?.active?.type === 'normal') {
       try { term.scrollToTop(); } catch { /* noop */ }
     }
-    if (term.buffer?.active?.type === 'alternate') {
-      sendData('\x1b[1~'); // Home
-    }
-  }, [sendData]);
+  }, []);
 
   // 전체 버퍼 → 일반 텍스트. 모바일에서 손가락 선택이 까다로워 화면 통째로
   // 텍스트로 띄워주거나 한번에 클립보드에 복사하는 편의 기능에 사용.
@@ -1144,98 +1216,65 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       )}
 
       {evicted && (
-        <div style={{
-          ...styles.statusOverlay,
-          backgroundColor: `color-mix(in srgb, ${themeUi.base} 88%, transparent)`,
-          backdropFilter: 'blur(6px)',
-          WebkitBackdropFilter: 'blur(6px)',
-          zIndex: 20,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: '14px',
-          padding: '24px',
-        }}>
-          <div style={{
-            width: '48px', height: '48px',
-            borderRadius: '50%',
-            background: `color-mix(in srgb, ${themeUi.accent} 18%, transparent)`,
-            border: `2px solid ${themeUi.accent}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: themeUi.accent,
-          }}>
-            <MonitorSmartphone size={22} strokeWidth={1.8} />
+        <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
+          <div style={styles.glassIconTile(themeUi, themeUi.warning || '#f9e2af')}>
+            <MonitorSmartphone size={18} strokeWidth={1.8} />
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
-            <span style={{
-              fontSize: '14px', fontWeight: 600, color: themeUi.text,
-              fontFamily: tokens.font.sans,
-            }}>
-              {t('takenOverTitle') || '다른 기기에서 이 세션을 사용 중입니다'}
-            </span>
-            <span style={{
-              fontSize: '11px', color: themeUi.subtext,
-              fontFamily: tokens.font.sans, textAlign: 'center', lineHeight: 1.4,
-            }}>
-              {t('takenOverHint') || '다른 기기/브라우저에서 이 세션을 열었습니다. 아래 버튼으로 다시 가져올 수 있습니다.'}
-            </span>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
+              {t('takenOverTitle') || '다른 기기에서 접속 중'}
+            </div>
+            <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
+              {t('takenOverDesc') || '이 세션은 다른 기기가 사용하고 있습니다.'}
+            </div>
           </div>
           <button
             type="button"
             onClick={() => {
               evictedRef.current = false;
               setEvicted(false);
-              if (connectRef.current) {
-                connectRef.current();
-              } else if (onTakeOver) {
-                onTakeOver();
-              } else {
-                window.location.reload();
-              }
+              if (connectRef.current) connectRef.current();
+              else if (onTakeOver) onTakeOver();
+              else window.location.reload();
             }}
-            style={{
-              padding: '8px 20px',
-              borderRadius: tokens.radius.md,
-              border: `1px solid ${themeUi.accent}`,
-              background: themeUi.accent,
-              color: themeUi.crust,
-              fontSize: '12px',
-              fontWeight: 600,
-              fontFamily: tokens.font.sans,
-              cursor: 'pointer',
-              transition: 'opacity 120ms',
-            }}
+            style={styles.glassActionBtn(themeUi, themeUi.accent)}
+            onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
           >
             {t('takeOver') || '내가 가져오기'}
           </button>
-        </div>
+        </GlassOverlayCard>
       )}
 
-      {/* shell 종료 배너 — 패널 하단 인라인 */}
       {ended && !evicted && (
-        <div style={styles.inlineBanner(themeUi)}>
-          <PowerOff size={13} strokeWidth={1.8} style={{ flexShrink: 0 }} />
-          <span style={styles.bannerText(themeUi)}>
-            {t('shellEndedTitle') || '셸이 종료되었습니다'}
-          </span>
+        <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
+          <div style={styles.glassIconTile(themeUi, themeUi.subtext)}>
+            <PowerOff size={18} strokeWidth={1.8} />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
+              {t('shellEndedTitle') || '셸이 종료되었습니다'}
+            </div>
+            <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
+              {t('shellEndedDesc') || '새 셸을 시작하거나 패널을 닫을 수 있습니다.'}
+            </div>
+          </div>
           <button
             type="button"
             onClick={() => {
               endedRef.current = false;
               setEnded(false);
               reconnectAttemptsRef.current = 0;
-              if (connectRef.current) {
-                connectRef.current();
-              } else {
-                window.location.reload();
-              }
+              if (connectRef.current) connectRef.current();
+              else window.location.reload();
             }}
-            style={styles.bannerButton(themeUi)}
+            style={styles.glassActionBtn(themeUi, themeUi.accent)}
+            onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
           >
             {t('restartShell') || '새 셸 시작'}
           </button>
-        </div>
+        </GlassOverlayCard>
       )}
 
       {/* SSH keyboard-interactive (TOTP/OTP/2FA) 챌린지 prompt — 호스트 연결 직전에 백엔드가 트리거. */}
@@ -1269,6 +1308,32 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   );
 };
 
+const GlassOverlayCard = ({ themeUi, zIndex = 10040, children }) => (
+  <div style={{
+    position: 'absolute', inset: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    background: 'rgba(0,0,0,0.38)',
+    backdropFilter: 'blur(5px)',
+    WebkitBackdropFilter: 'blur(5px)',
+    zIndex,
+    fontFamily: 'inherit',
+  }}>
+    <div style={{
+      background: `color-mix(in srgb, ${themeUi.surface0 || themeUi.base} 82%, transparent)`,
+      backdropFilter: 'blur(20px)',
+      WebkitBackdropFilter: 'blur(20px)',
+      border: `1px solid ${themeUi.borderStrong || themeUi.border}`,
+      borderRadius: '12px',
+      boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)',
+      padding: '20px',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+      minWidth: '220px', maxWidth: '280px',
+    }}>
+      {children}
+    </div>
+  </div>
+);
+
 const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
   const initial = (prompt.prompts || []).map(() => '');
   const [values, setValues] = useState(initial);
@@ -1295,7 +1360,9 @@ const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
         }}
       >
         <header style={styles.modalHeader(themeUi)}>
-          <div style={styles.iconTile(themeUi)}>2FA</div>
+          <div style={styles.iconTile(themeUi)}>
+            <KeyRound size={16} strokeWidth={2} />
+          </div>
           <div style={styles.modalTitle(themeUi)}>
             {prompt.name || (t('authPromptTitle') || 'Additional verification')}
           </div>
@@ -1339,19 +1406,17 @@ const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
           <button
             type="button"
             onClick={onCancel}
-            style={{
-              ...styles.secondaryModalButton(themeUi),
-            }}
+            style={styles.secondaryModalButton(themeUi)}
+            onMouseEnter={(e) => { e.currentTarget.style.background = `${themeUi.surface1 || themeUi.surface0}`; e.currentTarget.style.color = themeUi.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0} 70%, transparent)`; e.currentTarget.style.color = themeUi.subtext; }}
           >
             {t('cancel') || 'Cancel'}
           </button>
           <button
             type="submit"
-            style={{
-              ...styles.primaryModalButton(themeUi),
-              background: themeUi.accent,
-              color: themeUi.crust,
-            }}
+            style={styles.primaryModalButton(themeUi)}
+            onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
           >
             {t('authPromptSubmit') || 'Continue'}
           </button>
@@ -1481,59 +1546,88 @@ const styles = {
     position: 'absolute',
     inset: 0,
     padding: space['3'],
-    background: themeUi.scrim,
+    background: 'rgba(0,0,0,0.38)',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex,
-    backdropFilter: 'blur(2px)',
-    WebkitBackdropFilter: 'blur(2px)',
+    backdropFilter: 'blur(5px)',
+    WebkitBackdropFilter: 'blur(5px)',
     fontFamily: 'inherit',
   }),
   modalCard: (themeUi) => ({
     width: '90%',
-    maxWidth: '420px',
+    maxWidth: '360px',
     maxHeight: '80%',
-    background: themeUi.base,
+    background: `color-mix(in srgb, ${themeUi.surface0 || themeUi.base} 82%, transparent)`,
     color: themeUi.text,
-    border: `1px solid ${themeUi.border}`,
-    borderRadius: radius.lg,
-    boxShadow: shadow.lg,
+    border: `1px solid ${themeUi.borderStrong || themeUi.border}`,
+    borderRadius: '12px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
     fontFamily: 'inherit',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
   }),
   modalHeader: (themeUi) => ({
     display: 'flex',
     alignItems: 'center',
-    gap: space['2'],
-    padding: `${space['1.5']} ${space['3']}`,
-    borderBottom: `1px solid ${themeUi.border}`,
+    gap: space['3'],
+    padding: `${space['4']} ${space['4']} ${space['2']}`,
   }),
   iconTile: (themeUi) => ({
-    width: '24px',
-    height: '24px',
-    borderRadius: radius.sm,
+    width: '36px',
+    height: '36px',
+    borderRadius: '9px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: themeUi.surface1,
-    border: `1px solid ${themeUi.border}`,
-    color: themeUi.text,
-    fontSize: '11px',
-    fontWeight: 600,
+    background: `color-mix(in srgb, ${themeUi.accent} 18%, transparent)`,
+    border: `1px solid color-mix(in srgb, ${themeUi.accent} 40%, transparent)`,
+    color: themeUi.accent,
+    fontSize: '12px',
+    fontWeight: 700,
     flexShrink: 0,
+  }),
+  glassIconTile: (themeUi, tileColor) => ({
+    width: '40px',
+    height: '40px',
+    borderRadius: '10px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: `color-mix(in srgb, ${tileColor} 18%, transparent)`,
+    border: `1px solid color-mix(in srgb, ${tileColor} 40%, transparent)`,
+    color: tileColor,
+    flexShrink: 0,
+  }),
+  glassActionBtn: (themeUi, btnColor) => ({
+    width: '100%',
+    height: '32px',
+    borderRadius: '7px',
+    border: `1px solid color-mix(in srgb, ${btnColor} 60%, transparent)`,
+    background: `color-mix(in srgb, ${btnColor} 22%, transparent)`,
+    color: btnColor,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.semibold,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+    transition: 'background 120ms',
   }),
   modalTitle: (themeUi) => ({
     color: themeUi.text,
-    fontSize: fontSize['12'],
+    fontSize: fontSize['13'],
     fontWeight: fontWeight.semibold,
     letterSpacing: '0.01em',
+    flex: 1,
   }),
   modalBody: (themeUi, textAlign = 'center') => ({
     flex: 1,
-    padding: `${space['2']} ${space['3']}`,
+    padding: `${space['2']} ${space['4']}`,
     color: themeUi.subtext,
     fontSize: fontSize['12'],
     lineHeight: lineHeight.normal,
@@ -1547,31 +1641,37 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: space['2'],
-    padding: `${space['1.5']} ${space['3']}`,
-    borderTop: `1px solid ${themeUi.border}`,
-    background: themeUi.mantle,
+    padding: `${space['3']} ${space['4']} ${space['4']}`,
   }),
   primaryModalButton: (themeUi) => ({
     flex: 1,
-    height: '36px',
-    borderRadius: radius.sm,
-    border: `1px solid ${themeUi.accent}`,
-    fontSize: '13px',
-    fontWeight: 600,
+    height: '32px',
+    borderRadius: '7px',
+    border: `1px solid color-mix(in srgb, ${themeUi.accent} 60%, transparent)`,
+    background: `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`,
+    color: themeUi.accent,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.semibold,
     cursor: 'pointer',
     fontFamily: 'inherit',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+    transition: 'background 120ms',
   }),
   secondaryModalButton: (themeUi) => ({
     flex: 1,
-    height: '36px',
-    borderRadius: radius.sm,
+    height: '32px',
+    borderRadius: '7px',
     border: `1px solid ${themeUi.border}`,
-    background: 'transparent',
-    color: themeUi.text,
-    fontSize: '13px',
-    fontWeight: 500,
+    background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0} 70%, transparent)`,
+    color: themeUi.subtext,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
     cursor: 'pointer',
     fontFamily: 'inherit',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
+    transition: 'background 120ms',
   }),
   promptField: {
     display: 'flex',
@@ -1591,27 +1691,33 @@ const styles = {
   promptInput: (themeUi) => ({
     flex: 1,
     minWidth: 0,
-    height: '40px',
+    height: '38px',
     padding: `0 ${space['3']}`,
-    background: themeUi.mantle,
+    background: `color-mix(in srgb, ${themeUi.mantle || themeUi.base} 80%, transparent)`,
     color: themeUi.text,
-    border: `1px solid ${themeUi.border}`,
-    borderRadius: radius.sm,
+    border: `1px solid ${themeUi.borderStrong || themeUi.border}`,
+    borderRadius: '7px',
     outline: 'none',
     fontSize: fontSize['14'],
     fontFamily: 'inherit',
+    backdropFilter: 'blur(8px)',
+    WebkitBackdropFilter: 'blur(8px)',
   }),
   inlineBanner: (themeUi) => ({
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: space['2'],
+    left: space['2'],
+    right: space['2'],
     display: 'flex',
     alignItems: 'center',
     gap: space['2'],
-    padding: `${space['1']} ${space['3']}`,
-    background: themeUi.surface1,
-    borderTop: `1px solid ${themeUi.border}`,
+    padding: `${space['1.5']} ${space['3']}`,
+    background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0} 75%, transparent)`,
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    border: `1px solid ${themeUi.borderStrong || themeUi.border}`,
+    borderRadius: '8px',
+    boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
     zIndex: 12,
     fontSize: fontSize['11'],
     fontFamily: 'inherit',
@@ -1625,12 +1731,12 @@ const styles = {
     textOverflow: 'ellipsis',
   }),
   bannerButton: (themeUi) => ({
-    height: '24px',
+    height: '22px',
     padding: `0 ${space['2']}`,
-    borderRadius: radius.sm,
-    border: `1px solid ${themeUi.border}`,
-    background: themeUi.accent,
-    color: themeUi.crust,
+    borderRadius: '5px',
+    border: `1px solid color-mix(in srgb, ${themeUi.accent} 60%, transparent)`,
+    background: `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`,
+    color: themeUi.accent,
     fontSize: fontSize['11'],
     fontWeight: 600,
     cursor: 'pointer',

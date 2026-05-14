@@ -440,6 +440,158 @@ function App() {
     });
   }, []);
 
+  // Drag a tab onto a pane to split or absorb it.
+  // sourceTabId: tab being dragged
+  // targetTabId: tab that owns the target pane (currently unused but forwarded for context)
+  // targetPaneId: pane the tab was dropped onto
+  // dir: 'top' | 'bottom' | 'left' | 'right' | 'center'
+  const dropTabToSplitPane = useCallback((sourceTabId, targetTabId, targetPaneId, dir) => {
+    const currentHosts = hosts;
+    setTabs((prev) => {
+      const srcTab = prev.find((t) => t.id === sourceTabId);
+      const destTab = prev.find((t) => t.id === targetTabId);
+      if (!srcTab || !destTab) return prev;
+
+      const srcActivePanes = (srcTab.panes || []).filter((p) => p.sessionId || p.hostId);
+      if (srcActivePanes.length === 0) return prev.filter((t) => t.id !== sourceTabId);
+
+      // Preserve the effective tmux session name so the moved pane reconnects to the correct session
+      // regardless of its new paneIndex in the destination tab.
+      const getEffectiveSession = (sp) => {
+        if (!sp.hostId) return sp.tmuxSessionName;
+        const paneIdx = (srcTab.panes || []).indexOf(sp);
+        const host = currentHosts.find((h) => h.id === sp.hostId);
+        return computePaneTmuxSession(host, srcTab, sp, paneIdx);
+      };
+
+      // center = target pane occupied → SWAP sessions; target pane empty → fill it
+      if (dir === 'center') {
+        const currentPanes = [...(destTab.panes || [])];
+        const targetIdx = currentPanes.findIndex((p) => p.id === targetPaneId);
+        const targetOccupant = targetIdx >= 0 ? currentPanes[targetIdx] : null;
+        const isOccupied = !!(targetOccupant?.sessionId || targetOccupant?.hostId);
+
+        if (isOccupied) {
+          // Swap: source's first active pane ↔ the specific target pane
+          const sp = srcActivePanes[0];
+          const dispHostId = targetOccupant.hostId;
+          const dispHost = dispHostId ? currentHosts.find((h) => h.id === dispHostId) : null;
+          const dispSession = targetOccupant.tmuxSessionName ||
+            (dispHostId ? computePaneTmuxSession(dispHost, destTab, targetOccupant, targetIdx) : null);
+
+          const newDestPanes = currentPanes.map((p) =>
+            p.id === targetPaneId
+              ? { ...p, sessionId: sp.sessionId, hostId: sp.hostId, themeOverride: sp.themeOverride, tmuxSessionName: getEffectiveSession(sp) }
+              : p,
+          );
+          const newSrcPanes = (srcTab.panes || []).map((p) =>
+            p.id === sp.id
+              ? { ...p, sessionId: targetOccupant.sessionId, hostId: targetOccupant.hostId, themeOverride: targetOccupant.themeOverride, tmuxSessionName: dispSession }
+              : p,
+          );
+
+          const makeLayout = (panes, base) => {
+            const n = panes.length;
+            if (n === 1) return 'single';
+            if (n === 2) return base === 'v' ? 'v' : 'h';
+            return '2x2';
+          };
+          const dLayout = makeLayout(newDestPanes, destTab.layout || 'single');
+          const sLayout = makeLayout(newSrcPanes, srcTab.layout || 'single');
+
+          return prev.map((t) => {
+            if (t.id === targetTabId) return { ...t, panes: newDestPanes, layout: dLayout, splitTree: treeFromLegacyLayout(newDestPanes, dLayout) };
+            if (t.id === sourceTabId) return { ...t, panes: newSrcPanes, layout: sLayout, splitTree: treeFromLegacyLayout(newSrcPanes, sLayout) };
+            return t;
+          });
+        }
+
+        // Target pane is empty → fill it (and any other empty slots) with source panes
+        const emptyIndices = [];
+        currentPanes.forEach((p, i) => { if (!p.sessionId && !p.hostId) emptyIndices.push(i); });
+
+        let srcIdx = 0;
+        const filledPanes = currentPanes.map((p, i) => {
+          if (emptyIndices.includes(i) && srcIdx < srcActivePanes.length) {
+            const sp = srcActivePanes[srcIdx++];
+            return { ...p, sessionId: sp.sessionId, hostId: sp.hostId, themeOverride: sp.themeOverride, tmuxSessionName: getEffectiveSession(sp) };
+          }
+          return p;
+        });
+
+        const movedCount = srcIdx;
+        const movedSrcIds = new Set(srcActivePanes.slice(0, movedCount).map((p) => p.id));
+        const srcRemaining = (srcTab.panes || []).filter((p) => !movedSrcIds.has(p.id) && (p.sessionId || p.hostId));
+
+        const total = filledPanes.length;
+        let layout = destTab.layout || 'single';
+        if (total === 1) layout = 'single';
+        else if (total === 2) layout = (layout === 'v' ? 'v' : 'h');
+        else layout = '2x2';
+        const splitTree = treeFromLegacyLayout(filledPanes, layout);
+
+        return prev.map((t) => {
+          if (t.id === targetTabId) return { ...t, panes: filledPanes, layout, splitTree };
+          if (t.id === sourceTabId) {
+            if (srcRemaining.length === 0) return null;
+            const nTotal = srcRemaining.length;
+            let nLayout = t.layout || 'single';
+            if (nTotal === 1) nLayout = 'single';
+            else if (nTotal === 2) nLayout = (nLayout === 'v' ? 'v' : 'h');
+            else nLayout = '2x2';
+            return { ...t, panes: srcRemaining, layout: nLayout, splitTree: treeFromLegacyLayout(srcRemaining, nLayout), activePaneId: srcRemaining[0].id };
+          }
+          return t;
+        }).filter(Boolean);
+      }
+
+      // directional drop: split the target pane, then fill the new empty pane with source tab's active panes
+      const effectiveDir = dir === 'top' ? 'up' : dir === 'bottom' ? 'down' : dir;
+      const newPane = makePane({});
+      const currentPanes = [...(destTab.panes || []), newPane];
+      const currentTree = ensureTree(destTab.panes || [], destTab.splitTree) || makeLeaf(targetPaneId);
+      const { tree: newTree } = splitLeaf(currentTree, targetPaneId, effectiveDir, newPane.id);
+
+      let layout = destTab.layout || 'single';
+      if (currentPanes.length === 2) layout = (effectiveDir === 'down' || effectiveDir === 'up') ? 'v' : 'h';
+      else if (currentPanes.length >= 3) layout = '2x2';
+
+      // Fill newly created empty pane (and any other empty panes) with source panes
+      const emptyIndices = [];
+      currentPanes.forEach((p, i) => { if (!p.sessionId && !p.hostId) emptyIndices.push(i); });
+      // Prioritize the newly created pane index
+      const newPaneIdx = currentPanes.findIndex((p) => p.id === newPane.id);
+      const orderedEmpty = [newPaneIdx, ...emptyIndices.filter((i) => i !== newPaneIdx)];
+
+      let srcIdx = 0;
+      const filledPanes = currentPanes.map((p, i) => {
+        if (orderedEmpty.includes(i) && srcIdx < srcActivePanes.length) {
+          const sp = srcActivePanes[srcIdx++];
+          return { ...p, sessionId: sp.sessionId, hostId: sp.hostId, themeOverride: sp.themeOverride, tmuxSessionName: getEffectiveSession(sp) };
+        }
+        return p;
+      });
+
+      const movedCount = srcIdx;
+      const movedSrcIds = new Set(srcActivePanes.slice(0, movedCount).map((p) => p.id));
+      const srcRemaining = (srcTab.panes || []).filter((p) => !movedSrcIds.has(p.id) && (p.sessionId || p.hostId));
+
+      return prev.map((t) => {
+        if (t.id === targetTabId) return { ...t, panes: filledPanes, layout, splitTree: newTree, activePaneId: newPane.id };
+        if (t.id === sourceTabId) {
+          if (srcRemaining.length === 0) return null;
+          const nTotal = srcRemaining.length;
+          let nLayout = t.layout || 'single';
+          if (nTotal === 1) nLayout = 'single';
+          else if (nTotal === 2) nLayout = (nLayout === 'v' ? 'v' : 'h');
+          else nLayout = '2x2';
+          return { ...t, panes: srcRemaining, layout: nLayout, splitTree: treeFromLegacyLayout(srcRemaining, nLayout), activePaneId: srcRemaining[0].id };
+        }
+        return t;
+      }).filter(Boolean);
+    });
+  }, [hosts, computePaneTmuxSession]);
+
   // 빈 pane 활성화 — target 종류:
   //  - { type: 'local' } 새 로컬 세션
   //  - { type: 'host', hostId } 호스트 새 pane
@@ -458,6 +610,14 @@ function App() {
           return prev.filter((t) => t.id !== target.sourceTabId);
         }
 
+        // Preserve effective tmux session name so moved pane reconnects to the correct session
+        const getEffectiveSession = (sp) => {
+          if (!sp.hostId) return sp.tmuxSessionName;
+          const paneIdx = (src.panes || []).indexOf(sp);
+          const host = hosts.find((h) => h.id === sp.hostId);
+          return computePaneTmuxSession(host, src, sp, paneIdx);
+        };
+
         const destTab = prev.find((t) => t.id === tabId);
         const currentPanes = [...(destTab?.panes || [])];
 
@@ -469,7 +629,8 @@ function App() {
         let srcIdx = 0;
         const filledPanes = currentPanes.map((p, i) => {
           if (emptyIndices.includes(i) && srcIdx < srcActivePanes.length) {
-            return { ...p, sessionId: srcActivePanes[srcIdx].sessionId, hostId: srcActivePanes[srcIdx++].hostId };
+            const sp = srcActivePanes[srcIdx++];
+            return { ...p, sessionId: sp.sessionId, hostId: sp.hostId, themeOverride: sp.themeOverride, tmuxSessionName: getEffectiveSession(sp) };
           }
           return p;
         });
@@ -533,9 +694,10 @@ function App() {
         return { ...t, panes, activePaneId: paneId };
       });
     });
-  }, [hosts, settings.localTheme]);
+  }, [hosts, settings.localTheme, computePaneTmuxSession]);
 
-  const closePane = useCallback((tabId, paneId) => {
+  const closePane = useCallback((tabId, paneId, opts = {}) => {
+    const { skipConfirm = false } = opts;
     const tab = tabs.find((tt) => tt.id === tabId);
     const pane = tab?.panes?.find((p) => p.id === paneId);
     if (!tab || !pane) return;
@@ -589,23 +751,25 @@ function App() {
       return;
     }
 
-    const isHost = !!pane.hostId;
-    const host = isHost ? hosts.find((h) => h.id === pane.hostId) : null;
-    const willPersist = isEmpty || !isHost /* local 항상 tmux */ || !!host?.use_remote_tmux;
-
-    let title, message;
+    // 빈 pane (멀티 중) — 확인 없이 즉시 제거
     if (isEmpty) {
-      // 빈 pane (멀티 중) 제거
-      title = t('removePane') || 'Remove pane';
-      message = t('confirmRemoveEmptyPane') || 'Remove this empty pane?';
-    } else {
-      // 멀티 pane 중 하나 닫기
-      title = t('closePane') || 'Close pane';
-      message = willPersist
-        ? (t('confirmClosePane') || 'Close this pane?')
-        : (t('confirmClosePaneNoTmux') || 'Close this pane? Work will be lost (tmux off).');
+      doClose();
+      return;
     }
 
+    const isHost = !!pane.hostId;
+    const host = isHost ? hosts.find((h) => h.id === pane.hostId) : null;
+    const willPersist = !isHost /* local 항상 tmux */ || !!host?.use_remote_tmux;
+
+    const title = t('closePane') || 'Close pane';
+    const message = willPersist
+      ? (t('confirmClosePane') || 'Close this pane?')
+      : (t('confirmClosePaneNoTmux') || 'Close this pane? Work will be lost (tmux off).');
+
+    if (skipConfirm) {
+      doClose();
+      return;
+    }
     setConfirmModal({
       isOpen: true,
       title,
@@ -706,7 +870,29 @@ function App() {
     }));
   }, []);
 
-  const closeTab = useCallback((tabId) => {
+  // Drag a pane onto another pane with a directional zone → move src next to dest in split tree.
+  // dir: 'top' | 'bottom' | 'left' | 'right' (center = swap handled by reorderPane)
+  const dropPaneToSplit = useCallback((tabId, srcPaneId, destPaneId, dir) => {
+    if (!srcPaneId || !destPaneId || srcPaneId === destPaneId) return;
+    setTabs((prev) => prev.map((tt) => {
+      if (tt.id !== tabId) return tt;
+      const panes = tt.panes || [];
+      if (!panes.find((p) => p.id === srcPaneId) || !panes.find((p) => p.id === destPaneId)) return tt;
+      const effectiveDir = dir === 'top' ? 'up' : dir === 'bottom' ? 'down' : dir;
+      const currentTree = ensureTree(panes, tt.splitTree);
+      const treeWithoutSrc = removeLeaf(currentTree, srcPaneId);
+      const { tree: finalTree } = splitLeaf(
+        treeWithoutSrc || makeLeaf(destPaneId),
+        destPaneId,
+        effectiveDir,
+        srcPaneId,
+      );
+      return { ...tt, splitTree: finalTree, activePaneId: srcPaneId };
+    }));
+  }, []);
+
+  const closeTab = useCallback((tabId, opts = {}) => {
+    const { skipConfirm = false } = opts;
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
@@ -764,6 +950,10 @@ function App() {
     const tabNo = tabIdx >= 0 ? tabIdx + 1 : '?';
     const headerLine = `#${tabNo} · ${tab.name || 'terminal'}`;
     const message = `${headerLine}\n\n${bodyMsg}`;
+    if (skipConfirm) {
+      doClose();
+      return;
+    }
     setConfirmModal({
       isOpen: true,
       title: t('closeTab') || 'Close tab',
@@ -955,6 +1145,8 @@ function App() {
   const [openFiles, setOpenFiles] = useState([]);
   const [activeFile, setActiveFile] = useState(null);
   const [editorHeight, setEditorHeight] = useState(() => parseInt(localStorage.getItem('editor_height') || '400'));
+  const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);
+  const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌
   const [isResizingEditor, setIsResizingEditor] = useState(false);
 
   // Terminal search
@@ -1337,39 +1529,39 @@ function App() {
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: ${currentTheme.ui.bgTertiary}; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: ${currentTheme.ui.accent}88; }
-        /* xterm 스크롤바 — 핵심: xterm.css 기본값이 'overflow-y: scroll' 이라 *항상* gutter 가
-           예약돼서 TUI 가 그 폭만큼 짧게 그려진다 (opencode 등이 가득 안 차는 이유).
-           해법:
-             1) overflow-y: auto — 콘텐츠 넘칠 때만 스크롤바, 안 보이면 gutter 없음.
-             2) scrollbar-gutter: auto — gutter 예약 명시적 해제 (기본값이지만 일부 vendor 보정용).
-             3) scrollbar-width / -ms-overflow-style — Firefox + IE/Edge legacy.
-             4) ::-webkit-scrollbar 모두 display:none + appearance:none — Chrome/Safari overlay 까지.
-           가로 스크롤은 항상 hidden — xterm 은 cols 정확히 fit 해서 가로 overflow 가 절대 없어야 함. */
-        .xterm,
-        .xterm *,
-        .xterm-viewport,
-        .xterm-screen,
-        .xterm-scroll-area {
+        /* xterm 스크롤바 완전 제거 — xterm.css 기본값 overflow-y:scroll 의 gutter 를 모든 방법으로 숨김.
+           scrollbar-width:none (Firefox/Chrome121+) + ::-webkit-scrollbar width:0 (Safari/Chrome<121).
+           overflow-y:scroll 유지 — xterm 이 scroll position 으로 buffer 위치 트래킹하는 구조이므로
+           auto 로 바꾸면 콘텐츠가 딱 맞을 때(fit 상태) scrollbar 가 없어져 scroll 이벤트가 끊길 수 있음.
+           대신 scrollbar 를 width:0 + display:none 으로 완전 투명화해 gutter 도 0 으로 만든다. */
+        .xterm .xterm-viewport {
+          scrollbar-width: none !important;
+          -ms-overflow-style: none !important;
+          overflow-x: hidden !important;
+        }
+        .xterm .xterm-viewport::-webkit-scrollbar {
+          width: 0 !important;
+          height: 0 !important;
+          display: none !important;
+          background: transparent !important;
+        }
+        .xterm .xterm-viewport::-webkit-scrollbar-thumb,
+        .xterm .xterm-viewport::-webkit-scrollbar-track,
+        .xterm .xterm-viewport::-webkit-scrollbar-corner {
+          width: 0 !important;
+          height: 0 !important;
+          display: none !important;
+          background: transparent !important;
+        }
+        /* screen/scroll-area 등 나머지 xterm 내부 요소 */
+        .xterm *:not(.xterm-viewport) {
           scrollbar-width: none !important;
           -ms-overflow-style: none !important;
         }
-        .xterm-viewport {
-          overflow-y: auto !important;
-          overflow-x: hidden !important;
-          scrollbar-gutter: auto !important;
-        }
-        .xterm::-webkit-scrollbar,
-        .xterm *::-webkit-scrollbar,
-        .xterm-viewport::-webkit-scrollbar,
-        .xterm-viewport::-webkit-scrollbar-track,
-        .xterm-viewport::-webkit-scrollbar-thumb,
-        .xterm-viewport::-webkit-scrollbar-corner {
+        .xterm *:not(.xterm-viewport)::-webkit-scrollbar {
           display: none !important;
           width: 0 !important;
           height: 0 !important;
-          background: transparent !important;
-          -webkit-appearance: none !important;
-          appearance: none !important;
         }
 
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
@@ -1416,11 +1608,14 @@ function App() {
         }}
         onSelect={setActiveTabId}
         onClose={closeTab}
+        onCloseImmediate={(tabId) => closeTab(tabId, { skipConfirm: true })}
         onToggleViewMode={toggleViewMode}
         onHome={() => setActiveTabId(null)}
         onOpenHosts={() => setHostManagerOpen(true)}
         onOpenKeys={() => { setEditingKey(null); setKeyManagerOpen(true); }}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onReloadTerminals={() => setTerminalReloadSignal((s) => s + 1)}
+        onEqualizePanes={() => equalizeTabRef.current?.()}
         onLogout={handleLogoutRequest}
         onSplit={splitActivePane}
         onDuplicate={(tabId) => {
@@ -1551,17 +1746,22 @@ function App() {
                     allTabs={tabsWithMeta}
                     hosts={hosts}
                     isActive={isThisActive}
+                    equalizeRef={isThisActive ? equalizeTabRef : null}
                     isMobile={isMobile}
                     onFocusPane={focusPane}
                     onClosePane={closePane}
+                    onClosePaneImmediate={(tabId, paneId) => closePane(tabId, paneId, { skipConfirm: true })}
                     onActivatePane={activatePane}
                     onExtractPaneToTab={extractPaneToTab}
                     onReorderPane={reorderPane}
+                    onPaneDragToSplit={dropPaneToSplit}
                     onSplitPane={(tabId, paneId, dir) => splitActivePane(dir, tabId, paneId)}
+                    onDropTabToPane={(sourceTabId, targetTabId, targetPaneId, dir) => dropTabToSplitPane(sourceTabId, targetTabId, targetPaneId, dir)}
                     onPaneCwdChange={handlePaneCwdChange}
                     onPaneThemeChange={handlePaneThemeChange}
                     onRenamePane={handleRenamePane}
                     layoutSignal={tabLayoutSignal}
+                    reloadSignal={isThisActive ? terminalReloadSignal : 0}
                     settings={effectiveSettings}
                     updateSettings={updateSettings}
                     cwd={tabCwd}
@@ -1804,12 +2004,13 @@ function App() {
             hosts={hosts}
             sshKeys={sshKeys}
             refreshHosts={refreshHosts}
-            onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
-            onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
+            onAddHost={() => { setIsSettingsOpen(false); setHostEditorState({ isOpen: true, host: null, reopenSettings: true }); }}
+            onEditHost={(h) => { setIsSettingsOpen(false); setHostEditorState({ isOpen: true, host: h, reopenSettings: true }); }}
             onAddKey={() => { setEditingKey(null); setKeyManagerOpen(true); }}
             onEditKey={(k) => { setEditingKey(k); setKeyManagerOpen(true); }}
             onLogout={() => { setIsSettingsOpen(false); logout?.(); }}
             t={t}
+            globalThemeId={settings.theme}
             language={settings.language}
           />
         )}
@@ -1835,14 +2036,18 @@ function App() {
               if (hostEditorState.host) await updateHost(hostEditorState.host.id, data);
               else await createHost(data);
               await refreshHosts();
+              const reopen = hostEditorState.reopenSettings;
               setHostEditorState({ isOpen: false, host: null });
+              if (reopen) setIsSettingsOpen(true);
             }}
             onDelete={async () => {
               const target = hostEditorState.host;
               if (!target) return;
               await deleteHost(target.id);
               await refreshHosts();
+              const reopen = hostEditorState.reopenSettings;
               setHostEditorState({ isOpen: false, host: null });
+              if (reopen) setIsSettingsOpen(true);
             }}
             onKillTmuxServer={async (h) => {
               const token = localStorage.getItem('auth_token');
@@ -1851,7 +2056,11 @@ function App() {
               });
               setNotification({ isOpen: true, message: t('killTmuxServerDone') || 'Remote tmux server killed.' });
             }}
-            onClose={() => setHostEditorState({ isOpen: false, host: null })}
+            onClose={() => {
+              const reopen = hostEditorState.reopenSettings;
+              setHostEditorState({ isOpen: false, host: null });
+              if (reopen) setIsSettingsOpen(true);
+            }}
             t={t}
             language={settings.language}
           />

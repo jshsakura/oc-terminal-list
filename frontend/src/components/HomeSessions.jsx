@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import {
   Server, Monitor, Anchor, Loader2,
-  ArrowRight, Trash2, AlertCircle,
+  ArrowRight, Trash2, AlertCircle, X,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -36,8 +36,11 @@ const HomeSessions = ({
     [hosts],
   );
   const [tmuxByHost, setTmuxByHost] = useState({});
+  // Dismissed host IDs persist across re-fetches (hosts array reference changes on every poll)
+  const dismissedRef = useRef(new Set());
 
   const fetchHostSessions = useCallback(async (host) => {
+    if (dismissedRef.current.has(host.id)) return;
     setTmuxByHost((prev) => ({ ...prev, [host.id]: { loading: true } }));
     try {
       const token = localStorage.getItem('auth_token');
@@ -58,9 +61,16 @@ const HomeSessions = ({
     }
   }, []);
 
+  // Depend on host IDs string — not the array reference — so polling-driven host updates
+  // don't re-trigger fetches when the actual set of tmux hosts hasn't changed.
+  const tmuxHostIds = useMemo(
+    () => tmuxHosts.map((h) => h.id).join(','),
+    [tmuxHosts],
+  );
   useEffect(() => {
     tmuxHosts.forEach(fetchHostSessions);
-  }, [tmuxHosts, fetchHostSessions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tmuxHostIds, fetchHostSessions]);
 
   // 현재 탭이 점유 중인 *워크스페이스 prefix* set (host_id → Set<prefix>).
   // 한 호스트 탭 = 한 suffix = 한 워크스페이스. pane 0 = `${base}-${suffix}`, pane>0 = `${base}-${suffix}_N`.
@@ -110,12 +120,16 @@ const HomeSessions = ({
   const openTabs = hideOpen ? [] : tabs;
   const hasAnyResumable = tmuxHosts.some((h) => {
     const entry = tmuxByHost[h.id];
-    if (!entry || entry.loading || entry.error) return false;
+    if (!entry || entry.loading || entry.error || entry.dismissed) return false;
     return entry.sessions.some((s) => !isCompanionSession(s.name) && !isClaimedSession(h.id, s.name));
   });
-  const anyLoading = tmuxHosts.some((h) => tmuxByHost[h.id]?.loading);
-  // tmux 호스트가 있는데 resume 가능 세션이 0 이고 로딩도 안 함 — 빈 상태 카드 노출 대상.
-  const showEmptyResumable = !hasAnyResumable && !anyLoading && tmuxHosts.length > 0;
+  const anyLoading = tmuxHosts.some((h) => {
+    const entry = tmuxByHost[h.id];
+    return !entry?.dismissed && !!entry?.loading;
+  });
+  // tmux 호스트가 있고, 로딩/dismiss 아닌 항목이 하나라도 있으면 빈 상태 카드 노출 대상.
+  const showEmptyResumable = !hasAnyResumable && !anyLoading && tmuxHosts.length > 0
+    && tmuxHosts.some((h) => !tmuxByHost[h.id]?.dismissed);
 
   if (openTabs.length === 0 && !hasAnyResumable && !anyLoading && !showEmptyResumable) return null;
 
@@ -164,17 +178,27 @@ const HomeSessions = ({
               )}
             </div>
           )}
+          {!anyLoading && (
           <div style={S.grid}>
             {showEmptyResumable && (
               <EmptyResumableCard t={t} />
             )}
             {!showEmptyResumable && tmuxHosts.map((host) => {
               const entry = tmuxByHost[host.id];
-              if (!entry || entry.loading) {
-                return <SkeletonCard key={`skel-${host.id}`} host={host} t={t} />;
-              }
+              if (entry?.dismissed) return null;
+              if (entry?.loading) return null; // shouldn't happen — anyLoading guards this
               if (entry.error) {
-                return <ErrorCard key={`err-${host.id}`} host={host} message={entry.error} onRetry={() => fetchHostSessions(host)} t={t} />;
+                return <ErrorCard
+                  key={`err-${host.id}`}
+                  host={host}
+                  message={entry.error}
+                  onRetry={() => fetchHostSessions(host)}
+                  onDismiss={() => {
+                    dismissedRef.current.add(host.id);
+                    setTmuxByHost((prev) => ({ ...prev, [host.id]: { dismissed: true } }));
+                  }}
+                  t={t}
+                />;
               }
               const resumable = entry.sessions.filter(
                 (s) => !isCompanionSession(s.name) && !isClaimedSession(host.id, s.name),
@@ -229,6 +253,7 @@ const HomeSessions = ({
               ));
             })}
           </div>
+          )}
         </>
       )}
     </section>
@@ -343,7 +368,7 @@ const EmptyResumableCard = ({ t }) => (
   </div>
 );
 
-const ErrorCard = ({ host, message, onRetry, t }) => (
+const ErrorCard = ({ host, message, onRetry, onDismiss, t }) => (
   <Card accent={color.danger} onClick={onRetry}>
     <IconBox accent={color.danger}>
       <AlertCircle size={18} strokeWidth={2} />
@@ -356,6 +381,11 @@ const ErrorCard = ({ host, message, onRetry, t }) => (
       <CardBtn title={t?.('retry') || 'Retry'} onClick={(e) => { e.stopPropagation(); onRetry?.(); }}>
         <ArrowRight size={13} strokeWidth={2.2} />
       </CardBtn>
+      {onDismiss && (
+        <CardBtn title={t?.('dismiss') || 'Dismiss'} onClick={(e) => { e.stopPropagation(); onDismiss(); }}>
+          <X size={13} strokeWidth={2.2} />
+        </CardBtn>
+      )}
     </Actions>
   </Card>
 );

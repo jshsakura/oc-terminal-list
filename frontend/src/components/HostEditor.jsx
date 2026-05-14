@@ -34,7 +34,7 @@ const HE_TABS = [
   { id: 'appearance', icon: Palette, labelKey: 'appearance' },
 ];
 
-const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t }) => {
+const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t, globalThemeId = 'default' }) => {
   const [draft, setDraft] = useState(EMPTY);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -376,19 +376,6 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                     </button>
                   </div>
                 </Field>
-                <Field
-                  label={t('hostTheme') || 'Default theme'}
-                  hint={t('hostThemeHint') || 'Auto-applied when this host is opened.'}
-                >
-                  <ThemePicker
-                    value={draft.theme || ''}
-                    onChange={(v) => set('theme', v)}
-                    allowEmpty
-                    emptyLabel={t('useGlobalTheme') || 'Use global theme'}
-                    t={t}
-                    columns={2}
-                  />
-                </Field>
               </Section>
 
               {host && (
@@ -500,6 +487,16 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
               </Field>
               <Field label={t('color') || 'Color'}>
                 <ColorPicker value={draft.color_index} onChange={(v) => set('color_index', v)} />
+              </Field>
+              <Field label={t('terminalTheme') || 'Terminal color'}>
+                <ThemePicker
+                  value={draft.theme || ''}
+                  onChange={(v) => set('theme', v)}
+                  allowEmpty
+                  markedId={globalThemeId}
+                  t={t}
+                  columns={2}
+                />
               </Field>
             </Section>
           )}

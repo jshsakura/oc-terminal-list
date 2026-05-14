@@ -61,6 +61,202 @@ def _drop(host_id: str) -> None:
         except Exception: pass
 
 
+# ─── Tailscale SSH helpers ────────────────────────────────────────────────────
+
+def _tailscale_target(host: dict) -> str:
+    import shutil as _sh
+    if not _sh.which("tailscale"):
+        raise HostConnectError("tailscale CLI not found")
+    ssh_user = (host.get("ssh_user") or host.get("username") or "").strip()
+    hostname = (host.get("hostname") or host.get("host") or "").strip()
+    if not hostname:
+        raise HostConnectError("hostname not set")
+    return f"{ssh_user}@{hostname}" if ssh_user else hostname
+
+
+async def _run_ts(target: str, cmd: str, timeout: float = 15.0) -> tuple[bytes, bytes]:
+    proc = await asyncio.create_subprocess_exec(
+        "tailscale", "ssh", target, cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    return stdout or b"", stderr or b""
+
+
+async def _list_directory_tailscale(host: dict, path: str = ".") -> dict:
+    import json as _json
+    import shlex as _shlex
+
+    target = _tailscale_target(host)
+    target_path = (path.strip() if path else ".") or "."
+    qpath = _shlex.quote(target_path)
+
+    py = (
+        "import os,stat,json,sys\n"
+        "p=sys.argv[1] if len(sys.argv)>1 else '.'\n"
+        "p=os.path.expanduser(p)\n"
+        "try:\n"
+        "    r=os.path.realpath(p)\n"
+        "except Exception:\n"
+        "    r=p\n"
+        "items=[]\n"
+        "try:\n"
+        "    for e in os.scandir(r):\n"
+        "        if e.name in ('.','..'):continue\n"
+        "        try:\n"
+        "            st=e.stat(follow_symlinks=False);m=st.st_mode\n"
+        "            k='directory' if stat.S_ISDIR(m) else 'link' if stat.S_ISLNK(m) else 'file'\n"
+        "            pt=('/'+e.name) if r=='/' else r.rstrip('/')+'/'+e.name\n"
+        "            items.append({'name':e.name,'path':pt,'type':k,'size':st.st_size,'modified':st.st_mtime})\n"
+        "        except Exception:pass\n"
+        "except Exception as ex:\n"
+        "    print(json.dumps({'error':str(ex)}))\n"
+        "    raise SystemExit(1)\n"
+        "items.sort(key=lambda x:(x['type']=='file',x['name'].lower()))\n"
+        "print(json.dumps({'items':items,'resolved':r}))\n"
+    )
+    cmd = f"python3 - {qpath} <<'__ITSEOF__'\n{py}\n__ITSEOF__"
+
+    try:
+        stdout, stderr = await _run_ts(target, cmd)
+        raw = stdout.decode(errors="replace").strip()
+        if not raw:
+            err = stderr.decode(errors="replace").strip()
+            raise HostConnectError(f"tailscale listdir: no output — {err[:200]}")
+        data = _json.loads(raw)
+        if "error" in data:
+            raise HostConnectError(f"tailscale listdir: {data['error']}")
+        return data
+    except HostConnectError:
+        raise
+    except Exception as e:
+        raise HostConnectError(f"tailscale listdir failed: {e}") from e
+
+
+async def _read_file_tailscale(host: dict, path: str) -> str:
+    import base64 as _b64
+    import shlex as _shlex
+
+    target = _tailscale_target(host)
+    qpath = _shlex.quote(path)
+    max_b = MAX_FILE_BYTES
+
+    py = (
+        "import os,sys,base64\n"
+        "p=sys.argv[1]\n"
+        f"if os.path.getsize(p)>{max_b}:\n"
+        "    print('__TOO_LARGE__');raise SystemExit(1)\n"
+        "with open(p,'rb') as f:data=f.read()\n"
+        "print(base64.b64encode(data).decode())\n"
+    )
+    cmd = f"python3 - {qpath} <<'__ITSEOF__'\n{py}\n__ITSEOF__"
+
+    try:
+        stdout, stderr = await _run_ts(target, cmd, timeout=30.0)
+        raw = stdout.decode(errors="replace").strip()
+        if raw == "__TOO_LARGE__":
+            raise HostConnectError(f"file too large (>{max_b} bytes)")
+        if not raw:
+            err = stderr.decode(errors="replace").strip()
+            raise HostConnectError(f"tailscale read: no output — {err[:200]}")
+        return _b64.b64decode(raw.encode()).decode("utf-8", errors="replace")
+    except HostConnectError:
+        raise
+    except Exception as e:
+        raise HostConnectError(f"tailscale read failed: {e}") from e
+
+
+async def _write_file_tailscale(host: dict, path: str, content: str | bytes) -> None:
+    import base64 as _b64
+    import shlex as _shlex
+
+    target = _tailscale_target(host)
+    data = content if isinstance(content, bytes) else content.encode("utf-8")
+    b64str = _b64.b64encode(data).decode()
+    qpath = _shlex.quote(path)
+
+    py = (
+        "import sys,base64\n"
+        "p=sys.argv[1]\n"
+        f"data=base64.b64decode({b64str!r})\n"
+        "with open(p,'wb') as f:f.write(data)\n"
+    )
+    cmd = f"python3 - {qpath} <<'__ITSEOF__'\n{py}\n__ITSEOF__"
+
+    try:
+        _, stderr = await _run_ts(target, cmd, timeout=60.0)
+        err = stderr.decode(errors="replace").strip()
+        if err:
+            raise HostConnectError(f"tailscale write: {err[:200]}")
+    except HostConnectError:
+        raise
+    except Exception as e:
+        raise HostConnectError(f"tailscale write failed: {e}") from e
+
+
+async def _create_item_tailscale(host: dict, path: str, kind: str) -> None:
+    import shlex as _shlex
+
+    target = _tailscale_target(host)
+    qpath = _shlex.quote(path)
+    cmd = f"mkdir -p {qpath}" if kind == "directory" else f"touch {qpath}"
+
+    try:
+        _, stderr = await _run_ts(target, cmd)
+        err = stderr.decode(errors="replace").strip()
+        if err:
+            raise HostConnectError(f"tailscale create: {err[:200]}")
+    except HostConnectError:
+        raise
+    except Exception as e:
+        raise HostConnectError(f"tailscale create failed: {e}") from e
+
+
+async def _move_item_tailscale(host: dict, source: str, destination: str) -> None:
+    import shlex as _shlex
+
+    target = _tailscale_target(host)
+    cmd = f"mv {_shlex.quote(source)} {_shlex.quote(destination)}"
+
+    try:
+        _, stderr = await _run_ts(target, cmd)
+        err = stderr.decode(errors="replace").strip()
+        if err:
+            raise HostConnectError(f"tailscale move: {err[:200]}")
+    except HostConnectError:
+        raise
+    except Exception as e:
+        raise HostConnectError(f"tailscale move failed: {e}") from e
+
+
+async def _delete_item_tailscale(host: dict, path: str) -> None:
+    import shlex as _shlex
+
+    target = _tailscale_target(host)
+    qpath = _shlex.quote(path)
+
+    py = (
+        "import os,sys\n"
+        "p=sys.argv[1]\n"
+        "if os.path.isdir(p) and not os.path.islink(p):\n"
+        "    os.rmdir(p)\n"
+        "else:\n"
+        "    os.remove(p)\n"
+    )
+    cmd = f"python3 - {qpath} <<'__ITSEOF__'\n{py}\n__ITSEOF__"
+
+    try:
+        _, stderr = await _run_ts(target, cmd)
+        err = stderr.decode(errors="replace").strip()
+        if err:
+            raise HostConnectError(f"tailscale delete: {err[:200]}")
+    except HostConnectError:
+        raise
+    except Exception as e:
+        raise HostConnectError(f"tailscale delete failed: {e}") from e
+
+
 async def list_directory(host: dict, secrets: dict, path: str = ".") -> dict:
     """원격 디렉토리 목록. {items, resolved} 반환.
 
@@ -69,6 +265,8 @@ async def list_directory(host: dict, secrets: dict, path: str = ".") -> dict:
     resolved 는 sftp.realpath 결과 — 프론트가 "상위 폴더로 이동" 같은 절대경로 기반
     UI 를 할 수 있게 노출.
     """
+    if (host.get("auth_method") or "key").lower() == "tailscale":
+        return await _list_directory_tailscale(host, path)
     target = path.strip() if path else "."
     if not target:
         target = "."
@@ -126,6 +324,8 @@ async def read_file(host: dict, secrets: dict, path: str) -> str:
     """원격 파일을 텍스트로 읽음 (utf-8, errors=replace). 10MB 상한."""
     if not path or not path.strip():
         raise HostConnectError("path is required")
+    if (host.get("auth_method") or "key").lower() == "tailscale":
+        return await _read_file_tailscale(host, path)
     try:
         conn = await _get_or_open(host, secrets)
         async with conn.start_sftp_client() as sftp:
@@ -149,6 +349,8 @@ async def write_file(host: dict, secrets: dict, path: str, content: str | bytes)
     """원격 파일 덮어쓰기."""
     if not path or not path.strip():
         raise HostConnectError("path is required")
+    if (host.get("auth_method") or "key").lower() == "tailscale":
+        return await _write_file_tailscale(host, path, content)
     try:
         conn = await _get_or_open(host, secrets)
         async with conn.start_sftp_client() as sftp:
@@ -161,6 +363,8 @@ async def write_file(host: dict, secrets: dict, path: str, content: str | bytes)
 
 async def create_item(host: dict, secrets: dict, path: str, kind: str) -> None:
     """원격 파일/폴더 생성."""
+    if (host.get("auth_method") or "key").lower() == "tailscale":
+        return await _create_item_tailscale(host, path, kind)
     try:
         conn = await _get_or_open(host, secrets)
         async with conn.start_sftp_client() as sftp:
@@ -176,6 +380,8 @@ async def create_item(host: dict, secrets: dict, path: str, kind: str) -> None:
 
 async def move_item(host: dict, secrets: dict, source: str, destination: str) -> None:
     """원격 파일/폴더 이동(rename)."""
+    if (host.get("auth_method") or "key").lower() == "tailscale":
+        return await _move_item_tailscale(host, source, destination)
     try:
         conn = await _get_or_open(host, secrets)
         async with conn.start_sftp_client() as sftp:
@@ -187,6 +393,8 @@ async def move_item(host: dict, secrets: dict, source: str, destination: str) ->
 
 async def delete_item(host: dict, secrets: dict, path: str) -> None:
     """원격 파일/폴더 삭제."""
+    if (host.get("auth_method") or "key").lower() == "tailscale":
+        return await _delete_item_tailscale(host, path)
     try:
         conn = await _get_or_open(host, secrets)
         async with conn.start_sftp_client() as sftp:
@@ -204,6 +412,63 @@ async def delete_item(host: dict, secrets: dict, path: str) -> None:
     except (asyncssh.Error, OSError) as e:
         _drop(host["id"])
         raise HostConnectError(f"SFTP delete failed: {e}") from e
+
+
+async def get_tmux_cwd(host: dict, secrets: dict, session: str | None = None) -> str | None:
+    """원격 호스트 tmux 세션의 현재 작업 디렉토리.
+    session 지정 시 해당 세션 타겟, 실패하면 현재 활성 세션으로 폴백.
+    Tailscale 호스트는 `tailscale ssh` 서브프로세스 사용 (asyncssh 미지원).
+    """
+    if session:
+        cmd = (
+            f"tmux display-message -t {session} -p '#{{pane_current_path}}' 2>/dev/null"
+            f" || tmux display-message -p '#{{pane_current_path}}' 2>/dev/null"
+        )
+    else:
+        cmd = "tmux display-message -p '#{pane_current_path}' 2>/dev/null"
+
+    auth_method = (host.get("auth_method") or "key").lower()
+
+    if auth_method == "tailscale":
+        return await _get_tmux_cwd_tailscale(host, cmd)
+    else:
+        return await _get_tmux_cwd_ssh(host, secrets, cmd)
+
+
+async def _get_tmux_cwd_tailscale(host: dict, cmd: str) -> str | None:
+    """tailscale ssh 서브프로세스로 원격 tmux CWD 조회."""
+    import asyncio as _asyncio
+    import shutil as _shutil
+    if not _shutil.which("tailscale"):
+        return None
+    ssh_user = (host.get("ssh_user") or host.get("username") or "").strip()
+    hostname = (host.get("hostname") or host.get("host") or "").strip()
+    if not hostname:
+        return None
+    target = f"{ssh_user}@{hostname}" if ssh_user else hostname
+    try:
+        proc = await _asyncio.create_subprocess_exec(
+            "tailscale", "ssh", target, cmd,
+            stdout=_asyncio.subprocess.PIPE,
+            stderr=_asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await _asyncio.wait_for(proc.communicate(), timeout=6.0)
+        return (stdout or b"").decode(errors="replace").strip() or None
+    except Exception as e:
+        logger.debug("get_tmux_cwd tailscale failed (%s): %s", host.get("id"), e)
+        return None
+
+
+async def _get_tmux_cwd_ssh(host: dict, secrets: dict, cmd: str) -> str | None:
+    """asyncssh 연결 풀로 원격 tmux CWD 조회."""
+    try:
+        conn = await _get_or_open(host, secrets)
+        result = await conn.run(cmd, check=False)
+        return (result.stdout or "").strip() or None
+    except Exception as e:
+        logger.debug("get_tmux_cwd ssh failed (%s): %s", host.get("id"), e)
+        _drop(host["id"])
+        return None
 
 
 async def close_pool() -> None:

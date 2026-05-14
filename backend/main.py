@@ -22,6 +22,7 @@ from fastapi import (
     Header,
     HTTPException,
     Query,
+    Request,
     UploadFile,
     File as FastAPIFile,
     Form,
@@ -1257,6 +1258,20 @@ async def _resolve_host_with_secrets(host_id: str, username: str) -> tuple:
     return host, secrets
 
 
+@app.get("/api/hosts/{host_id}/cwd")
+async def get_host_cwd(
+    host_id: str,
+    session: str | None = Query(None, description="원격 tmux 세션명. 없으면 가장 최근 활성 세션."),
+    username: str = Depends(verify_auth_token),
+):
+    """원격 호스트 tmux 세션의 현재 작업 디렉토리."""
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    if not host.get("use_remote_tmux"):
+        return {"host_id": host_id, "cwd": None}
+    cwd = await host_sftp.get_tmux_cwd(host, secrets, session)
+    return {"host_id": host_id, "cwd": cwd}
+
+
 @app.get("/api/hosts/{host_id}/files")
 async def list_host_files(
     host_id: str,
@@ -1788,6 +1803,83 @@ async def git_diff(
         raise
     except Exception as e:
         logger.error("git diff failed (%s): %s", path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/git/commit")
+async def git_commit(
+    request: Request,
+    username: str = Depends(verify_auth_token),
+):
+    """git add -A && git commit -m <message> in the repo containing <path>."""
+    body = await request.json()
+    path = body.get("path", "")
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Commit message is required")
+    try:
+        safe = validate_path(path) if path else Path(WORKSPACE_ROOT)
+        repo_root = await _find_repo_root(str(safe)) if path else str(safe)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not repo_root:
+        raise HTTPException(status_code=404, detail="No git repository found")
+
+    try:
+        add_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_root, "add", "-A",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        _, add_err = await add_proc.communicate()
+        if add_proc.returncode != 0:
+            raise HTTPException(status_code=500, detail=add_err.decode("utf-8", errors="replace").strip() or "git add failed")
+
+        commit_proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_root, "commit", "-m", message,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await commit_proc.communicate()
+        if commit_proc.returncode != 0:
+            err = stderr.decode("utf-8", errors="replace").strip()
+            raise HTTPException(status_code=500, detail=err or "git commit failed")
+        return {"ok": True, "output": stdout.decode("utf-8", errors="replace").strip()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("git commit failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/git/push")
+async def git_push(
+    request: Request,
+    username: str = Depends(verify_auth_token),
+):
+    """git push in the repo containing <path>."""
+    body = await request.json()
+    path = body.get("path", "")
+    try:
+        safe = validate_path(path) if path else Path(WORKSPACE_ROOT)
+        repo_root = await _find_repo_root(str(safe)) if path else str(safe)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not repo_root:
+        raise HTTPException(status_code=404, detail="No git repository found")
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "-C", repo_root, "push",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        combined = (stdout + stderr).decode("utf-8", errors="replace").strip()
+        if proc.returncode != 0:
+            raise HTTPException(status_code=500, detail=combined or "git push failed")
+        return {"ok": True, "output": combined}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("git push failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

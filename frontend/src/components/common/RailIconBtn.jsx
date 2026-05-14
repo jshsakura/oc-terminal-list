@@ -73,7 +73,6 @@ const RailIconBtn = ({
           ...S.inner,
           ...(compact ? S.innerCompact : null),
           background: idleInnerBg,
-          border: '1px solid transparent',
         }}
       >
         {Icon ? <Icon size={compact ? 13 : 15} strokeWidth={1.8} /> : children}
@@ -96,6 +95,7 @@ const S = {
     justifyContent: 'center',
     background: 'transparent',
     border: 'none',
+    outline: 'none',
     padding: 0,
     flexShrink: 0,
     transition: `color ${motion.fast}`,

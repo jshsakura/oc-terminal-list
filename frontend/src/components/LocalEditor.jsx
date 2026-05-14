@@ -128,16 +128,12 @@ const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t }) => 
             </div>
           </Field>
 
-          {/* 로컬용 기본 테마 — 비우면 글로벌 settings.theme. 호스트 편집과 동일한 컴포넌트 재사용. */}
-          <Field
-            label={t?.('hostTheme') || 'Default theme'}
-            hint={t?.('hostThemeHint') || 'Auto-applied when this host is opened. Empty = use global theme.'}
-          >
+          <Field label={t?.('terminalTheme') || 'Terminal color'}>
             <ThemePicker
               value={draft.localTheme || ''}
               onChange={(v) => set('localTheme', v)}
               allowEmpty
-              emptyLabel={t?.('useGlobalTheme') || 'Use global theme'}
+              markedId={settings?.theme || 'default'}
               t={t}
               columns={2}
             />

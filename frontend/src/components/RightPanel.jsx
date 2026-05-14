@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import {
   Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, Trash2,
   Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound, HelpCircle,
-  ExternalLink, Eye, EyeOff, MoreHorizontal,
+  ExternalLink, MoreHorizontal,
   GripVertical, Columns2, Rows2, LayoutGrid,
+  Eye, EyeOff,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -15,6 +16,7 @@ import ChangesList from './ChangesList';
 import ThemePicker from './common/ThemePicker';
 import useGitChanges from '../hooks/useGitChanges';
 import RailIconBtn from './common/RailIconBtn';
+import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
@@ -43,6 +45,7 @@ const RightPanel = ({
   onFolderSelect,
   onOpenTerminalAtFolder,
   onRefreshTerminal = null,  // 호출 시 활성 터미널을 통째로 remount (WS 재접속)
+  onRefreshCwd = null,       // 파일 패널 새로고침 시 현재 tmux cwd 를 1회 재조회
   selectedFolderPath = '',
   settings,
   updateSettings,
@@ -66,11 +69,15 @@ const RightPanel = ({
   onExtractPane = null,
   /* pane rail 분할 버튼 — (dir) => void. dir = 'right'|'left'|'down'|'up'|'2x2'. */
   onSplitPane = null,
+  /* 모든 분할 팬 사이즈 균등 리셋 */
+  onEqualizePane = null,
   /* busy 인디케이터 — 터미널 활동 점멸 여부. */
   isBusy = false,
   /* 터미널 세션 상태 — { evicted, ended, isReady, hasContent }. */
   sessionStatus = null,
   isMobile = false,
+  filePanelOpen = false,
+  onFilePanelToggle = null,
 }) => {
   const panelTheme = themes[paneThemeId || settings?.theme] || themes.catppuccin;
   const panelUi = buildThemeUI(panelTheme);
@@ -209,8 +216,16 @@ const RightPanel = ({
     path: gitContextPath,
     intervalMs: 4000,
   });
-  const { items: gitItems } = gitChanges;
+  const { items: gitItems, refresh: refreshGitChanges } = gitChanges;
   const gitCount = gitContextPath != null ? (gitItems || []).length : 0;
+
+  useEffect(() => {
+    if (activePanel === 'files') {
+      onRefreshCwd?.();
+    } else if (activePanel === 'git') {
+      refreshGitChanges?.();
+    }
+  }, [activePanel, onRefreshCwd, refreshGitChanges]);
 
   return (
     <div style={{ ...styles.root, borderTopColor: panelUi.border }}>
@@ -221,6 +236,10 @@ const RightPanel = ({
         @keyframes iterm-pane-busy-dot {
           0%, 100% { opacity: 0.48; transform: scale(0.9); }
           50% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes iterm-skel-shimmer {
+          0%   { background-position: 150% center; }
+          100% { background-position: -150% center; }
         }
         .iterm-rp-panelbody, .iterm-rp-panelbody * {
           scrollbar-width: thin !important;
@@ -251,22 +270,23 @@ const RightPanel = ({
         WebkitBackdropFilter: 'blur(14px) saturate(160%)',
         borderBottomColor: panelUi.border,
       }}>
-        {/* Far-left: drag/move handle affordance */}
-        {!isMobile && !disabled && !loading && (
+        {/* Far-left: drag/move handle affordance — empty panes can be dragged too */}
+        {!isMobile && !loading && (
           <div
             title={t?.('paneHandle') || 'Move / split handle'}
             style={{
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: '18px',
+              width: '22px',
               height: '22px',
               flexShrink: 0,
-              color: panelUi.muted,
-              opacity: 0.6,
               cursor: 'grab',
               marginRight: '1px',
               pointerEvents: loading ? 'none' : 'auto',
+              borderRadius: radius.md,
+              color: panelUi.muted,
+              transition: 'color 150ms, background 150ms',
             }}
             draggable
             onDragStart={(e) => {
@@ -279,14 +299,10 @@ const RightPanel = ({
               e.dataTransfer.setData('application/x-iterminallist-pane', payload);
               e.dataTransfer.effectAllowed = 'move';
             }}
-            onPointerDown={() => {
-              /* focus this pane on handle touch */
-              if (paneInfo?.paneId) {
-                // no-op: just focus affordance, actual reorder via context menu
-              }
-            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = panelUi.text; e.currentTarget.style.background = panelUi.surface1 || 'rgba(255,255,255,0.06)'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = panelUi.muted; e.currentTarget.style.background = 'transparent'; }}
           >
-            <GripVertical size={13} strokeWidth={1.8} />
+            <GripVertical size={12} strokeWidth={2} />
           </div>
         )}
 
@@ -298,25 +314,43 @@ const RightPanel = ({
           pointerEvents: (disabled || loading) ? 'none' : 'auto',
         }}>
           {loading ? (
-            TABS.map((_, i) => (
-              <div key={i} style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: radius.md,
-                background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
-                animation: 'skel-pulse 1.4s ease-in-out infinite',
-                animationDelay: `${i * 100}ms`,
-              }} />
-            ))
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 2px' }}>
+              {TABS.map((_, i) => (
+                <div key={i} style={{
+                  width: '13px',
+                  height: '13px',
+                  borderRadius: '50%',
+                  background: `linear-gradient(90deg,
+                    color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
+                    color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
+                    color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
+                  backgroundSize: '300% 100%',
+                  animation: `iterm-skel-shimmer ${1.6 + i * 0.08}s ease-in-out infinite`,
+                  animationDelay: `${i * 130}ms`,
+                  flexShrink: 0,
+                }} />
+              ))}
+            </div>
           ) : (
             TABS.map(({ id, icon: Icon, label }) => {
-              const isActive = activePanel === id;
+              const isFilesTab = id === 'files';
+              const isActive = isFilesTab && onFilePanelToggle
+                ? filePanelOpen
+                : activePanel === id;
+              const handleTabClick = () => {
+                if (disabled) return;
+                if (isFilesTab && onFilePanelToggle) {
+                  onFilePanelToggle();
+                } else {
+                  togglePanel(id);
+                }
+              };
               const badge = id === 'git' && gitCount > 0 ? gitCount : null;
               return (
                 <RailIconBtn
                   key={id}
                   icon={Icon}
-                  onClick={() => !disabled && togglePanel(id)}
+                  onClick={handleTabClick}
                   title={badge ? `${label} (${badge})` : label}
                   active={isActive}
                   disabled={disabled}
@@ -329,23 +363,63 @@ const RightPanel = ({
           )}
         </div>
 
-        {/* Spacer */}
-        <div style={{ flex: 1, minWidth: '4px' }} />
+        {/* Spacer + CWD breadcrumb */}
+        <CwdBreadcrumb paneInfo={paneInfo} loading={loading} disabled={disabled} ui={panelUi} />
 
-        {/* Right cluster: split buttons → focus eye (dot only on busy/evicted) → … menu */}
+        {/* Right cluster: split buttons → busy dot → … menu */}
         <div style={{
           display: 'flex', flexDirection: 'row', alignItems: 'center',
           gap: '1px', flexShrink: 0,
         }}>
+          {/* Focus eye — shown for multiple panes or when busy/evicted. Busy/evicted state shown as badge dot on upper-right. */}
+          {!loading && (showFocusEye || isBusy || sessionStatus?.evicted) && (() => {
+            const isEvicted = !!sessionStatus?.evicted;
+            const hasBadge = isBusy || isEvicted;
+            const dotBg = isEvicted ? (panelUi.warning || '#f9e2af') : panelUi.accent;
+            const badgeTitle = isEvicted
+              ? (t?.('sessionTakenOver') || 'Session taken over')
+              : (t?.('terminalBusy') || 'Terminal is active');
+            const eyeTitle = isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused');
+            return (
+              <div style={{ position: 'relative', flexShrink: 0 }} title={hasBadge ? badgeTitle : eyeTitle}>
+                <RailIconBtn
+                  icon={isFocused ? Eye : EyeOff}
+                  ui={panelUi}
+                  compact
+                />
+                {hasBadge && (
+                  <span style={{
+                    position: 'absolute',
+                    top: '3px',
+                    right: '3px',
+                    width: '6px',
+                    height: '6px',
+                    borderRadius: '50%',
+                    background: dotBg,
+                    boxShadow: isEvicted
+                      ? `0 0 0 1.5px ${panelUi.base}, 0 0 5px ${panelUi.warning || '#f9e2af'}`
+                      : `0 0 0 1.5px ${panelUi.base}, 0 0 5px ${panelUi.accent}`,
+                    animation: 'iterm-pane-busy-dot 1.15s ease-in-out infinite',
+                    pointerEvents: 'none',
+                  }} />
+                )}
+              </div>
+            );
+          })()}
           {/* Single split button — opens dropdown with left/right/up/down choices */}
           {loading && onSplitPane && (
             <div style={{
-              width: '22px',
-              height: '22px',
-              borderRadius: radius.md,
-              background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
-              animation: 'skel-pulse 1.4s ease-in-out infinite',
-              animationDelay: '400ms',
+              width: '20px',
+              height: '6px',
+              borderRadius: '3px',
+              background: `linear-gradient(90deg,
+                color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
+                color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
+                color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
+              backgroundSize: '300% 100%',
+              animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite',
+              animationDelay: '480ms',
+              flexShrink: 0,
             }} />
           )}
           {!disabled && !loading && onSplitPane && (
@@ -361,37 +435,22 @@ const RightPanel = ({
             </div>
           )}
 
-          {/* Focus eye indicator — dot badge only when busy or evicted, never rendered idle */}
-          {loading && showFocusEye && (
-            <div style={{
-              width: '22px',
-              height: '22px',
-              borderRadius: radius.md,
-              background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
-              animation: 'skel-pulse 1.4s ease-in-out infinite',
-              animationDelay: '500ms',
-            }} />
-          )}
-          {showFocusEye && (
-            <FocusEye
-              isFocused={isFocused}
-              panelUi={panelUi}
-              t={t}
-              isBusy={isBusy}
-              sessionStatus={sessionStatus}
-            />
-          )}
 
           {/* More menu button — rightmost item in the topbar */}
           <div ref={moreBtnRef}>
             {loading ? (
               <div style={{
-                width: '22px',
-                height: '22px',
-                borderRadius: radius.md,
-                background: panelUi.surface1 || 'rgba(255,255,255,0.06)',
-                animation: 'skel-pulse 1.4s ease-in-out infinite',
-                animationDelay: '600ms',
+                width: '13px',
+                height: '13px',
+                borderRadius: '50%',
+                background: `linear-gradient(90deg,
+                  color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
+                  color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
+                  color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
+                backgroundSize: '300% 100%',
+                animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite',
+                animationDelay: '640ms',
+                flexShrink: 0,
               }} />
             ) : (
               <RailIconBtn
@@ -416,8 +475,8 @@ const RightPanel = ({
           t={t}
         >
           {onCloseTerminal && (
-            <MenuBtn icon={Trash2} onClick={() => { closeRailMenu(); onCloseTerminal(); }} danger ui={panelUi}>
-              {t?.('closeTerminal') || 'Close terminal'}
+            <MenuBtn icon={disabled ? X : Trash2} onClick={() => { closeRailMenu(); onCloseTerminal(); }} danger={!disabled} ui={panelUi}>
+              {disabled ? (t?.('close') || 'Close') : (t?.('closeTerminal') || 'Close terminal')}
             </MenuBtn>
           )}
           {onExtractPane && (
@@ -438,18 +497,14 @@ const RightPanel = ({
               </MenuBtn>
             </>
           )}
+          {onEqualizePane && (
+            <MenuBtn icon={LayoutGrid} onClick={() => { closeRailMenu(); onEqualizePane(); }} ui={panelUi}>
+              {t?.('equalizePane') || 'Equalize panes'}
+            </MenuBtn>
+          )}
           {onRefreshTerminal && !disabled && (
             <MenuBtn icon={RefreshCw} onClick={() => { closeRailMenu(); onRefreshTerminal(); }} ui={panelUi}>
               {t?.('refreshTerminal') || 'Reload terminal'}
-            </MenuBtn>
-          )}
-          {showFocusEye && (
-            <MenuBtn
-              icon={isFocused ? Eye : EyeOff}
-              ui={panelUi}
-              display
-            >
-              {isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused')}
             </MenuBtn>
           )}
         </RailSubMenu>,
@@ -480,8 +535,9 @@ const RightPanel = ({
         document.body
       )}
 
-      {/* content panel — absolute overlay below top rail (left-side panel) */}
-      {activePanel && !disabled && (
+      {/* content panel — absolute overlay below top rail (left-side panel).
+          Files panel is rendered inline in PaneGrid when onFilePanelToggle is set. */}
+      {activePanel && !disabled && !(activePanel === 'files' && onFilePanelToggle) && (
         <div
           ref={panelRef}
           tabIndex={-1}
@@ -535,10 +591,11 @@ const RightPanel = ({
                 onFileSelect={onFileSelect}
                 onFolderSelect={onFolderSelect}
                 onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+                onRefreshCwd={onRefreshCwd}
                 gitContextPath={gitContextPath}
                 sharedGitChanges={gitChanges}
                 language={language}
-                initialPath={activeHostId ? (paneCwd ?? '') : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? '')}
+                initialPath={activeHostId ? (paneCwd || null) : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? '')}
               />
             )}
             {activePanel === 'git' && (
@@ -573,76 +630,6 @@ const RightPanel = ({
   );
 };
 
-// 사이드바 하단 포커스 인디케이터 — Eye(포커스) / EyeOff(미포커스).
-// 호버 시 더 보이게 (focused 도 살짝 강조, unfocused 는 0.55 → 0.9).
-// React state 로 hover 관리 — 인라인 onMouseEnter 가 재렌더 시 리셋되던 문제 회피.
-const FocusEye = ({ isFocused, panelUi, t, isBusy = false, sessionStatus = null }) => {
-  const [hover, setHover] = useState(false);
-  const opacity = isFocused
-    ? (hover ? 1 : 0.9)
-    : (hover ? 0.9 : 0.5);
-  // 호버 시 색도 한 단계 밝게:
-  //   focused  : accent → text (가장 밝은 fg) 로 살짝 화이트화
-  //   unfocused: muted → subtext (한 단계 밝은 회색)
-  const eyeColor = isFocused
-    ? (hover ? panelUi.text : panelUi.accent)
-    : (hover ? panelUi.subtext : panelUi.muted);
-
-  const isEvicted = !!sessionStatus?.evicted;
-  const showDot = isBusy || isEvicted;
-  const dotBg = isEvicted
-    ? (panelUi.warning || '#f9e2af')
-    : panelUi.accent;
-  const dotTitle = isEvicted
-    ? (t?.('sessionTakenOver') || 'Session taken over')
-    : (t?.('terminalBusy') || 'Terminal is active');
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-      <div
-        aria-hidden
-        title={isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused')}
-        onMouseEnter={() => setHover(true)}
-        onMouseLeave={() => setHover(false)}
-        style={{
-          width: '22px',
-          height: '22px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          color: eyeColor,
-          opacity,
-          transition: 'opacity 220ms ease, color 220ms ease',
-        }}
-      >
-        {isFocused
-          ? <Eye size={13} strokeWidth={1.9} />
-          : <EyeOff size={13} strokeWidth={1.9} />}
-      </div>
-      {/* Status badge dot — top-right corner of the eye box. Only renders when active (busy or evicted). */}
-      {showDot && (
-        <span
-          aria-hidden
-          title={dotTitle}
-          style={{
-            position: 'absolute',
-            top: '1px',
-            right: '1px',
-            width: '6px',
-            height: '6px',
-            borderRadius: '50%',
-            background: dotBg,
-            boxShadow: isEvicted
-              ? `0 0 0 1px ${panelUi.base}, 0 0 6px ${panelUi.warning || '#f9e2af'}`
-              : `0 0 0 1px ${panelUi.base}, 0 0 6px ${panelUi.accent}`,
-            animation: 'iterm-pane-busy-dot 1.15s ease-in-out infinite',
-            pointerEvents: 'none',
-          }}
-        />
-      )}
-    </div>
-  );
-};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RailSubMenu — per-pane "…" dropdown for secondary actions (close, detach,
@@ -1479,7 +1466,7 @@ const styles = {
     overflow: 'auto',
   },
   activityBar: {
-    height: '30px',
+    height: '28px',
     width: '100%',
     flexShrink: 0,
     display: 'flex',
@@ -1500,5 +1487,113 @@ const styles = {
     margin: '0 2px',
   },
 };
+
+const homeTilde = (path) => {
+  if (!path) return path;
+  return path.replace(/^\/(?:home|Users)\/[^/]+/, '~');
+};
+
+const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui }) => {
+  const isHostPane = paneInfo?.tabType === 'host';
+  const hostShort = paneInfo?.host?.hostname || paneInfo?.host?.host || null;
+  const iconValue = isHostPane
+    ? (paneInfo?.host?.icon || null)
+    : (paneInfo?.tabIcon || null);
+  const colorIndex = isHostPane
+    ? (paneInfo?.host?.color_index ?? null)
+    : (paneInfo?.tabColorIndex ?? null);
+  const dotColor = colorIndex != null
+    ? (tokens.color.dotPalette[colorIndex % tokens.color.dotPalette.length] || ui.accent)
+    : ui.accent;
+
+  // absPath: 로컬 tmux 폴링 (remote 는 null)
+  // staticCwd: pane.cwd — 절대경로일 때만 사용
+  // lastKnownCwd: host.last_cwd — DB에 저장된 마지막 CWD (접속 시 갱신)
+  // startPath: host.start_path — 설정된 시작 경로
+  const absPath = paneInfo?.cwdAbsolute || null;
+  const staticCwd = paneInfo?.cwd || null;
+  const lastKnownCwd = isHostPane ? (paneInfo?.host?.last_cwd || null) : null;
+  const startPath = isHostPane ? (paneInfo?.host?.start_path || null) : null;
+  const rawPath = absPath
+    || (staticCwd && staticCwd.startsWith('/') ? staticCwd : null)
+    || lastKnownCwd
+    || startPath;
+  const displayPath = homeTilde(rawPath);
+
+  const headerPath = !loading && !disabled
+    ? (isHostPane && hostShort
+        ? (displayPath ? `${hostShort}:${displayPath}` : hostShort)
+        : displayPath)
+    : null;
+
+  const pillStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    width: '100%',
+    overflow: 'hidden',
+    background: `color-mix(in srgb, ${ui.surface1 || ui.surface0} 45%, transparent)`,
+    border: `1px solid color-mix(in srgb, ${ui.border || ui.surface1} 50%, transparent)`,
+    borderRadius: '5px',
+    padding: '2px 7px 2px 5px',
+    userSelect: 'none',
+    pointerEvents: 'none',
+  };
+
+  // 로딩 중 — 스켈레톤 pill
+  if (loading) {
+    return (
+      <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '0 5px' }}>
+        <div style={{ ...pillStyle, pointerEvents: 'none' }}>
+          <div style={{
+            width: '9px', height: '9px', borderRadius: '50%', flexShrink: 0,
+            background: `color-mix(in srgb, ${dotColor} 40%, transparent)`,
+          }} />
+          <div style={{
+            flex: 1, height: '7px', borderRadius: '3px',
+            background: `linear-gradient(90deg,
+              color-mix(in srgb, ${ui.surface1 || '#45475a'} 50%, transparent) 0%,
+              color-mix(in srgb, ${ui.accent || '#89b4fa'} 18%, transparent) 50%,
+              color-mix(in srgb, ${ui.surface1 || '#45475a'} 50%, transparent) 100%)`,
+            backgroundSize: '300% 100%',
+            animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite',
+          }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (disabled || !headerPath) {
+    return <div style={{ flex: 1, minWidth: '4px' }} />;
+  }
+
+  return (
+    <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '0 5px' }}>
+      <div style={pillStyle}>
+        <HostIcon
+          value={iconValue}
+          fallback={Server}
+          size={9}
+          strokeWidth={1.8}
+          style={{ flexShrink: 0, color: dotColor, opacity: 0.85 }}
+        />
+        {/* 좌측 정렬, 우측 말줄임 */}
+        <span style={{
+          flex: 1,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          fontSize: '10px',
+          fontFamily: font.mono,
+          color: ui.subtext0 || ui.subtext || ui.muted,
+          opacity: 0.75,
+          letterSpacing: '-0.01em',
+        }}>
+          {headerPath}
+        </span>
+      </div>
+    </div>
+  );
+});
 
 export default RightPanel;

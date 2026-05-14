@@ -1,5 +1,5 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
-import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, Pencil, Link2, Check, Search, X } from 'lucide-react';
+import { useMemo, useState, useRef, useEffect } from 'react';
+import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, GitCommit, Upload, Loader2, Search, X } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
@@ -49,20 +49,12 @@ const buildTree = (items, stripPrefix = '') => {
 };
 
 /**
- * 사이드바 4번째 탭. 활성 터미널 cwd 의 repo 변경 파일 리스트.
- * 파일 클릭 → onSelectFile (우측 diff peek 패널 열림)
- * 더블클릭 → onOpenFile (메인 에디터)
+ * 사이드바 git 탭. 활성 터미널 cwd 의 repo 변경 파일 리스트 + commit/push.
  */
 const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFile, onOpenFile, t }) => {
-  // 경로 오버라이드 — null 이면 활성 터미널을 따라가고, 문자열이면 사용자 지정 경로 사용
-  const [overridePath, setOverridePath] = useState(null);
-  const [editing, setEditing] = useState(false);
-  const [draftPath, setDraftPath] = useState('');
+  const effectivePath = gitContextPath;
 
-  const effectivePath = overridePath != null ? overridePath : gitContextPath;
-  const isFollowing = overridePath == null;
-
-  const canUseSharedGitChanges = !!sharedGitChanges && gitContextPath != null && isFollowing;
+  const canUseSharedGitChanges = !!sharedGitChanges && gitContextPath != null;
   const localGitChanges = useGitChanges({
     enabled: !canUseSharedGitChanges,
     path: effectivePath,
@@ -71,11 +63,16 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
   const { items, branch, repo, error, refresh, loading } = canUseSharedGitChanges
     ? sharedGitChanges
     : localGitChanges;
+
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef(null);
   const repoBasename = repo ? repo.split('/').pop() : null;
+
+  const [commitMsg, setCommitMsg] = useState('');
+  const [commitOp, setCommitOp] = useState(null); // null | 'commit' | 'push'
+  const [commitResult, setCommitResult] = useState(null); // null | {ok, text} | {error}
 
   useEffect(() => { if (searchOpen && searchRef.current) searchRef.current.focus(); }, [searchOpen]);
 
@@ -85,17 +82,6 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
     return items.filter((it) => it.path.toLowerCase().includes(q));
   }, [items, searchQuery]);
 
-  useEffect(() => { if (editing) setDraftPath(effectivePath || ''); }, [editing]);
-
-  const startEdit = () => { setDraftPath(effectivePath || ''); setEditing(true); };
-  const applyEdit = () => {
-    const trimmed = (draftPath || '').trim().replace(/^\/+|\/+$/g, '');
-    setOverridePath(trimmed);
-    setEditing(false);
-  };
-  const cancelEdit = () => setEditing(false);
-  const followTerminal = () => { setOverridePath(null); setEditing(false); };
-
   const tree = useMemo(() => buildTree(filteredItems), [filteredItems]);
 
   const toggle = (p) => setCollapsed((prev) => {
@@ -103,6 +89,50 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
     if (next.has(p)) next.delete(p); else next.add(p);
     return next;
   });
+
+  const handleCommit = async () => {
+    if (!commitMsg.trim() || commitOp) return;
+    setCommitOp('commit');
+    setCommitResult(null);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch('/api/git/commit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ path: effectivePath, message: commitMsg.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Commit failed');
+      setCommitMsg('');
+      setCommitResult({ ok: true, text: data.output || 'Committed' });
+      refresh();
+    } catch (e) {
+      setCommitResult({ error: e.message });
+    } finally {
+      setCommitOp(null);
+    }
+  };
+
+  const handlePush = async () => {
+    if (commitOp) return;
+    setCommitOp('push');
+    setCommitResult(null);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch('/api/git/push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ path: effectivePath }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Push failed');
+      setCommitResult({ ok: true, text: data.output || 'Pushed' });
+    } catch (e) {
+      setCommitResult({ error: e.message });
+    } finally {
+      setCommitOp(null);
+    }
+  };
 
   const renderNode = (node, depth) => {
     if (node.type === 'file') {
@@ -136,11 +166,11 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
         >
           <span style={styles.chevSlot}>
-            {isCollapsed ? <ChevronRight size={11} strokeWidth={2} /> : <ChevronDown size={11} strokeWidth={2} />}
+            {isCollapsed ? <ChevronRight size={10} strokeWidth={2} /> : <ChevronDown size={10} strokeWidth={2} />}
           </span>
-          <Folder size={12} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+          <Folder size={11} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
           <span style={styles.dirName}>{node.name}</span>
-          <span style={styles.dirCount}>{leafCount}</span>
+          {leafCount > 0 && <span style={styles.dirCount}>{leafCount}</span>}
         </div>
         {!isCollapsed && node.children.map((c) => renderNode(c, depth + 1))}
       </div>
@@ -149,9 +179,11 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
 
   return (
     <div style={styles.wrap}>
+      <style>{`@keyframes cl-spin { to { transform: rotate(360deg); } }`}</style>
+
       <div style={styles.head}>
-        <div style={styles.headLeft} title={repo || ''}>
-          <GitBranch size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+        <div style={styles.headLeft}>
+          <GitBranch size={11} strokeWidth={2} style={{ color: (repo) ? color.muted : color.faint, flexShrink: 0 }} />
           {repoBasename ? (
             <>
               <span style={styles.repoLabel}>{repoBasename}</span>
@@ -168,7 +200,7 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
           <button
             onClick={() => { setSearchOpen((v) => !v); setSearchQuery(''); }}
             title={t('search') || 'Search'}
-            style={styles.refreshBtn}
+            style={{ ...styles.refreshBtn, color: searchOpen ? color.accent : color.muted }}
             onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = searchOpen ? color.accent : color.muted; }}
           >
@@ -205,51 +237,6 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
         </div>
       )}
 
-      {/* 경로 바 — 클릭 또는 편집 아이콘으로 자유 입력, 잠금 아이콘으로 활성 터미널 따라가기 */}
-      <div style={styles.pathBar}>
-        {editing ? (
-          <>
-            <input
-              autoFocus
-              value={draftPath}
-              onChange={(e) => setDraftPath(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') applyEdit();
-                else if (e.key === 'Escape') cancelEdit();
-              }}
-              placeholder={t('gitPathPlaceholder') || 'Path (relative to workspace)'}
-              style={styles.pathInput}
-            />
-            <button onClick={applyEdit} title={t('applyPath') || 'Apply'} style={styles.pathBtn}>
-              <Check size={11} strokeWidth={2} />
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              onClick={startEdit}
-              title={t('editPath') || 'Edit path'}
-              style={styles.pathDisplay}
-            >
-              <Folder size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
-              <span style={styles.pathText}>
-                {effectivePath || <em style={{ color: color.muted, fontStyle: 'normal' }}>{t('gitPathPlaceholder') || 'whole workspace'}</em>}
-              </span>
-              <Pencil size={10} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
-            </button>
-            {!isFollowing && (
-              <button
-                onClick={followTerminal}
-                title={t('followTerminal') || 'Follow active terminal'}
-                style={{ ...styles.pathBtn, color: color.accent }}
-              >
-                <Link2 size={11} strokeWidth={2} />
-              </button>
-            )}
-          </>
-        )}
-      </div>
-
       <div style={styles.list}>
         {error && <div style={styles.notice}>{error}</div>}
         {!error && loading && items.length === 0 && (
@@ -273,6 +260,48 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
           </div>
         )}
         {!error && items.length > 0 && tree.children.map((c) => renderNode(c, 0))}
+      </div>
+
+      {/* Commit / push bar */}
+      <div style={styles.commitBar}>
+        <textarea
+          value={commitMsg}
+          onChange={(e) => setCommitMsg(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCommit(); }}
+          placeholder={t('commitMessagePlaceholder') || 'Commit message…'}
+          style={styles.commitInput}
+          rows={2}
+          disabled={!!commitOp}
+        />
+        {commitResult && (
+          <div style={{ ...styles.commitStatus, color: commitResult.error ? color.danger : color.success }}>
+            {commitResult.error || commitResult.text}
+          </div>
+        )}
+        <div style={styles.commitActions}>
+          <button
+            onClick={handleCommit}
+            disabled={!commitMsg.trim() || !!commitOp}
+            style={{ ...styles.actionBtn, flex: 1, opacity: (!commitMsg.trim() || !!commitOp) ? 0.45 : 1 }}
+            title={t('commitAll') || 'Stage all & commit (Ctrl+Enter)'}
+          >
+            {commitOp === 'commit'
+              ? <Loader2 size={11} strokeWidth={2} style={{ animation: 'cl-spin 0.8s linear infinite' }} />
+              : <GitCommit size={11} strokeWidth={2} />}
+            <span>{t('commitAll') || 'Commit all'}</span>
+          </button>
+          <button
+            onClick={handlePush}
+            disabled={!!commitOp}
+            style={{ ...styles.actionBtn, opacity: commitOp ? 0.45 : 1 }}
+            title={t('push') || 'Push'}
+          >
+            {commitOp === 'push'
+              ? <Loader2 size={11} strokeWidth={2} style={{ animation: 'cl-spin 0.8s linear infinite' }} />
+              : <Upload size={11} strokeWidth={2} />}
+            <span>{t('push') || 'Push'}</span>
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -385,65 +414,60 @@ const styles = {
     flex: 1,
     overflowY: 'auto',
     padding: `${space['1']} ${space['1']}`,
-    minHeight: '200px',
+    minHeight: '80px',
   },
-  pathBar: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: space['1'],
-    padding: `${space['1']} ${space['2']}`,
-    borderBottom: `1px solid ${color.border}`,
+  commitBar: {
+    flexShrink: 0,
+    borderTop: `1px solid ${color.border}`,
     background: color.crust,
-    minHeight: '28px',
-  },
-  pathDisplay: {
-    flex: 1,
-    minWidth: 0,
+    padding: `${space['1.5']} ${space['2']}`,
     display: 'flex',
-    alignItems: 'center',
-    gap: space['1'],
-    height: '22px',
-    padding: `0 ${space['1.5']}`,
-    background: 'transparent',
-    border: `1px solid transparent`,
-    borderRadius: radius.xs,
-    cursor: 'pointer',
-    color: color.subtext,
+    flexDirection: 'column',
+    gap: space['1.5'],
+  },
+  commitInput: {
+    width: '100%',
+    boxSizing: 'border-box',
+    resize: 'none',
+    padding: `${space['1']} ${space['1.5']}`,
+    background: color.base,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    color: color.text,
+    fontSize: fontSize['11'],
+    fontFamily: font.sans,
+    outline: 'none',
+    lineHeight: 1.5,
+    transition: `border-color ${motion.fast}`,
+  },
+  commitStatus: {
     fontSize: fontSize['11'],
     fontFamily: font.mono,
-    textAlign: 'left',
-  },
-  pathText: {
-    flex: 1,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+    opacity: 0.9,
   },
-  pathInput: {
-    flex: 1,
-    minWidth: 0,
-    height: '22px',
-    padding: `0 ${space['1.5']}`,
-    background: color.surface0,
-    border: `1px solid ${color.accentBorder}`,
-    borderRadius: radius.xs,
-    color: color.text,
-    fontSize: fontSize['11'],
-    fontFamily: font.mono,
-    outline: 'none',
+  commitActions: {
+    display: 'flex',
+    gap: space['1.5'],
   },
-  pathBtn: {
-    width: '22px',
-    height: '22px',
+  actionBtn: {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'transparent',
-    color: color.muted,
-    border: 'none',
-    borderRadius: radius.xs,
+    gap: '4px',
+    height: '24px',
+    padding: `0 ${space['2']}`,
+    background: color.surface1,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+    color: color.subtext,
+    fontSize: fontSize['11'],
+    fontFamily: font.sans,
     cursor: 'pointer',
-    flexShrink: 0,
+    transition: `opacity ${motion.fast}, background ${motion.fast}`,
+    whiteSpace: 'nowrap',
   },
   row: {
     display: 'flex',

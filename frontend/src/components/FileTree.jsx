@@ -13,6 +13,8 @@ import SkeletonRow from './common/SkeletonRow';
 const { color, font, fontSize, fontWeight, radius, space, motion, shadow: designShadow } = tokens;
 
 const ROW_HEIGHT = 24;
+const VIRTUALIZE_AFTER = 250;
+const VIRTUAL_OVERSCAN = 8;
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 const styles = {
@@ -69,6 +71,10 @@ const styles = {
     textOverflow: 'ellipsis',
     direction: 'rtl',
     textAlign: 'left',
+  },
+  virtualSpacer: {
+    flexShrink: 0,
+    pointerEvents: 'none',
   },
   headBranch: {
     flex: 1,
@@ -207,72 +213,6 @@ const styles = {
     alignItems: 'center',
     gap: '8px',
   },
-  footerBar: {
-    padding: `${space['1']} ${space['1.5']} ${space['1.5']}`,
-    borderTop: `1px solid var(--ui-border)`,
-    background: 'var(--ui-surface0)',
-    flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '3px',
-  },
-  footerCaption: {
-    fontSize: '10px',
-    fontWeight: fontWeight.semibold,
-    color: 'var(--ui-muted)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.08em',
-    paddingLeft: '2px',
-  },
-  // 경로 상자 + 액션 버튼을 한 몸으로 — 컨테이너에 테두리/라운드 두고
-  // 내부 자식은 테두리 없이 붙여 input-group 스타일로 묶음.
-  footerRow: {
-    display: 'flex',
-    alignItems: 'stretch',
-    width: '100%',
-    minWidth: 0,
-    height: '22px',
-    background: 'var(--ui-base)',
-    border: `1px solid var(--ui-border)`,
-    borderRadius: radius.sm,
-    overflow: 'hidden',
-  },
-  footerPathBox: {
-    flex: 1,
-    minWidth: 0,
-    display: 'flex',
-    alignItems: 'center',
-    padding: `0 6px`,
-  },
-  footerPath: {
-    display: 'block',
-    flex: 1,
-    minWidth: 0,
-    fontFamily: font.mono,
-    fontSize: '10.5px',
-    color: 'var(--ui-text)',
-    opacity: 0.92,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-    textAlign: 'left',
-    unicodeBidi: 'plaintext',
-  },
-  footerActionBtn: {
-    flexShrink: 0,
-    width: '26px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'var(--ui-accent)',
-    color: 'var(--ui-crust)',
-    border: 'none',
-    borderLeft: `1px solid var(--ui-border)`,
-    borderRadius: 0,
-    cursor: 'pointer',
-    transition: 'opacity 120ms ease',
-    padding: 0,
-  },
   menu: {
     // 컨텍스트 메뉴 — 현재 포커스 pane 의 테마 따라가도록 var(--ui-*) 사용.
     // (포커스 pane 의 테마가 :root 에 자동 적용 → 포털로 document.body 에 렌더돼도 동작.)
@@ -359,6 +299,15 @@ const computeParent = (p) => {
   if (idx < 0) return '';
   if (idx === 0) return '/';
   return trimmed.substring(0, idx);
+};
+
+const stripHostPathPrefix = (path) => {
+  if (!path || typeof path !== 'string') return path || '';
+  const trimmed = path.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('/') || trimmed.startsWith('~/') || trimmed === '~' || trimmed.startsWith('./')) return trimmed;
+  const match = trimmed.match(/^[^\s/:]+(?:@[^\s/:]+)?:([/~].*)$/);
+  return match ? match[1] : trimmed;
 };
 
 // ─── Components ──────────────────────────────────────────────────────────────
@@ -511,7 +460,7 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
   );
 };
 
-const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitContextPath = '', sharedGitChanges = null, language = 'en', initialPath = '', hostId = null }) => {
+const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefreshCwd = null, gitContextPath = '', sharedGitChanges = null, language = 'en', initialPath = '', hostId = null }) => {
   const isHostMode = !!hostId;
   const apiBase = isHostMode ? `/api/hosts/${hostId}/files` : '/api/files';
   const { t } = useTranslation(language);
@@ -524,13 +473,19 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   const [creating, setCreating] = useState(null);
   const [filterChangedOnly, setFilterChangedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [rootPath, setRootPath] = useState(initialPath || '');
+  const [rootPath, setRootPath] = useState(isHostMode ? stripHostPathPrefix(initialPath || '') : (initialPath || ''));
   const [resolvedRoot, setResolvedRoot] = useState(null);
   const [uploadState, setUploadState] = useState(null);
   const [dragOver, setDragOver] = useState(false);
 
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
+  const listRef = useRef(null);
+  const scrollRafRef = useRef(null);
+  const didInitialCwdRefreshRef = useRef(false);
+  const creatingCommitRef = useRef(false);
+  const renameCommitRef = useRef(false);
+  const [listViewport, setListViewport] = useState({ scrollTop: 0, height: 0 });
   const [treeFocus, setTreeFocus] = useState(initialPath || '');
   const effectiveGitPath = gitContextPath || treeFocus;
 
@@ -555,7 +510,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
       const data = await res.json();
       setNodes((prev) => ({ ...prev, [cacheKey]: { items: data.items || [], loading: false, error: null } }));
       if (cacheKey === '' && isHostMode && (data.resolved || data.path)) {
-        setResolvedRoot(data.resolved || data.path);
+        setResolvedRoot(stripHostPathPrefix(data.resolved || data.path));
       }
     } catch (e) {
       setNodes((prev) => ({ ...prev, [cacheKey]: { items: [], loading: false, error: e.message } }));
@@ -610,9 +565,33 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
 
   const refreshPath = useCallback(async (path) => await fetchChildren(path), [fetchChildren]);
   const refreshAll = useCallback(async () => {
+    const cwdData = onRefreshCwd ? await onRefreshCwd() : null;
+    const nextRootPath = isHostMode
+      ? (cwdData?.cwd ? stripHostPathPrefix(cwdData.cwd) : null)
+      : (cwdData?.in_workspace ? (cwdData.workspace_relative || '') : null);
+    if (nextRootPath !== null && nextRootPath !== rootPath) {
+      setRootPath(nextRootPath);
+      return;
+    }
     const paths = Array.from(expanded);
     await Promise.all(paths.map(p => fetchChildren(p)));
-  }, [expanded, fetchChildren]);
+  }, [expanded, fetchChildren, isHostMode, onRefreshCwd, rootPath]);
+
+  useEffect(() => {
+    if (!onRefreshCwd || didInitialCwdRefreshRef.current) return;
+    didInitialCwdRefreshRef.current = true;
+    refreshAll();
+  }, [onRefreshCwd, refreshAll]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return undefined;
+    const update = () => setListViewport({ scrollTop: el.scrollTop, height: el.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   // Actions
   const apiCall = async (method, path, body = null) => {
@@ -627,7 +606,14 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
     }
     opts.body = JSON.stringify(body || { path });
     const res = await fetch(isHostMode ? `${apiBase}/${method}` : `/api/files/${method}`, opts);
-    if (!res.ok) throw new Error('action failed');
+    if (!res.ok) {
+      let detail = '';
+      try {
+        const data = await res.json();
+        detail = data?.detail ? `: ${data.detail}` : '';
+      } catch { /* ignore non-json error bodies */ }
+      throw new Error(`${method} failed${detail}`);
+    }
   };
 
   const uploadFiles = async (files, destPath) => {
@@ -660,28 +646,34 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
   };
 
   const commitCreate = async () => {
+    if (creatingCommitRef.current) return;
     if (!creating) return;
     const { parentPath, type, draftName } = creating;
     if (!draftName.trim()) { setCreating(null); return; }
     const newPath = parentPath ? `${parentPath}/${draftName.trim()}` : draftName.trim();
+    creatingCommitRef.current = true;
+    setCreating(null);
     try {
       await apiCall('create', newPath, { path: newPath, type });
-      setCreating(null);
       await refreshPath(parentPath);
     } catch (e) { alert(e.message); }
+    finally { creatingCommitRef.current = false; }
   };
 
   const commitRename = async () => {
+    if (renameCommitRef.current) return;
     if (!renameTarget) return;
     const { path, draftName } = renameTarget;
     const trimmed = draftName.trim();
     if (!trimmed || trimmed === path.split('/').pop()) { setRenameTarget(null); return; }
     const dest = path.split('/').slice(0, -1).concat(trimmed).join('/');
+    renameCommitRef.current = true;
+    setRenameTarget(null);
     try {
       await apiCall('move', path, { source: path, destination: dest });
-      setRenameTarget(null);
       await refreshPath(path.split('/').slice(0, -1).join('/'));
     } catch (e) { alert(e.message); }
+    finally { renameCommitRef.current = false; }
   };
 
   const removeNode = async (path) => {
@@ -728,6 +720,34 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
     return rows;
   }, [nodes, expanded, filterChangedOnly, changedSet, hasChangedDescendant, searchQuery]);
 
+  const virtualRows = useMemo(() => {
+    const enabled = !creating && visibleRows.length > VIRTUALIZE_AFTER;
+    if (!enabled) return { enabled: false, rows: visibleRows, before: 0, after: 0 };
+    const viewportHeight = listViewport.height || 1;
+    const start = Math.max(0, Math.floor(listViewport.scrollTop / ROW_HEIGHT) - VIRTUAL_OVERSCAN);
+    const count = Math.ceil(viewportHeight / ROW_HEIGHT) + VIRTUAL_OVERSCAN * 2;
+    const end = Math.min(visibleRows.length, start + count);
+    return {
+      enabled: true,
+      rows: visibleRows.slice(start, end),
+      before: start * ROW_HEIGHT,
+      after: Math.max(0, (visibleRows.length - end) * ROW_HEIGHT),
+    };
+  }, [creating, listViewport.height, listViewport.scrollTop, visibleRows]);
+
+  const handleListScroll = useCallback((e) => {
+    const el = e.currentTarget;
+    if (scrollRafRef.current) return;
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      setListViewport({ scrollTop: el.scrollTop, height: el.clientHeight });
+    });
+  }, []);
+
+  useEffect(() => () => {
+    if (scrollRafRef.current) cancelAnimationFrame(scrollRafRef.current);
+  }, []);
+
   const terminalTargetPath = useMemo(() => {
     if (selectedPath) {
       const type = (Object.values(nodes).flatMap(n => n.items || []).find(it => it.path === selectedPath))?.type;
@@ -745,9 +765,12 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
 
   const rootError = nodes['']?.error;
   const rootLoading = nodes['']?.loading && !nodes['']?.items;
-  const parentOfRoot = isHostMode ? computeParent(resolvedRoot) : computeParent(rootPath);
+  const normalizedInitialPath = isHostMode ? stripHostPathPrefix(initialPath || '') : (initialPath || '');
+  const normalizedRootPath = isHostMode ? stripHostPathPrefix(rootPath || '') : rootPath;
+  const normalizedResolvedRoot = isHostMode ? stripHostPathPrefix(resolvedRoot || '') : resolvedRoot;
+  const parentOfRoot = isHostMode ? computeParent(normalizedResolvedRoot || normalizedRootPath) : computeParent(rootPath);
   const canGoUp = parentOfRoot !== null;
-  const rootDisplay = isHostMode ? (resolvedRoot || (rootPath || '~')) : (rootPath || '/');
+  const rootDisplay = isHostMode ? (normalizedResolvedRoot || (normalizedRootPath || '~')) : (rootPath || '/');
 
   return (
     <div
@@ -765,19 +788,22 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
           <button onClick={() => canGoUp && setRootPath(parentOfRoot)} disabled={!canGoUp} style={{ ...styles.crumbBtn, opacity: canGoUp ? 1 : 0.35, cursor: canGoUp ? 'pointer' : 'not-allowed' }}>
             <ArrowUp size={12} strokeWidth={2} />
           </button>
-          {rootPath !== (initialPath || '') && (
-            <button onClick={() => setRootPath(initialPath || '')} style={{ ...styles.crumbBtn, cursor: 'pointer' }}>
+          {normalizedRootPath !== normalizedInitialPath && (
+            <button onClick={() => setRootPath(normalizedInitialPath)} style={{ ...styles.crumbBtn, cursor: 'pointer' }}>
               <Home size={12} strokeWidth={2} />
             </button>
           )}
           <span style={styles.crumbPath}>{rootDisplay}</span>
+          <button onClick={refreshAll} style={{ ...styles.crumbBtn, cursor: 'pointer' }} title={t('refresh') || 'Refresh'}>
+            <RefreshCw size={12} strokeWidth={2} />
+          </button>
         </div>
       )}
 
       <div style={styles.head}>
-        <div style={styles.headBranch}>
-          <GitBranch size={11} strokeWidth={2} style={{ color: (gitRepo || gitRepos?.length) ? color.muted : color.faint }} />
-          <span style={styles.branchName}>{gitBranch || (gitRepos?.length ? `${gitRepos.length} repos` : 'no git')}</span>
+        <div style={styles.headBranch} title={rootDisplay}>
+          <Folder size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
+          <span style={{ ...styles.branchName, direction: 'rtl', textAlign: 'left', unicodeBidi: 'plaintext' }}>{rootDisplay}</span>
         </div>
         <div style={styles.headActions}>
           <HeadAction icon={ArrowUp} title={t('goUp')} onClick={() => canGoUp && setRootPath(parentOfRoot)} disabled={!canGoUp} />
@@ -806,7 +832,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
         </div>
       )}
 
-      <div style={styles.list} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
+      <div ref={listRef} style={styles.list} onScroll={handleListScroll} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
         {rootError && (
           <div style={styles.errorBox}>
             <div style={{ fontSize: fontSize['13'], color: color.subtext, fontWeight: fontWeight.medium }}>
@@ -839,7 +865,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
           </div>
         )}
 
-        {visibleRows.map((row) => (
+        {virtualRows.enabled && <div style={{ ...styles.virtualSpacer, height: virtualRows.before }} />}
+        {virtualRows.rows.map((row) => (
           <div key={row.path}>
             {renameTarget?.path === row.path ? (
               <div style={{ ...styles.row, background: color.crust, paddingLeft: 4 + row.depth * 14 }}>
@@ -864,18 +891,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, gitCon
             )}
           </div>
         ))}
+        {virtualRows.enabled && <div style={{ ...styles.virtualSpacer, height: virtualRows.after }} />}
 
         {!rootLoading && !rootError && visibleRows.length === 0 && !creating && (
           <div style={styles.statusBox}><Search size={16} /><span style={{ marginTop: '4px' }}>{searchQuery ? t('noResults') : t('folderEmpty')}</span></div>
         )}
-      </div>
-
-      <div style={styles.footerBar}>
-        <div style={styles.footerCaption}>{t('openTerminalHere')}</div>
-        <div style={styles.footerRow}>
-          <div style={styles.footerPathBox} title={terminalTargetDisplay}><span style={styles.footerPath}>{terminalTargetDisplay}</span></div>
-          <button onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)} style={styles.footerActionBtn}><Terminal size={14} strokeWidth={2.2} /></button>
-        </div>
       </div>
 
       {contextMenu && createPortal(

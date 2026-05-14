@@ -6,22 +6,31 @@ const authHeader = () => {
 };
 
 /**
- * 활성 로컬 tmux 세션의 현재 작업 디렉토리(cwd)를 주기 폴링.
- * 호스트 세션이거나 sessionId 가 없으면 워크스페이스 루트로 폴백.
+ * 터미널 세션의 현재 작업 디렉토리(cwd).
+ *
+ * 로컬/리모트: 마운트·세션 변경·명시적 refresh 때만 fetch.
+ * tmux 의 #{pane_current_path} 는 즉시 조회 가능하므로 주기 폴링하지 않는다.
  *
  * 반환:
- *  - workspaceRelative: 워크스페이스 기준 상대 경로 ('' = 루트). null = 워크스페이스 외부 또는 알 수 없음
+ *  - workspaceRelative: 워크스페이스 기준 상대 경로 (로컬만). null = 외부 또는 알 수 없음
  *  - absolutePath: tmux 가 보고한 절대 경로
  */
-const useActiveTerminalCwd = ({ sessionId, isLocal = true, intervalMs = 3000 }) => {
+const useActiveTerminalCwd = ({
+  sessionId,
+  hostId = null,
+  tmuxSession = null,
+  isLocal = true,
+  intervalMs = 0,
+  refreshSignal = 0,
+}) => {
   const [workspaceRelative, setWorkspaceRelative] = useState('');
   const [absolutePath, setAbsolutePath] = useState(null);
   const tickRef = useRef(null);
 
-  const fetchOnce = useCallback(async (id) => {
+  const fetchLocal = useCallback(async (id) => {
     try {
       const res = await fetch(`/api/sessions/${id}/cwd`, { headers: authHeader() });
-      if (!res.ok) return;
+      if (!res.ok) return null;
       const data = await res.json();
       if (data.in_workspace) {
         setWorkspaceRelative(data.workspace_relative || '');
@@ -29,30 +38,49 @@ const useActiveTerminalCwd = ({ sessionId, isLocal = true, intervalMs = 3000 }) 
         setWorkspaceRelative(null);
       }
       setAbsolutePath(data.cwd || null);
-    } catch {
-      // 무시 — 다음 tick 에서 재시도
-    }
+      return data;
+    } catch { return null; }
   }, []);
 
-  useEffect(() => {
-    if (tickRef.current) {
-      clearInterval(tickRef.current);
-      tickRef.current = null;
-    }
-    if (!sessionId || !isLocal) {
-      setWorkspaceRelative('');
-      setAbsolutePath(null);
-      return;
-    }
-    fetchOnce(sessionId);
-    tickRef.current = setInterval(() => fetchOnce(sessionId), intervalMs);
-    return () => {
-      if (tickRef.current) clearInterval(tickRef.current);
-      tickRef.current = null;
-    };
-  }, [sessionId, isLocal, intervalMs, fetchOnce]);
+  const fetchRemote = useCallback(async (id, session) => {
+    try {
+      const qs = session ? `?session=${encodeURIComponent(session)}` : '';
+      const res = await fetch(`/api/hosts/${id}/cwd${qs}`, { headers: authHeader() });
+      if (!res.ok) return null;
+      const data = await res.json();
+      setAbsolutePath(data.cwd || null);
+      setWorkspaceRelative(null);
+      return data;
+    } catch { return null; }
+  }, []);
 
-  return { workspaceRelative, absolutePath };
+  const refresh = useCallback(() => {
+    if (isLocal) {
+      if (!sessionId) {
+        setWorkspaceRelative('');
+        setAbsolutePath(null);
+        return Promise.resolve(null);
+      }
+      return fetchLocal(sessionId);
+    }
+    if (!hostId) {
+      setAbsolutePath(null);
+      return Promise.resolve(null);
+    }
+    return fetchRemote(hostId, tmuxSession);
+  }, [isLocal, sessionId, hostId, tmuxSession, fetchLocal, fetchRemote]);
+
+  // 기본은 1회성 조회. intervalMs 를 명시한 경우에만 하위호환 폴링.
+  useEffect(() => {
+    if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+    refresh();
+    if (intervalMs > 0) {
+      tickRef.current = setInterval(refresh, intervalMs);
+    }
+    return () => { if (tickRef.current) clearInterval(tickRef.current); tickRef.current = null; };
+  }, [refresh, intervalMs, refreshSignal]);
+
+  return { workspaceRelative, absolutePath, refresh };
 };
 
 export default useActiveTerminalCwd;

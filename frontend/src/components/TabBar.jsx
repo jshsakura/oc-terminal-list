@@ -1,10 +1,11 @@
-import { memo, useState, useEffect, useRef } from 'react';
+import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Terminal as TerminalIcon, Server, Monitor,
   Settings as SettingsIcon, MoreHorizontal,
   SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Square,
   ChevronLeft, ChevronRight, Edit3,
+  Copy, X, Check, LayoutGrid, List, RefreshCw,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -23,18 +24,38 @@ const TabBar = ({
   onOpenHosts,
   onOpenKeys,
   onOpenSettings,
+  onReloadTerminals = null,
+  onEqualizePanes = null,
   onSplit,
   onDuplicate,
   onReorder,
   /* (tabId) → 해당 탭의 viewMode 토글 (grid ↔ tabs). panes.length > 1 인 탭에서만 의미. */
   onToggleViewMode,
+  onCloseImmediate = null,
   canSplit = false,
   isMobile = false,
   t,
 }) => {
   const [contextMenu, setContextMenu] = useState(null);  // {tabId, x, y}
+  const [pendingCloseTabId, setPendingCloseTabId] = useState(null);
   const [draggingTabId, setDraggingTabId] = useState(null);
   const [dragOverTabId, setDragOverTabId] = useState(null);
+  const [settingsMenu, setSettingsMenu] = useState(null); // {x, y}
+  const settingsBtnRef = useRef(null);
+  const settingsMenuClosedAtRef = useRef(0);
+
+  const handleSettingsClick = useCallback(() => {
+    if (settingsMenu) {
+      setSettingsMenu(null);
+      settingsMenuClosedAtRef.current = Date.now();
+      return;
+    }
+    if (Date.now() - settingsMenuClosedAtRef.current < 300) return;
+    if (settingsBtnRef.current) {
+      const rect = settingsBtnRef.current.getBoundingClientRect();
+      setSettingsMenu({ x: rect.right, y: rect.bottom + 4 });
+    }
+  }, [settingsMenu]);
 
   // 모바일 터치 드래그 — TabBar scroll 컨테이너에 ref 를 걸고 훅에 넘김 (드래그 모드 시 가로 스크롤 락).
   const tabListRef = useRef(null);
@@ -75,7 +96,14 @@ const TabBar = ({
         onMouseEnter={(e) => { if (!isHome) e.currentTarget.style.background = color.surface0; }}
         onMouseLeave={(e) => { if (!isHome) e.currentTarget.style.background = 'transparent'; }}
       >
-        <TerminalIcon size={13} strokeWidth={2} />
+        <TerminalIcon
+          size={13}
+          strokeWidth={2}
+          style={{
+            filter: `drop-shadow(0 0 4px ${color.accent}99) drop-shadow(0 0 8px ${color.accent}44)`,
+            transition: 'filter 200ms',
+          }}
+        />
       </button>
 
       <div
@@ -97,13 +125,16 @@ const TabBar = ({
             isFirst={idx === 0}
             isActive={tab.id === activeTabId}
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
-            isEvenWidth={tabs.length > 0 && tabs.length <= 3}
             isDragging={activeDraggingId === tab.id}
             isDragOver={activeDragOverId === tab.id && activeDraggingId && activeDraggingId !== tab.id}
             touchProps={isMobile ? touchReorder.getItemProps(tab.id) : null}
             isMobile={isMobile}
-            onSelect={() => onSelect(tab.id)}
+            isPendingClose={pendingCloseTabId === tab.id}
+            onSelect={() => { if (pendingCloseTabId === tab.id) return; onSelect(tab.id); }}
             onClose={() => onClose(tab.id)}
+            onRequestClose={() => setPendingCloseTabId(tab.id)}
+            onConfirmClose={() => { setPendingCloseTabId(null); onCloseImmediate?.(tab.id); }}
+            onCancelClose={() => setPendingCloseTabId(null)}
             onContextMenu={(e) => {
               e.preventDefault();
               setContextMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
@@ -117,6 +148,7 @@ const TabBar = ({
               try {
                 e.dataTransfer.effectAllowed = 'move';
                 e.dataTransfer.setData('text/plain', tab.id);
+                e.dataTransfer.setData('application/x-iterminallist-tab', JSON.stringify({ type: 'tab', tabId: tab.id }));
               } catch {}
             }}
             onDragEnd={() => { setDraggingTabId(null); setDragOverTabId(null); }}
@@ -140,17 +172,23 @@ const TabBar = ({
         ))}
       </div>
 
-      {/* right action group — Settings only; split actions live in per-tab More menu */}
+      {/* right action group — Settings menu */}
       <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0, borderLeft: isMobile ? 'none' : `1px solid ${color.border}` }}>
-        <div style={{
-          width: '30px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <RailIconBtn icon={SettingsIcon} onClick={onOpenSettings} title={t?.('settings') || 'Settings'} compact />
+        <div ref={settingsBtnRef} style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <RailIconBtn icon={SettingsIcon} onClick={handleSettingsClick} active={!!settingsMenu} title={t?.('settings') || 'Settings'} compact />
         </div>
       </div>
+      {settingsMenu && createPortal(
+        <SettingsSubMenu
+          anchor={settingsMenu}
+          t={t}
+          onClose={() => { setSettingsMenu(null); settingsMenuClosedAtRef.current = Date.now(); }}
+          onSettings={() => { setSettingsMenu(null); settingsMenuClosedAtRef.current = Date.now(); onOpenSettings?.(); }}
+          onReload={onReloadTerminals ? () => { setSettingsMenu(null); settingsMenuClosedAtRef.current = Date.now(); onReloadTerminals(); } : null}
+          onEqualize={onEqualizePanes ? () => { setSettingsMenu(null); settingsMenuClosedAtRef.current = Date.now(); onEqualizePanes(); } : null}
+        />,
+        document.body
+      )}
 {/* context menu — 포탈로 최상단 렌더링 */}
 {contextMenu && createPortal(
   (() => {
@@ -164,13 +202,13 @@ const TabBar = ({
         ctx={contextMenu}
         t={t}
         viewMode={ctxViewMode}
-        canToggleViewMode={ctxPaneCount > 1 && !!onToggleViewMode}
+        canToggleViewMode={false}
         canMoveLeft={ctxIdx > 0 && !!onReorder}
         canMoveRight={ctxIdx >= 0 && ctxIdx < tabs.length - 1 && !!onReorder}
         canSplit={isCtxActive && canSplit && !!onSplit}
         onSplit={onSplit ? (dir) => { onSplit(dir); setContextMenu(null); } : null}
         onClose={() => setContextMenu(null)}
-        onCloseTab={() => { onClose(contextMenu.tabId); setContextMenu(null); }}
+        onCloseTab={() => { setPendingCloseTabId(contextMenu.tabId); setContextMenu(null); }}
         onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
         onToggleViewMode={() => { onToggleViewMode?.(contextMenu.tabId); setContextMenu(null); }}
         onMoveLeft={() => {
@@ -192,10 +230,10 @@ const TabBar = ({
 
 const Tab = memo(({
   tab, index, isFirst = false, isActive, isBusy = false, isDragging = false, isDragOver = false,
-  isEvenWidth = false,
   isMobile = false,
   touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
-  onSelect, onClose, onContextMenu, onMore,
+  isPendingClose = false,
+  onSelect, onClose, onRequestClose, onConfirmClose, onCancelClose, onContextMenu, onMore,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   t,
 }) => {
@@ -228,19 +266,19 @@ const Tab = memo(({
         // 하단 라인은 TabBar 자체 borderBottom 하나만 쓰게 한다.
         // inactive tab 의 개별 bottom border 가 보이면 바닥선 위에 떠 보인다.
         borderBottom: isDragOver ? `1px solid ${color.accent}` : `1px solid ${isActive ? color.base : color.crust}`,
-        flex: isEvenWidth ? '1 1 0' : styles.tab.flex,
-        maxWidth: isEvenWidth ? 'none' : styles.tab.maxWidth,
+        flex: styles.tab.flex,
+        maxWidth: styles.tab.maxWidth,
         marginLeft: isFirst ? 0 : styles.tab.marginLeft,
         opacity: isDragging ? 0.4 : 1,
         cursor: isMobile ? 'pointer' : 'grab',
       }}
       onClick={onSelect}
-      /* 휠 클릭(가운데 버튼)으로 즉시 탭 닫기 — 브라우저 기본 동작(자동 스크롤/링크 새 탭) 차단. */
+      /* 휠 클릭(가운데 버튼)으로 탭 닫기 확인 트리거 */
       onMouseDown={(e) => {
         if (e.button === 1) {
           e.preventDefault();
           e.stopPropagation();
-          onClose?.();
+          onRequestClose?.();
         }
       }}
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); } }}
@@ -312,10 +350,37 @@ const Tab = memo(({
           />
         )}
       </span>
-      <span style={styles.tabName}>{tab.name}</span>
+      {isPendingClose ? (
+        /* 인라인 close 확인 — 탭 이름 자리를 차지 */
+        <>
+          <span style={{ flex: 1, fontSize: '10px', color: color.subtext, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1 }}>
+            {t?.('closeTab') || 'Close?'}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onConfirmClose?.(); }}
+            onTouchStart={(e) => e.stopPropagation()}
+            style={{ ...styles.miniBtn, background: color.accent, color: color.crust, border: 'none', flexShrink: 0 }}
+            title={t?.('confirm') || 'Confirm'}
+          >
+            <Check size={10} strokeWidth={2.5} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onCancelClose?.(); }}
+            onTouchStart={(e) => e.stopPropagation()}
+            style={{ ...styles.miniBtn, background: 'transparent', color: color.subtext, flexShrink: 0 }}
+            title={t?.('cancel') || 'Cancel'}
+          >
+            <X size={10} strokeWidth={2.5} />
+          </button>
+        </>
+      ) : (
+        <span style={styles.tabName}>{tab.name}</span>
+      )}
 
-      {/* More 버튼 — 활성 탭에서만 노출해 비활성 탭의 가로 공간 낭비를 줄인다. */}
-      {isActive && (
+      {/* More 버튼 — 활성 탭에서만 노출, close 확인 중에는 숨김 */}
+      {isActive && !isPendingClose && (
         <button
           data-more="true"
           onClick={(e) => { e.stopPropagation(); onMore(e); }}
@@ -428,12 +493,12 @@ const TabContextMenu = ({
         </MenuItem>
       )}
       {onDuplicateTab && (
-        <MenuItem onClick={onDuplicateTab}>
+        <MenuItem onClick={onDuplicateTab} icon={Copy}>
           {t?.('duplicateTab') || 'Duplicate (same path)'}
         </MenuItem>
       )}
       {canToggleViewMode && onToggleViewMode && (
-        <MenuItem onClick={onToggleViewMode}>
+        <MenuItem onClick={onToggleViewMode} icon={viewMode === 'tabs' ? LayoutGrid : List}>
           {viewMode === 'tabs'
             ? (t?.('switchToGridView') || 'Switch to split view')
             : (t?.('switchToTabsView') || 'Switch to tabs view')}
@@ -458,7 +523,7 @@ const TabContextMenu = ({
           </MenuItem>
         </>
       )}
-      <MenuItem onClick={onCloseTab} danger>{t?.('closeTab') || 'Close tab'}</MenuItem>
+      <MenuItem onClick={onCloseTab} danger icon={X}>{t?.('closeTab') || 'Close tab'}</MenuItem>
     </div>
   );
 };
@@ -497,7 +562,7 @@ const styles = {
   bar: {
     display: 'flex',
     alignItems: 'stretch',
-    height: '38px',
+    height: '34px',
     background: color.crust,
     borderBottom: 'none',
     fontFamily: font.sans,
@@ -546,7 +611,7 @@ const styles = {
     transition: 'background 150ms',
     padding: 0,
     borderRadius: '3px',
-    margin: '7px 7px 0 0',
+    margin: '5px 7px 0 0',
   },
   brandBtnMobile: {
     /* 모바일은 더 공격적으로 — 20px 정사각, 좌측 inset 2 만. */
@@ -561,7 +626,7 @@ const styles = {
     gap: '0',
     overflowX: 'auto',
     overflowY: 'hidden',
-    flex: '0 1 auto',
+    flex: '1 1 auto',
     paddingTop: '0',
     paddingBottom: '0',
     paddingRight: '0',
@@ -571,6 +636,7 @@ const styles = {
   },
   tabListMobile: {
     gap: '0',
+    flex: '0 1 auto',
     paddingTop: '0',
     paddingBottom: '0',
   },
@@ -642,6 +708,78 @@ const styles = {
     paddingRight: '4px',
     flexShrink: 0,
   },
+};
+
+const SettingsSubMenu = ({ anchor, t, onClose, onSettings, onReload, onEqualize }) => {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ x: anchor.x, y: anchor.y });
+  const [measured, setMeasured] = useState(false);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const handle = (e) => { if (ref.current && !ref.current.contains(e.target)) onCloseRef.current(); };
+    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
+    const id = setTimeout(() => {
+      document.addEventListener('mousedown', handle);
+      document.addEventListener('keydown', handleKey);
+    }, 0);
+    return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('keydown', handleKey); };
+  }, []);
+
+  useEffect(() => {
+    if (ref.current) {
+      const rect = ref.current.getBoundingClientRect();
+      const m = 8;
+      let nx = anchor.x - rect.width;
+      let ny = anchor.y;
+      if (nx < m) nx = m;
+      if (nx + rect.width > window.innerWidth - m) nx = window.innerWidth - rect.width - m;
+      if (ny + rect.height > window.innerHeight - m) ny = window.innerHeight - rect.height - m;
+      setPos({ x: nx, y: ny });
+      setMeasured(true);
+    }
+  }, [anchor.x, anchor.y]);
+
+  const item = (icon, label, action) => (
+    <button
+      type="button"
+      onClick={action}
+      style={{
+        display: 'flex', alignItems: 'center', gap: '8px',
+        width: '100%', padding: '5px 8px',
+        background: 'transparent', border: 'none', borderRadius: '3px',
+        cursor: 'pointer', color: color.text,
+        fontSize: '11.5px', fontFamily: font.sans,
+        transition: 'background 120ms',
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+
+  return (
+    <div ref={ref} style={{
+      position: 'fixed', top: pos.y, left: pos.x,
+      background: color.surface0,
+      border: `1px solid ${color.borderStrong || color.border}`,
+      borderRadius: '6px',
+      boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
+      padding: '3px',
+      zIndex: 200000,
+      minWidth: '160px',
+      fontFamily: font.sans,
+      opacity: measured ? 1 : 0,
+      transition: 'opacity 120ms',
+    }}>
+      {item(<SettingsIcon size={12} strokeWidth={1.8} />, t?.('settings') || 'Settings', onSettings)}
+      {onEqualize && item(<LayoutGrid size={12} strokeWidth={1.8} />, t?.('equalizePane') || 'Equalize panes', onEqualize)}
+      {onReload && item(<RefreshCw size={12} strokeWidth={1.8} />, t?.('reloadTerminals') || 'Reload terminals', onReload)}
+    </div>
+  );
 };
 
 export default TabBar;
