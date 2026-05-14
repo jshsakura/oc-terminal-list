@@ -364,7 +364,7 @@ const RightPanel = ({
         </div>
 
         {/* Spacer + CWD breadcrumb */}
-        <CwdBreadcrumb paneInfo={paneInfo} loading={loading} disabled={disabled} ui={panelUi} />
+        <CwdBreadcrumb paneInfo={paneInfo} loading={loading} disabled={disabled} ui={panelUi} onRefreshCwd={onRefreshCwd} t={t} />
 
         {/* Right cluster: split buttons → busy dot → … menu */}
         <div style={{
@@ -1493,9 +1493,17 @@ const homeTilde = (path) => {
   return path.replace(/^\/(?:home|Users)\/[^/]+/, '~');
 };
 
-const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui }) => {
+const stripHostPathPrefix = (path) => {
+  if (!path || typeof path !== 'string') return path || '';
+  const trimmed = path.trim();
+  if (trimmed.startsWith('/') || trimmed.startsWith('~')) return trimmed;
+  const match = trimmed.match(/^(?:[^@:\s]+@)?[^:\s]+:(\/?~?\/?[^\s].*)$/);
+  return match ? match[1] : trimmed;
+};
+
+const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = null, t = null }) => {
+  const [refreshing, setRefreshing] = useState(false);
   const isHostPane = paneInfo?.tabType === 'host';
-  const hostShort = paneInfo?.host?.hostname || paneInfo?.host?.host || null;
   const iconValue = isHostPane
     ? (paneInfo?.host?.icon || null)
     : (paneInfo?.tabIcon || null);
@@ -1518,13 +1526,23 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui }) => {
     || (staticCwd && staticCwd.startsWith('/') ? staticCwd : null)
     || lastKnownCwd
     || startPath;
-  const displayPath = homeTilde(rawPath);
+  const displayPath = homeTilde(isHostPane ? stripHostPathPrefix(rawPath) : rawPath);
 
   const headerPath = !loading && !disabled
-    ? (isHostPane && hostShort
-        ? (displayPath ? `${hostShort}:${displayPath}` : hostShort)
-        : displayPath)
+    ? displayPath
     : null;
+
+  const handleRefresh = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!onRefreshCwd || refreshing) return;
+    try {
+      setRefreshing(true);
+      await onRefreshCwd();
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const pillStyle = {
     display: 'flex',
@@ -1535,9 +1553,9 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui }) => {
     background: `color-mix(in srgb, ${ui.surface1 || ui.surface0} 45%, transparent)`,
     border: `1px solid color-mix(in srgb, ${ui.border || ui.surface1} 50%, transparent)`,
     borderRadius: '5px',
-    padding: '2px 7px 2px 5px',
+    padding: '2px 4px 2px 5px',
     userSelect: 'none',
-    pointerEvents: 'none',
+    pointerEvents: 'auto',
   };
 
   // 로딩 중 — 스켈레톤 pill
@@ -1591,6 +1609,33 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui }) => {
         }}>
           {headerPath}
         </span>
+        {onRefreshCwd && (
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title={t?.('refreshCurrentPath') || t?.('refresh') || 'Refresh current path'}
+            style={{
+              width: '17px',
+              height: '17px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              flexShrink: 0,
+              border: 'none',
+              borderRadius: '4px',
+              background: 'transparent',
+              color: ui.muted,
+              opacity: refreshing ? 0.45 : 0.75,
+              cursor: refreshing ? 'wait' : 'pointer',
+              padding: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = ui.surface1 || 'rgba(255,255,255,0.08)'; e.currentTarget.style.color = ui.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ui.muted; }}
+          >
+            <RefreshCw size={10} strokeWidth={2} />
+          </button>
+        )}
       </div>
     </div>
   );

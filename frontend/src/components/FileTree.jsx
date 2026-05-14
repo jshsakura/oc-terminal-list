@@ -794,9 +794,6 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             </button>
           )}
           <span style={styles.crumbPath}>{rootDisplay}</span>
-          <button onClick={refreshAll} style={{ ...styles.crumbBtn, cursor: 'pointer' }} title={t('refresh') || 'Refresh'}>
-            <RefreshCw size={12} strokeWidth={2} />
-          </button>
         </div>
       )}
 
