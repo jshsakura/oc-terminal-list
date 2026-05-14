@@ -515,7 +515,8 @@ function App() {
           if (p.id !== paneId) return p;
           if (p.sessionId || p.hostId) return p;
           // target.cwd 가 있으면 pane.cwd 에 저장 → Terminal 이 그 경로로 SSH/셸 시작
-          const cwdPatch = target?.cwd ? { cwd: target.cwd } : {};
+          // '' (workspace root) 도 유효한 cwd 이므로 null/undefined 가 아닌 이상 보존.
+          const cwdPatch = target?.cwd != null ? { cwd: target.cwd } : {};
           if (target?.type === 'host' && target.hostId) {
             // 호스트의 기본 테마가 있으면 themeOverride 자동 적용 (연결 직후 chrome 까지 그 테마로).
             const h = hosts.find((hh) => hh.id === target.hostId);

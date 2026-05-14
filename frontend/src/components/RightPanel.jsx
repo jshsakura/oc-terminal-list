@@ -718,10 +718,17 @@ const RailSubMenu = ({ anchor, ui, onClose, t, children }) => {
 
 const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = false, display = false, ui }) => {
   const fg = danger ? (ui?.danger || color.danger) : (ui?.text || color.text);
+  // Stop propagation on all pointer events so the portal's outside-click listener
+  // cannot swallow or duplicate the interaction. This is critical for the "Close terminal"
+  // action where closeRailMenu() + onCloseTerminal() must both fire without interference.
+  const stop = (e) => e.stopPropagation();
   return (
     <button
       type="button"
       onClick={display ? undefined : onClick}
+      onPointerDown={stop}
+      onTouchStart={stop}
+      onMouseDown={stop}
       disabled={disabled}
       style={{
         width: '100%',

@@ -1,7 +1,7 @@
 import { Suspense, lazy, useState, useEffect, useRef, useMemo, useCallback, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  X, Plus, Server, Terminal as TerminalIcon, Monitor, Copy, Plug, History, ArrowRightLeft, Settings as SettingsIcon,
+  X, Plus, Server, Monitor, Plug, History, Settings as SettingsIcon,
   Edit3, Trash2, ChevronLeft, ChevronRight, GripVertical,
   SquareSplitHorizontal, SquareSplitVertical,
 } from 'lucide-react';
@@ -914,14 +914,6 @@ const EmptyPane = ({
   const [hoverId, setHoverId] = useState(null);
   // 서버 sort_index = SSoT. HomeDashboard / HostManager 와 동일한 hook → 한 곳에서 옮기면 다 동기.
   const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
-  // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러.
-  // index 는 상단 탭바와 동일한 1-base 순번 (Ctrl+N 단축키와 짝).
-  const otherTabs = (allTabs || [])
-    .map((tt, idx) => ({ tab: tt, index: idx + 1 }))
-    .filter(({ tab: tt }) =>
-      tt && tt.id && tt.id !== tab?.id && (tt.panes || []).some((p) => p.sessionId || p.hostId),
-    );
-
   /* 로컬 카드 메타 — 홈 대시보드 동일 출처(settings.localXxx). */
   const localAccent = color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length];
   const localName = (settings.localName || '').trim() || (t?.('thisMachine') || 'This machine');
@@ -994,21 +986,7 @@ const EmptyPane = ({
         </div>
       </Section>
 
-      {/* 2) 열린 탭 미러 — 다른 탭을 이 자리로 흡수. (이어할 수 있는 세션 위로 스왑됨) */}
-      {otherTabs.length > 0 && (
-        <Section icon={ArrowRightLeft} title={t?.('mirrorOpenTab') || 'Open tabs'}>
-          <OpenTabPicker
-            tabs={otherTabs}
-            hosts={hosts}
-            t={t}
-            onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
-            emptySlotCount={(tab?.panes || []).filter((p) => !p.sessionId && !p.hostId).length}
-            embedded
-          />
-        </Section>
-      )}
-
-      {/* 3) 이어할 수 있는 세션 — 원격 호스트의 살아있는 tmux 세션 (현재 탭 컴패니언 제외). */}
+      {/* 2) 이어할 수 있는 세션 — 원격 호스트의 살아있는 tmux 세션 (현재 탭 컴패니언 제외). */}
       {hosts.some((h) => h.use_remote_tmux) && (
         <Section icon={History} title={t?.('resumableSessions') || 'Resumable'}>
           <HomeSessions
@@ -1078,151 +1056,6 @@ const emptyStyles = {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
     gap: '8px',
-  },
-};
-
-const OpenTabPicker = ({ tabs, hosts = [], onPick, t, embedded = false, emptySlotCount = 0 }) => {
-  const palette = color.dotPalette || ['#89b4fa'];
-  const [hoverId, setHoverId] = useState(null);
-  const innerStyle = embedded
-    ? { display: 'flex', flexDirection: 'column', gap: '8px' }
-    : mirrorStyles.inner;
-  return (
-    <div style={embedded ? null : mirrorStyles.outer}>
-      <div style={innerStyle}>
-        {!embedded && (
-          <div style={mirrorStyles.titleRow}>
-            <Copy size={12} strokeWidth={2} style={{ color: color.subtext }} />
-            <span style={mirrorStyles.title}>
-              {t?.('mirrorOpenTab') || 'Mirror an open tab here'}
-            </span>
-          </div>
-        )}
-        <div style={mirrorStyles.grid}>
-          {tabs.map(({ tab: tb, index }) => {
-            const isHost = tb.type === 'host';
-            const hostMeta = isHost ? hosts.find((h) => h.id === tb.hostId) : null;
-            const accent = tb.color_index != null
-              ? palette[tb.color_index % palette.length]
-              : color.accent;
-            const paneCount = (tb.panes || []).filter((p) => p.sessionId || p.hostId).length;
-            const disabled = paneCount > emptySlotCount;
-            return (
-              <HostRow
-                key={tb.id}
-                id={tb.id}
-                accentColor={accent}
-                leadingBadge={null}
-                disabled={disabled}
-                icon={
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: disabled ? 0.35 : 1 }}>
-                    <HostIcon
-                      value={tb.icon || (hostMeta?.icon || '')}
-                      fallback={isHost ? Server : TerminalIcon}
-                      size={20}
-                    />
-                    {index <= 9 && (
-                      <span style={{
-                        position: 'absolute',
-                        top: '-6px',
-                        left: '-6px',
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        minWidth: '14px',
-                        height: '14px',
-                        padding: '0 3px',
-                        fontSize: '9px',
-                        fontWeight: 700,
-                        color: color.base,
-                        fontFamily: font.mono,
-                        background: accent,
-                        borderRadius: '3px',
-                        lineHeight: 1,
-                        pointerEvents: 'none',
-                      }}>
-                        {index}
-                      </span>
-                    )}
-                  </div>
-                }
-                name={tb.name}
-                subtitle={
-                  <>
-                    <span style={{ ...SUB_LINE, opacity: disabled ? 0.35 : 1 }}>
-                      {isHost
-                        ? (hostMeta ? `${hostMeta.ssh_user}@${hostMeta.hostname}` : tb.hostId)
-                        : (t?.('thisMachine') || 'This machine')}
-                    </span>
-                    <span style={{ ...SUB_LINE, color: color.faint, opacity: disabled ? 0.35 : 1 }}>
-                      {paneCount > 1
-                        ? `${paneCount} ${t?.('panesInTab') || 'panes'}`
-                        : (tb.cwd || '')}
-                    </span>
-                  </>
-                }
-                isHovered={disabled ? false : hoverId === tb.id}
-                onHover={disabled ? null : setHoverId}
-                onClick={disabled ? null : () => onPick(tb.id)}
-              />
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const mirrorStyles = {
-  outer: {
-    width: '100%',
-    boxSizing: 'border-box',
-    padding: `0 20px 16px`,
-  },
-  inner: {
-    width: '100%',
-    maxWidth: '960px',
-    margin: '0 auto',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '12px',
-    paddingTop: '4px',
-  },
-  titleRow: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-  },
-  title: {
-    fontSize: '11px',
-    fontWeight: 600,
-    color: color.subtext,
-    textTransform: 'uppercase',
-    letterSpacing: '0.08em',
-  },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-    gap: '8px',
-  },
-  numberBadgeOverlay: {
-    position: 'absolute',
-    top: '-5px',
-    left: '-6px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: '14px',
-    height: '14px',
-    padding: '0 3px',
-    fontSize: '9px',
-    fontWeight: 700,
-    color: color.base,
-    fontFamily: font.mono,
-    background: color.accent,
-    borderRadius: '3px',
-    lineHeight: 1,
-    pointerEvents: 'none',
   },
 };
 
