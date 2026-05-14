@@ -511,7 +511,7 @@ const fszStyles = {
 
 const styles = {
   overlay: {
-    position: 'absolute',
+    position: 'fixed',
     inset: 0,
     background: color.scrim,
     display: 'flex',
