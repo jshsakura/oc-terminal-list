@@ -19,11 +19,11 @@ describe('TabBar', () => {
     expect(screen.queryByTitle(/Sign out/)).not.toBeInTheDocument();
   });
 
-  it('triggers Settings handler', () => {
+  it('triggers Settings handler on mobile (direct open, no submenu)', () => {
     const onOpenSettings = vi.fn();
     render(
       <TabBar
-        tabs={[]} activeTabId={null}
+        tabs={[]} activeTabId={null} isMobile={true}
         onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()}
         onOpenSettings={onOpenSettings}
       />
@@ -32,20 +32,40 @@ describe('TabBar', () => {
     expect(onOpenSettings).toHaveBeenCalled();
   });
 
-  it('right-click on tab opens context menu', () => {
+  it('opens submenu on desktop when Settings gear clicked', () => {
+    const onOpenSettings = vi.fn();
+    render(
+      <TabBar
+        tabs={[]} activeTabId={null} isMobile={false}
+        onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()}
+        onOpenSettings={onOpenSettings}
+        onReloadTerminals={vi.fn()}
+      />
+    );
+    fireEvent.click(screen.getByTitle(/^Settings/));
+    // Submenu should appear (not Settings directly)
+    expect(onOpenSettings).not.toHaveBeenCalled();
+    expect(screen.getByText(/^Settings$/)).toBeInTheDocument();
+  });
+
+  it('right-click on tab opens context menu and shows inline close confirmation', () => {
     const tabs = [{ id: 'local:1', type: 'local', sessionId: '1', name: 'zsh' }];
-    const onClose = vi.fn();
+    const onCloseImmediate = vi.fn();
     render(
       <TabBar
         tabs={tabs} activeTabId="local:1"
-        onSelect={vi.fn()} onClose={onClose} onHome={vi.fn()}
+        onSelect={vi.fn()} onClose={vi.fn()} onCloseImmediate={onCloseImmediate} onHome={vi.fn()}
         onOpenKeys={vi.fn()} onOpenSettings={vi.fn()} onLogout={vi.fn()}
       />
     );
     fireEvent.contextMenu(screen.getByText('zsh'));
     const closeMenuItem = screen.getByText(/Close tab/i);
     fireEvent.click(closeMenuItem);
-    expect(onClose).toHaveBeenCalledWith('local:1');
+    // Context menu closes; tab enters pending-close state showing "Close?" prompt
+    expect(screen.getByText(/Close\?/i)).toBeInTheDocument();
+    // Confirm closes the tab immediately
+    fireEvent.click(screen.getByTitle(/Confirm/i));
+    expect(onCloseImmediate).toHaveBeenCalledWith('local:1');
   });
 
   it('renders tabs and selects on click', () => {

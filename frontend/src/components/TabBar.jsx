@@ -45,6 +45,11 @@ const TabBar = ({
   const settingsMenuClosedAtRef = useRef(0);
 
   const handleSettingsClick = useCallback(() => {
+    // 모바일에서는 서브메뉴 없이 바로 Settings 열기 — 서브메뉴 터치 신뢰성 문제 회피.
+    if (isMobile) {
+      onOpenSettings?.();
+      return;
+    }
     if (settingsMenu) {
       setSettingsMenu(null);
       settingsMenuClosedAtRef.current = Date.now();
@@ -55,7 +60,7 @@ const TabBar = ({
       const rect = settingsBtnRef.current.getBoundingClientRect();
       setSettingsMenu({ x: rect.right, y: rect.bottom + 4 });
     }
-  }, [settingsMenu]);
+  }, [settingsMenu, isMobile, onOpenSettings]);
 
   // 모바일 터치 드래그 — TabBar scroll 컨테이너에 ref 를 걸고 훅에 넘김 (드래그 모드 시 가로 스크롤 락).
   const tabListRef = useRef(null);
