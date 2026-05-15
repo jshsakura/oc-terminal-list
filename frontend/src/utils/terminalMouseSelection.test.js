@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { shouldUseNaturalMouseSelection, selectionArgsFromCells, shouldRouteWheelToPty } from './terminalMouseSelection';
+import {
+  shouldUseNaturalMouseSelection,
+  selectionArgsFromCells,
+  shouldRouteWheelToPty,
+  shouldClearSelectionOnScroll,
+} from './terminalMouseSelection';
 
 describe('terminal mouse selection helpers', () => {
   it('enables natural selection only for plain primary drag in mouse tracking mode', () => {
@@ -45,5 +50,11 @@ describe('terminal mouse selection helpers', () => {
     expect(shouldRouteWheelToPty({ bufferType: 'normal', mouseTrackingMode: 'vt200' })).toBe(true);
     expect(shouldRouteWheelToPty({ bufferType: 'alternate', mouseTrackingMode: 'none' })).toBe(true);
     expect(shouldRouteWheelToPty({ bufferType: 'normal', mouseTrackingMode: 'none' })).toBe(false);
+  });
+
+  it('clears stale xterm selection when scrolling actually moves', () => {
+    expect(shouldClearSelectionOnScroll({ hasSelection: true, lines: 3 })).toBe(true);
+    expect(shouldClearSelectionOnScroll({ hasSelection: true, lines: 0 })).toBe(false);
+    expect(shouldClearSelectionOnScroll({ hasSelection: false, lines: 3 })).toBe(false);
   });
 });

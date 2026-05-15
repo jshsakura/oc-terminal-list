@@ -19,3 +19,7 @@ export const selectionArgsFromCells = (start, end, cols) => {
 export const shouldRouteWheelToPty = ({ bufferType = 'normal', mouseTrackingMode = 'none' } = {}) => (
   (mouseTrackingMode && mouseTrackingMode !== 'none') || bufferType !== 'normal'
 );
+
+export const shouldClearSelectionOnScroll = ({ hasSelection = false, lines = 0 } = {}) => (
+  hasSelection && Number.isFinite(lines) && lines !== 0
+);

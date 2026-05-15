@@ -18,7 +18,12 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 import { measureTerminalFit } from '../utils/terminalFit';
-import { shouldUseNaturalMouseSelection, selectionArgsFromCells, shouldRouteWheelToPty } from '../utils/terminalMouseSelection';
+import {
+  shouldUseNaturalMouseSelection,
+  selectionArgsFromCells,
+  shouldRouteWheelToPty,
+  shouldClearSelectionOnScroll,
+} from '../utils/terminalMouseSelection';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
@@ -400,6 +405,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         wheelLineRemainder -= lines;
       }
       if (lines === 0) return true;
+      if (shouldClearSelectionOnScroll({ hasSelection: term.hasSelection(), lines })) {
+        try { term.clearSelection(); } catch { /* noop */ }
+      }
 
       const routeToPty = shouldRouteWheelToPty({
         bufferType: term.buffer?.active?.type || 'normal',
