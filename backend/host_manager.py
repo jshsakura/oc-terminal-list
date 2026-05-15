@@ -68,8 +68,8 @@ def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: str | N
 
     - tmux -CC (control mode) 는 xterm.js 와 프로토콜 불일치라 사용 안 함.
     - start_path 가 주어지면 tmux -c 로 신규 세션 시작 디렉토리 지정. 기존 세션 재attach 시엔 무시됨(tmux 동작).
-    - aggressive-resize on 으로 attach 시 클라이언트 PTY 크기로 자동 리사이즈 → 80×24 잠금 방지.
-    - attach 에 -d 붙여 기존(작은 크기) 클라이언트 detach 시킴 → 새 PTY 크기로 즉시 동기화.
+    - window-size latest + 연결 직후 resize 메시지로 새 클라이언트 PTY 크기 즉시 적용.
+    - -d 없이 attach — 여러 기기 동시 접속 허용, 마지막 resize 를 보낸 클라이언트 크기로 동기화.
     - 셸 fallback 에서는 cd 로 진입 후 로그인 셸.
     """
     if not use_tmux:
@@ -82,20 +82,23 @@ def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: str | N
     # 핵심: new-session 단계에서 stty size 로 PTY 차원 그대로 주입 → 80x24 기본 아래 시작 후
     # attach 시 리사이즈하느라 prompt 가 안 그려지는 race 방지.
     # 로컬 tmux 와 동일한 임베드 친화 세팅 — "미묘하게 다름" 회피 위해 옵션을 통일한다.
-    # mouse off (드래그 = xterm native 선택; 휠은 frontend 의 customWheelEventHandler 가 PgUp 변환),
+    # mouse on (스크롤 우선; frontend 가 wheel/touch 를 tmux mouse wheel 로 전달),
     # window-size latest (다중 클라이언트 사이즈 동기화), focus-events on,
     # truecolor override, 그리고 PgUp/PgDn 자동 분기 root 바인딩.
     return (
         f"command -v tmux >/dev/null 2>&1 && {{ "
         f"tmux has-session -t {safe} 2>/dev/null || tmux new-session -d -s {safe}{cwd_arg}; "
         f"tmux set-option -t {safe} aggressive-resize on >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} mouse off >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} mouse on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
         f"tmux set-option -t {safe} focus-events on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} status off >/dev/null 2>&1; "
         f"tmux set-option -ag -t {safe} terminal-overrides ',*256col*:Tc' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageUp if-shell -F '#{{alternate_on}}' 'send-keys PageUp' 'copy-mode -eu' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageDown if-shell -F '#{{alternate_on}}' 'send-keys PageDown' '' >/dev/null 2>&1; "
+        f"tmux bind-key -T root WheelUpPane 'copy-mode -e; send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "
+        f"tmux bind-key -T copy-mode WheelUpPane 'send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "
+        f"tmux bind-key -T copy-mode WheelDownPane 'send-keys -X -N 5 scroll-down' >/dev/null 2>&1; "
         # 휠 외 마우스 바인딩 전부 unbind — 드래그/우클릭/더블클릭 시 tmux 가 copy-mode 진입하거나
         # 팝업 메뉴 띄우는 것 차단. 휠 (WheelUpPane, WheelDownPane) 은 그대로.
         f"for ev in MouseDown1Pane MouseDown1Status MouseDown1StatusLeft MouseDown1StatusRight MouseDown1Border "
@@ -105,7 +108,7 @@ def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: str | N
         f"MouseDown3Pane MouseDown3Status MouseDown3StatusLeft MouseDown3StatusRight "
         f"DoubleClick1Pane TripleClick1Pane; do "
         f"tmux unbind-key -T root \\\"$ev\\\" >/dev/null 2>&1; done; "
-        f"exec tmux attach-session -d -t {safe}; "
+        f"exec tmux attach-session -t {safe}; "
         f"}} || "
         f"{cd_prefix}exec ${{SHELL:-bash}} -l"
     )

@@ -122,7 +122,7 @@ export const findLeafContext = (root, paneId) => {
 // `newPaneId` is the ID of the newly created pane.
 // Returns { tree, newPaneId } (newPaneId for convenience, same as input).
 
-export const splitLeaf = (root, paneId, direction, newPaneId) => {
+export const splitLeaf = (root, paneId, direction, newPaneId, forceNested = false) => {
   const resolved = DIR_MAP[LEGACY_MAP[direction] || direction] || DIR_MAP[direction];
   if (!resolved) return { tree: root, newPaneId };
   const { dir, after } = resolved;
@@ -161,8 +161,9 @@ export const splitLeaf = (root, paneId, direction, newPaneId) => {
 
   const { parent, index } = ctx;
 
-  // If parent has the same direction, insert into it
-  if (parent && parent.direction === dir) {
+  // If parent has the same direction and nesting is not forced, insert as sibling.
+  // forceNested=true (drag-to-split) always nests so the pair shares the leaf's space.
+  if (parent && parent.direction === dir && !forceNested) {
     const insertIdx = after ? index + 1 : index;
     parent.children.splice(insertIdx, 0, makeLeaf(newPaneId));
   } else {

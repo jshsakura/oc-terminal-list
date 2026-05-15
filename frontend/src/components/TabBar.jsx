@@ -381,7 +381,7 @@ const Tab = memo(({
           </button>
         </>
       ) : (
-        <span style={styles.tabName}>{tab.name}</span>
+        <span style={styles.tabName} title={tab.name}>{tab.name}</span>
       )}
 
       {/* More 버튼 — 활성 탭에서만 노출, close 확인 중에는 숨김 */}

@@ -302,6 +302,10 @@ async def startup_event():
     auth_manager = AuthManager(storage)
     if not shutil.which("tmux"):
         logger.error("tmux 바이너리를 찾을 수 없습니다. 호스트에 tmux를 설치해주세요.")
+    else:
+        # tmux 서버가 이미 살아있을 경우 escape-time 을 즉시 0으로 설정
+        if await tmux_manager.server_alive():
+            await tmux_manager._run("set-option", "-s", "escape-time", "0", check=False)
 
 
 @app.on_event("shutdown")
@@ -843,11 +847,11 @@ async def terminal_websocket(
             await storage.update_session_activity(session_id)
         except Exception:
             pass
-        # 기존 세션 mouse off 강제 — 구 버전 mouse on 으로 올라온 세션 되돌림.
-        # 드래그 native 선택을 위해선 DECSET 1000 안 보내야 함 → mouse off.
-        # 휠은 frontend 의 attachCustomWheelEventHandler 가 PgUp 변환 → root binding 으로 copy-mode.
+        # 기존 세션도 스크롤 우선 정책으로 보정한다. tmux attach 는 outer xterm 에서
+        # alternate buffer 로 동작하므로 mouse on 상태에서 wheel/touch 를 tmux 에 넘겨야
+        # 실제 tmux history/copy-mode 가 움직인다.
         try:
-            await tmux_manager._run("set-option", "-t", session_id, "mouse", "off", check=False)
+            await tmux_manager._run("set-option", "-t", session_id, "mouse", "on", check=False)
             # PageUp/Down root binding 보강 (사이드바 PgUp/PgDn 버튼 경로용). idempotent.
             await tmux_manager._run(
                 "bind-key", "-T", "root", "PageUp",
@@ -859,6 +863,21 @@ async def terminal_websocket(
                 "bind-key", "-T", "root", "PageDown",
                 "if-shell", "-F", "#{alternate_on}",
                 "send-keys PageDown", "",
+                check=False,
+            )
+            await tmux_manager._run(
+                "bind-key", "-T", "root", "WheelUpPane",
+                "copy-mode -e; send-keys -X -N 5 scroll-up",
+                check=False,
+            )
+            await tmux_manager._run(
+                "bind-key", "-T", "copy-mode", "WheelUpPane",
+                "send-keys -X -N 5 scroll-up",
+                check=False,
+            )
+            await tmux_manager._run(
+                "bind-key", "-T", "copy-mode", "WheelDownPane",
+                "send-keys -X -N 5 scroll-down",
                 check=False,
             )
         except Exception:
@@ -1350,6 +1369,39 @@ async def host_git_status(
     except Exception:
         pass
     return {"items": items, "branch": branch, "repo": target, "error": None}
+
+
+@app.get("/api/hosts/{host_id}/git/diff")
+async def host_git_diff(
+    host_id: str,
+    path: str = Query(..., description="원격 파일 절대 경로"),
+    staged: bool = Query(False),
+    username: str = Depends(verify_auth_token),
+):
+    """원격 호스트의 단일 파일 git diff — SSH 로 직접 실행."""
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    safe_path = shlex.quote(path)
+    staged_flag = "--cached " if staged else ""
+    cmd = f"git diff {staged_flag}--no-color -- {safe_path} 2>&1 || git -C \"$(dirname {safe_path})\" diff {staged_flag}--no-color -- {safe_path} 2>&1"
+    # Use git -C with the file's directory so git can find the repo root
+    dir_path = path.rsplit('/', 1)[0] if '/' in path else '.'
+    safe_dir = shlex.quote(dir_path)
+    cmd = f"git -C {safe_dir} diff {staged_flag}--no-color -- {safe_path} 2>&1"
+    try:
+        output = await _run_remote_cmd(host, secrets, cmd, timeout=10)
+        if "not a git repository" in output.lower() or "fatal:" in output.lower():
+            raise HTTPException(status_code=404, detail="해당 파일이 속한 git 저장소를 찾을 수 없습니다")
+        return {
+            "path": path,
+            "repo": dir_path,
+            "patch": output,
+            "staged": staged,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("host git diff failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/hosts/{host_id}/files")

@@ -81,7 +81,10 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId =
   }, [path, hostId, enabled, refresh]);
 
   const fetchDiff = useCallback(async (filePath, staged = false) => {
-    const url = `/api/git/diff?path=${encodeURIComponent(filePath)}&staged=${staged ? 'true' : 'false'}`;
+    const hid = hostIdRef.current;
+    const url = hid
+      ? `/api/hosts/${hid}/git/diff?path=${encodeURIComponent(filePath)}&staged=${staged ? 'true' : 'false'}`
+      : `/api/git/diff?path=${encodeURIComponent(filePath)}&staged=${staged ? 'true' : 'false'}`;
     const res = await fetch(url, { headers: authHeader() });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));

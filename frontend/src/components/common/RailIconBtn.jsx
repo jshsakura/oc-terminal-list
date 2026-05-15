@@ -30,15 +30,17 @@ const RailIconBtn = ({
   compact = false,  // 좁은 rail 용 (RightPanel 활동바 등) — outer 24×24 / inner 18×18.
 }) => {
   const isDanger = tone === 'danger';
+  const isAccent = tone === 'accent';
   const palette = ui || color;
   const baseColor =
     isDanger ? palette.danger
-    : active ? palette.accent
+    : (active || isAccent) ? palette.accent
     : palette.subtext;
   const hoverColor = isDanger ? '#fff' : palette.text;
   // 모든 톤 동일 — idle 은 transparent, 호버에만 배경. (이전엔 danger 만 idle bg+border 가
   // 있어서 혼자 큰 버튼처럼 보이는 사고. 시각 무게는 icon color 만으로 충분히 전달.)
-  const idleInnerBg = active ? palette.surface1 : 'transparent';
+  // isAccent: 아이콘 색만 accent 로 — 배경 없음 (눈 아이콘 포커스 표시 등)
+  const idleInnerBg = (active && !isAccent) ? palette.surface1 : 'transparent';
   const hoverInnerBg = isDanger ? palette.danger : palette.surface0;
 
   return (

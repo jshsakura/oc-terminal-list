@@ -141,12 +141,16 @@ class TmuxManager:
                 f"(shell={shell}, cwd={cwd}). 셸/디렉토리 권한을 확인하세요."
             )
         # 세션 옵션: 웹 임베드 환경에 적합한 기본값
+        # escape-time 0: ESC 키를 즉시 전달 (기본값 500ms 대기로 인한 ESC 지연 제거)
+        # 서버 전역 옵션이므로 -s 플래그 사용. 여러 세션 생성 시 중복 설정되지만 무해함.
+        await self._run("set-option", "-s", "escape-time", "0", check=False)
+
         opts = [
             ("history-limit", str(self.history_limit)),
-            # mouse off — DECSET 1000 안 보내야 xterm.js 가 드래그를 native 선택으로 처리 (Shift 불필요).
-            # 휠은 frontend 의 `attachCustomWheelEventHandler` 가 PgUp 으로 변환 → tmux root binding.
-            # mouse on 으로 시도했었으나 mouse 이벤트 round-trip 이 직접 PgUp 송신보다 느려 스크롤 지연 발생 → 후퇴.
-            ("mouse", "off"),
+            # mouse on — 스크롤을 우선한다. tmux attach 는 xterm 입장에서 alternate buffer라
+            # 로컬 xterm scrollback 만으로는 실제 히스토리를 움직일 수 없다. 휠/터치는
+            # frontend 가 tmux mouse wheel 이벤트로 보내고, tmux 가 copy-mode scroll 을 담당한다.
+            ("mouse", "on"),
             ("window-size", "latest"),         # 다중 클라이언트시 최근 활성 사이즈
             ("default-terminal", "tmux-256color"),
             ("aggressive-resize", "on"),       # 클라이언트 PTY 차원으로 즉시 리사이즈
@@ -177,9 +181,26 @@ class TmuxManager:
             "send-keys PageDown", "",
             check=False,
         )
-        # mouse off 라 사실상 mouse 이벤트가 안 가지만, 혹시 다른 코드 경로에서 mouse on 잠깐 켜져도
-        # 드래그 시 tmux copy-mode 자동 진입 / 우클릭 팝업 / 더블클릭 단어선택 등 방해 동작 차단.
-        # 휠 (WheelUpPane, WheelDownPane) 은 그대로 두어 mouse on 케이스에서도 스크롤 동작.
+        # tmux 기본 WheelUpPane 은 root table 에서 copy-mode 진입만 하고 실제 scroll-up 을
+        # 하지 않아 웹에서는 "히스토리가 없는 것처럼" 미세하게만 움직인다. 첫 wheel 부터
+        # copy-mode 진입과 스크롤을 같이 수행하도록 명시한다.
+        await self._run(
+            "bind-key", "-T", "root", "WheelUpPane",
+            "copy-mode -e; send-keys -X -N 5 scroll-up",
+            check=False,
+        )
+        await self._run(
+            "bind-key", "-T", "copy-mode", "WheelUpPane",
+            "send-keys -X -N 5 scroll-up",
+            check=False,
+        )
+        await self._run(
+            "bind-key", "-T", "copy-mode", "WheelDownPane",
+            "send-keys -X -N 5 scroll-down",
+            check=False,
+        )
+        # mouse on 이므로 wheel 은 위 바인딩으로 살리고, 드래그/우클릭/더블클릭만
+        # tmux copy-mode 자동 진입이나 팝업으로 번지지 않게 차단한다.
         for _ev in (
             "MouseDown1Pane", "MouseDown1Status", "MouseDown1StatusLeft", "MouseDown1StatusRight", "MouseDown1Border",
             "MouseDrag1Pane", "MouseDrag1Border", "MouseDragEnd1Pane",

@@ -101,6 +101,18 @@ const PaneGrid = ({
     if (equalizeRef) equalizeRef.current = equalizeCurrentTab;
   }, [equalizeRef, equalizeCurrentTab]);
 
+  // Auto-equalize when panes are added or removed from the SAME tab.
+  // Tab switches must NOT trigger equalization (would reset manually-configured sizes).
+  const prevEqTabId = useRef(tab?.id);
+  const prevEqPanesLen = useRef(panes.length);
+  useEffect(() => {
+    const sameTab = tab?.id === prevEqTabId.current;
+    const countChanged = panes.length !== prevEqPanesLen.current;
+    prevEqTabId.current = tab?.id;
+    prevEqPanesLen.current = panes.length;
+    if (sameTab && countChanged) equalizeCurrentTab();
+  }, [tab?.id, panes.length, equalizeCurrentTab]);
+
   useEffect(() => {
     const onMove = (e) => {
       if (!resizeDragRef.current) return;
@@ -114,9 +126,15 @@ const PaneGrid = ({
       const delta = (current - startPos) / total;
       const next = [...startSizes];
       const MIN = 0.12;
-      next[index] = Math.max(MIN, startSizes[index] + delta);
-      next[index + 1] = Math.max(MIN, startSizes[index + 1] - delta);
-      const sum = next.reduce((a, b) => a + b, 0);
+      const SNAP_ZONE = 0.025; // snap to 50% when within 2.5% of center
+      let a = Math.max(MIN, startSizes[index] + delta);
+      let b = Math.max(MIN, startSizes[index + 1] - delta);
+      const pair = a + b;
+      const aFrac = a / pair;
+      if (Math.abs(aFrac - 0.5) < SNAP_ZONE) { a = pair * 0.5; b = pair * 0.5; }
+      next[index] = a;
+      next[index + 1] = b;
+      const sum = next.reduce((x, y) => x + y, 0);
       setSplitSizes((prev) => ({ ...prev, [sizeKey]: next.map((s) => s / sum) }));
     };
     const onUp = () => {
@@ -163,60 +181,77 @@ const PaneGrid = ({
           isMobile={isMobile}
           t={t}
         />
-        {/* display:grid; gridTemplateRows:1fr → 단일 자식(Pane) 이 부모 높이를 100% 채움.
-            grid item 의 기본 align/justify=stretch 라 명시적 height 없이도 늘어남.
-            (단순 position:relative 컨테이너 면 자식 Pane 이 explicit 높이를 못 받아
-             xterm 의 intrinsic 24행 크기로 고정되며 모바일 화면의 ~2/3 만 채움.) */}
-        <div style={{ flex: 1, position: 'relative', minHeight: 0, display: 'grid', gridTemplateRows: '1fr' }}>
-          <Pane
-            key={activePane.id}
-            pane={activePane}
-            tab={tab}
-            hosts={hosts}
-            isMobile={isMobile}
-            isFocused={true}
-            isMultiple={false}    /* 모바일에선 X 버튼 안 띄움 (서브탭에서 처리) */
-            onFocus={() => onFocusPane?.(tab.id, activePane.id)}
-            onClose={() => onClosePane?.(tab.id, activePane.id)}
-            onActivate={(target) => onActivatePane?.(tab.id, activePane.id, target)}
-            isActive={isActive}
-            layoutSignal={layoutSignal}
-            settings={settings}
-            updateSettings={updateSettings}
-            onPaneThemeChange={onPaneThemeChange}
-            cwd={cwd}
-            onFileSelect={onFileSelect}
-            onFolderSelect={onFolderSelect}
-            allTabs={allTabs}
-            onOpenTerminalAtFolder={onOpenTerminalAtFolder}
-            onPaneCwdChange={onPaneCwdChange}
-            onScreenDump={onScreenDump}
-            onConfirm={onConfirm}
-            onNotify={onNotify}
-            onResumeHostSession={onResumeHostSession}
-            onTerminateHostSession={onTerminateHostSession}
-            busyTabIds={busyTabIds}
-            busyPaneIds={busyPaneIds}
-            onPickHostPath={onPickHostPath}
-            onPickLocalPath={onPickLocalPath}
-            onEditHost={onEditHost}
-            onEditLocal={onEditLocal}
-            refreshHosts={refreshHosts}
-            language={language}
-            t={t}
-            viewportHeight={viewportHeight}
-            /* 빈 pane 은 추출 의미 없어 disabled. panes.length > 1 일 때만 의미 있음. */
-            onExtractPane={
-              panes.length > 1 && onExtractPaneToTab && (activePane.sessionId || activePane.hostId)
-                ? () => onExtractPaneToTab(tab.id, activePane.id)
-                : null
-            }
-            onSplitPane={onSplitPane ? (dir) => onSplitPane(tab.id, activePane.id, dir) : null}
-            onReorderPane={onReorderPane}
-            onPaneDragToSplit={onPaneDragToSplit}
-            onDropTabToPane={onDropTabToPane}
-            onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, activePane.id) : null}
-          />
+        {/* 모든 pane 마운트 유지 — visibility 토글로 xterm 인스턴스·WS 연결 보존.
+            display:none 대신 visibility:hidden 사용: 레이아웃 흐름에 남아 컨테이너 크기가
+            항상 확정되므로 xterm.js fit 이 처음부터 정확하고 탭 전환 시 squish 없음. */}
+        <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
+          {panes.map((pane) => {
+            const isThisActive = pane.id === activePane.id;
+            return (
+              <div
+                key={pane.id}
+                {...(!isThisActive ? { inert: '' } : {})}
+                style={{
+                  visibility: isThisActive ? 'visible' : 'hidden',
+                  pointerEvents: isThisActive ? 'auto' : 'none',
+                  display: 'grid',
+                  gridTemplateRows: '1fr',
+                  width: '100%',
+                  height: '100%',
+                  position: 'absolute',
+                  inset: 0,
+                }}
+              >
+                <Pane
+                  pane={pane}
+                  tab={tab}
+                  hosts={hosts}
+                  isMobile={isMobile}
+                  isFocused={isThisActive}
+                  isMultiple={false}
+                  onFocus={() => onFocusPane?.(tab.id, pane.id)}
+                  onClose={() => onClosePane?.(tab.id, pane.id)}
+                  onActivate={(target) => onActivatePane?.(tab.id, pane.id, target)}
+                  isActive={isActive && isThisActive}
+                  layoutSignal={layoutSignal}
+                  settings={settings}
+                  updateSettings={updateSettings}
+                  onPaneThemeChange={onPaneThemeChange}
+                  cwd={cwd}
+                  onFileSelect={onFileSelect}
+                  onFolderSelect={onFolderSelect}
+                  allTabs={allTabs}
+                  onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+                  onPaneCwdChange={onPaneCwdChange}
+                  onScreenDump={onScreenDump}
+                  onConfirm={onConfirm}
+                  onNotify={onNotify}
+                  onResumeHostSession={onResumeHostSession}
+                  onTerminateHostSession={onTerminateHostSession}
+                  busyTabIds={busyTabIds}
+                  busyPaneIds={busyPaneIds}
+                  onPickHostPath={onPickHostPath}
+                  onPickLocalPath={onPickLocalPath}
+                  onEditHost={onEditHost}
+                  onEditLocal={onEditLocal}
+                  refreshHosts={refreshHosts}
+                  language={language}
+                  t={t}
+                  viewportHeight={viewportHeight}
+                  onExtractPane={
+                    panes.length > 1 && onExtractPaneToTab && (pane.sessionId || pane.hostId)
+                      ? () => onExtractPaneToTab(tab.id, pane.id)
+                      : null
+                  }
+                  onSplitPane={onSplitPane ? (dir) => onSplitPane(tab.id, pane.id, dir) : null}
+                  onReorderPane={onReorderPane}
+                  onPaneDragToSplit={onPaneDragToSplit}
+                  onDropTabToPane={onDropTabToPane}
+                  onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, pane.id) : null}
+                />
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -294,7 +329,9 @@ const PaneGrid = ({
       const { direction, children } = node;
       const sizeKey = `${tab.id}:${path}`;
       const defaultSizes = children.map(() => 1 / children.length);
-      const sizes = splitSizes[sizeKey] || defaultSizes;
+      // Guard against stale cached sizes with wrong child count (rebuild equal in that case)
+      const cached = splitSizes[sizeKey];
+      const sizes = (cached && cached.length === children.length) ? cached : defaultSizes;
       const isRow = direction === 'row';
       const HANDLE_PX = 5; // resize handle thickness
 
@@ -330,6 +367,18 @@ const PaneGrid = ({
                       startPos: isRow ? e.clientX : e.clientY,
                       startSizes: [...sizes],
                     };
+                  }}
+                  onDoubleClick={(e) => {
+                    e.preventDefault();
+                    setSplitSizes((prev) => {
+                      const cur = (prev[sizeKey] && prev[sizeKey].length === children.length)
+                        ? prev[sizeKey] : defaultSizes;
+                      const next = [...cur];
+                      const combined = next[i] + next[i + 1];
+                      next[i] = combined / 2;
+                      next[i + 1] = combined / 2;
+                      return { ...prev, [sizeKey]: next };
+                    });
                   }}
                 />
               )}
@@ -418,14 +467,16 @@ const PaneGrid = ({
 // React.Fragment wrapper that accepts a key prop (avoids array-of-fragment lint issues)
 const SplitFragment = ({ children }) => <>{children}</>;
 
-const SplitHandle = ({ direction, onMouseDown }) => {
+const SplitHandle = ({ direction, onMouseDown, onDoubleClick }) => {
   const isRow = direction === 'row';
   const [hovered, setHovered] = useState(false);
   return (
     <div
       onMouseDown={onMouseDown}
+      onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
+      title="Drag to resize · Double-click to equalize"
       style={{
         flexShrink: 0,
         /* 6px wide/tall hit area; overlaps pane content by 2.5px each side */
@@ -446,8 +497,8 @@ const SplitHandle = ({ direction, onMouseDown }) => {
         bottom: isRow ? 0 : '2.5px',
         left: isRow ? '2.5px' : 0,
         right: isRow ? '2.5px' : 0,
-        background: hovered ? color.accent : color.border,
-        opacity: hovered ? 0.9 : 0.45,
+        background: hovered ? color.accent : color.borderStrong,
+        opacity: hovered ? 0.9 : 1,
         transition: 'background 120ms, opacity 120ms',
         pointerEvents: 'none',
       }} />
@@ -524,11 +575,24 @@ const Pane = ({
     const y = e.clientY - rect.top;
     const w = rect.width;
     const h = rect.height;
-    if (y < h * 0.25) return 'top';
-    if (y > h * 0.75) return 'bottom';
-    if (x < w * 0.25) return 'left';
-    if (x > w * 0.75) return 'right';
+    if (y < h * 0.2) return 'top';
+    if (y > h * 0.8) return 'bottom';
+    if (x < w * 0.3) return 'left';
+    if (x > w * 0.7) return 'right';
     return 'center';
+  };
+
+  // Pane-to-pane drag: always splits (no center/swap zone).
+  // Top/bottom edge (20%) = horizontal split; remaining area = left/right split by cursor half.
+  const getPaneDragZone = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const w = rect.width;
+    const h = rect.height;
+    if (y < h * 0.2) return 'top';
+    if (y > h * 0.8) return 'bottom';
+    return x < w * 0.5 ? 'left' : 'right';
   };
 
   const handleTabDragOver = useCallback((e) => {
@@ -570,13 +634,21 @@ const Pane = ({
     const hasCustomMime = e.dataTransfer.types.includes('application/x-iterminallist-pane');
     const hasTextPlain = e.dataTransfer.types.includes('text/plain');
     if (!hasCustomMime && !hasTextPlain) return;
+    // Check for self-drag: parse payload to see if this is the source pane
+    const raw = (hasCustomMime
+      ? e.dataTransfer.getData('application/x-iterminallist-pane')
+      : e.dataTransfer.getData('text/plain')) || '';
+    try {
+      const obj = JSON.parse(raw);
+      if (obj?.paneId === pane.id) { e.dataTransfer.dropEffect = 'none'; return; }
+    } catch { /* not JSON, continue */ }
     e.preventDefault();
     try { e.dataTransfer.dropEffect = 'move'; } catch {}
-    const zone = getTabDropZone(e); // reuse same quadrant detection as tab drops
+    const zone = getPaneDragZone(e);
     paneDragZoneRef.current = zone;
     setPaneDragZone(zone);
     setIsDragTargeted(true);
-  }, []);
+  }, [pane.id]);
 
   const handlePaneDragLeave = useCallback((e) => {
     if (!e.currentTarget.contains(e.relatedTarget)) {
@@ -593,17 +665,18 @@ const Pane = ({
     setIsDragTargeted(false);
     const payload = parsePanePayload(e.dataTransfer);
     if (!payload) return;
-    if (payload.paneId === pane.id) return;
     const currentTabId = tab?.id;
     if (!currentTabId || payload.tabId !== currentTabId) return;
     e.preventDefault();
     e.stopPropagation();
-    if (zone && zone !== 'center' && onPaneDragToSplit) {
+
+    if (payload.paneId === pane.id) return; // self-drop: ignore
+
+    if (zone && onPaneDragToSplit) {
       onPaneDragToSplit(currentTabId, payload.paneId, pane.id, zone);
-    } else {
-      onReorderPane?.(currentTabId, payload.paneId, pane.id);
+      onEqualizePane?.();
     }
-  }, [pane.id, tab?.id, onReorderPane, onPaneDragToSplit, parsePanePayload]);
+  }, [pane.id, tab?.id, onPaneDragToSplit, onEqualizePane, parsePanePayload]);
 
   // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — RightPanel 등 팬 내부 UI 가 이 변수를 씀.
   // :root 는 건드리지 않으므로 좌측 레일·상단 헤더는 글로벌 테마 유지.
@@ -675,6 +748,8 @@ const Pane = ({
           setIsDragTargeted(true);
           handleTabDragOver(e);
         } else if (types.includes('application/x-iterminallist-pane') || types.includes('text/plain')) {
+          // Skip self-drag: if the global dragging pane id matches this pane, show nothing
+          if (window.__draggingPaneId && window.__draggingPaneId === pane.id) return;
           setIsDragTargeted(true);
         }
       }}
@@ -1157,6 +1232,16 @@ const SubTabBar = ({
   const ctxRef = useRef(null);
   const ctxCloseRef = useRef(() => setCtxMenu(null));
   ctxCloseRef.current = () => setCtxMenu(null);
+  // Full-label tooltip for truncated pane names
+  const [labelTip, setLabelTip] = useState(null);
+  const labelTipTimer = useRef(null);
+  const showLabelTip = (label, el) => {
+    if (!label) return;
+    const rect = el.getBoundingClientRect();
+    setLabelTip({ label, x: rect.left + rect.width / 2, y: rect.bottom + 6 });
+    clearTimeout(labelTipTimer.current);
+    labelTipTimer.current = setTimeout(() => setLabelTip(null), 2000);
+  };
   const touchReorder = useTouchDragReorder({
     dataAttr: 'data-pane-id',
     scrollContainerRef: scrollRef,
@@ -1191,22 +1276,42 @@ const SubTabBar = ({
         .iterm-subtabbar-scroll { scrollbar-width: none; -ms-overflow-style: none; }
         .iterm-subtabbar-scroll::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
       `}</style>
+      {labelTip && createPortal(
+        <div style={{
+          position: 'fixed',
+          top: labelTip.y,
+          left: Math.max(8, Math.min(window.innerWidth - 8, labelTip.x)),
+          transform: 'translateX(-50%)',
+          background: subUi.surface1 || subUi.surface0,
+          border: `1px solid ${subUi.border}`,
+          borderRadius: '6px',
+          padding: '4px 10px',
+          fontSize: '12px',
+          fontFamily: font.sans,
+          color: subUi.text,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          zIndex: 300000,
+          whiteSpace: 'nowrap',
+          pointerEvents: 'none',
+        }}>
+          {labelTip.label}
+        </div>,
+        document.body
+      )}
       <div
         ref={scrollRef}
         className="iterm-subtabbar-scroll"
         style={{
           display: 'flex',
           alignItems: 'stretch',
-          height: '32px',
-          background: `linear-gradient(180deg, ${subUi.surface0}, ${subUi.base})`,
-          borderTop: 'none',
-          borderBottom: `1px solid color-mix(in srgb, ${subUi.accent} 34%, ${subUi.base})`,
-          boxShadow: `inset 0 -1px 0 color-mix(in srgb, ${subUi.text} 6%, transparent)`,
+          height: '34px',
+          background: subUi.base,
+          borderBottom: `1px solid ${subUi.border}`,
           overflowX: 'auto',
           overflowY: 'hidden',
           flexShrink: 0,
-          padding: 0,
-          gap: 0,
+          padding: '0 4px',
+          gap: '2px',
         }}
       >
         {panes.map((pane, idx) => {
@@ -1218,7 +1323,6 @@ const SubTabBar = ({
           const label = pane.manualName ? pane.name
             : (pane.name || host?.name
               || (isLocal ? ((settings.localName || '').trim() || (t?.('thisMachine') || 'Local')) : (t?.('startSession') || 'Empty')));
-          // 머신 아이콘 — host.icon 또는 settings.localIcon. fallback 은 Server/Monitor/Plus.
           const iconValue = host?.icon || (isLocal ? (settings.localIcon || '') : '');
           const FallbackIcon = host ? Server : (isLocal ? Monitor : Plus);
           const paneTheme = themes[pane.themeOverride || settings?.theme] || activeTheme;
@@ -1236,73 +1340,51 @@ const SubTabBar = ({
           return (
             <div
               key={pane.id}
+              title={label}
               {...(touchProps || {})}
-              onClick={() => onSelect(pane.id)}
+              onClick={(e) => {
+                if (isActive) showLabelTip(label, e.currentTarget);
+                onSelect(pane.id);
+              }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '6px',
+                gap: '5px',
                 padding: '0 10px',
-                height: 'calc(100% + 1px)',
-                background: isActive
-                  ? `linear-gradient(180deg, ${paneUi.base}, color-mix(in srgb, ${paneUi.base} 86%, ${paneAccent}))`
-                  : `linear-gradient(180deg, ${paneUi.surface0}, color-mix(in srgb, ${paneUi.surface0} 88%, ${paneUi.base}))`,
-                border: isDragOver
-                  ? `2px solid ${color.accent}`
-                  : `1px solid color-mix(in srgb, ${isActive ? paneAccent : paneUi.text} ${isActive ? 38 : 10}%, ${paneUi.surface0})`,
-                borderBottom: isDragOver
-                  ? `2px solid ${color.accent}`
-                  : isActive
-                    ? `1px solid ${paneUi.base}`
-                    : `1px solid color-mix(in srgb, ${paneUi.text} 8%, ${paneUi.surface0})`,
-                borderTop: isActive ? `2px solid ${paneAccent}` : undefined,
+                height: '100%',
+                background: isActive ? paneUi.surface0 : 'transparent',
+                border: 'none',
                 borderRadius: 0,
-                margin: 0,
-                marginLeft: idx === 0 ? 0 : '-1px',
-                color: isActive ? paneUi.text : paneUi.subtext,
+                // Active: bottom accent line via box-shadow (non-layout, no box-model disruption)
+                boxShadow: isDragOver
+                  ? `inset 0 2px 0 ${color.accent}`
+                  : isActive
+                    ? `inset 0 2px 0 ${paneAccent}`
+                    : 'none',
+                color: isActive ? paneUi.text : paneUi.muted,
                 fontSize: fontSize['11'],
-                fontWeight: fontWeight.medium,
+                fontWeight: isActive ? fontWeight.medium : fontWeight.normal,
                 cursor: 'pointer',
                 flexShrink: 0,
                 minWidth: 'max-content',
                 maxWidth: 'none',
                 fontFamily: font.sans,
-                opacity: isDragging ? 0.4 : (isActive ? 1 : 0.78),
-                boxShadow: isActive
-                  ? `inset 0 1px 0 color-mix(in srgb, ${paneUi.text} 10%, transparent)`
-                  : 'none',
-                transition: 'background 0.15s, opacity 0.15s, border-color 0.15s, box-shadow 0.15s',
+                opacity: isDragging ? 0.35 : (isActive ? 1 : 0.65),
+                transition: 'background 120ms, opacity 120ms, box-shadow 120ms, color 120ms',
+                userSelect: 'none',
               }}
             >
-              {idx + 1 <= 9 && (
-                <span
-                  aria-hidden
-                  style={{
-                    fontFamily: font.mono,
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: isActive ? paneUi.subtext : paneUi.muted,
-                    opacity: isActive ? 0.95 : 0.75,
-                    flexShrink: 0,
-                    lineHeight: 1,
-                    width: '10px',
-                    textAlign: 'center',
-                  }}
-                >
-                  {idx + 1}
-                </span>
-              )}
               <span style={{
                 position: 'relative',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                width: '16px',
-                height: '16px',
+                width: '14px',
+                height: '14px',
                 flexShrink: 0,
-                color: isActive ? paneUi.text : paneAccent,
+                color: isActive ? paneAccent : paneUi.muted,
               }}>
-                <HostIcon value={iconValue} fallback={FallbackIcon} size={14} strokeWidth={1.8} />
+                <HostIcon value={iconValue} fallback={FallbackIcon} size={12} strokeWidth={1.8} />
                 {isBusy && (
                   <span
                     aria-hidden
@@ -1310,17 +1392,17 @@ const SubTabBar = ({
                       position: 'absolute',
                       top: '-2px',
                       right: '-2px',
-                      width: '6px',
-                      height: '6px',
+                      width: '5px',
+                      height: '5px',
                       borderRadius: '50%',
                       background: paneAccent,
-                      boxShadow: `0 0 0 1px ${paneUi.surface0}`,
+                      boxShadow: `0 0 0 1px ${paneUi.base}`,
                       pointerEvents: 'none',
                     }}
                   />
                 )}
               </span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1, minWidth: 0 }}>
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '120px' }}>
                 {label}
               </span>
             </div>

@@ -1,7 +1,7 @@
 import { useState, memo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Folder, GitBranch, Palette, X, RefreshCw, ChevronsUp, ChevronsDown, FileText, Trash2,
+  Folder, GitBranch, Palette, X, RefreshCw, FileText, Trash2,
   Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound, HelpCircle,
   ExternalLink, MoreHorizontal,
   GripVertical, Columns2, Rows2,
@@ -299,7 +299,9 @@ const RightPanel = ({
               e.dataTransfer.setData('text/plain', payload);
               e.dataTransfer.setData('application/x-iterminallist-pane', payload);
               e.dataTransfer.effectAllowed = 'move';
+              window.__draggingPaneId = paneInfo?.paneId || null;
             }}
+            onDragEnd={() => { window.__draggingPaneId = null; }}
             onMouseEnter={(e) => { e.currentTarget.style.color = panelUi.text; e.currentTarget.style.background = panelUi.surface1 || 'rgba(255,255,255,0.06)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = panelUi.muted; e.currentTarget.style.background = 'transparent'; }}
           >
@@ -382,9 +384,10 @@ const RightPanel = ({
               : (t?.('terminalBusy') || 'Terminal is active');
             const eyeTitle = isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused');
             return (
-              <div style={{ position: 'relative', flexShrink: 0 }} title={hasBadge ? badgeTitle : eyeTitle}>
+              <div style={{ position: 'relative', flexShrink: 0, opacity: (isFocused || hasBadge) ? 1 : 0.3, transition: 'opacity 120ms' }} title={hasBadge ? badgeTitle : eyeTitle}>
                 <RailIconBtn
                   icon={isFocused ? Eye : EyeOff}
+                  tone={isFocused ? 'accent' : undefined}
                   ui={panelUi}
                   compact
                 />
@@ -437,7 +440,19 @@ const RightPanel = ({
           )}
 
 
-          {/* More menu button — rightmost item in the topbar */}
+          {/* Empty pane: direct X close button instead of the … menu */}
+          {disabled && onCloseTerminal && (
+            <RailIconBtn
+              icon={X}
+              onClick={onCloseTerminal}
+              title={t?.('close') || 'Close'}
+              ui={panelUi}
+              compact
+            />
+          )}
+
+          {/* More menu button — hidden for empty panes (only one action → surfaced above) */}
+          {!disabled && (
           <div ref={moreBtnRef}>
             {loading ? (
               <div style={{
@@ -464,6 +479,7 @@ const RightPanel = ({
               />
             )}
           </div>
+          )}
         </div>
       </div>
 
@@ -487,12 +503,6 @@ const RightPanel = ({
           )}
           {!disabled && terminalKey && (
             <>
-              <MenuBtn icon={ChevronsUp} onClick={() => { closeRailMenu(); sendScroll(-1); }} ui={panelUi}>
-                {t?.('pageUp') || 'Page up'}
-              </MenuBtn>
-              <MenuBtn icon={ChevronsDown} onClick={() => { closeRailMenu(); sendScroll(1); }} ui={panelUi}>
-                {t?.('pageDown') || 'Page down'}
-              </MenuBtn>
               <MenuBtn icon={FileText} onClick={() => { closeRailMenu(); handleDump(); }} ui={panelUi}>
                 {t?.('viewAsText') || 'View as text'}
               </MenuBtn>
@@ -542,11 +552,12 @@ const RightPanel = ({
             background: panelUi.base,
             borderColor: panelUi.border,
             color: panelUi.text,
-            width: `${panelWidth}px`,
+            // Mobile: full-width overlay. Desktop: resizable fixed width.
+            ...(isMobile ? { left: 0, right: 0 } : { width: `${panelWidth}px` }),
             position: 'absolute',
             top: '30px',
-            left: 0,
             bottom: 0,
+            left: 0,
             zIndex: 10,
             boxShadow: 'none',
             outline: 'none',
@@ -579,43 +590,50 @@ const RightPanel = ({
           </div>
           <div className="iterm-rp-panelbody" style={{ ...styles.panelBody, background: 'transparent', color: panelUi.text }}>
             {activePanel === 'files' && (
-              <FileTree
-                key={`${activeHostId ?? 'local'}:${activeHostId ? (paneCwd ?? 'home') : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? 'root')}`}
-                hostId={activeHostId}
-                onFileSelect={onFileSelect}
-                onFolderSelect={onFolderSelect}
-                onOpenTerminalAtFolder={onOpenTerminalAtFolder}
-                onRefreshCwd={onRefreshCwd}
-                gitContextPath={gitContextPath}
-                sharedGitChanges={gitChanges}
-                language={language}
-                initialPath={activeHostId ? (paneCwd || null) : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? '')}
-              />
+              <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
+                <FileTree
+                  key={`${activeHostId ?? 'local'}:${activeHostId ? (paneCwd ?? 'home') : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? 'root')}`}
+                  hostId={activeHostId}
+                  onFileSelect={onFileSelect}
+                  onFolderSelect={onFolderSelect}
+                  onOpenTerminalAtFolder={onOpenTerminalAtFolder}
+                  onRefreshCwd={onRefreshCwd}
+                  gitContextPath={gitContextPath}
+                  sharedGitChanges={gitChanges}
+                  language={language}
+                  initialPath={activeHostId ? (paneCwd || null) : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? '')}
+                />
+              </div>
             )}
             {activePanel === 'git' && (
               <ChangesList
                 gitContextPath={gitContextPath}
                 sharedGitChanges={gitChanges}
+                hostId={activeHostId}
                 onSelectFile={onFileSelect}
                 onOpenFile={onFileSelect}
                 t={t}
               />
             )}
             {activePanel === 'theme' && (
-              <ThemeSettings
-                paneThemeId={paneThemeId || settings.theme}
-                globalThemeId={settings.theme}
-                onPaneThemeChange={onPaneThemeChange}
-                t={t}
-              />
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                <ThemeSettings
+                  paneThemeId={paneThemeId || settings.theme}
+                  globalThemeId={settings.theme}
+                  onPaneThemeChange={onPaneThemeChange}
+                  t={t}
+                />
+              </div>
             )}
             {activePanel === 'info' && (
-              <InfoPanel
-                info={paneInfo}
-                paneThemeId={paneThemeId}
-                globalThemeId={settings.theme}
-                t={t}
-              />
+              <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
+                <InfoPanel
+                  info={paneInfo}
+                  paneThemeId={paneThemeId}
+                  globalThemeId={settings.theme}
+                  t={t}
+                />
+              </div>
             )}
           </div>
         </div>
@@ -780,6 +798,7 @@ const ThemeSettings = memo(({ paneThemeId, globalThemeId, onPaneThemeChange, t }
           onChange={onPaneThemeChange}
           t={t}
           markedId={globalThemeId}
+          showRandom
         />
       </Field>
     </div>
@@ -1111,7 +1130,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
         <ShortcutRow keys={['Ctrl', 'V']}                       desc={t?.('shortcutPaste')     || 'Paste (bracketed)'} />
         <ShortcutRow keys={[t?.('rightClick') || 'Right-click']} desc={t?.('shortcutContextMenu') || 'Context menu'} />
         <ShortcutRow keys={['Ctrl', 'Shift', 'C']}              desc={t?.('shortcutCopy')      || 'Copy selection'} />
-        <ShortcutRow keys={[t?.('wheel') || 'Wheel']}            desc={t?.('shortcutScroll')   || 'Scroll (auto copy-mode)'} />
+        <ShortcutRow keys={[t?.('wheel') || 'Wheel']}            desc={t?.('shortcutScroll')   || 'Scroll terminal history'} />
         <ShortcutRow keys={['Ctrl', 'C']}                       desc={t?.('shortcutSigint')    || 'Interrupt (SIGINT)'} />
         <ShortcutRow keys={['Ctrl', 'Shift', 'F']}              desc={t?.('shortcutSearch')    || 'Find in terminal'} />
         <ShortcutRow keys={['F12']}                             desc={t?.('shortcutDevtools')  || 'Open DevTools'} />
@@ -1457,7 +1476,10 @@ const styles = {
   },
   panelBody: {
     flex: 1,
-    overflow: 'auto',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    minHeight: 0,
   },
   activityBar: {
     height: '28px',

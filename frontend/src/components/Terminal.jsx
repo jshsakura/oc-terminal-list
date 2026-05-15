@@ -20,9 +20,30 @@ import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
+// clipboard.writeText 가 없거나 비-HTTPS 컨텍스트에서 실패할 경우 textarea 폴백.
+const copyTextToClipboard = (text) => {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text).catch(() => execCommandCopy(text));
+  }
+  execCommandCopy(text);
+  return Promise.resolve();
+};
+
+const execCommandCopy = (text) => {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand('copy'); } catch { /* noop */ }
+  document.body.removeChild(ta);
+};
+
 const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
+  const touchOverlayRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
@@ -160,6 +181,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         .xterm .xterm-scrollable-element > .shadow {
           display: none !important;
         }
+        /* Let iOS native-scroll the xterm-viewport (overflow-y:scroll covers the full
+           terminal area). xterm.js _handleScroll fires on scrollTop changes and
+           re-renders the canvas — no custom JS touch handler needed. */
+        .xterm .xterm-viewport {
+          -webkit-overflow-scrolling: touch;
+        }
       `;
       document.head.appendChild(style);
     }
@@ -261,33 +288,89 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
     } catch {}
 
-    // Custom wheel handler: routes wheel events intentionally.
+    // Wheel/touch scroll routing.
+    // tmux attach runs the outer xterm in the alternate buffer, so xterm's local
+    // scrollback cannot represent the real tmux history. In that state we send
+    // SGR mouse-wheel reports to tmux. This intentionally prioritizes scrolling
+    // over native xterm mouse selection/copy behavior.
+    let wheelLineRemainder = 0;
+    let touchLineRemainder = 0;
+
+    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+    const getCellHeight = () => (
+      term._core?._renderService?.dimensions?.css?.cell?.height
+      || Math.max(1, Math.round((term.element?.clientHeight || 0) / Math.max(1, term.rows)))
+      || 17
+    );
+
+    const deltaToLines = (deltaY, deltaMode = 0) => {
+      if (deltaMode === 1) return deltaY;
+      if (deltaMode === 2) return deltaY * Math.max(1, term.rows);
+      return deltaY / getCellHeight();
+    };
+
+    const cellFromClientPoint = (clientX, clientY) => {
+      const screen = term.element?.querySelector('.xterm-screen') || term.element;
+      const rect = screen?.getBoundingClientRect?.();
+      const dims = term._core?._renderService?.dimensions?.css?.cell;
+      const cellW = dims?.width || Math.max(1, (rect?.width || 0) / Math.max(1, term.cols)) || 9;
+      const cellH = dims?.height || getCellHeight();
+      const x = Number.isFinite(clientX) ? clientX : ((rect?.left || 0) + (rect?.width || 0) / 2);
+      const y = Number.isFinite(clientY) ? clientY : ((rect?.top || 0) + (rect?.height || 0) / 2);
+      return {
+        col: clamp(Math.floor((x - (rect?.left || 0)) / cellW) + 1, 1, Math.max(1, term.cols)),
+        row: clamp(Math.floor((y - (rect?.top || 0)) / cellH) + 1, 1, Math.max(1, term.rows)),
+      };
+    };
+
+    const sendTmuxWheel = (lines, clientX, clientY, source = 'wheel') => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN || lines === 0) return;
+      const { col, row } = cellFromClientPoint(clientX, clientY);
+      const button = lines < 0 ? 64 : 65; // SGR mouse: wheel up/down
+      const maxPerEvent = source === 'touch' ? 8 : 12;
+      const count = Math.min(maxPerEvent, Math.max(1, Math.abs(lines)));
+      let payload = '';
+      for (let i = 0; i < count; i++) {
+        payload += `\x1b[<${button};${col};${row}M`;
+      }
+      ws.send(payload);
+    };
+
+    const handleTerminalScrollDelta = (deltaY, deltaMode, clientX, clientY, source = 'wheel') => {
+      const rawLines = deltaToLines(deltaY, deltaMode);
+      if (!Number.isFinite(rawLines) || rawLines === 0) return false;
+
+      if (source === 'touch') {
+        touchLineRemainder += rawLines;
+      } else {
+        wheelLineRemainder += rawLines;
+      }
+      const remainder = source === 'touch' ? touchLineRemainder : wheelLineRemainder;
+      const lines = Math.trunc(remainder);
+      if (source === 'touch') {
+        touchLineRemainder -= lines;
+      } else {
+        wheelLineRemainder -= lines;
+      }
+      if (lines === 0) return true;
+
+      const buf = term.buffer?.active;
+      if (buf?.type === 'normal') {
+        try { term.scrollLines(lines); } catch { /* noop */ }
+      } else {
+        sendTmuxWheel(lines, clientX, clientY, source);
+      }
+      return true;
+    };
+
     // attachCustomWheelEventHandler return semantics (from xterm.d.ts):
     //   return true  → allow xterm.js default processing
     //   return false → cancel xterm.js processing (we handled it)
-    //
-    // - Normal buffer with local scrollback available: return true → xterm scrolls locally.
-    // - Never synthesize PageUp/PageDown into the PTY from wheel events. Some editors or
-    //   shells do not consume those escape sequences, so they can be inserted literally
-    //   into the file/prompt as `^[[5~` / `^[[6~`.
     term.attachCustomWheelEventHandler((e) => {
-      const buf = term.buffer?.active;
-      if (!buf) return true; // no buffer yet — let xterm handle normally
-
-      // Alternate buffer: let the application/xterm handle wheel/mouse reporting.
-      // Do not convert wheel to key sequences; that can corrupt text being edited.
-      if (buf.type === 'alternate') {
-        return true;
-      }
-
-      // Normal buffer: at top of local scrollback and still scrolling up →
-      // let xterm/browser ignore it rather than injecting keys into the shell prompt.
-      if (e.deltaY < 0 && buf.viewportY <= 0) {
-        return true;
-      }
-
-      // Normal buffer with local scrollback available: let xterm handle naturally
-      return true;
+      handleTerminalScrollDelta(e.deltaY, e.deltaMode, e.clientX, e.clientY, 'wheel');
+      return false;
     });
 
     // WebGL 렌더러 — 디폴트 ON. 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
@@ -347,7 +430,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         const sel = term.getSelection();
         if (sel) {
           e.preventDefault();
-          navigator.clipboard.writeText(sel).catch(() => {});
+          copyTextToClipboard(sel);
           return false;
         }
       }
@@ -376,7 +459,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         const selection = term.getSelection();
         // 모바일은 자동 복사가 방해될 수 있으므로 (선택 핸들 유지 등) PC 에서만 자동 복사.
         if (selection && !isMobileRef.current) {
-          navigator.clipboard.writeText(selection).catch(() => {});
+          copyTextToClipboard(selection);
         }
       }, 80);
     });
@@ -385,6 +468,59 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     container.addEventListener('contextmenu', handleContextMenu);
     container.addEventListener('keydown', handleKeyDown);
     container.addEventListener('paste', handlePaste, true);
+
+    // Mobile scroll + long-press: 오버레이 div가 canvas 위에서 터치를 독점 처리.
+    // touch-action:none 이 오버레이에 있으므로 iOS가 scroll 제스처를 선점하지 않고
+    // touchmove passive:false 에서 preventDefault() 가 보장됨.
+    const overlay = touchOverlayRef.current;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let isTouchScrolling = false;
+    let scrollAccum = 0;
+    let longPressTimer = null;
+
+    const handleTouchStart = (e) => {
+      if (e.touches.length !== 1) return;
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+      isTouchScrolling = false;
+      scrollAccum = 0;
+      longPressTimer = setTimeout(() => {
+        if (!isTouchScrolling) {
+          const t = xtermRef.current;
+          if (t) setContextMenu({ x: touchStartX, y: touchStartY, hasSelection: !!t.hasSelection() });
+        }
+      }, 500);
+    };
+
+    const handleTouchMove = (e) => {
+      if (e.touches.length !== 1) return;
+      clearTimeout(longPressTimer);
+      const dy = touchStartY - e.touches[0].clientY; // positive = 손가락 위로
+      const dx = Math.abs(e.touches[0].clientX - touchStartX);
+
+      if (!isTouchScrolling) {
+        if (Math.abs(dy) > 5 && Math.abs(dy) > dx) isTouchScrolling = true;
+        else return;
+      }
+
+      e.preventDefault();
+      touchStartY = e.touches[0].clientY;
+      scrollAccum += dy;
+
+      handleTerminalScrollDelta(scrollAccum, 0, e.touches[0].clientX, e.touches[0].clientY, 'touch');
+      scrollAccum = 0;
+    };
+
+    const handleTouchEnd = () => { clearTimeout(longPressTimer); };
+
+    if (overlay) {
+      overlay.addEventListener('touchstart', handleTouchStart, { passive: true });
+      overlay.addEventListener('touchmove', handleTouchMove, { passive: false });
+      overlay.addEventListener('touchend', handleTouchEnd, { passive: true });
+    }
+    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchend', handleTouchEnd, { passive: true });
 
 
     // ⚠️  WS 연결 전에 fit() 동기 호출 — xterm.js 의 cols/rows 와 백엔드/tmux 에
@@ -534,6 +670,17 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       } catch {}
     };
 
+    const handleEviction = () => {
+      evictedRef.current = true;
+      // Clear any buffered output — nothing after eviction should reach the terminal
+      wsBufferRef.current = [];
+      if (wsFlushTimeoutRef.current) {
+        clearTimeout(wsFlushTimeoutRef.current);
+        wsFlushTimeoutRef.current = null;
+      }
+      setEvicted(true);
+    };
+
     socket.onmessage = (event) => {
       // binary array buffer data
       if (event.data instanceof ArrayBuffer) {
@@ -542,11 +689,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           try {
             const text = new TextDecoder('utf-8').decode(event.data);
             if (text.includes('[detached (from session') && Date.now() > ignoreDetachUntil) {
-              evictedRef.current = true;
+              handleEviction();
+              return; // don't write detach text to terminal
             }
           } catch {}
         }
-        
+
         wsBufferRef.current.push(event.data);
         dispatchActivity();
         if (wsFlushTimeoutRef.current) return;
@@ -572,9 +720,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
          `[detached (from session ...)]` 한 줄로 의도적 detach 임을 식별 — 네트워크 끊김과 분리. */
       if (typeof event.data === 'string' && event.data.includes('[detached (from session')
           && Date.now() > ignoreDetachUntil) {
-        evictedRef.current = true;
+        handleEviction();
+        return; // don't write detach text to terminal
       }
-      
+
       // string payload (like detached message, or unhandled json fallback)
       if (typeof event.data === 'string') {
         const encoder = new TextEncoder();
@@ -662,20 +811,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     connectRef.current = connect;
     runPreflightRef.current = runPreflight;
 
-    /* mount: preflight → 결과에 따라 connect() 또는 evicted 오버레이.
-       WS 는 mount 동안 *계속* 열려 있음 — 탭 전환마다 끊었다 다시 붙으면 사용자가 "완전 재연결"
-       느낌을 받고, tmux 가 매번 redraw/clear 보내 jitter 발생. 멀티 디바이스 충돌은 *같은 세션*
-       의 문제이고 한 디바이스 안 여러 탭(=다른 세션) 동시 attach 는 무해하므로 isActive 와
-       WS 는 디커플. isActive 는 focus/visibility 만 담당. */
-    runPreflight().then(({ attached }) => {
-      if (cancelled) return;
-      if (attached) {
-        evictedRef.current = true;
-        setEvicted(true);
-      } else {
-        connect();
-      }
-    });
+    /* mount: 바로 connect. 예전에는 preflight 로 attached 여부를 확인했지만,
+       탭 전환/pane 이동으로 인한 unmount→remount 직후 구 WS 가 tmux 에서 아직 등록된
+       채로 남아 attached=true 를 반환해 false eviction 오버레이가 뜨는 문제가 있었음.
+       진짜 eviction 은 데이터 스트림 내 [detached (from session...)] 토큰으로 감지하므로
+       mount preflight 없이도 충분히 보호됨. */
+    if (!cancelled) connect();
 
     // 4. 사용자 입력 처리 — connect() 가 여러 번 호출돼도 (takeover/auto-resume) 항상 최신 ws 를 잡게 ref 사용.
     // 대용량 paste 는 절대 동기 while 루프로 WebSocket.send() 를 몰아넣지 않는다.
@@ -803,10 +944,17 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleResize);
       }
+      if (overlay) {
+        overlay.removeEventListener('touchstart', handleTouchStart);
+        overlay.removeEventListener('touchmove', handleTouchMove);
+        overlay.removeEventListener('touchend', handleTouchEnd);
+      }
       if (container) {
         container.removeEventListener('contextmenu', handleContextMenu);
         container.removeEventListener('keydown', handleKeyDown);
         container.removeEventListener('paste', handlePaste, true);
+        container.removeEventListener('touchstart', handleTouchStart);
+        container.removeEventListener('touchend', handleTouchEnd);
       }
       try { wsRef.current?.close(); } catch {}
       connectRef.current = null;
@@ -824,7 +972,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   }, [sessionId]);
 
   /* evicted 동안 백엔드 폴링 — 다른 기기가 떨어지면(`count == 0`) 사용자 클릭 없이도 자동 재attach.
-     "내가 모바일 닫고나서도 여기 사이즈가 작은 상태로 남아있다" 상황을 방지. */
+     "내가 모바일 닫고나서도 여기 사이즈가 작은 상태로 남아있다" 상황을 방지.
+     핑퐁 방지: count=0 을 2회 연속 확인한 뒤에만 재attach (단발 0 = 일시적 blip 무시). */
   useEffect(() => {
     if (!evicted) return undefined;
     const token = (typeof localStorage !== 'undefined') ? localStorage.getItem('auth_token') : null;
@@ -834,24 +983,31 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}`
       : `/api/sessions/${sessionToCheck}/clients`;
     let cancelled = false;
+    let zeroStreak = 0;
+    const ZERO_THRESHOLD = 2; // 2회 연속 count=0 이어야 재attach
     const tick = async () => {
       try {
         const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         if (cancelled) return;
-        if (!res.ok) return;
+        if (!res.ok) { zeroStreak = 0; return; }
         const data = await res.json();
         if (!data.attached) {
-          /* 다른 기기 다 떨어짐 → 자동 재attach. connectRef 직접 호출해 remount 없이 WS 만 다시 열음.
-             새 attach 가 PC 의 PTY 사이즈로 spawn 되니 tmux 가 자동으로 PC 사이즈로 resize 됨. */
-          evictedRef.current = false;
-          setEvicted(false);
-          if (connectRef.current) connectRef.current();
+          zeroStreak++;
+          if (zeroStreak >= ZERO_THRESHOLD) {
+            /* 다른 기기 다 떨어짐 → 자동 재attach. connectRef 직접 호출해 remount 없이 WS 만 다시 열음.
+               새 attach 가 PC 의 PTY 사이즈로 spawn 되니 tmux 가 자동으로 PC 사이즈로 resize 됨. */
+            evictedRef.current = false;
+            setEvicted(false);
+            if (connectRef.current) connectRef.current();
+          }
+        } else {
+          zeroStreak = 0;
         }
-      } catch { /* 네트워크 일시 실패 — 다음 tick 에서 다시 */ }
+      } catch { zeroStreak = 0; /* 네트워크 일시 실패 — 다음 tick 에서 다시 */ }
     };
-    /* 처음에 한 번 빠르게, 이후 4초 간격. */
-    const initial = setTimeout(tick, 1500);
-    const id = setInterval(tick, 4000);
+    /* 초기 대기 8s(기기가 안정화될 시간) + 이후 10s 간격으로 폴링. */
+    const initial = setTimeout(tick, 8000);
+    const id = setInterval(tick, 10000);
     return () => {
       cancelled = true;
       clearTimeout(initial);
@@ -893,9 +1049,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   useEffect(() => {
     if (!isActive) return;
 
-    /* 활성 탭이 되는 순간 = 가시 영역이 처음 생기는 순간. 이전엔 display:none 이라
-       fit 을 스킵했으므로 여기서 한 번 정확히 맞춰서 tmux 에 알림. */
-    const timer = setTimeout(() => {
+    /* 활성 탭이 되는 순간 = 가시 영역이 처음 생기는 순간. display:none→grid 전환 직후라
+       rAF 한 프레임 뒤면 레이아웃이 확정되므로 즉시 fit. 서브탭 전환 시 squish 방지. */
+    let rafId = requestAnimationFrame(() => {
       if (!fitAddonRef.current) return;
       const proposed = fitAddonRef.current.proposeDimensions();
       if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
@@ -907,9 +1063,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
         }
       }
-    }, 120);
+    });
 
-    return () => clearTimeout(timer);
+    return () => cancelAnimationFrame(rafId);
   }, [layoutSignal, isActive]);
 
   // 재연결 로직
@@ -992,23 +1148,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const copyAll = useCallback(async () => {
     const text = getBufferText(true);
     if (!text) return false;
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // execCommand fallback (구형/HTTP 환경)
-      try {
-        const ta = document.createElement('textarea');
-        ta.value = text;
-        ta.style.position = 'fixed';
-        ta.style.opacity = '0';
-        document.body.appendChild(ta);
-        ta.select();
-        const ok = document.execCommand('copy');
-        document.body.removeChild(ta);
-        return ok;
-      } catch { return false; }
-    }
+    await copyTextToClipboard(text);
+    return true;
   }, [getBufferText]);
 
   const focus = useCallback(() => {
@@ -1180,6 +1321,24 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         }}
       />
 
+      {/* 모바일 터치 오버레이: canvas 위에 깔아 touch-action:none + passive:false 스크롤 보장.
+          iOS는 이 div가 터치 타깃이 되므로 scroll 제스처를 선점하지 않음.
+          onClick으로 터미널 포커스(iOS 키보드)도 처리. */}
+      {isMobile && (
+        <div
+          ref={touchOverlayRef}
+          aria-hidden="true"
+          onClick={() => xtermRef.current?.focus()}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 4,
+            touchAction: 'none',
+            cursor: 'default',
+          }}
+        />
+      )}
+
       {/* context menu — 우클릭 시 복사/붙여넣기/전체복사/하단스크롤 */}
       {contextMenu && (
         <TerminalContextMenu
@@ -1190,7 +1349,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           t={t}
           onCopy={() => {
             const sel = xtermRef.current?.getSelection();
-            if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+            if (sel) copyTextToClipboard(sel);
             setContextMenu(null);
           }}
           onCopyAll={() => {

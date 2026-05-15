@@ -8,6 +8,7 @@ import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
 import useActiveTerminalCwd from './hooks/useActiveTerminalCwd';
 import themes from './styles/themes';
+import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
@@ -897,6 +898,7 @@ function App() {
         destPaneId,
         effectiveDir,
         srcPaneId,
+        true, // forceNested: drag-drop always nests the pair within the dest's space
       );
       return { ...tt, splitTree: finalTree, activePaneId: srcPaneId };
     }));
@@ -1051,21 +1053,27 @@ function App() {
   // themeId === null 이면 override 해제 (전역 테마로 복귀).
   const handlePaneThemeChange = useCallback((paneId, themeId) => {
     if (!paneId) return;
-    setTabs((prev) => prev.map((tb) => {
-      if (!tb.panes?.some((p) => p.id === paneId)) return tb;
-      return {
-        ...tb,
-        panes: tb.panes.map((p) => {
-          if (p.id !== paneId) return p;
-          if (!themeId) {
-            // override 해제 — themeOverride 키 자체를 제거해 깨끗하게.
-            const { themeOverride: _drop, ...rest } = p;
-            return rest;
-          }
-          return { ...p, themeOverride: themeId };
-        }),
-      };
-    }));
+    setTabs((prev) => {
+      let resolvedId = themeId;
+      if (themeId === 'random-dark' || themeId === 'random-light') {
+        const usedThemes = prev.flatMap((tb) => tb.panes?.map((p) => p.themeOverride) || []).filter(Boolean);
+        resolvedId = resolveRandomTheme(themeId, usedThemes);
+      }
+      return prev.map((tb) => {
+        if (!tb.panes?.some((p) => p.id === paneId)) return tb;
+        return {
+          ...tb,
+          panes: tb.panes.map((p) => {
+            if (p.id !== paneId) return p;
+            if (!resolvedId) {
+              const { themeOverride: _drop, ...rest } = p;
+              return rest;
+            }
+            return { ...p, themeOverride: resolvedId };
+          }),
+        };
+      });
+    });
   }, []);
 
   // ── 탭 busy 인디케이터 (Jupyter 식 활동 점멸) ─────────────────────────────
@@ -1718,11 +1726,14 @@ function App() {
             return (
               <div
                 key={tab.id}
+                {...(!isThisActive ? { inert: '' } : {})}
                 style={{
                   position: 'absolute', inset: 0,
                   /* display:none ↔ flex 토글은 ResizeObserver 를 깨워 fit/redraw 가 다시 일어나
                      탭 전환마다 화면 flicker. visibility/opacity/pointer-events 로 가리면 layout
-                     안 변해 ResizeObserver 안 짖음 → xterm 이 그대로 정지된 그림 그대로 살아있음. */
+                     안 변해 ResizeObserver 안 짖음 → xterm 이 그대로 정지된 그림 그대로 살아있음.
+                     inert: pointer-events:none 은 xterm.js canvas 자식까지 전파 안 되므로
+                     inert 속성으로 모든 하위 이벤트 차단 (scroll 포함). */
                   display: 'flex',
                   flexDirection: 'column', overflow: 'hidden',
                   visibility: isThisActive ? 'visible' : 'hidden',

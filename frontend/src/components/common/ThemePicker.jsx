@@ -1,4 +1,5 @@
-import { Moon, Sun, Check, Globe } from 'lucide-react';
+import { useState } from 'react';
+import { Moon, Sun, Check, Globe, Shuffle } from 'lucide-react';
 import themes from '../../styles/themes';
 import { isLight } from '../../styles/themeUI';
 import { tokens } from '../../styles/tokens';
@@ -63,8 +64,50 @@ const THEME_LABELS = {
 const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 const ALL_IDS = Object.keys(THEME_LABELS);
-const DARK_IDS = ALL_IDS.filter((id) => !isLight(themes[id]?.background || ''));
-const LIGHT_IDS = ALL_IDS.filter((id) => isLight(themes[id]?.background || ''));
+export const DARK_IDS = ALL_IDS.filter((id) => !isLight(themes[id]?.background || ''));
+export const LIGHT_IDS = ALL_IDS.filter((id) => isLight(themes[id]?.background || ''));
+
+// Resolves 'random-dark' or 'random-light' to a concrete theme id,
+// preferring themes not already in use by open panes.
+export const resolveRandomTheme = (variant, usedThemeIds = []) => {
+  const pool = variant === 'random-dark' ? DARK_IDS : LIGHT_IDS;
+  const usedSet = new Set(usedThemeIds);
+  const available = pool.filter((id) => !usedSet.has(id));
+  const candidates = available.length > 0 ? available : pool;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+};
+
+const RandomRow = ({ variant, onClick }) => {
+  const [hovered, setHovered] = useState(false);
+  const isDark = variant === 'random-dark';
+  return (
+    <button
+      type="button"
+      onClick={() => onClick(variant)}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: space['2'],
+        textAlign: 'left',
+        width: '100%',
+        padding: `${space['1.5']} ${space['2']}`,
+        background: hovered ? color.surface1 : color.surface0,
+        border: `1px solid ${hovered ? color.accentBorder : color.border}`,
+        borderRadius: radius.sm,
+        color: hovered ? color.accent : color.subtext,
+        fontSize: fontSize['12'],
+        cursor: 'pointer',
+        fontFamily: font.sans,
+        transition: 'background 120ms, border-color 120ms, color 120ms',
+      }}
+    >
+      <Shuffle size={13} strokeWidth={1.7} style={{ flexShrink: 0, opacity: 0.75 }} />
+      <span style={{ flex: 1 }}>{isDark ? 'Dark (Random)' : 'Light (Random)'}</span>
+    </button>
+  );
+};
 
 const ThemeSwatch = ({ theme }) => (
   <div style={{
@@ -147,8 +190,8 @@ const ThemeRow = ({ id, theme, isActive, isGlobal, isCurrent, onClick }) => {
  * t        : useTranslation 훅의 t 함수
  * markedId : 글로벌 테마 id → "전체" 배지 (옵션)
  */
-const ThemePicker = ({ value, onChange, t, markedId, columns = 1, allowEmpty = false }) => {
-  const renderSection = (ids, isDark, headerKey, headerFallback) => (
+const ThemePicker = ({ value, onChange, t, markedId, columns = 1, allowEmpty = false, showRandom = false }) => {
+  const renderSection = (ids, isDark, headerKey, headerFallback, randomVariant) => (
     <>
       <SectionHeader isDark={isDark} label={t?.(headerKey) || headerFallback} />
       <div style={{
@@ -156,6 +199,9 @@ const ThemePicker = ({ value, onChange, t, markedId, columns = 1, allowEmpty = f
         gridTemplateColumns: `repeat(${columns}, 1fr)`,
         gap: '3px',
       }}>
+        {showRandom && (
+          <RandomRow variant={randomVariant} onClick={(v) => onChange?.(v)} />
+        )}
         {ids.map((id) => {
           const theme = themes[id];
           if (!theme) return null;
@@ -178,8 +224,8 @@ const ThemePicker = ({ value, onChange, t, markedId, columns = 1, allowEmpty = f
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-      {renderSection(DARK_IDS, true, 'themeDark', 'Dark')}
-      {renderSection(LIGHT_IDS, false, 'themeLight', 'Light')}
+      {renderSection(DARK_IDS, true, 'themeDark', 'Dark', 'random-dark')}
+      {renderSection(LIGHT_IDS, false, 'themeLight', 'Light', 'random-light')}
     </div>
   );
 };

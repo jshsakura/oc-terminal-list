@@ -35,11 +35,7 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
     if (!terminalSessionId) { setTerminalReady(false); return undefined; }
     const check = () => {
       const session = window.terminalSessions?.[terminalSessionId];
-      const status = session?.getSessionStatus?.();
-      if (session && (status?.isReady || !session.getSessionStatus)) {
-        setTerminalReady(true);
-        return true;
-      }
+      if (session) { setTerminalReady(true); return true; }
       return false;
     };
     if (check()) return undefined;

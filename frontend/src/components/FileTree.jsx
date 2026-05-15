@@ -874,8 +874,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             ) : (
               <Row
                 depth={row.depth} isOpen={row.type === 'directory' && expanded.has(row.path)} isFolder={row.type === 'directory'} isSelected={selectedPath === row.path} name={row.name} tone={row.git_status ? gitTone(row.git_status) : (selectedPath === row.path ? color.text : color.subtext)} gitStatus={row.git_status} isChanged={changedSet.has(row.path)}
-                onClick={() => { setSelectedPath(row.path); if (row.type === 'directory') toggleFolder(row.path); else onFileSelect?.(row.path); }}
-                onDoubleClick={() => { if (row.type !== 'directory') onFileSelect?.(row.path); }}
+                onClick={() => { setSelectedPath(row.path); if (row.type === 'directory') toggleFolder(row.path); else onFileSelect?.(row.path, hostId); }}
+                onDoubleClick={() => { if (row.type !== 'directory') onFileSelect?.(row.path, hostId); }}
                 onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedPath(row.path); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: row.path, type: row.type } }); }}
               />
             )}

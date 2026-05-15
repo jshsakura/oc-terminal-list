@@ -51,10 +51,10 @@ const buildTree = (items, stripPrefix = '') => {
 /**
  * 사이드바 git 탭. 활성 터미널 cwd 의 repo 변경 파일 리스트 + commit/push.
  */
-const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFile, onOpenFile, t }) => {
+const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = null, onSelectFile, onOpenFile, t }) => {
   const effectivePath = gitContextPath;
 
-  const canUseSharedGitChanges = !!sharedGitChanges && gitContextPath != null;
+  const canUseSharedGitChanges = !!sharedGitChanges && (gitContextPath != null || !!hostId);
   const localGitChanges = useGitChanges({
     enabled: !canUseSharedGitChanges,
     path: effectivePath,
@@ -134,15 +134,24 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, onSelectFil
     }
   };
 
+  const resolvePath = (it) => {
+    if (hostId && repo) {
+      const base = repo.endsWith('/') ? repo : `${repo}/`;
+      return `${base}${it.path}`.replace('//', '/');
+    }
+    return it.path;
+  };
+
   const renderNode = (node, depth) => {
     if (node.type === 'file') {
       const it = node.item;
       const meta = STATUS_META[it.kind] || STATUS_META.modified;
+      const resolvedPath = resolvePath(it);
       return (
         <button
           key={it.path}
-          onClick={() => onSelectFile?.(it.path)}
-          onDoubleClick={() => onOpenFile?.(it.path)}
+          onClick={() => onSelectFile?.(resolvedPath, hostId)}
+          onDoubleClick={() => onOpenFile?.(resolvedPath, hostId)}
           style={{ ...styles.row, paddingLeft: 4 + depth * 14 }}
           onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
@@ -317,7 +326,6 @@ const styles = {
     flex: 1,
     display: 'flex',
     flexDirection: 'column',
-    height: '100%',
     minHeight: 0,
   },
   head: {
@@ -417,6 +425,7 @@ const styles = {
     padding: `${space['1']} ${space['1']}`,
     minHeight: 0,
   },
+
   commitBar: {
     flexShrink: 0,
     borderTop: `1px solid ${color.border}`,

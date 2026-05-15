@@ -129,15 +129,17 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
     <Section title={t('account') || 'Account'}>
       {username && (
         <Field label={t('user')}>
-          <div style={{ ...styles.readonly, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span>{username}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: space['2'] }}>
+            <div style={{ ...styles.readonly, flex: 1 }}>
+              {username}
+            </div>
             {onLogout && (
               <button
                 type="button"
                 onClick={onLogout}
                 style={styles.inlineLogoutBtn}
-                onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.85'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; e.currentTarget.style.borderColor = color.muted; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.borderColor = color.border; }}
               >
                 <LogOut size={11} strokeWidth={2} />
                 <span>{t('logout') || 'Logout'}</span>
@@ -307,9 +309,19 @@ const HostsPanel = ({ hosts, refreshHosts, onAdd, onEdit, t }) => {
         })}
       </div>
       {onAdd && (
-        <button type="button" onClick={onAdd} style={styles.addRow}>
-          <Plus size={13} strokeWidth={2} />
-          <span>{t('addHost') || 'Add host'}</span>
+        <button
+          type="button"
+          onClick={onAdd}
+          style={styles.addRow}
+          onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; }}
+        >
+          <span style={{ ...styles.listIcon, color: color.accent }}>
+            <Plus size={14} strokeWidth={2} />
+          </span>
+          <div style={styles.listText}>
+            <div style={styles.listName}>{t('addHost') || 'Add host'}</div>
+          </div>
         </button>
       )}
     </Section>
@@ -345,9 +357,19 @@ const KeysPanel = ({ keys, onAdd, onEdit, t }) => (
       ))}
     </div>
     {onAdd && (
-      <button type="button" onClick={onAdd} style={styles.addRow}>
-        <Plus size={13} strokeWidth={2} />
-        <span>{t('addKey') || 'Add SSH key'}</span>
+      <button
+        type="button"
+        onClick={onAdd}
+        style={styles.addRow}
+        onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; }}
+      >
+        <span style={{ ...styles.listIcon, color: color.accent }}>
+          <Plus size={14} strokeWidth={2} />
+        </span>
+        <div style={styles.listText}>
+          <div style={styles.listName}>{t('addKey') || 'Add SSH key'}</div>
+        </div>
       </button>
     )}
   </Section>
@@ -666,22 +688,20 @@ const styles = {
     whiteSpace: 'nowrap',
   },
   addRow: {
-    display: 'inline-flex',
+    display: 'flex',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: '6px',
+    gap: '10px',
+    padding: '8px 10px',
     width: '100%',
-    height: '30px',
-    background: 'transparent',
-    border: `1px dashed ${color.border}`,
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
     borderRadius: radius.sm,
     cursor: 'pointer',
-    color: color.subtext,
     fontFamily: 'inherit',
-    fontSize: fontSize['12'],
-    fontWeight: fontWeight.medium,
+    color: color.text,
+    textAlign: 'left',
     marginTop: space['1'],
-    transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}`,
+    transition: `background ${motion.fast}`,
   },
   empty: {
     padding: `${space['4']} 0`,
@@ -786,18 +806,19 @@ const styles = {
   inlineLogoutBtn: {
     display: 'inline-flex',
     alignItems: 'center',
+    flexShrink: 0,
     gap: '5px',
-    height: '24px',
-    padding: `0 10px`,
-    background: color.danger,
-    border: `1px solid ${color.danger}`,
-    borderRadius: radius.xs,
+    height: '32px',
+    padding: `0 ${space['3']}`,
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
     cursor: 'pointer',
-    color: '#fff',
-    fontSize: '11px',
+    color: color.subtext,
+    fontSize: fontSize['12'],
     fontFamily: 'inherit',
-    fontWeight: fontWeight.semibold,
-    transition: `background ${motion.fast}, color ${motion.fast}, border-color ${motion.fast}, opacity ${motion.fast}`,
+    fontWeight: fontWeight.medium,
+    transition: `background ${motion.fast}, border-color ${motion.fast}`,
   },
 };
 

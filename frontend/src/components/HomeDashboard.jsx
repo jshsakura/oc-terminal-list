@@ -281,18 +281,15 @@ const EmptyRow = ({ onClick, t }) => {
       onClick={onClick}
       style={{
         ...styles.row,
-        ...styles.emptyRow,
-        background: hovered ? color.surface0 : 'transparent',
-        borderColor: hovered ? color.accent : color.border,
-        borderStyle: 'dashed',
-        borderWidth: '2px',
-        color: hovered ? color.accent : color.muted,
+        background: hovered ? color.surface1 : color.surface0,
       }}
     >
-      <Plus size={14} strokeWidth={1.8} />
-      <span style={{ fontSize: fontSize['12'], fontWeight: fontWeight.medium }}>
-        {t?.('addHost') || 'Add host'}
-      </span>
+      <div style={{ ...styles.iconBox, borderColor: hovered ? color.accentBorder : color.border }}>
+        <Plus size={16} strokeWidth={1.8} style={{ color: color.accent }} />
+      </div>
+      <div style={styles.text}>
+        <span style={{ ...styles.name, color: color.subtext }}>{t?.('addHost') || 'Add host'}</span>
+      </div>
     </button>
   );
 };

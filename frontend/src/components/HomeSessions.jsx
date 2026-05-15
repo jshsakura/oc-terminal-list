@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Server, Monitor, Anchor, Loader2,
   ArrowRight, Trash2, AlertCircle, X,
@@ -7,6 +7,10 @@ import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+
+// Module-level set — persists across component unmount/remount (e.g., tab switches).
+// Resets only on full page reload, which is the right UX for error dismissal.
+const dismissedHostIds = new Set();
 
 /**
  * Home 의 Sessions 섹션.
@@ -37,11 +41,9 @@ const HomeSessions = ({
     [hosts],
   );
   const [tmuxByHost, setTmuxByHost] = useState({});
-  // Dismissed host IDs persist across re-fetches (hosts array reference changes on every poll)
-  const dismissedRef = useRef(new Set());
 
   const fetchHostSessions = useCallback(async (host) => {
-    if (dismissedRef.current.has(host.id)) return;
+    if (dismissedHostIds.has(host.id)) return;
     setTmuxByHost((prev) => ({ ...prev, [host.id]: { loading: true } }));
     try {
       const token = localStorage.getItem('auth_token');
@@ -203,7 +205,7 @@ const HomeSessions = ({
                   message={entry.error}
                   onRetry={() => fetchHostSessions(host)}
                   onDismiss={() => {
-                    dismissedRef.current.add(host.id);
+                    dismissedHostIds.add(host.id);
                     setTmuxByHost((prev) => ({ ...prev, [host.id]: { dismissed: true } }));
                   }}
                   t={t}
