@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Folder, FolderOpen, File, FileText, FileCode, FileImage, FileJson, FileType,
   RefreshCw, Terminal, ChevronRight, ChevronDown, Plus, Pencil, Trash2, GitBranch, Filter,
-  ArrowUp, Home, Search, X
+  ArrowUp, ArrowDown, Home, Search, X
 } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
@@ -29,11 +29,11 @@ const styles = {
   },
   head: {
     display: 'flex',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    padding: `7px ${space['2']}`,
+    padding: `${space['1.5']} ${space['2']}`,
     borderBottom: `1px solid ${color.border}`,
-    minHeight: '40px',
+    minHeight: '36px',
     gap: space['2'],
   },
   virtualSpacer: {
@@ -44,19 +44,19 @@ const styles = {
     flex: 1,
     minWidth: 0,
     display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
-    gap: '2px',
-    paddingTop: '1px',
+    alignItems: 'center',
   },
   branchName: {
     fontSize: fontSize['11'],
     fontFamily: font.mono,
     color: color.subtext,
-    lineHeight: 1.35,
-    whiteSpace: 'normal',
-    overflowWrap: 'anywhere',
-    wordBreak: 'break-word',
+    lineHeight: '22px',
+    whiteSpace: 'nowrap',
+    overflowX: 'auto',
+    overflowY: 'hidden',
+    scrollbarWidth: 'none',
+    maxWidth: '100%',
+    width: '100%',
   },
   countBadge: {
     fontSize: fontSize['11'],
@@ -73,7 +73,6 @@ const styles = {
     gap: '2px',
     alignItems: 'center',
     flexShrink: 0,
-    paddingTop: '1px',
   },
   searchBar: {
     display: 'flex',
@@ -462,6 +461,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [rootPath, setRootPath] = useState(isHostMode ? stripHostPathPrefix(initialPath || '') : (initialPath || ''));
+  const [rootPathForwardStack, setRootPathForwardStack] = useState([]);
   const [resolvedRoot, setResolvedRoot] = useState(null);
   const [uploadState, setUploadState] = useState(null);
   const [dragOver, setDragOver] = useState(false);
@@ -565,6 +565,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       : (cwdData?.in_workspace ? (cwdData.workspace_relative || '') : null);
     if (nextRootPath !== null && nextRootPath !== rootPath) {
       setRootPath(nextRootPath);
+      setRootPathForwardStack([]);
       return;
     }
     const paths = Array.from(expanded);
@@ -766,6 +767,23 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const canGoUp = parentOfRoot !== null;
   const rootDisplay = isHostMode ? (normalizedResolvedRoot || (normalizedRootPath || '~')) : (rootPath || '/');
   const searchVisible = searchOpen || !!searchQuery;
+  const canGoDown = rootPathForwardStack.length > 0;
+  const goUpRoot = () => {
+    if (!canGoUp) return;
+    const currentRoot = normalizedResolvedRoot || normalizedRootPath || rootPath || '';
+    setRootPath(parentOfRoot);
+    setRootPathForwardStack((prev) => currentRoot ? [currentRoot, ...prev.filter((p) => p !== currentRoot)].slice(0, 8) : prev);
+  };
+  const goDownRoot = () => {
+    const [nextRoot, ...rest] = rootPathForwardStack;
+    if (!nextRoot) return;
+    setRootPath(nextRoot);
+    setRootPathForwardStack(rest);
+  };
+  const goHomeRoot = () => {
+    setRootPath(normalizedInitialPath);
+    setRootPathForwardStack([]);
+  };
 
   return (
     <div
@@ -783,9 +801,10 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
           <span style={styles.branchName}>{rootDisplay}</span>
         </div>
         <div style={styles.headActions}>
-          <HeadAction icon={ArrowUp} title={t('goUp')} onClick={() => canGoUp && setRootPath(parentOfRoot)} disabled={!canGoUp} />
+          <HeadAction icon={ArrowUp} title={t('goUp')} onClick={goUpRoot} disabled={!canGoUp} />
+          <HeadAction icon={ArrowDown} title={t('goDown') || 'Go down'} onClick={goDownRoot} disabled={!canGoDown} />
           {isHostMode && normalizedRootPath !== normalizedInitialPath && (
-            <HeadAction icon={Home} title={t('home') || 'Home'} onClick={() => setRootPath(normalizedInitialPath)} />
+            <HeadAction icon={Home} title={t('home') || 'Home'} onClick={goHomeRoot} />
           )}
           <HeadAction icon={Search} title={t('searchFiles')} onClick={() => setSearchOpen((open) => !open)} active={searchVisible} />
           <HeadAction icon={Filter} title={t('filterChangedOnly')} onClick={() => setFilterChangedOnly(!filterChangedOnly)} active={filterChangedOnly} />

@@ -121,6 +121,7 @@ describe('CommandInput positioning', () => {
 
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveStyle({ maxWidth: '420px' });
+    expect(dialog.style.border).toContain('color-mix');
   });
 
   it('close button has rounded square styling', () => {

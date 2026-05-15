@@ -1985,7 +1985,9 @@ function App() {
             isOpen={commandInputOpen}
             onClose={() => setCommandInputOpen(false)}
             onSend={(cmd) => {
-              window.terminalSessions?.[terminalKey]?.sendData?.(cmd + '\r');
+              const terminal = window.terminalSessions?.[terminalKey];
+              terminal?.sendData?.(cmd + '\r');
+              window.setTimeout(() => terminal?.sendData?.('\r'), 24);
               setCommandText('');
             }}
             command={commandText}

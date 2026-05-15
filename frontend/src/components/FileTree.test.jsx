@@ -61,4 +61,30 @@ describe('FileTree skeleton loading', () => {
     expect(searchBar.style.opacity).toBe('1');
     expect(input.tabIndex).toBe(0);
   });
+
+  it('can return to the previous root after going up', async () => {
+    global.fetch = vi.fn((url) => {
+      const path = new URL(url, 'http://localhost').searchParams.get('path') || '/workspace/app';
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ path, items: [] }),
+      });
+    });
+
+    const { container } = render(<FileTree hostId="host-1" initialPath="/workspace/app" />);
+
+    expect(container.querySelector('[title="/workspace/app"]')).toBeTruthy();
+
+    fireEvent.click(screen.getByTitle('goUp'));
+
+    await waitFor(() => {
+      expect(container.querySelector('[title="/workspace"]')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByTitle('goDown'));
+
+    await waitFor(() => {
+      expect(container.querySelector('[title="/workspace/app"]')).toBeTruthy();
+    });
+  });
 });
