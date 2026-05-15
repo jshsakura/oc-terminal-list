@@ -2,7 +2,7 @@
  * Terminal 컴포넌트
  * xterm.js 기반 터미널 에뮬레이터 (테마 및 스마트 스크롤 지원)
  */
-import { useEffect, useRef, useState, useCallback, memo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -17,6 +17,7 @@ import { tokens } from '../styles/tokens';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
+import { measureTerminalFit } from '../utils/terminalFit';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
@@ -38,6 +39,23 @@ const execCommandCopy = (text) => {
   ta.select();
   try { document.execCommand('copy'); } catch { /* noop */ }
   document.body.removeChild(ta);
+};
+
+const issueWsTicket = async (path) => {
+  const token = localStorage.getItem('auth_token');
+  if (!token) return null;
+  try {
+    const res = await fetch('/api/ws-ticket', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ path }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data?.ticket || null;
+  } catch {
+    return null;
+  }
 };
 
 const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null }) => {
@@ -106,7 +124,21 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const [contextMenu, setContextMenu] = useState(null);
   const [tmuxFallback, setTmuxFallback] = useState(false);
   const [copyFlash, setCopyFlash] = useState(false);
+  const [edgeGutter, setEdgeGutter] = useState({ right: 0, bottom: 0 });
   const copyFlashTimerRef = useRef(null);
+  const edgeGutterRef = useRef(edgeGutter);
+
+  const updateEdgeGutter = useCallback((metrics) => {
+    if (!metrics) return;
+    const next = {
+      right: Math.round(metrics.remainderX * 100) / 100,
+      bottom: Math.round(metrics.remainderY * 100) / 100,
+    };
+    const prev = edgeGutterRef.current;
+    if (Math.abs(prev.right - next.right) < 0.5 && Math.abs(prev.bottom - next.bottom) < 0.5) return;
+    edgeGutterRef.current = next;
+    setEdgeGutter(next);
+  }, []);
   // authPrompt 열고 닫을 때 전역 이벤트 — App.jsx 가 모바일 단축키바를 그동안 숨김.
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('iterm:auth-prompt', { detail: { open: !!authPrompt } }));
@@ -124,6 +156,16 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   // 테마 가져오기
   const currentTheme = themes[settings.theme] || themes.catppuccin;
   const themeUi = buildThemeUI(currentTheme);
+  const connectionKey = useMemo(() => JSON.stringify({
+    sessionId,
+    hostId: hostId || null,
+    tmuxSuffix: tmuxSuffix || null,
+    tmuxSessionName: tmuxSessionName || null,
+    effectiveTmuxSession: effectiveTmuxSession || null,
+    paneIndex,
+    cwd: cwd ?? null,
+    shell: settings.defaultShell || 'bash',
+  }), [sessionId, hostId, tmuxSuffix, tmuxSessionName, effectiveTmuxSession, paneIndex, cwd, settings.defaultShell]);
 
   // 터미널 생성 및 WebSocket 연결
   useEffect(() => {
@@ -233,21 +275,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     // proposeDimensions 를 덮어써 scrollbarWidth 공제를 완전히 스킵.
     const origPropose = fitAddon.proposeDimensions.bind(fitAddon);
     fitAddon.proposeDimensions = function() {
-      const t = this._terminal;
-      if (!t?.element?.parentElement) return origPropose();
-      const core = t._core;
-      const dims = core?._renderService?.dimensions;
-      if (!dims || dims.css.cell.width === 0) return origPropose();
-      const parentStyle = window.getComputedStyle(t.element.parentElement);
-      const parentH = parseInt(parentStyle.getPropertyValue('height'));
-      const parentW = Math.max(0, parseInt(parentStyle.getPropertyValue('width')));
-      const elStyle = window.getComputedStyle(t.element);
-      const padH = parseInt(elStyle.getPropertyValue('padding-left')) + parseInt(elStyle.getPropertyValue('padding-right'));
-      const padV = parseInt(elStyle.getPropertyValue('padding-top')) + parseInt(elStyle.getPropertyValue('padding-bottom'));
-      return {
-        cols: Math.max(2, Math.floor((parentW - padH) / dims.css.cell.width)),
-        rows: Math.max(1, Math.floor((parentH - padV) / dims.css.cell.height)),
-      };
+      const metrics = measureTerminalFit(this._terminal, null);
+      if (!metrics) return origPropose();
+      updateEdgeGutter(metrics);
+      return { cols: metrics.cols, rows: metrics.rows };
     };
 
     const origFit = fitAddon.fit.bind(fitAddon);
@@ -258,6 +289,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         container.style.height = '100%';
       }
       origFit();
+      const metrics = measureTerminalFit(this._terminal, null);
+      updateEdgeGutter(metrics);
     };
 
     const webLinksAddon = new WebLinksAddon();
@@ -568,7 +601,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
     };
 
-    const connect = () => {
+    const connect = async () => {
       if (cancelled) return;
       /* 재연결 시작 — evicted 플래그 리셋. tmux 가 재attach 후 버퍼 리플레이 시
          이전 [detached] 메시지를 다시 내려보내므로 오픈 후 1.5초간 무시. */
@@ -585,9 +618,19 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       const sfxQS = (hostId && tmuxSuffix) ? `&tmux_suffix=${encodeURIComponent(tmuxSuffix)}` : '';
       // tmuxSessionName — 명시적 영속 세션 attach (Home 의 Resume). 주어지면 base/suffix 무시.
       const sessQS = (hostId && tmuxSessionName) ? `&tmux_session_name=${encodeURIComponent(tmuxSessionName)}` : '';
+      const wsPath = hostId ? `/ws/host/${hostId}` : `/ws/${sessionId}`;
+      const wsTicket = await issueWsTicket(wsPath);
+      if (cancelled) return;
+      if (!wsTicket) {
+        logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
+        endedRef.current = true;
+        setEnded(true);
+        return;
+      }
+      const authQS = `ticket=${encodeURIComponent(wsTicket)}`;
       const wsUrl = hostId
-        ? `${protocol}//${host}/ws/host/${hostId}?token=${token}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}`
-        : `${protocol}//${host}/ws/${sessionId}?token=${token}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
+        ? `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}`
+        : `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
 
       const socket = new WebSocket(wsUrl);
       socket.binaryType = 'arraybuffer';
@@ -977,7 +1020,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       inputQueueRef.current = [];
       fitNowRef.current = null;
     };
-  }, [sessionId]);
+  }, [connectionKey, updateEdgeGutter]);
 
   /* evicted 동안 백엔드 폴링 — 다른 기기가 떨어지면(`count == 0`) 사용자 클릭 없이도 자동 재attach.
      "내가 모바일 닫고나서도 여기 사이즈가 작은 상태로 남아있다" 상황을 방지.
@@ -1276,13 +1319,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           50%  { opacity: 0.7; }
           100% { opacity: 0.35; }
         }
-        /* Bottom/right overscan: keep xterm sizing math tied to the wrapper,
-           but let the rendered surface bleed a few pixels into the clipped edge.
-           This hides fractional cell remainders without shifting the top/left origin. */
+        /* Keep xterm sizing tied to the wrapper. Fractional cell remainders are
+           rendered as a themed edge gutter below instead of stretching cells. */
         .xterm {
-          width: calc(100% + 4px) !important;
-          height: calc(100% + 4px) !important;
-          overflow: visible !important;
+          width: 100% !important;
+          height: 100% !important;
+          overflow: hidden !important;
         }
         .xterm-scrollable-element { height: 100% !important; }
         .xterm-viewport { height: 100% !important; }
@@ -1338,6 +1380,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           caretColor: 'transparent',
           outline: 'none',
         }}
+      />
+
+      <TerminalEdgeGutter
+        right={edgeGutter.right}
+        bottom={edgeGutter.bottom}
+        themeUi={themeUi}
       />
 
       {/* 모바일 터치 오버레이: canvas 위에 깔아 touch-action:none + passive:false 스크롤 보장.
@@ -1564,6 +1612,52 @@ const GlassOverlayCard = ({ themeUi, zIndex = 10040, children }) => (
   </div>
 );
 
+const TerminalEdgeGutter = ({ right = 0, bottom = 0, themeUi }) => {
+  const showRight = right >= 1;
+  const showBottom = bottom >= 1;
+  if (!showRight && !showBottom) return null;
+  const base = themeUi.base || '#11111b';
+  const line = themeUi.borderSubtle || themeUi.border || 'rgba(255,255,255,0.08)';
+  return (
+    <>
+      {showRight && (
+        <div
+          aria-hidden="true"
+          data-testid="terminal-edge-gutter-right"
+          style={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            bottom: 0,
+            width: `${Math.ceil(right)}px`,
+            pointerEvents: 'none',
+            zIndex: 1,
+            background: `linear-gradient(90deg, color-mix(in srgb, ${base} 0%, transparent), ${base} 72%)`,
+            boxShadow: `inset 1px 0 0 ${line}`,
+          }}
+        />
+      )}
+      {showBottom && (
+        <div
+          aria-hidden="true"
+          data-testid="terminal-edge-gutter-bottom"
+          style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: `${Math.ceil(bottom)}px`,
+            pointerEvents: 'none',
+            zIndex: 1,
+            background: `linear-gradient(180deg, color-mix(in srgb, ${base} 0%, transparent), ${base} 72%)`,
+            boxShadow: `inset 0 1px 0 ${line}`,
+          }}
+        />
+      )}
+    </>
+  );
+};
+
 const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
   const initial = (prompt.prompts || []).map(() => '');
   const [values, setValues] = useState(initial);
@@ -1659,6 +1753,7 @@ const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) => {
 const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll, onPaste, onClear, onScrollToBottom, onClose }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
+  const [measured, setMeasured] = useState(false);
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -1669,15 +1764,19 @@ const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll
       if (ref.current && !ref.current.contains(e.target)) onCloseRef.current();
     };
     const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('keydown', handleKey);
+    const id = setTimeout(() => {
+      document.addEventListener('mousedown', handleClick);
+      document.addEventListener('keydown', handleKey);
+    }, 0);
     return () => {
+      clearTimeout(id);
       document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
   }, []);
 
   useEffect(() => {
+    setMeasured(false);
     if (ref.current) {
       const rect = ref.current.getBoundingClientRect();
       const margin = 8;
@@ -1687,6 +1786,7 @@ const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll
       if (ny + rect.height > window.innerHeight - margin) ny = window.innerHeight - rect.height - margin;
       if (ny < margin) ny = margin;
       setPos({ x: nx, y: ny });
+      setMeasured(true);
     }
   }, [x, y]);
 
@@ -1717,6 +1817,8 @@ const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll
         padding: '4px 0',
         minWidth: '160px',
         fontFamily: tokens.font.sans,
+        opacity: measured ? 1 : 0,
+        transition: 'opacity 120ms',
       }}
       onContextMenu={(e) => e.preventDefault()}
     >

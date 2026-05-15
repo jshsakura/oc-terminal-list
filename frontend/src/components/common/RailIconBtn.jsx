@@ -3,7 +3,7 @@ import { tokens } from '../../styles/tokens';
 const { color, motion, radius } = tokens;
 
 /**
- * 앱 전역 chrome rail 버튼 — TabBar 상단 액션, RightPanel 우측 액티비티 바 등에서 공통 사용.
+ * 앱 전역 chrome rail 버튼 — TabBar 상단 액션, TerminalHeader 우측 액티비티 바 등에서 공통 사용.
  *
  * 시각 규칙 (DESIGN.md §10 정렬과 한 묶음):
  *  - 외부 hit-area: 32×32 (모바일 친화 hit-area 유지, 시각 무게는 inner box 가 담당)
@@ -27,7 +27,7 @@ const RailIconBtn = ({
   badge = null,     // 우상단 작은 카운트 배지
   ariaLabel,
   ui = null,
-  compact = false,  // 좁은 rail 용 (RightPanel 활동바 등) — outer 24×24 / inner 18×18.
+  compact = false,  // 좁은 rail 용 (TerminalHeader 활동바 등) — outer 24×24 / inner 18×18.
 }) => {
   const isDanger = tone === 'danger';
   const isAccent = tone === 'accent';

@@ -691,7 +691,7 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '2px',
-    // 우측 RightPanel.activityBar (36px, border-box, borderLeft 포함) 와 borderLeft 가
+    // 우측 TerminalHeader.activityBar (36px, border-box, borderLeft 포함) 와 borderLeft 가
     // 같은 x 에 오게 — box-sizing: border-box + 명시 width.
     // 데스크탑 (split×2 + settings = 3 버튼) 은 더 넓게, 모바일 (settings 1) 은 36 고정.
     boxSizing: 'border-box',

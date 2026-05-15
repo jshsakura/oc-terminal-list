@@ -35,7 +35,7 @@ const TABS = [
   { id: 'theme', icon: Palette,   label: 'Theme' },
 ];
 
-const RightPanel = ({
+const TerminalHeader = ({
   isFocused = false, // pane 포커스 여부 — 사이드바 하단 눈 아이콘 (Eye/EyeOff) 으로 표시.
   showFocusEye = false, // true 일 때만 눈 아이콘 노출. 분할(isMultiple) 있을 때만 보여줌.
   activeTabType,    // 'local' | 'host' | null
@@ -252,27 +252,31 @@ const RightPanel = ({
           0%   { background-position: 150% center; }
           100% { background-position: -150% center; }
         }
+        @keyframes skel-pulse {
+          0%, 100% { opacity: 0.42; }
+          50% { opacity: 0.78; }
+        }
         @keyframes iterm-cwd-shine {
           0%,  70% { background-position: -200% center; }
           85%, 100% { background-position: 200% center; }
         }
-        .iterm-rp-panelbody, .iterm-rp-panelbody * {
+        .iterm-terminal-header-panelbody, .iterm-terminal-header-panelbody * {
           scrollbar-width: thin !important;
           scrollbar-color: ${panelUi.surface1} transparent !important;
         }
-        .iterm-rp-panelbody::-webkit-scrollbar,
-        .iterm-rp-panelbody *::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
-        .iterm-rp-panelbody::-webkit-scrollbar-thumb,
-        .iterm-rp-panelbody *::-webkit-scrollbar-thumb {
+        .iterm-terminal-header-panelbody::-webkit-scrollbar,
+        .iterm-terminal-header-panelbody *::-webkit-scrollbar { width: 6px !important; height: 6px !important; }
+        .iterm-terminal-header-panelbody::-webkit-scrollbar-thumb,
+        .iterm-terminal-header-panelbody *::-webkit-scrollbar-thumb {
           background: ${panelUi.surface1} !important;
           border-radius: 3px !important;
         }
-        .iterm-rp-panelbody::-webkit-scrollbar-thumb:hover,
-        .iterm-rp-panelbody *::-webkit-scrollbar-thumb:hover {
+        .iterm-terminal-header-panelbody::-webkit-scrollbar-thumb:hover,
+        .iterm-terminal-header-panelbody *::-webkit-scrollbar-thumb:hover {
           background: ${panelUi.accent} !important;
         }
-        .iterm-rp-panelbody::-webkit-scrollbar-track,
-        .iterm-rp-panelbody *::-webkit-scrollbar-track {
+        .iterm-terminal-header-panelbody::-webkit-scrollbar-track,
+        .iterm-terminal-header-panelbody *::-webkit-scrollbar-track {
           background: transparent !important;
         }
       `}</style>
@@ -340,7 +344,7 @@ const RightPanel = ({
                     color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
                     color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
                   backgroundSize: '300% 100%',
-                  animation: `iterm-skel-shimmer ${1.6 + i * 0.08}s ease-in-out infinite`,
+                  animation: `iterm-skel-shimmer ${1.6 + i * 0.08}s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite`,
                   animationDelay: `${i * 130}ms`,
                   flexShrink: 0,
                 }} />
@@ -433,7 +437,7 @@ const RightPanel = ({
                 color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
                 color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
               backgroundSize: '300% 100%',
-              animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite',
+              animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
               animationDelay: '480ms',
               flexShrink: 0,
             }} />
@@ -476,7 +480,7 @@ const RightPanel = ({
                   color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
                   color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
                 backgroundSize: '300% 100%',
-                animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite',
+                animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
                 animationDelay: '640ms',
                 flexShrink: 0,
               }} />
@@ -600,7 +604,7 @@ const RightPanel = ({
               <X size={12} strokeWidth={2.5} />
             </button>
           </div>
-          <div className="iterm-rp-panelbody" style={{ ...styles.panelBody, background: 'transparent', color: panelUi.text }}>
+          <div className="iterm-terminal-header-panelbody" style={{ ...styles.panelBody, background: 'transparent', color: panelUi.text }}>
             {activePanel === 'files' && (
               <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <FileTree
@@ -1601,7 +1605,7 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
               color-mix(in srgb, ${ui.accent || '#89b4fa'} 18%, transparent) 50%,
               color-mix(in srgb, ${ui.surface1 || '#45475a'} 50%, transparent) 100%)`,
             backgroundSize: '300% 100%',
-            animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite',
+            animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
           }} />
         </div>
       </div>
@@ -1673,4 +1677,4 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
   );
 });
 
-export default RightPanel;
+export default TerminalHeader;

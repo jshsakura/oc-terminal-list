@@ -183,7 +183,7 @@ const ThemeRow = ({ id, theme, isActive, isGlobal, isCurrent, onClick }) => {
 };
 
 /**
- * 공통 테마 피커 — Settings 와 RightPanel 에서 재사용.
+ * 공통 테마 피커 — Settings 와 TerminalHeader 에서 재사용.
  *
  * value    : 현재 이 터미널에 적용된 테마 id → "현재" 배지
  * onChange : (id) => void

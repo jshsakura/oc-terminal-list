@@ -9,7 +9,7 @@ import {
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
-import RightPanel from './RightPanel';
+import TerminalHeader from './TerminalHeader';
 import { HostRow } from './HomeDashboard';
 import HomeSessions from './HomeSessions';
 import HostIcon from '../utils/hostIcons';
@@ -31,8 +31,8 @@ const SUB_LINE = {
 };
 
 /**
- * 탭 내부의 1–4 pane. 각 pane = (Terminal/Empty) + 자체 RightPanel.
- * RightPanel 패널은 absolute overlay 라 터미널 폭을 안 밀어냄.
+ * 탭 내부의 1–4 pane. 각 pane = (Terminal/Empty) + 자체 TerminalHeader.
+ * TerminalHeader 패널은 absolute overlay 라 터미널 폭을 안 밀어냄.
  */
 const PaneGrid = ({
   tab,
@@ -523,8 +523,8 @@ const Pane = ({
   reloadSignal = 0,
 }) => {
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
-     Terminal/RightPanel 에 내려보냄. 전역 settings.theme 자체는 안 건드리므로 다른 pane / 앱 UI
-     (TabBar, RightPanel chrome, scrollbar 등) 는 그대로 유지. */
+     Terminal/TerminalHeader 에 내려보냄. 전역 settings.theme 자체는 안 건드리므로 다른 pane / 앱 UI
+     (TabBar, TerminalHeader chrome, scrollbar 등) 는 그대로 유지. */
   const effectiveThemeId = pane?.themeOverride || settings?.theme;
   const paneSettings = pane?.themeOverride
     ? { ...settings, theme: pane.themeOverride }
@@ -678,7 +678,7 @@ const Pane = ({
     }
   }, [pane.id, tab?.id, onPaneDragToSplit, onEqualizePane, parsePanePayload]);
 
-  // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — RightPanel 등 팬 내부 UI 가 이 변수를 씀.
+  // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — TerminalHeader 등 팬 내부 UI 가 이 변수를 씀.
   // :root 는 건드리지 않으므로 좌측 레일·상단 헤더는 글로벌 테마 유지.
   const paneRef = useRef(null);
   const setPaneRef = useCallback((el) => {
@@ -871,7 +871,7 @@ const Pane = ({
           </div>
         );
       })()}
-      {/* RightPanel — top rail (30px) + optional right-side panel overlay.
+      {/* TerminalHeader — top rail (30px) + optional side panel overlay.
           Absolute overlay covers full pane; rail sits at top with pointer-events. */}
       <div
         style={{
@@ -881,7 +881,7 @@ const Pane = ({
           pointerEvents: 'none',
         }}
       >
-        <RightPanel
+        <TerminalHeader
           isFocused={isFocused}
           showFocusEye={isMultiple}
           activeTabType={pane.hostId ? 'host' : 'local'}
@@ -1094,7 +1094,7 @@ const Pane = ({
 };
 
 // 분할 서브탭 — pane 들 가로로 나열. 활성 pane 강조 + 머신 아이콘 + busy dot.
-// 모바일/데스크탑 모두 touch-drag reorder (꾹 → 드래그) 가능. X 닫기 버튼은 RightPanel 에 있어 생략.
+// 모바일/데스크탑 모두 touch-drag reorder (꾹 → 드래그) 가능. X 닫기 버튼은 TerminalHeader 에 있어 생략.
 const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, onRename, onClose, onDismiss,
   canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null, onSplitPane = null }, ref) => {
   const innerRef = useRef(null);

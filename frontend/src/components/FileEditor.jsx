@@ -50,6 +50,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const [confirmClose, setConfirmClose] = useState({ isOpen: false, path: null });
   const [externalChange, setExternalChange] = useState({ isOpen: false, path: null, newContent: '' });
   const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [rawPreviewUrl, setRawPreviewUrl] = useState(null);
   // diff 모드: { [path]: { original: string, exists: boolean, loading: boolean, error: string|null } }
   const [diffStates, setDiffStates] = useState({});
   // 변경 파일은 자동으로 diff 모드로 열되, 사용자 토글로 일반 편집 ↔ diff 전환 가능
@@ -196,10 +197,11 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
   const { path: activeFilePath, hostId: activeFileHostId } = parseFileKey(activeFile || '');
   const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFilePath || activeFile || '');
-
-  if (!theme || !theme.ui) return null;
-  
-  const isLightTheme = theme.background === '#ffffff' || theme.background === '#fdf6e3' || theme.background === '#fbf1c7';
+  const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');
+  const isHtml = (activeFilePath || activeFile)?.endsWith('.html');
+  const rawPreviewPath = !activeFileHostId && (isImage || (isPreviewMode && isHtml))
+    ? (activeFilePath || activeFile)
+    : null;
 
   // Poll for external changes every 5 seconds (only for text files)
   useEffect(() => {
@@ -225,6 +227,46 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   useEffect(() => {
     setIsPreviewMode(false);
   }, [activeFile]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!rawPreviewPath) {
+      setRawPreviewUrl(null);
+      return undefined;
+    }
+
+    const loadRawPreviewTicket = async () => {
+      try {
+        const authToken = localStorage.getItem('auth_token');
+        const res = await fetch('/api/files/raw-ticket', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ path: rawPreviewPath }),
+        });
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          throw new Error(errorData.detail || 'Failed to create file preview ticket');
+        }
+        const data = await res.json();
+        if (!cancelled) {
+          setRawPreviewUrl(`/api/files/raw?ticket=${encodeURIComponent(data.ticket)}&_t=${Date.now()}`);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRawPreviewUrl(null);
+          setError(error.message || 'Failed to create file preview ticket');
+        }
+      }
+    };
+
+    loadRawPreviewTicket();
+    return () => {
+      cancelled = true;
+    };
+  }, [rawPreviewPath]);
 
   // 활성 파일이 바뀌면 HEAD 원본을 lazy load. 변경분이 있으면 diff 모드로 자동 진입.
   useEffect(() => {
@@ -347,10 +389,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     }));
   };
 
-  const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');
-  const isHtml = (activeFilePath || activeFile)?.endsWith('.html');
-  const token = localStorage.getItem('auth_token');
-
+  if (!theme || !theme.ui) return null;
   if (!activeFile && openFiles.length === 0) return null;
 
   return (
@@ -586,19 +625,23 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             overflow: 'auto',
             padding: '20px'
           }}>
-            <img
-              src={`/api/files/raw?path=${encodeURIComponent(activeFilePath || activeFile)}&token=${token}&_t=${Date.now()}`}
-              alt={activeFilePath || activeFile}
-              style={{ 
-                maxWidth: '100%', 
-                maxHeight: '100%', 
-                boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
-                backgroundColor: '#fff', // Checkerboard transparency helper could be added here
-                backgroundImage: 'linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee), linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee)',
-                backgroundSize: '20px 20px',
-                backgroundPosition: '0 0, 10px 10px'
-              }}
-            />
+            {rawPreviewUrl ? (
+              <img
+                src={rawPreviewUrl}
+                alt={activeFilePath || activeFile}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+                  backgroundColor: '#fff', // Checkerboard transparency helper could be added here
+                  backgroundImage: 'linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee), linear-gradient(45deg, #eee 25%, transparent 25%, transparent 75%, #eee 75%, #eee)',
+                  backgroundSize: '20px 20px',
+                  backgroundPosition: '0 0, 10px 10px'
+                }}
+              />
+            ) : (
+              <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
+            )}
           </div>
           )
         ) : isPreviewMode ? (
@@ -641,11 +684,21 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               </div>
             </div>
           ) : (
-            <iframe 
-              src={`/api/files/raw?path=${encodeURIComponent(activeFile)}&_t=${Date.now()}`}
-              style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#fff' }}
-              title={t('htmlPreview') || 'HTML Preview'}
-            />
+            activeFileHostId ? (
+              <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
+                <span>Remote HTML preview is not supported.</span>
+              </div>
+            ) : rawPreviewUrl ? (
+              <iframe
+                src={rawPreviewUrl}
+                style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#fff' }}
+                title={t('htmlPreview') || 'HTML Preview'}
+              />
+            ) : (
+              <div style={styles.message}>
+                <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
+              </div>
+            )
           )
         ) : isDiffView ? (
           <DiffEditor

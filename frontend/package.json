@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "smoke:terminal": "node scripts/terminal-smoke.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -32,9 +33,15 @@
     "@testing-library/react": "^16.3.2",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
-    "@vitejs/plugin-react": "^4.7.0",
+    "@vitejs/plugin-react": "^6.0.2",
+    "esbuild": "^0.27.7",
     "jsdom": "^29.1.1",
-    "vite": "^5.0.8",
+    "playwright": "^1.60.0",
+    "pngjs": "^7.0.0",
+    "vite": "^8.0.13",
     "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "dompurify": "^3.4.3"
   }
 }

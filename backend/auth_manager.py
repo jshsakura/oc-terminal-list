@@ -4,17 +4,17 @@ Handles password hashing, JWT token generation, and user authentication
 SQLite 기반 저장
 """
 import asyncio
+import base64
+import hashlib
+import hmac
 import secrets
+import warnings
 from datetime import datetime, timedelta
 
 import pyotp
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from vault import decrypt_str, encrypt_str
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT settings
 ALGORITHM = "HS256"
@@ -30,6 +30,42 @@ TOTP_VALID_WINDOW = 1  # 앞뒤 1 step (±30s) 허용 — 시계 오차 보정
 # Backup code settings
 BACKUP_CODE_COUNT = 10
 BACKUP_CODE_BYTES = 5  # ≈ 8 base32 chars
+PBKDF2_ALGORITHM = "sha256"
+PBKDF2_ITERATIONS = 390_000
+PBKDF2_PREFIX = "pbkdf2_sha256"
+
+
+def _hash_secret(value: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(PBKDF2_ALGORITHM, value.encode("utf-8"), salt, PBKDF2_ITERATIONS)
+    return "$".join(
+        [
+            PBKDF2_PREFIX,
+            str(PBKDF2_ITERATIONS),
+            base64.urlsafe_b64encode(salt).decode("ascii").rstrip("="),
+            base64.urlsafe_b64encode(digest).decode("ascii").rstrip("="),
+        ]
+    )
+
+
+def _verify_secret(value: str, hashed_value: str) -> bool:
+    if hashed_value.startswith(f"{PBKDF2_PREFIX}$"):
+        try:
+            _, iterations, salt_b64, digest_b64 = hashed_value.split("$", 3)
+            salt = base64.urlsafe_b64decode(salt_b64 + "=" * (-len(salt_b64) % 4))
+            expected = base64.urlsafe_b64decode(digest_b64 + "=" * (-len(digest_b64) % 4))
+            actual = hashlib.pbkdf2_hmac(PBKDF2_ALGORITHM, value.encode("utf-8"), salt, int(iterations))
+            return hmac.compare_digest(actual, expected)
+        except (TypeError, ValueError):
+            return False
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="'crypt' is deprecated.*", category=DeprecationWarning)
+            from passlib.context import CryptContext
+
+        return CryptContext(schemes=["bcrypt"], deprecated="auto").verify(value, hashed_value)
+    except Exception:
+        return False
 
 
 class AuthManager:
@@ -63,11 +99,11 @@ class AuthManager:
 
     def hash_password(self, password: str) -> str:
         """Hash a password using bcrypt"""
-        return pwd_context.hash(password)
+        return _hash_secret(password)
 
     def verify_password(self, plain_password: str, hashed_password: str) -> bool:
         """Verify a password against its hash"""
-        return pwd_context.verify(plain_password, hashed_password)
+        return _verify_secret(plain_password, hashed_password)
 
     async def is_setup_complete(self) -> bool:
         """Check if initial admin setup is complete"""
@@ -185,7 +221,7 @@ class AuthManager:
             return False
         codes = await self.storage.list_unused_backup_codes(username)
         for entry in codes:
-            if pwd_context.verify(normalized, entry["code_hash"]):
+            if _verify_secret(normalized, entry["code_hash"]):
                 return await self.storage.consume_backup_code(entry["id"])
         return False
 
@@ -199,7 +235,7 @@ class AuthManager:
     async def issue_backup_codes(self, username: str) -> list[str]:
         """평문 코드 리스트 반환 (한 번만 사용자에게 노출). 해시는 DB 에 저장."""
         plain_codes = [self._generate_backup_code() for _ in range(BACKUP_CODE_COUNT)]
-        hashes = [pwd_context.hash(c) for c in plain_codes]
+        hashes = [_hash_secret(c) for c in plain_codes]
         await self.storage.replace_backup_codes(username, hashes)
         return plain_codes
 

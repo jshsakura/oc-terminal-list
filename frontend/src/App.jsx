@@ -987,7 +987,7 @@ function App() {
 
   // ── cwd & git context ─────────────────────────────────────────────────────
   // 포커스된 pane 기준 — 같은 탭 안에서도 각 pane 의 cwd/git 이 다를 수 있으므로
-  // RightPanel 은 활성 pane 을 따라간다.
+  // TerminalHeader 는 활성 pane 을 따라간다.
   const focusedPane = useMemo(() => {
     if (!activeTab?.panes) return null;
     return activeTab.panes.find((p) => p.id === activeTab.activePaneId) || activeTab.panes[0] || null;

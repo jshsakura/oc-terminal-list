@@ -10,9 +10,11 @@ import asyncio
 import json
 import logging
 import os
+import secrets as secrets_mod
 import shlex
 import shutil
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -54,20 +56,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ---------------------- 앱 / 미들웨어 ----------------------
-
-app = FastAPI(title="Terminal List", version="2.0.0")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-app.add_middleware(GZipMiddleware, minimum_size=1000)
-
-
 class CachedStaticFiles(StaticFiles):
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         async def send_wrapper(message):
@@ -81,6 +69,45 @@ class CachedStaticFiles(StaticFiles):
             await send(message)
 
         await super().__call__(scope, receive, send_wrapper)
+
+
+# ---------------------- 앱 / 미들웨어 ----------------------
+
+auth_manager: AuthManager | None = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global auth_manager
+    logger.info("=== Terminal List 시작 ===")
+    await storage.connect()
+    auth_manager = AuthManager(storage)
+    if not shutil.which("tmux"):
+        logger.error("tmux 바이너리를 찾을 수 없습니다. 호스트에 tmux를 설치해주세요.")
+    elif await tmux_manager.server_alive():
+        await tmux_manager._run("set-option", "-s", "escape-time", "0", check=False)
+    try:
+        yield
+    finally:
+        logger.info("=== Terminal List 종료 ===")
+        try:
+            import host_sftp
+            await host_sftp.close_pool()
+        except Exception:
+            pass
+        await storage.close()
+
+
+app = FastAPI(title="Terminal List", version="2.0.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 # ---------------------- 워크스페이스 ----------------------
@@ -195,6 +222,14 @@ class HostUpsertRequest(BaseModel):
     theme: str | None = None  # pane.themeOverride 자동 적용용 (없으면 글로벌 settings.theme)
 
 
+class WsTicketRequest(BaseModel):
+    path: str
+
+
+class FileTicketRequest(BaseModel):
+    path: str
+
+
 # ---------------------- 시스템 모니터 ----------------------
 
 class SystemMonitor:
@@ -289,47 +324,86 @@ class SystemMonitor:
 system_monitor = SystemMonitor()
 
 
-# ---------------------- 라이프사이클 ----------------------
+# ---------------------- WebSocket ticket ----------------------
 
-auth_manager: AuthManager | None = None
-
-
-@app.on_event("startup")
-async def startup_event():
-    global auth_manager
-    logger.info("=== Terminal List 시작 ===")
-    await storage.connect()
-    auth_manager = AuthManager(storage)
-    if not shutil.which("tmux"):
-        logger.error("tmux 바이너리를 찾을 수 없습니다. 호스트에 tmux를 설치해주세요.")
-    else:
-        # tmux 서버가 이미 살아있을 경우 escape-time 을 즉시 0으로 설정
-        if await tmux_manager.server_alive():
-            await tmux_manager._run("set-option", "-s", "escape-time", "0", check=False)
+WS_TICKET_TTL_SECONDS = 20
+_ws_tickets: dict[str, dict] = {}
+FILE_TICKET_TTL_SECONDS = 30
+_file_tickets: dict[str, dict] = {}
 
 
-@app.on_event("shutdown")
-async def shutdown_event():
-    logger.info("=== Terminal List 종료 ===")
-    try:
-        import host_sftp
-        await host_sftp.close_pool()
-    except Exception:
-        pass
-    await storage.close()
+def _cleanup_ws_tickets(now: float | None = None) -> None:
+    now = now or time.time()
+    expired = [ticket for ticket, meta in _ws_tickets.items() if meta.get("expires_at", 0) <= now]
+    for ticket in expired:
+        _ws_tickets.pop(ticket, None)
+
+
+def _normalize_ws_path(path: str) -> str:
+    path = (path or "").split("?", 1)[0].strip()
+    if not path.startswith("/ws/"):
+        raise HTTPException(status_code=400, detail="유효하지 않은 WebSocket 경로입니다")
+    return path
+
+
+def _create_ws_ticket(username: str, path: str) -> tuple[str, float]:
+    now = time.time()
+    _cleanup_ws_tickets(now)
+    ticket = secrets_mod.token_urlsafe(32)
+    expires_at = now + WS_TICKET_TTL_SECONDS
+    _ws_tickets[ticket] = {"username": username, "path": _normalize_ws_path(path), "expires_at": expires_at}
+    return ticket, expires_at
+
+
+def _consume_ws_ticket(ticket: str | None, path: str) -> str | None:
+    if not ticket:
+        return None
+    now = time.time()
+    _cleanup_ws_tickets(now)
+    meta = _ws_tickets.pop(ticket, None)
+    if not meta or meta.get("expires_at", 0) <= now:
+        return None
+    if meta.get("path") != _normalize_ws_path(path):
+        return None
+    return meta.get("username")
+
+
+def _cleanup_file_tickets(now: float | None = None) -> None:
+    now = now or time.time()
+    expired = [ticket for ticket, meta in _file_tickets.items() if meta.get("expires_at", 0) <= now]
+    for ticket in expired:
+        _file_tickets.pop(ticket, None)
+
+
+def _create_file_ticket(username: str, path: str) -> tuple[str, float]:
+    now = time.time()
+    _cleanup_file_tickets(now)
+    safe = validate_path(path)
+    ticket = secrets_mod.token_urlsafe(32)
+    expires_at = now + FILE_TICKET_TTL_SECONDS
+    _file_tickets[ticket] = {"username": username, "path": str(safe), "expires_at": expires_at}
+    return ticket, expires_at
+
+
+def _consume_file_ticket(ticket: str | None) -> str | None:
+    if not ticket:
+        return None
+    now = time.time()
+    _cleanup_file_tickets(now)
+    meta = _file_tickets.pop(ticket, None)
+    if not meta or meta.get("expires_at", 0) <= now:
+        return None
+    return meta.get("path")
 
 
 # ---------------------- 인증 ----------------------
 
 async def verify_auth_token(
     authorization: str | None = Header(None),
-    token: str | None = Query(None),
 ) -> str:
     actual = None
     if authorization and authorization.startswith("Bearer "):
         actual = authorization[len("Bearer "):]
-    elif token:
-        actual = token
     if not actual:
         raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
     if not auth_manager:
@@ -340,10 +414,22 @@ async def verify_auth_token(
     return username
 
 
-async def verify_auth_token_ws(token: str) -> str | None:
-    if not token or not auth_manager:
-        return None
-    return await auth_manager.verify_token(token)
+@app.post("/api/ws-ticket")
+async def create_ws_ticket(
+    request: WsTicketRequest,
+    username: str = Depends(verify_auth_token),
+):
+    ticket, expires_at = _create_ws_ticket(username, request.path)
+    return {"ticket": ticket, "expires_at": expires_at, "ttl": WS_TICKET_TTL_SECONDS}
+
+
+@app.post("/api/files/raw-ticket")
+async def create_raw_file_ticket(
+    request: FileTicketRequest,
+    username: str = Depends(verify_auth_token),
+):
+    ticket, expires_at = _create_file_ticket(username, request.path)
+    return {"ticket": ticket, "expires_at": expires_at, "ttl": FILE_TICKET_TTL_SECONDS}
 
 
 # ---------------------- 인증 API ----------------------
@@ -806,15 +892,17 @@ async def update_session_name(
 async def terminal_websocket(
     websocket: WebSocket,
     session_id: str,
-    token: str | None = Query(None),
+    ticket: str | None = Query(None),
     cols: int = Query(80),
     rows: int = Query(24),
     cwd: str | None = Query(None),
     shell: str | None = Query(None),
 ):
-    username = await verify_auth_token_ws(token) if token else None
+    ws_path = f"/ws/{session_id}"
+    username = _consume_ws_ticket(ticket, ws_path) if ticket else None
     if not username:
-        username = "admin"  # 인증 실패해도 기본 사용자로 진행 (기존 동작 유지)
+        await websocket.close(code=1008, reason="인증 필요")
+        return
 
     await websocket.accept()
     logger.info("WS attach: session=%s user=%s", session_id, username)
@@ -1573,7 +1661,7 @@ async def delete_host_file(
 async def host_websocket(
     websocket: WebSocket,
     host_id: str,
-    token: str | None = Query(None),
+    ticket: str | None = Query(None),
     cols: int = Query(80),
     rows: int = Query(24),
     pane_index: int = Query(0, description="0 이면 base 세션, 1+ 면 base.N+1 세션"),
@@ -1581,7 +1669,8 @@ async def host_websocket(
     tmux_suffix: str | None = Query(None, description="새 호스트 탭마다 base session 분리용 suffix. 영문/숫자/하이픈만, 32자 이내."),
     tmux_session_name: str | None = Query(None, description="명시적 tmux 세션명 override (기존 영속 세션 Resume). 주어지면 base/suffix/pane 계산 무시."),
 ):
-    username = await verify_auth_token_ws(token) if token else None
+    ws_path = f"/ws/host/{host_id}"
+    username = _consume_ws_ticket(ticket, ws_path) if ticket else None
     if not username:
         await websocket.close(code=1008, reason="인증 필요")
         return
@@ -2226,8 +2315,21 @@ async def search_files(
 
 
 @app.get("/api/files/raw")
-async def get_raw_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
-    safe = validate_path(path)
+async def get_raw_file(
+    path: str | None = Query(None),
+    ticket: str | None = Query(None),
+    authorization: str | None = Header(None),
+):
+    if ticket:
+        ticket_path = _consume_file_ticket(ticket)
+        if not ticket_path:
+            raise HTTPException(status_code=401, detail="유효하지 않은 파일 티켓입니다")
+        safe = Path(ticket_path)
+    else:
+        if not path:
+            raise HTTPException(status_code=400, detail="파일 경로가 필요합니다")
+        await verify_auth_token(authorization)
+        safe = validate_path(path)
     if not safe.exists() or not safe.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(str(safe))

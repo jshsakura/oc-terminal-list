@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Lightbulb } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 
@@ -240,6 +240,10 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
         </div>
 
         <footer style={styles.footer}>
+          <span title={t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'} style={styles.hintIcon}>
+            <Lightbulb size={13} strokeWidth={1.8} />
+            <span style={styles.srOnly}>{t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}</span>
+          </span>
           {/* 좌측 — 복사/붙여넣기/비우기 (보조 액션 그룹) */}
           <Button
             variant="ghost"
@@ -354,6 +358,26 @@ const styles = {
     padding: `${space['1.5']} ${space['3']}`,
     borderTop: `1px solid ${color.border}`,
     background: color.mantle,
+  },
+  hintIcon: {
+    width: '20px',
+    height: '28px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    color: color.muted,
+    flexShrink: 0,
+  },
+  srOnly: {
+    position: 'absolute',
+    width: '1px',
+    height: '1px',
+    padding: 0,
+    margin: '-1px',
+    overflow: 'hidden',
+    clip: 'rect(0, 0, 0, 0)',
+    whiteSpace: 'nowrap',
+    border: 0,
   },
 };
 

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import RightPanel from './RightPanel';
+import TerminalHeader from './TerminalHeader';
 
 const mockT = (key) => key;
 
@@ -11,7 +11,7 @@ const baseProps = (overrides = {}) => ({
   ...overrides,
 });
 
-describe('RightPanel', () => {
+describe('TerminalHeader', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
@@ -24,25 +24,25 @@ describe('RightPanel', () => {
   });
 
   it('renders the activity bar root', () => {
-    const { container } = render(<RightPanel {...baseProps()} />);
+    const { container } = render(<TerminalHeader {...baseProps()} />);
     expect(container.firstChild).toBeTruthy();
   });
 
   it('shows skeleton icons in rail when loading=true', () => {
-    const { container } = render(<RightPanel {...baseProps({ loading: true })} />);
+    const { container } = render(<TerminalHeader {...baseProps({ loading: true })} />);
     const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
     expect(skeletons.length).toBeGreaterThanOrEqual(4);
   });
 
   it('shows no skeleton when loading=false', () => {
-    const { container } = render(<RightPanel {...baseProps({ loading: false })} />);
+    const { container } = render(<TerminalHeader {...baseProps({ loading: false })} />);
     const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
     expect(skeletons.length).toBe(0);
   });
 
   it('shows skeleton for close button when loading=true and onCloseTerminal provided', () => {
     const { container } = render(
-      <RightPanel {...baseProps({ loading: true, onCloseTerminal: vi.fn() })} />
+      <TerminalHeader {...baseProps({ loading: true, onCloseTerminal: vi.fn() })} />
     );
     const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
     expect(skeletons.length).toBeGreaterThanOrEqual(5);
@@ -50,7 +50,7 @@ describe('RightPanel', () => {
 
   it('shows no skeleton for close button when loading=false', () => {
     const { container } = render(
-      <RightPanel {...baseProps({ loading: false, onCloseTerminal: vi.fn() })} />
+      <TerminalHeader {...baseProps({ loading: false, onCloseTerminal: vi.fn() })} />
     );
     const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
     expect(skeletons.length).toBe(0);
@@ -58,7 +58,7 @@ describe('RightPanel', () => {
 
   it('shows skeleton for extract and close when both provided and loading', () => {
     const { container } = render(
-      <RightPanel {...baseProps({
+      <TerminalHeader {...baseProps({
         loading: true,
         onCloseTerminal: vi.fn(),
         onExtractPane: vi.fn(),
@@ -70,7 +70,7 @@ describe('RightPanel', () => {
   });
 
   it('disables nav section pointer events when disabled=true', () => {
-    const { container } = render(<RightPanel {...baseProps({ disabled: true })} />);
+    const { container } = render(<TerminalHeader {...baseProps({ disabled: true })} />);
     const nav = container.querySelector('[style*="pointer-events: none"]') ||
                 container.querySelector('[style*="pointerEvents: none"]');
     expect(nav).toBeTruthy();
@@ -97,7 +97,7 @@ describe('RightPanel', () => {
           ...paneInfoOverrides,
         },
       });
-      const result = render(<RightPanel {...props} />);
+      const result = render(<TerminalHeader {...props} />);
       // Click the Info tab to open the info panel
       const infoBtn = result.container.querySelector('[title="Info"]');
       if (infoBtn) fireEvent.click(infoBtn);
@@ -130,7 +130,7 @@ describe('RightPanel', () => {
     it('enables git changes polling for gitContextPath="" (workspace root)', () => {
       // Should NOT crash or skip rendering — empty string is a valid path
       const { container } = render(
-        <RightPanel
+        <TerminalHeader
           {...baseProps({
             activeTabType: 'local',
             gitContextPath: '',
@@ -146,7 +146,7 @@ describe('RightPanel', () => {
 
     it('shows git badge count 0 for empty path (not disabled)', () => {
       const { container } = render(
-        <RightPanel
+        <TerminalHeader
           {...baseProps({
             activeTabType: 'local',
             gitContextPath: '',
