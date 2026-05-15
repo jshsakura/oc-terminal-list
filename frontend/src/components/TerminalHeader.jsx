@@ -229,6 +229,8 @@ const TerminalHeader = ({
   });
   const { items: gitItems, refresh: refreshGitChanges } = gitChanges;
   const gitCount = (gitContextPath != null || !!activeHostId) ? (gitItems || []).length : 0;
+  const activePanelMeta = activePanel ? TABS.find((tab) => tab.id === activePanel) : null;
+  const ActivePanelIcon = activePanelMeta?.icon || Info;
 
   useEffect(() => {
     if (activePanel === 'files') {
@@ -593,7 +595,8 @@ const TerminalHeader = ({
           />
           <div style={{ ...styles.panelHeader, background: panelUi.base, borderBottomColor: panelUi.borderSubtle || panelUi.border }}>
             <span style={{ ...styles.panelTitle, color: panelUi.text }}>
-              {TABS.find((t) => t.id === activePanel)?.label}
+              <ActivePanelIcon size={13} strokeWidth={2} aria-hidden="true" style={{ color: panelUi.accent }} />
+              <span>{activePanelMeta?.label}</span>
             </span>
             <button
               style={styles.closeBtn}
@@ -1474,11 +1477,17 @@ const styles = {
     flexShrink: 0,
   },
   panelTitle: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '7px',
+    minWidth: 0,
     fontSize: fontSize['12'],
-    fontWeight: fontWeight.semibold,
+    fontFamily: font.brand,
+    fontWeight: 400,
     color: 'var(--ui-subtext)',
     textTransform: 'uppercase',
-    letterSpacing: '0.07em',
+    letterSpacing: 0,
+    lineHeight: 1,
   },
   closeBtn: {
     background: 'transparent',
