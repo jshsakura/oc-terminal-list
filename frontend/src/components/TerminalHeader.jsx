@@ -796,7 +796,8 @@ const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = fal
         alignItems: 'center',
         gap: '8px',
         textAlign: 'left',
-        padding: '5px 8px',
+        minHeight: '30px',
+        padding: '6px 9px',
         background: 'transparent',
         border: 'none',
         borderRadius: '3px',
@@ -811,7 +812,7 @@ const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = fal
       onMouseEnter={(e) => { if (!disabled && !display) e.currentTarget.style.background = glassMenuItemHover(ui); }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
-      {Icon && <Icon size={12} strokeWidth={1.8} />}
+      {Icon && <Icon size={13} strokeWidth={1.8} />}
       {children}
     </button>
   );

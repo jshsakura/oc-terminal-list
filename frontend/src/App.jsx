@@ -29,10 +29,11 @@ import PaneGrid from './components/PaneGrid';
 import PaneErrorBoundary from './components/PaneErrorBoundary';
 import LazyErrorBoundary from './components/LazyErrorBoundary';
 import LoadingScreen from './components/layout/LoadingScreen';
+import Settings from './components/Settings';
+import ScreenDumpModal from './components/ScreenDumpModal';
 
 const Terminal        = lazy(() => import('./components/Terminal'));
 const FileEditor      = lazy(() => import('./components/FileEditor'));
-const Settings        = lazy(() => import('./components/Settings'));
 const ConfirmModal    = lazy(() => import('./components/ConfirmModal'));
 const NotificationModal = lazy(() => import('./components/NotificationModal'));
 const InitialSetup    = lazy(() => import('./components/InitialSetup'));
@@ -42,7 +43,6 @@ const HostEditor      = lazy(() => import('./components/HostEditor'));
 const SshKeyManager   = lazy(() => import('./components/SshKeyManager'));
 const MobileToolbar   = lazy(() => import('./components/MobileToolbar'));
 const CommandInput    = lazy(() => import('./components/CommandInput'));
-const ScreenDumpModal = lazy(() => import('./components/ScreenDumpModal'));
 
 const { color, font, fontSize, fontWeight, space } = tokens;
 

@@ -751,8 +751,8 @@ const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettings, onR
       style={{
         display: 'flex', alignItems: 'center', gap: '8px',
         width: '100%',
-        minHeight: isMobile ? '42px' : '28px',
-        padding: isMobile ? '0 12px' : '5px 8px',
+        minHeight: isMobile ? '42px' : '30px',
+        padding: isMobile ? '0 12px' : '6px 9px',
         background: 'transparent', border: 'none', borderRadius: '3px',
         cursor: 'pointer', color: color.text,
         fontSize: isMobile ? '13px' : '11.5px', fontFamily: font.sans,

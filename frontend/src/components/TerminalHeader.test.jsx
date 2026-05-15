@@ -20,6 +20,7 @@ describe('TerminalHeader', () => {
   });
 
   afterEach(() => {
+    delete window.terminalSessions;
     vi.restoreAllMocks();
   });
 
@@ -104,6 +105,27 @@ describe('TerminalHeader', () => {
     fireEvent.click(container.querySelector('[title="more"]'));
     const closeItem = screen.getByText('closeTerminal').closest('button');
     expect(closeItem).toHaveStyle({ minHeight: '42px' });
+  });
+
+  it('opens the mobile screen dump action from the more menu', () => {
+    const onScreenDump = vi.fn();
+    window.terminalSessions = {
+      'local:1': {
+        getBufferText: vi.fn(() => 'hello\nworld'),
+      },
+    };
+
+    const { container } = render(<TerminalHeader {...baseProps({
+      isMobile: true,
+      terminalKey: 'local:1',
+      onScreenDump,
+      onRefreshTerminal: vi.fn(),
+    })} />);
+
+    fireEvent.click(container.querySelector('[title="more"]'));
+    fireEvent.click(screen.getByText('viewAsText').closest('button'));
+
+    expect(onScreenDump).toHaveBeenCalledWith('hello\nworld');
   });
 
   describe('Info panel — pane identity and cwd', () => {
