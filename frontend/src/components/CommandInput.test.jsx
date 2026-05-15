@@ -159,7 +159,7 @@ describe('CommandInput positioning', () => {
     expect(header).toBeTruthy();
   });
 
-  it('hint uses Lightbulb icon instead of emoji', () => {
+  it('does not render the old lower-left hint icon', () => {
     render(
       <CommandInput
         isOpen={true}
@@ -172,6 +172,6 @@ describe('CommandInput positioning', () => {
     );
 
     expect(screen.queryByText('💡')).toBeNull();
-    expect(screen.getByText(t('commandInputHint'))).toBeTruthy();
+    expect(screen.getByPlaceholderText(t('commandInputHint'))).toBeTruthy();
   });
 });
