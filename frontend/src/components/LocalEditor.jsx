@@ -4,7 +4,7 @@ import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import IconPickerPopup from './IconPickerPopup';
-import ThemePicker from './common/ThemePicker';
+import ThemePicker, { resolveRandomTheme } from './common/ThemePicker';
 
 const { color, font, fontSize, fontWeight, radius, space, motion, shadow } = tokens;
 
@@ -44,6 +44,13 @@ const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t }) => 
   if (!isOpen) return null;
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
+  const setLocalTheme = (value) => {
+    if (value === 'random-dark' || value === 'random-light') {
+      set('localTheme', resolveRandomTheme(value, [settings?.theme, draft.localTheme].filter(Boolean)));
+      return;
+    }
+    set('localTheme', value);
+  };
 
   const submit = (e) => {
     e?.preventDefault?.();
@@ -131,11 +138,12 @@ const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t }) => 
           <Field label={t?.('terminalTheme') || 'Terminal color'}>
             <ThemePicker
               value={draft.localTheme || ''}
-              onChange={(v) => set('localTheme', v)}
+              onChange={setLocalTheme}
               allowEmpty
               markedId={settings?.theme || 'default'}
               t={t}
               columns={2}
+              showRandom
             />
           </Field>
         </div>
