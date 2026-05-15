@@ -32,7 +32,8 @@ describe('TabBar', () => {
     expect(onOpenSettings).not.toHaveBeenCalled();
     const settingsItem = screen.getByText(/^Settings$/).closest('button');
     expect(settingsItem).toHaveStyle({ minHeight: '42px' });
-    expect(settingsItem.parentElement).toHaveStyle({ backdropFilter: 'blur(18px)' });
+    expect(settingsItem.parentElement).toHaveStyle({ backdropFilter: 'blur(20px)' });
+    expect(settingsItem.parentElement.style.background).toContain('58%');
     fireEvent.click(settingsItem);
     expect(onOpenSettings).toHaveBeenCalled();
   });

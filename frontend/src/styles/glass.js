@@ -13,12 +13,12 @@ const ui = {
 const pick = (theme, key, fallback) => theme?.[key] || fallback;
 
 export const glassMenuStyle = (theme = {}, overrides = {}) => ({
-  background: `color-mix(in srgb, ${pick(theme, 'surface0', ui.surface0)} 70%, transparent)`,
-  border: `1px solid color-mix(in srgb, ${pick(theme, 'borderStrong', pick(theme, 'border', ui.borderStrong))} 62%, transparent)`,
+  background: `color-mix(in srgb, ${pick(theme, 'surface0', ui.surface0)} 58%, transparent)`,
+  border: `1px solid color-mix(in srgb, ${pick(theme, 'border', ui.border)} 48%, transparent)`,
   borderRadius: '8px',
-  boxShadow: '0 8px 26px rgba(0,0,0,0.42), inset 0 1px 0 rgba(255,255,255,0.05)',
-  backdropFilter: 'blur(18px)',
-  WebkitBackdropFilter: 'blur(18px)',
+  boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)',
+  backdropFilter: 'blur(20px)',
+  WebkitBackdropFilter: 'blur(20px)',
   padding: '3px',
   ...overrides,
 });
