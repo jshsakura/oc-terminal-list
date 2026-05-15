@@ -64,6 +64,8 @@ const Sidebar = ({
   const [systemStats, setSystemStats] = useState({ cpu: 0, ram: 0, disk: 0 });
   const [filter, setFilter] = useState('');
   const [hoverId, setHoverId] = useState(null);
+  const [resizeHot, setResizeHot] = useState(false);
+  const [resizing, setResizing] = useState(false);
   const [expandedActivity, setExpandedActivity] = useState(new Set());
   const editInputRef = useRef(null);
 
@@ -124,6 +126,22 @@ const Sidebar = ({
   const cancelEdit = () => {
     setEditingSessionId(null);
     setEditingName('');
+  };
+
+  const handleResizeStart = (e) => {
+    setResizing(true);
+    setResizeHot(true);
+    const finish = () => {
+      setResizing(false);
+      setResizeHot(false);
+      window.removeEventListener('mouseup', finish);
+      window.removeEventListener('touchend', finish);
+      window.removeEventListener('blur', finish);
+    };
+    window.addEventListener('mouseup', finish);
+    window.addEventListener('touchend', finish);
+    window.addEventListener('blur', finish);
+    onResizeStart?.(e);
   };
 
   if (!isOpen) return null;
@@ -405,10 +423,30 @@ const Sidebar = ({
 
         {!isMobile && onResizeStart && (
           <div
-            onMouseDown={onResizeStart}
+            onMouseDown={handleResizeStart}
+            onTouchStart={handleResizeStart}
+            onMouseEnter={() => setResizeHot(true)}
+            onMouseLeave={() => { if (!resizing) setResizeHot(false); }}
             title={t('resizeSidebar')}
-            style={styles.resizeHandle}
-          />
+            style={{
+              ...styles.resizeHandle,
+              cursor: resizing ? 'col-resize' : 'ew-resize',
+            }}
+          >
+            <div
+              style={{
+                ...styles.resizeIndicator,
+                opacity: resizeHot || resizing ? 1 : 0,
+                background: resizing
+                  ? `var(--ui-accent, ${color.accent})`
+                  : `color-mix(in srgb, var(--ui-accent, ${color.accent}) 72%, transparent)`,
+                boxShadow: resizeHot || resizing
+                  ? `0 0 12px color-mix(in srgb, var(--ui-accent, ${color.accent}) 38%, transparent)`
+                  : 'none',
+                transform: resizeHot || resizing ? 'scaleX(1)' : 'scaleX(0.6)',
+              }}
+            />
+          </div>
         )}
       </aside>
     </>
@@ -675,13 +713,25 @@ const styles = {
   resizeHandle: {
     position: 'absolute',
     top: 0,
-    right: 0,
+    right: '-4px',
     bottom: 0,
-    width: '3px',
+    width: '9px',
     cursor: 'ew-resize',
     background: 'transparent',
-    transition: `background ${motion.fast}`,
+    display: 'flex',
+    alignItems: 'stretch',
+    justifyContent: 'center',
+    padding: 0,
     zIndex: 10000,
+    touchAction: 'none',
+  },
+  resizeIndicator: {
+    width: '1px',
+    height: '100%',
+    borderRadius: radius.full,
+    transition: `opacity ${motion.fast}, background ${motion.fast}, box-shadow ${motion.fast}, transform ${motion.fast}`,
+    transformOrigin: 'center',
+    pointerEvents: 'none',
   },
 };
 

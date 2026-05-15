@@ -30,22 +30,44 @@ const styles = {
   },
   head: {
     display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: `${space['1.5']} ${space['2']}`,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+    padding: `${space['1.5']} ${space['2']} ${space['2']}`,
     borderBottom: `1px solid ${color.border}`,
-    minHeight: '36px',
-    gap: space['2'],
+    gap: '4px',
   },
   virtualSpacer: {
     flexShrink: 0,
     pointerEvents: 'none',
   },
-  headBranch: {
-    flex: 1,
-    minWidth: 0,
+  headTopRow: {
     display: 'flex',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space['2'],
+    minWidth: 0,
+    minHeight: '22px',
+  },
+  headTitle: {
+    flex: 1,
+    minWidth: 0,
+    color: color.text,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.semibold,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  pathRow: {
+    minWidth: 0,
+    minHeight: '22px',
+    display: 'flex',
+    alignItems: 'center',
+    padding: `0 ${space['1.5']}`,
+    background: color.crust,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.xs,
   },
   branchName: {
     fontSize: fontSize['11'],
@@ -53,9 +75,8 @@ const styles = {
     color: color.subtext,
     lineHeight: '22px',
     whiteSpace: 'nowrap',
-    overflowX: 'auto',
-    overflowY: 'hidden',
-    scrollbarWidth: 'none',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
     maxWidth: '100%',
     width: '100%',
   },
@@ -865,21 +886,25 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       }}
     >
       <div style={styles.head}>
-        <div style={styles.headBranch} title={rootDisplay}>
-          <span style={styles.branchName}>{rootDisplay}</span>
+        <div style={styles.headTopRow}>
+          <span style={styles.headTitle}>{t('files') || 'Files'}</span>
+          <div style={styles.headActions}>
+            <HeadAction icon={ArrowUp} title={t('goUp')} onClick={goUpRoot} disabled={!canGoUp} />
+            <HeadAction icon={ArrowDown} title={t('goDown') || 'Go down'} onClick={goDownRoot} disabled={!canGoDown} />
+            {isHostMode && normalizedRootPath !== normalizedInitialPath && (
+              <HeadAction icon={Home} title={t('home') || 'Home'} onClick={goHomeRoot} />
+            )}
+            <HeadAction icon={Search} title={t('searchFiles')} onClick={() => setSearchOpen((open) => !open)} active={searchVisible} />
+            <HeadAction icon={Filter} title={t('filterChangedOnly')} onClick={() => setFilterChangedOnly(!filterChangedOnly)} active={filterChangedOnly} />
+            <HeadAction icon={Plus} title={t('newFile')} onClick={() => startCreate('', 'file')} />
+            <HeadAction icon={Folder} title={t('newFolder')} onClick={() => startCreate('', 'directory')} />
+            <HeadAction icon={Upload} title={t('upload') || 'Upload'} onClick={() => openUploadPicker()} />
+            <HeadAction icon={Terminal} title={t('openTerminalHere')} onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)} />
+            <HeadAction icon={RefreshCw} title={t('refresh')} onClick={refreshAll} />
+          </div>
         </div>
-        <div style={styles.headActions}>
-          <HeadAction icon={ArrowUp} title={t('goUp')} onClick={goUpRoot} disabled={!canGoUp} />
-          <HeadAction icon={ArrowDown} title={t('goDown') || 'Go down'} onClick={goDownRoot} disabled={!canGoDown} />
-          {isHostMode && normalizedRootPath !== normalizedInitialPath && (
-            <HeadAction icon={Home} title={t('home') || 'Home'} onClick={goHomeRoot} />
-          )}
-          <HeadAction icon={Search} title={t('searchFiles')} onClick={() => setSearchOpen((open) => !open)} active={searchVisible} />
-          <HeadAction icon={Filter} title={t('filterChangedOnly')} onClick={() => setFilterChangedOnly(!filterChangedOnly)} active={filterChangedOnly} />
-          <HeadAction icon={Plus} title={t('newFile')} onClick={() => startCreate('', 'file')} />
-          <HeadAction icon={Folder} title={t('newFolder')} onClick={() => startCreate('', 'directory')} />
-          <HeadAction icon={Terminal} title={t('openTerminalHere')} onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)} />
-          <HeadAction icon={RefreshCw} title={t('refresh')} onClick={refreshAll} />
+        <div style={styles.pathRow} title={rootDisplay}>
+          <span style={styles.branchName}>{rootDisplay}</span>
         </div>
       </div>
 

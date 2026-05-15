@@ -2450,6 +2450,90 @@ export const blossomTheme = {
   }
 };
 
+// 58. Abyssal Ember (심해 흑록 + 용광로 앰버)
+export const abyssalEmberTheme = {
+  background: '#07110f',
+  foreground: '#d7e8df',
+  cursor: '#ffb86b',
+  cursorAccent: '#07110f',
+  selection: 'rgba(255,184,107,0.22)',
+  black: '#05100d',
+  red: '#ff5f56',
+  green: '#4fd08b',
+  yellow: '#f7c873',
+  blue: '#5aa7c8',
+  magenta: '#d783ff',
+  cyan: '#37d5c8',
+  white: '#b7c8c0',
+  brightBlack: '#31514a',
+  brightRed: '#ff806f',
+  brightGreen: '#7af5a7',
+  brightYellow: '#ffd28a',
+  brightBlue: '#7bc7e8',
+  brightMagenta: '#e8a7ff',
+  brightCyan: '#68f0df',
+  brightWhite: '#eefaf4',
+  ui: {
+    ...commonUI,
+    bg: '#07110f',
+    bgSecondary: '#0b1a16',
+    bgTertiary: '#112b24',
+    glassBg: 'rgba(7,17,15,0.78)',
+    cardBg: '#112b24',
+    border: 'rgba(215,232,223,0.08)',
+    borderLight: 'rgba(255,184,107,0.18)',
+    text: '#d7e8df',
+    textSecondary: '#87a99b',
+    accent: '#ffb86b',
+    accentMuted: 'rgba(255,184,107,0.14)',
+    iconColor: '#87a99b',
+    shadow: '0 12px 34px rgba(0,0,0,0.62), 0 0 18px rgba(255,126,66,0.08)',
+    innerShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
+  }
+};
+
+// 59. Blueprint Paper (청사진 라이트)
+export const blueprintPaperTheme = {
+  background: '#eaf6ff',
+  foreground: '#12324a',
+  cursor: '#006fbb',
+  cursorAccent: '#eaf6ff',
+  selection: 'rgba(0,111,187,0.18)',
+  black: '#12324a',
+  red: '#b4233a',
+  green: '#1d8a5b',
+  yellow: '#9c6a00',
+  blue: '#006fbb',
+  magenta: '#7b3fb2',
+  cyan: '#007f91',
+  white: '#6f8fa6',
+  brightBlack: '#8aa9bd',
+  brightRed: '#d03b52',
+  brightGreen: '#2aa06d',
+  brightYellow: '#bd8300',
+  brightBlue: '#1687d9',
+  brightMagenta: '#9464c9',
+  brightCyan: '#0099ad',
+  brightWhite: '#b6d1e2',
+  ui: {
+    ...commonUI,
+    bg: '#eaf6ff',
+    bgSecondary: '#d9edf9',
+    bgTertiary: '#f7fcff',
+    glassBg: 'rgba(234,246,255,0.9)',
+    cardBg: '#d9edf9',
+    border: 'rgba(18,50,74,0.12)',
+    borderLight: 'rgba(0,111,187,0.10)',
+    text: '#12324a',
+    textSecondary: '#557389',
+    accent: '#006fbb',
+    accentMuted: 'rgba(0,111,187,0.12)',
+    iconColor: '#557389',
+    shadow: '0 7px 22px rgba(18,50,74,0.10)',
+    innerShadow: 'inset 0 1px 0 rgba(255,255,255,0.75)',
+  }
+};
+
 export const themes = {
   // ── Dark ────────────────────────────────────────────────────────────
   default:            defaultThemeObj,
@@ -2489,6 +2573,7 @@ export const themes = {
   andromeda:          andromedaTheme,
   // 네온/사이버 계열
   cyberdream:         cyberdreamTheme,
+  abyssalEmber:       abyssalEmberTheme,
   // ── Light ───────────────────────────────────────────────────────────
   // 흰/크림 계열
   catppuccinLatte:    catppuccinLatteTheme,
@@ -2503,6 +2588,7 @@ export const themes = {
   // 색감 강한 계열
   lavender:           lavenderTheme,
   blossom:            blossomTheme,
+  blueprintPaper:     blueprintPaperTheme,
   springDay:          springDayTheme,
   tokyoNightDay:      tokyoNightDayTheme,
   everforestLight:    everforestLightTheme,

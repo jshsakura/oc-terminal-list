@@ -103,7 +103,7 @@ describe('Settings', () => {
     }));
   });
 
-  it('hosts tab add-row has same height as tab buttons', () => {
+  it('hosts tab add-row uses the same vertical rhythm as host rows', () => {
     const onAddHost = vi.fn();
     render(
       <Settings
@@ -118,19 +118,16 @@ describe('Settings', () => {
 
     fireEvent.click(screen.getByText(/Hosts/i));
 
-    const tabBtns = screen.getAllByRole('button').filter(
-      (btn) => btn.textContent && (btn.textContent.match(/General|Mobile|Hosts|Keys/))
-    );
     const addBtn = screen.getByText(/Add host/i).closest('button');
+    const localBtn = screen.getAllByText(/^This machine$/i)[0].closest('button');
 
-    const tabHeight = tabBtns[0].style.height;
-    const addHeight = addBtn.style.height;
-
-    expect(addHeight).toBe(tabHeight);
-    expect(addHeight).toBe('30px');
+    expect(addBtn.style.padding).toBe(localBtn.style.padding);
+    expect(addBtn.style.minHeight).toBe(localBtn.style.minHeight);
+    expect(addBtn.style.minHeight).toBe('44px');
+    expect(addBtn.style.height).toBe('');
   });
 
-  it('keys tab add-row has same height as tab buttons', () => {
+  it('keys tab add-row uses the same vertical rhythm as key rows', () => {
     const onAddKey = vi.fn();
     render(
       <Settings
@@ -145,16 +142,10 @@ describe('Settings', () => {
 
     fireEvent.click(screen.getByText(/Keys/i));
 
-    const tabBtns = screen.getAllByRole('button').filter(
-      (btn) => btn.textContent && (btn.textContent.match(/General|Mobile|Hosts|Keys/))
-    );
     const addBtn = screen.getByText(/Add SSH key/i).closest('button');
-
-    const tabHeight = tabBtns[0].style.height;
-    const addHeight = addBtn.style.height;
-
-    expect(addHeight).toBe(tabHeight);
-    expect(addHeight).toBe('30px');
+    expect(addBtn.style.padding).toBe('8px 10px');
+    expect(addBtn.style.minHeight).toBe('44px');
+    expect(addBtn.style.height).toBe('');
   });
 
   it('resets mobile font size with the shared defaults', () => {

@@ -58,9 +58,13 @@ export const KEY_PRESETS = [
   // 특수
   { label: 'ESC', payload: '\x1b' },
   { label: 'TAB', payload: '\t' },
+  { label: 'Shift+Tab', payload: '\x1b[Z' },
   { label: 'Enter', payload: '\r' },
+  { label: 'Space', payload: ' ' },
+  { label: 'Shift+Enter', payload: '\n' },
   { label: 'Del',   payload: '\x1b[3~' },
   { label: '⌫',    payload: '\x7f' },
+  { label: 'Ctrl+Space', payload: '\x00', tone: 'muted' },
 
   // Bash 라인 편집 (Ctrl)
   { label: '^A', payload: '\x01', tone: 'muted' },  // 줄 시작

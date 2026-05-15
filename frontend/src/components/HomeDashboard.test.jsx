@@ -17,8 +17,7 @@ describe('HomeDashboard', () => {
       />
     );
     expect(screen.getByText(/This machine/i)).toBeInTheDocument();
-    // top bar Add host + 빈 슬롯 채움 (jsdom 기본 폭에선 columns=3, fillers=2)
-    expect(screen.getAllByText(/Add host/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Add host/i)).toHaveLength(1);
   });
 
   it('renders saved hosts as cards', () => {
@@ -76,9 +75,8 @@ describe('HomeDashboard', () => {
     render(
       <HomeDashboard hosts={[]} onOpenHost={vi.fn()} onAddHost={onAddHost} t={mockT} />
     );
-    // 상단의 Add host 버튼 + 빈 슬롯 둘 다 같은 동작
     const addButtons = screen.getAllByText(/Add host/i);
-    expect(addButtons.length).toBeGreaterThan(0);
+    expect(addButtons).toHaveLength(1);
     fireEvent.click(addButtons[0]);
     expect(onAddHost).toHaveBeenCalled();
   });

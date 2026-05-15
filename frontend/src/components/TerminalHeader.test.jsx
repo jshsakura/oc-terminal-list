@@ -41,6 +41,18 @@ describe('TerminalHeader', () => {
     expect(skeletons.length).toBe(0);
   });
 
+  it('keeps the focus eye slot while loading and unfocused', () => {
+    const { container } = render(<TerminalHeader {...baseProps({ loading: true, isFocused: false })} />);
+    expect(screen.getByLabelText('paneUnfocused')).toBeTruthy();
+    expect(container.querySelector('.lucide-eye-off')).toBeTruthy();
+  });
+
+  it('shows the open focus eye for the active pane', () => {
+    const { container } = render(<TerminalHeader {...baseProps({ isFocused: true })} />);
+    expect(screen.getByLabelText('paneFocused')).toBeTruthy();
+    expect(container.querySelector('.lucide-eye')).toBeTruthy();
+  });
+
   it('shows skeleton for close button when loading=true and onCloseTerminal provided', () => {
     const { container } = render(
       <TerminalHeader {...baseProps({ loading: true, onCloseTerminal: vi.fn() })} />
@@ -81,6 +93,33 @@ describe('TerminalHeader', () => {
     const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
     fireEvent.click(container.querySelector('[title="Info"]'));
     expect(container.querySelector('[tabindex="-1"]')).toHaveStyle({ backdropFilter: 'blur(18px)' });
+  });
+
+  it('switches side panels with one click while another panel is open', async () => {
+    const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
+
+    fireEvent.click(container.querySelector('[title="Info"]'));
+    expect(await screen.findByText('Info')).toBeTruthy();
+
+    fireEvent.mouseDown(container.querySelector('[title="Theme"]'));
+    fireEvent.click(container.querySelector('[title="Theme"]'));
+
+    await waitFor(() => expect(screen.getByText('Theme')).toBeTruthy());
+  });
+
+  it('highlights the side panel resize handle on hover', async () => {
+    const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
+
+    fireEvent.click(container.querySelector('[title="Info"]'));
+    await screen.findByText('Info');
+
+    const handle = container.querySelector('[title="resizePanel"]');
+    expect(handle).toBeTruthy();
+    expect(handle.firstChild).toHaveStyle({ opacity: '0' });
+
+    fireEvent.mouseEnter(handle);
+    expect(handle.firstChild).toHaveStyle({ opacity: '1' });
+    expect(handle.firstChild).toHaveStyle({ width: '1px' });
   });
 
   it('restores the previously opened side panel for the pane', () => {

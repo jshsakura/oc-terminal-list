@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import {
   Plus, Trash2, ArrowUp, ArrowDown, RotateCcw, Sparkles, ChevronUp,
-  MessageSquare, ClipboardPaste, Image as ImageIcon, X as XIcon,
+  ChevronDown, MessageSquare, ClipboardPaste, Image as ImageIcon, X as XIcon,
+  Copy, FileText, ArrowLeft, ArrowRight, CornerDownLeft, Home, Keyboard, Terminal,
+  GripVertical,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, KEY_PRESETS, decodeUserPayload } from '../utils/mobileKeys';
@@ -15,6 +17,8 @@ const KIND_OPTIONS = [
   { value: 'mod',      labelKey: 'kindModifier', fallback: 'Modifier' },
   { value: 'cmdInput', labelKey: 'kindCmdInput', fallback: 'Quick Input' },
   { value: 'paste',    labelKey: 'kindPaste',    fallback: 'Paste' },
+  { value: 'copy',     labelKey: 'kindCopy',     fallback: 'Copy' },
+  { value: 'copyAll',  labelKey: 'kindCopyAll',  fallback: 'Copy all' },
   { value: 'sep',      labelKey: 'kindDivider',  fallback: 'Divider' },
 ];
 
@@ -35,6 +39,8 @@ const morphForKind = (kind, prev = {}) => {
   if (kind === 'mod')      return { ...base, modifier: prev.modifier || 'ctrl' };
   if (kind === 'cmdInput') return { ...base };
   if (kind === 'paste')    return { ...base };
+  if (kind === 'copy')     return { ...base };
+  if (kind === 'copyAll')  return { ...base };
   if (kind === 'sep')      return { id: prev.id, kind: 'sep' };
   return prev;
 };
@@ -43,10 +49,74 @@ const morphForKind = (kind, prev = {}) => {
 const DEFAULT_ICON_FOR_KIND = {
   cmdInput: MessageSquare,
   paste: ClipboardPaste,
+  copy: Copy,
+  copyAll: FileText,
+};
+
+const PAYLOAD_META = {
+  '\x1b[D': { key: 'Left', Icon: ArrowLeft, code: '\\e[D' },
+  '\x1b[A': { key: 'Up', Icon: ArrowUp, code: '\\e[A' },
+  '\x1b[B': { key: 'Down', Icon: ArrowDown, code: '\\e[B' },
+  '\x1b[C': { key: 'Right', Icon: ArrowRight, code: '\\e[C' },
+  '\x1b[H': { key: 'Home', Icon: Home, code: '\\e[H' },
+  '\x1b[F': { key: 'End', Icon: Home, code: '\\e[F' },
+  '\x1b[5~': { key: 'PgUp', Icon: ChevronUp, code: '\\e[5~' },
+  '\x1b[6~': { key: 'PgDn', Icon: ChevronDown, code: '\\e[6~' },
+  '\x1b[2~': { key: 'Ins', Icon: Keyboard, code: '\\e[2~' },
+  '\x1b[3~': { key: 'Del', Icon: XIcon, code: '\\e[3~' },
+  '\x1b': { key: 'Esc', Icon: Keyboard, code: '\\e' },
+  ' ': { key: 'Space', Icon: Keyboard, code: '␠' },
+  '\t': { key: 'Tab', Icon: Keyboard, code: '\\t' },
+  '\x1b[Z': { key: 'Shift+Tab', Icon: Keyboard, code: '\\e[Z' },
+  '\r': { key: 'Enter', Icon: CornerDownLeft, code: '\\r' },
+  '\n': { key: 'Shift+Enter', Icon: CornerDownLeft, code: '\\n' },
+  '\x7f': { key: 'Backspace', Icon: XIcon, code: '\\x7f' },
+  '\x1bOP': { key: 'F1', Icon: Keyboard, code: '\\eOP' },
+  '\x1bOQ': { key: 'F2', Icon: Keyboard, code: '\\eOQ' },
+  '\x1bOR': { key: 'F3', Icon: Keyboard, code: '\\eOR' },
+  '\x1bOS': { key: 'F4', Icon: Keyboard, code: '\\eOS' },
+  '\x1b[15~': { key: 'F5', Icon: Keyboard, code: '\\e[15~' },
+  '\x1b[17~': { key: 'F6', Icon: Keyboard, code: '\\e[17~' },
+  '\x1b[18~': { key: 'F7', Icon: Keyboard, code: '\\e[18~' },
+  '\x1b[19~': { key: 'F8', Icon: Keyboard, code: '\\e[19~' },
+  '\x1b[20~': { key: 'F9', Icon: Keyboard, code: '\\e[20~' },
+  '\x1b[21~': { key: 'F10', Icon: Keyboard, code: '\\e[21~' },
+  '\x1b[23~': { key: 'F11', Icon: Keyboard, code: '\\e[23~' },
+  '\x1b[24~': { key: 'F12', Icon: Keyboard, code: '\\e[24~' },
+};
+
+const CONTROL_KEY_LABELS = {
+  '\x00': 'Ctrl+Space',
+  '\x01': 'Ctrl+A',
+  '\x02': 'Ctrl+B',
+  '\x03': 'Ctrl+C',
+  '\x04': 'Ctrl+D',
+  '\x05': 'Ctrl+E',
+  '\x06': 'Ctrl+F',
+  '\x0b': 'Ctrl+K',
+  '\x0c': 'Ctrl+L',
+  '\x0e': 'Ctrl+N',
+  '\x10': 'Ctrl+P',
+  '\x12': 'Ctrl+R',
+  '\x14': 'Ctrl+T',
+  '\x15': 'Ctrl+U',
+  '\x17': 'Ctrl+W',
+  '\x19': 'Ctrl+Y',
+  '\x1a': 'Ctrl+Z',
+  '\x1c': 'Ctrl+\\',
+};
+
+const ALT_KEY_LABELS = {
+  '\x1bb': 'Alt+B',
+  '\x1bf': 'Alt+F',
+  '\x1bd': 'Alt+D',
+  '\x1b.': 'Alt+.',
 };
 
 const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
   const [presetsOpen, setPresetsOpen] = useState(false);
+  const [dragIndex, setDragIndex] = useState(null);
+  const [dragOverIndex, setDragOverIndex] = useState(null);
   const tt = (key, fb) => (t?.(key) || fb);
 
   const list = Array.isArray(keys) && keys.length ? keys : DEFAULT_MOBILE_KEYS;
@@ -60,6 +130,17 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
     const next = [...list];
     [next[idx], next[j]] = [next[j], next[idx]];
     onChange?.(next);
+  };
+  const moveTo = (from, to) => {
+    if (from == null || to == null || from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return;
+    const next = [...list];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    onChange?.(next);
+  };
+  const clearDrag = () => {
+    setDragIndex(null);
+    setDragOverIndex(null);
   };
   const addPreset = (preset) => {
     // preset.kind 가 명시되어 있으면 (예: 'sep') 그걸 사용, 없으면 'send'.
@@ -77,6 +158,12 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
   const reset = () => onChange?.(DEFAULT_MOBILE_KEYS);
 
   return (
+    <>
+    <style>{`
+      @media (max-width: 640px) {
+        .iterm-mobile-key-drag-handle { display: none !important; }
+      }
+    `}</style>
     <div style={S.wrap}>
       <div style={S.list}>
         {list.map((k, idx) => (
@@ -92,6 +179,28 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
             onRemove={() => remove(idx)}
             onPatch={(patch) => update(idx, patch)}
             onChangeKind={(nextKind) => replace(idx, morphForKind(nextKind, k))}
+            isDragging={dragIndex === idx}
+            isDragOver={dragOverIndex === idx && dragIndex !== idx}
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = 'move';
+              e.dataTransfer.setData('text/plain', String(idx));
+              setDragIndex(idx);
+              setDragOverIndex(idx);
+            }}
+            onDragOver={(e) => {
+              if (dragIndex == null) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              if (idx !== dragOverIndex) setDragOverIndex(idx);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              const fromRaw = e.dataTransfer.getData('text/plain');
+              const from = dragIndex ?? (fromRaw ? Number(fromRaw) : null);
+              moveTo(from, idx);
+              clearDrag();
+            }}
+            onDragEnd={clearDrag}
             tt={tt}
           />
         ))}
@@ -121,27 +230,71 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
 
       {presetsOpen && (
         <div style={S.presetGrid}>
-          {KEY_PRESETS.map((p) => (
-            <button
-              key={p.label + p.payload}
-              type="button"
+          {KEY_PRESETS.map((p, idx) => (
+            <PresetButton
+              key={`${p.kind || 'send'}-${p.label || ''}-${p.payload || ''}-${idx}`}
+              preset={p}
               onClick={() => addPreset(p)}
-              style={S.presetBtn}
-              title={JSON.stringify(p.payload)}
-            >
-              {p.label}
-            </button>
+              tt={tt}
+            />
           ))}
         </div>
       )}
     </div>
+    </>
   );
 };
 
-const Row = ({ k, idx, total, isFirst, isLast, onUp, onDown, onRemove, onPatch, onChangeKind, tt }) => {
+const PresetButton = ({ preset, onClick, tt }) => {
+  const meta = getPresetMeta(preset, tt);
+  const Icon = meta.Icon;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={S.presetBtn}
+      title={`${meta.key} · ${meta.detail}`}
+    >
+      <span style={S.presetIconSlot} aria-hidden="true">
+        {preset.icon ? (
+          <HostIcon value={preset.icon} size={15} strokeWidth={2.1} />
+        ) : Icon ? (
+          <Icon size={15} strokeWidth={2.1} />
+        ) : (
+          <span style={S.presetDividerIcon}>│</span>
+        )}
+      </span>
+      <span style={S.presetCopy}>
+        <span style={S.presetKey}>{meta.key}</span>
+        <span style={S.presetDetail}>{meta.detail}</span>
+      </span>
+    </button>
+  );
+};
+
+const Row = ({
+  k, idx, total, isFirst, isLast, onUp, onDown, onRemove, onPatch, onChangeKind,
+  isDragging, isDragOver, onDragStart, onDragOver, onDrop, onDragEnd, tt,
+}) => {
   const isSep = k.kind === 'sep';
   return (
-    <div style={S.row}>
+    <div
+      onDragOver={onDragOver}
+      onDrop={onDrop}
+      style={{ ...S.row, ...(isDragging ? S.rowDragging : null), ...(isDragOver ? S.rowDragOver : null) }}
+    >
+      <button
+        type="button"
+        className="iterm-mobile-key-drag-handle"
+        draggable
+        onDragStart={onDragStart}
+        onDragEnd={onDragEnd}
+        title={tt('dragToReorder', 'Drag to reorder')}
+        style={S.dragHandle}
+      >
+        <GripVertical size={13} strokeWidth={2} />
+      </button>
+
       {/* index badge */}
       <span style={S.badge}>{idx + 1}</span>
 
@@ -184,7 +337,7 @@ const Row = ({ k, idx, total, isFirst, isLast, onUp, onDown, onRemove, onPatch, 
               <option value="alt">alt</option>
             </select>
           )}
-          {(k.kind === 'cmdInput' || k.kind === 'paste') && (
+          {(['cmdInput', 'paste', 'copy', 'copyAll'].includes(k.kind)) && (
             <span style={{ flex: 1 }} />
           )}
 
@@ -274,6 +427,42 @@ const displayPayload = (p) => {
     .replace(/[\x00-\x1f\x7f]/g, (c) => '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0'));
 };
 
+const getPresetMeta = (preset, tt) => {
+  const kind = preset.kind || 'send';
+  if (kind === 'copy') {
+    return { key: tt('copy', 'Copy'), detail: tt('presetAction', 'Action'), Icon: Copy };
+  }
+  if (kind === 'copyAll') {
+    return { key: tt('copyAll', 'Copy all'), detail: tt('presetAction', 'Action'), Icon: FileText };
+  }
+  if (kind === 'paste') {
+    return { key: tt('paste', 'Paste'), detail: tt('presetAction', 'Action'), Icon: ClipboardPaste };
+  }
+  if (kind === 'sep') {
+    return { key: tt('kindDivider', 'Divider'), detail: tt('presetSeparator', 'Separator'), Icon: null };
+  }
+
+  const payload = preset.payload || '';
+  if (PAYLOAD_META[payload]) {
+    const meta = PAYLOAD_META[payload];
+    return { key: meta.key, detail: meta.code, Icon: meta.Icon };
+  }
+  if (CONTROL_KEY_LABELS[payload]) {
+    return { key: CONTROL_KEY_LABELS[payload], detail: displayPayload(payload), Icon: Keyboard };
+  }
+  if (ALT_KEY_LABELS[payload]) {
+    return { key: ALT_KEY_LABELS[payload], detail: displayPayload(payload), Icon: Keyboard };
+  }
+
+  const key = preset.label || displayPayload(payload) || '?';
+  const isSubmitText = payload.endsWith('\r') && payload.length > 1;
+  return {
+    key,
+    detail: isSubmitText ? tt('presetTextEnter', 'Text + Enter') : tt('presetText', 'Text'),
+    Icon: Terminal,
+  };
+};
+
 const RowActions = ({ isFirst, isLast, onUp, onDown, onRemove, tt }) => (
   <div style={S.rowActions}>
     <IconBtn disabled={isFirst} onClick={onUp} title={tt('moveUp', 'Move up')}>
@@ -314,17 +503,43 @@ const S = {
     gap: '4px',
     overflowX: 'auto',
     WebkitOverflowScrolling: 'touch',
+    scrollbarWidth: 'thin',
   },
   row: {
     display: 'flex',
     alignItems: 'center',
     gap: '6px',
     padding: '5px 6px',
-    background: color.surface0,
+    background: `color-mix(in srgb, ${color.surface0} 82%, transparent)`,
     border: `1px solid ${color.border}`,
     borderRadius: radius.xs,
     // 가로 최소폭 — 좁은 화면에서 이 폭 유지하고 부모가 스크롤.
     minWidth: '460px',
+    transition: 'background 120ms, border-color 120ms, opacity 120ms, transform 120ms',
+  },
+  rowDragging: {
+    opacity: 0.58,
+    borderColor: color.accentBorder,
+  },
+  rowDragOver: {
+    borderColor: color.accent,
+    background: `color-mix(in srgb, ${color.accent} 10%, ${color.surface0})`,
+    transform: 'translateY(-1px)',
+  },
+  dragHandle: {
+    width: '20px',
+    height: '24px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '3px',
+    color: color.muted,
+    cursor: 'grab',
+    flexShrink: 0,
+    padding: 0,
+    touchAction: 'none',
   },
   badge: {
     flexShrink: 0,
@@ -333,7 +548,7 @@ const S = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: color.crust,
+    background: color.mantle,
     border: `1px solid ${color.border}`,
     borderRadius: '3px',
     fontSize: '10px',
@@ -353,7 +568,7 @@ const S = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: color.crust,
+    background: color.mantle,
     border: `1px solid ${color.border}`,
     borderRadius: '3px',
     color: color.text,
@@ -378,7 +593,7 @@ const S = {
   kindSelect: {
     height: '24px',
     padding: '0 4px',
-    background: color.crust,
+    background: color.mantle,
     color: color.text,
     border: `1px solid ${color.border}`,
     borderRadius: '3px',
@@ -392,7 +607,7 @@ const S = {
   input: {
     height: '24px',
     padding: '0 6px',
-    background: color.crust,
+    background: color.mantle,
     color: color.text,
     border: `1px solid ${color.border}`,
     borderRadius: '3px',
@@ -404,7 +619,7 @@ const S = {
   select: {
     height: '24px',
     padding: '0 4px',
-    background: color.crust,
+    background: color.mantle,
     color: color.text,
     border: `1px solid ${color.border}`,
     borderRadius: '3px',
@@ -456,25 +671,76 @@ const S = {
     borderColor: color.borderStrong,
   },
   presetGrid: {
-    display: 'flex',
-    flexWrap: 'wrap',
-    gap: '4px',
-    background: color.crust,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(118px, 1fr))',
+    gap: '6px',
+    background: `color-mix(in srgb, ${color.surface0} 72%, transparent)`,
     border: `1px solid ${color.border}`,
     borderRadius: radius.sm,
     padding: space['2'],
   },
   presetBtn: {
-    height: '26px',
-    minWidth: '36px',
+    height: '44px',
+    width: '100%',
+    minWidth: 0,
     padding: '0 8px',
-    background: color.surface0,
+    display: 'grid',
+    gridTemplateColumns: '24px minmax(0, 1fr)',
+    alignItems: 'center',
+    gap: '7px',
+    textAlign: 'left',
+    background: `color-mix(in srgb, ${color.mantle} 88%, transparent)`,
     color: color.text,
     border: `1px solid ${color.border}`,
     borderRadius: radius.xs,
     fontSize: fontSize['11'],
-    fontFamily: font.mono,
+    fontFamily: 'inherit',
     cursor: 'pointer',
+  },
+  presetIconSlot: {
+    width: '24px',
+    height: '24px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '4px',
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    color: color.accent,
+    flexShrink: 0,
+  },
+  presetDividerIcon: {
+    fontFamily: font.mono,
+    fontSize: fontSize['13'],
+    lineHeight: 1,
+    color: color.muted,
+  },
+  presetCopy: {
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    gap: '2px',
+  },
+  presetKey: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontFamily: font.mono,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.semibold,
+    lineHeight: 1.05,
+  },
+  presetDetail: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontFamily: font.mono,
+    fontSize: '10px',
+    lineHeight: 1,
+    color: color.muted,
   },
 };
 

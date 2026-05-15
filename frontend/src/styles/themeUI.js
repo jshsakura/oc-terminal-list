@@ -49,7 +49,7 @@ const mix = (col1, col2, t) => {
 export const buildThemeUI = (theme) => {
   const bg = theme.background || '#1a1a25';
   const fg = theme.foreground || '#e4e6f1';
-  const accent = theme.blue || theme.cyan || '#89b4fa';
+  const accent = theme.ui?.accent || theme.blue || theme.cyan || '#89b4fa';
   const success = theme.green || '#a6e3a1';
   const warning = theme.yellow || '#f9e2af';
   const danger  = theme.red || '#f38ba8';

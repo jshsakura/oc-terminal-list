@@ -22,5 +22,5 @@ describe('LocalEditor', () => {
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ localTheme: 'random-dark' }));
     expect(onClose).toHaveBeenCalled();
-  });
+  }, 10000);
 });

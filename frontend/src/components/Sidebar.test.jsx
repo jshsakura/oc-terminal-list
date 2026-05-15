@@ -110,4 +110,16 @@ describe('Sidebar', () => {
       document.querySelector('[title="Hosts"]');
     expect(hostsTitle).toBeTruthy();
   });
+
+  it('highlights the resize handle while hovered', () => {
+    const { container } = render(<Sidebar {...baseProps({ onResizeStart: vi.fn() })} />);
+    const handle = container.querySelector('[title="Adjust width"]');
+    expect(handle).toBeTruthy();
+
+    const indicator = handle.firstChild;
+    expect(indicator).toHaveStyle({ opacity: '0' });
+
+    fireEvent.mouseEnter(handle);
+    expect(indicator).toHaveStyle({ opacity: '1' });
+  });
 });

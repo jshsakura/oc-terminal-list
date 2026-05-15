@@ -1,13 +1,13 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { Terminal as TerminalIcon, Lock, User, ClipboardPaste, Check, ArrowLeft, KeyRound, Smartphone } from 'lucide-react';
+import { Terminal as TerminalIcon, Lock, User, ClipboardPaste, Check, ArrowLeft, KeyRound, Smartphone, Eye, EyeOff } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
-import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import { buildThemeUI } from '../styles/themeUI';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
 
 const OTP_CODE_PATTERN = /^\d{6}$/;
+const REMEMBER_USERNAME_KEY = 'iterm:login:remember-username';
 
 const readAuthResponse = async (response, fallbackMessage) => {
   let data = {};
@@ -56,7 +56,12 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
   const themeUi = useMemo(() => (theme ? buildThemeUI(theme) : {}), [theme]);
   const themed = useMemo(() => buildThemed(themeUi), [themeUi]);
   const [step, setStep] = useState('credentials');
-  const [username, setUsername] = useState('');
+  const [username, setUsername] = useState(() => {
+    try { return localStorage.getItem(REMEMBER_USERNAME_KEY) || ''; } catch { return ''; }
+  });
+  const [rememberUsername, setRememberUsername] = useState(() => {
+    try { return Boolean(localStorage.getItem(REMEMBER_USERNAME_KEY)); } catch { return false; }
+  });
   const [password, setPassword] = useState('');
   const [pendingToken, setPendingToken] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -67,6 +72,7 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
   const [visible, setVisible] = useState(false);
   const [vpStyle, setVpStyle] = useState(null);
   const scrollRef = useRef(null);
+  const otpSubmittingRef = useRef(false);
 
   useEffect(() => { ensureLoginStyle(); requestAnimationFrame(() => setVisible(true)); }, []);
 
@@ -98,11 +104,15 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
 
   const showError = (msg) => { setError(msg); setErrorKey((k) => k + 1); };
 
-  const finishLogin = (data) => {
+  const finishLogin = useCallback((data) => {
+    try {
+      if (rememberUsername) localStorage.setItem(REMEMBER_USERNAME_KEY, username);
+      else localStorage.removeItem(REMEMBER_USERNAME_KEY);
+    } catch { /* storage unavailable */ }
     localStorage.setItem('auth_token', data.access_token);
     localStorage.setItem('username', data.username);
     onLogin(data.access_token, data.username);
-  };
+  }, [onLogin, rememberUsername, username]);
 
   const handleCredentialsSubmit = async (e) => {
     e.preventDefault();
@@ -136,8 +146,8 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
     }
   };
 
-  const handleOtpSubmit = async (e) => {
-    e.preventDefault();
+  const verifyOtp = useCallback(async () => {
+    if (otpSubmittingRef.current) return;
     setError('');
     const trimmed = otpCode.trim();
     if (!trimmed) {
@@ -148,6 +158,7 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
       showError(t('otpEnterSixDigitCode') || 'Enter the 6-digit code from your authenticator app');
       return;
     }
+    otpSubmittingRef.current = true;
     setIsLoading(true);
     try {
       const response = await fetch('/api/auth/login/otp', {
@@ -165,9 +176,20 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
       showError(err.message);
       setOtpCode('');
     } finally {
+      otpSubmittingRef.current = false;
       setIsLoading(false);
     }
+  }, [finishLogin, otpCode, pendingToken, t, useBackupCode]);
+
+  const handleOtpSubmit = async (e) => {
+    e.preventDefault();
+    await verifyOtp();
   };
+
+  useEffect(() => {
+    if (step !== 'otp' || useBackupCode || isLoading || !pendingToken) return;
+    if (OTP_CODE_PATTERN.test(otpCode.trim())) verifyOtp();
+  }, [isLoading, otpCode, pendingToken, step, useBackupCode, verifyOtp]);
 
   const goBack = () => {
     setStep('credentials');
@@ -237,19 +259,39 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
               disabled={isLoading}
               themed={themed}
               icon={Lock}
+              revealable
+              revealLabel={t('showSecret') || 'Show'}
+              concealLabel={t('hideSecret') || 'Hide'}
             />
+
+            <div style={themed.checkRow}>
+              <input
+                type="checkbox"
+                checked={rememberUsername}
+                onChange={(e) => setRememberUsername(e.target.checked)}
+                disabled={isLoading}
+                aria-label={t('rememberUsernameToggle') || 'Remember username'}
+                style={themed.checkbox}
+              />
+              <button
+                type="button"
+                onClick={() => setRememberUsername((v) => !v)}
+                disabled={isLoading}
+                style={themed.checkTextBtn}
+              >
+                {t('rememberUsername') || 'Remember ID'}
+              </button>
+            </div>
 
             {error && <div key={errorKey} style={{ ...themed.error, animation: 'login-shake 0.35s ease' }}>{error}</div>}
 
-            <Button
-              variant="primary"
-              size="large"
-              fullWidth
+            <ThemedSubmitButton
               type="submit"
               disabled={isLoading}
+              themed={themed}
             >
               {isLoading ? (t('signingIn') || 'Signing in...') : (t('signIn') || 'Sign in')}
-            </Button>
+            </ThemedSubmitButton>
           </form>
         ) : (
           <form onSubmit={handleOtpSubmit} style={themed.form}>
@@ -292,15 +334,13 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
 
             {error && <div key={errorKey} style={{ ...themed.error, animation: 'login-shake 0.35s ease' }}>{error}</div>}
 
-            <Button
-              variant="primary"
-              size="large"
-              fullWidth
+            <ThemedSubmitButton
               type="submit"
               disabled={isLoading || !canSubmitOtp}
+              themed={themed}
             >
               {isLoading ? (t('verifying') || 'Verifying...') : (t('signIn') || 'Sign in')}
-            </Button>
+            </ThemedSubmitButton>
 
             <div style={themed.linkRow}>
               <button type="button" onClick={goBack} style={themed.linkBtn} disabled={isLoading}
@@ -330,9 +370,37 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
   );
 };
 
-const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, autoFocus, inputMode, mono, autoComplete, themed, icon: Icon, pasteAction }) => {
+const ThemedSubmitButton = ({ children, disabled, themed, type = 'button' }) => (
+  <button
+    type={type}
+    disabled={disabled}
+    style={{
+      ...themed.submitBtn,
+      opacity: disabled ? 0.45 : 1,
+      cursor: disabled ? 'not-allowed' : 'pointer',
+    }}
+    onMouseEnter={(e) => {
+      if (disabled) return;
+      e.currentTarget.style.background = themed._submitHoverBg;
+      e.currentTarget.style.borderColor = themed._submitHoverBorder;
+      e.currentTarget.style.boxShadow = themed._submitHoverShadow;
+    }}
+    onMouseLeave={(e) => {
+      e.currentTarget.style.background = themed.submitBtn.background;
+      e.currentTarget.style.borderColor = themed.submitBtn.borderColor;
+      e.currentTarget.style.boxShadow = themed.submitBtn.boxShadow;
+    }}
+  >
+    {children}
+  </button>
+);
+
+const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, autoFocus, inputMode, mono, autoComplete, themed, icon: Icon, pasteAction, revealable = false, revealLabel = 'Show password', concealLabel = 'Hide password' }) => {
   const [focused, setFocused] = useState(false);
   const [pasteOk, setPasteOk] = useState(false);
+  const [secretVisible, setSecretVisible] = useState(false);
+  const isSecret = type === 'password' && revealable;
+  const SecretIcon = secretVisible ? EyeOff : Eye;
   const handlePasteClick = async () => {
     try {
       const text = await navigator.clipboard.readText();
@@ -354,7 +422,7 @@ const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, a
       }}>
         {Icon && <Icon size={14} strokeWidth={2} style={{ color: focused ? themed._inputFocusBorder : themed._iconMuted, flexShrink: 0 }} />}
         <input
-          type={type}
+          type={isSecret && secretVisible ? 'text' : type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
@@ -371,6 +439,18 @@ const Field = ({ label, value, onChange, type = 'text', placeholder, disabled, a
             textAlign: mono ? 'center' : 'left',
           }}
         />
+        {isSecret && (
+          <button
+            type="button"
+            onClick={() => setSecretVisible((v) => !v)}
+            disabled={disabled}
+            aria-label={secretVisible ? concealLabel : revealLabel}
+            title={secretVisible ? concealLabel : revealLabel}
+            style={themed.iconBtn}
+          >
+            <SecretIcon size={14} strokeWidth={2} />
+          </button>
+        )}
         {pasteAction && (
           <button
             type="button"
@@ -564,6 +644,47 @@ const buildThemed = (ui) => {
       height: '100%',
       padding: 0,
     },
+    iconBtn: {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '26px',
+      height: '26px',
+      border: 'none',
+      background: 'transparent',
+      borderRadius: radius.xs,
+      color: t.muted,
+      cursor: 'pointer',
+      flexShrink: 0,
+      padding: 0,
+      transition: `background ${motion.fast}, color ${motion.fast}`,
+    },
+    checkRow: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      alignSelf: 'flex-start',
+      gap: space['2'],
+      color: t.subtext,
+      fontSize: fontSize['12'],
+      cursor: 'pointer',
+      marginTop: `-${space['2']}`,
+      userSelect: 'none',
+    },
+    checkTextBtn: {
+      padding: 0,
+      border: 'none',
+      background: 'transparent',
+      color: 'inherit',
+      font: 'inherit',
+      cursor: 'pointer',
+    },
+    checkbox: {
+      width: '14px',
+      height: '14px',
+      accentColor: t.accent,
+      cursor: 'pointer',
+      flexShrink: 0,
+    },
 
     error: {
       fontSize: fontSize['12'],
@@ -573,6 +694,25 @@ const buildThemed = (ui) => {
       borderRadius: radius.sm,
       padding: `${space['2']} ${space['3']}`,
       textAlign: 'center',
+    },
+    submitBtn: {
+      width: '100%',
+      height: '38px',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.sm,
+      border: `1px solid ${alpha(t.accent, '88', 'rgba(137, 180, 250, 0.54)')}`,
+      background: t.accent,
+      color: t.crust,
+      fontFamily: 'inherit',
+      fontSize: fontSize['13'],
+      fontWeight: fontWeight.semibold,
+      letterSpacing: 'normal',
+      userSelect: 'none',
+      outline: 'none',
+      boxShadow: `0 10px 26px ${alpha(t.accent, '2e', 'rgba(137, 180, 250, 0.18)')}`,
+      transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}, opacity ${motion.fast}, box-shadow ${motion.fast}`,
     },
 
     linkRow: {
@@ -603,6 +743,9 @@ const buildThemed = (ui) => {
     _inputFocusBorder: t.accentBorder,
     _inputFocusShadow: `0 0 0 1px ${alpha(t.accentBorder, '88', 'rgba(137, 180, 250, 0.54)')}`,
     _iconMuted: t.muted,
+    _submitHoverBg: t.accent,
+    _submitHoverBorder: t.accent,
+    _submitHoverShadow: `0 12px 30px ${alpha(t.accent, '45', 'rgba(137, 180, 250, 0.27)')}`,
   };
 };
 

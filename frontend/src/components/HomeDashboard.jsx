@@ -94,15 +94,6 @@ const HomeDashboard = ({
           <span style={styles.title}>
             {t?.('connections') || 'Connections'}
           </span>
-          <button
-            style={styles.addHostBtn}
-            onClick={onAddHost}
-            onMouseEnter={(e) => { e.currentTarget.style.background = color.accent; e.currentTarget.style.color = color.crust; e.currentTarget.style.borderColor = color.accent; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.accent; e.currentTarget.style.borderColor = color.accentBorder; }}
-          >
-            <Plus size={12} strokeWidth={2.2} />
-            <span>{t?.('addHost') || 'Add host'}</span>
-          </button>
         </div>
 
         <div style={{
@@ -323,21 +314,6 @@ const styles = {
     color: color.subtext,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
-  },
-  addHostBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '5px',
-    padding: '5px 12px',
-    background: 'transparent',
-    border: `1px solid ${color.accentBorder}`,
-    borderRadius: radius.sm,
-    cursor: 'pointer',
-    color: color.accent,
-    fontSize: fontSize['12'],
-    fontWeight: fontWeight.medium,
-    transition: 'background 150ms, border-color 150ms, color 150ms',
-    fontFamily: font.sans,
   },
   row: {
     display: 'flex',

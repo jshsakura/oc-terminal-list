@@ -2116,6 +2116,7 @@ function App() {
             refreshHosts={refreshHosts}
             onAddHost={() => { setIsSettingsOpen(false); setHostEditorState({ isOpen: true, host: null, reopenSettings: true }); }}
             onEditHost={(h) => { setIsSettingsOpen(false); setHostEditorState({ isOpen: true, host: h, reopenSettings: true }); }}
+            onEditLocal={() => { setIsSettingsOpen(false); setLocalEditorOpen(true); }}
             onAddKey={() => { setEditingKey(null); setKeyManagerOpen(true); }}
             onEditKey={(k) => { setEditingKey(k); setKeyManagerOpen(true); }}
             onLogout={() => { setIsSettingsOpen(false); logout?.(); }}

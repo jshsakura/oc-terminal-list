@@ -45,6 +45,7 @@ const THEME_LABELS = {
   andromeda:           'Andromeda',
   // Dark — 네온
   cyberdream:          'Cyberdream',
+  abyssalEmber:        'Abyssal Ember',
   // Light
   catppuccinLatte:     'Catppuccin Latte',
   solarizedLight:      'Solarized Light',
@@ -56,6 +57,7 @@ const THEME_LABELS = {
   noctisLux:           'Noctis Lux',
   lavender:            'Lavender',
   blossom:             'Blossom',
+  blueprintPaper:      'Blueprint Paper',
   springDay:           'Spring Day',
   tokyoNightDay:       'Tokyo Night Day',
   everforestLight:     'Everforest Light',
@@ -66,6 +68,10 @@ const capitalize = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const ALL_IDS = Object.keys(THEME_LABELS);
 export const DARK_IDS = ALL_IDS.filter((id) => !isLight(themes[id]?.background || ''));
 export const LIGHT_IDS = ALL_IDS.filter((id) => isLight(themes[id]?.background || ''));
+const tx = (t, key, fallback) => {
+  const value = t?.(key);
+  return value && value !== key ? value : fallback;
+};
 
 // Resolves 'random-dark' or 'random-light' to a concrete theme id,
 // preferring themes not already in use by open panes.
@@ -77,10 +83,12 @@ export const resolveRandomTheme = (variant, usedThemeIds = []) => {
   return candidates[Math.floor(Math.random() * candidates.length)];
 };
 
-const RandomRow = ({ variant, isActive, onClick }) => {
+const RandomRow = ({ variant, isActive, onClick, t }) => {
   const [hovered, setHovered] = useState(false);
   const isDark = variant === 'random-dark';
   const highlighted = hovered || isActive;
+  const randomLabel = tx(t, 'themeRandom', 'Random');
+  const modeLabel = isDark ? tx(t, 'themeDark', 'Dark') : tx(t, 'themeLight', 'Light');
   return (
     <button
       type="button"
@@ -105,7 +113,7 @@ const RandomRow = ({ variant, isActive, onClick }) => {
       }}
     >
       <Shuffle size={13} strokeWidth={1.7} style={{ flexShrink: 0, opacity: 0.75 }} />
-      <span style={{ flex: 1 }}>{isDark ? 'Dark (Random)' : 'Light (Random)'}</span>
+      <span style={{ flex: 1 }}>{`${modeLabel} (${randomLabel})`}</span>
       <span style={{ width: '11px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {isActive && <Check size={11} style={{ color: color.accent }} />}
       </span>
@@ -208,6 +216,7 @@ const ThemePicker = ({ value, onChange, t, markedId, columns = 1, allowEmpty = f
             variant={randomVariant}
             isActive={value === randomVariant}
             onClick={(v) => onChange?.(v)}
+            t={t}
           />
         )}
         {ids.map((id) => {

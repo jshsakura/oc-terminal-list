@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   RotateCcw, SlidersHorizontal, Server, Key as KeyIcon, Plus,
   Settings as GearIcon, ChevronRight, LogOut, Smartphone, ChevronDown,
+  HelpCircle,
 } from 'lucide-react';
 import ThemePicker from './common/ThemePicker';
 import GlassModal from './common/GlassModal';
@@ -24,6 +25,7 @@ const TABS = [
   { id: 'mobile',  icon: Smartphone,        labelKey: 'mobile',      fallback: 'Mobile' },
   { id: 'hosts',   icon: Server,            labelKey: 'manageHosts', fallback: 'Hosts' },
   { id: 'keys',    icon: KeyIcon,           labelKey: 'sshKeys',     fallback: 'SSH Keys' },
+  { id: 'info',    icon: HelpCircle,        labelKey: 'infoShortcuts', fallback: 'Shortcuts' },
 ];
 
 const SETTINGS_TABS = new Set(['general', 'mobile']);
@@ -32,6 +34,7 @@ const Settings = ({
   isOpen, onClose, settings, onSave, username,
   hosts = [], sshKeys = [], refreshHosts = null,
   onAddHost, onEditHost,
+  onEditLocal,
   onAddKey,  onEditKey,
   onLogout,
 }) => {
@@ -86,8 +89,10 @@ const Settings = ({
     <>
       <span style={styles.footerNote}>
         {tab === 'hosts'
-          ? `${hosts.length} ${t('savedHosts') || 'hosts'}`
-          : `${sshKeys.length} ${t('keys') || 'keys'}`}
+          ? `${(t('thisMachine') || 'This machine')} · ${hosts.length} ${t('savedHosts') || 'hosts'}`
+          : tab === 'keys'
+            ? `${sshKeys.length} ${t('keys') || 'keys'}`
+            : t('infoShortcuts') || 'Shortcuts'}
       </span>
       <Button variant="secondary" onClick={onClose}>{t('close') || 'Close'}</Button>
     </>
@@ -117,10 +122,21 @@ const Settings = ({
         <MobilePanel s={s} change={change} t={t} />
       )}
       {tab === 'hosts' && (
-        <HostsPanel hosts={hosts} refreshHosts={refreshHosts} onAdd={onAddHost} onEdit={onEditHost} t={t} />
+        <HostsPanel
+          hosts={hosts}
+          settings={s}
+          refreshHosts={refreshHosts}
+          onAdd={onAddHost}
+          onEdit={onEditHost}
+          onEditLocal={onEditLocal}
+          t={t}
+        />
       )}
       {tab === 'keys' && (
         <KeysPanel keys={sshKeys} onAdd={onAddKey} onEdit={onEditKey} t={t} />
+      )}
+      {tab === 'info' && (
+        <InfoPanel t={t} />
       )}
     </GlassModal>
   );
@@ -258,11 +274,34 @@ const MobilePanel = ({ s, change, t }) => (
   </>
 );
 
-const HostsPanel = ({ hosts, refreshHosts, onAdd, onEdit, t }) => {
+const HostsPanel = ({ hosts, settings, refreshHosts, onAdd, onEdit, onEditLocal, t }) => {
   // 모든 사용처와 동일한 hook → 어디서 옮겨도 같은 서버 sort_index 로 동기.
   const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
+  const localAccent = tokens.color.dotPalette[(settings?.localColorIndex ?? 0) % tokens.color.dotPalette.length] || HOST_DOT_PALETTE_FALLBACK;
+  const localName = (settings?.localName || '').trim() || (t('thisMachine') || 'This machine');
+  const localSub = [
+    'localhost',
+    (settings?.localStartPath || '').trim() || (t('noStartPath') || 'No start path'),
+  ].join(' · ');
   return (
     <Section title={t('savedHosts') || 'Saved hosts'}>
+      <button
+        type="button"
+        onClick={() => onEditLocal?.()}
+        style={styles.listRow}
+        onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; }}
+      >
+        <span style={{ ...styles.listIcon, color: localAccent }}>
+          <HostIcon value={settings?.localIcon || ''} fallback={Server} size={14} />
+        </span>
+        <div style={styles.listText}>
+          <div style={styles.listName}>{localName}</div>
+          <div style={styles.listSub}>{localSub}</div>
+        </div>
+        <ChevronRight size={12} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
+      </button>
+
       {hosts.length === 0 && (
         <div style={styles.empty}>{t('noHostsYet') || 'No hosts yet. Add one to get started.'}</div>
       )}
@@ -375,6 +414,47 @@ const KeysPanel = ({ keys, onAdd, onEdit, t }) => (
       </button>
     )}
   </Section>
+);
+
+const InfoPanel = ({ t }) => (
+  <Section title={t('infoShortcuts') || 'Shortcuts'}>
+    <div style={shortcutStyles.group}>
+      <ShortcutRow keys={[t('drag') || 'Drag']} desc={t('shortcutSelect') || 'Select text (auto-copy)'} />
+      <ShortcutRow keys={[t('doubleClick') || 'Double-click']} desc={t('shortcutSelectWord') || 'Select word'} />
+      <ShortcutRow keys={[t('tripleClick') || 'Triple-click']} desc={t('shortcutSelectLine') || 'Select line'} />
+      <ShortcutRow keys={[t('rightClick') || 'Right-click']} desc={t('shortcutContextMenu') || 'Context menu'} />
+      <ShortcutRow keys={[t('wheel') || 'Wheel']} desc={t('shortcutScroll') || 'Scroll terminal history'} />
+    </div>
+    <Divider />
+    <div style={shortcutStyles.group}>
+      <ShortcutRow keys={['Ctrl', 'V']} desc={t('shortcutPaste') || 'Paste (bracketed)'} />
+      <ShortcutRow keys={['Ctrl', 'Shift', 'C']} desc={t('shortcutCopy') || 'Copy selection'} />
+      <ShortcutRow keys={['Ctrl', 'C']} desc={t('shortcutSigint') || 'Interrupt (SIGINT)'} />
+      <ShortcutRow keys={['Ctrl', 'Shift', 'F']} desc={t('shortcutSearch') || 'Find in terminal'} />
+      <ShortcutRow keys={['F12']} desc={t('shortcutDevtools') || 'Open DevTools'} />
+    </div>
+    <Divider />
+    <div style={shortcutStyles.group}>
+      <ShortcutRow keys={['Ctrl', 'Shift', 'P']} desc={t('shortcutCommandPalette') || 'Command palette'} />
+      <ShortcutRow keys={['Ctrl', 'T']} desc={t('shortcutNewTab') || 'New tab'} />
+      <ShortcutRow keys={['Ctrl', 'W']} desc={t('shortcutCloseTab') || 'Close tab'} />
+      <ShortcutRow keys={['Ctrl', '\\']} desc={t('shortcutSplitRight') || 'Split right'} />
+      <ShortcutRow keys={['Ctrl', 'Shift', '\\']} desc={t('shortcutSplitDown') || 'Split down'} />
+      <ShortcutRow keys={['Ctrl', 'P']} desc={t('shortcutQuickOpen') || 'Quick open files'} />
+      <ShortcutRow keys={['Ctrl', 'S']} desc={t('shortcutSave') || 'Save file'} />
+    </div>
+  </Section>
+);
+
+const ShortcutRow = ({ keys, desc }) => (
+  <div style={shortcutStyles.row}>
+    <div style={shortcutStyles.keys}>
+      {keys.map((key, index) => (
+        <span key={`${key}-${index}`} style={shortcutStyles.kbd}>{key}</span>
+      ))}
+    </div>
+    <div style={shortcutStyles.desc}>{desc}</div>
+  </div>
 );
 
 const Section = ({ title, children }) => (
@@ -533,6 +613,52 @@ const fszStyles = {
   },
 };
 
+const shortcutStyles = {
+  group: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '4px',
+  },
+  row: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space['3'],
+    minHeight: '26px',
+    padding: '4px 6px',
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.sm,
+  },
+  keys: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '4px',
+    flexShrink: 0,
+    flexWrap: 'wrap',
+  },
+  kbd: {
+    minHeight: '18px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '0 6px',
+    borderRadius: '5px',
+    background: color.mantle,
+    border: `1px solid ${color.border}`,
+    color: color.text,
+    fontFamily: font.mono,
+    fontSize: '11px',
+    lineHeight: 1,
+  },
+  desc: {
+    minWidth: 0,
+    color: color.subtext,
+    fontSize: fontSize['12'],
+    textAlign: 'right',
+    lineHeight: 1.35,
+  },
+};
+
 const styles = {
   tabBar: {
     display: 'flex',
@@ -595,6 +721,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
+    minHeight: '44px',
     padding: '8px 10px',
     background: color.surface0,
     border: `1px solid ${color.border}`,
@@ -640,8 +767,8 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '10px',
-    height: '30px',
-    padding: '0 10px',
+    minHeight: '44px',
+    padding: '8px 10px',
     width: '100%',
     background: color.surface0,
     border: `1px solid ${color.border}`,

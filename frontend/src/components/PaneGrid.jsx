@@ -556,6 +556,7 @@ const Pane = ({
   const paneDragZoneRef = useRef(null);
   const [isDragTargeted, setIsDragTargeted] = useState(false); // show overlay above xterm canvas during any pane/tab drag
   const [pendingClose, setPendingClose] = useState(false);
+  const paneCount = tab?.panes?.length || 1;
 
   /** Parse pane drag payload from custom MIME or text/plain fallback.
    *  Returns {type:'pane', tabId, paneId} or null. */
@@ -594,6 +595,14 @@ const Pane = ({
     if (y < h * 0.2) return 'top';
     if (y > h * 0.8) return 'bottom';
     return x < w * 0.5 ? 'left' : 'right';
+  };
+
+  // 단독 pane 을 자기 자신에게 드래그할 때는 "절반" 선택으로 해석한다.
+  // 아래 절반 = 현재 pane 이 위로 줄고 하단에 빈 pane 생성.
+  const getSelfPaneDragZone = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const y = e.clientY - rect.top;
+    return y >= rect.height * 0.5 ? 'bottom' : 'top';
   };
 
   const handleTabDragOver = useCallback((e) => {
@@ -639,17 +648,20 @@ const Pane = ({
     const raw = (hasCustomMime
       ? e.dataTransfer.getData('application/x-iterminallist-pane')
       : e.dataTransfer.getData('text/plain')) || '';
+    let dragPayload = null;
     try {
-      const obj = JSON.parse(raw);
-      if (obj?.paneId === pane.id) { e.dataTransfer.dropEffect = 'none'; return; }
+      dragPayload = JSON.parse(raw);
+      if (dragPayload?.paneId === pane.id && paneCount > 1) { e.dataTransfer.dropEffect = 'none'; return; }
     } catch { /* not JSON, continue */ }
     e.preventDefault();
     try { e.dataTransfer.dropEffect = 'move'; } catch {}
-    const zone = getPaneDragZone(e);
+    const zone = dragPayload?.paneId === pane.id && paneCount === 1
+      ? getSelfPaneDragZone(e)
+      : getPaneDragZone(e);
     paneDragZoneRef.current = zone;
     setPaneDragZone(zone);
     setIsDragTargeted(true);
-  }, [pane.id]);
+  }, [pane.id, paneCount]);
 
   const handlePaneDragLeave = useCallback((e) => {
     if (!e.currentTarget.contains(e.relatedTarget)) {
@@ -671,13 +683,20 @@ const Pane = ({
     e.preventDefault();
     e.stopPropagation();
 
-    if (payload.paneId === pane.id) return; // self-drop: ignore
+    if (payload.paneId === pane.id) {
+      if (paneCount === 1 && zone && onSplitPane) {
+        const effectiveDir = zone === 'top' ? 'up' : zone === 'bottom' ? 'down' : zone;
+        onSplitPane(effectiveDir);
+        onEqualizePane?.();
+      }
+      return;
+    }
 
     if (zone && onPaneDragToSplit) {
       onPaneDragToSplit(currentTabId, payload.paneId, pane.id, zone);
       onEqualizePane?.();
     }
-  }, [pane.id, tab?.id, onPaneDragToSplit, onEqualizePane, parsePanePayload]);
+  }, [pane.id, paneCount, tab?.id, onPaneDragToSplit, onSplitPane, onEqualizePane, parsePanePayload]);
 
   // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — TerminalHeader 등 팬 내부 UI 가 이 변수를 씀.
   // :root 는 건드리지 않으므로 좌측 레일·상단 헤더는 글로벌 테마 유지.
@@ -750,7 +769,7 @@ const Pane = ({
           handleTabDragOver(e);
         } else if (types.includes('application/x-iterminallist-pane') || types.includes('text/plain')) {
           // Skip self-drag: if the global dragging pane id matches this pane, show nothing
-          if (window.__draggingPaneId && window.__draggingPaneId === pane.id) return;
+          if (window.__draggingPaneId && window.__draggingPaneId === pane.id && paneCount > 1) return;
           setIsDragTargeted(true);
         }
       }}
@@ -910,8 +929,10 @@ const Pane = ({
               ? !!(hosts.find((h) => h.id === pane.hostId)?.use_remote_tmux) || !!pane.tmuxSessionName
               : true,
             host: pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null,
-            tabIcon: tab?.icon || null,
-            tabColorIndex: tab?.color_index ?? 0,
+            tabIcon: pane.hostId ? (tab?.icon || null) : (settings.localIcon || tab?.icon || null),
+            tabColorIndex: pane.hostId
+              ? (tab?.color_index ?? 0)
+              : (settings.localColorIndex ?? tab?.color_index ?? 0),
             paneName: pane.name || null,
             cwd: isLocal ? (paneCwdRel ?? '') : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null),
             cwdAbsolute: paneCwdAbs || null,
@@ -1253,6 +1274,7 @@ const SubTabBar = ({
     : color.accent;
   const activeTheme = themes[activeThemeId || settings?.theme] || themes.catppuccin;
   const subUi = buildThemeUI(activeTheme);
+  const subTabBarBg = `color-mix(in srgb, ${subUi.mantle || subUi.base} 88%, ${subUi.accent || tabBarAccent} 12%)`;
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -1305,7 +1327,7 @@ const SubTabBar = ({
           display: 'flex',
           alignItems: 'stretch',
           height: '34px',
-          background: subUi.base,
+          background: subTabBarBg,
           borderBottom: `1px solid ${subUi.border}`,
           overflowX: 'auto',
           overflowY: 'hidden',
@@ -1334,6 +1356,7 @@ const SubTabBar = ({
             ? color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length]
             : null;
           const paneAccent = hostAccent || localAccent || paneUi.accent || tabBarAccent;
+          const activeBg = `color-mix(in srgb, ${paneUi.surface0 || paneUi.base} 84%, ${paneAccent} 16%)`;
           const isDragging = touchReorder.draggingId === pane.id;
           const isDragOver = touchReorder.dragOverId === pane.id && touchReorder.draggingId && touchReorder.draggingId !== pane.id;
           const touchProps = onReorder ? touchReorder.getItemProps(pane.id) : null;
@@ -1352,7 +1375,7 @@ const SubTabBar = ({
                 gap: '5px',
                 padding: '0 10px',
                 height: '100%',
-                background: isActive ? paneUi.surface0 : 'transparent',
+                background: isActive ? activeBg : 'transparent',
                 border: 'none',
                 borderRadius: 0,
                 // Active: bottom accent line via box-shadow (non-layout, no box-model disruption)

@@ -27,6 +27,9 @@ import {
 } from '../utils/terminalMouseSelection';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
+const RECOVERY_GRACE_MS = 12000;
+const RECOVERY_POLL_MS = 1000;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // clipboard.writeText 가 없거나 비-HTTPS 컨텍스트에서 실패할 경우 textarea 폴백.
 const copyTextToClipboard = (text) => {
@@ -73,6 +76,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
   const wsRef = useRef(null);
+  const wsGenerationRef = useRef(0);
   const resizeTimeoutRef = useRef(null);
   const resizeTrailingTimeoutRef = useRef(null);
   const fitNowRef = useRef(null);
@@ -706,45 +710,52 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
       const socket = new WebSocket(wsUrl);
       socket.binaryType = 'arraybuffer';
+      const wsGeneration = wsGenerationRef.current + 1;
+      wsGenerationRef.current = wsGeneration;
       wsRef.current = socket;
 
       socket.onopen = () => {
-      logger.info(`WebSocket 연결 성공: ${sessionId}`);
-      ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
-      setIsReady(true);
-      reconnectAttemptsRef.current = 0;
-      
-      // 서버에 현재 크기 무조건 한번 더 전송 — tmux 가 이전 클라이언트 차원으로 잠긴 케이스 강제 갱신.
-      const sendResize = () => {
-        try { fitAddon.fit(); } catch {}
-        const dims = fitAddon.proposeDimensions();
-        const c = dims?.cols || term.cols || 80;
-        const r = dims?.rows || term.rows || 24;
-        lastDimsRef.current = { cols: c, rows: r };
-        if (socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify({ type: 'resize', cols: c, rows: r }));
-        }
-      };
-      setTimeout(sendResize, 0);
+        if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
+        logger.info(`WebSocket 연결 성공: ${sessionId}`);
+        ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
+        setIsReady(true);
+        reconnectAttemptsRef.current = 0;
 
-      // 호스트 세션은 attach 후 SIGWINCH 한 번 더 흔들어서 tmux→shell 재그리기 유도.
-      // (Ctrl+L 은 zsh 키바인딩이 없는 환경에선 ^L 노출되므로 사용 안 함)
-      if (hostId) {
-        setTimeout(() => {
-          if (socket.readyState !== WebSocket.OPEN) return;
+        // 서버에 현재 크기 무조건 한번 더 전송 — tmux 가 이전 클라이언트 차원으로 잠긴 케이스 강제 갱신.
+        const sendResize = () => {
+          if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
+          try { fitAddon.fit(); } catch {}
           const dims = fitAddon.proposeDimensions();
           const c = dims?.cols || term.cols || 80;
           const r = dims?.rows || term.rows || 24;
-          // 1px 줄였다가 즉시 복원 → SIGWINCH 가 확실히 두 번 전파
-          socket.send(JSON.stringify({ type: 'resize', cols: Math.max(20, c - 1), rows: Math.max(5, r - 1) }));
+          lastDimsRef.current = { cols: c, rows: r };
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'resize', cols: c, rows: r }));
+          }
+        };
+        setTimeout(sendResize, 0);
+
+        // 호스트 세션은 attach 후 SIGWINCH 한 번 더 흔들어서 tmux→shell 재그리기 유도.
+        // (Ctrl+L 은 zsh 키바인딩이 없는 환경에선 ^L 노출되므로 사용 안 함)
+        if (hostId) {
           setTimeout(() => {
+            if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
             if (socket.readyState === WebSocket.OPEN) {
-              socket.send(JSON.stringify({ type: 'resize', cols: c, rows: r }));
+              const dims = fitAddon.proposeDimensions();
+              const c = dims?.cols || term.cols || 80;
+              const r = dims?.rows || term.rows || 24;
+              // 1px 줄였다가 즉시 복원 → SIGWINCH 가 확실히 두 번 전파
+              socket.send(JSON.stringify({ type: 'resize', cols: Math.max(20, c - 1), rows: Math.max(5, r - 1) }));
+              setTimeout(() => {
+                if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
+                if (socket.readyState === WebSocket.OPEN) {
+                  socket.send(JSON.stringify({ type: 'resize', cols: c, rows: r }));
+                }
+              }, 60);
             }
-          }, 60);
-      }, 150);
-      }
-    };
+          }, 150);
+        }
+      };
 
     const flushBufferedOutput = () => {
       wsFlushTimeoutRef.current = null;
@@ -804,6 +815,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     };
 
     socket.onmessage = (event) => {
+      if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
       // binary array buffer data
       if (event.data instanceof ArrayBuffer) {
         // Fast heuristic check for detached token without decoding large buffers
@@ -857,6 +869,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     };
 
     socket.onclose = (event) => {
+      if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
       if (intentionalCloseRef.current) return;
       logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
       setIsReady(false);
@@ -866,8 +879,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         return;
       }
       // detach token 못 봤어도 server-initiated close 면 takeover 또는 셸 종료 가능성.
-      // preflight: attached 면 takeover 오버레이 / exists=false 면 종료 오버레이 / 그 외 reconnect.
+      // preflight: attached 면 takeover 오버레이. exists=false 는 전환 레이스일 수 있어
+      // 충분히 기다린 뒤에도 재연결을 먼저 시도한다.
       const checkAndRecover = async () => {
+        const isStaleSocket = () => cancelled || wsGeneration !== wsGenerationRef.current || wsRef.current !== socket;
         const getPf = async () => {
           try {
             return await (runPreflightRef.current?.() || Promise.resolve({ attached: false, exists: true }));
@@ -886,26 +901,30 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         }
 
         if (pf.exists === false) {
-          // exists=false 직후는 race condition (tmux 재기동 중, 다른 기기 세션 종료 등) 일 수 있음.
-          // 2초 뒤 한 번 더 확인 후 판정 — 오검출 방지.
-          await new Promise((r) => setTimeout(r, 2000));
-          if (cancelled) return;
-          const pf2 = await getPf();
-          if (cancelled) return;
-          if (pf2.attached) {
-            evictedRef.current = true;
-            setEvicted(true);
-            return;
+          // exists=false 직후는 attach 전환, tmux 재기동, 다른 클라이언트 detach 타이밍과
+          // 겹칠 수 있다. 여기서 바로 "셸 종료"로 확정하지 않고 grace window 동안
+          // attached/exists 회복을 본 다음, 그래도 없으면 재연결로 세션 재생성을 시도한다.
+          const deadline = Date.now() + RECOVERY_GRACE_MS;
+          while (Date.now() < deadline) {
+            await sleep(RECOVERY_POLL_MS);
+            if (isStaleSocket()) return;
+            const nextPf = await getPf();
+            if (isStaleSocket()) return;
+            if (nextPf.attached) {
+              evictedRef.current = true;
+              setEvicted(true);
+              return;
+            }
+            if (nextPf.exists !== false) {
+              break;
+            }
           }
-          if (pf2.exists === false) {
-            endedRef.current = true;
-            setEnded(true);
-            return;
-          }
-          // pf2.exists = true → 세션 살아남음, 재접속으로 fall-through
+          // 아직 exists=false 여도 종료 오버레이로 가지 않는다. 로컬 /ws/{sessionId} 는
+          // 세션이 없으면 새 tmux 세션을 만들 수 있고, 원격 tmux 도 attach 경로에서
+          // missing session 을 만들 수 있으므로 재연결 루프로 살릴 기회를 준다.
         }
 
-        if (cancelled) return;
+        if (isStaleSocket()) return;
         // 호스트 네트워크 불안정 (RPi5 wifi 등) 케이스 대응 — 시도 횟수 늘리고 cap 도 큼.
         // 1→2→4→8→8→8…s, 최대 12회 ≈ 1분 30초. 그 후 ended 화면.
         const attempts = reconnectAttemptsRef.current;
@@ -1585,7 +1604,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
             type="button"
             onClick={() => {
               evictedRef.current = false;
+              endedRef.current = false;
               setEvicted(false);
+              setEnded(false);
               if (connectRef.current) connectRef.current();
               else if (onTakeOver) onTakeOver();
               else window.location.reload();

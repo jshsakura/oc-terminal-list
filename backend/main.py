@@ -241,23 +241,43 @@ class SystemMonitor:
         self.last_idle_time = 0
         self.last_update = 0
         self.cached_cpu_percent = 0.0
+        self.last_net_time = 0.0
+        self.last_net_rx = 0
+        self.last_net_tx = 0
+        self.cached_net_rx_rate = 0.0
+        self.cached_net_tx_rate = 0.0
 
     def get_stats(self):
         # 백워드 호환 — 기존 'cpu/ram/disk' 퍼센트는 그대로 두고 절대값/load/uptime 을 추가.
         stats: dict = {"cpu": 0.0, "ram": 0.0, "disk": 0.0}
         try:
             if os.path.exists("/proc/meminfo"):
-                total = available = 0
+                meminfo = {}
                 with open("/proc/meminfo") as f:
                     for line in f:
-                        if line.startswith("MemTotal:"):
-                            total = int(line.split()[1])
-                        elif line.startswith("MemAvailable:"):
-                            available = int(line.split()[1])
+                        parts = line.split()
+                        if len(parts) >= 2:
+                            meminfo[parts[0].rstrip(":")] = int(parts[1])
+                total = meminfo.get("MemTotal", 0)
+                available = meminfo.get("MemAvailable", 0)
                 if total > 0:
+                    mem_free = meminfo.get("MemFree", 0)
+                    buffers = meminfo.get("Buffers", 0)
+                    cached = max(0, meminfo.get("Cached", 0) + meminfo.get("SReclaimable", 0) - meminfo.get("Shmem", 0))
+                    swap_total = meminfo.get("SwapTotal", 0)
+                    swap_free = meminfo.get("SwapFree", 0)
+                    swap_used = max(0, swap_total - swap_free)
                     stats["ram"] = round((total - available) / total * 100, 1)
                     stats["mem_total"] = total * 1024            # bytes
                     stats["mem_used"] = (total - available) * 1024
+                    stats["mem_available"] = available * 1024
+                    stats["mem_free"] = mem_free * 1024
+                    stats["mem_buffers"] = buffers * 1024
+                    stats["mem_cache"] = cached * 1024
+                    stats["swap_total"] = swap_total * 1024
+                    stats["swap_used"] = swap_used * 1024
+                    stats["swap_free"] = swap_free * 1024
+                    stats["swap"] = round(swap_used / swap_total * 100, 1) if swap_total > 0 else 0.0
 
             try:
                 usage = os.statvfs(WORKSPACE_ROOT)
@@ -267,6 +287,8 @@ class SystemMonitor:
                     stats["disk"] = round((d_total - d_free) / d_total * 100, 1)
                     stats["disk_total"] = d_total
                     stats["disk_used"] = d_total - d_free
+                    stats["disk_free"] = d_free
+                    stats["disk_path"] = str(WORKSPACE_ROOT)
             except Exception:
                 pass
 
@@ -297,6 +319,103 @@ class SystemMonitor:
             # 부가 정보 — UI 패널이 풍부하게 보여줄 수 있게.
             try:
                 stats["cpu_count"] = os.cpu_count() or 1
+            except Exception:
+                pass
+
+            try:
+                with open("/proc/cpuinfo") as f:
+                    for line in f:
+                        if line.startswith("model name"):
+                            stats["cpu_model"] = line.split(":", 1)[1].strip()
+                            break
+            except Exception:
+                pass
+
+            try:
+                net_rx = net_tx = 0
+                interfaces = []
+                with open("/proc/net/dev") as f:
+                    for line in f.readlines()[2:]:
+                        if ":" not in line:
+                            continue
+                        name, data = line.split(":", 1)
+                        iface = name.strip()
+                        if iface == "lo":
+                            continue
+                        fields = data.split()
+                        if len(fields) < 16:
+                            continue
+                        rx = int(fields[0])
+                        tx = int(fields[8])
+                        if rx == 0 and tx == 0:
+                            continue
+                        net_rx += rx
+                        net_tx += tx
+                        interfaces.append({"name": iface, "rx_bytes": rx, "tx_bytes": tx})
+                elapsed = now - self.last_net_time if self.last_net_time else 0
+                if elapsed >= 0.5 and self.last_net_time:
+                    self.cached_net_rx_rate = max(0.0, (net_rx - self.last_net_rx) / elapsed)
+                    self.cached_net_tx_rate = max(0.0, (net_tx - self.last_net_tx) / elapsed)
+                if elapsed >= 0.5 or not self.last_net_time:
+                    self.last_net_time = now
+                    self.last_net_rx = net_rx
+                    self.last_net_tx = net_tx
+                stats["net_rx_bytes"] = net_rx
+                stats["net_tx_bytes"] = net_tx
+                stats["net_rx_rate"] = round(self.cached_net_rx_rate, 1)
+                stats["net_tx_rate"] = round(self.cached_net_tx_rate, 1)
+                stats["net_interfaces"] = sorted(interfaces, key=lambda item: item["rx_bytes"] + item["tx_bytes"], reverse=True)[:4]
+            except Exception:
+                pass
+
+            try:
+                page_size = os.sysconf("SC_PAGE_SIZE")
+                processes = []
+                llm_markers = (
+                    "ollama", "llama", "llamacpp", "vllm", "transformers",
+                    "torch", "cuda", "codex", "openai", "anthropic",
+                )
+                for entry in os.scandir("/proc"):
+                    if not entry.name.isdigit():
+                        continue
+                    pid = int(entry.name)
+                    proc_dir = entry.path
+                    try:
+                        with open(os.path.join(proc_dir, "statm")) as f:
+                            statm = f.read().split()
+                        rss = int(statm[1]) * page_size if len(statm) > 1 else 0
+                        if rss <= 0:
+                            continue
+                        with open(os.path.join(proc_dir, "comm")) as f:
+                            name = f.read().strip()
+                        cmd = ""
+                        try:
+                            with open(os.path.join(proc_dir, "cmdline"), "rb") as f:
+                                cmd = f.read().replace(b"\x00", b" ").decode("utf-8", "ignore").strip()
+                        except Exception:
+                            pass
+                        uid = None
+                        try:
+                            with open(os.path.join(proc_dir, "status")) as f:
+                                for line in f:
+                                    if line.startswith("Uid:"):
+                                        uid = int(line.split()[1])
+                                        break
+                        except Exception:
+                            pass
+                        label = cmd or name
+                        lower_label = label.lower()
+                        processes.append({
+                            "pid": pid,
+                            "name": name,
+                            "cmd": label[:180],
+                            "rss_bytes": rss,
+                            "user": str(uid) if uid is not None else "",
+                            "llm_like": any(marker in lower_label for marker in llm_markers),
+                        })
+                    except Exception:
+                        continue
+                stats["top_processes"] = sorted(processes, key=lambda item: item["rss_bytes"], reverse=True)[:10]
             except Exception:
                 pass
 

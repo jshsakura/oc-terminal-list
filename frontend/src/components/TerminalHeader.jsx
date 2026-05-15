@@ -2,7 +2,7 @@ import { useState, memo, useCallback, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Folder, GitBranch, Palette, X, RefreshCw, FileText, Trash2,
-  Info, Server, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound, HelpCircle,
+  Info, Server, Monitor, Terminal as TerminalIcon, Anchor, Copy, Check, Wifi, KeyRound,
   ExternalLink, MoreHorizontal,
   GripVertical, Columns2, Rows2,
   Eye, EyeOff,
@@ -28,6 +28,7 @@ const RowsFlipY = (props) => <Rows2 {...props} style={{ transform: 'scaleY(-1)' 
 const DEFAULT_PANEL_WIDTH = 260;
 const MIN_PANEL_WIDTH = 180;
 const MAX_PANEL_WIDTH = 500;
+const TOP_RAIL_HEIGHT = 30;
 const PANEL_STATE_PREFIX = 'iterm:terminal-header-panel:v1:';
 
 const TABS = [
@@ -56,7 +57,7 @@ const readPanelState = (key) => {
 
 const TerminalHeader = ({
   isFocused = false, // pane 포커스 여부 — 사이드바 하단 눈 아이콘 (Eye/EyeOff) 으로 표시.
-  showFocusEye = false, // true 일 때만 눈 아이콘 노출. 분할(isMultiple) 있을 때만 보여줌.
+  showFocusEye = false, // legacy hint; focus eye now keeps a stable slot for every live terminal.
   activeTabType,    // 'local' | 'host' | null
   activeHostId = null,
   gitContextPath = '',
@@ -119,18 +120,19 @@ const TerminalHeader = ({
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
+  const rootRef = useRef(null);
   const panelRef = useRef(null);
-  const closedAtRef = useRef(0);
   const [railMenu, setRailMenu] = useState(null);
   const moreBtnRef = useRef(null);
   const railMenuClosedAtRef = useRef(0);
   const [splitMenu, setSplitMenu] = useState(null);
   const splitBtnRef = useRef(null);
   const splitMenuClosedAtRef = useRef(0);
+  const [panelResizeHot, setPanelResizeHot] = useState(false);
+  const [panelResizing, setPanelResizing] = useState(false);
 
   const closePanel = useCallback(() => {
     setActivePanel(null);
-    closedAtRef.current = Date.now();
   }, []);
 
   const handleMoreClick = useCallback(() => {
@@ -197,6 +199,7 @@ const TerminalHeader = ({
         }
       };
       const handleMouseDown = (e) => {
+        if (rootRef.current?.contains(e.target)) return;
         if (panelRef.current && !panelRef.current.contains(e.target)) {
           closePanel();
         }
@@ -212,13 +215,13 @@ const TerminalHeader = ({
   }, [activePanel, closePanel]);
 
   const togglePanel = useCallback((id) => {
-    const now = Date.now();
-    if (now - closedAtRef.current < 300) return;
     setActivePanel((prev) => (prev === id ? null : id));
   }, []);
 
   const handleResizeStart = useCallback((e) => {
     e.preventDefault();
+    setPanelResizeHot(true);
+    setPanelResizing(true);
     resizingRef.current = true;
     startXRef.current = e.clientX ?? e.touches?.[0]?.clientX ?? 0;
     startWidthRef.current = panelWidth;
@@ -231,15 +234,19 @@ const TerminalHeader = ({
     };
     const onUp = () => {
       resizingRef.current = false;
+      setPanelResizeHot(false);
+      setPanelResizing(false);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       window.removeEventListener('touchmove', onMove);
       window.removeEventListener('touchend', onUp);
+      window.removeEventListener('blur', onUp);
     };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     window.addEventListener('touchmove', onMove, { passive: false });
     window.addEventListener('touchend', onUp);
+    window.addEventListener('blur', onUp);
   }, [panelWidth]);
 
   // Git 변경 카운트 — 활동 바 뱃지에 표시.
@@ -273,7 +280,7 @@ const TerminalHeader = ({
   }, [activePanel, onRefreshCwd, refreshGitChanges]);
 
   return (
-    <div style={{ ...styles.root, borderTopColor: panelUi.border }}>
+    <div ref={rootRef} style={{ ...styles.root, borderTopColor: panelUi.border }}>
       {/* 사이드바 내부 스크롤바 — 현재 pane 의 테마(panelUi) 색으로 직접 박음.
           글로벌 스크롤바 룰보다 더 specific + !important 로 확실히 오버라이드.
           폭 6px, 색은 surface1 (mid-tone) — 너무 찐한 느낌 완화. */}
@@ -315,7 +322,7 @@ const TerminalHeader = ({
         }
       `}</style>
 
-      {/* activity bar — drag handle + tab strip + split/status/eye/close cluster */}
+      {/* activity bar */}
       <div style={{
         ...styles.activityBar,
         background: panelUi.base,
@@ -363,11 +370,13 @@ const TerminalHeader = ({
         <div style={{
           display: 'flex', flexDirection: 'row', alignItems: 'center',
           gap: '2px',
+          minWidth: 0,
+          overflow: 'hidden',
           opacity: disabled ? 0.4 : 1,
           pointerEvents: (disabled || loading) ? 'none' : 'auto',
         }}>
           {loading ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 2px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 2px', overflow: 'hidden' }}>
               {TABS.map((_, i) => (
                 <div key={i} style={{
                   width: '13px',
@@ -416,7 +425,6 @@ const TerminalHeader = ({
           )}
         </div>
 
-        {/* Spacer + CWD breadcrumb */}
         <CwdBreadcrumb paneInfo={paneInfo} loading={loading} disabled={disabled} ui={panelUi} onRefreshCwd={onRefreshCwd} t={t} />
 
         {/* Right cluster: split buttons → busy dot → … menu */}
@@ -424,112 +432,114 @@ const TerminalHeader = ({
           display: 'flex', flexDirection: 'row', alignItems: 'center',
           gap: '1px', flexShrink: 0,
         }}>
-          {/* Focus eye — shown for multiple panes or when busy/evicted. Busy/evicted state shown as badge dot on upper-right. */}
-          {!loading && (showFocusEye || isBusy || sessionStatus?.evicted) && (() => {
-            const isEvicted = !!sessionStatus?.evicted;
-            const hasBadge = isBusy || isEvicted;
-            const dotBg = isEvicted ? (panelUi.warning || '#f9e2af') : panelUi.accent;
-            const badgeTitle = isEvicted
-              ? (t?.('sessionTakenOver') || 'Session taken over')
-              : (t?.('terminalBusy') || 'Terminal is active');
-            const eyeTitle = isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused');
-            return (
-              <div style={{ position: 'relative', flexShrink: 0, opacity: (isFocused || hasBadge) ? 1 : 0.3, transition: 'opacity 120ms' }} title={hasBadge ? badgeTitle : eyeTitle}>
-                <RailIconBtn
-                  icon={isFocused ? Eye : EyeOff}
-                  tone={isFocused ? 'accent' : undefined}
-                  ui={panelUi}
-                  compact
-                />
-                {hasBadge && (
-                  <span style={{
-                    position: 'absolute',
-                    top: '3px',
-                    right: '3px',
-                    width: '6px',
-                    height: '6px',
-                    borderRadius: '50%',
-                    background: dotBg,
-                    boxShadow: isEvicted
-                      ? `0 0 0 1.5px ${panelUi.base}, 0 0 5px ${panelUi.warning || '#f9e2af'}`
-                      : `0 0 0 1.5px ${panelUi.base}, 0 0 5px ${panelUi.accent}`,
-                    animation: 'iterm-pane-busy-dot 1.15s ease-in-out infinite',
-                    pointerEvents: 'none',
-                  }} />
-                )}
-              </div>
-            );
-          })()}
-          {/* Single split button — opens dropdown with left/right/up/down choices */}
-          {loading && onSplitPane && (
-            <div style={{
-              width: '20px',
-              height: '6px',
-              borderRadius: '3px',
-              background: `linear-gradient(90deg,
-                color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
-                color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
-                color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
-              backgroundSize: '300% 100%',
-              animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
-              animationDelay: '480ms',
-              flexShrink: 0,
-            }} />
-          )}
-          {!disabled && !loading && onSplitPane && (
-            <div ref={splitBtnRef}>
-              <RailIconBtn
-                icon={Columns2}
-                onClick={handleSplitClick}
-                title={t?.('splitPane') || 'Split pane'}
-                active={!!splitMenu}
-                ui={panelUi}
-                compact
-              />
-            </div>
-          )}
-
-
-          {/* Empty pane: direct X close button instead of the … menu */}
-          {disabled && onCloseTerminal && (
-            <RailIconBtn
-              icon={X}
-              onClick={onCloseTerminal}
-              title={t?.('close') || 'Close'}
-              ui={panelUi}
-              compact
-            />
-          )}
-
-          {/* More menu button — hidden for empty panes (only one action → surfaced above) */}
-          {!disabled && (
-          <div ref={moreBtnRef}>
-            {loading ? (
+            {/* Focus eye — stable status slot. Activity/session notices are only the dot overlay. */}
+            {!disabled && (() => {
+              const isEvicted = !!sessionStatus?.evicted;
+              const hasBadge = isBusy || isEvicted;
+              const dotBg = isEvicted ? (panelUi.warning || '#f9e2af') : panelUi.accent;
+              const badgeTitle = isEvicted
+                ? (t?.('sessionTakenOver') || 'Session taken over')
+                : (t?.('terminalBusy') || 'Terminal is active');
+              const eyeTitle = isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused');
+              return (
+                <div style={{ position: 'relative', flexShrink: 0, opacity: (isFocused || hasBadge) ? 1 : 0.62, transition: 'opacity 120ms' }} title={hasBadge ? badgeTitle : eyeTitle}>
+                  <RailIconBtn
+                    icon={isFocused ? Eye : EyeOff}
+                    tone={isFocused ? 'accent' : undefined}
+                    title={eyeTitle}
+                    ariaLabel={eyeTitle}
+                    ui={panelUi}
+                    compact
+                  />
+                  {hasBadge && (
+                    <span style={{
+                      position: 'absolute',
+                      top: '3px',
+                      right: '3px',
+                      width: '6px',
+                      height: '6px',
+                      borderRadius: '50%',
+                      background: dotBg,
+                      boxShadow: isEvicted
+                        ? `0 0 0 1.5px ${panelUi.base}, 0 0 5px ${panelUi.warning || '#f9e2af'}`
+                        : `0 0 0 1.5px ${panelUi.base}, 0 0 5px ${panelUi.accent}`,
+                      animation: 'iterm-pane-busy-dot 1.15s ease-in-out infinite',
+                      pointerEvents: 'none',
+                    }} />
+                  )}
+                </div>
+              );
+            })()}
+            {/* Single split button — opens dropdown with left/right/up/down choices */}
+            {loading && onSplitPane && (
               <div style={{
-                width: '13px',
-                height: '13px',
-                borderRadius: '50%',
+                width: '20px',
+                height: '6px',
+                borderRadius: '3px',
                 background: `linear-gradient(90deg,
                   color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
                   color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
                   color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
                 backgroundSize: '300% 100%',
                 animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
-                animationDelay: '640ms',
+                animationDelay: '480ms',
                 flexShrink: 0,
               }} />
-            ) : (
+            )}
+            {!disabled && !loading && onSplitPane && (
+              <div ref={splitBtnRef}>
+                <RailIconBtn
+                  icon={Columns2}
+                  onClick={handleSplitClick}
+                  title={t?.('splitPane') || 'Split pane'}
+                  active={!!splitMenu}
+                  ui={panelUi}
+                  compact
+                />
+              </div>
+            )}
+
+
+            {/* Empty pane: direct X close button instead of the … menu */}
+            {disabled && onCloseTerminal && (
               <RailIconBtn
-                icon={MoreHorizontal}
-                onClick={handleMoreClick}
-                title={t?.('more') || 'More'}
-                active={!!railMenu}
+                icon={X}
+                onClick={onCloseTerminal}
+                title={t?.('close') || 'Close'}
                 ui={panelUi}
                 compact
               />
             )}
-          </div>
-          )}
+
+            {/* More menu button — hidden for empty panes (only one action → surfaced above) */}
+            {!disabled && (
+            <div ref={moreBtnRef}>
+              {loading ? (
+                <div style={{
+                  width: '13px',
+                  height: '13px',
+                  borderRadius: '50%',
+                  background: `linear-gradient(90deg,
+                    color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
+                    color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
+                    color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
+                  backgroundSize: '300% 100%',
+                  animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
+                  animationDelay: '640ms',
+                  flexShrink: 0,
+                }} />
+              ) : (
+                <RailIconBtn
+                  icon={MoreHorizontal}
+                  onClick={handleMoreClick}
+                  title={t?.('more') || 'More'}
+                  active={!!railMenu}
+                  ui={panelUi}
+                  compact
+                />
+              )}
+            </div>
+            )}
         </div>
       </div>
 
@@ -606,7 +616,7 @@ const TerminalHeader = ({
             // Mobile: full-width overlay. Desktop: resizable fixed width.
             ...(isMobile ? { left: 0, right: 0 } : { width: `${panelWidth}px` }),
             position: 'absolute',
-            top: '30px',
+            top: `${TOP_RAIL_HEIGHT}px`,
             bottom: 0,
             left: 0,
             zIndex: 10,
@@ -617,14 +627,40 @@ const TerminalHeader = ({
           <div
             onMouseDown={handleResizeStart}
             onTouchStart={handleResizeStart}
+            onMouseEnter={() => setPanelResizeHot(true)}
+            onMouseLeave={() => { if (!panelResizing) setPanelResizeHot(false); }}
+            title={t?.('resizePanel') || 'Resize panel'}
             style={{
               position: 'absolute',
-              top: 0, right: 0, bottom: 0,
-              width: '5px',
-              cursor: 'col-resize',
+              top: 0, right: '-4px', bottom: 0,
+              width: '9px',
+              cursor: panelResizing ? 'col-resize' : 'ew-resize',
               zIndex: 2,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'stretch',
+              touchAction: 'none',
             }}
-          />
+          >
+            <div
+              style={{
+                width: '1px',
+                height: '100%',
+                borderRadius: radius.full,
+                opacity: panelResizeHot || panelResizing ? 1 : 0,
+                background: panelResizing
+                  ? panelUi.accent
+                  : `color-mix(in srgb, ${panelUi.accent} 72%, transparent)`,
+                boxShadow: panelResizeHot || panelResizing
+                  ? `0 0 12px color-mix(in srgb, ${panelUi.accent} 38%, transparent)`
+                  : 'none',
+                transform: panelResizeHot || panelResizing ? 'scaleX(1)' : 'scaleX(0.6)',
+                transformOrigin: 'center',
+                transition: 'opacity 120ms, background 120ms, box-shadow 120ms, transform 120ms',
+                pointerEvents: 'none',
+              }}
+            />
+          </div>
           <div style={{ ...styles.panelHeader, ...glassSectionStyle(panelUi), borderBottomColor: glassSectionStyle(panelUi).borderColor }}>
             <span style={{ ...styles.panelTitle, color: panelUi.text }}>
               <ActivePanelIcon size={13} strokeWidth={2} aria-hidden="true" style={{ color: panelUi.accent }} />
@@ -909,6 +945,8 @@ const formatBytes = (n) => {
   return `${v.toFixed(v >= 10 || i === 0 ? 0 : 1)} ${units[i]}`;
 };
 
+const formatRate = (n) => `${formatBytes(n)}/s`;
+
 const formatUptime = (s) => {
   if (s == null) return '—';
   const sec = Math.floor(s);
@@ -987,7 +1025,13 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
   return (
     <div style={infoStyles.root}>
       {/* 인접 섹션 사이 풀폭 구분선 — first/last 자동 제외 (`+` 형제 셀렉터). */}
-      <style>{`.iterm-info-section + .iterm-info-section { border-top: 1px solid var(--ui-border, ${infoUi?.border || color.border}); }`}</style>
+      <style>{`
+        .iterm-info-section + .iterm-info-section { border-top: 1px solid var(--ui-border, ${infoUi?.border || color.border}); }
+        @keyframes iterm-info-connected-breath {
+          0%, 100% { opacity: 0.62; transform: scale(0.88); box-shadow: 0 0 0 2px ${connToneMap.open.dot}20, 0 0 4px ${connToneMap.open.dot}24; }
+          50% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 3px ${connToneMap.open.dot}30, 0 0 9px ${connToneMap.open.dot}55; }
+        }
+      `}</style>
       {/* 세션 */}
       <InfoSection title={t?.('infoSession') || 'Session'} icon={TerminalIcon}>
         <InfoRow label={t?.('infoTabName') || 'Tab'} value={info?.paneName || info?.tabName || '—'} mono={false} />
@@ -1041,6 +1085,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
                 width: '7px', height: '7px', borderRadius: '50%',
                 background: connTone.dot, flexShrink: 0,
                 boxShadow: live.conn === 'open' ? `0 0 0 2px ${connTone.dot}33` : 'none',
+                animation: live.conn === 'open' ? 'iterm-info-connected-breath 1.7s ease-in-out infinite' : 'none',
               }} />
               {connTone.label}
             </span>
@@ -1153,20 +1198,20 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
               percent={stats.cpu ?? 0}
               right={stats.cpu_count ? `${(stats.cpu ?? 0).toFixed(1)}% · ${stats.cpu_count} cores` : `${(stats.cpu ?? 0).toFixed(1)}%`}
             />
-            <StatBar
-              label="RAM"
-              percent={stats.ram ?? 0}
-              right={stats.mem_total
-                ? `${formatBytes(stats.mem_used)} / ${formatBytes(stats.mem_total)}`
-                : `${(stats.ram ?? 0).toFixed(1)}%`}
-            />
+            <MemoryStackBar stats={stats} />
             <StatBar
               label="Disk"
               percent={stats.disk ?? 0}
               right={stats.disk_total
-                ? `${formatBytes(stats.disk_used)} / ${formatBytes(stats.disk_total)}`
+                ? `${formatBytes(stats.disk_used)} / ${formatBytes(stats.disk_total)} · free ${formatBytes(stats.disk_free)}`
                 : `${(stats.disk ?? 0).toFixed(1)}%`}
             />
+            {(stats.net_rx_rate != null || stats.net_tx_rate != null) && (
+              <InfoRow
+                label="Network"
+                value={`↓ ${formatRate(stats.net_rx_rate || 0)} · ↑ ${formatRate(stats.net_tx_rate || 0)}`}
+              />
+            )}
             {Array.isArray(stats.load_avg) && stats.load_avg.length === 3 && (
               <InfoRow
                 label="Load"
@@ -1180,77 +1225,15 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
                 mono={false}
               />
             )}
+            {Array.isArray(stats.top_processes) && stats.top_processes.length > 0 && (
+              <ProcessList processes={stats.top_processes} />
+            )}
           </>
         )}
-      </InfoSection>
-
-      {/* 키보드/마우스 컨벤션 — tmux mouse on 환경의 표준이지만 사용자가 매번 외우긴 어려워 노출. */}
-      <InfoSection title={t?.('infoShortcuts') || 'Shortcuts'} icon={HelpCircle}>
-        <ShortcutRow keys={[t?.('drag') || 'Drag']}            desc={t?.('shortcutSelect')    || 'Select text (auto-copy)'} />
-        <ShortcutRow keys={[t?.('doubleClick') || 'Double-click']} desc={t?.('shortcutSelectWord') || 'Select word'} />
-        <ShortcutRow keys={[t?.('tripleClick') || 'Triple-click']} desc={t?.('shortcutSelectLine') || 'Select line'} />
-        <ShortcutRow keys={['Ctrl', 'V']}                       desc={t?.('shortcutPaste')     || 'Paste (bracketed)'} />
-        <ShortcutRow keys={[t?.('rightClick') || 'Right-click']} desc={t?.('shortcutContextMenu') || 'Context menu'} />
-        <ShortcutRow keys={['Ctrl', 'Shift', 'C']}              desc={t?.('shortcutCopy')      || 'Copy selection'} />
-        <ShortcutRow keys={[t?.('wheel') || 'Wheel']}            desc={t?.('shortcutScroll')   || 'Scroll terminal history'} />
-        <ShortcutRow keys={['Ctrl', 'C']}                       desc={t?.('shortcutSigint')    || 'Interrupt (SIGINT)'} />
-        <ShortcutRow keys={['Ctrl', 'Shift', 'F']}              desc={t?.('shortcutSearch')    || 'Find in terminal'} />
-        <ShortcutRow keys={['F12']}                             desc={t?.('shortcutDevtools')  || 'Open DevTools'} />
-        <div style={{ height: space['1'] }} />
-        <ShortcutRow keys={['Ctrl', 'Shift', 'P']}              desc={t?.('shortcutCommandPalette') || 'Command palette'} />
-        <ShortcutRow keys={['Ctrl', 'T']}                       desc={t?.('shortcutNewTab')    || 'New tab'} />
-        <ShortcutRow keys={['Ctrl', 'W']}                       desc={t?.('shortcutCloseTab')  || 'Close tab'} />
-        <ShortcutRow keys={['Ctrl', '\\']}                      desc={t?.('shortcutSplitRight') || 'Split right'} />
-        <ShortcutRow keys={['Ctrl', 'Shift', '\\']}             desc={t?.('shortcutSplitDown') || 'Split down'} />
-        <ShortcutRow keys={['Ctrl', 'P']}                       desc={t?.('shortcutQuickOpen') || 'Quick open files'} />
-        <ShortcutRow keys={['Ctrl', 'S']}                       desc={t?.('shortcutSave')      || 'Save file'} />
       </InfoSection>
     </div>
   );
 });
-
-const ShortcutRow = memo(({ keys, desc }) => (
-  <div style={shortcutStyles.row}>
-    <div style={shortcutStyles.keys}>
-      {keys.map((k, i) => (
-        <span key={`${k}-${i}`} style={{ ...shortcutStyles.kbd, color: 'var(--ui-text)', background: 'var(--ui-surface1)', borderColor: 'var(--ui-border)' }}>{k}</span>
-      ))}
-    </div>
-    <div style={{ ...shortcutStyles.desc, color: 'var(--ui-subtext)' }}>{desc}</div>
-  </div>
-));
-
-const shortcutStyles = {
-  row: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: space['2'],
-    padding: `${space['1']} 0`,
-    minHeight: 22,
-  },
-  keys: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 3,
-    flexShrink: 0,
-  },
-  kbd: {
-    fontFamily: font.mono,
-    fontSize: fontSize['11'],
-    fontWeight: fontWeight.medium,
-    borderRadius: radius.sm,
-    padding: '1px 5px',
-    lineHeight: 1.4,
-    border: '1px solid',
-  },
-  desc: {
-    fontSize: fontSize['11'],
-    color: 'var(--ui-subtext)',
-    textAlign: 'right',
-    lineHeight: 1.35,
-  },
-};
 
 const InfoSection = ({ title, icon: Icon, subtitle = null, children }) => (
   <div className="iterm-info-section" style={infoStyles.section}>
@@ -1288,6 +1271,75 @@ const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, 
         </button>
       )}
     </span>
+  </div>
+);
+
+const MemoryStackBar = ({ stats }) => {
+  const memTotal = Number(stats.mem_total) || 0;
+  const swapTotal = Number(stats.swap_total) || 0;
+  const total = memTotal + swapTotal;
+  const used = Math.max(0, Number(stats.mem_used) || 0);
+  const cache = Math.max(0, (Number(stats.mem_cache) || 0) + (Number(stats.mem_buffers) || 0));
+  const swapUsed = Math.max(0, Number(stats.swap_used) || 0);
+  const free = Math.max(0, total - used - cache - swapUsed);
+  const pct = (value) => total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
+  const segments = [
+    { key: 'used', label: 'Used', value: used, color: 'var(--ui-accent, #89b4fa)' },
+    { key: 'cache', label: 'Cache', value: cache, color: 'var(--ui-warning, #f9e2af)' },
+    { key: 'swap', label: 'Swap', value: swapUsed, color: 'var(--ui-danger, #f38ba8)' },
+    { key: 'free', label: 'Free', value: free, color: 'var(--ui-surface2, #585b70)' },
+  ].filter((item) => item.value > 0 || item.key === 'free');
+
+  return (
+    <div style={infoStyles.statRow}>
+      <div style={infoStyles.statHeader}>
+        <span style={infoStyles.statLabel}>Memory</span>
+        <span style={infoStyles.statRight}>
+          {memTotal ? `${formatBytes(used)} used · ${formatBytes(cache)} cache${swapTotal ? ` · ${formatBytes(swapUsed)} swap` : ''}` : `${(stats.ram ?? 0).toFixed(1)}%`}
+        </span>
+      </div>
+      <div style={infoStyles.stackTrack}>
+        {segments.map((item) => (
+          <span
+            key={item.key}
+            title={`${item.label}: ${formatBytes(item.value)}`}
+            style={{
+              ...infoStyles.stackSegment,
+              width: `${pct(item.value)}%`,
+              background: item.color,
+              opacity: item.key === 'free' ? 0.45 : 0.95,
+            }}
+          />
+        ))}
+      </div>
+      <div style={infoStyles.stackLegend}>
+        <span style={infoStyles.legendItem}><b style={{ ...infoStyles.legendDot, background: 'var(--ui-accent, #89b4fa)' }} />Used</span>
+        <span style={infoStyles.legendItem}><b style={{ ...infoStyles.legendDot, background: 'var(--ui-warning, #f9e2af)' }} />Cache</span>
+        {swapTotal > 0 && <span style={infoStyles.legendItem}><b style={{ ...infoStyles.legendDot, background: 'var(--ui-danger, #f38ba8)' }} />Swap</span>}
+        <span style={infoStyles.legendItem}><b style={{ ...infoStyles.legendDot, background: 'var(--ui-surface2, #585b70)' }} />Free</span>
+      </div>
+    </div>
+  );
+};
+
+const ProcessList = ({ processes }) => (
+  <div style={infoStyles.processBox}>
+    <div style={infoStyles.processHeader}>
+      <span>Top processes</span>
+      <span>RSS</span>
+    </div>
+    {processes.slice(0, 8).map((proc) => (
+      <div key={proc.pid} style={infoStyles.processRow}>
+        <div style={infoStyles.processMain}>
+          <span style={{ ...infoStyles.processName, color: proc.llm_like ? 'var(--ui-accent)' : 'var(--ui-text)' }}>
+            {proc.name || `pid ${proc.pid}`}
+          </span>
+          <span style={infoStyles.processCmd}>{proc.cmd || `pid ${proc.pid}`}</span>
+        </div>
+        {proc.llm_like && <span style={infoStyles.processBadge}>LLM</span>}
+        <span style={infoStyles.processMem}>{formatBytes(proc.rss_bytes)}</span>
+      </div>
+    ))}
   </div>
 );
 
@@ -1454,6 +1506,110 @@ const infoStyles = {
     borderRadius: '3px',
     transition: 'width 600ms cubic-bezier(0.16, 1, 0.3, 1), background 200ms',
   },
+  stackTrack: {
+    width: '100%',
+    height: '8px',
+    display: 'flex',
+    gap: '1px',
+    background: 'var(--ui-crust)',
+    borderRadius: '4px',
+    overflow: 'hidden',
+    border: '1px solid var(--ui-border)',
+  },
+  stackSegment: {
+    height: '100%',
+    minWidth: '1px',
+    transition: 'width 600ms cubic-bezier(0.16, 1, 0.3, 1)',
+  },
+  stackLegend: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: '6px',
+    fontSize: '9.5px',
+    color: 'var(--ui-subtext)',
+    fontFamily: font.mono,
+  },
+  legendItem: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '3px',
+  },
+  legendDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '2px',
+    display: 'inline-block',
+    flexShrink: 0,
+  },
+  processBox: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1px',
+    paddingTop: '3px',
+  },
+  processHeader: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 56px',
+    gap: '8px',
+    padding: '0 2px 2px',
+    fontSize: '10px',
+    color: 'var(--ui-subtext)',
+    fontWeight: fontWeight.semibold,
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+  },
+  processRow: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) auto 56px',
+    alignItems: 'center',
+    gap: '6px',
+    minHeight: '25px',
+    padding: '3px 5px',
+    borderRadius: '5px',
+    background: 'color-mix(in srgb, var(--ui-surface0) 72%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--ui-border) 46%, transparent)',
+  },
+  processMain: {
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '1px',
+  },
+  processName: {
+    fontSize: '11px',
+    fontWeight: fontWeight.semibold,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  processCmd: {
+    fontFamily: font.mono,
+    fontSize: '9.5px',
+    color: 'var(--ui-subtext)',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  processBadge: {
+    height: '15px',
+    padding: '0 5px',
+    borderRadius: '4px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: '9px',
+    fontWeight: fontWeight.bold,
+    color: 'var(--ui-accent)',
+    background: 'color-mix(in srgb, var(--ui-accent) 14%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--ui-accent) 32%, transparent)',
+  },
+  processMem: {
+    fontFamily: font.mono,
+    fontSize: '10px',
+    color: 'var(--ui-text)',
+    textAlign: 'right',
+  },
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1550,17 +1706,20 @@ const styles = {
     minHeight: 0,
   },
   activityBar: {
-    height: '28px',
+    height: `${TOP_RAIL_HEIGHT}px`,
     width: '100%',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: '2px',
     paddingLeft: '4px',
     paddingRight: '4px',
-    gap: '2px',
     background: 'var(--ui-surface0)',
     borderBottom: '1px solid var(--ui-border)',
+    boxSizing: 'border-box',
+    overflow: 'hidden',
     pointerEvents: 'auto',
   },
   divider: {
@@ -1633,6 +1792,9 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
     alignItems: 'center',
     gap: '4px',
     width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
+    boxSizing: 'border-box',
     overflow: 'hidden',
     background: `color-mix(in srgb, ${ui.surface1 || ui.surface0} 45%, transparent)`,
     border: `1px solid color-mix(in srgb, ${ui.border || ui.surface1} 50%, transparent)`,
@@ -1673,7 +1835,7 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
       <div style={pillStyle}>
         <HostIcon
           value={iconValue}
-          fallback={Server}
+          fallback={isHostPane ? Server : Monitor}
           size={9}
           strokeWidth={1.8}
           style={{ flexShrink: 0, color: dotColor, opacity: 0.85 }}
@@ -1683,6 +1845,7 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
           title={rawPath || headerPath}
           style={{
             flex: 1,
+            minWidth: 0,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',

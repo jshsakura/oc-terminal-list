@@ -73,7 +73,6 @@ describe('Login MFA flow', () => {
 
     const codeInput = await screen.findByLabelText(/Verification code/i);
     fireEvent.change(codeInput, { target: { value: '123456' } });
-    fireEvent.click(screen.getByRole('button', { name: /Authorize/i }));
 
     await waitFor(() => expect(onLogin).toHaveBeenCalledWith('access-token', 'admin'));
     expect(localStorage.getItem('auth_token')).toBe('access-token');
@@ -81,6 +80,36 @@ describe('Login MFA flow', () => {
       method: 'POST',
       body: JSON.stringify({ pending_token: 'pending-token', code: '123456', is_backup_code: false }),
     }));
+  });
+
+  it('toggles password visibility on the credentials step', () => {
+    render(<Login onLogin={vi.fn()} language="en" />);
+
+    const passwordInput = screen.getByLabelText(/Key/i);
+    expect(passwordInput).toHaveAttribute('type', 'password');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Show$/i }));
+    expect(passwordInput).toHaveAttribute('type', 'text');
+
+    fireEvent.click(screen.getByRole('button', { name: /^Hide$/i }));
+    expect(passwordInput).toHaveAttribute('type', 'password');
+  });
+
+  it('remembers the username only when the checkbox is enabled', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ access_token: 'access-token', username: 'admin' }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<Login onLogin={vi.fn()} language="en" />);
+
+    fireEvent.change(screen.getByLabelText(/ID/i), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByLabelText(/Key/i), { target: { value: 'secret-pass' } });
+    fireEvent.click(screen.getByLabelText(/Remember username/i));
+    fireEvent.click(screen.getByRole('button', { name: /Authorize/i }));
+
+    await waitFor(() => expect(localStorage.getItem('iterm:login:remember-username')).toBe('admin'));
   });
 
   it('applies the selected theme and locale to the MFA login step', async () => {
@@ -103,7 +132,9 @@ describe('Login MFA flow', () => {
 
     fireEvent.change(screen.getByLabelText(/아이디/i), { target: { value: 'admin' } });
     fireEvent.change(screen.getByLabelText(/비밀번호/i), { target: { value: 'secret-pass' } });
-    fireEvent.click(screen.getByRole('button', { name: /인증하기/i }));
+    const submitBtn = screen.getByRole('button', { name: /인증하기/i });
+    expect(submitBtn).toHaveStyle({ background: '#00aaff' });
+    fireEvent.click(submitBtn);
 
     await screen.findByText('2단계 인증');
     expect(screen.getByText('인증 앱의 6자리 코드를 입력하세요.')).toBeInTheDocument();
