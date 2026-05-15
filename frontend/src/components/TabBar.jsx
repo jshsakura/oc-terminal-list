@@ -45,11 +45,6 @@ const TabBar = ({
   const settingsMenuClosedAtRef = useRef(0);
 
   const handleSettingsClick = useCallback(() => {
-    // 모바일에서는 서브메뉴 없이 바로 Settings 열기 — 서브메뉴 터치 신뢰성 문제 회피.
-    if (isMobile) {
-      onOpenSettings?.();
-      return;
-    }
     if (settingsMenu) {
       setSettingsMenu(null);
       settingsMenuClosedAtRef.current = Date.now();
@@ -60,7 +55,7 @@ const TabBar = ({
       const rect = settingsBtnRef.current.getBoundingClientRect();
       setSettingsMenu({ x: rect.right, y: rect.bottom + 4 });
     }
-  }, [settingsMenu, isMobile, onOpenSettings]);
+  }, [settingsMenu]);
 
   // 모바일 터치 드래그 — TabBar scroll 컨테이너에 ref 를 걸고 훅에 넘김 (드래그 모드 시 가로 스크롤 락).
   const tabListRef = useRef(null);
@@ -725,9 +720,15 @@ const SettingsSubMenu = ({ anchor, t, onClose, onSettings, onReload, onEqualize 
     const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
     const id = setTimeout(() => {
       document.addEventListener('mousedown', handle);
+      document.addEventListener('touchstart', handle);
       document.addEventListener('keydown', handleKey);
     }, 0);
-    return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('keydown', handleKey); };
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener('mousedown', handle);
+      document.removeEventListener('touchstart', handle);
+      document.removeEventListener('keydown', handleKey);
+    };
   }, []);
 
   useEffect(() => {

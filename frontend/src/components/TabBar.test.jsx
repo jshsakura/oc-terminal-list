@@ -19,7 +19,7 @@ describe('TabBar', () => {
     expect(screen.queryByTitle(/Sign out/)).not.toBeInTheDocument();
   });
 
-  it('triggers Settings handler on mobile (direct open, no submenu)', () => {
+  it('opens the same Settings submenu on mobile instead of direct open', () => {
     const onOpenSettings = vi.fn();
     render(
       <TabBar
@@ -29,6 +29,8 @@ describe('TabBar', () => {
       />
     );
     fireEvent.click(screen.getByTitle(/^Settings/));
+    expect(onOpenSettings).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText(/^Settings$/));
     expect(onOpenSettings).toHaveBeenCalled();
   });
 

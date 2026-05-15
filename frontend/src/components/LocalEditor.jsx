@@ -194,7 +194,7 @@ const ColorPicker = ({ value, onChange }) => (
   <div style={{ display: 'flex', gap: space['1.5'], flexWrap: 'wrap' }}>
     {color.dotPalette.map((c, i) => (
       <button
-        key={c}
+        key={`${c}-${i}`}
         type="button"
         onClick={() => onChange(i)}
         style={{
