@@ -12,13 +12,36 @@ const ui = {
 
 const pick = (theme, key, fallback) => theme?.[key] || fallback;
 
+const hexToRgb = (hex) => {
+  const match = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!match) return null;
+  const value = parseInt(match[1], 16);
+  return {
+    r: (value >> 16) & 0xff,
+    g: (value >> 8) & 0xff,
+    b: value & 0xff,
+  };
+};
+
+const isLightColor = (hex) => {
+  const rgb = hexToRgb(hex);
+  if (!rgb) return false;
+  return (rgb.r * 0.299 + rgb.g * 0.587 + rgb.b * 0.114) > 160;
+};
+
+const menuTint = (theme = {}, alpha) => {
+  const base = pick(theme, 'base', '');
+  const light = isLightColor(base);
+  return light ? `rgba(0,0,0,${alpha * 0.52})` : `rgba(255,255,255,${alpha})`;
+};
+
 export const glassMenuStyle = (theme = {}, overrides = {}) => ({
-  background: `color-mix(in srgb, ${pick(theme, 'surface0', ui.surface0)} 58%, transparent)`,
-  border: `1px solid color-mix(in srgb, ${pick(theme, 'border', ui.border)} 48%, transparent)`,
+  background: `linear-gradient(180deg, ${menuTint(theme, 0.09)}, ${menuTint(theme, 0.045)}), color-mix(in srgb, ${pick(theme, 'base', ui.base)} 30%, transparent)`,
+  border: `1px solid ${menuTint(theme, 0.09)}`,
   borderRadius: '8px',
-  boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)',
-  backdropFilter: 'blur(20px)',
-  WebkitBackdropFilter: 'blur(20px)',
+  boxShadow: `0 8px 32px rgba(0,0,0,0.36), inset 0 1px 0 ${menuTint(theme, 0.07)}`,
+  backdropFilter: 'blur(24px) saturate(1.18)',
+  WebkitBackdropFilter: 'blur(24px) saturate(1.18)',
   padding: '3px',
   ...overrides,
 });
