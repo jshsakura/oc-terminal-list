@@ -10,6 +10,7 @@ import {
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
+import { glassMenuItemHover, glassMenuStyle } from '../styles/glass';
 import FileTree from './FileTree';
 import SkeletonRow from './common/SkeletonRow';
 import ChangesList from './ChangesList';
@@ -717,11 +718,7 @@ const RailSubMenu = ({ anchor, ui, onClose, t, children }) => {
         position: 'fixed',
         top: pos.y,
         left: pos.x,
-        background: ui.surface0 || '#1e1e2e',
-        border: `1px solid ${ui.borderStrong || ui.border}`,
-        borderRadius: '6px',
-        boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
-        padding: '3px',
+        ...glassMenuStyle(ui),
         zIndex: 200000,
         minWidth: '160px',
         fontFamily: font.sans,
@@ -766,7 +763,7 @@ const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = fal
         lineHeight: 1.3,
         opacity: disabled ? 0.5 : 1,
       }}
-      onMouseEnter={(e) => { if (!disabled && !display) e.currentTarget.style.background = ui?.surface1 || color.surface1; }}
+      onMouseEnter={(e) => { if (!disabled && !display) e.currentTarget.style.background = glassMenuItemHover(ui); }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
       {Icon && <Icon size={12} strokeWidth={1.8} />}

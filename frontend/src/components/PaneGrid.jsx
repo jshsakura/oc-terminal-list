@@ -9,6 +9,7 @@ import {
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
+import { glassDividerStyle, glassMenuStyle } from '../styles/glass';
 import TerminalHeader from './TerminalHeader';
 import { HostRow } from './HomeDashboard';
 import HomeSessions from './HomeSessions';
@@ -1125,12 +1126,11 @@ const PaneCtxMenu = forwardRef(({ ctx, pane, hosts, settings, tabBarAccent, t, o
   return (
     <div ref={(el) => { innerRef.current = el; if (typeof ref === 'function') ref(el); else if (ref) ref.current = el; }} style={{
       position: 'fixed', top: pos.y, left: pos.x,
-      background: color.surface0, border: `1px solid ${color.borderStrong}`,
-      borderRadius: '6px', boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
-      padding: '3px', zIndex: 200000, minWidth: '160px',
+      ...glassMenuStyle(),
+      zIndex: 200000, minWidth: '160px',
       fontFamily: font.sans, opacity: measured ? 1 : 0,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', borderBottom: `1px solid ${color.border}`, marginBottom: '2px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', borderBottom: `1px solid ${glassDividerStyle().background}`, marginBottom: '2px' }}>
         <span style={{
           display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
           width: '18px', height: '18px', flexShrink: 0,

@@ -14,6 +14,7 @@ import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
 import { tokens } from '../styles/tokens';
+import { glassDividerStyle, glassMenuItemHover, glassMenuStyle } from '../styles/glass';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
@@ -1884,11 +1885,7 @@ const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll
         top: pos.y,
         left: pos.x,
         zIndex: 200000,
-        background: themeUi.base,
-        border: `1px solid ${themeUi.border}`,
-        borderRadius: '6px',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-        padding: '4px 0',
+        ...glassMenuStyle(themeUi, { padding: '4px 0', borderRadius: '8px' }),
         minWidth: '160px',
         fontFamily: tokens.font.sans,
         opacity: measured ? 1 : 0,
@@ -1914,14 +1911,14 @@ const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll
             cursor: 'pointer',
             textAlign: 'left',
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = themeUi.surface1; }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(themeUi); }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
         >
           <item.icon size={13} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.7 }} />
           {item.label}
         </button>
       ))}
-      <div style={{ height: '1px', background: themeUi.border, margin: '3px 0' }} />
+      <div style={glassDividerStyle(themeUi, { margin: '3px 0' })} />
       <div style={{
         padding: '4px 12px',
         fontSize: tokens.fontSize['11'],

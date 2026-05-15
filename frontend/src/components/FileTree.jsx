@@ -8,9 +8,10 @@ import {
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
+import { glassDividerStyle, glassMenuItemHover, glassMenuStyle } from '../styles/glass';
 import SkeletonRow from './common/SkeletonRow';
 
-const { color, font, fontSize, fontWeight, radius, space, motion, shadow: designShadow } = tokens;
+const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
 const ROW_HEIGHT = 24;
 const VIRTUALIZE_AFTER = 250;
@@ -202,12 +203,8 @@ const styles = {
   menu: {
     // 컨텍스트 메뉴 — 현재 포커스 pane 의 테마 따라가도록 var(--ui-*) 사용.
     // (포커스 pane 의 테마가 :root 에 자동 적용 → 포털로 document.body 에 렌더돼도 동작.)
-    background: 'var(--ui-base)',
     color: 'var(--ui-text)',
-    border: `1px solid var(--ui-border)`,
-    borderRadius: radius.md,
-    boxShadow: designShadow.lg,
-    padding: `${space['1']} 0`,
+    ...glassMenuStyle({}, { padding: `${space['1']} 0`, borderRadius: radius.md }),
     minWidth: '180px',
     fontFamily: font.sans,
   },
@@ -383,7 +380,7 @@ const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
       ...styles.menuItem,
       color: tone === 'danger' ? 'var(--ui-danger)' : 'var(--ui-text)',
     }}
-    onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ui-surface1)'; }}
+    onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
   >
     <Icon size={12} strokeWidth={2} style={{ color: tone === 'danger' ? 'var(--ui-danger)' : 'var(--ui-subtext)' }} />
@@ -437,7 +434,7 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
       <MenuItem icon={Terminal} label={t('openTerminalHere') || 'Open terminal here'} onClick={onOpenTerminal} />
       {target.path && (
         <>
-          <div style={{ height: '1px', background: 'var(--ui-border)', margin: '4px 0' }} />
+          <div style={glassDividerStyle({}, { margin: '4px 0' })} />
           <MenuItem icon={Pencil} label={t('rename') || 'Rename'} onClick={onRename} />
           <MenuItem icon={Trash2} label={t('delete') || 'Delete'} onClick={onDelete} tone="danger" />
         </>

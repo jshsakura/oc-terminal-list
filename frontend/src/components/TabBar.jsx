@@ -8,6 +8,7 @@ import {
   Copy, X, Check, LayoutGrid, List, RefreshCw,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import { glassMenuItemHover, glassMenuStyle } from '../styles/glass';
 import HostIcon from '../utils/hostIcons';
 import RailIconBtn from './common/RailIconBtn';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
@@ -466,11 +467,7 @@ const TabContextMenu = ({
         position: 'fixed',
         top: pos.y,
         left: pos.x,
-        background: color.surface0,
-        border: `1px solid ${color.borderStrong}`,
-        borderRadius: '6px',
-        boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
-        padding: '3px',
+        ...glassMenuStyle(),
         zIndex: 200000,
         minWidth: '140px',
         fontFamily: font.sans,
@@ -550,7 +547,7 @@ const MenuItem = ({ onClick, children, danger, disabled = false, icon: Icon = nu
       lineHeight: 1.3,
       opacity: disabled ? 0.5 : 1,
     }}
-    onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = color.surface1; }}
+    onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = glassMenuItemHover(); }}
     onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
   >
     {Icon && <Icon size={12} strokeWidth={1.8} />}
@@ -761,7 +758,7 @@ const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettings, onR
         fontSize: isMobile ? '13px' : '11.5px', fontFamily: font.sans,
         transition: 'background 120ms',
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
       <Icon size={iconSize} strokeWidth={1.8} />
@@ -772,11 +769,7 @@ const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettings, onR
   return (
     <div ref={ref} style={{
       position: 'fixed', top: pos.y, left: pos.x,
-      background: color.surface0,
-      border: `1px solid ${color.borderStrong || color.border}`,
-      borderRadius: '6px',
-      boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
-      padding: '3px',
+      ...glassMenuStyle(),
       zIndex: 200000,
       minWidth: isMobile ? '190px' : '160px',
       fontFamily: font.sans,
