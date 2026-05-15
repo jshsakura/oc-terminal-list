@@ -33,7 +33,7 @@ describe('TabBar', () => {
     const settingsItem = screen.getByText(/^Settings$/).closest('button');
     expect(settingsItem).toHaveStyle({ minHeight: '42px' });
     expect(settingsItem.parentElement).toHaveStyle({ backdropFilter: 'blur(20px)' });
-    expect(settingsItem.parentElement.style.background).toContain('44%');
+    expect(settingsItem.parentElement.style.background).toContain('34%');
     fireEvent.click(settingsItem);
     expect(onOpenSettings).toHaveBeenCalled();
   });
