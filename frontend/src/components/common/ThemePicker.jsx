@@ -77,9 +77,10 @@ export const resolveRandomTheme = (variant, usedThemeIds = []) => {
   return candidates[Math.floor(Math.random() * candidates.length)];
 };
 
-const RandomRow = ({ variant, onClick }) => {
+const RandomRow = ({ variant, isActive, onClick }) => {
   const [hovered, setHovered] = useState(false);
   const isDark = variant === 'random-dark';
+  const highlighted = hovered || isActive;
   return (
     <button
       type="button"
@@ -93,10 +94,10 @@ const RandomRow = ({ variant, onClick }) => {
         textAlign: 'left',
         width: '100%',
         padding: `${space['1.5']} ${space['2']}`,
-        background: hovered ? color.surface1 : color.surface0,
-        border: `1px solid ${hovered ? color.accentBorder : color.border}`,
+        background: highlighted ? color.surface1 : color.surface0,
+        border: `1px solid ${isActive ? color.accent : (hovered ? color.accentBorder : color.border)}`,
         borderRadius: radius.sm,
-        color: hovered ? color.accent : color.subtext,
+        color: highlighted ? color.accent : color.subtext,
         fontSize: fontSize['12'],
         cursor: 'pointer',
         fontFamily: font.sans,
@@ -105,6 +106,9 @@ const RandomRow = ({ variant, onClick }) => {
     >
       <Shuffle size={13} strokeWidth={1.7} style={{ flexShrink: 0, opacity: 0.75 }} />
       <span style={{ flex: 1 }}>{isDark ? 'Dark (Random)' : 'Light (Random)'}</span>
+      <span style={{ width: '11px', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {isActive && <Check size={11} style={{ color: color.accent }} />}
+      </span>
     </button>
   );
 };
@@ -200,7 +204,11 @@ const ThemePicker = ({ value, onChange, t, markedId, columns = 1, allowEmpty = f
         gap: '3px',
       }}>
         {showRandom && (
-          <RandomRow variant={randomVariant} onClick={(v) => onChange?.(v)} />
+          <RandomRow
+            variant={randomVariant}
+            isActive={value === randomVariant}
+            onClick={(v) => onChange?.(v)}
+          />
         )}
         {ids.map((id) => {
           const theme = themes[id];

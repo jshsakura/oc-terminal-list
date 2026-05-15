@@ -18,6 +18,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 import { measureTerminalFit } from '../utils/terminalFit';
+import { shouldUseNaturalMouseSelection, selectionArgsFromCells } from '../utils/terminalMouseSelection';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
@@ -360,6 +361,14 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       };
     };
 
+    const bufferCellFromClientPoint = (clientX, clientY) => {
+      const cell = cellFromClientPoint(clientX, clientY);
+      return {
+        col: cell.col - 1,
+        row: (term.buffer?.active?.viewportY || 0) + cell.row - 1,
+      };
+    };
+
     const sendTmuxWheel = (lines, clientX, clientY, source = 'wheel') => {
       const ws = wsRef.current;
       if (!ws || ws.readyState !== WebSocket.OPEN || lines === 0) return;
@@ -508,6 +517,57 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     container.addEventListener('contextmenu', handleContextMenu);
     container.addEventListener('keydown', handleKeyDown);
     container.addEventListener('paste', handlePaste, true);
+
+    // tmux/vim 계열이 mouse tracking 을 켜도 PC 기본 UX 는 유지한다.
+    // 클릭은 앱으로 보내고, plain left-drag 가 임계값을 넘는 순간부터만 xterm selection 으로 전환한다.
+    let naturalSelection = null;
+    const handleNaturalMouseDown = (e) => {
+      const screen = term.element?.querySelector('.xterm-screen');
+      if (!screen?.contains(e.target)) {
+        naturalSelection = null;
+        return;
+      }
+      if (!shouldUseNaturalMouseSelection({
+        event: e,
+        isMobile: isMobileRef.current,
+        mouseTrackingMode: term.modes?.mouseTrackingMode || 'none',
+      })) {
+        naturalSelection = null;
+        return;
+      }
+      naturalSelection = {
+        startX: e.clientX,
+        startY: e.clientY,
+        start: bufferCellFromClientPoint(e.clientX, e.clientY),
+        selecting: false,
+      };
+    };
+    const handleNaturalMouseMove = (e) => {
+      if (!naturalSelection || (e.buttons & 1) !== 1) return;
+      const dx = Math.abs(e.clientX - naturalSelection.startX);
+      const dy = Math.abs(e.clientY - naturalSelection.startY);
+      if (!naturalSelection.selecting && Math.max(dx, dy) < 5) return;
+      naturalSelection.selecting = true;
+      e.preventDefault();
+      e.stopPropagation();
+      const args = selectionArgsFromCells(
+        naturalSelection.start,
+        bufferCellFromClientPoint(e.clientX, e.clientY),
+        term.cols,
+      );
+      if (args) term.select(args.column, args.row, args.length);
+    };
+    const handleNaturalMouseUp = (e) => {
+      if (!naturalSelection) return;
+      if (naturalSelection.selecting) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+      naturalSelection = null;
+    };
+    container.addEventListener('mousedown', handleNaturalMouseDown, true);
+    document.addEventListener('mousemove', handleNaturalMouseMove, true);
+    document.addEventListener('mouseup', handleNaturalMouseUp, true);
 
     // Mobile scroll + long-press: 오버레이 div가 canvas 위에서 터치를 독점 처리.
     // touch-action:none 이 오버레이에 있으므로 iOS가 scroll 제스처를 선점하지 않고
@@ -1003,9 +1063,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         container.removeEventListener('contextmenu', handleContextMenu);
         container.removeEventListener('keydown', handleKeyDown);
         container.removeEventListener('paste', handlePaste, true);
+        container.removeEventListener('mousedown', handleNaturalMouseDown, true);
         container.removeEventListener('touchstart', handleTouchStart);
         container.removeEventListener('touchend', handleTouchEnd);
       }
+      document.removeEventListener('mousemove', handleNaturalMouseMove, true);
+      document.removeEventListener('mouseup', handleNaturalMouseUp, true);
       try { wsRef.current?.close(); } catch {}
       connectRef.current = null;
       runPreflightRef.current = null;

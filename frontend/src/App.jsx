@@ -85,18 +85,33 @@ const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = nu
 // 탭이 서버 tab-state 로 복원될 땐 이 값이 보존되어 같은 세션을 다시 attach.
 const makeTmuxSuffix = () => Date.now().toString(36).slice(-6) + Math.floor(Math.random() * 36).toString(36);
 
-const makeHostTab = (host, cwd = null, tmuxSessionName = null) => {
+const isRandomThemeProfile = (themeId) => themeId === 'random-dark' || themeId === 'random-light';
+
+const usedThemeIdsFromTabs = (tabs = []) => (
+  tabs
+    .flatMap((tab) => tab.panes?.map((pane) => pane.themeOverride) || [])
+    .filter((themeId) => themeId && !isRandomThemeProfile(themeId))
+);
+
+const resolveProfileTheme = (themeId, usedThemeIds = []) => {
+  if (!themeId) return null;
+  if (isRandomThemeProfile(themeId)) return resolveRandomTheme(themeId, usedThemeIds);
+  return themeId;
+};
+
+const makeHostTab = (host, cwd = null, tmuxSessionName = null, { themeOverride = undefined, tabId = null } = {}) => {
   // tmuxSessionName 이 주어지면 이미 존재하는 영속 세션을 명시적으로 attach (Resume).
   // 이 경우 새 base/suffix 를 만들 필요 없고 pane 0 에 세션명을 직접 박는다.
-  // host.theme 이 있으면 pane.themeOverride 자동 설정 → 연결과 동시에 그 테마로 chrome 동기화.
+  // profile theme 이 있으면 새 터미널 생성 시점에 구체 테마로 해석해 pane.themeOverride 에 저장.
+  const selectedTheme = themeOverride !== undefined ? themeOverride : host.theme;
   const pane = makePane({
     hostId: host.id,
     ...(tmuxSessionName ? { tmuxSessionName } : null),
-    ...(host.theme ? { themeOverride: host.theme } : null),
+    ...(selectedTheme ? { themeOverride: selectedTheme } : null),
   });
   const suffix = tmuxSessionName ? null : makeTmuxSuffix();
   return {
-    id: `host:${host.id}:${Date.now()}`,
+    id: tabId || `host:${host.id}:${Date.now()}`,
     type: 'host',
     hostId: host.id,
     tmuxSuffix: suffix,
@@ -372,15 +387,18 @@ function App() {
   // 로 명시 전달해 backend 가 임의 위치($HOME 등) 에서 spawn 하지 않도록 함.
   const openLocalTab = useCallback(async (cwd = null) => {
     const sessionId = generateUUID();
+    const tabId = `local:${sessionId}`;
     const name = (settings.localName || '').trim() || 'terminal';
     const startCwd = cwd ?? settings.localStartPath ?? '';
-    const tab = makLocalTab(sessionId, name, startCwd, {
-      icon: settings.localIcon || null,
-      colorIndex: settings.localColorIndex ?? 0,
-      themeOverride: settings.localTheme || null,
+    setTabs((prev) => {
+      const tab = makLocalTab(sessionId, name, startCwd, {
+        icon: settings.localIcon || null,
+        colorIndex: settings.localColorIndex ?? 0,
+        themeOverride: resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev)),
+      });
+      return [...prev, tab];
     });
-    setTabs((prev) => [...prev, tab]);
-    setActiveTabId(tab.id);
+    setActiveTabId(tabId);
   }, [settings.localName, settings.localIcon, settings.localColorIndex, settings.localTheme, settings.localStartPath]);
 
   const openHostTab = useCallback((host, cwd = null, tmuxSessionName = null) => {
@@ -390,9 +408,15 @@ function App() {
     }
     // 명시 cwd 가 없으면 host 설정의 start_path 로 폴백 → FileTree 가 그 경로에서 시작
     const initialCwd = cwd ?? host.start_path ?? null;
-    const tab = makeHostTab(host, initialCwd, tmuxSessionName);
-    setTabs((prev) => [...prev, tab]);
-    setActiveTabId(tab.id);
+    const tabId = `host:${host.id}:${Date.now()}`;
+    setTabs((prev) => {
+      const tab = makeHostTab(host, initialCwd, tmuxSessionName, {
+        tabId,
+        themeOverride: resolveProfileTheme(host.theme, usedThemeIdsFromTabs(prev)),
+      });
+      return [...prev, tab];
+    });
+    setActiveTabId(tabId);
   }, [openLocalTab]);
 
   // ── pane operations ───────────────────────────────────────────────────────
@@ -688,14 +712,16 @@ function App() {
           // '' (workspace root) 도 유효한 cwd 이므로 null/undefined 가 아닌 이상 보존.
           const cwdPatch = target?.cwd != null ? { cwd: target.cwd } : {};
           if (target?.type === 'host' && target.hostId) {
-            // 호스트의 기본 테마가 있으면 themeOverride 자동 적용 (연결 직후 chrome 까지 그 테마로).
+            // 호스트 프로필 테마가 있으면 새 pane 생성 시점에 구체 테마로 해석.
             const h = hosts.find((hh) => hh.id === target.hostId);
-            const themePatch = h?.theme ? { themeOverride: h.theme } : {};
+            const resolvedTheme = resolveProfileTheme(h?.theme, usedThemeIdsFromTabs(prev));
+            const themePatch = resolvedTheme ? { themeOverride: resolvedTheme } : {};
             const tmuxPatch = target.tmuxSessionName ? { tmuxSessionName: target.tmuxSessionName } : { tmuxSessionName: undefined };
             return { ...p, hostId: target.hostId, sessionId: undefined, ...tmuxPatch, ...cwdPatch, ...themePatch };
           }
           if (target?.type === 'local') {
-            const themePatch = settings.localTheme ? { themeOverride: settings.localTheme } : {};
+            const resolvedTheme = resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev));
+            const themePatch = resolvedTheme ? { themeOverride: resolvedTheme } : {};
             return { ...p, sessionId: generateUUID(), hostId: undefined, tmuxSessionName: undefined, ...cwdPatch, ...themePatch };
           }
           if (t.type === 'host') return { ...p, hostId: t.hostId, tmuxSessionName: undefined, ...cwdPatch };
@@ -1792,13 +1818,17 @@ function App() {
                         if (host) { openHostTab(host, path); return; }
                       }
                       const sessionId = generateUUID();
+                      const tabId = `local:${sessionId}`;
                       const name = path.split('/').pop() || (settings.localName || 'terminal');
-                      const newTab = makLocalTab(sessionId, name, path, {
-                        icon: settings.localIcon || null,
-                        colorIndex: settings.localColorIndex ?? 0,
+                      setTabs((prev) => {
+                        const newTab = makLocalTab(sessionId, name, path, {
+                          icon: settings.localIcon || null,
+                          colorIndex: settings.localColorIndex ?? 0,
+                          themeOverride: resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev)),
+                        });
+                        return [...prev, newTab];
                       });
-                      setTabs((prev) => [...prev, newTab]);
-                      setActiveTabId(newTab.id);
+                      setActiveTabId(tabId);
                     }}
                     language={settings.language}
                     t={t}

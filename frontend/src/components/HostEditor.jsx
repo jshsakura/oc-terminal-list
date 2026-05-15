@@ -496,6 +496,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                   markedId={globalThemeId}
                   t={t}
                   columns={2}
+                  showRandom
                 />
               </Field>
             </Section>

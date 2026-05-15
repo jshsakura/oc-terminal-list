@@ -189,15 +189,17 @@ const HomeSessions = ({
               )}
             </div>
           )}
-          {!anyLoading && (
           <div style={S.grid}>
-            {showEmptyResumable && (
+            {anyLoading && (
+              <LoadingResumableCard t={t} />
+            )}
+            {!anyLoading && showEmptyResumable && (
               <EmptyResumableCard t={t} />
             )}
-            {!showEmptyResumable && tmuxHosts.map((host) => {
+            {!anyLoading && !showEmptyResumable && tmuxHosts.map((host) => {
               const entry = tmuxByHost[host.id];
               if (entry?.dismissed) return null;
-              if (entry?.loading) return null; // shouldn't happen — anyLoading guards this
+              if (entry?.loading) return null;
               if (entry.error) {
                 return <ErrorCard
                   key={`err-${host.id}`}
@@ -264,7 +266,6 @@ const HomeSessions = ({
               ));
             })}
           </div>
-          )}
         </>
       )}
     </section>
@@ -342,21 +343,25 @@ const ResumableCard = ({ host, session, onResume, onTerminate, t }) => {
   );
 };
 
-const SkeletonCard = ({ host }) => {
-  const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
-  return (
-    <div style={{ ...S.card, ...S.cardSkel, borderColor: color.border, cursor: 'default' }} aria-busy>
-      <IconBox accent={accent} subdued>
-        <HostIcon value={host.icon || ''} fallback={Server} size={18} />
-      </IconBox>
-      <div style={S.body}>
-        <div style={{ ...S.skelLine, width: '60%' }} />
-        <div style={{ ...S.skelLine, width: '40%', height: 9 }} />
-      </div>
-      <Loader2 size={14} strokeWidth={2.2} style={{ color: color.muted, animation: 'home-spin 0.9s linear infinite', flexShrink: 0 }} />
-    </div>
-  );
-};
+const LoadingResumableCard = ({ t }) => (
+  <div
+    style={{
+      ...S.card,
+      cursor: 'default',
+      background: color.surface0,
+      borderColor: color.border,
+      justifyContent: 'center',
+      color: color.muted,
+      fontSize: fontSize['12'],
+      fontWeight: fontWeight.medium,
+      textAlign: 'center',
+    }}
+    aria-busy
+  >
+    <Loader2 size={14} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />
+    <span>{t?.('loadingSessions') || 'Scanning hosts...'}</span>
+  </div>
+);
 
 // 빈 상태 카드 — 이어할 수 있는 세션이 하나도 없을 때 자리를 채워서 허전함 방지.
 const EmptyResumableCard = ({ t }) => (
