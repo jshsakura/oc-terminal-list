@@ -79,7 +79,7 @@ const RailIconBtn = ({
       >
         {Icon ? <Icon size={compact ? 13 : 15} strokeWidth={1.8} /> : children}
         {badge != null && badge > 0 && (
-          <span style={{ ...S.badge, background: palette.accent, color: palette.crust, boxShadow: `0 0 0 1.5px ${palette.mantle}` }}>
+          <span style={{ ...S.badge, background: palette.accent, color: '#fff', boxShadow: `0 0 0 1.5px ${palette.base || palette.mantle}` }}>
             {badge > 99 ? '99+' : badge}
           </span>
         )}

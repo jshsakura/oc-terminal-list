@@ -32,11 +32,14 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId =
   // 진행 중인 요청을 식별하기 위한 토큰 — race 시 stale 응답 폐기
   const requestIdRef = useRef(0);
 
+  const initializedRef = useRef(false);
+
   const refresh = useCallback(async () => {
     const myRequestId = ++requestIdRef.current;
     const myPath = pathRef.current;
     const myHostId = hostIdRef.current;
-    setLoading(true);
+    // 최초 로딩 시에만 skeleton 표시 — 이후 백그라운드 갱신은 조용히
+    if (!initializedRef.current) setLoading(true);
     try {
       let url;
       if (myHostId) {
@@ -60,8 +63,9 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId =
       setRepo(data.repo || null);
       setRepos(data.repos || []);
       setError(data.error || null);
+      initializedRef.current = true;
     } catch (e) {
-      if (myRequestId === requestIdRef.current) setError(e.message);
+      if (myRequestId === requestIdRef.current) { setError(e.message); initializedRef.current = true; }
     } finally {
       if (myRequestId === requestIdRef.current) setLoading(false);
     }
@@ -75,9 +79,12 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId =
     return () => clearInterval(id);
   }, [enabled, intervalMs, refresh]);
 
-  // path 가 바뀌면 즉시 한 번 (인터벌 다음 tick 기다리지 않게)
+  // path/host 바뀌면 초기화 후 즉시 한 번
   useEffect(() => {
-    if (enabled) refresh();
+    if (!enabled) return;
+    initializedRef.current = false;
+    setItems([]);
+    refresh();
   }, [path, hostId, enabled, refresh]);
 
   const fetchDiff = useCallback(async (filePath, staged = false) => {

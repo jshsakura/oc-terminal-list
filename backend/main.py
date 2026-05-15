@@ -847,12 +847,14 @@ async def terminal_websocket(
             await storage.update_session_activity(session_id)
         except Exception:
             pass
-        # 기존 세션도 스크롤 우선 정책으로 보정한다. tmux attach 는 outer xterm 에서
-        # alternate buffer 로 동작하므로 mouse on 상태에서 wheel/touch 를 tmux 에 넘겨야
-        # 실제 tmux history/copy-mode 가 움직인다.
+        # tmux mouse off — 브라우저(xterm.js)가 드래그 선택을 직접 처리하도록.
+        # 스크롤은 JS 쪽 attachCustomWheelEventHandler 가 SGR 시퀀스로 전달하므로
+        # WheelUpPane 바인딩 없이도 정상 동작한다. vim/htop 등 앱은 자체적으로
+        # DECSET 1000/1002 를 요청해 마우스 모드를 켜므로 마우스 입력도 유지된다.
         try:
-            await tmux_manager._run("set-option", "-t", session_id, "mouse", "on", check=False)
-            # PageUp/Down root binding 보강 (사이드바 PgUp/PgDn 버튼 경로용). idempotent.
+            await tmux_manager._run("set-option", "-t", session_id, "mouse", "off", check=False)
+            # PageUp/Down 키보드 바인딩 — alternate buffer(vim 등) 이면 앱에 전달,
+            # 아니면 tmux copy-mode 로 터미널 히스토리 탐색. 마우스 모드와 무관.
             await tmux_manager._run(
                 "bind-key", "-T", "root", "PageUp",
                 "if-shell", "-F", "#{alternate_on}",
@@ -863,21 +865,6 @@ async def terminal_websocket(
                 "bind-key", "-T", "root", "PageDown",
                 "if-shell", "-F", "#{alternate_on}",
                 "send-keys PageDown", "",
-                check=False,
-            )
-            await tmux_manager._run(
-                "bind-key", "-T", "root", "WheelUpPane",
-                "copy-mode -e; send-keys -X -N 5 scroll-up",
-                check=False,
-            )
-            await tmux_manager._run(
-                "bind-key", "-T", "copy-mode", "WheelUpPane",
-                "send-keys -X -N 5 scroll-up",
-                check=False,
-            )
-            await tmux_manager._run(
-                "bind-key", "-T", "copy-mode", "WheelDownPane",
-                "send-keys -X -N 5 scroll-down",
                 check=False,
             )
         except Exception:
@@ -1331,17 +1318,24 @@ async def host_git_status(
         cwd = await host_sftp.get_tmux_cwd(host, secrets) if host.get("use_remote_tmux") else None
         target = cwd or host.get("start_path") or "."
     safe = shlex.quote(target)
-    cmd = f"git -C {safe} status --porcelain=v1 -uall 2>&1"
+    # status + branch 를 단일 SSH 세션 하나로 처리 (연결 비용 절반)
+    cmd = (
+        f"git -C {safe} status --porcelain=v1 -uall 2>&1; "
+        f"echo '__BRANCH__'; "
+        f"git -C {safe} rev-parse --abbrev-ref HEAD 2>/dev/null"
+    )
     try:
-        output = await _run_remote_cmd(host, secrets, cmd, timeout=8)
+        raw = await _run_remote_cmd(host, secrets, cmd, timeout=10)
     except Exception as e:
         logger.warning("host git status failed (%s): %s", host_id, e)
         return {"items": [], "branch": None, "repo": None, "error": str(e)}
-    # not a git repo?
-    if "not a git repository" in output.lower() or "fatal:" in output.lower():
+
+    status_part, _, branch_part = raw.partition("__BRANCH__")
+    if "not a git repository" in status_part.lower() or "fatal:" in status_part.lower():
         return {"items": [], "branch": None, "repo": None, "error": None}
+
     items = []
-    for line in output.strip().splitlines():
+    for line in status_part.strip().splitlines():
         if len(line) < 3:
             continue
         staged_code = line[0]
@@ -1360,14 +1354,7 @@ async def host_git_status(
             "kind": kind,
             "staged": staged_code not in (" ", "?"),
         })
-    # branch
-    branch = None
-    try:
-        b_cmd = f"git -C {safe} rev-parse --abbrev-ref HEAD 2>/dev/null"
-        b_out = await _run_remote_cmd(host, secrets, b_cmd, timeout=5)
-        branch = b_out.strip() or None
-    except Exception:
-        pass
+    branch = branch_part.strip() or None
     return {"items": items, "branch": branch, "repo": target, "error": None}
 
 
@@ -1401,6 +1388,60 @@ async def host_git_diff(
         raise
     except Exception as e:
         logger.error("host git diff failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hosts/{host_id}/git/commit")
+async def host_git_commit(
+    host_id: str,
+    request: Request,
+    username: str = Depends(verify_auth_token),
+):
+    """원격 호스트: git add -A && git commit — SSH 로 직접 실행."""
+    body = await request.json()
+    path = (body.get("path") or "").strip()
+    message = (body.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Commit message is required")
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    safe_dir = shlex.quote(path or ".")
+    safe_msg = shlex.quote(message)
+    cmd = f"git -C {safe_dir} add -A && git -C {safe_dir} commit -m {safe_msg} 2>&1"
+    try:
+        output = await _run_remote_cmd(host, secrets, cmd, timeout=30)
+        if "nothing to commit" in output.lower():
+            return {"ok": True, "output": output.strip()}
+        if "error:" in output.lower() or "fatal:" in output.lower():
+            raise HTTPException(status_code=500, detail=output.strip())
+        return {"ok": True, "output": output.strip()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("host git commit failed (%s): %s", host_id, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/hosts/{host_id}/git/push")
+async def host_git_push(
+    host_id: str,
+    request: Request,
+    username: str = Depends(verify_auth_token),
+):
+    """원격 호스트: git push — SSH 로 직접 실행."""
+    body = await request.json()
+    path = (body.get("path") or "").strip()
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    safe_dir = shlex.quote(path or ".")
+    cmd = f"git -C {safe_dir} push 2>&1"
+    try:
+        output = await _run_remote_cmd(host, secrets, cmd, timeout=60)
+        if "error:" in output.lower() or "fatal:" in output.lower():
+            raise HTTPException(status_code=500, detail=output.strip())
+        return {"ok": True, "output": output.strip()}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("host git push failed (%s): %s", host_id, e)
         raise HTTPException(status_code=500, detail=str(e))
 
 

@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
-import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, GitCommit, Upload, Loader2, Search, X } from 'lucide-react';
+import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, GitCommit, Upload, Loader2, Search, X, PenLine } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
@@ -48,6 +48,11 @@ const buildTree = (items, stripPrefix = '') => {
   return root;
 };
 
+const countLeaves = (node) => {
+  if (node.type === 'file') return 1;
+  return node.children.reduce((acc, c) => acc + countLeaves(c), 0);
+};
+
 /**
  * 사이드바 git 탭. 활성 터미널 cwd 의 repo 변경 파일 리스트 + commit/push.
  */
@@ -68,13 +73,23 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const searchRef = useRef(null);
+  const inputRef = useRef(null);
   const repoBasename = repo ? repo.split('/').pop() : null;
 
   const [commitMsg, setCommitMsg] = useState('');
+  const [commitOpen, setCommitOpen] = useState(false);
   const [commitOp, setCommitOp] = useState(null); // null | 'commit' | 'push'
   const [commitResult, setCommitResult] = useState(null); // null | {ok, text} | {error}
 
   useEffect(() => { if (searchOpen && searchRef.current) searchRef.current.focus(); }, [searchOpen]);
+  useEffect(() => { if (commitOpen && inputRef.current) inputRef.current.focus(); }, [commitOpen]);
+
+  // 커밋 결과 3초 뒤 자동 클리어
+  useEffect(() => {
+    if (!commitResult) return;
+    const tid = setTimeout(() => setCommitResult(null), 3000);
+    return () => clearTimeout(tid);
+  }, [commitResult]);
 
   const filteredItems = useMemo(() => {
     if (!searchQuery.trim()) return items;
@@ -90,16 +105,19 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
     return next;
   });
 
+  const gitApiBase = hostId ? `/api/hosts/${hostId}/git` : '/api/git';
+  const gitPath = hostId ? (repo || effectivePath || '') : effectivePath;
+
   const handleCommit = async () => {
     if (!commitMsg.trim() || commitOp) return;
     setCommitOp('commit');
     setCommitResult(null);
     try {
       const token = localStorage.getItem('auth_token');
-      const res = await fetch('/api/git/commit', {
+      const res = await fetch(`${gitApiBase}/commit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ path: effectivePath, message: commitMsg.trim() }),
+        body: JSON.stringify({ path: gitPath, message: commitMsg.trim() }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Commit failed');
@@ -119,10 +137,10 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
     setCommitResult(null);
     try {
       const token = localStorage.getItem('auth_token');
-      const res = await fetch('/api/git/push', {
+      const res = await fetch(`${gitApiBase}/push`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ path: effectivePath }),
+        body: JSON.stringify({ path: gitPath }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || 'Push failed');
@@ -190,9 +208,10 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
     <div style={styles.wrap}>
       <style>{`@keyframes cl-spin { to { transform: rotate(360deg); } }`}</style>
 
+      {/* 헤더 */}
       <div style={styles.head}>
         <div style={styles.headLeft}>
-          <GitBranch size={11} strokeWidth={2} style={{ color: (repo) ? color.muted : color.faint, flexShrink: 0 }} />
+          <GitBranch size={11} strokeWidth={2} style={{ color: repo ? color.muted : color.faint, flexShrink: 0 }} />
           {repoBasename ? (
             <>
               <span style={styles.repoLabel}>{repoBasename}</span>
@@ -209,7 +228,7 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
           <button
             onClick={() => { setSearchOpen((v) => !v); setSearchQuery(''); }}
             title={t('search') || 'Search'}
-            style={{ ...styles.refreshBtn, color: searchOpen ? color.accent : color.muted }}
+            style={{ ...styles.iconBtn, color: searchOpen ? color.accent : color.muted }}
             onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = searchOpen ? color.accent : color.muted; }}
           >
@@ -218,11 +237,21 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
           <button
             onClick={refresh}
             title={t('refresh') || 'Refresh'}
-            style={styles.refreshBtn}
+            style={styles.iconBtn}
             onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = color.muted; }}
           >
             <RefreshCw size={11} strokeWidth={2} className={loading ? 'animate-spin' : ''} />
+          </button>
+          {/* 커밋 패널 토글 */}
+          <button
+            onClick={() => setCommitOpen((v) => !v)}
+            title={commitOpen ? (t('hideCommit') || 'Hide commit') : (t('commit') || 'Commit')}
+            style={{ ...styles.iconBtn, color: commitOpen ? color.accent : color.muted }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = color.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = commitOpen ? color.accent : color.muted; }}
+          >
+            <PenLine size={11} strokeWidth={2} />
           </button>
         </div>
       </div>
@@ -242,6 +271,48 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
             <button onClick={() => setSearchQuery('')} style={styles.searchClear}>
               <X size={10} strokeWidth={2} />
             </button>
+          )}
+        </div>
+      )}
+
+      {/* 커밋 패널 — 토글 시에만 표시 */}
+      {commitOpen && (
+        <div style={styles.commitBar}>
+          <div style={styles.commitRow}>
+            <input
+              ref={inputRef}
+              value={commitMsg}
+              onChange={(e) => setCommitMsg(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCommit(); }}
+              placeholder={t('commitMessagePlaceholder') || 'Message (⌘Enter)'}
+              style={styles.commitInput}
+              disabled={!!commitOp}
+            />
+            <button
+              onClick={handleCommit}
+              disabled={!commitMsg.trim() || !!commitOp}
+              style={{ ...styles.actionBtn, opacity: (!commitMsg.trim() || !!commitOp) ? 0.4 : 1 }}
+              title={t('commitAll') || 'Stage all & commit'}
+            >
+              {commitOp === 'commit'
+                ? <Loader2 size={11} strokeWidth={2} style={{ animation: 'cl-spin 0.8s linear infinite' }} />
+                : <GitCommit size={11} strokeWidth={2} />}
+            </button>
+            <button
+              onClick={handlePush}
+              disabled={!!commitOp}
+              style={{ ...styles.actionBtn, opacity: commitOp ? 0.4 : 1 }}
+              title={t('push') || 'Push'}
+            >
+              {commitOp === 'push'
+                ? <Loader2 size={11} strokeWidth={2} style={{ animation: 'cl-spin 0.8s linear infinite' }} />
+                : <Upload size={11} strokeWidth={2} />}
+            </button>
+          </div>
+          {commitResult && (
+            <div style={{ ...styles.commitStatus, color: commitResult.error ? color.danger : color.success }}>
+              {commitResult.error || commitResult.text}
+            </div>
           )}
         </div>
       )}
@@ -270,55 +341,8 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
         )}
         {!error && items.length > 0 && tree.children.map((c) => renderNode(c, 0))}
       </div>
-
-      {/* Commit / push bar */}
-      <div style={styles.commitBar}>
-        <textarea
-          value={commitMsg}
-          onChange={(e) => setCommitMsg(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleCommit(); }}
-          placeholder={t('commitMessagePlaceholder') || 'Commit message…'}
-          style={styles.commitInput}
-          rows={2}
-          disabled={!!commitOp}
-        />
-        {commitResult && (
-          <div style={{ ...styles.commitStatus, color: commitResult.error ? color.danger : color.success }}>
-            {commitResult.error || commitResult.text}
-          </div>
-        )}
-        <div style={styles.commitActions}>
-          <button
-            onClick={handleCommit}
-            disabled={!commitMsg.trim() || !!commitOp}
-            style={{ ...styles.actionBtn, flex: 1, opacity: (!commitMsg.trim() || !!commitOp) ? 0.45 : 1 }}
-            title={t('commitAll') || 'Stage all & commit (Ctrl+Enter)'}
-          >
-            {commitOp === 'commit'
-              ? <Loader2 size={11} strokeWidth={2} style={{ animation: 'cl-spin 0.8s linear infinite' }} />
-              : <GitCommit size={11} strokeWidth={2} />}
-            <span>{t('commitAll') || 'Commit all'}</span>
-          </button>
-          <button
-            onClick={handlePush}
-            disabled={!!commitOp}
-            style={{ ...styles.actionBtn, opacity: commitOp ? 0.45 : 1 }}
-            title={t('push') || 'Push'}
-          >
-            {commitOp === 'push'
-              ? <Loader2 size={11} strokeWidth={2} style={{ animation: 'cl-spin 0.8s linear infinite' }} />
-              : <Upload size={11} strokeWidth={2} />}
-            <span>{t('push') || 'Push'}</span>
-          </button>
-        </div>
-      </div>
     </div>
   );
-};
-
-const countLeaves = (node) => {
-  if (node.type === 'file') return 1;
-  return node.children.reduce((acc, c) => acc + countLeaves(c), 0);
 };
 
 const styles = {
@@ -372,7 +396,7 @@ const styles = {
     fontFamily: font.mono,
     flexShrink: 0,
   },
-  refreshBtn: {
+  iconBtn: {
     width: '22px',
     height: '22px',
     display: 'inline-flex',
@@ -419,38 +443,32 @@ const styles = {
     cursor: 'pointer',
     flexShrink: 0,
   },
-  list: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: `${space['1']} ${space['1']}`,
-    minHeight: 0,
-  },
-
   commitBar: {
     flexShrink: 0,
-    borderTop: `1px solid ${color.border}`,
-    background: color.base,
-    boxShadow: 'none',
+    borderBottom: `1px solid ${color.border}`,
+    background: color.crust,
     padding: `${space['1.5']} ${space['2']}`,
     display: 'flex',
     flexDirection: 'column',
-    gap: space['1.5'],
+    gap: space['1'],
+  },
+  commitRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1'],
   },
   commitInput: {
-    width: '100%',
-    boxSizing: 'border-box',
-    resize: 'none',
-    padding: `${space['1']} ${space['1.5']}`,
-    background: color.crust,
+    flex: 1,
+    minWidth: 0,
+    height: '26px',
+    padding: `0 ${space['1.5']}`,
+    background: color.surface0,
     border: `1px solid ${color.border}`,
     borderRadius: radius.sm,
     color: color.text,
     fontSize: fontSize['12'],
     fontFamily: font.sans,
     outline: 'none',
-    lineHeight: 1.5,
-    minHeight: '46px',
-    transition: `border-color ${motion.fast}, box-shadow ${motion.fast}`,
   },
   commitStatus: {
     fontSize: fontSize['11'],
@@ -459,27 +477,27 @@ const styles = {
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
     opacity: 0.9,
-  },
-  commitActions: {
-    display: 'flex',
-    gap: space['1.5'],
+    paddingLeft: '2px',
   },
   actionBtn: {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '4px',
+    width: '26px',
     height: '26px',
-    padding: `0 ${space['2']}`,
-    background: color.crust,
+    flexShrink: 0,
+    background: color.surface0,
     border: `1px solid ${color.border}`,
     borderRadius: radius.sm,
     color: color.subtext,
-    fontSize: fontSize['11'],
-    fontFamily: font.sans,
     cursor: 'pointer',
     transition: `opacity ${motion.fast}, background ${motion.fast}`,
-    whiteSpace: 'nowrap',
+  },
+  list: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: `${space['1']} ${space['1']}`,
+    minHeight: 0,
   },
   row: {
     display: 'flex',

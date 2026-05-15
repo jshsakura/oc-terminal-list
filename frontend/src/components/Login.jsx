@@ -280,7 +280,7 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
                 if (useBackupCode) setOtpCode(v.toUpperCase());
                 else setOtpCode(v.replace(/\D/g, '').slice(0, 6));
               }}
-              placeholder={useBackupCode ? 'XXXXXXXX' : '123456'}
+              placeholder={useBackupCode ? 'XXXXXXXX' : '••••••'}
               disabled={isLoading}
               autoFocus
               inputMode={useBackupCode ? 'text' : 'numeric'}

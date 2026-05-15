@@ -4,7 +4,8 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
-import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon, Eye, Edit3, GripHorizontal, GitCompare } from 'lucide-react';
+import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut } from 'lucide-react';
+import SkeletonRow from './common/SkeletonRow';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import Button from './common/Button';
@@ -57,6 +58,14 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const editorRef = useRef(null);
   const pollingRef = useRef(null);
   const binaryPathsRef = useRef(new Set());
+  const [editorFontSize, setEditorFontSize] = useState(() =>
+    parseInt(localStorage.getItem('editor-font-size') || '12', 10)
+  );
+  const changeFontSize = (delta) => setEditorFontSize((prev) => {
+    const next = Math.min(24, Math.max(8, prev + delta));
+    localStorage.setItem('editor-font-size', String(next));
+    return next;
+  });
 
   const currentFileState = fileStates[activeFile] || { content: '', hasChanges: false, lastSavedContent: '' };
   const content = currentFileState.content;
@@ -352,25 +361,28 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
       }}
       onMouseEnter={() => editorRef.current?.focus()}
     >
-      {/* 탭 바 */}
+      {/* 탭 바 — 메인 TabBar 의 폴더탭 스타일과 동일 */}
       <div style={{
         display: 'flex',
+        alignItems: 'stretch',
         height: '32px',
         minHeight: '32px',
         maxHeight: '32px',
         overflowX: 'auto',
         scrollbarWidth: 'none',
         msOverflowStyle: 'none',
-        background: theme.ui.glassBg || (isLightTheme ? 'rgba(255, 255, 255, 0.9)' : 'rgba(0,0,0,0.3)'),
-        backdropFilter: isLightTheme ? 'blur(10px)' : 'blur(12px) saturate(180%)',
-        WebkitBackdropFilter: isLightTheme ? 'blur(10px)' : 'blur(12px) saturate(180%)',
-        borderBottom: `1px solid ${theme.ui.borderLight || theme.ui.border}`,
-      }}>        {openFiles.map((path) => {
+        background: theme.ui.bgTertiary || theme.ui.bgSecondary || theme.ui.bg,
+        borderBottom: `1px solid ${theme.ui.border}`,
+        gap: 0,
+      }}>
+        {openFiles.map((path) => {
           const isActive = path === activeFile;
           const { path: filePath } = parseFileKey(path);
           const filename = (filePath || path).split('/').pop();
           const fileHasChanges = fileStates[path]?.hasChanges;
           const dotColor = theme.ui.accent || '#89b4fa';
+          const inactiveBg = theme.ui.bgSecondary || 'rgba(0,0,0,0.2)';
+          const activeBg = theme.ui.bg;
 
           return (
             <div
@@ -383,28 +395,38 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
                 display: 'flex',
                 alignItems: 'center',
                 gap: '6px',
-                padding: '0 10px',
-                height: '100%',
+                padding: '0 8px 0 10px',
+                height: 'calc(100% + 1px)',
                 cursor: 'pointer',
-                background: isActive ? theme.ui.bg : 'transparent',
-                borderRight: `1px solid ${theme.ui.border}`,
-                minWidth: '100px',
+                background: isActive ? activeBg : inactiveBg,
+                color: isActive ? theme.ui.text : theme.ui.textSecondary,
+                fontWeight: isActive ? 600 : 400,
+                border: `1px solid ${theme.ui.border}`,
+                borderTop: isActive ? `2px solid ${dotColor}` : `1px solid ${theme.ui.border}`,
+                borderBottom: `1px solid ${isActive ? activeBg : inactiveBg}`,
+                borderRadius: 0,
+                minWidth: '80px',
                 maxWidth: '180px',
                 flexShrink: 0,
+                flex: '1 1 auto',
+                marginLeft: '-1px',
+                boxSizing: 'border-box',
+                userSelect: 'none',
+                transition: 'background 150ms, color 150ms',
               }}
+              onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = theme.ui.bgTertiary || theme.ui.surface0 || 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = theme.ui.textSecondary; } }}
+              onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = inactiveBg; e.currentTarget.style.color = theme.ui.textSecondary; } }}
             >
               <span style={{
                 position: 'relative',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                width: '18px',
-                height: '18px',
+                width: '16px',
+                height: '16px',
                 flexShrink: 0,
-                background: isActive ? `${dotColor}26` : `${dotColor}12`,
-                border: `1px solid ${isActive ? `${dotColor}55` : `${dotColor}22`}`,
-                borderRadius: '4px',
                 color: isActive ? theme.ui.text : dotColor,
+                opacity: isActive ? 1 : 0.75,
               }}>
                 {getFileIcon(filename, isActive ? theme.ui.text : dotColor)}
                 {fileHasChanges && (
@@ -412,49 +434,48 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
                     position: 'absolute',
                     top: '-3px',
                     right: '-3px',
-                    width: '7px',
-                    height: '7px',
+                    width: '6px',
+                    height: '6px',
                     borderRadius: '50%',
                     background: dotColor,
-                    boxShadow: `0 0 0 1.5px ${theme.ui.bg}`,
+                    boxShadow: `0 0 0 1.5px ${activeBg}`,
                     pointerEvents: 'none',
                   }} />
                 )}
               </span>
-              <span style={{ 
-                fontSize: '11px', 
-                color: isActive ? theme.ui.text : theme.ui.textSecondary,
+              <span style={{
+                fontSize: '11px',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 flex: 1,
                 minWidth: 0,
-                fontWeight: isActive ? 600 : 400,
                 fontFamily: theme.ui.fontFamily,
               }}>
                 {filename}
               </span>
               <button
                 onClick={(e) => { e.stopPropagation(); handleCloseClick(path); }}
-                onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.opacity = '1'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.opacity = isActive ? '0.65' : '0.45'; }}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '16px',
-                  height: '16px',
+                  width: '14px',
+                  height: '14px',
                   flexShrink: 0,
                   background: 'transparent',
                   border: 'none',
                   borderRadius: '3px',
                   padding: 0,
                   cursor: 'pointer',
-                  color: isActive ? theme.ui.textSecondary : theme.ui.iconColor,
-                  opacity: isActive ? 0.6 : 0.4,
+                  color: theme.ui.textSecondary,
+                  opacity: isActive ? 0.65 : 0.45,
+                  transition: 'opacity 120ms, background 120ms',
                 }}
               >
-                <X size={10} strokeWidth={2} />
+                <X size={9} strokeWidth={2} />
               </button>
             </div>
           );
@@ -515,24 +536,34 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
             <span>{t('save')}</span>
           </Button>
-          <Button 
-            variant="ghost" 
-            size="small" 
-            onClick={() => loadFile(activeFile)} 
+          <Button
+            variant="ghost"
+            size="small"
+            onClick={() => loadFile(activeFile)}
             disabled={loading}
             theme={theme}
             style={{ height: '24px', padding: '0 4px' }}
             icon={RefreshCw}
           />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2px', borderLeft: `1px solid ${theme.ui.border}`, paddingLeft: '8px', marginLeft: '4px' }}>
+            <button onClick={() => changeFontSize(-1)} title="Decrease font size" style={styles.fsBtnStyle(theme)}>
+              <ZoomOut size={11} strokeWidth={2} />
+            </button>
+            <span style={{ fontSize: '10px', color: theme.ui.textSecondary, minWidth: '20px', textAlign: 'center', fontFamily: 'monospace' }}>{editorFontSize}</span>
+            <button onClick={() => changeFontSize(1)} title="Increase font size" style={styles.fsBtnStyle(theme)}>
+              <ZoomIn size={11} strokeWidth={2} />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* 에디터 영역 */}
       <div style={styles.content}>
         {loading && !content && !isImage ? (
-          <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
-            <Loader2 size={32} className="animate-spin" style={{ color: theme.ui.accent, marginBottom: '12px' }} />
-            <span>{t('loading')}</span>
+          <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {[80, 60, 72, 45, 90, 55, 68, 40, 78, 50].map((w, i) => (
+              <SkeletonRow key={i} width={`${w}%`} height="13px" style={{ marginLeft: i % 3 === 1 ? '16px' : i % 3 === 2 ? '32px' : '0' }} />
+            ))}
           </div>
         ) : error ? (
           <div style={{ ...styles.message, color: theme.red }}>
@@ -624,7 +655,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             original={diffStates[activeFile]?.original || ''}
             modified={content}
             options={{
-              fontSize: 14,
+              fontSize: editorFontSize,
               fontFamily: '"JetBrains Mono", monospace',
               automaticLayout: true,
               renderSideBySide: true,
@@ -646,7 +677,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             onChange={handleEditorChange}
             onMount={handleEditorDidMount}
             options={{
-              fontSize: 14,
+              fontSize: editorFontSize,
               fontFamily: '"JetBrains Mono", monospace',
               minimap: { enabled: true },
               scrollBeyondLastLine: false,
@@ -775,6 +806,19 @@ const styles = {
     justifyContent: 'center',
     fontSize: '14px',
   },
+  fsBtnStyle: (theme) => ({
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '20px',
+    height: '20px',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '3px',
+    cursor: 'pointer',
+    color: theme.ui.textSecondary,
+    padding: 0,
+  }),
 };
 
 export default FileEditor;

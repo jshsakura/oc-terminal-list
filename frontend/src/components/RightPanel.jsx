@@ -213,14 +213,22 @@ const RightPanel = ({
   // Git 변경 카운트 — 활동 바 뱃지에 표시.
   // local: 로컬 워크스페이스 git API
   // host:  원격 호스트 SSH git API (hostId + remoteCwd)
+  const isRemote = !!activeHostId;
+  const gitPanelOpen = activePanel === 'git';
+  // 리모트: 패널 열릴 때만 30s 폴링, 닫히면 폴링 중단 (SSH 연결 비용)
+  // 로컬: 패널 열림 4s / 닫힘 15s (로컬 API는 저렴)
+  const gitEnabled = isRemote
+    ? gitPanelOpen
+    : (gitContextPath != null || !!activeHostId);
+  const gitIntervalMs = isRemote ? 30000 : (gitPanelOpen ? 4000 : 15000);
   const gitChanges = useGitChanges({
-    enabled: gitContextPath != null || !!activeHostId,
+    enabled: gitEnabled,
     path: activeHostId ? (paneCwd || '') : (gitContextPath || ''),
     hostId: activeHostId || null,
-    intervalMs: 4000,
+    intervalMs: gitIntervalMs,
   });
   const { items: gitItems, refresh: refreshGitChanges } = gitChanges;
-  const gitCount = gitContextPath != null ? (gitItems || []).length : 0;
+  const gitCount = (gitContextPath != null || !!activeHostId) ? (gitItems || []).length : 0;
 
   useEffect(() => {
     if (activePanel === 'files') {
@@ -243,6 +251,10 @@ const RightPanel = ({
         @keyframes iterm-skel-shimmer {
           0%   { background-position: 150% center; }
           100% { background-position: -150% center; }
+        }
+        @keyframes iterm-cwd-shine {
+          0%,  70% { background-position: -200% center; }
+          85%, 100% { background-position: 200% center; }
         }
         .iterm-rp-panelbody, .iterm-rp-panelbody * {
           scrollbar-width: thin !important;
@@ -1570,7 +1582,6 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
     border: `1px solid color-mix(in srgb, ${ui.border || ui.surface1} 50%, transparent)`,
     borderRadius: '5px',
     padding: '2px 4px 2px 5px',
-    userSelect: 'none',
     pointerEvents: 'auto',
   };
 
@@ -1611,18 +1622,23 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
           strokeWidth={1.8}
           style={{ flexShrink: 0, color: dotColor, opacity: 0.85 }}
         />
-        {/* 좌측 정렬, 우측 말줄임 */}
-        <span style={{
-          flex: 1,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          fontSize: '10px',
-          fontFamily: font.mono,
-          color: ui.subtext0 || ui.subtext || ui.muted,
-          opacity: 0.75,
-          letterSpacing: '-0.01em',
-        }}>
+        {/* 좌측 정렬, 우측 말줄임 — 드래그 선택으로 복사 가능 */}
+        <span
+          title={rawPath || headerPath}
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            fontSize: '10px',
+            fontFamily: font.mono,
+            letterSpacing: '-0.01em',
+            userSelect: 'text',
+            cursor: 'text',
+            color: ui.subtext0 || ui.muted,
+            opacity: 0.82,
+          }}
+        >
           {headerPath}
         </span>
         {onRefreshCwd && (

@@ -105,6 +105,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const [authPrompt, setAuthPrompt] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [tmuxFallback, setTmuxFallback] = useState(false);
+  const [copyFlash, setCopyFlash] = useState(false);
+  const copyFlashTimerRef = useRef(null);
   // authPrompt 열고 닫을 때 전역 이벤트 — App.jsx 가 모바일 단축키바를 그동안 숨김.
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('iterm:auth-prompt', { detail: { open: !!authPrompt } }));
@@ -219,6 +221,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       windowsMode: false,
       smoothScrollDuration: settings.smoothScroll ? 100 : 0,
       macOptionIsMeta: true,
+      macOptionClickForcesSelection: true,
       altClickMovesCursor: true,
       drawBoldTextInBrightColors: true,
     });
@@ -459,7 +462,11 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         const selection = term.getSelection();
         // 모바일은 자동 복사가 방해될 수 있으므로 (선택 핸들 유지 등) PC 에서만 자동 복사.
         if (selection && !isMobileRef.current) {
-          copyTextToClipboard(selection);
+          copyTextToClipboard(selection).then(() => {
+            setCopyFlash(true);
+            if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
+            copyFlashTimerRef.current = setTimeout(() => setCopyFlash(false), 1800);
+          });
         }
       }, 80);
     });
@@ -966,6 +973,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
       if (inputFlushTimeoutRef.current) clearTimeout(inputFlushTimeoutRef.current);
+      if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
       inputQueueRef.current = [];
       fitNowRef.current = null;
     };
@@ -1207,6 +1215,17 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       searchNext,
       searchPrevious,
       closeSearch,
+      // xterm에 PTY 출력인 척 escape sequence 주입. 마우스 트래킹 임시 제어 등에 사용.
+      writeEscape: (seq) => xtermRef.current?.write(seq),
+      setMouseTracking: (enabled) => {
+        const t = xtermRef.current;
+        if (!t) return;
+        if (enabled) {
+          t.write('\x1b[?1000h\x1b[?1002h\x1b[?1006h');
+        } else {
+          t.write('\x1b[?1000l\x1b[?1002l\x1b[?1006l');
+        }
+      },
       /* Info 패널이 읽어가는 라이브 메타데이터 — 사이즈/연결상태 등.
          값은 ref 기반이라 항상 최신. (객체 자체는 그대로, 내부 ref 만 변동) */
       getDims: () => ({ ...lastDimsRef.current }),
@@ -1375,6 +1394,38 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           }}
           onClose={() => setContextMenu(null)}
         />
+      )}
+
+      {/* "Copied!" 토스트 — 드래그 선택 후 자동 복사 시 짧게 표시 */}
+      {copyFlash && (
+        <div
+          aria-live="assertive"
+          aria-atomic="true"
+          style={{
+            position: 'absolute',
+            bottom: '10px',
+            right: '10px',
+            background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0 || '#313244'} 92%, transparent)`,
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            color: themeUi.text,
+            border: `1px solid ${themeUi.border}`,
+            borderRadius: '6px',
+            padding: '4px 10px',
+            fontSize: '11px',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontWeight: 500,
+            pointerEvents: 'none',
+            zIndex: 15,
+            opacity: 0.92,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+          }}
+        >
+          <Copy size={11} strokeWidth={2} style={{ color: themeUi.accent }} />
+          {t('copied') || 'Copied'}
+        </div>
       )}
 
       {/* takeover 배너 — 패널 하단 인라인, 여러 패널에 동시 노출 가능 */}
@@ -1648,6 +1699,9 @@ const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll
   items.push({ icon: RotateCcw, label: t('clear') || 'Clear', action: onClear });
   items.push({ icon: ArrowDownToLine, label: t('scrollToBottom') || 'Scroll to bottom', action: onScrollToBottom });
 
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
+  const selectHint = isMac ? 'Option+drag to select' : 'Shift+drag to select';
+
   return (
     <div
       ref={ref}
@@ -1691,6 +1745,17 @@ const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll
           {item.label}
         </button>
       ))}
+      <div style={{ height: '1px', background: themeUi.border, margin: '3px 0' }} />
+      <div style={{
+        padding: '4px 12px',
+        fontSize: tokens.fontSize['11'],
+        color: themeUi.subtext,
+        opacity: 0.7,
+        fontFamily: tokens.font.sans,
+        letterSpacing: '0.01em',
+      }}>
+        {selectHint}
+      </div>
     </div>
   );
 };

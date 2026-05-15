@@ -81,33 +81,19 @@ def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: str | N
     cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
     # 핵심: new-session 단계에서 stty size 로 PTY 차원 그대로 주입 → 80x24 기본 아래 시작 후
     # attach 시 리사이즈하느라 prompt 가 안 그려지는 race 방지.
-    # 로컬 tmux 와 동일한 임베드 친화 세팅 — "미묘하게 다름" 회피 위해 옵션을 통일한다.
-    # mouse on (스크롤 우선; frontend 가 wheel/touch 를 tmux mouse wheel 로 전달),
-    # window-size latest (다중 클라이언트 사이즈 동기화), focus-events on,
-    # truecolor override, 그리고 PgUp/PgDn 자동 분기 root 바인딩.
+    # mouse off — xterm.js(브라우저)가 드래그 선택을 직접 처리. vim/htop 등 앱은 자체
+    # DECSET 1000/1002 로 필요할 때만 마우스 모드를 켠다. 스크롤은 JS 가 SGR 시퀀스로 처리.
     return (
         f"command -v tmux >/dev/null 2>&1 && {{ "
         f"tmux has-session -t {safe} 2>/dev/null || tmux new-session -d -s {safe}{cwd_arg}; "
         f"tmux set-option -t {safe} aggressive-resize on >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} mouse on >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} mouse off >/dev/null 2>&1; "
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
         f"tmux set-option -t {safe} focus-events on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} status off >/dev/null 2>&1; "
         f"tmux set-option -ag -t {safe} terminal-overrides ',*256col*:Tc' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageUp if-shell -F '#{{alternate_on}}' 'send-keys PageUp' 'copy-mode -eu' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageDown if-shell -F '#{{alternate_on}}' 'send-keys PageDown' '' >/dev/null 2>&1; "
-        f"tmux bind-key -T root WheelUpPane 'copy-mode -e; send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "
-        f"tmux bind-key -T copy-mode WheelUpPane 'send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "
-        f"tmux bind-key -T copy-mode WheelDownPane 'send-keys -X -N 5 scroll-down' >/dev/null 2>&1; "
-        # 휠 외 마우스 바인딩 전부 unbind — 드래그/우클릭/더블클릭 시 tmux 가 copy-mode 진입하거나
-        # 팝업 메뉴 띄우는 것 차단. 휠 (WheelUpPane, WheelDownPane) 은 그대로.
-        f"for ev in MouseDown1Pane MouseDown1Status MouseDown1StatusLeft MouseDown1StatusRight MouseDown1Border "
-        f"MouseDrag1Pane MouseDrag1Border MouseDragEnd1Pane "
-        f"MouseUp1Pane MouseUp1Status MouseUp1StatusLeft MouseUp1StatusRight MouseUp1Border "
-        f"MouseDown2Pane MouseUp2Pane "
-        f"MouseDown3Pane MouseDown3Status MouseDown3StatusLeft MouseDown3StatusRight "
-        f"DoubleClick1Pane TripleClick1Pane; do "
-        f"tmux unbind-key -T root \\\"$ev\\\" >/dev/null 2>&1; done; "
         f"exec tmux attach-session -t {safe}; "
         f"}} || "
         f"{cd_prefix}exec ${{SHELL:-bash}} -l"
