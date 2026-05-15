@@ -93,6 +93,19 @@ describe('TerminalHeader', () => {
     expect(panel).toHaveStyle({ width: '320px' });
   });
 
+  it('uses larger touch targets for mobile more-menu items', () => {
+    const { container } = render(<TerminalHeader {...baseProps({
+      isMobile: true,
+      terminalKey: 'local:1',
+      onCloseTerminal: vi.fn(),
+      onRefreshTerminal: vi.fn(),
+    })} />);
+
+    fireEvent.click(container.querySelector('[title="more"]'));
+    const closeItem = screen.getByText('closeTerminal').closest('button');
+    expect(closeItem).toHaveStyle({ minHeight: '42px' });
+  });
+
   describe('Info panel — pane identity and cwd', () => {
     const openInfoPanel = (paneInfoOverrides = {}) => {
       const props = baseProps({

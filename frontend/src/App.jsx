@@ -2017,8 +2017,9 @@ function App() {
             onClose={() => setCommandInputOpen(false)}
             onSend={(cmd) => {
               const terminal = window.terminalSessions?.[terminalKey];
-              terminal?.sendData?.(cmd + '\r');
-              window.setTimeout(() => terminal?.sendData?.('\r'), 24);
+              terminal?.sendData?.(cmd);
+              window.setTimeout(() => terminal?.sendData?.('\r'), 40);
+              window.setTimeout(() => terminal?.sendData?.('\r'), 180);
               setCommandText('');
             }}
             command={commandText}

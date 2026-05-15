@@ -1,9 +1,10 @@
 import { useEffect, useRef } from 'react';
-import { X, Copy, Check } from 'lucide-react';
+import { Copy, FileText } from 'lucide-react';
 import Button from './common/Button';
+import GlassModal from './common/GlassModal';
 import { tokens } from '../styles/tokens';
 
-const { color, font, fontSize, fontWeight, radius, space, shadow } = tokens;
+const { color, font, fontSize, radius, space } = tokens;
 
 /**
  * 터미널 스크롤백 전체 텍스트 덤프 — 모바일/데스크톱 모두 자유 선택 + 복사 가능.
@@ -13,16 +14,13 @@ const ScreenDumpModal = ({ text, onClose, t }) => {
   const taRef = useRef(null);
 
   useEffect(() => {
-    if (!text) return;
+    if (!text) return undefined;
     const onKey = (e) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [text, onClose]);
-
-  // auto-select 제거 — 사용자가 원하는 부분만 직접 선택해 복사하도록 함.
-  // (전체 복사가 필요하면 footer 의 "Copy all" 버튼.)
 
   if (!text) return null;
 
@@ -36,84 +34,55 @@ const ScreenDumpModal = ({ text, onClose, t }) => {
   };
 
   return (
-    <>
-      <div style={styles.backdrop} onClick={onClose} />
-      <div className="iterm-modal-card" style={styles.modal} role="dialog" aria-modal="true">
-        <header style={styles.header}>
-          <div style={styles.title}>{t?.('screenDump') || 'Terminal text'}</div>
-          <button onClick={onClose} style={styles.closeBtn} aria-label="Close">
-            <X size={14} strokeWidth={2} />
-          </button>
-        </header>
-
-        <div style={styles.body}>
-          <textarea
-            ref={taRef}
-            readOnly
-            value={text}
-            style={styles.textarea}
-          />
-          <div style={styles.hint}>
-            {t?.('screenDumpHint') || 'Free select & copy any portion. ESC to close.'}
-          </div>
-        </div>
-
-        <footer style={styles.footer}>
+    <GlassModal
+      isOpen={!!text}
+      onClose={onClose}
+      title={t?.('screenDump') || 'Terminal text'}
+      titleIcon={FileText}
+      closeTitle={t?.('close') || 'Close'}
+      width="92%"
+      maxWidth="780px"
+      height="88vh"
+      maxHeight="900px"
+      bodyStyle={styles.body}
+      footer={(
+        <>
           <div style={{ flex: 1 }} />
           <Button variant="primary" onClick={handleCopyAll} icon={Copy}>
             {t?.('copyAll') || 'Copy all'}
           </Button>
-        </footer>
+        </>
+      )}
+      footerStyle={styles.footer}
+    >
+      <textarea
+        ref={taRef}
+        readOnly
+        value={text}
+        style={styles.textarea}
+      />
+      <div style={styles.hint}>
+        {t?.('screenDumpHint') || 'Free select & copy any portion. ESC to close.'}
       </div>
-    </>
+    </GlassModal>
   );
 };
 
 const styles = {
-  backdrop: {
-    position: 'absolute', inset: 0, background: color.scrim, zIndex: 10000,
-    backdropFilter: 'blur(2px)',
-  },
-  modal: {
-    position: 'absolute',
-    top: '50%', left: '50%',
-    transform: 'translate(-50%, -50%)',
-    width: '98%', maxWidth: '1100px',
-    height: '96%',
-    maxHeight: '96%',
-    zIndex: 10001,
-    background: color.base,
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.lg,
-    boxShadow: shadow.lg,
-    fontFamily: font.sans,
-    display: 'flex', flexDirection: 'column',
-    overflow: 'hidden',
-  },
-  header: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: `${space['3']} ${space['4']}`,
-    borderBottom: `1px solid ${color.border}`,
-  },
-  title: { fontSize: fontSize['14'], fontWeight: fontWeight.semibold, color: color.text },
-  closeBtn: {
-    width: '24px', height: '24px',
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-    background: 'transparent', color: color.muted, border: 'none',
-    borderRadius: radius.xs, cursor: 'pointer',
-  },
   body: {
-    flex: 1, padding: `${space['3']} ${space['4']}`,
-    display: 'flex', flexDirection: 'column', gap: space['2'],
+    padding: `${space['3']} ${space['4']}`,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['2'],
     minHeight: 0,
   },
   textarea: {
     flex: 1,
-    minHeight: '420px',  /* 작은 화면 보호용 — 모달 height 90vh 라 보통 더 큼 */
+    minHeight: 0,
     padding: `${space['3']}`,
-    background: color.crust,
-    color: color.text,
-    border: `1px solid ${color.border}`,
+    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)`,
+    color: `var(--ui-text, ${color.text})`,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
     borderRadius: radius.sm,
     fontSize: fontSize['12'],
     fontFamily: font.mono,
@@ -126,14 +95,11 @@ const styles = {
   },
   hint: {
     fontSize: fontSize['11'],
-    color: color.muted,
+    color: `var(--ui-subtext, ${color.muted})`,
     textAlign: 'center',
   },
   footer: {
-    display: 'flex', alignItems: 'center', gap: space['2'],
-    padding: `${space['3']} ${space['4']}`,
-    borderTop: `1px solid ${color.border}`,
-    background: color.mantle,
+    justifyContent: 'flex-end',
   },
 };
 

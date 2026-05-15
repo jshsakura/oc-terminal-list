@@ -538,6 +538,7 @@ const TerminalHeader = ({
         <RailSubMenu
           anchor={railMenu}
           ui={panelUi}
+          isMobile={isMobile}
           onClose={closeRailMenu}
           t={t}
         >
@@ -572,6 +573,7 @@ const TerminalHeader = ({
         <RailSubMenu
           anchor={splitMenu}
           ui={panelUi}
+          isMobile={isMobile}
           onClose={closeSplitMenu}
           t={t}
         >
@@ -697,7 +699,7 @@ const TerminalHeader = ({
 // page scroll, log dump, refresh, focus indicator). Positioned via measured
 // pattern; uses stable ref + setTimeout(0) for outside-click / Escape per AGENTS.md.
 
-const RailSubMenu = ({ anchor, ui, onClose, t, children }) => {
+const RailSubMenu = ({ anchor, ui, isMobile = false, onClose, t, children }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: anchor.x, y: anchor.y });
   const [measured, setMeasured] = useState(false);
@@ -743,6 +745,7 @@ const RailSubMenu = ({ anchor, ui, onClose, t, children }) => {
   return (
     <div
       ref={ref}
+      className={isMobile ? 'iterm-rail-submenu-mobile' : undefined}
       style={{
         position: 'fixed',
         top: pos.y,
@@ -755,6 +758,19 @@ const RailSubMenu = ({ anchor, ui, onClose, t, children }) => {
         transition: 'opacity 120ms',
       }}
     >
+      {isMobile && (
+        <style>{`
+          .iterm-rail-submenu-mobile > button {
+            min-height: 42px !important;
+            padding: 0 12px !important;
+            font-size: 13px !important;
+          }
+          .iterm-rail-submenu-mobile > button > svg {
+            width: 15px !important;
+            height: 15px !important;
+          }
+        `}</style>
+      )}
       {children}
     </div>
   );
