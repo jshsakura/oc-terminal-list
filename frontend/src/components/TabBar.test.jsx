@@ -30,7 +30,9 @@ describe('TabBar', () => {
     );
     fireEvent.click(screen.getByTitle(/^Settings/));
     expect(onOpenSettings).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText(/^Settings$/));
+    const settingsItem = screen.getByText(/^Settings$/).closest('button');
+    expect(settingsItem).toHaveStyle({ minHeight: '42px' });
+    fireEvent.click(settingsItem);
     expect(onOpenSettings).toHaveBeenCalled();
   });
 

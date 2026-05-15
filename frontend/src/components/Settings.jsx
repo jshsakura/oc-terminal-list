@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import {
-  X, RotateCcw, SlidersHorizontal, Server, Key as KeyIcon, Plus,
+  RotateCcw, SlidersHorizontal, Server, Key as KeyIcon, Plus,
   Settings as GearIcon, ChevronRight, LogOut, Smartphone, ChevronDown,
 } from 'lucide-react';
 import ThemePicker from './common/ThemePicker';
+import GlassModal from './common/GlassModal';
 import useHostReorder from '../hooks/useHostReorder';
 import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
@@ -49,78 +50,79 @@ const Settings = ({
     if (confirm(t('reset'))) { onSave(DEFAULT_SETTINGS); onClose(); }
   };
 
-  return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div className="iterm-modal-card" style={styles.modal} onClick={(e) => e.stopPropagation()}>
-        <header style={styles.header}>
-          <div style={styles.title}>
-            <GearIcon size={14} strokeWidth={1.8} style={{ color: color.subtext }} />
-            {t('settingsTitle')}
-          </div>
-          <button onClick={onClose} title={t('cancel')} style={styles.closeBtn}>
-            <X size={14} strokeWidth={2} />
+  const tabBar = (
+    <nav style={styles.tabBar}>
+      {TABS.map((tabDef) => {
+        const Icon = tabDef.icon;
+        const active = tab === tabDef.id;
+        return (
+          <button
+            key={tabDef.id}
+            onClick={() => setTab(tabDef.id)}
+            style={{
+              ...styles.tabBtn,
+              background: active ? `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 82%, transparent)` : 'transparent',
+              color: active ? `var(--ui-text, ${color.text})` : `var(--ui-subtext, ${color.subtext})`,
+              borderColor: active ? `color-mix(in srgb, var(--ui-border-strong, ${color.borderStrong}) 76%, transparent)` : 'transparent',
+            }}
+          >
+            <Icon size={13} strokeWidth={1.8} />
+            <span>{t(tabDef.labelKey) || tabDef.fallback}</span>
           </button>
-        </header>
+        );
+      })}
+    </nav>
+  );
 
-        <nav style={styles.tabBar}>
-          {TABS.map((tabDef) => {
-            const Icon = tabDef.icon;
-            const active = tab === tabDef.id;
-            return (
-              <button
-                key={tabDef.id}
-                onClick={() => setTab(tabDef.id)}
-                style={{
-                  ...styles.tabBtn,
-                  background: active ? color.surface1 : 'transparent',
-                  color: active ? color.text : color.subtext,
-                  borderColor: active ? color.borderStrong : 'transparent',
-                }}
-              >
-                <Icon size={13} strokeWidth={1.8} />
-                <span>{t(tabDef.labelKey) || tabDef.fallback}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        <div style={styles.body}>
-          {tab === 'general' && (
-            <GeneralPanel s={s} change={change} username={username} onLogout={onLogout} t={t} />
-          )}
-          {tab === 'mobile' && (
-            <MobilePanel s={s} change={change} t={t} />
-          )}
-          {tab === 'hosts' && (
-            <HostsPanel hosts={hosts} refreshHosts={refreshHosts} onAdd={onAddHost} onEdit={onEditHost} t={t} />
-          )}
-          {tab === 'keys' && (
-            <KeysPanel keys={sshKeys} onAdd={onAddKey} onEdit={onEditKey} t={t} />
-          )}
-        </div>
-
-        <footer style={styles.footer}>
-          {SETTINGS_TABS.has(tab) ? (
-            <>
-              <Button variant="ghost" onClick={reset} icon={RotateCcw}>{t('reset')}</Button>
-              <div style={{ display: 'flex', gap: space['1.5'] }}>
-                <Button variant="secondary" onClick={onClose}>{t('cancel')}</Button>
-                <Button variant="primary" onClick={save}>{t('save')}</Button>
-              </div>
-            </>
-          ) : (
-            <>
-              <span style={styles.footerNote}>
-                {tab === 'hosts'
-                  ? `${hosts.length} ${t('savedHosts') || 'hosts'}`
-                  : `${sshKeys.length} ${t('keys') || 'keys'}`}
-              </span>
-              <Button variant="secondary" onClick={onClose}>{t('close') || 'Close'}</Button>
-            </>
-          )}
-        </footer>
+  const footer = SETTINGS_TABS.has(tab) ? (
+    <>
+      <Button variant="ghost" onClick={reset} icon={RotateCcw}>{t('reset')}</Button>
+      <div style={{ display: 'flex', gap: space['1.5'] }}>
+        <Button variant="secondary" onClick={onClose}>{t('cancel')}</Button>
+        <Button variant="primary" onClick={save}>{t('save')}</Button>
       </div>
-    </div>
+    </>
+  ) : (
+    <>
+      <span style={styles.footerNote}>
+        {tab === 'hosts'
+          ? `${hosts.length} ${t('savedHosts') || 'hosts'}`
+          : `${sshKeys.length} ${t('keys') || 'keys'}`}
+      </span>
+      <Button variant="secondary" onClick={onClose}>{t('close') || 'Close'}</Button>
+    </>
+  );
+
+  return (
+    <GlassModal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={t('settingsTitle')}
+      titleIcon={GearIcon}
+      ariaLabel={t('settingsTitle')}
+      closeTitle={t('cancel')}
+      width="92%"
+      maxWidth="780px"
+      height="88vh"
+      maxHeight="900px"
+      afterHeader={tabBar}
+      bodyStyle={styles.body}
+      footer={footer}
+      footerStyle={styles.footer}
+    >
+      {tab === 'general' && (
+        <GeneralPanel s={s} change={change} username={username} onLogout={onLogout} t={t} />
+      )}
+      {tab === 'mobile' && (
+        <MobilePanel s={s} change={change} t={t} />
+      )}
+      {tab === 'hosts' && (
+        <HostsPanel hosts={hosts} refreshHosts={refreshHosts} onAdd={onAddHost} onEdit={onEditHost} t={t} />
+      )}
+      {tab === 'keys' && (
+        <KeysPanel keys={sshKeys} onAdd={onAddKey} onEdit={onEditKey} t={t} />
+      )}
+    </GlassModal>
   );
 };
 
@@ -532,65 +534,12 @@ const fszStyles = {
 };
 
 const styles = {
-  overlay: {
-    position: 'fixed',
-    inset: 0,
-    background: color.scrim,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    zIndex: 10000,
-    backdropFilter: 'blur(2px)',
-    fontFamily: font.sans,
-  },
-  modal: {
-    width: '92%',
-    maxWidth: '780px',
-    height: '88vh',
-    maxHeight: '900px',
-    background: color.base,
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.lg,
-    boxShadow: tokens.shadow.lg,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: `${space['3']} ${space['4']}`,
-    borderBottom: `1px solid ${color.border}`,
-    flexShrink: 0,
-  },
-  title: {
-    fontSize: fontSize['14'],
-    fontWeight: fontWeight.semibold,
-    color: color.text,
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  closeBtn: {
-    width: '28px',
-    height: '28px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: color.surface0,
-    color: color.subtext,
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.sm,
-    cursor: 'pointer',
-    transition: `background ${motion.fast}, color ${motion.fast}`,
-  },
   tabBar: {
     display: 'flex',
     gap: '4px',
     padding: `8px ${space['3']}`,
-    borderBottom: `1px solid ${color.border}`,
-    background: color.mantle,
+    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
     overflowX: 'auto',
     flexShrink: 0,
   },

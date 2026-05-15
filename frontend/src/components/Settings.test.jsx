@@ -27,6 +27,20 @@ describe('Settings', () => {
     expect(screen.getByText(/Settings/i).length || 1).toBeTruthy();
   });
 
+  it('uses the shared glass modal layer above portal menus', () => {
+    render(
+      <Settings
+        isOpen={true}
+        onClose={vi.fn()}
+        settings={fullSettings}
+        onSave={vi.fn()}
+      />
+    );
+
+    expect(screen.getByTestId('glass-modal-overlay')).toHaveStyle({ zIndex: '200001' });
+    expect(screen.getByRole('dialog')).toHaveStyle({ backdropFilter: 'blur(20px)' });
+  });
+
   it('does not crash when scrollSensitivity is undefined (legacy storage)', () => {
     const legacySettings = { ...fullSettings, scrollSensitivity: undefined };
     expect(() =>

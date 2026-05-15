@@ -182,6 +182,7 @@ const TabBar = ({
         <SettingsSubMenu
           anchor={settingsMenu}
           t={t}
+          isMobile={isMobile}
           onClose={() => { setSettingsMenu(null); settingsMenuClosedAtRef.current = Date.now(); }}
           onSettings={() => { setSettingsMenu(null); settingsMenuClosedAtRef.current = Date.now(); onOpenSettings?.(); }}
           onReload={onReloadTerminals ? () => { setSettingsMenu(null); settingsMenuClosedAtRef.current = Date.now(); onReloadTerminals(); } : null}
@@ -708,7 +709,7 @@ const styles = {
   },
 };
 
-const SettingsSubMenu = ({ anchor, t, onClose, onSettings, onReload, onEqualize }) => {
+const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettings, onReload, onEqualize }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: anchor.x, y: anchor.y });
   const [measured, setMeasured] = useState(false);
@@ -745,22 +746,25 @@ const SettingsSubMenu = ({ anchor, t, onClose, onSettings, onReload, onEqualize 
     }
   }, [anchor.x, anchor.y]);
 
-  const item = (icon, label, action) => (
+  const iconSize = isMobile ? 15 : 12;
+  const item = (Icon, label, action) => (
     <button
       type="button"
       onClick={action}
       style={{
         display: 'flex', alignItems: 'center', gap: '8px',
-        width: '100%', padding: '5px 8px',
+        width: '100%',
+        minHeight: isMobile ? '42px' : '28px',
+        padding: isMobile ? '0 12px' : '5px 8px',
         background: 'transparent', border: 'none', borderRadius: '3px',
         cursor: 'pointer', color: color.text,
-        fontSize: '11.5px', fontFamily: font.sans,
+        fontSize: isMobile ? '13px' : '11.5px', fontFamily: font.sans,
         transition: 'background 120ms',
       }}
       onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
       onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
-      {icon}
+      <Icon size={iconSize} strokeWidth={1.8} />
       {label}
     </button>
   );
@@ -774,14 +778,14 @@ const SettingsSubMenu = ({ anchor, t, onClose, onSettings, onReload, onEqualize 
       boxShadow: '0 6px 18px rgba(0,0,0,0.35)',
       padding: '3px',
       zIndex: 200000,
-      minWidth: '160px',
+      minWidth: isMobile ? '190px' : '160px',
       fontFamily: font.sans,
       opacity: measured ? 1 : 0,
       transition: 'opacity 120ms',
     }}>
-      {item(<SettingsIcon size={12} strokeWidth={1.8} />, t?.('settings') || 'Settings', onSettings)}
-      {onEqualize && item(<LayoutGrid size={12} strokeWidth={1.8} />, t?.('equalizePane') || 'Equalize panes', onEqualize)}
-      {onReload && item(<RefreshCw size={12} strokeWidth={1.8} />, t?.('reloadTerminals') || 'Reload terminals', onReload)}
+      {item(SettingsIcon, t?.('settings') || 'Settings', onSettings)}
+      {onEqualize && item(LayoutGrid, t?.('equalizePane') || 'Equalize panes', onEqualize)}
+      {onReload && item(RefreshCw, t?.('reloadTerminals') || 'Reload terminals', onReload)}
     </div>
   );
 };
