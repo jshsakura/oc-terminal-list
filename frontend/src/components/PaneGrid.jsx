@@ -919,7 +919,7 @@ const Pane = ({
           }}
           onFileSelect={(path) => onFileSelect?.(path, pane.hostId || null)}
           onFolderSelect={onFolderSelect}
-          onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null)}
+          onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null, { tabId: tab?.id, paneId: pane.id })}
           onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
           onRefreshCwd={refreshPaneCwd}
           onCloseTerminal={isEmpty ? onClose : () => setPendingClose(true)}

@@ -16,6 +16,7 @@ import {
   makeLeaf, treeFromLegacyLayout, splitLeaf, removeLeaf, ensureTree,
   swapLeaves,
 } from './utils/splitTree';
+import { appendPaneAsSplit } from './utils/tabPaneOpen';
 
 import TabBar from './components/TabBar';
 import HomeDashboard from './components/HomeDashboard';
@@ -1812,7 +1813,33 @@ function App() {
                     cwd={tabCwd}
                     onFileSelect={handleFileOpen}
                     onFolderSelect={setSelectedFolderPath}
-                    onOpenTerminalAtFolder={(path, hostId = null) => {
+                    onOpenTerminalAtFolder={(path, hostId = null, source = null) => {
+                      if (isMobile && source?.tabId) {
+                        const paneId = generateUUID();
+                        const sessionId = hostId ? null : generateUUID();
+                        setTabs((prev) => prev.map((tt) =>
+                          tt.id === source.tabId
+                            ? appendPaneAsSplit(tt, makePane({
+                                id: paneId,
+                                ...(hostId ? { hostId } : { sessionId }),
+                                cwd: path,
+                                ...(() => {
+                                  const profileTheme = hostId
+                                    ? hosts.find((h) => h.id === hostId)?.theme
+                                    : settings.localTheme;
+                                  const resolvedTheme = resolveProfileTheme(profileTheme, usedThemeIdsFromTabs(prev));
+                                  return resolvedTheme ? { themeOverride: resolvedTheme } : {};
+                                })(),
+                              }), {
+                                afterPaneId: source.paneId,
+                                dir: 'right',
+                                viewMode: 'tabs',
+                              })
+                            : tt
+                        ));
+                        setActiveTabId(source.tabId);
+                        return;
+                      }
                       if (hostId) {
                         const host = hosts.find((h) => h.id === hostId);
                         if (host) { openHostTab(host, path); return; }
