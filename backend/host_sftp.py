@@ -135,6 +135,11 @@ async def _list_directory_tailscale(host: dict, path: str = ".") -> dict:
 
 
 async def _read_file_tailscale(host: dict, path: str) -> str:
+    data = await _read_file_tailscale_bytes(host, path)
+    return data.decode("utf-8", errors="replace")
+
+
+async def _read_file_tailscale_bytes(host: dict, path: str) -> bytes:
     import base64 as _b64
     import shlex as _shlex
 
@@ -160,7 +165,7 @@ async def _read_file_tailscale(host: dict, path: str) -> str:
         if not raw:
             err = stderr.decode(errors="replace").strip()
             raise HostConnectError(f"tailscale read: no output — {err[:200]}")
-        return _b64.b64decode(raw.encode()).decode("utf-8", errors="replace")
+        return _b64.b64decode(raw.encode())
     except HostConnectError:
         raise
     except Exception as e:
@@ -322,10 +327,16 @@ async def list_directory(host: dict, secrets: dict, path: str = ".") -> dict:
 
 async def read_file(host: dict, secrets: dict, path: str) -> str:
     """원격 파일을 텍스트로 읽음 (utf-8, errors=replace). 10MB 상한."""
+    data = await read_file_bytes(host, secrets, path)
+    return data.decode("utf-8", errors="replace")
+
+
+async def read_file_bytes(host: dict, secrets: dict, path: str) -> bytes:
+    """원격 파일을 바이너리로 읽음. 10MB 상한."""
     if not path or not path.strip():
         raise HostConnectError("path is required")
     if (host.get("auth_method") or "key").lower() == "tailscale":
-        return await _read_file_tailscale(host, path)
+        return await _read_file_tailscale_bytes(host, path)
     try:
         conn = await _get_or_open(host, secrets)
         async with conn.start_sftp_client() as sftp:
@@ -336,8 +347,7 @@ async def read_file(host: dict, secrets: dict, path: str) -> str:
             if attrs.size is not None and attrs.size > MAX_FILE_BYTES:
                 raise HostConnectError(f"file too large (>{MAX_FILE_BYTES} bytes)")
             async with sftp.open(path, "rb") as f:
-                data = await f.read(MAX_FILE_BYTES)
-            return data.decode("utf-8", errors="replace")
+                return await f.read(MAX_FILE_BYTES)
     except HostConnectError:
         raise
     except (asyncssh.Error, OSError) as e:

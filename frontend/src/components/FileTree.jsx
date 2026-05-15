@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import {
   Folder, FolderOpen, File, FileText, FileCode, FileImage, FileJson, FileType,
   RefreshCw, Terminal, ChevronRight, ChevronDown, Plus, Pencil, Trash2, GitBranch, Filter,
-  ArrowUp, ArrowDown, Home, Search, X
+  ArrowUp, ArrowDown, Home, Search, X, Download, Upload
 } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
@@ -275,6 +275,18 @@ const authHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
+const basename = (path) => (path || '').split('/').filter(Boolean).pop() || 'download';
+
+const filenameFromDisposition = (header, fallback) => {
+  if (!header) return fallback;
+  const encoded = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (encoded?.[1]) {
+    try { return decodeURIComponent(encoded[1]); } catch { return encoded[1]; }
+  }
+  const plain = header.match(/filename="?([^";]+)"?/i);
+  return plain?.[1] || fallback;
+};
+
 const computeParent = (p) => {
   if (!p) return null;
   const trimmed = p.replace(/\/+$/, '');
@@ -388,7 +400,7 @@ const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
   </button>
 );
 
-const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal }) => {
+const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal, onDownload, onUpload }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
   const [measured, setMeasured] = useState(false);
@@ -432,9 +444,13 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
       <MenuItem icon={Plus} label={t('newFile') || 'New file'} onClick={onNewFile} />
       <MenuItem icon={Folder} label={t('newFolder') || 'New folder'} onClick={onNewFolder} />
       <MenuItem icon={Terminal} label={t('openTerminalHere') || 'Open terminal here'} onClick={onOpenTerminal} />
+      {target.type === 'directory' && (
+        <MenuItem icon={Upload} label={t('uploadHere') || 'Upload here'} onClick={onUpload} />
+      )}
       {target.path && (
         <>
           <div style={glassDividerStyle({}, { margin: '4px 0' })} />
+          <MenuItem icon={Download} label={t('download') || 'Download'} onClick={onDownload} />
           <MenuItem icon={Pencil} label={t('rename') || 'Rename'} onClick={onRename} />
           <MenuItem icon={Trash2} label={t('delete') || 'Delete'} onClick={onDelete} tone="danger" />
         </>
@@ -466,6 +482,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
   const searchInputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const uploadDestRef = useRef('');
   const listRef = useRef(null);
   const scrollRafRef = useRef(null);
   const didInitialCwdRefreshRef = useRef(false);
@@ -608,27 +626,45 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     }
   };
 
-  const uploadFiles = async (files, destPath) => {
+  const uploadFiles = async (files, destPath = null) => {
     if (!files || files.length === 0) return;
+    const targetDest = destPath ?? (isHostMode
+      ? (normalizedResolvedRoot || normalizedRootPath || rootPath || '')
+      : (rootPath || ''));
     const total = files.length;
     setUploadState({ current: 0, total, fileName: files[0].name, done: false });
     const uploadBase = isHostMode ? `/api/hosts/${hostId}/files/upload` : '/api/files/upload';
     for (let i = 0; i < total; i++) {
       const fd = new FormData();
-      fd.append('dest', destPath || resolvedRoot || rootPath || '');
+      fd.append('dest', targetDest);
       fd.append('files', files[i]);
       setUploadState({ current: i, total, fileName: files[i].name, done: false });
       try {
         const res = await fetch(uploadBase, { method: 'POST', headers: authHeader(), body: fd });
-        if (!res.ok) throw new Error('upload failed');
+        if (!res.ok) {
+          let detail = '';
+          try {
+            const data = await res.json();
+            detail = data?.detail ? `: ${data.detail}` : '';
+          } catch { /* ignore non-json error bodies */ }
+          throw new Error(`${t('uploadFailed') || 'Upload failed'}${detail}`);
+        }
       } catch (e) {
         console.error('Upload error:', e);
+        alert(e.message || (t('uploadFailed') || 'Upload failed'));
       }
-      if (nodes[destPath]) fetchChildren(destPath);
-      else { fetchChildren(''); }
     }
+    if (targetDest && nodes[targetDest]) fetchChildren(targetDest);
+    else fetchChildren('');
     setUploadState({ current: total, total, fileName: '', done: true });
     setTimeout(() => setUploadState(null), 1500);
+  };
+
+  const openUploadPicker = (destPath = null) => {
+    uploadDestRef.current = destPath ?? (isHostMode
+      ? (normalizedResolvedRoot || normalizedRootPath || rootPath || '')
+      : (rootPath || ''));
+    fileInputRef.current?.click();
   };
 
   const startCreate = (parentPath, type) => {
@@ -674,6 +710,41 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       await apiCall('delete', path);
       await refreshPath(path.split('/').slice(0, -1).join('/'));
     } catch (e) { alert(e.message); }
+  };
+
+  const downloadNode = async (path, type) => {
+    if (!path) return;
+    if (isHostMode && type === 'directory') {
+      alert(t('remoteFolderDownloadUnsupported') || 'Remote folder download is not supported yet.');
+      return;
+    }
+    const url = isHostMode
+      ? `${apiBase}/download?path=${encodeURIComponent(path)}`
+      : `/api/files/download?path=${encodeURIComponent(path)}`;
+    try {
+      const res = await fetch(url, { headers: authHeader() });
+      if (!res.ok) {
+        let detail = '';
+        try {
+          const data = await res.json();
+          detail = data?.detail ? `: ${data.detail}` : '';
+        } catch { /* ignore non-json error bodies */ }
+        throw new Error(`${t('downloadFailed') || 'Download failed'}${detail}`);
+      }
+      const blob = await res.blob();
+      const fallback = type === 'directory' ? `${basename(path)}.zip` : basename(path);
+      const fileName = filenameFromDisposition(res.headers.get('content-disposition'), fallback);
+      const href = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(href);
+    } catch (e) {
+      alert(e.message || (t('downloadFailed') || 'Download failed'));
+    }
   };
 
   const hasChangedDescendant = useCallback((folderPath) => {
@@ -790,7 +861,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       onDrop={(e) => {
         e.preventDefault(); e.stopPropagation(); setDragOver(false);
         const files = Array.from(e.dataTransfer.files);
-        if (files.length > 0) uploadFiles(files, '');
+        if (files.length > 0) uploadFiles(files);
       }}
     >
       <div style={styles.head}>
@@ -817,6 +888,17 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
         <input ref={searchInputRef} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t('searchFiles')} style={styles.searchInput} tabIndex={searchVisible ? 0 : -1} />
         {searchVisible && <button onClick={() => { setSearchQuery(''); setSearchOpen(false); }} style={styles.searchClearBtn}><X size={12} /></button>}
       </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const files = Array.from(e.target.files || []);
+          e.target.value = '';
+          uploadFiles(files, uploadDestRef.current);
+        }}
+      />
 
       {uploadState && (
         <div style={{ padding: '6px 8px', background: `${color.accent}12`, borderBottom: `1px solid ${color.border}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -903,6 +985,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
           onRename={() => { if (contextMenu.target.path) setRenameTarget({ path: contextMenu.target.path, draftName: contextMenu.target.path.split('/').pop() }); setContextMenu(null); }}
           onDelete={() => { if (contextMenu.target.path) removeNode(contextMenu.target.path); setContextMenu(null); }}
           onOpenTerminal={() => { const p = contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'); onOpenTerminalAtFolder?.(p); setContextMenu(null); }}
+          onDownload={() => { if (contextMenu.target.path) downloadNode(contextMenu.target.path, contextMenu.target.type); setContextMenu(null); }}
+          onUpload={() => { openUploadPicker(contextMenu.target.path || null); setContextMenu(null); }}
         />,
         document.body
       )}

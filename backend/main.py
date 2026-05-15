@@ -7,6 +7,7 @@ Terminal List - 백엔드 FastAPI 서버
 - 동일 세션에 웹/SSH 등 여러 클라이언트가 동시 attach 가능하다.
 """
 import asyncio
+import io
 import json
 import logging
 import os
@@ -14,8 +15,10 @@ import secrets as secrets_mod
 import shlex
 import shutil
 import time
+import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 from fastapi import (
@@ -33,7 +36,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.types import Receive, Scope, Send
@@ -1571,6 +1574,27 @@ async def read_host_file(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/api/hosts/{host_id}/files/download")
+async def download_host_file(
+    host_id: str,
+    path: str = Query(..., description="원격 파일 경로 (절대 권장)"),
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await _resolve_host_with_secrets(host_id, username)
+    try:
+        data = await host_sftp.read_file_bytes(host, secrets, path)
+        filename = os.path.basename(path.rstrip("/")) or "download"
+        quoted = quote(filename)
+        return Response(
+            content=data,
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+        )
+    except Exception as e:
+        logger.warning("SFTP download failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class HostFileWriteRequest(BaseModel):
     path: str
     content: str
@@ -1617,10 +1641,13 @@ async def upload_host_files(
     remote_dir = dest or "/"
     results = []
     for f in files:
-        remote_path = f"{remote_dir.rstrip('/')}/{f.filename}"
+        filename = os.path.basename(f.filename or "")
+        if not filename:
+            continue
+        remote_path = f"{remote_dir.rstrip('/')}/{filename}"
         content = await f.read()
         await host_sftp.write_file(host, secrets, remote_path, content)
-        results.append({"name": f.filename, "path": remote_path, "size": len(content)})
+        results.append({"name": filename, "path": remote_path, "size": len(content)})
     return {"status": "uploaded", "host_id": host_id, "files": results}
 
 
@@ -2334,6 +2361,37 @@ async def get_raw_file(
     return FileResponse(str(safe))
 
 
+def _zip_directory_bytes(root: Path) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for current_root, dirs, files in os.walk(root):
+            current = Path(current_root)
+            if not dirs and not files:
+                zf.writestr(f"{current.relative_to(root.parent).as_posix()}/", b"")
+            for file_name in files:
+                file_path = current / file_name
+                zf.write(file_path, file_path.relative_to(root.parent).as_posix())
+    return buffer.getvalue()
+
+
+@app.get("/api/files/download")
+async def download_workspace_item(path: str = Query(...), username: str = Depends(verify_auth_token)):
+    safe = validate_path(path)
+    if not safe.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    if safe.is_file():
+        return FileResponse(str(safe), filename=safe.name)
+    if safe.is_dir():
+        filename = f"{safe.name or 'workspace'}.zip"
+        quoted = quote(filename)
+        return Response(
+            content=await asyncio.to_thread(_zip_directory_bytes, safe),
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+        )
+    raise HTTPException(status_code=400, detail="Unsupported file type")
+
+
 @app.get("/api/files/read")
 async def read_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
     safe = validate_path(path)
@@ -2393,18 +2451,22 @@ async def upload_files(
     dest: str = Form(""),
     username: str = Depends(verify_auth_token),
 ):
-    dest_path = validate_path(dest) if dest else WORKSPACE
+    workspace = Path(WORKSPACE_ROOT)
+    dest_path = validate_path(dest) if dest else workspace
     if not dest_path.is_dir():
         raise HTTPException(status_code=400, detail="Destination is not a directory")
     results = []
     for f in files:
-        target = dest_path / f.filename
-        if not str(target).startswith(str(WORKSPACE)):
+        filename = os.path.basename(f.filename or "")
+        if not filename:
+            continue
+        target = dest_path / filename
+        if not str(target.resolve()).startswith(str(workspace.resolve())):
             raise HTTPException(status_code=403, detail="Path outside workspace")
         target.parent.mkdir(parents=True, exist_ok=True)
         content = await f.read()
         target.write_bytes(content)
-        rel = str(target.relative_to(WORKSPACE))
+        rel = str(target.relative_to(workspace)).replace("\\", "/")
         results.append({"name": f.filename, "path": rel, "size": len(content)})
     _invalidate_file_index()
     return {"status": "uploaded", "files": results}
