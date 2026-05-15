@@ -17,8 +17,8 @@ const LoadingScreen = ({ currentTheme, t }) => {
 
       <div className="iterm-ld-in" style={S.stack}>
         <div style={S.wordmark}>
-          <span style={{ color: accent, fontFamily: font.mono, fontWeight: fontWeight.semibold }}>›_</span>
-          <span style={{ color: 'rgba(228,230,241,0.85)' }}>{appName}</span>
+          <span style={{ ...S.prompt, color: accent }}>›_</span>
+          <span style={S.brandText}>{appName}</span>
         </div>
 
         <div style={S.dots} aria-hidden>
@@ -49,10 +49,22 @@ const S = {
   wordmark: {
     display: 'flex',
     alignItems: 'baseline',
-    gap: '8px',
-    fontSize: fontSize['18'],
+    gap: '10px',
+    fontSize: fontSize['20'],
     fontWeight: fontWeight.semibold,
-    letterSpacing: '0.01em',
+    letterSpacing: 0,
+  },
+  prompt: {
+    fontFamily: font.mono,
+    fontWeight: fontWeight.semibold,
+    textShadow: '0 0 18px currentColor',
+  },
+  brandText: {
+    color: 'rgba(228,230,241,0.92)',
+    fontFamily: font.brand,
+    fontWeight: 400,
+    letterSpacing: 0,
+    textShadow: '0 8px 28px rgba(0,0,0,0.32)',
   },
   dots: { display: 'flex', gap: '7px' },
   dot: {

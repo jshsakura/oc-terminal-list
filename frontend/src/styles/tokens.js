@@ -110,6 +110,7 @@ const palette = {
 
 // ─── 타이포 ──────────────────────────────────────────────────────────────
 const fonts = {
+  brand: '"Gugi", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif',
   sans: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Pretendard Variable", "Pretendard", "Apple SD Gothic Neo", system-ui, sans-serif',
   mono: '"JetBrainsMono Nerd Font Mono", "MesloLGS NF", "JetBrains Mono", Menlo, Monaco, monospace',
 };

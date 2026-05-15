@@ -512,10 +512,12 @@ const buildThemed = (ui) => {
 
     heading: {
       fontSize: fontSize['18'],
-      fontWeight: fontWeight.semibold,
+      fontFamily: font.brand,
+      fontWeight: 400,
       color: t.text,
       textAlign: 'center',
       lineHeight: 1.3,
+      letterSpacing: 0,
     },
 
     sub: {
