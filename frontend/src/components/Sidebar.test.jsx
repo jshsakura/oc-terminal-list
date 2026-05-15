@@ -56,6 +56,11 @@ describe('Sidebar', () => {
     expect(container.querySelector('aside')).toBeTruthy();
   });
 
+  it('uses the shared glass treatment for the side panel shell', () => {
+    const { container } = render(<Sidebar {...baseProps()} />);
+    expect(container.querySelector('aside')).toHaveStyle({ backdropFilter: 'blur(18px)' });
+  });
+
   it('returns null when isOpen=false', () => {
     const { container } = render(<Sidebar {...baseProps({ isOpen: false })} />);
     expect(container.firstChild).toBeNull();
@@ -64,6 +69,12 @@ describe('Sidebar', () => {
   it('switches to sessions tab and shows empty state', () => {
     render(<Sidebar {...baseProps()} />);
     switchToSessions();
+    expect(screen.getByText(/No sessions yet/i)).toBeInTheDocument();
+  });
+
+  it('restores the previously selected sidebar tab', () => {
+    localStorage.setItem('iterm:sidebar-active-tab:v1', 'sessions');
+    render(<Sidebar {...baseProps()} />);
     expect(screen.getByText(/No sessions yet/i)).toBeInTheDocument();
   });
 

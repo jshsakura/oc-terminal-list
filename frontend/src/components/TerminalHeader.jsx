@@ -10,7 +10,7 @@ import {
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
-import { glassMenuItemHover, glassMenuStyle } from '../styles/glass';
+import { glassMenuItemHover, glassMenuStyle, glassPanelStyle, glassSectionStyle } from '../styles/glass';
 import FileTree from './FileTree';
 import SkeletonRow from './common/SkeletonRow';
 import ChangesList from './ChangesList';
@@ -28,6 +28,7 @@ const RowsFlipY = (props) => <Rows2 {...props} style={{ transform: 'scaleY(-1)' 
 const DEFAULT_PANEL_WIDTH = 260;
 const MIN_PANEL_WIDTH = 180;
 const MAX_PANEL_WIDTH = 500;
+const PANEL_STATE_PREFIX = 'iterm:terminal-header-panel:v1:';
 
 const TABS = [
   { id: 'files', icon: Folder, label: 'Files' },
@@ -35,6 +36,23 @@ const TABS = [
   { id: 'info',  icon: Info,     label: 'Info' },
   { id: 'theme', icon: Palette,   label: 'Theme' },
 ];
+const PANEL_IDS = new Set(TABS.map((tab) => tab.id));
+
+const readPanelState = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return { activePanel: null, panelWidth: DEFAULT_PANEL_WIDTH };
+    const parsed = JSON.parse(raw);
+    const activePanel = PANEL_IDS.has(parsed?.activePanel) ? parsed.activePanel : null;
+    const width = Number(parsed?.panelWidth);
+    const panelWidth = Number.isFinite(width)
+      ? Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, width))
+      : DEFAULT_PANEL_WIDTH;
+    return { activePanel, panelWidth };
+  } catch {
+    return { activePanel: null, panelWidth: DEFAULT_PANEL_WIDTH };
+  }
+};
 
 const TerminalHeader = ({
   isFocused = false, // pane 포커스 여부 — 사이드바 하단 눈 아이콘 (Eye/EyeOff) 으로 표시.
@@ -95,8 +113,9 @@ const TerminalHeader = ({
     const text = sess?.getBufferText?.(true) || '';
     onScreenDump?.(text);
   }, [terminalKey, onScreenDump]);
-  const [activePanel, setActivePanel] = useState(null);
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const panelStorageKey = `${PANEL_STATE_PREFIX}${paneInfo?.paneId || terminalKey || 'default'}`;
+  const [activePanel, setActivePanel] = useState(() => readPanelState(panelStorageKey).activePanel);
+  const [panelWidth, setPanelWidth] = useState(() => readPanelState(panelStorageKey).panelWidth);
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
@@ -154,6 +173,18 @@ const TerminalHeader = ({
   useEffect(() => {
     if (activePanel && panelRef.current) panelRef.current.focus();
   }, [activePanel]);
+
+  useEffect(() => {
+    const saved = readPanelState(panelStorageKey);
+    setActivePanel(saved.activePanel);
+    setPanelWidth(saved.panelWidth);
+  }, [panelStorageKey]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(panelStorageKey, JSON.stringify({ activePanel, panelWidth }));
+    } catch { /* ignore storage quota/private mode */ }
+  }, [panelStorageKey, activePanel, panelWidth]);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -568,8 +599,7 @@ const TerminalHeader = ({
           tabIndex={-1}
           style={{
             ...styles.panel,
-            background: panelUi.base,
-            borderColor: panelUi.border,
+            ...glassPanelStyle(panelUi, { boxShadow: 'none' }),
             color: panelUi.text,
             // Mobile: full-width overlay. Desktop: resizable fixed width.
             ...(isMobile ? { left: 0, right: 0 } : { width: `${panelWidth}px` }),
@@ -578,7 +608,6 @@ const TerminalHeader = ({
             bottom: 0,
             left: 0,
             zIndex: 10,
-            boxShadow: 'none',
             outline: 'none',
             pointerEvents: 'auto',
           }}>
@@ -594,7 +623,7 @@ const TerminalHeader = ({
               zIndex: 2,
             }}
           />
-          <div style={{ ...styles.panelHeader, background: panelUi.base, borderBottomColor: panelUi.borderSubtle || panelUi.border }}>
+          <div style={{ ...styles.panelHeader, ...glassSectionStyle(panelUi), borderBottomColor: glassSectionStyle(panelUi).borderColor }}>
             <span style={{ ...styles.panelTitle, color: panelUi.text }}>
               <ActivePanelIcon size={13} strokeWidth={2} aria-hidden="true" style={{ color: panelUi.accent }} />
               <span>{activePanelMeta?.label}</span>

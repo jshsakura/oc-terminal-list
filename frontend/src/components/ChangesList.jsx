@@ -2,6 +2,7 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, GitCommit, Upload, Loader2, Search, X, PenLine } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
+import { glassMenuItemHover, glassSectionStyle } from '../styles/glass';
 import SkeletonRow from './common/SkeletonRow';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -171,7 +172,7 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
           onClick={() => onSelectFile?.(resolvedPath, hostId)}
           onDoubleClick={() => onOpenFile?.(resolvedPath, hostId)}
           style={{ ...styles.row, paddingLeft: 4 + depth * 14 }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
         >
           <span style={styles.chevSlot} />
@@ -189,7 +190,7 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
         <div
           onClick={() => toggle(node.path)}
           style={{ ...styles.dirRow, paddingLeft: 4 + depth * 14 }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
           onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
         >
           <span style={styles.chevSlot}>
@@ -351,6 +352,7 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     minHeight: 0,
+    background: 'transparent',
   },
   head: {
     height: '32px',
@@ -359,7 +361,8 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: `0 ${space['2']}`,
-    borderBottom: `1px solid ${color.border}`,
+    ...glassSectionStyle(),
+    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     gap: space['2'],
   },
   headLeft: {
@@ -389,8 +392,8 @@ const styles = {
   countBadge: {
     fontSize: fontSize['11'],
     color: color.muted,
-    background: color.crust,
-    border: `1px solid ${color.border}`,
+    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)`,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     borderRadius: radius.full,
     padding: `0 ${space['1.5']}`,
     fontFamily: font.mono,
@@ -414,8 +417,8 @@ const styles = {
     alignItems: 'center',
     gap: space['1'],
     padding: `${space['1']} ${space['2']}`,
-    borderBottom: `1px solid ${color.border}`,
-    background: color.crust,
+    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)`,
     minHeight: '28px',
   },
   searchInput: {
@@ -445,8 +448,8 @@ const styles = {
   },
   commitBar: {
     flexShrink: 0,
-    borderBottom: `1px solid ${color.border}`,
-    background: color.crust,
+    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)`,
     padding: `${space['1.5']} ${space['2']}`,
     display: 'flex',
     flexDirection: 'column',
@@ -462,8 +465,8 @@ const styles = {
     minWidth: 0,
     height: '26px',
     padding: `0 ${space['1.5']}`,
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 70%, transparent)`,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     borderRadius: radius.sm,
     color: color.text,
     fontSize: fontSize['12'],
@@ -486,8 +489,8 @@ const styles = {
     width: '26px',
     height: '26px',
     flexShrink: 0,
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 70%, transparent)`,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     borderRadius: radius.sm,
     color: color.subtext,
     cursor: 'pointer',
@@ -537,8 +540,8 @@ const styles = {
   dirCount: {
     fontSize: fontSize['11'],
     color: color.muted,
-    background: color.crust,
-    border: `1px solid ${color.border}`,
+    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)`,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     borderRadius: radius.full,
     padding: `0 ${space['1.5']}`,
     fontFamily: font.mono,

@@ -1,0 +1,71 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen } from '@testing-library/react';
+import FileEditor from './FileEditor';
+import themes from '../styles/themes';
+
+vi.mock('@monaco-editor/react', () => ({
+  __esModule: true,
+  default: () => <div data-testid="monaco-editor" />,
+  DiffEditor: () => <div data-testid="monaco-diff-editor" />,
+}));
+
+vi.mock('react-markdown', () => ({
+  __esModule: true,
+  default: ({ children }) => <div>{children}</div>,
+}));
+
+vi.mock('remark-gfm', () => ({
+  __esModule: true,
+  default: () => null,
+}));
+
+vi.mock('../hooks/useTranslation', () => ({
+  __esModule: true,
+  default: () => ({ t: (key) => key }),
+}));
+
+describe('FileEditor', () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    localStorage.clear();
+    global.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ content: 'console.log("ok");' }),
+    }));
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('uses glass styling for the editor shell', () => {
+    const { container } = render(
+      <FileEditor
+        activeFile="src/app.js"
+        openFiles={['src/app.js']}
+        onFileSelect={vi.fn()}
+        onClose={vi.fn()}
+        theme={themes.catppuccin}
+      />
+    );
+
+    expect(container.firstChild).toHaveStyle({ backdropFilter: 'blur(18px)' });
+  });
+
+  it('restores persisted diff view preference', () => {
+    localStorage.setItem('iterm:file-editor-diff-view:v1', JSON.stringify({ 'src/app.js': true }));
+
+    render(
+      <FileEditor
+        activeFile="src/app.js"
+        openFiles={['src/app.js']}
+        onFileSelect={vi.fn()}
+        onClose={vi.fn()}
+        theme={themes.catppuccin}
+      />
+    );
+
+    expect(screen.getByText('app.js')).toBeTruthy();
+  });
+});

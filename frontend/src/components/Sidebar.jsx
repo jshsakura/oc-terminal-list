@@ -7,8 +7,11 @@ import SessionActivity from './SessionActivity';
 import ChangesList from './ChangesList';
 import RailIconBtn from './common/RailIconBtn';
 import { tokens } from '../styles/tokens';
+import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+const SIDEBAR_TAB_KEY = 'iterm:sidebar-active-tab:v1';
+const SIDEBAR_TABS = new Set(['hosts', 'sessions', 'files', 'git']);
 
 // 세션 ID를 안정적인 dot 컬러로 매핑
 const colorForSession = (sessionId) => {
@@ -48,7 +51,14 @@ const Sidebar = ({
   viewportHeight,
 }) => {
   const { t } = useTranslation(language);
-  const [activeTab, setActiveTab] = useState('hosts'); // hosts | sessions | files
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const saved = localStorage.getItem(SIDEBAR_TAB_KEY);
+      return SIDEBAR_TABS.has(saved) ? saved : 'hosts';
+    } catch {
+      return 'hosts';
+    }
+  }); // hosts | sessions | files | git
   const [editingSessionId, setEditingSessionId] = useState(null);
   const [editingName, setEditingName] = useState('');
   const [systemStats, setSystemStats] = useState({ cpu: 0, ram: 0, disk: 0 });
@@ -86,6 +96,12 @@ const Sidebar = ({
       editInputRef.current.select();
     }
   }, [editingSessionId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_TAB_KEY, activeTab);
+    } catch { /* ignore storage quota/private mode */ }
+  }, [activeTab]);
 
   const filteredSessions = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -251,7 +267,9 @@ const Sidebar = ({
                         title={`${session.name || session.id} — ${t('dragToSplitHint') || 'drag to terminal to split'}`}
                         style={{
                           ...styles.row,
-                          background: isActive ? color.accentSubtle : color.surface0,
+                          background: isActive
+                            ? `color-mix(in srgb, var(--ui-accent, ${color.accent}) 16%, transparent)`
+                            : `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 70%, transparent)`,
                           borderColor: isActive ? color.accentBorder : (isHovered ? color.borderStrong : color.border),
                           borderBottomLeftRadius: isExpanded ? 0 : radius.md,
                           borderBottomRightRadius: isExpanded ? 0 : radius.md,
@@ -427,8 +445,8 @@ const styles = {
     left: 0,
     display: 'flex',
     flexDirection: 'row',
-    background: color.mantle,
-    borderRight: `1px solid ${color.border}`,
+    ...glassPanelStyle(),
+    borderRight: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     fontFamily: font.sans,
     zIndex: 10001,
     transition: `width ${motion.normal}`,
@@ -439,8 +457,8 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'stretch',
-    background: color.crust,
-    borderRight: `1px solid ${color.border}`,
+    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)`,
+    borderRight: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     paddingTop: 0,
   },
   activityInner: {
@@ -455,6 +473,7 @@ const styles = {
     minWidth: 0,
     display: 'flex',
     flexDirection: 'column',
+    background: 'transparent',
   },
   closeBtn: {
     width: '24px',
@@ -481,8 +500,8 @@ const styles = {
     gap: space['1.5'],
     height: '28px',
     padding: `0 ${space['2']}`,
-    background: color.crust,
-    border: `1px solid ${color.border}`,
+    ...glassSectionStyle({}, { background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)` }),
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     borderRadius: radius.sm,
   },
   searchInput: {
@@ -529,8 +548,8 @@ const styles = {
     gap: space['2'],
     padding: `${space['2']} ${space['3']}`,
     paddingLeft: space['4'],
-    background: color.surface0,
-    border: `1px solid ${color.border}`,
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 70%, transparent)`,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
     borderRadius: radius.md,
     cursor: 'pointer',
     transition: `background ${motion.fast}, border-color ${motion.fast}, border-radius ${motion.fast}`,
@@ -612,8 +631,8 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-around',
     padding: `${space['2']} ${space['3']}`,
-    background: color.crust,
-    borderTop: `1px solid ${color.border}`,
+    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)`,
+    borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
   },
   stat: {
     display: 'inline-flex',

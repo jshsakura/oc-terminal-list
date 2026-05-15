@@ -76,6 +76,23 @@ describe('TerminalHeader', () => {
     expect(nav).toBeTruthy();
   });
 
+  it('uses the shared glass treatment for opened side panels', () => {
+    const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
+    fireEvent.click(container.querySelector('[title="Info"]'));
+    expect(container.querySelector('[tabindex="-1"]')).toHaveStyle({ backdropFilter: 'blur(18px)' });
+  });
+
+  it('restores the previously opened side panel for the pane', () => {
+    localStorage.setItem('iterm:terminal-header-panel:v1:pane-restore', JSON.stringify({ activePanel: 'info', panelWidth: 320 }));
+    const { container } = render(<TerminalHeader {...baseProps({
+      activeTabType: 'local',
+      paneInfo: { paneId: 'pane-restore', tabName: 'Restored', tabType: 'local' },
+    })} />);
+    const panel = container.querySelector('[tabindex="-1"]');
+    expect(panel).toBeTruthy();
+    expect(panel).toHaveStyle({ width: '320px' });
+  });
+
   describe('Info panel — pane identity and cwd', () => {
     const openInfoPanel = (paneInfoOverrides = {}) => {
       const props = baseProps({

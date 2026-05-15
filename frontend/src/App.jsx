@@ -46,6 +46,26 @@ const ScreenDumpModal = lazy(() => import('./components/ScreenDumpModal'));
 
 const { color, font, fontSize, fontWeight, space } = tokens;
 
+const EDITOR_STATE_KEY = 'iterm:editor-state:v1';
+
+const readEditorState = () => {
+  if (typeof localStorage === 'undefined') return { openFiles: [], activeFile: null };
+  try {
+    const raw = localStorage.getItem(EDITOR_STATE_KEY);
+    if (!raw) return { openFiles: [], activeFile: null };
+    const parsed = JSON.parse(raw);
+    const openFiles = Array.isArray(parsed?.openFiles)
+      ? parsed.openFiles.filter((p) => typeof p === 'string' && p.trim())
+      : [];
+    const activeFile = typeof parsed?.activeFile === 'string' && openFiles.includes(parsed.activeFile)
+      ? parsed.activeFile
+      : (openFiles[0] || null);
+    return { openFiles, activeFile };
+  } catch {
+    return { openFiles: [], activeFile: null };
+  }
+};
+
 const isPhoneViewport = () => {
   if (typeof window === 'undefined') return false;
   const ua = navigator.userAgent || '';
@@ -1186,8 +1206,9 @@ function App() {
   }, []);
 
   // File editor
-  const [openFiles, setOpenFiles] = useState([]);
-  const [activeFile, setActiveFile] = useState(null);
+  const restoredEditorState = useMemo(() => readEditorState(), []);
+  const [openFiles, setOpenFiles] = useState(restoredEditorState.openFiles);
+  const [activeFile, setActiveFile] = useState(restoredEditorState.activeFile);
   const [editorHeight, setEditorHeight] = useState(() => parseInt(localStorage.getItem('editor_height') || '400'));
   const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);
   const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌
@@ -1209,6 +1230,16 @@ function App() {
   const [commandInputOpen, setCommandInputOpen] = useState(false);
   const [commandText, setCommandText] = useState('');
   const [screenDumpText, setScreenDumpText] = useState(null);
+
+  useEffect(() => {
+    const nextActiveFile = activeFile && openFiles.includes(activeFile)
+      ? activeFile
+      : (openFiles[0] || null);
+    try {
+      localStorage.setItem(EDITOR_STATE_KEY, JSON.stringify({ openFiles, activeFile: nextActiveFile }));
+    } catch { /* ignore storage quota/private mode */ }
+    if (nextActiveFile !== activeFile) setActiveFile(nextActiveFile);
+  }, [openFiles, activeFile]);
 
   // 활성 viewport 기준 effective settings — fontSize 를 PC/모바일 분리. 자식들
   // (PaneGrid, Terminal) 은 settings.fontSize 만 보면 자동으로 알맞은 값 적용.

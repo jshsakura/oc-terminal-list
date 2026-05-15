@@ -23,6 +23,15 @@ export const glassMenuStyle = (theme = {}, overrides = {}) => ({
   ...overrides,
 });
 
+export const glassPanelStyle = (theme = {}, overrides = {}) => ({
+  background: `color-mix(in srgb, ${pick(theme, 'base', ui.base)} 72%, transparent)`,
+  borderColor: `color-mix(in srgb, ${pick(theme, 'border', ui.border)} 72%, transparent)`,
+  boxShadow: '0 10px 34px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.04)',
+  backdropFilter: 'blur(18px)',
+  WebkitBackdropFilter: 'blur(18px)',
+  ...overrides,
+});
+
 export const glassMenuItemHover = (theme = {}) =>
   `color-mix(in srgb, ${pick(theme, 'surface1', ui.surface1)} 78%, transparent)`;
 

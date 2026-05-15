@@ -41,6 +41,13 @@ describe('ChangesList skeleton loading', () => {
     expect(list).toBeTruthy();
   });
 
+  it('uses glass section styling for the changes header', () => {
+    const { container } = render(<ChangesList t={mockT} />);
+    const header = container.querySelector('[style*="backdrop-filter"]') ||
+      container.querySelector('[style*="color-mix"]');
+    expect(header).toBeTruthy();
+  });
+
   it('treats empty string gitContextPath as valid (not "no active terminal")', () => {
     const { container } = render(
       <ChangesList t={mockT} gitContextPath="" sharedGitChanges={{ items: [], branch: '', repo: null, repos: [], error: null, refresh: () => {}, loading: false }} />

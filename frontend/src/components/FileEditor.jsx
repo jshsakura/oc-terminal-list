@@ -11,6 +11,20 @@ import remarkGfm from 'remark-gfm';
 import Button from './common/Button';
 import ConfirmModal from './ConfirmModal';
 import useTranslation from '../hooks/useTranslation';
+import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
+
+const DIFF_VIEW_STATE_KEY = 'iterm:file-editor-diff-view:v1';
+
+const readDiffViewState = () => {
+  try {
+    const raw = localStorage.getItem(DIFF_VIEW_STATE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
 
 // 'remote:{hostId}:{absolutePath}' 형식의 파일 키를 파싱하거나 로컬 경로를 그대로 반환
 const parseFileKey = (key) => {
@@ -54,7 +68,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   // diff 모드: { [path]: { original: string, exists: boolean, loading: boolean, error: string|null } }
   const [diffStates, setDiffStates] = useState({});
   // 변경 파일은 자동으로 diff 모드로 열되, 사용자 토글로 일반 편집 ↔ diff 전환 가능
-  const [diffViewByPath, setDiffViewByPath] = useState({}); // { [path]: boolean }
+  const [diffViewByPath, setDiffViewByPath] = useState(() => readDiffViewState()); // { [path]: boolean }
 
   const editorRef = useRef(null);
   const pollingRef = useRef(null);
@@ -229,6 +243,12 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   }, [activeFile]);
 
   useEffect(() => {
+    try {
+      localStorage.setItem(DIFF_VIEW_STATE_KEY, JSON.stringify(diffViewByPath));
+    } catch { /* ignore storage quota/private mode */ }
+  }, [diffViewByPath]);
+
+  useEffect(() => {
     let cancelled = false;
     if (!rawPreviewPath) {
       setRawPreviewUrl(null);
@@ -391,12 +411,21 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
   if (!theme || !theme.ui) return null;
   if (!activeFile && openFiles.length === 0) return null;
+  const editorGlassUi = {
+    base: theme.ui.bg,
+    surface0: theme.ui.bgSecondary || theme.ui.bg,
+    surface1: theme.ui.bgTertiary || theme.ui.bgSecondary || theme.ui.bg,
+    border: theme.ui.border,
+    borderStrong: theme.ui.borderLight || theme.ui.border,
+  };
+  const editorSection = glassSectionStyle(editorGlassUi);
 
   return (
     <div
       style={{
         ...styles.container,
-        backgroundColor: theme.ui.bg,
+        ...glassPanelStyle(editorGlassUi, { boxShadow: 'none', borderRadius: 0 }),
+        backgroundColor: undefined,
       }}
       onMouseEnter={() => editorRef.current?.focus()}
     >
@@ -410,8 +439,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         overflowX: 'auto',
         scrollbarWidth: 'none',
         msOverflowStyle: 'none',
-        background: theme.ui.bgTertiary || theme.ui.bgSecondary || theme.ui.bg,
-        borderBottom: `1px solid ${theme.ui.border}`,
+        background: editorSection.background,
+        borderBottom: `1px solid ${editorSection.borderColor}`,
         gap: 0,
       }}>
         {openFiles.map((path) => {
@@ -420,8 +449,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
           const filename = (filePath || path).split('/').pop();
           const fileHasChanges = fileStates[path]?.hasChanges;
           const dotColor = theme.ui.accent || '#89b4fa';
-          const inactiveBg = theme.ui.bgSecondary || 'rgba(0,0,0,0.2)';
-          const activeBg = theme.ui.bg;
+          const inactiveBg = `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`;
+          const activeBg = `color-mix(in srgb, ${theme.ui.bg} 86%, transparent)`;
 
           return (
             <div
@@ -440,8 +469,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
                 background: isActive ? activeBg : inactiveBg,
                 color: isActive ? theme.ui.text : theme.ui.textSecondary,
                 fontWeight: isActive ? 600 : 400,
-                border: `1px solid ${theme.ui.border}`,
-                borderTop: isActive ? `2px solid ${dotColor}` : `1px solid ${theme.ui.border}`,
+                border: `1px solid ${editorSection.borderColor}`,
+                borderTop: isActive ? `2px solid ${dotColor}` : `1px solid ${editorSection.borderColor}`,
                 borderBottom: `1px solid ${isActive ? activeBg : inactiveBg}`,
                 borderRadius: 0,
                 minWidth: '80px',
@@ -453,7 +482,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
                 userSelect: 'none',
                 transition: 'background 150ms, color 150ms',
               }}
-              onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = theme.ui.bgTertiary || theme.ui.surface0 || 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = theme.ui.textSecondary; } }}
+              onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = `color-mix(in srgb, ${theme.ui.bgTertiary || theme.ui.bgSecondary || theme.ui.bg} 78%, transparent)`; e.currentTarget.style.color = theme.ui.textSecondary; } }}
               onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = inactiveBg; e.currentTarget.style.color = theme.ui.textSecondary; } }}
             >
               <span style={{
@@ -527,8 +556,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         justifyContent: 'space-between', 
         alignItems: 'center', 
         padding: '4px 12px', 
-        backgroundColor: theme.ui.bg,
-        borderBottom: `1px solid ${theme.ui.borderLight}`,
+        background: editorSection.background,
+        borderBottom: `1px solid ${editorSection.borderColor}`,
         backdropFilter: 'blur(10px)',
       }}>
         <div style={{ fontSize: '11px', color: theme.ui.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
@@ -584,7 +613,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             style={{ height: '24px', padding: '0 4px' }}
             icon={RefreshCw}
           />
-          <div style={{ display: 'flex', alignItems: 'center', gap: '2px', borderLeft: `1px solid ${theme.ui.border}`, paddingLeft: '8px', marginLeft: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '2px', borderLeft: `1px solid ${editorSection.borderColor}`, paddingLeft: '8px', marginLeft: '4px' }}>
             <button onClick={() => changeFontSize(-1)} title="Decrease font size" style={styles.fsBtnStyle(theme)}>
               <ZoomOut size={11} strokeWidth={2} />
             </button>
@@ -621,7 +650,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: theme.ui.bgSecondary,
+            background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,
             overflow: 'auto',
             padding: '20px'
           }}>
@@ -651,7 +680,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               overflowY: 'auto',
               padding: '20px 40px',
               color: theme.ui.text,
-              backgroundColor: theme.ui.bg,
+              background: `color-mix(in srgb, ${theme.ui.bg} 82%, transparent)`,
               lineHeight: '1.6'
             }}>
               <div className="markdown-preview" style={{ maxWidth: '800px', margin: '0 auto' }}>
@@ -782,8 +811,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         }}
         style={{ 
           height: '24px', 
-          backgroundColor: theme.ui.bgSecondary, 
-          borderTop: `1px solid ${theme.ui.border}`,
+          background: editorSection.background,
+          borderTop: `1px solid ${editorSection.borderColor}`,
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
