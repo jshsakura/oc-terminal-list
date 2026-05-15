@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import FileTree from './FileTree';
 
 vi.mock('../hooks/useGitChanges', () => ({
@@ -44,5 +44,21 @@ describe('FileTree skeleton loading', () => {
 
     const list = container.querySelector('[style*="min-height"]');
     expect(list).toBeTruthy();
+  });
+
+  it('keeps search collapsed until the header search action is clicked', () => {
+    global.fetch = vi.fn(() => new Promise(() => {}));
+
+    render(<FileTree />);
+
+    const input = screen.getByPlaceholderText('searchFiles');
+    const searchBar = input.parentElement;
+    expect(searchBar.style.opacity).toBe('0');
+    expect(input.tabIndex).toBe(-1);
+
+    fireEvent.click(screen.getByTitle('searchFiles'));
+
+    expect(searchBar.style.opacity).toBe('1');
+    expect(input.tabIndex).toBe(0);
   });
 });

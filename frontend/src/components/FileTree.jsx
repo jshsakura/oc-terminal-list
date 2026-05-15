@@ -29,48 +29,12 @@ const styles = {
   },
   head: {
     display: 'flex',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    padding: `${space['1.5']} ${space['2']}`,
+    padding: `7px ${space['2']}`,
     borderBottom: `1px solid ${color.border}`,
-    minHeight: '32px',
+    minHeight: '40px',
     gap: space['2'],
-  },
-  crumb: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: space['1'],
-    padding: `${space['1']} ${space['2']}`,
-    borderBottom: `1px solid ${color.border}`,
-    background: color.crust,
-    minHeight: '28px',
-    overflow: 'hidden',
-  },
-  crumbBtn: {
-    width: '22px',
-    height: '22px',
-    flexShrink: 0,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'transparent',
-    border: `1px solid ${color.border}`,
-    borderRadius: radius.xs,
-    color: color.subtext,
-    transition: `background ${motion.fast}`,
-    padding: 0,
-  },
-  crumbPath: {
-    flex: 1,
-    minWidth: 0,
-    fontFamily: font.mono,
-    fontSize: fontSize['11'],
-    color: color.subtext,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    direction: 'rtl',
-    textAlign: 'left',
   },
   virtualSpacer: {
     flexShrink: 0,
@@ -80,16 +44,19 @@ const styles = {
     flex: 1,
     minWidth: 0,
     display: 'flex',
-    alignItems: 'center',
-    gap: space['1.5'],
+    flexDirection: 'column',
+    justifyContent: 'center',
+    gap: '2px',
+    paddingTop: '1px',
   },
   branchName: {
-    fontSize: fontSize['12'],
+    fontSize: fontSize['11'],
     fontFamily: font.mono,
     color: color.subtext,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
+    lineHeight: 1.35,
+    whiteSpace: 'normal',
+    overflowWrap: 'anywhere',
+    wordBreak: 'break-word',
   },
   countBadge: {
     fontSize: fontSize['11'],
@@ -101,16 +68,34 @@ const styles = {
     fontFamily: font.mono,
     flexShrink: 0,
   },
-  headActions: { display: 'flex', gap: '2px' },
+  headActions: {
+    display: 'flex',
+    gap: '2px',
+    alignItems: 'center',
+    flexShrink: 0,
+    paddingTop: '1px',
+  },
   searchBar: {
     display: 'flex',
     alignItems: 'center',
     gap: space['2'],
-    minHeight: '36px',
-    padding: `${space['1.5']} ${space['2']}`,
+    minHeight: 0,
+    padding: `0 ${space['2']}`,
     boxSizing: 'border-box',
-    borderBottom: `1px solid ${color.border}`,
+    borderBottom: '1px solid transparent',
     background: 'transparent',
+    overflow: 'hidden',
+    maxHeight: 0,
+    opacity: 0,
+    pointerEvents: 'none',
+    transition: `max-height ${motion.normal}, opacity ${motion.fast}, padding ${motion.normal}, border-color ${motion.normal}`,
+  },
+  searchBarOpen: {
+    maxHeight: '42px',
+    opacity: 1,
+    padding: `${space['1.5']} ${space['2']}`,
+    borderBottom: `1px solid ${color.border}`,
+    pointerEvents: 'auto',
   },
   searchInput: {
     flex: 1,
@@ -475,6 +460,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [creating, setCreating] = useState(null);
   const [filterChangedOnly, setFilterChangedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
   const [rootPath, setRootPath] = useState(isHostMode ? stripHostPathPrefix(initialPath || '') : (initialPath || ''));
   const [resolvedRoot, setResolvedRoot] = useState(null);
   const [uploadState, setUploadState] = useState(null);
@@ -482,6 +468,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
+  const searchInputRef = useRef(null);
   const listRef = useRef(null);
   const scrollRafRef = useRef(null);
   const didInitialCwdRefreshRef = useRef(false);
@@ -553,6 +540,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 
   useEffect(() => { if (renameTarget && renameInputRef.current) { renameInputRef.current.focus(); renameInputRef.current.select(); } }, [renameTarget]);
   useEffect(() => { if (creating && createInputRef.current) createInputRef.current.focus(); }, [creating]);
+  useEffect(() => {
+    if (!searchOpen) return undefined;
+    const id = requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => cancelAnimationFrame(id);
+  }, [searchOpen]);
 
   const toggleFolder = useCallback((path) => {
     setExpanded((prev) => {
@@ -773,6 +765,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const parentOfRoot = isHostMode ? computeParent(normalizedResolvedRoot || normalizedRootPath) : computeParent(rootPath);
   const canGoUp = parentOfRoot !== null;
   const rootDisplay = isHostMode ? (normalizedResolvedRoot || (normalizedRootPath || '~')) : (rootPath || '/');
+  const searchVisible = searchOpen || !!searchQuery;
 
   return (
     <div
@@ -785,27 +778,16 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
         if (files.length > 0) uploadFiles(files, '');
       }}
     >
-      {isHostMode && (
-        <div style={styles.crumb} title={rootDisplay}>
-          <button onClick={() => canGoUp && setRootPath(parentOfRoot)} disabled={!canGoUp} style={{ ...styles.crumbBtn, opacity: canGoUp ? 1 : 0.35, cursor: canGoUp ? 'pointer' : 'not-allowed' }}>
-            <ArrowUp size={12} strokeWidth={2} />
-          </button>
-          {normalizedRootPath !== normalizedInitialPath && (
-            <button onClick={() => setRootPath(normalizedInitialPath)} style={{ ...styles.crumbBtn, cursor: 'pointer' }}>
-              <Home size={12} strokeWidth={2} />
-            </button>
-          )}
-          <span style={styles.crumbPath}>{rootDisplay}</span>
-        </div>
-      )}
-
       <div style={styles.head}>
         <div style={styles.headBranch} title={rootDisplay}>
-          <Folder size={11} strokeWidth={2} style={{ color: color.muted, flexShrink: 0 }} />
-          <span style={{ ...styles.branchName, direction: 'rtl', textAlign: 'left', unicodeBidi: 'plaintext' }}>{rootDisplay}</span>
+          <span style={styles.branchName}>{rootDisplay}</span>
         </div>
         <div style={styles.headActions}>
           <HeadAction icon={ArrowUp} title={t('goUp')} onClick={() => canGoUp && setRootPath(parentOfRoot)} disabled={!canGoUp} />
+          {isHostMode && normalizedRootPath !== normalizedInitialPath && (
+            <HeadAction icon={Home} title={t('home') || 'Home'} onClick={() => setRootPath(normalizedInitialPath)} />
+          )}
+          <HeadAction icon={Search} title={t('searchFiles')} onClick={() => setSearchOpen((open) => !open)} active={searchVisible} />
           <HeadAction icon={Filter} title={t('filterChangedOnly')} onClick={() => setFilterChangedOnly(!filterChangedOnly)} active={filterChangedOnly} />
           <HeadAction icon={Plus} title={t('newFile')} onClick={() => startCreate('', 'file')} />
           <HeadAction icon={Folder} title={t('newFolder')} onClick={() => startCreate('', 'directory')} />
@@ -814,10 +796,10 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
         </div>
       </div>
 
-      <div style={styles.searchBar}>
+      <div style={{ ...styles.searchBar, ...(searchVisible ? styles.searchBarOpen : {}) }} aria-hidden={!searchVisible}>
         <Search size={12} style={{ color: color.muted }} />
-        <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t('searchFiles')} style={styles.searchInput} />
-        {searchQuery && <button onClick={() => setSearchQuery('')} style={styles.searchClearBtn}><X size={12} /></button>}
+        <input ref={searchInputRef} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t('searchFiles')} style={styles.searchInput} tabIndex={searchVisible ? 0 : -1} />
+        {searchVisible && <button onClick={() => { setSearchQuery(''); setSearchOpen(false); }} style={styles.searchClearBtn}><X size={12} /></button>}
       </div>
 
       {uploadState && (
