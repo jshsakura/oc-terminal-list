@@ -132,5 +132,7 @@ export const isValidKey = (k) =>
 export const sanitizeMobileKeys = (keys) => {
   if (!Array.isArray(keys)) return DEFAULT_MOBILE_KEYS;
   const cleaned = keys.filter(isValidKey);
-  return cleaned.length ? cleaned : DEFAULT_MOBILE_KEYS;
+  if (!cleaned.length) return DEFAULT_MOBILE_KEYS;
+  if (cleaned.some((k) => k.kind === 'cmdInput')) return cleaned;
+  return [{ id: 'cmd', kind: 'cmdInput', tone: 'accent' }, ...cleaned];
 };

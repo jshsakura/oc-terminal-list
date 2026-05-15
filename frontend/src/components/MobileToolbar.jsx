@@ -200,21 +200,24 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
         <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
           <div style={styles.row}>
             {!terminalReady && terminalSessionId ? (
-              list.map((k, i) => (
-                <div key={i} style={{
-                  ...styles.key,
-                  background: color.surface0,
-                  borderRadius: radius.xs,
-                  minWidth: k.kind === 'sep' ? '1px' : styles.key.minWidth,
-                  width: k.kind === 'sep' ? '1px' : undefined,
-                  padding: k.kind === 'sep' ? 0 : styles.key.padding,
-                  height: styles.key.height,
-                  animation: 'skel-pulse 1.4s ease-in-out infinite',
-                  animationDelay: `${i * 80}ms`,
-                  border: `1px solid ${color.border}`,
-                  margin: k.kind === 'sep' ? `0 ${space['1']}` : 0,
-                }} />
-              ))
+              list.map((k, i) => {
+                if (k.kind === 'cmdInput') return renderItem(k, i);
+                return (
+                  <div key={i} style={{
+                    ...styles.key,
+                    background: color.surface0,
+                    borderRadius: radius.xs,
+                    minWidth: k.kind === 'sep' ? '1px' : styles.key.minWidth,
+                    width: k.kind === 'sep' ? '1px' : undefined,
+                    padding: k.kind === 'sep' ? 0 : styles.key.padding,
+                    height: styles.key.height,
+                    animation: 'skel-pulse 1.4s ease-in-out infinite',
+                    animationDelay: `${i * 80}ms`,
+                    border: `1px solid ${color.border}`,
+                    margin: k.kind === 'sep' ? `0 ${space['1']}` : 0,
+                  }} />
+                );
+              })
             ) : (
               list.map(renderItem)
             )}
