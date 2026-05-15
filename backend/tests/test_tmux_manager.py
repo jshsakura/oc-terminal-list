@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from tmux_manager import TmuxManager
+from host_manager import _build_remote_command
 
 
 @pytest.fixture
@@ -50,3 +51,10 @@ async def test_record_cwd(tmux_manager):
     tmux_manager._record_cwd("sess_id", "/home/user")
     history = tmux_manager.get_cwd_history("sess_id")
     assert len(history) == 1
+
+
+def test_remote_tmux_command_enables_mouse_for_scroll():
+    cmd = _build_remote_command(True, "mobile")
+
+    assert "tmux set-option -t mobile mouse on" in cmd
+    assert "mouse off" not in cmd

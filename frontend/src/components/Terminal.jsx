@@ -18,7 +18,7 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 import { measureTerminalFit } from '../utils/terminalFit';
-import { shouldUseNaturalMouseSelection, selectionArgsFromCells } from '../utils/terminalMouseSelection';
+import { shouldUseNaturalMouseSelection, selectionArgsFromCells, shouldRouteWheelToPty } from '../utils/terminalMouseSelection';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
@@ -401,8 +401,11 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
       if (lines === 0) return true;
 
-      const buf = term.buffer?.active;
-      if (buf?.type === 'normal') {
+      const routeToPty = shouldRouteWheelToPty({
+        bufferType: term.buffer?.active?.type || 'normal',
+        mouseTrackingMode: term.modes?.mouseTrackingMode || 'none',
+      });
+      if (!routeToPty) {
         try { term.scrollLines(lines); } catch { /* noop */ }
       } else {
         sendTmuxWheel(lines, clientX, clientY, source);

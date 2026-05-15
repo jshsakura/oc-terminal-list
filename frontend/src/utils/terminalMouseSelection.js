@@ -15,3 +15,7 @@ export const selectionArgsFromCells = (start, end, cols) => {
     length: Math.max(1, (b.row - a.row) * cols + (b.col - a.col) + 1),
   };
 };
+
+export const shouldRouteWheelToPty = ({ bufferType = 'normal', mouseTrackingMode = 'none' } = {}) => (
+  (mouseTrackingMode && mouseTrackingMode !== 'none') || bufferType !== 'normal'
+);

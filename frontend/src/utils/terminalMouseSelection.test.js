@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { shouldUseNaturalMouseSelection, selectionArgsFromCells } from './terminalMouseSelection';
+import { shouldUseNaturalMouseSelection, selectionArgsFromCells, shouldRouteWheelToPty } from './terminalMouseSelection';
 
 describe('terminal mouse selection helpers', () => {
   it('enables natural selection only for plain primary drag in mouse tracking mode', () => {
@@ -39,5 +39,11 @@ describe('terminal mouse selection helpers', () => {
       row: 5,
       length: 7,
     });
+  });
+
+  it('routes wheel to the PTY when tmux mouse tracking is active', () => {
+    expect(shouldRouteWheelToPty({ bufferType: 'normal', mouseTrackingMode: 'vt200' })).toBe(true);
+    expect(shouldRouteWheelToPty({ bufferType: 'alternate', mouseTrackingMode: 'none' })).toBe(true);
+    expect(shouldRouteWheelToPty({ bufferType: 'normal', mouseTrackingMode: 'none' })).toBe(false);
   });
 });

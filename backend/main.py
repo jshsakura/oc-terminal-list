@@ -935,12 +935,11 @@ async def terminal_websocket(
             await storage.update_session_activity(session_id)
         except Exception:
             pass
-        # tmux mouse off — 브라우저(xterm.js)가 드래그 선택을 직접 처리하도록.
-        # 스크롤은 JS 쪽 attachCustomWheelEventHandler 가 SGR 시퀀스로 전달하므로
-        # WheelUpPane 바인딩 없이도 정상 동작한다. vim/htop 등 앱은 자체적으로
-        # DECSET 1000/1002 를 요청해 마우스 모드를 켜므로 마우스 입력도 유지된다.
+        # tmux mouse on — 브라우저는 wheel/touch 를 SGR mouse 이벤트로 전달하고,
+        # tmux 가 copy-mode 스크롤을 담당한다. 드래그 선택은 frontend 가 plain drag
+        # 임계값 이후 xterm selection 으로 보정하므로 스크롤과 선택을 함께 유지한다.
         try:
-            await tmux_manager._run("set-option", "-t", session_id, "mouse", "off", check=False)
+            await tmux_manager._run("set-option", "-t", session_id, "mouse", "on", check=False)
             # PageUp/Down 키보드 바인딩 — alternate buffer(vim 등) 이면 앱에 전달,
             # 아니면 tmux copy-mode 로 터미널 히스토리 탐색. 마우스 모드와 무관.
             await tmux_manager._run(

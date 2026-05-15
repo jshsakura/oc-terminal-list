@@ -81,13 +81,13 @@ def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: str | N
     cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
     # 핵심: new-session 단계에서 stty size 로 PTY 차원 그대로 주입 → 80x24 기본 아래 시작 후
     # attach 시 리사이즈하느라 prompt 가 안 그려지는 race 방지.
-    # mouse off — xterm.js(브라우저)가 드래그 선택을 직접 처리. vim/htop 등 앱은 자체
-    # DECSET 1000/1002 로 필요할 때만 마우스 모드를 켠다. 스크롤은 JS 가 SGR 시퀀스로 처리.
+    # mouse on — frontend 가 wheel/touch 를 SGR mouse 이벤트로 전달하고 tmux 가
+    # copy-mode 스크롤을 담당한다. plain drag 선택은 frontend 의 보정층에서 처리한다.
     return (
         f"command -v tmux >/dev/null 2>&1 && {{ "
         f"tmux has-session -t {safe} 2>/dev/null || tmux new-session -d -s {safe}{cwd_arg}; "
         f"tmux set-option -t {safe} aggressive-resize on >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} mouse off >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} mouse on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
         f"tmux set-option -t {safe} focus-events on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} status off >/dev/null 2>&1; "
