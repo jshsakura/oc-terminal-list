@@ -7,6 +7,8 @@ import {
 } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
+import useFileDownload from '../hooks/useFileDownload';
+import useFileUpload from '../hooks/useFileUpload';
 import { tokens } from '../styles/tokens';
 import { glassDividerStyle, glassMenuItemHover, glassMenuStyle } from '../styles/glass';
 import SkeletonRow from './common/SkeletonRow';
@@ -327,29 +329,6 @@ const authHeader = () => {
   return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
-const basename = (path) => (path || '').split('/').filter(Boolean).pop() || 'download';
-
-const filenameFromDisposition = (header, defaultName) => {
-  if (!header) return defaultName;
-  const encoded = header.match(/filename\*=UTF-8''([^;]+)/i);
-  if (encoded?.[1]) {
-    try { return decodeURIComponent(encoded[1]); } catch { return encoded[1]; }
-  }
-  const plain = header.match(/filename="?([^";]+)"?/i);
-  return plain?.[1] || defaultName;
-};
-
-const triggerBlobDownload = (blob, filename) => {
-  const href = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = href;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(href), 60000);
-};
-
 const computeParent = (p) => {
   if (!p) return null;
   const trimmed = p.replace(/\/+$/, '');
@@ -543,8 +522,6 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [rootPath, setRootPath] = useState(isHostMode ? stripHostPathPrefix(initialPath || '') : (initialPath || ''));
   const [rootPathForwardStack, setRootPathForwardStack] = useState([]);
   const [resolvedRoot, setResolvedRoot] = useState(null);
-  const [uploadState, setUploadState] = useState(null);
-  const [downloadState, setDownloadState] = useState(null);
   const [dragOver, setDragOver] = useState(false);
 
   const renameInputRef = useRef(null);
@@ -700,54 +677,20 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     }
   };
 
-  const uploadFiles = async (files, destPath = null) => {
-    if (!files || files.length === 0) return;
+  const uploadUrl = isHostMode ? `/api/hosts/${hostId}/files/upload` : '/api/files/upload';
+  const { uploadState, uploadFiles: _uploadFilesRaw } = useFileUpload({
+    uploadUrl,
+    t,
+    onUploadComplete: (destPath) => {
+      if (destPath && nodes[destPath]) fetchChildren(destPath);
+      else fetchChildren('');
+    },
+  });
+  const uploadFiles = (files, destPath = null) => {
     const targetDest = destPath ?? (isHostMode
       ? (normalizedResolvedRoot || normalizedRootPath || rootPath || '')
       : (rootPath || ''));
-    const total = files.length;
-    setUploadState({ current: 0, total, fileName: files[0].name, done: false, error: false });
-    const uploadBase = isHostMode ? `/api/hosts/${hostId}/files/upload` : '/api/files/upload';
-    for (let i = 0; i < total; i++) {
-      const fd = new FormData();
-      fd.append('dest', targetDest);
-      fd.append('files', files[i]);
-      setUploadState({ current: i, total, fileName: files[i].name, done: false, error: false });
-      try {
-        const res = await fetch(uploadBase, { method: 'POST', headers: authHeader(), body: fd });
-        if (!res.ok) {
-          let detail = '';
-          try {
-            const data = await res.json();
-            detail = data?.detail ? `: ${data.detail}` : '';
-          } catch { /* ignore non-json error bodies */ }
-          throw new Error(`${t('uploadFailed') || 'Upload failed'}${detail}`);
-        }
-      } catch (e) {
-        console.error('Upload error:', e);
-        setUploadState({
-          current: i + 1,
-          total,
-          fileName: files[i].name,
-          done: true,
-          error: true,
-          message: e.message || (t('uploadFailed') || 'Upload failed'),
-        });
-        setTimeout(() => setUploadState(null), 4000);
-        return;
-      }
-    }
-    if (targetDest && nodes[targetDest]) fetchChildren(targetDest);
-    else fetchChildren('');
-    setUploadState({
-      current: total,
-      total,
-      fileName: '',
-      done: true,
-      error: false,
-      message: t('uploadComplete') || t('done') || 'Done',
-    });
-    setTimeout(() => setUploadState(null), 1500);
+    return _uploadFilesRaw(files, targetDest);
   };
 
   const openUploadPicker = (destPath = null) => {
@@ -802,52 +745,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     } catch (e) { alert(e.message); }
   };
 
-  const downloadNode = async (path, type) => {
-    if (!path) return;
-    const fileName = path.split('/').pop() || (t('download') || 'Download');
-    setDownloadState({
-      fileName,
-      pending: true,
-      done: false,
-      error: false,
-      message: `${t('download') || 'Download'}...`,
-    });
-    try {
-      const url = isHostMode
-        ? `${apiBase}/download?path=${encodeURIComponent(path)}`
-        : `/api/files/download?path=${encodeURIComponent(path)}`;
-      const res = await fetch(url, { headers: authHeader() });
-      if (!res.ok) {
-        let detail = '';
-        try {
-          const data = await res.json();
-          detail = data?.detail ? `: ${data.detail}` : '';
-        } catch { /* ignore non-json error bodies */ }
-        throw new Error(`${t('downloadFailed') || 'Download failed'}${detail || ` (${res.status})`}`);
-      }
-      const blob = await res.blob();
-      const defaultName = type === 'directory' ? `${basename(path)}.zip` : basename(path);
-      const resolvedName = filenameFromDisposition(res.headers.get('content-disposition'), defaultName);
-      triggerBlobDownload(blob, resolvedName);
-      setDownloadState({
-        fileName,
-        pending: false,
-        done: true,
-        error: false,
-        message: t('downloadStarted') || 'Download started',
-      });
-      setTimeout(() => setDownloadState(null), 2000);
-    } catch (e) {
-      setDownloadState({
-        fileName,
-        pending: false,
-        done: true,
-        error: true,
-        message: e.message || (t('downloadFailed') || 'Download failed'),
-      });
-      setTimeout(() => setDownloadState(null), 4000);
-    }
-  };
+  const { downloadState, downloadNode } = useFileDownload({ apiBase, t });
 
   const hasChangedDescendant = useCallback((folderPath) => {
     if (!folderPath) return changedSet.size > 0;
