@@ -1,4 +1,4 @@
-# OC Terminal List
+# Terminal List
 
 🌐 [English](./README.md) | 🇰🇷 [한국어](./README.ko.md) | 🐳 GHCR Container | 🖥️ Host-native recommended
 
@@ -12,7 +12,7 @@ Fast, self-hosted web terminal for persistent `tmux` sessions, file browsing, SS
 
 ```text
 # Paste this into any AI coding assistant for guided setup
-Install OC Terminal List from this repository and choose the best mode for my server:
+Install Terminal List from this repository and choose the best mode for my server:
 https://github.com/jshsakura/oc-terminal-list
 
 Prefer host-native systemd for full host integration.
@@ -45,7 +45,7 @@ Use GHCR Docker only if I want an isolated container terminal.
 
 ## What it is
 
-OC Terminal List is a browser-based terminal workspace for machines you own.
+Terminal List is a browser-based terminal workspace for machines you own.
 
 It combines:
 
@@ -159,7 +159,7 @@ docker compose up -d
 
 ## Recommended: Host-native systemd
 
-Use this when OC Terminal List should operate on the actual host environment.
+Use this when Terminal List should operate on the actual host environment.
 
 ### Prerequisites
 

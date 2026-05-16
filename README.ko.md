@@ -1,4 +1,4 @@
-# OC Terminal List
+# Terminal List
 
 🌐 [English](./README.md) | 🇰🇷 [한국어](./README.ko.md) | 🐳 GHCR Container | 🖥️ Host-native 권장
 
@@ -12,7 +12,7 @@
 
 ```text
 # 아래 내용을 AI 코딩 어시스턴트에 붙여넣으면 설치 가이드를 받을 수 있습니다
-Install OC Terminal List from this repository and choose the best mode for my server:
+Install Terminal List from this repository and choose the best mode for my server:
 https://github.com/jshsakura/oc-terminal-list
 
 실제 호스트 제어가 필요하면 host-native systemd를 선택하세요.
@@ -46,7 +46,7 @@ https://github.com/jshsakura/oc-terminal-list
 
 ## 소개
 
-OC Terminal List는 사용자가 소유한 머신을 위한 브라우저 기반 터미널 워크스페이스입니다.
+Terminal List는 사용자가 소유한 머신을 위한 브라우저 기반 터미널 워크스페이스입니다.
 
 다음 기능을 결합합니다:
 
@@ -160,7 +160,7 @@ docker compose up -d
 
 ## 권장: Host-native systemd
 
-OC Terminal List가 실제 호스트 환경에서 동작해야 할 때 사용합니다.
+Terminal List가 실제 호스트 환경에서 동작해야 할 때 사용합니다.
 
 ### 사전 요구 사항
 

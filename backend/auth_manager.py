@@ -22,7 +22,7 @@ ACCESS_TOKEN_EXPIRE_HOURS = 24
 OTP_PENDING_TOKEN_EXPIRE_MINUTES = 5
 
 # TOTP settings
-TOTP_ISSUER = "iTerminaLlist"
+TOTP_ISSUER = "Terminal List"
 TOTP_DIGITS = 6
 TOTP_PERIOD = 30
 TOTP_VALID_WINDOW = 1  # 앞뒤 1 step (±30s) 허용 — 시계 오차 보정

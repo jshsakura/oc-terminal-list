@@ -1,4 +1,4 @@
-# iTerminaLlist — CLAUDE.md
+# Terminal List — CLAUDE.md
 
 Web-based multi-pane terminal manager. React (Vite) frontend + FastAPI backend. Runs on the host machine as a systemd service (not Docker) so it has direct access to the host shell, tmux, and workspace.
 

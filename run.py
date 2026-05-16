@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-iTerminaLlist 호스트 실행 스크립트 (개발용 supervisor)
+Terminal List 호스트 실행 스크립트 (개발용 supervisor)
 
 백엔드 (FastAPI/uvicorn) + 프론트엔드 (Vite dev server) 동시 기동.
 자식이 죽으면 자동 재시작 (지수 백오프, 짧은 시간 안에 반복 실패하면 포기).
