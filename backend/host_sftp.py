@@ -9,8 +9,13 @@ asyncssh SFTP 클라이언트를 사용해 원격 호스트의 디렉토리 목�
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
+import os
+import posixpath
+import stat
 import time
+import zipfile
 
 import asyncssh
 
@@ -20,6 +25,8 @@ logger = logging.getLogger(__name__)
 
 CONNECTION_IDLE_TTL = 300  # 5분
 MAX_FILE_BYTES = 10 * 1024 * 1024  # 10MB 읽기 상한
+MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024  # 원격 폴더 zip 안전 상한
+MAX_DOWNLOAD_FILES = 10000
 
 # host_id → (conn, last_used_ts)
 _pool: dict[str, tuple[asyncssh.SSHClientConnection, float]] = {}
@@ -170,6 +177,65 @@ async def _read_file_tailscale_bytes(host: dict, path: str) -> bytes:
         raise
     except Exception as e:
         raise HostConnectError(f"tailscale read failed: {e}") from e
+
+
+async def _download_item_tailscale(host: dict, path: str) -> tuple[bytes, str, str]:
+    import shlex as _shlex
+
+    target = _tailscale_target(host)
+    qpath = _shlex.quote(path)
+    max_b = MAX_DOWNLOAD_BYTES
+    max_files = MAX_DOWNLOAD_FILES
+
+    py = (
+        "import io, os, sys, zipfile\n"
+        "p=os.path.realpath(os.path.expanduser(sys.argv[1]))\n"
+        "max_b=int(sys.argv[2]); max_files=int(sys.argv[3])\n"
+        "if os.path.isfile(p):\n"
+        "    print('__ITERM_TYPE__file', file=sys.stderr)\n"
+        "    if os.path.getsize(p)>max_b:\n"
+        "        print('__TOO_LARGE__', file=sys.stderr); raise SystemExit(1)\n"
+        "    with open(p,'rb') as f: sys.stdout.buffer.write(f.read())\n"
+        "    raise SystemExit(0)\n"
+        "if not os.path.isdir(p):\n"
+        "    print('__NOT_SUPPORTED__', file=sys.stderr); raise SystemExit(1)\n"
+        "print('__ITERM_TYPE__dir', file=sys.stderr)\n"
+        "buf=io.BytesIO(); total=0; count=0; base=os.path.basename(p.rstrip(os.sep)) or 'download'\n"
+        "with zipfile.ZipFile(buf,'w',zipfile.ZIP_DEFLATED) as zf:\n"
+        "    for root, dirs, files in os.walk(p, followlinks=False):\n"
+        "        dirs[:]=[d for d in dirs if not os.path.islink(os.path.join(root,d))]\n"
+        "        rel_root=os.path.relpath(root, os.path.dirname(p))\n"
+        "        if not dirs and not files:\n"
+        "            zf.writestr(rel_root.replace(os.sep,'/')+'/', b'')\n"
+        "        for name in files:\n"
+        "            fp=os.path.join(root,name)\n"
+        "            if os.path.islink(fp): continue\n"
+        "            size=os.path.getsize(fp); total+=size; count+=1\n"
+        "            if total>max_b or count>max_files:\n"
+        "                print('__TOO_LARGE__', file=sys.stderr); raise SystemExit(1)\n"
+        "            zf.write(fp, os.path.relpath(fp, os.path.dirname(p)).replace(os.sep,'/'))\n"
+        "sys.stdout.buffer.write(buf.getvalue())\n"
+    )
+    cmd = f"python3 - {qpath} {max_b} {max_files} <<'__ITSEOF__'\n{py}\n__ITSEOF__"
+
+    try:
+        stdout, stderr = await _run_ts(target, cmd, timeout=120.0)
+        err = stderr.decode(errors="replace").strip()
+        if "__TOO_LARGE__" in err:
+            raise HostConnectError(f"download too large (>{max_b} bytes or >{max_files} files)")
+        if "__NOT_SUPPORTED__" in err:
+            raise HostConnectError(f"unsupported path: {path}")
+        if err and not stdout:
+            raise HostConnectError(f"tailscale download: {err[:200]}")
+        filename = os.path.basename(path.rstrip("/")) or "download"
+        media_type = "application/zip" if "__ITERM_TYPE__dir" in err else "application/octet-stream"
+        if media_type == "application/zip" and not filename.lower().endswith(".zip"):
+            filename = f"{filename}.zip"
+        return stdout, filename, media_type
+    except HostConnectError:
+        raise
+    except Exception as e:
+        raise HostConnectError(f"tailscale download failed: {e}") from e
 
 
 async def _write_file_tailscale(host: dict, path: str, content: str | bytes) -> None:
@@ -353,6 +419,87 @@ async def read_file_bytes(host: dict, secrets: dict, path: str) -> bytes:
     except (asyncssh.Error, OSError) as e:
         _drop(host["id"])
         raise HostConnectError(f"SFTP read failed: {e}") from e
+
+
+def _is_dir_attrs(attrs: asyncssh.SFTPAttrs) -> bool:
+    return attrs.permissions is not None and stat.S_ISDIR(attrs.permissions)
+
+
+def _is_link_attrs(attrs: asyncssh.SFTPAttrs) -> bool:
+    return attrs.permissions is not None and stat.S_ISLNK(attrs.permissions)
+
+
+async def _sftp_zip_directory_bytes(sftp, root: str) -> bytes:
+    buffer = io.BytesIO()
+    root = root.rstrip("/") or "/"
+    parent = posixpath.dirname(root.rstrip("/")) or "/"
+    total = 0
+    count = 0
+
+    async def add_dir(current: str) -> None:
+        nonlocal total, count
+        entries = await sftp.readdir(current)
+        if not entries:
+            arc = posixpath.relpath(current, parent).rstrip("/") + "/"
+            zf.writestr(arc, b"")
+            return
+        for entry in entries:
+            name = entry.filename
+            if name in (".", ".."):
+                continue
+            child = f"{current.rstrip('/')}/{name}" if current != "/" else f"/{name}"
+            attrs = entry.attrs
+            if _is_link_attrs(attrs):
+                continue
+            if _is_dir_attrs(attrs):
+                await add_dir(child)
+                continue
+            size = attrs.size or 0
+            total += size
+            count += 1
+            if total > MAX_DOWNLOAD_BYTES or count > MAX_DOWNLOAD_FILES:
+                raise HostConnectError(
+                    f"download too large (>{MAX_DOWNLOAD_BYTES} bytes or >{MAX_DOWNLOAD_FILES} files)"
+                )
+            async with sftp.open(child, "rb") as f:
+                data = await f.read(MAX_DOWNLOAD_BYTES + 1)
+            arc = posixpath.relpath(child, parent)
+            zf.writestr(arc, data)
+
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        await add_dir(root)
+    return buffer.getvalue()
+
+
+async def download_item(host: dict, secrets: dict, path: str) -> tuple[bytes, str, str]:
+    """원격 파일/폴더 다운로드. 폴더는 zip 바이트로 반환."""
+    if not path or not path.strip():
+        raise HostConnectError("path is required")
+    if (host.get("auth_method") or "key").lower() == "tailscale":
+        return await _download_item_tailscale(host, path)
+    try:
+        conn = await _get_or_open(host, secrets)
+        async with conn.start_sftp_client() as sftp:
+            try:
+                attrs = await sftp.stat(path)
+            except (OSError, asyncssh.SFTPError) as e:
+                raise HostConnectError(f"path not found: {path}") from e
+            filename = os.path.basename(path.rstrip("/")) or "download"
+            if _is_dir_attrs(attrs):
+                data = await _sftp_zip_directory_bytes(sftp, path)
+                if not filename.lower().endswith(".zip"):
+                    filename = f"{filename}.zip"
+                return data, filename, "application/zip"
+            if attrs.size is not None and attrs.size > MAX_DOWNLOAD_BYTES:
+                raise HostConnectError(f"download too large (>{MAX_DOWNLOAD_BYTES} bytes)")
+            async with sftp.open(path, "rb") as f:
+                data = await f.read(MAX_DOWNLOAD_BYTES + 1)
+            return data, filename, "application/octet-stream"
+    except HostConnectError:
+        raise
+    except (asyncssh.Error, OSError) as e:
+        _drop(host["id"])
+        raise HostConnectError(f"SFTP download failed: {e}") from e
 
 
 async def write_file(host: dict, secrets: dict, path: str, content: str | bytes) -> None:

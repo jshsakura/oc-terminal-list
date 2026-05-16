@@ -117,6 +117,7 @@ const TerminalHeader = ({
   const panelStorageKey = `${PANEL_STATE_PREFIX}${paneInfo?.paneId || terminalKey || 'default'}`;
   const [activePanel, setActivePanel] = useState(() => readPanelState(panelStorageKey).activePanel);
   const [panelWidth, setPanelWidth] = useState(() => readPanelState(panelStorageKey).panelWidth);
+  const [filePanelRevealPath, setFilePanelRevealPath] = useState(null);
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
@@ -270,6 +271,18 @@ const TerminalHeader = ({
   const gitCount = (gitContextPath != null || !!activeHostId) ? (gitItems || []).length : 0;
   const activePanelMeta = activePanel ? TABS.find((tab) => tab.id === activePanel) : null;
   const ActivePanelIcon = activePanelMeta?.icon || Info;
+  const filePanelInitialPath = filePanelRevealPath ?? (
+    activeHostId
+      ? (paneCwd || null)
+      : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? '')
+  );
+
+  const revealInFilePanel = useCallback((folderPath) => {
+    setFilePanelRevealPath(folderPath || '');
+    setActivePanel('files');
+    if (onFilePanelToggle && !filePanelOpen) onFilePanelToggle();
+    onFolderSelect?.(folderPath || '');
+  }, [filePanelOpen, onFilePanelToggle, onFolderSelect]);
 
   useEffect(() => {
     if (activePanel === 'files') {
@@ -679,7 +692,7 @@ const TerminalHeader = ({
             {activePanel === 'files' && (
               <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <FileTree
-                  key={`${activeHostId ?? 'local'}:${activeHostId ? (paneCwd ?? 'home') : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? 'root')}`}
+                  key={`${activeHostId ?? 'local'}:${filePanelInitialPath ?? 'home'}`}
                   hostId={activeHostId}
                   onFileSelect={onFileSelect}
                   onFolderSelect={onFolderSelect}
@@ -688,7 +701,7 @@ const TerminalHeader = ({
                   gitContextPath={gitContextPath}
                   sharedGitChanges={gitChanges}
                   language={language}
-                  initialPath={activeHostId ? (paneCwd || null) : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? '')}
+                  initialPath={filePanelInitialPath}
                 />
               </div>
             )}
@@ -699,6 +712,7 @@ const TerminalHeader = ({
                 hostId={activeHostId}
                 onSelectFile={onFileSelect}
                 onOpenFile={onFileSelect}
+                onRevealInFiles={revealInFilePanel}
                 t={t}
               />
             )}
@@ -947,15 +961,22 @@ const formatBytes = (n) => {
 
 const formatRate = (n) => `${formatBytes(n)}/s`;
 
-const formatUptime = (s) => {
+const formatUptime = (s, t) => {
   if (s == null) return '—';
   const sec = Math.floor(s);
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
   const m = Math.floor((sec % 3600) / 60);
-  if (d > 0) return `${d}d ${h}h`;
-  if (h > 0) return `${h}h ${m}m`;
-  return `${m}m`;
+  const label = (key, fallback) => {
+    const value = t?.(key);
+    return value && value !== key ? value : fallback;
+  };
+  const day = label('uptimeDayUnit', 'd');
+  const hour = label('uptimeHourUnit', 'h');
+  const minute = label('uptimeMinuteUnit', 'm');
+  if (d > 0) return `${d}${day} ${h}${hour}`;
+  if (h > 0) return `${h}${hour} ${m}${minute}`;
+  return `${m}${minute}`;
 };
 
 const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
@@ -1221,7 +1242,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
             {stats.uptime != null && (
               <InfoRow
                 label={t?.('infoUptime') || 'Uptime'}
-                value={formatUptime(stats.uptime)}
+                value={formatUptime(stats.uptime, t)}
                 mono={false}
               />
             )}

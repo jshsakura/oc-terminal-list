@@ -140,6 +140,37 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
   },
+  transferBar: {
+    padding: '6px 8px',
+    borderBottom: `1px solid ${color.border}`,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    minHeight: '26px',
+    boxSizing: 'border-box',
+  },
+  transferTrack: {
+    flex: 1,
+    height: '4px',
+    background: color.surface0,
+    borderRadius: '2px',
+    overflow: 'hidden',
+    minWidth: 0,
+  },
+  transferFill: {
+    height: '100%',
+    borderRadius: '2px',
+    transition: 'width 0.3s ease, background 0.2s ease',
+  },
+  transferLabel: {
+    fontSize: '10px',
+    color: color.subtext,
+    whiteSpace: 'nowrap',
+    fontFamily: font.sans,
+    maxWidth: '54%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
   headActionBtn: {
     width: '22px',
     height: '22px',
@@ -298,14 +329,25 @@ const authHeader = () => {
 
 const basename = (path) => (path || '').split('/').filter(Boolean).pop() || 'download';
 
-const filenameFromDisposition = (header, fallback) => {
-  if (!header) return fallback;
+const filenameFromDisposition = (header, defaultName) => {
+  if (!header) return defaultName;
   const encoded = header.match(/filename\*=UTF-8''([^;]+)/i);
   if (encoded?.[1]) {
     try { return decodeURIComponent(encoded[1]); } catch { return encoded[1]; }
   }
   const plain = header.match(/filename="?([^";]+)"?/i);
-  return plain?.[1] || fallback;
+  return plain?.[1] || defaultName;
+};
+
+const triggerBlobDownload = (blob, filename) => {
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = href;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 60000);
 };
 
 const computeParent = (p) => {
@@ -408,7 +450,9 @@ const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, 
 
 const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
   <button
-    onClick={(e) => { e.stopPropagation(); onClick(); }}
+    onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+    onPointerDown={(e) => e.stopPropagation()}
+    onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
     style={{
       ...styles.menuItem,
       color: tone === 'danger' ? 'var(--ui-danger)' : 'var(--ui-text)',
@@ -460,6 +504,8 @@ const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRenam
         opacity: measured ? 1 : 0,
       }}
       onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => e.stopPropagation()}
     >
       <MenuItem icon={Plus} label={t('newFile') || 'New file'} onClick={onNewFile} />
@@ -498,6 +544,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [rootPathForwardStack, setRootPathForwardStack] = useState([]);
   const [resolvedRoot, setResolvedRoot] = useState(null);
   const [uploadState, setUploadState] = useState(null);
+  const [downloadState, setDownloadState] = useState(null);
   const [dragOver, setDragOver] = useState(false);
 
   const renameInputRef = useRef(null);
@@ -510,6 +557,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const didInitialCwdRefreshRef = useRef(false);
   const creatingCommitRef = useRef(false);
   const renameCommitRef = useRef(false);
+  const contextMenuOpenRef = useRef(false);
+  const closeContextMenuRef = useRef(() => {});
   const [listViewport, setListViewport] = useState({ scrollTop: 0, height: 0 });
   const [treeFocus, setTreeFocus] = useState(initialPath || '');
   const effectiveGitPath = gitContextPath || treeFocus;
@@ -560,19 +609,23 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     }
   }, [rootPath, initialPath, isHostMode, fetchChildren]);
 
-  // Outside click to close context menu.
-  // contextmenu 는 capture:false 로 — 메뉴 내부에서 stopPropagation 으로 막아 자기 닫힘 방지.
-  // (이전엔 capture:true 라 어디서 우클릭하든 무조건 닫혀, 메뉴 내부 텍스트 우클릭 시도 종료.)
+  closeContextMenuRef.current = () => setContextMenu(null);
+  contextMenuOpenRef.current = !!contextMenu;
+
   useEffect(() => {
-    if (!contextMenu) return;
-    const close = () => setContextMenu(null);
-    window.addEventListener('click', close);
-    window.addEventListener('contextmenu', close);
+    const close = () => {
+      if (contextMenuOpenRef.current) closeContextMenuRef.current();
+    };
+    const id = setTimeout(() => {
+      window.addEventListener('click', close);
+      window.addEventListener('contextmenu', close);
+    }, 0);
     return () => {
+      clearTimeout(id);
       window.removeEventListener('click', close);
       window.removeEventListener('contextmenu', close);
     };
-  }, [contextMenu]);
+  }, []);
 
   useEffect(() => { if (renameTarget && renameInputRef.current) { renameInputRef.current.focus(); renameInputRef.current.select(); } }, [renameTarget]);
   useEffect(() => { if (creating && createInputRef.current) createInputRef.current.focus(); }, [creating]);
@@ -653,13 +706,13 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       ? (normalizedResolvedRoot || normalizedRootPath || rootPath || '')
       : (rootPath || ''));
     const total = files.length;
-    setUploadState({ current: 0, total, fileName: files[0].name, done: false });
+    setUploadState({ current: 0, total, fileName: files[0].name, done: false, error: false });
     const uploadBase = isHostMode ? `/api/hosts/${hostId}/files/upload` : '/api/files/upload';
     for (let i = 0; i < total; i++) {
       const fd = new FormData();
       fd.append('dest', targetDest);
       fd.append('files', files[i]);
-      setUploadState({ current: i, total, fileName: files[i].name, done: false });
+      setUploadState({ current: i, total, fileName: files[i].name, done: false, error: false });
       try {
         const res = await fetch(uploadBase, { method: 'POST', headers: authHeader(), body: fd });
         if (!res.ok) {
@@ -672,12 +725,28 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
         }
       } catch (e) {
         console.error('Upload error:', e);
-        alert(e.message || (t('uploadFailed') || 'Upload failed'));
+        setUploadState({
+          current: i + 1,
+          total,
+          fileName: files[i].name,
+          done: true,
+          error: true,
+          message: e.message || (t('uploadFailed') || 'Upload failed'),
+        });
+        setTimeout(() => setUploadState(null), 4000);
+        return;
       }
     }
     if (targetDest && nodes[targetDest]) fetchChildren(targetDest);
     else fetchChildren('');
-    setUploadState({ current: total, total, fileName: '', done: true });
+    setUploadState({
+      current: total,
+      total,
+      fileName: '',
+      done: true,
+      error: false,
+      message: t('uploadComplete') || t('done') || 'Done',
+    });
     setTimeout(() => setUploadState(null), 1500);
   };
 
@@ -735,14 +804,18 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 
   const downloadNode = async (path, type) => {
     if (!path) return;
-    if (isHostMode && type === 'directory') {
-      alert(t('remoteFolderDownloadUnsupported') || 'Remote folder download is not supported yet.');
-      return;
-    }
-    const url = isHostMode
-      ? `${apiBase}/download?path=${encodeURIComponent(path)}`
-      : `/api/files/download?path=${encodeURIComponent(path)}`;
+    const fileName = path.split('/').pop() || (t('download') || 'Download');
+    setDownloadState({
+      fileName,
+      pending: true,
+      done: false,
+      error: false,
+      message: `${t('download') || 'Download'}...`,
+    });
     try {
+      const url = isHostMode
+        ? `${apiBase}/download?path=${encodeURIComponent(path)}`
+        : `/api/files/download?path=${encodeURIComponent(path)}`;
       const res = await fetch(url, { headers: authHeader() });
       if (!res.ok) {
         let detail = '';
@@ -750,21 +823,29 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
           const data = await res.json();
           detail = data?.detail ? `: ${data.detail}` : '';
         } catch { /* ignore non-json error bodies */ }
-        throw new Error(`${t('downloadFailed') || 'Download failed'}${detail}`);
+        throw new Error(`${t('downloadFailed') || 'Download failed'}${detail || ` (${res.status})`}`);
       }
       const blob = await res.blob();
-      const fallback = type === 'directory' ? `${basename(path)}.zip` : basename(path);
-      const fileName = filenameFromDisposition(res.headers.get('content-disposition'), fallback);
-      const href = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = href;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(href);
+      const defaultName = type === 'directory' ? `${basename(path)}.zip` : basename(path);
+      const resolvedName = filenameFromDisposition(res.headers.get('content-disposition'), defaultName);
+      triggerBlobDownload(blob, resolvedName);
+      setDownloadState({
+        fileName,
+        pending: false,
+        done: true,
+        error: false,
+        message: t('downloadStarted') || 'Download started',
+      });
+      setTimeout(() => setDownloadState(null), 2000);
     } catch (e) {
-      alert(e.message || (t('downloadFailed') || 'Download failed'));
+      setDownloadState({
+        fileName,
+        pending: false,
+        done: true,
+        error: true,
+        message: e.message || (t('downloadFailed') || 'Download failed'),
+      });
+      setTimeout(() => setDownloadState(null), 4000);
     }
   };
 
@@ -857,6 +938,26 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const rootDisplay = isHostMode ? (normalizedResolvedRoot || (normalizedRootPath || '~')) : (rootPath || '/');
   const searchVisible = searchOpen || !!searchQuery;
   const canGoDown = rootPathForwardStack.length > 0;
+  const renderTransferBar = (state, key) => {
+    if (!state) return null;
+    const tone = state.error ? color.danger : (state.done ? color.success : color.accent);
+    const progress = state.done || state.error
+      ? 100
+      : state.total
+        ? Math.max(8, Math.min(100, ((state.current + 1) / Math.max(state.total, 1)) * 100))
+        : 35;
+    const label = state.message || `${state.current + 1}/${state.total} ${state.fileName}`;
+    return (
+      <div key={key} style={{ ...styles.transferBar, background: `${tone}12` }}>
+        <div style={styles.transferTrack}>
+          <div style={{ ...styles.transferFill, width: `${progress}%`, background: tone }} />
+        </div>
+        <span style={{ ...styles.transferLabel, color: state.error ? color.danger : color.subtext }} title={label}>
+          {label}
+        </span>
+      </div>
+    );
+  };
   const goUpRoot = () => {
     if (!canGoUp) return;
     const currentRoot = normalizedResolvedRoot || normalizedRootPath || rootPath || '';
@@ -925,16 +1026,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
         }}
       />
 
-      {uploadState && (
-        <div style={{ padding: '6px 8px', background: `${color.accent}12`, borderBottom: `1px solid ${color.border}`, display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <div style={{ flex: 1, height: '4px', background: color.surface0, borderRadius: '2px', overflow: 'hidden' }}>
-            <div style={{ width: `${(uploadState.current / Math.max(uploadState.total, 1)) * 100}%`, height: '100%', background: color.accent, borderRadius: '2px', transition: 'width 0.3s ease' }} />
-          </div>
-          <span style={{ fontSize: '10px', color: color.subtext, whiteSpace: 'nowrap', fontFamily: font.sans }}>
-            {uploadState.done ? (t('done') || 'Done') : `${uploadState.current + 1}/${uploadState.total} ${uploadState.fileName}`}
-          </span>
-        </div>
-      )}
+      {renderTransferBar(uploadState, 'upload')}
+      {renderTransferBar(downloadState, 'download')}
 
       <div ref={listRef} style={styles.list} onScroll={handleListScroll} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
         {rootError && (

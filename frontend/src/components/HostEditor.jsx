@@ -81,8 +81,9 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     }
     setTmuxChecking(true);
     try {
+      const token = localStorage.getItem('auth_token');
       const res = await fetch(`/api/hosts/${host.id}/tmux-check`, {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || ''}` },
+        headers: { Authorization: `Bearer ${token || ''}` },
       });
       if (res.ok) {
         const data = await res.json();
@@ -634,6 +635,9 @@ const Toggle = ({ label, hint, checked, onChange }) => (
     </div>
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
       style={{
         ...styles.toggle,

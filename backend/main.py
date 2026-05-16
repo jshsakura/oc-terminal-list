@@ -38,11 +38,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from starlette.types import Receive, Scope, Send
 
+from _deps import (
+    GIT_COMMIT_TIMEOUT,
+    GIT_DIFF_TIMEOUT,
+    GIT_PUSH_TIMEOUT,
+    GIT_QUICK_TIMEOUT,
+    GIT_STATUS_TIMEOUT,
+    WORKSPACE_ROOT,
+    run_proc as _run_proc,
+    set_auth_manager,
+    validate_path,
+    verify_auth_token,
+)
 from auth_manager import AuthManager
-from host_manager import HostBridge, resolve_host_secrets
+from host_manager import HostBridge, HostConnectError, resolve_host_secrets
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
 from vault import encrypt_str
@@ -85,6 +97,7 @@ async def lifespan(_app: FastAPI):
     logger.info("=== Terminal List 시작 ===")
     await storage.connect()
     auth_manager = AuthManager(storage)
+    set_auth_manager(auth_manager)
     if not shutil.which("tmux"):
         logger.error("tmux 바이너리를 찾을 수 없습니다. 호스트에 tmux를 설치해주세요.")
     elif await tmux_manager.server_alive():
@@ -115,24 +128,9 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 # ---------------------- 워크스페이스 ----------------------
 
-# 호스트 설치 전제: 기본값은 프로젝트 루트의 workspace/.
-# .env 의 WORKSPACE_ROOT 로 오버라이드 가능.
-_DEFAULT_WORKSPACE = os.path.join(_PROJECT_ROOT, "workspace")
-WORKSPACE_ROOT = os.path.abspath(os.getenv("WORKSPACE_ROOT") or _DEFAULT_WORKSPACE)
+# WORKSPACE_ROOT / validate_path 는 _deps 모듈에서 import.
 os.makedirs(WORKSPACE_ROOT, exist_ok=True)
 logger.info("WORKSPACE_ROOT = %s", WORKSPACE_ROOT)
-
-
-def validate_path(path) -> Path:
-    """워크스페이스 외부 접근을 차단하며 안전한 절대 경로 반환."""
-    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-    if path is None or str(path).strip() in ("/", "", "None"):
-        return Path(workspace_abs)
-    clean = os.path.normpath(str(path).strip().lstrip("/")).replace("..", "")
-    requested = os.path.abspath(os.path.join(workspace_abs, clean))
-    if not requested.startswith(workspace_abs):
-        return Path(workspace_abs)
-    return Path(requested)
 
 
 # ---------------------- 모델 ----------------------
@@ -177,19 +175,23 @@ class OtpDisableRequest(BaseModel):
     password: str
 
 
+MAX_PATH_FIELD_LEN = 4096
+MAX_FILE_WRITE_BYTES = 10 * 1024 * 1024  # 10MB 텍스트 쓰기 상한 (read 와 대칭)
+
+
 class FileWriteRequest(BaseModel):
-    path: str
-    content: str
+    path: str = Field(max_length=MAX_PATH_FIELD_LEN)
+    content: str = Field(max_length=MAX_FILE_WRITE_BYTES)
 
 
 class FileCreateRequest(BaseModel):
-    path: str
-    type: str  # "file" or "directory"
+    path: str = Field(max_length=MAX_PATH_FIELD_LEN)
+    type: str = Field(pattern="^(file|directory)$")
 
 
 class FileMoveRequest(BaseModel):
-    source: str
-    destination: str
+    source: str = Field(max_length=MAX_PATH_FIELD_LEN)
+    destination: str = Field(max_length=MAX_PATH_FIELD_LEN)
 
 
 class SshKeyCreateRequest(BaseModel):
@@ -520,20 +522,7 @@ def _consume_file_ticket(ticket: str | None) -> str | None:
 
 # ---------------------- 인증 ----------------------
 
-async def verify_auth_token(
-    authorization: str | None = Header(None),
-) -> str:
-    actual = None
-    if authorization and authorization.startswith("Bearer "):
-        actual = authorization[len("Bearer "):]
-    if not actual:
-        raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
-    if not auth_manager:
-        raise HTTPException(status_code=503, detail="인증 관리자가 초기화되지 않았습니다")
-    username = await auth_manager.verify_token(actual)
-    if not username:
-        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
-    return username
+# verify_auth_token 은 _deps 모듈에서 import.
 
 
 @app.post("/api/ws-ticket")
@@ -1019,6 +1008,7 @@ async def terminal_websocket(
     rows: int = Query(24),
     cwd: str | None = Query(None),
     shell: str | None = Query(None),
+    create: bool = Query(True, description="false면 없는 tmux 세션을 새로 만들지 않고 연결만 시도"),
 ):
     ws_path = f"/ws/{session_id}"
     username = _consume_ws_ticket(ticket, ws_path) if ticket else None
@@ -1031,6 +1021,9 @@ async def terminal_websocket(
 
     # 세션이 없으면 생성 (백엔드 재시작 후 첫 연결 또는 새 세션 직접 WS 진입)
     if not await tmux_manager.session_exists(session_id):
+        if not create:
+            await websocket.close(code=1000, reason="session not found")
+            return
         try:
             safe_cwd = _resolve_create_cwd(cwd)
         except HTTPException as e:
@@ -1296,8 +1289,12 @@ async def get_host_tmux_clients(
 
     from host_manager import open_connection
     safe_session = shlex.quote(session)
-    # `=` prefix → exact match (suffix 매치 방지)
-    cmd = f"tmux list-clients -t ={safe_session} 2>/dev/null | wc -l || echo 0"
+    # `=` prefix → exact match (suffix 매치 방지). exists 도 같이 내려 refresh-only 재연결에 사용.
+    cmd = (
+        f"if tmux has-session -t ={safe_session} 2>/dev/null; then "
+        f"echo __EXISTS__1; tmux list-clients -t ={safe_session} 2>/dev/null | wc -l; "
+        f"else echo __EXISTS__0; echo 0; fi"
+    )
 
     try:
         if host.get("auth_method") == "tailscale":
@@ -1331,11 +1328,13 @@ async def get_host_tmux_clients(
         # 실패 시 알 수 없음 — 0 으로 보내 프론트가 그냥 진행하게.
         return {"host_id": host_id, "session": session, "count": 0, "attached": False, "error": str(e)}
 
+    lines = (output or "0").strip().splitlines()
+    exists = "__EXISTS__0" not in lines
     try:
-        n = int((output or "0").strip().splitlines()[-1])
+        n = int(lines[-1])
     except (ValueError, IndexError):
         n = 0
-    return {"host_id": host_id, "session": session, "count": n, "attached": n > 0}
+    return {"host_id": host_id, "session": session, "exists": exists, "count": n, "attached": n > 0}
 
 
 @app.get("/api/hosts/{host_id}/tmux-check")
@@ -1531,7 +1530,9 @@ async def host_git_status(
     cmd = (
         f"git -C {safe} status --porcelain=v1 -uall 2>&1; "
         f"echo '__BRANCH__'; "
-        f"git -C {safe} rev-parse --abbrev-ref HEAD 2>/dev/null"
+        f"git -C {safe} rev-parse --abbrev-ref HEAD 2>/dev/null; "
+        f"echo '__ROOT__'; "
+        f"git -C {safe} rev-parse --show-toplevel 2>/dev/null"
     )
     try:
         raw = await _run_remote_cmd(host, secrets, cmd, timeout=10)
@@ -1539,7 +1540,8 @@ async def host_git_status(
         logger.warning("host git status failed (%s): %s", host_id, e)
         return {"items": [], "branch": None, "repo": None, "error": str(e)}
 
-    status_part, _, branch_part = raw.partition("__BRANCH__")
+    status_part, _, rest_part = raw.partition("__BRANCH__")
+    branch_part, _, root_part = rest_part.partition("__ROOT__")
     if "not a git repository" in status_part.lower() or "fatal:" in status_part.lower():
         return {"items": [], "branch": None, "repo": None, "error": None}
 
@@ -1564,7 +1566,8 @@ async def host_git_status(
             "staged": staged_code not in (" ", "?"),
         })
     branch = branch_part.strip() or None
-    return {"items": items, "branch": branch, "repo": target, "error": None}
+    repo_root = root_part.strip() or target
+    return {"items": items, "branch": branch, "repo": repo_root, "error": None}
 
 
 @app.get("/api/hosts/{host_id}/git/diff")
@@ -1600,6 +1603,13 @@ async def host_git_diff(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+MAX_COMMIT_MESSAGE_LEN = 4000
+MAX_REMOTE_PATH_LEN = 4096
+MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024   # 단일 파일 200MB
+MAX_UPLOAD_TOTAL_BYTES = 500 * 1024 * 1024  # 요청 합산 500MB
+MAX_UPLOAD_FILES = 200                       # 한 요청 최대 200개
+
+
 @app.post("/api/hosts/{host_id}/git/commit")
 async def host_git_commit(
     host_id: str,
@@ -1612,8 +1622,14 @@ async def host_git_commit(
     message = (body.get("message") or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="Commit message is required")
+    if len(message) > MAX_COMMIT_MESSAGE_LEN:
+        raise HTTPException(status_code=400, detail="Commit message too long")
+    if len(path) > MAX_REMOTE_PATH_LEN:
+        raise HTTPException(status_code=400, detail="Path too long")
     host, secrets = await _resolve_host_with_secrets(host_id, username)
-    safe_dir = shlex.quote(path or ".")
+    if not path:
+        path = (host.get("start_path") or "").strip() or "."
+    safe_dir = shlex.quote(path)
     safe_msg = shlex.quote(message)
     cmd = f"git -C {safe_dir} add -A && git -C {safe_dir} commit -m {safe_msg} 2>&1"
     try:
@@ -1639,8 +1655,12 @@ async def host_git_push(
     """원격 호스트: git push — SSH 로 직접 실행."""
     body = await request.json()
     path = (body.get("path") or "").strip()
+    if len(path) > MAX_REMOTE_PATH_LEN:
+        raise HTTPException(status_code=400, detail="Path too long")
     host, secrets = await _resolve_host_with_secrets(host_id, username)
-    safe_dir = shlex.quote(path or ".")
+    if not path:
+        path = (host.get("start_path") or "").strip() or "."
+    safe_dir = shlex.quote(path)
     cmd = f"git -C {safe_dir} push 2>&1"
     try:
         output = await _run_remote_cmd(host, secrets, cmd, timeout=60)
@@ -1673,9 +1693,12 @@ async def list_host_files(
             "resolved": result["resolved"],
             "host_id": host_id,
         }
+    except HostConnectError as e:
+        logger.warning("SFTP list failed (%s, %s): %s", host_id, target, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.warning("SFTP list failed (%s, %s): %s", host_id, target, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="원격 디렉토리 조회 실패")
 
 
 @app.get("/api/hosts/{host_id}/files/read")
@@ -1688,9 +1711,12 @@ async def read_host_file(
     try:
         content = await host_sftp.read_file(host, secrets, path)
         return {"content": content, "path": path, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP read failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.warning("SFTP read failed (%s, %s): %s", host_id, path, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="원격 파일 읽기 실패")
 
 
 @app.get("/api/hosts/{host_id}/files/download")
@@ -1701,22 +1727,40 @@ async def download_host_file(
 ):
     host, secrets = await _resolve_host_with_secrets(host_id, username)
     try:
-        data = await host_sftp.read_file_bytes(host, secrets, path)
-        filename = os.path.basename(path.rstrip("/")) or "download"
+        data, filename, media_type = await host_sftp.download_item(host, secrets, path)
         quoted = quote(filename)
         return Response(
             content=data,
-            media_type="application/octet-stream",
+            media_type=media_type,
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
         )
+    except HostConnectError as e:
+        logger.warning("SFTP download failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.warning("SFTP download failed (%s, %s): %s", host_id, path, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="원격 다운로드 실패")
+
+
+@app.head("/api/hosts/{host_id}/files/download", include_in_schema=False)
+async def head_host_file_download(
+    host_id: str,
+    path: str = Query(..., description="원격 파일 경로 (절대 권장)"),
+    username: str = Depends(verify_auth_token),
+):
+    await _resolve_host_with_secrets(host_id, username)
+    filename = os.path.basename(path.rstrip("/")) or "download"
+    quoted = quote(filename)
+    return Response(
+        status_code=200,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+    )
 
 
 class HostFileWriteRequest(BaseModel):
-    path: str
-    content: str
+    path: str = Field(max_length=MAX_PATH_FIELD_LEN)
+    content: str = Field(max_length=MAX_FILE_WRITE_BYTES)
 
 
 @app.post("/api/hosts/{host_id}/files/write")
@@ -1729,9 +1773,12 @@ async def write_host_file(
     try:
         await host_sftp.write_file(host, secrets, request.path, request.content)
         return {"status": "written", "path": request.path, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP write failed (%s, %s): %s", host_id, request.path, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.warning("SFTP write failed (%s, %s): %s", host_id, request.path, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="원격 파일 쓰기 실패")
 
 
 @app.post("/api/hosts/{host_id}/files/create")
@@ -1744,9 +1791,12 @@ async def create_host_file(
     try:
         await host_sftp.create_item(host, secrets, request.path, request.type)
         return {"status": "created", "path": request.path, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP create failed (%s, %s): %s", host_id, request.path, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.warning("SFTP create failed (%s, %s): %s", host_id, request.path, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="원격 파일/폴더 생성 실패")
 
 
 @app.post("/api/hosts/{host_id}/files/upload")
@@ -1756,16 +1806,33 @@ async def upload_host_files(
     dest: str = Form(""),
     username: str = Depends(verify_auth_token),
 ):
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(status_code=413, detail=f"파일이 너무 많습니다 (최대 {MAX_UPLOAD_FILES}개)")
+    if len(dest) > MAX_REMOTE_PATH_LEN:
+        raise HTTPException(status_code=400, detail="dest 경로가 너무 깁니다")
     host, secrets = await _resolve_host_with_secrets(host_id, username)
     remote_dir = dest or "/"
     results = []
+    total = 0
     for f in files:
         filename = os.path.basename(f.filename or "")
         if not filename:
             continue
-        remote_path = f"{remote_dir.rstrip('/')}/{filename}"
         content = await f.read()
-        await host_sftp.write_file(host, secrets, remote_path, content)
+        if len(content) > MAX_UPLOAD_FILE_BYTES:
+            raise HTTPException(status_code=413, detail=f"파일 '{filename}' 가 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)")
+        total += len(content)
+        if total > MAX_UPLOAD_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail=f"업로드 합계가 너무 큽니다 (최대 {MAX_UPLOAD_TOTAL_BYTES} bytes)")
+        remote_path = f"{remote_dir.rstrip('/')}/{filename}"
+        try:
+            await host_sftp.write_file(host, secrets, remote_path, content)
+        except HostConnectError as e:
+            logger.warning("SFTP upload failed (%s, %s): %s", host_id, remote_path, e)
+            raise HTTPException(status_code=502, detail=str(e))
+        except Exception as e:
+            logger.warning("SFTP upload failed (%s, %s): %s", host_id, remote_path, e)
+            raise HTTPException(status_code=500, detail="원격 업로드 실패")
         results.append({"name": filename, "path": remote_path, "size": len(content)})
     return {"status": "uploaded", "host_id": host_id, "files": results}
 
@@ -1780,9 +1847,12 @@ async def move_host_file(
     try:
         await host_sftp.move_item(host, secrets, request.source, request.destination)
         return {"status": "moved", "source": request.source, "destination": request.destination, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP move failed (%s, %s -> %s): %s", host_id, request.source, request.destination, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.warning("SFTP move failed (%s, %s -> %s): %s", host_id, request.source, request.destination, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="원격 파일/폴더 이동 실패")
 
 
 @app.delete("/api/hosts/{host_id}/files")
@@ -1795,9 +1865,12 @@ async def delete_host_file(
     try:
         await host_sftp.delete_item(host, secrets, path)
         return {"status": "deleted", "path": path, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP delete failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
         logger.warning("SFTP delete failed (%s, %s): %s", host_id, path, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="원격 파일/폴더 삭제 실패")
 
 
 # ---------------------- WebSocket: SSH 호스트 ----------------------
@@ -1813,6 +1886,7 @@ async def host_websocket(
     cwd: str | None = Query(None, description="이 연결에서 사용할 시작 디렉토리. 비우면 host.last_cwd → host.start_path 순으로 폴백."),
     tmux_suffix: str | None = Query(None, description="새 호스트 탭마다 base session 분리용 suffix. 영문/숫자/하이픈만, 32자 이내."),
     tmux_session_name: str | None = Query(None, description="명시적 tmux 세션명 override (기존 영속 세션 Resume). 주어지면 base/suffix/pane 계산 무시."),
+    create: bool = Query(True, description="false면 없는 원격 tmux 세션을 새로 만들지 않고 연결만 시도"),
 ):
     ws_path = f"/ws/host/{host_id}"
     username = _consume_ws_ticket(ticket, ws_path) if ticket else None
@@ -1877,6 +1951,7 @@ async def host_websocket(
             cwd=effective_cwd,
             tmux_suffix=safe_suffix,
             tmux_session_name=safe_session_name,
+            create_session=create,
         )
     else:
         bridge = HostBridge(
@@ -1891,6 +1966,7 @@ async def host_websocket(
             cwd=effective_cwd,
             tmux_suffix=safe_suffix,
             tmux_session_name=safe_session_name,
+            create_session=create,
         )
     try:
         await bridge.run()
@@ -1902,431 +1978,16 @@ async def host_websocket(
 
 # ---------------------- 파일 시스템 API ----------------------
 
-async def get_git_status(_: Path) -> dict:
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git", "status", "--porcelain=v1", "-uall",
-            cwd=os.path.abspath(WORKSPACE_ROOT),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, _err = await proc.communicate()
-        result: dict = {}
-        if stdout:
-            for line in stdout.decode().splitlines():
-                if len(line) > 3:
-                    result[line[3:].strip().strip('"')] = line[:2].strip()
-        return result
-    except Exception as e:
-        logger.error("git status failed: %s", e)
-        return {}
+# GIT_*_TIMEOUT 과 _run_proc 은 _deps 모듈에서 import.
+# local git endpoints 는 routes/local_git.py 로 분리됨.
 
+from routes.local_git import (  # noqa: E402
+    get_git_status_dict as get_git_status,
+    router as local_git_router,
+)
 
-async def _find_repo_root(start_path: str) -> str | None:
-    """주어진 경로에서 위로 올라가며 git 저장소 루트를 찾는다. 없으면 None."""
-    if not os.path.isdir(start_path):
-        start_path = os.path.dirname(start_path) or start_path
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git", "-C", start_path, "rev-parse", "--show-toplevel",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        out, _ = await proc.communicate()
-        if proc.returncode != 0:
-            return None
-        return out.decode("utf-8", errors="replace").strip() or None
-    except FileNotFoundError:
-        return None
+app.include_router(local_git_router)
 
-
-REPO_ITEMS_CAP = 200       # repo 당 응답에 포함할 최대 항목 (over → truncated 플래그)
-REPO_NOISE_THRESHOLD = 800 # 이 이상이면 repo 자체를 noisy 로 분류 → 메타만, items 비움
-
-
-async def _collect_repo_status(repo_root: str, workspace_abs: str, items_cap: int = REPO_ITEMS_CAP) -> dict:
-    """단일 repo 의 변경 사항 + 브랜치를 워크스페이스 상대 경로 기준으로 정리.
-
-    repo 가 매우 크면 (예: 빌드 산출물 수천개) cap 까지만 자르고 truncated 표시.
-    """
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_root, "status", "--porcelain=v1", "-uall",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            return {"items": [], "branch": None, "error": stderr.decode("utf-8", "replace").strip() or "git status failed", "total": 0, "truncated": False}
-
-        repo_rel_prefix = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
-        if repo_rel_prefix in (".", ""):
-            repo_rel_prefix = ""
-
-        all_lines = [line for line in stdout.decode().splitlines() if len(line) >= 3]
-        total = len(all_lines)
-        # 너무 시끄러운 repo (gitignore 누락된 build/cache 등) 는 메타만 반환,
-        # items 는 비워 응답 비대화 방지.
-        noisy = total >= REPO_NOISE_THRESHOLD
-        truncated = total > items_cap and not noisy
-        lines = [] if noisy else all_lines[:items_cap]
-
-        items = []
-        for line in lines:
-            staged_code = line[0]
-            unstaged_code = line[1]
-            rel_to_repo = line[3:].strip().strip('"')
-            kind = (
-                "untracked" if line[:2] == "??"
-                else "deleted" if "D" in line[:2]
-                else "added" if "A" in line[:2]
-                else "modified"
-            )
-            workspace_rel = (
-                f"{repo_rel_prefix}/{rel_to_repo}" if repo_rel_prefix else rel_to_repo
-            )
-            items.append({
-                "path": workspace_rel,
-                "repo_path": rel_to_repo,
-                "repo_root": repo_root,
-                "code": (staged_code + unstaged_code).strip(),
-                "kind": kind,
-                "staged": staged_code not in (" ", "?"),
-            })
-
-        branch_proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        b_out, _ = await branch_proc.communicate()
-        branch = b_out.decode().strip() if branch_proc.returncode == 0 else None
-
-        return {
-            "items": items,
-            "branch": branch,
-            "error": None,
-            "total": total,
-            "truncated": truncated,
-            "noisy": noisy,
-        }
-    except Exception as e:
-        return {"items": [], "branch": None, "error": str(e), "total": 0, "truncated": False, "noisy": False}
-
-
-# 워크스페이스 repo 스캔 결과 캐시 — fs 변동이 잦지 않으니 60초 캐시.
-_REPO_SCAN_CACHE: dict = {"ts": 0.0, "roots": []}
-_REPO_SCAN_TTL = 60.0
-
-
-async def _scan_workspace_repos(workspace_abs: str, max_depth: int = 2) -> list[str]:
-    """워크스페이스에서 git repo 들의 루트 경로를 탐색 (max_depth 까지). 60초 캐시."""
-    now = time.time()
-    if now - _REPO_SCAN_CACHE["ts"] < _REPO_SCAN_TTL and _REPO_SCAN_CACHE["roots"]:
-        return list(_REPO_SCAN_CACHE["roots"])
-
-    found: list[str] = []
-    try:
-        for entry in os.scandir(workspace_abs):
-            if not entry.is_dir(follow_symlinks=False):
-                continue
-            if entry.name.startswith('.'):
-                continue
-            full = entry.path
-            if os.path.isdir(os.path.join(full, '.git')):
-                found.append(full)
-                continue
-            if max_depth > 1:
-                try:
-                    for sub in os.scandir(full):
-                        if not sub.is_dir(follow_symlinks=False):
-                            continue
-                        if sub.name.startswith('.'):
-                            continue
-                        if os.path.isdir(os.path.join(sub.path, '.git')):
-                            found.append(sub.path)
-                except PermissionError:
-                    pass
-    except Exception as e:
-        logger.warning("scan workspace repos failed: %s", e)
-    _REPO_SCAN_CACHE["ts"] = now
-    _REPO_SCAN_CACHE["roots"] = found
-    return found
-
-
-@app.get("/api/git/status")
-async def git_status(
-    path: str = Query("", description="포커스된 폴더 경로 (워크스페이스 상대). 비우면 워크스페이스 전체 repo 집계."),
-    username: str = Depends(verify_auth_token),
-):
-    """경로 지정 시 그 repo 의 변경, 비우면 워크스페이스 내 모든 repo 의 변경을 집계."""
-    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-
-    # 경로 없음 → 워크스페이스 전체 집계 (병렬 git status)
-    if not path:
-        repo_roots = await _scan_workspace_repos(workspace_abs)
-        if not repo_roots:
-            return {"items": [], "branch": None, "repo": None, "repos": [], "error": None}
-        results = await asyncio.gather(*[
-            _collect_repo_status(r, workspace_abs) for r in repo_roots
-        ], return_exceptions=False)
-        repos_meta = []
-        all_items = []
-        for repo_root, r in zip(repo_roots, results):
-            if r.get("error"):
-                continue
-            total = r.get("total", 0)
-            # 변경 0 인 repo 는 응답에서 제외 (UI 노이즈 줄임)
-            if total == 0:
-                continue
-            rel = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
-            repos_meta.append({
-                "root": repo_root,
-                "rel": rel,
-                "branch": r["branch"],
-                "count": len(r["items"]),
-                "total": total,
-                "truncated": r.get("truncated", False),
-                "noisy": r.get("noisy", False),
-            })
-            all_items.extend(r["items"])
-        return {
-            "items": all_items,
-            "branch": None,
-            "repo": None,
-            "repos": repos_meta,
-            "error": None,
-        }
-
-    # 경로 지정 → 단일 repo (기존 동작)
-    target = str(validate_path(path).absolute())
-    repo_root = await _find_repo_root(target)
-    if not repo_root:
-        return {"items": [], "branch": None, "repo": None, "repos": [], "error": None}
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_root, "status", "--porcelain=v1", "-uall",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            return {
-                "items": [],
-                "branch": None,
-                "repo": repo_root,
-                "error": stderr.decode("utf-8", errors="replace").strip() or "git status failed",
-            }
-
-        workspace_abs = os.path.abspath(WORKSPACE_ROOT)
-        # 워크스페이스에 대한 상대 경로 prefix (FileTree 의 path 와 매칭하기 위해)
-        repo_rel_prefix = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
-        if repo_rel_prefix in (".", ""):
-            repo_rel_prefix = ""
-
-        items = []
-        for line in stdout.decode().splitlines():
-            if len(line) < 3:
-                continue
-            staged_code = line[0]
-            unstaged_code = line[1]
-            rel_to_repo = line[3:].strip().strip('"')
-            kind = (
-                "untracked" if line[:2] == "??"
-                else "deleted" if "D" in line[:2]
-                else "added" if "A" in line[:2]
-                else "modified"
-            )
-            workspace_rel = (
-                f"{repo_rel_prefix}/{rel_to_repo}" if repo_rel_prefix else rel_to_repo
-            )
-            items.append({
-                "path": workspace_rel,            # FileTree 트리 path 매칭용
-                "repo_path": rel_to_repo,         # diff 호출 시 사용
-                "code": (staged_code + unstaged_code).strip(),
-                "kind": kind,
-                "staged": staged_code not in (" ", "?"),
-            })
-
-        branch_proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        b_out, _ = await branch_proc.communicate()
-        branch = b_out.decode().strip() if branch_proc.returncode == 0 else None
-
-        return {
-            "items": items,
-            "branch": branch,
-            "repo": repo_root,
-            "repo_relative": repo_rel_prefix,
-            "error": None,
-        }
-    except FileNotFoundError:
-        return {"items": [], "branch": None, "repo": None, "error": "git binary not found"}
-    except Exception as e:
-        logger.error("git status endpoint failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/git/diff")
-async def git_diff(
-    path: str = Query(...),
-    staged: bool = Query(False),
-    username: str = Depends(verify_auth_token),
-):
-    """단일 파일의 git diff. path 는 워크스페이스 상대 경로."""
-    safe = validate_path(path)
-    repo_root = await _find_repo_root(str(safe))
-    if not repo_root:
-        raise HTTPException(status_code=404, detail="해당 파일이 속한 git 저장소를 찾을 수 없습니다")
-
-    rel_to_repo = os.path.relpath(str(safe.absolute()), repo_root).replace("\\", "/")
-    args = ["git", "-C", repo_root, "diff"]
-    if staged:
-        args.append("--cached")
-    args += ["--no-color", "--", rel_to_repo]
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            err = stderr.decode("utf-8", errors="replace").strip()
-            raise HTTPException(status_code=500, detail=err or "git diff failed")
-        return {
-            "path": path,
-            "repo": repo_root,
-            "repo_path": rel_to_repo,
-            "patch": stdout.decode("utf-8", errors="replace"),
-            "staged": staged,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("git diff failed (%s): %s", path, e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/git/commit")
-async def git_commit(
-    request: Request,
-    username: str = Depends(verify_auth_token),
-):
-    """git add -A && git commit -m <message> in the repo containing <path>."""
-    body = await request.json()
-    path = body.get("path", "")
-    message = (body.get("message") or "").strip()
-    if not message:
-        raise HTTPException(status_code=400, detail="Commit message is required")
-    try:
-        safe = validate_path(path) if path else Path(WORKSPACE_ROOT)
-        repo_root = await _find_repo_root(str(safe)) if path else str(safe)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not repo_root:
-        raise HTTPException(status_code=404, detail="No git repository found")
-
-    try:
-        add_proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_root, "add", "-A",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        _, add_err = await add_proc.communicate()
-        if add_proc.returncode != 0:
-            raise HTTPException(status_code=500, detail=add_err.decode("utf-8", errors="replace").strip() or "git add failed")
-
-        commit_proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_root, "commit", "-m", message,
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await commit_proc.communicate()
-        if commit_proc.returncode != 0:
-            err = stderr.decode("utf-8", errors="replace").strip()
-            raise HTTPException(status_code=500, detail=err or "git commit failed")
-        return {"ok": True, "output": stdout.decode("utf-8", errors="replace").strip()}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("git commit failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/api/git/push")
-async def git_push(
-    request: Request,
-    username: str = Depends(verify_auth_token),
-):
-    """git push in the repo containing <path>."""
-    body = await request.json()
-    path = body.get("path", "")
-    try:
-        safe = validate_path(path) if path else Path(WORKSPACE_ROOT)
-        repo_root = await _find_repo_root(str(safe)) if path else str(safe)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not repo_root:
-        raise HTTPException(status_code=404, detail="No git repository found")
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_root, "push",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        combined = (stdout + stderr).decode("utf-8", errors="replace").strip()
-        if proc.returncode != 0:
-            raise HTTPException(status_code=500, detail=combined or "git push failed")
-        return {"ok": True, "output": combined}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("git push failed: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.get("/api/git/file-content")
-async def git_file_content(
-    path: str = Query(...),
-    ref: str = Query("HEAD"),
-    username: str = Depends(verify_auth_token),
-):
-    """파일의 특정 ref(기본 HEAD) 시점 내용. DiffEditor 좌측(원본)에 사용."""
-    safe = validate_path(path)
-    repo_root = await _find_repo_root(str(safe))
-    if not repo_root:
-        raise HTTPException(status_code=404, detail="해당 파일이 속한 git 저장소를 찾을 수 없습니다")
-
-    rel_to_repo = os.path.relpath(str(safe.absolute()), repo_root).replace("\\", "/")
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git", "-C", repo_root, "show", f"{ref}:{rel_to_repo}",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            # untracked / 새 파일은 HEAD에 없음 → 빈 원본으로 응답
-            err = stderr.decode("utf-8", errors="replace").strip().lower()
-            if "exists on disk, but not in" in err or "does not exist" in err or "bad object" in err:
-                return {"path": path, "ref": ref, "content": "", "exists": False}
-            raise HTTPException(status_code=500, detail=err or "git show failed")
-        return {
-            "path": path,
-            "ref": ref,
-            "content": stdout.decode("utf-8", errors="replace"),
-            "exists": True,
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("git show failed (%s): %s", path, e)
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/files/workspace")
@@ -2350,7 +2011,7 @@ async def list_files(
     if not safe_path.is_dir():
         raise HTTPException(status_code=400, detail="Not a directory")
 
-    git_statuses = await get_git_status(safe_path)
+    git_statuses = await get_git_status()
     items = []
     for item in safe_path.iterdir():
         try:
@@ -2480,21 +2141,49 @@ async def get_raw_file(
     return FileResponse(str(safe))
 
 
+MAX_LOCAL_ZIP_BYTES = host_sftp.MAX_DOWNLOAD_BYTES
+MAX_LOCAL_ZIP_FILES = host_sftp.MAX_DOWNLOAD_FILES
+
+
+class _ZipTooLargeError(Exception):
+    """워크스페이스 zip 다운로드가 크기/파일 수 제한을 초과."""
+
+
 def _zip_directory_bytes(root: Path) -> bytes:
     buffer = io.BytesIO()
+    total = 0
+    count = 0
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for current_root, dirs, files in os.walk(root):
+        for current_root, dirs, files in os.walk(root, followlinks=False):
+            # 심볼릭 링크 디렉토리는 따라가지 않음 — zip 폭탄/순환 방지.
+            dirs[:] = [d for d in dirs if not (Path(current_root) / d).is_symlink()]
             current = Path(current_root)
             if not dirs and not files:
                 zf.writestr(f"{current.relative_to(root.parent).as_posix()}/", b"")
             for file_name in files:
                 file_path = current / file_name
+                if file_path.is_symlink():
+                    continue
+                try:
+                    size = file_path.stat().st_size
+                except OSError:
+                    continue
+                total += size
+                count += 1
+                if total > MAX_LOCAL_ZIP_BYTES or count > MAX_LOCAL_ZIP_FILES:
+                    raise _ZipTooLargeError(
+                        f"download too large (>{MAX_LOCAL_ZIP_BYTES} bytes or "
+                        f"> {MAX_LOCAL_ZIP_FILES} files)"
+                    )
                 zf.write(file_path, file_path.relative_to(root.parent).as_posix())
     return buffer.getvalue()
 
 
 @app.get("/api/files/download")
-async def download_workspace_item(path: str = Query(...), username: str = Depends(verify_auth_token)):
+async def download_workspace_item(
+    path: str = Query(...),
+    username: str = Depends(verify_auth_token),
+):
     safe = validate_path(path)
     if not safe.exists():
         raise HTTPException(status_code=404, detail="Not found")
@@ -2503,8 +2192,41 @@ async def download_workspace_item(path: str = Query(...), username: str = Depend
     if safe.is_dir():
         filename = f"{safe.name or 'workspace'}.zip"
         quoted = quote(filename)
+        try:
+            data = await asyncio.to_thread(_zip_directory_bytes, safe)
+        except _ZipTooLargeError as e:
+            raise HTTPException(status_code=413, detail=str(e))
         return Response(
-            content=await asyncio.to_thread(_zip_directory_bytes, safe),
+            content=data,
+            media_type="application/zip",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+        )
+    raise HTTPException(status_code=400, detail="Unsupported file type")
+
+
+@app.head("/api/files/download", include_in_schema=False)
+async def head_workspace_item_download(
+    path: str = Query(...),
+    username: str = Depends(verify_auth_token),
+):
+    safe = validate_path(path)
+    if not safe.exists():
+        raise HTTPException(status_code=404, detail="Not found")
+    if safe.is_file():
+        quoted = quote(safe.name)
+        return Response(
+            status_code=200,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{quoted}",
+                "Content-Length": str(safe.stat().st_size),
+            },
+        )
+    if safe.is_dir():
+        filename = f"{safe.name or 'workspace'}.zip"
+        quoted = quote(filename)
+        return Response(
+            status_code=200,
             media_type="application/zip",
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
         )
@@ -2570,11 +2292,14 @@ async def upload_files(
     dest: str = Form(""),
     username: str = Depends(verify_auth_token),
 ):
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(status_code=413, detail=f"파일이 너무 많습니다 (최대 {MAX_UPLOAD_FILES}개)")
     workspace = Path(WORKSPACE_ROOT)
     dest_path = validate_path(dest) if dest else workspace
     if not dest_path.is_dir():
         raise HTTPException(status_code=400, detail="Destination is not a directory")
     results = []
+    total = 0
     for f in files:
         filename = os.path.basename(f.filename or "")
         if not filename:
@@ -2582,8 +2307,13 @@ async def upload_files(
         target = dest_path / filename
         if not str(target.resolve()).startswith(str(workspace.resolve())):
             raise HTTPException(status_code=403, detail="Path outside workspace")
-        target.parent.mkdir(parents=True, exist_ok=True)
         content = await f.read()
+        if len(content) > MAX_UPLOAD_FILE_BYTES:
+            raise HTTPException(status_code=413, detail=f"파일 '{filename}' 가 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)")
+        total += len(content)
+        if total > MAX_UPLOAD_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail=f"업로드 합계가 너무 큽니다 (최대 {MAX_UPLOAD_TOTAL_BYTES} bytes)")
+        target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
         rel = str(target.relative_to(workspace)).replace("\\", "/")
         results.append({"name": f.filename, "path": rel, "size": len(content)})
@@ -2627,6 +2357,10 @@ if STATIC_DIR.exists():
         # index.html 은 항상 fresh — 새 빌드 chunk 해시 즉시 반영
         return FileResponse(str(STATIC_DIR / "index.html"), headers=NO_CACHE_HEADERS)
 
+    @app.head("/", include_in_schema=False)
+    async def head_frontend():
+        return Response(status_code=200, headers=NO_CACHE_HEADERS)
+
     @app.get("/{full_path:path}")
     async def catch_all(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("ws/"):
@@ -2636,6 +2370,15 @@ if STATIC_DIR.exists():
             return FileResponse(str(file_path))
         # SPA fallback 도 no-cache (라우팅 경로 어디로 와도 최신 index)
         return FileResponse(str(STATIC_DIR / "index.html"), headers=NO_CACHE_HEADERS)
+
+    @app.head("/{full_path:path}", include_in_schema=False)
+    async def head_catch_all(full_path: str):
+        if full_path.startswith("api/") or full_path.startswith("ws/"):
+            raise HTTPException(status_code=404, detail="Not found")
+        file_path = STATIC_DIR / full_path
+        if file_path.is_file():
+            return Response(status_code=200)
+        return Response(status_code=200, headers=NO_CACHE_HEADERS)
 
 
 if __name__ == "__main__":

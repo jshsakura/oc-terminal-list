@@ -67,6 +67,7 @@ const Sidebar = ({
   const [resizeHot, setResizeHot] = useState(false);
   const [resizing, setResizing] = useState(false);
   const [expandedActivity, setExpandedActivity] = useState(new Set());
+  const [fileReveal, setFileReveal] = useState({ path: null, seq: 0 });
   const editInputRef = useRef(null);
 
   const toggleActivity = (id) => {
@@ -114,6 +115,13 @@ const Sidebar = ({
       return name.includes(q) || cwd.includes(q) || s.id.toLowerCase().includes(q);
     });
   }, [filter, sessions]);
+
+  const revealInFiles = (folderPath) => {
+    const nextPath = folderPath || '';
+    setFileReveal((prev) => ({ path: nextPath, seq: prev.seq + 1 }));
+    onFolderSelect?.(nextPath);
+    setActiveTab('files');
+  };
 
   const finishEdit = async () => {
     if (editingSessionId && editingName.trim() && onRenameSession) {
@@ -371,12 +379,13 @@ const Sidebar = ({
         {activeTab === 'files' && (
           <div style={styles.fileTreeWrap}>
             <FileTree
+              key={`files:${fileReveal.seq}:${fileReveal.path ?? selectedFolderPath}`}
               onFileSelect={onFileSelect}
               onFolderSelect={onFolderSelect}
               onOpenTerminalAtFolder={(p) => onOpenTerminalAtFolder?.(p)}
               gitContextPath={gitContextPath}
               language={language}
-              initialPath={selectedFolderPath}
+              initialPath={fileReveal.path ?? selectedFolderPath}
             />
           </div>
         )}
@@ -392,6 +401,9 @@ const Sidebar = ({
             onOpenFile={(p) => {
               onFileSelect?.(p);
               if (isMobile) onClose();
+            }}
+            onRevealInFiles={(folderPath) => {
+              revealInFiles(folderPath);
             }}
             t={t}
           />

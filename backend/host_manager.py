@@ -63,7 +63,13 @@ def effective_tmux_session(base: str, pane_index: int = 0) -> str:
     return f"{base}_{int(pane_index) + 1}"
 
 
-def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: str | None = None) -> str | None:
+def _build_remote_command(
+    use_tmux: bool,
+    tmux_session: str,
+    start_path: str | None = None,
+    *,
+    create_session: bool = True,
+) -> str | None:
     """원격에서 실행할 명령. tmux 없으면 기본 셸로 fallback.
 
     - tmux -CC (control mode) 는 xterm.js 와 프로토콜 불일치라 사용 안 함.
@@ -73,19 +79,29 @@ def _build_remote_command(use_tmux: bool, tmux_session: str, start_path: str | N
     - 셸 fallback 에서는 cd 로 진입 후 로그인 셸.
     """
     if not use_tmux:
+        if not create_session:
+            return "printf '\\r\\n\\033[33m[session not found] this host does not keep a tmux shell to reconnect\\033[0m\\r\\n'; exit 42"
         if start_path:
             return f"cd {_shell_path(start_path)} 2>/dev/null; exec ${{SHELL:-bash}} -l"
         return None
     safe = shlex.quote(tmux_session or DEFAULT_REMOTE_TMUX_SESSION)
     cwd_arg = f" -c {_shell_path(start_path)}" if start_path else ""
     cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
+    create_clause = (
+        f"tmux has-session -t {safe} 2>/dev/null || tmux new-session -d -s {safe}{cwd_arg}; "
+        if create_session
+        else (
+            f"tmux has-session -t {safe} 2>/dev/null || "
+            f"{{ printf '\\r\\n\\033[33m[session not found] refresh could not find {tmux_session}\\033[0m\\r\\n'; exit 42; }}; "
+        )
+    )
     # 핵심: new-session 단계에서 stty size 로 PTY 차원 그대로 주입 → 80x24 기본 아래 시작 후
     # attach 시 리사이즈하느라 prompt 가 안 그려지는 race 방지.
     # mouse on — frontend 가 wheel/touch 를 SGR mouse 이벤트로 전달하고 tmux 가
     # copy-mode 스크롤을 담당한다. plain drag 선택은 frontend 의 보정층에서 처리한다.
     return (
         f"command -v tmux >/dev/null 2>&1 && {{ "
-        f"tmux has-session -t {safe} 2>/dev/null || tmux new-session -d -s {safe}{cwd_arg}; "
+        f"{create_clause}"
         f"tmux set-option -t {safe} aggressive-resize on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} mouse on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
@@ -187,6 +203,7 @@ class HostBridge:
         cwd: str | None = None,
         tmux_suffix: str | None = None,
         tmux_session_name: str | None = None,
+        create_session: bool = True,
     ):
         self.websocket = websocket
         self.host = host
@@ -200,6 +217,7 @@ class HostBridge:
         self.tmux_suffix = (tmux_suffix or "").strip() or None
         # 명시적 세션명 override (Home 의 영속 세션 Resume 등). 주어지면 base/suffix/pane 계산 무시.
         self.tmux_session_name = (tmux_session_name or "").strip() or None
+        self.create_session = bool(create_session)
         self.conn: asyncssh.SSHClientConnection | None = None
         self.process: asyncssh.SSHClientProcess | None = None
         self._closed = asyncio.Event()
@@ -272,7 +290,7 @@ class HostBridge:
             or (self.host.get("start_path") or "").strip()
             or None
         )
-        cmd = _build_remote_command(use_tmux, tmux_session, start_path)
+        cmd = _build_remote_command(use_tmux, tmux_session, start_path, create_session=self.create_session)
 
         if use_tmux:
             try:
@@ -418,6 +436,7 @@ class TailscaleHostBridge:
         cwd: str | None = None,
         tmux_suffix: str | None = None,
         tmux_session_name: str | None = None,
+        create_session: bool = True,
     ):
         self.websocket = websocket
         self.host = host
@@ -427,6 +446,7 @@ class TailscaleHostBridge:
         self.cwd = (cwd or "").strip() or None
         self.tmux_suffix = (tmux_suffix or "").strip() or None
         self.tmux_session_name = (tmux_session_name or "").strip() or None
+        self.create_session = bool(create_session)
         self.process: ptyprocess.PtyProcess | None = None
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
@@ -449,7 +469,7 @@ class TailscaleHostBridge:
             or (self.host.get("start_path") or "").strip()
             or None
         )
-        cmd = _build_remote_command(use_tmux, tmux_session, start_path)
+        cmd = _build_remote_command(use_tmux, tmux_session, start_path, create_session=self.create_session)
         argv = ["tailscale", "ssh", "-t", target]
         if cmd:
             argv.append(cmd)

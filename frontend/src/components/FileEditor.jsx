@@ -451,6 +451,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
           const dotColor = theme.ui.accent || '#89b4fa';
           const inactiveBg = `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`;
           const activeBg = `color-mix(in srgb, ${theme.ui.bg} 86%, transparent)`;
+          const hoverBg = `color-mix(in srgb, ${theme.ui.bgTertiary || theme.ui.bgSecondary || theme.ui.bg} 84%, ${dotColor} 8%)`;
 
           return (
             <div
@@ -480,10 +481,24 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
                 marginLeft: '-1px',
                 boxSizing: 'border-box',
                 userSelect: 'none',
-                transition: 'background 150ms, color 150ms',
+                transform: 'translateY(0)',
+                boxShadow: isActive ? `inset 0 1px 0 ${dotColor}33` : 'none',
+                transition: 'background 150ms, color 150ms, border-color 150ms, box-shadow 150ms, transform 150ms',
               }}
-              onMouseEnter={(e) => { if (!isActive) { e.currentTarget.style.background = `color-mix(in srgb, ${theme.ui.bgTertiary || theme.ui.bgSecondary || theme.ui.bg} 78%, transparent)`; e.currentTarget.style.color = theme.ui.textSecondary; } }}
-              onMouseLeave={(e) => { if (!isActive) { e.currentTarget.style.background = inactiveBg; e.currentTarget.style.color = theme.ui.textSecondary; } }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = hoverBg;
+                e.currentTarget.style.color = theme.ui.text;
+                e.currentTarget.style.borderColor = dotColor;
+                e.currentTarget.style.boxShadow = `inset 0 1px 0 ${dotColor}44, 0 0 0 1px ${dotColor}18`;
+                e.currentTarget.style.transform = 'translateY(-1px)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = isActive ? activeBg : inactiveBg;
+                e.currentTarget.style.color = isActive ? theme.ui.text : theme.ui.textSecondary;
+                e.currentTarget.style.borderColor = editorSection.borderColor;
+                e.currentTarget.style.boxShadow = isActive ? `inset 0 1px 0 ${dotColor}33` : 'none';
+                e.currentTarget.style.transform = 'translateY(0)';
+              }}
             >
               <span style={{
                 position: 'relative',

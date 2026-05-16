@@ -168,7 +168,7 @@ describe('TerminalHeader', () => {
   });
 
   describe('Info panel — pane identity and cwd', () => {
-    const openInfoPanel = (paneInfoOverrides = {}) => {
+    const openInfoPanel = (paneInfoOverrides = {}, propOverrides = {}) => {
       const props = baseProps({
         activeTabType: 'local',
         gitContextPath: '',
@@ -187,6 +187,7 @@ describe('TerminalHeader', () => {
           paneCwdRel: '',
           ...paneInfoOverrides,
         },
+        ...propOverrides,
       });
       const result = render(<TerminalHeader {...props} />);
       // Click the Info tab to open the info panel
@@ -214,6 +215,17 @@ describe('TerminalHeader', () => {
     it('shows workspace-relative cwd when non-empty', async () => {
       const { findByText } = openInfoPanel({ cwd: 'src/app', paneCwdRel: 'src/app' });
       expect(await findByText('src/app')).toBeTruthy();
+    });
+
+    it('formats uptime units through locale labels', async () => {
+      const t = (key) => ({
+        infoUptime: '가동 시간',
+        uptimeDayUnit: '일',
+        uptimeHourUnit: '시간',
+        uptimeMinuteUnit: '분',
+      }[key] || key);
+      const { findByText } = openInfoPanel({}, { t });
+      expect(await findByText('1일 0시간')).toBeTruthy();
     });
   });
 

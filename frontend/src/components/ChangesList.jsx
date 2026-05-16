@@ -1,8 +1,9 @@
-import { useMemo, useState, useRef, useEffect } from 'react';
-import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FilePlus, FileMinus, FileEdit, GitCommit, Upload, Loader2, Search, X, PenLine } from 'lucide-react';
+import { memo, useMemo, useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FolderOpen, FileText, FilePlus, FileMinus, FileEdit, GitCommit, Upload, Loader2, Search, X, PenLine } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
-import { glassMenuItemHover, glassSectionStyle } from '../styles/glass';
+import { glassMenuItemHover, glassMenuStyle, glassSectionStyle } from '../styles/glass';
 import SkeletonRow from './common/SkeletonRow';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -54,10 +55,169 @@ const countLeaves = (node) => {
   return node.children.reduce((acc, c) => acc + countLeaves(c), 0);
 };
 
+const dirname = (path) => {
+  const clean = (path || '').replace(/\/+$/, '');
+  const idx = clean.lastIndexOf('/');
+  if (idx < 0) return '';
+  if (idx === 0) return clean.startsWith('/') ? '/' : '';
+  return clean.slice(0, idx);
+};
+
+const MenuItem = ({ icon: Icon, label, onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    style={styles.menuItem}
+    onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); e.currentTarget.style.color = color.text; }}
+    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+  >
+    <Icon size={13} strokeWidth={1.8} />
+    <span>{label}</span>
+  </button>
+);
+
+const GitContextMenu = ({ x, y, target, t, onClose, onReveal, onOpen, onDiff }) => {
+  const ref = useRef(null);
+  const onCloseRef = useRef(onClose);
+  const [pos, setPos] = useState({ x, y });
+  const [measured, setMeasured] = useState(false);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    setMeasured(false);
+    setPos({ x, y });
+  }, [x, y]);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const margin = 8;
+    const nextX = Math.min(Math.max(margin, x), window.innerWidth - rect.width - margin);
+    const nextY = Math.min(Math.max(margin, y), window.innerHeight - rect.height - margin);
+    setPos({ x: nextX, y: nextY });
+    setMeasured(true);
+  }, [x, y]);
+
+  useEffect(() => {
+    const handleMouseDown = (e) => {
+      if (!ref.current?.contains(e.target)) onCloseRef.current?.();
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onCloseRef.current?.();
+    };
+    const id = setTimeout(() => {
+      document.addEventListener('mousedown', handleMouseDown);
+      document.addEventListener('contextmenu', handleMouseDown);
+      document.addEventListener('keydown', handleKeyDown);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener('mousedown', handleMouseDown);
+      document.removeEventListener('contextmenu', handleMouseDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); }}
+      style={{
+        ...styles.contextMenu,
+        left: pos.x,
+        top: pos.y,
+        opacity: measured ? 1 : 0,
+      }}
+    >
+      <MenuItem
+        icon={FileText}
+        label={t('openInEditor') || 'Open in editor'}
+        onClick={() => { onOpen?.(target); onClose?.(); }}
+      />
+      <MenuItem
+        icon={GitBranch}
+        label={t('viewDiff') || 'Diff'}
+        onClick={() => { onDiff?.(target); onClose?.(); }}
+      />
+      <MenuItem
+        icon={FolderOpen}
+        label={t('showInFileExplorer') || 'Show in file explorer'}
+        onClick={() => { onReveal?.(target); onClose?.(); }}
+      />
+    </div>
+  );
+};
+
+const ChangeFileRow = memo(function ChangeFileRow({ node, depth, hostId, onSelectFile, onOpenFile, onContextMenu }) {
+  const it = node.item;
+  const meta = STATUS_META[it.kind] || STATUS_META.modified;
+  const resolvedPath = node.resolvedPath;
+  return (
+    <button
+      onClick={() => onSelectFile?.(resolvedPath, hostId)}
+      onDoubleClick={() => onOpenFile?.(resolvedPath, hostId)}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu({
+          x: e.clientX,
+          y: e.clientY,
+          target: {
+            filePath: resolvedPath,
+            folderPath: dirname(resolvedPath),
+            item: it,
+          },
+        });
+      }}
+      style={{ ...styles.row, paddingLeft: 4 + depth * 14 }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      <span style={styles.chevSlot} />
+      <span style={{ ...styles.statusLetter, color: meta.tone, borderColor: `${meta.tone}55`, background: `${meta.tone}11` }}>
+        {meta.letter}
+      </span>
+      <span style={{ ...styles.name, color: color.subtext }}>{node.name}</span>
+    </button>
+  );
+});
+
+const ChangeDirRow = memo(function ChangeDirRow({ node, depth, isCollapsed, leafCount, onToggle }) {
+  return (
+    <div
+      onClick={() => onToggle(node.path)}
+      style={{ ...styles.dirRow, paddingLeft: 4 + depth * 14 }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+    >
+      <span style={styles.chevSlot}>
+        {isCollapsed ? <ChevronRight size={10} strokeWidth={2} /> : <ChevronDown size={10} strokeWidth={2} />}
+      </span>
+      <Folder size={11} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
+      <span style={styles.dirName}>{node.name}</span>
+      {leafCount > 0 && <span style={styles.dirCount}>{leafCount}</span>}
+    </div>
+  );
+});
+
+const DiffModal = ({ diff, t, onClose }) => (
+  <div style={styles.diffOverlay} onMouseDown={onClose}>
+    <div style={styles.diffModal} onMouseDown={(e) => e.stopPropagation()}>
+      <header style={styles.diffHeader}>
+        <span style={styles.diffTitle}>{t('viewDiff') || 'Diff'}: {diff.path}</span>
+        <button type="button" onClick={onClose} style={styles.diffClose}>
+          <X size={13} strokeWidth={2} />
+        </button>
+      </header>
+      <pre style={styles.diffBody}>{diff.patch || (t('diffEmpty') || '(no diff)')}</pre>
+    </div>
+  </div>
+);
+
 /**
  * 사이드바 git 탭. 활성 터미널 cwd 의 repo 변경 파일 리스트 + commit/push.
  */
-const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = null, onSelectFile, onOpenFile, t }) => {
+const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = null, onSelectFile, onOpenFile, onRevealInFiles, t }) => {
   const effectivePath = gitContextPath;
 
   const canUseSharedGitChanges = !!sharedGitChanges && (gitContextPath != null || !!hostId);
@@ -69,6 +229,7 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
   const { items, branch, repo, error, refresh, loading } = canUseSharedGitChanges
     ? sharedGitChanges
     : localGitChanges;
+  const fetchDiff = canUseSharedGitChanges ? sharedGitChanges?.fetchDiff : localGitChanges.fetchDiff;
 
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,6 +242,8 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
   const [commitOpen, setCommitOpen] = useState(false);
   const [commitOp, setCommitOp] = useState(null); // null | 'commit' | 'push'
   const [commitResult, setCommitResult] = useState(null); // null | {ok, text} | {error}
+  const [contextMenu, setContextMenu] = useState(null);
+  const [diffView, setDiffView] = useState(null);
 
   useEffect(() => { if (searchOpen && searchRef.current) searchRef.current.focus(); }, [searchOpen]);
   useEffect(() => { if (commitOpen && inputRef.current) inputRef.current.focus(); }, [commitOpen]);
@@ -161,45 +324,48 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
     return it.path;
   };
 
+  const revealTarget = (target) => {
+    if (!target?.folderPath && target?.folderPath !== '') return;
+    onRevealInFiles?.(target.folderPath, hostId, target.filePath);
+  };
+
+  const openDiff = async (target) => {
+    if (!target?.filePath || !fetchDiff) return;
+    setDiffView({ path: target.filePath, patch: t('loading') || 'Loading...', loading: true });
+    try {
+      const data = await fetchDiff(target.filePath, !!target.item?.staged);
+      setDiffView({ path: target.filePath, patch: data.patch || '', loading: false });
+    } catch (e) {
+      setDiffView({ path: target.filePath, patch: e.message || String(e), loading: false });
+    }
+  };
+
   const renderNode = (node, depth) => {
     if (node.type === 'file') {
       const it = node.item;
-      const meta = STATUS_META[it.kind] || STATUS_META.modified;
       const resolvedPath = resolvePath(it);
       return (
-        <button
+        <ChangeFileRow
           key={it.path}
-          onClick={() => onSelectFile?.(resolvedPath, hostId)}
-          onDoubleClick={() => onOpenFile?.(resolvedPath, hostId)}
-          style={{ ...styles.row, paddingLeft: 4 + depth * 14 }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-        >
-          <span style={styles.chevSlot} />
-          <span style={{ ...styles.statusLetter, color: meta.tone, borderColor: `${meta.tone}55`, background: `${meta.tone}11` }}>
-            {meta.letter}
-          </span>
-          <span style={{ ...styles.name, color: color.subtext }}>{node.name}</span>
-        </button>
+          node={{ ...node, resolvedPath }}
+          depth={depth}
+          hostId={hostId}
+          onSelectFile={onSelectFile}
+          onOpenFile={onOpenFile}
+          onContextMenu={setContextMenu}
+        />
       );
     }
     const isCollapsed = collapsed.has(node.path);
-    const leafCount = countLeaves(node);
     return (
       <div key={`d:${node.path}`}>
-        <div
-          onClick={() => toggle(node.path)}
-          style={{ ...styles.dirRow, paddingLeft: 4 + depth * 14 }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-        >
-          <span style={styles.chevSlot}>
-            {isCollapsed ? <ChevronRight size={10} strokeWidth={2} /> : <ChevronDown size={10} strokeWidth={2} />}
-          </span>
-          <Folder size={11} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
-          <span style={styles.dirName}>{node.name}</span>
-          {leafCount > 0 && <span style={styles.dirCount}>{leafCount}</span>}
-        </div>
+        <ChangeDirRow
+          node={node}
+          depth={depth}
+          isCollapsed={isCollapsed}
+          leafCount={countLeaves(node)}
+          onToggle={toggle}
+        />
         {!isCollapsed && node.children.map((c) => renderNode(c, depth + 1))}
       </div>
     );
@@ -342,6 +508,27 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
         )}
         {!error && items.length > 0 && tree.children.map((c) => renderNode(c, 0))}
       </div>
+      {contextMenu && createPortal(
+        <GitContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          target={contextMenu.target}
+          t={t}
+          onClose={() => setContextMenu(null)}
+          onReveal={revealTarget}
+          onOpen={(target) => onOpenFile?.(target.filePath, hostId)}
+          onDiff={openDiff}
+        />,
+        document.body
+      )}
+      {diffView && createPortal(
+        <DiffModal
+          diff={diffView}
+          t={t}
+          onClose={() => setDiffView(null)}
+        />,
+        document.body
+      )}
     </div>
   );
 };
@@ -589,6 +776,89 @@ const styles = {
   noticeHint: {
     fontSize: fontSize['11'],
     color: color.muted,
+  },
+  contextMenu: {
+    position: 'fixed',
+    zIndex: 12000,
+    minWidth: '180px',
+    padding: '4px',
+    ...glassMenuStyle(),
+    transition: 'opacity 80ms ease',
+  },
+  menuItem: {
+    width: '100%',
+    minHeight: '28px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '0 8px',
+    background: 'transparent',
+    color: color.subtext,
+    border: 'none',
+    borderRadius: radius.xs,
+    fontFamily: font.sans,
+    fontSize: fontSize['12'],
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  diffOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 13000,
+    background: 'rgba(0, 0, 0, 0.35)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: space['4'],
+  },
+  diffModal: {
+    width: 'min(920px, 92vw)',
+    maxHeight: '82vh',
+    display: 'flex',
+    flexDirection: 'column',
+    ...glassMenuStyle(),
+    overflow: 'hidden',
+  },
+  diffHeader: {
+    minHeight: '34px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space['2'],
+    padding: `0 ${space['2']}`,
+    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 72%, transparent)`,
+  },
+  diffTitle: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    color: color.text,
+    fontSize: fontSize['12'],
+    fontFamily: font.mono,
+  },
+  diffClose: {
+    width: '24px',
+    height: '24px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: color.muted,
+    border: 'none',
+    borderRadius: radius.xs,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  diffBody: {
+    margin: 0,
+    padding: space['3'],
+    overflow: 'auto',
+    color: color.subtext,
+    fontFamily: font.mono,
+    fontSize: fontSize['11'],
+    lineHeight: 1.45,
+    whiteSpace: 'pre-wrap',
   },
 };
 

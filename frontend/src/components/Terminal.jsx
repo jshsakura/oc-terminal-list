@@ -102,6 +102,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const [hasContent, setHasContent] = useState(false);
   const [evicted, setEvicted] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [endedNotice, setEndedNotice] = useState('');
   const contentReadyRef = useRef(false);
   const onReadyChangeRef = useRef(onReadyChange);
   onReadyChangeRef.current = onReadyChange;
@@ -677,11 +678,14 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
     };
 
-    const connect = async () => {
+    const connect = async (options = {}) => {
       if (cancelled) return;
+      const createIfMissing = options.create !== false;
+      const autoRecover = options.autoRecover !== false;
       /* 재연결 시작 — evicted 플래그 리셋. tmux 가 재attach 후 버퍼 리플레이 시
          이전 [detached] 메시지를 다시 내려보내므로 오픈 후 1.5초간 무시. */
       evictedRef.current = false;
+      setEndedNotice('');
       let ignoreDetachUntil = 0;
       const proposed = fitAddon.proposeDimensions();
       const cols = proposed?.cols || term.cols || 80;
@@ -694,6 +698,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       const sfxQS = (hostId && tmuxSuffix) ? `&tmux_suffix=${encodeURIComponent(tmuxSuffix)}` : '';
       // tmuxSessionName — 명시적 영속 세션 attach (Home 의 Resume). 주어지면 base/suffix 무시.
       const sessQS = (hostId && tmuxSessionName) ? `&tmux_session_name=${encodeURIComponent(tmuxSessionName)}` : '';
+      const createQS = createIfMissing ? '' : '&create=0';
       const wsPath = hostId ? `/ws/host/${hostId}` : `/ws/${sessionId}`;
       const wsTicket = await issueWsTicket(wsPath);
       if (cancelled) return;
@@ -705,8 +710,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
       const authQS = `ticket=${encodeURIComponent(wsTicket)}`;
       const wsUrl = hostId
-        ? `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}`
-        : `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}`;
+        ? `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}${createQS}`
+        : `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}${createQS}`;
 
       const socket = new WebSocket(wsUrl);
       socket.binaryType = 'arraybuffer';
@@ -873,6 +878,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       if (intentionalCloseRef.current) return;
       logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
       setIsReady(false);
+      if (!autoRecover) {
+        endedRef.current = true;
+        setEnded(true);
+        setEndedNotice(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
+        return;
+      }
       if (evictedRef.current) {
         /* takeover 당함 — 자동 재접속 금지. 사용자가 "내가 가져오기" 버튼으로만 재attach. */
         setEvicted(true);
@@ -919,9 +930,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
               break;
             }
           }
-          // 아직 exists=false 여도 종료 오버레이로 가지 않는다. 로컬 /ws/{sessionId} 는
-          // 세션이 없으면 새 tmux 세션을 만들 수 있고, 원격 tmux 도 attach 경로에서
-          // missing session 을 만들 수 있으므로 재연결 루프로 살릴 기회를 준다.
+          // 열린 터미널의 재연결은 기존 세션만 찾는다. 새 셸 생성은 새 탭/새 세션 흐름에서만 한다.
         }
 
         if (isStaleSocket()) return;
@@ -932,12 +941,13 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
           reconnectAttemptsRef.current = attempts + 1;
           reconnectTimeoutRef.current = setTimeout(() => {
-            if (!cancelled) connectRef.current?.();
+            if (!cancelled) connectRef.current?.({ create: false });
           }, delay);
         } else {
           // 끝까지 실패 — ended 오버레이로 사용자 명시 액션 유도.
           endedRef.current = true;
           setEnded(true);
+          setEndedNotice(t('reconnectExistingShellFailed') || 'No existing shell was found.');
         }
       };
       checkAndRecover();
@@ -1630,8 +1640,13 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
               {t('shellEndedTitle') || '셸이 종료되었습니다'}
             </div>
             <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
-              {t('shellEndedDesc') || '새 셸을 시작하거나 패널을 닫을 수 있습니다.'}
+              {t('shellEndedDesc') || '기존 셸에 다시 연결할 수 있습니다.'}
             </div>
+            {endedNotice && (
+              <div style={{ marginTop: '6px', fontSize: fontSize['11'], color: themeUi.warning || themeUi.subtext, lineHeight: 1.45 }}>
+                {endedNotice}
+              </div>
+            )}
           </div>
           <button
             type="button"
@@ -1639,14 +1654,15 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
               endedRef.current = false;
               setEnded(false);
               reconnectAttemptsRef.current = 0;
-              if (connectRef.current) connectRef.current();
+              if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
               else window.location.reload();
             }}
             style={styles.glassActionBtn(themeUi, themeUi.accent)}
             onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
           >
-            {t('restartShell') || '새 셸 시작'}
+            <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
+            {t('reconnectExistingShell') || '다시 연결'}
           </button>
         </GlassOverlayCard>
       )}

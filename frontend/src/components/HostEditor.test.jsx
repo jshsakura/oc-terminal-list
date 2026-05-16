@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import HostEditor from './HostEditor';
 
 import { locales } from '../i18n/locales';
@@ -121,6 +121,36 @@ describe('HostEditor', () => {
       />
     );
     expect(screen.getByText(/Edit host/i)).toBeInTheDocument();
+  });
+
+  it('uses auth_token when checking remote tmux availability', async () => {
+    localStorage.setItem('auth_token', 'auth-token-123');
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({ available: true }),
+      text: () => Promise.resolve(''),
+    });
+
+    render(
+      <HostEditor
+        isOpen={true}
+        host={{ ...sampleHost, use_remote_tmux: 0 }}
+        sshKeys={sampleKeys}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        t={mockT}
+      />
+    );
+
+    fireEvent.click(screen.getByText(/Session/i).closest('button'));
+    fireEvent.click(document.querySelector('[role="switch"][aria-label^="Persist session"]'));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith('/api/hosts/h1/tmux-check', {
+        headers: { Authorization: 'Bearer auth-token-123' },
+      });
+    });
   });
 
   it('shows skeleton rows in TailscalePicker while loading', () => {
