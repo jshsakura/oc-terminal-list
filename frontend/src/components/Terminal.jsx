@@ -1729,7 +1729,6 @@ const TerminalEdgeGutter = ({ right = 0, bottom = 0, themeUi }) => {
   const showBottom = bottom >= 1;
   if (!showRight && !showBottom) return null;
   const base = themeUi.base || '#11111b';
-  const line = themeUi.borderSubtle || themeUi.border || 'rgba(255,255,255,0.08)';
   return (
     <>
       {showRight && (
@@ -1745,7 +1744,6 @@ const TerminalEdgeGutter = ({ right = 0, bottom = 0, themeUi }) => {
             pointerEvents: 'none',
             zIndex: 1,
             background: `linear-gradient(90deg, color-mix(in srgb, ${base} 0%, transparent), ${base} 72%)`,
-            boxShadow: `inset 1px 0 0 ${line}`,
           }}
         />
       )}
@@ -1762,7 +1760,6 @@ const TerminalEdgeGutter = ({ right = 0, bottom = 0, themeUi }) => {
             pointerEvents: 'none',
             zIndex: 1,
             background: `linear-gradient(180deg, color-mix(in srgb, ${base} 0%, transparent), ${base} 72%)`,
-            boxShadow: `inset 0 1px 0 ${line}`,
           }}
         />
       )}
