@@ -16,7 +16,7 @@
  *  - 컨테이너 밖으로 포인터가 나가도 다음 update 호출 전까지는 마지막 속도 유지.
  *    stop() 으로 즉시 정지시키는 책임은 호출자.
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 
 const EDGE_ZONE_PX = 60;
 const MAX_SPEED_PX_PER_FRAME = 18;
@@ -83,7 +83,11 @@ export const useEdgeAutoScroll = ({
 
   useEffect(() => stop, [stop]);
 
-  return { update, stop };
+  // 반환 객체는 안정 reference 가 보장돼야 한다 — 호출 측이 deps 에 넣고 cleanup
+  // effect 의 deps 로 다시 쓰는 경우(useTouchDragReorder), 매 렌더마다 새 객체가
+  // 나오면 cleanup 이 매 렌더마다 발화돼서 longPress 타이머 등 진행 중인 상태가
+  // 통째로 리셋된다. useCallback 으로 묶인 update/stop 만 묶어서 안정화.
+  return useMemo(() => ({ update, stop }), [update, stop]);
 };
 
 export default useEdgeAutoScroll;
