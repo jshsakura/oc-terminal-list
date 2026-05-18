@@ -1,20 +1,52 @@
 # Terminal List — CLAUDE.md
 
-Web-based multi-pane terminal manager. React (Vite) frontend + FastAPI backend. Runs on the host machine as a systemd service (not Docker) so it has direct access to the host shell, tmux, and workspace.
+Web-based multi-pane terminal manager. React (Vite) frontend + FastAPI backend. Two deployment modes:
+
+- **Container** (recommended): `docker compose up -d`. Bundles app + Redis. Sandbox shell inside container; real host accessed as an SSH host (auto-registered if `secrets/ssh-key` is mounted).
+- **Host systemd** (legacy): runs on the host directly with `KillMode=process` so tmux sessions survive backend restarts. Used during development on the maintainer's machine.
 
 ## Project layout
 
 ```
 backend/        FastAPI app (main.py entry), Python, uvicorn
 frontend/src/   React + xterm.js UI (Vite, JSX)
-frontend/src/components/   UI components (49 files)
+frontend/src/components/   UI components
 frontend/src/hooks/        Custom React hooks
-deploy/         systemd unit file + local-deploy.sh
+deploy/         systemd unit file + local-deploy.sh (host install)
+Dockerfile, docker-compose.yml   container deployment
+secrets/        SSH key for bootstrap host (gitignored; .gitkeep only)
 data/           SQLite DB + vault key (not committed)
 workspace/      User file workspace (not committed)
 ```
 
-## Deploy (systemd host install)
+## Deploy (container — recommended)
+
+```bash
+# (one-time) drop your private key for the host you want to attach
+cp ~/.ssh/id_ed25519 secrets/ssh-key && chmod 600 secrets/ssh-key
+
+docker compose up -d
+open http://localhost:38822
+```
+
+Bundle contents:
+- `app` — backend + frontend (built into `backend/static` at image build time)
+- `redis` — `redis:alpine` with AOF persistence, only reachable from `app` over the compose network
+
+Volumes (named, persistent):
+- `iterminallist-data` → `/app/data` — SQLite DB + vault key
+- `iterminallist-workspace` → `/workspace` — sandbox shell work files
+- `iterminallist-redis-data` → `/data` — Redis AOF
+- `./secrets:/app/secrets:ro` (bind) — read-only SSH key for bootstrap host
+
+Host auto-register (see `backend/bootstrap.py`):
+- Trigger: presence of `secrets/ssh-key` at startup
+- Defaults: `host.docker.internal:22`, user `ubuntu`, auth=key, remote tmux ON
+- `BOOTSTRAP_HOST_*` env vars override defaults if needed
+- If host has no tmux installed, the host is still registered (use_remote_tmux=0); user SSHes in, installs tmux, flips toggle in host settings to gain persistent sessions
+- Idempotent — same-name host not re-created on subsequent boots
+
+## Deploy (host systemd — legacy / dev box)
 
 **Standard update flow — always use this:**
 
