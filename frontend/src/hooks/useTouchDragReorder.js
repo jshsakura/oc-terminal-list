@@ -23,6 +23,7 @@
  *   </div>
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEdgeAutoScroll } from './useEdgeAutoScroll';
 
 const DEFAULT_LONG_PRESS_MS = 250;
 const MOVE_THRESHOLD_PX = 6;
@@ -35,6 +36,9 @@ export const useTouchDragReorder = ({
 }) => {
   const [draggingId, setDraggingId] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
+  // 드래그 중 컨테이너 가장자리에 손가락이 들어오면 가로 스크롤을 자동으로 흘려준다 —
+  // touch-action: none 으로 OS 스크롤은 막혔지만 우리는 scrollLeft 를 직접 갱신.
+  const edgeAutoScroll = useEdgeAutoScroll({ containerRef: scrollContainerRef });
 
   const primedRef = useRef(false);
   const dragModeRef = useRef(false);
@@ -77,9 +81,10 @@ export const useTouchDragReorder = ({
     startXYRef.current = null;
     clearPrimedTimer();
     restoreTouchAction();
+    edgeAutoScroll.stop();
     setDraggingId(null);
     setDragOverId(null);
-  }, []);
+  }, [edgeAutoScroll]);
 
   // 언마운트 시 안전망.
   useEffect(() => cleanup, [cleanup]);
@@ -142,12 +147,15 @@ export const useTouchDragReorder = ({
       setDraggingId(currentIdRef.current);
     }
 
+    // 컨테이너 가장자리 — 자동 가로 스크롤.
+    edgeAutoScroll.update(t.clientX);
+
     // 손가락 아래 element 찾기 → data 속성으로 target id 추출.
     const el = document.elementFromPoint(t.clientX, t.clientY);
     const itemEl = el?.closest(`[${dataAttr}]`);
     const overId = itemEl?.getAttribute(dataAttr) || null;
     if (overId !== dragOverIdRef.current) setDragOverId(overId);
-  }, [dataAttr]);
+  }, [dataAttr, edgeAutoScroll]);
 
   const onTouchEnd = useCallback(() => {
     const wasDrag = dragModeRef.current;

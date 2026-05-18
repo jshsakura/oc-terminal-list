@@ -12,6 +12,7 @@ import { glassMenuItemHover, glassMenuStyle } from '../styles/glass';
 import HostIcon from '../utils/hostIcons';
 import RailIconBtn from './common/RailIconBtn';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
+import useEdgeAutoScroll from '../hooks/useEdgeAutoScroll';
 import useEvent from '../hooks/useEvent';
 
 const { color, font, fontSize, fontWeight } = tokens;
@@ -66,6 +67,8 @@ const TabBar = ({
     scrollContainerRef: tabListRef,
     onReorder,
   });
+  // 데스크탑 HTML5 드래그 중 컨테이너 가장자리에서 자동 가로 스크롤.
+  const edgeAutoScroll = useEdgeAutoScroll({ containerRef: tabListRef });
   // 데스크탑 HTML5 드래그 상태와 통합 — 한 군데에서만 active id/over id 를 신뢰.
   const activeDraggingId = draggingTabId || touchReorder.draggingId;
   const activeDragOverId = dragOverTabId || touchReorder.dragOverId;
@@ -120,7 +123,11 @@ const TabBar = ({
       e.dataTransfer.setData('application/x-iterminallist-tab', JSON.stringify({ type: 'tab', tabId }));
     } catch {}
   });
-  const handleDragEnd = useEvent(() => { setDraggingTabId(null); setDragOverTabId(null); });
+  const handleDragEnd = useEvent(() => {
+    setDraggingTabId(null);
+    setDragOverTabId(null);
+    edgeAutoScroll.stop();
+  });
   const handleDragOver = useEvent((tabId, e) => {
     if (!draggingTabId || draggingTabId === tabId) return;
     e.preventDefault();
@@ -136,7 +143,20 @@ const TabBar = ({
       || draggingTabId;
     setDraggingTabId(null);
     setDragOverTabId(null);
+    edgeAutoScroll.stop();
     if (fromId && fromId !== tabId) onReorder?.(fromId, tabId);
+  });
+  // 컨테이너 레벨 dragover — 자식 탭 핸들러는 자기 tabId 만 신경 쓰므로,
+  // 가장자리 자동 스크롤은 부모에서 clientX 만 받아 처리.
+  const handleContainerDragOver = useEvent((e) => {
+    if (!draggingTabId) return;
+    edgeAutoScroll.update(e.clientX);
+  });
+  const handleContainerDragLeave = useEvent((e) => {
+    // 컨테이너 밖으로 빠져나갈 때만 정지 (자식으로 넘어가는 leave 는 무시).
+    const related = e.relatedTarget;
+    if (related && e.currentTarget.contains(related)) return;
+    edgeAutoScroll.stop();
   });
 
   return (
@@ -179,6 +199,8 @@ const TabBar = ({
         ref={tabListRef}
         className="tabbar-list"
         style={{ ...styles.tabList, ...(isMobile ? styles.tabListMobile : null) }}
+        onDragOver={handleContainerDragOver}
+        onDragLeave={handleContainerDragLeave}
         onWheel={(e) => {
           // 세로 휠 → 가로 스크롤로 전환 (Jupyter 처럼)
           if (e.deltaY !== 0 && e.deltaX === 0) {
