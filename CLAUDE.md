@@ -13,7 +13,7 @@ frontend/src/   React + xterm.js UI (Vite, JSX)
 frontend/src/components/   UI components
 frontend/src/hooks/        Custom React hooks
 deploy/         systemd unit file + local-deploy.sh (host install)
-Dockerfile, docker-compose.yml   container deployment
+Dockerfile, compose.yml          container deployment (single image from GHCR)
 secrets/        SSH key for bootstrap host (gitignored; .gitkeep only)
 data/           SQLite DB + vault key (not committed)
 workspace/      User file workspace (not committed)
@@ -33,11 +33,13 @@ Bundle contents:
 - `app` — backend + frontend (built into `backend/static` at image build time)
 - `redis` — `redis:alpine` with AOF persistence, only reachable from `app` over the compose network
 
-Volumes (named, persistent):
-- `iterminallist-data` → `/app/data` — SQLite DB + vault key
-- `iterminallist-workspace` → `/workspace` — sandbox shell work files
-- `iterminallist-redis-data` → `/data` — Redis AOF
+Volumes:
+- `./data:/app/data` (bind) — SQLite DB + vault key, lives in repo's `data/`
+- `./workspace:/workspace` (bind) — sandbox shell work files
+- `oc-terminal-list-redis-data:/data` (named) — Redis AOF (separate UID, so named)
 - `./secrets:/app/secrets:ro` (bind) — read-only SSH key for bootstrap host
+
+CI: `.github/workflows/ghcr-publish.yml` pushes `ghcr.io/jshsakura/oc-terminal-list:latest` on every `main` push.
 
 Host auto-register (see `backend/bootstrap.py`):
 - Trigger: presence of `secrets/ssh-key` at startup

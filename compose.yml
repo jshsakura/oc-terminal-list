@@ -1,21 +1,68 @@
-# Quick-start compose for GHCR image.
-# For full-feature mode (host tmux, native shell integrations) run natively instead.
+# Terminal List — single-set bundle (app + Redis).
 #
-# Change the exposed port:
-#   APP_PORT=9000 docker compose up -d
-# Or set APP_PORT in .env / compose env vars. Default: 38822.
+# Quick start:
+#   docker compose up -d
+#   open http://localhost:38822
+#
+# 호스트 자동 등록:
+#   ./secrets/ssh-key 에 private key 를 두면 첫 부팅 시 'Docker Host' 가 자동 등록된다.
+#   기본 hostname=host.docker.internal, user=ubuntu. 필요시 BOOTSTRAP_HOST_* env 로 override.
+#
+# 포트 바꾸기:
+#   APP_PORT=9000 docker compose up -d  (또는 .env 에 설정)
 services:
-  backend:
+  app:
     image: ghcr.io/jshsakura/oc-terminal-list:latest
     container_name: oc-terminal-list
+    restart: unless-stopped
     ports:
       - "${APP_PORT:-38822}:${APP_PORT:-38822}"
     environment:
-      - HOST=0.0.0.0
-      - APP_PORT=${APP_PORT:-38822}
-      - DB_PATH=/app/data/iterminallist.db
-      - WORKSPACE_ROOT=/workspace
+      HOST: 0.0.0.0
+      APP_PORT: ${APP_PORT:-38822}
+      DB_PATH: /app/data/iterminallist.db
+      WORKSPACE_ROOT: /workspace
+      # 컨테이너 내 Redis — compose 네트워크의 서비스명을 host 로 사용
+      REDIS_URL: redis://redis:6379/0
+      #
+      # (선택) 호스트 자동 등록 override — secrets/ssh-key 만 있으면 아래 없이도 동작.
+      # BOOTSTRAP_HOST_HOSTNAME: host.docker.internal
+      # BOOTSTRAP_HOST_USER: ubuntu
+      # BOOTSTRAP_HOST_NAME: "Docker Host"
+      # BOOTSTRAP_HOST_KEY_PASSPHRASE: ""
+      # BOOTSTRAP_HOST_START_PATH: /home/ubuntu
     volumes:
       - ./data:/app/data
       - ./workspace:/workspace
+      # SSH key 마운트 (read-only) — 호스트 자동 등록용. 키 없으면 자동등록 비활성.
+      - ./secrets:/app/secrets:ro
+    # Linux 에서도 host.docker.internal 을 호스트 게이트웨이로 매핑 (Docker Desktop 기본 제공).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${APP_PORT:-38822}/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:alpine
+    container_name: oc-terminal-list-redis
     restart: unless-stopped
+    # 외부 노출 X — app 컨테이너만 redis://redis:6379 로 접근
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      # named volume — Redis 컨테이너는 redis 유저(uid 999)로 실행되므로 권한 충돌 없게.
+      - oc-terminal-list-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  oc-terminal-list-redis-data:
