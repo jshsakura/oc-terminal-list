@@ -107,14 +107,11 @@ export const useHostReorder = (hosts = [], refreshHosts = null) => {
           const id = findRowId(ev.clientX, ev.clientY);
           setDraggingId(null);
           setOverId(null);
-          // 드래그 직후 합성되는 click 이벤트만 제거 — 다른 곳 클릭은 영향 X.
-          // host row 안의 click 만 capture 에서 swallow, 50ms 안에 일어나는 것만.
+          // 드래그 끝난 직후 합성 click 은 무조건 swallow.
+          // row 밖(모달 오버레이 등)에서 떨어지면 그 click 이 overlay onClose 까지 올라가서 팝업이 닫혀버렸음.
           const swallow = (clickEv) => {
-            const target = clickEv.target;
-            if (target?.closest?.('[data-host-row]')) {
-              clickEv.stopPropagation();
-              clickEv.preventDefault();
-            }
+            clickEv.stopPropagation();
+            clickEv.preventDefault();
           };
           document.addEventListener('click', swallow, { capture: true });
           setTimeout(() => {

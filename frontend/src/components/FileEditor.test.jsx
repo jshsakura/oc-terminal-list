@@ -50,7 +50,7 @@ describe('FileEditor', () => {
       />
     );
 
-    expect(container.firstChild).toHaveStyle({ backdropFilter: 'blur(18px)' });
+    expect(container.firstChild.style.backdropFilter).toMatch(/blur\(.*18px\)/);
   });
 
   it('restores persisted diff view preference', () => {

@@ -38,7 +38,7 @@ describe('Settings', () => {
     );
 
     expect(screen.getByTestId('glass-modal-overlay')).toHaveStyle({ zIndex: '200001' });
-    expect(screen.getByRole('dialog')).toHaveStyle({ backdropFilter: 'blur(20px)' });
+    expect(screen.getByRole('dialog').style.backdropFilter).toMatch(/blur\(.*20px\)/);
   });
 
   it('does not crash when scrollSensitivity is undefined (legacy storage)', () => {

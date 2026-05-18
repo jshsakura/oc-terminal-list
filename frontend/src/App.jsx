@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } fro
 import uFuzzy from '@leeoniya/ufuzzy';
 import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare } from 'lucide-react';
 import useSettings from './hooks/useSettings';
+import useAppConfig from './hooks/useAppConfig';
 import useTranslation from './hooks/useTranslation';
 import useAuth from './hooks/useAuth';
 import useHosts from './hooks/useHosts';
@@ -23,7 +24,6 @@ import HomeDashboard from './components/HomeDashboard';
 import RemoteFolderPicker from './components/RemoteFolderPicker';
 import LocalEditor from './components/LocalEditor';
 import LocalFolderPicker from './components/LocalFolderPicker';
-import { tokens as designTokens } from './styles/tokens';
 import HostManager from './components/HostManager';
 import PaneGrid from './components/PaneGrid';
 import PaneErrorBoundary from './components/PaneErrorBoundary';
@@ -196,6 +196,8 @@ function App() {
   // (로그인 후 처음 로드되는 경우에도 server 의 mobile fontSize 등을 가져오기 위함.)
   const { isLoading, needsSetup, isAuthenticated, username, login, logout, completeSetup } = useAuth();
   const { settings, updateSettings } = useSettings(isAuthenticated);
+  // 서버 측 feature flag — 컨테이너 배포(LOCAL_DISABLED=1) 면 로컬 머신 카드 숨김.
+  const appConfig = useAppConfig();
   const { t } = useTranslation(settings.language);
   const currentTheme = useMemo(() => themes[settings.theme] || themes.catppuccin, [settings.theme]);
   // 초기 1회 — focusedPane 이 아직 안 정의된 첫 렌더에 글로벌 테마 즉시 적용 (FOUC 방지).
@@ -985,7 +987,7 @@ function App() {
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
-    const doClose = () => {
+    const removeTabOnly = () => {
       const idx = tabs.findIndex((t) => t.id === tabId);
       const remaining = tabs.filter((t) => t.id !== tabId);
       if (activeTabId === tabId) {
@@ -993,8 +995,10 @@ function App() {
         setActiveTabId(fallback);
       }
       setTabs(remaining);
-      // 닫기 = 영속 끝. 로컬은 백엔드 tmux 세션을, 호스트는 원격 tmux 세션을 모두 kill.
-      // (의도적 close 인데 잔류 세션이 누적되어 Resumable 에 끝없이 쌓이는 문제 해결.)
+      bumpSessionRefresh();
+    };
+
+    const terminateSessions = () => {
       if (tab.type === 'local') {
         const token = localStorage.getItem('auth_token');
         const sessionIds = (tab.panes || [{ sessionId: tab.sessionId }])
@@ -1015,43 +1019,57 @@ function App() {
           });
         }
       }
-      // 홈 Resumable 목록 즉시 갱신
-      bumpSessionRefresh();
     };
 
-    // 탭 안에 tmux 꺼진 호스트 pane 이 하나라도 있으면 경고 (작업 소실 가능)
+    const closeAndTerminate = () => { terminateSessions(); removeTabOnly(); };
+
+    // tmux 가 살아있으면 detach = 그냥 탭만 닫기 (홈 Resumable 에서 다시 열기 가능).
+    // tmux 가 없는 pane 이 하나라도 있으면 작업이 소실되므로 detach 옵션 없음.
     const hasNoTmuxPane = (tab.panes || []).some((p) => {
       if (!p.hostId) return false;
       const h = hosts.find((hh) => hh.id === p.hostId);
       return h && !h.use_remote_tmux;
     });
-    const isPersistentHost = tab.type === 'host'
-      && (hosts.find((h) => h.id === tab.hostId)?.use_remote_tmux);
+    const canDetach = !hasNoTmuxPane;
+
+    if (skipConfirm) {
+      // 빠른 닫기 (휠 클릭 인라인 confirm) — tmux 있으면 안전하게 detach, 없으면 terminate.
+      if (canDetach) removeTabOnly(); else closeAndTerminate();
+      return;
+    }
+
     const paneCount = tab.panes?.length || 1;
-    const baseMsg = hasNoTmuxPane
-      ? (t('confirmCloseTabLossy') || 'Close this tab? Work in non-tmux sessions will be lost.')
-      : isPersistentHost
-        ? (t('confirmCloseTabTerminate') || 'Close this tab? The remote tmux session(s) will be terminated.')
-        : (t('confirmCloseTab') || 'Close this tab?');
-    const bodyMsg = paneCount > 1
-      ? `${baseMsg} (${paneCount} ${t('panesInTab') || 'panes'})`
-      : baseMsg;
-    // 헤더 라인: #N · 탭이름 — 실수로 다른 탭 닫는 것 방지용
     const tabIdx = tabs.findIndex((tb) => tb.id === tabId);
     const tabNo = tabIdx >= 0 ? tabIdx + 1 : '?';
     const headerLine = `#${tabNo} · ${tab.name || 'terminal'}`;
+    const baseMsg = canDetach
+      ? (t('confirmCloseTabKeepable') || 'Close this tab? The session keeps running — reopen it from Home.')
+      : (t('confirmCloseTabLossy') || 'Close this tab? Work in non-tmux sessions will be lost.');
+    const bodyMsg = paneCount > 1
+      ? `${baseMsg} (${paneCount} ${t('panesInTab') || 'panes'})`
+      : baseMsg;
     const message = `${headerLine}\n\n${bodyMsg}`;
-    if (skipConfirm) {
-      doClose();
-      return;
+
+    if (canDetach) {
+      setConfirmModal({
+        isOpen: true,
+        title: t('closeTab') || 'Close tab',
+        titleIcon: XCircle,
+        message,
+        confirmText: t('closeTabOnly') || 'Close tab',
+        tertiaryText: t('terminateSession') || 'Terminate session',
+        onConfirm: removeTabOnly,
+        onTertiary: closeAndTerminate,
+      });
+    } else {
+      setConfirmModal({
+        isOpen: true,
+        title: t('closeTab') || 'Close tab',
+        titleIcon: XCircle,
+        message,
+        onConfirm: closeAndTerminate,
+      });
     }
-    setConfirmModal({
-      isOpen: true,
-      title: t('closeTab') || 'Close tab',
-      titleIcon: XCircle,
-      message,
-      onConfirm: doClose,
-    });
   }, [tabs, activeTabId, t, hosts, computePaneTmuxSession, killRemoteTmuxSession]);
 
   useEffect(() => { closeTabRef.current = closeTab; }, [closeTab]);
@@ -1745,8 +1763,8 @@ function App() {
       />
 
       {/* ── main body ── 모든 탭의 PaneGrid 를 stack 으로 마운트 (xterm 보존 → scrollback/사이즈 유지).
-          단, 비활성 탭의 *WebSocket 은 lazy* — Terminal.jsx 가 isActive 에 따라 WS open/close.
-          그래서 멀티 디바이스에서도 한 시점에 한 탭만 attach → takeover 폭주 X.
+          [TODO Phase 3] 비활성 탭의 WS 를 grace 후 close → tmux capture-pane 으로 scrollback 복원.
+          현재는 모든 탭의 WS 가 항상 open 상태. 활성/비활성 구분은 fit/poll 같은 보조 작업에만 적용.
           탭 전환 시 xterm 은 그대로라 사이즈 jitter 없음, scrollback 도 그대로. */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, position: 'relative' }}>
@@ -1762,12 +1780,14 @@ function App() {
             zIndex: activeTabId === null ? 1 : 0,
           }}>
             <HomeDashboard
+              isVisible={activeTabId === null}
               hosts={hosts}
+              settings={settings}
               localCard={{
                 name: (settings.localName || '').trim() || (t('thisMachine') || 'This machine'),
                 icon: settings.localIcon || '',
-                accent: designTokens.color.dotPalette[
-                  (settings.localColorIndex ?? 0) % designTokens.color.dotPalette.length
+                accent: tokens.color.dotPalette[
+                  (settings.localColorIndex ?? 0) % tokens.color.dotPalette.length
                 ],
                 startPath: settings.localStartPath || '',
               }}
@@ -2115,6 +2135,7 @@ function App() {
       {/* ── local machine editor ── */}
       <LocalEditor
         isOpen={localEditorOpen}
+        zIndex={isSettingsOpen ? 200002 : undefined}
         settings={settings}
         onSave={(patch) => updateSettings(patch)}
         onClose={() => setLocalEditorOpen(false)}
@@ -2151,9 +2172,9 @@ function App() {
             hosts={hosts}
             sshKeys={sshKeys}
             refreshHosts={refreshHosts}
-            onAddHost={() => { setIsSettingsOpen(false); setHostEditorState({ isOpen: true, host: null, reopenSettings: true }); }}
-            onEditHost={(h) => { setIsSettingsOpen(false); setHostEditorState({ isOpen: true, host: h, reopenSettings: true }); }}
-            onEditLocal={() => { setIsSettingsOpen(false); setLocalEditorOpen(true); }}
+            onAddHost={() => { setHostEditorState({ isOpen: true, host: null, reopenSettings: true }); }}
+            onEditHost={(h) => { setHostEditorState({ isOpen: true, host: h, reopenSettings: true }); }}
+            onEditLocal={() => { setLocalEditorOpen(true); }}
             onAddKey={() => { setEditingKey(null); setKeyManagerOpen(true); }}
             onEditKey={(k) => { setEditingKey(k); setKeyManagerOpen(true); }}
             onLogout={() => { setIsSettingsOpen(false); logout?.(); }}
@@ -2180,22 +2201,19 @@ function App() {
             isOpen={hostEditorState.isOpen}
             host={hostEditorState.host}
             sshKeys={sshKeys}
+            zIndex={hostEditorState.reopenSettings ? 200002 : undefined}
             onSave={async (data) => {
               if (hostEditorState.host) await updateHost(hostEditorState.host.id, data);
               else await createHost(data);
               await refreshHosts();
-              const reopen = hostEditorState.reopenSettings;
               setHostEditorState({ isOpen: false, host: null });
-              if (reopen) setIsSettingsOpen(true);
             }}
             onDelete={async () => {
               const target = hostEditorState.host;
               if (!target) return;
               await deleteHost(target.id);
               await refreshHosts();
-              const reopen = hostEditorState.reopenSettings;
               setHostEditorState({ isOpen: false, host: null });
-              if (reopen) setIsSettingsOpen(true);
             }}
             onKillTmuxServer={async (h) => {
               const token = localStorage.getItem('auth_token');
@@ -2205,9 +2223,7 @@ function App() {
               setNotification({ isOpen: true, message: t('killTmuxServerDone') || 'Remote tmux server killed.' });
             }}
             onClose={() => {
-              const reopen = hostEditorState.reopenSettings;
               setHostEditorState({ isOpen: false, host: null });
-              if (reopen) setIsSettingsOpen(true);
             }}
             t={t}
             language={settings.language}

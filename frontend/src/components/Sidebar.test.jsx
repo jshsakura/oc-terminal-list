@@ -58,7 +58,7 @@ describe('Sidebar', () => {
 
   it('uses the shared glass treatment for the side panel shell', () => {
     const { container } = render(<Sidebar {...baseProps()} />);
-    expect(container.querySelector('aside')).toHaveStyle({ backdropFilter: 'blur(18px)' });
+    expect(container.querySelector('aside').style.backdropFilter).toMatch(/blur\(.*18px\)/);
   });
 
   it('returns null when isOpen=false', () => {

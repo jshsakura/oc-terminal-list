@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 
 READ_CHUNK_FLUSH_BYTES = 65536
 MAX_BACKPRESSURE_BYTES = 4 * 1024 * 1024
+# 청크 개수 하드 캡 — PTY가 잘게 (1~수십 byte) 자주 emit 하는 비정상 케이스에서
+# bytes 기준 cap 도달 전에 deque 자체가 수만 entry 로 부풀어오르는 걸 막는 방어선.
+MAX_PENDING_ITEMS = 8192
 
 
 class TmuxClientBridge:
@@ -108,8 +111,8 @@ class TmuxClientBridge:
                 return
             pending.append(data)
             pending_bytes += len(data)
-            # 백프레셔: 너무 쌓이면 가장 오래된 청크 폐기
-            while pending_bytes > MAX_BACKPRESSURE_BYTES and len(pending) > 1:
+            # 백프레셔: 너무 쌓이면 가장 오래된 청크 폐기 (byte 또는 item 기준)
+            while (pending_bytes > MAX_BACKPRESSURE_BYTES or len(pending) > MAX_PENDING_ITEMS) and len(pending) > 1:
                 pending_bytes -= len(pending.popleft())
             nonlocal flush_task
             if flush_task is None or flush_task.done():

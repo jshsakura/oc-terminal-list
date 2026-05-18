@@ -33,6 +33,7 @@ const HomeSessions = ({
   onConfirm,            // ({title, message, onConfirm, danger?}) => 표준 ConfirmModal 호출
   onNotify,             // (message) => 표준 NotificationModal 호출 (에러 알림)
   refreshSignal = 0,    // nonce — 변경 시 tmux 호스트 재조회
+  isVisible = true,     // 홈 탭이 실제 보일 때만 SSH 조회 — 백그라운드 마운트 상태에선 스킵.
   t,
 }) => {
   // host_id → { loading, error, sessions: [{name, created, attached}] }
@@ -71,17 +72,19 @@ const HomeSessions = ({
     [tmuxHosts],
   );
   useEffect(() => {
+    if (!isVisible) return;
     tmuxHosts.forEach(fetchHostSessions);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tmuxHostIds, fetchHostSessions]);
+  }, [tmuxHostIds, fetchHostSessions, isVisible]);
 
-  // 외부 nonce 변화(세션 닫기/열기 등) 시 즉시 재조회
+  // 외부 nonce 변화(세션 닫기/열기 등) 시 즉시 재조회 — 홈이 보일 때만.
   useEffect(() => {
+    if (!isVisible) return;
     if (refreshSignal > 0) {
       tmuxHosts.forEach(fetchHostSessions);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshSignal]);
+  }, [refreshSignal, isVisible]);
 
   // 현재 탭이 점유 중인 *워크스페이스 prefix* set (host_id → Set<prefix>).
   // 한 호스트 탭 = 한 suffix = 한 워크스페이스. pane 0 = `${base}-${suffix}`, pane>0 = `${base}-${suffix}_N`.
@@ -371,6 +374,7 @@ const EmptyResumableCard = ({ t }) => (
       cursor: 'default',
       background: color.surface0,
       borderStyle: 'dashed',
+      borderWidth: '2px',
       borderColor: color.border,
       justifyContent: 'center',
       color: color.muted,

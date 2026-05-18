@@ -13,7 +13,7 @@ const { color, font, fontSize, fontWeight, radius, space, motion, shadow } = tok
  * 호스트와 달리 연결 정보가 없으니 4가지 (이름/아이콘/색/시작경로) 만 다룬다.
  * 저장은 useSettings 의 localName/localIcon/localColorIndex/localStartPath 로 흘러간다.
  */
-const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t }) => {
+const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t, zIndex = null }) => {
   const [draft, setDraft] = useState({
     localName: '',
     localIcon: '',
@@ -51,8 +51,9 @@ const LocalEditor = ({ isOpen, settings, onSave, onClose, onPickFolder, t }) => 
     onClose?.();
   };
 
+  const overlayStyle = zIndex != null ? { ...styles.overlay, zIndex } : styles.overlay;
   return (
-    <div style={styles.overlay} onClick={onClose}>
+    <div style={overlayStyle} onClick={onClose}>
       <form onSubmit={submit} style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <header style={styles.header}>
           <div style={styles.title}>

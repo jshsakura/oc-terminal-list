@@ -1,9 +1,13 @@
 import { useState, memo, useRef, useEffect } from 'react';
-import { Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen } from 'lucide-react';
+import {
+  Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
+  Link2, History, BarChart3,
+} from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import useHostReorder from '../hooks/useHostReorder';
+import DashboardCards from './DashboardCards';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -19,6 +23,7 @@ const MAX_COLUMNS = 3;
 const HomeDashboard = ({
   hosts = [],
   localCard,
+  settings = {},
   onOpenHost,
   onOpenHostAtPath,
   onAddHost,
@@ -40,6 +45,12 @@ const HomeDashboard = ({
   embedded = false,
   refreshHosts = null,
   refreshSignal = 0,
+  // 홈이 실제 사용자에게 보이는지 — false 면 HomeSessions 의 SSH tmux 조회를 스킵.
+  isVisible = true,
+  // 사용 통계 카드 — 빈 패널/홈 양쪽 동일하게 보여주기 위해 옵션. 기본 켜둠.
+  showUsageStats = true,
+  // EmptyPane 모드에서 다른 탭 흡수 섹션을 위에 끼우고 싶을 때 — 노드 그대로 받아 렌더.
+  extraTopSlot = null,
   t,
 }) => {
   const [hoverId, setHoverId] = useState(null);
@@ -75,90 +86,115 @@ const HomeDashboard = ({
       }}
     >
       <div style={styles.inner}>
-        {(tabs.length > 0 || hosts.some((h) => h.use_remote_tmux)) && (
-          <HomeSessions
-            tabs={tabs}
-            hosts={hosts}
-            busyTabIds={busyTabIds}
-            onJumpTab={onJumpTab}
-            onResumeHostSession={onResumeHostSession}
-            onTerminateHostSession={onTerminateHostSession}
-             onConfirm={onConfirm}
-             onNotify={onNotify}
-             refreshSignal={refreshSignal}
-             t={t}
-          />
-        )}
-
-        <div style={styles.topBar}>
-          <span style={styles.title}>
-            {t?.('connections') || 'Connections'}
-          </span>
-        </div>
-
-        <div style={{
-          display: 'grid',
-          gap: `${CARD_GAP}px`,
-          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-        }}>
-          <HostRow
-            id="local"
-            draggable={false}
-            icon={<HostIcon value={localCard?.icon || ''} fallback={Monitor} size={20} />}
-            name={localCard?.name || (t?.('thisMachine') || 'This machine')}
-            subtitle={
-              <>
-                <span style={styles.subLine}>localhost</span>
-                <span style={{ ...styles.subLine, color: (localCard?.startPath || '').trim() ? color.subtext : color.faint }}>
-                  {(localCard?.startPath || '').trim() || (t?.('noStartPath') || 'No start path')}
-                </span>
-              </>
-            }
-            accentColor={localCard?.accent || color.accent}
-            isHovered={hoverId === 'local'}
-            onHover={setHoverId}
-            onClick={() => onOpenHost({ id: 'local', isLocal: true })}
-            onEdit={onEditLocal || null}
-            editTitle={t?.('editLocalMachine') || 'Edit this machine'}
-            onPickPath={onPickLocalPath || null}
-            pickPathTitle={t?.('openAtPath') || 'Open at path…'}
-          />
-
-          {orderedHosts.map((host) => {
-            const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
-            return (
+        {/* 1) Connections — 탭 열기가 핵심 흐름이므로 가장 위. */}
+        <Section icon={Link2} title={t?.('connections') || 'Connections'}>
+          <div style={{
+            display: 'grid',
+            gap: `${CARD_GAP}px`,
+            gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+          }}>
+            {/* 명시적으로 localCard={null} 일 때만 카드 숨김 — undefined 는 기존 동작(기본값으로 렌더). */}
+            {localCard !== null && (
               <HostRow
-                key={host.id}
-                id={host.id}
-                {...rowPropsFor(host)}
-                icon={<HostIcon value={host.icon || ''} fallback={Server} size={20} />}
-                name={host.name}
+                id="local"
+                draggable={false}
+                icon={<HostIcon value={localCard?.icon || ''} fallback={Monitor} size={20} />}
+                name={localCard?.name || (t?.('thisMachine') || 'This machine')}
                 subtitle={
                   <>
-                    <span style={styles.subLine}>{host.ssh_user}@{host.hostname}{host.port && host.port !== 22 ? `:${host.port}` : ''}</span>
-                    <span style={{ ...styles.subLine, color: host.start_path ? color.subtext : color.faint }}>
-                      {host.start_path || (t?.('noStartPath') || 'No start path')}
+                    <span style={styles.subLine}>localhost</span>
+                    <span style={{ ...styles.subLine, color: (localCard?.startPath || '').trim() ? color.subtext : color.faint }}>
+                      {(localCard?.startPath || '').trim() || (t?.('noStartPath') || 'No start path')}
                     </span>
                   </>
                 }
-                accentColor={accent}
-                isHovered={hoverId === host.id}
+                accentColor={localCard?.accent || color.accent}
+                isHovered={hoverId === 'local'}
                 onHover={setHoverId}
-                onClick={() => onOpenHost(host)}
-                onEdit={() => onEditHost?.(host)}
-                editTitle={t?.('hostSettings') || 'Host settings'}
-                onPickPath={onOpenHostAtPath ? () => onOpenHostAtPath(host) : null}
+                onClick={() => onOpenHost({ id: 'local', isLocal: true })}
+                onEdit={onEditLocal || null}
+                editTitle={t?.('editLocalMachine') || 'Edit this machine'}
+                onPickPath={onPickLocalPath || null}
                 pickPathTitle={t?.('openAtPath') || 'Open at path…'}
               />
-            );
-          })}
+            )}
 
-          <EmptyRow onClick={onAddHost} t={t} />
-        </div>
+            {orderedHosts.map((host) => {
+              const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
+              return (
+                <HostRow
+                  key={host.id}
+                  id={host.id}
+                  {...rowPropsFor(host)}
+                  icon={<HostIcon value={host.icon || ''} fallback={Server} size={20} />}
+                  name={host.name}
+                  subtitle={
+                    <>
+                      <span style={styles.subLine}>{host.ssh_user}@{host.hostname}{host.port && host.port !== 22 ? `:${host.port}` : ''}</span>
+                      <span style={{ ...styles.subLine, color: host.start_path ? color.subtext : color.faint }}>
+                        {host.start_path || (t?.('noStartPath') || 'No start path')}
+                      </span>
+                    </>
+                  }
+                  accentColor={accent}
+                  isHovered={hoverId === host.id}
+                  onHover={setHoverId}
+                  onClick={() => onOpenHost(host)}
+                  onEdit={() => onEditHost?.(host)}
+                  editTitle={t?.('hostSettings') || 'Host settings'}
+                  onPickPath={onOpenHostAtPath ? () => onOpenHostAtPath(host) : null}
+                  pickPathTitle={t?.('openAtPath') || 'Open at path…'}
+                />
+              );
+            })}
+
+            <EmptyRow onClick={onAddHost} t={t} />
+          </div>
+        </Section>
+
+        {/* 2) (EmptyPane 모드 전용) 다른 탭 흡수. 부모가 노드 통째로 넘김. */}
+        {extraTopSlot}
+
+        {/* 3) 이어할 수 있는 영속 세션 — 빈 패널/홈 동일 위계. */}
+        {(tabs.length > 0 || hosts.some((h) => h.use_remote_tmux)) && (
+          <Section icon={History} title={t?.('resumableSessions') || 'Resumable'}>
+            <HomeSessions
+              tabs={tabs}
+              hosts={hosts}
+              busyTabIds={busyTabIds}
+              hideHeader
+              onJumpTab={onJumpTab}
+              onResumeHostSession={onResumeHostSession}
+              onTerminateHostSession={onTerminateHostSession}
+              onConfirm={onConfirm}
+              onNotify={onNotify}
+              refreshSignal={refreshSignal}
+              isVisible={isVisible}
+              t={t}
+            />
+          </Section>
+        )}
+
+        {/* 4) 사용 통계 — 양쪽 동일하게. */}
+        {showUsageStats && (
+          <Section icon={BarChart3} title={t?.('usageStats') || 'Usage · last 7 days'}>
+            <DashboardCards hosts={hosts} settings={settings} days={7} t={t} />
+          </Section>
+        )}
       </div>
     </div>
   );
 };
+
+const Section = ({ icon: Icon, title, children }) => (
+  <div style={styles.section}>
+    <div style={styles.sectionHead}>
+      {Icon && <Icon size={12} strokeWidth={2.2} style={{ color: color.subtext, flexShrink: 0 }} />}
+      <span style={styles.title}>{title}</span>
+    </div>
+    <div>{children}</div>
+  </div>
+);
 
 export const HostRow = memo(({
   id, icon, name, subtitle, accentColor,
@@ -273,13 +309,21 @@ const EmptyRow = ({ onClick, t }) => {
       style={{
         ...styles.row,
         background: hovered ? color.surface1 : color.surface0,
+        // button 기본 정렬 reset — HostRow(<div>) 와 시각 동일하게 좌측 정렬.
+        textAlign: 'left',
+        font: 'inherit',
+        appearance: 'none',
       }}
     >
       <div style={{ ...styles.iconBox, borderColor: hovered ? color.accentBorder : color.border }}>
         <Plus size={16} strokeWidth={1.8} style={{ color: color.accent }} />
       </div>
+      {/* HostRow 의 name + subtitle(2줄) 과 라인 수를 맞춰 row 높이 정렬. */}
       <div style={styles.text}>
         <span style={{ ...styles.name, color: color.subtext }}>{t?.('addHost') || 'Add host'}</span>
+        <span style={styles.sub}>
+          <span style={{ ...styles.subLine, color: color.faint }}>{t?.('addHostHint') || 'New SSH connection'}</span>
+        </span>
       </div>
     </button>
   );
@@ -302,6 +346,16 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: space['3'],
+  },
+  section: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
+  },
+  sectionHead: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
   },
   topBar: {
     display: 'flex',

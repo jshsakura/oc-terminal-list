@@ -10,3 +10,5 @@ pyotp==2.9.0
 python-dotenv==1.0.0
 asyncssh==2.18.0
 cryptography>=41.0.0
+# 옵셔널 — REDIS_URL 환경변수 설정 시 사용. 미설정이면 in-memory 폴백 자동.
+redis>=5.0.0

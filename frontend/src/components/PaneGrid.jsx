@@ -1,21 +1,20 @@
 import { Suspense, lazy, useState, useEffect, useRef, useMemo, useCallback, forwardRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  X, Plus, Server, Monitor, Plug, History, Settings as SettingsIcon,
+  X, Plus, Server, Monitor, Settings as SettingsIcon,
   Edit3, Trash2, ChevronLeft, ChevronRight, GripVertical,
   SquareSplitHorizontal, SquareSplitVertical,
   ArrowRightLeft, Terminal as TerminalIcon, Copy, LayoutPanelLeft,
+  BarChart3,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
 import { glassDividerStyle, glassMenuStyle } from '../styles/glass';
 import TerminalHeader from './TerminalHeader';
-import { HostRow } from './HomeDashboard';
-import HomeSessions from './HomeSessions';
+import HomeDashboard, { HostRow } from './HomeDashboard';
 import HostIcon from '../utils/hostIcons';
 import useActiveTerminalCwd from '../hooks/useActiveTerminalCwd';
-import useHostReorder from '../hooks/useHostReorder';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
 
 const Terminal = lazy(() => import('./Terminal'));
@@ -584,8 +583,9 @@ const Pane = ({
     return 'center';
   };
 
-  // Pane-to-pane drag: always splits (no center/swap zone).
-  // Top/bottom edge (20%) = horizontal split; remaining area = left/right split by cursor half.
+  // Pane-to-pane drag: top/bottom edge (20%) → horizontal split,
+  //                    left/right edge (30%) → vertical split,
+  //                    middle box → 'center' = swap with target (handled by onReorderPane).
   const getPaneDragZone = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const x = e.clientX - rect.left;
@@ -594,15 +594,23 @@ const Pane = ({
     const h = rect.height;
     if (y < h * 0.2) return 'top';
     if (y > h * 0.8) return 'bottom';
-    return x < w * 0.5 ? 'left' : 'right';
+    if (x < w * 0.3) return 'left';
+    if (x > w * 0.7) return 'right';
+    return 'center';
   };
 
-  // 단독 pane 을 자기 자신에게 드래그할 때는 "절반" 선택으로 해석한다.
-  // 아래 절반 = 현재 pane 이 위로 줄고 하단에 빈 pane 생성.
+  // 자기 자신 split — cursor 가 가리킨 절반에 기존 pane 이 "남고" 반대편이 새 빈 pane 이 된다.
+  // zone 은 다운스트림에서 "새 pane 이 들어갈 위치" 로 해석되므로 cursor 의 반대편 zone 을 반환한다.
+  // (center=swap 의미는 자기 자신엔 없으므로 4방향만.)
   const getSelfPaneDragZone = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    return y >= rect.height * 0.5 ? 'bottom' : 'top';
+    const w = rect.width;
+    const h = rect.height;
+    if (y < h * 0.2) return 'bottom';
+    if (y > h * 0.8) return 'top';
+    return x < w * 0.5 ? 'right' : 'left';
   };
 
   const handleTabDragOver = useCallback((e) => {
@@ -644,20 +652,14 @@ const Pane = ({
     const hasCustomMime = e.dataTransfer.types.includes('application/x-iterminallist-pane');
     const hasTextPlain = e.dataTransfer.types.includes('text/plain');
     if (!hasCustomMime && !hasTextPlain) return;
-    // Check for self-drag: parse payload to see if this is the source pane
-    const raw = (hasCustomMime
-      ? e.dataTransfer.getData('application/x-iterminallist-pane')
-      : e.dataTransfer.getData('text/plain')) || '';
-    let dragPayload = null;
-    try {
-      dragPayload = JSON.parse(raw);
-      if (dragPayload?.paneId === pane.id && paneCount > 1) { e.dataTransfer.dropEffect = 'none'; return; }
-    } catch { /* not JSON, continue */ }
+    // Self-drag 판정은 window.__draggingPaneId 글로벌을 신뢰. dataTransfer.getData() 는 dragover
+    // 단계에서 브라우저 보안 정책상 빈 문자열을 자주 반환하므로 payload 파싱은 신뢰할 수 없다.
+    const isSelfDrag = !!window.__draggingPaneId && window.__draggingPaneId === pane.id;
+    if (isSelfDrag && paneCount > 1) { e.dataTransfer.dropEffect = 'none'; return; }
     e.preventDefault();
     try { e.dataTransfer.dropEffect = 'move'; } catch {}
-    const zone = dragPayload?.paneId === pane.id && paneCount === 1
-      ? getSelfPaneDragZone(e)
-      : getPaneDragZone(e);
+    // 자기 자신 위에선 center=swap 의미가 없으므로 항상 4방향 split zone 만 인정.
+    const zone = isSelfDrag ? getSelfPaneDragZone(e) : getPaneDragZone(e);
     paneDragZoneRef.current = zone;
     setPaneDragZone(zone);
     setIsDragTargeted(true);
@@ -684,7 +686,8 @@ const Pane = ({
     e.stopPropagation();
 
     if (payload.paneId === pane.id) {
-      if (paneCount === 1 && zone && onSplitPane) {
+      // 자기 자신에 drop — 어떤 paneCount 든 가리킨 절반에 빈 새 pane 생성.
+      if (zone && zone !== 'center' && onSplitPane) {
         const effectiveDir = zone === 'top' ? 'up' : zone === 'bottom' ? 'down' : zone;
         onSplitPane(effectiveDir);
         onEqualizePane?.();
@@ -692,11 +695,17 @@ const Pane = ({
       return;
     }
 
+    // 다른 pane 위 center 영역 = swap. App.jsx 의 reorderPane 이 splitTree leaf 까지 swap.
+    if (zone === 'center' && onReorderPane) {
+      onReorderPane(currentTabId, payload.paneId, pane.id);
+      return;
+    }
+
     if (zone && onPaneDragToSplit) {
       onPaneDragToSplit(currentTabId, payload.paneId, pane.id, zone);
       onEqualizePane?.();
     }
-  }, [pane.id, paneCount, tab?.id, onPaneDragToSplit, onSplitPane, onEqualizePane, parsePanePayload]);
+  }, [pane.id, paneCount, tab?.id, onPaneDragToSplit, onReorderPane, onSplitPane, onEqualizePane, parsePanePayload]);
 
   // 팬 컨테이너에 팬별 CSS 변수 스코프 적용 — TerminalHeader 등 팬 내부 UI 가 이 변수를 씀.
   // :root 는 건드리지 않으므로 좌측 레일·상단 헤더는 글로벌 테마 유지.
@@ -977,6 +986,7 @@ const Pane = ({
       }}>
           {isEmpty ? (
             <EmptyPane
+              isVisible={isActive}
               onActivate={onActivate}
               hosts={hosts}
               tab={tab}
@@ -1020,6 +1030,7 @@ const Pane = ({
                 onTakeOver={() => setRefreshNonce((n) => n + 1)}
                 onReadyChange={setTerminalReady}
                 onStatusChange={setTerminalStatus}
+                onClosePane={onCloseImmediate || onClose}
               />
             </Suspense>
           )}
@@ -1034,16 +1045,16 @@ const Pane = ({
             zIndex: 30,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: 'rgba(0,0,0,0.35)',
-            backdropFilter: 'blur(4px)',
-            WebkitBackdropFilter: 'blur(4px)',
+            backdropFilter: 'blur(var(--glass-blur-overlay, 4px))',
+            WebkitBackdropFilter: 'blur(var(--glass-blur-overlay, 4px))',
           }}
         >
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
               background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 80%, transparent)`,
-              backdropFilter: 'blur(20px)',
-              WebkitBackdropFilter: 'blur(20px)',
+              backdropFilter: 'blur(var(--glass-blur-panel, 20px))',
+              WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 20px))',
               border: `1px solid var(--ui-borderStrong, ${color.borderStrong})`,
               borderRadius: '12px',
               boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)',
@@ -1274,7 +1285,26 @@ const SubTabBar = ({
     : color.accent;
   const activeTheme = themes[activeThemeId || settings?.theme] || themes.catppuccin;
   const subUi = buildThemeUI(activeTheme);
-  const subTabBarBg = `color-mix(in srgb, ${subUi.mantle || subUi.base} 88%, ${subUi.accent || tabBarAccent} 12%)`;
+
+  // 메인 TabBar 와 동일 패턴 — 활성 서브탭이 시야 밖이면 자동 스크롤. 모바일에서 pane 많을 때 핵심.
+  useEffect(() => {
+    if (!activePaneId) return undefined;
+    const container = scrollRef.current;
+    if (!container) return undefined;
+    const raf = requestAnimationFrame(() => {
+      const el = container.querySelector(`[data-pane-id="${CSS.escape(activePaneId)}"]`);
+      if (!el) return;
+      const cRect = container.getBoundingClientRect();
+      const eRect = el.getBoundingClientRect();
+      const margin = 8;
+      if (eRect.left < cRect.left + margin) {
+        container.scrollBy({ left: eRect.left - cRect.left - margin, behavior: 'smooth' });
+      } else if (eRect.right > cRect.right - margin) {
+        container.scrollBy({ left: eRect.right - cRect.right + margin, behavior: 'smooth' });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activePaneId, panes.length]);
 
   useEffect(() => {
     if (!ctxMenu) return;
@@ -1297,6 +1327,8 @@ const SubTabBar = ({
       <style>{`
         .iterm-subtabbar-scroll { scrollbar-width: none; -ms-overflow-style: none; }
         .iterm-subtabbar-scroll::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+        @keyframes iterm-subtab-busy-blink { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+        .iterm-subtab-busy-dot { animation: iterm-subtab-busy-blink 1.1s ease-in-out infinite; }
       `}</style>
       {labelTip && createPortal(
         <div style={{
@@ -1327,16 +1359,18 @@ const SubTabBar = ({
           display: 'flex',
           alignItems: 'stretch',
           height: '34px',
-          background: subTabBarBg,
+          background: `linear-gradient(180deg, ${subUi.mantle}, ${subUi.crust})`,
           borderBottom: `1px solid ${subUi.border}`,
           overflowX: 'auto',
           overflowY: 'hidden',
           flexShrink: 0,
-          padding: '0 4px',
-          gap: '2px',
+          padding: '0 4px 0 6px',
+          gap: '0',
+          fontFamily: font.sans,
         }}
       >
         {panes.map((pane, idx) => {
+          const isFirst = idx === 0;
           const isActive = pane.id === activePaneId;
           const isEmpty = !pane.sessionId && !pane.hostId;
           const isLocal = !!pane.sessionId && !pane.hostId;
@@ -1349,6 +1383,7 @@ const SubTabBar = ({
           const FallbackIcon = host ? Server : (isLocal ? Monitor : Plus);
           const paneTheme = themes[pane.themeOverride || settings?.theme] || activeTheme;
           const paneUi = buildThemeUI(paneTheme);
+          const paneBorderStrong = paneUi['border-strong'] || paneUi.border;
           const hostAccent = host?.color_index != null
             ? color.dotPalette[(host.color_index ?? 0) % color.dotPalette.length]
             : null;
@@ -1356,7 +1391,7 @@ const SubTabBar = ({
             ? color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length]
             : null;
           const paneAccent = hostAccent || localAccent || paneUi.accent || tabBarAccent;
-          const activeBg = `color-mix(in srgb, ${paneUi.surface0 || paneUi.base} 84%, ${paneAccent} 16%)`;
+          const tabBg = isActive ? paneUi.base : subUi.mantle;
           const isDragging = touchReorder.draggingId === pane.id;
           const isDragOver = touchReorder.dragOverId === pane.id && touchReorder.draggingId && touchReorder.draggingId !== pane.id;
           const touchProps = onReorder ? touchReorder.getItemProps(pane.id) : null;
@@ -1364,6 +1399,7 @@ const SubTabBar = ({
             <div
               key={pane.id}
               title={label}
+              data-pane-id={pane.id}
               {...(touchProps || {})}
               onClick={(e) => {
                 if (isActive) showLabelTip(label, e.currentTarget);
@@ -1372,60 +1408,93 @@ const SubTabBar = ({
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                gap: '5px',
-                padding: '0 10px',
-                height: '100%',
-                background: isActive ? activeBg : 'transparent',
-                border: 'none',
-                borderRadius: 0,
-                // Active: bottom accent line via box-shadow (non-layout, no box-model disruption)
-                boxShadow: isDragOver
-                  ? `inset 0 2px 0 ${color.accent}`
-                  : isActive
-                    ? `inset 0 2px 0 ${paneAccent}`
-                    : 'none',
+                gap: '7px',
+                padding: '0 8px 0 10px',
+                height: 'calc(100% + 1px)',
+                minWidth: '140px',
+                maxWidth: '200px',
+                background: isDragOver ? `color-mix(in srgb, ${color.accent} 14%, ${tabBg})` : tabBg,
                 color: isActive ? paneUi.text : paneUi.muted,
-                fontSize: fontSize['11'],
-                fontWeight: isActive ? fontWeight.medium : fontWeight.normal,
+                fontWeight: isActive ? fontWeight.semibold : fontWeight.medium,
+                fontSize: fontSize['12'],
+                border: `1px solid ${isActive ? paneBorderStrong : subUi.border}`,
+                borderBottom: `1px solid ${tabBg}`,
+                boxShadow: isDragOver ? `inset 0 0 0 2px ${color.accent}` : 'none',
+                borderRadius: 0,
+                boxSizing: 'border-box',
+                marginLeft: isFirst ? 0 : '-1px',
+                flex: '0 0 150px',
                 cursor: 'pointer',
-                flexShrink: 0,
-                minWidth: 'max-content',
-                maxWidth: 'none',
-                fontFamily: font.sans,
-                opacity: isDragging ? 0.35 : (isActive ? 1 : 0.65),
-                transition: 'background 120ms, opacity 120ms, box-shadow 120ms, color 120ms',
+                opacity: isDragging ? 0.4 : 1,
                 userSelect: 'none',
+                position: 'relative',
+                zIndex: isDragOver ? 2 : (isActive ? 1 : 0),
+                transition: 'background 150ms, color 150ms, box-shadow 120ms',
               }}
             >
-              <span style={{
-                position: 'relative',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '14px',
-                height: '14px',
-                flexShrink: 0,
-                color: isActive ? paneAccent : paneUi.muted,
-              }}>
-                <HostIcon value={iconValue} fallback={FallbackIcon} size={12} strokeWidth={1.8} />
+              {idx < 9 && (
+                <span
+                  aria-hidden
+                  style={{
+                    fontFamily: font.mono,
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: isActive ? paneUi.subtext : paneUi.muted,
+                    opacity: isActive ? 0.95 : 0.75,
+                    flexShrink: 0,
+                    lineHeight: 1,
+                    letterSpacing: 0,
+                    width: '10px',
+                    textAlign: 'center',
+                  }}
+                >
+                  {idx + 1}
+                </span>
+              )}
+              {/* 서브탭은 메인탭보다 한 단계 아래 위계 — 아이콘 박스(테두리/배경) 제거.
+                  순수 아이콘 + 색만 입혀 가볍게, 메인탭과 시각적 차별. */}
+              <span
+                style={{
+                  position: 'relative',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: '14px',
+                  height: '14px',
+                  flexShrink: 0,
+                  color: isActive ? paneAccent : `${paneAccent}cc`,
+                  opacity: isActive ? 1 : 0.75,
+                }}
+              >
+                <HostIcon value={iconValue} fallback={FallbackIcon} size={13} strokeWidth={1.9} />
                 {isBusy && (
                   <span
+                    className="iterm-subtab-busy-dot"
                     aria-hidden
                     style={{
                       position: 'absolute',
-                      top: '-2px',
-                      right: '-2px',
-                      width: '5px',
-                      height: '5px',
+                      top: '-4px',
+                      right: '-4px',
+                      width: '6px',
+                      height: '6px',
                       borderRadius: '50%',
                       background: paneAccent,
-                      boxShadow: `0 0 0 1px ${paneUi.base}`,
+                      boxShadow: `0 0 0 1.5px ${subUi.crust}`,
                       pointerEvents: 'none',
                     }}
                   />
                 )}
               </span>
-              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '120px' }}>
+              <span
+                style={{
+                  flex: 1,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  minWidth: 0,
+                  letterSpacing: '0.005em',
+                }}
+              >
                 {label}
               </span>
             </div>
@@ -1436,17 +1505,15 @@ const SubTabBar = ({
   );
 };
 
-// 빈 pane = 메인 홈 대시보드 그대로 재사용. 호스트 카드 클릭 시 onActivate 호출.
-// onPickHostPath(host) → 폴더 픽커 띄워 cwd 선택 후 활성화 (홈과 동일).
-// onEditHost(host) → 호스트 설정 모달 열기 (홈과 동일).
+// 빈 pane = HomeDashboard 그대로 재사용. 차이는 두 가지뿐:
+//  - extraTopSlot 으로 'Open tabs' (다른 탭 흡수) 섹션을 끼움 — 빈 패널 전용.
+//  - 콜백을 onActivate({type, ...}) 시그니처로 변환.
 const EmptyPane = ({
   onActivate, hosts = [], tab, allTabs = [], settings = {}, t,
-  onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds,
+  onConfirm, onNotify, onTerminateHostSession, busyTabIds,
   onPickHostPath = null, onPickLocalPath = null, onEditHost = null, onEditLocal = null, refreshHosts = null,
+  isVisible = true,
 }) => {
-  const [hoverId, setHoverId] = useState(null);
-  // 서버 sort_index = SSoT. HomeDashboard / HostManager 와 동일한 hook → 한 곳에서 옮기면 다 동기.
-  const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
   // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러.
   // index 는 상단 탭바와 동일한 1-base 순번 (Ctrl+N 단축키와 짝).
   const otherTabs = (allTabs || [])
@@ -1455,113 +1522,64 @@ const EmptyPane = ({
       tt && tt.id && tt.id !== tab?.id && (tt.panes || []).some((p) => p.sessionId || p.hostId),
     );
   /* 로컬 카드 메타 — 홈 대시보드 동일 출처(settings.localXxx). */
-  const localAccent = color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length];
-  const localName = (settings.localName || '').trim() || (t?.('thisMachine') || 'This machine');
-  const localSubtitle = settings.localStartPath
-    ? `localhost · /${settings.localStartPath}`
-    : 'localhost';
+  const localCard = {
+    name: (settings.localName || '').trim() || (t?.('thisMachine') || 'This machine'),
+    icon: settings.localIcon || '',
+    accent: color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length],
+    startPath: settings.localStartPath || '',
+  };
+
+  // 다른 탭 흡수 섹션 — HomeDashboard 의 extraTopSlot 으로 넘김.
+  const openTabsSlot = otherTabs.length > 0 ? (
+    <Section icon={ArrowRightLeft} title={t?.('mirrorOpenTab') || 'Open tabs'}>
+      <OpenTabPicker
+        tabs={otherTabs}
+        hosts={hosts}
+        t={t}
+        onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
+        emptySlotCount={(tab?.panes || []).filter((p) => !p.sessionId && !p.hostId).length}
+        embedded
+      />
+    </Section>
+  ) : null;
 
   return (
-    <div onClick={(e) => e.stopPropagation()} style={emptyStyles.root}>
-      {/* 1) 기본 연결 — 로컬 + 저장된 호스트. 가장 자주 쓰는 액션. */}
-      <Section icon={Plug} title={t?.('connections') || 'Connections'}>
-        <div style={emptyStyles.grid}>
-            <HostRow
-              id="local"
-              draggable={false}
-              icon={<HostIcon value={settings.localIcon || ''} fallback={Monitor} size={20} />}
-              name={localName}
-              subtitle={
-                <>
-                  <span style={SUB_LINE} title="localhost">localhost</span>
-                  <span
-                    style={{ ...SUB_LINE, color: color.faint }}
-                    title={(settings.localStartPath || '').trim() || (t?.('noStartPath') || 'No start path')}
-                  >
-                    {(settings.localStartPath || '').trim() || (t?.('noStartPath') || 'No start path')}
-                  </span>
-                </>
-              }
-              accentColor={localAccent}
-              isHovered={hoverId === 'local'}
-              onHover={setHoverId}
-              onClick={() => onActivate?.({ type: 'local' })}
-              onPickPath={onPickLocalPath || null}
-              pickPathTitle={t?.('pickStartPath') || 'Pick start path'}
-              onEdit={onEditLocal || null}
-              editTitle={t?.('localSettings') || 'Local settings'}
-            />
-          {orderedHosts.map((h) => {
-            const accent = color.dotPalette[(h.color_index ?? 0) % color.dotPalette.length];
-            return (
-              <HostRow
-                key={h.id}
-                id={h.id}
-                {...rowPropsFor(h)}
-                icon={<HostIcon value={h.icon || ''} fallback={Server} size={20} />}
-                name={h.name}
-                subtitle={
-                  <>
-                    <span style={SUB_LINE} title={`${h.ssh_user || ''}@${h.hostname || ''}`}>{h.ssh_user || ''}@{h.hostname || ''}</span>
-                    {/* 경로 라인은 참고용 — 항상 faint 로 호스트 이름과 시각 위계 차이 둠. */}
-                    <span
-                      style={{ ...SUB_LINE, color: color.faint }}
-                      title={h.start_path || (t?.('noStartPath') || 'No start path')}
-                    >
-                      {h.start_path || (t?.('noStartPath') || 'No start path')}
-                    </span>
-                  </>
-                }
-                accentColor={accent}
-                isHovered={hoverId === h.id}
-                onHover={setHoverId}
-                onClick={() => onActivate?.({ type: 'host', hostId: h.id })}
-                onPickPath={onPickHostPath ? () => onPickHostPath(h) : null}
-                pickPathTitle={t?.('pickStartPath') || 'Pick start path'}
-                onEdit={onEditHost ? () => onEditHost(h) : null}
-                editTitle={t?.('hostSettings') || 'Host settings'}
-              />
-            );
-          })}
-        </div>
-      </Section>
-
-      {/* 2) 열린 탭 흡수 — 다른 탭을 이 빈 슬롯으로 끌어옴. */}
-      {otherTabs.length > 0 && (
-        <Section icon={ArrowRightLeft} title={t?.('mirrorOpenTab') || 'Open tabs'}>
-          <OpenTabPicker
-            tabs={otherTabs}
-            hosts={hosts}
-            t={t}
-            onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
-            emptySlotCount={(tab?.panes || []).filter((p) => !p.sessionId && !p.hostId).length}
-            embedded
-          />
-        </Section>
-      )}
-
-      {/* 3) 이어할 수 있는 세션 — 원격 호스트의 살아있는 tmux 세션 (현재 탭 컴패니언 제외). */}
-      {hosts.some((h) => h.use_remote_tmux) && (
-        <Section icon={History} title={t?.('resumableSessions') || 'Resumable'}>
-          <HomeSessions
-            tabs={allTabs}
-            hosts={hosts}
-            busyTabIds={busyTabIds}
-            hideOpen
-            hideHeader
-            onJumpTab={() => {}}
-            onResumeHostSession={(host, sessionName) => {
-              // EmptyPane/서브탭 컨텍스트에서는 이어하기가 새 메인 탭을 열면 안 된다.
-              // 현재 빈 pane 을 해당 원격 tmux 세션으로 채워 모바일 서브탭 흐름을 유지한다.
-              onActivate?.({ type: 'host', hostId: host.id, tmuxSessionName: sessionName });
-            }}
-            onTerminateHostSession={onTerminateHostSession}
-            onConfirm={onConfirm}
-            onNotify={onNotify}
-            t={t}
-          />
-        </Section>
-      )}
+    <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
+      <HomeDashboard
+        isVisible={isVisible}
+        hosts={hosts}
+        settings={settings}
+        localCard={localCard}
+        // host/local 열기 — HomeDashboard 시그니처를 onActivate 로 변환.
+        onOpenHost={(target) => {
+          if (target?.isLocal || target?.id === 'local') {
+            onActivate?.({ type: 'local' });
+          } else if (target?.id) {
+            onActivate?.({ type: 'host', hostId: target.id });
+          }
+        }}
+        onOpenHostAtPath={onPickHostPath || null}
+        onEditLocal={onEditLocal || null}
+        onPickLocalPath={onPickLocalPath || null}
+        // 빈 패널에서는 호스트 추가/편집 진입은 부모 콜백 사용. 없으면 EmptyRow 가 빈 핸들러로 동작.
+        onAddHost={() => { /* 호스트 관리는 사이드바 HostManager 에서 — 여기서는 추가 진입 미제공 */ }}
+        onEditHost={onEditHost || null}
+        // 영속 세션 — 빈 슬롯에 attach (새 탭이 아니라 이 슬롯 채움).
+        tabs={allTabs}
+        busyTabIds={busyTabIds}
+        onJumpTab={() => { /* 빈 패널에서는 점프 대신 Open tabs 섹션을 통한 미러 사용 */ }}
+        onResumeHostSession={(host, sessionName) => {
+          onActivate?.({ type: 'host', hostId: host.id, tmuxSessionName: sessionName });
+        }}
+        onTerminateHostSession={onTerminateHostSession}
+        onConfirm={onConfirm}
+        onNotify={onNotify}
+        refreshHosts={refreshHosts}
+        embedded
+        showUsageStats
+        extraTopSlot={openTabsSlot}
+        t={t}
+      />
     </div>
   );
 };

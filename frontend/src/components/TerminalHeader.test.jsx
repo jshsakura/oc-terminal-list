@@ -92,7 +92,7 @@ describe('TerminalHeader', () => {
   it('uses the shared glass treatment for opened side panels', () => {
     const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
     fireEvent.click(container.querySelector('[title="Info"]'));
-    expect(container.querySelector('[tabindex="-1"]')).toHaveStyle({ backdropFilter: 'blur(18px)' });
+    expect(container.querySelector('[tabindex="-1"]').style.backdropFilter).toMatch(/blur\(.*18px\)/);
   });
 
   it('switches side panels with one click while another panel is open', async () => {

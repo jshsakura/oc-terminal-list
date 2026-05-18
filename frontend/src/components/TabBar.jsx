@@ -12,6 +12,7 @@ import { glassMenuItemHover, glassMenuStyle } from '../styles/glass';
 import HostIcon from '../utils/hostIcons';
 import RailIconBtn from './common/RailIconBtn';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
+import useEvent from '../hooks/useEvent';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
@@ -71,6 +72,73 @@ const TabBar = ({
 
   const isHome = activeTabId === null;
 
+  // 활성 탭이 스크롤 컨테이너 밖에 있으면 자동으로 보이게 — 새로고침 후 뒤쪽 탭이 활성인데
+  // 화면엔 앞쪽만 보이는 모바일 케이스를 처리. nearest 옵션이라 이미 보이는 경우 스크롤 안 함.
+  useEffect(() => {
+    if (!activeTabId) return undefined;
+    const container = tabListRef.current;
+    if (!container) return undefined;
+    // rAF 로 layout 확정 후 측정 — mount 직후 width 0 인 race 회피.
+    const raf = requestAnimationFrame(() => {
+      const el = container.querySelector(`[data-tab-id="${CSS.escape(activeTabId)}"]`);
+      if (!el) return;
+      const cRect = container.getBoundingClientRect();
+      const eRect = el.getBoundingClientRect();
+      const margin = 8;
+      if (eRect.left < cRect.left + margin) {
+        container.scrollBy({ left: eRect.left - cRect.left - margin, behavior: 'smooth' });
+      } else if (eRect.right > cRect.right - margin) {
+        container.scrollBy({ left: eRect.right - cRect.right + margin, behavior: 'smooth' });
+      }
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [activeTabId, tabs.length]);
+
+  // 모든 Tab 핸들러를 useEvent 로 안정화 — Tab 의 memo() 가 부모 state 변화마다 깨지던 문제 해결.
+  // 핸들러 안에서는 항상 최신 state/props 가 보이므로 deps 신경 안 써도 됨.
+  const handleSelectTab = useEvent((tabId) => {
+    if (pendingCloseTabId === tabId) return;
+    onSelect?.(tabId);
+  });
+  const handleCloseTab = useEvent((tabId) => { onClose?.(tabId); });
+  const handleRequestClose = useEvent((tabId) => { setPendingCloseTabId(tabId); });
+  const handleConfirmClose = useEvent((tabId) => { setPendingCloseTabId(null); onCloseImmediate?.(tabId); });
+  const handleCancelClose = useEvent(() => { setPendingCloseTabId(null); });
+  const handleContextMenuTab = useEvent((tabId, e) => {
+    e.preventDefault();
+    setContextMenu({ tabId, x: e.clientX, y: e.clientY });
+  });
+  const handleMore = useEvent((tabId, e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    setContextMenu({ tabId, x: rect.left, y: rect.bottom + 4 });
+  });
+  const handleDragStart = useEvent((tabId, e) => {
+    setDraggingTabId(tabId);
+    try {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', tabId);
+      e.dataTransfer.setData('application/x-iterminallist-tab', JSON.stringify({ type: 'tab', tabId }));
+    } catch {}
+  });
+  const handleDragEnd = useEvent(() => { setDraggingTabId(null); setDragOverTabId(null); });
+  const handleDragOver = useEvent((tabId, e) => {
+    if (!draggingTabId || draggingTabId === tabId) return;
+    e.preventDefault();
+    try { e.dataTransfer.dropEffect = 'move'; } catch {}
+    if (dragOverTabId !== tabId) setDragOverTabId(tabId);
+  });
+  const handleDragLeave = useEvent((tabId) => {
+    if (dragOverTabId === tabId) setDragOverTabId(null);
+  });
+  const handleDrop = useEvent((tabId, e) => {
+    e.preventDefault();
+    const fromId = (() => { try { return e.dataTransfer.getData('text/plain'); } catch { return null; } })()
+      || draggingTabId;
+    setDraggingTabId(null);
+    setDragOverTabId(null);
+    if (fromId && fromId !== tabId) onReorder?.(fromId, tabId);
+  });
+
   return (
     <div style={{ ...styles.bar, ...(isMobile ? styles.barMobile : null) }}>
       <style>{`
@@ -128,46 +196,22 @@ const TabBar = ({
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
             isDragging={activeDraggingId === tab.id}
             isDragOver={activeDragOverId === tab.id && activeDraggingId && activeDraggingId !== tab.id}
-            touchProps={null}
+            touchProps={isMobile && onReorder ? touchReorder.getItemProps(tab.id) : null}
             isMobile={isMobile}
             isPendingClose={pendingCloseTabId === tab.id}
-            onSelect={() => { if (pendingCloseTabId === tab.id) return; onSelect(tab.id); }}
-            onClose={() => onClose(tab.id)}
-            onRequestClose={() => setPendingCloseTabId(tab.id)}
-            onConfirmClose={() => { setPendingCloseTabId(null); onCloseImmediate?.(tab.id); }}
-            onCancelClose={() => setPendingCloseTabId(null)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setContextMenu({ tabId: tab.id, x: e.clientX, y: e.clientY });
-            }}
-            onMore={(e) => {
-              const rect = e.currentTarget.getBoundingClientRect();
-              setContextMenu({ tabId: tab.id, x: rect.left, y: rect.bottom + 4 });
-            }}
-            onDragStart={(e) => {
-              setDraggingTabId(tab.id);
-              try {
-                e.dataTransfer.effectAllowed = 'move';
-                e.dataTransfer.setData('text/plain', tab.id);
-                e.dataTransfer.setData('application/x-iterminallist-tab', JSON.stringify({ type: 'tab', tabId: tab.id }));
-              } catch {}
-            }}
-            onDragEnd={() => { setDraggingTabId(null); setDragOverTabId(null); }}
-            onDragOver={(e) => {
-              if (!draggingTabId || draggingTabId === tab.id) return;
-              e.preventDefault();
-              try { e.dataTransfer.dropEffect = 'move'; } catch {}
-              if (dragOverTabId !== tab.id) setDragOverTabId(tab.id);
-            }}
-            onDragLeave={() => { if (dragOverTabId === tab.id) setDragOverTabId(null); }}
-            onDrop={(e) => {
-              e.preventDefault();
-              const fromId = (() => { try { return e.dataTransfer.getData('text/plain'); } catch { return null; } })()
-                || draggingTabId;
-              setDraggingTabId(null);
-              setDragOverTabId(null);
-              if (fromId && fromId !== tab.id) onReorder?.(fromId, tab.id);
-            }}
+            /* 모두 useEvent 로 안정화된 dispatcher — Tab 의 memo() 가 유효해짐 */
+            onSelect={handleSelectTab}
+            onClose={handleCloseTab}
+            onRequestClose={handleRequestClose}
+            onConfirmClose={handleConfirmClose}
+            onCancelClose={handleCancelClose}
+            onContextMenu={handleContextMenuTab}
+            onMore={handleMore}
+            onDragStart={handleDragStart}
+            onDragEnd={handleDragEnd}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
             t={t}
           />
         ))}
@@ -251,36 +295,43 @@ const Tab = memo(({
       // 모바일은 HTML5 draggable 대신 useTouchDragReorder 의 터치 이벤트를 spread.
       // 모바일 컨텍스트 메뉴는 우측 More 버튼으로 접근 (long-press 는 이제 드래그 진입).
       draggable={!isMobile}
+      data-tab-id={tab.id}
       {...(touchProps || {})}
-      onDragStart={onDragStart}
+      onDragStart={(e) => onDragStart?.(tab.id, e)}
       onDragEnd={onDragEnd}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      onContextMenu={onContextMenu}
+      onDragOver={(e) => onDragOver?.(tab.id, e)}
+      onDragLeave={() => onDragLeave?.(tab.id)}
+      onDrop={(e) => onDrop?.(tab.id, e)}
+      onContextMenu={(e) => onContextMenu?.(tab.id, e)}
       style={{
         ...styles.tab,
         ...(isMobile ? styles.tabMobile : null),
-        background: isActive ? 'var(--ui-base)' : 'var(--ui-mantle)',
+        background: isDragOver
+          ? `color-mix(in srgb, ${color.accent} 14%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`
+          : (isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'),
         color: isActive ? color.text : color.muted,
         fontWeight: isActive ? fontWeight.semibold : fontWeight.medium,
-        border: `1px solid ${isDragOver ? color.accent : (isActive ? 'var(--ui-border-strong)' : 'var(--ui-border)')}`,
+        border: `1px solid ${isActive ? 'var(--ui-border-strong)' : 'var(--ui-border)'}`,
         // 하단 라인은 TabBar 자체 borderBottom 하나만 쓰게 한다.
         // inactive tab 의 개별 bottom border 가 보이면 바닥선 위에 떠 보인다.
-        borderBottom: isDragOver ? `1px solid ${color.accent}` : `1px solid ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'}`,
+        borderBottom: `1px solid ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'}`,
+        boxShadow: isDragOver ? `inset 0 0 0 2px ${color.accent}` : 'none',
         flex: isMobile ? styles.tabMobile.flex : styles.tab.flex,
         maxWidth: isMobile ? styles.tabMobile.maxWidth : styles.tab.maxWidth,
         marginLeft: isFirst ? 0 : styles.tab.marginLeft,
         opacity: isDragging ? 0.4 : 1,
         cursor: isMobile ? 'pointer' : 'grab',
+        position: 'relative',
+        zIndex: isDragOver ? 2 : (isActive ? 1 : 0),
+        transition: 'background 150ms, color 150ms, box-shadow 120ms',
       }}
-      onClick={onSelect}
+      onClick={() => onSelect?.(tab.id)}
       /* 휠 클릭(가운데 버튼)으로 탭 닫기 확인 트리거 */
       onMouseDown={(e) => {
         if (e.button === 1) {
           e.preventDefault();
           e.stopPropagation();
-          onRequestClose?.();
+          onRequestClose?.(tab.id);
         }
       }}
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); } }}
@@ -360,7 +411,7 @@ const Tab = memo(({
           </span>
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onConfirmClose?.(); }}
+            onClick={(e) => { e.stopPropagation(); onConfirmClose?.(tab.id); }}
             onTouchStart={(e) => e.stopPropagation()}
             style={{ ...styles.miniBtn, background: color.accent, color: color.crust, border: 'none', flexShrink: 0 }}
             title={t?.('confirm') || 'Confirm'}
@@ -385,7 +436,7 @@ const Tab = memo(({
       {isActive && !isPendingClose && (
         <button
           data-more="true"
-          onClick={(e) => { e.stopPropagation(); onMore(e); }}
+          onClick={(e) => { e.stopPropagation(); onMore?.(tab.id, e); }}
           onTouchStart={(e) => e.stopPropagation()}
           onTouchMove={(e) => e.stopPropagation()}
           onTouchEnd={(e) => e.stopPropagation()}

@@ -66,6 +66,7 @@ export const locales = {
     uptimeDayUnit: 'd',
     uptimeHourUnit: 'h',
     uptimeMinuteUnit: 'm',
+    uptimeSecondUnit: 's',
     infoShortcuts: 'Shortcuts',
     shortcutSelect: 'Select text (auto-copy)',
     shortcutSelectWord: 'Select word',
@@ -525,6 +526,9 @@ export const locales = {
     confirmCloseTab: 'Close this tab?',
     confirmCloseTabLossy: 'Close this tab? Work in non-tmux sessions will be lost.',
     confirmCloseTabTerminate: 'Close this tab? The remote tmux session(s) will be terminated.',
+    confirmCloseTabKeepable: 'Close this tab? The session keeps running — reopen it from Home.',
+    closeTabOnly: 'Close tab',
+    terminateSession: 'Terminate session',
     confirmCloseTerminalNoTmux: 'Close this terminal? Work will be lost (tmux disabled).',
     panesInTab: 'panes',
     confirmRemoveEmptyPane: 'Remove this empty pane?',
@@ -634,6 +638,24 @@ export const locales = {
     copy: 'Copy',
     noSelection: 'No text selected',
     copied: 'Copied',
+
+    // Tailscale picker
+    tailscaleNoDns: 'No MagicDNS for this peer',
+    tailscaleNoIp: 'No Tailscale IP for this peer',
+
+    // Usage stats (EmptyPane footer)
+    usageStats: 'Usage · last 7 days',
+    last30Days: 'Last 30 days',
+    addHostHint: 'New SSH connection',
+    atAGlance: 'overview',
+    totalTime: 'Total time',
+    activeHosts: 'Active',
+    avgSession: 'Avg session',
+    byHost: 'by host',
+    distribution: 'distribution',
+    noUsageYet: 'No usage yet — connect to a host to start tracking.',
+    removedHost: 'Removed host',
+    local: 'Local',
   },
 
   ko: {
@@ -699,6 +721,7 @@ export const locales = {
     uptimeDayUnit: '일',
     uptimeHourUnit: '시간',
     uptimeMinuteUnit: '분',
+    uptimeSecondUnit: '초',
     infoShortcuts: '단축키',
     shortcutSelect: '텍스트 선택 (자동 복사)',
     shortcutSelectWord: '단어 선택',
@@ -1155,6 +1178,9 @@ export const locales = {
     confirmCloseTab: '이 탭을 닫을까요?',
     confirmCloseTabLossy: '이 탭을 닫을까요? tmux 안 쓰는 세션의 작업은 사라집니다.',
     confirmCloseTabTerminate: '이 탭을 닫을까요? 원격 tmux 세션도 함께 종료됩니다.',
+    confirmCloseTabKeepable: '이 탭을 닫을까요? 세션은 백그라운드에서 계속 살아있고, 홈에서 다시 열 수 있습니다.',
+    closeTabOnly: '탭만 닫기',
+    terminateSession: '세션 종료',
     confirmCloseTerminalNoTmux: '이 터미널을 닫을까요? tmux 가 꺼져있어 작업이 사라집니다.',
     panesInTab: '개 패널',
     confirmRemoveEmptyPane: '비어있는 이 패널을 제거할까요?',
@@ -1264,6 +1290,24 @@ export const locales = {
     copy: '복사',
     noSelection: '선택된 텍스트가 없습니다',
     copied: '복사됨',
+
+    // 테일스케일 피커
+    tailscaleNoDns: '이 피어에 MagicDNS 없음',
+    tailscaleNoIp: '이 피어에 테일넷 IP 없음',
+
+    // 사용 통계 (빈 탭 푸터)
+    usageStats: '사용 통계 · 최근 7일',
+    last30Days: '최근 30일',
+    addHostHint: '새 SSH 연결',
+    atAGlance: '한눈에 보기',
+    totalTime: '총 시간',
+    activeHosts: '활성',
+    avgSession: '평균 세션',
+    byHost: '호스트별',
+    distribution: '분포',
+    noUsageYet: '아직 사용 기록이 없습니다 — 호스트에 접속해 보세요.',
+    removedHost: '삭제된 호스트',
+    local: '로컬',
   },
 };
 

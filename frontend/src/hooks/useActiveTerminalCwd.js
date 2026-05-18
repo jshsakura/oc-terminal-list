@@ -26,6 +26,12 @@ const useActiveTerminalCwd = ({
   const [workspaceRelative, setWorkspaceRelative] = useState('');
   const [absolutePath, setAbsolutePath] = useState(null);
   const tickRef = useRef(null);
+  const retryRef = useRef(null);
+  const retryAttemptRef = useRef(0);
+
+  const clearRetry = useCallback(() => {
+    if (retryRef.current) { clearTimeout(retryRef.current); retryRef.current = null; }
+  }, []);
 
   const fetchLocal = useCallback(async (id) => {
     try {
@@ -54,31 +60,64 @@ const useActiveTerminalCwd = ({
     } catch { return null; }
   }, []);
 
+  // cwd 가 비어있으면(fetch 실패/세션 미준비) 백오프로 재시도. 성공하면 멈춤.
+  const scheduleRetry = useCallback((doFetch) => {
+    clearRetry();
+    const attempt = retryAttemptRef.current;
+    const delay = Math.min(2000 * Math.pow(2, attempt), 30000);
+    retryAttemptRef.current = attempt + 1;
+    retryRef.current = setTimeout(async () => {
+      const data = await doFetch();
+      if (!data || !data.cwd) scheduleRetry(doFetch);
+      else retryAttemptRef.current = 0;
+    }, delay);
+  }, [clearRetry]);
+
   const refresh = useCallback(() => {
     if (isLocal) {
       if (!sessionId) {
+        clearRetry();
+        retryAttemptRef.current = 0;
         setWorkspaceRelative('');
         setAbsolutePath(null);
         return Promise.resolve(null);
       }
-      return fetchLocal(sessionId);
+      const p = fetchLocal(sessionId);
+      p.then((data) => {
+        if (!data || !data.cwd) scheduleRetry(() => fetchLocal(sessionId));
+        else { clearRetry(); retryAttemptRef.current = 0; }
+      });
+      return p;
     }
     if (!hostId) {
+      clearRetry();
+      retryAttemptRef.current = 0;
       setAbsolutePath(null);
       return Promise.resolve(null);
     }
-    return fetchRemote(hostId, tmuxSession);
-  }, [isLocal, sessionId, hostId, tmuxSession, fetchLocal, fetchRemote]);
+    const p = fetchRemote(hostId, tmuxSession);
+    p.then((data) => {
+      if (!data || !data.cwd) scheduleRetry(() => fetchRemote(hostId, tmuxSession));
+      else { clearRetry(); retryAttemptRef.current = 0; }
+    });
+    return p;
+  }, [isLocal, sessionId, hostId, tmuxSession, fetchLocal, fetchRemote, scheduleRetry, clearRetry]);
 
-  // 기본은 1회성 조회. intervalMs 를 명시한 경우에만 하위호환 폴링.
+  // 기본은 1회성 조회 + 실패 시 백오프. intervalMs 를 명시한 경우에만 하위호환 폴링.
   useEffect(() => {
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+    clearRetry();
+    retryAttemptRef.current = 0;
     refresh();
     if (intervalMs > 0) {
       tickRef.current = setInterval(refresh, intervalMs);
     }
-    return () => { if (tickRef.current) clearInterval(tickRef.current); tickRef.current = null; };
-  }, [refresh, intervalMs, refreshSignal]);
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+      clearRetry();
+    };
+  }, [refresh, intervalMs, refreshSignal, clearRetry]);
 
   return { workspaceRelative, absolutePath, refresh };
 };

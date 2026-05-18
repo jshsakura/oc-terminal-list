@@ -536,6 +536,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const renameCommitRef = useRef(false);
   const contextMenuOpenRef = useRef(false);
   const closeContextMenuRef = useRef(() => {});
+  // root('') fetch 실패 시 자동 백오프 재시도 — 호스트 일시 unreachable / 첫 마운트 타이밍 등에서
+  // 빈 트리로 박혀버리는 걸 막는다. 성공하면 attempt 리셋, rootPath 바뀌면 타이머 취소.
+  const retryTimerRef = useRef(null);
+  const retryAttemptRef = useRef(0);
+  const [retryNotice, setRetryNotice] = useState(null); // 다음 재시도까지 남은 초 (UX 안내용)
   const [listViewport, setListViewport] = useState({ scrollTop: 0, height: 0 });
   const [treeFocus, setTreeFocus] = useState(initialPath || '');
   const effectiveGitPath = gitContextPath || treeFocus;
@@ -563,8 +568,31 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       if (cacheKey === '' && isHostMode && (data.resolved || data.path)) {
         setResolvedRoot(stripHostPathPrefix(data.resolved || data.path));
       }
+      // 루트 성공 → 백오프 상태 리셋
+      if (cacheKey === '') {
+        retryAttemptRef.current = 0;
+        if (retryTimerRef.current) {
+          clearTimeout(retryTimerRef.current);
+          retryTimerRef.current = null;
+        }
+        setRetryNotice(null);
+      }
     } catch (e) {
       setNodes((prev) => ({ ...prev, [cacheKey]: { items: [], loading: false, error: e.message } }));
+      // 루트 실패 → 백오프(2/4/8/16/30s) 자동 재시도. 사용자가 다른 일 하는 동안 호스트 회복 시
+      // 자동으로 트리가 채워지도록 한다. children 단위는 사용자가 펼칠 때 재시도되므로 제외.
+      if (cacheKey === '') {
+        const attempt = retryAttemptRef.current;
+        const delayMs = Math.min(2000 * Math.pow(2, attempt), 30000);
+        retryAttemptRef.current = attempt + 1;
+        if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+        setRetryNotice(Math.round(delayMs / 1000));
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          setRetryNotice(null);
+          fetchChildren('');
+        }, delayMs);
+      }
     }
   }, [apiBase, rootPath, isHostMode]);
 
@@ -572,6 +600,13 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     setNodes({});
     setExpanded(new Set(['']));
     setResolvedRoot(null);
+    // rootPath 가 바뀌면 이전 백오프 타이머/카운트는 무효 — 새 컨텍스트로 시작.
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    retryAttemptRef.current = 0;
+    setRetryNotice(null);
     fetchChildren('');
     if (!isHostMode && initialPath) {
       const parts = initialPath.split('/').filter(Boolean);
@@ -585,6 +620,14 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       setExpanded(set);
     }
   }, [rootPath, initialPath, isHostMode, fetchChildren]);
+
+  // unmount 시 백오프 타이머 정리 — 사라진 컴포넌트가 fetch 를 다시 트리거하면 안 됨.
+  useEffect(() => () => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+  }, []);
 
   closeContextMenuRef.current = () => setContextMenu(null);
   contextMenuOpenRef.current = !!contextMenu;
@@ -936,7 +979,23 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             <div style={{ fontSize: fontSize['11'], color: color.muted, fontFamily: font.mono, wordBreak: 'break-all' }}>
               {rootError}
             </div>
-            <button onClick={() => fetchChildren('')} style={styles.retryBtn}>
+            {retryNotice != null && (
+              <div style={{ fontSize: fontSize['11'], color: color.muted }}>
+                {(t('retryingIn') || 'Retrying in') + ' ' + retryNotice + 's…'}
+              </div>
+            )}
+            <button
+              onClick={() => {
+                if (retryTimerRef.current) {
+                  clearTimeout(retryTimerRef.current);
+                  retryTimerRef.current = null;
+                }
+                retryAttemptRef.current = 0;
+                setRetryNotice(null);
+                fetchChildren('');
+              }}
+              style={styles.retryBtn}
+            >
               {t('retry') || 'Retry'}
             </button>
           </div>

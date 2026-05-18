@@ -285,27 +285,28 @@ const HostsPanel = ({ hosts, settings, refreshHosts, onAdd, onEdit, onEditLocal,
   ].join(' · ');
   return (
     <Section title={t('savedHosts') || 'Saved hosts'}>
-      <button
-        type="button"
-        onClick={() => onEditLocal?.()}
-        style={styles.listRow}
-        onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; }}
-      >
-        <span style={{ ...styles.listIcon, color: localAccent }}>
-          <HostIcon value={settings?.localIcon || ''} fallback={Server} size={14} />
-        </span>
-        <div style={styles.listText}>
-          <div style={styles.listName}>{localName}</div>
-          <div style={styles.listSub}>{localSub}</div>
-        </div>
-        <ChevronRight size={12} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
-      </button>
-
-      {hosts.length === 0 && (
-        <div style={styles.empty}>{t('noHostsYet') || 'No hosts yet. Add one to get started.'}</div>
-      )}
+      {/* 로컬 + 원격을 같은 list 컨테이너로 묶어 동일 4px gap — sectionBody 의 12px 간격으로 떨어지지 않게. */}
       <div style={styles.list}>
+        <button
+          type="button"
+          onClick={() => onEditLocal?.()}
+          style={styles.listRow}
+          onMouseEnter={(e) => { e.currentTarget.style.background = color.surface1; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = color.surface0; }}
+        >
+          <span style={{ ...styles.listIcon, color: localAccent }}>
+            <HostIcon value={settings?.localIcon || ''} fallback={Server} size={14} />
+          </span>
+          <div style={styles.listText}>
+            <div style={styles.listName}>{localName}</div>
+            <div style={styles.listSub}>{localSub}</div>
+          </div>
+          <ChevronRight size={12} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
+        </button>
+
+        {hosts.length === 0 && (
+          <div style={styles.empty}>{t('noHostsYet') || 'No hosts yet. Add one to get started.'}</div>
+        )}
         {orderedHosts.map((host) => {
           const palette = tokens.color.dotPalette || [HOST_DOT_PALETTE_FALLBACK];
           const accent = palette[(host.color_index || 0) % palette.length] || HOST_DOT_PALETTE_FALLBACK;

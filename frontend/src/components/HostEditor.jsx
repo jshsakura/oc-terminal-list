@@ -34,7 +34,7 @@ const HE_TABS = [
   { id: 'appearance', icon: Palette, labelKey: 'appearance' },
 ];
 
-const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t, globalThemeId = 'default' }) => {
+const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t, globalThemeId = 'default', zIndex = null }) => {
   const [draft, setDraft] = useState(EMPTY);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -148,10 +148,15 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     }
   };
 
-  const pickTailscalePeer = (peer) => {
+  // useIp=true 면 100.x.x.x 테일넷 IP, false 면 MagicDNS 호스트명을 hostname 필드에 채움.
+  // 사용자가 명시적으로 골라야 — fallback 체인은 한 형식이 비어있는 경우만.
+  const pickTailscalePeer = (peer, useIp = false) => {
+    const target = useIp
+      ? (peer.ip || peer.dns_name || peer.hostname)
+      : (peer.dns_name || peer.ip || peer.hostname);
     setDraft((d) => ({
       ...d,
-      hostname: peer.dns_name || peer.ip || peer.hostname || d.hostname,
+      hostname: target || d.hostname,
       name: d.name || peer.hostname || '',
     }));
     setTsPicker((p) => ({ ...p, open: false }));
@@ -176,8 +181,9 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     }
   };
 
+  const overlayStyle = zIndex != null ? { ...styles.overlay, zIndex } : styles.overlay;
   return (
-    <div style={styles.overlay}>
+    <div style={overlayStyle}>
       <form onSubmit={submit} style={styles.modal}>
         <header style={styles.header}>
           <div style={styles.title}>{host ? (t('editHost') || 'Edit host') : (t('addHost') || 'Add host')}</div>
@@ -705,6 +711,44 @@ const ColorPicker = ({ value, onChange }) => (
   </div>
 );
 
+// 주소 형식 선택 버튼 — TailscalePicker 행에서 DNS/IP 둘 중 하나 선택.
+const PickBtn = ({ children, onClick, disabled, title }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    title={title}
+    style={{
+      padding: '4px 8px',
+      fontSize: '10px',
+      fontWeight: fontWeight.semibold,
+      fontFamily: font.mono,
+      letterSpacing: '0.04em',
+      background: disabled ? 'transparent' : color.surface0,
+      color: disabled ? color.muted : color.subtext,
+      border: `1px solid ${disabled ? color.border : color.borderStrong}`,
+      borderRadius: radius.sm,
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      transition: 'background 120ms, color 120ms, border-color 120ms',
+      lineHeight: 1.2,
+    }}
+    onMouseEnter={(e) => {
+      if (disabled) return;
+      e.currentTarget.style.background = color.accent;
+      e.currentTarget.style.color = color.crust;
+      e.currentTarget.style.borderColor = color.accent;
+    }}
+    onMouseLeave={(e) => {
+      if (disabled) return;
+      e.currentTarget.style.background = color.surface0;
+      e.currentTarget.style.color = color.subtext;
+      e.currentTarget.style.borderColor = color.borderStrong;
+    }}
+  >
+    {children}
+  </button>
+);
+
 const TailscalePicker = ({ data, onPick, onClose, t }) => {
   useEffect(() => {
     const handle = (e) => { if (e.key === 'Escape') onClose(); };
@@ -750,40 +794,54 @@ const TailscalePicker = ({ data, onPick, onClose, t }) => {
             {t?.('tailscaleNoPeers') || 'No tailnet peers found.'}
           </div>
         ) : (
-          data.peers.map((peer) => (
-            <button
-              key={peer.id || peer.ip}
-              type="button"
-              onClick={() => onPick(peer)}
-              disabled={peer.is_self}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '10px',
-                width: '100%', padding: '8px 12px',
-                background: 'transparent', border: 'none',
-                borderBottom: `1px solid ${color.border}`,
-                cursor: peer.is_self ? 'default' : 'pointer',
-                textAlign: 'left', fontFamily: font.sans,
-                opacity: peer.is_self ? 0.5 : 1,
-              }}
-              onMouseEnter={(e) => { if (!peer.is_self) e.currentTarget.style.background = color.surface0; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-            >
-              <div style={{
-                width: '8px', height: '8px', borderRadius: '50%',
-                background: peer.online ? color.success : color.muted,
-                flexShrink: 0,
-              }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: fontSize['12'], fontWeight: fontWeight.medium, color: color.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {peer.hostname}
-                  {peer.is_self && ` (${t?.('thisMachine') || 'this machine'})`}
+          data.peers.map((peer) => {
+            const hasDns = !!peer.dns_name;
+            const hasIp = !!peer.ip;
+            return (
+              <div
+                key={peer.id || peer.ip}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  width: '100%', padding: '8px 10px 8px 12px',
+                  borderBottom: `1px solid ${color.border}`,
+                  fontFamily: font.sans,
+                  opacity: peer.is_self ? 0.5 : 1,
+                }}
+              >
+                <div style={{
+                  width: '8px', height: '8px', borderRadius: '50%',
+                  background: peer.online ? color.success : color.muted,
+                  flexShrink: 0,
+                }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: fontSize['12'], fontWeight: fontWeight.medium, color: color.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {peer.hostname}
+                    {peer.is_self && ` (${t?.('thisMachine') || 'this machine'})`}
+                  </div>
+                  <div style={{ fontSize: '10.5px', color: color.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {peer.dns_name || peer.ip} · {peer.os}
+                  </div>
                 </div>
-                <div style={{ fontSize: '10.5px', color: color.muted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {peer.dns_name || peer.ip} · {peer.os}
+                {/* IP / DNS 선택 버튼 — 사용자가 명시적으로 어떤 주소 형식으로 호스트를 박을지 결정. */}
+                <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                  <PickBtn
+                    onClick={() => onPick(peer, false)}
+                    disabled={peer.is_self || !hasDns}
+                    title={hasDns ? peer.dns_name : (t?.('tailscaleNoDns') || 'No MagicDNS')}
+                  >
+                    DNS
+                  </PickBtn>
+                  <PickBtn
+                    onClick={() => onPick(peer, true)}
+                    disabled={peer.is_self || !hasIp}
+                    title={hasIp ? peer.ip : (t?.('tailscaleNoIp') || 'No IP')}
+                  >
+                    IP
+                  </PickBtn>
                 </div>
               </div>
-            </button>
-          ))
+            );
+          })
         )}
       </div>
     </>

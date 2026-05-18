@@ -84,6 +84,21 @@ export const useTouchDragReorder = ({
   // 언마운트 시 안전망.
   useEffect(() => cleanup, [cleanup]);
 
+  // 드래그 모드 진입 후엔 OS 의 스크롤이 끼어들지 않게 non-passive 로 preventDefault.
+  // React 의 synthetic touchmove 는 기본 passive 라 e.preventDefault() 가 무시되므로
+  // 컨테이너에 native 리스너를 따로 부착한다.
+  useEffect(() => {
+    const container = scrollContainerRef?.current;
+    if (!container) return undefined;
+    const handler = (e) => {
+      if (dragModeRef.current || primedRef.current) {
+        if (e.cancelable) e.preventDefault();
+      }
+    };
+    container.addEventListener('touchmove', handler, { passive: false });
+    return () => container.removeEventListener('touchmove', handler);
+  }, [scrollContainerRef]);
+
   const onTouchStart = useCallback((e, id) => {
     if (e.touches.length > 1) {
       // 멀티 터치 (핀치 등) — 드래그 취소.

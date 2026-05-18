@@ -56,6 +56,7 @@ When done: `sudo systemctl start iterminallist.service`
 | `WORKSPACE_ROOT` | see .env | Root path for file tree/terminal |
 | `DB_PATH` | see .env | SQLite database path |
 | `TMUX_SOCKET_NAME` | `iterminallist-app` | Isolated tmux socket |
+| `REDIS_URL` | _(empty)_ | If set, `backend/cache.py` uses Redis; empty falls back to in-memory. This server runs `iterminallist-redis` (Docker, `redis:alpine`, 127.0.0.1:6379). |
 
 Do not put JWT or vault keys in `.env` — they are auto-managed.
 

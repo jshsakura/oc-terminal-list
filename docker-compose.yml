@@ -1,0 +1,59 @@
+# Terminal List — single-set bundle (app + Redis).
+#
+# Quick start:
+#   docker compose up -d
+#   open http://localhost:38822
+#
+# 영속 데이터는 두 볼륨에 담긴다:
+#   iterminallist-data       : SQLite + vault key + 설정
+#   iterminallist-workspace  : 사용자 작업 파일 (호스트 경로 마운트로 바꾸려면 아래 주석 참고)
+#   iterminallist-redis-data : Redis AOF
+#
+# 호스트의 디렉토리를 그대로 workspace 로 쓰고 싶다면:
+#   volumes 의 iterminallist-workspace 자리를 ./workspace:/workspace 같은 bind 로 교체.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: iterminallist:latest
+    container_name: iterminallist-app
+    restart: unless-stopped
+    ports:
+      - "38822:38822"
+    environment:
+      # in-container Redis 사용 — compose 가 만든 서비스 이름을 hostname 으로
+      REDIS_URL: redis://redis:6379/0
+      # 그 외 기본값은 Dockerfile ENV 참고. 필요시 여기서 override.
+    volumes:
+      - iterminallist-data:/app/data
+      - iterminallist-workspace:/workspace
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:38822/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  redis:
+    image: redis:alpine
+    container_name: iterminallist-redis
+    restart: unless-stopped
+    # 외부 노출 안 함 — app 컨테이너만 redis://redis:6379 로 접근.
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    volumes:
+      - iterminallist-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+volumes:
+  iterminallist-data:
+  iterminallist-workspace:
+  iterminallist-redis-data:

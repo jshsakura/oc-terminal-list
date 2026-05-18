@@ -6,6 +6,10 @@ import useHostReorder from '../hooks/useHostReorder';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
+// EmptyPane / HomeDashboard 와 같은 팔레트 인덱스 규칙. 로컬 카드 강조색.
+const localAccentFor = (settings) =>
+  color.dotPalette[(settings?.localColorIndex ?? 0) % color.dotPalette.length];
+
 // 카드 sub 한 줄 (truncate + 인라인 block) 공유 스타일.
 const LINE = {
   display: 'block',
@@ -15,7 +19,7 @@ const LINE = {
   minWidth: 0,
 };
 
-const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, onEdit, onConnect, refreshHosts = null, t }) => {
+const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', settings = {}, onAdd, onEdit, onEditLocal = null, onConnect, refreshHosts = null, t }) => {
   useEffect(() => {
     if (!isOpen) return;
     const handle = (e) => { if (e.key === 'Escape') onClose(); };
@@ -41,11 +45,11 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, 
         </header>
 
         <div style={styles.body}>
-          {/* This machine — disabled, info only */}
+          {/* 로컬 + 원격 단일 리스트 — 톤 통일. 첫 번째 항목이 항상 This machine. */}
           <Row
-            accent={color.accent}
-            icon={<Monitor size={14} strokeWidth={1.8} />}
-            name={t?.('thisMachine') || 'This machine'}
+            accent={localAccentFor(settings)}
+            icon={<HostIcon value={settings.localIcon || ''} fallback={Monitor} size={13} />}
+            name={(settings.localName || '').trim() || (t?.('thisMachine') || 'This machine')}
             sub={
               <>
                 <span style={LINE}>localhost</span>
@@ -54,14 +58,18 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', onAdd, 
                 </span>
               </>
             }
-            onClick={() => onConnect?.({ id: 'local', isLocal: true })}
+            actions={onEditLocal && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onEditLocal(); }}
+                title={t?.('localSettings') || 'Local settings'}
+                style={styles.gearBtn}
+                onMouseEnter={(e) => { e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+              >
+                <SettingsIcon size={13} strokeWidth={1.8} />
+              </button>
+            )}
           />
-
-          {hosts.length > 0 && (
-            <div style={styles.sectionLabel}>
-              {t?.('savedHosts') || 'Saved hosts'} · {hosts.length}
-            </div>
-          )}
 
           {orderedHosts.map((host) => {
             const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];

@@ -14,6 +14,7 @@ import os
 import secrets as secrets_mod
 import shlex
 import shutil
+import signal as signal_mod
 import time
 import zipfile
 from contextlib import asynccontextmanager
@@ -54,8 +55,17 @@ from _deps import (
     verify_auth_token,
 )
 from auth_manager import AuthManager
+from cache import (
+    cache,
+    invalidate_host,
+    invalidate_session,
+    key_host_tmux_clients,
+    key_host_tmux_sessions,
+    key_local_clients,
+)
 from host_manager import HostBridge, HostConnectError, resolve_host_secrets
 from sqlite_storage import storage
+from ssh_pool import ssh_pool
 from tmux_manager import tmux_manager
 from vault import encrypt_str
 from ws_bridge import TmuxClientBridge
@@ -102,10 +112,23 @@ async def lifespan(_app: FastAPI):
         logger.error("tmux 바이너리를 찾을 수 없습니다. 호스트에 tmux를 설치해주세요.")
     elif await tmux_manager.server_alive():
         await tmux_manager._run("set-option", "-s", "escape-time", "0", check=False)
+    # 서버 강제 종료로 detach hook 이 못 돈 orphan usage row 정리
+    try:
+        closed = await storage.close_orphan_usage_sessions()
+        if closed:
+            logger.info("usage: closed %d orphan session rows", closed)
+    except Exception as e:
+        logger.warning("usage orphan close failed: %s", e)
+    ssh_pool.start_janitor(idle_timeout=300)
     try:
         yield
     finally:
         logger.info("=== Terminal List 종료 ===")
+        ssh_pool.stop_janitor()
+        try:
+            await ssh_pool.close_all()
+        except Exception:
+            pass
         try:
             import host_sftp
             await host_sftp.close_pool()
@@ -229,6 +252,12 @@ class FileTicketRequest(BaseModel):
 # ---------------------- 시스템 모니터 ----------------------
 
 class SystemMonitor:
+    # /proc 전수 스캔은 매번 비싸므로(800+ PID × 5파일 read) get_stats() 사이에 캐시.
+    # CPU% 델타 계산에는 충분한 간격이 필요하므로 너무 짧으면 의미 없음 — 1.5s 가 절충.
+    PROC_SCAN_CACHE_TTL = 1.5
+    # RSS 가 이보다 작으면 잡벌레로 보고 cmdline/status/stat 읽기 전 컷.
+    PROC_RSS_MIN_BYTES = 4 * 1024 * 1024  # 4 MB
+
     def __init__(self):
         self.last_cpu_time = 0
         self.last_idle_time = 0
@@ -239,6 +268,12 @@ class SystemMonitor:
         self.last_net_tx = 0
         self.cached_net_rx_rate = 0.0
         self.cached_net_tx_rate = 0.0
+        # pid → utime+stime ticks. get_stats() 호출 간 델타로 process CPU% 계산.
+        self.last_proc_cpu: dict = {}
+        self.last_proc_total_ticks = 0
+        # process 스캔 캐시 — 짧은 시간 안에 여러 번 호출돼도 한 번만 한다.
+        self.cached_top_processes: list = []
+        self.last_proc_scan = 0.0
 
     def get_stats(self):
         # 백워드 호환 — 기존 'cpu/ram/disk' 퍼센트는 그대로 두고 절대값/load/uptime 을 추가.
@@ -361,56 +396,14 @@ class SystemMonitor:
             except Exception:
                 pass
 
-            try:
-                page_size = os.sysconf("SC_PAGE_SIZE")
-                processes = []
-                llm_markers = (
-                    "ollama", "llama", "llamacpp", "vllm", "transformers",
-                    "torch", "cuda", "codex", "openai", "anthropic",
-                )
-                for entry in os.scandir("/proc"):
-                    if not entry.name.isdigit():
-                        continue
-                    pid = int(entry.name)
-                    proc_dir = entry.path
-                    try:
-                        with open(os.path.join(proc_dir, "statm")) as f:
-                            statm = f.read().split()
-                        rss = int(statm[1]) * page_size if len(statm) > 1 else 0
-                        if rss <= 0:
-                            continue
-                        with open(os.path.join(proc_dir, "comm")) as f:
-                            name = f.read().strip()
-                        cmd = ""
-                        try:
-                            with open(os.path.join(proc_dir, "cmdline"), "rb") as f:
-                                cmd = f.read().replace(b"\x00", b" ").decode("utf-8", "ignore").strip()
-                        except Exception:
-                            pass
-                        uid = None
-                        try:
-                            with open(os.path.join(proc_dir, "status")) as f:
-                                for line in f:
-                                    if line.startswith("Uid:"):
-                                        uid = int(line.split()[1])
-                                        break
-                        except Exception:
-                            pass
-                        label = cmd or name
-                        lower_label = label.lower()
-                        processes.append({
-                            "pid": pid,
-                            "name": name,
-                            "cmd": label[:180],
-                            "rss_bytes": rss,
-                            "user": str(uid) if uid is not None else "",
-                            "llm_like": any(marker in lower_label for marker in llm_markers),
-                        })
-                    except Exception:
-                        continue
-                stats["top_processes"] = sorted(processes, key=lambda item: item["rss_bytes"], reverse=True)[:10]
-            except Exception:
-                pass
+            # process 스캔은 비용이 크므로 캐시. TTL 안에서는 직전 결과 재사용.
+            if now - self.last_proc_scan >= self.PROC_SCAN_CACHE_TTL:
+                try:
+                    self.cached_top_processes = self._scan_top_processes()
+                    self.last_proc_scan = now
+                except Exception as e:
+                    logger.debug("process scan failed: %s", e)
+            stats["top_processes"] = self.cached_top_processes
 
             try:
                 # /proc/loadavg → "1m 5m 15m running/total lastpid"
@@ -434,6 +427,127 @@ class SystemMonitor:
         except Exception as e:
             logger.error("system stats error: %s", e)
         return stats
+
+    def _scan_top_processes(self) -> list:
+        """/proc 전수 스캔 — RSS 컷오프로 잡벌레 제거 후 상위 10개만 디테일 수집.
+
+        호출자(get_stats)가 캐시한다. CPU% 는 마지막 스캔 이후 누적 ticks 델타로 계산.
+        """
+        page_size = os.sysconf("SC_PAGE_SIZE")
+        cpu_count = os.cpu_count() or 1
+        rss_min = self.PROC_RSS_MIN_BYTES
+
+        # /proc/stat 총 jiffies 델타 (CPU% denominator)
+        total_ticks_now = 0
+        try:
+            with open("/proc/stat") as f:
+                parts = f.readline().split()
+            if len(parts) >= 8:
+                total_ticks_now = sum(int(x) for x in parts[1:8])
+        except Exception:
+            pass
+        total_delta = max(0, total_ticks_now - (self.last_proc_total_ticks or total_ticks_now))
+        self.last_proc_total_ticks = total_ticks_now
+
+        # Phase 1: 가벼운 statm 만 읽어 RSS 컷오프 통과한 후보만 추림.
+        candidates: list[tuple[int, str, int]] = []
+        try:
+            for entry in os.scandir("/proc"):
+                if not entry.name.isdigit():
+                    continue
+                pid = int(entry.name)
+                try:
+                    with open(os.path.join(entry.path, "statm")) as f:
+                        statm = f.read().split()
+                    rss = int(statm[1]) * page_size if len(statm) > 1 else 0
+                    if rss < rss_min:
+                        continue
+                    candidates.append((pid, entry.path, rss))
+                except Exception:
+                    continue
+        except Exception:
+            return self.cached_top_processes
+
+        # RSS 기준 정렬 후 상위 N×3 만 디테일 수집(클립 후에도 충분한 여유).
+        candidates.sort(key=lambda item: item[2], reverse=True)
+        candidates = candidates[:30]
+
+        llm_markers = (
+            "ollama", "llama", "llamacpp", "vllm", "transformers",
+            "torch", "cuda", "codex", "openai", "anthropic",
+        )
+        me_uid = os.getuid()
+        try:
+            import pwd as _pwd
+        except ImportError:
+            _pwd = None
+
+        processes: list[dict] = []
+        next_proc_cpu: dict = {}
+        for pid, proc_dir, rss in candidates:
+            try:
+                with open(os.path.join(proc_dir, "comm")) as f:
+                    name = f.read().strip()
+                cmd = ""
+                try:
+                    with open(os.path.join(proc_dir, "cmdline"), "rb") as f:
+                        cmd = f.read().replace(b"\x00", b" ").decode("utf-8", "ignore").strip()
+                except Exception:
+                    pass
+                uid = None
+                try:
+                    with open(os.path.join(proc_dir, "status")) as f:
+                        for line in f:
+                            if line.startswith("Uid:"):
+                                uid = int(line.split()[1])
+                                break
+                except Exception:
+                    pass
+                # /proc/<pid>/stat 의 utime(14) + stime(15). comm 에 공백/괄호 안전하게 ')' 기준 분할.
+                proc_ticks = 0
+                try:
+                    with open(os.path.join(proc_dir, "stat")) as f:
+                        raw = f.read()
+                    rparen = raw.rfind(")")
+                    if rparen != -1:
+                        tail = raw[rparen + 2:].split()
+                        if len(tail) >= 13:
+                            proc_ticks = int(tail[11]) + int(tail[12])
+                except Exception:
+                    pass
+                prev_ticks = self.last_proc_cpu.get(pid, proc_ticks)
+                next_proc_cpu[pid] = proc_ticks
+                cpu_percent = 0.0
+                if total_delta > 0 and proc_ticks >= prev_ticks:
+                    cpu_percent = round((proc_ticks - prev_ticks) / total_delta * 100 * cpu_count, 1)
+                label = cmd or name
+                lower_label = label.lower()
+                owner_name = ""
+                if uid is not None:
+                    if _pwd is not None:
+                        try:
+                            owner_name = _pwd.getpwuid(uid).pw_name
+                        except KeyError:
+                            owner_name = str(uid)
+                    else:
+                        owner_name = str(uid)
+                processes.append({
+                    "pid": pid,
+                    "name": name,
+                    "cmd": label[:180],
+                    "rss_bytes": rss,
+                    "cpu_percent": cpu_percent,
+                    "uid": uid,
+                    "user": owner_name,
+                    "is_mine": uid == me_uid if uid is not None else False,
+                    "llm_like": any(marker in lower_label for marker in llm_markers),
+                })
+            except Exception:
+                continue
+
+        self.last_proc_cpu = next_proc_cpu
+        processes.sort(key=lambda item: item["rss_bytes"], reverse=True)
+        return processes[:10]
 
 
 system_monitor = SystemMonitor()
@@ -539,6 +653,13 @@ async def create_raw_file_ticket(
 @app.get("/api/health")
 async def health_check():
     return {"service": "Terminal List", "status": "running", "version": "2.0.0"}
+
+
+# 서버 측 feature flag — 향후 추가될 토글의 진입점.
+# 컨테이너 배포에서도 "이 머신" 은 그대로 컨테이너 셸로 동작 (샌드박스).
+@app.get("/api/config")
+async def app_config():
+    return {}
 
 
 @app.get("/api/auth/status")
@@ -669,6 +790,80 @@ async def otp_regenerate_backup_codes(username: str = Depends(verify_auth_token)
 @app.get("/api/system/stats")
 async def get_system_stats(username: str = Depends(verify_auth_token)):
     return system_monitor.get_stats()
+
+
+class ProcessKillRequest(BaseModel):
+    # 'term' = SIGTERM (정상 종료 요청), 'kill' = SIGKILL (강제). 외부 노출 화이트리스트만.
+    signal: str = "term"
+
+
+_PROTECTED_PIDS = {1}  # init
+
+
+def _read_proc_uid(pid: int) -> int | None:
+    try:
+        with open(f"/proc/{pid}/status") as f:
+            for line in f:
+                if line.startswith("Uid:"):
+                    return int(line.split()[1])
+    except (FileNotFoundError, PermissionError, ValueError):
+        return None
+    return None
+
+
+@app.post("/api/system/processes/{pid}/kill")
+async def kill_process(
+    pid: int,
+    req: ProcessKillRequest,
+    username: str = Depends(verify_auth_token),
+):
+    """Top processes 패널에서 호출. 백엔드 OS 사용자 소유 프로세스만 kill 허용.
+
+    - pid <= 1, 백엔드 자신, init 등은 거부.
+    - 시그널은 'term' | 'kill' 만 허용 — 외부 raw signum 미허용 (검증 우회 방지).
+    """
+    if pid <= 1 or pid in _PROTECTED_PIDS:
+        raise HTTPException(status_code=400, detail="protected pid")
+    if pid == os.getpid() or pid == os.getppid():
+        raise HTTPException(status_code=400, detail="cannot kill self")
+
+    sig_name = (req.signal or "term").lower()
+    if sig_name == "term":
+        sig = signal_mod.SIGTERM
+    elif sig_name == "kill":
+        sig = signal_mod.SIGKILL
+    else:
+        raise HTTPException(status_code=400, detail="unsupported signal")
+
+    target_uid = _read_proc_uid(pid)
+    if target_uid is None:
+        raise HTTPException(status_code=404, detail="process not found")
+
+    # 백엔드 실행 사용자의 프로세스만 — root 가 아닌 한 어차피 OS 가 막지만 명시적으로 거부.
+    me_uid = os.getuid()
+    if target_uid != me_uid and me_uid != 0:
+        raise HTTPException(status_code=403, detail="not owner")
+
+    try:
+        os.kill(pid, sig)
+    except ProcessLookupError:
+        raise HTTPException(status_code=404, detail="process not found")
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="permission denied")
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    logger.info("kill_process pid=%s signal=%s by=%s", pid, sig_name, username)
+    return {"ok": True, "pid": pid, "signal": sig_name}
+
+
+@app.get("/api/usage/summary")
+async def get_usage_summary(
+    days: int = Query(7, ge=1, le=90),
+    username: str = Depends(verify_auth_token),
+):
+    """최근 N일 사용 통계. 빈 패널 대시보드 카드용."""
+    return await storage.get_usage_summary(username, days)
 
 
 # ---------------------- Tailscale 연동 ----------------------
@@ -910,6 +1105,7 @@ async def create_session(
 async def delete_session(session_id: str, username: str = Depends(verify_auth_token)):
     await tmux_manager.kill_session(session_id)
     await storage.delete_session(session_id)
+    await invalidate_session(session_id)
     return {"session_id": session_id, "status": "deleted"}
 
 
@@ -917,11 +1113,19 @@ async def delete_session(session_id: str, username: str = Depends(verify_auth_to
 async def get_session_clients(session_id: str, username: str = Depends(verify_auth_token)):
     """세션에 현재 attach 된 tmux 클라이언트 수.
     프론트엔드 takeover 모델에서 "지금 누가 보고 있냐?" 프리플라이트 / 자동 재attach 폴링용.
-    세션 자체가 없으면 attached=False 로 통일 (UI 가 그냥 신규 attach 진행하게)."""
+    세션 자체가 없으면 attached=False 로 통일 (UI 가 그냥 신규 attach 진행하게).
+    여러 탭이 같은 세션을 polling 할 때 합치려고 3s TTL — 짧게 잡아 detach UX 응답성 유지."""
+    cache_key = key_local_clients(session_id)
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return cached
     if not await tmux_manager.session_exists(session_id):
-        return {"session_id": session_id, "exists": False, "count": 0, "attached": False}
-    n = await tmux_manager.clients_count(session_id)
-    return {"session_id": session_id, "exists": True, "count": n, "attached": n > 0}
+        payload = {"session_id": session_id, "exists": False, "count": 0, "attached": False}
+    else:
+        n = await tmux_manager.clients_count(session_id)
+        payload = {"session_id": session_id, "exists": True, "count": n, "attached": n > 0}
+    await cache.set(cache_key, payload, ttl_seconds=3)
+    return payload
 
 
 @app.post("/api/sessions/{session_id}/resize")
@@ -1070,12 +1274,28 @@ async def terminal_websocket(
         cols=cols,
         rows=rows,
     )
+    usage_event_id = None
+    try:
+        usage_event_id = await storage.record_usage_start(
+            username, "local", "local", session_id
+        )
+    except Exception as e:
+        logger.warning("usage start record failed (local %s): %s", session_id, e)
+    # attach/detach 가 일어났으니 client 수 캐시 즉시 무효화.
+    await invalidate_session(session_id)
     try:
         await bridge.run()
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.error("WS bridge error (%s): %s", session_id, e)
+    finally:
+        if usage_event_id is not None:
+            try:
+                await storage.record_usage_end(usage_event_id)
+            except Exception as e:
+                logger.warning("usage end record failed (local %s): %s", session_id, e)
+        await invalidate_session(session_id)
 
 
 # ---------------------- SSH 키 API ----------------------
@@ -1262,6 +1482,8 @@ async def kill_host_tmux(
     except Exception as e:
         logger.error("kill-tmux failed (%s, force=%s, session=%s): %s", host_id, force, target_session, e)
         raise HTTPException(status_code=500, detail=str(e))
+    await invalidate_host(host_id)  # 세션 목록·client 수 캐시 즉시 무효화
+    await ssh_pool.invalidate(host_id)  # 풀의 살아있는 conn 도 끊어 새로 시작
     return {"id": host_id, "session": target_session, "status": "server_killed" if force else "killed"}
 
 
@@ -1273,10 +1495,16 @@ async def get_host_tmux_clients(
 ):
     """원격 호스트의 특정 tmux 세션에 attach 된 클라이언트 수.
     takeover 프리플라이트 + 자동 재attach 폴링용. session 없으면 count=0 으로 통일.
-    `tmux list-clients -t SESSION` 의 라인 수."""
+    `tmux list-clients -t SESSION` 의 라인 수.
+    여러 탭이 같은 세션을 polling 할 때 SSH 왕복을 줄이려고 5s TTL 캐시."""
     host = await storage.get_host(host_id, username)
     if not host:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+
+    cache_key = key_host_tmux_clients(host_id, session)
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     from host_manager import open_connection
     safe_session = shlex.quote(session)
@@ -1302,18 +1530,15 @@ async def get_host_tmux_clients(
             if host.get("auth_method") == "key" and host.get("key_id"):
                 key_record = await storage.get_ssh_key(host["key_id"], username)
             secrets = resolve_host_secrets(host, key_record)
-            conn = await open_connection(
-                host,
-                private_key=secrets["private_key"],
-                passphrase=secrets["passphrase"],
-                password=secrets["password"],
-            )
-            try:
-                result = await conn.run(cmd, check=False)
-                output = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace")
-            finally:
-                conn.close()
-                await conn.wait_closed()
+            async def _opener():
+                return await open_connection(
+                    host,
+                    private_key=secrets["private_key"],
+                    passphrase=secrets["passphrase"],
+                    password=secrets["password"],
+                )
+            result = await ssh_pool.run(host_id, _opener, cmd, check=False)
+            output = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace")
     except Exception as e:
         logger.warning("tmux-clients query failed (%s/%s): %s", host_id, session, e)
         # 실패 시 알 수 없음 — 0 으로 보내 프론트가 그냥 진행하게.
@@ -1325,7 +1550,9 @@ async def get_host_tmux_clients(
         n = int(lines[-1])
     except (ValueError, IndexError):
         n = 0
-    return {"host_id": host_id, "session": session, "exists": exists, "count": n, "attached": n > 0}
+    payload = {"host_id": host_id, "session": session, "exists": exists, "count": n, "attached": n > 0}
+    await cache.set(cache_key, payload, ttl_seconds=5)
+    return payload
 
 
 @app.get("/api/hosts/{host_id}/tmux-check")
@@ -1379,15 +1606,23 @@ async def check_host_tmux(
 @app.get("/api/hosts/{host_id}/tmux-sessions")
 async def list_host_tmux_sessions(
     host_id: str,
+    refresh: bool = Query(False, description="강제 새로고침 — 캐시 무시"),
     username: str = Depends(verify_auth_token),
 ):
     """원격 tmux 서버의 세션 목록. 좀비 세션 청소용.
 
     `tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}'`
+    SSH 왕복이 500ms~2s 라 60s TTL 로 캐시. 세션 kill/spawn 시 invalidate_host 로 즉시 무효화.
     """
     host = await storage.get_host(host_id, username)
     if not host:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+
+    cache_key = key_host_tmux_sessions(host_id)
+    if not refresh:
+        cached = await cache.get(cache_key)
+        if cached is not None:
+            return cached
 
     from host_manager import open_connection
     cmd = "tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}' 2>/dev/null || true"
@@ -1407,18 +1642,16 @@ async def list_host_tmux_sessions(
             if host.get("auth_method") == "key" and host.get("key_id"):
                 key_record = await storage.get_ssh_key(host["key_id"], username)
             secrets = resolve_host_secrets(host, key_record)
-            conn = await open_connection(
-                host,
-                private_key=secrets["private_key"],
-                passphrase=secrets["passphrase"],
-                password=secrets["password"],
-            )
-            try:
-                result = await conn.run(cmd, check=False)
-                output = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace")
-            finally:
-                conn.close()
-                await conn.wait_closed()
+            async def _opener():
+                return await open_connection(
+                    host,
+                    private_key=secrets["private_key"],
+                    passphrase=secrets["passphrase"],
+                    password=secrets["password"],
+                )
+            # SSH 풀에서 호스트당 재사용 — handshake 비용 제거.
+            result = await ssh_pool.run(host_id, _opener, cmd, check=False)
+            output = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace")
     except Exception as e:
         logger.error("list-tmux-sessions failed (%s): %s", host_id, e)
         raise HTTPException(status_code=500, detail=str(e))
@@ -1432,7 +1665,9 @@ async def list_host_tmux_sessions(
                 "created": int(parts[1]) if parts[1].isdigit() else None,
                 "attached": parts[2] != "0",
             })
-    return {"id": host_id, "sessions": sessions}
+    payload = {"id": host_id, "sessions": sessions}
+    await cache.set(cache_key, payload, ttl_seconds=60)
+    return payload
 
 
 @app.delete("/api/hosts/{host_id}")
@@ -1561,12 +1796,29 @@ async def host_websocket(
             tmux_session_name=safe_session_name,
             create_session=create,
         )
+    usage_event_id = None
+    try:
+        usage_event_id = await storage.record_usage_start(
+            username, "host", host_id, safe_session_name
+        )
+    except Exception as e:
+        logger.warning("usage start record failed (host %s): %s", host_id, e)
+    # 새 attach/spawn 으로 세션 목록/클라이언트 수가 바뀌었을 수 있음 — 캐시 무효화.
+    await invalidate_host(host_id)
     try:
         await bridge.run()
     except WebSocketDisconnect:
         pass
     except Exception as e:
         logger.error("host WS bridge error (%s): %s", host_id, e, exc_info=True)
+    finally:
+        if usage_event_id is not None:
+            try:
+                await storage.record_usage_end(usage_event_id)
+            except Exception as e:
+                logger.warning("usage end record failed (host %s): %s", host_id, e)
+        # 연결 종료 시 client 수가 바뀌었을 수 있음 — invalidate.
+        await invalidate_host(host_id)
 
 
 # ---------------------- 파일 시스템 API ----------------------
@@ -1954,13 +2206,16 @@ if STATIC_DIR.exists():
     async def head_frontend():
         return Response(status_code=200, headers=NO_CACHE_HEADERS)
 
+    # /assets 외의 단순 정적파일(favicon, robots 등) — 변경 드물지만 immutable 까지는 아님.
+    FILE_CACHE_HEADERS = {"Cache-Control": "public, max-age=86400"}
+
     @app.get("/{full_path:path}")
     async def catch_all(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("ws/"):
             raise HTTPException(status_code=404, detail="Not found")
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
-            return FileResponse(str(file_path))
+            return FileResponse(str(file_path), headers=FILE_CACHE_HEADERS)
         # SPA fallback 도 no-cache (라우팅 경로 어디로 와도 최신 index)
         return FileResponse(str(STATIC_DIR / "index.html"), headers=NO_CACHE_HEADERS)
 

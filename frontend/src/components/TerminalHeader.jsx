@@ -6,6 +6,7 @@ import {
   ExternalLink, MoreHorizontal,
   GripVertical, Columns2, Rows2,
   Eye, EyeOff,
+  XCircle, Zap,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -921,13 +922,20 @@ const ThemeSettings = memo(({ paneThemeId, globalThemeId, onPaneThemeChange, t }
 // Info 패널 — 세션 메타데이터 + 시스템 자원(CPU/RAM/Disk/Load).
 // 자원 정보는 패널이 *열려 있는 동안만* 2초 polling. 닫으면 즉시 멈춤.
 
+// Info 탭은 트레이스가 아니라 스냅샷에 가깝다. 매 몇 초 갱신은 실시간 모니터링도 아닌데 부하만 키움.
+// → 탭 열려 있는 동안만 30s 마다 폴링하고, 닫으면 즉시 멈춤. 사용자가 즉시 보고 싶으면 새로고침 버튼.
+const SYSTEM_STATS_POLL_MS = 30000;
+
 const useSystemStats = (enabled) => {
   const [stats, setStats] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
   const intervalRef = useRef(null);
+  const fetchRef = useRef(null);
   useEffect(() => {
     if (!enabled) return undefined;
     let aborted = false;
     const fetchOnce = async () => {
+      setRefreshing(true);
       try {
         const token = (typeof localStorage !== 'undefined' && localStorage.getItem('auth_token')) || '';
         const res = await fetch('/api/system/stats', {
@@ -936,18 +944,22 @@ const useSystemStats = (enabled) => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (!aborted) setStats(data);
-      } catch {
-        /* 일시적 실패 — 다음 tick 에서 다시 시도 */
+      } catch { /* 다음 tick 또는 사용자 새로고침에 다시 시도 */ }
+      finally {
+        if (!aborted) setRefreshing(false);
       }
     };
+    fetchRef.current = fetchOnce;
     fetchOnce();
-    intervalRef.current = setInterval(fetchOnce, 2000);
+    intervalRef.current = setInterval(fetchOnce, SYSTEM_STATS_POLL_MS);
     return () => {
       aborted = true;
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      fetchRef.current = null;
+      if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
     };
   }, [enabled]);
-  return stats;
+  const refresh = useCallback(() => { fetchRef.current?.(); }, []);
+  return { stats, refresh, refreshing };
 };
 
 const formatBytes = (n) => {
@@ -980,7 +992,7 @@ const formatUptime = (s, t) => {
 };
 
 const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
-  const stats = useSystemStats(true);
+  const { stats, refresh: refreshStats, refreshing: statsRefreshing } = useSystemStats(true);
   const themeOverridden = !!paneThemeId && !!globalThemeId && paneThemeId !== globalThemeId;
   const activeThemeId = paneThemeId || globalThemeId;
   const infoTheme = themes[activeThemeId] || themes.catppuccin;
@@ -1052,6 +1064,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
           0%, 100% { opacity: 0.62; transform: scale(0.88); box-shadow: 0 0 0 2px ${connToneMap.open.dot}20, 0 0 4px ${connToneMap.open.dot}24; }
           50% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 3px ${connToneMap.open.dot}30, 0 0 9px ${connToneMap.open.dot}55; }
         }
+        @keyframes iterm-spin { to { transform: rotate(360deg); } }
       `}</style>
       {/* 세션 */}
       <InfoSection title={t?.('infoSession') || 'Session'} icon={TerminalIcon}>
@@ -1199,6 +1212,33 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
         title={t?.('infoSystem') || 'System'}
         icon={Info}
         subtitle={stats?.hostname ? `${stats.hostname}` : null}
+        action={(
+          <button
+            type="button"
+            onClick={() => refreshStats?.()}
+            disabled={statsRefreshing}
+            title={t?.('refresh') || 'Refresh'}
+            style={{
+              width: '18px',
+              height: '18px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              border: 'none',
+              borderRadius: '4px',
+              background: 'transparent',
+              color: 'var(--ui-subtext)',
+              padding: 0,
+              cursor: statsRefreshing ? 'wait' : 'pointer',
+              opacity: statsRefreshing ? 0.4 : 0.8,
+              transition: 'background 0.12s ease, color 0.12s ease',
+            }}
+            onMouseEnter={(e) => { if (!statsRefreshing) { e.currentTarget.style.background = 'var(--ui-surface1)'; e.currentTarget.style.color = 'var(--ui-text)'; } }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ui-subtext)'; }}
+          >
+            <RefreshCw size={11} strokeWidth={2} style={{ animation: statsRefreshing ? 'iterm-spin 0.7s linear infinite' : 'none' }} />
+          </button>
+        )}
       >
         {!stats ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -1247,7 +1287,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
               />
             )}
             {Array.isArray(stats.top_processes) && stats.top_processes.length > 0 && (
-              <ProcessList processes={stats.top_processes} />
+              <ProcessList processes={stats.top_processes} onRefresh={refreshStats} />
             )}
           </>
         )}
@@ -1256,12 +1296,13 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
   );
 });
 
-const InfoSection = ({ title, icon: Icon, subtitle = null, children }) => (
+const InfoSection = ({ title, icon: Icon, subtitle = null, action = null, children }) => (
   <div className="iterm-info-section" style={infoStyles.section}>
     <div style={infoStyles.sectionHeader}>
       {Icon && <Icon size={11} strokeWidth={2} style={{ color: 'var(--ui-subtext)', flexShrink: 0 }} />}
       <span style={{ ...infoStyles.sectionTitle, color: 'var(--ui-subtext)' }}>{title}</span>
       {subtitle && <span style={{ ...infoStyles.sectionSubtitle, color: 'var(--ui-subtext)' }}>{subtitle}</span>}
+      {action && <span style={{ marginLeft: subtitle ? '4px' : 'auto', display: 'inline-flex', alignItems: 'center' }}>{action}</span>}
     </div>
     <div style={infoStyles.sectionBody}>
       {children}
@@ -1343,26 +1384,104 @@ const MemoryStackBar = ({ stats }) => {
   );
 };
 
-const ProcessList = ({ processes }) => (
-  <div style={infoStyles.processBox}>
-    <div style={infoStyles.processHeader}>
-      <span>Top processes</span>
-      <span>RSS</span>
-    </div>
-    {processes.slice(0, 8).map((proc) => (
-      <div key={proc.pid} style={infoStyles.processRow}>
-        <div style={infoStyles.processMain}>
-          <span style={{ ...infoStyles.processName, color: proc.llm_like ? 'var(--ui-accent)' : 'var(--ui-text)' }}>
-            {proc.name || `pid ${proc.pid}`}
-          </span>
-          <span style={infoStyles.processCmd}>{proc.cmd || `pid ${proc.pid}`}</span>
-        </div>
-        {proc.llm_like && <span style={infoStyles.processBadge}>LLM</span>}
-        <span style={infoStyles.processMem}>{formatBytes(proc.rss_bytes)}</span>
+const ProcessList = ({ processes, onRefresh }) => {
+  const [pending, setPending] = useState(null); // pid currently sending kill
+  const [error, setError] = useState(null);
+
+  const sendKill = useCallback(async (pid, sig) => {
+    const label = sig === 'kill' ? 'force kill (SIGKILL)' : 'terminate (SIGTERM)';
+    if (!window.confirm(`PID ${pid} — ${label}?`)) return;
+    setPending(pid);
+    setError(null);
+    try {
+      const token = localStorage.getItem('auth_token');
+      const res = await fetch(`/api/system/processes/${pid}/kill`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ signal: sig }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `HTTP ${res.status}`);
+      }
+      // 백엔드가 다음 stats 폴링 때 자연스럽게 빠짐. 즉시 한 번 더 당김.
+      onRefresh?.();
+    } catch (e) {
+      setError(`pid ${pid}: ${e.message}`);
+    } finally {
+      setPending(null);
+    }
+  }, [onRefresh]);
+
+  return (
+    <div style={infoStyles.processBox}>
+      <div style={infoStyles.processHeader}>
+        <span>Top processes</span>
+        <span style={{ textAlign: 'right' }}>CPU · RSS</span>
       </div>
-    ))}
-  </div>
-);
+      {error && (
+        <div style={infoStyles.processError}>{error}</div>
+      )}
+      {processes.slice(0, 8).map((proc) => {
+        const canKill = proc.is_mine !== false; // 명시적으로 false 가 아니면 시도 허용
+        const isPending = pending === proc.pid;
+        return (
+          <div key={proc.pid} style={infoStyles.processRow}>
+            <div style={infoStyles.processMain}>
+              <div style={infoStyles.processNameRow}>
+                <span style={{ ...infoStyles.processName, color: proc.llm_like ? 'var(--ui-accent)' : 'var(--ui-text)' }}>
+                  {proc.name || `pid ${proc.pid}`}
+                </span>
+                <span style={infoStyles.processMeta}>
+                  pid {proc.pid}
+                  {proc.user ? ` · ${proc.user}` : ''}
+                </span>
+              </div>
+              <span style={infoStyles.processCmd} title={proc.cmd}>{proc.cmd || `pid ${proc.pid}`}</span>
+            </div>
+            {proc.llm_like && <span style={infoStyles.processBadge}>LLM</span>}
+            <div style={infoStyles.processStats}>
+              <span style={infoStyles.processCpu}>{(proc.cpu_percent ?? 0).toFixed(1)}%</span>
+              <span style={infoStyles.processMem}>{formatBytes(proc.rss_bytes)}</span>
+            </div>
+            <div style={infoStyles.processActions}>
+              <button
+                type="button"
+                onClick={() => sendKill(proc.pid, 'term')}
+                disabled={!canKill || isPending}
+                title={canKill ? 'Terminate (SIGTERM)' : 'Not your process'}
+                style={{
+                  ...infoStyles.processKillBtn,
+                  opacity: !canKill || isPending ? 0.35 : 0.85,
+                  cursor: !canKill || isPending ? 'not-allowed' : 'pointer',
+                }}
+                onMouseEnter={(e) => { if (canKill && !isPending) { e.currentTarget.style.background = 'color-mix(in srgb, var(--ui-warning, #f9e2af) 24%, transparent)'; e.currentTarget.style.color = 'var(--ui-warning, #f9e2af)'; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ui-subtext)'; }}
+              >
+                <XCircle size={12} strokeWidth={2} />
+              </button>
+              <button
+                type="button"
+                onClick={() => sendKill(proc.pid, 'kill')}
+                disabled={!canKill || isPending}
+                title={canKill ? 'Force kill (SIGKILL)' : 'Not your process'}
+                style={{
+                  ...infoStyles.processKillBtn,
+                  opacity: !canKill || isPending ? 0.35 : 0.85,
+                  cursor: !canKill || isPending ? 'not-allowed' : 'pointer',
+                }}
+                onMouseEnter={(e) => { if (canKill && !isPending) { e.currentTarget.style.background = 'color-mix(in srgb, var(--ui-danger, #f38ba8) 24%, transparent)'; e.currentTarget.style.color = 'var(--ui-danger, #f38ba8)'; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ui-subtext)'; }}
+              >
+                <Zap size={12} strokeWidth={2} />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 const StatBar = ({ label, percent = 0, right = '' }) => {
   const safe = Math.max(0, Math.min(100, Number(percent) || 0));
@@ -1571,22 +1690,31 @@ const infoStyles = {
   },
   processHeader: {
     display: 'grid',
-    gridTemplateColumns: '1fr 56px',
+    gridTemplateColumns: '1fr auto auto',
     gap: '8px',
-    padding: '0 2px 2px',
+    padding: '0 6px 2px',
     fontSize: '10px',
     color: 'var(--ui-subtext)',
     fontWeight: fontWeight.semibold,
     textTransform: 'uppercase',
     letterSpacing: '0.06em',
   },
+  processError: {
+    fontSize: '10px',
+    color: 'var(--ui-danger, #f38ba8)',
+    padding: '3px 6px',
+    background: 'color-mix(in srgb, var(--ui-danger, #f38ba8) 12%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--ui-danger, #f38ba8) 35%, transparent)',
+    borderRadius: '4px',
+    marginBottom: '2px',
+  },
   processRow: {
     display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) auto 56px',
+    gridTemplateColumns: 'minmax(0, 1fr) auto auto auto',
     alignItems: 'center',
     gap: '6px',
-    minHeight: '25px',
-    padding: '3px 5px',
+    minHeight: '28px',
+    padding: '4px 5px',
     borderRadius: '5px',
     background: 'color-mix(in srgb, var(--ui-surface0) 72%, transparent)',
     border: '1px solid color-mix(in srgb, var(--ui-border) 46%, transparent)',
@@ -1597,12 +1725,25 @@ const infoStyles = {
     flexDirection: 'column',
     gap: '1px',
   },
+  processNameRow: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: '6px',
+    minWidth: 0,
+  },
   processName: {
     fontSize: '11px',
     fontWeight: fontWeight.semibold,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',
+  },
+  processMeta: {
+    fontFamily: font.mono,
+    fontSize: '9px',
+    color: 'var(--ui-subtext)',
+    flexShrink: 0,
+    opacity: 0.7,
   },
   processCmd: {
     fontFamily: font.mono,
@@ -1625,11 +1766,41 @@ const infoStyles = {
     background: 'color-mix(in srgb, var(--ui-accent) 14%, transparent)',
     border: '1px solid color-mix(in srgb, var(--ui-accent) 32%, transparent)',
   },
-  processMem: {
+  processStats: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
+    gap: '0',
+    minWidth: '56px',
     fontFamily: font.mono,
+  },
+  processCpu: {
     fontSize: '10px',
     color: 'var(--ui-text)',
-    textAlign: 'right',
+    fontWeight: fontWeight.semibold,
+  },
+  processMem: {
+    fontSize: '9.5px',
+    color: 'var(--ui-subtext)',
+  },
+  processActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+    flexShrink: 0,
+  },
+  processKillBtn: {
+    width: '20px',
+    height: '20px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    border: 'none',
+    borderRadius: '4px',
+    background: 'transparent',
+    color: 'var(--ui-subtext)',
+    padding: 0,
+    transition: 'background 0.12s ease, color 0.12s ease',
   },
 };
 
@@ -1792,9 +1963,17 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
     || startPath;
   const displayPath = homeTilde(isHostPane ? stripHostPathPrefix(rawPath) : rawPath);
 
+  // 진짜 cwd 가 없어도 비워두지 않는다 — 호스트면 user@host, 로컬이면 `~` 로 폴백.
+  // 실제 cwd 가 fetch 되는 순간 자동으로 업데이트됨.
+  const placeholderPath = isHostPane
+    ? (paneInfo?.host?.ssh_user && paneInfo?.host?.hostname
+        ? `${paneInfo.host.ssh_user}@${paneInfo.host.hostname}`
+        : (paneInfo?.host?.hostname || '~'))
+    : '~';
   const headerPath = !loading && !disabled
-    ? displayPath
+    ? (displayPath || placeholderPath)
     : null;
+  const isPlaceholder = !loading && !disabled && !displayPath;
 
   const handleRefresh = async (e) => {
     e.preventDefault();
@@ -1851,6 +2030,8 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
     return <div style={{ flex: 1, minWidth: '4px' }} />;
   }
 
+  // placeholder 텍스트는 진짜 cwd 와 시각적으로 구분 — 살짝 흐리게 + italic.
+
   return (
     <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '0 5px' }}>
       <div style={pillStyle}>
@@ -1876,7 +2057,8 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
             userSelect: 'text',
             cursor: 'text',
             color: ui.subtext0 || ui.muted,
-            opacity: 0.82,
+            opacity: isPlaceholder ? 0.5 : 0.82,
+            fontStyle: isPlaceholder ? 'italic' : 'normal',
           }}
         >
           {headerPath}

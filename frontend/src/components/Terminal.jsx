@@ -68,13 +68,23 @@ const issueWsTicket = async (path) => {
   }
 };
 
-const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null }) => {
+const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const touchOverlayRef = useRef(null);
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
+  // WebglAddon — 비활성 탭에서는 GPU 페인팅 멈춰서 CPU/배터리 절약 (특히 모바일).
+  // 활성화 시 DOM renderer 가 인계 → 활성 복귀 시 새 WebglAddon 재부착.
+  const webglAddonRef = useRef(null);
+  // 사용자가 명시적으로 WebGL 끈 경우엔 (settings.useWebgl===false) 자동 재부착 안 함.
+  const wantWebglRef = useRef(true);
+  // 비활성 탭에서 누적된 WS 출력을 활성 복귀 시 한 번에 flush 하기 위한 ref.
+  const flushBufferedOutputRef = useRef(null);
+  // 비활성 grace-close 타이머 + close 가 inactivity 때문이었는지 표시.
+  const graceCloseTimerRef = useRef(null);
+  const wasClosedForInactivityRef = useRef(false);
   const wsRef = useRef(null);
   const wsGenerationRef = useRef(0);
   const resizeTimeoutRef = useRef(null);
@@ -131,6 +141,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   // 모바일 여부를 이벤트 리스너 내부에서 최신 상태로 참조하기 위함
   const isMobileRef = useRef(isMobile);
   useEffect(() => { isMobileRef.current = isMobile; }, [isMobile]);
+  // isActive 를 ref 로도 들고 다님 — handleResize 같은 long-lived 콜백에서 stale closure 피하기.
+  const isActiveRef = useRef(isActive);
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
 
   const [authPrompt, setAuthPrompt] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
@@ -391,7 +404,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       for (let i = 0; i < count; i++) {
         payload += `\x1b[<${button};${col};${row}M`;
       }
-      ws.send(payload);
+      // 즉시 ws.send 대신 입력 큐에 push — 트랙패드 스무스 스크롤로 초당 100+ 회 호출돼도
+      // 다음 flush 틱에 합쳐서 1회 전송. 키 입력과 같은 경로라 순서도 그대로 유지.
+      inputQueueRef.current.push(payload);
+      scheduleInputFlush(0);
     };
 
     const handleTerminalScrollDelta = (deltaY, deltaMode, clientX, clientY, source = 'wheel') => {
@@ -440,19 +456,21 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
     // 명시적으로 false 를 저장한 사용자(특정 GPU 이슈 회피용)는 그대로 OFF.
     const wantWebgl = settings?.useWebgl !== false;
-    if (wantWebgl) {
-      let webglAddon = null;
+    wantWebglRef.current = wantWebgl;
+    if (wantWebgl && isActiveRef.current) {
       try {
-        webglAddon = new WebglAddon();
+        const webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => {
           // GPU context 가 죽으면 더 못 그림 → dispose 후 자동으로 DOM 렌더러가 인계.
-          try { webglAddon?.dispose(); } catch { /* 이미 정리됨 */ }
-          webglAddon = null;
+          try { webglAddonRef.current?.dispose(); } catch { /* 이미 정리됨 */ }
+          webglAddonRef.current = null;
         });
         term.loadAddon(webglAddon);
+        webglAddonRef.current = webglAddon;
       } catch (e) {
         // 초기화 실패 (WebGL 비활성 환경, iframe 정책 등) — 조용히 폴백.
-        try { webglAddon?.dispose(); } catch { /* noop */ }
+        try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
+        webglAddonRef.current = null;
         if (localStorage.getItem('debug_terminal') === '1') {
           console.warn('[xterm] WebGL init failed, using DOM renderer:', e);
         }
@@ -762,17 +780,36 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         }
       };
 
+    // 비활성 탭에서 누적된 raw bytes 가 일정 이상 쌓이면 가장 오래된 것부터 폐기 (메모리 방어).
+    // 활성 복귀 시 tmux 가 화면을 다시 그려주므로 일부 scrollback 손실은 허용 가능.
+    const INACTIVE_BUFFER_MAX_BYTES = 8 * 1024 * 1024;
+    const dropOldestIfOverCap = () => {
+      let total = 0;
+      for (const b of wsBufferRef.current) total += b.byteLength;
+      while (total > INACTIVE_BUFFER_MAX_BYTES && wsBufferRef.current.length > 1) {
+        total -= wsBufferRef.current.shift().byteLength;
+      }
+    };
+
     const flushBufferedOutput = () => {
       wsFlushTimeoutRef.current = null;
 
       if (wsBufferRef.current.length === 0) return;
+
+      // 비활성 탭은 parse/render 비용을 미룬다 — wsBufferRef 에 누적된 채로 두고,
+      // isActive 가 true 가 되는 effect 에서 다시 flush. xterm parser CPU + cell buffer
+      // 갱신 + setState 트리거 다 절약. tmux 가 활성 시 화면 redraw 도 같이 보내옴.
+      if (!isActiveRef.current) {
+        dropOldestIfOverCap();
+        return;
+      }
 
       // wsBufferRef.current contains ArrayBuffers. We need to calculate total length and combine them.
       let totalLength = 0;
       for (const buffer of wsBufferRef.current) {
         totalLength += buffer.byteLength;
       }
-      
+
       const mergedBuffer = new Uint8Array(totalLength);
       let offset = 0;
       for (const buffer of wsBufferRef.current) {
@@ -792,6 +829,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         }
       });
     };
+    // 외부 effect 에서 활성 복귀 시 호출할 수 있게 ref 노출.
+    flushBufferedOutputRef.current = flushBufferedOutput;
 
     // 데이터 도착 시 활동 신호 — 탭 busy 인디케이터 트리거.
     // 100ms 쓰로틀로 조여 반응성 ↑ (이전 300ms 면 짧은 출력 burst 가 한 번 디스패치되고 끝나
@@ -1063,6 +1102,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     const handleResize = () => {
       // Skip intermediate fits during pane drag — a single fit fires via layoutSignal on mouseup
       if (window.__paneResizingActive) return;
+      // 비활성 탭에서는 ResizeObserver 콜백 무시 — 활성화될 때 layoutSignal 효과로 fit 됨.
+      if (!isActiveRef.current) return;
       scheduleFit(isMobileRef.current ? 160 : 32, 'observer');
       if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       resizeTrailingTimeoutRef.current = setTimeout(() => doFit('observer-trailing'), isMobileRef.current ? 360 : 140);
@@ -1070,6 +1111,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
     const handleGlobalFit = () => {
       if (window.__paneResizingActive) return;
+      if (!isActiveRef.current) return;
       scheduleFit(0, 'global');
       if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       resizeTrailingTimeoutRef.current = setTimeout(() => doFit('global-trailing'), 120);
@@ -1114,6 +1156,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       connectRef.current = null;
       runPreflightRef.current = null;
       wsBufferRef.current = [];
+      try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
+      webglAddonRef.current = null;
+      flushBufferedOutputRef.current = null;
+      if (graceCloseTimerRef.current) clearTimeout(graceCloseTimerRef.current);
+      graceCloseTimerRef.current = null;
+      wasClosedForInactivityRef.current = false;
       try { term.dispose(); } catch {}
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
@@ -1128,9 +1176,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
   /* evicted 동안 백엔드 폴링 — 다른 기기가 떨어지면(`count == 0`) 사용자 클릭 없이도 자동 재attach.
      "내가 모바일 닫고나서도 여기 사이즈가 작은 상태로 남아있다" 상황을 방지.
-     핑퐁 방지: count=0 을 2회 연속 확인한 뒤에만 재attach (단발 0 = 일시적 blip 무시). */
+     핑퐁 방지: count=0 을 2회 연속 확인한 뒤에만 재attach (단발 0 = 일시적 blip 무시).
+     비활성 탭 / 페이지 hidden 일 땐 폴링 중단 — 사용자가 그 탭을 보지 않는데 미리 재attach 할 이유 없음. */
   useEffect(() => {
-    if (!evicted) return undefined;
+    if (!evicted || !isActive) return undefined;
     const token = (typeof localStorage !== 'undefined') ? localStorage.getItem('auth_token') : null;
     const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
     if (!sessionToCheck) return undefined;
@@ -1141,6 +1190,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     let zeroStreak = 0;
     const ZERO_THRESHOLD = 2; // 2회 연속 count=0 이어야 재attach
     const tick = async () => {
+      if (document.hidden) return; // 페이지 hidden 이면 폴링 스킵 — 사용자 보이면 visibilitychange 가 다시 tick
       try {
         const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
         if (cancelled) return;
@@ -1163,12 +1213,15 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     /* 초기 대기 8s(기기가 안정화될 시간) + 이후 10s 간격으로 폴링. */
     const initial = setTimeout(tick, 8000);
     const id = setInterval(tick, 10000);
+    const onVisible = () => { if (!document.hidden) tick(); };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
       cancelled = true;
       clearTimeout(initial);
       clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [evicted, hostId, effectiveTmuxSession, sessionId]);
+  }, [evicted, isActive, hostId, effectiveTmuxSession, sessionId]);
 
   // 테마 및 설정(폰트 크기 등) 변경 시 반영
   useEffect(() => {
@@ -1341,6 +1394,80 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         xtermRef.current?.focus();
       }, 50);
       return () => clearTimeout(timer);
+    }
+  }, [isActive, isReady]);
+
+  // 활성 복귀 시 비활성 동안 쌓인 출력을 즉시 flush. tmux 도 별도로 화면 redraw 를 보내옴.
+  useEffect(() => {
+    if (!isActive) return;
+    if (flushBufferedOutputRef.current) flushBufferedOutputRef.current();
+  }, [isActive]);
+
+  // Phase 3b — 비활성 탭의 WS 를 grace period 후 close, 활성 복귀 시 즉시 재접속.
+  //   - tmux 세션은 백엔드에서 그대로 유지되므로 데이터 손실 없음.
+  //   - xterm 버퍼/스크롤백은 dispose 하지 않으므로 사용자에게 보이는 마지막 화면 유지.
+  //   - 재접속 시 tmux attach 가 현재 화면을 다시 그려서 자연스럽게 동기화.
+  // grace = 60s — 사용자가 잠깐 다른 탭 들렀다 돌아오는 경우엔 close 안 됨 (재접속 비용 0).
+  useEffect(() => {
+    const GRACE_MS = 60_000;
+    if (isActive) {
+      if (graceCloseTimerRef.current) {
+        clearTimeout(graceCloseTimerRef.current);
+        graceCloseTimerRef.current = null;
+      }
+      if (wasClosedForInactivityRef.current && connectRef.current) {
+        wasClosedForInactivityRef.current = false;
+        // 다음 unexpected close 는 다시 auto-reconnect 흐름 타게 reset.
+        intentionalCloseRef.current = false;
+        connectRef.current({ create: false });
+      }
+      return undefined;
+    }
+    if (graceCloseTimerRef.current) clearTimeout(graceCloseTimerRef.current);
+    graceCloseTimerRef.current = setTimeout(() => {
+      graceCloseTimerRef.current = null;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // evicted/ended overlay 가 떠있으면 사용자 액션 대기 중이므로 건드리지 않음.
+      if (evictedRef.current || endedRef.current) return;
+      intentionalCloseRef.current = true;
+      wasClosedForInactivityRef.current = true;
+      try { ws.close(); } catch { /* noop */ }
+    }, GRACE_MS);
+    return () => {
+      if (graceCloseTimerRef.current) {
+        clearTimeout(graceCloseTimerRef.current);
+        graceCloseTimerRef.current = null;
+      }
+    };
+  }, [isActive]);
+
+  // isActive 토글에 따라 WebglAddon detach/reattach — 비활성 탭은 GPU 페인팅 안 함.
+  // term/xterm 의 cell buffer 는 그대로 유지되므로 출력은 누락 없고, 활성 복귀 시 DOM → WebGL 로
+  // 다시 부착해서 즉시 GPU 가속 복원. settings.useWebgl===false 인 사용자는 영향 없음.
+  useEffect(() => {
+    const term = xtermRef.current;
+    if (!term || !isReady) return;
+    if (!wantWebglRef.current) return;
+    if (isActive) {
+      if (webglAddonRef.current) return; // 이미 부착돼있음
+      try {
+        const addon = new WebglAddon();
+        addon.onContextLoss(() => {
+          try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
+          webglAddonRef.current = null;
+        });
+        term.loadAddon(addon);
+        webglAddonRef.current = addon;
+      } catch (e) {
+        if (localStorage.getItem('debug_terminal') === '1') {
+          console.warn('[xterm] WebGL reattach failed, using DOM renderer:', e);
+        }
+      }
+    } else if (webglAddonRef.current) {
+      // 비활성 — addon dispose. DOM renderer 가 인계하지만 visibility:hidden 이라 페인팅 거의 안 함.
+      try { webglAddonRef.current.dispose(); } catch { /* noop */ }
+      webglAddonRef.current = null;
     }
   }, [isActive, isReady]);
 
@@ -1648,22 +1775,36 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
               </div>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              endedRef.current = false;
-              setEnded(false);
-              reconnectAttemptsRef.current = 0;
-              if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
-              else window.location.reload();
-            }}
-            style={styles.glassActionBtn(themeUi, themeUi.accent)}
-            onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
-          >
-            <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
-            {t('reconnectExistingShell') || '다시 연결'}
-          </button>
+          <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+            {onClosePane && (
+              <button
+                type="button"
+                onClick={() => { onClosePane(); }}
+                style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: 1 }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
+              >
+                <X size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
+                {t('close') || '닫기'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                endedRef.current = false;
+                setEnded(false);
+                reconnectAttemptsRef.current = 0;
+                if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
+                else window.location.reload();
+              }}
+              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: 1 }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
+            >
+              <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
+              {t('reconnectExistingShell') || '다시 연결'}
+            </button>
+          </div>
         </GlassOverlayCard>
       )}
 
@@ -1703,15 +1844,15 @@ const GlassOverlayCard = ({ themeUi, zIndex = 10040, children }) => (
     position: 'absolute', inset: 0,
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     background: 'rgba(0,0,0,0.38)',
-    backdropFilter: 'blur(5px)',
-    WebkitBackdropFilter: 'blur(5px)',
+    backdropFilter: 'blur(var(--glass-blur-overlay, 5px))',
+    WebkitBackdropFilter: 'blur(var(--glass-blur-overlay, 5px))',
     zIndex,
     fontFamily: 'inherit',
   }}>
     <div style={{
       background: `color-mix(in srgb, ${themeUi.surface0 || themeUi.base} 82%, transparent)`,
-      backdropFilter: 'blur(20px)',
-      WebkitBackdropFilter: 'blur(20px)',
+      backdropFilter: 'blur(var(--glass-blur-panel, 20px))',
+      WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 20px))',
       border: `1px solid ${themeUi.borderStrong || themeUi.border}`,
       borderRadius: '12px',
       boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)',
