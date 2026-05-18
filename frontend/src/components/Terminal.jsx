@@ -457,7 +457,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     // 명시적으로 false 를 저장한 사용자(특정 GPU 이슈 회피용)는 그대로 OFF.
     const wantWebgl = settings?.useWebgl !== false;
     wantWebglRef.current = wantWebgl;
-    if (wantWebgl && isActiveRef.current) {
+    // 한 번 부착하면 라이프타임 유지 — 비활성 탭이라도 미리 로드해놔야 활성 전환 시 깜빡임 없음.
+    if (wantWebgl) {
       try {
         const webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => {
@@ -1257,14 +1258,21 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   useEffect(() => {
     if (!isActive) return;
 
-    /* 활성 탭이 되는 순간 = 가시 영역이 처음 생기는 순간. display:none→grid 전환 직후라
-       rAF 한 프레임 뒤면 레이아웃이 확정되므로 즉시 fit. 서브탭 전환 시 squish 방지. */
+    /* 활성 탭이 되는 순간 = 가시 영역이 처음 생기는 순간. rAF 한 프레임 뒤 레이아웃 확정 후 fit.
+       단, proposed 치수가 현재 term.cols/rows 와 같으면 fit() 자체를 호출하지 않음 — term.resize 가
+       호출되면 같은 dims 라도 xterm 이 refresh 를 돌려 "미세한 확대축소" 처럼 보이는 잔상을 만든다.
+       탭 전환 시 dims 가 안 바뀌는 게 절대다수라 이 가드로 시각 변화 0. */
     let rafId = requestAnimationFrame(() => {
-      if (!fitAddonRef.current) return;
-      const proposed = fitAddonRef.current.proposeDimensions();
+      const term = xtermRef.current;
+      const fit = fitAddonRef.current;
+      if (!term || !fit) return;
+      const proposed = fit.proposeDimensions();
       if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
-      fitAddonRef.current.fit();
-      const dims = fitAddonRef.current.proposeDimensions();
+      if (proposed.cols === term.cols && proposed.rows === term.rows) {
+        return;
+      }
+      fit.fit();
+      const dims = fit.proposeDimensions();
       if (dims && dims.cols > 0 && dims.rows > 0 && wsRef.current?.readyState === WebSocket.OPEN) {
         if (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows) {
           lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
@@ -1444,34 +1452,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     };
   }, [isActive]);
 
-  // isActive 토글에 따라 WebglAddon detach/reattach — 비활성 탭은 GPU 페인팅 안 함.
-  // term/xterm 의 cell buffer 는 그대로 유지되므로 출력은 누락 없고, 활성 복귀 시 DOM → WebGL 로
-  // 다시 부착해서 즉시 GPU 가속 복원. settings.useWebgl===false 인 사용자는 영향 없음.
-  useEffect(() => {
-    const term = xtermRef.current;
-    if (!term || !isReady) return;
-    if (!wantWebglRef.current) return;
-    if (isActive) {
-      if (webglAddonRef.current) return; // 이미 부착돼있음
-      try {
-        const addon = new WebglAddon();
-        addon.onContextLoss(() => {
-          try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
-          webglAddonRef.current = null;
-        });
-        term.loadAddon(addon);
-        webglAddonRef.current = addon;
-      } catch (e) {
-        if (localStorage.getItem('debug_terminal') === '1') {
-          console.warn('[xterm] WebGL reattach failed, using DOM renderer:', e);
-        }
-      }
-    } else if (webglAddonRef.current) {
-      // 비활성 — addon dispose. DOM renderer 가 인계하지만 visibility:hidden 이라 페인팅 거의 안 함.
-      try { webglAddonRef.current.dispose(); } catch { /* noop */ }
-      webglAddonRef.current = null;
-    }
-  }, [isActive, isReady]);
+  // 과거에는 isActive 토글마다 WebglAddon 을 detach/reattach 해 비활성 GPU 비용을 줄였지만,
+  // 재부착 시 캔버스 재생성 + 버퍼 전체 repaint 가 탭 전환 때 가시 깜빡임을 만들었다.
+  // 이제는 마운트 시 1회 부착하고 라이프타임 동안 유지 — 비활성 탭은 어차피 deferred xterm.write 가
+  // 새 데이터를 안 흘리므로 paint 거의 일어나지 않음.
 
   // 전역 세션 관리자에 현재 활성 함수 등록
   useEffect(() => {
