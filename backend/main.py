@@ -926,6 +926,10 @@ class UserSettingsRequest(BaseModel):
 class TabStateRequest(BaseModel):
     tabs: list
     activeTabId: str | None = None
+    # 클라이언트가 마지막으로 본 서버 updatedAt — optimistic locking.
+    # 값이 주어졌는데 현재 서버 값과 다르면 PUT 거부(409) + 최신 상태 반환.
+    # 다중 기기에서 stale 한 클라이언트가 더 풍부한 상태(분할 pane 등)를 덮어쓰는 사고 방지.
+    ifMatch: str | None = None
 
 
 async def _sanitize_tab_state(tabs: list, active_tab_id: str | None) -> tuple[list, str | None]:
@@ -1010,9 +1014,20 @@ async def put_tab_state(
 ):
     """탭 전체 상태 저장. 프론트엔드가 변경 시마다 (debounced) 호출.
     응답의 updatedAt 을 클라이언트가 기억해 두면 자기 자신의 PUT 을 폴링에서 무시할 수 있다.
+
+    Optimistic locking — request.ifMatch 가 주어졌고 현재 서버 updatedAt 과 다르면 409 + current.
+    이렇게 해야 stale 한 두 번째 기기가 더 풍부한 첫 번째 기기 상태를 덮어쓰는 사고를 막는다.
     """
     if not isinstance(request.tabs, list):
         raise HTTPException(status_code=400, detail="tabs must be an array")
+    if request.ifMatch:
+        current_updated_at = await storage.get_tab_state_updated_at(username)
+        if current_updated_at and request.ifMatch != current_updated_at:
+            current_state = await storage.get_tab_state(username) or {"tabs": [], "activeTabId": None, "updatedAt": current_updated_at}
+            return JSONResponse(
+                status_code=409,
+                content={"detail": "tab-state version mismatch", "current": current_state},
+            )
     tabs, active_tab_id = await _sanitize_tab_state(request.tabs, request.activeTabId)
     updated_at = await storage.save_tab_state(username, tabs, active_tab_id)
     return {"status": "saved", "updatedAt": updated_at}

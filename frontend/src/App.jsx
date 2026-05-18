@@ -306,9 +306,17 @@ function App() {
 
   // tabs/activeTabId 변경 시 서버에 저장 (debounced 800ms) — 기기 간 완전 동기화.
   // 응답의 updatedAt 을 기억해 폴링에서 자기 변경 재적용을 막음.
+  //
+  // 두 안전망:
+  //   1) isRestoringWorkspace 동안엔 save 자체 차단 — 초기 localStorage 상태가 서버 상태를
+  //      덮어쓰는 race 방지. restore 가 끝난 뒤 진짜 사용자 변경부터만 PUT.
+  //   2) ifMatch (= 마지막으로 본 서버 updatedAt) 동봉 — 다른 기기가 그 사이 더 새 상태를
+  //      썼다면 서버가 409 반환. 그땐 즉시 서버 상태로 동기화 (stale 클라이언트가 더 풍부한
+  //      상태를 덮어쓰는 사고 방지).
   const _saveTabTimer = useRef(null);
   useEffect(() => {
     if (!isAuthenticated) return;
+    if (isRestoringWorkspace) return;
     localDirtyRef.current = true;
     if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current);
     _saveTabTimer.current = setTimeout(async () => {
@@ -318,9 +326,19 @@ function App() {
         const res = await fetch('/api/tab-state', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ tabs, activeTabId }),
+          body: JSON.stringify({
+            tabs,
+            activeTabId,
+            ifMatch: lastAppliedTabVersionRef.current,
+          }),
         });
-        if (res.ok) {
+        if (res.status === 409) {
+          // 다른 기기가 더 새 상태로 먼저 썼음 — 서버 상태로 즉시 동기화.
+          const conflict = await res.json().catch(() => null);
+          if (conflict?.current) {
+            await applyServerTabState(conflict.current);
+          }
+        } else if (res.ok) {
           const data = await res.json().catch(() => null);
           if (data?.updatedAt) lastAppliedTabVersionRef.current = data.updatedAt;
         }
@@ -328,7 +346,7 @@ function App() {
       localDirtyRef.current = false;
     }, 800);
     return () => { if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current); };
-  }, [tabs, activeTabId, isAuthenticated]);
+  }, [tabs, activeTabId, isAuthenticated, isRestoringWorkspace, applyServerTabState]);
 
   // 다른 기기 (PC↔모바일) 변경 폴링 — 2.5초마다 가벼운 version 체크,
   // 다르면 풀 GET. 로컬 입력 중 (dirty) 이면 스킵 — 사용자의 키 입력이
