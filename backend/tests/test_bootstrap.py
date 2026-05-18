@@ -58,9 +58,9 @@ async def test_idempotent_when_host_already_registered(storage_mock, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_registers_with_tmux_when_probe_succeeds(storage_mock, monkeypatch, tmp_key):
+async def test_registers_with_tmux_when_probe_says_yes(storage_mock, monkeypatch, tmp_key):
     monkeypatch.setenv("BOOTSTRAP_HOST_KEY_PATH", tmp_key)
-    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value=True)):
+    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value="yes")):
         await bootstrap.register_bootstrap_host()
     storage_mock.create_ssh_key.assert_awaited_once()
     storage_mock.upsert_host.assert_awaited_once()
@@ -73,14 +73,25 @@ async def test_registers_with_tmux_when_probe_succeeds(storage_mock, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_registers_without_tmux_when_probe_fails(storage_mock, monkeypatch, tmp_key):
+async def test_registers_without_tmux_when_probe_says_no(storage_mock, monkeypatch, tmp_key):
     monkeypatch.setenv("BOOTSTRAP_HOST_KEY_PATH", tmp_key)
-    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value=False)):
+    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value="no")):
         await bootstrap.register_bootstrap_host()
-    # 호스트는 등록 — 사용자가 SSH 로 들어가 tmux 설치 후 직접 토글하라는 의도.
+    # SSH 통과 + tmux 부재 — 사용자가 들어가 설치 후 토글
     storage_mock.upsert_host.assert_awaited_once()
     fields = storage_mock.upsert_host.await_args.kwargs
     assert fields["use_remote_tmux"] == 0
+
+
+@pytest.mark.asyncio
+async def test_registers_with_tmux_when_probe_unknown(storage_mock, monkeypatch, tmp_key):
+    """MFA 등으로 SSH probe 실패 — tmux 있다고 가정해서 use_remote_tmux=1 (사용자 OTP 입력해 통과)."""
+    monkeypatch.setenv("BOOTSTRAP_HOST_KEY_PATH", tmp_key)
+    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value="unknown")):
+        await bootstrap.register_bootstrap_host()
+    storage_mock.upsert_host.assert_awaited_once()
+    fields = storage_mock.upsert_host.await_args.kwargs
+    assert fields["use_remote_tmux"] == 1
 
 
 @pytest.mark.asyncio
@@ -91,7 +102,7 @@ async def test_env_overrides_defaults(storage_mock, monkeypatch, tmp_key):
     monkeypatch.setenv("BOOTSTRAP_HOST_PORT", "2222")
     monkeypatch.setenv("BOOTSTRAP_HOST_NAME", "Custom")
     monkeypatch.setenv("BOOTSTRAP_HOST_START_PATH", "/srv/app")
-    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value=True)):
+    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value="yes")):
         await bootstrap.register_bootstrap_host()
     fields = storage_mock.upsert_host.await_args.kwargs
     assert fields["hostname"] == "10.0.0.5"
@@ -107,7 +118,7 @@ async def test_reuses_existing_bootstrap_key(storage_mock, monkeypatch, tmp_key)
     storage_mock.list_ssh_keys.return_value = [
         {"id": "existing-key-id", "name": bootstrap.BOOTSTRAP_KEY_NAME}
     ]
-    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value=True)):
+    with patch.object(bootstrap, "_probe_remote_tmux", AsyncMock(return_value="yes")):
         await bootstrap.register_bootstrap_host()
     storage_mock.create_ssh_key.assert_not_awaited()
     fields = storage_mock.upsert_host.await_args.kwargs

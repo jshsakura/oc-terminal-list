@@ -90,8 +90,14 @@ async def register_bootstrap_host() -> None:
     tmux_session = (os.getenv("BOOTSTRAP_HOST_TMUX_SESSION") or DEFAULT_TMUX_SESSION).strip()
     start_path = (os.getenv("BOOTSTRAP_HOST_START_PATH") or "").strip() or None
 
-    # 호스트에 tmux 가 실제로 깔려있는지 미리 확인 — 영속 세션의 핵심 의존이라 없으면 경고.
-    tmux_ok = await _probe_remote_tmux(hostname, port, ssh_user, key_path)
+    # tmux 사전 확인 — 3-상태 결과:
+    #   "yes"     : SSH 통과 + tmux 있음 → use_remote_tmux=1
+    #   "no"      : SSH 통과 + tmux 없음 → use_remote_tmux=0 + 안내 경고
+    #   "unknown" : SSH 자체 실패 (MFA / 네트워크 / 키 미인가 등) → tmux 있다고 가정하고 1
+    #               (호스트 sshd 가 MFA 강제하는 흔한 케이스. 첫 사용자 attach 시 OTP 입력으로
+    #               통과되고 tmux 도 보통 깔려있다는 가정. 없으면 그때 알아채고 토글 끄면 됨)
+    tmux_status = await _probe_remote_tmux(hostname, port, ssh_user, key_path)
+    use_tmux = 0 if tmux_status == "no" else 1
     host_id = str(uuid.uuid4())
     await storage.upsert_host(
         host_id, username,
@@ -101,27 +107,34 @@ async def register_bootstrap_host() -> None:
         ssh_user=ssh_user,
         auth_method="key",
         key_id=key_id,
-        use_remote_tmux=1 if tmux_ok else 0,  # 없으면 비-영속 모드로 등록 (사용자가 호스트에 깔면 UI 에서 재활성)
+        use_remote_tmux=use_tmux,
         remote_tmux_session=tmux_session,
         start_path=start_path,
         color_index=0,
     )
     logger.info(
         "bootstrap: registered host '%s' (%s@%s:%d, key, tmux=%s)",
-        name, ssh_user, hostname, port, "yes" if tmux_ok else "MISSING",
+        name, ssh_user, hostname, port, tmux_status,
     )
-    if not tmux_ok:
+    if tmux_status == "no":
         logger.warning(
-            "bootstrap: host '%s' registered WITHOUT remote tmux (probe failed or tmux missing). "
-            "You can still SSH in normally — connect, install tmux on the host "
-            "(e.g. `sudo apt install tmux` / `brew install tmux`), then toggle "
-            "'Remote tmux' on from the host settings to get persistent sessions.",
+            "bootstrap: host '%s' has SSH access but no tmux installed. "
+            "Connect once, run `sudo apt install tmux` / `brew install tmux`, "
+            "then enable 'Remote tmux' from host settings for persistent sessions.",
             name,
+        )
+    elif tmux_status == "unknown":
+        logger.info(
+            "bootstrap: tmux probe could not run (likely MFA-protected sshd). "
+            "Assuming tmux is available. On first attach you'll see the usual "
+            "OTP prompt; if tmux is actually missing, disable 'Remote tmux' "
+            "from host settings.",
         )
 
 
-async def _probe_remote_tmux(hostname: str, port: int, ssh_user: str, key_path: str) -> bool:
-    """등록한 호스트로 SSH 한 번 붙어서 tmux 가 PATH 에 있는지 확인. 성공 시 True."""
+async def _probe_remote_tmux(hostname: str, port: int, ssh_user: str, key_path: str) -> str:
+    """등록한 호스트로 SSH 한 번 붙어서 tmux 가 PATH 에 있는지 확인.
+    반환값: "yes" | "no" | "unknown" (unknown = SSH 자체 실패, MFA 강제 등)."""
     try:
         import asyncssh  # 백엔드 dep
         with open(key_path, "r", encoding="utf-8") as f:
@@ -136,7 +149,7 @@ async def _probe_remote_tmux(hostname: str, port: int, ssh_user: str, key_path: 
             connect_timeout=8,
         ) as conn:
             result = await conn.run("command -v tmux >/dev/null 2>&1 && echo yes || echo no", check=False)
-            return (result.stdout or "").strip().endswith("yes")
+            return "yes" if (result.stdout or "").strip().endswith("yes") else "no"
     except Exception as e:
-        logger.warning("bootstrap: tmux probe failed for %s@%s:%d — %s", ssh_user, hostname, port, e)
-        return False
+        logger.info("bootstrap: tmux probe could not connect to %s@%s:%d (%s)", ssh_user, hostname, port, e)
+        return "unknown"
