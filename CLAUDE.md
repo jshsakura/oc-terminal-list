@@ -21,13 +21,19 @@ workspace/      User file workspace (not committed)
 
 ## Deploy (container — recommended)
 
-```bash
-# (one-time) drop your private key for the host you want to attach
-cp ~/.ssh/id_ed25519 secrets/ssh-key && chmod 600 secrets/ssh-key
+Two variants. Bridge network is the default; host network is the alternative for when you want the container to share the host's network namespace directly (no docker-proxy, sees Tailscale/private IPs as the host does).
 
+```bash
+# Bridge network (default — isolated, with bundled Redis):
 docker compose up -d
+
+# Host network (no port mapping, no docker-proxy, no bundled Redis):
+docker compose -f compose.host.yml up -d
+
 open http://localhost:38822
 ```
+
+Register your SSH hosts through the UI ("Hosts" → add) — the standard path.
 
 Bundle contents:
 - `app` — backend + frontend (built into `backend/static` at image build time)
@@ -37,16 +43,16 @@ Volumes:
 - `./data:/app/data` (bind) — SQLite DB + vault key, lives in repo's `data/`
 - `./workspace:/workspace` (bind) — sandbox shell work files
 - `oc-terminal-list-redis-data:/data` (named) — Redis AOF (separate UID, so named)
-- `./secrets:/app/secrets:ro` (bind) — read-only SSH key for bootstrap host
 
 CI: `.github/workflows/ghcr-publish.yml` pushes `ghcr.io/jshsakura/oc-terminal-list:latest` on every `main` push.
 
-Host auto-register (see `backend/bootstrap.py`):
-- Trigger: presence of `secrets/ssh-key` at startup
-- Defaults: `host.docker.internal:22`, user `ubuntu`, auth=key, remote tmux ON
-- `BOOTSTRAP_HOST_*` env vars override defaults if needed
-- If host has no tmux installed, the host is still registered (use_remote_tmux=0); user SSHes in, installs tmux, flips toggle in host settings to gain persistent sessions
-- Idempotent — same-name host not re-created on subsequent boots
+Host auto-register (off by default, opt-in — see `backend/bootstrap.py`):
+- Default: disabled. The standard path is registering hosts through the UI.
+- Enable: set `BOOTSTRAP_HOST_ENABLE=1` and mount `./secrets:/app/secrets:ro` with `secrets/ssh-key`.
+- Defaults when enabled: `host.docker.internal:22`, user `ubuntu`, auth=key, remote tmux ON.
+- `BOOTSTRAP_HOST_*` env vars override defaults if needed.
+- Idempotent — same-name host not re-created on subsequent boots.
+- Caveat: re-running on every container restart can fight with tab-state restore (a renamed/deleted bootstrap host can be re-created with the default name), so prefer manual UI registration unless you understand the trade-off.
 
 ## Deploy (host systemd — legacy / dev box)
 

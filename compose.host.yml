@@ -1,0 +1,41 @@
+# Terminal List — host-network 변형.
+#
+# 사용 케이스: 컨테이너 안에서 호스트 네트워크/포트를 그대로 쓰고 싶을 때.
+#   - 호스트의 다른 데몬과 같은 네트워크 네임스페이스 → localhost / Tailscale / 사설 IP 즉시 접근
+#   - 포트 매핑 없음 → APP_PORT 가 호스트 포트로 직접 노출됨
+#   - 별도 docker bridge 없음 → host.docker.internal 도 필요 없음
+#
+# 사용:
+#   docker compose -f compose.host.yml up -d
+#   open http://localhost:38822
+#
+# 제약:
+#   - Linux 전용 (Docker Desktop Mac/Win 의 host 네트워크 모드는 제한적/실험적)
+#   - compose 의 service network 가 비어 있어 다른 컨테이너와 격리되지 않음 — 포트 충돌 주의
+#   - Redis 는 이 compose 파일에 포함하지 않음. 캐시는 기본 in-memory 로 떨어지며,
+#     실 Redis 가 필요하면 host 의 기존 redis 인스턴스를 REDIS_URL 로 가리키면 된다.
+#
+# 호스트 등록은 UI 에서 직접 — 호스트 네트워크라 SSH 대상도 그대로 보인다.
+services:
+  app:
+    image: ghcr.io/jshsakura/oc-terminal-list:latest
+    container_name: oc-terminal-list
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      HOST: 0.0.0.0
+      APP_PORT: ${APP_PORT:-38822}
+      DB_PATH: /app/data/iterminallist.db
+      WORKSPACE_ROOT: /workspace
+      # 비워두면 in-memory 캐시. 호스트에 redis 가 떠 있으면 아래처럼 가리켜도 OK.
+      # REDIS_URL: redis://127.0.0.1:6379/0
+      REDIS_URL: ""
+    volumes:
+      - ./data:/app/data
+      - ./workspace:/workspace
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${APP_PORT:-38822}/api/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s

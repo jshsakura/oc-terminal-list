@@ -1,11 +1,15 @@
 """
-컨테이너 부팅 시 호스트 자동 등록.
+컨테이너 부팅 시 호스트 자동 등록 (opt-in).
 
-UX 원칙: 사용자가 secrets/ssh-key 파일 하나만 두면 끝. 나머지는 다 자동.
+실제 배포에선 기본 OFF. 사용자 설정 화면에서 직접 호스트를 등록하는 게 표준 경로다 —
+자동 등록은 매번 부팅마다 "Docker Host" 가 살아나서 탭 복원과 충돌하는 등 부작용이 있었다.
 
-자동 감지:
-  - 트리거: /app/secrets/ssh-key 파일이 존재 → 자동등록 진행
-  - 호스트 주소: host.docker.internal (Docker Desktop/Linux의 표준 호스트 게이트웨이)
+활성화:
+  BOOTSTRAP_HOST_ENABLE=1   (이 env 가 1/true 가 아니면 아무것도 안 함)
+  + /app/secrets/ssh-key 파일 마운트
+
+활성화 시 자동 감지:
+  - 호스트 주소: host.docker.internal (Docker Desktop/Linux 표준 호스트 게이트웨이)
   - SSH 유저: ubuntu (가장 흔한 기본값)
   - tmux: ON (컨테이너 재기동에도 셸 영속)
 
@@ -65,7 +69,16 @@ async def _ensure_bootstrap_key(username: str, key_path: str) -> str | None:
     return key_id
 
 
+def _is_enabled() -> bool:
+    """BOOTSTRAP_HOST_ENABLE 이 '1' / 'true' / 'yes' / 'on' (대소문자 무시) 일 때만 True."""
+    raw = (os.getenv("BOOTSTRAP_HOST_ENABLE") or "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 async def register_bootstrap_host() -> None:
+    if not _is_enabled():
+        return  # 기본 OFF — opt-in env 가 켜져있지 않으면 아무것도 안 함
+
     key_path = os.getenv("BOOTSTRAP_HOST_KEY_PATH", "").strip() or DEFAULT_KEY_PATH
     if not os.path.exists(key_path):
         return  # 키 파일 없음 → 자동등록 미사용 (정상 경로)

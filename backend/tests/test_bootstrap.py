@@ -1,6 +1,7 @@
 """
-bootstrap.register_bootstrap_host 의 5가지 시나리오:
+bootstrap.register_bootstrap_host 의 시나리오:
 
+  0) BOOTSTRAP_HOST_ENABLE 안 켜져 있음 → no-op (기본 OFF, opt-in)
   1) key 파일 없음 → no-op (자동등록 미사용 정상 경로)
   2) key 있으나 admin 미설정 → silent skip
   3) 같은 name 호스트 이미 등록 → idempotent skip
@@ -23,6 +24,12 @@ def storage_mock():
         m.create_ssh_key = AsyncMock(return_value=None)
         m.upsert_host = AsyncMock(return_value=None)
         yield m
+
+
+@pytest.fixture(autouse=True)
+def _enable_bootstrap(monkeypatch):
+    """모든 시나리오는 opt-in 게이트가 켜진 상태를 가정. (별도 OFF 케이스만 직접 unset)"""
+    monkeypatch.setenv("BOOTSTRAP_HOST_ENABLE", "1")
 
 
 @pytest.fixture
@@ -130,5 +137,26 @@ async def test_skips_when_key_file_empty(storage_mock, monkeypatch, tmp_path):
     empty_key = tmp_path / "empty-key"
     empty_key.write_text("")
     monkeypatch.setenv("BOOTSTRAP_HOST_KEY_PATH", str(empty_key))
+    await bootstrap.register_bootstrap_host()
+    storage_mock.upsert_host.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_skip_when_bootstrap_disabled(storage_mock, monkeypatch, tmp_key):
+    """opt-in 게이트가 꺼져 있으면 키 파일이 있어도 아무것도 안 함."""
+    monkeypatch.delenv("BOOTSTRAP_HOST_ENABLE", raising=False)
+    monkeypatch.setenv("BOOTSTRAP_HOST_KEY_PATH", tmp_key)
+    await bootstrap.register_bootstrap_host()
+    storage_mock.upsert_host.assert_not_awaited()
+    storage_mock.get_admin.assert_not_awaited()
+    storage_mock.list_hosts.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("falsy", ["0", "false", "no", "off", "", "anything-else"])
+async def test_bootstrap_enable_falsy_values(storage_mock, monkeypatch, tmp_key, falsy):
+    """1/true/yes/on 만 켜진 것으로 인식 — 그 외는 OFF."""
+    monkeypatch.setenv("BOOTSTRAP_HOST_ENABLE", falsy)
+    monkeypatch.setenv("BOOTSTRAP_HOST_KEY_PATH", tmp_key)
     await bootstrap.register_bootstrap_host()
     storage_mock.upsert_host.assert_not_awaited()

@@ -4,9 +4,9 @@
 #   docker compose up -d
 #   open http://localhost:38822
 #
-# 호스트 자동 등록:
-#   ./secrets/ssh-key 에 private key 를 두면 첫 부팅 시 'Docker Host' 가 자동 등록된다.
-#   기본 hostname=host.docker.internal, user=ubuntu. 필요시 BOOTSTRAP_HOST_* env 로 override.
+# 호스트 등록은 UI 에서 직접 — 자동 등록은 기본 OFF.
+# (자동 등록을 굳이 쓰고 싶으면 BOOTSTRAP_HOST_ENABLE=1 + ./secrets/ssh-key 마운트.
+#  여러 번 재부팅 시 탭 복원과 충돌하는 부작용이 있어 권장하지 않음.)
 #
 # 포트 바꾸기:
 #   APP_PORT=9000 docker compose up -d  (또는 .env 에 설정)
@@ -25,7 +25,9 @@ services:
       # 컨테이너 내 Redis — compose 네트워크의 서비스명을 host 로 사용
       REDIS_URL: redis://redis:6379/0
       #
-      # (선택) 호스트 자동 등록 override — secrets/ssh-key 만 있으면 아래 없이도 동작.
+      # (선택) 호스트 자동 등록 — 기본 OFF. 켜고 싶으면 아래 줄 주석 해제하고
+      # ./secrets/ssh-key 파일을 두면 첫 부팅 시 host.docker.internal 호스트가 등록된다.
+      # BOOTSTRAP_HOST_ENABLE: "1"
       # BOOTSTRAP_HOST_HOSTNAME: host.docker.internal
       # BOOTSTRAP_HOST_USER: ubuntu
       # BOOTSTRAP_HOST_NAME: "Docker Host"
@@ -34,8 +36,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./workspace:/workspace
-      # SSH key 마운트 (read-only) — 호스트 자동 등록용. 키 없으면 자동등록 비활성.
-      - ./secrets:/app/secrets:ro
+      # 자동 등록 켰을 때만 필요한 read-only key 마운트. 일반 사용에선 불필요.
+      # - ./secrets:/app/secrets:ro
     # Linux 에서도 host.docker.internal 을 호스트 게이트웨이로 매핑 (Docker Desktop 기본 제공).
     extra_hosts:
       - "host.docker.internal:host-gateway"
