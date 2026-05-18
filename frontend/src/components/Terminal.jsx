@@ -165,8 +165,15 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     setEdgeGutter(next);
   }, []);
   // authPrompt 열고 닫을 때 전역 이벤트 — App.jsx 가 모바일 단축키바를 그동안 숨김.
+  // 언마운트 시 강제 close — TrueNAS MFA 시도 중 탭 닫으면 App 의 authPromptOpen 이
+  // true 로 stuck 되어 모바일바가 전체 탭에서 사라지는 버그 방지.
   useEffect(() => {
     window.dispatchEvent(new CustomEvent('iterm:auth-prompt', { detail: { open: !!authPrompt } }));
+    return () => {
+      if (authPrompt) {
+        window.dispatchEvent(new CustomEvent('iterm:auth-prompt', { detail: { open: false } }));
+      }
+    };
   }, [authPrompt]);
 
   // 스마트 스크롤 훅 — xterm buffer API 기반 (DOM scrollTop 아님)
