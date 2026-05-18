@@ -68,7 +68,7 @@ const issueWsTicket = async (path) => {
   }
 };
 
-const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null }) => {
+const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null }) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const touchOverlayRef = useRef(null);
@@ -1388,14 +1388,16 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     searchAddonRef.current?.clearDecorations();
   }, []);
 
+  // 키보드 포커스는 visible 한 pane 들 중 "focused" 한 1개에만 줘야 한다.
+  // 분할(grid) 레이아웃에서 4 pane 모두 isActive=true 이지만 isFocused 는 1개뿐.
   useEffect(() => {
-    if (isActive && xtermRef.current && isReady) {
+    if (isActive && isFocused && xtermRef.current && isReady) {
       const timer = setTimeout(() => {
         xtermRef.current?.focus();
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [isActive, isReady]);
+  }, [isActive, isFocused, isReady]);
 
   // 활성 복귀 시 비활성 동안 쌓인 출력을 즉시 flush. tmux 도 별도로 화면 redraw 를 보내옴.
   useEffect(() => {

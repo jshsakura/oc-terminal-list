@@ -1025,7 +1025,12 @@ const Pane = ({
                 tabId={tab?.id}
                 cwd={pane.cwd ?? cwd}
                 settings={paneSettings}
-                isActive={isActive && isFocused}
+                /* isActive = 탭 활성 여부 (split grid 의 모든 pane 이 동시에 보이므로 visible).
+                   isFocused = 같은 탭 내 어느 pane 이 키보드 포커스 받을지 (분할 시 1개만 true).
+                   이 둘을 분리하지 않으면 분할 탭의 비-focused pane 이 inactive 로 평가돼
+                   WebGL/WS/parse 가 다 꺼지고 클릭해야 살아나는 문제. */
+                isActive={isActive}
+                isFocused={isFocused}
                 layoutSignal={`${layoutSignal}:${pane.id}`}
                 onTakeOver={() => setRefreshNonce((n) => n + 1)}
                 onReadyChange={setTerminalReady}
