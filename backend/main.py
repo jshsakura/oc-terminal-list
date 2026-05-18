@@ -119,6 +119,13 @@ async def lifespan(_app: FastAPI):
             logger.info("usage: closed %d orphan session rows", closed)
     except Exception as e:
         logger.warning("usage orphan close failed: %s", e)
+    # 컨테이너 배포에서 BOOTSTRAP_HOST_* env 가 세팅돼있으면 호스트 자동 등록.
+    # admin 미설정이거나 이미 같은 이름 host 있으면 silent skip (idempotent).
+    try:
+        from bootstrap import register_bootstrap_host
+        await register_bootstrap_host()
+    except Exception as e:
+        logger.warning("bootstrap host registration failed: %s", e)
     ssh_pool.start_janitor(idle_timeout=300)
     try:
         yield

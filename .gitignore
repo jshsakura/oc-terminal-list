@@ -56,6 +56,10 @@ backend/data/
 data/.vault-key
 backend/data/.vault-key
 
+# 컨테이너 부팅 시 마운트되는 SSH 키 (절대 커밋 금지) — .gitkeep 은 dir 만 살림
+secrets/*
+!secrets/.gitkeep
+
 # Claude
 .claude/
 
