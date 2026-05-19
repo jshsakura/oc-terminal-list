@@ -429,27 +429,24 @@ const styles = {
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
     background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
   },
-  // 음성 입력 토글. ghost Button 과 시각적으로 비슷하되, 활성 상태에서 점/펄스를
-  // 보여주기 위해 별도 inline 버튼으로 구현.
+  // 음성 입력 토글. Send 버튼(primary, height 30px)과 대칭으로 항상 채워진 빨강.
+  // 활성 시 keyframe pulse 링이 더해진다.
   micBtn: {
     position: 'relative',
-    width: '28px',
-    height: '28px',
+    width: '30px',
+    height: '30px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'transparent',
-    color: `var(--ui-subtext, ${color.subtext})`,
-    border: `1px solid var(--ui-border, ${color.border})`,
+    background: `var(--ui-danger, ${color.danger})`,
+    color: `var(--ui-crust, ${color.crust})`,
+    border: '1px solid transparent',
     borderRadius: radius.sm,
-    transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}`,
+    transition: `opacity ${motion.fast}, background ${motion.fast}`,
     outline: 'none',
     padding: 0,
   },
   micBtnActive: {
-    color: `var(--ui-danger, ${color.danger})`,
-    borderColor: `color-mix(in srgb, var(--ui-danger, ${color.danger}) 55%, transparent)`,
-    background: `color-mix(in srgb, var(--ui-danger, ${color.danger}) 12%, transparent)`,
     animation: 'commandInputMicPulse 1.4s ease-out infinite',
   },
   micDot: {
@@ -459,8 +456,8 @@ const styles = {
     width: '6px',
     height: '6px',
     borderRadius: '50%',
-    background: `var(--ui-danger, ${color.danger})`,
-    boxShadow: `0 0 4px color-mix(in srgb, var(--ui-danger, ${color.danger}) 80%, transparent)`,
+    background: `var(--ui-crust, ${color.crust})`,
+    boxShadow: `0 0 4px color-mix(in srgb, var(--ui-crust, ${color.crust}) 70%, transparent)`,
   },
 };
 

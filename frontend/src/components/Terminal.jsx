@@ -25,6 +25,22 @@ import {
   shouldRouteWheelToPty,
   shouldClearSelectionOnScroll,
 } from '../utils/terminalMouseSelection';
+import { pushCommand as pushCommandHistory } from '../utils/commandHistory';
+
+// onData / sendData 가 통과한 데이터 중 어떤 것이 "히스토리에 기록할 만한 명령" 인지 판정.
+// 단일 키스트로크와 escape sequence 를 거르고, multi-char 입력만 통과 — paste / Quick Input / IME 조합.
+const looksLikeBulkCommand = (data) => {
+  if (typeof data !== 'string') return false;
+  if (data.length < 2) return false;
+  if (data.charCodeAt(0) === 0x1b) return false; // ANSI escape
+  // 한 글자라도 가시문자가 있어야 함
+  let hasPrintable = false;
+  for (let i = 0; i < data.length; i += 1) {
+    const c = data.charCodeAt(i);
+    if (c >= 0x20 && c !== 0x7f) { hasPrintable = true; break; }
+  }
+  return hasPrintable;
+};
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 const RECOVERY_GRACE_MS = 12000;
@@ -1064,6 +1080,11 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     };
 
     term.onData((data) => {
+      // paste / IME 조합 등 multi-char 입력을 이 터미널의 히스토리에 기록.
+      // 단일 키스트로크는 노이즈가 커서 스킵 — 사용자가 "어디서 보냈더라" 찾고 싶은 건 보통 multi-char.
+      if (looksLikeBulkCommand(data)) {
+        try { pushCommandHistory(sessionId, data); } catch { /* 저장 실패해도 입력은 진행 */ }
+      }
       const ws = wsRef.current;
       // WS 가 아직 OPEN 이 아니거나(reconnect 직후·언마운트 사이 깜빡임) CLOSING 상태여도
       // 입력을 버리지 않고 큐에 적재해 다음 OPEN 또는 flush 틱에 전송. drop 으로 인한
@@ -1318,12 +1339,16 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     }
   };
 
-  // 외부 전송용 핸들러 (MobileToolbar 등에서 사용)
+  // 외부 전송용 핸들러 (MobileToolbar / Quick Input 등에서 사용)
   const sendData = useCallback((data) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(data);
+      // 외부에서 들어온 multi-char 전송 (Quick Input 등) 도 이 터미널의 히스토리에 기록.
+      if (looksLikeBulkCommand(data)) {
+        try { pushCommandHistory(sessionId, data); } catch { /* noop */ }
+      }
     }
-  }, []);
+  }, [sessionId]);
 
   const getSelection = useCallback(() => {
     return xtermRef.current?.getSelection() || '';

@@ -804,6 +804,8 @@ const Pane = ({
   return (
     <div
       ref={setPaneRef}
+      // CommandInput 모달이 이 pane 위에 띄울 수 있도록 — querySelector('[data-pane-id]') 로 rect 추적.
+      data-pane-id={pane.id}
       // capture phase 로 받아서 xterm.js 가 mouse 이벤트 소비 전에 pane focus 를 보장
       onPointerDownCapture={() => { onFocus?.(); }}
       onMouseEnter={() => setHover(true)}

@@ -17,6 +17,8 @@ import SkeletonRow from './common/SkeletonRow';
 import ChangesList from './ChangesList';
 import ThemePicker from './common/ThemePicker';
 import useGitChanges from '../hooks/useGitChanges';
+import useCommandHistory from '../hooks/useCommandHistory';
+import { removeCommand as removeHistoryCommand, clearCommandsFor as clearHistoryFor } from '../utils/commandHistory';
 import RailIconBtn from './common/RailIconBtn';
 import HostIcon from '../utils/hostIcons';
 
@@ -130,6 +132,27 @@ const TerminalHeader = ({
   const [splitMenu, setSplitMenu] = useState(null);
   const splitBtnRef = useRef(null);
   const splitMenuClosedAtRef = useRef(0);
+  // Eye 아이콘 클릭 → 이 터미널의 명령 히스토리 popover.
+  // Anchor 는 button rect (RailSubMenu 와 동일 패턴).
+  const [historyMenu, setHistoryMenu] = useState(null);
+  const eyeBtnRef = useRef(null);
+  const historyMenuClosedAtRef = useRef(0);
+  const handleEyeClick = useCallback(() => {
+    if (historyMenu) {
+      setHistoryMenu(null);
+      historyMenuClosedAtRef.current = Date.now();
+      return;
+    }
+    if (Date.now() - historyMenuClosedAtRef.current < 300) return;
+    if (eyeBtnRef.current) {
+      const rect = eyeBtnRef.current.getBoundingClientRect();
+      setHistoryMenu({ x: rect.right, y: rect.bottom + 4 });
+    }
+  }, [historyMenu]);
+  const closeHistoryMenu = useCallback(() => {
+    setHistoryMenu(null);
+    historyMenuClosedAtRef.current = Date.now();
+  }, []);
   const [panelResizeHot, setPanelResizeHot] = useState(false);
   const [panelResizing, setPanelResizing] = useState(false);
 
@@ -455,13 +478,16 @@ const TerminalHeader = ({
                 ? (t?.('sessionTakenOver') || 'Session taken over')
                 : (t?.('terminalBusy') || 'Terminal is active');
               const eyeTitle = isFocused ? (t?.('paneFocused') || 'Focused') : (t?.('paneUnfocused') || 'Unfocused');
+              const clickTitle = t?.('showHistory') || 'Show recent commands';
               return (
-                <div style={{ position: 'relative', flexShrink: 0, opacity: (isFocused || hasBadge) ? 1 : 0.62, transition: 'opacity 120ms' }} title={hasBadge ? badgeTitle : eyeTitle}>
+                <div ref={eyeBtnRef} style={{ position: 'relative', flexShrink: 0, opacity: (isFocused || hasBadge) ? 1 : 0.62, transition: 'opacity 120ms' }} title={hasBadge ? badgeTitle : clickTitle}>
                   <RailIconBtn
                     icon={isFocused ? Eye : EyeOff}
                     tone={isFocused ? 'accent' : undefined}
-                    title={eyeTitle}
-                    ariaLabel={eyeTitle}
+                    onClick={terminalKey ? handleEyeClick : undefined}
+                    title={terminalKey ? clickTitle : eyeTitle}
+                    ariaLabel={terminalKey ? clickTitle : eyeTitle}
+                    active={!!historyMenu}
                     ui={panelUi}
                     compact
                   />
@@ -589,6 +615,26 @@ const TerminalHeader = ({
             </MenuBtn>
           )}
         </RailSubMenu>,
+        document.body
+      )}
+
+      {/* Per-terminal command history — anchored under the eye icon */}
+      {historyMenu && terminalKey && createPortal(
+        <CommandHistoryPopover
+          anchor={historyMenu}
+          terminalKey={terminalKey}
+          ui={panelUi}
+          isMobile={isMobile}
+          onClose={closeHistoryMenu}
+          onSelect={(text) => {
+            const session = window.terminalSessions?.[terminalKey];
+            if (!session?.sendData) return;
+            session.sendData(text);
+            window.setTimeout(() => session.sendData?.('\r'), 40);
+            closeHistoryMenu();
+          }}
+          t={t}
+        />,
         document.body
       )}
 
@@ -866,6 +912,214 @@ const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = fal
       {Icon && <Icon size={13} strokeWidth={1.8} />}
       {children}
     </button>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CommandHistoryPopover — eye 아이콘 아래에 뜨는 작은 popover.
+// 해당 터미널에서 보냈던 최근 명령 N개를 보여주고, 클릭 시 다시 보냄.
+//
+// 동작:
+// - 외부 클릭 / Escape 로 닫힘 (setTimeout(0) 패턴 — 즉시 자동 닫힘 방지)
+// - 등장 시 fade + 살짝 위에서 내려오는 모션
+// - 각 row 는 mono font, ellipsis, X 로 개별 삭제 가능
+const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onClose, onSelect, t }) => {
+  const ref = useRef(null);
+  const [pos, setPos] = useState({ x: anchor.x, y: anchor.y });
+  const [measured, setMeasured] = useState(false);
+  const history = useCommandHistory(terminalKey);
+
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const handle = (e) => { if (!ref.current?.contains(e.target)) onCloseRef.current(); };
+    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
+    const id = setTimeout(() => {
+      document.addEventListener('mousedown', handle);
+      document.addEventListener('keydown', handleKey);
+    }, 0);
+    return () => {
+      clearTimeout(id);
+      document.removeEventListener('mousedown', handle);
+      document.removeEventListener('keydown', handleKey);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const margin = 8;
+    let nextX = anchor.x - rect.width;
+    let nextY = anchor.y;
+    if (nextX < margin) nextX = margin;
+    if (nextX + rect.width > window.innerWidth - margin) {
+      nextX = window.innerWidth - rect.width - margin;
+    }
+    if (nextY + rect.height > window.innerHeight - margin) {
+      nextY = window.innerHeight - rect.height - margin;
+    }
+    if (nextY < margin) nextY = margin;
+    setPos({ x: nextX, y: nextY });
+    setMeasured(true);
+  }, [anchor.x, anchor.y, history.length]);
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'fixed',
+        top: pos.y,
+        left: pos.x,
+        ...glassMenuStyle(ui),
+        zIndex: 200000,
+        minWidth: isMobile ? '240px' : '280px',
+        maxWidth: '360px',
+        maxHeight: '320px',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        fontFamily: font.sans,
+        opacity: measured ? 1 : 0,
+        transform: measured ? 'translateY(0)' : 'translateY(-4px)',
+        transition: 'opacity 140ms ease, transform 140ms ease',
+      }}
+    >
+      <style>{`
+        @keyframes iterm-cmd-history-item-in {
+          from { opacity: 0; transform: translateY(4px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .iterm-cmd-history-list::-webkit-scrollbar { width: 6px; }
+        .iterm-cmd-history-list::-webkit-scrollbar-thumb {
+          background: ${ui.surface1 || '#45475a'};
+          border-radius: 3px;
+        }
+        .iterm-cmd-history-list { scrollbar-width: thin; }
+        .iterm-cmd-history-item { animation: iterm-cmd-history-item-in 200ms ease both; }
+        .iterm-cmd-history-item .__rm { opacity: 0; transition: opacity 120ms; }
+        .iterm-cmd-history-item:hover .__rm { opacity: 1; }
+      `}</style>
+
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '6px 10px',
+        borderBottom: `1px solid color-mix(in srgb, ${ui.border} 65%, transparent)`,
+        background: `color-mix(in srgb, ${ui.base} 38%, transparent)`,
+      }}>
+        <span style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: '6px',
+          fontSize: fontSize['11'],
+          fontWeight: fontWeight.semibold,
+          color: ui.subtext,
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+        }}>
+          {t?.('historyTitle') || 'Recent commands'}
+          {history.length > 0 && (
+            <span style={{
+              fontSize: '10px',
+              padding: '1px 6px',
+              borderRadius: '8px',
+              background: `color-mix(in srgb, ${ui.accent} 20%, transparent)`,
+              color: ui.text,
+              letterSpacing: 'normal',
+              textTransform: 'none',
+            }}>{history.length}</span>
+          )}
+        </span>
+        {history.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              if (confirm(t?.('confirmClearHistory') || '히스토리를 모두 비울까요?')) {
+                clearHistoryFor(terminalKey);
+              }
+            }}
+            title={t?.('clearHistory') || 'Clear history'}
+            style={{
+              width: '20px', height: '20px',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              background: 'transparent', border: 'none', cursor: 'pointer',
+              color: ui.subtext, padding: 0, borderRadius: '4px',
+              transition: 'background 120ms, color 120ms',
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = ui.danger || '#f38ba8'; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = ui.subtext; }}
+          >
+            <Trash2 size={11} strokeWidth={2} />
+          </button>
+        )}
+      </div>
+
+      <div className="iterm-cmd-history-list" style={{
+        flex: 1, overflowY: 'auto', padding: '4px',
+        display: 'flex', flexDirection: 'column', gap: '2px',
+      }}>
+        {history.length === 0 ? (
+          <div style={{
+            padding: '18px 12px', textAlign: 'center',
+            fontSize: fontSize['12'], color: ui.subtext, opacity: 0.7,
+          }}>
+            {t?.('historyEmpty') || 'No history yet'}
+          </div>
+        ) : history.map((entry, idx) => (
+          <div
+            key={`${entry.ts}-${idx}`}
+            className="iterm-cmd-history-item"
+            style={{
+              display: 'flex', alignItems: 'stretch', gap: '2px',
+              borderRadius: '4px',
+              animationDelay: `${idx * 22}ms`,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => onSelect?.(entry.text)}
+              title={`${entry.text}\n— ${t?.('clickToResend') || 'click to re-send'}`}
+              style={{
+                flex: 1, minWidth: 0, display: 'flex', alignItems: 'center',
+                background: 'transparent', color: ui.text, border: 'none',
+                cursor: 'pointer', padding: '7px 9px',
+                fontFamily: font.mono, fontSize: fontSize['12'],
+                textAlign: 'left', borderRadius: '4px',
+                transition: 'background 120ms',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(ui); }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+            >
+              <span style={{
+                flex: 1, minWidth: 0, overflow: 'hidden',
+                textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>{entry.text}</span>
+            </button>
+            <button
+              type="button"
+              className="__rm"
+              onClick={(e) => { e.stopPropagation(); removeHistoryCommand(terminalKey, entry.text); }}
+              title={t?.('remove') || 'Remove'}
+              aria-label={t?.('remove') || 'Remove'}
+              style={{
+                width: '20px', flexShrink: 0,
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                background: 'transparent', color: ui.subtext,
+                border: 'none', cursor: 'pointer', padding: 0,
+                borderRadius: '4px',
+                transition: 'background 120ms, color 120ms',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = ui.danger || '#f38ba8'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = ui.subtext; }}
+            >
+              <X size={10} strokeWidth={2.4} />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 };
 

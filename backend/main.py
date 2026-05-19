@@ -340,6 +340,9 @@ class SystemMonitor:
         # 채워둔다. 첫 API 호출은 보통 import 후 수 초 이상 뒤이므로 그 사이 diff 로
         # 의미있는 값이 계산된다. Info 패널 "CPU 항상 바닥" 증상 방어.
         self._prime_cpu_sample()
+        # 프로세스 CPU% baseline 도 동일하게 prime — 첫 scan 의 prev_ticks 가 self == current
+        # 이라 모든 process cpu_percent 가 0 으로 떨어지는 문제를 import-time 한 번에 해결.
+        self._prime_proc_cpu_sample()
 
     def _prime_cpu_sample(self):
         try:
@@ -359,6 +362,39 @@ class SystemMonitor:
                 self.last_idle_time = idle
                 self.last_update = time.time()
         except (OSError, ValueError):
+            pass
+
+    def _prime_proc_cpu_sample(self):
+        """모든 pid 의 utime+stime 을 한 번 읽어 last_proc_cpu / last_proc_total_ticks 를 채운다.
+
+        첫 _scan_top_processes() 호출에서 prev_ticks 가 self == current 로 떨어져 cpu_percent
+        가 전부 0 으로 보이는 문제 방지. import 시점 한 번이라 비용은 OK (수백 pid × 1 file).
+        """
+        try:
+            # /proc/stat 총 ticks baseline
+            with open("/proc/stat") as f:
+                parts = f.readline().split()
+            if len(parts) >= 8:
+                self.last_proc_total_ticks = sum(int(x) for x in parts[1:8])
+        except (OSError, ValueError):
+            pass
+        try:
+            for entry in os.scandir("/proc"):
+                if not entry.name.isdigit():
+                    continue
+                pid = int(entry.name)
+                try:
+                    with open(os.path.join(entry.path, "stat")) as f:
+                        raw = f.read()
+                    rparen = raw.rfind(")")
+                    if rparen == -1:
+                        continue
+                    tail = raw[rparen + 2:].split()
+                    if len(tail) >= 13:
+                        self.last_proc_cpu[pid] = int(tail[11]) + int(tail[12])
+                except (OSError, ValueError):
+                    continue
+        except OSError:
             pass
 
     def get_stats(self):
