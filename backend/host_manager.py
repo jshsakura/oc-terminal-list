@@ -607,7 +607,24 @@ class TailscaleHostBridge:
                     CHUNK = 8192
                     off = 0
                     while off < len(raw):
-                        self.process.write(raw[off:off + CHUNK])
+                        piece = raw[off:off + CHUNK]
+                        attempt = 0
+                        while piece:
+                            try:
+                                n = self.process.write(piece)
+                            except OSError as e:
+                                # PTY buffer 가득 차서 EAGAIN — 짧게 양보 후 같은 piece 재시도.
+                                if getattr(e, "errno", None) in (11, 35) and attempt < 50:
+                                    attempt += 1
+                                    await asyncio.sleep(0.002)
+                                    continue
+                                raise
+                            if not isinstance(n, int) or n <= 0:
+                                break
+                            if n >= len(piece):
+                                break
+                            piece = piece[n:]
+                            attempt = 0
                         off += CHUNK
                 except Exception as e:
                     logger.warning("tailscale write failed: %s", e)

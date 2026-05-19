@@ -1065,7 +1065,21 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
     term.onData((data) => {
       const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // WS 가 아직 OPEN 이 아니거나(reconnect 직후·언마운트 사이 깜빡임) CLOSING 상태여도
+      // 입력을 버리지 않고 큐에 적재해 다음 OPEN 또는 flush 틱에 전송. drop 으로 인한
+      // "키 씹힘" 의 주요 원인 차단. 단 너무 오래 쌓이지 않게 큐 사이즈 보호.
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        // 큐가 비정상적으로 부풀면 (1MB 초과) 가장 오래된 입력부터 폐기 — 무한 적재 방지.
+        const MAX_QUEUE_BYTES = 1024 * 1024;
+        let totalBytes = 0;
+        for (const item of inputQueueRef.current) totalBytes += item.length;
+        while (totalBytes > MAX_QUEUE_BYTES && inputQueueRef.current.length > 1) {
+          totalBytes -= inputQueueRef.current.shift().length;
+        }
+        inputQueueRef.current.push(data);
+        scheduleInputFlush(50);
+        return;
+      }
       if (data.length <= INPUT_CHUNK && inputQueueRef.current.length === 0 && ws.bufferedAmount < WS_BUFFER_HIGH_WATER) {
         ws.send(data);
         return;

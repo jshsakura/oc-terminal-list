@@ -13,6 +13,7 @@ import asyncio
 import codecs
 import logging
 import os
+import time
 from collections import deque
 
 import ptyprocess
@@ -78,6 +79,9 @@ class TmuxClientBridge:
             logger.warning("resize failed (%s): %s", self.session_id, e)
 
     def write_input(self, data: str) -> None:
+        """WS → PTY 입력. ptyprocess.write 는 부분 write 가능(PTY buffer full / EAGAIN)
+        → 반환 바이트 수만큼만 진행하고 짧게 sleep 후 retry 해 손실 방지.
+        """
         if not self.process:
             return
         try:
@@ -85,7 +89,25 @@ class TmuxClientBridge:
             CHUNK = 8192
             off = 0
             while off < len(raw):
-                self.process.write(raw[off:off + CHUNK])
+                piece = raw[off:off + CHUNK]
+                attempt = 0
+                while piece:
+                    try:
+                        n = self.process.write(piece)
+                    except OSError as e:
+                        # EAGAIN (BlockingIOError) — 짧게 기다리고 같은 piece 재시도.
+                        if getattr(e, "errno", None) in (11, 35) and attempt < 50:
+                            attempt += 1
+                            time.sleep(0.002)
+                            continue
+                        raise
+                    if not isinstance(n, int) or n <= 0:
+                        # 일부 ptyprocess 빌드는 None / 0 반환 — 모두 보낸 것으로 간주.
+                        break
+                    if n >= len(piece):
+                        break
+                    piece = piece[n:]
+                    attempt = 0
                 off += CHUNK
         except Exception as e:
             logger.warning("pty write failed (%s): %s", self.session_id, e)
