@@ -973,8 +973,9 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
         left: pos.x,
         ...glassMenuStyle(ui),
         zIndex: 200000,
-        minWidth: isMobile ? '240px' : '280px',
-        maxWidth: '360px',
+        // 콘텐츠 길이와 무관하게 일관된 폭 — 짧은 명령으로 줄어들거나 긴 명령으로 350px 까지
+        // 늘어나는 일이 없게 고정. 두 줄까지는 wrap 허용.
+        width: isMobile ? '260px' : '320px',
         maxHeight: '320px',
         display: 'flex',
         flexDirection: 'column',
@@ -1082,19 +1083,22 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
               onClick={() => onSelect?.(entry.text)}
               title={`${entry.text}\n— ${t?.('clickToResend') || 'click to re-send'}`}
               style={{
-                flex: 1, minWidth: 0, display: 'flex', alignItems: 'center',
+                flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start',
                 background: 'transparent', color: ui.text, border: 'none',
                 cursor: 'pointer', padding: '7px 9px',
                 fontFamily: font.mono, fontSize: fontSize['12'],
                 textAlign: 'left', borderRadius: '4px',
                 transition: 'background 120ms',
+                lineHeight: 1.35,
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(ui); }}
               onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
+              {/* 두 줄까지 wrap, 그 이상은 ellipsis. WebkitLineClamp 는 -webkit-box 필수. */}
               <span style={{
                 flex: 1, minWidth: 0, overflow: 'hidden',
-                textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2,
+                wordBreak: 'break-all',
               }}>{entry.text}</span>
             </button>
             <button
@@ -1105,9 +1109,9 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
               aria-label={t?.('remove') || 'Remove'}
               style={{
                 width: '20px', flexShrink: 0,
-                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                display: 'inline-flex', alignItems: 'flex-start', justifyContent: 'center',
                 background: 'transparent', color: ui.subtext,
-                border: 'none', cursor: 'pointer', padding: 0,
+                border: 'none', cursor: 'pointer', padding: '8px 0 0 0',
                 borderRadius: '4px',
                 transition: 'background 120ms, color 120ms',
               }}
