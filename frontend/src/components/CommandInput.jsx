@@ -235,11 +235,6 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
     >
       <style>{`
         .command-input-textarea::placeholder { color: ${color.muted}; }
-        @keyframes commandInputMicPulse {
-          0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--ui-danger, ${color.danger}) 60%, transparent); }
-          70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ui-danger, ${color.danger}) 0%,  transparent); }
-          100% { box-shadow: 0 0 0 0   color-mix(in srgb, var(--ui-danger, ${color.danger}) 0%,  transparent); }
-        }
       `}</style>
 
       <div
@@ -302,7 +297,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             title={t?.('clearInput')}
           />
           <div style={{ flex: 1 }} />
-          {/* 우측 직전 — 음성 입력 토글 (지원 안 되면 비활성 상태로만 노출) */}
+          {/* 우측 직전 — 음성 입력 토글. 다른 보조 ghost 버튼들과 사이즈/스타일 통일.
+              호버/활성 상태는 아이콘 컬러(빨강)로만 표현 — 점/펄스/박스그림자 같은 과한 장식 없이. */}
           <button
             type="button"
             onClick={toggleVoice}
@@ -316,16 +312,24 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             }
             aria-pressed={voiceListening}
             aria-label={t?.('voiceInput') || 'Voice input'}
+            onMouseEnter={(e) => {
+              if (!voiceSupported || voiceListening) return;
+              e.currentTarget.style.color = `var(--ui-danger, ${color.danger})`;
+              e.currentTarget.style.background = `var(--ui-surface0, ${color.surface0})`;
+            }}
+            onMouseLeave={(e) => {
+              if (!voiceSupported || voiceListening) return;
+              e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`;
+              e.currentTarget.style.background = 'transparent';
+            }}
             style={{
               ...styles.micBtn,
               ...(voiceListening ? styles.micBtnActive : null),
               cursor: voiceSupported ? 'pointer' : 'not-allowed',
-              opacity: voiceSupported ? 1 : 0.4,
+              opacity: voiceSupported ? 1 : 0.45,
             }}
           >
             <Mic size={14} strokeWidth={2} />
-            {/* 활성 상태 표시등 — 우상단 작은 dot 이 pulse */}
-            {voiceListening && <span style={styles.micDot} aria-hidden="true" />}
           </button>
           {/* 우측 — 주 액션 */}
           <Button
@@ -429,35 +433,27 @@ const styles = {
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
     background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
   },
-  // 음성 입력 토글. Send 버튼(primary, height 30px)과 대칭으로 항상 채워진 빨강.
-  // 활성 시 keyframe pulse 링이 더해진다.
+  // 음성 입력 토글 — 다른 보조 ghost 아이콘 버튼들(Copy/Paste/Clear) 과 동일한 28x28.
+  // 비활성: subtext color · 호버: danger color + subtle bg · 활성: danger color + subtle danger bg.
   micBtn: {
     position: 'relative',
-    width: '30px',
-    height: '30px',
+    width: '28px',
+    height: '28px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: `var(--ui-danger, ${color.danger})`,
-    color: `var(--ui-crust, ${color.crust})`,
-    border: '1px solid transparent',
+    background: 'transparent',
+    color: `var(--ui-subtext, ${color.subtext})`,
+    border: `1px solid var(--ui-border, ${color.border})`,
     borderRadius: radius.sm,
-    transition: `opacity ${motion.fast}, background ${motion.fast}`,
+    transition: `background ${motion.fast}, color ${motion.fast}, border-color ${motion.fast}`,
     outline: 'none',
     padding: 0,
   },
   micBtnActive: {
-    animation: 'commandInputMicPulse 1.4s ease-out infinite',
-  },
-  micDot: {
-    position: 'absolute',
-    top: '4px',
-    right: '4px',
-    width: '6px',
-    height: '6px',
-    borderRadius: '50%',
-    background: `var(--ui-crust, ${color.crust})`,
-    boxShadow: `0 0 4px color-mix(in srgb, var(--ui-crust, ${color.crust}) 70%, transparent)`,
+    color: `var(--ui-danger, ${color.danger})`,
+    background: `color-mix(in srgb, var(--ui-danger, ${color.danger}) 12%, transparent)`,
+    borderColor: `color-mix(in srgb, var(--ui-danger, ${color.danger}) 45%, transparent)`,
   },
 };
 
