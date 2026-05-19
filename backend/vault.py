@@ -98,6 +98,15 @@ def decrypt_str(ciphertext: str | None) -> str | None:
         return None
 
 
+# 모듈 임포트 시점에 Fernet 워밍업 — 첫 실제 요청에서 키 파일 IO 가 latency spike 내지
+# 않게 한다. 호스트 목록 + 키 다발 복호화처럼 호출 빈도가 높은 경로에서 효과.
+try:
+    _get_fernet()
+except Exception:
+    # 키 파일이 없는 초기 부팅 경로면 첫 encrypt_str 호출 때 만들어진다.
+    pass
+
+
 def reencrypt_legacy(ciphertext: str | None) -> str | None:
     """레거시 JWT-derived 키로만 풀리는 암호문이면 새 vault 키로 재암호화한 결과 반환.
     이미 새 키 형식이거나 손상된 경우 None.

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   Server, Monitor, Anchor, Loader2,
   ArrowRight, Trash2, AlertCircle, X,
+  Layers, History,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -26,7 +27,6 @@ const HomeSessions = ({
   hosts = [],
   busyTabIds = null,    // Set<tabId> — 활동 중인 탭 (TabBar 와 동일 신호)
   hideOpen = false,     // Open 카드 숨김 (EmptyPane 처럼 점프가 의미 없는 컨텍스트용)
-  hideHeader = false,   // 섹션 헤더 숨김 (외부에서 자체 헤더 다는 경우)
   onJumpTab,            // (tabId) =>
   onResumeHostSession,  // (host, sessionName) => — 호스트에 해당 tmux 세션으로 신규 탭
   onTerminateHostSession, // (host, sessionName) => Promise — kill-tmux. throw 가능.
@@ -44,6 +44,7 @@ const HomeSessions = ({
   const [tmuxByHost, setTmuxByHost] = useState({});
 
   const fetchHostSessions = useCallback(async (host) => {
+    // 단건 재조회 — kill 후 즉시 reflect 등 특정 호스트만 다시 가져올 때 사용.
     if (dismissedHostIds.has(host.id)) return;
     setTmuxByHost((prev) => ({ ...prev, [host.id]: { loading: true } }));
     try {
@@ -65,6 +66,51 @@ const HomeSessions = ({
     }
   }, []);
 
+  // 배치 조회 — N개 호스트를 1회 요청으로. 첫 로드 / refreshSignal 변화 시 사용.
+  // 백엔드에서 asyncio.gather 로 병렬 SSH, 한 호스트 실패가 다른 호스트 결과를 막지 않음.
+  const fetchAllHostSessions = useCallback(async (hosts) => {
+    const candidates = hosts.filter((h) => !dismissedHostIds.has(h.id));
+    if (candidates.length === 0) return;
+    setTmuxByHost((prev) => {
+      const next = { ...prev };
+      candidates.forEach((h) => { next[h.id] = { loading: true }; });
+      return next;
+    });
+    try {
+      const token = localStorage.getItem('auth_token');
+      const ids = candidates.map((h) => h.id).join(',');
+      const res = await fetch(`/api/hosts/tmux-sessions/batch?ids=${encodeURIComponent(ids)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      const byId = new Map((json.items || []).map((x) => [x.id, x]));
+      setTmuxByHost((prev) => {
+        const next = { ...prev };
+        candidates.forEach((h) => {
+          const item = byId.get(h.id);
+          if (!item) {
+            next[h.id] = { loading: false, error: 'no result' };
+          } else if (item.error) {
+            next[h.id] = { loading: false, error: item.error };
+          } else {
+            next[h.id] = { loading: false, sessions: item.sessions || [] };
+          }
+        });
+        return next;
+      });
+    } catch (e) {
+      // 전체 실패 — 각 호스트에 같은 에러 표시. 단일 fallback 으로 재시도 가능.
+      setTmuxByHost((prev) => {
+        const next = { ...prev };
+        candidates.forEach((h) => {
+          next[h.id] = { loading: false, error: e.message || 'fetch failed' };
+        });
+        return next;
+      });
+    }
+  }, []);
+
   // Depend on host IDs string — not the array reference — so polling-driven host updates
   // don't re-trigger fetches when the actual set of tmux hosts hasn't changed.
   const tmuxHostIds = useMemo(
@@ -73,15 +119,15 @@ const HomeSessions = ({
   );
   useEffect(() => {
     if (!isVisible) return;
-    tmuxHosts.forEach(fetchHostSessions);
+    fetchAllHostSessions(tmuxHosts);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tmuxHostIds, fetchHostSessions, isVisible]);
+  }, [tmuxHostIds, fetchAllHostSessions, isVisible]);
 
   // 외부 nonce 변화(세션 닫기/열기 등) 시 즉시 재조회 — 홈이 보일 때만.
   useEffect(() => {
     if (!isVisible) return;
     if (refreshSignal > 0) {
-      tmuxHosts.forEach(fetchHostSessions);
+      fetchAllHostSessions(tmuxHosts);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshSignal, isVisible]);
@@ -159,9 +205,10 @@ const HomeSessions = ({
 
       {/* Open 그룹 — 현재 열려있는 탭 */}
       {openTabs.length > 0 && (
-        <>
+        <div style={S.group}>
           <div style={S.head}>
-            <span style={S.title}>{t?.('openSessions') || 'Open'}</span>
+            <Layers size={12} strokeWidth={2.2} style={{ color: color.subtext, flexShrink: 0 }} />
+            <span style={S.title}>{t?.('openSessions') || 'Running'}</span>
           </div>
           <div style={S.grid}>
             {openTabs.map((tab, idx) => (
@@ -175,23 +222,22 @@ const HomeSessions = ({
               />
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {/* Resumable 그룹 — 호스트의 영속 tmux 세션 (열려있지 않은 것). 비어 있어도 빈 카드로 자리 채움. */}
       {(hasAnyResumable || anyLoading || showEmptyResumable) && (
-        <>
-          {!hideHeader && (
-            <div style={S.head}>
-              <span style={S.title}>{t?.('resumableSessions') || 'Resumable'}</span>
-              {anyLoading && (
-                <span style={S.headHint}>
-                  <Loader2 size={11} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />
-                  {t?.('loadingSessions') || 'Scanning hosts…'}
-                </span>
-              )}
-            </div>
-          )}
+        <div style={S.group}>
+          <div style={S.head}>
+            <History size={12} strokeWidth={2.2} style={{ color: color.subtext, flexShrink: 0 }} />
+            <span style={S.title}>{t?.('resumableSessions') || 'Resumable'}</span>
+            {anyLoading && (
+              <span style={S.headHint}>
+                <Loader2 size={11} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />
+                {t?.('loadingSessions') || 'Scanning hosts…'}
+              </span>
+            )}
+          </div>
           <div style={S.grid}>
             {anyLoading && (
               <LoadingResumableCard t={t} />
@@ -269,7 +315,7 @@ const HomeSessions = ({
               ));
             })}
           </div>
-        </>
+        </div>
       )}
     </section>
   );
@@ -282,11 +328,11 @@ const OpenCard = ({ tab, index, isBusy = false, onJump, t }) => {
   const Icon = tab.type === 'host' ? Server : Monitor;
   return (
     <Card accent={accent} onClick={onJump}>
-      {/* Ctrl+N 번호 — 박스 없는 모노 숫자. TabBar 와 같은 톤. 1~9 만, 그 이상은 숨김. */}
-      {index != null && index <= 9 && (
+      {/* 순번 — 1~9 는 Ctrl+N 단축키와 동일, 그 이상은 단축키 없이 순서 표시용. */}
+      {index != null && (
         <span
           aria-hidden
-          title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
+          title={index <= 9 ? `${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})` : `#${index}`}
           style={{
             fontFamily: font.mono,
             fontSize: '11px',
@@ -295,7 +341,7 @@ const OpenCard = ({ tab, index, isBusy = false, onJump, t }) => {
             opacity: 0.85,
             flexShrink: 0,
             lineHeight: 1,
-            width: '12px',
+            minWidth: '12px',
             textAlign: 'center',
           }}
         >
@@ -516,14 +562,21 @@ const S = {
   section: {
     display: 'flex',
     flexDirection: 'column',
-    gap: space['2'],
+    gap: '20px',
     width: '100%',
+  },
+  /* Open / Resumable 각 그룹 — HomeDashboard 의 <Section> 과 동일 구조 (head + content).
+     gap 은 sectionHead 와 grid 간격. */
+  group: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '8px',
   },
   head: {
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: space['2'],
+    gap: '6px',
+    flexWrap: 'wrap',
   },
   title: {
     fontSize: fontSize['11'],

@@ -1,7 +1,7 @@
 import { useState, memo, useRef, useEffect } from 'react';
 import {
   Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
-  Link2, History, BarChart3,
+  Link2, BarChart3,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -155,24 +155,21 @@ const HomeDashboard = ({
         {/* 2) (EmptyPane 모드 전용) 다른 탭 흡수. 부모가 노드 통째로 넘김. */}
         {extraTopSlot}
 
-        {/* 3) 이어할 수 있는 영속 세션 — 빈 패널/홈 동일 위계. */}
+        {/* 3) Open / Resumable 세션 — HomeSessions 가 자체 Open / Resumable 그룹 헤더를 렌더. */}
         {(tabs.length > 0 || hosts.some((h) => h.use_remote_tmux)) && (
-          <Section icon={History} title={t?.('resumableSessions') || 'Resumable'}>
-            <HomeSessions
-              tabs={tabs}
-              hosts={hosts}
-              busyTabIds={busyTabIds}
-              hideHeader
-              onJumpTab={onJumpTab}
-              onResumeHostSession={onResumeHostSession}
-              onTerminateHostSession={onTerminateHostSession}
-              onConfirm={onConfirm}
-              onNotify={onNotify}
-              refreshSignal={refreshSignal}
-              isVisible={isVisible}
-              t={t}
-            />
-          </Section>
+          <HomeSessions
+            tabs={tabs}
+            hosts={hosts}
+            busyTabIds={busyTabIds}
+            onJumpTab={onJumpTab}
+            onResumeHostSession={onResumeHostSession}
+            onTerminateHostSession={onTerminateHostSession}
+            onConfirm={onConfirm}
+            onNotify={onNotify}
+            refreshSignal={refreshSignal}
+            isVisible={isVisible}
+            t={t}
+          />
         )}
 
         {/* 4) 사용 통계 — 양쪽 동일하게. */}

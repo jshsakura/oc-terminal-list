@@ -85,29 +85,30 @@ const DashboardCards = ({ hosts = [], settings = {}, days = 7, t }) => {
 
   const enrichedTargets = useMemo(() => {
     if (!data?.by_target) return [];
-    return data.by_target.map((tg) => {
-      if (tg.target_type === 'local') {
+    return data.by_target
+      // 삭제된 호스트(현재 hosts 목록에 없는 host target) 는 통계에서 제외 — local 은 항상 통과.
+      .filter((tg) => tg.target_type === 'local' || hostMetaById.has(tg.target_id))
+      .map((tg) => {
+        if (tg.target_type === 'local') {
+          return {
+            ...tg,
+            name: localMeta.name,
+            accent: localMeta.accent,
+            iconValue: localMeta.icon,
+            fallbackIcon: Monitor,
+          };
+        }
+        const host = hostMetaById.get(tg.target_id);
+        const accent = color.dotPalette[(host.color_index ?? 0) % color.dotPalette.length];
         return {
           ...tg,
-          name: localMeta.name,
-          accent: localMeta.accent,
-          iconValue: localMeta.icon,
-          fallbackIcon: Monitor,
+          name: host.name,
+          accent,
+          iconValue: host.icon || '',
+          fallbackIcon: Server,
         };
-      }
-      const host = hostMetaById.get(tg.target_id);
-      const accent = host
-        ? color.dotPalette[(host.color_index ?? 0) % color.dotPalette.length]
-        : color.muted;
-      return {
-        ...tg,
-        name: host?.name || (t?.('removedHost') || 'Removed host'),
-        accent,
-        iconValue: host?.icon || '',
-        fallbackIcon: Server,
-      };
-    });
-  }, [data, hostMetaById, localMeta, t]);
+      });
+  }, [data, hostMetaById, localMeta]);
 
   return (
     <div ref={containerRef} style={gridStyle}>
@@ -148,10 +149,10 @@ const StatStripCard = ({
     <CardShell icon={Activity} title={title || (t?.('atAGlance') || 'Overview')}>
       {err ? <ErrorState message={err} /> : (
         <div style={statQuadStyle}>
-          <StatCell value={loading ? '—' : formatDuration(totalSeconds, t)} label={t?.('totalTime') || 'Total'} accent={color.accent} pct={loading ? 0 : totalPct} />
+          <StatCell value={loading ? '—' : formatDuration(totalSeconds)} label={t?.('totalTime') || 'Total'} accent={color.accent} pct={loading ? 0 : totalPct} />
           <StatCell value={loading ? '—' : String(sessionCount)} label={t?.('sessions') || 'Sessions'} accent={color.info} dim />
           <StatCell value={loading ? '—' : `${activeTargets}/${totalKnownTargets}`} label={t?.('activeHosts') || 'Active'} accent={color.success} pct={loading ? 0 : activePct} />
-          <StatCell value={loading ? '—' : formatDuration(avgSeconds, t)} label={t?.('avgSession') || 'Avg'} accent={color.warning} pct={loading ? 0 : avgPct} />
+          <StatCell value={loading ? '—' : formatDuration(avgSeconds)} label={t?.('avgSession') || 'Avg'} accent={color.warning} pct={loading ? 0 : avgPct} />
         </div>
       )}
     </CardShell>
@@ -251,9 +252,8 @@ const HostRankingCard = ({ loading, err, targets, t }) => {
                     <HostIcon value={tg.iconValue} fallback={tg.fallbackIcon} size={12} strokeWidth={1.9} />
                   </span>
                   <span style={rankNameStyle} title={tg.name}>{tg.name}</span>
-                  <span style={rankValueStyle}>{formatDuration(tg.total_seconds, t)}</span>
                 </div>
-                {/* 모든 막대 track 폭 동일 (row 전체) — 길이 차이는 fill 비율만으로. */}
+                {/* 막대 안에 duration 텍스트 오버레이 — 2열 그리드에서 헤더 폭 확보용. */}
                 <div style={rankBarTrackStyle}>
                   <div
                     style={{
@@ -263,6 +263,7 @@ const HostRankingCard = ({ loading, err, targets, t }) => {
                       boxShadow: `0 0 0 1px ${tg.accent}33`,
                     }}
                   />
+                  <span style={rankBarValueStyle}>{formatDuration(tg.total_seconds)}</span>
                 </div>
               </li>
             );
@@ -291,31 +292,21 @@ const ErrorState = ({ message }) => (
   <div style={{ ...emptyStateStyle, color: color.danger }}>{message}</div>
 );
 
-/* ─── 포맷터 (i18n) ───────────────────────────────────────────────────
- * 단위 라벨은 t() 로 받아 영문은 'd/h/m/s', 한글은 '일/시간/분/초' 처럼 자연스럽게.
- * 한글 라벨은 띄어쓰기가 필요하지만 영문은 약어라 붙여도 자연 — `7d` vs `7 일` 양쪽 케이스 분기.
+/* ─── 포맷터 ──────────────────────────────────────────────────────────
+ * 게이지/막대 셀이 좁아서 항상 짧은 영문 약어(d/h/m/s) 사용 — 한글 '1일 18시간' 류 오버플로 방지.
+ * (TerminalHeader 의 uptime 은 별도 — 거기는 가로 여유가 있어 i18n 유지.)
  */
-function formatDuration(seconds, t) {
+function formatDuration(seconds) {
   const s = Math.max(0, Math.floor(seconds || 0));
-  const u = (key, fallback) => {
-    const v = t?.(key);
-    return v && v !== key ? v : fallback;
-  };
-  const dU = u('uptimeDayUnit', 'd');
-  const hU = u('uptimeHourUnit', 'h');
-  const mU = u('uptimeMinuteUnit', 'm');
-  const sU = u('uptimeSecondUnit', 's');
-  // 영문 약어(`d`)는 숫자에 붙이고, 한글(`일`)처럼 1글자 초과 라벨은 공백을 두어 가독성 확보.
-  const join = (n, unit) => (unit.length > 1 ? `${n} ${unit}` : `${n}${unit}`);
-  if (s < 60) return join(s, sU);
+  if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
-  if (m < 60) return join(m, mU);
+  if (m < 60) return `${m}m`;
   const h = Math.floor(m / 60);
   const remM = m % 60;
-  if (h < 24) return remM ? `${join(h, hU)} ${join(remM, mU)}` : join(h, hU);
+  if (h < 24) return remM ? `${h}h ${remM}m` : `${h}h`;
   const d = Math.floor(h / 24);
   const remH = h % 24;
-  return remH ? `${join(d, dU)} ${join(remH, hU)}` : join(d, dU);
+  return remH ? `${d}d ${remH}h` : `${d}d`;
 }
 
 /* ─── 스타일 (HostRow / Section 톤과 통일) ─────────────────────────── */
@@ -395,11 +386,12 @@ const statCellLabelStyle = {
   textAlign: 'center',
 };
 
-/* Host ranking — row = (header [icon name duration]) + (full-width bar) 2단 */
+/* Host ranking — 가로 2열 그리드로 깔아 카드 높이 단축 (At-a-glance 와 균형).
+   각 셀: 헤더 (icon name duration) + 전체 폭 막대. */
 const rankListStyle = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '10px',
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: '10px 14px',
   margin: 0,
   padding: 0,
   listStyle: 'none',
@@ -412,7 +404,7 @@ const rankRowStyle = {
 };
 const rankHeaderStyle = {
   display: 'grid',
-  gridTemplateColumns: '18px minmax(0, 1fr) auto',
+  gridTemplateColumns: '18px minmax(0, 1fr)',
   alignItems: 'center',
   gap: '8px',
   minWidth: 0,
@@ -438,7 +430,7 @@ const rankNameStyle = {
 };
 const rankBarTrackStyle = {
   position: 'relative',
-  height: '10px',
+  height: '14px',
   width: '100%',
   background: color.crust,
   border: `1px solid ${color.border}`,
@@ -453,11 +445,22 @@ const rankBarFillStyle = {
   borderRadius: radius.full,
   transition: 'width 300ms cubic-bezier(0.16, 1, 0.3, 1)',
 };
-const rankValueStyle = {
-  fontSize: fontSize['11'],
+/* duration 텍스트 — 막대 오른쪽 끝에 오버레이.
+   흰색 고정 + 진한 다중 그림자로 라이트/다크 테마, fill/track 양쪽 모두 가독. */
+const rankBarValueStyle = {
+  position: 'absolute',
+  top: 0,
+  right: '6px',
+  bottom: 0,
+  display: 'flex',
+  alignItems: 'center',
+  fontSize: '9.5px',
   fontFamily: font.mono,
-  color: color.subtext,
+  fontWeight: fontWeight.semibold,
+  color: '#ffffff',
+  textShadow: '0 0 3px rgba(0,0,0,0.9), 0 1px 2px rgba(0,0,0,0.75), 0 0 1px rgba(0,0,0,1)',
   whiteSpace: 'nowrap',
+  pointerEvents: 'none',
 };
 
 export default DashboardCards;

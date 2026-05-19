@@ -11,6 +11,7 @@ import io
 import json
 import logging
 import os
+import re
 import secrets as secrets_mod
 import shlex
 import shutil
@@ -39,7 +40,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from starlette.types import Receive, Scope, Send
 
 from _deps import (
@@ -67,6 +68,7 @@ from host_manager import HostBridge, HostConnectError, resolve_host_secrets
 from sqlite_storage import storage
 from ssh_pool import ssh_pool
 from tmux_manager import tmux_manager
+from rate_limit import check_rate_limit, client_ip_from_request
 from vault import encrypt_str
 from ws_bridge import TmuxClientBridge
 
@@ -146,13 +148,38 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Terminal List", version="2.0.0", lifespan=lifespan)
 
+# CORS — ALLOWED_ORIGINS env (콤마 구분) 가 있으면 그 origin 만 허용 + credentials 켬.
+# 미설정 시 와일드카드 fallback (개발 호환) — 단 와일드카드 + credentials 는 브라우저가
+# 차단하므로 credentials=False 로 둔다. JWT 는 Authorization 헤더라 credentials 불필요.
+def _normalize_origin(raw: str) -> str | None:
+    """trailing slash / path 제거. 스키마 없으면 무시. 와일드카드는 그대로."""
+    s = raw.strip().rstrip("/")
+    if not s:
+        return None
+    if s == "*":
+        return s
+    if "://" not in s:
+        return None
+    # path component (https://foo.com/api) 가 있으면 origin 만 남김.
+    scheme, rest = s.split("://", 1)
+    host = rest.split("/", 1)[0]
+    return f"{scheme}://{host}" if host else None
+
+
+_allowed_origins_raw = os.getenv("ALLOWED_ORIGINS", "").strip()
+_allowed_origins = [
+    o for o in (_normalize_origin(p) for p in _allowed_origins_raw.split(",")) if o
+] or ["*"]
+_cors_credentials = _allowed_origins != ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=_allowed_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+logger.info("CORS allowed_origins=%s credentials=%s", _allowed_origins, _cors_credentials)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
@@ -231,12 +258,39 @@ class SshKeyUpdateRequest(BaseModel):
     public_key: str | None = None
 
 
+_HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-:]{0,253}$")
+_SSH_USER_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._\-]{0,63}$")
+
+
 class HostUpsertRequest(BaseModel):
     name: str
     hostname: str
     port: int = 22
     ssh_user: str
     auth_method: str = "key"        # 'key' | 'password'
+
+    @field_validator("hostname")
+    @classmethod
+    def _check_hostname(cls, v: str) -> str:
+        # 선행 '-' 금지 — ssh argv 옵션처럼 해석되는 인자 인젝션 방어.
+        # 영문/숫자/점/하이픈/언더스코어/콜론(IPv6 :) 만 허용. 길이 254.
+        if not v or not _HOSTNAME_RE.match(v):
+            raise ValueError("invalid hostname")
+        return v
+
+    @field_validator("ssh_user")
+    @classmethod
+    def _check_ssh_user(cls, v: str) -> str:
+        if not v or not _SSH_USER_RE.match(v):
+            raise ValueError("invalid ssh_user")
+        return v
+
+    @field_validator("port")
+    @classmethod
+    def _check_port(cls, v: int) -> int:
+        if v < 1 or v > 65535:
+            raise ValueError("invalid port")
+        return v
     key_id: str | None = None
     password: str | None = None  # 평문으로 들어와서 vault 로 암호화 후 저장
     color_index: int = 0
@@ -281,6 +335,31 @@ class SystemMonitor:
         # process 스캔 캐시 — 짧은 시간 안에 여러 번 호출돼도 한 번만 한다.
         self.cached_top_processes: list = []
         self.last_proc_scan = 0.0
+        # /proc/stat baseline priming — 첫 get_stats() 호출에서 cached_cpu_percent 가 0.0
+        # 으로 보이지 않게, 모듈 import 시점에 한 번 sample 을 찍어 last_cpu_time/idle 을
+        # 채워둔다. 첫 API 호출은 보통 import 후 수 초 이상 뒤이므로 그 사이 diff 로
+        # 의미있는 값이 계산된다. Info 패널 "CPU 항상 바닥" 증상 방어.
+        self._prime_cpu_sample()
+
+    def _prime_cpu_sample(self):
+        try:
+            if not os.path.exists("/proc/stat"):
+                return
+            with open("/proc/stat") as f:
+                parts = f.readline().split()
+            if len(parts) >= 5:
+                user = int(parts[1])
+                nice = int(parts[2])
+                system = int(parts[3])
+                idle = int(parts[4])
+                iowait = int(parts[5]) if len(parts) > 5 else 0
+                irq = int(parts[6]) if len(parts) > 6 else 0
+                softirq = int(parts[7]) if len(parts) > 7 else 0
+                self.last_cpu_time = user + nice + system + idle + iowait + irq + softirq
+                self.last_idle_time = idle
+                self.last_update = time.time()
+        except (OSError, ValueError):
+            pass
 
     def get_stats(self):
         # 백워드 호환 — 기존 'cpu/ram/disk' 퍼센트는 그대로 두고 절대값/load/uptime 을 추가.
@@ -692,9 +771,14 @@ async def setup_admin(request: SetupRequest):
 
 
 @app.post("/api/auth/login")
-async def login(request: LoginRequest):
+async def login(request: LoginRequest, http_request: Request):
     if auth_manager is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    # rate limit: IP 당 60초 10회, username 당 5분 20회.
+    # IP 만 보면 NAT 뒤 여러 사용자가 같이 깎이고, username 만 보면 IP 분산 공격을 못 막음.
+    ip = client_ip_from_request(http_request)
+    check_rate_limit(f"login:ip:{ip}", max_attempts=10, window_seconds=60)
+    check_rate_limit(f"login:user:{request.username}", max_attempts=20, window_seconds=300)
     if not await auth_manager.is_setup_complete():
         raise HTTPException(status_code=400, detail="초기 설정을 먼저 완료해주세요")
     if not await auth_manager.verify_admin(request.username, request.password):
@@ -716,9 +800,14 @@ async def login(request: LoginRequest):
 
 
 @app.post("/api/auth/login/otp")
-async def login_otp(request: OtpLoginRequest):
+async def login_otp(request: OtpLoginRequest, http_request: Request):
     if auth_manager is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    # OTP 무차별 대입 방지 — 6자리 코드(100만 조합)는 짧은 시간 안 5회 시도면
+    # 통계적으로 위험. IP + pending_token 양쪽 limit.
+    ip = client_ip_from_request(http_request)
+    check_rate_limit(f"otp:ip:{ip}", max_attempts=10, window_seconds=60)
+    check_rate_limit(f"otp:tok:{request.pending_token[:32]}", max_attempts=5, window_seconds=300)
     username = await auth_manager.verify_otp_pending_token(request.pending_token)
     if not username:
         raise HTTPException(status_code=401, detail="OTP 인증 시간이 만료되었습니다. 다시 로그인해주세요.")
@@ -794,9 +883,32 @@ async def otp_regenerate_backup_codes(username: str = Depends(verify_auth_token)
     return {"backup_codes": codes}
 
 
+# /api/system/stats 응답 TTL 캐시 — /proc 전수 스캔(수백 PID × 수 파일) 은 동기 I/O
+# 라 async 핸들러를 블로킹하므로 to_thread + 짧은 캐시로 동시 폴링을 1회 스캔에 합친다.
+_SYS_STATS_TTL = 2.0
+_sys_stats_cache: dict = {"at": 0.0, "value": None}
+_sys_stats_lock = asyncio.Lock()
+
+
+async def _get_system_stats_cached() -> dict:
+    now = time.time()
+    cached_value = _sys_stats_cache.get("value")
+    if cached_value is not None and now - _sys_stats_cache["at"] < _SYS_STATS_TTL:
+        return cached_value
+    async with _sys_stats_lock:
+        now = time.time()
+        cached_value = _sys_stats_cache.get("value")
+        if cached_value is not None and now - _sys_stats_cache["at"] < _SYS_STATS_TTL:
+            return cached_value
+        stats = await asyncio.to_thread(system_monitor.get_stats)
+        _sys_stats_cache["value"] = stats
+        _sys_stats_cache["at"] = now
+        return stats
+
+
 @app.get("/api/system/stats")
 async def get_system_stats(username: str = Depends(verify_auth_token)):
-    return system_monitor.get_stats()
+    return await _get_system_stats_cached()
 
 
 class ProcessKillRequest(BaseModel):
@@ -1233,6 +1345,17 @@ async def terminal_websocket(
         await websocket.close(code=1008, reason="인증 필요")
         return
 
+    # 세션 소유권 체크 — DB 에 기록된 세션이면 owner 와 ticket username 이 같아야 함.
+    # 등록되지 않은 신규 session_id 면 통과(아래에서 새로 생성하고 username 으로 등록됨).
+    # 이게 없으면 사용자 A 가 사용자 B 의 session_id 를 추측해 ticket 발급 후 attach 가능.
+    try:
+        existing_owner = await storage.get_session_owner(session_id)
+    except Exception:
+        existing_owner = None
+    if existing_owner and existing_owner != username:
+        await websocket.close(code=1008, reason="세션 접근 권한 없음")
+        return
+
     await websocket.accept()
     logger.info("WS attach: session=%s user=%s", session_id, username)
 
@@ -1625,21 +1748,12 @@ async def check_host_tmux(
     return {"host_id": host_id, "available": available}
 
 
-@app.get("/api/hosts/{host_id}/tmux-sessions")
-async def list_host_tmux_sessions(
-    host_id: str,
-    refresh: bool = Query(False, description="강제 새로고침 — 캐시 무시"),
-    username: str = Depends(verify_auth_token),
-):
-    """원격 tmux 서버의 세션 목록. 좀비 세션 청소용.
+async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, refresh: bool) -> dict:
+    """단일 호스트 tmux 세션 목록 조회. 캐시 + 에러 처리 포함.
 
-    `tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}'`
-    SSH 왕복이 500ms~2s 라 60s TTL 로 캐시. 세션 kill/spawn 시 invalidate_host 로 즉시 무효화.
+    성공: {"id": host_id, "sessions": [...]}
+    실패: {"id": host_id, "sessions": [], "error": "..."}  — generic 메시지로 raw SSH 에러 미노출.
     """
-    host = await storage.get_host(host_id, username)
-    if not host:
-        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
-
     cache_key = key_host_tmux_sessions(host_id)
     if not refresh:
         cached = await cache.get(cache_key)
@@ -1671,12 +1785,12 @@ async def list_host_tmux_sessions(
                     passphrase=secrets["passphrase"],
                     password=secrets["password"],
                 )
-            # SSH 풀에서 호스트당 재사용 — handshake 비용 제거.
             result = await ssh_pool.run(host_id, _opener, cmd, check=False)
             output = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace")
     except Exception as e:
-        logger.error("list-tmux-sessions failed (%s): %s", host_id, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        # 자세한 사유는 로그에만 — 응답에는 generic 메시지로 누출 방지.
+        logger.warning("list-tmux-sessions failed (%s): %s", host_id, e)
+        return {"id": host_id, "sessions": [], "error": "원격 tmux 세션 조회 실패"}
 
     sessions = []
     for line in output.strip().splitlines():
@@ -1689,6 +1803,59 @@ async def list_host_tmux_sessions(
             })
     payload = {"id": host_id, "sessions": sessions}
     await cache.set(cache_key, payload, ttl_seconds=60)
+    return payload
+
+
+@app.get("/api/hosts/tmux-sessions/batch")
+async def batch_host_tmux_sessions(
+    ids: str = Query("", description="콤마 구분 host_id. 비면 use_remote_tmux 모든 호스트."),
+    refresh: bool = Query(False, description="강제 새로고침 — 캐시 무시"),
+    username: str = Depends(verify_auth_token),
+):
+    """N개 호스트 tmux 세션을 한 번에 — HomeSessions 의 N+1 호출 제거용.
+
+    asyncio.gather 로 병렬 조회. 한 호스트 실패가 다른 호스트 결과를 막지 않음.
+    """
+    all_hosts = await storage.list_hosts(username)
+    if ids.strip():
+        wanted = {s.strip() for s in ids.split(",") if s.strip()}
+        hosts = [h for h in all_hosts if h.get("id") in wanted]
+    else:
+        hosts = [h for h in all_hosts if h.get("use_remote_tmux")]
+    if not hosts:
+        return {"items": []}
+
+    tasks = [
+        _fetch_host_tmux_sessions(h, h["id"], username, refresh) for h in hosts
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    items: list[dict] = []
+    for h, r in zip(hosts, results):
+        if isinstance(r, Exception):
+            logger.warning("batch tmux-sessions exception (%s): %s", h.get("id"), r)
+            items.append({"id": h["id"], "sessions": [], "error": "원격 tmux 세션 조회 실패"})
+        else:
+            items.append(r)
+    return {"items": items}
+
+
+@app.get("/api/hosts/{host_id}/tmux-sessions")
+async def list_host_tmux_sessions(
+    host_id: str,
+    refresh: bool = Query(False, description="강제 새로고침 — 캐시 무시"),
+    username: str = Depends(verify_auth_token),
+):
+    """원격 tmux 서버의 세션 목록. 좀비 세션 청소용.
+
+    SSH 왕복이 500ms~2s 라 60s TTL 로 캐시. 세션 kill/spawn 시 invalidate_host 로 즉시 무효화.
+    여러 호스트 동시 조회는 /api/hosts/tmux-sessions/batch 사용.
+    """
+    host = await storage.get_host(host_id, username)
+    if not host:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+    payload = await _fetch_host_tmux_sessions(host, host_id, username, refresh)
+    if payload.get("error"):
+        raise HTTPException(status_code=500, detail=payload["error"])
     return payload
 
 
@@ -2005,6 +2172,9 @@ async def get_raw_file(
         safe = validate_path(path)
     if not safe.exists() or not safe.is_file():
         raise HTTPException(status_code=404, detail="File not found")
+    # 워크스페이스 안에 만들어진 심볼릭 링크로 외부 경로(/etc/passwd 등) 노출 차단.
+    if safe.is_symlink():
+        raise HTTPException(status_code=403, detail="Symlinks not allowed")
     return FileResponse(str(safe))
 
 
@@ -2054,6 +2224,8 @@ async def download_workspace_item(
     safe = validate_path(path)
     if not safe.exists():
         raise HTTPException(status_code=404, detail="Not found")
+    if safe.is_symlink():
+        raise HTTPException(status_code=403, detail="Symlinks not allowed")
     if safe.is_file():
         return FileResponse(str(safe), filename=safe.name)
     if safe.is_dir():
@@ -2105,6 +2277,8 @@ async def read_file(path: str = Query(...), username: str = Depends(verify_auth_
     safe = validate_path(path)
     if not safe.exists():
         raise HTTPException(status_code=404, detail="File not found")
+    if safe.is_symlink():
+        raise HTTPException(status_code=403, detail="Symlinks not allowed")
     if not safe.is_file():
         raise HTTPException(status_code=400, detail="Not a file")
     if safe.stat().st_size > 10 * 1024 * 1024:
@@ -2167,6 +2341,7 @@ async def upload_files(
         raise HTTPException(status_code=400, detail="Destination is not a directory")
     results = []
     total = 0
+    upload_chunk = 1024 * 1024  # 1 MB
     for f in files:
         filename = os.path.basename(f.filename or "")
         if not filename:
@@ -2174,16 +2349,39 @@ async def upload_files(
         target = dest_path / filename
         if not str(target.resolve()).startswith(str(workspace.resolve())):
             raise HTTPException(status_code=403, detail="Path outside workspace")
-        content = await f.read()
-        if len(content) > MAX_UPLOAD_FILE_BYTES:
-            raise HTTPException(status_code=413, detail=f"파일 '{filename}' 가 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)")
-        total += len(content)
-        if total > MAX_UPLOAD_TOTAL_BYTES:
-            raise HTTPException(status_code=413, detail=f"업로드 합계가 너무 큽니다 (최대 {MAX_UPLOAD_TOTAL_BYTES} bytes)")
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(content)
+        # 스트리밍 쓰기 — f.read() 로 전체 메모리 적재 시 200MB×N 업로드가 OOM 위험.
+        # 청크 단위로 디스크에 직접 쓰고, 한도 초과 시 부분 파일 삭제.
+        file_size = 0
+        tmp = target.with_suffix(target.suffix + ".part")
+        try:
+            with open(tmp, "wb") as out:
+                while True:
+                    chunk = await f.read(upload_chunk)
+                    if not chunk:
+                        break
+                    file_size += len(chunk)
+                    if file_size > MAX_UPLOAD_FILE_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"파일 '{filename}' 가 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)",
+                        )
+                    total += len(chunk)
+                    if total > MAX_UPLOAD_TOTAL_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"업로드 합계가 너무 큽니다 (최대 {MAX_UPLOAD_TOTAL_BYTES} bytes)",
+                        )
+                    out.write(chunk)
+            os.replace(tmp, target)
+        except Exception:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+            raise
         rel = str(target.relative_to(workspace)).replace("\\", "/")
-        results.append({"name": f.filename, "path": rel, "size": len(content)})
+        results.append({"name": f.filename, "path": rel, "size": file_size})
     _invalidate_file_index()
     return {"status": "uploaded", "files": results}
 
@@ -2231,6 +2429,22 @@ if STATIC_DIR.exists():
     # /assets 외의 단순 정적파일(favicon, robots 등) — 변경 드물지만 immutable 까지는 아님.
     FILE_CACHE_HEADERS = {"Cache-Control": "public, max-age=86400"}
 
+    # SPA fallback 으로 index.html 을 돌려주면 안 되는 확장자.
+    # 옛 클라이언트 캐시/서비스워커가 잘못된 chunk URL 을 요청해도 200 HTML 이 자산 자리에
+    # 끼면 브라우저가 MIME 깨진 채 Suspense fallback (로딩 스피너) 에 영구로 갇힘 — 그래서
+    # 자산 류는 명시적 404 로 빠르게 실패시켜 ErrorBoundary 가 잡거나 디버깅이 가능하게 함.
+    _ASSET_LIKE_EXTS = (
+        ".js", ".mjs", ".cjs", ".css", ".map",
+        ".json", ".wasm",
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".ico",
+        ".woff", ".woff2", ".ttf", ".otf", ".eot",
+        ".mp3", ".mp4", ".webm", ".ogg", ".wav",
+    )
+
+    def _is_asset_like(p: str) -> bool:
+        lower = p.lower()
+        return any(lower.endswith(ext) for ext in _ASSET_LIKE_EXTS)
+
     @app.get("/{full_path:path}")
     async def catch_all(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("ws/"):
@@ -2238,6 +2452,8 @@ if STATIC_DIR.exists():
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
             return FileResponse(str(file_path), headers=FILE_CACHE_HEADERS)
+        if _is_asset_like(full_path):
+            raise HTTPException(status_code=404, detail="Not found")
         # SPA fallback 도 no-cache (라우팅 경로 어디로 와도 최신 index)
         return FileResponse(str(STATIC_DIR / "index.html"), headers=NO_CACHE_HEADERS)
 
@@ -2248,6 +2464,8 @@ if STATIC_DIR.exists():
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
             return Response(status_code=200)
+        if _is_asset_like(full_path):
+            raise HTTPException(status_code=404, detail="Not found")
         return Response(status_code=200, headers=NO_CACHE_HEADERS)
 
 
@@ -2259,4 +2477,8 @@ if __name__ == "__main__":
         port=int(os.getenv("APP_PORT", "8000")),
         reload=os.getenv("RELOAD", "true").lower() == "true",
         log_level=os.getenv("LOG_LEVEL", "info").lower(),
+        # WS heartbeat — 죽은 클라(네트워크 단절·웹뷰 freeze) 가 send buffer 를
+        # 무한 누적시키지 않도록 ping/pong 으로 감지하고 자동 close.
+        ws_ping_interval=20.0,
+        ws_ping_timeout=20.0,
     )

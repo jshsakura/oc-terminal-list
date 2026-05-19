@@ -13,6 +13,8 @@ import { buildThemeUI } from '../styles/themeUI';
 import { glassDividerStyle, glassMenuStyle } from '../styles/glass';
 import TerminalHeader from './TerminalHeader';
 import HomeDashboard, { HostRow } from './HomeDashboard';
+import LocalFolderPicker from './LocalFolderPicker';
+import RemoteFolderPicker from './RemoteFolderPicker';
 import HostIcon from '../utils/hostIcons';
 import useActiveTerminalCwd from '../hooks/useActiveTerminalCwd';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
@@ -70,6 +72,14 @@ const PaneGrid = ({
   onEditHost,
   onEditLocal,
   refreshHosts,
+  /* 인라인 폴더 픽커 — App 레벨 상태를 받아서 매칭 pane 안에서 오버레이로 렌더. */
+  localPicker = null,
+  onLocalPickerClose = null,
+  onLocalPickerPick = null,
+  remotePickerHost = null,
+  remotePickerSlot = null,
+  onRemotePickerClose = null,
+  onRemotePickerPick = null,
   language = 'en',
   t,
   viewportHeight,
@@ -235,6 +245,13 @@ const PaneGrid = ({
                   onEditHost={onEditHost}
                   onEditLocal={onEditLocal}
                   refreshHosts={refreshHosts}
+                  localPicker={localPicker}
+                  onLocalPickerClose={onLocalPickerClose}
+                  onLocalPickerPick={onLocalPickerPick}
+                  remotePickerHost={remotePickerHost}
+                  remotePickerSlot={remotePickerSlot}
+                  onRemotePickerClose={onRemotePickerClose}
+                  onRemotePickerPick={onRemotePickerPick}
                   language={language}
                   t={t}
                   viewportHeight={viewportHeight}
@@ -307,6 +324,13 @@ const PaneGrid = ({
             onEditHost={onEditHost}
             onEditLocal={onEditLocal}
             refreshHosts={refreshHosts}
+            localPicker={localPicker}
+            onLocalPickerClose={onLocalPickerClose}
+            onLocalPickerPick={onLocalPickerPick}
+            remotePickerHost={remotePickerHost}
+            remotePickerSlot={remotePickerSlot}
+            onRemotePickerClose={onRemotePickerClose}
+            onRemotePickerPick={onRemotePickerPick}
             language={language}
             t={t}
             viewportHeight={viewportHeight}
@@ -443,6 +467,13 @@ const PaneGrid = ({
             onEditHost={onEditHost}
             onEditLocal={onEditLocal}
             refreshHosts={refreshHosts}
+          localPicker={localPicker}
+          onLocalPickerClose={onLocalPickerClose}
+          onLocalPickerPick={onLocalPickerPick}
+          remotePickerHost={remotePickerHost}
+          remotePickerSlot={remotePickerSlot}
+          onRemotePickerClose={onRemotePickerClose}
+          onRemotePickerPick={onRemotePickerPick}
           language={language}
           t={t}
           viewportHeight={viewportHeight}
@@ -512,6 +543,8 @@ const Pane = ({
   onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onPaneCwdChange, onScreenDump,
   onConfirm, onNotify, onResumeHostSession, onTerminateHostSession, busyTabIds, busyPaneIds,
   onPickHostPath = null, onPickLocalPath = null, onEditHost = null, onEditLocal = null, refreshHosts = null,
+  localPicker = null, onLocalPickerClose = null, onLocalPickerPick = null,
+  remotePickerHost = null, remotePickerSlot = null, onRemotePickerClose = null, onRemotePickerPick = null,
   language, t, viewportHeight,
   onExtractPane = null,
   onSplitPane = null,
@@ -1039,6 +1072,33 @@ const Pane = ({
               />
             </Suspense>
           )}
+
+          {/* 인라인 폴더 픽커 — slot 이 이 pane 과 매칭될 때만 본문 위에 오버레이.
+              부모 div 가 position:relative 라 inset:0 으로 본문 영역만 덮음. */}
+          {localPicker?.open
+            && localPicker.slot?.tabId === tab?.id
+            && localPicker.slot?.paneId === pane.id && (
+              <LocalFolderPicker
+                inline
+                isOpen
+                initialPath={localPicker.initial}
+                onClose={onLocalPickerClose}
+                onPick={onLocalPickerPick}
+                t={t}
+              />
+            )}
+          {remotePickerHost
+            && remotePickerSlot?.tabId === tab?.id
+            && remotePickerSlot?.paneId === pane.id && (
+              <RemoteFolderPicker
+                inline
+                isOpen
+                host={remotePickerHost}
+                onClose={onRemotePickerClose}
+                onPick={onRemotePickerPick}
+                t={t}
+              />
+            )}
       </div>
 
       {/* 패널 닫기 확인 — 글래스모피즘 오버레이 카드 */}

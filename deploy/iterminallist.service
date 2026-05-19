@@ -47,5 +47,11 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=iterminallist
 
+# cgroup 메모리 캡은 두지 않는다.
+#   KillMode=process 로 tmux 자식이 이 서비스의 cgroup 에 남기 때문에, Claude/MCP 등
+#   사용자가 tmux 안에서 띄운 무거운 워크로드(4 × Claude ≈ 6GB 정상)가 모두 합산된다.
+#   캡을 걸면 정상 워크로드까지 cgroup OOM 으로 한꺼번에 죽어버려 UX 가 더 나빠짐.
+#   누수는 코드 레벨에서 차단 (host_manager 펌프 backpressure cap 등) 한다.
+
 [Install]
 WantedBy=multi-user.target

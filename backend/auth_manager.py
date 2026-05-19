@@ -7,14 +7,53 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import logging
+import os
 import secrets
 import warnings
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pyotp
 from jose import JWTError, jwt
 
 from vault import decrypt_str, encrypt_str
+
+logger = logging.getLogger(__name__)
+
+# JWT 비밀키 파일 경로 — vault key 와 동일 디렉토리. 환경변수로 override 가능.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_JWT_KEY_PATH = _PROJECT_ROOT / "data" / ".jwt-secret"
+
+
+def _jwt_key_path() -> Path:
+    return Path(os.getenv("JWT_SECRET_PATH") or _DEFAULT_JWT_KEY_PATH)
+
+
+def _read_jwt_key_file() -> str | None:
+    path = _jwt_key_path()
+    if not path.exists():
+        return None
+    try:
+        raw = path.read_text(encoding="utf-8").strip()
+        return raw or None
+    except OSError:
+        return None
+
+
+def _write_jwt_key_file(key: str) -> None:
+    path = _jwt_key_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # 0600 — 같은 호스트의 다른 사용자에게 노출 방지.
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.write(fd, key.encode("utf-8"))
+    finally:
+        os.close(fd)
+    try:
+        os.chmod(str(path), 0o600)
+    except OSError:
+        pass
 
 # JWT settings
 ALGORITHM = "HS256"
@@ -78,18 +117,43 @@ class AuthManager:
         asyncio.create_task(self._init_secret_key())
 
     async def _init_secret_key(self):
-        """JWT SECRET_KEY 초기화 (SQLite에서 가져오거나 생성)"""
-        # SQLite에서 SECRET_KEY 가져오기
-        stored_key = await self.storage.get_config("jwt_secret_key")
+        """JWT SECRET_KEY 초기화.
 
-        if stored_key:
-            # 기존 키 사용
-            self.secret_key = stored_key
-        else:
-            # 새로운 키 생성 및 저장
-            new_key = secrets.token_urlsafe(32)
+        우선순위:
+          1) data/.jwt-secret 파일 — 권장 위치 (0600). DB 백업 유출 시에도 토큰 위조 차단.
+          2) SQLite system_config 'jwt_secret_key' — 레거시. 발견 시 파일로 마이그레이션 후 DB에서 제거.
+          3) 모두 없으면 새로 생성하여 파일에 저장.
+        """
+        file_key = _read_jwt_key_file()
+        if file_key:
+            self.secret_key = file_key
+            return
+
+        legacy_key = await self.storage.get_config("jwt_secret_key")
+        if legacy_key:
+            try:
+                _write_jwt_key_file(legacy_key)
+                # 마이그레이션 성공 — DB 에서 평문 키 제거. 실패해도 동작에는 영향 없음.
+                try:
+                    await self.storage.delete_config("jwt_secret_key")
+                except Exception as e:
+                    logger.warning("legacy jwt key DB delete failed: %s", e)
+                logger.info("JWT secret migrated from DB to file: %s", _jwt_key_path())
+            except OSError as e:
+                # 파일 쓰기 실패 — DB 키 그대로 사용 (서비스 죽지 않게).
+                logger.error("JWT secret file write failed, keeping DB-backed key: %s", e)
+            self.secret_key = legacy_key
+            return
+
+        new_key = secrets.token_urlsafe(32)
+        try:
+            _write_jwt_key_file(new_key)
+            logger.info("JWT secret created at %s", _jwt_key_path())
+        except OSError as e:
+            # 파일 시스템 안 되면 DB 로 폴백 (예: ro 파일시스템). 보안 약하지만 동작은 유지.
+            logger.error("JWT secret file write failed, falling back to DB: %s", e)
             await self.storage.set_config("jwt_secret_key", new_key)
-            self.secret_key = new_key
+        self.secret_key = new_key
 
     async def ensure_secret_key(self):
         """SECRET_KEY가 초기화될 때까지 대기"""

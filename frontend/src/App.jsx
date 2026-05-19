@@ -1001,7 +1001,7 @@ function App() {
   }, []);
 
   const closeTab = useCallback((tabId, opts = {}) => {
-    const { skipConfirm = false } = opts;
+    const { skipConfirm = false, forceTerminate = false } = opts;
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
@@ -1056,6 +1056,27 @@ function App() {
       return;
     }
 
+    if (forceTerminate) {
+      // Kill session 전용 진입점 — 의도 명확하므로 3-옵션 모달 안 띄우고 단일 confirm.
+      const paneCount = tab.panes?.length || 1;
+      const tabIdx = tabs.findIndex((tb) => tb.id === tabId);
+      const tabNo = tabIdx >= 0 ? tabIdx + 1 : '?';
+      const headerLine = `#${tabNo} · ${tab.name || 'terminal'}`;
+      const killBody = paneCount > 1
+        ? `${t('confirmKillSession') || 'Terminate the session in this tab? Running work will be lost.'} (${paneCount} ${t('panesInTab') || 'panes'})`
+        : (t('confirmKillSession') || 'Terminate the session in this tab? Running work will be lost.');
+      setConfirmModal({
+        isOpen: true,
+        title: t('terminateSession') || 'Terminate session',
+        titleIcon: XCircle,
+        message: `${headerLine}\n\n${killBody}`,
+        danger: true,
+        confirmText: t('terminateSession') || 'Terminate session',
+        onConfirm: closeAndTerminate,
+      });
+      return;
+    }
+
     const paneCount = tab.panes?.length || 1;
     const tabIdx = tabs.findIndex((tb) => tb.id === tabId);
     const tabNo = tabIdx >= 0 ? tabIdx + 1 : '?';
@@ -1069,15 +1090,18 @@ function App() {
     const message = `${headerLine}\n\n${bodyMsg}`;
 
     if (canDetach) {
+      // primary(우측)=세션 종료(danger), tertiary(좌측 ghost)=탭만 닫기 — destructive
+      // 의도가 들어가 있어 위치 강조. 일반 닫기는 좌측의 가벼운 버튼으로.
       setConfirmModal({
         isOpen: true,
         title: t('closeTab') || 'Close tab',
         titleIcon: XCircle,
         message,
-        confirmText: t('closeTabOnly') || 'Close tab',
-        tertiaryText: t('terminateSession') || 'Terminate session',
-        onConfirm: removeTabOnly,
-        onTertiary: closeAndTerminate,
+        danger: true,
+        confirmText: t('terminateSession') || 'Terminate session',
+        tertiaryText: t('closeTabOnly') || 'Close tab',
+        onConfirm: closeAndTerminate,
+        onTertiary: removeTabOnly,
       });
     } else {
       setConfirmModal({
@@ -1254,10 +1278,13 @@ function App() {
   const [folderPickerHost, setFolderPickerHost] = useState(null);
   const [folderPickerSlot, setFolderPickerSlot] = useState(null);
   const [localEditorOpen, setLocalEditorOpen] = useState(false);
+  /* localFolderPicker.slot — { tabId, paneId } 면 해당 pane 안에서 인라인 오버레이.
+     null 이면 전역 모달 (Sidebar / LocalEditor 진입 등 pane 컨텍스트 없는 케이스). */
   const [localFolderPicker, setLocalFolderPicker] = useState({
     open: false,
     initial: '',
     onPick: null,
+    slot: null,
   });
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
@@ -1785,6 +1812,7 @@ function App() {
         onSelect={setActiveTabId}
         onClose={closeTab}
         onCloseImmediate={(tabId) => closeTab(tabId, { skipConfirm: true })}
+        onKillSession={(tabId) => closeTab(tabId, { forceTerminate: true })}
         onToggleViewMode={toggleViewMode}
         onHome={() => setActiveTabId(null)}
         onOpenHosts={() => setHostManagerOpen(true)}
@@ -1847,6 +1875,7 @@ function App() {
                 open: true,
                 initial: settings.localStartPath || '',
                 onPick: (chosen) => openLocalTab(chosen),
+                slot: null,
               })}
               onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
               onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
@@ -2023,10 +2052,43 @@ function App() {
                           activatePane(slot.tabId, slot.paneId, { type: 'local', cwd: chosen });
                         }
                       },
+                      slot: slot || null,
                     })}
                     onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
                     onEditLocal={() => setLocalEditorOpen(true)}
                     refreshHosts={refreshHosts}
+                    /* 인라인 picker 상태 — 매칭되는 (tabId, paneId) pane 안에서 오버레이. */
+                    localPicker={localFolderPicker}
+                    onLocalPickerClose={() => setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null })}
+                    onLocalPickerPick={(chosen) => {
+                      const fn = localFolderPicker.onPick;
+                      setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null });
+                      fn?.(chosen);
+                    }}
+                    remotePickerHost={folderPickerHost}
+                    remotePickerSlot={folderPickerSlot}
+                    onRemotePickerClose={() => { setFolderPickerHost(null); setFolderPickerSlot(null); }}
+                    onRemotePickerPick={async (chosen) => {
+                      const host = folderPickerHost;
+                      const slot = folderPickerSlot;
+                      setFolderPickerHost(null);
+                      setFolderPickerSlot(null);
+                      if (!host || !chosen) return;
+                      try {
+                        const token = localStorage.getItem('auth_token');
+                        await fetch(`/api/hosts/${host.id}/last-cwd`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({ cwd: chosen }),
+                        });
+                      } catch { /* 무시 */ }
+                      if (slot?.tabId && slot?.paneId) {
+                        activatePane(slot.tabId, slot.paneId, { type: 'host', hostId: host.id, cwd: chosen });
+                      } else {
+                        openHostTab(host, chosen);
+                      }
+                      refreshHosts();
+                    }}
                   />
                   </PaneErrorBoundary>
                 </div>
@@ -2147,9 +2209,9 @@ function App() {
         t={t}
       />
 
-      {/* ── remote folder picker (open-at-path) ── */}
+      {/* ── remote folder picker (open-at-path) — slot 있으면 Pane 안 인라인 ── */}
       <RemoteFolderPicker
-        isOpen={!!folderPickerHost}
+        isOpen={!!folderPickerHost && !folderPickerSlot}
         host={folderPickerHost}
         onClose={() => { setFolderPickerHost(null); setFolderPickerSlot(null); }}
         onPick={async (chosen) => {
@@ -2191,18 +2253,20 @@ function App() {
           open: true,
           initial: initial || '',
           onPick: (chosen) => applyChosen?.(chosen),
+          slot: null,
         })}
         t={t}
       />
 
-      {/* ── local workspace folder picker ── */}
+      {/* ── local workspace folder picker (전역 모달) ──
+          slot 이 있으면 Pane 안 인라인으로 렌더되므로 여기서는 skip. */}
       <LocalFolderPicker
-        isOpen={localFolderPicker.open}
+        isOpen={localFolderPicker.open && !localFolderPicker.slot}
         initialPath={localFolderPicker.initial}
-        onClose={() => setLocalFolderPicker({ open: false, initial: '', onPick: null })}
+        onClose={() => setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null })}
         onPick={(chosen) => {
           const fn = localFolderPicker.onPick;
-          setLocalFolderPicker({ open: false, initial: '', onPick: null });
+          setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null });
           fn?.(chosen);
         }}
         t={t}

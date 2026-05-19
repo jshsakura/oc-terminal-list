@@ -35,6 +35,8 @@ const TabBar = ({
   /* (tabId) → 해당 탭의 viewMode 토글 (grid ↔ tabs). panes.length > 1 인 탭에서만 의미. */
   onToggleViewMode,
   onCloseImmediate = null,
+  /* (tabId) → 세션 강제 종료 + 탭 닫기. 의도 명확한 전용 진입점. */
+  onKillSession = null,
   canSplit = false,
   isMobile = false,
   t,
@@ -277,6 +279,7 @@ const TabBar = ({
         onSplit={onSplit ? (dir) => { onSplit(dir); setContextMenu(null); } : null}
         onClose={() => setContextMenu(null)}
         onCloseTab={() => { setPendingCloseTabId(contextMenu.tabId); setContextMenu(null); }}
+        onKillSession={onKillSession ? () => { onKillSession(contextMenu.tabId); setContextMenu(null); } : null}
         onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
         onToggleViewMode={() => { onToggleViewMode?.(contextMenu.tabId); setContextMenu(null); }}
         onMoveLeft={() => {
@@ -484,6 +487,7 @@ const TabContextMenu = ({
   canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null,
   canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null,
   canSplit = false, onSplit = null,
+  onKillSession = null,
 }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
@@ -593,7 +597,12 @@ const TabContextMenu = ({
           </MenuItem>
         </>
       )}
-      <MenuItem onClick={onCloseTab} danger icon={X}>{t?.('closeTab') || 'Close tab'}</MenuItem>
+      <MenuItem onClick={onCloseTab} icon={X}>{t?.('closeTab') || 'Close tab'}</MenuItem>
+      {onKillSession && (
+        <MenuItem onClick={onKillSession} danger icon={X}>
+          {t?.('killSession') || 'Kill session'}
+        </MenuItem>
+      )}
     </div>
   );
 };

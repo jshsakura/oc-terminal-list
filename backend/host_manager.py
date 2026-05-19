@@ -15,6 +15,7 @@ import os
 import re
 import shlex
 import shutil as _shutil
+from collections import deque
 
 import asyncssh
 import ptyprocess
@@ -29,6 +30,14 @@ CONNECT_TIMEOUT = 15  # 초
 # RPi5 등 wifi/배터리 호스트의 idle drop 빠르게 감지 — 15s × 4 = 1분 안에 끊긴 것 검출.
 KEEPALIVE_INTERVAL = 15
 KEEPALIVE_COUNT_MAX = 4
+
+# WS 백프레셔 캡 — ws_bridge.py 와 동일한 의미.
+# tailscale ssh PTY → WS 펌프가 동기 콜백(add_reader)으로 읽고 메인 루프가 비우는
+# 구조라 WS 가 느려지거나 끊긴 동안 무한 누적 가능. byte/item 양쪽으로 캡 걸어
+# 오래된 청크부터 폐기한다.
+WS_MAX_BACKPRESSURE_BYTES = 4 * 1024 * 1024
+WS_MAX_PENDING_ITEMS = 8192
+WS_FLUSH_CHUNK_BYTES = 65536
 
 
 class HostConnectError(RuntimeError):
@@ -318,6 +327,14 @@ class HostBridge:
         )
 
     async def _stdout_pump(self) -> None:
+        """asyncssh PTY → WebSocket 출력 펌프.
+
+        await read → await send 직렬 패턴이라 asyncssh 의 SSH window 가 자연
+        backpressure 를 주지만, starlette/uvicorn 의 send_bytes 가 transport
+        write buffer 에 fire-and-forget 으로 enqueue 만 하는 경우 (느린 클라
+        + 죽은 TCP) 버퍼가 무한 누적될 수 있음. 매 send 전에 client_state 를
+        재확인하고, 단일 send 가 5초 안에 안 끝나면 죽은 것으로 보고 종료.
+        """
         assert self.process is not None
         try:
             while True:
@@ -327,7 +344,10 @@ class HostBridge:
                 if self.websocket.client_state.name != "CONNECTED":
                     break
                 try:
-                    await self.websocket.send_bytes(chunk)
+                    await asyncio.wait_for(self.websocket.send_bytes(chunk), timeout=5.0)
+                except asyncio.TimeoutError:
+                    logger.info("ws send timeout (host bridge) — closing")
+                    break
                 except Exception as e:
                     logger.info("ws send failed (host bridge): %s", e)
                     break
@@ -495,11 +515,20 @@ class TailscaleHostBridge:
         )
 
     async def _stdout_pump(self) -> None:
+        """PTY → WebSocket 출력 펌프. 백프레셔 캡 + WS 단절 시 즉시 종료.
+
+        add_reader 콜백은 동기라 await 못 함 → 버퍼링 후 메인 루프에서 비움.
+        WS send 가 막혀있거나 client_state 가 CONNECTED 아닐 때 무한 누적 방지로
+        byte/item 캡을 둔다 (가장 오래된 청크부터 폐기). 캡 없을 때 6.8GB 까지
+        부풀어 OOM 으로 호스트가 사망하던 게 발견되어 추가됨.
+        """
         assert self.process is not None
         loop = asyncio.get_event_loop()
-        pending: list[bytes] = []
+        pending: deque[bytes] = deque()
+        pending_bytes = 0
 
         def on_readable() -> None:
+            nonlocal pending_bytes
             try:
                 data = self.process.read(self.READ_CHUNK)
             except Exception:
@@ -508,6 +537,12 @@ class TailscaleHostBridge:
             if not data:
                 return
             pending.append(data)
+            pending_bytes += len(data)
+            while (
+                (pending_bytes > WS_MAX_BACKPRESSURE_BYTES or len(pending) > WS_MAX_PENDING_ITEMS)
+                and len(pending) > 1
+            ):
+                pending_bytes -= len(pending.popleft())
 
         try:
             loop.add_reader(self.process.fd, on_readable)
@@ -519,14 +554,22 @@ class TailscaleHostBridge:
         try:
             while not self._closed.is_set():
                 if pending:
-                    buf = b"".join(pending)
-                    pending.clear()
-                    if self.websocket.client_state.name == "CONNECTED":
-                        try:
-                            await self.websocket.send_bytes(buf)
-                        except Exception:
-                            self._closed.set()
-                            break
+                    # WS 끊긴 상태면 즉시 종료 — 안 그러면 pending 만 계속 쌓임.
+                    if self.websocket.client_state.name != "CONNECTED":
+                        self._closed.set()
+                        break
+                    buf_parts: list[bytes] = []
+                    size = 0
+                    while pending and size < WS_FLUSH_CHUNK_BYTES:
+                        chunk = pending.popleft()
+                        buf_parts.append(chunk)
+                        size += len(chunk)
+                        pending_bytes = max(0, pending_bytes - len(chunk))
+                    try:
+                        await self.websocket.send_bytes(b"".join(buf_parts))
+                    except Exception:
+                        self._closed.set()
+                        break
                 if self.process and not self.process.isalive():
                     self._closed.set()
                     break

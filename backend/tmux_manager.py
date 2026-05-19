@@ -215,8 +215,11 @@ class TmuxManager:
 
     async def kill_session(self, session_id: str) -> None:
         if not await self.session_exists(session_id):
+            self._cwd_history.pop(session_id, None)
             return
         await self._run("kill-session", "-t", f"={session_id}", check=False)
+        # 메타데이터 누수 방지 — 세션 생사와 함께 cwd 타임라인도 폐기.
+        self._cwd_history.pop(session_id, None)
         logger.info("tmux session killed: %s", session_id)
 
     async def resize_window(self, session_id: str, cols: int, rows: int) -> None:

@@ -17,7 +17,6 @@ describe('HomeSessions', () => {
     render(
       <HomeSessions
         hosts={[{ id: 'h1', name: 'prod', use_remote_tmux: true }]}
-        hideHeader
       />
     );
 

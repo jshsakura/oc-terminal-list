@@ -26,13 +26,29 @@ services:
       HOST: 0.0.0.0
       APP_PORT: ${APP_PORT:-38822}
       DB_PATH: /app/data/iterminallist.db
-      WORKSPACE_ROOT: /workspace
+      # 컨테이너 안에서 사용하는 워크스페이스 루트. 기본은 /workspace.
+      # 호스트 절대경로를 그대로 노출하고 싶으면 .env 에서 두 변수를 같은 값으로 set:
+      #   WORKSPACE_HOST_PATH=/your/abs/path
+      #   WORKSPACE_ROOT=/your/abs/path
+      # 그러면 컨테이너 안 셸의 cd/git 출력 절대경로가 호스트와 일치한다.
+      WORKSPACE_ROOT: ${WORKSPACE_ROOT:-/workspace}
       # 비워두면 in-memory 캐시. 호스트에 redis 가 떠 있으면 아래처럼 가리켜도 OK.
       # REDIS_URL: redis://127.0.0.1:6379/0
       REDIS_URL: ""
     volumes:
       - ./data:/app/data
-      - ./workspace:/workspace
+      # 호스트 측 워크스페이스 디렉터리 ↔ 컨테이너 안 WORKSPACE_ROOT 로 bind.
+      # 기본: ./workspace ↔ /workspace (compose 표준 동작).
+      # 호스트 절대경로 매핑: WORKSPACE_HOST_PATH 와 WORKSPACE_ROOT 를 같은 값으로 set.
+      - ${WORKSPACE_HOST_PATH:-./workspace}:${WORKSPACE_ROOT:-/workspace}
+      # (선택) 로컬에서 `vite build` 한 frontend 산출물을 컨테이너에 즉시 노출 —
+      # 이미지 재빌드 없이 새로고침만으로 적용. dev 워크플로용. 활성화하려면 주석 해제.
+      # - ./backend/static:/app/backend/static:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${APP_PORT:-38822}/api/health"]
       interval: 30s

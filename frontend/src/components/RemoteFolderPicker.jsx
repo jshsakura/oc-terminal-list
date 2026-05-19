@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { X, Folder, ArrowUp, ChevronRight, Home } from 'lucide-react';
+import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
 
@@ -21,8 +21,11 @@ const parentOf = (abs) => {
 /**
  * 원격 호스트의 폴더를 SFTP 로 탐색하면서 시작 경로를 고르는 모달.
  * onPick(absolutePath) 콜백으로 선택 완료 후 경로 전달, onClose 로 취소.
+ *
+ * inline=true 면 모달 대신 부모 컨테이너 전체를 덮는 오버레이 (분할 pane 안에서 사용).
+ *   - 부모는 position:relative 여야 함.
  */
-const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = null, title = null }) => {
+const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = null, title = null, inline = false }) => {
   const [path, setPath] = useState('');         // 현재 보고 있는 절대 경로
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -75,10 +78,18 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
     onPick?.(path);
   };
 
+  const overlayStyle = inline ? styles.inlineOverlay : styles.overlay;
+  const surfaceStyle = inline ? styles.inlineSurface : styles.modal;
+
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div style={overlayStyle} onClick={inline ? undefined : onClose}>
+      <div style={surfaceStyle} onClick={inline ? undefined : (e) => e.stopPropagation()}>
         <header style={styles.header}>
+          {inline && (
+            <button type="button" onClick={onClose} style={styles.backBtn} title={t?.('back') || 'Back'}>
+              <ArrowLeft size={14} strokeWidth={2} />
+            </button>
+          )}
           <div style={styles.title}>
             {title || t?.('pickFolder') || 'Pick a folder'} — <span style={{ color: color.muted }}>{host.name}</span>
           </div>
@@ -158,6 +169,20 @@ const styles = {
     fontFamily: font.sans,
     backdropFilter: 'blur(2px)',
   },
+  inlineOverlay: {
+    position: 'absolute', inset: 0,
+    background: color.base,
+    display: 'flex',
+    zIndex: 30,
+    fontFamily: font.sans,
+  },
+  inlineSurface: {
+    width: '100%', height: '100%',
+    background: color.base,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
   modal: {
     width: '92%',
     maxWidth: '460px',
@@ -192,6 +217,14 @@ const styles = {
     background: 'transparent', border: 'none', borderRadius: '4px',
     cursor: 'pointer', color: color.subtext,
     padding: 0,
+  },
+  backBtn: {
+    width: '24px', height: '24px',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    background: 'transparent', border: 'none', borderRadius: '4px',
+    cursor: 'pointer', color: color.subtext,
+    padding: 0,
+    marginRight: '4px',
   },
   toolbar: {
     display: 'flex',

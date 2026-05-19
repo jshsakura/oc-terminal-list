@@ -6,7 +6,9 @@ SQLite 저장소 — 사용자/세션 메타/시스템 설정만 보관
 import asyncio
 import json
 import os
+import queue
 import sqlite3
+import threading
 from datetime import datetime
 
 DEFAULT_DB_PATH = os.getenv("DB_PATH") or os.path.join(
@@ -15,13 +17,27 @@ DEFAULT_DB_PATH = os.getenv("DB_PATH") or os.path.join(
     "iterminallist.db",
 )
 
+# 풀 크기 — WAL 은 동시 read 가능 / write 는 직렬화. 5 면 잦은 폴링 + 가끔 write 에
+# 충분하고 더 키워도 의미 없음. 환경변수로 튠 가능.
+_POOL_SIZE = int(os.getenv("SQLITE_POOL_SIZE", "5"))
+
 
 class SQLiteStorage:
-    """SQLite 기반 저장소 (admin / sessions / system_config)"""
+    """SQLite 기반 저장소 (admin / sessions / system_config).
+
+    연결 풀: 매 쿼리 connect/close 의 setup 비용(파일 open + WAL 메타 + PRAGMA 적용)
+    제거. 풀 크기 만큼 미리 열어두고 빌림/반납. asyncio.to_thread 가 ThreadPoolExecutor
+    위에서 돌므로 check_same_thread=False 로 cross-thread 재사용 허용 (한 시점에
+    한 스레드만 빌림 → cursor 경합 없음).
+    """
 
     def __init__(self, db_path: str | None = None):
         self.db_path = db_path or DEFAULT_DB_PATH
         self._ensure_directory()
+        self._pool: queue.Queue[sqlite3.Connection] = queue.Queue(maxsize=_POOL_SIZE)
+        self._pool_lock = threading.Lock()
+        self._pool_size = 0  # 현재 만들어진 총 conn 수 (in-use + idle)
+        self._closed = False
         self._init_db()
 
     def _ensure_directory(self) -> None:
@@ -29,8 +45,8 @@ class SQLiteStorage:
         if directory:
             os.makedirs(directory, exist_ok=True)
 
-    def _get_connection(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path, timeout=5)
+    def _make_connection(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.db_path, timeout=5, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         # WAL — 동시 읽기/쓰기 락 충돌 최소화. settings/tab-state 같은 debounced write 가
         # eviction polling 등 동시 read 와 부딪쳐 latency spike 내는 걸 막는다.
@@ -44,6 +60,38 @@ class SQLiteStorage:
         except sqlite3.OperationalError:
             pass  # 일부 PRAGMA 가 디스크/OS 제약으로 실패해도 작동은 계속.
         return conn
+
+    def _get_connection(self) -> sqlite3.Connection:
+        """풀에서 conn 을 빌린다. 풀이 비어있으면 만든다 (최대 _POOL_SIZE 까지)."""
+        try:
+            return self._pool.get_nowait()
+        except queue.Empty:
+            pass
+        with self._pool_lock:
+            if self._pool_size < _POOL_SIZE:
+                conn = self._make_connection()
+                self._pool_size += 1
+                return conn
+        # 풀이 가득 차고 모두 사용 중 — 다음 반납을 블로킹 대기.
+        return self._pool.get()
+
+    def _release_connection(self, conn: sqlite3.Connection) -> None:
+        """conn 을 풀에 반납. 풀이 닫혔거나 풀이 가득 차면 실제로 close."""
+        if self._closed:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            return
+        try:
+            self._pool.put_nowait(conn)
+        except queue.Full:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            with self._pool_lock:
+                self._pool_size = max(0, self._pool_size - 1)
 
     def _init_db(self) -> None:
         conn = self._get_connection()
@@ -216,7 +264,7 @@ class SQLiteStorage:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_target ON usage_sessions(username, target_type, target_id)")
 
         conn.commit()
-        conn.close()
+        self._release_connection(conn)
 
     # -------- admin --------
 
@@ -227,7 +275,7 @@ class SQLiteStorage:
                 count = conn.execute("SELECT COUNT(*) FROM admin").fetchone()[0]
                 return count > 0
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_check)
 
     async def create_admin(self, username: str, password_hash: str) -> bool:
@@ -243,7 +291,7 @@ class SQLiteStorage:
             except sqlite3.IntegrityError:
                 return False
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_create)
 
     async def get_admin(self) -> dict[str, str] | None:
@@ -264,7 +312,7 @@ class SQLiteStorage:
                     "otp_enabled_at": row["otp_enabled_at"],
                 }
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def set_admin_otp(self, username: str, secret_enc: str | None, enabled: bool) -> None:
@@ -278,7 +326,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_set)
 
     async def replace_backup_codes(self, username: str, code_hashes: list[str]) -> None:
@@ -294,7 +342,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_replace)
 
     async def list_unused_backup_codes(self, username: str) -> list[dict[str, str]]:
@@ -307,7 +355,7 @@ class SQLiteStorage:
                 ).fetchall()
                 return [{"id": row["id"], "code_hash": row["code_hash"]} for row in rows]
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_list)
 
     async def count_unused_backup_codes(self, username: str) -> int:
@@ -319,7 +367,7 @@ class SQLiteStorage:
                     (username,),
                 ).fetchone()[0]
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_count)
 
     async def consume_backup_code(self, code_id: int) -> bool:
@@ -334,7 +382,7 @@ class SQLiteStorage:
                 conn.commit()
                 return cur.rowcount > 0
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_consume)
 
     async def clear_backup_codes(self, username: str) -> None:
@@ -344,7 +392,7 @@ class SQLiteStorage:
                 conn.execute("DELETE FROM admin_backup_codes WHERE username = ?", (username,))
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_clear)
 
     # -------- sessions --------
@@ -360,8 +408,22 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_create)
+
+    async def get_session_owner(self, session_id: str) -> str | None:
+        """세션의 소유자 username. 없으면 None — WS attach 시 소유권 검증용."""
+        def _get():
+            conn = self._get_connection()
+            try:
+                row = conn.execute(
+                    "SELECT username FROM sessions WHERE session_id = ?",
+                    (session_id,),
+                ).fetchone()
+                return row["username"] if row else None
+            finally:
+                self._release_connection(conn)
+        return await asyncio.to_thread(_get)
 
     async def get_user_sessions(self, username: str) -> list[dict[str, str]]:
         def _get():
@@ -382,7 +444,7 @@ class SQLiteStorage:
                     for row in rows
                 ]
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def update_session_activity(self, session_id: str) -> None:
@@ -395,7 +457,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_update)
 
     async def update_session_name(self, session_id: str, name: str) -> None:
@@ -408,7 +470,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_update)
 
     async def delete_session(self, session_id: str) -> None:
@@ -418,7 +480,7 @@ class SQLiteStorage:
                 conn.execute("DELETE FROM sessions WHERE session_id = ?", (session_id,))
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_delete)
 
     # -------- ssh keys --------
@@ -433,7 +495,7 @@ class SQLiteStorage:
                 ).fetchall()
                 return [dict(r) for r in rows]
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def get_ssh_key(self, key_id: str, username: str) -> dict | None:
@@ -446,7 +508,7 @@ class SQLiteStorage:
                 ).fetchone()
                 return dict(row) if row else None
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def create_ssh_key(
@@ -469,7 +531,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_create)
 
     async def update_ssh_key(
@@ -512,7 +574,7 @@ class SQLiteStorage:
                 conn.commit()
                 return cur.rowcount > 0
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_update)
 
     async def delete_ssh_key(self, key_id: str, username: str) -> bool:
@@ -523,7 +585,7 @@ class SQLiteStorage:
                 conn.commit()
                 return cur.rowcount > 0
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_delete)
 
     # -------- hosts --------
@@ -543,7 +605,7 @@ class SQLiteStorage:
                 ).fetchall()
                 return [dict(r) for r in rows]
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def get_host(self, host_id: str, username: str) -> dict | None:
@@ -559,7 +621,7 @@ class SQLiteStorage:
                 ).fetchone()
                 return dict(row) if row else None
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def upsert_host(self, host_id: str, username: str, **fields) -> None:
@@ -612,7 +674,7 @@ class SQLiteStorage:
                     )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_upsert)
 
     async def touch_host(self, host_id: str, username: str) -> None:
@@ -625,7 +687,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_touch)
 
     async def reorder_hosts(self, username: str, ids: list[str]) -> None:
@@ -640,7 +702,7 @@ class SQLiteStorage:
                     )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_reorder)
 
     async def update_host_last_cwd(self, host_id: str, username: str, cwd: str | None) -> None:
@@ -655,7 +717,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_update)
 
     async def delete_host(self, host_id: str, username: str) -> bool:
@@ -666,7 +728,7 @@ class SQLiteStorage:
                 conn.commit()
                 return cur.rowcount > 0
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_delete)
 
     # -------- user settings (UI 환경설정 — 테마/폰트 등) --------
@@ -686,7 +748,7 @@ class SQLiteStorage:
                 except (TypeError, ValueError):
                     return None
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def save_user_settings(self, username: str, settings: dict) -> None:
@@ -701,7 +763,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_save)
 
     # -------- tab state (탭 순서/레이아웃 전체 — 기기 간 완전 복원) --------
@@ -728,7 +790,7 @@ class SQLiteStorage:
                 except (TypeError, ValueError):
                     return None
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def get_tab_state_updated_at(self, username: str) -> str | None:
@@ -742,7 +804,7 @@ class SQLiteStorage:
                 ).fetchone()
                 return row["updated_at"] if row else None
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def save_tab_state(self, username: str, tabs: list, active_tab_id: str | None) -> str:
@@ -758,7 +820,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_save)
         return new_updated_at
 
@@ -773,7 +835,7 @@ class SQLiteStorage:
                 ).fetchone()
                 return row["value"] if row else None
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def set_config(self, key: str, value: str) -> bool:
@@ -789,8 +851,21 @@ class SQLiteStorage:
             except Exception:
                 return False
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_set)
+
+    async def delete_config(self, key: str) -> bool:
+        def _del():
+            conn = self._get_connection()
+            try:
+                conn.execute("DELETE FROM system_config WHERE key = ?", (key,))
+                conn.commit()
+                return True
+            except Exception:
+                return False
+            finally:
+                self._release_connection(conn)
+        return await asyncio.to_thread(_del)
 
     # -------- usage tracking --------
 
@@ -819,7 +894,7 @@ class SQLiteStorage:
             except Exception:
                 return None
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_insert)
 
     async def record_usage_end(self, event_id: int) -> None:
@@ -848,7 +923,7 @@ class SQLiteStorage:
                 )
                 conn.commit()
             finally:
-                conn.close()
+                self._release_connection(conn)
         await asyncio.to_thread(_update)
 
     async def close_orphan_usage_sessions(self) -> int:
@@ -865,7 +940,7 @@ class SQLiteStorage:
                 conn.commit()
                 return int(cur.rowcount or 0)
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_close)
 
     async def get_usage_summary(self, username: str, days: int = 7) -> dict:
@@ -900,7 +975,7 @@ class SQLiteStorage:
                 ).fetchall()
                 return [dict(r) for r in rows]
             finally:
-                conn.close()
+                self._release_connection(conn)
 
         rows = await asyncio.to_thread(_query)
         now_ts = datetime.utcnow().timestamp()
@@ -974,8 +1049,19 @@ class SQLiteStorage:
         return
 
     async def close(self) -> None:
-        """no-op (호환성 유지)"""
-        return
+        """풀에 남은 모든 idle conn close. 서비스 종료 시 호출."""
+        self._closed = True
+        drained: list[sqlite3.Connection] = []
+        while True:
+            try:
+                drained.append(self._pool.get_nowait())
+            except queue.Empty:
+                break
+        for conn in drained:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 storage = SQLiteStorage()

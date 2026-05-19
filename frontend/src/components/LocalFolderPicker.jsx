@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { X, Folder, ArrowUp, ChevronRight, Home } from 'lucide-react';
+import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
 
@@ -21,8 +21,13 @@ const parentOf = (rel) => {
 /**
  * 워크스페이스 내부의 폴더만 탐색하는 픽커. 절대경로가 아닌 워크스페이스 상대 경로 반환.
  * 빈 경로 = 워크스페이스 루트.
+ *
+ * inline=true 면 모달 대신 부모 컨테이너 전체를 덮는 오버레이로 렌더 (분할 pane 안에서 사용).
+ *   - scrim 없음, 그림자/border-radius 없음
+ *   - 헤더에 ← 백 버튼 추가 (= onClose)
+ *   - 부모는 position:relative 여야 함 (Pane 컨테이너가 이미 그러함)
  */
-const LocalFolderPicker = ({ isOpen, initialPath = '', title, onPick, onClose, t }) => {
+const LocalFolderPicker = ({ isOpen, initialPath = '', title, onPick, onClose, t, inline = false }) => {
   const [path, setPath] = useState('');
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -71,10 +76,18 @@ const LocalFolderPicker = ({ isOpen, initialPath = '', title, onPick, onClose, t
   const enter = (folder) => load(folder.path);
   const confirm = () => onPick?.(path);
 
+  const overlayStyle = inline ? styles.inlineOverlay : styles.overlay;
+  const surfaceStyle = inline ? styles.inlineSurface : styles.modal;
+
   return (
-    <div style={styles.overlay} onClick={onClose}>
-      <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+    <div style={overlayStyle} onClick={inline ? undefined : onClose}>
+      <div style={surfaceStyle} onClick={inline ? undefined : (e) => e.stopPropagation()}>
         <header style={styles.header}>
+          {inline && (
+            <button type="button" onClick={onClose} style={styles.backBtn} title={t?.('back') || 'Back'}>
+              <ArrowLeft size={14} strokeWidth={2} />
+            </button>
+          )}
           <div style={styles.title}>
             {title || t?.('pickFolder') || 'Pick a folder'}
           </div>
@@ -155,6 +168,21 @@ const styles = {
     fontFamily: font.sans,
     backdropFilter: 'blur(2px)',
   },
+  /* inline 모드 — Pane 안에서 컨테이너 전체를 덮는다. scrim 없음 (배경 보일 필요 X). */
+  inlineOverlay: {
+    position: 'absolute', inset: 0,
+    background: color.base,
+    display: 'flex',
+    zIndex: 30,
+    fontFamily: font.sans,
+  },
+  inlineSurface: {
+    width: '100%', height: '100%',
+    background: color.base,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
   modal: {
     width: '92%',
     maxWidth: '460px',
@@ -180,6 +208,14 @@ const styles = {
     background: 'transparent', border: 'none', borderRadius: '4px',
     cursor: 'pointer', color: color.subtext,
     padding: 0,
+  },
+  backBtn: {
+    width: '24px', height: '24px',
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    background: 'transparent', border: 'none', borderRadius: '4px',
+    cursor: 'pointer', color: color.subtext,
+    padding: 0,
+    marginRight: '4px',
   },
   toolbar: {
     display: 'flex',
