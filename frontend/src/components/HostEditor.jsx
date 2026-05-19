@@ -187,7 +187,13 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
       <form onSubmit={submit} style={styles.modal}>
         <header style={styles.header}>
           <div style={styles.title}>{host ? (t('editHost') || 'Edit host') : (t('addHost') || 'Add host')}</div>
-          <button type="button" onClick={onClose} style={styles.closeBtn}><X size={14} strokeWidth={2} /></button>
+          <button
+            type="button"
+            onClick={onClose}
+            style={styles.closeBtn}
+            onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+          ><X size={14} strokeWidth={2} /></button>
         </header>
 
         <nav style={heStyles.tabBar}>
@@ -204,6 +210,17 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                   background: active ? color.surface1 : 'transparent',
                   color: active ? color.text : color.subtext,
                   borderColor: active ? color.borderStrong : 'transparent',
+                  transition: `background ${motion.fast}, color ${motion.fast}, border-color ${motion.fast}`,
+                }}
+                onMouseEnter={(e) => {
+                  if (active) return;
+                  e.currentTarget.style.background = color.surface0;
+                  e.currentTarget.style.color = color.text;
+                }}
+                onMouseLeave={(e) => {
+                  if (active) return;
+                  e.currentTarget.style.background = 'transparent';
+                  e.currentTarget.style.color = color.subtext;
                 }}
               >
                 <Icon size={12} strokeWidth={1.8} />
@@ -675,7 +692,10 @@ const IconButton = ({ value, colorIndex, onOpen, t }) => {
         fontFamily: 'inherit',
         fontSize: fontSize['12'],
         alignSelf: 'flex-start',
+        transition: `background ${motion.fast}, border-color ${motion.fast}`,
       }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.borderColor = color.borderStrong; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = color.mantle; e.currentTarget.style.borderColor = color.border; }}
     >
       <span style={{ color: iconColor, display: 'inline-flex', alignItems: 'center' }}>
         <HostIcon value={value} size={16} />
@@ -695,6 +715,7 @@ const ColorPicker = ({ value, onChange }) => (
         key={c}
         type="button"
         onClick={() => onChange(i)}
+        title={`color ${i + 1}`}
         style={{
           width: '22px',
           height: '22px',
@@ -704,7 +725,17 @@ const ColorPicker = ({ value, onChange }) => (
           borderRadius: radius.full,
           cursor: 'pointer',
           boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.25)',
-          transition: `border-color ${motion.fast}, transform ${motion.fast}`,
+          transition: `border-color ${motion.fast}, transform ${motion.fast}, box-shadow ${motion.fast}`,
+        }}
+        onMouseEnter={(e) => {
+          if (i === value) return;
+          e.currentTarget.style.transform = 'scale(1.12)';
+          e.currentTarget.style.boxShadow = `inset 0 0 0 1px rgba(0,0,0,0.25), 0 0 0 2px ${c}55`;
+        }}
+        onMouseLeave={(e) => {
+          if (i === value) return;
+          e.currentTarget.style.transform = 'scale(1)';
+          e.currentTarget.style.boxShadow = 'inset 0 0 0 1px rgba(0,0,0,0.25)';
         }}
       />
     ))}

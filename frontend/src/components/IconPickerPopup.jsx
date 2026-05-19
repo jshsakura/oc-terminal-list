@@ -41,7 +41,14 @@ const IconPickerPopup = ({ isOpen, value, onChange, onClose, t }) => {
       <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
         <header style={styles.header}>
           <div style={styles.title}>{t?.('pickIcon') || 'Pick an icon'}</div>
-          <button type="button" onClick={onClose} style={styles.closeBtn} title={t?.('close') || 'Close'}>
+          <button
+            type="button"
+            onClick={onClose}
+            style={styles.closeBtn}
+            title={t?.('close') || 'Close'}
+            onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
+          >
             <X size={14} strokeWidth={2} />
           </button>
         </header>

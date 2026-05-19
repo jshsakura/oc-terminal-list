@@ -629,11 +629,23 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             icon={RefreshCw}
           />
           <div style={{ display: 'flex', alignItems: 'center', gap: '2px', borderLeft: `1px solid ${editorSection.borderColor}`, paddingLeft: '8px', marginLeft: '4px' }}>
-            <button onClick={() => changeFontSize(-1)} title="Decrease font size" style={styles.fsBtnStyle(theme)}>
+            <button
+              onClick={() => changeFontSize(-1)}
+              title="Decrease font size"
+              style={styles.fsBtnStyle(theme)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = theme.ui.text || theme.ui.textSecondary; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = theme.ui.textSecondary; }}
+            >
               <ZoomOut size={11} strokeWidth={2} />
             </button>
             <span style={{ fontSize: '10px', color: theme.ui.textSecondary, minWidth: '20px', textAlign: 'center', fontFamily: 'monospace' }}>{editorFontSize}</span>
-            <button onClick={() => changeFontSize(1)} title="Increase font size" style={styles.fsBtnStyle(theme)}>
+            <button
+              onClick={() => changeFontSize(1)}
+              title="Increase font size"
+              style={styles.fsBtnStyle(theme)}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = theme.ui.text || theme.ui.textSecondary; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = theme.ui.textSecondary; }}
+            >
               <ZoomIn size={11} strokeWidth={2} />
             </button>
           </div>

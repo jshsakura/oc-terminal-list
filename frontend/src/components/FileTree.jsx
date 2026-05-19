@@ -953,7 +953,17 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       <div style={{ ...styles.searchBar, ...(searchVisible ? styles.searchBarOpen : {}) }} aria-hidden={!searchVisible}>
         <Search size={12} style={{ color: color.muted }} />
         <input ref={searchInputRef} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t('searchFiles')} style={styles.searchInput} tabIndex={searchVisible ? 0 : -1} />
-        {searchVisible && <button onClick={() => { setSearchQuery(''); setSearchOpen(false); }} style={styles.searchClearBtn}><X size={12} /></button>}
+        {searchVisible && (
+          <button
+            onClick={() => { setSearchQuery(''); setSearchOpen(false); }}
+            style={styles.searchClearBtn}
+            title={t('clearSearch') || 'Clear search'}
+            onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; e.currentTarget.style.color = color.text; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.muted; }}
+          >
+            <X size={12} />
+          </button>
+        )}
       </div>
       <input
         ref={fileInputRef}
@@ -995,6 +1005,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
                 fetchChildren('');
               }}
               style={styles.retryBtn}
+              onMouseEnter={(e) => { e.currentTarget.style.background = color.accent; e.currentTarget.style.color = color.crust; e.currentTarget.style.borderColor = color.accent; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.accent; e.currentTarget.style.borderColor = color.accent; }}
             >
               {t('retry') || 'Retry'}
             </button>
@@ -1070,7 +1082,30 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 };
 
 const HeadAction = ({ icon: Icon, title, onClick, active, disabled = false }) => (
-  <button onClick={(e) => { e.stopPropagation(); if (!disabled) onClick?.(); }} onContextMenu={(e) => e.stopPropagation()} title={title} disabled={disabled} style={{ ...styles.headActionBtn, color: active ? color.accent : color.muted, background: active ? color.accentSubtle : 'transparent', opacity: disabled ? 0.35 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
+  <button
+    onClick={(e) => { e.stopPropagation(); if (!disabled) onClick?.(); }}
+    onContextMenu={(e) => e.stopPropagation()}
+    title={title}
+    disabled={disabled}
+    style={{
+      ...styles.headActionBtn,
+      color: active ? color.accent : color.muted,
+      background: active ? color.accentSubtle : 'transparent',
+      opacity: disabled ? 0.35 : 1,
+      cursor: disabled ? 'not-allowed' : 'pointer',
+      transition: 'background 120ms, color 120ms',
+    }}
+    onMouseEnter={(e) => {
+      if (disabled || active) return;
+      e.currentTarget.style.background = color.surface0;
+      e.currentTarget.style.color = color.text;
+    }}
+    onMouseLeave={(e) => {
+      if (disabled || active) return;
+      e.currentTarget.style.background = 'transparent';
+      e.currentTarget.style.color = color.muted;
+    }}
+  >
     <Icon size={12} strokeWidth={2} />
   </button>
 );
