@@ -920,6 +920,15 @@ function App() {
       ? `host:${pane.hostId}:${Date.now()}:${newPane.id.slice(0, 6)}`
       : `local:${pane.sessionId}:${Date.now()}:${newPane.id.slice(0, 6)}`;
 
+    // pane 의 실제 호스트 기준으로 새 탭 메타데이터 재구성.
+    // src 의 name/hostId/icon/color 를 그대로 복사하면 pane 이 src 와 다른 호스트로
+    // 옮겨진 상태에서 분리 시 "이전 탭 호스트명이 따라오는" 버그가 됨.
+    const paneHost = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
+    const newTabType = pane.hostId ? 'host' : 'local';
+    const newTabName = paneHost?.name || (pane.hostId ? src.name : (src.type === 'local' ? src.name : 'Local'));
+    const newTabIcon = paneHost?.icon ?? (pane.hostId ? null : (src.icon || null));
+    const newTabColorIndex = paneHost?.color_index ?? (pane.hostId ? 0 : (src.color_index ?? 0));
+
     setTabs((prev) => {
       const remaining = (src.panes || []).filter((p) => p.id !== paneId);
       const layout = remaining.length === 1 ? 'single' : (remaining.length === 2 ? (src.layout === 'v' ? 'v' : 'h') : '2x2');
@@ -936,25 +945,26 @@ function App() {
       };
       const newTab = {
         id: newTabId,
-        type: src.type,
-        name: src.name,
+        type: newTabType,
+        name: newTabName,
         cwd: src.cwd ?? null,
-        icon: src.icon || null,
-        color_index: src.color_index ?? 0,
+        icon: newTabIcon,
+        color_index: newTabColorIndex,
         panes: [newPane],
         layout: 'single',
         splitTree: makeLeaf(newPane.id),
         activePaneId: newPane.id,
-        ...(src.hostId ? { hostId: src.hostId } : null),
-        ...(src.tmuxSuffix ? { tmuxSuffix: src.tmuxSuffix } : null),
-        ...(src.sessionId && src.type === 'local' ? { sessionId: pane.sessionId } : null),
+        ...(pane.hostId ? { hostId: pane.hostId } : null),
+        // src 가 같은 호스트면 tmuxSuffix 도 유지 — pane 컴패니언 세션이 같은 base 유지.
+        ...(pane.hostId && src.hostId === pane.hostId && src.tmuxSuffix ? { tmuxSuffix: src.tmuxSuffix } : null),
+        ...(!pane.hostId && pane.sessionId ? { sessionId: pane.sessionId } : null),
       };
       const next = prev.map((t) => (t.id === tabId ? trimmedSrc : t));
       const idx = next.findIndex((t) => t.id === tabId);
       return [...next.slice(0, idx + 1), newTab, ...next.slice(idx + 1)];
     });
     setActiveTabId(newTabId);
-  }, [tabs]);
+  }, [tabs, hosts]);
 
   // 분할 pane 순서 변경 — subTabs 컨텍스트 메뉴(Move left/right) 및 드래그 핸들에서 사용.
   // (tabId, fromPaneId, toPaneId) → 해당 탭의 panes 배열에서 fromPaneId 를 toPaneId 위치로 이동.

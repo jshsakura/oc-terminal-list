@@ -56,6 +56,15 @@ backend/data/
 data/.vault-key
 backend/data/.vault-key
 
+# JWT 서명 키 — vault key 와 동일 디렉토리에 저장됨 (2026-05-19~). 절대 커밋 금지.
+data/.jwt-secret
+backend/data/.jwt-secret
+
+# data/ 디렉토리 전체 — DB / vault key / jwt key 등 secret 모음.
+# 위 *.db / .vault-key / .jwt-secret 패턴으로 이미 커버되지만 디렉토리 자체도 명시.
+data/
+backend/data/
+
 # 컨테이너 부팅 시 마운트되는 SSH 키 (절대 커밋 금지) — .gitkeep 은 dir 만 살림
 secrets/*
 !secrets/.gitkeep

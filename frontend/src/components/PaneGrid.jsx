@@ -521,14 +521,18 @@ const SplitHandle = ({ direction, onMouseDown, onDoubleClick }) => {
         userSelect: 'none',
       }}
     >
-      {/* 1px visual line centered in the hit area */}
+      {/* 1px visual line centered in the hit area.
+          background 를 borderStrong 으로만 두면 같은 색조 테마(Purple Shade 등)에서
+          panel 배경과 거의 같아 경계가 안 보임. text 색을 mix 해 항상 최소 대비를 보장. */}
       <div style={{
         position: 'absolute',
         top: isRow ? 0 : '2.5px',
         bottom: isRow ? 0 : '2.5px',
         left: isRow ? '2.5px' : 0,
         right: isRow ? '2.5px' : 0,
-        background: hovered ? color.accent : color.borderStrong,
+        background: hovered
+          ? color.accent
+          : `color-mix(in srgb, var(--ui-text, ${color.text}) 22%, transparent)`,
         opacity: hovered ? 0.9 : 1,
         transition: 'background 120ms, opacity 120ms',
         pointerEvents: 'none',
