@@ -2202,6 +2202,7 @@ function App() {
             command={commandText}
             setCommand={setCommandText}
             t={t}
+            language={settings.language}
           />
         </Suspense></LazyErrorBoundary>
       )}

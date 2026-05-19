@@ -1,9 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy } from 'lucide-react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Mic } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
+import useSpeechRecognition from '../hooks/useSpeechRecognition';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+
+// 앱 i18n 코드(ko / en) → Web Speech API BCP-47 태그.
+// ko 외 모든 값은 기본적으로 en-US 로 떨어진다.
+const speechLangFor = (language) => (language === 'ko' ? 'ko-KR' : 'en-US');
 
 // 키보드 위에 살짝 띄우는 여백 — 입력창이 키보드 / suggestion bar 와 딱 붙지 않게.
 const MOBILE_BOTTOM_GAP = 8;
@@ -30,7 +35,7 @@ const focusToEnd = (ta) => {
  * 입력 보존: command/setCommand 가 부모(App.jsx) state 라 X/ESC/backdrop 으로
  * 닫아도 텍스트는 유지된다. 비우는 건 명시적 "Clear" 또는 "Send" 시에만.
  */
-const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
+const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language }) => {
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
   // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
@@ -42,6 +47,37 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
     }
     return { height: window.visualViewport.height, offsetTop: window.visualViewport.offsetTop };
   });
+
+  // 인식된 텍스트를 textarea 끝에 이어붙인다. 직전 문자가 공백/줄바꿈이 아니면 한 칸 띄움.
+  // setCommand 가 함수형이 아닐 가능성에 대비해 직접 command 를 참조 — App 의 상태는 일반 useState.
+  const appendVoiceText = useCallback((text) => {
+    const chunk = text.trim();
+    if (!chunk) return;
+    const needsSpace = command && !/[\s\n]$/.test(command);
+    const next = command + (needsSpace ? ' ' : '') + chunk;
+    setCommand(next);
+    requestAnimationFrame(() => focusToEnd(textareaRef.current));
+  }, [command, setCommand]);
+
+  const {
+    supported: voiceSupported,
+    listening: voiceListening,
+    start: voiceStart,
+    stop: voiceStop,
+  } = useSpeechRecognition({
+    language: speechLangFor(language),
+    onResult: appendVoiceText,
+  });
+
+  // 모달이 닫히면 진행 중인 음성 인식도 함께 정지 — 백그라운드에서 마이크가 살아있지 않게.
+  useEffect(() => {
+    if (!isOpen && voiceListening) voiceStop();
+  }, [isOpen, voiceListening, voiceStop]);
+
+  const toggleVoice = () => {
+    if (!voiceSupported) return;
+    if (voiceListening) voiceStop(); else voiceStart();
+  };
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -197,7 +233,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
       onPointerDown={(e) => { e.stopPropagation(); }}
       onTouchMove={blockTouch}
     >
-      <style>{`.command-input-textarea::placeholder { color: ${color.muted}; }`}</style>
+      <style>{`
+        .command-input-textarea::placeholder { color: ${color.muted}; }
+        @keyframes commandInputMicPulse {
+          0%   { box-shadow: 0 0 0 0   color-mix(in srgb, var(--ui-danger, ${color.danger}) 60%, transparent); }
+          70%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--ui-danger, ${color.danger}) 0%,  transparent); }
+          100% { box-shadow: 0 0 0 0   color-mix(in srgb, var(--ui-danger, ${color.danger}) 0%,  transparent); }
+        }
+      `}</style>
 
       <div
         ref={modalRef}
@@ -259,6 +302,31 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t }) => {
             title={t?.('clearInput')}
           />
           <div style={{ flex: 1 }} />
+          {/* 우측 직전 — 음성 입력 토글 (지원 안 되면 비활성 상태로만 노출) */}
+          <button
+            type="button"
+            onClick={toggleVoice}
+            disabled={!voiceSupported}
+            title={
+              !voiceSupported
+                ? (t?.('voiceInputUnsupported') || 'Voice input is not supported in this browser')
+                : voiceListening
+                  ? (t?.('voiceInputStop') || 'Stop voice input')
+                  : (t?.('voiceInputStart') || 'Start voice input')
+            }
+            aria-pressed={voiceListening}
+            aria-label={t?.('voiceInput') || 'Voice input'}
+            style={{
+              ...styles.micBtn,
+              ...(voiceListening ? styles.micBtnActive : null),
+              cursor: voiceSupported ? 'pointer' : 'not-allowed',
+              opacity: voiceSupported ? 1 : 0.4,
+            }}
+          >
+            <Mic size={14} strokeWidth={2} />
+            {/* 활성 상태 표시등 — 우상단 작은 dot 이 pulse */}
+            {voiceListening && <span style={styles.micDot} aria-hidden="true" />}
+          </button>
           {/* 우측 — 주 액션 */}
           <Button
             variant="primary"
@@ -360,6 +428,39 @@ const styles = {
     padding: `${space['1.5']} ${space['3']}`,
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
     background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
+  },
+  // 음성 입력 토글. ghost Button 과 시각적으로 비슷하되, 활성 상태에서 점/펄스를
+  // 보여주기 위해 별도 inline 버튼으로 구현.
+  micBtn: {
+    position: 'relative',
+    width: '28px',
+    height: '28px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: `var(--ui-subtext, ${color.subtext})`,
+    border: `1px solid var(--ui-border, ${color.border})`,
+    borderRadius: radius.sm,
+    transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}`,
+    outline: 'none',
+    padding: 0,
+  },
+  micBtnActive: {
+    color: `var(--ui-danger, ${color.danger})`,
+    borderColor: `color-mix(in srgb, var(--ui-danger, ${color.danger}) 55%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-danger, ${color.danger}) 12%, transparent)`,
+    animation: 'commandInputMicPulse 1.4s ease-out infinite',
+  },
+  micDot: {
+    position: 'absolute',
+    top: '4px',
+    right: '4px',
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    background: `var(--ui-danger, ${color.danger})`,
+    boxShadow: `0 0 4px color-mix(in srgb, var(--ui-danger, ${color.danger}) 80%, transparent)`,
   },
 };
 
