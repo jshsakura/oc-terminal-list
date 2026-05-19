@@ -3,7 +3,31 @@ import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home } from 'lucide-react'
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
 
-const { color, font, fontSize, fontWeight, radius, space } = tokens;
+const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+
+/* 인라인 호버 버튼 — base 스타일 위에 hover 시 추가 스타일 덧붙임.
+   disabled 일 때는 호버 효과 없음. focus/blur 도 keyboard 사용자 대비로 같이 처리. */
+const HoverBtn = ({ baseStyle, hoverStyle, disabled = false, children, ...rest }) => {
+  const [hover, setHover] = useState(false);
+  const merged = {
+    ...baseStyle,
+    transition: `background ${motion.fast}, color ${motion.fast}, border-color ${motion.fast}, opacity ${motion.fast}`,
+    ...(hover && !disabled ? hoverStyle : null),
+  };
+  return (
+    <button
+      {...rest}
+      disabled={disabled}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setHover(true)}
+      onBlur={() => setHover(false)}
+      style={merged}
+    >
+      {children}
+    </button>
+  );
+};
 
 const authHeader = () => {
   const token = localStorage.getItem('auth_token');
@@ -84,31 +108,32 @@ const LocalFolderPicker = ({ isOpen, initialPath = '', title, onPick, onClose, t
       <div style={surfaceStyle} onClick={inline ? undefined : (e) => e.stopPropagation()}>
         <header style={styles.header}>
           {inline && (
-            <button type="button" onClick={onClose} style={styles.backBtn} title={t?.('back') || 'Back'}>
+            <HoverBtn type="button" onClick={onClose} baseStyle={styles.backBtn} hoverStyle={styles.iconBtnHover} title={t?.('back') || 'Back'}>
               <ArrowLeft size={14} strokeWidth={2} />
-            </button>
+            </HoverBtn>
           )}
           <div style={styles.title}>
             {title || t?.('pickFolder') || 'Pick a folder'}
           </div>
-          <button type="button" onClick={onClose} style={styles.closeBtn} title={t?.('close') || 'Close'}>
+          <HoverBtn type="button" onClick={onClose} baseStyle={styles.closeBtn} hoverStyle={styles.iconBtnHover} title={t?.('close') || 'Close'}>
             <X size={14} strokeWidth={2} />
-          </button>
+          </HoverBtn>
         </header>
 
         <div style={styles.toolbar}>
-          <button type="button" onClick={goHome} style={styles.toolBtn} title={t?.('home') || 'Workspace root'}>
+          <HoverBtn type="button" onClick={goHome} baseStyle={styles.toolBtn} hoverStyle={styles.toolBtnHover} title={t?.('home') || 'Workspace root'}>
             <Home size={13} strokeWidth={1.8} />
-          </button>
-          <button
+          </HoverBtn>
+          <HoverBtn
             type="button"
             onClick={goUp}
             disabled={!path}
-            style={{ ...styles.toolBtn, opacity: !path ? 0.4 : 1 }}
+            baseStyle={{ ...styles.toolBtn, opacity: !path ? 0.4 : 1 }}
+            hoverStyle={styles.toolBtnHover}
             title={t?.('folderUp') || 'Up'}
           >
             <ArrowUp size={13} strokeWidth={1.8} />
-          </button>
+          </HoverBtn>
           <div style={styles.crumb} title={path || '/'}>
             {path ? `/${path}` : '/'}
           </div>
@@ -147,12 +172,12 @@ const LocalFolderPicker = ({ isOpen, initialPath = '', title, onPick, onClose, t
         </div>
 
         <footer style={styles.footer}>
-          <button type="button" onClick={onClose} style={styles.cancelBtn}>
+          <HoverBtn type="button" onClick={onClose} baseStyle={styles.cancelBtn} hoverStyle={styles.cancelBtnHover}>
             {t?.('cancel') || 'Cancel'}
-          </button>
-          <button type="button" onClick={confirm} style={styles.openBtn}>
+          </HoverBtn>
+          <HoverBtn type="button" onClick={confirm} baseStyle={styles.openBtn} hoverStyle={styles.openBtnHover}>
             {t?.('selectThisFolder') || (path ? 'Select this folder' : 'Use workspace root')}
-          </button>
+          </HoverBtn>
         </footer>
       </div>
     </div>
@@ -217,6 +242,10 @@ const styles = {
     padding: 0,
     marginRight: '4px',
   },
+  iconBtnHover: {
+    background: color.surface0,
+    color: color.text,
+  },
   toolbar: {
     display: 'flex',
     alignItems: 'center',
@@ -234,6 +263,11 @@ const styles = {
     cursor: 'pointer',
     color: color.subtext,
     padding: 0,
+  },
+  toolBtnHover: {
+    background: color.surface1,
+    borderColor: color.borderStrong,
+    color: color.text,
   },
   crumb: {
     flex: 1, minWidth: 0,
@@ -299,6 +333,11 @@ const styles = {
     fontSize: fontSize['12'],
     fontFamily: 'inherit',
   },
+  cancelBtnHover: {
+    background: color.surface0,
+    borderColor: color.borderStrong,
+    color: color.text,
+  },
   openBtn: {
     padding: `6px 14px`,
     background: color.accent,
@@ -309,6 +348,9 @@ const styles = {
     fontWeight: fontWeight.medium,
     fontFamily: 'inherit',
     cursor: 'pointer',
+  },
+  openBtnHover: {
+    opacity: 0.9,
   },
 };
 
