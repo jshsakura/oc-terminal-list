@@ -286,8 +286,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             disabled={!command}
             icon={Copy}
             title={t?.('copy') || 'Copy'}
+            style={styles.footerIconBtn}
           />
-          <Button variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} />
+          <Button variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} style={styles.footerIconBtn} />
           <Button
             variant="ghost"
             size="icon"
@@ -295,6 +296,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             disabled={!command.trim()}
             icon={Eraser}
             title={t?.('clearInput')}
+            style={styles.footerIconBtn}
           />
           <div style={{ flex: 1 }} />
           {/* 우측 직전 — 음성 입력 토글. 다른 보조 ghost 버튼들과 사이즈/스타일 통일.
@@ -433,12 +435,15 @@ const styles = {
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
     background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
   },
-  // 음성 입력 토글 — 다른 보조 ghost 아이콘 버튼들(Copy/Paste/Clear) 과 동일한 28x28.
+  // 푸터 보조 아이콘 버튼(Copy/Paste/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
+  // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.
+  footerIconBtn: { width: '30px', height: '30px' },
+  // 음성 입력 토글 — 다른 보조 아이콘 버튼들 및 Send 와 동일한 30x30.
   // 비활성: subtext color · 호버: danger color + subtle bg · 활성: danger color + subtle danger bg.
   micBtn: {
     position: 'relative',
-    width: '28px',
-    height: '28px',
+    width: '30px',
+    height: '30px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
