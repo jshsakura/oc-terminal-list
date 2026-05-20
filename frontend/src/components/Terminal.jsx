@@ -2085,12 +2085,16 @@ const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll
     };
     const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
     const id = setTimeout(() => {
+      // touchstart 도 함께 — 모바일에서 터미널이 touchstart 를 preventDefault 하면 합성 mousedown 이
+      // 억제돼 바깥 탭으로 안 닫히던 문제 우회. (롱프레스로 열리는 컨텍스트 메뉴라 모바일이 주 사용처)
       document.addEventListener('mousedown', handleClick);
+      document.addEventListener('touchstart', handleClick);
       document.addEventListener('keydown', handleKey);
     }, 0);
     return () => {
       clearTimeout(id);
       document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('touchstart', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
   }, []);
