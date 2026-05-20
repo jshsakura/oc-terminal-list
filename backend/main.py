@@ -317,6 +317,32 @@ class FileTicketRequest(BaseModel):
     path: str
 
 
+class PasskeyRegisterBeginRequest(BaseModel):
+    label: str | None = None  # 사용자 메모 (예: "MacBook Air")
+
+
+class PasskeyRegisterCompleteRequest(BaseModel):
+    label: str | None = None
+    response: dict  # 브라우저 navigator.credentials.create() 결과 (JSON 직렬화된 PublicKeyCredential)
+
+
+class PasskeyLoginCompleteRequest(BaseModel):
+    challenge_id: str  # begin 단계에서 발급한 임시 ID (challenge 캐시 key)
+    response: dict     # 브라우저 navigator.credentials.get() 결과
+
+
+class PasskeyRenameRequest(BaseModel):
+    label: str
+
+    @field_validator("label")
+    @classmethod
+    def _check_label(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s or len(s) > 64:
+            raise ValueError("label required (≤64 chars)")
+        return s
+
+
 class CommandHistoryPushRequest(BaseModel):
     terminal_key: str
     text: str
@@ -818,8 +844,15 @@ async def app_config():
 @app.get("/api/auth/status")
 async def auth_status():
     if auth_manager is None:
-        return {"setup_complete": False}
-    return {"setup_complete": await auth_manager.is_setup_complete()}
+        return {"setup_complete": False, "passkey_available": False}
+    setup_complete = await auth_manager.is_setup_complete()
+    passkey_available = False
+    if setup_complete:
+        admin = await storage.get_admin()
+        if admin:
+            creds = await storage.list_passkey_credentials(admin["username"])
+            passkey_available = len(creds) > 0
+    return {"setup_complete": setup_complete, "passkey_available": passkey_available}
 
 
 @app.post("/api/auth/setup")
@@ -948,6 +981,182 @@ async def otp_regenerate_backup_codes(username: str = Depends(verify_auth_token)
         raise HTTPException(status_code=400, detail="OTP가 활성화되지 않았습니다")
     codes = await auth_manager.issue_backup_codes(username)
     return {"backup_codes": codes}
+
+
+# ---------------------- 패스키 (WebAuthn) ----------------------
+# RP ID / origin 은 들어오는 Request 의 Host 헤더에서 추출 (env 박지 않음).
+# challenge 는 AuthManager 의 in-memory dict 에 5분만 보관.
+
+from passkey import (  # noqa: E402
+    derive_rp_info,
+    make_authentication_options,
+    make_registration_options,
+    verify_authentication as _verify_authn,
+    verify_registration as _verify_reg,
+)
+
+
+@app.post("/api/auth/passkey/register/begin")
+async def passkey_register_begin(
+    request: PasskeyRegisterBeginRequest,
+    http_request: Request,
+    username: str = Depends(verify_auth_token),
+):
+    """기존(비번/OTP) 인증을 통과한 사용자가 새 패스키를 등록하기 위한 challenge 발급."""
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    rp_id, _origin = derive_rp_info(http_request)
+    existing = await storage.list_passkey_credentials(username)
+    options, challenge = make_registration_options(
+        rp_id=rp_id,
+        username=username,
+        existing_credential_ids=[c["credential_id"] for c in existing],
+    )
+    auth_manager._store_passkey_challenge("register", username, challenge)
+    return {"options": options, "rp_id": rp_id}
+
+
+@app.post("/api/auth/passkey/register/complete")
+async def passkey_register_complete(
+    request: PasskeyRegisterCompleteRequest,
+    http_request: Request,
+    username: str = Depends(verify_auth_token),
+):
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    challenge = auth_manager._consume_passkey_challenge("register", username)
+    if not challenge:
+        raise HTTPException(status_code=400, detail="등록 세션이 만료되었습니다. 다시 시작해주세요.")
+    rp_id, origin = derive_rp_info(http_request)
+    verification = _verify_reg(
+        response_dict=request.response,
+        expected_challenge=challenge,
+        expected_origin=origin,
+        expected_rp_id=rp_id,
+    )
+    transports = []
+    raw_transports = (request.response or {}).get("response", {}).get("transports")
+    if isinstance(raw_transports, list):
+        transports = [str(t) for t in raw_transports if t]
+    label = (request.label or "").strip() or None
+    row_id = await storage.add_passkey_credential(
+        username=username,
+        credential_id=verification.credential_id,
+        public_key=verification.credential_public_key,
+        sign_count=int(verification.sign_count or 0),
+        transports=transports,
+        label=label,
+        aaguid=getattr(verification, "aaguid", None) and bytes(verification.aaguid) if hasattr(verification, "aaguid") else None,
+        backup_eligible=bool(getattr(verification, "credential_backed_up", False)),
+        backup_state=bool(getattr(verification, "credential_backed_up", False)),
+    )
+    return {"status": "registered", "id": row_id, "label": label}
+
+
+@app.post("/api/auth/passkey/login/begin")
+async def passkey_login_begin(http_request: Request):
+    """로그인 challenge — 단일 admin 환경이라 allowCredentials 를 그 사용자의 자격증명으로 미리 채운다.
+    setup 미완료면 거절. rate-limit IP 기준.
+    """
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    ip = client_ip_from_request(http_request)
+    check_rate_limit(f"passkey:ip:{ip}", max_attempts=20, window_seconds=60)
+    if not await auth_manager.is_setup_complete():
+        raise HTTPException(status_code=400, detail="초기 설정을 먼저 완료해주세요")
+    rp_id, _ = derive_rp_info(http_request)
+    # 단일 admin 가정. resident key 흐름 위해 list 가 비어도 동작은 가능하지만
+    # 등록된 패스키가 하나도 없으면 명시적으로 안내한다.
+    admin = await storage.get_admin()
+    all_creds = await storage.list_passkey_credentials(admin["username"]) if admin else []
+    if not all_creds:
+        raise HTTPException(status_code=400, detail="등록된 패스키가 없습니다")
+    options, challenge, challenge_id = make_authentication_options(
+        rp_id=rp_id,
+        allow_credential_ids=[c["credential_id"] for c in all_creds],
+    )
+    auth_manager._store_passkey_challenge("authenticate", challenge_id, challenge)
+    return {"options": options, "challenge_id": challenge_id, "rp_id": rp_id}
+
+
+@app.post("/api/auth/passkey/login/complete")
+async def passkey_login_complete(request: PasskeyLoginCompleteRequest, http_request: Request):
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    ip = client_ip_from_request(http_request)
+    check_rate_limit(f"passkey:ip:{ip}", max_attempts=20, window_seconds=60)
+    challenge = auth_manager._consume_passkey_challenge("authenticate", request.challenge_id)
+    if not challenge:
+        raise HTTPException(status_code=401, detail="인증 세션이 만료되었습니다. 다시 시도해주세요.")
+    rp_id, origin = derive_rp_info(http_request)
+
+    # 응답 객체의 rawId 또는 id (base64url) 에서 credential_id 추출 → DB 조회
+    raw_id = (request.response or {}).get("rawId") or (request.response or {}).get("id")
+    if not isinstance(raw_id, str) or not raw_id:
+        raise HTTPException(status_code=400, detail="잘못된 패스키 응답")
+    from passkey import _b64u_decode
+    try:
+        credential_id = _b64u_decode(raw_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="credential_id 디코딩 실패")
+    cred = await storage.get_passkey_credential(credential_id)
+    if not cred:
+        raise HTTPException(status_code=401, detail="등록되지 않은 패스키입니다")
+
+    verification = _verify_authn(
+        response_dict=request.response,
+        expected_challenge=challenge,
+        expected_origin=origin,
+        expected_rp_id=rp_id,
+        credential_public_key=cred["public_key"],
+        credential_current_sign_count=cred["sign_count"],
+    )
+    await storage.update_passkey_after_use(
+        credential_id=cred["credential_id"],
+        sign_count=int(verification.new_sign_count or 0),
+    )
+    access_token = await auth_manager.create_access_token(cred["username"])
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "username": cred["username"],
+        "otp_required": False,
+    }
+
+
+@app.get("/api/auth/passkey/list")
+async def passkey_list(username: str = Depends(verify_auth_token)):
+    rows = await storage.list_passkey_credentials(username)
+    from passkey import _b64u_encode
+    return {
+        "items": [
+            {
+                "id": r["id"],
+                "label": r["label"],
+                "credential_id_b64": _b64u_encode(r["credential_id"]),
+                "transports": r["transports"],
+                "created_at": r["created_at"],
+                "last_used_at": r["last_used_at"],
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.patch("/api/auth/passkey/{row_id}")
+async def passkey_rename(row_id: int, request: PasskeyRenameRequest, username: str = Depends(verify_auth_token)):
+    ok = await storage.rename_passkey_credential(row_id, username, request.label)
+    if not ok:
+        raise HTTPException(status_code=404, detail="패스키를 찾을 수 없습니다")
+    return {"status": "renamed"}
+
+
+@app.delete("/api/auth/passkey/{row_id}")
+async def passkey_delete(row_id: int, username: str = Depends(verify_auth_token)):
+    ok = await storage.delete_passkey_credential(row_id, username)
+    if not ok:
+        raise HTTPException(status_code=404, detail="패스키를 찾을 수 없습니다")
+    return {"status": "deleted"}
 
 
 # /api/system/stats 응답 TTL 캐시 — /proc 전수 스캔(수백 PID × 수 파일) 은 동기 I/O

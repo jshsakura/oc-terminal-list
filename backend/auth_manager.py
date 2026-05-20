@@ -341,3 +341,31 @@ class AuthManager:
             return payload.get("sub")
         except JWTError:
             return None
+
+    # ----------------------- 패스키 (WebAuthn) -----------------------
+    # Challenge 는 짧은 수명(5분) in-memory dict. Redis 폴백 안 함 — 잠깐 사이의 가벼운 상태.
+    # 같은 서버 인스턴스에서 begin → complete 가 일어난다고 가정 (single-instance 배포).
+
+    _PASSKEY_CHALLENGE_TTL_SECONDS = 300
+    # 인스턴스별 임시 challenge 저장소: { (kind, key): (challenge_bytes, expires_at) }
+    # kind: 'register' | 'authenticate'. key: register=username, authenticate=session_id.
+    _passkey_challenges: dict = {}
+
+    @classmethod
+    def _purge_passkey_challenges(cls) -> None:
+        now = datetime.utcnow().timestamp()
+        expired = [k for k, (_, exp) in cls._passkey_challenges.items() if exp <= now]
+        for k in expired:
+            cls._passkey_challenges.pop(k, None)
+
+    @classmethod
+    def _store_passkey_challenge(cls, kind: str, key: str, challenge: bytes) -> None:
+        cls._purge_passkey_challenges()
+        exp = datetime.utcnow().timestamp() + cls._PASSKEY_CHALLENGE_TTL_SECONDS
+        cls._passkey_challenges[(kind, key)] = (challenge, exp)
+
+    @classmethod
+    def _consume_passkey_challenge(cls, kind: str, key: str) -> bytes | None:
+        cls._purge_passkey_challenges()
+        item = cls._passkey_challenges.pop((kind, key), None)
+        return item[0] if item else None

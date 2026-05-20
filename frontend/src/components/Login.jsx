@@ -1,8 +1,9 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { Terminal as TerminalIcon, Lock, User, ClipboardPaste, Check, ArrowLeft, KeyRound, Smartphone, Eye, EyeOff } from 'lucide-react';
+import { Terminal as TerminalIcon, Lock, User, ClipboardPaste, Check, ArrowLeft, KeyRound, Smartphone, Eye, EyeOff, Fingerprint } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { buildThemeUI } from '../styles/themeUI';
+import { isPasskeySupported, loginWithPasskey } from '../utils/webauthn';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
 
@@ -113,6 +114,35 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
     localStorage.setItem('username', data.username);
     onLogin(data.access_token, data.username);
   }, [onLogin, rememberUsername, username]);
+
+  // 패스키 버튼 노출 조건: 브라우저 지원 + 서버에 등록된 자격증명 ≥ 1.
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+  useEffect(() => {
+    if (!isPasskeySupported()) return;
+    fetch('/api/auth/status')
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data?.passkey_available) setPasskeyAvailable(true); })
+      .catch(() => { /* 네트워크 실패는 무시 — 비번 폼은 그대로 동작 */ });
+  }, []);
+
+  const handlePasskeyLogin = useCallback(async () => {
+    setError('');
+    setIsLoading(true);
+    try {
+      const data = await loginWithPasskey();
+      finishLogin(data);
+    } catch (err) {
+      // user cancel(NotAllowedError) 은 조용히 무시. 그 외 메시지 표시.
+      const name = err?.name || '';
+      if (name === 'NotAllowedError' || name === 'AbortError') {
+        // no-op
+      } else {
+        showError(err.message || '패스키 로그인에 실패했습니다');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  }, [finishLogin]);
 
   const handleCredentialsSubmit = async (e) => {
     e.preventDefault();
@@ -292,6 +322,27 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
             >
               {isLoading ? (t('signingIn') || 'Signing in...') : (t('signIn') || 'Sign in')}
             </ThemedSubmitButton>
+
+            {passkeyAvailable && (
+              <>
+                <div style={themed.orDivider}>
+                  <span style={themed.orLine} />
+                  <span style={themed.orText}>{t('or') || 'or'}</span>
+                  <span style={themed.orLine} />
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePasskeyLogin}
+                  disabled={isLoading}
+                  style={themed.passkeyBtn}
+                  onMouseEnter={(e) => { if (!isLoading) { e.currentTarget.style.background = themed.accentSubtle; e.currentTarget.style.borderColor = themed.accent; } }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = themed.border; }}
+                >
+                  <Fingerprint size={15} strokeWidth={2} style={{ flexShrink: 0 }} />
+                  {t('signInWithPasskey') || 'Sign in with passkey'}
+                </button>
+              </>
+            )}
           </form>
         ) : (
           <form onSubmit={handleOtpSubmit} style={themed.form}>
@@ -735,6 +786,43 @@ const buildThemed = (ui) => {
       fontFamily: 'inherit',
       borderRadius: radius.sm,
       transition: `background ${motion.fast}, color ${motion.fast}, opacity ${motion.fast}`,
+    },
+    orDivider: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: space['2'],
+      marginTop: space['3'],
+      marginBottom: space['2'],
+    },
+    orLine: {
+      flex: 1,
+      height: '1px',
+      background: t.border,
+      opacity: 0.6,
+    },
+    orText: {
+      fontSize: fontSize['11'],
+      color: t.muted,
+      textTransform: 'uppercase',
+      letterSpacing: '0.08em',
+      fontWeight: fontWeight.medium,
+    },
+    passkeyBtn: {
+      width: '100%',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space['2'],
+      padding: `${space['2.5']} ${space['4']}`,
+      background: 'transparent',
+      color: t.text,
+      border: `1px solid ${t.border}`,
+      borderRadius: radius.sm,
+      fontSize: fontSize['13'],
+      fontWeight: fontWeight.medium,
+      cursor: 'pointer',
+      fontFamily: 'inherit',
+      transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}`,
     },
 
     _inputBg: t.surface0,

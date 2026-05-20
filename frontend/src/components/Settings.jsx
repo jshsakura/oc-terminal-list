@@ -11,6 +11,7 @@ import useTranslation from '../hooks/useTranslation';
 import Button from './common/Button';
 import HostIcon from '../utils/hostIcons';
 import OtpSection from './OtpSection';
+import PasskeySection from './PasskeySection';
 import MobileKeysEditor from './MobileKeysEditor';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_SETTINGS } from '../hooks/useSettings';
@@ -192,6 +193,12 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
 
     <Section title={t('twoFactorAuth') || 'Two-factor authentication'}>
       <OtpSection t={t} />
+    </Section>
+
+    <Divider />
+
+    <Section title={t('passkeys') || 'Passkeys'}>
+      <PasskeySection t={t} />
     </Section>
 
     <Divider />
