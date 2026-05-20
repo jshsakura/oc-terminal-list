@@ -275,16 +275,18 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           background: var(--ui-surface1, ${color.surface1}); border-radius: 3px;
         }
         .command-input-history-list button:hover {
-          background: var(--ui-surface1, ${color.surface1}) !important;
-          border-color: var(--ui-accent, ${color.accent}) !important;
+          background: color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 70%, transparent) !important;
         }
         .command-input-history-list button:active {
-          background: color-mix(in srgb, var(--ui-accent, ${color.accent}) 22%, transparent) !important;
+          background: color-mix(in srgb, var(--ui-accent, ${color.accent}) 24%, transparent) !important;
         }
+        /* 클릭/포커스 후 남는 브라우저 기본 흰 아웃라인 제거 — 모달 내 모든 버튼 공통. */
+        .ci-modal button:focus, .ci-modal button:focus-visible { outline: none !important; box-shadow: none !important; }
       `}</style>
 
       <div
         ref={modalRef}
+        className="ci-modal"
         role="dialog"
         aria-label={t?.('commandInput') || 'Send command'}
         style={modalStyle}
@@ -302,6 +304,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             {terminalKey && (
               <button
                 type="button"
+                // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 iOS/Chrome 키보드가 내려간다.
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => setHistoryOpen((v) => !v)}
                 style={{ ...styles.closeBtn, ...(historyOpen ? styles.headerToggleActive : null) }}
                 title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
@@ -370,6 +374,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
               호버/활성 상태는 아이콘 컬러(빨강)로만 표현 — 점/펄스/박스그림자 같은 과한 장식 없이. */}
           <button
             type="button"
+            onMouseDown={(e) => e.preventDefault()}
             onClick={toggleVoice}
             disabled={!voiceSupported}
             title={
@@ -619,10 +624,7 @@ const styles = {
   },
   historyCount: {
     fontSize: '10px',
-    padding: '1px 6px',
-    borderRadius: '8px',
-    background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 20%, transparent)`,
-    color: `var(--ui-text, ${color.text})`,
+    color: `var(--ui-muted, ${color.muted})`,
     letterSpacing: 'normal',
     textTransform: 'none',
   },
@@ -653,7 +655,7 @@ const styles = {
     flexDirection: 'column',
     gap: '2px',
   },
-  // 스켈레톤 블록과 동일한 치수의 카드형 행 — 로딩 placeholder → 실제 명령으로 자연스럽게 이어진다.
+  // 스켈레톤 블록과 동일한 모양 — 같은 높이/radius, 테두리 없이 동일 톤 배경만. 차이는 텍스트뿐.
   historyItem: {
     flexShrink: 0,
     display: 'block',
@@ -662,9 +664,9 @@ const styles = {
     lineHeight: '30px',
     textAlign: 'left',
     padding: `0 ${space['2']}`,
-    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 70%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent)`,
     color: `var(--ui-text, ${color.text})`,
-    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 50%, transparent)`,
+    border: 'none',
     borderRadius: radius.sm,
     fontSize: fontSize['12'],
     fontFamily: font.mono,
@@ -672,7 +674,7 @@ const styles = {
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    transition: `background ${motion.fast}, border-color ${motion.fast}`,
+    transition: `background ${motion.fast}`,
   },
   // 로딩 placeholder — historyItem 과 같은 높이/모양에 shimmer 만 흐른다.
   historySkel: {

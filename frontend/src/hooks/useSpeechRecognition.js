@@ -46,9 +46,10 @@ const useSpeechRecognition = ({ language = 'en-US', onResult, onInterim } = {}) 
     if (recognitionRef.current) return; // 이미 진행 중
 
     const recognition = new SpeechRecognition();
-    // continuous=true — 사용자가 명시적으로 정지할 때까지 듣는다.
-    // 짧은 발화 한 번이면 false 가 자연스럽지만, 터미널에서 긴 명령을 받아쓰기 할 수도 있어 continuous.
-    recognition.continuous = true;
+    // continuous=false — 한 발화가 끝나면 자동으로 onend → 마이크 즉시 해제.
+    // continuous=true 로 두면 Chrome 이 사용자가 말을 멈춰도 탭 마이크를 계속 점유해
+    // "안 쓰는데 켜져 있다" 는 문제가 생긴다. 길게 받아쓰려면 버튼을 다시 누르면 된다.
+    recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = language;
 
