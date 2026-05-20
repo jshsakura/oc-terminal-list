@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
 import useCommandHistory from '../hooks/useCommandHistory';
+import { clearCommandsFor } from '../utils/commandHistory';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -306,7 +307,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
                 title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
                 aria-pressed={historyOpen}
               >
-                {historyOpen ? <ChevronUp size={14} strokeWidth={2} /> : <ChevronDown size={14} strokeWidth={2} />}
+                {historyOpen ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronUp size={14} strokeWidth={2} />}
               </button>
             )}
             <button onClick={onClose} style={styles.closeBtn}>
@@ -321,7 +322,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
         )}
 
-        <div style={styles.body}>
+        {/* 패널이 열리면 textarea 영역은 자연 높이만 차지(flex 0) → 남는 공간을 패널이 가져가
+            입력창이 가려지지 않게 한다. 닫혀 있으면 기존처럼 flex:1 로 채운다. */}
+        <div style={historyOpen ? { ...styles.body, flex: '0 0 auto' } : styles.body}>
           <textarea
             ref={textareaRef}
             value={command}
@@ -431,12 +434,33 @@ const HistoryPanel = ({ terminalKey, onPick, t }) => {
     return () => io.disconnect();
   }, [hasMore, loadMore]);
 
+  // 전체 삭제 — 항목별 삭제 없이 한 방에 비운다. 비운 뒤 useCommandHistory 가 이벤트로 자동 갱신.
+  const handleClearAll = () => {
+    if (!confirm(t?.('confirmClearHistory') || 'Clear command history for this terminal?')) return;
+    clearCommandsFor(terminalKey);
+  };
+
   return (
     <div style={styles.historyPanel}>
       <div style={styles.historyHeader}>
-        <span>{t?.('historyTitle') || 'Recent commands'}</span>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+          {t?.('historyTitle') || 'Recent commands'}
+          {items.length > 0 && (
+            <span style={styles.historyCount}>{items.length}{hasMore ? '+' : ''}</span>
+          )}
+        </span>
         {items.length > 0 && (
-          <span style={styles.historyCount}>{items.length}{hasMore ? '+' : ''}</span>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleClearAll}
+            title={t?.('clearHistory') || 'Clear history'}
+            style={styles.historyClearBtn}
+            onMouseEnter={(e) => { e.currentTarget.style.color = `var(--ui-danger, ${color.danger})`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`; }}
+          >
+            <Trash2 size={13} strokeWidth={2} />
+          </button>
         )}
       </div>
       <div ref={listRef} className="command-input-history-list" style={styles.historyList}>
@@ -501,6 +525,7 @@ const styles = {
     overflow: 'hidden',
   },
   header: {
+    flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -529,6 +554,8 @@ const styles = {
     transition: `background ${motion.fast}, color ${motion.fast}`,
     backdropFilter: 'blur(8px)',
     WebkitBackdropFilter: 'blur(8px)',
+    outline: 'none', // 포커스 시 브라우저 기본 흰 테두리 제거 (다른 버튼들과 동일)
+    WebkitTapHighlightColor: 'transparent',
   },
   body: {
     flex: 1,
@@ -556,6 +583,7 @@ const styles = {
     boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.04)',
   },
   footer: {
+    flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
     gap: space['1'],
@@ -567,13 +595,15 @@ const styles = {
   // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.
   footerIconBtn: { width: '30px', height: '30px' },
   historyPanel: {
-    flexShrink: 0,
+    // 남는 세로 공간을 모두 차지하고 내부 리스트만 스크롤 → 화면 크기에 맞게 열리되 입력창은 안 가림.
+    flex: '1 1 auto',
+    minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
     borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 30%, transparent)`,
-    // 애니메이션 — 위로 펼쳐지는 느낌. maxHeight 트랜지션은 모달 flex 와 충돌해 생략, opacity/transform 만.
+    // 또렷한 배경 — 모달보다 살짝 어둡게 깔아 카드형 항목이 떠 보이게 한다.
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 88%, transparent)`,
     animation: 'command-input-history-in 160ms ease both',
   },
   historyHeader: {
@@ -596,8 +626,26 @@ const styles = {
     letterSpacing: 'normal',
     textTransform: 'none',
   },
+  historyClearBtn: {
+    width: '22px',
+    height: '22px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: `var(--ui-subtext, ${color.subtext})`,
+    border: 'none',
+    borderRadius: radius.sm,
+    cursor: 'pointer',
+    padding: 0,
+    outline: 'none',
+    WebkitTapHighlightColor: 'transparent',
+    transition: `color ${motion.fast}, background ${motion.fast}`,
+  },
   historyList: {
-    maxHeight: '200px',
+    // flex:1 + minHeight:0 → 패널(=남은 공간) 안에서만 스크롤. 고정 maxHeight 없이 화면에 맞춰 늘어남.
+    flex: 1,
+    minHeight: 0,
     overflowY: 'auto',
     overflowX: 'hidden',
     padding: `0 ${space['2']} ${space['1.5']}`,
