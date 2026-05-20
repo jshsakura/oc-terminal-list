@@ -197,12 +197,23 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
     }
   };
 
-  // 이력 항목 클릭 → textarea 를 그 명령으로 교체(재실행 의도)하고 패널을 접는다.
-  // 전송이 아니라 채우기만 — 사용자가 편집 후 직접 Send 하도록 (눈 아이콘 popover 의 즉시 재전송과 역할 분리).
+  // 이력 항목 클릭 → 현재 커서 위치(선택 영역이 있으면 대체)에 그 명령을 끼워넣고 패널을 접는다.
+  // 전송이 아니라 삽입만 — 사용자가 편집 후 직접 Send 하도록 (눈 아이콘 popover 의 즉시 재전송과 역할 분리).
   const handlePickHistory = (text) => {
-    setCommand(text);
+    const ta = textareaRef.current;
+    const start = ta?.selectionStart ?? command.length;
+    const end = ta?.selectionEnd ?? command.length;
+    const next = command.slice(0, start) + text + command.slice(end);
+    const caret = start + text.length;
+    setCommand(next);
     setHistoryOpen(false);
-    requestAnimationFrame(() => focusToEnd(textareaRef.current));
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      try { el.setSelectionRange(caret, caret); } catch { /* 미지원 환경 무시 */ }
+      el.scrollTop = el.scrollHeight;
+    });
   };
 
   const handleKeyDown = (e) => {
@@ -253,16 +264,21 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           from { opacity: 0; transform: translateY(6px); }
           to   { opacity: 1; transform: translateY(0); }
         }
+        @keyframes command-input-skel-shimmer {
+          0%   { background-position: 150% center; }
+          100% { background-position: -150% center; }
+        }
         .command-input-history-list { scrollbar-width: thin; }
         .command-input-history-list::-webkit-scrollbar { width: 6px; }
         .command-input-history-list::-webkit-scrollbar-thumb {
           background: var(--ui-surface1, ${color.surface1}); border-radius: 3px;
         }
         .command-input-history-list button:hover {
-          background: var(--ui-surface0, ${color.surface0}) !important;
+          background: var(--ui-surface1, ${color.surface1}) !important;
+          border-color: var(--ui-accent, ${color.accent}) !important;
         }
         .command-input-history-list button:active {
-          background: var(--ui-surface1, ${color.surface1}) !important;
+          background: color-mix(in srgb, var(--ui-accent, ${color.accent}) 22%, transparent) !important;
         }
       `}</style>
 
@@ -281,9 +297,22 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             <Send size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
             {t?.('commandInput') || 'Send command'}
           </div>
-          <button onClick={onClose} style={styles.closeBtn}>
-            <X size={14} strokeWidth={2} />
-          </button>
+          <div style={styles.headerActions}>
+            {terminalKey && (
+              <button
+                type="button"
+                onClick={() => setHistoryOpen((v) => !v)}
+                style={{ ...styles.closeBtn, ...(historyOpen ? styles.headerToggleActive : null) }}
+                title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
+                aria-pressed={historyOpen}
+              >
+                {historyOpen ? <ChevronUp size={14} strokeWidth={2} /> : <ChevronDown size={14} strokeWidth={2} />}
+              </button>
+            )}
+            <button onClick={onClose} style={styles.closeBtn}>
+              <X size={14} strokeWidth={2} />
+            </button>
+          </div>
         </header>
 
         {/* 지난 명령 패널 — 화살표 토글 시 입력창 *위쪽* 으로 펼쳐진다.
@@ -333,16 +362,6 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             title={t?.('clearInput')}
             style={styles.footerIconBtn}
           />
-          {terminalKey && (
-            <Button
-              variant={historyOpen ? 'secondary' : 'ghost'}
-              size="icon"
-              onClick={() => setHistoryOpen((v) => !v)}
-              icon={historyOpen ? ChevronDown : ChevronUp}
-              title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
-              style={styles.footerIconBtn}
-            />
-          )}
           <div style={{ flex: 1 }} />
           {/* 우측 직전 — 음성 입력 토글. 다른 보조 ghost 버튼들과 사이즈/스타일 통일.
               호버/활성 상태는 아이콘 컬러(빨강)로만 표현 — 점/펄스/박스그림자 같은 과한 장식 없이. */}
@@ -422,7 +441,9 @@ const HistoryPanel = ({ terminalKey, onPick, t }) => {
       </div>
       <div ref={listRef} className="command-input-history-list" style={styles.historyList}>
         {loading && items.length === 0 ? (
-          <div style={styles.historyEmpty}>{t?.('loading') || 'Loading…'}</div>
+          [0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} style={{ ...styles.historySkel, animationDelay: `${i * 80}ms`, width: `${92 - (i % 3) * 16}%` }} />
+          ))
         ) : items.length === 0 ? (
           <div style={styles.historyEmpty}>{t?.('historyEmpty') || 'No history yet'}</div>
         ) : (
@@ -441,7 +462,7 @@ const HistoryPanel = ({ terminalKey, onPick, t }) => {
               </button>
             ))}
             {hasMore && <div ref={sentinelRef} style={{ height: '1px', flexShrink: 0 }} />}
-            {loadingMore && <div style={styles.historyEmpty}>{t?.('loading') || 'Loading…'}</div>}
+            {loadingMore && <div style={{ ...styles.historySkel, width: '70%' }} />}
           </>
         )}
       </div>
@@ -488,6 +509,12 @@ const styles = {
     background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
   },
   title: { fontSize: fontSize['12'], fontWeight: fontWeight.semibold, color: `var(--ui-text, ${color.text})`, display: 'flex', alignItems: 'center', gap: '6px' },
+  headerActions: { display: 'flex', alignItems: 'center', gap: '6px' },
+  headerToggleActive: {
+    color: `var(--ui-accent, ${color.accent})`,
+    borderColor: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 55%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 16%, transparent)`,
+  },
   closeBtn: {
     width: '28px',
     height: '28px',
@@ -578,23 +605,38 @@ const styles = {
     flexDirection: 'column',
     gap: '2px',
   },
+  // 스켈레톤 블록과 동일한 치수의 카드형 행 — 로딩 placeholder → 실제 명령으로 자연스럽게 이어진다.
   historyItem: {
     flexShrink: 0,
+    display: 'block',
     width: '100%',
+    height: '30px',
+    lineHeight: '30px',
     textAlign: 'left',
-    padding: `${space['1.5']} ${space['2']}`,
-    background: 'transparent',
+    padding: `0 ${space['2']}`,
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 70%, transparent)`,
     color: `var(--ui-text, ${color.text})`,
-    border: 'none',
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 50%, transparent)`,
     borderRadius: radius.sm,
     fontSize: fontSize['12'],
     fontFamily: font.mono,
-    lineHeight: 1.4,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    transition: `background ${motion.fast}`,
+    transition: `background ${motion.fast}, border-color ${motion.fast}`,
+  },
+  // 로딩 placeholder — historyItem 과 같은 높이/모양에 shimmer 만 흐른다.
+  historySkel: {
+    flexShrink: 0,
+    height: '30px',
+    borderRadius: radius.sm,
+    background: `linear-gradient(90deg,
+      color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent) 0%,
+      color-mix(in srgb, var(--ui-accent, ${color.accent}) 16%, transparent) 50%,
+      color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent) 100%)`,
+    backgroundSize: '300% 100%',
+    animation: 'command-input-skel-shimmer 1.6s ease-in-out infinite',
   },
   historyEmpty: {
     padding: `${space['3']} ${space['2']}`,
