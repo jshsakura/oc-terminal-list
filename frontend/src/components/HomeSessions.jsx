@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
+import { authHeaders } from '../utils/auth';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -48,9 +49,8 @@ const HomeSessions = ({
     if (dismissedHostIds.has(host.id)) return;
     setTmuxByHost((prev) => ({ ...prev, [host.id]: { loading: true } }));
     try {
-      const token = localStorage.getItem('auth_token');
       const res = await fetch(`/api/hosts/${host.id}/tmux-sessions`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
@@ -77,10 +77,9 @@ const HomeSessions = ({
       return next;
     });
     try {
-      const token = localStorage.getItem('auth_token');
       const ids = candidates.map((h) => h.id).join(',');
       const res = await fetch(`/api/hosts/tmux-sessions/batch?ids=${encodeURIComponent(ids)}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();

@@ -3,11 +3,7 @@
  * apiBase 가 비어있으면 로컬 워크스페이스, 있으면 원격 호스트 (/api/hosts/.../files).
  */
 import { useState } from 'react';
-
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
+import { authHeaders } from '../utils/auth';
 
 const basename = (path) => (path || '').split('/').filter(Boolean).pop() || 'download';
 
@@ -47,7 +43,7 @@ export default function useFileDownload({ apiBase, t }) {
     });
     try {
       const url = `${apiBase}/download?path=${encodeURIComponent(path)}`;
-      const res = await fetch(url, { headers: authHeader() });
+      const res = await fetch(url, { headers: authHeaders() });
       if (!res.ok) {
         let detail = '';
         try {

@@ -7,6 +7,7 @@ import SkeletonRow from './common/SkeletonRow';
 import IconPickerPopup from './IconPickerPopup';
 import ThemePicker from './common/ThemePicker';
 import RemoteFolderPicker from './RemoteFolderPicker';
+import { authHeaders } from '../utils/auth';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
 
@@ -81,9 +82,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     }
     setTmuxChecking(true);
     try {
-      const token = localStorage.getItem('auth_token');
       const res = await fetch(`/api/hosts/${host.id}/tmux-check`, {
-        headers: { Authorization: `Bearer ${token || ''}` },
+        headers: authHeaders(),
       });
       if (res.ok) {
         const data = await res.json();
@@ -104,8 +104,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   const openTailscalePicker = async () => {
     setTsPicker({ open: true, peers: [], loading: true, available: true });
     try {
-      const token = localStorage.getItem('auth_token');
-      const res = await fetch('/api/tailscale/peers', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch('/api/tailscale/peers', { headers: authHeaders() });
       const data = await res.json();
       const list = [...(data.self ? [data.self] : []), ...(data.peers || [])];
       setTsPicker({ open: true, peers: list, loading: false, available: !!data.available });
@@ -118,9 +117,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     if (!host) return;
     setSessions((s) => ({ ...s, open: true, loading: true, error: null }));
     try {
-      const token = localStorage.getItem('auth_token');
       const res = await fetch(`/api/hosts/${host.id}/tmux-sessions`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -135,10 +133,9 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     if (!confirm((t('confirmKillSession') || 'Kill session') + ` "${name}"?`)) return;
     setSessions((s) => ({ ...s, killing: name }));
     try {
-      const token = localStorage.getItem('auth_token');
       await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(name)}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(),
       });
       await refreshSessions();
     } catch {

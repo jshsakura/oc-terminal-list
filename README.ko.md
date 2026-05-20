@@ -153,7 +153,7 @@ docker compose up -d
 - 터미널 셸은 컨테이너 내부에서 실행됩니다.
 - 앱 데이터는 `./data` → `/app/data`로 마운트됩니다.
 - 편집 가능한 워크스페이스 파일은 `./workspace` → `/workspace`로 마운트됩니다.
-- JWT 서명 키는 앱이 DB 설정에 자동 생성 및 저장합니다.
+- JWT 서명 키는 `data/.jwt-secret`에 자동 생성되며, 브라우저 세션은 HttpOnly 쿠키를 사용합니다.
 - Vault 암호화 키는 `/app/data/.vault-key`로 자동 생성됩니다.
 
 ---
@@ -279,11 +279,13 @@ http://localhost:38822
 | `TMUX_HISTORY_LIMIT` | `100000` | tmux 스크롤백/히스토리 한계 |
 | `LOG_LEVEL` | `INFO` | Python 로깅 레벨 |
 | `RELOAD` | 프로덕션에서 `false` | Uvicorn 리로드 플래그 |
+| `TRUST_PROXY_HEADERS` | `0` | 신뢰된 리버스 프록시 뒤에서만 `X-Forwarded-*` 헤더 신뢰 |
+| `ENABLE_CSP` | `1` | 기본 Content-Security-Policy 헤더 전송 |
 
 보안 키:
 
 - JWT 서명 키를 `.env`에 **넣지 마세요**.
-- JWT 서명 키는 앱이 DB 설정에 자동 생성 및 저장합니다.
+- JWT 서명 키는 기본적으로 `data/.jwt-secret`에 생성됩니다. 필요하면 `JWT_SECRET_PATH`로 경로를 지정할 수 있습니다.
 - Vault 마스터 키는 `VAULT_KEY_PATH`에 저장됩니다. 설정하지 않으면 프로젝트 루트의 `data/.vault-key`가 기본값입니다. DB와 함께 백업해야 합니다.
 - Host-native 설치에서 JWT 로테이션 명령 사용 가능:
 
@@ -419,7 +421,7 @@ docker compose up -d
 | 제어 | 동작 |
 | --- | --- |
 | 관리자 인증 | 단일 관리자 설정 흐름, bcrypt/passlib 비밀번호 해싱 |
-| 세션 인증 | JWT 액세스 토큰, 서명 키는 앱이 자동 생성 및 저장 |
+| 세션 인증 | HttpOnly 쿠키에 담긴 JWT 액세스 토큰, 서명 키는 `data/.jwt-secret`에 자동 생성 |
 | 2FA | TOTP + 일회성 백업 코드 |
 | 비밀 저장소 | `data/.vault-key`를 사용한 Fernet 암호화 vault 값 |
 | 파일 접근 | 서버가 경로를 검증하고 파일 작업을 `WORKSPACE_ROOT`로 제한 |
@@ -630,7 +632,7 @@ systemctl status iterminallist.service
 
 ### 로그인은 성공하지만 즉시 로그아웃됨
 
-JWT 서명 키가 로테이션되었을 수 있습니다. 브라우저 localStorage를 지우고 다시 로그인하세요.
+JWT 서명 키가 로테이션되었을 수 있습니다. 다시 로그인하면 서버가 세션 쿠키를 재발급합니다.
 
 ### Vault 복호화 오류
 

@@ -10,7 +10,7 @@ import logging
 import os
 from pathlib import Path
 
-from fastapi import Header, HTTPException
+from fastapi import Cookie, Header, HTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -22,23 +22,36 @@ _DEFAULT_WORKSPACE = os.path.join(_PROJECT_ROOT, "workspace")
 WORKSPACE_ROOT = os.path.abspath(os.getenv("WORKSPACE_ROOT") or _DEFAULT_WORKSPACE)
 
 
-def validate_path(path) -> Path:
-    """워크스페이스 외부 접근을 차단하며 안전한 절대 경로 반환."""
+def validate_path(path, *, allow_root: bool = True) -> Path:
+    """워크스페이스 외부 접근을 차단하며 안전한 절대 경로 반환.
+
+    예전 구현은 path traversal/symlink escape 를 workspace root 로 조용히 보정했다.
+    변경/삭제 API 에서 그 동작은 의도치 않은 root 대상 작업으로 이어질 수 있으므로
+    이제는 명시적으로 거절한다.
+    """
     workspace = Path(WORKSPACE_ROOT).resolve()
-    if path is None or str(path).strip() in ("/", "", "None"):
+    raw = "" if path is None else str(path).strip()
+    if raw in ("", "/", "None"):
+        if not allow_root:
+            raise HTTPException(status_code=400, detail="워크스페이스 루트는 이 작업의 대상이 될 수 없습니다")
         return workspace
-    clean = os.path.normpath(str(path).strip().lstrip("/"))
+    clean = os.path.normpath(raw.lstrip("/"))
+    if clean in ("", "."):
+        if not allow_root:
+            raise HTTPException(status_code=400, detail="워크스페이스 루트는 이 작업의 대상이 될 수 없습니다")
+        return workspace
     requested = (workspace / clean).resolve()
     try:
         requested.relative_to(workspace)
     except ValueError:
-        return workspace
+        raise HTTPException(status_code=403, detail="워크스페이스 외부 경로는 허용되지 않습니다") from None
     return requested
 
 
 # ---------------------- 인증 ----------------------
 
 _auth_manager = None
+AUTH_COOKIE_NAME = "iterm_auth"
 
 
 def set_auth_manager(mgr) -> None:
@@ -48,18 +61,24 @@ def set_auth_manager(mgr) -> None:
 
 async def verify_auth_token(
     authorization: str | None = Header(None),
+    auth_cookie: str | None = Cookie(None, alias=AUTH_COOKIE_NAME),
 ) -> str:
-    actual = None
+    candidates: list[str] = []
     if authorization and authorization.startswith("Bearer "):
-        actual = authorization[len("Bearer "):]
-    if not actual:
+        bearer = authorization[len("Bearer "):].strip()
+        if bearer and bearer.lower() not in {"null", "undefined"}:
+            candidates.append(bearer)
+    if auth_cookie:
+        candidates.append(auth_cookie)
+    if not candidates:
         raise HTTPException(status_code=401, detail="인증 토큰이 필요합니다")
     if not _auth_manager:
         raise HTTPException(status_code=503, detail="인증 관리자가 초기화되지 않았습니다")
-    username = await _auth_manager.verify_token(actual)
-    if not username:
-        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
-    return username
+    for token in candidates:
+        username = await _auth_manager.verify_token(token)
+        if username:
+            return username
+    raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
 
 
 # ---------------------- subprocess ----------------------

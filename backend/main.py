@@ -24,15 +24,16 @@ from urllib.parse import quote
 
 from dotenv import load_dotenv
 from fastapi import (
+    Cookie,
     Depends,
     FastAPI,
+    File as FastAPIFile,
+    Form,
     Header,
     HTTPException,
     Query,
     Request,
     UploadFile,
-    File as FastAPIFile,
-    Form,
     WebSocket,
     WebSocketDisconnect,
 )
@@ -44,6 +45,7 @@ from pydantic import BaseModel, Field, field_validator
 from starlette.types import Receive, Scope, Send
 
 from _deps import (
+    AUTH_COOKIE_NAME,
     GIT_COMMIT_TIMEOUT,
     GIT_DIFF_TIMEOUT,
     GIT_PUSH_TIMEOUT,
@@ -190,11 +192,79 @@ logger.info("CORS allowed_origins=%s credentials=%s", _allowed_origins, _cors_cr
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Cross-Origin-Opener-Policy": "same-origin",
+}
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; "
+    "base-uri 'self'; "
+    "object-src 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "connect-src 'self' ws: wss:; "
+    "worker-src 'self' blob:; "
+    "media-src 'self' blob:"
+)
+
+
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    response = await call_next(request)
+    for key, value in SECURITY_HEADERS.items():
+        response.headers.setdefault(key, value)
+    if os.getenv("ENABLE_CSP", "1").strip().lower() not in {"0", "false", "no", "off"}:
+        response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+    return response
+
+
 # ---------------------- 워크스페이스 ----------------------
 
 # WORKSPACE_ROOT / validate_path 는 _deps 모듈에서 import.
 os.makedirs(WORKSPACE_ROOT, exist_ok=True)
 logger.info("WORKSPACE_ROOT = %s", WORKSPACE_ROOT)
+
+
+AUTH_COOKIE_MAX_AGE_SECONDS = 24 * 60 * 60
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _request_is_https(request: Request) -> bool:
+    if request.url.scheme == "https":
+        return True
+    if _env_flag("TRUST_PROXY_HEADERS"):
+        return request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower() == "https"
+    return False
+
+
+def _set_auth_cookie(response: Response, request: Request, token: str) -> None:
+    secure = _env_flag("AUTH_COOKIE_SECURE", default=_request_is_https(request))
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=token,
+        max_age=AUTH_COOKIE_MAX_AGE_SECONDS,
+        httponly=True,
+        secure=secure,
+        samesite="strict",
+        path="/",
+    )
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(key=AUTH_COOKIE_NAME, path="/", samesite="strict")
 
 
 # ---------------------- 모델 ----------------------
@@ -871,7 +941,7 @@ async def setup_admin(request: SetupRequest):
 
 
 @app.post("/api/auth/login")
-async def login(request: LoginRequest, http_request: Request):
+async def login(request: LoginRequest, http_request: Request, response: Response):
     if auth_manager is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
     # rate limit: IP 당 60초 10회, username 당 5분 20회.
@@ -891,6 +961,7 @@ async def login(request: LoginRequest, http_request: Request):
             "username": request.username,
         }
     access_token = await auth_manager.create_access_token(request.username)
+    _set_auth_cookie(response, http_request, access_token)
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -900,7 +971,7 @@ async def login(request: LoginRequest, http_request: Request):
 
 
 @app.post("/api/auth/login/otp")
-async def login_otp(request: OtpLoginRequest, http_request: Request):
+async def login_otp(request: OtpLoginRequest, http_request: Request, response: Response):
     if auth_manager is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
     # OTP 무차별 대입 방지 — 6자리 코드(100만 조합)는 짧은 시간 안 5회 시도면
@@ -918,6 +989,7 @@ async def login_otp(request: OtpLoginRequest, http_request: Request):
     if not ok:
         raise HTTPException(status_code=401, detail="OTP 코드가 올바르지 않습니다")
     access_token = await auth_manager.create_access_token(username)
+    _set_auth_cookie(response, http_request, access_token)
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -927,8 +999,26 @@ async def login_otp(request: OtpLoginRequest, http_request: Request):
 
 
 @app.get("/api/auth/verify")
-async def verify_token(username: str = Depends(verify_auth_token)):
+async def verify_token(
+    request: Request,
+    response: Response,
+    username: str = Depends(verify_auth_token),
+    authorization: str | None = Header(None),
+    auth_cookie: str | None = Cookie(None, alias=AUTH_COOKIE_NAME),
+):
+    # Smooth migration: an old localStorage Bearer token that still verifies is
+    # promoted to the new HttpOnly cookie, then the frontend can delete it.
+    if authorization and authorization.startswith("Bearer ") and not auth_cookie:
+        bearer = authorization[len("Bearer "):].strip()
+        if bearer and bearer.lower() not in {"null", "undefined"}:
+            _set_auth_cookie(response, request, bearer)
     return {"valid": True, "username": username}
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    _clear_auth_cookie(response)
+    return {"success": True}
 
 
 # ---------------------- OTP (TOTP) 관리 ----------------------
@@ -1080,7 +1170,7 @@ async def passkey_login_begin(http_request: Request):
 
 
 @app.post("/api/auth/passkey/login/complete")
-async def passkey_login_complete(request: PasskeyLoginCompleteRequest, http_request: Request):
+async def passkey_login_complete(request: PasskeyLoginCompleteRequest, http_request: Request, response: Response):
     if auth_manager is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
     ip = client_ip_from_request(http_request)
@@ -1116,6 +1206,7 @@ async def passkey_login_complete(request: PasskeyLoginCompleteRequest, http_requ
         sign_count=int(verification.new_sign_count or 0),
     )
     access_token = await auth_manager.create_access_token(cred["username"])
+    _set_auth_cookie(response, http_request, access_token)
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -2612,7 +2703,7 @@ async def read_file(path: str = Query(...), username: str = Depends(verify_auth_
 
 @app.post("/api/files/write")
 async def write_file(request: FileWriteRequest, username: str = Depends(verify_auth_token)):
-    safe = validate_path(request.path)
+    safe = validate_path(request.path, allow_root=False)
     safe.parent.mkdir(parents=True, exist_ok=True)
     safe.write_text(request.content, encoding="utf-8")
     return {"status": "written", "path": request.path}
@@ -2620,8 +2711,8 @@ async def write_file(request: FileWriteRequest, username: str = Depends(verify_a
 
 @app.post("/api/files/move")
 async def move_file(request: FileMoveRequest, username: str = Depends(verify_auth_token)):
-    src = validate_path(request.source)
-    dst = validate_path(request.destination)
+    src = validate_path(request.source, allow_root=False)
+    dst = validate_path(request.destination, allow_root=False)
     if not src.exists():
         raise HTTPException(status_code=404, detail="Source not found")
     if dst.exists():
@@ -2634,7 +2725,7 @@ async def move_file(request: FileMoveRequest, username: str = Depends(verify_aut
 
 @app.post("/api/files/create")
 async def create_file(request: FileCreateRequest, username: str = Depends(verify_auth_token)):
-    safe = validate_path(request.path)
+    safe = validate_path(request.path, allow_root=False)
     if safe.exists():
         raise HTTPException(status_code=409, detail="Already exists")
     if request.type == "directory":
@@ -2709,7 +2800,7 @@ async def upload_files(
 
 @app.delete("/api/files")
 async def delete_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
-    safe = validate_path(path)
+    safe = validate_path(path, allow_root=False)
     if not safe.exists():
         raise HTTPException(status_code=404, detail="Not found")
     if safe.is_dir():

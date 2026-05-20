@@ -19,12 +19,7 @@ const useSessionManager = (isAuthenticated, defaultShell = 'auto') => {
 
   const fetchSessions = useCallback(async () => {
     try {
-      const token = localStorage.getItem('auth_token');
-      if (!token) return [];
-
-      const response = await fetch('/api/sessions', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch('/api/sessions');
 
       if (!response.ok) return [];
 
@@ -67,7 +62,6 @@ const useSessionManager = (isAuthenticated, defaultShell = 'auto') => {
 
     creatingSessionRef.current = true;
     const newId = generateUUID();
-    const token = localStorage.getItem('auth_token');
     const requestedShell = normalizeShell(defaultShell);
 
     try {
@@ -75,7 +69,6 @@ const useSessionManager = (isAuthenticated, defaultShell = 'auto') => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ 
           cols: 80, 
@@ -113,11 +106,9 @@ const useSessionManager = (isAuthenticated, defaultShell = 'auto') => {
   };
 
   const deleteSession = async (sessionId) => {
-    const token = localStorage.getItem('auth_token');
     try {
       const response = await fetch(`/api/sessions/${sessionId}`, {
         method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
       });
 
       if (response.ok) {
@@ -135,13 +126,11 @@ const useSessionManager = (isAuthenticated, defaultShell = 'auto') => {
   };
 
   const renameSession = async (sessionId, newName) => {
-    const token = localStorage.getItem('auth_token');
     try {
       const response = await fetch(`/api/sessions/${sessionId}/name`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ name: newName }),
       });

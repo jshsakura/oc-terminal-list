@@ -14,13 +14,13 @@
  * grip 핸들은 시각용 decoration — 실제 드래그 트리거는 행 전체.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { authHeaders } from '../utils/auth';
 
 const persistOrder = async (ids) => {
   try {
-    const token = localStorage.getItem('auth_token');
     await fetch('/api/hosts/reorder', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ ids }),
     });
   } catch { /* 네트워크 실패 무시 — 다음 새로고침에 서버 정답 */ }

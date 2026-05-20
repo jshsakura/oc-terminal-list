@@ -3,11 +3,7 @@
  * uploadUrl 은 로컬/원격 모두에 대응 (/api/files/upload 또는 /api/hosts/.../files/upload).
  */
 import { useState } from 'react';
-
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
+import { authHeaders } from '../utils/auth';
 
 export default function useFileUpload({ uploadUrl, t, onUploadComplete }) {
   const [uploadState, setUploadState] = useState(null);
@@ -22,7 +18,7 @@ export default function useFileUpload({ uploadUrl, t, onUploadComplete }) {
       fd.append('files', files[i]);
       setUploadState({ current: i, total, fileName: files[i].name, done: false, error: false });
       try {
-        const res = await fetch(uploadUrl, { method: 'POST', headers: authHeader(), body: fd });
+        const res = await fetch(uploadUrl, { method: 'POST', headers: authHeaders(), body: fd });
         if (!res.ok) {
           let detail = '';
           try {

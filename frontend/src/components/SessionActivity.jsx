@@ -3,13 +3,9 @@ import { Clock } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
+import { authHeaders } from '../utils/auth';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
-
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
 
 const formatRelative = (ts, t) => {
   const ms = Date.now() - ts * 1000;
@@ -36,7 +32,7 @@ const SessionActivity = ({ sessionId, language = 'en' }) => {
     let cancelled = false;
     const load = async () => {
       try {
-        const res = await fetch(`/api/sessions/${sessionId}/activity`, { headers: authHeader() });
+        const res = await fetch(`/api/sessions/${sessionId}/activity`, { headers: authHeaders() });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         if (!cancelled) {

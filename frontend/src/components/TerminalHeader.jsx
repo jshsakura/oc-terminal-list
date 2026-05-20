@@ -21,6 +21,7 @@ import useCommandHistory from '../hooks/useCommandHistory';
 import { removeCommand as removeHistoryCommand, clearCommandsFor as clearHistoryFor } from '../utils/commandHistory';
 import RailIconBtn from './common/RailIconBtn';
 import HostIcon from '../utils/hostIcons';
+import { authHeaders } from '../utils/auth';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
@@ -1291,9 +1292,8 @@ const useSystemStats = (enabled) => {
     const fetchOnce = async () => {
       setRefreshing(true);
       try {
-        const token = (typeof localStorage !== 'undefined' && localStorage.getItem('auth_token')) || '';
         const res = await fetch('/api/system/stats', {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          headers: authHeaders(),
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
@@ -1748,10 +1748,9 @@ const ProcessList = ({ processes, onRefresh }) => {
     setPending(pid);
     setError(null);
     try {
-      const token = localStorage.getItem('auth_token');
       const res = await fetch(`/api/system/processes/${pid}/kill`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ signal: sig }),
       });
       if (!res.ok) {

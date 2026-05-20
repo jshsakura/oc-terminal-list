@@ -25,6 +25,8 @@ from webauthn.helpers.structs import (
     UserVerificationRequirement,
 )
 
+from rate_limit import trust_proxy_headers
+
 RP_NAME = "Terminal List"
 
 
@@ -37,11 +39,16 @@ def derive_rp_info(http_request: Request) -> tuple[str, str]:
     프록시 뒤일 수도 있어 Forwarded / X-Forwarded-* 헤더 도 참고.
     """
     headers = http_request.headers
-    # Forwarded 표준 헤더 우선. 못 찾으면 X-Forwarded-*, 마지막으로 url.
-    forwarded_host = headers.get("x-forwarded-host") or headers.get("host") or ""
-    forwarded_proto = headers.get("x-forwarded-proto")
+    # Forwarded headers are only trusted behind a configured reverse proxy.
+    # Direct deployments must not let clients choose WebAuthn rp_id/origin.
+    if trust_proxy_headers():
+        forwarded_host = headers.get("x-forwarded-host") or headers.get("host") or ""
+        forwarded_proto = headers.get("x-forwarded-proto")
+    else:
+        forwarded_host = headers.get("host") or ""
+        forwarded_proto = None
     if not forwarded_proto:
-        # http_request.url.scheme 은 uvicorn 의 raw scheme. proxy 뒤면 http 로 떨어진다.
+        # http_request.url.scheme 은 uvicorn 의 raw scheme. proxy 뒤면 TRUST_PROXY_HEADERS=1 필요.
         forwarded_proto = http_request.url.scheme or "http"
     host = forwarded_host.strip()
     if not host:

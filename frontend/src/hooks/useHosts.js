@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { authHeaders } from '../utils/auth';
 
 /**
  * 저장된 SSH 호스트 목록을 관리하는 훅.
@@ -7,11 +8,6 @@ import { useCallback, useEffect, useState } from 'react';
  * 호스트를 더블클릭/엔터하면 호스트와 결합된 새 세션이 만들어지고,
  * 그 세션은 /ws/host/{hostId} 로 연결된다.
  */
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
 const useHosts = (isAuthenticated) => {
   const [hosts, setHosts] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -20,7 +16,7 @@ const useHosts = (isAuthenticated) => {
     if (!isAuthenticated) return [];
     setLoading(true);
     try {
-      const res = await fetch('/api/hosts', { headers: authHeader() });
+      const res = await fetch('/api/hosts', { headers: authHeaders() });
       if (!res.ok) return [];
       const data = await res.json();
       const items = data.items || [];
@@ -42,7 +38,7 @@ const useHosts = (isAuthenticated) => {
   const createHost = async (payload) => {
     const res = await fetch('/api/hosts', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error((await res.json()).detail || 'Failed to create host');
@@ -54,7 +50,7 @@ const useHosts = (isAuthenticated) => {
   const updateHost = async (id, payload) => {
     const res = await fetch(`/api/hosts/${id}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(payload),
     });
     if (!res.ok) throw new Error((await res.json()).detail || 'Failed to update host');
@@ -62,7 +58,7 @@ const useHosts = (isAuthenticated) => {
   };
 
   const deleteHost = async (id) => {
-    const res = await fetch(`/api/hosts/${id}`, { method: 'DELETE', headers: authHeader() });
+    const res = await fetch(`/api/hosts/${id}`, { method: 'DELETE', headers: authHeaders() });
     if (!res.ok) throw new Error((await res.json()).detail || 'Failed to delete host');
     await refresh();
   };

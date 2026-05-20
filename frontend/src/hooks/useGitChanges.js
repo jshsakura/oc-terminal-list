@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
+import { authHeaders } from '../utils/auth';
 
 /**
  * Git 변경 사항 폴링 훅.
@@ -49,7 +45,7 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId =
         // Local workspace git
         url = `/api/git/status${myPath ? `?path=${encodeURIComponent(myPath)}` : ''}`;
       }
-      const res = await fetch(url, { headers: authHeader() });
+      const res = await fetch(url, { headers: authHeaders() });
       // path/host 가 그 사이에 바뀌면 이 응답은 stale — 폐기
       if (myRequestId !== requestIdRef.current) return;
       if (!res.ok) {
@@ -92,7 +88,7 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId =
     const url = hid
       ? `/api/hosts/${hid}/git/diff?path=${encodeURIComponent(filePath)}&staged=${staged ? 'true' : 'false'}`
       : `/api/git/diff?path=${encodeURIComponent(filePath)}&staged=${staged ? 'true' : 'false'}`;
-    const res = await fetch(url, { headers: authHeader() });
+    const res = await fetch(url, { headers: authHeaders() });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       throw new Error(body.detail || `HTTP ${res.status}`);

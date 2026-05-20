@@ -3,7 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import useSettings from './useSettings';
 
 const TestSettings = () => {
-  const { settings } = useSettings();
+  const { settings } = useSettings(true);
   return <div data-testid="mobile-font-size">{settings.fontSizeMobile}</div>;
 };
 

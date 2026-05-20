@@ -64,13 +64,12 @@ export const DEFAULT_SETTINGS = {
 const STORAGE_KEY = 'terminal_settings';
 const DIRTY_KEY = 'terminal_settings_dirty';
 
-const saveSettingsToServer = async (token, nextSettings) => {
+const saveSettingsToServer = async (nextSettings) => {
   const payload = JSON.stringify(nextSettings);
   const res = await fetch('/api/user/settings', {
     method: 'PUT',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({ settings: nextSettings }),
   });
@@ -123,21 +122,18 @@ export const useSettings = (isAuthenticated = null) => {
   const fetchStartedRef = useRef(false);
   useEffect(() => {
     if (fetchStartedRef.current) return;
-    const token = localStorage.getItem('auth_token');
-    if (!token) return;
     // isAuthenticated 를 명시적으로 전달받았는데 아직 false 면 보류 — useAuth 가 verify 끝나길 기다림.
     if (isAuthenticated === false) return;
+    if (isAuthenticated !== true) return;
     fetchStartedRef.current = true;
     (async () => {
       try {
-        const res = await fetch('/api/user/settings', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const res = await fetch('/api/user/settings');
         if (!res.ok) return;
         const data = await res.json();
         const remote = data?.settings;
         if (localStorage.getItem(DIRTY_KEY) === '1') {
-          const savedPayload = await saveSettingsToServer(token, settingsRef.current);
+          const savedPayload = await saveSettingsToServer(settingsRef.current);
           clearSettingsDirty(savedPayload, settingsRef.current);
           return;
         }
@@ -164,17 +160,16 @@ export const useSettings = (isAuthenticated = null) => {
   useEffect(() => {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch {}
 
-    const token = localStorage.getItem('auth_token');
     // 서버 저장은 인증된 상태 + 첫 fetch 가 끝난 후에만 (초기 로드 직후 덮어쓰기 방지)
-    if (!token || !fetchedRef.current) return;
+    if (isAuthenticated !== true || !fetchedRef.current) return;
     if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current);
     saveDebounceRef.current = setTimeout(() => {
-      saveSettingsToServer(token, settings)
+      saveSettingsToServer(settings)
         .then((savedPayload) => clearSettingsDirty(savedPayload, settingsRef.current))
         .catch((err) => console.warn('user settings save failed:', err));
     }, 600);
     return () => { if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current); };
-  }, [settings]);
+  }, [settings, isAuthenticated]);
 
   // 개별 설정 업데이트
   const updateSetting = (key, value) => {

@@ -10,6 +10,7 @@ in-memory sliding-window rate limiter.
 """
 from __future__ import annotations
 
+import os
 import threading
 import time
 from collections import deque
@@ -23,6 +24,15 @@ _lock = threading.Lock()
 # 너무 많은 키가 쌓이는 걸 막는 상한 (메모리 누수 방지).
 # 단일 호스트 IPv4/IPv6 다양성이 있어도 1만 이하면 충분.
 _MAX_KEYS = 10_000
+
+
+def trust_proxy_headers() -> bool:
+    """Whether to trust X-Forwarded-* headers from a reverse proxy.
+
+    Default is off because this app is often exposed directly from Docker. If a
+    trusted reverse proxy is in front of the app, set TRUST_PROXY_HEADERS=1.
+    """
+    return os.getenv("TRUST_PROXY_HEADERS", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def check_rate_limit(key: str, max_attempts: int, window_seconds: float) -> None:
@@ -64,7 +74,7 @@ def _evict_oldest() -> None:
 
 def client_ip_from_request(request) -> str:
     """X-Forwarded-For 우선, 없으면 client.host. rate limit key 에 사용."""
-    xff = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    xff = request.headers.get("x-forwarded-for", "").split(",")[0].strip() if trust_proxy_headers() else ""
     if xff:
         return xff
     try:

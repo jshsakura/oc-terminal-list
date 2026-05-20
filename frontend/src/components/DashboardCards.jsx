@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Server, Monitor, BarChart3 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
+import { authHeaders } from '../utils/auth';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -29,9 +30,8 @@ const DashboardCards = ({ hosts = [], settings = {}, days = 7, t }) => {
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     setErr(null);
-    const token = localStorage.getItem('auth_token');
     fetch(`/api/usage/summary?days=${days}`, {
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(),
     })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {

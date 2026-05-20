@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
+import { authHeaders } from '../utils/auth';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -26,11 +27,6 @@ const HoverBtn = ({ baseStyle, hoverStyle, disabled = false, children, ...rest }
       {children}
     </button>
   );
-};
-
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
 };
 
 const parentOf = (abs) => {
@@ -60,7 +56,7 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
     setError(null);
     try {
       const qs = target ? `?path=${encodeURIComponent(target)}` : '';
-      const res = await fetch(`/api/hosts/${host.id}/files${qs}`, { headers: authHeader() });
+      const res = await fetch(`/api/hosts/${host.id}/files${qs}`, { headers: authHeaders() });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || `HTTP ${res.status}`);

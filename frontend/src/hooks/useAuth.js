@@ -1,4 +1,12 @@
 import { useState, useEffect } from 'react';
+import {
+  authHeaders,
+  clearAuthFallbacks,
+  clearLegacyAuthStorage,
+  clearVolatileAuthToken,
+  getLegacyAuthToken,
+  setVolatileAuthToken,
+} from '../utils/auth';
 
 const useAuth = () => {
   const [authState, setAuthState] = useState({
@@ -15,8 +23,7 @@ const useAuth = () => {
       const statusData = await statusResponse.json();
 
       if (!statusData.setup_complete) {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('username');
+        clearAuthFallbacks();
         setAuthState({
           isLoading: false,
           needsSetup: true,
@@ -26,28 +33,14 @@ const useAuth = () => {
         return;
       }
 
-      // 2. 저장된 토큰 확인
-      const token = localStorage.getItem('auth_token');
-      if (!token) {
-        setAuthState({
-          isLoading: false,
-          needsSetup: false,
-          isAuthenticated: false,
-          username: null,
-        });
-        return;
-      }
-
-      // 3. 토큰 유효성 검증
+      // 2. 쿠키 세션 확인. 예전 localStorage Bearer 토큰이 있으면 이 요청에서
+      // 서버가 HttpOnly 쿠키로 승격하고, 성공 후 로컬 토큰은 제거한다.
       const verifyResponse = await fetch('/api/auth/verify', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: getLegacyAuthToken() ? authHeaders() : {},
       });
 
       if (!verifyResponse.ok) {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('username');
+        clearAuthFallbacks();
         setAuthState({
           isLoading: false,
           needsSetup: false,
@@ -58,6 +51,7 @@ const useAuth = () => {
       }
 
       const verifyData = await verifyResponse.json();
+      clearAuthFallbacks();
 
       setAuthState({
         isLoading: false,
@@ -80,20 +74,33 @@ const useAuth = () => {
     checkAuthStatus();
   }, []);
 
-  const login = (token, username) => {
-    localStorage.setItem('auth_token', token);
-    localStorage.setItem('username', username);
+  const login = (username, sessionToken = null) => {
+    setVolatileAuthToken(sessionToken);
+    clearLegacyAuthStorage();
     setAuthState({
       isLoading: false,
       needsSetup: false,
       isAuthenticated: true,
       username,
     });
+    if (sessionToken) {
+      // Cookie-only verification. If this succeeds, the HttpOnly cookie path is
+      // healthy and the in-memory fallback can be discarded immediately.
+      fetch('/api/auth/verify')
+        .then((res) => {
+          if (res.ok) clearVolatileAuthToken();
+        })
+        .catch(() => {});
+    }
   };
 
-  const logout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('username');
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // 네트워크 실패여도 클라이언트 상태는 정리한다.
+    }
+    clearAuthFallbacks();
     setAuthState({
       isLoading: false,
       needsSetup: false,

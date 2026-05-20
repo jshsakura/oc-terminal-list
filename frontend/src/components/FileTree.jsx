@@ -12,6 +12,7 @@ import useFileUpload from '../hooks/useFileUpload';
 import { tokens } from '../styles/tokens';
 import { glassDividerStyle, glassMenuItemHover, glassMenuStyle } from '../styles/glass';
 import SkeletonRow from './common/SkeletonRow';
+import { authHeaders } from '../utils/auth';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -324,11 +325,6 @@ const gitTone = (status) => {
   return color.muted;
 };
 
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
 const computeParent = (p) => {
   if (!p) return null;
   const trimmed = p.replace(/\/+$/, '');
@@ -561,7 +557,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     setNodes((prev) => ({ ...prev, [cacheKey]: { ...(prev[cacheKey] || {}), loading: true } }));
     try {
       const ts = Date.now();
-      const res = await fetch(`${apiBase}?path=${encodeURIComponent(backendPath)}&_t=${ts}`, { headers: authHeader() });
+      const res = await fetch(`${apiBase}?path=${encodeURIComponent(backendPath)}&_t=${ts}`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setNodes((prev) => ({ ...prev, [cacheKey]: { items: data.items || [], loading: false, error: null } }));
@@ -700,11 +696,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   // Actions
   const apiCall = async (method, path, body = null) => {
     const url = isHostMode ? `${apiBase}/${method}` : `/api/files/${method}`;
-    const opts = { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeader() } };
+    const opts = { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/json' }) };
     if (method === 'delete') {
       opts.method = 'DELETE';
       const deleteUrl = isHostMode ? `${apiBase}?path=${encodeURIComponent(path)}` : `/api/files?path=${encodeURIComponent(path)}`;
-      const res = await fetch(deleteUrl, { headers: authHeader(), method: 'DELETE' });
+      const res = await fetch(deleteUrl, { headers: authHeaders(), method: 'DELETE' });
       if (!res.ok) throw new Error('delete failed');
       return;
     }

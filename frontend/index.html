@@ -10,10 +10,15 @@
     <meta name="apple-mobile-web-app-title" content="Terminal List" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <title>Terminal List — Multi-Session SSH Terminal</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Gugi&display=swap" rel="stylesheet" />
     <style>
+      @font-face {
+        font-family: 'Gugi';
+        src: url('/fonts/Gugi-Regular.ttf') format('truetype');
+        font-weight: 400;
+        font-style: normal;
+        font-display: swap;
+      }
+
       /* JetBrainsMono Nerd Font (로컬 번들, 패치된 모노 + Nerd 글리프 포함) */
       @font-face {
         font-family: 'JetBrainsMono Nerd Font Mono';
@@ -66,27 +71,6 @@
   </head>
   <body>
     <div id="root"></div>
-    <script>
-      // 백스페이스로 뒤로가기 방지
-      document.addEventListener('keydown', function(e) {
-        if (e.key === 'Backspace' || e.keyCode === 8) {
-          const target = e.target;
-          const isEditable = target.tagName === 'INPUT' ||
-                           target.tagName === 'TEXTAREA' ||
-                           target.isContentEditable;
-
-          // 입력 필드가 아니면 백스페이스 막기
-          if (!isEditable) {
-            e.preventDefault();
-          }
-        }
-      });
-
-      // 브라우저 기본 우클릭 메뉴 전역 차단 (커스텀 메뉴는 컴포넌트별로 처리)
-      document.addEventListener('contextmenu', function(e) {
-        e.preventDefault();
-      });
-    </script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

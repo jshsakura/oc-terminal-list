@@ -13,6 +13,7 @@ import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
+import { authHeaders } from './utils/auth';
 import {
   makeLeaf, treeFromLegacyLayout, splitLeaf, removeLeaf, ensureTree,
   swapLeaves,
@@ -207,7 +208,7 @@ function App() {
   const { keys: sshKeys, createKey, updateKey, deleteKey } = useSshKeys(isAuthenticated);
 
   // ── tabs ──────────────────────────────────────────────────────────────────
-  const [isRestoringWorkspace, setIsRestoringWorkspace] = useState(() => !!localStorage.getItem('auth_token'));
+  const [isRestoringWorkspace, setIsRestoringWorkspace] = useState(false);
 
   const [tabs, setTabs] = useState(() => {
     try {
@@ -247,10 +248,9 @@ function App() {
   // 다른 기기에서 받은 서버 상태를 로컬에 적용 (alive 세션 머지 포함).
   const applyServerTabState = useCallback(async (serverState) => {
     if (!serverState) return;
-    const token = localStorage.getItem('auth_token');
     let aliveSessions = [];
     try {
-      const r = await fetch('/api/sessions', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch('/api/sessions');
       if (r.ok) aliveSessions = (await r.json()).filter((s) => s.alive);
     } catch { /* noop */ }
     setTabs((prev) => {
@@ -279,13 +279,12 @@ function App() {
       return;
     }
     let cancelled = false;
-    const token = localStorage.getItem('auth_token');
     const startedAt = Date.now();
     setIsRestoringWorkspace(true);
 
     const finish = async () => {
       try {
-        const r = await fetch('/api/tab-state', { headers: { Authorization: `Bearer ${token}` } });
+        const r = await fetch('/api/tab-state');
         const serverState = r.ok ? await r.json() : null;
         if (!cancelled) await applyServerTabState(serverState);
       } catch {
@@ -320,12 +319,10 @@ function App() {
     localDirtyRef.current = true;
     if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current);
     _saveTabTimer.current = setTimeout(async () => {
-      const token = localStorage.getItem('auth_token');
-      if (!token) return;
       try {
         const res = await fetch('/api/tab-state', {
           method: 'PUT',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             tabs,
             activeTabId,
@@ -359,20 +356,14 @@ function App() {
     const tick = async () => {
       if (cancelled || document.hidden) return;
       if (localDirtyRef.current) return;
-      const token = localStorage.getItem('auth_token');
-      if (!token) return;
       try {
-        const r = await fetch('/api/tab-state/version', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const r = await fetch('/api/tab-state/version');
         if (!r.ok) return;
         const { updatedAt } = await r.json();
         if (!updatedAt) return;
         if (updatedAt === lastAppliedTabVersionRef.current) return;
         // 풀 GET 후 적용
-        const r2 = await fetch('/api/tab-state', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        const r2 = await fetch('/api/tab-state');
         if (!r2.ok) return;
         const serverState = await r2.json();
         if (cancelled || localDirtyRef.current) return;
@@ -414,10 +405,9 @@ function App() {
   /* 원격 tmux 세션 kill — fire-and-forget. 호스트가 도달 불가능하면 다음 접속 때 Resumable 에 남음. */
   const killRemoteTmuxSession = useCallback((hostId, sessionName) => {
     if (!hostId || !sessionName) return;
-    const token = localStorage.getItem('auth_token');
     fetch(`/api/hosts/${hostId}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(),
     }).catch(() => {});
   }, []);
 
@@ -829,11 +819,10 @@ function App() {
           : t.activePaneId;
         return { ...t, panes: remaining, layout, splitTree: finalTree, activePaneId: newActiveId };
       }));
-      const token = localStorage.getItem('auth_token');
       // 로컬 세션 정리
       if (pane.sessionId && !pane.hostId) {
         fetch(`/api/sessions/${pane.sessionId}`, {
-          method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+          method: 'DELETE', headers: authHeaders(),
         }).catch(() => {});
       }
       // 호스트 pane → 자신의 원격 tmux 세션도 종료 (의도적 close = 영속 끝).
@@ -1028,14 +1017,13 @@ function App() {
 
     const terminateSessions = () => {
       if (tab.type === 'local') {
-        const token = localStorage.getItem('auth_token');
         const sessionIds = (tab.panes || [{ sessionId: tab.sessionId }])
           .map((p) => p.sessionId)
           .filter(Boolean);
         sessionIds.forEach((sid) => {
           fetch(`/api/sessions/${sid}`, {
             method: 'DELETE',
-            headers: { Authorization: `Bearer ${token}` },
+            headers: authHeaders(),
           }).catch(() => {});
         });
       } else if (tab.type === 'host') {
@@ -1622,8 +1610,7 @@ function App() {
       return fileIndexRef.current;
     }
     try {
-      const token = localStorage.getItem('auth_token');
-      const r = await fetch('/api/files/index', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await fetch('/api/files/index', { headers: authHeaders() });
       if (!r.ok) return fileIndexRef.current;
       const data = await r.json();
       fileIndexRef.current = { files: data.files || [], ts: now, truncated: !!data.truncated };
@@ -1649,9 +1636,8 @@ function App() {
       if (!haystack.length) {
         // 인덱스 비었으면 레거시 서버 검색으로 폴백 (대용량 워크스페이스 truncated 케이스 등)
         try {
-          const token = localStorage.getItem('auth_token');
           const res = await fetch(`/api/files/search?q=${encodeURIComponent(query)}&limit=200`, {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: authHeaders(),
           });
           const data = await res.json();
           if (!cancelled) {
@@ -1700,9 +1686,9 @@ function App() {
     : (activeTab?.sessionId || activeTab?.id || null);
   const terminalLayoutSignal = `tab:${activeTabId}:editor:${activeFile ? editorHeight : 0}`;
 
-  const handleLogin = useCallback((token, nextUsername) => {
+  const handleLogin = useCallback((nextUsername, sessionToken = null) => {
     setIsRestoringWorkspace(true);
-    login(token, nextUsername);
+    login(nextUsername, sessionToken);
   }, [login]);
 
   // ── guards ────────────────────────────────────────────────────────────────
@@ -1896,9 +1882,8 @@ function App() {
               onJumpTab={(tabId) => setActiveTabId(tabId)}
               onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
               onTerminateHostSession={async (host, sessionName) => {
-                const token = localStorage.getItem('auth_token');
                 const res = await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
-                  method: 'POST', headers: { Authorization: `Bearer ${token}` },
+                  method: 'POST', headers: authHeaders(),
                 });
                 if (!res.ok) {
                   const detail = await res.text().catch(() => '');
@@ -2041,9 +2026,8 @@ function App() {
                     onNotify={(message) => setNotification({ isOpen: true, message })}
                     onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
                     onTerminateHostSession={async (host, sessionName) => {
-                      const token = localStorage.getItem('auth_token');
                       const res = await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
-                        method: 'POST', headers: { Authorization: `Bearer ${token}` },
+                        method: 'POST', headers: authHeaders(),
                       });
                       if (!res.ok) {
                         const detail = await res.text().catch(() => '');
@@ -2085,10 +2069,9 @@ function App() {
                       setFolderPickerSlot(null);
                       if (!host || !chosen) return;
                       try {
-                        const token = localStorage.getItem('auth_token');
                         await fetch(`/api/hosts/${host.id}/last-cwd`, {
                           method: 'POST',
-                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          headers: authHeaders({ 'Content-Type': 'application/json' }),
                           body: JSON.stringify({ cwd: chosen }),
                         });
                       } catch { /* 무시 */ }
@@ -2232,10 +2215,9 @@ function App() {
           setFolderPickerSlot(null);
           if (!host || !chosen) return;
           try {
-            const token = localStorage.getItem('auth_token');
             await fetch(`/api/hosts/${host.id}/last-cwd`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              headers: authHeaders({ 'Content-Type': 'application/json' }),
               body: JSON.stringify({ cwd: chosen }),
             });
           } catch {
@@ -2339,9 +2321,8 @@ function App() {
               setHostEditorState({ isOpen: false, host: null });
             }}
             onKillTmuxServer={async (h) => {
-              const token = localStorage.getItem('auth_token');
               await fetch(`/api/hosts/${h.id}/kill-tmux?force=true`, {
-                method: 'POST', headers: { Authorization: `Bearer ${token}` },
+                method: 'POST', headers: authHeaders(),
               });
               setNotification({ isOpen: true, message: t('killTmuxServerDone') || 'Remote tmux server killed.' });
             }}

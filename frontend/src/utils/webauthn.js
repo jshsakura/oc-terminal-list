@@ -1,6 +1,7 @@
 // WebAuthn (passkey) 브라우저 ↔ JSON 인코딩 헬퍼.
 // py_webauthn 백엔드는 base64url 문자열 형식을 받고, 브라우저는 ArrayBuffer 를 다룬다.
 // 양방향 변환 + 등록/인증 흐름을 짧게 노출.
+import { authHeaders } from './auth';
 
 export const isPasskeySupported = () => {
   return typeof window !== 'undefined'
@@ -75,21 +76,12 @@ const encodeAuthenticationCredential = (cred) => ({
   },
 });
 
-// ── 고수준 API ──
-// authFetch: 호출자가 토큰을 직접 헤더에 넣어 호출.
-
-const authHeaders = () => {
-  if (typeof localStorage === 'undefined') return {};
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
-
 /** 등록 흐름: begin → 브라우저 create → complete. label 은 사용자 메모. */
 export const registerPasskey = async (label) => {
   if (!isPasskeySupported()) throw new Error('이 브라우저는 패스키를 지원하지 않습니다');
   const beginRes = await fetch('/api/auth/passkey/register/begin', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ label: label || null }),
   });
   if (!beginRes.ok) {
@@ -102,7 +94,7 @@ export const registerPasskey = async (label) => {
   if (!cred) throw new Error('패스키 생성이 취소되었습니다');
   const completeRes = await fetch('/api/auth/passkey/register/complete', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ label: label || null, response: encodeRegistrationCredential(cred) }),
   });
   if (!completeRes.ok) {
@@ -140,7 +132,7 @@ export const loginWithPasskey = async () => {
 };
 
 export const listPasskeys = async () => {
-  const res = await fetch('/api/auth/passkey/list', { headers: { ...authHeaders() } });
+  const res = await fetch('/api/auth/passkey/list', { headers: authHeaders() });
   if (!res.ok) throw new Error('패스키 목록을 불러올 수 없습니다');
   const data = await res.json();
   return Array.isArray(data?.items) ? data.items : [];
@@ -149,7 +141,7 @@ export const listPasskeys = async () => {
 export const renamePasskey = async (rowId, label) => {
   const res = await fetch(`/api/auth/passkey/${rowId}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({ label }),
   });
   if (!res.ok) throw new Error('이름 변경 실패');
@@ -158,7 +150,7 @@ export const renamePasskey = async (rowId, label) => {
 export const deletePasskey = async (rowId) => {
   const res = await fetch(`/api/auth/passkey/${rowId}`, {
     method: 'DELETE',
-    headers: { ...authHeaders() },
+    headers: authHeaders(),
   });
   if (!res.ok) throw new Error('삭제 실패');
 };

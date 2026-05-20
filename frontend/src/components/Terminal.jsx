@@ -18,6 +18,7 @@ import { glassDividerStyle, glassMenuItemHover, glassMenuStyle } from '../styles
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
+import { authHeaders } from '../utils/auth';
 import { measureTerminalFit } from '../utils/terminalFit';
 import {
   shouldUseNaturalMouseSelection,
@@ -68,12 +69,10 @@ const execCommandCopy = (text) => {
 };
 
 const issueWsTicket = async (path) => {
-  const token = localStorage.getItem('auth_token');
-  if (!token) return null;
   try {
     const res = await fetch('/api/ws-ticket', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ path }),
     });
     if (!res.ok) return null;
@@ -694,7 +693,6 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    const token = localStorage.getItem('auth_token');
     const shell = encodeURIComponent(settings.defaultShell || 'bash');
 
     /* preflight 결과로 WS 오픈을 gating. 다른 기기가 이미 attach 중이면 건드리지 않고
@@ -708,7 +706,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         : `/api/sessions/${sessionToCheck}/clients`;
       try {
         const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: authHeaders(),
           signal: AbortSignal.timeout(5000),
         });
         if (!res.ok) return { attached: false, exists: true };
@@ -1221,7 +1219,6 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
      비활성 탭 / 페이지 hidden 일 땐 폴링 중단 — 사용자가 그 탭을 보지 않는데 미리 재attach 할 이유 없음. */
   useEffect(() => {
     if (!evicted || !isActive) return undefined;
-    const token = (typeof localStorage !== 'undefined') ? localStorage.getItem('auth_token') : null;
     const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
     if (!sessionToCheck) return undefined;
     const url = hostId
@@ -1233,7 +1230,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     const tick = async () => {
       if (document.hidden) return; // 페이지 hidden 이면 폴링 스킵 — 사용자 보이면 visibilitychange 가 다시 tick
       try {
-        const res = await fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+        const res = await fetch(url, { headers: authHeaders() });
         if (cancelled) return;
         if (!res.ok) { zeroStreak = 0; return; }
         const data = await res.json();

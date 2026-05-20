@@ -6,6 +6,7 @@ import { tokens } from '../styles/tokens';
 import { glassMenuItemHover } from '../styles/glass';
 import SkeletonRow from './common/SkeletonRow';
 import { styles } from './changes/styles';
+import { authHeaders } from '../utils/auth';
 
 const { color } = tokens;
 
@@ -278,10 +279,9 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
     setCommitOp('commit');
     setCommitResult(null);
     try {
-      const token = localStorage.getItem('auth_token');
       const res = await fetch(`${gitApiBase}/commit`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: gitPath, message: commitMsg.trim() }),
       });
       const data = await res.json();
@@ -301,10 +301,9 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
     setCommitOp('push');
     setCommitResult(null);
     try {
-      const token = localStorage.getItem('auth_token');
       const res = await fetch(`${gitApiBase}/push`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: gitPath }),
       });
       const data = await res.json();

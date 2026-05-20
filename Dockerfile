@@ -48,7 +48,10 @@ COPY run.py ./run.py
 COPY --from=frontend-build /build/backend/static ./backend/static/
 
 # 영속 볼륨 — data: SQLite + vault, workspace: 사용자 작업물
-RUN mkdir -p /app/data /workspace
+# 런타임은 non-root 로 실행해 터미널/파일 기능 침해 시 컨테이너 권한 범위를 줄인다.
+RUN useradd --create-home --uid 1000 --shell /bin/bash appuser \
+    && mkdir -p /app/data /workspace \
+    && chown -R appuser:appuser /app/data /workspace /app/backend
 VOLUME ["/app/data", "/workspace"]
 
 # 기본 env — docker-compose 가 덮어쓸 수 있음. REDIS_URL 은 compose 가 주입.
@@ -70,4 +73,5 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
 # tini 가 PID 1 → uvicorn 종료 시그널 정상 전파, tmux 좀비 청소.
 ENTRYPOINT ["/usr/bin/tini", "--"]
 WORKDIR /app/backend
+USER appuser
 CMD ["python", "main.py"]

@@ -12,6 +12,7 @@ import Button from './common/Button';
 import ConfirmModal from './ConfirmModal';
 import useTranslation from '../hooks/useTranslation';
 import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
+import { authHeaders } from '../utils/auth';
 
 const DIFF_VIEW_STATE_KEY = 'iterm:file-editor-diff-view:v1';
 
@@ -122,12 +123,11 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     setError(null);
 
     try {
-      const token = localStorage.getItem('auth_token');
       const endpoint = hostId
         ? `/api/hosts/${hostId}/files/read?path=${encodeURIComponent(path)}`
         : `/api/files/read?path=${encodeURIComponent(path)}`;
       const res = await fetch(endpoint, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: authHeaders()
       });
 
       if (!res.ok) {
@@ -194,9 +194,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     if (!path || hostId) return; // 리모트 파일은 git diff 미지원
     setDiffStates(prev => ({ ...prev, [path]: { ...(prev[path] || {}), loading: true, error: null } }));
     try {
-      const token = localStorage.getItem('auth_token');
       const res = await fetch(`/api/git/file-content?path=${encodeURIComponent(path)}&ref=HEAD`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders(),
       });
       if (!res.ok) {
         setDiffStates(prev => ({ ...prev, [path]: { original: '', exists: false, loading: false, error: null } }));
@@ -257,13 +256,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
     const loadRawPreviewTicket = async () => {
       try {
-        const authToken = localStorage.getItem('auth_token');
         const res = await fetch('/api/files/raw-ticket', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${authToken}`,
-          },
+          headers: authHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({ path: rawPreviewPath }),
         });
         if (!res.ok) {
@@ -318,15 +313,11 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     setError(null);
 
     try {
-      const token = localStorage.getItem('auth_token');
       const { path: savePath, hostId: saveHostId } = parseFileKey(activeFile);
       const endpoint = saveHostId ? `/api/hosts/${saveHostId}/files/write` : '/api/files/write';
       const res = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({ path: savePath, content })
       });
 

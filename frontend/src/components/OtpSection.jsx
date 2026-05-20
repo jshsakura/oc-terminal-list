@@ -4,13 +4,12 @@ import { ShieldCheck, ShieldAlert, Copy, Check, RefreshCw } from 'lucide-react';
 import Button from './common/Button';
 import SkeletonRow from './common/SkeletonRow';
 import { tokens } from '../styles/tokens';
+import { authHeaders } from '../utils/auth';
 
 const { color, fontSize, fontWeight, radius, space, font } = tokens;
 
 const authedFetch = async (url, opts = {}) => {
-  const token = localStorage.getItem('auth_token');
-  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const headers = authHeaders({ 'Content-Type': 'application/json', ...(opts.headers || {}) });
   const res = await fetch(url, { ...opts, headers });
   let data = null;
   try { data = await res.json(); } catch { /* empty */ }

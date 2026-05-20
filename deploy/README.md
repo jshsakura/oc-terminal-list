@@ -107,7 +107,8 @@ conn.commit()
 
 ## JWT 키 회전
 
-JWT 서명 키는 DB(`system_config.jwt_secret_key`) 에 자동 생성/저장된다 — `.env` 에는 두지 않는다.
+JWT 서명 키는 기본적으로 `data/.jwt-secret` 파일에 0600 권한으로 자동 생성/저장된다.
+`JWT_SECRET_PATH` 로 경로를 바꿀 수 있으며, `.env` 에 키 값을 직접 두지 않는다.
 
 ```bash
 .venv/bin/python backend/rotate_jwt.py             # 미리보기
@@ -214,7 +215,7 @@ sudo systemctl start iterminallist.service
 ```
 
 ### 로그인 후 즉시 튕김
-JWT 키가 회전됐을 때 발생. 브라우저 localStorage 삭제 후 재로그인.
+JWT 키가 회전됐을 때 발생. 다시 로그인하면 서버가 HttpOnly 세션 쿠키를 재발급한다.
 
 ### vault 데이터 복호화 실패 (호스트 SSH/비밀번호 안 됨)
 `data/.vault-key` 가 다른 키로 바뀌었을 가능성. 백업에서 복구하거나 영향받은 항목 재등록.

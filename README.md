@@ -152,7 +152,7 @@ docker compose up -d
 - The terminal shell is inside the container.
 - App data is mounted from `./data` to `/app/data`.
 - Editable workspace files are mounted from `./workspace` to `/workspace`.
-- JWT signing key is generated and stored by the app in DB config.
+- JWT signing key is generated at `data/.jwt-secret`; browser sessions use an HttpOnly cookie.
 - Vault encryption key is generated as `/app/data/.vault-key`.
 
 ---
@@ -278,11 +278,13 @@ Core environment variables:
 | `TMUX_HISTORY_LIMIT` | `100000` | tmux scrollback/history limit |
 | `LOG_LEVEL` | `INFO` | Python logging level |
 | `RELOAD` | `false` for production | Uvicorn reload flag |
+| `TRUST_PROXY_HEADERS` | `0` | Trust `X-Forwarded-*` headers only when behind a trusted reverse proxy |
+| `ENABLE_CSP` | `1` | Send the default Content-Security-Policy header |
 
 Security keys:
 
 - Do **not** put JWT signing keys in `.env`.
-- JWT signing key is generated and stored in DB config.
+- JWT signing key is generated and stored at `data/.jwt-secret` by default, or `JWT_SECRET_PATH` if set.
 - Vault master key is stored at `VAULT_KEY_PATH` if set; otherwise the app default is `data/.vault-key` under the project root. It must be backed up with the DB.
 - JWT rotation command is available for host-native installs:
 
@@ -418,7 +420,7 @@ docker compose up -d
 | Control | Behavior |
 | --- | --- |
 | Admin auth | Single-admin setup flow, password hashing with bcrypt/passlib |
-| Session auth | JWT access token; signing key generated and stored by the app |
+| Session auth | JWT access token in an HttpOnly cookie; signing key generated at `data/.jwt-secret` |
 | 2FA | TOTP with one-time backup codes |
 | Secret storage | Fernet-encrypted vault values using `data/.vault-key` |
 | File access | Server validates paths and confines file operations to `WORKSPACE_ROOT` |
@@ -629,7 +631,7 @@ Common causes:
 
 ### Login succeeds but immediately logs out
 
-JWT signing key may have rotated. Clear browser localStorage and log in again.
+JWT signing key may have rotated. Sign in again; the server will clear/reissue the session cookie.
 
 ### Vault decrypt errors
 

@@ -3,6 +3,7 @@ import { Terminal as TerminalIcon, Lock, User, ClipboardPaste, Check, ArrowLeft,
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { buildThemeUI } from '../styles/themeUI';
+import { clearLegacyAuthStorage } from '../utils/auth';
 import { isPasskeySupported, loginWithPasskey } from '../utils/webauthn';
 
 const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tokens;
@@ -110,9 +111,8 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
       if (rememberUsername) localStorage.setItem(REMEMBER_USERNAME_KEY, username);
       else localStorage.removeItem(REMEMBER_USERNAME_KEY);
     } catch { /* storage unavailable */ }
-    localStorage.setItem('auth_token', data.access_token);
-    localStorage.setItem('username', data.username);
-    onLogin(data.access_token, data.username);
+    clearLegacyAuthStorage();
+    onLogin(data.username, data.access_token);
   }, [onLogin, rememberUsername, username]);
 
   // 패스키 버튼 노출 조건: 브라우저 지원 + 서버에 등록된 자격증명 ≥ 1.

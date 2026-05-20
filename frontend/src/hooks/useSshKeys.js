@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
+import { authHeaders } from '../utils/auth';
 
 const useSshKeys = (isAuthenticated) => {
   const [keys, setKeys] = useState([]);
@@ -13,7 +9,7 @@ const useSshKeys = (isAuthenticated) => {
     if (!isAuthenticated) return [];
     setLoading(true);
     try {
-      const res = await fetch('/api/ssh-keys', { headers: authHeader() });
+      const res = await fetch('/api/ssh-keys', { headers: authHeaders() });
       if (!res.ok) return [];
       const data = await res.json();
       setKeys(data.items || []);
@@ -31,7 +27,7 @@ const useSshKeys = (isAuthenticated) => {
   const createKey = async ({ name, privateKey, passphrase, publicKey }) => {
     const res = await fetch('/api/ssh-keys', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         name,
         private_key: privateKey,
@@ -44,7 +40,7 @@ const useSshKeys = (isAuthenticated) => {
   };
 
   const deleteKey = async (id) => {
-    const res = await fetch(`/api/ssh-keys/${id}`, { method: 'DELETE', headers: authHeader() });
+    const res = await fetch(`/api/ssh-keys/${id}`, { method: 'DELETE', headers: authHeaders() });
     if (!res.ok) throw new Error((await res.json()).detail || 'Failed to delete key');
     await refresh();
   };
@@ -59,7 +55,7 @@ const useSshKeys = (isAuthenticated) => {
     else if (passphrase) body.passphrase = passphrase;
     const res = await fetch(`/api/ssh-keys/${id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...authHeader() },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error((await res.json()).detail || 'Failed to update key');

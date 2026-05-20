@@ -1,7 +1,9 @@
 import time
 
 import pytest
+from fastapi.testclient import TestClient
 
+import _deps
 import main
 
 
@@ -68,14 +70,15 @@ def test_validate_path_preserves_literal_dotdot_in_filename(monkeypatch, tmp_pat
     assert main.validate_path("a..b.txt") == tmp_path.resolve() / "a..b.txt"
 
 
-def test_validate_path_clamps_parent_traversal(monkeypatch, tmp_path):
+def test_validate_path_rejects_parent_traversal(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setattr("_deps.WORKSPACE_ROOT", str(tmp_path))
 
-    assert main.validate_path("../outside.txt") == tmp_path.resolve()
+    with pytest.raises(main.HTTPException):
+        main.validate_path("../outside.txt")
 
 
-def test_validate_path_clamps_symlink_escape(monkeypatch, tmp_path):
+def test_validate_path_rejects_symlink_escape(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "WORKSPACE_ROOT", str(tmp_path))
     monkeypatch.setattr("_deps.WORKSPACE_ROOT", str(tmp_path))
     outside = tmp_path.parent / "outside-target"
@@ -86,4 +89,53 @@ def test_validate_path_clamps_symlink_escape(monkeypatch, tmp_path):
     except OSError:
         pytest.skip("symlinks are not available on this filesystem")
 
-    assert main.validate_path("link/secret.txt") == tmp_path.resolve()
+    with pytest.raises(main.HTTPException):
+        main.validate_path("link/secret.txt")
+
+
+def test_validate_path_can_reject_workspace_root(monkeypatch, tmp_path):
+    monkeypatch.setattr(main, "WORKSPACE_ROOT", str(tmp_path))
+    monkeypatch.setattr("_deps.WORKSPACE_ROOT", str(tmp_path))
+
+    with pytest.raises(main.HTTPException):
+        main.validate_path("/", allow_root=False)
+
+
+@pytest.mark.asyncio
+async def test_verify_auth_token_accepts_cookie_and_ignores_null_bearer(monkeypatch):
+    class FakeAuth:
+        async def verify_token(self, token):
+            return "admin" if token == "cookie-token" else None
+
+    monkeypatch.setattr(_deps, "_auth_manager", FakeAuth())
+
+    assert await _deps.verify_auth_token(
+        authorization="Bearer null",
+        auth_cookie="cookie-token",
+    ) == "admin"
+
+
+def test_verify_endpoint_promotes_legacy_bearer_to_cookie():
+    main.app.dependency_overrides[main.verify_auth_token] = lambda: "admin"
+    try:
+        res = TestClient(main.app).get(
+            "/api/auth/verify",
+            headers={"Authorization": "Bearer legacy-token"},
+        )
+    finally:
+        main.app.dependency_overrides.clear()
+
+    assert res.status_code == 200
+    set_cookie = res.headers["set-cookie"]
+    assert f"{main.AUTH_COOKIE_NAME}=legacy-token" in set_cookie
+    assert "HttpOnly" in set_cookie
+    assert "samesite=strict" in set_cookie.lower()
+
+
+def test_logout_clears_auth_cookie():
+    res = TestClient(main.app).post("/api/auth/logout")
+
+    assert res.status_code == 200
+    set_cookie = res.headers["set-cookie"]
+    assert f"{main.AUTH_COOKIE_NAME}=" in set_cookie
+    assert "Max-Age=0" in set_cookie

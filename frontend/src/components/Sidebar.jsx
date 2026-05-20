@@ -8,6 +8,7 @@ import ChangesList from './ChangesList';
 import RailIconBtn from './common/RailIconBtn';
 import { tokens } from '../styles/tokens';
 import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
+import { authHeaders } from '../utils/auth';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 const SIDEBAR_TAB_KEY = 'iterm:sidebar-active-tab:v1';
@@ -82,9 +83,9 @@ const Sidebar = ({
   useEffect(() => {
     const fetchStats = async () => {
       try {
-        const token = localStorage.getItem('auth_token');
-        if (!token) return;
-        const res = await fetch('/api/system/stats', { headers: { Authorization: `Bearer ${token}` } });
+        const res = await fetch('/api/system/stats', {
+          headers: authHeaders(),
+        });
         if (res.ok) setSystemStats(await res.json());
       } catch {}
     };

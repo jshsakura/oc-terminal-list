@@ -51,7 +51,7 @@ describe('Login MFA flow', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('submits a complete OTP code and stores the issued access token', async () => {
+  it('submits a complete OTP code and finishes with the cookie-backed session', async () => {
     const onLogin = vi.fn();
     const fetchMock = vi
       .fn()
@@ -74,8 +74,8 @@ describe('Login MFA flow', () => {
     const codeInput = await screen.findByLabelText(/Verification code/i);
     fireEvent.change(codeInput, { target: { value: '123456' } });
 
-    await waitFor(() => expect(onLogin).toHaveBeenCalledWith('access-token', 'admin'));
-    expect(localStorage.getItem('auth_token')).toBe('access-token');
+    await waitFor(() => expect(onLogin).toHaveBeenCalledWith('admin', 'access-token'));
+    expect(localStorage.getItem('auth_token')).toBeNull();
     expect(fetchMock).toHaveBeenLastCalledWith('/api/auth/login/otp', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ pending_token: 'pending-token', code: '123456', is_backup_code: false }),

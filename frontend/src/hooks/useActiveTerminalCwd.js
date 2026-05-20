@@ -1,9 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-const authHeader = () => {
-  const token = localStorage.getItem('auth_token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-};
+import { authHeaders } from '../utils/auth';
 
 /**
  * 터미널 세션의 현재 작업 디렉토리(cwd).
@@ -35,7 +31,7 @@ const useActiveTerminalCwd = ({
 
   const fetchLocal = useCallback(async (id) => {
     try {
-      const res = await fetch(`/api/sessions/${id}/cwd`, { headers: authHeader() });
+      const res = await fetch(`/api/sessions/${id}/cwd`, { headers: authHeaders() });
       if (!res.ok) return null;
       const data = await res.json();
       if (data.in_workspace) {
@@ -51,7 +47,7 @@ const useActiveTerminalCwd = ({
   const fetchRemote = useCallback(async (id, session) => {
     try {
       const qs = session ? `?session=${encodeURIComponent(session)}` : '';
-      const res = await fetch(`/api/hosts/${id}/cwd${qs}`, { headers: authHeader() });
+      const res = await fetch(`/api/hosts/${id}/cwd${qs}`, { headers: authHeaders() });
       if (!res.ok) return null;
       const data = await res.json();
       setAbsolutePath(data.cwd || null);
