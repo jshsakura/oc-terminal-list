@@ -942,12 +942,16 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
     const handle = (e) => { if (!ref.current?.contains(e.target)) onCloseRef.current(); };
     const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
     const id = setTimeout(() => {
+      // touchstart 도 함께 듣는다 — 모바일에서 터미널 영역이 touchstart 를 preventDefault 하면
+      // 합성 mousedown 이 억제돼 바깥 탭으로 닫히지 않던 문제 우회. (pointerdown 미지원 브라우저 대비 mousedown 유지)
       document.addEventListener('mousedown', handle);
+      document.addEventListener('touchstart', handle);
       document.addEventListener('keydown', handleKey);
     }, 0);
     return () => {
       clearTimeout(id);
       document.removeEventListener('mousedown', handle);
+      document.removeEventListener('touchstart', handle);
       document.removeEventListener('keydown', handleKey);
     };
   }, []);
