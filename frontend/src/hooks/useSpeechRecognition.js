@@ -35,7 +35,12 @@ const useSpeechRecognition = ({ language = 'en-US', onResult, onInterim } = {}) 
   const stop = useCallback(() => {
     const r = recognitionRef.current;
     if (!r) return;
-    try { r.stop(); } catch { /* 이미 정지/abort 상태 */ }
+    // abort() — stop() 은 최종 결과를 기다리느라 Chrome 이 마이크 점유 표시를 더 끌고 가는 경우가 있다.
+    // 사용자가 끄려는 의도이므로 즉시 끊어 마이크/표시를 바로 해제한다. (말하는 동안의 결과는 이미 onResult 로 반영됨)
+    try { r.abort(); } catch { /* 이미 정지/abort 상태 */ }
+    // onend 가 누락되는 브라우저 대비 상태도 즉시 정리.
+    recognitionRef.current = null;
+    setListening(false);
   }, []);
 
   const start = useCallback(() => {
