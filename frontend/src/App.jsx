@@ -2191,6 +2191,7 @@ function App() {
             setCommand={setCommandText}
             t={t}
             language={settings.language}
+            terminalKey={terminalKey}
           />
         </Suspense></LazyErrorBoundary>
       )}

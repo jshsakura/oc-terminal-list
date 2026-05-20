@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy, Mic } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
+import useCommandHistory from '../hooks/useCommandHistory';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -35,9 +36,11 @@ const focusToEnd = (ta) => {
  * 입력 보존: command/setCommand 가 부모(App.jsx) state 라 X/ESC/backdrop 으로
  * 닫아도 텍스트는 유지된다. 비우는 건 명시적 "Clear" 또는 "Send" 시에만.
  */
-const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language }) => {
+const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language, terminalKey = null }) => {
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
+  // 지난 명령 이력 패널 토글 — footer 의 History 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
+  const [historyOpen, setHistoryOpen] = useState(false);
   // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
   // iOS Safari 는 layout viewport 가 키보드를 무시하기 때문에 absolute/fixed inset:0 만으로는
   // 가운데 정렬이 키보드 밑까지 내려가 입력창 일부가 가려진다.
@@ -70,8 +73,11 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   });
 
   // 모달이 닫히면 진행 중인 음성 인식도 함께 정지 — 백그라운드에서 마이크가 살아있지 않게.
+  // 이력 패널도 함께 접어, 다음에 열 때 항상 입력창부터 보이게 한다.
   useEffect(() => {
-    if (!isOpen && voiceListening) voiceStop();
+    if (isOpen) return;
+    if (voiceListening) voiceStop();
+    setHistoryOpen(false);
   }, [isOpen, voiceListening, voiceStop]);
 
   const toggleVoice = () => {
@@ -191,6 +197,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
     }
   };
 
+  // 이력 항목 클릭 → textarea 를 그 명령으로 교체(재실행 의도)하고 패널을 접는다.
+  // 전송이 아니라 채우기만 — 사용자가 편집 후 직접 Send 하도록 (눈 아이콘 popover 의 즉시 재전송과 역할 분리).
+  const handlePickHistory = (text) => {
+    setCommand(text);
+    setHistoryOpen(false);
+    requestAnimationFrame(() => focusToEnd(textareaRef.current));
+  };
+
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
@@ -235,6 +249,21 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
     >
       <style>{`
         .command-input-textarea::placeholder { color: ${color.muted}; }
+        @keyframes command-input-history-in {
+          from { opacity: 0; transform: translateY(6px); }
+          to   { opacity: 1; transform: translateY(0); }
+        }
+        .command-input-history-list { scrollbar-width: thin; }
+        .command-input-history-list::-webkit-scrollbar { width: 6px; }
+        .command-input-history-list::-webkit-scrollbar-thumb {
+          background: var(--ui-surface1, ${color.surface1}); border-radius: 3px;
+        }
+        .command-input-history-list button:hover {
+          background: var(--ui-surface0, ${color.surface0}) !important;
+        }
+        .command-input-history-list button:active {
+          background: var(--ui-surface1, ${color.surface1}) !important;
+        }
       `}</style>
 
       <div
@@ -256,6 +285,12 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             <X size={14} strokeWidth={2} />
           </button>
         </header>
+
+        {/* 지난 명령 패널 — 화살표 토글 시 입력창 *위쪽* 으로 펼쳐진다.
+            모달이 (키보드 떠있을 때) 하단 고정이라 높이가 늘면 자연히 위로 길어진다. */}
+        {historyOpen && terminalKey && (
+          <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
+        )}
 
         <div style={styles.body}>
           <textarea
@@ -298,6 +333,16 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             title={t?.('clearInput')}
             style={styles.footerIconBtn}
           />
+          {terminalKey && (
+            <Button
+              variant={historyOpen ? 'secondary' : 'ghost'}
+              size="icon"
+              onClick={() => setHistoryOpen((v) => !v)}
+              icon={historyOpen ? ChevronDown : ChevronUp}
+              title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
+              style={styles.footerIconBtn}
+            />
+          )}
           <div style={{ flex: 1 }} />
           {/* 우측 직전 — 음성 입력 토글. 다른 보조 ghost 버튼들과 사이즈/스타일 통일.
               호버/활성 상태는 아이콘 컬러(빨강)로만 표현 — 점/펄스/박스그림자 같은 과한 장식 없이. */}
@@ -343,6 +388,62 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             {t?.('send') || 'Send'}
           </Button>
         </footer>
+      </div>
+    </div>
+  );
+};
+
+/**
+ * 빠른입력 모달 안에서 입력창 위로 펼쳐지는 지난 명령 목록.
+ * 항목 터치 → onPick(text) 로 textarea 에 채우고 패널은 부모가 접는다.
+ * 끝까지 스크롤하면 sentinel 이 다음 페이지를 lazy fetch (무한 스크롤).
+ */
+const HistoryPanel = ({ terminalKey, onPick, t }) => {
+  const listRef = useRef(null);
+  const sentinelRef = useRef(null);
+  const { items, hasMore, loading, loadingMore, loadMore } = useCommandHistory(terminalKey);
+
+  useEffect(() => {
+    if (!sentinelRef.current || !listRef.current || !hasMore) return undefined;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) loadMore();
+    }, { root: listRef.current, rootMargin: '60px 0px' });
+    io.observe(sentinelRef.current);
+    return () => io.disconnect();
+  }, [hasMore, loadMore]);
+
+  return (
+    <div style={styles.historyPanel}>
+      <div style={styles.historyHeader}>
+        <span>{t?.('historyTitle') || 'Recent commands'}</span>
+        {items.length > 0 && (
+          <span style={styles.historyCount}>{items.length}{hasMore ? '+' : ''}</span>
+        )}
+      </div>
+      <div ref={listRef} className="command-input-history-list" style={styles.historyList}>
+        {loading && items.length === 0 ? (
+          <div style={styles.historyEmpty}>{t?.('loading') || 'Loading…'}</div>
+        ) : items.length === 0 ? (
+          <div style={styles.historyEmpty}>{t?.('historyEmpty') || 'No history yet'}</div>
+        ) : (
+          <>
+            {items.map((entry, idx) => (
+              <button
+                key={`${entry.ts}-${idx}`}
+                type="button"
+                // mousedown 에서 focus 안 뺏게 — iOS 키보드 유지 (cmdInput 버튼과 동일 패턴).
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => onPick(entry.text)}
+                title={`${entry.text}\n— ${t?.('clickToInsert') || 'click to insert into input'}`}
+                style={styles.historyItem}
+              >
+                {entry.text}
+              </button>
+            ))}
+            {hasMore && <div ref={sentinelRef} style={{ height: '1px', flexShrink: 0 }} />}
+            {loadingMore && <div style={styles.historyEmpty}>{t?.('loading') || 'Loading…'}</div>}
+          </>
+        )}
       </div>
     </div>
   );
@@ -438,6 +539,70 @@ const styles = {
   // 푸터 보조 아이콘 버튼(Copy/Paste/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
   // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.
   footerIconBtn: { width: '30px', height: '30px' },
+  historyPanel: {
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 30%, transparent)`,
+    // 애니메이션 — 위로 펼쳐지는 느낌. maxHeight 트랜지션은 모달 flex 와 충돌해 생략, opacity/transform 만.
+    animation: 'command-input-history-in 160ms ease both',
+  },
+  historyHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: `${space['1.5']} ${space['3']}`,
+    fontSize: fontSize['11'],
+    fontWeight: fontWeight.semibold,
+    color: `var(--ui-subtext, ${color.subtext})`,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  historyCount: {
+    fontSize: '10px',
+    padding: '1px 6px',
+    borderRadius: '8px',
+    background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 20%, transparent)`,
+    color: `var(--ui-text, ${color.text})`,
+    letterSpacing: 'normal',
+    textTransform: 'none',
+  },
+  historyList: {
+    maxHeight: '200px',
+    overflowY: 'auto',
+    overflowX: 'hidden',
+    padding: `0 ${space['2']} ${space['1.5']}`,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  historyItem: {
+    flexShrink: 0,
+    width: '100%',
+    textAlign: 'left',
+    padding: `${space['1.5']} ${space['2']}`,
+    background: 'transparent',
+    color: `var(--ui-text, ${color.text})`,
+    border: 'none',
+    borderRadius: radius.sm,
+    fontSize: fontSize['12'],
+    fontFamily: font.mono,
+    lineHeight: 1.4,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    transition: `background ${motion.fast}`,
+  },
+  historyEmpty: {
+    padding: `${space['3']} ${space['2']}`,
+    textAlign: 'center',
+    fontSize: fontSize['12'],
+    color: `var(--ui-subtext, ${color.subtext})`,
+    opacity: 0.7,
+  },
   // 음성 입력 토글 — 다른 보조 아이콘 버튼들 및 Send 와 동일한 30x30.
   // 비활성: subtext color · 호버: danger color + subtle bg · 활성: danger color + subtle danger bg.
   micBtn: {
