@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
 import useCommandHistory from '../hooks/useCommandHistory';
-import { clearCommandsFor } from '../utils/commandHistory';
+import { removeCommand } from '../utils/commandHistory';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -274,12 +274,13 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         .command-input-history-list::-webkit-scrollbar-thumb {
           background: var(--ui-surface1, ${color.surface1}); border-radius: 3px;
         }
-        .command-input-history-list button:hover {
-          background: color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 70%, transparent) !important;
+        .command-input-history-row:hover {
+          background: color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 70%, transparent);
         }
-        .command-input-history-list button:active {
-          background: color-mix(in srgb, var(--ui-accent, ${color.accent}) 24%, transparent) !important;
+        .command-input-history-row:active {
+          background: color-mix(in srgb, var(--ui-accent, ${color.accent}) 22%, transparent);
         }
+        .command-input-history-row .ci-rm:hover { color: var(--ui-danger, ${color.danger}); }
         /* 클릭/포커스 후 남는 브라우저 기본 흰 아웃라인 제거 — 모달 내 모든 버튼 공통. */
         .ci-modal button:focus, .ci-modal button:focus-visible { outline: none !important; box-shadow: none !important; }
       `}</style>
@@ -439,12 +440,6 @@ const HistoryPanel = ({ terminalKey, onPick, t }) => {
     return () => io.disconnect();
   }, [hasMore, loadMore]);
 
-  // 전체 삭제 — 항목별 삭제 없이 한 방에 비운다. 비운 뒤 useCommandHistory 가 이벤트로 자동 갱신.
-  const handleClearAll = () => {
-    if (!confirm(t?.('confirmClearHistory') || 'Clear command history for this terminal?')) return;
-    clearCommandsFor(terminalKey);
-  };
-
   return (
     <div style={styles.historyPanel}>
       <div style={styles.historyHeader}>
@@ -454,19 +449,6 @@ const HistoryPanel = ({ terminalKey, onPick, t }) => {
             <span style={styles.historyCount}>{items.length}{hasMore ? '+' : ''}</span>
           )}
         </span>
-        {items.length > 0 && (
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={handleClearAll}
-            title={t?.('clearHistory') || 'Clear history'}
-            style={styles.historyClearBtn}
-            onMouseEnter={(e) => { e.currentTarget.style.color = `var(--ui-danger, ${color.danger})`; }}
-            onMouseLeave={(e) => { e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`; }}
-          >
-            <Trash2 size={13} strokeWidth={2} />
-          </button>
-        )}
       </div>
       <div ref={listRef} className="command-input-history-list" style={styles.historyList}>
         {loading && items.length === 0 ? (
@@ -478,17 +460,29 @@ const HistoryPanel = ({ terminalKey, onPick, t }) => {
         ) : (
           <>
             {items.map((entry, idx) => (
-              <button
-                key={`${entry.ts}-${idx}`}
-                type="button"
-                // mousedown 에서 focus 안 뺏게 — iOS 키보드 유지 (cmdInput 버튼과 동일 패턴).
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => onPick(entry.text)}
-                title={`${entry.text}\n— ${t?.('clickToInsert') || 'click to insert into input'}`}
-                style={styles.historyItem}
-              >
-                {entry.text}
-              </button>
+              <div key={`${entry.ts}-${idx}`} className="command-input-history-row" style={styles.historyRow}>
+                <button
+                  type="button"
+                  // mousedown 에서 focus 안 뺏게 — iOS 키보드 유지 (cmdInput 버튼과 동일 패턴).
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onPick(entry.text)}
+                  title={`${entry.text}\n— ${t?.('clickToInsert') || 'click to insert into input'}`}
+                  style={styles.historyItemText}
+                >
+                  {entry.text}
+                </button>
+                <button
+                  type="button"
+                  className="ci-rm"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={(e) => { e.stopPropagation(); removeCommand(terminalKey, entry.text); }}
+                  title={t?.('remove') || 'Remove'}
+                  aria-label={t?.('remove') || 'Remove'}
+                  style={styles.historyRemove}
+                >
+                  <X size={12} strokeWidth={2} />
+                </button>
+              </div>
             ))}
             {hasMore && <div ref={sentinelRef} style={{ height: '1px', flexShrink: 0 }} />}
             {loadingMore && <div style={{ ...styles.historySkel, width: '70%' }} />}
@@ -628,22 +622,6 @@ const styles = {
     letterSpacing: 'normal',
     textTransform: 'none',
   },
-  historyClearBtn: {
-    width: '22px',
-    height: '22px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'transparent',
-    color: `var(--ui-subtext, ${color.subtext})`,
-    border: 'none',
-    borderRadius: radius.sm,
-    cursor: 'pointer',
-    padding: 0,
-    outline: 'none',
-    WebkitTapHighlightColor: 'transparent',
-    transition: `color ${motion.fast}, background ${motion.fast}`,
-  },
   historyList: {
     // flex:1 + minHeight:0 → 패널(=남은 공간) 안에서만 스크롤. 고정 maxHeight 없이 화면에 맞춰 늘어남.
     flex: 1,
@@ -655,26 +633,50 @@ const styles = {
     flexDirection: 'column',
     gap: '2px',
   },
-  // 스켈레톤 블록과 동일한 모양 — 같은 높이/radius, 테두리 없이 동일 톤 배경만. 차이는 텍스트뿐.
-  historyItem: {
+  // 스켈레톤 블록과 동일한 모양의 카드 행 — 같은 높이/radius, 테두리 없이 동일 톤 배경.
+  // 안에 텍스트 버튼(클릭→삽입) + X 버튼(개별 삭제) 을 담는다.
+  historyRow: {
     flexShrink: 0,
-    display: 'block',
+    display: 'flex',
+    alignItems: 'center',
     width: '100%',
     height: '30px',
-    lineHeight: '30px',
-    textAlign: 'left',
-    padding: `0 ${space['2']}`,
     background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent)`,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    transition: `background ${motion.fast}`,
+  },
+  historyItemText: {
+    flex: 1,
+    minWidth: 0,
+    height: '100%',
+    textAlign: 'left',
+    padding: `0 ${space['1']} 0 ${space['2']}`,
+    background: 'transparent',
     color: `var(--ui-text, ${color.text})`,
     border: 'none',
-    borderRadius: radius.sm,
     fontSize: fontSize['12'],
     fontFamily: font.mono,
+    lineHeight: '30px',
     cursor: 'pointer',
     whiteSpace: 'nowrap',
     overflow: 'hidden',
     textOverflow: 'ellipsis',
-    transition: `background ${motion.fast}`,
+  },
+  historyRemove: {
+    flexShrink: 0,
+    width: '26px',
+    height: '100%',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    background: 'transparent',
+    color: `var(--ui-subtext, ${color.subtext})`,
+    border: 'none',
+    cursor: 'pointer',
+    padding: 0,
+    WebkitTapHighlightColor: 'transparent',
+    transition: `color ${motion.fast}`,
   },
   // 로딩 placeholder — historyItem 과 같은 높이/모양에 shimmer 만 흐른다.
   historySkel: {
