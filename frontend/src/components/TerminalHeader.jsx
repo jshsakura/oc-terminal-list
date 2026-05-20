@@ -1020,8 +1020,6 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
         }
         .iterm-cmd-history-list { scrollbar-width: thin; }
         .iterm-cmd-history-item { animation: iterm-cmd-history-item-in 200ms ease both; }
-        .iterm-cmd-history-item .__rm { opacity: 0; transition: opacity 120ms; }
-        .iterm-cmd-history-item:hover .__rm { opacity: 1; }
       `}</style>
 
       <div style={{
@@ -1128,21 +1126,20 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
         display: 'flex', flexDirection: 'column', gap: '2px',
       }}>
         {loading && items.length === 0 ? (
-          // 첫 로딩 스켈레톤
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px' }}>
-            {[0, 1, 2].map((i) => (
-              <div key={i} style={{
-                height: '30px', borderRadius: '4px',
-                background: `linear-gradient(90deg,
-                  color-mix(in srgb, ${ui.surface1 || '#45475a'} 35%, transparent) 0%,
-                  color-mix(in srgb, ${ui.accent || '#89b4fa'} 18%, transparent) 50%,
-                  color-mix(in srgb, ${ui.surface1 || '#45475a'} 35%, transparent) 100%)`,
-                backgroundSize: '300% 100%',
-                animation: `iterm-skel-shimmer ${1.6 + i * 0.1}s ease-in-out infinite`,
-                opacity: 0.6,
-              }} />
-            ))}
-          </div>
+          // 첫 로딩 스켈레톤 — 빠른입력 패널과 동일한 카드 치수의 shimmer 블록.
+          [0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} style={{
+              flexShrink: 0, height: '30px', borderRadius: '4px',
+              width: `${92 - (i % 3) * 16}%`,
+              background: `linear-gradient(90deg,
+                color-mix(in srgb, ${ui.surface1 || '#45475a'} 35%, transparent) 0%,
+                color-mix(in srgb, ${ui.accent || '#89b4fa'} 18%, transparent) 50%,
+                color-mix(in srgb, ${ui.surface1 || '#45475a'} 35%, transparent) 100%)`,
+              backgroundSize: '300% 100%',
+              animation: `iterm-skel-shimmer ${1.6 + i * 0.08}s ease-in-out infinite`,
+              animationDelay: `${i * 80}ms`,
+            }} />
+          ))
         ) : items.length === 0 ? (
           <div style={{
             padding: '18px 12px', textAlign: 'center',
@@ -1151,57 +1148,50 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
             {t?.('historyEmpty') || 'No history yet'}
           </div>
         ) : items.map((entry, idx) => (
+          // 카드형 행 — 스켈레톤 블록과 동일한 높이/배경. 텍스트(클릭→재전송) + X(개별 삭제).
           <div
             key={`${entry.ts}-${idx}`}
             className="iterm-cmd-history-item"
             style={{
-              display: 'flex', alignItems: 'stretch', gap: '2px',
-              borderRadius: '4px',
-              // 등장 애니메이션은 첫 화면 (1페이지) 에만 살짝 — 이후 페이지 prepend 는 stagger 적용 안 함.
+              flexShrink: 0, display: 'flex', alignItems: 'center', height: '30px',
+              background: `color-mix(in srgb, ${ui.surface1} 32%, transparent)`,
+              borderRadius: '4px', overflow: 'hidden',
+              transition: 'background 120ms',
               animationDelay: idx < 12 ? `${idx * 18}ms` : '0ms',
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 70%, transparent)`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 32%, transparent)`; }}
           >
             <button
               type="button"
               onClick={() => onSelect?.(entry.text)}
               title={`${entry.text}\n— ${t?.('clickToResend') || 'click to re-send'}`}
               style={{
-                flex: 1, minWidth: 0, display: 'flex', alignItems: 'flex-start',
+                flex: 1, minWidth: 0, height: '100%', textAlign: 'left',
                 background: 'transparent', color: ui.text, border: 'none',
-                cursor: 'pointer', padding: '7px 9px',
-                fontFamily: font.mono, fontSize: fontSize['12'],
-                textAlign: 'left', borderRadius: '4px',
-                transition: 'background 120ms',
-                lineHeight: 1.35,
+                cursor: 'pointer', padding: '0 4px 0 9px',
+                fontFamily: font.mono, fontSize: fontSize['12'], lineHeight: '30px',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(ui); }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
             >
-              {/* 두 줄까지 wrap, 그 이상은 ellipsis. WebkitLineClamp 는 -webkit-box 필수. */}
-              <span style={{
-                flex: 1, minWidth: 0, overflow: 'hidden',
-                display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: 2,
-                wordBreak: 'break-all',
-              }}>{entry.text}</span>
+              {entry.text}
             </button>
             <button
               type="button"
-              className="__rm"
               onClick={(e) => { e.stopPropagation(); removeHistoryCommand(terminalKey, entry.text); }}
               title={t?.('remove') || 'Remove'}
               aria-label={t?.('remove') || 'Remove'}
               style={{
-                width: '20px', flexShrink: 0,
-                display: 'inline-flex', alignItems: 'flex-start', justifyContent: 'center',
+                flexShrink: 0, width: '26px', height: '100%',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                 background: 'transparent', color: ui.subtext,
-                border: 'none', cursor: 'pointer', padding: '8px 0 0 0',
-                borderRadius: '4px',
-                transition: 'background 120ms, color 120ms',
+                border: 'none', cursor: 'pointer', padding: 0,
+                transition: 'color 120ms',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.color = ui.danger || '#f38ba8'; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = ui.subtext; }}
             >
-              <X size={10} strokeWidth={2.4} />
+              <X size={12} strokeWidth={2} />
             </button>
           </div>
         ))}
