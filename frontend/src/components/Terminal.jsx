@@ -540,17 +540,33 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       return true;
     });
 
-    // 우클릭: 네이티브 컨텍스트 메뉴를 막아 tmux 가 마우스 이벤트를 처리할 수 있게 함.
-    // 단, 모바일에서 텍스트 선택이 있는 경우엔 '복사' 등을 위해 네이티브 메뉴 허용.
-    const handleContextMenu = (e) => {
+    // 우클릭: 브라우저 메뉴와 원격 TUI/tmux 마우스 이벤트를 모두 막고 앱 메뉴만 띄운다.
+    // contextmenu 시점만 막으면 먼저 발생한 right-button mousedown 이 xterm 을 통해
+    // 원격 앱으로 전달되어 TUI 자체 메뉴가 터미널 위에 그려질 수 있다.
+    let lastRightClickMenuAt = 0;
+    const openContextMenuFromEvent = (e) => {
       e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation?.();
       const term = xtermRef.current;
       if (!term) return;
+      lastRightClickMenuAt = Date.now();
       setContextMenu({
         x: e.clientX,
         y: e.clientY,
         hasSelection: !!term.hasSelection(),
       });
+    };
+    const handleRightMouseDown = (e) => {
+      if (e.button !== 2) return;
+      openContextMenuFromEvent(e);
+    };
+    const handleContextMenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation?.();
+      if (Date.now() - lastRightClickMenuAt < 700) return;
+      openContextMenuFromEvent(e);
     };
 
     /* 드래그 중 mousemove 마다 onSelectionChange fire — 정착(80ms idle) 후 한 번만 클립보드 write.
@@ -572,7 +588,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     });
 
     const container = terminalRef.current;
-    container.addEventListener('contextmenu', handleContextMenu);
+    container.addEventListener('mousedown', handleRightMouseDown, true);
+    container.addEventListener('contextmenu', handleContextMenu, true);
     container.addEventListener('keydown', handleKeyDown);
     container.addEventListener('paste', handlePaste, true);
 
@@ -639,6 +656,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
     const handleTouchStart = (e) => {
       if (e.touches.length !== 1) return;
+      e.preventDefault();
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
       isTouchScrolling = false;
@@ -671,13 +689,18 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     };
 
     const handleTouchEnd = () => { clearTimeout(longPressTimer); };
+    const handleTouchContextMenu = (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
 
     if (overlay) {
-      overlay.addEventListener('touchstart', handleTouchStart, { passive: true });
+      overlay.addEventListener('contextmenu', handleTouchContextMenu);
+      overlay.addEventListener('touchstart', handleTouchStart, { passive: false });
       overlay.addEventListener('touchmove', handleTouchMove, { passive: false });
       overlay.addEventListener('touchend', handleTouchEnd, { passive: true });
     }
-    container.addEventListener('touchstart', handleTouchStart, { passive: true });
+    container.addEventListener('touchstart', handleTouchStart, { passive: false });
     container.addEventListener('touchend', handleTouchEnd, { passive: true });
 
 
@@ -1177,12 +1200,14 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         window.visualViewport.removeEventListener('resize', handleResize);
       }
       if (overlay) {
+        overlay.removeEventListener('contextmenu', handleTouchContextMenu);
         overlay.removeEventListener('touchstart', handleTouchStart);
         overlay.removeEventListener('touchmove', handleTouchMove);
         overlay.removeEventListener('touchend', handleTouchEnd);
       }
       if (container) {
-        container.removeEventListener('contextmenu', handleContextMenu);
+        container.removeEventListener('mousedown', handleRightMouseDown, true);
+        container.removeEventListener('contextmenu', handleContextMenu, true);
         container.removeEventListener('keydown', handleKeyDown);
         container.removeEventListener('paste', handlePaste, true);
         container.removeEventListener('mousedown', handleNaturalMouseDown, true);
@@ -1659,7 +1684,14 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
             inset: 0,
             zIndex: 4,
             touchAction: 'none',
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            WebkitTouchCallout: 'none',
             cursor: 'default',
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
           }}
         />
       )}

@@ -225,13 +225,6 @@ function App() {
     else localStorage.removeItem('active_tab_id');
   }, [activeTabId]);
 
-  // 활성 탭명을 브라우저 탭 제목에 반영 (Jupyter 식). 활성 탭 없으면 기본 제목으로 복귀.
-  const DEFAULT_DOC_TITLE = 'Terminal List — Multi-Session SSH Terminal';
-  useEffect(() => {
-    const active = tabs.find((t) => t.id === activeTabId);
-    document.title = active?.name ? `${active.name} — Terminal List` : DEFAULT_DOC_TITLE;
-  }, [tabs, activeTabId]);
-
   // validate active tab still exists (activeTabId=null 은 홈 화면 의도이므로 건드리지 않음)
   useEffect(() => {
     if (activeTabId && !tabs.some((t) => t.id === activeTabId)) {
@@ -1256,6 +1249,18 @@ function App() {
       clearInterval(tick);
     };
   }, []);
+
+  // 활성 탭명을 브라우저 탭 제목에 반영. 앞 이모지는 현재 터미널 활동 상태:
+  // 👨‍💻 = 출력/작업 중, 🧍 = idle. 홈 화면에서는 백그라운드 탭 중 하나라도 바쁘면 작업 중으로 표시.
+  const DEFAULT_DOC_TITLE = 'Terminal List — Multi-Session SSH Terminal';
+  useEffect(() => {
+    const active = tabs.find((t) => t.id === activeTabId);
+    const isBusy = active ? busyTabIds.has(active.id) : busyTabIds.size > 0;
+    const statusEmoji = isBusy ? '👨‍💻' : '🧍';
+    document.title = active?.name
+      ? `${statusEmoji} ${active.name} — Terminal List`
+      : `${statusEmoji} ${DEFAULT_DOC_TITLE}`;
+  }, [tabs, activeTabId, busyTabIds]);
 
   // ── UI state ──────────────────────────────────────────────────────────────
   // isMobile 은 "작은 핸드폰 UI" 기준이다. 데스크탑 브라우저 폭을 좁히거나 태블릿에서
