@@ -651,6 +651,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     let touchStartX = 0;
     let touchStartY = 0;
     let isTouchScrolling = false;
+    let longPressFired = false;
     let scrollAccum = 0;
     let longPressTimer = null;
 
@@ -660,9 +661,11 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
       isTouchScrolling = false;
+      longPressFired = false;
       scrollAccum = 0;
       longPressTimer = setTimeout(() => {
         if (!isTouchScrolling) {
+          longPressFired = true;
           const t = xtermRef.current;
           if (t) setContextMenu({ x: touchStartX, y: touchStartY, hasSelection: !!t.hasSelection() });
         }
@@ -688,7 +691,15 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       scrollAccum = 0;
     };
 
-    const handleTouchEnd = () => { clearTimeout(longPressTimer); };
+    const handleTouchEnd = () => {
+      clearTimeout(longPressTimer);
+      // 짧은 탭(스크롤·롱프레스 아님) → 터미널 포커스로 iOS 키보드 호출.
+      // touchstart 에서 preventDefault 하면 합성 click 이 억제되므로
+      // onClick 대신 여기서 사용자 제스처 컨텍스트 안에서 직접 focus 한다.
+      if (!isTouchScrolling && !longPressFired) {
+        xtermRef.current?.focus();
+      }
+    };
     const handleTouchContextMenu = (e) => {
       e.preventDefault();
       e.stopPropagation();
