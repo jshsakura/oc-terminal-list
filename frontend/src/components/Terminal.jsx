@@ -1080,11 +1080,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     };
 
     term.onData((data) => {
-      // paste / IME 조합 등 multi-char 입력을 이 터미널의 히스토리에 기록.
-      // 단일 키스트로크는 노이즈가 커서 스킵 — 사용자가 "어디서 보냈더라" 찾고 싶은 건 보통 multi-char.
-      if (looksLikeBulkCommand(data)) {
-        try { pushCommandHistory(sessionId, data); } catch { /* 저장 실패해도 입력은 진행 */ }
-      }
+      // term.onData 는 IME 합성 중 매 음절마다 (backspace+새글자) length>=2 청크가 들어와
+      // 히스토리가 한 글자씩 쪼개져 저장되는 노이즈가 심하다. 이 경로에서는 더 이상 캡처하지 않고,
+      // sendData() 명시적 호출 경로 (Quick Input / 음성 / MobileToolbar 등) 만 캡처한다.
       const ws = wsRef.current;
       // WS 가 아직 OPEN 이 아니거나(reconnect 직후·언마운트 사이 깜빡임) CLOSING 상태여도
       // 입력을 버리지 않고 큐에 적재해 다음 OPEN 또는 flush 틱에 전송. drop 으로 인한

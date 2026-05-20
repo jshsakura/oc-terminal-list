@@ -121,6 +121,13 @@ async def lifespan(_app: FastAPI):
             logger.info("usage: closed %d orphan session rows", closed)
     except Exception as e:
         logger.warning("usage orphan close failed: %s", e)
+    # 30일 retention — 가벼우니 startup 마다 1회로 충분 (장기 가동 시 24h 주기 청소는 backlog 로 미룸).
+    try:
+        purged = await storage.cleanup_command_history(retention_days=30)
+        if purged:
+            logger.info("command_history: purged %d expired rows", purged)
+    except Exception as e:
+        logger.warning("command_history cleanup failed: %s", e)
     # 컨테이너 배포에서 BOOTSTRAP_HOST_* env 가 세팅돼있으면 호스트 자동 등록.
     # admin 미설정이거나 이미 같은 이름 host 있으면 silent skip (idempotent).
     try:
@@ -308,6 +315,30 @@ class WsTicketRequest(BaseModel):
 
 class FileTicketRequest(BaseModel):
     path: str
+
+
+class CommandHistoryPushRequest(BaseModel):
+    terminal_key: str
+    text: str
+
+    @field_validator("terminal_key")
+    @classmethod
+    def _check_terminal_key(cls, v: str) -> str:
+        s = (v or "").strip()
+        if not s or len(s) > 128:
+            raise ValueError("terminal_key required (≤128 chars)")
+        return s
+
+    @field_validator("text")
+    @classmethod
+    def _check_text(cls, v: str) -> str:
+        # 빈/공백 only / 너무 긴 텍스트는 거절. 호출 측이 trim 했다고 가정하지만 방어.
+        s = (v or "").replace("\r", "").rstrip("\n").strip()
+        if not s:
+            raise ValueError("text empty")
+        if len(s) > 500:
+            raise ValueError("text too long (>500)")
+        return s
 
 
 # ---------------------- 시스템 모니터 ----------------------
@@ -1129,6 +1160,51 @@ async def put_user_settings(
         raise HTTPException(status_code=400, detail="settings must be an object")
     await storage.save_user_settings(username, request.settings)
     return {"status": "saved"}
+
+
+# ---------------------- 명령 히스토리 ----------------------
+# 디바이스 간 공유되는 터미널별 최근 명령. 30일 retention, infinite scroll 페이징.
+
+@app.post("/api/command-history")
+async def push_command_history(
+    request: CommandHistoryPushRequest,
+    username: str = Depends(verify_auth_token),
+):
+    await storage.push_command_history(username, request.terminal_key, request.text)
+    return {"status": "ok"}
+
+
+@app.get("/api/command-history")
+async def get_command_history(
+    terminal: str,
+    before: int | None = None,
+    limit: int = 20,
+    username: str = Depends(verify_auth_token),
+):
+    key = (terminal or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="terminal required")
+    items = await storage.get_command_history(
+        username, key, before_ms=before, limit=limit,
+    )
+    has_more = len(items) >= max(1, min(int(limit or 20), 100))
+    return {"items": items, "hasMore": has_more}
+
+
+@app.delete("/api/command-history")
+async def delete_command_history(
+    terminal: str,
+    text: str | None = None,
+    username: str = Depends(verify_auth_token),
+):
+    key = (terminal or "").strip()
+    if not key:
+        raise HTTPException(status_code=400, detail="terminal required")
+    if text is None:
+        removed = await storage.clear_command_history(username, key)
+        return {"status": "cleared", "removed": removed}
+    ok = await storage.delete_command_history_entry(username, key, text)
+    return {"status": "deleted" if ok else "missing"}
 
 
 @app.get("/api/tab-state")

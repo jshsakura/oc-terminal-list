@@ -925,9 +925,14 @@ const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = fal
 // - 각 row 는 mono font, ellipsis, X 로 개별 삭제 가능
 const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onClose, onSelect, t }) => {
   const ref = useRef(null);
+  const listRef = useRef(null);
+  const sentinelRef = useRef(null);
   const [pos, setPos] = useState({ x: anchor.x, y: anchor.y });
   const [measured, setMeasured] = useState(false);
-  const history = useCommandHistory(terminalKey);
+  // "비우기" 확정 단계 — 휴지통 한 번 누르면 inline 확인 영역이 popover 안에 오버레이.
+  // 외부 confirm() 다이얼로그는 popover 컨텍스트를 끊고 모바일 UX 가 어색해서 안 쓴다.
+  const [confirmingClear, setConfirmingClear] = useState(false);
+  const { items, hasMore, loading, loadingMore, loadMore } = useCommandHistory(terminalKey);
 
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
@@ -962,7 +967,19 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
     if (nextY < margin) nextY = margin;
     setPos({ x: nextX, y: nextY });
     setMeasured(true);
-  }, [anchor.x, anchor.y, history.length]);
+  }, [anchor.x, anchor.y, items.length]);
+
+  // 인피니티 스크롤 — 리스트 끝 sentinel 이 viewport 안에 들어오면 다음 페이지 fetch.
+  // IntersectionObserver root 를 listRef (스크롤 컨테이너) 로 지정해 popover 안에서만 trigger.
+  useEffect(() => {
+    if (!sentinelRef.current || !listRef.current) return undefined;
+    if (!hasMore) return undefined;
+    const io = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) loadMore();
+    }, { root: listRef.current, rootMargin: '60px 0px' });
+    io.observe(sentinelRef.current);
+    return () => io.disconnect();
+  }, [hasMore, loadMore]);
 
   return (
     <div
@@ -1021,7 +1038,7 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
           letterSpacing: '0.05em',
         }}>
           {t?.('historyTitle') || 'Recent commands'}
-          {history.length > 0 && (
+          {items.length > 0 && (
             <span style={{
               fontSize: '10px',
               padding: '1px 6px',
@@ -1030,17 +1047,13 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
               color: ui.text,
               letterSpacing: 'normal',
               textTransform: 'none',
-            }}>{history.length}</span>
+            }}>{items.length}{hasMore ? '+' : ''}</span>
           )}
         </span>
-        {history.length > 0 && (
+        {items.length > 0 && !confirmingClear && (
           <button
             type="button"
-            onClick={() => {
-              if (confirm(t?.('confirmClearHistory') || '히스토리를 모두 비울까요?')) {
-                clearHistoryFor(terminalKey);
-              }
-            }}
+            onClick={() => setConfirmingClear(true)}
             title={t?.('clearHistory') || 'Clear history'}
             style={{
               width: '20px', height: '20px',
@@ -1057,25 +1070,90 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
         )}
       </div>
 
-      <div className="iterm-cmd-history-list" style={{
+      {/* Inline confirm bar — 휴지통 버튼 누르면 헤더 아래로 슬라이드해 들어온다. */}
+      {confirmingClear && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          gap: '8px',
+          padding: '8px 10px',
+          background: `color-mix(in srgb, ${ui.danger || '#f38ba8'} 14%, transparent)`,
+          borderBottom: `1px solid color-mix(in srgb, ${ui.danger || '#f38ba8'} 32%, transparent)`,
+          animation: 'iterm-cmd-history-item-in 160ms ease both',
+        }}>
+          <span style={{
+            fontSize: fontSize['11'], color: ui.text, lineHeight: 1.4, flex: 1, minWidth: 0,
+          }}>{t?.('confirmClearHistory') || 'Clear command history for this terminal?'}</span>
+          <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+            <button
+              type="button"
+              onClick={() => setConfirmingClear(false)}
+              style={{
+                padding: '4px 10px', borderRadius: '4px',
+                background: 'transparent', border: `1px solid ${ui.border}`,
+                color: ui.subtext, fontSize: fontSize['11'], cursor: 'pointer',
+                fontFamily: 'inherit', transition: 'background 120ms, color 120ms',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(ui); e.currentTarget.style.color = ui.text; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ui.subtext; }}
+            >
+              {t?.('cancel') || 'Cancel'}
+            </button>
+            <button
+              type="button"
+              onClick={() => { clearHistoryFor(terminalKey); setConfirmingClear(false); }}
+              style={{
+                padding: '4px 10px', borderRadius: '4px',
+                background: ui.danger || '#f38ba8',
+                color: ui.crust || '#11111b',
+                border: '1px solid transparent',
+                fontSize: fontSize['11'], fontWeight: fontWeight.semibold, cursor: 'pointer',
+                fontFamily: 'inherit', transition: 'opacity 120ms',
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '0.88'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '1'; }}
+            >
+              {t?.('clearHistory') || 'Clear'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div ref={listRef} className="iterm-cmd-history-list" style={{
         flex: 1, overflowY: 'auto', padding: '4px',
         display: 'flex', flexDirection: 'column', gap: '2px',
       }}>
-        {history.length === 0 ? (
+        {loading && items.length === 0 ? (
+          // 첫 로딩 스켈레톤
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '4px' }}>
+            {[0, 1, 2].map((i) => (
+              <div key={i} style={{
+                height: '30px', borderRadius: '4px',
+                background: `linear-gradient(90deg,
+                  color-mix(in srgb, ${ui.surface1 || '#45475a'} 35%, transparent) 0%,
+                  color-mix(in srgb, ${ui.accent || '#89b4fa'} 18%, transparent) 50%,
+                  color-mix(in srgb, ${ui.surface1 || '#45475a'} 35%, transparent) 100%)`,
+                backgroundSize: '300% 100%',
+                animation: `iterm-skel-shimmer ${1.6 + i * 0.1}s ease-in-out infinite`,
+                opacity: 0.6,
+              }} />
+            ))}
+          </div>
+        ) : items.length === 0 ? (
           <div style={{
             padding: '18px 12px', textAlign: 'center',
             fontSize: fontSize['12'], color: ui.subtext, opacity: 0.7,
           }}>
             {t?.('historyEmpty') || 'No history yet'}
           </div>
-        ) : history.map((entry, idx) => (
+        ) : items.map((entry, idx) => (
           <div
             key={`${entry.ts}-${idx}`}
             className="iterm-cmd-history-item"
             style={{
               display: 'flex', alignItems: 'stretch', gap: '2px',
               borderRadius: '4px',
-              animationDelay: `${idx * 22}ms`,
+              // 등장 애니메이션은 첫 화면 (1페이지) 에만 살짝 — 이후 페이지 prepend 는 stagger 적용 안 함.
+              animationDelay: idx < 12 ? `${idx * 18}ms` : '0ms',
             }}
           >
             <button
@@ -1122,6 +1200,24 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
             </button>
           </div>
         ))}
+        {/* 인피니티 스크롤 sentinel — 화면에 닿으면 다음 페이지. hasMore=false 일 때는 비표시. */}
+        {items.length > 0 && hasMore && (
+          <div ref={sentinelRef} style={{
+            padding: '8px 0', display: 'flex', justifyContent: 'center',
+            fontSize: '10px', color: ui.subtext, opacity: 0.7,
+          }}>
+            {loadingMore ? (t?.('loading') || 'Loading…') : '·'}
+          </div>
+        )}
+        {items.length > 0 && !hasMore && !loading && (
+          <div style={{
+            padding: '8px 0', display: 'flex', justifyContent: 'center',
+            fontSize: '10px', color: ui.subtext, opacity: 0.55,
+            letterSpacing: '0.05em',
+          }}>
+            {t?.('historyEnd') || 'End of history'}
+          </div>
+        )}
       </div>
     </div>
   );
