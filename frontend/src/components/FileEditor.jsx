@@ -4,7 +4,12 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
+import { setupMonaco } from '../setupMonaco';
 import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut } from 'lucide-react';
+
+// 워커 환경 + loader 를 번들 monaco 로 고정. 이 모듈(=FileEditor 청크)이 로드되는 시점에 1회 실행되며,
+// 아래 <Editor> 가 mount 되어 loader.init() 하기 전에 끝나야 CDN 폴백 없이 셀프호스트 monaco 를 쓴다.
+setupMonaco();
 import SkeletonRow from './common/SkeletonRow';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';

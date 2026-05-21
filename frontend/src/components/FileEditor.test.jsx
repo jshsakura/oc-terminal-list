@@ -7,6 +7,14 @@ vi.mock('@monaco-editor/react', () => ({
   __esModule: true,
   default: () => <div data-testid="monaco-editor" />,
   DiffEditor: () => <div data-testid="monaco-diff-editor" />,
+  loader: { config: () => {} },
+}));
+
+// 실제 monaco 워커/번들을 끌어오지 않도록 초기화는 no-op 으로 — 테스트는 에디터 UI 만 검증.
+vi.mock('../setupMonaco', () => ({
+  __esModule: true,
+  default: () => {},
+  setupMonaco: () => {},
 }));
 
 vi.mock('react-markdown', () => ({

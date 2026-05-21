@@ -1,25 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { loader } from '@monaco-editor/react'
-import * as monaco from 'monaco-editor/esm/vs/editor/editor.api'
-import editorWorker from 'monaco-editor/esm/vs/editor/editor.worker?worker'
-import jsonWorker from 'monaco-editor/esm/vs/language/json/json.worker?worker'
-import cssWorker from 'monaco-editor/esm/vs/language/css/css.worker?worker'
-import htmlWorker from 'monaco-editor/esm/vs/language/html/html.worker?worker'
-import tsWorker from 'monaco-editor/esm/vs/language/typescript/ts.worker?worker'
 import App from './App.jsx'
-
-self.MonacoEnvironment = {
-  getWorker(_workerId, label) {
-    if (label === 'json') return new jsonWorker()
-    if (label === 'css' || label === 'scss' || label === 'less') return new cssWorker()
-    if (label === 'html' || label === 'handlebars' || label === 'razor') return new htmlWorker()
-    if (label === 'typescript' || label === 'javascript') return new tsWorker()
-    return new editorWorker()
-  },
-}
-
-loader.config({ monaco })
 
 // 백스페이스로 브라우저 뒤로가기가 발생하지 않게 앱 코드에서 처리한다.
 document.addEventListener('keydown', (event) => {
@@ -53,3 +34,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <App />
   </React.StrictMode>,
 )
+
+// Monaco 에디터(~2.5MB)는 시작 경로에서 제외 — 모바일 초기 로딩바가 이걸 기다리지 않게.
+// 대신 앱이 뜬 뒤 한가할 때 FileEditor 청크(=monaco-vendor)를 백그라운드로 미리 받아둔다.
+// → 사용자가 에디터를 열 땐 보통 이미 캐시돼 있어 빠르게 열린다. (오프라인/실패는 무시)
+const warmEditor = () => { import('./components/FileEditor').catch(() => {}) }
+if ('requestIdleCallback' in window) {
+  requestIdleCallback(warmEditor, { timeout: 5000 })
+} else {
+  setTimeout(warmEditor, 3000)
+}
