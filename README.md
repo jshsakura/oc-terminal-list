@@ -23,7 +23,6 @@ Use GHCR Docker only if I want an isolated container terminal.
 
 ## Table of Contents
 
-- [Why this exists](#why-this-exists)
 - [What it is](#what-it-is)
 - [Features](#features)
 - [Install modes](#install-modes)
@@ -44,16 +43,6 @@ Use GHCR Docker only if I want an isolated container terminal.
 
 ---
 
-## Why this exists
-
-Apple's Korean IME is broken in native terminal emulators.
-
-When you type Korean in Terminal.app or iTerm2, the IME composition layer fights with the terminal's input handling — characters drop, backspace deletes the wrong thing, and the cursor jumps to unexpected positions mid-word. The problem is fundamental: native terminals were built around raw byte streams; Korean input requires stateful composition that the OS IME tries to manage at the wrong layer.
-
-A browser-based terminal sidesteps this entirely. The browser's own text input pipeline handles Korean composition correctly, and xterm.js sees clean committed characters. This project started as a personal fix for that one annoyance and grew into a full terminal workspace.
-
----
-
 ## What it is
 
 Terminal List is a browser-based terminal workspace for machines you own.
@@ -67,7 +56,7 @@ It combines:
 - voice input for hands-free command entry
 - a responsive UI that works on desktop, tablet, and mobile
 
-It is useful when you want a lightweight terminal dashboard that handles Korean (and other CJK) input correctly and feels faster than notebook-style remote shells.
+It is useful when you want a lightweight terminal dashboard that feels faster and more direct than notebook-style remote shells.
 
 ---
 
@@ -83,7 +72,6 @@ It is useful when you want a lightweight terminal dashboard that handles Korean 
 | Vault | SSH passwords, private-key passphrases, and OTP secrets encrypted with `data/.vault-key` |
 | Input | Quick Input panel with voice input (Web Speech API), per-terminal command history with infinite scroll |
 | UI | Themes, language switch, mobile toolbar (long-press context menu, tap-to-focus), responsive layout |
-| IME | Browser-native composition — Korean and CJK input works correctly |
 | Performance | Gzip, long-lived static asset cache, lazy loaded frontend chunks, Monaco idle prefetch, WebSocket batching |
 | Deployment | GHCR Docker image, Compose example, systemd host-native service |
 
