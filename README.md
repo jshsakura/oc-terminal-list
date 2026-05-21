@@ -23,6 +23,7 @@ Use GHCR Docker only if I want an isolated container terminal.
 
 ## Table of Contents
 
+- [Why this exists](#why-this-exists)
 - [What it is](#what-it-is)
 - [Features](#features)
 - [Install modes](#install-modes)
@@ -43,6 +44,16 @@ Use GHCR Docker only if I want an isolated container terminal.
 
 ---
 
+## Why this exists
+
+Apple's Korean IME is broken in native terminal emulators.
+
+When you type Korean in Terminal.app or iTerm2, the IME composition layer fights with the terminal's input handling — characters drop, backspace deletes the wrong thing, and the cursor jumps to unexpected positions mid-word. The problem is fundamental: native terminals were built around raw byte streams; Korean input requires stateful composition that the OS IME tries to manage at the wrong layer.
+
+A browser-based terminal sidesteps this entirely. The browser's own text input pipeline handles Korean composition correctly, and xterm.js sees clean committed characters. This project started as a personal fix for that one annoyance and grew into a full terminal workspace.
+
+---
+
 ## What it is
 
 Terminal List is a browser-based terminal workspace for machines you own.
@@ -52,10 +63,11 @@ It combines:
 - a web terminal backed by persistent host `tmux` sessions
 - a VS Code-style file browser and editor scoped to a workspace directory
 - SSH host/key management
-- single-admin login with optional TOTP 2FA
+- single-admin login with optional TOTP 2FA and passkey (WebAuthn)
+- voice input for hands-free command entry
 - a responsive UI that works on desktop, tablet, and mobile
 
-It is useful when you want a lightweight terminal dashboard that feels faster and more direct than notebook-style remote shells.
+It is useful when you want a lightweight terminal dashboard that handles Korean (and other CJK) input correctly and feels faster than notebook-style remote shells.
 
 ---
 
@@ -65,12 +77,14 @@ It is useful when you want a lightweight terminal dashboard that feels faster an
 | --- | --- |
 | Terminal | xterm.js terminal UI, persistent `tmux` sessions, reconnect-friendly WebSocket bridge |
 | Sessions | SQLite-backed session metadata and restoration |
-| Files | Workspace-scoped file browser, editor, create/move/delete actions |
+| Files | Workspace-scoped file browser, Monaco editor, create/move/delete actions |
 | SSH | Host and key management with encrypted secret storage |
-| Auth | Initial admin setup, JWT sessions, optional TOTP 2FA, one-time backup codes |
+| Auth | Initial admin setup, JWT sessions, optional TOTP 2FA, one-time backup codes, passkey (WebAuthn) |
 | Vault | SSH passwords, private-key passphrases, and OTP secrets encrypted with `data/.vault-key` |
-| UI | Themes, language switch, mobile toolbar, responsive layout |
-| Performance | Gzip, long-lived static asset cache, lazy loaded frontend chunks, WebSocket batching |
+| Input | Quick Input panel with voice input (Web Speech API), per-terminal command history with infinite scroll |
+| UI | Themes, language switch, mobile toolbar (long-press context menu, tap-to-focus), responsive layout |
+| IME | Browser-native composition — Korean and CJK input works correctly |
+| Performance | Gzip, long-lived static asset cache, lazy loaded frontend chunks, Monaco idle prefetch, WebSocket batching |
 | Deployment | GHCR Docker image, Compose example, systemd host-native service |
 
 ---
@@ -332,13 +346,26 @@ sudo systemctl restart iterminallist.service
 - Move or delete workspace entries.
 - Open a terminal in a selected folder.
 
+### Quick Input and voice
+
+- Open Quick Input from the mobile toolbar or keyboard shortcut.
+- Type a command directly or tap the mic button to dictate via Web Speech API.
+- The **Command History** panel (eye icon) shows per-terminal history with infinite scroll.
+- Click any history entry to insert it at the cursor.
+
+### Passkey / WebAuthn
+
+- In **Settings → Security**, register a passkey (Face ID, Touch ID, hardware key).
+- On subsequent logins, use the passkey instead of a password.
+- TOTP 2FA and password login remain available as fallbacks.
+
 ### Settings
 
 - Theme selection: Catppuccin, Dracula, Monokai, Solarized Dark, GitHub Dark.
 - Language: Korean / English.
 - Font size.
 - Terminal auto-scroll behavior.
-- TOTP 2FA and backup-code management.
+- TOTP 2FA, backup-code management, and passkey registration.
 
 ---
 
