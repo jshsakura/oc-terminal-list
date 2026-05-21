@@ -9,7 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, AlertTriangle, X, KeyRound } from 'lucide-react';
+import { MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, Loader2, AlertTriangle, X, KeyRound } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
@@ -68,6 +68,16 @@ const execCommandCopy = (text) => {
   document.body.removeChild(ta);
 };
 
+// spin keyframes — 모듈 로드 시 한 번만 주입
+(() => {
+  if (typeof document === 'undefined') return;
+  if (document.getElementById('tl-spin-kf')) return;
+  const s = document.createElement('style');
+  s.id = 'tl-spin-kf';
+  s.textContent = '@keyframes tl-spin{to{transform:rotate(360deg)}}';
+  document.head.appendChild(s);
+})();
+
 const issueWsTicket = async (path) => {
   try {
     const res = await fetch('/api/ws-ticket', {
@@ -75,6 +85,10 @@ const issueWsTicket = async (path) => {
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ path }),
     });
+    if (res.status === 401 || res.status === 403) {
+      window.dispatchEvent(new CustomEvent('auth:session-expired'));
+      return null;
+    }
     if (!res.ok) return null;
     const data = await res.json();
     return data?.ticket || null;
@@ -128,6 +142,8 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
   const [evicted, setEvicted] = useState(false);
   const [ended, setEnded] = useState(false);
   const [endedNotice, setEndedNotice] = useState('');
+  const [reconnecting, setReconnecting] = useState(false);
+  const reconnectingRef = useRef(false);
   const contentReadyRef = useRef(false);
   const onReadyChangeRef = useRef(onReadyChange);
   onReadyChangeRef.current = onReadyChange;
@@ -799,6 +815,15 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
         setIsReady(true);
         reconnectAttemptsRef.current = 0;
+        // 재연결 성공 — 오버레이 해제
+        if (reconnectingRef.current) {
+          reconnectingRef.current = false;
+          setReconnecting(false);
+          endedRef.current = false;
+          setEnded(false);
+          evictedRef.current = false;
+          setEvicted(false);
+        }
 
         // 서버에 현재 크기 무조건 한번 더 전송 — tmux 가 이전 클라이언트 차원으로 잠긴 케이스 강제 갱신.
         const sendResize = () => {
@@ -973,6 +998,11 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       if (intentionalCloseRef.current) return;
       logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
       setIsReady(false);
+      // 재연결 시도 중 실패 — 스피너 해제 (오버레이는 유지)
+      if (reconnectingRef.current) {
+        reconnectingRef.current = false;
+        setReconnecting(false);
+      }
       if (!autoRecover) {
         endedRef.current = true;
         setEnded(true);
@@ -1809,20 +1839,23 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
           </div>
           <button
             type="button"
+            disabled={reconnecting}
             onClick={() => {
-              evictedRef.current = false;
-              endedRef.current = false;
-              setEvicted(false);
-              setEnded(false);
+              if (reconnectingRef.current) return;
+              reconnectingRef.current = true;
+              setReconnecting(true);
               if (connectRef.current) connectRef.current();
               else if (onTakeOver) onTakeOver();
               else window.location.reload();
             }}
-            style={styles.glassActionBtn(themeUi, themeUi.accent)}
-            onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
+            style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), opacity: reconnecting ? 0.7 : 1 }}
+            onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
           >
-            {t('takeOver') || '내가 가져오기'}
+            {reconnecting
+              ? <Loader2 size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px', animation: 'tl-spin 0.8s linear infinite' }} />
+              : null}
+            {reconnecting ? (t('reconnecting') || '연결 중...') : (t('takeOver') || '내가 가져오기')}
           </button>
         </GlassOverlayCard>
       )}
@@ -1860,19 +1893,24 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
             )}
             <button
               type="button"
+              disabled={reconnecting}
               onClick={() => {
-                endedRef.current = false;
-                setEnded(false);
+                if (reconnectingRef.current) return;
+                reconnectingRef.current = true;
+                setReconnecting(true);
+                setEndedNotice('');
                 reconnectAttemptsRef.current = 0;
                 if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
                 else window.location.reload();
               }}
-              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: 1 }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
+              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: 1, opacity: reconnecting ? 0.7 : 1 }}
+              onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
             >
-              <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
-              {t('reconnectExistingShell') || '다시 연결'}
+              {reconnecting
+                ? <Loader2 size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px', animation: 'tl-spin 0.8s linear infinite' }} />
+                : <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />}
+              {reconnecting ? (t('reconnecting') || '연결 중...') : (t('reconnectExistingShell') || '다시 연결')}
             </button>
           </div>
         </GlassOverlayCard>

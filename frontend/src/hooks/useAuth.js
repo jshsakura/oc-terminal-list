@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   authHeaders,
   clearAuthFallbacks,
@@ -72,6 +72,19 @@ const useAuth = () => {
 
   useEffect(() => {
     checkAuthStatus();
+  }, []);
+
+  // 어디서든 auth:session-expired 이벤트가 발생하면 즉시 로그인 화면으로 전환
+  const logoutRef = useRef(null);
+  logoutRef.current = async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* noop */ }
+    clearAuthFallbacks();
+    setAuthState({ isLoading: false, needsSetup: false, isAuthenticated: false, username: null });
+  };
+  useEffect(() => {
+    const handler = () => logoutRef.current?.();
+    window.addEventListener('auth:session-expired', handler);
+    return () => window.removeEventListener('auth:session-expired', handler);
   }, []);
 
   const login = (username, sessionToken = null) => {
