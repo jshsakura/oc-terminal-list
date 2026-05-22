@@ -9,6 +9,7 @@ import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
+import { ImageAddon } from '@xterm/addon-image';
 import { MonitorSmartphone, PowerOff, Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, Loader2, AlertTriangle, X, KeyRound } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
@@ -44,6 +45,10 @@ const looksLikeBulkCommand = (data) => {
 };
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
+
+// 모듈 스코프 — 매 메시지마다 재생성하지 않고 재사용 (GC 절감)
+const _textDecoder = new TextDecoder('utf-8');
+const _textEncoder = new TextEncoder();
 const RECOVERY_GRACE_MS = 12000;
 const RECOVERY_POLL_MS = 1000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -366,6 +371,9 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
     const searchAddon = new SearchAddon();
     term.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;
+
+    const imageAddon = new ImageAddon();
+    term.loadAddon(imageAddon);
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -946,7 +954,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         // Fast heuristic check for detached token without decoding large buffers
         if (event.data.byteLength < 500) {
           try {
-            const text = new TextDecoder('utf-8').decode(event.data);
+            const text = _textDecoder.decode(event.data);
             if (text.includes('[detached (from session') && Date.now() > ignoreDetachUntil) {
               handleEviction();
               return; // don't write detach text to terminal
@@ -957,7 +965,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
         wsBufferRef.current.push(event.data);
         dispatchActivity();
         if (wsFlushTimeoutRef.current) return;
-        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, 16);
+        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 16 : 50);
         return;
       }
 
@@ -985,11 +993,10 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
       // string payload (like detached message, or unhandled json fallback)
       if (typeof event.data === 'string') {
-        const encoder = new TextEncoder();
-        wsBufferRef.current.push(encoder.encode(event.data).buffer);
+        wsBufferRef.current.push(_textEncoder.encode(event.data).buffer);
         dispatchActivity();
         if (wsFlushTimeoutRef.current) return;
-        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, 16);
+        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 16 : 50);
       }
     };
 
@@ -1274,6 +1281,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
       if (inputFlushTimeoutRef.current) clearTimeout(inputFlushTimeoutRef.current);
       if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
+      if (selectionTimer) clearTimeout(selectionTimer);
       inputQueueRef.current = [];
       fitNowRef.current = null;
     };

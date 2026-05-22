@@ -2893,4 +2893,6 @@ if __name__ == "__main__":
         # 무한 누적시키지 않도록 ping/pong 으로 감지하고 자동 close.
         ws_ping_interval=20.0,
         ws_ping_timeout=20.0,
+        # permessage-deflate 압축 — ANSI/반복 공백이 많은 터미널 출력에서 50-70% 절감.
+        ws_per_message_deflate=True,
     )
