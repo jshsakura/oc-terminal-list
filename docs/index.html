@@ -67,15 +67,7 @@
       font-family: var(--font-gugi);
       font-weight: 400; font-size: .95rem; color: var(--text); letter-spacing: 0;
     }
-    .nav-logo-box {
-      width: 30px; height: 30px;
-      background: linear-gradient(135deg, var(--s1), var(--s0));
-      border: 1px solid var(--border2);
-      border-radius: 8px;
-      display: flex; align-items: center; justify-content: center;
-      box-shadow: 0 0 14px rgba(137,180,250,.15);
-    }
-    .nav-logo span { color: var(--accent); }
+    .nav-logo span { color: var(--accent); margin-left: .25rem; }
 
     .nav-links { display: flex; gap: 1.1rem; font-size: .85rem; align-items: center; }
 
@@ -379,17 +371,23 @@
 
 <!-- ════ Nav ════ -->
 <nav>
-  <a class="nav-logo" href="#" style="text-decoration:none" aria-label="Terminal List">
-    <div class="nav-logo-box">
-      <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect width="20" height="20" x="2" y="2" rx="2"/>
-        <path d="m8 9 3 3-3 3"/><line x1="13" x2="17" y1="15" y2="15"/>
-      </svg>
-    </div>
+  <a class="nav-logo" href="#" style="text-decoration:none">
+    <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect width="20" height="20" x="2" y="2" rx="2"/>
+      <path d="m8 9 3 3-3 3"/><line x1="13" x2="17" y1="15" y2="15"/>
+    </svg>
+    Terminal<span>List</span>
   </a>
-  <a href="https://github.com/jshsakura/oc-terminal-list" target="_blank" rel="noopener" class="nav-gh" aria-label="GitHub">
-    <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.419 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
-  </a>
+  <div class="nav-links">
+    <button class="lang-toggle" onclick="toggleLang()" aria-label="Toggle language">
+      <span class="lbl on" id="lang-en">EN</span>
+      <span class="lang-sep">&nbsp;/&nbsp;</span>
+      <span class="lbl off" id="lang-ko">한</span>
+    </button>
+    <a href="https://github.com/jshsakura/oc-terminal-list" target="_blank" rel="noopener" class="nav-gh" aria-label="GitHub">
+      <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.419 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+    </a>
+  </div>
 </nav>
 
 <!-- ════ Hero ════ -->
