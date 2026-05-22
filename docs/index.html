@@ -406,7 +406,7 @@
 
     <h1 class="hero-h1">
       <span class="line-plain" data-i18n="heroPlain">Open in your browser</span>
-      <span class="line-accent" id="type-target"></span>
+      <span class="line-accent" id="type-target"><span class="type-cursor"></span></span>
     </h1>
 
     <p class="hero-sub" data-i18n-html="heroSub">
@@ -691,17 +691,18 @@ function toggleLang() { applyLang(currentLang === 'en' ? 'ko' : 'en'); }
 /* ── 타이핑 애니메이션 ── */
 let pi = 0, ci = 0, deleting = false;
 const target = document.getElementById('type-target');
-const cur = document.createElement('span');
-cur.className = 'type-cursor'; target.after(cur);
+const cur = target.querySelector('.type-cursor');
+const typeNode = document.createTextNode('');
+target.insertBefore(typeNode, cur);
 
 function type() {
   const p = phrases[currentLang][pi % phrases[currentLang].length];
   if (!deleting) {
-    target.textContent = p.slice(0, ++ci);
+    typeNode.nodeValue = p.slice(0, ++ci);
     if (ci === p.length) { deleting = true; setTimeout(type, 2000); return; }
     setTimeout(type, 80);
   } else {
-    target.textContent = p.slice(0, --ci);
+    typeNode.nodeValue = p.slice(0, --ci);
     if (ci === 0) { deleting = false; pi = (pi + 1) % phrases[currentLang].length; setTimeout(type, 380); return; }
     setTimeout(type, 42);
   }
