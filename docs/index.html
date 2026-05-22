@@ -9,6 +9,9 @@
   <meta property="og:url" content="https://jshsakura.github.io/oc-terminal-list/" />
   <meta name="twitter:card" content="summary" />
   <title>Terminal List — 자체 호스팅 웹 터미널</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Gugi&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -151,8 +154,9 @@
     @keyframes pulse-dot { 0%,100%{box-shadow:0 0 0 0 rgba(137,180,250,.4)} 50%{box-shadow:0 0 0 5px rgba(137,180,250,0)} }
 
     .hero-h1 {
-      font-size: clamp(2.4rem,6vw,4rem); font-weight: 800; line-height: 1.1;
-      letter-spacing: -.04em; margin-bottom: 1.25rem;
+      font-family: 'Gugi', var(--font-mono);
+      font-size: clamp(2.2rem,5.5vw,3.6rem); font-weight: 400; line-height: 1.15;
+      letter-spacing: -.01em; margin-bottom: 1.25rem;
       animation: fade-up .5s ease .1s both;
     }
     .hero-h1 .line-plain {
