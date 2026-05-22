@@ -131,18 +131,23 @@
 
     .hero-content { position: relative; z-index: 1; max-width: 780px; }
 
-    .hero-badge {
-      display: inline-flex; align-items: center; gap: .5rem;
+    .hero-tags {
+      display: inline-flex; gap: .5rem; flex-wrap: wrap; justify-content: center;
+      margin-bottom: 2rem; animation: fade-up .5s ease both;
+    }
+    .tag-chip {
+      display: inline-flex; align-items: center; gap: .45rem;
       font-size: .7rem; font-family: var(--font-mono);
-      color: var(--accent); border: 1px solid var(--accent32);
-      background: var(--accent12);
-      border-radius: 999px; padding: .3rem 1rem; margin-bottom: 2rem;
-      animation: fade-up .5s ease both;
+      border: 1px solid; border-radius: 999px;
+      padding: .3rem .95rem; white-space: nowrap;
     }
-    .badge-dot {
-      width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
-      animation: pulse-dot 2s ease infinite;
-    }
+    .tag-chip .tag-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; animation: pulse-dot 2.4s ease infinite; }
+    .tag-chip.tag-blue  { color: var(--accent); border-color: var(--accent32); background: var(--accent12); }
+    .tag-chip.tag-green { color: var(--green);  border-color: rgba(166,227,161,.28); background: rgba(166,227,161,.07); }
+    .tag-chip.tag-mauve { color: var(--mauve);  border-color: rgba(203,166,247,.28); background: rgba(203,166,247,.07); }
+    .tag-chip.tag-blue  .tag-dot { background: var(--accent); }
+    .tag-chip.tag-green .tag-dot { background: var(--green); }
+    .tag-chip.tag-mauve .tag-dot { background: var(--mauve); }
     @keyframes pulse-dot { 0%,100%{box-shadow:0 0 0 0 rgba(137,180,250,.4)} 50%{box-shadow:0 0 0 5px rgba(137,180,250,0)} }
 
     .hero-h1 {
@@ -392,9 +397,10 @@
   <div class="orb orb-3"></div>
 
   <div class="hero-content">
-    <div class="hero-badge">
-      <span class="badge-dot"></span>
-      자체 호스팅 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; Docker Ready
+    <div class="hero-tags">
+      <span class="tag-chip tag-blue"><span class="tag-dot"></span>자체 호스팅</span>
+      <span class="tag-chip tag-green"><span class="tag-dot"></span>MIT License</span>
+      <span class="tag-chip tag-mauve"><span class="tag-dot"></span>Docker Ready</span>
     </div>
 
     <h1 class="hero-h1">
