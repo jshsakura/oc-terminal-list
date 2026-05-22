@@ -1242,6 +1242,9 @@ export const locales = {
     killTmuxServerHint: '망가진 tmux 상태 한번에 청소. 다음 접속 시 새 서버에 새 세션.',
     confirmKillTmuxServer: '이 호스트의 tmux 서버 전체를 종료할까요? 그 호스트의 모든 세션이 사라집니다.',
     killTmuxServerDone: '원격 tmux 서버 종료 완료. 다시 접속해보세요.',
+    tmuxNotAvailable: 'tmux가 이 호스트에 없습니다. 원격 서버에 tmux를 설치하면 영속 세션을 사용할 수 있습니다.',
+    tmuxChecking: '원격 호스트에서 tmux 확인 중…',
+    tmuxFallbackWarning: 'tmux를 찾을 수 없음 — 연결이 끊어지면 세션이 유지되지 않습니다',
     startPath: '시작 경로',
     startPathHint: '접속 시 진입할 디렉토리 (절대경로 또는 ~). 비우면 홈.',
 
