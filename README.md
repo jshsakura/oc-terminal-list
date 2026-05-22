@@ -689,4 +689,3 @@ MIT License.
 
 ---
 
-Made with ❤️ by [jshsakura](https://github.com/jshsakura)

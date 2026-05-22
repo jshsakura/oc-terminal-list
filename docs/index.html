@@ -13,14 +13,16 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0d1117;
-      --surface: #161b22;
+      --bg: #060a0f;
+      --surface: #0d1117;
+      --surface2: #161b22;
       --border: #21262d;
       --text: #e6edf3;
       --muted: #8b949e;
       --green: #3fb950;
       --green-dim: #238636;
       --blue: #58a6ff;
+      --purple: #bc8cff;
       --font-mono: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
       --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
     }
@@ -32,211 +34,541 @@
       color: var(--text);
       font-family: var(--font-sans);
       line-height: 1.6;
+      overflow-x: hidden;
     }
 
     a { color: var(--blue); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
-    /* ─── Nav ─── */
+    /* ═══ Nav ═══ */
     nav {
-      position: sticky; top: 0; z-index: 100;
-      background: rgba(13,17,23,.88);
-      backdrop-filter: blur(12px);
-      border-bottom: 1px solid var(--border);
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      background: rgba(6,10,15,.85);
+      backdrop-filter: blur(16px) saturate(180%);
+      -webkit-backdrop-filter: blur(16px) saturate(180%);
+      border-bottom: 1px solid rgba(33,38,45,.6);
       padding: 0 2rem;
       display: flex; align-items: center; justify-content: space-between;
-      height: 56px;
+      height: 60px;
+      transition: background .3s;
     }
 
-    .nav-logo { font-family: var(--font-mono); font-size: .9rem; font-weight: 600; color: var(--green); }
-    .nav-links { display: flex; gap: 1.5rem; font-size: .875rem; }
-    .nav-links a { color: var(--muted); }
+    .nav-logo {
+      display: flex; align-items: center; gap: .55rem;
+      font-weight: 700; font-size: .95rem; color: var(--text);
+      letter-spacing: -.01em;
+      text-decoration: none;
+    }
+
+    .nav-logo-icon {
+      width: 28px; height: 28px;
+      background: linear-gradient(135deg, #238636, #1a7f37);
+      border-radius: 7px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      box-shadow: 0 0 12px rgba(63,185,80,.3);
+    }
+
+    .nav-logo span { color: var(--green); }
+
+    .nav-links { display: flex; gap: 1.5rem; font-size: .85rem; align-items: center; }
+    .nav-links a {
+      color: var(--muted); display: flex; align-items: center; gap: .3rem;
+      transition: color .15s;
+    }
     .nav-links a:hover { color: var(--text); text-decoration: none; }
 
-    /* ─── Hero ─── */
-    .hero {
-      max-width: 760px; margin: 0 auto;
-      padding: 6rem 2rem 4rem; text-align: center;
+    .nav-gh {
+      display: flex; align-items: center; gap: .4rem;
+      padding: .35rem .8rem;
+      border: 1px solid var(--border); border-radius: 6px;
+      color: var(--text) !important;
+      font-size: .8rem; font-weight: 600;
+      background: rgba(33,38,45,.5);
+      transition: border-color .15s, background .15s !important;
     }
+    .nav-gh:hover { border-color: var(--muted); background: rgba(33,38,45,.9) !important; }
+
+    /* ═══ Hero ═══ */
+    .hero-section {
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 100px 2rem 6rem;
+      position: relative; overflow: hidden; text-align: center;
+    }
+
+    /* 애니메이션 배경 그리드 */
+    .hero-grid {
+      position: absolute; inset: 0;
+      background-image:
+        linear-gradient(rgba(63,185,80,.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(63,185,80,.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 40%, transparent 100%);
+      animation: grid-drift 20s linear infinite;
+    }
+
+    @keyframes grid-drift {
+      0%   { background-position: 0 0, 0 0; }
+      100% { background-position: 60px 60px, 60px 60px; }
+    }
+
+    /* 배경 글로우 orbs */
+    .orb {
+      position: absolute; border-radius: 50%;
+      filter: blur(80px); pointer-events: none;
+    }
+    .orb-1 {
+      width: 600px; height: 600px;
+      background: radial-gradient(circle, rgba(63,185,80,.12), transparent 70%);
+      top: -100px; left: 50%; transform: translateX(-50%);
+      animation: orb-float 8s ease-in-out infinite;
+    }
+    .orb-2 {
+      width: 400px; height: 400px;
+      background: radial-gradient(circle, rgba(88,166,255,.08), transparent 70%);
+      bottom: 0; right: -100px;
+      animation: orb-float 12s ease-in-out infinite reverse;
+    }
+    .orb-3 {
+      width: 300px; height: 300px;
+      background: radial-gradient(circle, rgba(188,140,255,.06), transparent 70%);
+      bottom: 100px; left: -50px;
+      animation: orb-float 10s ease-in-out infinite 2s;
+    }
+
+    @keyframes orb-float {
+      0%, 100% { transform: translateY(0) translateX(-50%); }
+      50% { transform: translateY(-30px) translateX(-50%); }
+    }
+    .orb-2, .orb-3 { animation: orb-float2 10s ease-in-out infinite; }
+    @keyframes orb-float2 {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-20px); }
+    }
+
+    .hero-content { position: relative; z-index: 1; max-width: 780px; }
 
     .hero-badge {
-      display: inline-flex; align-items: center; gap: .4rem;
-      font-family: var(--font-mono); font-size: .72rem;
-      color: var(--green); border: 1px solid var(--green-dim);
-      border-radius: 999px; padding: .2rem .8rem; margin-bottom: 1.5rem;
+      display: inline-flex; align-items: center; gap: .5rem;
+      font-size: .72rem; font-family: var(--font-mono);
+      color: var(--green);
+      border: 1px solid rgba(63,185,80,.3);
+      background: rgba(63,185,80,.06);
+      border-radius: 999px; padding: .3rem 1rem;
+      margin-bottom: 2rem;
+      animation: fade-up .6s ease both;
     }
 
-    .hero h1 {
-      font-size: clamp(2rem, 5vw, 3rem); font-weight: 700;
-      line-height: 1.2; letter-spacing: -.02em; margin-bottom: 1rem;
+    .badge-dot {
+      width: 6px; height: 6px; border-radius: 50%; background: var(--green);
+      animation: pulse-dot 2s ease infinite;
     }
+    @keyframes pulse-dot {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(63,185,80,.4); }
+      50% { box-shadow: 0 0 0 5px rgba(63,185,80,0); }
+    }
+
+    .hero-h1 {
+      font-size: clamp(2.4rem, 6vw, 4rem);
+      font-weight: 800; line-height: 1.1;
+      letter-spacing: -.04em;
+      margin-bottom: 1.25rem;
+      animation: fade-up .6s ease .1s both;
+    }
+
+    .hero-h1 .line-plain {
+      display: block;
+      background: linear-gradient(135deg, #e6edf3 50%, #8b949e);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .hero-h1 .line-accent {
+      display: block;
+      background: linear-gradient(135deg, #3fb950 0%, #58a6ff 60%, #bc8cff 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* 타이핑 커서 */
+    .type-cursor {
+      display: inline-block;
+      width: 3px; height: .85em;
+      background: var(--green);
+      vertical-align: middle; margin-left: 2px;
+      animation: cursor-blink 1s step-end infinite;
+    }
+    @keyframes cursor-blink { 50% { opacity: 0; } }
 
     .hero-sub {
-      font-size: 1.05rem; color: var(--muted);
-      max-width: 500px; margin: 0 auto 2.5rem;
+      font-size: 1.1rem; color: var(--muted); line-height: 1.75;
+      max-width: 520px; margin: 0 auto 2.5rem;
+      animation: fade-up .6s ease .2s both;
     }
 
-    .btn-group { display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap; }
+    .btn-row {
+      display: flex; gap: .75rem; justify-content: center; flex-wrap: wrap;
+      animation: fade-up .6s ease .3s both;
+    }
 
     .btn {
-      display: inline-flex; align-items: center; gap: .4rem;
-      padding: .6rem 1.25rem; border-radius: 6px;
-      font-size: .88rem; font-weight: 600;
-      transition: opacity .15s;
-    }
-    .btn:hover { opacity: .82; text-decoration: none; }
-    .btn-primary { background: var(--green-dim); color: #fff; border: 1px solid var(--green); }
-    .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
-
-    /* ─── Features ─── */
-    .features {
-      max-width: 940px; margin: 5rem auto; padding: 0 2rem;
+      display: inline-flex; align-items: center; gap: .45rem;
+      padding: .7rem 1.4rem; border-radius: 8px;
+      font-size: .9rem; font-weight: 600;
+      transition: all .2s; white-space: nowrap;
+      position: relative; overflow: hidden;
     }
 
-    .section-label {
+    .btn::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,.08), transparent);
+      opacity: 0; transition: opacity .2s;
+    }
+    .btn:hover::after { opacity: 1; }
+    .btn:hover { transform: translateY(-2px); text-decoration: none; }
+    .btn:active { transform: translateY(0); }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #2ea043, #1a7f37);
+      color: #fff; border: 1px solid rgba(63,185,80,.5);
+      box-shadow: 0 0 20px rgba(63,185,80,.2), inset 0 1px 0 rgba(255,255,255,.1);
+    }
+    .btn-primary:hover { box-shadow: 0 0 32px rgba(63,185,80,.35), inset 0 1px 0 rgba(255,255,255,.1); }
+
+    .btn-ghost {
+      background: rgba(33,38,45,.6); color: var(--text);
+      border: 1px solid var(--border);
+      backdrop-filter: blur(8px);
+    }
+    .btn-ghost:hover { border-color: rgba(139,148,158,.5); background: rgba(33,38,45,.9); }
+
+    /* ═══ Stats ═══ */
+    .stats-strip {
+      display: flex; justify-content: center; gap: 3rem;
+      padding: 3rem 2rem; flex-wrap: wrap;
+      border-top: 1px solid rgba(33,38,45,.6);
+      border-bottom: 1px solid rgba(33,38,45,.6);
+      background: linear-gradient(180deg, rgba(13,17,23,0) 0%, rgba(13,17,23,.4) 100%);
+    }
+
+    .stat { text-align: center; }
+    .stat-num {
+      font-family: var(--font-mono); font-size: 1.6rem; font-weight: 700;
+      background: linear-gradient(135deg, #3fb950, #58a6ff);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1;
+    }
+    .stat-label { font-size: .72rem; color: var(--muted); margin-top: .35rem; letter-spacing: .05em; text-transform: uppercase; }
+
+    /* ═══ Section layout ═══ */
+    .section { max-width: 1000px; margin: 0 auto; padding: 5rem 2rem; }
+
+    .section-eyebrow {
       font-family: var(--font-mono); font-size: .68rem; font-weight: 700;
-      letter-spacing: .1em; text-transform: uppercase;
-      color: var(--green); margin-bottom: .6rem; text-align: center;
+      letter-spacing: .15em; text-transform: uppercase;
+      color: var(--green); text-align: center; margin-bottom: .6rem;
     }
 
-    .features h2 { font-size: 1.6rem; font-weight: 700; text-align: center; margin-bottom: 2.5rem; }
+    .section-h2 {
+      font-size: 1.8rem; font-weight: 800; text-align: center; margin-bottom: 3rem;
+      letter-spacing: -.02em;
+      background: linear-gradient(135deg, #e6edf3 60%, #8b949e);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
 
+    /* ═══ Feature cards — mouse glow ═══ */
     .feature-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      gap: 1rem;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1px;
+      background: var(--border);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
     }
 
     .feature-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 1.2rem;
-      transition: border-color .15s;
-    }
-    .feature-card:hover { border-color: var(--green-dim); }
-
-    .feature-icon { font-size: 1.4rem; margin-bottom: .6rem; }
-    .feature-card h3 { font-size: .9rem; font-weight: 600; margin-bottom: .35rem; }
-    .feature-card p { font-size: .8rem; color: var(--muted); line-height: 1.55; }
-
-    /* ─── Install ─── */
-    .install {
-      max-width: 660px; margin: 5rem auto; padding: 0 2rem; text-align: center;
+      background: var(--surface);
+      padding: 1.6rem 1.4rem;
+      position: relative; overflow: hidden;
+      transition: background .2s;
+      cursor: default;
     }
 
-    .install h2 { font-size: 1.6rem; font-weight: 700; margin-bottom: .4rem; }
-    .install .subtitle { color: var(--muted); font-size: .88rem; margin-bottom: 1.5rem; }
+    /* 마우스 따라오는 glow */
+    .feature-card .card-glow {
+      position: absolute;
+      width: 200px; height: 200px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(63,185,80,.12), transparent 70%);
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .3s;
+    }
+    .feature-card:hover .card-glow { opacity: 1; }
+    .feature-card:hover { background: rgba(22,27,34,.9); }
 
-    .mode-tabs { display: flex; gap: .6rem; justify-content: center; margin-bottom: .75rem; }
+    .feature-icon {
+      font-size: 1.6rem; margin-bottom: .75rem;
+      display: inline-block;
+      transition: transform .2s;
+    }
+    .feature-card:hover .feature-icon { transform: scale(1.15); }
+
+    .feature-card h3 {
+      font-size: .92rem; font-weight: 700; margin-bottom: .4rem;
+      color: var(--text);
+    }
+    .feature-card p { font-size: .8rem; color: var(--muted); line-height: 1.65; }
+
+    /* ═══ Install ═══ */
+    .install-wrap { max-width: 700px; margin: 0 auto; text-align: center; }
+
+    .mode-tabs { display: flex; gap: .5rem; justify-content: center; margin-bottom: 1rem; }
 
     .mode-tab {
-      background: none; border: 1px solid var(--border); border-radius: 6px;
-      color: var(--muted); font-size: .8rem; padding: .3rem .8rem;
-      cursor: pointer; transition: all .15s; font-family: var(--font-mono);
+      background: none; border: 1px solid var(--border); border-radius: 8px;
+      color: var(--muted); font-size: .8rem; padding: .4rem .9rem;
+      cursor: pointer; transition: all .2s; font-family: var(--font-mono);
+      display: flex; align-items: center; gap: .4rem;
     }
-    .mode-tab.active { background: var(--green-dim); border-color: var(--green); color: #fff; }
+    .mode-tab.active {
+      background: linear-gradient(135deg, #2ea043, #1a7f37);
+      border-color: var(--green); color: #fff;
+      box-shadow: 0 0 14px rgba(63,185,80,.2);
+    }
+    .mode-tab:not(.active):hover { border-color: var(--muted); color: var(--text); }
 
     .code-block {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 1.1rem 1.25rem;
+      background: #010409;
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 1.4rem 1.5rem;
       text-align: left; font-family: var(--font-mono);
-      font-size: .8rem; line-height: 1.75; position: relative;
+      font-size: .8rem; line-height: 1.85; position: relative;
+      box-shadow: 0 8px 32px rgba(0,0,0,.4);
     }
 
-    .code-block .p { color: var(--green); user-select: none; }
-    .code-block .c { color: var(--text); }
+    .code-top-bar {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 1rem; padding-bottom: .75rem;
+      border-bottom: 1px solid rgba(33,38,45,.8);
+    }
+    .code-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .code-dot-r { background: #ff5f57; }
+    .code-dot-y { background: #febc2e; }
+    .code-dot-g { background: #28c840; }
+    .code-top-label {
+      flex: 1; text-align: center;
+      font-size: .65rem; color: var(--muted);
+    }
+
+    .code-block .p { color: #28c840; user-select: none; }
+    .code-block .c { color: #e6edf3; }
     .code-block .m { color: var(--muted); }
 
     .copy-btn {
-      position: absolute; top: .6rem; right: .6rem;
-      background: var(--border); border: none; border-radius: 4px;
-      color: var(--muted); font-size: .68rem; padding: .2rem .5rem;
-      cursor: pointer;
+      position: absolute; top: .8rem; right: .8rem;
+      background: rgba(33,38,45,.9); border: 1px solid rgba(33,38,45,1); border-radius: 6px;
+      color: var(--muted); font-size: .68rem; padding: .25rem .6rem;
+      cursor: pointer; transition: all .15s; font-family: var(--font-mono);
+      display: flex; align-items: center; gap: .3rem;
     }
-    .copy-btn:hover { color: var(--text); }
+    .copy-btn:hover { color: var(--text); border-color: var(--muted); }
 
-    /* ─── Footer ─── */
+    .install-note {
+      margin-top: 1.1rem; font-size: .78rem; color: var(--muted);
+      display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap;
+    }
+    .install-note a { color: var(--muted); }
+    .install-note a:hover { color: var(--text); }
+
+    /* ═══ Scroll reveal ═══ */
+    .reveal {
+      opacity: 0; transform: translateY(24px);
+      transition: opacity .6s ease, transform .6s ease;
+    }
+    .reveal.visible { opacity: 1; transform: translateY(0); }
+
+    @keyframes fade-up {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ═══ Divider ═══ */
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent 0%, var(--border) 25%, var(--border) 75%, transparent 100%);
+    }
+
+    /* ═══ Footer ═══ */
     footer {
-      border-top: 1px solid var(--border); margin-top: 5rem;
-      padding: 2.5rem 2rem; text-align: center;
-      color: var(--muted); font-size: .8rem;
+      border-top: 1px solid var(--border);
+      padding: 3rem 2rem;
+      text-align: center; color: var(--muted); font-size: .78rem;
     }
 
-    footer .badges { display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1rem; }
-    footer a { color: var(--muted); }
-    footer a:hover { color: var(--text); }
+    .footer-pills {
+      display: flex; gap: .5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1.5rem;
+    }
 
-    @media (max-width: 600px) { .nav-links { display: none; } }
+    .pill {
+      display: inline-flex; align-items: center; gap: .35rem;
+      border: 1px solid var(--border); border-radius: 999px;
+      padding: .2rem .75rem; font-size: .7rem; font-family: var(--font-mono);
+      color: var(--muted); background: rgba(22,27,34,.5);
+      text-decoration: none; transition: all .15s; white-space: nowrap;
+    }
+    .pill:hover { border-color: var(--muted); color: var(--text); text-decoration: none; }
+    .pill-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+
+    .footer-links {
+      display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap;
+    }
+    .footer-links a { color: var(--muted); transition: color .15s; }
+    .footer-links a:hover { color: var(--text); text-decoration: none; }
+
+    /* SVG icon helpers */
+    .icon { display: inline-block; vertical-align: middle; fill: currentColor; flex-shrink: 0; }
+
+    @media (max-width: 640px) {
+      .nav-links .hide-mobile { display: none; }
+      .stats-strip { gap: 1.5rem; }
+      .hero-h1 { font-size: 2rem; }
+    }
   </style>
 </head>
 <body>
 
+<!-- ════ Nav ════ -->
 <nav>
-  <span class="nav-logo">terminal-list</span>
+  <a class="nav-logo" href="#">
+    <div class="nav-logo-icon">⚡</div>
+    Terminal<span>&nbsp;List</span>
+  </a>
   <div class="nav-links">
-    <a href="#features">기능</a>
-    <a href="#install">설치</a>
-    <a href="https://github.com/jshsakura/oc-terminal-list">GitHub</a>
+    <a href="#features" class="hide-mobile">기능</a>
+    <a href="#install" class="hide-mobile">설치</a>
+    <a href="https://github.com/jshsakura/oc-terminal-list" target="_blank" rel="noopener" class="nav-gh">
+      <svg class="icon" width="15" height="15" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.419 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+      GitHub
+    </a>
   </div>
 </nav>
 
-<section class="hero">
-  <div class="hero-badge">● 자체 호스팅 웹 터미널</div>
-  <h1>브라우저에서 여는<br>서버 터미널</h1>
-  <p class="hero-sub">
-    지속형 tmux 세션, Monaco 파일 편집기, SSH 관리, 음성 입력.<br>
-    설치하고 브라우저에서 열면 끝.
-  </p>
-  <div class="btn-group">
-    <a class="btn btn-primary" href="#install">빠른 설치</a>
-    <a class="btn btn-secondary" href="https://github.com/jshsakura/oc-terminal-list">GitHub →</a>
+<!-- ════ Hero ════ -->
+<section class="hero-section">
+  <div class="hero-grid"></div>
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+
+  <div class="hero-content">
+    <div class="hero-badge">
+      <span class="badge-dot"></span>
+      자체 호스팅 &nbsp;·&nbsp; MIT License &nbsp;·&nbsp; Docker Ready
+    </div>
+
+    <h1 class="hero-h1">
+      <span class="line-plain">브라우저에서 여는</span>
+      <span class="line-accent" id="type-target"></span>
+    </h1>
+
+    <p class="hero-sub">
+      지속형 tmux 세션, Monaco 파일 편집기, SSH 관리, 음성 입력.<br>
+      설치하고 브라우저에서 열면 끝.
+    </p>
+
+    <div class="btn-row">
+      <a class="btn btn-primary" href="#install">
+        <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        빠른 설치
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/jshsakura/oc-terminal-list" target="_blank" rel="noopener">
+        <svg class="icon" width="15" height="15" viewBox="0 0 24 24"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.419 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+        GitHub
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/jshsakura/oc-terminal-list/blob/main/README.ko.md" target="_blank" rel="noopener">
+        📖 한국어 문서
+      </a>
+    </div>
   </div>
 </section>
 
-<section class="features" id="features">
-  <p class="section-label">기능</p>
-  <h2>필요한 건 다 있습니다</h2>
-  <div class="feature-grid">
-    <div class="feature-card">
+<!-- ════ Stats ════ -->
+<div class="stats-strip reveal">
+  <div class="stat">
+    <div class="stat-num" data-count="9">0</div>
+    <div class="stat-label">주요 기능</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">tmux</div>
+    <div class="stat-label">영속 세션</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">WebAuthn</div>
+    <div class="stat-label">패스키 지원</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">MIT</div>
+    <div class="stat-label">오픈소스</div>
+  </div>
+  <div class="stat">
+    <div class="stat-num">Docker</div>
+    <div class="stat-label">즉시 배포</div>
+  </div>
+</div>
+
+<!-- ════ Features ════ -->
+<section class="section reveal" id="features">
+  <p class="section-eyebrow">기능</p>
+  <h2 class="section-h2">필요한 건 다 있습니다</h2>
+  <div class="feature-grid" id="featureGrid">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">🖥️</div>
       <h3>지속형 tmux 세션</h3>
       <p>브라우저를 닫아도 세션이 유지됩니다. 재접속 시 자동으로 재연결.</p>
     </div>
-    <div class="feature-card">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">📁</div>
       <h3>Monaco 파일 편집기</h3>
       <p>VS Code 엔진 기반 파일 탐색기와 에디터. 워크스페이스 범위로 안전하게 격리.</p>
     </div>
-    <div class="feature-card">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">🎙️</div>
       <h3>음성 입력</h3>
       <p>빠른입력 패널에서 마이크 버튼으로 명령어 음성 입력. Web Speech API 활용.</p>
     </div>
-    <div class="feature-card">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">🔑</div>
       <h3>패스키 / Passkey</h3>
       <p>Face ID, Touch ID, 하드웨어 키로 로그인. TOTP 2FA와 병행 사용 가능.</p>
     </div>
-    <div class="feature-card">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">📋</div>
       <h3>명령 이력</h3>
       <p>터미널별 명령 이력 무한 스크롤. 항목 클릭으로 커서 위치에 바로 삽입.</p>
     </div>
-    <div class="feature-card">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">🔐</div>
       <h3>SSH 관리</h3>
       <p>SSH 호스트와 키 관리. Fernet 암호화 vault에 비밀번호·패스프레이즈 보관.</p>
     </div>
-    <div class="feature-card">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">📱</div>
       <h3>모바일 친화적</h3>
       <p>롱프레스 컨텍스트 메뉴, 탭으로 iOS 키보드 호출, 터치 전용 툴바.</p>
     </div>
-    <div class="feature-card">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">🔒</div>
       <h3>보안</h3>
       <p>단일 관리자 계정, JWT 세션, TOTP 2FA, Fernet vault 암호화.</p>
     </div>
-    <div class="feature-card">
+    <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon">🐳</div>
       <h3>Docker / Host-native</h3>
       <p>GHCR 이미지로 즉시 배포 또는 systemd로 호스트 직접 설치. 둘 다 지원.</p>
@@ -244,83 +576,171 @@
   </div>
 </section>
 
-<section class="install" id="install">
-  <p class="section-label">설치</p>
-  <h2>30초 설치</h2>
-  <p class="subtitle">기본 포트 38822 — 일반 개발 포트(3000, 8080, 8888)와 충돌 없음.</p>
+<div class="divider"></div>
 
-  <div class="mode-tabs">
-    <button class="mode-tab active" onclick="showMode('docker', this)">Docker</button>
-    <button class="mode-tab" onclick="showMode('host', this)">Host-native (systemd)</button>
+<!-- ════ Install ════ -->
+<section class="section reveal" id="install">
+  <div class="install-wrap">
+    <p class="section-eyebrow">설치</p>
+    <h2 class="section-h2">30초 설치</h2>
+    <p style="color:var(--muted);font-size:.88rem;margin-bottom:1.5rem">
+      기본 포트 38822 — 일반 개발 포트(3000, 8080, 8888)와 충돌 없음.
+    </p>
+
+    <div class="mode-tabs">
+      <button class="mode-tab active" onclick="showMode('docker',this)">🐳 Docker</button>
+      <button class="mode-tab" onclick="showMode('host',this)">🖥️ Host-native</button>
+    </div>
+
+    <div id="mode-docker" class="code-block">
+      <button class="copy-btn" onclick="copyCode('docker',this)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        복사
+      </button>
+      <div class="code-top-bar">
+        <div class="code-dot code-dot-r"></div>
+        <div class="code-dot code-dot-y"></div>
+        <div class="code-dot code-dot-g"></div>
+        <span class="code-top-label">bash</span>
+      </div>
+      <div><span class="p">$</span> <span class="c">git clone https://github.com/jshsakura/oc-terminal-list.git</span></div>
+      <div><span class="p">$</span> <span class="c">cd oc-terminal-list</span></div>
+      <div><span class="p">$</span> <span class="c">docker compose up -d</span></div>
+      <br>
+      <div class="m"># → http://localhost:38822</div>
+    </div>
+
+    <div id="mode-host" class="code-block" style="display:none">
+      <button class="copy-btn" onclick="copyCode('host',this)">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        복사
+      </button>
+      <div class="code-top-bar">
+        <div class="code-dot code-dot-r"></div>
+        <div class="code-dot code-dot-y"></div>
+        <div class="code-dot code-dot-g"></div>
+        <span class="code-top-label">bash</span>
+      </div>
+      <div><span class="p">$</span> <span class="c">git clone https://github.com/jshsakura/oc-terminal-list.git && cd oc-terminal-list</span></div>
+      <div><span class="p">$</span> <span class="c">cp .env.example .env   <span class="m"># 경로 편집</span></span></div>
+      <div><span class="p">$</span> <span class="c">python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt</span></div>
+      <div><span class="p">$</span> <span class="c">cd frontend && npm install && npm run build && cd ..</span></div>
+      <div><span class="p">$</span> <span class="c">sudo cp deploy/iterminallist.service /etc/systemd/system/</span></div>
+      <div><span class="p">$</span> <span class="c">sudo systemctl enable --now iterminallist.service</span></div>
+      <br>
+      <div class="m"># → http://localhost:38822</div>
+    </div>
+
+    <div class="install-note">
+      <a href="https://github.com/jshsakura/oc-terminal-list#readme" target="_blank" rel="noopener">📄 전체 가이드</a>
+      <a href="https://github.com/jshsakura/oc-terminal-list/pkgs/container/oc-terminal-list" target="_blank" rel="noopener">🐳 GHCR 이미지</a>
+      <a href="https://github.com/jshsakura/oc-terminal-list/issues" target="_blank" rel="noopener">🐛 Issues</a>
+    </div>
   </div>
-
-  <div id="mode-docker" class="code-block">
-    <button class="copy-btn" onclick="copyCode('docker')">복사</button>
-    <div><span class="p">$</span> <span class="c">git clone https://github.com/jshsakura/oc-terminal-list.git</span></div>
-    <div><span class="p">$</span> <span class="c">cd oc-terminal-list</span></div>
-    <div><span class="p">$</span> <span class="c">docker compose up -d</span></div>
-    <br>
-    <div class="m"># → http://localhost:38822</div>
-  </div>
-
-  <div id="mode-host" class="code-block" style="display:none">
-    <button class="copy-btn" onclick="copyCode('host')">복사</button>
-    <div><span class="p">$</span> <span class="c">git clone https://github.com/jshsakura/oc-terminal-list.git && cd oc-terminal-list</span></div>
-    <div><span class="p">$</span> <span class="c">cp .env.example .env   <span class="m"># 경로 편집</span></span></div>
-    <div><span class="p">$</span> <span class="c">python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt</span></div>
-    <div><span class="p">$</span> <span class="c">cd frontend && npm install && npm run build && cd ..</span></div>
-    <div><span class="p">$</span> <span class="c">sudo cp deploy/iterminallist.service /etc/systemd/system/</span></div>
-    <div><span class="p">$</span> <span class="c">sudo systemctl enable --now iterminallist.service</span></div>
-    <br>
-    <div class="m"># → http://localhost:38822</div>
-  </div>
-
-  <p style="margin-top:1rem; font-size:.8rem; color:var(--muted)">
-    전체 가이드 → <a href="https://github.com/jshsakura/oc-terminal-list#readme">README</a>
-    &nbsp;·&nbsp;
-    GHCR 이미지 → <a href="https://github.com/jshsakura/oc-terminal-list/pkgs/container/oc-terminal-list">ghcr.io/jshsakura/oc-terminal-list</a>
-  </p>
 </section>
 
-<footer>
-  <div class="badges">
-    <a href="https://github.com/jshsakura/oc-terminal-list/actions/workflows/ghcr-publish.yml">
-      <img src="https://github.com/jshsakura/oc-terminal-list/actions/workflows/ghcr-publish.yml/badge.svg" alt="CI" />
+<!-- ════ Footer ════ -->
+<footer class="reveal">
+  <div class="footer-pills">
+    <a class="pill" href="https://github.com/jshsakura/oc-terminal-list/actions" target="_blank" rel="noopener">
+      <span class="pill-dot" style="background:#3fb950"></span> CI passing
     </a>
-    <a href="https://github.com/jshsakura/oc-terminal-list/pkgs/container/oc-terminal-list">
-      <img src="https://img.shields.io/badge/ghcr.io-oc--terminal--list-blue?logo=docker" alt="GHCR" />
+    <a class="pill" href="https://github.com/jshsakura/oc-terminal-list/pkgs/container/oc-terminal-list" target="_blank" rel="noopener">
+      🐳 ghcr.io/jshsakura/oc-terminal-list
     </a>
-    <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT" />
+    <span class="pill"><span class="pill-dot" style="background:#58a6ff"></span> MIT License</span>
   </div>
-  <p>
-    Made with ♥ by <a href="https://github.com/jshsakura">jshsakura</a>
-    &nbsp;·&nbsp;
-    <a href="https://github.com/jshsakura/oc-terminal-list">GitHub</a>
-    &nbsp;·&nbsp;
-    <a href="https://github.com/jshsakura/oc-terminal-list/blob/main/README.ko.md">한국어 README</a>
-  </p>
+  <div class="footer-links">
+    <a href="https://github.com/jshsakura" target="_blank" rel="noopener">
+      <svg class="icon" width="13" height="13" viewBox="0 0 24 24" style="margin-right:.2rem"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.419 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
+      @jshsakura
+    </a>
+    <a href="https://github.com/jshsakura/oc-terminal-list" target="_blank" rel="noopener">GitHub</a>
+    <a href="https://github.com/jshsakura/oc-terminal-list/blob/main/README.ko.md" target="_blank" rel="noopener">한국어 README</a>
+  </div>
 </footer>
 
 <script>
-  function showMode(mode, btn) {
-    document.getElementById('mode-docker').style.display = mode === 'docker' ? 'block' : 'none';
-    document.getElementById('mode-host').style.display = mode === 'host' ? 'block' : 'none';
-    document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-    btn.classList.add('active');
-  }
+/* ── 타이핑 애니메이션 ── */
+const phrases = ['서버 터미널', 'tmux 워크스페이스', '원격 개발 환경'];
+let pi = 0, ci = 0, deleting = false;
+const target = document.getElementById('type-target');
+const cursor = document.createElement('span');
+cursor.className = 'type-cursor';
+target.after(cursor);
 
-  const codes = {
-    docker: `git clone https://github.com/jshsakura/oc-terminal-list.git\ncd oc-terminal-list\ndocker compose up -d`,
-    host: `git clone https://github.com/jshsakura/oc-terminal-list.git && cd oc-terminal-list\ncp .env.example .env\npython3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt\ncd frontend && npm install && npm run build && cd ..\nsudo cp deploy/iterminallist.service /etc/systemd/system/\nsudo systemctl enable --now iterminallist.service`
-  };
-
-  function copyCode(mode) {
-    navigator.clipboard.writeText(codes[mode]).then(() => {
-      const btn = event.target;
-      btn.textContent = '복사됨!';
-      setTimeout(() => { btn.textContent = '복사'; }, 1500);
-    });
+function type() {
+  const phrase = phrases[pi];
+  if (!deleting) {
+    target.textContent = phrase.slice(0, ++ci);
+    if (ci === phrase.length) { deleting = true; setTimeout(type, 2200); return; }
+    setTimeout(type, 80);
+  } else {
+    target.textContent = phrase.slice(0, --ci);
+    if (ci === 0) { deleting = false; pi = (pi + 1) % phrases.length; setTimeout(type, 400); return; }
+    setTimeout(type, 45);
   }
+}
+setTimeout(type, 800);
+
+/* ── 스크롤 reveal ── */
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); } });
+}, { threshold: 0.12 });
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+
+/* ── 숫자 카운터 애니메이션 ── */
+const countObserver = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (!e.isIntersecting) return;
+    const el = e.target;
+    const target = +el.dataset.count;
+    let n = 0;
+    const step = () => { el.textContent = ++n; if (n < target) requestAnimationFrame(step); };
+    requestAnimationFrame(step);
+    countObserver.unobserve(el);
+  });
+}, { threshold: 0.5 });
+document.querySelectorAll('[data-count]').forEach(el => countObserver.observe(el));
+
+/* ── 카드 마우스 glow ── */
+document.querySelectorAll('.feature-card').forEach(card => {
+  card.addEventListener('mousemove', e => {
+    const rect = card.getBoundingClientRect();
+    const glow = card.querySelector('.card-glow');
+    glow.style.left = (e.clientX - rect.left) + 'px';
+    glow.style.top  = (e.clientY - rect.top)  + 'px';
+  });
+});
+
+/* ── 탭 전환 ── */
+function showMode(mode, btn) {
+  document.getElementById('mode-docker').style.display = mode === 'docker' ? 'block' : 'none';
+  document.getElementById('mode-host').style.display   = mode === 'host'   ? 'block' : 'none';
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+}
+
+/* ── 복사 버튼 ── */
+const codes = {
+  docker: `git clone https://github.com/jshsakura/oc-terminal-list.git\ncd oc-terminal-list\ndocker compose up -d`,
+  host: `git clone https://github.com/jshsakura/oc-terminal-list.git && cd oc-terminal-list\ncp .env.example .env\npython3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt\ncd frontend && npm install && npm run build && cd ..\nsudo cp deploy/iterminallist.service /etc/systemd/system/\nsudo systemctl enable --now iterminallist.service`
+};
+
+function copyCode(mode, btn) {
+  navigator.clipboard.writeText(codes[mode]).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '✓ 복사됨';
+    btn.style.color = '#3fb950';
+    setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; }, 1800);
+  });
+}
+
+/* ── Nav 스크롤 효과 ── */
+window.addEventListener('scroll', () => {
+  document.querySelector('nav').style.borderBottomColor =
+    window.scrollY > 40 ? 'rgba(33,38,45,.9)' : 'rgba(33,38,45,.6)';
+}, { passive: true });
 </script>
 </body>
 </html>
