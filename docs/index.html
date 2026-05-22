@@ -1,14 +1,14 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="지속형 tmux 세션, 파일 편집기, SSH 관리, 음성 입력. 브라우저에서 직접 실행되는 자체 호스팅 웹 터미널." />
+  <meta name="description" content="Persistent tmux sessions, Monaco editor, SSH management, voice input. A self-hosted web terminal that runs directly in your browser." />
   <meta property="og:title" content="Terminal List" />
-  <meta property="og:description" content="지속형 tmux 세션, 파일 편집기, SSH 관리. 자체 호스팅 웹 터미널." />
+  <meta property="og:description" content="Persistent tmux sessions, Monaco editor, SSH management. Self-hosted web terminal." />
   <meta property="og:url" content="https://jshsakura.github.io/oc-terminal-list/" />
   <meta name="twitter:card" content="summary" />
-  <title>Terminal List — 자체 호스팅 웹 터미널</title>
+  <title>Terminal List — Self-Hosted Web Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Gugi&display=swap" rel="stylesheet" />
@@ -39,6 +39,7 @@
       --shadow:  0 12px 32px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.35);
       --font-mono: 'JetBrains Mono','Fira Code',ui-monospace,monospace;
       --font-sans: -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+      --font-gugi: 'Gugi', var(--font-mono);
     }
 
     html { scroll-behavior: smooth; }
@@ -63,7 +64,7 @@
 
     .nav-logo {
       display: flex; align-items: center; gap: .5rem;
-      font-family: 'Gugi', var(--font-mono);
+      font-family: var(--font-gugi);
       font-weight: 400; font-size: .95rem; color: var(--text); letter-spacing: 0;
     }
     .nav-logo-box {
@@ -76,9 +77,21 @@
     }
     .nav-logo span { color: var(--accent); }
 
-    .nav-links { display: flex; gap: 1.25rem; font-size: .85rem; align-items: center; }
+    .nav-links { display: flex; gap: 1rem; font-size: .85rem; align-items: center; }
     .nav-links a { color: var(--subtext); display: flex; align-items: center; gap: .3rem; transition: color .15s; }
     .nav-links a:hover { color: var(--text); text-decoration: none; }
+
+    .lang-toggle {
+      background: none; border: 1px solid var(--border2); border-radius: 6px;
+      color: var(--subtext); font-size: .72rem; padding: .28rem .6rem;
+      cursor: pointer; font-family: var(--font-mono); transition: border-color .15s;
+      display: flex; align-items: center; gap: .2rem; letter-spacing: .04em;
+    }
+    .lang-toggle:hover { border-color: var(--accent32); }
+    .lang-toggle .lbl { transition: color .15s; }
+    .lang-toggle .lbl.on { color: var(--accent); }
+    .lang-toggle .lbl.off { color: var(--muted); }
+    .lang-sep { color: var(--faint); }
 
     .nav-gh {
       display: flex; align-items: center; gap: .4rem;
@@ -98,7 +111,6 @@
       position: relative; overflow: hidden; text-align: center;
     }
 
-    /* 애니메이션 배경 그리드 */
     .hero-grid {
       position: absolute; inset: 0;
       background-image:
@@ -110,7 +122,6 @@
     }
     @keyframes grid-drift { to { background-position: 56px 56px, 56px 56px; } }
 
-    /* Glow orbs */
     .orb { position: absolute; border-radius: 50%; filter: blur(90px); pointer-events: none; }
     .orb-1 {
       width: 700px; height: 500px;
@@ -155,7 +166,7 @@
     @keyframes pulse-dot { 0%,100%{box-shadow:0 0 0 0 rgba(137,180,250,.4)} 50%{box-shadow:0 0 0 5px rgba(137,180,250,0)} }
 
     .hero-h1 {
-      font-family: 'Gugi', var(--font-mono);
+      font-family: var(--font-gugi);
       font-size: clamp(2.2rem,5.5vw,3.6rem); font-weight: 400; line-height: 1.15;
       letter-spacing: -.01em; margin-bottom: 1.25rem;
       animation: fade-up .5s ease .1s both;
@@ -376,7 +387,6 @@
 <nav>
   <a class="nav-logo" href="#" style="text-decoration:none">
     <div class="nav-logo-box">
-      <!-- TerminalSquare icon -->
       <svg class="ico" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <rect width="20" height="20" x="2" y="2" rx="2"/>
         <path d="m8 9 3 3-3 3"/><line x1="13" x2="17" y1="15" y2="15"/>
@@ -385,8 +395,13 @@
     Terminal<span>&nbsp;List</span>
   </a>
   <div class="nav-links">
-    <a href="#features" class="hide-mobile">기능</a>
-    <a href="#install" class="hide-mobile">설치</a>
+    <a href="#features" class="hide-mobile" data-i18n="navFeatures">Features</a>
+    <a href="#install" class="hide-mobile" data-i18n="navInstall">Install</a>
+    <button class="lang-toggle" onclick="toggleLang()" aria-label="Toggle language">
+      <span class="lbl on" id="lang-en">EN</span>
+      <span class="lang-sep">&nbsp;/&nbsp;</span>
+      <span class="lbl off" id="lang-ko">한</span>
+    </button>
     <a href="https://github.com/jshsakura/oc-terminal-list" target="_blank" rel="noopener" class="nav-gh">
       <svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.419 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
       GitHub
@@ -403,25 +418,25 @@
 
   <div class="hero-content">
     <div class="hero-tags">
-      <span class="tag-chip tag-blue"><span class="tag-dot"></span>자체 호스팅</span>
+      <span class="tag-chip tag-blue"><span class="tag-dot"></span><span data-i18n="tagSelfHosted">Self-Hosted</span></span>
       <span class="tag-chip tag-green"><span class="tag-dot"></span>MIT License</span>
       <span class="tag-chip tag-mauve"><span class="tag-dot"></span>Docker Ready</span>
     </div>
 
     <h1 class="hero-h1">
-      <span class="line-plain">브라우저에서 여는</span>
+      <span class="line-plain" data-i18n="heroPlain">Open in your browser</span>
       <span class="line-accent" id="type-target"></span>
     </h1>
 
-    <p class="hero-sub">
-      지속형 tmux 세션, Monaco 파일 편집기, SSH 관리, 음성 입력.<br>
-      설치하고 브라우저에서 열면 끝.
+    <p class="hero-sub" data-i18n-html="heroSub">
+      Persistent tmux sessions, Monaco editor, SSH management, voice input.<br>
+      Install once, open in browser.
     </p>
 
     <div class="btn-row">
       <a class="btn btn-primary" href="#install">
         <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-        빠른 설치
+        <span data-i18n="btnInstall">Quick Install</span>
       </a>
       <a class="btn btn-ghost" href="https://github.com/jshsakura/oc-terminal-list" target="_blank" rel="noopener">
         <svg class="ico" width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.419 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.868-.013-1.703-2.782.605-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0112 6.836c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.741 0 .267.18.578.688.48C19.138 20.163 22 16.418 22 12c0-5.523-4.477-10-10-10z"/></svg>
@@ -429,7 +444,7 @@
       </a>
       <a class="btn btn-ghost" href="https://github.com/jshsakura/oc-terminal-list/blob/main/README.ko.md" target="_blank" rel="noopener">
         <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>
-        한국어 문서
+        <span data-i18n="btnDocs">Korean Docs</span>
       </a>
     </div>
   </div>
@@ -437,98 +452,89 @@
 
 <!-- ════ Stats ════ -->
 <div class="stats-strip reveal">
-  <div class="stat"><div class="stat-num" data-count="9">0</div><div class="stat-label">주요 기능</div></div>
-  <div class="stat"><div class="stat-num">tmux</div><div class="stat-label">영속 세션</div></div>
-  <div class="stat"><div class="stat-num">WebAuthn</div><div class="stat-label">패스키</div></div>
-  <div class="stat"><div class="stat-num">MIT</div><div class="stat-label">오픈소스</div></div>
-  <div class="stat"><div class="stat-num">Docker</div><div class="stat-label">즉시 배포</div></div>
+  <div class="stat"><div class="stat-num" data-count="9">0</div><div class="stat-label" data-i18n="statFeatures">Features</div></div>
+  <div class="stat"><div class="stat-num">tmux</div><div class="stat-label" data-i18n="statSession">Persistent</div></div>
+  <div class="stat"><div class="stat-num">WebAuthn</div><div class="stat-label" data-i18n="statPasskey">Passkey</div></div>
+  <div class="stat"><div class="stat-num">MIT</div><div class="stat-label" data-i18n="statOss">Open Source</div></div>
+  <div class="stat"><div class="stat-num">Docker</div><div class="stat-label" data-i18n="statDeploy">Deploy</div></div>
 </div>
 
 <!-- ════ Features ════ -->
 <section class="section reveal" id="features">
-  <p class="section-eyebrow">기능</p>
-  <h2 class="section-h2">필요한 건 다 있습니다</h2>
+  <p class="section-eyebrow" data-i18n="featEyebrow">Features</p>
+  <h2 class="section-h2" data-i18n="featH2">Everything you need</h2>
   <div class="feature-grid" id="featureGrid">
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- Monitor icon -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
       </div>
-      <h3>지속형 tmux 세션</h3>
-      <p>브라우저를 닫아도 세션이 유지됩니다. 재접속 시 자동으로 재연결.</p>
+      <h3 data-i18n="card1h">Persistent tmux Sessions</h3>
+      <p data-i18n="card1p">Sessions survive browser close. Auto-reconnect on return.</p>
     </div>
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- FileCode icon -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><path d="m10 13-2 2 2 2"/><path d="m14 17 2-2-2-2"/></svg>
       </div>
-      <h3>Monaco 파일 편집기</h3>
-      <p>VS Code 엔진 기반 파일 탐색기와 에디터. 워크스페이스 범위로 안전하게 격리.</p>
+      <h3 data-i18n="card2h">Monaco File Editor</h3>
+      <p data-i18n="card2p">VS Code engine-based file explorer and editor. Safely sandboxed to your workspace.</p>
     </div>
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- Mic icon -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" x2="12" y1="19" y2="22"/></svg>
       </div>
-      <h3>음성 입력</h3>
-      <p>빠른입력 패널에서 마이크 버튼으로 명령어 음성 입력. Web Speech API 활용.</p>
+      <h3 data-i18n="card3h">Voice Input</h3>
+      <p data-i18n="card3p">Dictate commands via microphone in the quick-input panel. Powered by Web Speech API.</p>
     </div>
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- Fingerprint icon -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10a2 2 0 0 0-2 2c0 1.02-.1 2.51-.26 4"/><path d="M14 13.12c0 2.38 0 6.38-1 8.88"/><path d="M17.29 21.02c.12-.6.43-2.3.5-3.02"/><path d="M2 12a10 10 0 0 1 18-6"/><path d="M2 17c1 0 4.5-.17 5-4"/><path d="M21.8 16c.2-2 .131-5.354 0-6"/><path d="M5 19.5C5.5 18 6 15 6 12a6 6 0 0 1 .34-2"/><path d="M8.65 22c.21-.66.45-1.32.57-2"/><path d="M9 6.8a6 6 0 0 1 9 5.2v2"/></svg>
       </div>
-      <h3>패스키 / Passkey</h3>
-      <p>Face ID, Touch ID, 하드웨어 키로 로그인. TOTP 2FA와 병행 사용 가능.</p>
+      <h3 data-i18n="card4h">Passkey / WebAuthn</h3>
+      <p data-i18n="card4p">Login with Face ID, Touch ID, or hardware key. Works alongside TOTP 2FA.</p>
     </div>
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- History icon -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/></svg>
       </div>
-      <h3>명령 이력</h3>
-      <p>터미널별 명령 이력 무한 스크롤. 항목 클릭으로 커서 위치에 바로 삽입.</p>
+      <h3 data-i18n="card5h">Command History</h3>
+      <p data-i18n="card5p">Infinite scroll command history per terminal. Click to insert at cursor position.</p>
     </div>
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- Server icon -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2"/><rect width="20" height="8" x="2" y="14" rx="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>
       </div>
-      <h3>SSH 관리</h3>
-      <p>SSH 호스트와 키 관리. Fernet 암호화 vault에 비밀번호·패스프레이즈 보관.</p>
+      <h3 data-i18n="card6h">SSH Management</h3>
+      <p data-i18n="card6p">SSH host and key management. Passwords stored in a Fernet-encrypted vault.</p>
     </div>
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- Smartphone icon -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg>
       </div>
-      <h3>모바일 친화적</h3>
-      <p>롱프레스 컨텍스트 메뉴, 탭으로 iOS 키보드 호출, 터치 전용 툴바.</p>
+      <h3 data-i18n="card7h">Mobile-Friendly</h3>
+      <p data-i18n="card7p">Long-press context menu, tap to invoke iOS keyboard, touch-only toolbar.</p>
     </div>
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- ShieldCheck icon -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10"/><path d="m9 12 2 2 4-4"/></svg>
       </div>
-      <h3>보안</h3>
-      <p>단일 관리자 계정, JWT 세션, TOTP 2FA, Fernet vault 암호화.</p>
+      <h3 data-i18n="card8h">Security</h3>
+      <p data-i18n="card8p">Single admin account, JWT sessions, TOTP 2FA, Fernet vault encryption.</p>
     </div>
 
     <div class="feature-card"><div class="card-glow"></div>
       <div class="feature-icon-wrap">
-        <!-- Package icon (Docker) -->
         <svg class="ico" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
       </div>
-      <h3>Docker / Host-native</h3>
-      <p>GHCR 이미지로 즉시 배포 또는 systemd로 호스트 직접 설치. 둘 다 지원.</p>
+      <h3 data-i18n="card9h">Docker / Host-native</h3>
+      <p data-i18n="card9p">Deploy instantly via GHCR image or install directly with systemd. Both supported.</p>
     </div>
 
   </div>
@@ -539,9 +545,9 @@
 <!-- ════ Install ════ -->
 <section class="section reveal" id="install">
   <div class="install-wrap">
-    <p class="section-eyebrow">설치</p>
-    <h2 class="section-h2">30초 설치</h2>
-    <p style="color:var(--subtext);font-size:.88rem;margin-bottom:1.5rem">기본 포트 38822 — 일반 개발 포트(3000, 8080, 8888)와 충돌 없음.</p>
+    <p class="section-eyebrow" data-i18n="installEyebrow">Install</p>
+    <h2 class="section-h2" data-i18n="installH2">30-second Setup</h2>
+    <p style="color:var(--subtext);font-size:.88rem;margin-bottom:1.5rem" data-i18n="installSub">Default port 38822 — no conflict with common dev ports (3000, 8080, 8888).</p>
 
     <div class="mode-tabs">
       <button class="mode-tab active" onclick="showMode('docker',this)">
@@ -557,7 +563,7 @@
     <div id="mode-docker" class="code-block">
       <button class="copy-btn" onclick="copyCode('docker',this)">
         <svg class="ico" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        복사
+        <span data-i18n="btnCopy">Copy</span>
       </button>
       <div class="code-top-bar">
         <div class="code-dot code-dot-r"></div><div class="code-dot code-dot-y"></div><div class="code-dot code-dot-g"></div>
@@ -572,14 +578,14 @@
     <div id="mode-host" class="code-block" style="display:none">
       <button class="copy-btn" onclick="copyCode('host',this)">
         <svg class="ico" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-        복사
+        <span data-i18n="btnCopy">Copy</span>
       </button>
       <div class="code-top-bar">
         <div class="code-dot code-dot-r"></div><div class="code-dot code-dot-y"></div><div class="code-dot code-dot-g"></div>
         <span class="code-top-label">bash</span>
       </div>
       <div><span class="p">$</span> <span class="c">git clone https://github.com/jshsakura/oc-terminal-list.git && cd oc-terminal-list</span></div>
-      <div><span class="p">$</span> <span class="c">cp .env.example .env   <span class="m"># 경로 편집</span></span></div>
+      <div><span class="p">$</span> <span class="c">cp .env.example .env   <span class="m"># edit paths</span></span></div>
       <div><span class="p">$</span> <span class="c">python3 -m venv .venv && .venv/bin/pip install -r backend/requirements.txt</span></div>
       <div><span class="p">$</span> <span class="c">cd frontend && npm install && npm run build && cd ..</span></div>
       <div><span class="p">$</span> <span class="c">sudo cp deploy/iterminallist.service /etc/systemd/system/</span></div>
@@ -590,11 +596,11 @@
     <div class="install-note">
       <a href="https://github.com/jshsakura/oc-terminal-list#readme" target="_blank" rel="noopener">
         <svg class="ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
-        전체 가이드
+        <span data-i18n="installGuide">Full Guide</span>
       </a>
       <a href="https://github.com/jshsakura/oc-terminal-list/pkgs/container/oc-terminal-list" target="_blank" rel="noopener">
         <svg class="ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
-        GHCR 이미지
+        <span data-i18n="installGhcr">GHCR Image</span>
       </a>
       <a href="https://github.com/jshsakura/oc-terminal-list/issues" target="_blank" rel="noopener">
         <svg class="ico" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>
@@ -621,26 +627,105 @@
       @jshsakura
     </a>
     <a href="https://github.com/jshsakura/oc-terminal-list" target="_blank" rel="noopener">GitHub</a>
-    <a href="https://github.com/jshsakura/oc-terminal-list/blob/main/README.ko.md" target="_blank" rel="noopener">한국어 README</a>
+    <a href="https://github.com/jshsakura/oc-terminal-list/blob/main/README.ko.md" target="_blank" rel="noopener" data-i18n="footerReadme">Korean README</a>
   </div>
 </footer>
 
 <script>
+/* ── i18n ── */
+const i18n = {
+  en: {
+    navFeatures: 'Features', navInstall: 'Install',
+    tagSelfHosted: 'Self-Hosted',
+    heroPlain: 'Open in your browser',
+    heroSub: 'Persistent tmux sessions, Monaco editor, SSH management, voice input.<br>Install once, open in browser.',
+    btnInstall: 'Quick Install', btnDocs: 'Korean Docs', btnCopy: 'Copy',
+    statFeatures: 'Features', statSession: 'Persistent', statPasskey: 'Passkey', statOss: 'Open Source', statDeploy: 'Deploy',
+    featEyebrow: 'Features', featH2: 'Everything you need',
+    card1h: 'Persistent tmux Sessions',   card1p: 'Sessions survive browser close. Auto-reconnect on return.',
+    card2h: 'Monaco File Editor',         card2p: 'VS Code engine-based file explorer and editor. Safely sandboxed to your workspace.',
+    card3h: 'Voice Input',                card3p: 'Dictate commands via microphone in the quick-input panel. Powered by Web Speech API.',
+    card4h: 'Passkey / WebAuthn',         card4p: 'Login with Face ID, Touch ID, or hardware key. Works alongside TOTP 2FA.',
+    card5h: 'Command History',            card5p: 'Infinite scroll command history per terminal. Click to insert at cursor position.',
+    card6h: 'SSH Management',             card6p: 'SSH host and key management. Passwords stored in a Fernet-encrypted vault.',
+    card7h: 'Mobile-Friendly',            card7p: 'Long-press context menu, tap to invoke iOS keyboard, touch-only toolbar.',
+    card8h: 'Security',                   card8p: 'Single admin account, JWT sessions, TOTP 2FA, Fernet vault encryption.',
+    card9h: 'Docker / Host-native',       card9p: 'Deploy instantly via GHCR image or install directly with systemd. Both supported.',
+    installEyebrow: 'Install', installH2: '30-second Setup',
+    installSub: 'Default port 38822 — no conflict with common dev ports (3000, 8080, 8888).',
+    installGuide: 'Full Guide', installGhcr: 'GHCR Image',
+    footerReadme: 'Korean README',
+    copied: 'Copied!',
+  },
+  ko: {
+    navFeatures: '기능', navInstall: '설치',
+    tagSelfHosted: '자체 호스팅',
+    heroPlain: '브라우저에서 여는',
+    heroSub: '지속형 tmux 세션, Monaco 파일 편집기, SSH 관리, 음성 입력.<br>설치하고 브라우저에서 열면 끝.',
+    btnInstall: '빠른 설치', btnDocs: '한국어 문서', btnCopy: '복사',
+    statFeatures: '주요 기능', statSession: '영속 세션', statPasskey: '패스키', statOss: '오픈소스', statDeploy: '즉시 배포',
+    featEyebrow: '기능', featH2: '필요한 건 다 있습니다',
+    card1h: '지속형 tmux 세션',      card1p: '브라우저를 닫아도 세션이 유지됩니다. 재접속 시 자동으로 재연결.',
+    card2h: 'Monaco 파일 편집기',    card2p: 'VS Code 엔진 기반 파일 탐색기와 에디터. 워크스페이스 범위로 안전하게 격리.',
+    card3h: '음성 입력',              card3p: '빠른입력 패널에서 마이크 버튼으로 명령어 음성 입력. Web Speech API 활용.',
+    card4h: '패스키 / Passkey',      card4p: 'Face ID, Touch ID, 하드웨어 키로 로그인. TOTP 2FA와 병행 사용 가능.',
+    card5h: '명령 이력',              card5p: '터미널별 명령 이력 무한 스크롤. 항목 클릭으로 커서 위치에 바로 삽입.',
+    card6h: 'SSH 관리',               card6p: 'SSH 호스트와 키 관리. Fernet 암호화 vault에 비밀번호·패스프레이즈 보관.',
+    card7h: '모바일 친화적',          card7p: '롱프레스 컨텍스트 메뉴, 탭으로 iOS 키보드 호출, 터치 전용 툴바.',
+    card8h: '보안',                   card8p: '단일 관리자 계정, JWT 세션, TOTP 2FA, Fernet vault 암호화.',
+    card9h: 'Docker / Host-native',  card9p: 'GHCR 이미지로 즉시 배포 또는 systemd로 호스트 직접 설치. 둘 다 지원.',
+    installEyebrow: '설치', installH2: '30초 설치',
+    installSub: '기본 포트 38822 — 일반 개발 포트(3000, 8080, 8888)와 충돌 없음.',
+    installGuide: '전체 가이드', installGhcr: 'GHCR 이미지',
+    footerReadme: '한국어 README',
+    copied: '복사됨!',
+  },
+};
+
+const phrases = {
+  en: ['Server Terminal', 'tmux Workspace', 'Remote Dev Environment'],
+  ko: ['서버 터미널', 'tmux 워크스페이스', '원격 개발 환경'],
+};
+
+let currentLang = localStorage.getItem('tl-lang') || 'en';
+
+function applyLang(lang) {
+  currentLang = lang;
+  localStorage.setItem('tl-lang', lang);
+  document.documentElement.lang = lang;
+
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    const v = i18n[lang][el.dataset.i18n];
+    if (v !== undefined) el.textContent = v;
+  });
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    const v = i18n[lang][el.dataset.i18nHtml];
+    if (v !== undefined) el.innerHTML = v;
+  });
+
+  const enLbl = document.getElementById('lang-en');
+  const koLbl = document.getElementById('lang-ko');
+  enLbl.className = 'lbl ' + (lang === 'en' ? 'on' : 'off');
+  koLbl.className = 'lbl ' + (lang === 'ko' ? 'on' : 'off');
+}
+
+function toggleLang() { applyLang(currentLang === 'en' ? 'ko' : 'en'); }
+
 /* ── 타이핑 애니메이션 ── */
-const phrases = ['서버 터미널', 'tmux 워크스페이스', '원격 개발 환경'];
 let pi = 0, ci = 0, deleting = false;
 const target = document.getElementById('type-target');
 const cur = document.createElement('span');
 cur.className = 'type-cursor'; target.after(cur);
+
 function type() {
-  const p = phrases[pi];
+  const p = phrases[currentLang][pi % phrases[currentLang].length];
   if (!deleting) {
     target.textContent = p.slice(0, ++ci);
     if (ci === p.length) { deleting = true; setTimeout(type, 2000); return; }
     setTimeout(type, 80);
   } else {
     target.textContent = p.slice(0, --ci);
-    if (ci === 0) { deleting = false; pi = (pi + 1) % phrases.length; setTimeout(type, 380); return; }
+    if (ci === 0) { deleting = false; pi = (pi + 1) % phrases[currentLang].length; setTimeout(type, 380); return; }
     setTimeout(type, 42);
   }
 }
@@ -690,9 +775,10 @@ const codes = {
 };
 function copyCode(mode, btn) {
   navigator.clipboard.writeText(codes[mode]).then(() => {
-    const orig = btn.innerHTML;
-    btn.innerHTML = '✓ 복사됨'; btn.style.color = 'var(--green)';
-    setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; }, 1800);
+    const span = btn.querySelector('[data-i18n="btnCopy"]');
+    const orig = span.textContent;
+    span.textContent = i18n[currentLang].copied; btn.style.color = 'var(--green)';
+    setTimeout(() => { span.textContent = orig; btn.style.color = ''; }, 1800);
   });
 }
 
@@ -701,6 +787,9 @@ window.addEventListener('scroll', () => {
   document.querySelector('nav').style.borderBottomColor =
     window.scrollY > 40 ? 'var(--border2)' : 'var(--border)';
 }, { passive: true });
+
+/* ── 초기 언어 적용 ── */
+applyLang(currentLang);
 </script>
 </body>
 </html>
