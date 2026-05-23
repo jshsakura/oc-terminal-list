@@ -338,41 +338,70 @@ function App() {
     return () => { if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current); };
   }, [tabs, activeTabId, isAuthenticated, isRestoringWorkspace, applyServerTabState]);
 
-  // 다른 기기 (PC↔모바일) 변경 폴링 — 2.5초마다 가벼운 version 체크,
-  // 다르면 풀 GET. 로컬 입력 중 (dirty) 이면 스킵 — 사용자의 키 입력이
-  // 폴링에 의해 되돌려지는 일을 방지.
+  // 다른 기기 (PC↔모바일) tab-state 변경을 SSE 로 수신 — 폴링 제거.
+  // 서버가 PUT /api/tab-state 저장 직후 EventSource 로 updatedAt 을 push.
+  // EventSource 는 커스텀 헤더 불가 → 일회용 /api/sse-ticket 으로 인증.
+  // 연결 끊기면 지수 백오프(최대 30s)로 자동 재연결.
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
-    const POLL_MS = 2500;
+    let es = null;
+    let reconnectTimer = null;
+    let reconnectDelay = 2000;
 
-    const tick = async () => {
-      if (cancelled || document.hidden) return;
+    const applyIfChanged = async (updatedAt) => {
+      if (!updatedAt || updatedAt === lastAppliedTabVersionRef.current) return;
       if (localDirtyRef.current) return;
       try {
-        const r = await fetch('/api/tab-state/version');
-        if (!r.ok) return;
-        const { updatedAt } = await r.json();
-        if (!updatedAt) return;
-        if (updatedAt === lastAppliedTabVersionRef.current) return;
-        // 풀 GET 후 적용
-        const r2 = await fetch('/api/tab-state');
-        if (!r2.ok) return;
+        const r2 = await fetch('/api/tab-state', { headers: authHeaders() });
+        if (!r2.ok || cancelled || localDirtyRef.current) return;
         const serverState = await r2.json();
         if (cancelled || localDirtyRef.current) return;
         await applyServerTabState(serverState);
+        reconnectDelay = 2000;
       } catch { /* offline noop */ }
     };
 
-    const id = setInterval(tick, POLL_MS);
-    // 탭이 다시 포커스 받으면 즉시 한 번 확인 (백그라운드 동안의 변경 빠르게 반영)
-    const onVisible = () => { if (!document.hidden) tick(); };
+    const connect = async () => {
+      if (cancelled) return;
+      try {
+        const res = await fetch('/api/sse-ticket', { method: 'POST', headers: authHeaders() });
+        if (!res.ok || cancelled) return;
+        const { ticket } = await res.json();
+        if (cancelled) return;
+
+        es = new EventSource(`/api/tab-state/events?ticket=${encodeURIComponent(ticket)}`);
+
+        es.onmessage = (e) => {
+          if (cancelled) return;
+          try { applyIfChanged(JSON.parse(e.data).updatedAt); } catch { /* noop */ }
+        };
+
+        es.onerror = () => {
+          if (cancelled) return;
+          es?.close();
+          es = null;
+          reconnectTimer = setTimeout(() => {
+            reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
+            connect();
+          }, reconnectDelay);
+        };
+      } catch {
+        if (!cancelled) reconnectTimer = setTimeout(connect, reconnectDelay);
+      }
+    };
+
+    connect();
+
+    // 포커스 복귀 시 끊긴 연결 즉시 재시도
+    const onVisible = () => { if (!document.hidden && !es) connect(); };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
-    // 초기 1회는 위 useEffect 가 적용 — 여기선 인터벌만.
+
     return () => {
       cancelled = true;
-      clearInterval(id);
+      es?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
     };

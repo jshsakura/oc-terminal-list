@@ -39,7 +39,7 @@ from fastapi import (
 )
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.types import Receive, Scope, Send
@@ -83,6 +83,8 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+# asyncssh 는 접속/채널/인증 과정을 INFO 로 대량 출력 — WARNING 이상만 표시
+logging.getLogger("asyncssh").setLevel(logging.WARNING)
 
 
 class CachedStaticFiles(StaticFiles):
@@ -874,6 +876,47 @@ def _consume_file_ticket(ticket: str | None) -> str | None:
     return meta.get("path")
 
 
+# ---------------------- SSE ticket (tab-state EventSource 인증) ----------------------
+# EventSource 는 커스텀 헤더 불가 → 일회용 티켓으로 초기 인증 후 스트림 유지.
+
+SSE_TICKET_TTL_SECONDS = 30
+_sse_tickets: dict[str, dict] = {}
+
+
+def _create_sse_ticket(username: str) -> str:
+    now = time.time()
+    expired = [t for t, m in list(_sse_tickets.items()) if m["expires_at"] <= now]
+    for t in expired:
+        _sse_tickets.pop(t, None)
+    ticket = secrets_mod.token_urlsafe(32)
+    _sse_tickets[ticket] = {"username": username, "expires_at": now + SSE_TICKET_TTL_SECONDS}
+    return ticket
+
+
+def _consume_sse_ticket(ticket: str | None) -> str | None:
+    if not ticket:
+        return None
+    meta = _sse_tickets.pop(ticket, None)
+    if not meta or meta["expires_at"] <= time.time():
+        return None
+    return meta["username"]
+
+
+# ---------------------- tab-state SSE 브로드캐스트 ----------------------
+# username → 연결 중인 EventSource 클라이언트 큐 목록
+
+_tab_state_sse_queues: dict[str, list[asyncio.Queue]] = {}
+
+
+def _notify_tab_state_change(username: str, updated_at: str) -> None:
+    """PUT /api/tab-state 저장 후 호출 — 모든 SSE 클라이언트에 버전 전파."""
+    for q in list(_tab_state_sse_queues.get(username, [])):
+        try:
+            q.put_nowait(updated_at)
+        except asyncio.QueueFull:
+            pass
+
+
 # ---------------------- 인증 ----------------------
 
 # verify_auth_token 은 _deps 모듈에서 import.
@@ -1532,10 +1575,53 @@ async def get_tab_state(username: str = Depends(verify_auth_token)):
 
 @app.get("/api/tab-state/version")
 async def get_tab_state_version(username: str = Depends(verify_auth_token)):
-    """폴링용 경량 엔드포인트 — updated_at 만 반환.
-    프론트엔드는 이 값이 자기가 마지막으로 본 값과 다를 때만 전체 GET 을 호출한다.
-    """
+    """폴링용 경량 엔드포인트 — updated_at 만 반환 (SSE 미지원 환경 폴백용)."""
     return {"updatedAt": await storage.get_tab_state_updated_at(username)}
+
+
+@app.post("/api/sse-ticket")
+async def create_sse_ticket(username: str = Depends(verify_auth_token)):
+    """EventSource 는 커스텀 헤더를 보낼 수 없으므로 일회용 티켓으로 인증."""
+    return {"ticket": _create_sse_ticket(username)}
+
+
+@app.get("/api/tab-state/events")
+async def tab_state_events(ticket: str = Query(...)):
+    """tab-state 변경을 Server-Sent Events 로 푸시.
+
+    연결 즉시 현재 updatedAt 을 전송하고, PUT /api/tab-state 가 저장할 때마다
+    새 updatedAt 을 emit. 30초마다 keepalive comment 로 프록시 타임아웃 방지.
+    """
+    username = _consume_sse_ticket(ticket)
+    if not username:
+        raise HTTPException(status_code=401, detail="SSE 티켓이 유효하지 않거나 만료됨")
+
+    queue: asyncio.Queue = asyncio.Queue(maxsize=10)
+
+    if username not in _tab_state_sse_queues:
+        _tab_state_sse_queues[username] = []
+    _tab_state_sse_queues[username].append(queue)
+
+    async def event_stream():
+        try:
+            current = await storage.get_tab_state_updated_at(username)
+            yield f"data: {json.dumps({'updatedAt': current})}\n\n"
+            while True:
+                try:
+                    updated_at = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps({'updatedAt': updated_at})}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            queues = _tab_state_sse_queues.get(username, [])
+            if queue in queues:
+                queues.remove(queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.put("/api/tab-state")
@@ -1561,6 +1647,7 @@ async def put_tab_state(
             )
     tabs, active_tab_id = await _sanitize_tab_state(request.tabs, request.activeTabId)
     updated_at = await storage.save_tab_state(username, tabs, active_tab_id)
+    _notify_tab_state_change(username, updated_at)
     return {"status": "saved", "updatedAt": updated_at}
 
 
