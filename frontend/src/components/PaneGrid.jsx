@@ -18,6 +18,8 @@ import RemoteFolderPicker from './RemoteFolderPicker';
 import HostIcon from '../utils/hostIcons';
 import useActiveTerminalCwd from '../hooks/useActiveTerminalCwd';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
+import useSnippets from '../hooks/useSnippets';
+import SnippetPalette from './SnippetPalette';
 
 const Terminal = lazy(() => import('./Terminal'));
 
@@ -96,6 +98,52 @@ const PaneGrid = ({
   const [splitSizes, setSplitSizes] = useState({});
   const resizeDragRef = useRef(null); // tracks active resize drag
   const [resizeSignal, setResizeSignal] = useState(0); // bumped on drag-end → triggers single fit
+
+  // ── Broadcast ─────────────────────────────────────────────────────────────
+  // broadcastActive: 이 탭의 모든 터미널 pane 에 동시 입력. pane 2개 이상일 때 의미있음.
+  const [broadcastActive, setBroadcastActive] = useState(false);
+  const broadcastActiveRef = useRef(false);
+  useEffect(() => { broadcastActiveRef.current = broadcastActive; }, [broadcastActive]);
+  // 탭이 바뀌거나 pane 수가 1이 되면 broadcast 자동 해제
+  useEffect(() => {
+    if (panes.length < 2) setBroadcastActive(false);
+  }, [panes.length]);
+  // termRefMap: paneId → Terminal imperative handle ({ sendData })
+  const termRefMap = useRef({});
+  // panesRef: handleBroadcast 에서 최신 panes 를 참조하기 위한 stable ref
+  const panesRef = useRef(panes);
+  useEffect(() => { panesRef.current = panes; }, [panes]);
+  // stable fan-out 콜백 — broadcastActiveRef + panesRef 를 통해 최신 상태 읽음
+  const handleBroadcast = useCallback((fromPaneId, data) => {
+    if (!broadcastActiveRef.current) return;
+    for (const p of panesRef.current) {
+      if (p.id !== fromPaneId) termRefMap.current[p.id]?.sendData?.(data);
+    }
+  }, []);
+
+  // ── Snippet Palette ────────────────────────────────────────────────────────
+  const [snippetOpen, setSnippetOpen] = useState(false);
+  const { snippets, create: createSnippet, remove: deleteSnippet } = useSnippets(true);
+
+  // Ctrl+Shift+P → 팔레트 열기 (pane 이 활성 상태일 때만)
+  useEffect(() => {
+    if (!isActive) return undefined;
+    const handler = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+        e.preventDefault();
+        setSnippetOpen((v) => !v);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isActive]);
+
+  // 스니펫 실행 — 포커스된 pane 의 터미널로 전송
+  const handleRunSnippet = useCallback((command) => {
+    const focusedPane = panesRef.current.find((p) => p.id === tab?.activePaneId) || panesRef.current[0];
+    if (!focusedPane) return;
+    termRefMap.current[focusedPane.id]?.sendData?.(command + '\n');
+  }, [tab?.activePaneId]);
 
   const equalizeCurrentTab = useCallback(() => {
     setSplitSizes((prev) => {
@@ -428,6 +476,19 @@ const PaneGrid = ({
   };
 
   return (
+    <>
+    {snippetOpen && createPortal(
+      <SnippetPalette
+        isOpen={snippetOpen}
+        onClose={() => setSnippetOpen(false)}
+        snippets={snippets}
+        onCreate={createSnippet}
+        onDelete={deleteSnippet}
+        onRun={handleRunSnippet}
+        t={t}
+      />,
+      document.body
+    )}
     <div style={gridStyle}>
       {panes.map((pane, idx) => (
         <Pane
@@ -492,6 +553,7 @@ const PaneGrid = ({
         />
       ))}
     </div>
+    </>
   );
 };
 
@@ -1010,6 +1072,8 @@ const Pane = ({
           sessionStatus={terminalStatus}
           onSplitPane={onSplitPane}
           onEqualizePane={onEqualizePane}
+          isBroadcasting={broadcastActive}
+          onBroadcastToggle={panes.length >= 2 ? () => setBroadcastActive((v) => !v) : null}
           isMobile={isMobile}
         />
       </div>
@@ -1044,9 +1108,25 @@ const Pane = ({
               refreshHosts={refreshHosts}
             />
           ) : (
+            <>
+            {broadcastActive && (
+              <div style={{
+                position: 'absolute', inset: 0, zIndex: 5,
+                border: '2px solid #f59e0b',
+                borderRadius: '4px',
+                pointerEvents: 'none',
+                boxShadow: 'inset 0 0 0 1px rgba(245,158,11,0.15)',
+              }} />
+            )}
+
             <Suspense fallback={null}>
               <Terminal
                 key={`${pane.id}:${refreshNonce}`}
+                ref={(handle) => {
+                  if (handle) termRefMap.current[pane.id] = handle;
+                  else delete termRefMap.current[pane.id];
+                }}
+                onBroadcast={(data) => handleBroadcast(pane.id, data)}
                 sessionId={pane.sessionId || pane.id}
                 hostId={pane.hostId || undefined}
                 isMobile={isMobile}
@@ -1077,6 +1157,7 @@ const Pane = ({
                 onClosePane={onCloseImmediate || onClose}
               />
             </Suspense>
+            </>
           )}
 
           {/* 인라인 폴더 픽커 — slot 이 이 pane 과 매칭될 때만 본문 위에 오버레이.

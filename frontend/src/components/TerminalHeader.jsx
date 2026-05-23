@@ -6,7 +6,7 @@ import {
   ExternalLink, MoreHorizontal,
   GripVertical, Columns2, Rows2,
   Eye, EyeOff,
-  XCircle, Zap,
+  XCircle, Zap, Radio,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import themes from '../styles/themes';
@@ -95,6 +95,9 @@ const TerminalHeader = ({
   onSplitPane = null,
   /* 모든 분할 팬 사이즈 균등 리셋 */
   onEqualizePane = null,
+  /* Broadcast — 같은 탭의 모든 pane 에 동시 입력. paneCount>=2 일 때만 표시. */
+  isBroadcasting = false,
+  onBroadcastToggle = null,
   /* busy 인디케이터 — 터미널 활동 점멸 여부. */
   isBusy = false,
   /* 터미널 세션 상태 — { evicted, ended, isReady, hasContent }. */
@@ -511,6 +514,18 @@ const TerminalHeader = ({
                 </div>
               );
             })()}
+            {/* Broadcast toggle — 다중 pane 일 때만 표시 */}
+            {!disabled && !loading && onBroadcastToggle && (paneInfo?.paneCount ?? 1) > 1 && (
+              <RailIconBtn
+                icon={Radio}
+                onClick={onBroadcastToggle}
+                title={isBroadcasting ? (t?.('broadcastOff') || 'Broadcast off') : (t?.('broadcastOn') || 'Broadcast')}
+                active={isBroadcasting}
+                ui={panelUi}
+                compact
+              />
+            )}
+
             {/* Single split button — opens dropdown with left/right/up/down choices */}
             {loading && onSplitPane && (
               <div style={{

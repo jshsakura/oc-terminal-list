@@ -2521,6 +2521,8 @@ from routes.local_git import (  # noqa: E402
 
 app.include_router(local_git_router)
 
+from routes.snippets import router as snippets_router  # noqa: E402
+app.include_router(snippets_router)
 
 
 @app.get("/api/files/workspace")

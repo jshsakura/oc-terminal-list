@@ -2,7 +2,7 @@
  * Terminal 컴포넌트
  * xterm.js 기반 터미널 에뮬레이터 (테마 및 스마트 스크롤 지원)
  */
-import { useEffect, useRef, useState, useCallback, useMemo, memo } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, memo, forwardRef, useImperativeHandle } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -102,7 +102,7 @@ const issueWsTicket = async (path) => {
   }
 };
 
-const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null }) => {
+const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null }, ref) => {
   const { t } = useTranslation(settings.language);
   const terminalRef = useRef(null);
   const touchOverlayRef = useRef(null);
@@ -374,6 +374,19 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
 
     const imageAddon = new ImageAddon();
     term.loadAddon(imageAddon);
+
+    // BEL(\x07) 수신 시 탭이 백그라운드면 브라우저 알림 (설정 켜야 동작)
+    term.onBell(() => {
+      if (!settings.bellNotifications) return;
+      if (!document.hidden) return;
+      if (Notification.permission !== 'granted') return;
+      new Notification('Terminal bell', {
+        body: paneId ? `Pane ${paneId.slice(0, 6)}` : 'Terminal',
+        icon: '/favicon.svg',
+        tag: `bell-${paneId || sessionId}`,
+        silent: false,
+      });
+    });
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
@@ -1170,10 +1183,12 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
       if (data.length <= INPUT_CHUNK && inputQueueRef.current.length === 0 && ws.bufferedAmount < WS_BUFFER_HIGH_WATER) {
         ws.send(data);
+        onBroadcastRef.current?.(data);
         return;
       }
       inputQueueRef.current.push(data);
       scheduleInputFlush(0);
+      onBroadcastRef.current?.(data);
     });
 
     // 스크롤 이벤트 연결
@@ -1418,6 +1433,13 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       }
     }
   }, [sessionId]);
+
+  // Broadcast: onBroadcast prop 은 broadcastActive 변화마다 교체되므로 ref 로 최신 유지
+  const onBroadcastRef = useRef(onBroadcast);
+  useEffect(() => { onBroadcastRef.current = onBroadcast; }, [onBroadcast]);
+
+  // 부모(PaneGrid)가 ref 를 통해 sendData 를 호출 — broadcast fan-out 에서 사용.
+  useImperativeHandle(ref, () => ({ sendData }), [sendData]);
 
   const getSelection = useCallback(() => {
     return xtermRef.current?.getSelection() || '';
@@ -1953,7 +1975,7 @@ const TerminalComponent = ({ sessionId, hostId, isMobile = false, tmuxSuffix = n
       )}
     </>
   );
-};
+});
 
 const GlassOverlayCard = ({ themeUi, zIndex = 10040, children }) => (
   <div style={{
