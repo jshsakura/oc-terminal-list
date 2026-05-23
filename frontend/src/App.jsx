@@ -7,7 +7,6 @@ import useTranslation from './hooks/useTranslation';
 import useAuth from './hooks/useAuth';
 import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
-import useActiveTerminalCwd from './hooks/useActiveTerminalCwd';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
@@ -1149,11 +1148,6 @@ function App() {
     return activeTab.panes.find((p) => p.id === activeTab.activePaneId) || activeTab.panes[0] || null;
   }, [activeTab]);
   const isFocusedLocal = focusedPane && !focusedPane.hostId;
-  const { workspaceRelative: activeCwdRel } = useActiveTerminalCwd({
-    sessionId: isFocusedLocal ? focusedPane?.sessionId : null,
-    isLocal: !!isFocusedLocal,
-  });
-  const gitContextPath = activeCwdRel ?? '';
   const focusedHostId = focusedPane?.hostId || null;
 
   // ── 자동 탭 이름 (Jupyter 식) ────────────────────────────────────────────

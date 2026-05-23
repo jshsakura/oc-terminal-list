@@ -779,7 +779,7 @@ const Pane = ({
   // pane CWD 추적 — tmux #{pane_current_path} 를 마운트/명시적 새로고침 때만 조회한다.
   const { workspaceRelative: paneCwdRel, absolutePath: paneCwdAbs, refresh: refreshPaneCwd } = useActiveTerminalCwd({
     sessionId: isLocal ? (pane.sessionId || null) : null,
-    hostId: !isLocal ? (pane.hostId || null) : null,
+    hostId: !isLocal && remoteHost ? (pane.hostId || null) : null,
     tmuxSession: remoteTmuxSession,
     isLocal,
     refreshSignal: refreshNonce,

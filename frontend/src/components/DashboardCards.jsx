@@ -17,39 +17,54 @@ const { color, font, fontSize, fontWeight, radius, space } = tokens;
  *  └─────────────────────────────┘
  */
 const VISIBLE_REFETCH_COOLDOWN_MS = 30 * 1000;
+// 모듈레벨 캐시 — App-level + EmptyPane 두 인스턴스가 동시 마운트 시 burst 방지
+const _summaryCache = new Map(); // `days` → { data, ts }
+const SUMMARY_CACHE_TTL_MS = 10 * 1000;
+// 진행 중인 in-flight promise — 같은 days 키에 대해 단 하나만 유지
+const _summaryInFlight = new Map(); // `days` → Promise
 
 const DashboardCards = ({ hosts = [], settings = {}, days = 7, t }) => {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(() => _summaryCache.get(days)?.data ?? null);
+  const [loading, setLoading] = useState(() => !_summaryCache.get(days));
   const [err, setErr] = useState(null);
   const containerRef = useRef(null);
-  const lastFetchRef = useRef(0);
-  const inFlightRef = useRef(false);
+  const lastFetchRef = useRef(_summaryCache.get(days)?.ts ?? 0);
 
   const fetchSummary = useCallback(() => {
-    if (inFlightRef.current) return;
-    inFlightRef.current = true;
+    const cached = _summaryCache.get(days);
+    if (cached && Date.now() - cached.ts < SUMMARY_CACHE_TTL_MS) {
+      setData(cached.data);
+      setLoading(false);
+      lastFetchRef.current = cached.ts;
+      return;
+    }
+    // 동일 days 를 여러 인스턴스가 동시에 요청하면 in-flight promise 공유
+    if (_summaryInFlight.has(days)) {
+      _summaryInFlight.get(days).then((d) => {
+        setData(d); setLoading(false); setErr(null);
+      }).catch((e) => { setErr(e.message || 'fetch failed'); setLoading(false); });
+      return;
+    }
     setErr(null);
-    fetch(`/api/usage/summary?days=${days}`, {
-      headers: authHeaders(),
-    })
+    const p = fetch(`/api/usage/summary?days=${days}`, { headers: authHeaders() })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((d) => {
-        setData(d);
-        setLoading(false);
-        lastFetchRef.current = Date.now();
+        _summaryCache.set(days, { data: d, ts: Date.now() });
+        return d;
       })
-      .catch((e) => {
-        setErr(e.message || 'fetch failed');
-        setLoading(false);
-      })
-      .finally(() => { inFlightRef.current = false; });
+      .finally(() => { _summaryInFlight.delete(days); });
+    _summaryInFlight.set(days, p);
+    p.then((d) => {
+      setData(d);
+      setLoading(false);
+      lastFetchRef.current = Date.now();
+    }).catch((e) => { setErr(e.message || 'fetch failed'); setLoading(false); });
   }, [days]);
 
   useEffect(() => {
-    setLoading(true);
+    if (!_summaryCache.has(days)) setLoading(true);
     fetchSummary();
-  }, [fetchSummary]);
+  }, [fetchSummary, days]);
 
   // 빈 패널이 viewport 에 다시 들어올 때 1회 — 다른 pane 보다가 돌아왔을 때 통계가 신선하게.
   // cooldown 으로 짧은 시간 안 반복 트리거 방지.
