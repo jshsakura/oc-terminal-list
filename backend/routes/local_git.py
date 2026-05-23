@@ -126,6 +126,38 @@ async def _collect_repo_status(repo_root: str, workspace_abs: str, items_cap: in
 _REPO_SCAN_CACHE: dict = {"ts": 0.0, "roots": []}
 _REPO_SCAN_TTL = 60.0
 
+# git status 결과 단기 캐시 — 여러 탭/컴포넌트가 같은 repo 를 동시 폴링할 때
+# subprocess 중복 실행 방지. asyncio.Lock 으로 in-flight 코알레싱도 겸함.
+_GIT_STATUS_CACHE: dict[str, dict] = {}
+_GIT_STATUS_TTL = 3.0
+_GIT_STATUS_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+async def _get_cached_repo_status(repo_root: str, workspace_abs: str) -> dict:
+    """_collect_repo_status 에 TTL 캐시 + asyncio.Lock 코알레싱 추가.
+
+    같은 repo_root 에 대한 동시 요청은 첫 번째만 subprocess 실행하고
+    나머지는 결과를 공유한다. TTL(3s) 내 재요청은 캐시 즉시 반환.
+    """
+    now = time.time()
+    entry = _GIT_STATUS_CACHE.get(repo_root)
+    if entry and now - entry["ts"] < _GIT_STATUS_TTL:
+        return entry["data"]
+
+    if repo_root not in _GIT_STATUS_LOCKS:
+        _GIT_STATUS_LOCKS[repo_root] = asyncio.Lock()
+
+    async with _GIT_STATUS_LOCKS[repo_root]:
+        # Lock 대기 중 다른 코루틴이 이미 갱신했을 수 있음 — 재확인
+        now = time.time()
+        entry = _GIT_STATUS_CACHE.get(repo_root)
+        if entry and now - entry["ts"] < _GIT_STATUS_TTL:
+            return entry["data"]
+
+        data = await _collect_repo_status(repo_root, workspace_abs)
+        _GIT_STATUS_CACHE[repo_root] = {"ts": time.time(), "data": data}
+        return data
+
 
 async def _scan_workspace_repos(workspace_abs: str, max_depth: int = 2) -> list[str]:
     """워크스페이스에서 git repo 들의 루트 경로를 탐색 (max_depth 까지). 60초 캐시."""
@@ -175,7 +207,7 @@ async def git_status(
         if not repo_roots:
             return {"items": [], "branch": None, "repo": None, "repos": [], "error": None}
         results = await asyncio.gather(*[
-            _collect_repo_status(r, workspace_abs) for r in repo_roots
+            _get_cached_repo_status(r, workspace_abs) for r in repo_roots
         ], return_exceptions=False)
         repos_meta = []
         all_items = []
@@ -210,65 +242,19 @@ async def git_status(
         return {"items": [], "branch": None, "repo": None, "repos": [], "error": None}
 
     try:
-        rc, stdout, stderr = await run_proc(
-            ["git", "-C", repo_root, "status", "--porcelain=v1", "-uall"],
-            timeout=GIT_STATUS_TIMEOUT,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        if rc != 0:
-            return {
-                "items": [],
-                "branch": None,
-                "repo": repo_root,
-                "error": stderr.decode("utf-8", errors="replace").strip() or "git status failed",
-            }
-
+        r = await _get_cached_repo_status(repo_root, workspace_abs)
+        if r.get("error"):
+            return {"items": [], "branch": None, "repo": repo_root, "error": r["error"]}
         repo_rel_prefix = os.path.relpath(repo_root, workspace_abs).replace("\\", "/")
         if repo_rel_prefix in (".", ""):
             repo_rel_prefix = ""
-
-        items = []
-        for line in stdout.decode().splitlines():
-            if len(line) < 3:
-                continue
-            staged_code = line[0]
-            unstaged_code = line[1]
-            rel_to_repo = line[3:].strip().strip('"')
-            kind = (
-                "untracked" if line[:2] == "??"
-                else "deleted" if "D" in line[:2]
-                else "added" if "A" in line[:2]
-                else "modified"
-            )
-            workspace_rel = (
-                f"{repo_rel_prefix}/{rel_to_repo}" if repo_rel_prefix else rel_to_repo
-            )
-            items.append({
-                "path": workspace_rel,
-                "repo_path": rel_to_repo,
-                "code": (staged_code + unstaged_code).strip(),
-                "kind": kind,
-                "staged": staged_code not in (" ", "?"),
-            })
-
-        b_rc, b_out, _ = await run_proc(
-            ["git", "-C", repo_root, "rev-parse", "--abbrev-ref", "HEAD"],
-            timeout=GIT_QUICK_TIMEOUT,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        branch = b_out.decode().strip() if b_rc == 0 else None
-
         return {
-            "items": items,
-            "branch": branch,
+            "items": r["items"],
+            "branch": r["branch"],
             "repo": repo_root,
             "repo_relative": repo_rel_prefix,
             "error": None,
         }
-    except FileNotFoundError:
-        return {"items": [], "branch": None, "repo": None, "error": "git binary not found"}
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="git status timed out")
     except Exception as e:
