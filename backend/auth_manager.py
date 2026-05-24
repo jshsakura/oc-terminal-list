@@ -192,6 +192,15 @@ class AuthManager:
 
         return self.verify_password(password, admin_data["password"])
 
+    async def change_password(
+        self, username: str, current_password: str, new_password: str
+    ) -> bool:
+        """현재 비밀번호 확인 후 새 비밀번호로 교체. 실패 시 False."""
+        if not await self.verify_admin(username, current_password):
+            return False
+        hashed = self.hash_password(new_password)
+        return await self.storage.update_admin_password(username, hashed)
+
     async def create_access_token(self, username: str) -> str:
         """Create JWT access token"""
         secret_key = await self.ensure_secret_key()

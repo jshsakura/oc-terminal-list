@@ -51,6 +51,10 @@ const _textDecoder = new TextDecoder('utf-8');
 const _textEncoder = new TextEncoder();
 const RECOVERY_GRACE_MS = 12000;
 const RECOVERY_POLL_MS = 1000;
+// 셸이 깨끗이 종료(exit)된 게 확인되면 짧은 취소 여유를 두고 pane 자동 닫기.
+const AUTO_CLOSE_MS = 1800;
+// 로딩이 이 시간을 넘기면 "멈춤"으로 보고 수동 닫기 버튼을 노출 (행 걸린 pane 탈출구).
+const LOAD_STUCK_MS = 8000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // clipboard.writeText 가 없거나 비-HTTPS 컨텍스트에서 실패할 경우 textarea 폴백.
@@ -148,6 +152,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const [ended, setEnded] = useState(false);
   const [endedNotice, setEndedNotice] = useState('');
   const [reconnecting, setReconnecting] = useState(false);
+  // exit 등으로 셸이 종료돼 pane 을 자동으로 닫는 중 — 짧은 취소 카운트다운 표시.
+  const [closing, setClosing] = useState(false);
+  const autoCloseTimerRef = useRef(null);
+  // 로딩이 오래 걸려 멈춘 것으로 보일 때 true — 스켈레톤 위에 수동 닫기 버튼 노출.
+  const [loadStuck, setLoadStuck] = useState(false);
   const reconnectingRef = useRef(false);
   const contentReadyRef = useRef(false);
   const onReadyChangeRef = useRef(onReadyChange);
@@ -156,6 +165,35 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   onStatusChangeRef.current = onStatusChange;
 
   // 상태 변화 시 부모에 통지 — evicted, ended, isReady, hasContent 변경마다 호출
+  // exit 로 셸이 종료된 게 확인됐을 때: 짧은 취소 여유 후 pane 자동 닫기.
+  // onClosePane 이 없으면(닫을 방법 없음) 기존 ended 오버레이로 폴백.
+  const beginAutoClose = useCallback(() => {
+    if (!onClosePane) {
+      endedRef.current = true;
+      setEnded(true);
+      setEndedNotice('');
+      return;
+    }
+    setClosing(true);
+    if (autoCloseTimerRef.current) clearTimeout(autoCloseTimerRef.current);
+    autoCloseTimerRef.current = setTimeout(() => {
+      autoCloseTimerRef.current = null;
+      onClosePane();
+    }, AUTO_CLOSE_MS);
+  }, [onClosePane]);
+
+  const cancelAutoClose = useCallback(() => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+    setClosing(false);
+    // 자동 닫기를 취소하면 수동 액션(닫기/다시 연결)을 고를 수 있게 ended 오버레이로 전환.
+    endedRef.current = true;
+    setEnded(true);
+    setEndedNotice('');
+  }, []);
+
   const notifyStatus = useCallback(() => {
     onStatusChangeRef.current?.({
       evicted: evictedRef.current,
@@ -211,6 +249,25 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       }
     };
   }, [authPrompt]);
+
+  // 언마운트 시 auto-close 타이머 정리 (pane 이 다른 경로로 먼저 닫히는 경우 대비).
+  useEffect(() => () => {
+    if (autoCloseTimerRef.current) {
+      clearTimeout(autoCloseTimerRef.current);
+      autoCloseTimerRef.current = null;
+    }
+  }, []);
+
+  // 로딩 멈춤 감지 — 콘텐츠가 안 들어오고 다른 오버레이도 없는 상태가 LOAD_STUCK_MS 넘게
+  // 지속되면 수동 닫기 버튼을 노출한다. 콘텐츠/연결 회복 시 즉시 해제.
+  useEffect(() => {
+    if (hasContent || ended || evicted || closing) {
+      setLoadStuck(false);
+      return;
+    }
+    const timer = setTimeout(() => setLoadStuck(true), LOAD_STUCK_MS);
+    return () => clearTimeout(timer);
+  }, [hasContent, ended, evicted, closing, reconnecting]);
 
   // 스마트 스크롤 훅 — xterm buffer API 기반 (DOM scrollTop 아님)
   const { handleUserScroll, handleNewData } = useSmartScroll(xtermRef, {
@@ -1061,6 +1118,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           // 겹칠 수 있다. 여기서 바로 "셸 종료"로 확정하지 않고 grace window 동안
           // attached/exists 회복을 본 다음, 그래도 없으면 재연결로 세션 재생성을 시도한다.
           const deadline = Date.now() + RECOVERY_GRACE_MS;
+          let recovered = false;
           while (Date.now() < deadline) {
             await sleep(RECOVERY_POLL_MS);
             if (isStaleSocket()) return;
@@ -1072,8 +1130,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
               return;
             }
             if (nextPf.exists !== false) {
+              recovered = true;
               break;
             }
+          }
+          if (!recovered) {
+            // grace window 내내 세션이 없었음 → exit 등으로 셸이 깨끗이 종료된 것.
+            // 재연결/오버레이 대신 짧은 취소 카운트다운 후 pane 을 자동으로 닫는다.
+            if (isStaleSocket()) return;
+            beginAutoClose();
+            return;
           }
           // 열린 터미널의 재연결은 기존 세션만 찾는다. 새 셸 생성은 새 탭/새 세션 흐름에서만 한다.
         }
@@ -1713,6 +1779,58 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         </div>
       )}
 
+      {/* 로딩이 오래 멈춰 있을 때 — 스켈레톤 위에 다시 시도 / 닫기 탈출구 노출. */}
+      {loadStuck && !hasContent && !ended && !evicted && !closing && (
+        <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
+          <div style={styles.glassIconTile(themeUi, themeUi.warning || themeUi.subtext)}>
+            <AlertTriangle size={18} strokeWidth={1.8} />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
+              {t('loadStuckTitle') || '응답이 없습니다'}
+            </div>
+            <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
+              {t('loadStuckDesc') || '연결이 오래 걸리고 있습니다. 다시 시도하거나 이 탭을 닫을 수 있습니다.'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+            {onClosePane && (
+              <button
+                type="button"
+                onClick={() => { onClosePane(); }}
+                style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: 1 }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
+              >
+                <X size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
+                {t('close') || '닫기'}
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={reconnecting}
+              onClick={() => {
+                if (reconnectingRef.current) return;
+                reconnectingRef.current = true;
+                setReconnecting(true);
+                setLoadStuck(false);
+                reconnectAttemptsRef.current = 0;
+                if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
+                else window.location.reload();
+              }}
+              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: 1, opacity: reconnecting ? 0.7 : 1 }}
+              onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
+            >
+              {reconnecting
+                ? <Loader2 size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px', animation: 'tl-spin 0.8s linear infinite' }} />
+                : <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />}
+              {reconnecting ? (t('reconnecting') || '연결 중...') : (t('retry') || '다시 시도')}
+            </button>
+          </div>
+        </GlassOverlayCard>
+      )}
+
       {/* xterm.js 컨테이너 — 좌/우/상에 약간의 호흡 패딩.
           fitAddon 은 element.clientWidth(=content box, padding 제외) 기준이라 cols 자동 계산 정확.
           tmux 안 건드림. */}
@@ -1890,7 +2008,33 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         </GlassOverlayCard>
       )}
 
-      {ended && !evicted && (
+      {closing && !evicted && (
+        <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
+          <div style={styles.glassIconTile(themeUi, themeUi.subtext)}>
+            <PowerOff size={18} strokeWidth={1.8} />
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
+              {t('shellEndedTitle') || '셸이 종료되었습니다'}
+            </div>
+            <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
+              {t('autoClosingDesc') || '잠시 후 이 탭이 닫힙니다.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={cancelAutoClose}
+            style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), width: '100%' }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
+          >
+            <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
+            {t('undoClose') || '되돌리기'}
+          </button>
+        </GlassOverlayCard>
+      )}
+
+      {ended && !evicted && !closing && (
         <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
           <div style={styles.glassIconTile(themeUi, themeUi.subtext)}>
             <PowerOff size={18} strokeWidth={1.8} />

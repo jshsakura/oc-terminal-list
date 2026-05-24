@@ -12,6 +12,7 @@ import Button from './common/Button';
 import HostIcon from '../utils/hostIcons';
 import OtpSection from './OtpSection';
 import PasskeySection from './PasskeySection';
+import PasswordSection from './PasswordSection';
 import MobileKeysEditor from './MobileKeysEditor';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_SETTINGS } from '../hooks/useSettings';
@@ -187,6 +188,12 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           style={styles.input}
         />
       </Field>
+    </Section>
+
+    <Divider />
+
+    <Section title={t('changePassword') || 'Change password'}>
+      <PasswordSection onLogout={onLogout} t={t} />
     </Section>
 
     <Divider />

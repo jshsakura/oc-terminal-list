@@ -311,6 +311,11 @@ class OtpDisableRequest(BaseModel):
     password: str
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 from file_models import (  # noqa: E402
     FileCreateRequest,
     FileMoveRequest,
@@ -1060,6 +1065,29 @@ async def verify_token(
 
 @app.post("/api/auth/logout")
 async def logout(response: Response):
+    _clear_auth_cookie(response)
+    return {"success": True}
+
+
+@app.post("/api/auth/change-password")
+async def change_password(
+    request: PasswordChangeRequest,
+    response: Response,
+    username: str = Depends(verify_auth_token),
+):
+    """현재 비밀번호 확인 후 새 비밀번호로 변경. 성공 시 세션 쿠키 무효화."""
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    if len(request.new_password) < 8:
+        raise HTTPException(status_code=400, detail="비밀번호는 8자 이상이어야 합니다")
+    if request.new_password == request.current_password:
+        raise HTTPException(status_code=400, detail="새 비밀번호가 기존 비밀번호와 같습니다")
+    changed = await auth_manager.change_password(
+        username, request.current_password, request.new_password
+    )
+    if not changed:
+        raise HTTPException(status_code=401, detail="현재 비밀번호가 올바르지 않습니다")
+    # 비밀번호 변경 후 재로그인 강제 — 기존 세션 쿠키 제거
     _clear_auth_cookie(response)
     return {"success": True}
 

@@ -368,6 +368,20 @@ class SQLiteStorage:
                 self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
+    async def update_admin_password(self, username: str, password_hash: str) -> bool:
+        def _update():
+            conn = self._get_connection()
+            try:
+                cur = conn.execute(
+                    "UPDATE admin SET password = ? WHERE username = ?",
+                    (password_hash, username),
+                )
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                self._release_connection(conn)
+        return await asyncio.to_thread(_update)
+
     async def set_admin_otp(self, username: str, secret_enc: str | None, enabled: bool) -> None:
         def _set():
             conn = self._get_connection()
