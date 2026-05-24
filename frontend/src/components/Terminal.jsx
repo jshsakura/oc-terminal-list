@@ -55,6 +55,10 @@ const RECOVERY_POLL_MS = 1000;
 const AUTO_CLOSE_MS = 1800;
 // 로딩이 이 시간을 넘기면 "멈춤"으로 보고 수동 닫기 버튼을 노출 (행 걸린 pane 탈출구).
 const LOAD_STUCK_MS = 8000;
+// 앱 레벨 하트비트 — half-open(죽었지만 OPEN 으로 보이는) 소켓 감지.
+// 클라이언트가 ping 을 보내고 서버 pong(또는 그 외 메시지) 을 일정 시간 못 받으면 죽은 소켓으로 보고 강제 재연결.
+const HEARTBEAT_INTERVAL_MS = 15000;
+const HEARTBEAT_DEAD_MS = 35000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // clipboard.writeText 가 없거나 비-HTTPS 컨텍스트에서 실패할 경우 textarea 폴백.
@@ -129,6 +133,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const resizeTrailingTimeoutRef = useRef(null);
   const fitNowRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const heartbeatTimerRef = useRef(null);
+  const lastRecvRef = useRef(0);
+  const authPromptRef = useRef(false);
   const wsFlushTimeoutRef = useRef(null);
   const wsBufferRef = useRef([]);
   const inputQueueRef = useRef([]);
@@ -244,6 +251,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 언마운트 시 강제 close — TrueNAS MFA 시도 중 탭 닫으면 App 의 authPromptOpen 이
   // true 로 stuck 되어 모바일바가 전체 탭에서 사라지는 버그 방지.
   useEffect(() => {
+    authPromptRef.current = !!authPrompt;
     window.dispatchEvent(new CustomEvent('iterm:auth-prompt', { detail: { open: !!authPrompt } }));
     return () => {
       if (authPrompt) {
@@ -946,6 +954,33 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           setEvicted(false);
         }
 
+        // 재연결로 다시 열렸을 때, 끊겨있는 동안 큐에 쌓인 입력을 즉시 흘려보낸다.
+        if (inputQueueRef.current.length > 0) scheduleInputFlush(0);
+
+        // 하트비트 시작 — half-open 소켓 감지. onopen 직후 lastRecv 초기화.
+        lastRecvRef.current = Date.now();
+        if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
+        // 각 interval 은 자기 id 만 정리 — 재연결로 새 interval 이 떠도 stale tick 이 그걸 끄지 않게.
+        const hbId = setInterval(() => {
+          if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) {
+            clearInterval(hbId);
+            if (heartbeatTimerRef.current === hbId) heartbeatTimerRef.current = null;
+            return;
+          }
+          // 백그라운드 탭은 grace-close 가 따로 처리하고, 타이머가 throttle 되어 오탐 위험.
+          // 인증 prompt 중에는 사용자가 응답 중이라 끊지 않는다.
+          if (document.hidden || authPromptRef.current) return;
+          if (socket.readyState !== WebSocket.OPEN) return;
+          // 서버 응답(pong 등)이 임계 시간 넘게 없으면 half-open 으로 보고 강제 close → onclose 가 재연결.
+          if (Date.now() - lastRecvRef.current > HEARTBEAT_DEAD_MS) {
+            logger.warn(`WS 하트비트 타임아웃 — 죽은 소켓 감지, 재연결: ${sessionId}`);
+            try { socket.close(); } catch { /* noop */ }
+            return;
+          }
+          try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+        }, HEARTBEAT_INTERVAL_MS);
+        heartbeatTimerRef.current = hbId;
+
         // 서버에 현재 크기 무조건 한번 더 전송 — tmux 가 이전 클라이언트 차원으로 잠긴 케이스 강제 갱신.
         const sendResize = () => {
           if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
@@ -1062,6 +1097,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     socket.onmessage = (event) => {
       if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
+      // 어떤 메시지든 수신 = 연결 살아있음. 하트비트 워치독 기준 갱신.
+      lastRecvRef.current = Date.now();
       // binary array buffer data
       if (event.data instanceof ArrayBuffer) {
         // Fast heuristic check for detached token without decoding large buffers
@@ -1086,6 +1123,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (typeof event.data === 'string' && event.data.length > 1 && event.data[0] === '{' && event.data[event.data.length - 1] === '}') {
         try {
           const msg = JSON.parse(event.data);
+          if (msg && msg.type === 'pong') {
+            // 하트비트 응답 — lastRecv 는 위에서 이미 갱신됨. 터미널로 흘리지 않는다.
+            return;
+          }
           if (msg && msg.type === 'auth-prompt') {
             setAuthPrompt(msg);
             return;
@@ -1114,6 +1155,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     };
 
     socket.onclose = (event) => {
+      if (heartbeatTimerRef.current) {
+        clearInterval(heartbeatTimerRef.current);
+        heartbeatTimerRef.current = null;
+      }
       if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
       if (intentionalCloseRef.current) return;
       logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
@@ -1402,6 +1447,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (heartbeatTimerRef.current) { clearInterval(heartbeatTimerRef.current); heartbeatTimerRef.current = null; }
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
       if (inputFlushTimeoutRef.current) clearTimeout(inputFlushTimeoutRef.current);
       if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
@@ -1671,6 +1717,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clearTimeout(graceCloseTimerRef.current);
         graceCloseTimerRef.current = null;
       }
+      // 백그라운드 동안 타이머 throttle 로 ping 을 못 보냈을 수 있으니, 복귀 시 워치독 기준을 리셋.
+      lastRecvRef.current = Date.now();
       if (wasClosedForInactivityRef.current && connectRef.current) {
         wasClosedForInactivityRef.current = false;
         // 다음 unexpected close 는 다시 auto-reconnect 흐름 타게 reset.

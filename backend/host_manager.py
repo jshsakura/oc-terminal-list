@@ -231,6 +231,8 @@ class HostBridge:
         self.process: asyncssh.SSHClientProcess | None = None
         self._closed = asyncio.Event()
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        # 출력 펌프와 pong 응답이 동시에 send 하지 않도록 직렬화.
+        self._send_lock = asyncio.Lock()
 
     async def _ws_kbdint_prompter(self, name: str, instructions: str, prompts: list) -> list | None:
         """asyncssh keyboard-interactive 챌린지를 WS 로 사용자에게 전달하고 응답 수신.
@@ -344,7 +346,8 @@ class HostBridge:
                 if self.websocket.client_state.name != "CONNECTED":
                     break
                 try:
-                    await asyncio.wait_for(self.websocket.send_bytes(chunk), timeout=5.0)
+                    async with self._send_lock:
+                        await asyncio.wait_for(self.websocket.send_bytes(chunk), timeout=5.0)
                 except asyncio.TimeoutError:
                     logger.info("ws send timeout (host bridge) — closing")
                     break
@@ -372,6 +375,10 @@ class HostBridge:
                             if cols != self.cols or rows != self.rows:
                                 self.cols, self.rows = cols, rows
                                 self.process.change_terminal_size(cols, rows)
+                            continue
+                        if isinstance(msg, dict) and msg.get("type") == "ping":
+                            async with self._send_lock:
+                                await self.websocket.send_text('{"type":"pong"}')
                             continue
                     except Exception:
                         pass
@@ -470,6 +477,8 @@ class TailscaleHostBridge:
         self.process: ptyprocess.PtyProcess | None = None
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
+        # 출력 펌프와 pong 응답이 동시에 send 하지 않도록 직렬화.
+        self._send_lock = asyncio.Lock()
 
     def _build_argv(self) -> list[str]:
         ssh_user = self.host.get("ssh_user") or os.environ.get("USER") or "root"
@@ -566,7 +575,8 @@ class TailscaleHostBridge:
                         size += len(chunk)
                         pending_bytes = max(0, pending_bytes - len(chunk))
                     try:
-                        await self.websocket.send_bytes(b"".join(buf_parts))
+                        async with self._send_lock:
+                            await self.websocket.send_bytes(b"".join(buf_parts))
                     except Exception:
                         self._closed.set()
                         break
@@ -599,6 +609,10 @@ class TailscaleHostBridge:
                                     self.process.setwinsize(rows, cols)
                                 except Exception:
                                     pass
+                            continue
+                        if isinstance(msg, dict) and msg.get("type") == "ping":
+                            async with self._send_lock:
+                                await self.websocket.send_text('{"type":"pong"}')
                             continue
                     except Exception:
                         pass

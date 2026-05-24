@@ -41,6 +41,9 @@ class TmuxClientBridge:
         self.process: ptyprocess.PtyProcess | None = None
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
+        # 출력 펌프(send_bytes)와 pong 응답(send_text)이 서로 다른 task 에서
+        # 동시에 send 하지 않도록 직렬화.
+        self._send_lock = asyncio.Lock()
 
     def _spawn(self) -> None:
         env = os.environ.copy()
@@ -152,7 +155,8 @@ class TmuxClientBridge:
                     pending_bytes = max(0, pending_bytes - len(chunk))
                 
                 try:
-                    await self.websocket.send_bytes(b"".join(buf))
+                    async with self._send_lock:
+                        await self.websocket.send_bytes(b"".join(buf))
                 except Exception as e:
                     logger.info("ws send failed, closing bridge (%s): %s", self.session_id, e)
                     self._closed.set()
@@ -194,9 +198,16 @@ class TmuxClientBridge:
                 if stripped.startswith("{") and stripped.endswith("}"):
                     try:
                         msg = json.loads(stripped)
-                        if isinstance(msg, dict) and msg.get("type") == "resize":
-                            self.resize(int(msg.get("cols", self.cols)), int(msg.get("rows", self.rows)))
-                            continue
+                        if isinstance(msg, dict):
+                            mtype = msg.get("type")
+                            if mtype == "resize":
+                                self.resize(int(msg.get("cols", self.cols)), int(msg.get("rows", self.rows)))
+                                continue
+                            # 클라이언트 하트비트 — half-open 소켓 감지용. PTY 로 흘리지 않고 pong 응답.
+                            if mtype == "ping":
+                                async with self._send_lock:
+                                    await self.websocket.send_text('{"type":"pong"}')
+                                continue
                     except Exception:
                         pass
                 self.write_input(data)
