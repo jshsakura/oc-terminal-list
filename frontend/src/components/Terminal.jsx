@@ -157,6 +157,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const autoCloseTimerRef = useRef(null);
   // 로딩이 오래 걸려 멈춘 것으로 보일 때 true — 스켈레톤 위에 수동 닫기 버튼 노출.
   const [loadStuck, setLoadStuck] = useState(false);
+  // 클립보드 이미지 붙여넣기 진행 상태: 'uploading' | 'done' | 'error' | null
+  const [imagePasteState, setImagePasteState] = useState(null);
   const reconnectingRef = useRef(false);
   const contentReadyRef = useRef(false);
   const onReadyChangeRef = useRef(onReadyChange);
@@ -606,8 +608,49 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     // paste 이벤트: ClipboardEvent.clipboardData → clipboard-read 권한 불필요.
     // capture 단계(true)에서 xterm 자체 핸들러보다 먼저 실행해 중복 전송 방지.
+    // 클립보드 이미지 → 서버 업로드 후 저장 경로를 터미널 입력으로 주입.
+    // (PTY 는 텍스트만 전달하므로 이미지 자체는 못 보냄 → 경로로 우회.)
+    const uploadPastedImage = async (blob) => {
+      setImagePasteState('uploading');
+      try {
+        const fd = new FormData();
+        const ext = (blob.type.split('/')[1] || 'png').replace('+xml', '');
+        fd.append('file', blob, `pasted.${ext}`);
+        const res = await fetch('/api/terminal/paste-image', {
+          method: 'POST',
+          headers: authHeaders(),
+          body: fd,
+        });
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.detail || `${res.status}`);
+        // 경로 뒤 공백 — 사용자가 이어서 질문을 타이핑할 수 있게.
+        term.paste(`${data.path} `);
+        setImagePasteState('done');
+        setTimeout(() => setImagePasteState(null), 1200);
+      } catch (err) {
+        logger.error('image paste upload failed', err);
+        setImagePasteState('error');
+        setTimeout(() => setImagePasteState(null), 2500);
+      }
+    };
+
     const handlePaste = (e) => {
-      const text = e.clipboardData?.getData('text/plain');
+      const cd = e.clipboardData;
+      if (!cd) return;
+      // 이미지가 클립보드에 있으면 텍스트보다 우선 처리.
+      const imageItem = Array.from(cd.items || []).find(
+        (it) => it.kind === 'file' && it.type.startsWith('image/'),
+      );
+      if (imageItem) {
+        const blob = imageItem.getAsFile();
+        if (blob) {
+          e.preventDefault();
+          e.stopPropagation();
+          uploadPastedImage(blob);
+          return;
+        }
+      }
+      const text = cd.getData('text/plain');
       if (!text) return;
       e.preventDefault();
       e.stopPropagation();
@@ -1952,6 +1995,53 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         >
           <Copy size={11} strokeWidth={2} style={{ color: themeUi.accent }} />
           {t('copied') || 'Copied'}
+        </div>
+      )}
+
+      {imagePasteState && (
+        <div
+          aria-live="assertive"
+          aria-atomic="true"
+          style={{
+            position: 'absolute',
+            bottom: '10px',
+            right: '10px',
+            background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0 || '#313244'} 92%, transparent)`,
+            backdropFilter: 'blur(8px)',
+            WebkitBackdropFilter: 'blur(8px)',
+            color: imagePasteState === 'error' ? (themeUi.danger || themeUi.text) : themeUi.text,
+            border: `1px solid ${themeUi.border}`,
+            borderRadius: '6px',
+            padding: '4px 10px',
+            fontSize: '11px',
+            fontFamily: 'system-ui, -apple-system, sans-serif',
+            fontWeight: 500,
+            pointerEvents: 'none',
+            zIndex: 15,
+            opacity: 0.95,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+          }}
+        >
+          {imagePasteState === 'uploading' && (
+            <>
+              <Loader2 size={11} strokeWidth={2} style={{ color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
+              {t('imagePasteUploading') || '이미지 업로드 중...'}
+            </>
+          )}
+          {imagePasteState === 'done' && (
+            <>
+              <ArrowDownToLine size={11} strokeWidth={2} style={{ color: themeUi.accent }} />
+              {t('imagePasteDone') || '이미지 경로 입력됨'}
+            </>
+          )}
+          {imagePasteState === 'error' && (
+            <>
+              <AlertTriangle size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
+              {t('imagePasteError') || '이미지 업로드 실패'}
+            </>
+          )}
         </div>
       )}
 

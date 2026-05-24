@@ -2915,6 +2915,64 @@ async def upload_files(
     return {"status": "uploaded", "files": results}
 
 
+# 클립보드 이미지 붙여넣기 전용 — 단일 이미지 저장 후 절대경로 반환.
+# 터미널에서 paste 시 프론트가 이 경로를 입력으로 주입해 Claude Code 등이 바로 읽게 한다.
+_PASTE_IMAGE_EXT = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/bmp": "bmp",
+    "image/svg+xml": "svg",
+}
+
+
+@app.post("/api/terminal/paste-image")
+async def paste_image(
+    file: UploadFile = FastAPIFile(...),
+    username: str = Depends(verify_auth_token),
+):
+    content_type = (file.content_type or "").lower()
+    if content_type not in _PASTE_IMAGE_EXT:
+        raise HTTPException(status_code=400, detail="이미지 파일만 붙여넣을 수 있습니다")
+
+    workspace = Path(WORKSPACE_ROOT)
+    dest_dir = workspace / ".pasted"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    ext = _PASTE_IMAGE_EXT[content_type]
+    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
+    target = dest_dir / f"pasted-{stamp}.{ext}"
+
+    file_size = 0
+    chunk_size = 1024 * 1024  # 1 MB
+    tmp = target.with_suffix(target.suffix + ".part")
+    try:
+        with open(tmp, "wb") as out:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                if file_size > MAX_UPLOAD_FILE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"이미지가 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)",
+                    )
+                out.write(chunk)
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+    _invalidate_file_index()
+    rel = str(target.relative_to(workspace)).replace("\\", "/")
+    return {"status": "uploaded", "path": str(target), "rel_path": rel, "size": file_size}
+
+
 @app.delete("/api/files")
 async def delete_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
     safe = validate_path(path, allow_root=False)
