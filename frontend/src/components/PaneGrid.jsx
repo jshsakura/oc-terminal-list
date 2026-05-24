@@ -120,6 +120,13 @@ const PaneGrid = ({
       if (p.id !== fromPaneId) termRefMap.current[p.id]?.sendData?.(data);
     }
   }, []);
+  // Terminal imperative handle 등록/해제 — Pane 으로 내려보내 ref 콜백에서 호출.
+  const registerTerminal = useCallback((paneId, handle) => {
+    if (handle) termRefMap.current[paneId] = handle;
+    else delete termRefMap.current[paneId];
+  }, []);
+  // pane 2개 이상일 때만 토글 가능. 그 외엔 null → 헤더 버튼 숨김.
+  const broadcastToggle = panes.length >= 2 ? () => setBroadcastActive((v) => !v) : null;
 
   // ── Snippet Palette ────────────────────────────────────────────────────────
   const [snippetOpen, setSnippetOpen] = useState(false);
@@ -313,6 +320,10 @@ const PaneGrid = ({
                   onPaneDragToSplit={onPaneDragToSplit}
                   onDropTabToPane={onDropTabToPane}
                   onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, pane.id) : null}
+                  isBroadcasting={broadcastActive}
+                  onBroadcastToggle={broadcastToggle}
+                  registerTerminal={registerTerminal}
+                  onBroadcastData={handleBroadcast}
                 />
               </div>
             );
@@ -393,6 +404,10 @@ const PaneGrid = ({
             onDropTabToPane={onDropTabToPane}
             onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, pane.id) : null}
             onEqualizePane={panes.length > 1 ? equalizeCurrentTab : null}
+            isBroadcasting={broadcastActive}
+            onBroadcastToggle={broadcastToggle}
+            registerTerminal={registerTerminal}
+            onBroadcastData={handleBroadcast}
           />
         );
       }
@@ -550,6 +565,10 @@ const PaneGrid = ({
           onDropTabToPane={onDropTabToPane}
           onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, pane.id) : null}
           onEqualizePane={panes.length > 1 ? equalizeCurrentTab : null}
+          isBroadcasting={broadcastActive}
+          onBroadcastToggle={broadcastToggle}
+          registerTerminal={registerTerminal}
+          onBroadcastData={handleBroadcast}
         />
       ))}
     </div>
@@ -620,6 +639,10 @@ const Pane = ({
   onCloseImmediate = null,
   onEqualizePane = null,
   reloadSignal = 0,
+  isBroadcasting = false,
+  onBroadcastToggle = null,
+  registerTerminal = null,
+  onBroadcastData = null,
 }) => {
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
      Terminal/TerminalHeader 에 내려보냄. 전역 settings.theme 자체는 안 건드리므로 다른 pane / 앱 UI
@@ -1072,8 +1095,8 @@ const Pane = ({
           sessionStatus={terminalStatus}
           onSplitPane={onSplitPane}
           onEqualizePane={onEqualizePane}
-          isBroadcasting={broadcastActive}
-          onBroadcastToggle={panes.length >= 2 ? () => setBroadcastActive((v) => !v) : null}
+          isBroadcasting={isBroadcasting}
+          onBroadcastToggle={onBroadcastToggle}
           isMobile={isMobile}
         />
       </div>
@@ -1109,7 +1132,7 @@ const Pane = ({
             />
           ) : (
             <>
-            {broadcastActive && (
+            {isBroadcasting && (
               <div style={{
                 position: 'absolute', inset: 0, zIndex: 5,
                 border: '2px solid #f59e0b',
@@ -1122,11 +1145,8 @@ const Pane = ({
             <Suspense fallback={null}>
               <Terminal
                 key={`${pane.id}:${refreshNonce}`}
-                ref={(handle) => {
-                  if (handle) termRefMap.current[pane.id] = handle;
-                  else delete termRefMap.current[pane.id];
-                }}
-                onBroadcast={(data) => handleBroadcast(pane.id, data)}
+                ref={(handle) => registerTerminal?.(pane.id, handle)}
+                onBroadcast={(data) => onBroadcastData?.(pane.id, data)}
                 sessionId={pane.sessionId || pane.id}
                 hostId={pane.hostId || undefined}
                 isMobile={isMobile}
