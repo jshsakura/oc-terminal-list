@@ -1063,6 +1063,22 @@ async def verify_token(
     return {"valid": True, "username": username}
 
 
+@app.post("/api/auth/refresh")
+async def refresh_token(
+    request: Request,
+    response: Response,
+    username: str = Depends(verify_auth_token),
+):
+    """현재 유효한 토큰으로 만료 시각을 새로 24h 미룬 토큰을 재발급.
+    활동 중인 사용자가 24h 정각에 튕기지 않게 프론트가 주기적으로 호출한다.
+    (만료된 토큰은 Depends 에서 401 → 프론트가 로그인 유도)"""
+    if auth_manager is None:
+        raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
+    access_token = await auth_manager.create_access_token(username)
+    _set_auth_cookie(response, request, access_token)
+    return {"access_token": access_token, "token_type": "bearer", "username": username}
+
+
 @app.post("/api/auth/logout")
 async def logout(response: Response):
     _clear_auth_cookie(response)
