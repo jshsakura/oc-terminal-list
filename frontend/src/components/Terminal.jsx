@@ -59,6 +59,8 @@ const LOAD_STUCK_MS = 8000;
 // 클라이언트가 ping 을 보내고 서버 pong(또는 그 외 메시지) 을 일정 시간 못 받으면 죽은 소켓으로 보고 강제 재연결.
 const HEARTBEAT_INTERVAL_MS = 15000;
 const HEARTBEAT_DEAD_MS = 35000;
+// WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
+const CONNECT_OPEN_TIMEOUT_MS = 12000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // clipboard.writeText 가 없거나 비-HTTPS 컨텍스트에서 실패할 경우 textarea 폴백.
@@ -905,6 +907,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       /* 재연결 시작 — evicted 플래그 리셋. tmux 가 재attach 후 버퍼 리플레이 시
          이전 [detached] 메시지를 다시 내려보내므로 오픈 후 1.5초간 무시. */
       evictedRef.current = false;
+      // 새 연결 시도 시작 — 이후 예기치 않은 close 는 다시 자동복구 대상이 되도록 리셋.
+      intentionalCloseRef.current = false;
       setEndedNotice('');
       let ignoreDetachUntil = 0;
       const proposed = fitAddon.proposeDimensions();
@@ -924,8 +928,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (cancelled) return;
       if (!wsTicket) {
         logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
+        // 스피너를 반드시 풀어준다 — 안 그러면 "연결 중..." 무한 대기.
+        if (reconnectingRef.current) { reconnectingRef.current = false; setReconnecting(false); }
         endedRef.current = true;
         setEnded(true);
+        // 401/403 이면 issueWsTicket 이 이미 session-expired 를 쏴서 로그인 화면이 뜬다.
+        setEndedNotice(t('reconnectTicketFailed') || '재연결에 실패했습니다. 세션이 만료되었거나 서버에 연결할 수 없습니다.');
         return;
       }
       const authQS = `ticket=${encodeURIComponent(wsTicket)}`;
@@ -939,7 +947,22 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       wsGenerationRef.current = wsGeneration;
       wsRef.current = socket;
 
+      // onopen 까지 너무 오래 걸리면(열리지도 닫히지도 않는 좀비 소켓) 중단하고 재시도 가능 상태로.
+      let openTimer = setTimeout(() => {
+        if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
+        if (socket.readyState === WebSocket.OPEN) return;
+        logger.warn(`WebSocket open 타임아웃 — 중단: ${sessionId}`);
+        intentionalCloseRef.current = true; // onclose 가 또 다른 재연결 루프 안 타게
+        try { socket.close(); } catch { /* noop */ }
+        if (reconnectingRef.current) { reconnectingRef.current = false; setReconnecting(false); }
+        endedRef.current = true;
+        setEnded(true);
+        setEndedNotice(t('reconnectTimedOut') || '연결이 지연되고 있습니다. 다시 시도해 주세요.');
+      }, CONNECT_OPEN_TIMEOUT_MS);
+      const clearOpenTimer = () => { if (openTimer) { clearTimeout(openTimer); openTimer = null; } };
+
       socket.onopen = () => {
+        clearOpenTimer();
         if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
         logger.info(`WebSocket 연결 성공: ${sessionId}`);
         ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
@@ -1156,6 +1179,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     };
 
     socket.onclose = (event) => {
+      clearOpenTimer();
       if (heartbeatTimerRef.current) {
         clearInterval(heartbeatTimerRef.current);
         heartbeatTimerRef.current = null;
