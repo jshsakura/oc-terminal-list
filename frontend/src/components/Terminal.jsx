@@ -134,6 +134,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const fitNowRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
   const heartbeatTimerRef = useRef(null);
+  const livenessProbeTimerRef = useRef(null);
   const lastRecvRef = useRef(0);
   const authPromptRef = useRef(false);
   const wsFlushTimeoutRef = useRef(null);
@@ -1315,10 +1316,36 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       }
     };
 
+    // 입력 시점 빠른 생존 확인 — 사용자가 타이핑하는데 서버로부터 한동안 아무 것도 못 받았으면
+    // half-open 의심. ping 을 즉시 쏘고 짧게 기다려 pong(또는 그 외 메시지) 이 안 오면 죽은 소켓으로
+    // 보고 재연결. pong 은 셸 상태와 무관하게 브리지가 응답하므로, 비밀번호 입력/장기 실행 명령처럼
+    // 에코가 없는 상황에서도 오탐하지 않는다. (35s 하트비트보다 훨씬 빠른 ~3s 복구)
+    let lastProbeAt = 0;
+    const probeLiveness = () => {
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      const now = Date.now();
+      if (now - lastProbeAt < 2500) return; // 키 입력마다 쏘지 않게 throttle
+      lastProbeAt = now;
+      const recvBeforeProbe = lastRecvRef.current;
+      try { ws.send(JSON.stringify({ type: 'ping' })); } catch { return; }
+      if (livenessProbeTimerRef.current) clearTimeout(livenessProbeTimerRef.current);
+      livenessProbeTimerRef.current = setTimeout(() => {
+        livenessProbeTimerRef.current = null;
+        if (wsRef.current === ws && ws.readyState === WebSocket.OPEN
+            && lastRecvRef.current <= recvBeforeProbe) {
+          logger.warn(`입력 시점 생존 확인 실패 — 죽은 소켓, 재연결: ${sessionId}`);
+          try { ws.close(); } catch { /* noop */ }
+        }
+      }, 3000);
+    };
+
     term.onData((data) => {
       // term.onData 는 IME 합성 중 매 음절마다 (backspace+새글자) length>=2 청크가 들어와
       // 히스토리가 한 글자씩 쪼개져 저장되는 노이즈가 심하다. 이 경로에서는 더 이상 캡처하지 않고,
       // sendData() 명시적 호출 경로 (Quick Input / 음성 / MobileToolbar 등) 만 캡처한다.
+      // 서버가 한동안 조용했는데 사용자가 타이핑하면, 입력이 실제로 닿는지 빠르게 검증.
+      if (Date.now() - lastRecvRef.current > 3000) probeLiveness();
       const ws = wsRef.current;
       // WS 가 아직 OPEN 이 아니거나(reconnect 직후·언마운트 사이 깜빡임) CLOSING 상태여도
       // 입력을 버리지 않고 큐에 적재해 다음 OPEN 또는 flush 틱에 전송. drop 으로 인한
@@ -1448,6 +1475,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (heartbeatTimerRef.current) { clearInterval(heartbeatTimerRef.current); heartbeatTimerRef.current = null; }
+      if (livenessProbeTimerRef.current) { clearTimeout(livenessProbeTimerRef.current); livenessProbeTimerRef.current = null; }
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
       if (inputFlushTimeoutRef.current) clearTimeout(inputFlushTimeoutRef.current);
       if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
