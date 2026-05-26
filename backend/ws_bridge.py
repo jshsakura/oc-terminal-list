@@ -13,7 +13,6 @@ import asyncio
 import codecs
 import logging
 import os
-import time
 from collections import deque
 
 import ptyprocess
@@ -62,6 +61,10 @@ class TmuxClientBridge:
             env=env,
             cwd=os.path.expanduser("~"),
         )
+        try:
+            os.set_blocking(self.process.fd, False)
+        except Exception as e:
+            logger.warning("failed to set pty nonblocking (%s): %s", self.session_id, e)
         logger.info(
             "tmux attach client spawned: session=%s pid=%s size=%dx%d",
             self.session_id, self.process.pid, self.cols, self.rows,
@@ -81,9 +84,13 @@ class TmuxClientBridge:
         except Exception as e:
             logger.warning("resize failed (%s): %s", self.session_id, e)
 
-    def write_input(self, data: str) -> None:
+    async def write_input(self, data: str) -> None:
         """WS → PTY 입력. ptyprocess.write 는 부분 write 가능(PTY buffer full / EAGAIN)
-        → 반환 바이트 수만큼만 진행하고 짧게 sleep 후 retry 해 손실 방지.
+        → 반환 바이트 수만큼만 진행하고 이벤트 루프에 양보 후 retry 해 손실 방지.
+
+        대용량 paste 에서 여기서 동기 sleep/while 로 오래 붙잡으면 PTY 출력 펌프가
+        drain 을 못 해 양방향 버퍼가 서로 막힌다. 특히 bracketed paste 끝 marker 가
+        잘리면 tmux 세션이 paste 상태로 남아 재접속 후 입력까지 먹힐 수 있다.
         """
         if not self.process:
             return
@@ -96,12 +103,14 @@ class TmuxClientBridge:
                 attempt = 0
                 while piece:
                     try:
-                        n = self.process.write(piece)
+                        n = os.write(self.process.fd, piece)
                     except OSError as e:
-                        # EAGAIN (BlockingIOError) — 짧게 기다리고 같은 piece 재시도.
-                        if getattr(e, "errno", None) in (11, 35) and attempt < 50:
+                        # EAGAIN (BlockingIOError) — 이벤트 루프에 양보하고 같은 piece 재시도.
+                        if getattr(e, "errno", None) in (11, 35):
                             attempt += 1
-                            time.sleep(0.002)
+                            if attempt % 500 == 0:
+                                logger.warning("pty write backpressure persists (%s)", self.session_id)
+                            await asyncio.sleep(0.002)
                             continue
                         raise
                     if not isinstance(n, int) or n <= 0:
@@ -112,6 +121,7 @@ class TmuxClientBridge:
                     piece = piece[n:]
                     attempt = 0
                 off += CHUNK
+                await asyncio.sleep(0)
         except Exception as e:
             logger.warning("pty write failed (%s): %s", self.session_id, e)
 
@@ -128,6 +138,11 @@ class TmuxClientBridge:
             nonlocal pending_bytes
             try:
                 data = process.read()
+            except OSError as e:
+                if getattr(e, "errno", None) in (11, 35):
+                    return
+                self._closed.set()
+                return
             except Exception:
                 # PTY 닫힘 또는 EOF
                 self._closed.set()
@@ -210,7 +225,7 @@ class TmuxClientBridge:
                                 continue
                     except Exception:
                         pass
-                self.write_input(data)
+                await self.write_input(data)
         except WebSocketDisconnect:
             logger.info("ws disconnected: %s", self.session_id)
         except Exception as e:

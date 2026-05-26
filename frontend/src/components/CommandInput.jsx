@@ -16,6 +16,7 @@ const speechLangFor = (language) => (language === 'ko' ? 'ko-KR' : 'en-US');
 const MOBILE_BOTTOM_GAP = 8;
 // 모달과 가시 영역 상단 사이 최소 간격 — 키보드 + 모달이 화면을 다 차지해도 위로 빈틈이 보이게.
 const MOBILE_TOP_GAP = 12;
+const VOICE_CHUNK_MAX_CHARS = 1000;
 
 // textarea 의 caret 을 항상 텍스트 끝으로 — 다시 열 때, 붙여넣기 후, clear 후 등
 // 사용자가 이어서 입력하기 좋은 위치에 두기 위함.
@@ -40,6 +41,7 @@ const focusToEnd = (ta) => {
 const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language, terminalKey = null }) => {
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
+  const voiceModeRef = useRef(false);
   // 지난 명령 이력 패널 토글 — footer 의 History 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
   const [historyOpen, setHistoryOpen] = useState(false);
   // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
@@ -55,17 +57,19 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   // 인식된 텍스트를 textarea 끝에 이어붙인다. 직전 문자가 공백/줄바꿈이 아니면 한 칸 띄움.
   // setCommand 가 함수형이 아닐 가능성에 대비해 직접 command 를 참조 — App 의 상태는 일반 useState.
   const appendVoiceText = useCallback((text) => {
-    const chunk = text.trim();
+    const chunk = text.replace(/\s+/g, ' ').trim().slice(0, VOICE_CHUNK_MAX_CHARS);
     if (!chunk) return;
-    const needsSpace = command && !/[\s\n]$/.test(command);
-    const next = command + (needsSpace ? ' ' : '') + chunk;
-    setCommand(next);
-    requestAnimationFrame(() => focusToEnd(textareaRef.current));
-  }, [command, setCommand]);
+    setCommand((prev = '') => {
+      const needsSpace = prev && !/[\s\n]$/.test(prev);
+      return prev + (needsSpace ? ' ' : '') + chunk;
+    });
+    if (!voiceModeRef.current) requestAnimationFrame(() => focusToEnd(textareaRef.current));
+  }, [setCommand]);
 
   const {
     supported: voiceSupported,
     listening: voiceListening,
+    error: voiceError,
     start: voiceStart,
     stop: voiceStop,
   } = useSpeechRecognition({
@@ -77,13 +81,40 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   // 이력 패널도 함께 접어, 다음에 열 때 항상 입력창부터 보이게 한다.
   useEffect(() => {
     if (isOpen) return;
+    voiceModeRef.current = false;
     if (voiceListening) voiceStop();
     setHistoryOpen(false);
   }, [isOpen, voiceListening, voiceStop]);
 
+  useEffect(() => {
+    if (voiceListening) {
+      voiceModeRef.current = true;
+      return;
+    }
+    if (!voiceModeRef.current) return;
+    voiceModeRef.current = false;
+    if (isOpen) requestAnimationFrame(() => focusToEnd(textareaRef.current));
+  }, [voiceListening, isOpen]);
+
+  useEffect(() => {
+    if (!voiceError || !voiceModeRef.current) return;
+    voiceModeRef.current = false;
+    if (isOpen) requestAnimationFrame(() => focusToEnd(textareaRef.current));
+  }, [voiceError, isOpen]);
+
   const toggleVoice = () => {
     if (!voiceSupported) return;
-    if (voiceListening) voiceStop(); else voiceStart();
+    if (voiceListening || voiceModeRef.current) {
+      voiceModeRef.current = false;
+      voiceStop();
+      requestAnimationFrame(() => focusToEnd(textareaRef.current));
+      return;
+    }
+    // 모바일에서 textarea focus 를 유지한 채 SpeechRecognition 을 열면 가상 키보드와
+    // 마이크 UI 가 동시에 경쟁해 심한 렉/프리즈가 난다. 음성 중에는 강제 refocus 도 멈춘다.
+    voiceModeRef.current = true;
+    try { textareaRef.current?.blur(); } catch { /* noop */ }
+    voiceStart();
   };
 
   useEffect(() => {
@@ -137,6 +168,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         raf = 0;
         const modal = modalRef.current;
         const active = document.activeElement;
+        if (voiceModeRef.current || voiceListening) return;
         if (!modal || modal.contains(active)) return;
         focusToEnd(textareaRef.current);
       });
@@ -338,6 +370,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             onBlur={() => {
               requestAnimationFrame(() => {
                 const active = document.activeElement;
+                if (voiceModeRef.current || voiceListening) return;
                 if (!isOpen || modalRef.current?.contains(active)) return;
                 focusToEnd(textareaRef.current);
               });

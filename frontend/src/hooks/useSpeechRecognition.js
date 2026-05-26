@@ -26,6 +26,7 @@ const useSpeechRecognition = ({ language = 'en-US', onResult, onInterim } = {}) 
   const [error, setError] = useState(null);
 
   const recognitionRef = useRef(null);
+  const emittedFinalIndexesRef = useRef(new Set());
   const onResultRef = useRef(onResult);
   const onInterimRef = useRef(onInterim);
 
@@ -51,11 +52,14 @@ const useSpeechRecognition = ({ language = 'en-US', onResult, onInterim } = {}) 
     if (recognitionRef.current) return; // 이미 진행 중
 
     const recognition = new SpeechRecognition();
+    emittedFinalIndexesRef.current = new Set();
     // continuous=false — 한 발화가 끝나면 자동으로 onend → 마이크 즉시 해제.
     // continuous=true 로 두면 Chrome 이 사용자가 말을 멈춰도 탭 마이크를 계속 점유해
     // "안 쓰는데 켜져 있다" 는 문제가 생긴다. 길게 받아쓰려면 버튼을 다시 누르면 된다.
     recognition.continuous = false;
-    recognition.interimResults = true;
+    // CommandInput 은 interim preview 를 쓰지 않는다. 모바일에서 interimResults=true 는
+    // 같은 발화의 중간 문자열을 매우 자주 발생시켜 렌더/키보드/마이크 경합을 키운다.
+    recognition.interimResults = Boolean(onInterimRef.current);
     recognition.lang = language;
 
     recognition.onstart = () => {
@@ -77,8 +81,14 @@ const useSpeechRecognition = ({ language = 'en-US', onResult, onInterim } = {}) 
       let interimText = '';
       for (let i = event.resultIndex; i < event.results.length; i += 1) {
         const result = event.results[i];
-        if (result.isFinal) finalText += result[0].transcript;
-        else interimText += result[0].transcript;
+        const transcript = result?.[0]?.transcript || '';
+        if (result.isFinal) {
+          if (emittedFinalIndexesRef.current.has(i)) continue;
+          emittedFinalIndexesRef.current.add(i);
+          finalText += transcript;
+        } else {
+          interimText += transcript;
+        }
       }
       if (finalText) onResultRef.current?.(finalText);
       if (interimText) onInterimRef.current?.(interimText);

@@ -38,6 +38,7 @@ KEEPALIVE_COUNT_MAX = 4
 WS_MAX_BACKPRESSURE_BYTES = 4 * 1024 * 1024
 WS_MAX_PENDING_ITEMS = 8192
 WS_FLUSH_CHUNK_BYTES = 65536
+PTY_INPUT_CHUNK_BYTES = 8192
 
 
 class HostConnectError(RuntimeError):
@@ -383,11 +384,14 @@ class HostBridge:
                     except Exception:
                         pass
                 raw = data.encode("utf-8", errors="replace") if isinstance(data, str) else data
-                CHUNK = 8192
                 off = 0
                 while off < len(raw):
-                    self.process.stdin.write(raw[off:off + CHUNK])
-                    off += CHUNK
+                    self.process.stdin.write(raw[off:off + PTY_INPUT_CHUNK_BYTES])
+                    drain = getattr(self.process.stdin, "drain", None)
+                    if drain:
+                        await drain()
+                    off += PTY_INPUT_CHUNK_BYTES
+                    await asyncio.sleep(0)
         except WebSocketDisconnect:
             pass
         except Exception as e:
@@ -518,6 +522,10 @@ class TailscaleHostBridge:
             dimensions=(self.rows, self.cols),
             env=env,
         )
+        try:
+            os.set_blocking(self.process.fd, False)
+        except Exception as e:
+            logger.warning("failed to set tailscale pty nonblocking: %s", e)
         logger.info(
             "tailscale ssh spawned: target=%s pid=%s size=%dx%d",
             self.host.get("hostname"), self.process.pid, self.cols, self.rows,
@@ -540,6 +548,11 @@ class TailscaleHostBridge:
             nonlocal pending_bytes
             try:
                 data = self.process.read(self.READ_CHUNK)
+            except OSError as e:
+                if getattr(e, "errno", None) in (11, 35):
+                    return
+                self._closed.set()
+                return
             except Exception:
                 self._closed.set()
                 return
@@ -618,18 +631,19 @@ class TailscaleHostBridge:
                         pass
                 try:
                     raw = data.encode("utf-8") if isinstance(data, str) else data
-                    CHUNK = 8192
                     off = 0
                     while off < len(raw):
-                        piece = raw[off:off + CHUNK]
+                        piece = raw[off:off + PTY_INPUT_CHUNK_BYTES]
                         attempt = 0
                         while piece:
                             try:
-                                n = self.process.write(piece)
+                                n = os.write(self.process.fd, piece)
                             except OSError as e:
-                                # PTY buffer 가득 차서 EAGAIN — 짧게 양보 후 같은 piece 재시도.
-                                if getattr(e, "errno", None) in (11, 35) and attempt < 50:
+                                # PTY buffer 가득 차서 EAGAIN — 출력 펌프가 drain 되도록 양보 후 재시도.
+                                if getattr(e, "errno", None) in (11, 35):
                                     attempt += 1
+                                    if attempt % 500 == 0:
+                                        logger.warning("tailscale write backpressure persists")
                                     await asyncio.sleep(0.002)
                                     continue
                                 raise
@@ -639,7 +653,8 @@ class TailscaleHostBridge:
                                 break
                             piece = piece[n:]
                             attempt = 0
-                        off += CHUNK
+                        off += PTY_INPUT_CHUNK_BYTES
+                        await asyncio.sleep(0)
                 except Exception as e:
                     logger.warning("tailscale write failed: %s", e)
         except WebSocketDisconnect:

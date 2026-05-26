@@ -70,7 +70,7 @@ from host_manager import HostBridge, HostConnectError, resolve_host_secrets
 from sqlite_storage import storage
 from ssh_pool import ssh_pool
 from tmux_manager import tmux_manager
-from rate_limit import check_rate_limit, client_ip_from_request
+from rate_limit import check_rate_limit, client_ip_from_request, trust_proxy_headers
 from vault import encrypt_str
 from ws_bridge import TmuxClientBridge
 
@@ -85,6 +85,84 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 # asyncssh 는 접속/채널/인증 과정을 INFO 로 대량 출력 — WARNING 이상만 표시
 logging.getLogger("asyncssh").setLevel(logging.WARNING)
+
+
+# WebSocket client identity registry.
+# tmux 의 client count 만 보면 같은 폰이 와이파이/LTE 전환 중 만든 오래된 attach 도
+# "다른 기기"처럼 보인다. 브라우저가 보낸 안정 client_id 로 같은 기기 stale 연결과
+# 진짜 다른 기기를 분리한다. 프로세스 로컬 registry 이므로 백엔드 단일 프로세스 기준이다.
+_ws_client_registry: dict[tuple[str, str], dict[str, dict]] = {}
+
+
+def _clean_client_id(client_id: str | None) -> str | None:
+    if not client_id:
+        return None
+    cleaned = re.sub(r"[^a-zA-Z0-9._:-]", "", client_id.strip())[:96]
+    return cleaned or None
+
+
+def _client_ip_from_websocket(websocket: WebSocket) -> str:
+    xff = websocket.headers.get("x-forwarded-for", "").split(",")[0].strip() if trust_proxy_headers() else ""
+    if xff:
+        return xff
+    try:
+        return websocket.client.host if websocket.client else "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _register_ws_client(kind: str, session_key: str, client_id: str | None, websocket: WebSocket) -> str | None:
+    clean_id = _clean_client_id(client_id)
+    if not clean_id:
+        return None
+    token = secrets_mod.token_urlsafe(12)
+    key = (kind, session_key)
+    bucket = _ws_client_registry.setdefault(key, {})
+    bucket[token] = {
+        "client_id": clean_id,
+        "ip": _client_ip_from_websocket(websocket),
+        "ua": websocket.headers.get("user-agent", "")[:160],
+        "connected_at": time.time(),
+    }
+    return token
+
+
+def _unregister_ws_client(kind: str, session_key: str, token: str | None) -> None:
+    if not token:
+        return
+    key = (kind, session_key)
+    bucket = _ws_client_registry.get(key)
+    if not bucket:
+        return
+    bucket.pop(token, None)
+    if not bucket:
+        _ws_client_registry.pop(key, None)
+
+
+def _client_identity_payload(kind: str, session_key: str, client_id: str | None, request: Request) -> dict:
+    clean_id = _clean_client_id(client_id)
+    entries = list(_ws_client_registry.get((kind, session_key), {}).values())
+    if not clean_id:
+        return {
+            "same_client_count": 0,
+            "other_client_count": len(entries),
+            "same_client_active": False,
+            "other_client_active": bool(entries),
+            "network_changed": False,
+        }
+    same = [e for e in entries if e.get("client_id") == clean_id]
+    other = [e for e in entries if e.get("client_id") != clean_id]
+    current_ip = client_ip_from_request(request)
+    same_ips = sorted({e.get("ip") or "unknown" for e in same})
+    return {
+        "same_client_count": len(same),
+        "other_client_count": len(other),
+        "same_client_active": bool(same),
+        "other_client_active": bool(other),
+        "network_changed": bool(same and current_ip not in same_ips),
+        "client_ip": current_ip,
+        "same_client_ips": same_ips,
+    }
 
 
 class CachedStaticFiles(StaticFiles):
@@ -1787,21 +1865,28 @@ async def delete_session(session_id: str, username: str = Depends(verify_auth_to
 
 
 @app.get("/api/sessions/{session_id}/clients")
-async def get_session_clients(session_id: str, username: str = Depends(verify_auth_token)):
+async def get_session_clients(
+    request: Request,
+    session_id: str,
+    client_id: str | None = Query(None),
+    username: str = Depends(verify_auth_token),
+):
     """세션에 현재 attach 된 tmux 클라이언트 수.
     프론트엔드 takeover 모델에서 "지금 누가 보고 있냐?" 프리플라이트 / 자동 재attach 폴링용.
     세션 자체가 없으면 attached=False 로 통일 (UI 가 그냥 신규 attach 진행하게).
-    여러 탭이 같은 세션을 polling 할 때 합치려고 3s TTL — 짧게 잡아 detach UX 응답성 유지."""
+    여러 탭이 같은 세션을 polling 할 때 합치되, close 직후 자기 attach 를 takeover 로
+    오판하지 않도록 TTL 은 짧게 유지."""
     cache_key = key_local_clients(session_id)
-    cached = await cache.get(cache_key)
-    if cached is not None:
-        return cached
-    if not await tmux_manager.session_exists(session_id):
-        payload = {"session_id": session_id, "exists": False, "count": 0, "attached": False}
-    else:
-        n = await tmux_manager.clients_count(session_id)
-        payload = {"session_id": session_id, "exists": True, "count": n, "attached": n > 0}
-    await cache.set(cache_key, payload, ttl_seconds=3)
+    base = await cache.get(cache_key)
+    if base is None:
+        if not await tmux_manager.session_exists(session_id):
+            base = {"session_id": session_id, "exists": False, "count": 0, "attached": False}
+        else:
+            n = await tmux_manager.clients_count(session_id)
+            base = {"session_id": session_id, "exists": True, "count": n, "attached": n > 0}
+        await cache.set(cache_key, base, ttl_seconds=1)
+    payload = dict(base)
+    payload.update(_client_identity_payload("local", session_id, client_id, request))
     return payload
 
 
@@ -1876,6 +1961,7 @@ async def terminal_websocket(
     websocket: WebSocket,
     session_id: str,
     ticket: str | None = Query(None),
+    client_id: str | None = Query(None),
     cols: int = Query(80),
     rows: int = Query(24),
     cwd: str | None = Query(None),
@@ -1963,6 +2049,7 @@ async def terminal_websocket(
         rows=rows,
     )
     usage_event_id = None
+    client_token = _register_ws_client("local", session_id, client_id, websocket)
     try:
         usage_event_id = await storage.record_usage_start(
             username, "local", "local", session_id
@@ -1984,6 +2071,7 @@ async def terminal_websocket(
             except Exception as e:
                 logger.warning("usage end record failed (local %s): %s", session_id, e)
         await invalidate_session(session_id)
+        _unregister_ws_client("local", session_id, client_token)
 
 
 # ---------------------- SSH 키 API ----------------------
@@ -2177,8 +2265,10 @@ async def kill_host_tmux(
 
 @app.get("/api/hosts/{host_id}/tmux-clients")
 async def get_host_tmux_clients(
+    request: Request,
     host_id: str,
     session: str = Query(..., description="원격 tmux 세션명"),
+    client_id: str | None = Query(None),
     username: str = Depends(verify_auth_token),
 ):
     """원격 호스트의 특정 tmux 세션에 attach 된 클라이언트 수.
@@ -2192,14 +2282,21 @@ async def get_host_tmux_clients(
     cache_key = key_host_tmux_clients(host_id, session)
     cached = await cache.get(cache_key)
     if cached is not None:
-        return cached
+        payload = dict(cached)
+        payload.update(_client_identity_payload("host", f"{host_id}:{session}", client_id, request))
+        return payload
 
     from host_manager import open_connection
-    safe_session = shlex.quote(session)
+    # Quote the whole exact tmux target. In zsh, a bare token starting with '='
+    # triggers command-path expansion, so `-t =mobile-foo` can fail before tmux
+    # runs. `'=mobile-foo'` works in sh/zsh and keeps tmux exact-match semantics.
+    safe_session = shlex.quote(f"={session}")
+    if safe_session.startswith("="):
+        safe_session = "'" + safe_session.replace("'", "'\"'\"'") + "'"
     # `=` prefix → exact match (suffix 매치 방지). exists 도 같이 내려 refresh-only 재연결에 사용.
     cmd = (
-        f"if tmux has-session -t ={safe_session} 2>/dev/null; then "
-        f"echo __EXISTS__1; tmux list-clients -t ={safe_session} 2>/dev/null | wc -l; "
+        f"if tmux has-session -t {safe_session} 2>/dev/null; then "
+        f"echo __EXISTS__1; tmux list-clients -t {safe_session} 2>/dev/null | wc -l; "
         f"else echo __EXISTS__0; echo 0; fi"
     )
 
@@ -2230,7 +2327,9 @@ async def get_host_tmux_clients(
     except Exception as e:
         logger.warning("tmux-clients query failed (%s/%s): %s", host_id, session, e)
         # 실패 시 알 수 없음 — 0 으로 보내 프론트가 그냥 진행하게.
-        return {"host_id": host_id, "session": session, "count": 0, "attached": False, "error": str(e)}
+        payload = {"host_id": host_id, "session": session, "count": 0, "attached": False, "error": str(e)}
+        payload.update(_client_identity_payload("host", f"{host_id}:{session}", client_id, request))
+        return payload
 
     lines = (output or "0").strip().splitlines()
     exists = "__EXISTS__0" not in lines
@@ -2239,7 +2338,9 @@ async def get_host_tmux_clients(
     except (ValueError, IndexError):
         n = 0
     payload = {"host_id": host_id, "session": session, "exists": exists, "count": n, "attached": n > 0}
-    await cache.set(cache_key, payload, ttl_seconds=5)
+    await cache.set(cache_key, payload, ttl_seconds=1)
+    payload = dict(payload)
+    payload.update(_client_identity_payload("host", f"{host_id}:{session}", client_id, request))
     return payload
 
 
@@ -2440,6 +2541,7 @@ async def host_websocket(
     websocket: WebSocket,
     host_id: str,
     ticket: str | None = Query(None),
+    client_id: str | None = Query(None),
     cols: int = Query(80),
     rows: int = Query(24),
     pane_index: int = Query(0, description="0 이면 base 세션, 1+ 면 base.N+1 세션"),
@@ -2499,6 +2601,15 @@ async def host_websocket(
         if s:
             safe_session_name = s
 
+    from host_manager import DEFAULT_REMOTE_TMUX_SESSION, effective_tmux_session
+    if safe_session_name:
+        target_tmux_session = safe_session_name
+    else:
+        base_session = host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
+        if safe_suffix:
+            base_session = f"{base_session}-{safe_suffix}"
+        target_tmux_session = effective_tmux_session(base_session, pane_index)
+
     # auth_method == 'tailscale' → tailscale ssh subprocess 로 연결 (SSH 키 불필요)
     if host.get("auth_method") == "tailscale":
         from host_manager import TailscaleHostBridge
@@ -2529,9 +2640,10 @@ async def host_websocket(
             create_session=create,
         )
     usage_event_id = None
+    client_token = _register_ws_client("host", f"{host_id}:{target_tmux_session}", client_id, websocket)
     try:
         usage_event_id = await storage.record_usage_start(
-            username, "host", host_id, safe_session_name
+            username, "host", host_id, target_tmux_session
         )
     except Exception as e:
         logger.warning("usage start record failed (host %s): %s", host_id, e)
@@ -2551,6 +2663,7 @@ async def host_websocket(
                 logger.warning("usage end record failed (host %s): %s", host_id, e)
         # 연결 종료 시 client 수가 바뀌었을 수 있음 — invalidate.
         await invalidate_host(host_id)
+        _unregister_ws_client("host", f"{host_id}:{target_tmux_session}", client_token)
 
 
 # ---------------------- 파일 시스템 API ----------------------

@@ -27,7 +27,9 @@ import {
   shouldRouteWheelToPty,
   shouldClearSelectionOnScroll,
 } from '../utils/terminalMouseSelection';
-import { pushCommand as pushCommandHistory } from '../utils/commandHistory';
+import { isTerminalAutoResponse } from '../utils/terminalInput';
+import { pushCommand as pushCommandHistory, pushLocalCommand as pushLocalCommandHistory } from '../utils/commandHistory';
+import { getNetworkSummary, getTerminalClientId } from '../utils/clientIdentity';
 
 // onData / sendData 가 통과한 데이터 중 어떤 것이 "히스토리에 기록할 만한 명령" 인지 판정.
 // 단일 키스트로크와 escape sequence 를 거르고, multi-char 입력만 통과 — paste / Quick Input / IME 조합.
@@ -44,6 +46,16 @@ const looksLikeBulkCommand = (data) => {
   return hasPrintable;
 };
 
+const looksLikeRecoverableBulkInput = (data) => {
+  if (typeof data !== 'string' || data.length < 16) return false;
+  const cleaned = data
+    .replace(/^\x1b\[200~/, '')
+    .replace(/\x1b\[201~$/, '')
+    .replace(/[\r\n]+$/g, '')
+    .trim();
+  return looksLikeBulkCommand(cleaned);
+};
+
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
 // 모듈 스코프 — 매 메시지마다 재생성하지 않고 재사용 (GC 절감)
@@ -51,6 +63,8 @@ const _textDecoder = new TextDecoder('utf-8');
 const _textEncoder = new TextEncoder();
 const RECOVERY_GRACE_MS = 12000;
 const RECOVERY_POLL_MS = 1000;
+const TAKEOVER_CONFIRM_MS = 3500;
+const TAKEOVER_CONFIRM_POLL_MS = 500;
 // 셸이 깨끗이 종료(exit)된 게 확인되면 짧은 취소 여유를 두고 pane 자동 닫기.
 const AUTO_CLOSE_MS = 1800;
 // 로딩이 이 시간을 넘기면 "멈춤"으로 보고 수동 닫기 버튼을 노출 (행 걸린 pane 탈출구).
@@ -59,6 +73,8 @@ const LOAD_STUCK_MS = 8000;
 // 클라이언트가 ping 을 보내고 서버 pong(또는 그 외 메시지) 을 일정 시간 못 받으면 죽은 소켓으로 보고 강제 재연결.
 const HEARTBEAT_INTERVAL_MS = 15000;
 const HEARTBEAT_DEAD_MS = 35000;
+const RESUME_PROBE_TIMEOUT_MS = 2500;
+const RESUME_PROBE_THROTTLE_MS = 1500;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -102,18 +118,19 @@ const issueWsTicket = async (path) => {
     });
     if (res.status === 401 || res.status === 403) {
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
-      return null;
+      return { ticket: null, authExpired: true };
     }
-    if (!res.ok) return null;
+    if (!res.ok) return { ticket: null, authExpired: false };
     const data = await res.json();
-    return data?.ticket || null;
+    return { ticket: data?.ticket || null, authExpired: false };
   } catch {
-    return null;
+    return { ticket: null, authExpired: false };
   }
 };
 
 const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null }, ref) => {
   const { t } = useTranslation(settings.language);
+  const terminalClientIdRef = useRef(getTerminalClientId());
   const terminalRef = useRef(null);
   const touchOverlayRef = useRef(null);
   const xtermRef = useRef(null);
@@ -137,6 +154,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const reconnectTimeoutRef = useRef(null);
   const heartbeatTimerRef = useRef(null);
   const livenessProbeTimerRef = useRef(null);
+  const resumeProbeTimerRef = useRef(null);
+  const lastResumeProbeAtRef = useRef(0);
   const lastRecvRef = useRef(0);
   const authPromptRef = useRef(false);
   const wsFlushTimeoutRef = useRef(null);
@@ -167,6 +186,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const autoCloseTimerRef = useRef(null);
   // 로딩이 오래 걸려 멈춘 것으로 보일 때 true — 스켈레톤 위에 수동 닫기 버튼 노출.
   const [loadStuck, setLoadStuck] = useState(false);
+  const [connectionNotice, setConnectionNotice] = useState('');
   // 클립보드 이미지 붙여넣기 진행 상태: 'uploading' | 'done' | 'error' | null
   const [imagePasteState, setImagePasteState] = useState(null);
   const reconnectingRef = useRef(false);
@@ -204,6 +224,34 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     endedRef.current = true;
     setEnded(true);
     setEndedNotice('');
+  }, []);
+
+  const markEnded = useCallback((notice = '') => {
+    endedRef.current = true;
+    evictedRef.current = false;
+    reconnectingRef.current = false;
+    setIsReady(false);
+    setReconnecting(false);
+    setEvicted(false);
+    setClosing(false);
+    setEnded(true);
+    setEndedNotice(notice);
+    onStatusChangeRef.current?.({
+      evicted: false,
+      ended: true,
+      isReady: false,
+      hasContent: hasContentRef.current,
+      sessionId,
+      paneId,
+      tabId,
+    });
+  }, [sessionId, paneId, tabId]);
+
+  const clearEndedForReconnect = useCallback(() => {
+    endedRef.current = false;
+    setEnded(false);
+    setEndedNotice('');
+    setClosing(false);
   }, []);
 
   const notifyStatus = useCallback(() => {
@@ -883,9 +931,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     const runPreflight = async () => {
       const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
       if (!sessionToCheck) return { attached: false, exists: true };
+      const clientQS = `&client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
       const url = hostId
-        ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}`
-        : `/api/sessions/${sessionToCheck}/clients`;
+        ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}${clientQS}`
+        : `/api/sessions/${sessionToCheck}/clients?client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
       try {
         const res = await fetch(url, {
           headers: authHeaders(),
@@ -923,23 +972,37 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       // tmuxSessionName — 명시적 영속 세션 attach (Home 의 Resume). 주어지면 base/suffix 무시.
       const sessQS = (hostId && tmuxSessionName) ? `&tmux_session_name=${encodeURIComponent(tmuxSessionName)}` : '';
       const createQS = createIfMissing ? '' : '&create=0';
+      const clientQS = `&client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
       const wsPath = hostId ? `/ws/host/${hostId}` : `/ws/${sessionId}`;
-      const wsTicket = await issueWsTicket(wsPath);
+      const ticketResult = await issueWsTicket(wsPath);
       if (cancelled) return;
+      const wsTicket = ticketResult.ticket;
       if (!wsTicket) {
         logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
+        if (!ticketResult.authExpired && autoRecover) {
+          const attempts = reconnectAttemptsRef.current;
+          if (attempts < 12) {
+            const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
+            reconnectAttemptsRef.current = attempts + 1;
+            reconnectingRef.current = true;
+            setReconnecting(true);
+            clearEndedForReconnect();
+            setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
+            reconnectTimeoutRef.current = setTimeout(() => {
+              if (!cancelled) connectRef.current?.({ create: createIfMissing, autoRecover: true });
+            }, delay);
+            return;
+          }
+        }
         // 스피너를 반드시 풀어준다 — 안 그러면 "연결 중..." 무한 대기.
-        if (reconnectingRef.current) { reconnectingRef.current = false; setReconnecting(false); }
-        endedRef.current = true;
-        setEnded(true);
         // 401/403 이면 issueWsTicket 이 이미 session-expired 를 쏴서 로그인 화면이 뜬다.
-        setEndedNotice(t('reconnectTicketFailed') || '재연결에 실패했습니다. 세션이 만료되었거나 서버에 연결할 수 없습니다.');
+        markEnded(t('reconnectTicketFailed') || '재연결에 실패했습니다. 세션이 만료되었거나 서버에 연결할 수 없습니다.');
         return;
       }
       const authQS = `ticket=${encodeURIComponent(wsTicket)}`;
       const wsUrl = hostId
-        ? `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}${createQS}`
-        : `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}${createQS}`;
+        ? `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}${createQS}${clientQS}`
+        : `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}${createQS}${clientQS}`;
 
       const socket = new WebSocket(wsUrl);
       socket.binaryType = 'arraybuffer';
@@ -954,10 +1017,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         logger.warn(`WebSocket open 타임아웃 — 중단: ${sessionId}`);
         intentionalCloseRef.current = true; // onclose 가 또 다른 재연결 루프 안 타게
         try { socket.close(); } catch { /* noop */ }
-        if (reconnectingRef.current) { reconnectingRef.current = false; setReconnecting(false); }
-        endedRef.current = true;
-        setEnded(true);
-        setEndedNotice(t('reconnectTimedOut') || '연결이 지연되고 있습니다. 다시 시도해 주세요.');
+        markEnded(t('reconnectTimedOut') || '연결이 지연되고 있습니다. 다시 시도해 주세요.');
       }, CONNECT_OPEN_TIMEOUT_MS);
       const clearOpenTimer = () => { if (openTimer) { clearTimeout(openTimer); openTimer = null; } };
 
@@ -965,6 +1025,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clearOpenTimer();
         if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
         logger.info(`WebSocket 연결 성공: ${sessionId}`);
+        setConnectionNotice('');
         ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
         setIsReady(true);
         reconnectAttemptsRef.current = 0;
@@ -972,8 +1033,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (reconnectingRef.current) {
           reconnectingRef.current = false;
           setReconnecting(false);
-          endedRef.current = false;
-          setEnded(false);
+          clearEndedForReconnect();
           evictedRef.current = false;
           setEvicted(false);
         }
@@ -1187,6 +1247,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
       if (intentionalCloseRef.current) return;
       logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
+      setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
       setIsReady(false);
       // 재연결 시도 중 실패 — 스피너 해제 (오버레이는 유지)
       if (reconnectingRef.current) {
@@ -1194,9 +1255,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         setReconnecting(false);
       }
       if (!autoRecover) {
-        endedRef.current = true;
-        setEnded(true);
-        setEndedNotice(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
+        markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
         return;
       }
       if (evictedRef.current) {
@@ -1216,11 +1275,52 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             return { attached: false, exists: true };
           }
         };
+        const confirmTakeover = async () => {
+          const deadline = Date.now() + TAKEOVER_CONFIRM_MS;
+          let latest = { attached: true, exists: true };
+          while (Date.now() < deadline) {
+            await sleep(TAKEOVER_CONFIRM_POLL_MS);
+            if (isStaleSocket()) return 'stale';
+            latest = await getPf();
+            if (isStaleSocket()) return 'stale';
+            if (latest.same_client_active && !latest.other_client_active) {
+              if (latest.network_changed) {
+                const net = getNetworkSummary();
+                setConnectionNotice(
+                  net
+                    ? `${t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...'} (${net})`
+                    : (t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...')
+                );
+              }
+              return false;
+            }
+            if (!latest.attached) return false;
+          }
+          return !!latest.attached;
+        };
 
         const pf = await getPf();
         if (cancelled) return;
 
         if (pf.attached) {
+          if (pf.same_client_active && !pf.other_client_active) {
+            if (pf.network_changed) {
+              const net = getNetworkSummary();
+              setConnectionNotice(
+                net
+                  ? `${t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...'} (${net})`
+                  : (t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...')
+              );
+            }
+            connectRef.current?.({ create: false });
+            return;
+          }
+          const confirmed = await confirmTakeover();
+          if (confirmed === 'stale') return;
+          if (!confirmed) {
+            connectRef.current?.({ create: false });
+            return;
+          }
           evictedRef.current = true;
           setEvicted(true);
           return;
@@ -1238,6 +1338,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             const nextPf = await getPf();
             if (isStaleSocket()) return;
             if (nextPf.attached) {
+              const confirmed = await confirmTakeover();
+              if (confirmed === 'stale') return;
+              if (!confirmed) {
+                recovered = true;
+                break;
+              }
               evictedRef.current = true;
               setEvicted(true);
               return;
@@ -1264,14 +1370,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (attempts < 12) {
           const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
           reconnectAttemptsRef.current = attempts + 1;
+          setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
           reconnectTimeoutRef.current = setTimeout(() => {
             if (!cancelled) connectRef.current?.({ create: false });
           }, delay);
         } else {
           // 끝까지 실패 — ended 오버레이로 사용자 명시 액션 유도.
-          endedRef.current = true;
-          setEnded(true);
-          setEndedNotice(t('reconnectExistingShellFailed') || 'No existing shell was found.');
+          markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found.');
         }
       };
       checkAndRecover();
@@ -1300,6 +1405,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     const INPUT_CHUNK = 16 * 1024;
     const INPUT_BYTES_PER_TICK = 128 * 1024;
     const WS_BUFFER_HIGH_WATER = 512 * 1024;
+    const isLatencySensitiveInput = (data) => (
+      typeof data === 'string'
+      && (data.length === 1 || (data.charCodeAt(0) === 0x1b && data.length <= 16))
+    );
 
     const scheduleInputFlush = (delay = 0) => {
       if (inputFlushTimeoutRef.current) return;
@@ -1365,9 +1474,19 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     };
 
     term.onData((data) => {
+      if (isTerminalAutoResponse(data)) {
+        if (localStorage.getItem('debug_terminal') === '1') {
+          console.debug('[xterm] dropped terminal auto-response from input stream', JSON.stringify(data));
+        }
+        return;
+      }
       // term.onData 는 IME 합성 중 매 음절마다 (backspace+새글자) length>=2 청크가 들어와
       // 히스토리가 한 글자씩 쪼개져 저장되는 노이즈가 심하다. 이 경로에서는 더 이상 캡처하지 않고,
-      // sendData() 명시적 호출 경로 (Quick Input / 음성 / MobileToolbar 등) 만 캡처한다.
+      // 서버 히스토리는 sendData() 명시적 호출 경로 (Quick Input / 음성 / MobileToolbar 등) 만 캡처한다.
+      // 단 대용량 paste/장문 bulk 입력은 네트워크 절체 때 복구할 수 있게 로컬 최근 5개에만 남긴다.
+      if (looksLikeRecoverableBulkInput(data)) {
+        try { pushLocalCommandHistory(sessionId, data); } catch { /* noop */ }
+      }
       // 서버가 한동안 조용했는데 사용자가 타이핑하면, 입력이 실제로 닿는지 빠르게 검증.
       if (Date.now() - lastRecvRef.current > 3000) probeLiveness();
       const ws = wsRef.current;
@@ -1386,7 +1505,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         scheduleInputFlush(50);
         return;
       }
-      if (data.length <= INPUT_CHUNK && inputQueueRef.current.length === 0 && ws.bufferedAmount < WS_BUFFER_HIGH_WATER) {
+      if (isLatencySensitiveInput(data) && inputQueueRef.current.length === 0 && ws.bufferedAmount < WS_BUFFER_HIGH_WATER) {
         ws.send(data);
         onBroadcastRef.current?.(data);
         return;
@@ -1500,6 +1619,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (heartbeatTimerRef.current) { clearInterval(heartbeatTimerRef.current); heartbeatTimerRef.current = null; }
       if (livenessProbeTimerRef.current) { clearTimeout(livenessProbeTimerRef.current); livenessProbeTimerRef.current = null; }
+      if (resumeProbeTimerRef.current) { clearTimeout(resumeProbeTimerRef.current); resumeProbeTimerRef.current = null; }
       if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
       if (inputFlushTimeoutRef.current) clearTimeout(inputFlushTimeoutRef.current);
       if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
@@ -1517,9 +1637,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     if (!evicted || !isActive) return undefined;
     const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
     if (!sessionToCheck) return undefined;
+    const clientQS = `client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
     const url = hostId
-      ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}`
-      : `/api/sessions/${sessionToCheck}/clients`;
+      ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}&${clientQS}`
+      : `/api/sessions/${sessionToCheck}/clients?${clientQS}`;
     let cancelled = false;
     let zeroStreak = 0;
     const ZERO_THRESHOLD = 2; // 2회 연속 count=0 이어야 재attach
@@ -1530,6 +1651,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (cancelled) return;
         if (!res.ok) { zeroStreak = 0; return; }
         const data = await res.json();
+        if (data.same_client_active && !data.other_client_active) {
+          evictedRef.current = false;
+          setEvicted(false);
+          setConnectionNotice(t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...');
+          if (connectRef.current) connectRef.current({ create: false });
+          return;
+        }
         if (!data.attached) {
           zeroStreak++;
           if (zeroStreak >= ZERO_THRESHOLD) {
@@ -1632,12 +1760,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
   // 외부 전송용 핸들러 (MobileToolbar / Quick Input 등에서 사용)
   const sendData = useCallback((data) => {
+    if (looksLikeBulkCommand(data)) {
+      try { pushCommandHistory(sessionId, data); } catch { /* noop */ }
+    }
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(data);
-      // 외부에서 들어온 multi-char 전송 (Quick Input 등) 도 이 터미널의 히스토리에 기록.
-      if (looksLikeBulkCommand(data)) {
-        try { pushCommandHistory(sessionId, data); } catch { /* noop */ }
-      }
     }
   }, [sessionId]);
 
@@ -1798,6 +1925,103 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     };
   }, [isActive]);
 
+  // 모바일/백그라운드 복귀 대응.
+  // iOS/Android 브라우저는 백그라운드에서 WS 를 OPEN 상태 그대로 얼려두는 경우가 있어,
+  // 화면이 다시 보이면 ping 으로 실제 생존을 확인하고 답이 없으면 close 해서 기존 재연결 경로를 태운다.
+  useEffect(() => {
+    let fitRaf = null;
+
+    const clearResumeProbe = () => {
+      if (resumeProbeTimerRef.current) {
+        clearTimeout(resumeProbeTimerRef.current);
+        resumeProbeTimerRef.current = null;
+      }
+    };
+
+    const scheduleFitAfterResume = () => {
+      if (fitRaf) cancelAnimationFrame(fitRaf);
+      fitRaf = requestAnimationFrame(() => {
+        fitRaf = null;
+        flushBufferedOutputRef.current?.();
+        fitNowRef.current?.('resume');
+      });
+    };
+
+    const handleResume = (reason = 'resume') => {
+      if (!isActiveRef.current) return;
+      if (document.hidden) return;
+      if (navigator.onLine === false) return;
+      if (authPromptRef.current || evictedRef.current || endedRef.current) return;
+
+      if (graceCloseTimerRef.current) {
+        clearTimeout(graceCloseTimerRef.current);
+        graceCloseTimerRef.current = null;
+      }
+
+      scheduleFitAfterResume();
+
+      const ws = wsRef.current;
+      if (wasClosedForInactivityRef.current
+          || !ws
+          || ws.readyState === WebSocket.CLOSED
+          || ws.readyState === WebSocket.CLOSING) {
+        wasClosedForInactivityRef.current = false;
+        intentionalCloseRef.current = false;
+        reconnectAttemptsRef.current = 0;
+        connectRef.current?.({ create: false });
+        return;
+      }
+
+      if (ws.readyState !== WebSocket.OPEN) return;
+
+      const now = Date.now();
+      if (now - lastResumeProbeAtRef.current < RESUME_PROBE_THROTTLE_MS) return;
+      lastResumeProbeAtRef.current = now;
+
+      const recvBeforeProbe = lastRecvRef.current;
+      try {
+        ws.send(JSON.stringify({ type: 'ping' }));
+      } catch {
+        intentionalCloseRef.current = false;
+        try { ws.close(); } catch { /* noop */ }
+        return;
+      }
+
+      clearResumeProbe();
+      resumeProbeTimerRef.current = setTimeout(() => {
+        resumeProbeTimerRef.current = null;
+        if (wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) return;
+        if (authPromptRef.current || evictedRef.current || endedRef.current) return;
+        if (lastRecvRef.current > recvBeforeProbe) return;
+        logger.warn(`복귀 후 WS 생존 확인 실패(${reason}) — 재연결: ${sessionId}`);
+        setConnectionNotice(t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...');
+        intentionalCloseRef.current = false;
+        try { ws.close(); } catch { /* noop */ }
+      }, RESUME_PROBE_TIMEOUT_MS);
+    };
+
+    const onVisibility = () => {
+      if (!document.hidden) handleResume('visible');
+    };
+    const onPageShow = () => handleResume('pageshow');
+    const onFocus = () => handleResume('focus');
+    const onOnline = () => handleResume('online');
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pageshow', onPageShow);
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pageshow', onPageShow);
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
+      clearResumeProbe();
+      if (fitRaf) cancelAnimationFrame(fitRaf);
+    };
+  }, [sessionId]);
+
   // 과거에는 isActive 토글마다 WebglAddon 을 detach/reattach 해 비활성 GPU 비용을 줄였지만,
   // 재부착 시 캔버스 재생성 + 버퍼 전체 repaint 가 탭 전환 때 가시 깜빡임을 만들었다.
   // 이제는 마운트 시 1회 부착하고 라이프타임 동안 유지 — 비활성 탭은 어차피 deferred xterm.write 가
@@ -1936,12 +2160,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
               {t('loadStuckDesc') || '연결이 오래 걸리고 있습니다. 다시 시도하거나 이 탭을 닫을 수 있습니다.'}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%' }}>
             {onClosePane && (
               <button
                 type="button"
                 onClick={() => { onClosePane(); }}
-                style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: 1 }}
+                style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: '1 1 92px', minWidth: 0 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
               >
@@ -1961,7 +2185,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
                 if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
                 else window.location.reload();
               }}
-              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: 1, opacity: reconnecting ? 0.7 : 1 }}
+              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: '1 1 112px', minWidth: 0, opacity: reconnecting ? 0.7 : 1 }}
               onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
             >
@@ -2162,6 +2386,22 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         </div>
       )}
 
+      {connectionNotice && !ended && !evicted && !closing && (
+        <div style={styles.inlineBanner(themeUi)}>
+          <Loader2 size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
+          <span style={styles.bannerText(themeUi)}>
+            {connectionNotice}
+          </span>
+          <button
+            type="button"
+            onClick={() => setConnectionNotice('')}
+            style={styles.bannerButton(themeUi)}
+          >
+            <X size={11} strokeWidth={2} />
+          </button>
+        </div>
+      )}
+
       {evicted && (
         <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
           <div style={styles.glassIconTile(themeUi, themeUi.warning || '#f9e2af')}>
@@ -2242,17 +2482,17 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
               </div>
             )}
           </div>
-          <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%' }}>
             {onClosePane && (
               <button
                 type="button"
                 onClick={() => { onClosePane(); }}
-                style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: 1 }}
+                style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: '1 1 0', minWidth: 0 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
               >
-                <X size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
-                {t('close') || '닫기'}
+                <X size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+                <span style={styles.glassActionLabel}>{t('close') || '닫기'}</span>
               </button>
             )}
             <button
@@ -2262,19 +2502,40 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
                 if (reconnectingRef.current) return;
                 reconnectingRef.current = true;
                 setReconnecting(true);
-                setEndedNotice('');
+                clearEndedForReconnect();
                 reconnectAttemptsRef.current = 0;
-                if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
+                if (connectRef.current) connectRef.current({ create: false });
                 else window.location.reload();
               }}
-              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: 1, opacity: reconnecting ? 0.7 : 1 }}
+              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: '1 1 0', minWidth: 0, opacity: reconnecting ? 0.7 : 1 }}
               onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
             >
               {reconnecting
-                ? <Loader2 size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px', animation: 'tl-spin 0.8s linear infinite' }} />
-                : <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />}
-              {reconnecting ? (t('reconnecting') || '연결 중...') : (t('reconnectExistingShell') || '다시 연결')}
+                ? <Loader2 size={12} strokeWidth={2} style={{ flexShrink: 0, animation: 'tl-spin 0.8s linear infinite' }} />
+                : <RotateCcw size={12} strokeWidth={2} style={{ flexShrink: 0 }} />}
+              <span style={styles.glassActionLabel}>
+                {reconnecting ? (t('reconnecting') || '연결 중...') : (t('reconnectExistingShell') || '다시 연결')}
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={reconnecting}
+              onClick={() => {
+                if (reconnectingRef.current) return;
+                reconnectingRef.current = true;
+                setReconnecting(true);
+                clearEndedForReconnect();
+                reconnectAttemptsRef.current = 0;
+                if (connectRef.current) connectRef.current({ create: true });
+                else window.location.reload();
+              }}
+              style={{ ...styles.glassActionBtn(themeUi, themeUi.warning || themeUi.accent), flex: '1 1 0', minWidth: 0, opacity: reconnecting ? 0.7 : 1 }}
+              onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.warning || themeUi.accent} 35%, transparent)`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.warning || themeUi.accent} 22%, transparent)`; }}
+            >
+              <PowerOff size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+              <span style={styles.glassActionLabel}>{t('restartShell') || '새 셸 시작'}</span>
             </button>
           </div>
         </GlassOverlayCard>
@@ -2674,6 +2935,7 @@ const styles = {
   glassActionBtn: (themeUi, btnColor) => ({
     width: '100%',
     height: '32px',
+    minWidth: 0,
     borderRadius: '7px',
     border: `1px solid color-mix(in srgb, ${btnColor} 60%, transparent)`,
     background: `color-mix(in srgb, ${btnColor} 22%, transparent)`,
@@ -2682,10 +2944,24 @@ const styles = {
     fontWeight: fontWeight.semibold,
     cursor: 'pointer',
     fontFamily: 'inherit',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '5px',
+    padding: '0 8px',
     backdropFilter: 'blur(8px)',
     WebkitBackdropFilter: 'blur(8px)',
     transition: 'background 120ms',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
   }),
+  glassActionLabel: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
   modalTitle: (themeUi) => ({
     color: themeUi.text,
     fontSize: fontSize['13'],
