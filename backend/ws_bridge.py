@@ -213,18 +213,24 @@ class TmuxClientBridge:
                 if stripped.startswith("{") and stripped.endswith("}"):
                     try:
                         msg = json.loads(stripped)
-                        if isinstance(msg, dict):
-                            mtype = msg.get("type")
-                            if mtype == "resize":
+                    except Exception:
+                        msg = None
+                    if isinstance(msg, dict):
+                        mtype = msg.get("type")
+                        if mtype == "resize":
+                            try:
                                 self.resize(int(msg.get("cols", self.cols)), int(msg.get("rows", self.rows)))
-                                continue
-                            # 클라이언트 하트비트 — half-open 소켓 감지용. PTY 로 흘리지 않고 pong 응답.
-                            if mtype == "ping":
+                            except Exception as e:
+                                logger.debug("resize control ignored (%s): %s", self.session_id, e)
+                            continue
+                        # 클라이언트 하트비트 — half-open 소켓 감지용. PTY 로 흘리지 않고 pong 응답.
+                        if mtype == "ping":
+                            try:
                                 async with self._send_lock:
                                     await self.websocket.send_text('{"type":"pong"}')
-                                continue
-                    except Exception:
-                        pass
+                            except Exception as e:
+                                logger.debug("pong send failed (%s): %s", self.session_id, e)
+                            continue
                 await self.write_input(data)
         except WebSocketDisconnect:
             logger.info("ws disconnected: %s", self.session_id)

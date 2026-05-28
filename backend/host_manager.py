@@ -370,19 +370,25 @@ class HostBridge:
                 if stripped.startswith("{") and stripped.endswith("}"):
                     try:
                         msg = json.loads(stripped)
-                        if isinstance(msg, dict) and msg.get("type") == "resize":
+                    except Exception:
+                        msg = None
+                    if isinstance(msg, dict) and msg.get("type") == "resize":
+                        try:
                             cols = int(msg.get("cols") or self.cols)
                             rows = int(msg.get("rows") or self.rows)
                             if cols != self.cols or rows != self.rows:
                                 self.cols, self.rows = cols, rows
                                 self.process.change_terminal_size(cols, rows)
-                            continue
-                        if isinstance(msg, dict) and msg.get("type") == "ping":
+                        except Exception as e:
+                            logger.debug("resize control ignored (%s): %s", self.host.get("id"), e)
+                        continue
+                    if isinstance(msg, dict) and msg.get("type") == "ping":
+                        try:
                             async with self._send_lock:
                                 await self.websocket.send_text('{"type":"pong"}')
-                            continue
-                    except Exception:
-                        pass
+                        except Exception as e:
+                            logger.debug("pong send failed (%s): %s", self.host.get("id"), e)
+                        continue
                 raw = data.encode("utf-8", errors="replace") if isinstance(data, str) else data
                 off = 0
                 while off < len(raw):
@@ -613,7 +619,10 @@ class TailscaleHostBridge:
                 if stripped.startswith("{") and stripped.endswith("}"):
                     try:
                         msg = json.loads(stripped)
-                        if isinstance(msg, dict) and msg.get("type") == "resize":
+                    except Exception:
+                        msg = None
+                    if isinstance(msg, dict) and msg.get("type") == "resize":
+                        try:
                             cols = max(int(msg.get("cols") or self.cols), 1)
                             rows = max(int(msg.get("rows") or self.rows), 1)
                             if cols != self.cols or rows != self.rows:
@@ -622,13 +631,16 @@ class TailscaleHostBridge:
                                     self.process.setwinsize(rows, cols)
                                 except Exception:
                                     pass
-                            continue
-                        if isinstance(msg, dict) and msg.get("type") == "ping":
+                        except Exception as e:
+                            logger.debug("resize control ignored (%s): %s", self.host.get("id"), e)
+                        continue
+                    if isinstance(msg, dict) and msg.get("type") == "ping":
+                        try:
                             async with self._send_lock:
                                 await self.websocket.send_text('{"type":"pong"}')
-                            continue
-                    except Exception:
-                        pass
+                        except Exception as e:
+                            logger.debug("pong send failed (%s): %s", self.host.get("id"), e)
+                        continue
                 try:
                     raw = data.encode("utf-8") if isinstance(data, str) else data
                     off = 0

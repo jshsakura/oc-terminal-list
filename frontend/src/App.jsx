@@ -133,7 +133,24 @@ const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = nu
 
 // 호스트 탭마다 고유 tmux 세션 suffix — 같은 호스트라도 새 탭 = 새 작업공간.
 // 탭이 서버 tab-state 로 복원될 땐 이 값이 보존되어 같은 세션을 다시 attach.
-const makeTmuxSuffix = () => Date.now().toString(36).slice(-6) + Math.floor(Math.random() * 36).toString(36);
+const makeTmuxSuffix = () => {
+  try {
+    if (crypto?.randomUUID) return crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  } catch { /* noop */ }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const sanitizeTmuxNamePart = (value, fallback = 'mobile') => {
+  const cleaned = String(value || '')
+    .replace(/[^a-zA-Z0-9._-]/g, '')
+    .slice(0, 40);
+  return cleaned || fallback;
+};
+
+const makeFreshHostTmuxSessionName = (host) => {
+  const base = sanitizeTmuxNamePart(host?.remote_tmux_session || 'mobile');
+  return `${base}-${makeTmuxSuffix()}`.slice(0, 64);
+};
 
 const isRandomThemeProfile = (themeId) => themeId === 'random-dark' || themeId === 'random-light';
 
@@ -151,21 +168,24 @@ const resolveProfileTheme = (themeId, usedThemeIds = []) => {
 
 const makeHostTab = (host, cwd = null, tmuxSessionName = null, { themeOverride = undefined, tabId = null } = {}) => {
   // tmuxSessionName 이 주어지면 이미 존재하는 영속 세션을 명시적으로 attach (Resume).
-  // 이 경우 새 base/suffix 를 만들 필요 없고 pane 0 에 세션명을 직접 박는다.
+  // 새 호스트 터미널도 pane 0 에 fresh tmuxSessionName 을 직접 박는다. paneIndex 기반 이름은
+  // 같은 탭/경로에서 예전 원격 tmux 세션이 살아있을 때 "새 터미널"이 기존 세션으로 붙는
+  // 사고를 만들 수 있으므로, 신규 생성 경로는 항상 명시 세션명으로 분리한다.
   // profile theme 이 있으면 새 터미널 생성 시점에 구체 테마로 해석해 pane.themeOverride 에 저장.
   const selectedTheme = themeOverride !== undefined ? themeOverride : host.theme;
+  const isResume = !!tmuxSessionName;
+  const paneTmuxSessionName = tmuxSessionName || makeFreshHostTmuxSessionName(host);
   const pane = makePane({
     hostId: host.id,
-    ...(tmuxSessionName ? { tmuxSessionName } : null),
+    tmuxSessionName: paneTmuxSessionName,
     ...(selectedTheme ? { themeOverride: selectedTheme } : null),
   });
-  const suffix = tmuxSessionName ? null : makeTmuxSuffix();
   return {
     id: tabId || `host:${host.id}:${Date.now()}`,
     type: 'host',
     hostId: host.id,
-    tmuxSuffix: suffix,
-    name: tmuxSessionName ? `${host.name} · ${tmuxSessionName}` : host.name,
+    tmuxSuffix: null,
+    name: isResume ? `${host.name} · ${tmuxSessionName}` : host.name,
     icon: host.icon || null,
     color_index: host.color_index ?? 0,
     cwd: cwd ?? null,
@@ -238,7 +258,9 @@ function App() {
   const localDirtyRef = useRef(false);
 
   // 다른 기기에서 받은 서버 상태를 로컬에 적용 (alive 세션 머지 포함).
-  const applyServerTabState = useCallback(async (serverState) => {
+  // 중요: activeTabId 는 라이브 동기화하지 않는다. 다른 기기/탭에서 활성 탭을 바꿀 때
+  // 현재 화면까지 강제로 끌려가는 UX가 된다. 초기 복원 시에만 syncActive=true 로 한 번 반영.
+  const applyServerTabState = useCallback(async (serverState, { syncActive = false } = {}) => {
     if (!serverState) return;
     let aliveSessions = [];
     try {
@@ -257,7 +279,7 @@ function App() {
         ? [...missing.map((s) => makLocalTab(s.id, s.name || 'terminal', s.cwd || null)), ...base]
         : base;
     });
-    if (serverState?.activeTabId !== undefined) {
+    if (syncActive && serverState?.activeTabId !== undefined) {
       setActiveTabId(serverState.activeTabId || null);
     }
     if (serverState?.updatedAt) lastAppliedTabVersionRef.current = serverState.updatedAt;
@@ -278,9 +300,9 @@ function App() {
       try {
         const r = await fetch('/api/tab-state');
         const serverState = r.ok ? await r.json() : null;
-        if (!cancelled) await applyServerTabState(serverState);
+        if (!cancelled) await applyServerTabState(serverState, { syncActive: true });
       } catch {
-        if (!cancelled) await applyServerTabState(null);
+        if (!cancelled) await applyServerTabState(null, { syncActive: true });
       } finally {
         const elapsed = Date.now() - startedAt;
         const wait = Math.max(0, 420 - elapsed);
@@ -295,7 +317,9 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated]);
 
-  // tabs/activeTabId 변경 시 서버에 저장 (debounced 800ms) — 기기 간 완전 동기화.
+  // tabs 변경 시 서버에 저장 (debounced 800ms) — 기기 간 탭 구성 동기화.
+  // activeTabId 는 localStorage 로만 유지한다. 탭 선택까지 서버에 저장하면 다른 기기가
+  // 보고 있던 탭을 강제로 이동시키는 문제가 생긴다.
   // 응답의 updatedAt 을 기억해 폴링에서 자기 변경 재적용을 막음.
   //
   // 두 안전망:
@@ -335,7 +359,7 @@ function App() {
       localDirtyRef.current = false;
     }, 800);
     return () => { if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current); };
-  }, [tabs, activeTabId, isAuthenticated, isRestoringWorkspace, applyServerTabState]);
+  }, [tabs, isAuthenticated, isRestoringWorkspace, applyServerTabState]);
 
   // 다른 기기 (PC↔모바일) tab-state 변경을 SSE 로 수신 — 폴링 제거.
   // 서버가 PUT /api/tab-state 저장 직후 EventSource 로 updatedAt 을 push.
@@ -797,7 +821,9 @@ function App() {
             const h = hosts.find((hh) => hh.id === target.hostId);
             const resolvedTheme = resolveProfileTheme(h?.theme, usedThemeIdsFromTabs(prev));
             const themePatch = resolvedTheme ? { themeOverride: resolvedTheme } : {};
-            const tmuxPatch = target.tmuxSessionName ? { tmuxSessionName: target.tmuxSessionName } : { tmuxSessionName: undefined };
+            const tmuxPatch = {
+              tmuxSessionName: target.tmuxSessionName || makeFreshHostTmuxSessionName(h),
+            };
             return { ...p, hostId: target.hostId, sessionId: undefined, ...tmuxPatch, ...cwdPatch, ...themePatch };
           }
           if (target?.type === 'local') {
@@ -805,7 +831,10 @@ function App() {
             const themePatch = resolvedTheme ? { themeOverride: resolvedTheme } : {};
             return { ...p, sessionId: generateUUID(), hostId: undefined, tmuxSessionName: undefined, ...cwdPatch, ...themePatch };
           }
-          if (t.type === 'host') return { ...p, hostId: t.hostId, tmuxSessionName: undefined, ...cwdPatch };
+          if (t.type === 'host') {
+            const h = hosts.find((hh) => hh.id === t.hostId);
+            return { ...p, hostId: t.hostId, tmuxSessionName: makeFreshHostTmuxSessionName(h), ...cwdPatch };
+          }
           return { ...p, sessionId: generateUUID(), tmuxSessionName: undefined, ...cwdPatch };
         });
         return { ...t, panes, activePaneId: paneId };
@@ -2005,11 +2034,12 @@ function App() {
                       if (isMobile && source?.tabId) {
                         const paneId = generateUUID();
                         const sessionId = hostId ? null : generateUUID();
+                        const host = hostId ? hosts.find((h) => h.id === hostId) : null;
                         setTabs((prev) => prev.map((tt) =>
                           tt.id === source.tabId
                             ? appendPaneAsSplit(tt, makePane({
                                 id: paneId,
-                                ...(hostId ? { hostId } : { sessionId }),
+                                ...(hostId ? { hostId, tmuxSessionName: makeFreshHostTmuxSessionName(host) } : { sessionId }),
                                 cwd: path,
                                 ...(() => {
                                   const profileTheme = hostId
@@ -2205,9 +2235,11 @@ function App() {
             onClose={() => setCommandInputOpen(false)}
             onSend={(cmd) => {
               const terminal = window.terminalSessions?.[terminalKey];
-              terminal?.sendData?.(cmd);
-              window.setTimeout(() => terminal?.sendData?.('\r'), 40);
-              window.setTimeout(() => terminal?.sendData?.('\r'), 180);
+              if (!terminal?.sendCommand?.(cmd)) {
+                terminal?.sendData?.(cmd);
+                window.setTimeout(() => terminal?.sendData?.('\r'), 40);
+                window.setTimeout(() => terminal?.sendData?.('\r'), 180);
+              }
               setCommandText('');
             }}
             command={commandText}

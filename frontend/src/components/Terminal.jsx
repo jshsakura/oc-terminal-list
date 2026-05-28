@@ -65,6 +65,7 @@ const RECOVERY_GRACE_MS = 12000;
 const RECOVERY_POLL_MS = 1000;
 const TAKEOVER_CONFIRM_MS = 3500;
 const TAKEOVER_CONFIRM_POLL_MS = 500;
+const MAX_RECONNECT_ATTEMPTS = 12;
 // 셸이 깨끗이 종료(exit)된 게 확인되면 짧은 취소 여유를 두고 pane 자동 닫기.
 const AUTO_CLOSE_MS = 1800;
 // 로딩이 이 시간을 넘기면 "멈춤"으로 보고 수동 닫기 버튼을 노출 (행 걸린 pane 탈출구).
@@ -77,6 +78,7 @@ const RESUME_PROBE_TIMEOUT_MS = 2500;
 const RESUME_PROBE_THROTTLE_MS = 1500;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
+const TMUX_WHEEL_INPUT_RE = /^(?:\x1b\[<(?:64|65);\d+;\d+M)+$/;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // clipboard.writeText 가 없거나 비-HTTPS 컨텍스트에서 실패할 경우 textarea 폴백.
@@ -161,6 +163,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const wsFlushTimeoutRef = useRef(null);
   const wsBufferRef = useRef([]);
   const inputQueueRef = useRef([]);
+  const enqueueInputRef = useRef(null);
+  const probeLivenessRef = useRef(null);
   const inputFlushTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   const intentionalCloseRef = useRef(false);
@@ -331,13 +335,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   }, [hasContent, ended, evicted, closing, reconnecting]);
 
   // 스마트 스크롤 훅 — xterm buffer API 기반 (DOM scrollTop 아님)
-  const { handleUserScroll, handleNewData } = useSmartScroll(xtermRef, {
+  const { handleUserScroll, handleNewData, forceScrollToBottom } = useSmartScroll(xtermRef, {
     autoScroll: settings.autoScroll,
   });
   // handleNewData 는 autoScroll 설정에 의존하므로 렌더링마다 바뀔 수 있음.
   // useEffect 내부의 flushBufferedOutput 클로저가 항상 최신 콜백을 참조하도록 ref 유지.
   const handleNewDataRef = useRef(handleNewData);
   handleNewDataRef.current = handleNewData;
+  const forceScrollToBottomRef = useRef(forceScrollToBottom);
+  forceScrollToBottomRef.current = forceScrollToBottom;
 
   // 테마 가져오기
   const currentTheme = themes[settings.theme] || themes.catppuccin;
@@ -943,10 +949,36 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (!res.ok) return { attached: false, exists: true };
         const data = await res.json();
         // exists 가 false 면 셸이 exit 등으로 tmux 세션이 사라진 상태 → 사용자에게 알리고 명시적 restart.
-        return { attached: !!data.attached, count: data.count || 0, exists: data.exists !== false };
+        return {
+          ...data,
+          attached: !!data.attached,
+          count: data.count || 0,
+          exists: data.exists !== false,
+        };
       } catch {
         return { attached: false, exists: true };
       }
+    };
+
+    const scheduleReconnect = (createIfMissing, notice = '') => {
+      if (cancelled) return false;
+      const attempts = reconnectAttemptsRef.current;
+      if (attempts >= MAX_RECONNECT_ATTEMPTS) return false;
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
+      reconnectAttemptsRef.current = attempts + 1;
+      reconnectingRef.current = true;
+      setReconnecting(true);
+      clearEndedForReconnect();
+      if (notice) setConnectionNotice(notice);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        reconnectTimeoutRef.current = null;
+        if (!cancelled) connectRef.current?.({ create: createIfMissing, autoRecover: true });
+      }, delay);
+      return true;
     };
 
     const connect = async (options = {}) => {
@@ -980,19 +1012,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (!wsTicket) {
         logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
         if (!ticketResult.authExpired && autoRecover) {
-          const attempts = reconnectAttemptsRef.current;
-          if (attempts < 12) {
-            const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
-            reconnectAttemptsRef.current = attempts + 1;
-            reconnectingRef.current = true;
-            setReconnecting(true);
-            clearEndedForReconnect();
-            setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
-            reconnectTimeoutRef.current = setTimeout(() => {
-              if (!cancelled) connectRef.current?.({ create: createIfMissing, autoRecover: true });
-            }, delay);
-            return;
-          }
+          if (scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) return;
         }
         // 스피너를 반드시 풀어준다 — 안 그러면 "연결 중..." 무한 대기.
         // 401/403 이면 issueWsTicket 이 이미 session-expired 를 쏴서 로그인 화면이 뜬다.
@@ -1017,6 +1037,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         logger.warn(`WebSocket open 타임아웃 — 중단: ${sessionId}`);
         intentionalCloseRef.current = true; // onclose 가 또 다른 재연결 루프 안 타게
         try { socket.close(); } catch { /* noop */ }
+        if (autoRecover && scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) {
+          return;
+        }
         markEnded(t('reconnectTimedOut') || '연결이 지연되고 있습니다. 다시 시도해 주세요.');
       }, CONNECT_OPEN_TIMEOUT_MS);
       const clearOpenTimer = () => { if (openTimer) { clearTimeout(openTimer); openTimer = null; } };
@@ -1366,15 +1389,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (isStaleSocket()) return;
         // 호스트 네트워크 불안정 (RPi5 wifi 등) 케이스 대응 — 시도 횟수 늘리고 cap 도 큼.
         // 1→2→4→8→8→8…s, 최대 12회 ≈ 1분 30초. 그 후 ended 화면.
-        const attempts = reconnectAttemptsRef.current;
-        if (attempts < 12) {
-          const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
-          reconnectAttemptsRef.current = attempts + 1;
-          setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
-          reconnectTimeoutRef.current = setTimeout(() => {
-            if (!cancelled) connectRef.current?.({ create: false });
-          }, delay);
-        } else {
+        if (!scheduleReconnect(false, t('networkReconnect') || 'Network connection changed. Reconnecting...')) {
           // 끝까지 실패 — ended 오버레이로 사용자 명시 액션 유도.
           markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found.');
         }
@@ -1449,6 +1464,34 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       }
     };
 
+    const enqueueInput = (data, { broadcast = false, delay = 0, priority = false, dropQueuedWheel = false } = {}) => {
+      if (typeof data !== 'string' || data.length === 0) return false;
+      if (dropQueuedWheel) {
+        inputQueueRef.current = inputQueueRef.current.filter((item) => !TMUX_WHEEL_INPUT_RE.test(item));
+      }
+      const MAX_QUEUE_BYTES = 1024 * 1024;
+      let totalBytes = data.length;
+      for (const item of inputQueueRef.current) totalBytes += item.length;
+      while (totalBytes > MAX_QUEUE_BYTES && inputQueueRef.current.length > 1) {
+        totalBytes -= inputQueueRef.current.shift().length;
+      }
+      if (priority) inputQueueRef.current.unshift(data);
+      else inputQueueRef.current.push(data);
+      const ws = wsRef.current;
+      if (ws?.readyState === WebSocket.OPEN && Date.now() - lastRecvRef.current > 3000) {
+        probeLivenessRef.current?.();
+      }
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
+        scheduleInputFlush(Math.max(delay, 50));
+      } else {
+        scheduleInputFlush(delay);
+      }
+      if (broadcast) onBroadcastRef.current?.(data);
+      return true;
+    };
+    enqueueInputRef.current = enqueueInput;
+
     // 입력 시점 빠른 생존 확인 — 사용자가 타이핑하는데 서버로부터 한동안 아무 것도 못 받았으면
     // half-open 의심. ping 을 즉시 쏘고 짧게 기다려 pong(또는 그 외 메시지) 이 안 오면 죽은 소켓으로
     // 보고 재연결. pong 은 셸 상태와 무관하게 브리지가 응답하므로, 비밀번호 입력/장기 실행 명령처럼
@@ -1472,6 +1515,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }
       }, 3000);
     };
+    probeLivenessRef.current = probeLiveness;
 
     term.onData((data) => {
       if (isTerminalAutoResponse(data)) {
@@ -1494,15 +1538,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       // 입력을 버리지 않고 큐에 적재해 다음 OPEN 또는 flush 틱에 전송. drop 으로 인한
       // "키 씹힘" 의 주요 원인 차단. 단 너무 오래 쌓이지 않게 큐 사이즈 보호.
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        // 큐가 비정상적으로 부풀면 (1MB 초과) 가장 오래된 입력부터 폐기 — 무한 적재 방지.
-        const MAX_QUEUE_BYTES = 1024 * 1024;
-        let totalBytes = 0;
-        for (const item of inputQueueRef.current) totalBytes += item.length;
-        while (totalBytes > MAX_QUEUE_BYTES && inputQueueRef.current.length > 1) {
-          totalBytes -= inputQueueRef.current.shift().length;
-        }
-        inputQueueRef.current.push(data);
-        scheduleInputFlush(50);
+        enqueueInput(data, { broadcast: false, delay: 50 });
         return;
       }
       if (isLatencySensitiveInput(data) && inputQueueRef.current.length === 0 && ws.bufferedAmount < WS_BUFFER_HIGH_WATER) {
@@ -1510,9 +1546,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         onBroadcastRef.current?.(data);
         return;
       }
-      inputQueueRef.current.push(data);
-      scheduleInputFlush(0);
-      onBroadcastRef.current?.(data);
+      enqueueInput(data, { broadcast: true, delay: 0 });
     });
 
     // 스크롤 이벤트 연결
@@ -1625,6 +1659,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
       if (selectionTimer) clearTimeout(selectionTimer);
       inputQueueRef.current = [];
+      enqueueInputRef.current = null;
+      probeLivenessRef.current = null;
       fitNowRef.current = null;
     };
   }, [connectionKey, updateEdgeGutter]);
@@ -1745,27 +1781,34 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     return () => cancelAnimationFrame(rafId);
   }, [layoutSignal, isActive]);
 
-  // 재연결 로직
-  const handleReconnect = () => {
-    if (reconnectAttemptsRef.current < 5) {
-      const delay = Math.pow(2, reconnectAttemptsRef.current) * 1000;
-      reconnectTimeoutRef.current = setTimeout(() => {
-        reconnectAttemptsRef.current += 1;
-        logger.info(`재연결 시도 중... (${reconnectAttemptsRef.current}/5)`);
-        // useEffect가 재실행되도록 강제하거나 소켓만 다시 생성
-        // 여기서는 단순함을 위해 페이지 새로고침 제안 또는 상태 트리거
-      }, delay);
-    }
-  };
-
   // 외부 전송용 핸들러 (MobileToolbar / Quick Input 등에서 사용)
   const sendData = useCallback((data) => {
     if (looksLikeBulkCommand(data)) {
       try { pushCommandHistory(sessionId, data); } catch { /* noop */ }
     }
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(data);
+    if (enqueueInputRef.current?.(data, { delay: 0 })) {
+      return true;
     }
+    if (wsRef.current?.readyState === WebSocket.OPEN && typeof data === 'string') {
+      wsRef.current.send(data);
+      return true;
+    }
+    return false;
+  }, [sessionId]);
+
+  const sendCommand = useCallback((command) => {
+    if (typeof command !== 'string' || !command.trim()) return false;
+    try { pushCommandHistory(sessionId, command); } catch { /* noop */ }
+    try { forceScrollToBottomRef.current?.(); } catch { /* noop */ }
+    const payload = command.endsWith('\r') || command.endsWith('\n') ? command : `${command}\r`;
+    if (enqueueInputRef.current?.(payload, { delay: 0, priority: true, dropQueuedWheel: true })) {
+      return true;
+    }
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(payload);
+      return true;
+    }
+    return false;
   }, [sessionId]);
 
   // Broadcast: onBroadcast prop 은 broadcastActive 변화마다 교체되므로 ref 로 최신 유지
@@ -1773,14 +1816,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   useEffect(() => { onBroadcastRef.current = onBroadcast; }, [onBroadcast]);
 
   // 부모(PaneGrid)가 ref 를 통해 sendData 를 호출 — broadcast fan-out 에서 사용.
-  useImperativeHandle(ref, () => ({ sendData }), [sendData]);
+  useImperativeHandle(ref, () => ({ sendData, sendCommand }), [sendData, sendCommand]);
 
   const getSelection = useCallback(() => {
     return xtermRef.current?.getSelection() || '';
   }, []);
 
   const scrollToBottom = useCallback(() => {
-    xtermRef.current?.scrollToBottom();
+    forceScrollToBottomRef.current?.();
   }, []);
 
   // 페이지/라인 단위 스크롤 — xterm.js client-side scrollback 만 조작한다.
@@ -2032,6 +2075,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     if (!window.terminalSessions) window.terminalSessions = {};
     window.terminalSessions[sessionId] = {
       sendData,
+      sendCommand,
       getSelection,
       getBufferText,
       copyAll,
@@ -2085,7 +2129,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         delete window.terminalSessions[sessionId];
       }
     };
-  }, [sessionId, sendData, getSelection, getBufferText, copyAll, scrollToBottom, scrollToTop, scrollPages, scrollLines, focus, clear, searchNext, searchPrevious, closeSearch, isReady]);
+  }, [sessionId, sendData, sendCommand, getSelection, getBufferText, copyAll, scrollToBottom, scrollToTop, scrollPages, scrollLines, focus, clear, searchNext, searchPrevious, closeSearch, isReady]);
 
   // 로깅 헬퍼
   const logger = {
@@ -3076,17 +3120,20 @@ const styles = {
   }),
   bannerButton: (themeUi) => ({
     height: '22px',
-    padding: `0 ${space['2']}`,
+    width: '22px',
+    minWidth: '22px',
+    padding: 0,
     borderRadius: '5px',
     border: `1px solid color-mix(in srgb, ${themeUi.accent} 60%, transparent)`,
     background: `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`,
     color: themeUi.accent,
-    fontSize: fontSize['11'],
-    fontWeight: 600,
     cursor: 'pointer',
     fontFamily: 'inherit',
-    whiteSpace: 'nowrap',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
     flexShrink: 0,
+    boxSizing: 'border-box',
   }),
   promptPasteButton: (themeUi) => ({
     height: '40px',
