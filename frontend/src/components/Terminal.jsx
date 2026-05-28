@@ -78,6 +78,8 @@ const RESUME_PROBE_TIMEOUT_MS = 2500;
 const RESUME_PROBE_THROTTLE_MS = 1500;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
+// onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
+const RECONNECT_STABLE_RESET_MS = 15000;
 const TMUX_WHEEL_INPUT_RE = /^(?:\x1b\[<(?:64|65);\d+;\d+M)+$/;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -117,6 +119,9 @@ const issueWsTicket = async (path) => {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ path }),
+      signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+        ? AbortSignal.timeout(7000)
+        : undefined,
     });
     if (res.status === 401 || res.status === 403) {
       window.dispatchEvent(new CustomEvent('auth:session-expired'));
@@ -154,6 +159,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const resizeTrailingTimeoutRef = useRef(null);
   const fitNowRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  const stableReconnectTimerRef = useRef(null);
   const heartbeatTimerRef = useRef(null);
   const livenessProbeTimerRef = useRef(null);
   const resumeProbeTimerRef = useRef(null);
@@ -238,6 +244,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     setReconnecting(false);
     setEvicted(false);
     setClosing(false);
+    setConnectionNotice('');
     setEnded(true);
     setEndedNotice(notice);
     onStatusChangeRef.current?.({
@@ -964,6 +971,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (cancelled) return false;
       const attempts = reconnectAttemptsRef.current;
       if (attempts >= MAX_RECONNECT_ATTEMPTS) return false;
+      if (stableReconnectTimerRef.current) {
+        clearTimeout(stableReconnectTimerRef.current);
+        stableReconnectTimerRef.current = null;
+      }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
@@ -979,6 +990,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (!cancelled) connectRef.current?.({ create: createIfMissing, autoRecover: true });
       }, delay);
       return true;
+    };
+
+    const scheduleExistingReconnect = (notice = t('networkReconnect') || 'Network connection changed. Reconnecting...') => {
+      if (cancelled) return false;
+      if (scheduleReconnect(false, notice)) return true;
+      markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
+      return false;
     };
 
     const connect = async (options = {}) => {
@@ -1048,10 +1066,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clearOpenTimer();
         if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
         logger.info(`WebSocket 연결 성공: ${sessionId}`);
+        if (stableReconnectTimerRef.current) {
+          clearTimeout(stableReconnectTimerRef.current);
+          stableReconnectTimerRef.current = null;
+        }
         setConnectionNotice('');
         ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
         setIsReady(true);
-        reconnectAttemptsRef.current = 0;
         // 재연결 성공 — 오버레이 해제
         if (reconnectingRef.current) {
           reconnectingRef.current = false;
@@ -1060,6 +1081,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           evictedRef.current = false;
           setEvicted(false);
         }
+        stableReconnectTimerRef.current = setTimeout(() => {
+          stableReconnectTimerRef.current = null;
+          if (cancelled || wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
+          if (socket.readyState === WebSocket.OPEN) reconnectAttemptsRef.current = 0;
+        }, RECONNECT_STABLE_RESET_MS);
 
         // 재연결로 다시 열렸을 때, 끊겨있는 동안 큐에 쌓인 입력을 즉시 흘려보낸다.
         if (inputQueueRef.current.length > 0) scheduleInputFlush(0);
@@ -1263,6 +1289,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     socket.onclose = (event) => {
       clearOpenTimer();
+      if (stableReconnectTimerRef.current) {
+        clearTimeout(stableReconnectTimerRef.current);
+        stableReconnectTimerRef.current = null;
+      }
       if (heartbeatTimerRef.current) {
         clearInterval(heartbeatTimerRef.current);
         heartbeatTimerRef.current = null;
@@ -1327,21 +1357,21 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
         if (pf.attached) {
           if (pf.same_client_active && !pf.other_client_active) {
-            if (pf.network_changed) {
+            const sameDeviceNotice = (() => {
+              if (!pf.network_changed) return undefined;
               const net = getNetworkSummary();
-              setConnectionNotice(
-                net
-                  ? `${t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...'} (${net})`
-                  : (t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...')
-              );
-            }
-            connectRef.current?.({ create: false });
+              return net
+                ? `${t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...'} (${net})`
+                : (t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...');
+            })();
+            if (sameDeviceNotice) setConnectionNotice(sameDeviceNotice);
+            scheduleExistingReconnect(sameDeviceNotice);
             return;
           }
           const confirmed = await confirmTakeover();
           if (confirmed === 'stale') return;
           if (!confirmed) {
-            connectRef.current?.({ create: false });
+            scheduleExistingReconnect();
             return;
           }
           evictedRef.current = true;
@@ -1651,6 +1681,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (stableReconnectTimerRef.current) {
+        clearTimeout(stableReconnectTimerRef.current);
+        stableReconnectTimerRef.current = null;
+      }
       if (heartbeatTimerRef.current) { clearInterval(heartbeatTimerRef.current); heartbeatTimerRef.current = null; }
       if (livenessProbeTimerRef.current) { clearTimeout(livenessProbeTimerRef.current); livenessProbeTimerRef.current = null; }
       if (resumeProbeTimerRef.current) { clearTimeout(resumeProbeTimerRef.current); resumeProbeTimerRef.current = null; }
