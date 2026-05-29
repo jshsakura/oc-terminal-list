@@ -6,6 +6,7 @@ RP ID / origin 은 들어오는 HTTP Request 의 Host 헤더에서 자동 추출
 from __future__ import annotations
 
 import base64
+import logging
 import secrets
 from urllib.parse import urlparse
 
@@ -26,6 +27,8 @@ from webauthn.helpers.structs import (
 )
 
 from rate_limit import trust_proxy_headers
+
+logger = logging.getLogger(__name__)
 
 RP_NAME = "Terminal List"
 
@@ -143,7 +146,9 @@ def verify_registration(
         )
         return verification
     except Exception as e:  # webauthn 의 InvalidRegistrationResponse 등
-        raise HTTPException(status_code=400, detail=f"passkey 등록 검증 실패: {e}")
+        # 상세 원인은 서버 로그에만 남기고 클라이언트엔 일반 메시지.
+        logger.warning("passkey registration verification failed: %s", e)
+        raise HTTPException(status_code=400, detail="패스키 등록 검증에 실패했습니다.")
 
 
 def verify_authentication(
@@ -167,4 +172,5 @@ def verify_authentication(
         )
         return verification
     except Exception as e:
-        raise HTTPException(status_code=401, detail=f"passkey 인증 검증 실패: {e}")
+        logger.warning("passkey authentication verification failed: %s", e)
+        raise HTTPException(status_code=401, detail="패스키 인증에 실패했습니다.")

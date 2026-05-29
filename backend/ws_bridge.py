@@ -246,7 +246,7 @@ class TmuxClientBridge:
         except Exception as e:
             logger.error("tmux attach spawn failed (%s): %s", self.session_id, e)
             try:
-                await self.websocket.close(code=1011, reason=f"tmux attach failed: {e}")
+                await self.websocket.close(code=1011, reason="세션 연결에 실패했습니다.")
             except Exception:
                 pass
             return

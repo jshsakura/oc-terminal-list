@@ -352,9 +352,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const forceScrollToBottomRef = useRef(forceScrollToBottom);
   forceScrollToBottomRef.current = forceScrollToBottom;
 
-  // 테마 가져오기
-  const currentTheme = themes[settings.theme] || themes.catppuccin;
-  const themeUi = buildThemeUI(currentTheme);
+  // 테마 가져오기 — settings.theme 이 바뀔 때만 재계산 (매 렌더마다 buildThemeUI 객체
+  // 새로 만드는 비용 + 자식 props 변경에 의한 불필요 리렌더 방지).
+  const currentTheme = useMemo(
+    () => themes[settings.theme] || themes.catppuccin,
+    [settings.theme],
+  );
+  const themeUi = useMemo(() => buildThemeUI(currentTheme), [currentTheme]);
   const connectionKey = useMemo(() => JSON.stringify({
     sessionId,
     hostId: hostId || null,
@@ -1189,7 +1193,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
       wsBufferRef.current = [];
 
-      term.write(mergedBuffer, () => {
+      const onWriteDone = () => {
         handleNewDataRef.current();
         setHasContent(true);
         hasContentRef.current = true;
@@ -1197,7 +1201,21 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           contentReadyRef.current = true;
           onReadyChangeRef.current?.(true);
         }
-      });
+      };
+
+      // 비활성 탭 누적분(최대 INACTIVE_BUFFER_MAX_BYTES)을 한 번에 write 하면 xterm 파서가
+      // 메인 스레드를 길게 점유해 재활성 순간 UI 가 멈춘다. 청크로 쪼개 xterm WriteBuffer 가
+      // 프레임 사이사이 렌더를 끼워넣게 한다. subarray 는 복사 없이 뷰만 공유.
+      const WRITE_CHUNK_BYTES = 256 * 1024;
+      if (mergedBuffer.byteLength <= WRITE_CHUNK_BYTES) {
+        term.write(mergedBuffer, onWriteDone);
+      } else {
+        for (let off = 0; off < mergedBuffer.byteLength; off += WRITE_CHUNK_BYTES) {
+          const end = Math.min(off + WRITE_CHUNK_BYTES, mergedBuffer.byteLength);
+          const isLast = end >= mergedBuffer.byteLength;
+          term.write(mergedBuffer.subarray(off, end), isLast ? onWriteDone : undefined);
+        }
+      }
     };
     // 외부 effect 에서 활성 복귀 시 호출할 수 있게 ref 노출.
     flushBufferedOutputRef.current = flushBufferedOutput;

@@ -887,6 +887,18 @@ class SystemMonitor:
 system_monitor = SystemMonitor()
 
 
+# ---------------------- ID 검증 ----------------------
+
+# session_id / host_id 는 클라이언트가 UUID v4 로 생성하지만, 셸/tmux 메타문자
+# (; | $ ` 공백 따옴표 등) 가 섞인 값을 거부해 명령 인젝션 여지를 원천 차단한다.
+# UUID 외에도 영숫자·하이픈·언더스코어 조합이면 허용 (친화적 세션명 대비).
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def is_safe_id(value: str | None) -> bool:
+    return bool(value) and bool(_SAFE_ID_RE.match(value))
+
+
 # ---------------------- WebSocket ticket ----------------------
 
 WS_TICKET_TTL_SECONDS = 20
@@ -1103,7 +1115,7 @@ async def login_otp(request: OtpLoginRequest, http_request: Request, response: R
     # OTP 무차별 대입 방지 — 6자리 코드(100만 조합)는 짧은 시간 안 5회 시도면
     # 통계적으로 위험. IP + pending_token 양쪽 limit.
     ip = client_ip_from_request(http_request)
-    check_rate_limit(f"otp:ip:{ip}", max_attempts=10, window_seconds=60)
+    check_rate_limit(f"otp:ip:{ip}", max_attempts=5, window_seconds=60)
     check_rate_limit(f"otp:tok:{request.pending_token[:32]}", max_attempts=5, window_seconds=300)
     username = await auth_manager.verify_otp_pending_token(request.pending_token)
     if not username:
@@ -1502,7 +1514,8 @@ async def kill_process(
     except PermissionError:
         raise HTTPException(status_code=403, detail="permission denied")
     except OSError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("kill_process pid=%s signal=%s failed: %s", pid, sig_name, e)
+        raise HTTPException(status_code=500, detail="프로세스 종료에 실패했습니다.")
 
     logger.info("kill_process pid=%s signal=%s by=%s", pid, sig_name, username)
     return {"ok": True, "pid": pid, "signal": sig_name}
@@ -1825,6 +1838,8 @@ async def create_session(
     username: str = Depends(verify_auth_token),
 ):
     """tmux 세션 생성 + DB 등록."""
+    if not is_safe_id(session_id):
+        raise HTTPException(status_code=400, detail="유효하지 않은 세션 ID입니다.")
     logger.info("[API] create session %s (cwd=%s, shell=%s)", session_id, request.cwd, request.shell)
 
     safe_cwd = _resolve_create_cwd(request.cwd)
@@ -1840,7 +1855,7 @@ async def create_session(
         )
     except Exception as e:
         logger.error("tmux create failed (%s): %s", session_id, e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"터미널 실행 실패: {e}")
+        raise HTTPException(status_code=500, detail="터미널 실행에 실패했습니다.")
 
     try:
         await storage.create_session(session_id, username, cwd=request.cwd or "")
@@ -1968,6 +1983,10 @@ async def terminal_websocket(
     shell: str | None = Query(None),
     create: bool = Query(True, description="false면 없는 tmux 세션을 새로 만들지 않고 연결만 시도"),
 ):
+    if not is_safe_id(session_id):
+        await websocket.close(code=1008, reason="유효하지 않은 세션 ID")
+        return
+
     ws_path = f"/ws/{session_id}"
     username = _consume_ws_ticket(ticket, ws_path) if ticket else None
     if not username:
@@ -2012,7 +2031,8 @@ async def terminal_websocket(
                 pass
         except Exception as e:
             logger.error("tmux create on WS failed (%s): %s", session_id, e)
-            await websocket.close(code=1011, reason=f"tmux create failed: {e}")
+            # 상세 예외는 서버 로그에만. 클라이언트엔 일반 메시지.
+            await websocket.close(code=1011, reason="세션 초기화에 실패했습니다.")
             return
     else:
         try:
@@ -2257,7 +2277,7 @@ async def kill_host_tmux(
                 await conn.wait_closed()
     except Exception as e:
         logger.error("kill-tmux failed (%s, force=%s, session=%s): %s", host_id, force, target_session, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="tmux 세션 종료에 실패했습니다.")
     await invalidate_host(host_id)  # 세션 목록·client 수 캐시 즉시 무효화
     await ssh_pool.invalidate(host_id)  # 풀의 살아있는 conn 도 끊어 새로 시작
     return {"id": host_id, "session": target_session, "status": "server_killed" if force else "killed"}
@@ -2550,6 +2570,10 @@ async def host_websocket(
     tmux_session_name: str | None = Query(None, description="명시적 tmux 세션명 override (기존 영속 세션 Resume). 주어지면 base/suffix/pane 계산 무시."),
     create: bool = Query(True, description="false면 없는 원격 tmux 세션을 새로 만들지 않고 연결만 시도"),
 ):
+    if not is_safe_id(host_id):
+        await websocket.close(code=1008, reason="유효하지 않은 호스트 ID")
+        return
+
     ws_path = f"/ws/host/{host_id}"
     username = _consume_ws_ticket(ticket, ws_path) if ticket else None
     if not username:
@@ -2809,7 +2833,7 @@ async def search_files(
         return {"items": matches}
     except Exception as e:
         logger.error("search files failed (q=%s): %s", q, e)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="파일 검색에 실패했습니다.")
 
 
 @app.get("/api/files/raw")

@@ -17,7 +17,7 @@ from pathlib import Path
 import pyotp
 from jose import JWTError, jwt
 
-from vault import decrypt_str, encrypt_str
+from vault import decrypt_str, encrypt_str, enforce_secret_file_permissions
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,7 @@ def _read_jwt_key_file() -> str | None:
     path = _jwt_key_path()
     if not path.exists():
         return None
+    enforce_secret_file_permissions(path)
     try:
         raw = path.read_text(encoding="utf-8").strip()
         return raw or None
@@ -85,6 +86,11 @@ def _hash_secret(value: str) -> str:
             base64.urlsafe_b64encode(digest).decode("ascii").rstrip("="),
         ]
     )
+
+
+# 타이밍 사이드채널 방지용 더미 해시 — admin 부재/username 불일치 시에도 동일한
+# PBKDF2 비용을 치르게 해서 응답 시간으로 username 을 추론할 수 없게 한다.
+_DUMMY_PASSWORD_HASH = _hash_secret(secrets.token_urlsafe(32))
 
 
 def _verify_secret(value: str, hashed_value: str) -> bool:
@@ -182,15 +188,19 @@ class AuthManager:
         return await self.storage.create_admin(username, hashed_password)
 
     async def verify_admin(self, username: str, password: str) -> bool:
-        """Verify admin credentials"""
+        """Verify admin credentials.
+
+        상수 시간 비교 — username 불일치나 admin 부재 시에도 항상 PBKDF2 해시를
+        계산해서 응답 시간으로 valid username 을 추론하지 못하게 한다.
+        """
         admin_data = await self.storage.get_admin()
-        if not admin_data:
-            return False
+        stored_username = admin_data["username"] if admin_data else ""
+        stored_hash = admin_data["password"] if admin_data else _DUMMY_PASSWORD_HASH
 
-        if admin_data["username"] != username:
-            return False
-
-        return self.verify_password(password, admin_data["password"])
+        # 항상 해시 검증을 수행 (불일치여도 동일 비용).
+        password_ok = self.verify_password(password, stored_hash)
+        username_ok = hmac.compare_digest(stored_username, username)
+        return bool(admin_data) and username_ok and password_ok
 
     async def change_password(
         self, username: str, current_password: str, new_password: str
