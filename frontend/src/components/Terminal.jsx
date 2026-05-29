@@ -66,6 +66,11 @@ const RECOVERY_POLL_MS = 1000;
 const TAKEOVER_CONFIRM_MS = 3500;
 const TAKEOVER_CONFIRM_POLL_MS = 500;
 const MAX_RECONNECT_ATTEMPTS = 12;
+// 연속 재연결의 벽시계 상한. 횟수 기반 cap(MAX_RECONNECT_ATTEMPTS)은 resume 이벤트
+// (online/focus/visibilitychange)가 attempts 를 0 으로 리셋하면 무력화되므로,
+// resume 이 건드리지 않는 벽시계 데드라인을 둬서 "재연결 중..." 무한 대기를 막는다.
+// 한 번이라도 OPEN 에 성공하면 리셋된다.
+const RECONNECT_MAX_WALL_MS = 90000;
 // 셸이 깨끗이 종료(exit)된 게 확인되면 짧은 취소 여유를 두고 pane 자동 닫기.
 const AUTO_CLOSE_MS = 1800;
 // 로딩이 이 시간을 넘기면 "멈춤"으로 보고 수동 닫기 버튼을 노출 (행 걸린 pane 탈출구).
@@ -173,6 +178,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const probeLivenessRef = useRef(null);
   const inputFlushTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+  // 연속 재연결을 시작한 시각(ms). 0 이면 현재 재연결 중 아님. OPEN 성공 시 0 으로 리셋.
+  // resume 이벤트가 attempts 를 리셋해도 이 값은 유지돼 벽시계 데드라인이 살아있게 한다.
+  const reconnectingSinceRef = useRef(0);
   const intentionalCloseRef = useRef(false);
   const lastDimsRef = useRef({ cols: 0, rows: 0 });
   /* 다른 클라이언트가 takeover (tmux attach -d) 했을 때 PTY 출력에 들어오는
@@ -240,6 +248,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     endedRef.current = true;
     evictedRef.current = false;
     reconnectingRef.current = false;
+    reconnectingSinceRef.current = 0;
     setIsReady(false);
     setReconnecting(false);
     setEvicted(false);
@@ -975,6 +984,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (cancelled) return false;
       const attempts = reconnectAttemptsRef.current;
       if (attempts >= MAX_RECONNECT_ATTEMPTS) return false;
+      // 벽시계 데드라인 — resume 이벤트가 attempts 를 계속 리셋해도 무한 재연결이 안 되게.
+      const now = Date.now();
+      if (reconnectingSinceRef.current === 0) {
+        reconnectingSinceRef.current = now;
+      } else if (now - reconnectingSinceRef.current > RECONNECT_MAX_WALL_MS) {
+        return false;
+      }
       if (stableReconnectTimerRef.current) {
         clearTimeout(stableReconnectTimerRef.current);
         stableReconnectTimerRef.current = null;
@@ -1075,6 +1091,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           stableReconnectTimerRef.current = null;
         }
         setConnectionNotice('');
+        // OPEN 성공 — 벽시계 데드라인 리셋. 다음 끊김은 새 재연결 사이클로 친다.
+        reconnectingSinceRef.current = 0;
         ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
         setIsReady(true);
         // 재연결 성공 — 오버레이 해제
