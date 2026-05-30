@@ -368,16 +368,21 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     [settings.theme],
   );
   const themeUi = useMemo(() => buildThemeUI(currentTheme), [currentTheme]);
+  // [중요] paneIndex 는 connectionKey 에서 제외한다. paneIndex 는 분할 grid 에서의 배열
+  // 위치라, 형제 pane 하나를 닫으면 나머지 pane 들의 index 가 밀려 바뀐다. 예전엔 이게
+  // connectionKey 를 바꿔 멀쩡히 붙어있던 pane 들이 불필요하게 재연결(WS 재오픈)됐다.
+  // 실제 연결 정체성은 sessionId(로컬) / effectiveTmuxSession·tmuxSessionName(호스트)로
+  // 충분히 표현된다. 로컬 WS 는 pane_index 를 안 받고, 호스트 WS 도 tmux_session_name 이
+  // 있으면 pane_index 를 무시하므로 paneIndex 변화는 연결에 영향이 없다.
   const connectionKey = useMemo(() => JSON.stringify({
     sessionId,
     hostId: hostId || null,
     tmuxSuffix: tmuxSuffix || null,
     tmuxSessionName: tmuxSessionName || null,
     effectiveTmuxSession: effectiveTmuxSession || null,
-    paneIndex,
     cwd: cwd ?? null,
     shell: settings.defaultShell || 'bash',
-  }), [sessionId, hostId, tmuxSuffix, tmuxSessionName, effectiveTmuxSession, paneIndex, cwd, settings.defaultShell]);
+  }), [sessionId, hostId, tmuxSuffix, tmuxSessionName, effectiveTmuxSession, cwd, settings.defaultShell]);
 
   // 터미널 생성 및 WebSocket 연결
   useEffect(() => {
