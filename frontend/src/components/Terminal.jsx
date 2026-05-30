@@ -79,8 +79,12 @@ const LOAD_STUCK_MS = 8000;
 // 클라이언트가 ping 을 보내고 서버 pong(또는 그 외 메시지) 을 일정 시간 못 받으면 죽은 소켓으로 보고 강제 재연결.
 const HEARTBEAT_INTERVAL_MS = 15000;
 const HEARTBEAT_DEAD_MS = 35000;
-const RESUME_PROBE_TIMEOUT_MS = 2500;
+const RESUME_PROBE_TIMEOUT_MS = 4000;
 const RESUME_PROBE_THROTTLE_MS = 1500;
+// 최근 이 시간 안에 서버로부터 무언가(출력/pong) 를 받았으면 소켓은 살아있음이 증명된
+// 상태 — resume probe 를 아예 건너뛴다. 부하로 pong 이 잠깐 늦을 때 멀쩡한 소켓을 닫고
+// "네트워크 변경" 알림 + 재연결 프리징이 반복되는 오탐을 막는다. (입력시점 liveness probe 와 동일 가드)
+const HEALTHY_RECV_MS = 3000;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
@@ -2093,6 +2097,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (ws.readyState !== WebSocket.OPEN) return;
 
       const now = Date.now();
+      // 최근에 데이터를 받았으면 소켓 생존이 이미 증명됨 — probe 불필요.
+      // 활성 터미널을 포커스할 때마다 멀쩡한 소켓을 닫던 오탐의 주원인 차단.
+      if (now - lastRecvRef.current < HEALTHY_RECV_MS) return;
       if (now - lastResumeProbeAtRef.current < RESUME_PROBE_THROTTLE_MS) return;
       lastResumeProbeAtRef.current = now;
 
