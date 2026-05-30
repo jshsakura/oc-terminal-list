@@ -24,6 +24,14 @@ EnvironmentFile=/home/ubuntu/app/jupyterLab/notebooks/iTerminaLlist/.env
 Environment=RELOAD=false
 
 WorkingDirectory=/home/ubuntu/app/jupyterLab/notebooks/iTerminaLlist/backend
+
+# [중요] 시작 직전 포트 점유 정리 — KillMode=process 탓에 옛 uvicorn 이 고아로
+#   남아 포트(APP_PORT)를 계속 잡으면 새 인스턴스가 바인딩에 실패해 restart 가
+#   조용히 깨진다. 그 포트를 잡은 프로세스(=이 백엔드뿐)만 TERM→KILL 로 정리한다.
+#   포트 기반이라 cgroup 전체(tmux/claude 세션)는 건드리지 않는다. '-' 접두사 =
+#   대상이 없을 때(정상 종료된 경우) 실패를 무시.
+ExecStartPre=-/usr/bin/fuser -k -TERM ${APP_PORT}/tcp
+ExecStartPre=-/bin/sh -c 'sleep 1; /usr/bin/fuser -k -KILL ${APP_PORT}/tcp; exit 0'
 ExecStart=/home/ubuntu/app/jupyterLab/notebooks/iTerminaLlist/.venv/bin/python main.py
 
 # 비정상 종료 시 5초 뒤 재시작
