@@ -91,6 +91,9 @@ const NOTICE_SHOW_DELAY_MS = 1200;
 // 대량 출력 flood(예: 여러 pane 동시 출력 + tmux 재연결 redraw)로 브라우저 탭이 통째로
 // 멈추는 걸 막는 안전밸브. 드롭된 화면은 다음 안정 시점의 출력/redraw 로 회복된다.
 const MAX_PENDING_WRITE_BYTES = 8 * 1024 * 1024;
+// 탭이 비활성 된 뒤 이 시간이 지나면 WebGL 컨텍스트를 반납한다. 탭을 빠르게 휙휙
+// 넘길 때 컨텍스트를 만들었다 부쉈다 churn 하지 않게 짧은 유예를 둔다.
+const WEBGL_DETACH_GRACE_MS = 8000;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
@@ -163,6 +166,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const webglAddonRef = useRef(null);
   // 사용자가 명시적으로 WebGL 끈 경우엔 (settings.useWebgl===false) 자동 재부착 안 함.
   const wantWebglRef = useRef(true);
+  // WebGL 컨텍스트는 활성 탭의 pane 에만 둔다. 브라우저는 WebGL 컨텍스트를 ~16개로
+  // 하드 제한하므로, 탭/분할이 많아 pane 이 10+ 개면 컨텍스트 고갈 → 렌더러 OOM 으로
+  // 브라우저 탭이 통째로 크래시한다. 비활성 탭은 컨텍스트를 반납(dispose)하고, 활성
+  // 복귀 시 재부착. attach/detach 를 isActive effect 에서 호출하기 위한 ref.
+  const attachWebglRef = useRef(null);
+  const detachWebglRef = useRef(null);
+  const webglDetachTimerRef = useRef(null);
   // 비활성 탭에서 누적된 WS 출력을 활성 복귀 시 한 번에 flush 하기 위한 ref.
   const flushBufferedOutputRef = useRef(null);
   // 비활성 grace-close 타이머 + close 가 inactivity 때문이었는지 표시.
@@ -697,8 +707,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // 명시적으로 false 를 저장한 사용자(특정 GPU 이슈 회피용)는 그대로 OFF.
     const wantWebgl = settings?.useWebgl !== false;
     wantWebglRef.current = wantWebgl;
-    // 한 번 부착하면 라이프타임 유지 — 비활성 탭이라도 미리 로드해놔야 활성 전환 시 깜빡임 없음.
-    if (wantWebgl) {
+    // WebGL 컨텍스트는 활성 탭의 pane 에만 둔다(컨텍스트 고갈 → 브라우저 크래시 방지).
+    // attach/detach 를 isActive effect 에서 호출할 수 있게 ref 로 노출.
+    const attachWebgl = () => {
+      if (!wantWebglRef.current || webglAddonRef.current) return;
+      const tm = xtermRef.current;
+      if (!tm) return;
       try {
         const webglAddon = new WebglAddon();
         webglAddon.onContextLoss(() => {
@@ -706,7 +720,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           try { webglAddonRef.current?.dispose(); } catch { /* 이미 정리됨 */ }
           webglAddonRef.current = null;
         });
-        term.loadAddon(webglAddon);
+        tm.loadAddon(webglAddon);
         webglAddonRef.current = webglAddon;
       } catch (e) {
         // 초기화 실패 (WebGL 비활성 환경, iframe 정책 등) — 조용히 폴백.
@@ -716,7 +730,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           console.warn('[xterm] WebGL init failed, using DOM renderer:', e);
         }
       }
-    }
+    };
+    const detachWebgl = () => {
+      if (!webglAddonRef.current) return;
+      try { webglAddonRef.current.dispose(); } catch { /* noop */ }
+      webglAddonRef.current = null;
+    };
+    attachWebglRef.current = attachWebgl;
+    detachWebglRef.current = detachWebgl;
+    // 초기 부착은 활성 탭일 때만. 비활성으로 마운트되면 활성 전환 시 effect 가 붙인다.
+    if (isActiveRef.current) attachWebgl();
 
     const handleKeyDown = (e) => {
       // Ctrl+Shift+F → 검색 — 표준 터미널 컨벤션과 별개의 앱 단축키
@@ -1098,6 +1121,18 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       const wsUrl = hostId
         ? `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}${createQS}${clientQS}`
         : `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}${createQS}${clientQS}`;
+
+      // 새 소켓을 만들기 전, 이전 소켓이 남아있으면 핸들러를 떼고 닫는다.
+      // 재연결 폭주 시 옛 소켓이 OPEN 으로 남아 버퍼·핸들러를 누적하는 누수를 차단.
+      const prevSocket = wsRef.current;
+      if (prevSocket && prevSocket !== null) {
+        try { prevSocket.onopen = null; prevSocket.onmessage = null; prevSocket.onclose = null; prevSocket.onerror = null; } catch { /* noop */ }
+        try {
+          if (prevSocket.readyState === WebSocket.OPEN || prevSocket.readyState === WebSocket.CONNECTING) {
+            prevSocket.close();
+          }
+        } catch { /* noop */ }
+      }
 
       const socket = new WebSocket(wsUrl);
       socket.binaryType = 'arraybuffer';
@@ -2052,6 +2087,32 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   useEffect(() => {
     if (!isActive) return;
     if (flushBufferedOutputRef.current) flushBufferedOutputRef.current();
+  }, [isActive]);
+
+  // WebGL 컨텍스트 수명 = 활성 탭에 한정. 비활성 탭은 유예 후 컨텍스트 반납해서
+  // pane 이 많아도(여러 탭 × 분할) 브라우저 WebGL 컨텍스트 한도(~16)를 넘지 않게 한다.
+  // 이걸 안 하면 컨텍스트 고갈로 렌더러 OOM → 브라우저 탭 전체 크래시.
+  useEffect(() => {
+    if (isActive) {
+      if (webglDetachTimerRef.current) {
+        clearTimeout(webglDetachTimerRef.current);
+        webglDetachTimerRef.current = null;
+      }
+      attachWebglRef.current?.();
+      return undefined;
+    }
+    // 비활성 — 빠른 탭 전환 churn 방지를 위해 유예 후 반납.
+    if (webglDetachTimerRef.current) clearTimeout(webglDetachTimerRef.current);
+    webglDetachTimerRef.current = setTimeout(() => {
+      webglDetachTimerRef.current = null;
+      detachWebglRef.current?.();
+    }, WEBGL_DETACH_GRACE_MS);
+    return () => {
+      if (webglDetachTimerRef.current) {
+        clearTimeout(webglDetachTimerRef.current);
+        webglDetachTimerRef.current = null;
+      }
+    };
   }, [isActive]);
 
   // Phase 3b — 비활성 탭의 WS 를 grace period 후 close, 활성 복귀 시 즉시 재접속.
