@@ -87,6 +87,10 @@ const RESUME_PROBE_THROTTLE_MS = 1500;
 const HEALTHY_RECV_MS = 3000;
 // "재연결 중" 배너를 이 시간만큼 미뤘다가 보여준다. 이 안에 복구되면 배너가 안 뜬다.
 const NOTICE_SHOW_DELAY_MS = 1200;
+// xterm 미처리 백로그가 이 바이트를 넘으면 새 출력을 드롭한다(파서가 따라잡을 때까지).
+// 대량 출력 flood(예: 여러 pane 동시 출력 + tmux 재연결 redraw)로 브라우저 탭이 통째로
+// 멈추는 걸 막는 안전밸브. 드롭된 화면은 다음 안정 시점의 출력/redraw 로 회복된다.
+const MAX_PENDING_WRITE_BYTES = 8 * 1024 * 1024;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
@@ -179,6 +183,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const authPromptRef = useRef(false);
   const wsFlushTimeoutRef = useRef(null);
   const wsBufferRef = useRef([]);
+  // xterm 으로 보낸 뒤 아직 파싱 안 끝난(콜백 미도착) 바이트 수. 부하/대량 출력 시
+  // term.write 를 무한정 쌓으면 xterm 내부 write 버퍼가 폭증해 브라우저 탭이 통째로 멈춘다.
+  // 이 백로그가 상한을 넘으면 새 출력을 잠깐 버려(드롭) 파서가 따라잡게 한다.
+  const pendingWriteBytesRef = useRef(0);
   const inputQueueRef = useRef([]);
   const enqueueInputRef = useRef(null);
   const probeLivenessRef = useRef(null);
@@ -480,6 +488,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     hasContentRef.current = false;
     evictedRef.current = false;
     endedRef.current = false;
+    // 새 term 생성 — 옛 term 의 미완료 write 콜백은 더 이상 안 오므로 백로그 카운터 리셋.
+    pendingWriteBytesRef.current = 0;
     onReadyChangeRef.current?.(false);
 
     // 1. xterm.js 인스턴스 생성 (최신 프리미엄 옵션 적용)
@@ -1238,6 +1248,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
       wsBufferRef.current = [];
 
+      // 백프레셔 — xterm 이 못 따라와 미처리 백로그가 상한을 넘으면 이번 출력은 드롭한다.
+      // 무한정 write 하면 xterm 내부 버퍼가 폭증해 브라우저 탭이 통째로 멈추기 때문.
+      // 드롭해도 wsBuffer 는 이미 비웠고, 화면은 다음 출력/redraw 로 회복된다.
+      if (pendingWriteBytesRef.current > MAX_PENDING_WRITE_BYTES) {
+        return;
+      }
+
       const onWriteDone = () => {
         handleNewDataRef.current();
         setHasContent(true);
@@ -1248,17 +1265,28 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }
       };
 
+      // 미처리 바이트 카운트 — 콜백에서 차감해 백프레셔 판단에 쓴다.
+      pendingWriteBytesRef.current += mergedBuffer.byteLength;
+      const settle = (n) => {
+        pendingWriteBytesRef.current = Math.max(0, pendingWriteBytesRef.current - n);
+      };
+
       // 비활성 탭 누적분(최대 INACTIVE_BUFFER_MAX_BYTES)을 한 번에 write 하면 xterm 파서가
       // 메인 스레드를 길게 점유해 재활성 순간 UI 가 멈춘다. 청크로 쪼개 xterm WriteBuffer 가
       // 프레임 사이사이 렌더를 끼워넣게 한다. subarray 는 복사 없이 뷰만 공유.
       const WRITE_CHUNK_BYTES = 256 * 1024;
       if (mergedBuffer.byteLength <= WRITE_CHUNK_BYTES) {
-        term.write(mergedBuffer, onWriteDone);
+        const n = mergedBuffer.byteLength;
+        term.write(mergedBuffer, () => { settle(n); onWriteDone(); });
       } else {
         for (let off = 0; off < mergedBuffer.byteLength; off += WRITE_CHUNK_BYTES) {
           const end = Math.min(off + WRITE_CHUNK_BYTES, mergedBuffer.byteLength);
           const isLast = end >= mergedBuffer.byteLength;
-          term.write(mergedBuffer.subarray(off, end), isLast ? onWriteDone : undefined);
+          const chunkLen = end - off;
+          term.write(
+            mergedBuffer.subarray(off, end),
+            () => { settle(chunkLen); if (isLast) onWriteDone(); },
+          );
         }
       }
     };
