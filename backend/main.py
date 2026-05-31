@@ -289,10 +289,11 @@ CONTENT_SECURITY_POLICY = (
     # 쓰므로 필요. WASM 컴파일만 허용하고 JS eval() 은 여전히 차단하는 좁은 범위 지시어
     # (구식 'unsafe-eval' 보다 안전). 없으면 모든 pane 에서 WASM CompileError 발생.
     "script-src 'self' 'wasm-unsafe-eval'; "
-    "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data: blob:; "
-    "font-src 'self' data:; "
-    "connect-src 'self' ws: wss:; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "img-src 'self' data: blob: https://*.google-analytics.com https://*.googletagmanager.com; "
+    "font-src 'self' data: https://cdn.jsdelivr.net; "
+    # Cloudflare Zaraz 가 주입하는 분석 비콘(GA/doubleclick) 허용 — 콘솔 CSP 경고 무음화.
+    "connect-src 'self' ws: wss: https://*.google-analytics.com https://*.analytics.google.com https://stats.g.doubleclick.net https://*.googletagmanager.com; "
     "worker-src 'self' blob:; "
     "media-src 'self' blob:"
 )

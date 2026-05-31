@@ -98,6 +98,19 @@ const WEBGL_DETACH_GRACE_MS = 8000;
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
 const RECONNECT_STABLE_RESET_MS = 15000;
+// WASM 가용성 프로브 — 최소 유효 wasm 모듈을 동기 컴파일해본다. CSP(특히 Cloudflare
+// Zaraz 가 재작성한 script-src)가 wasm-unsafe-eval 을 막으면 CompileError 가 동기로
+// 던져진다. 이걸 한 번만 확인해서, 막혀 있으면 ImageAddon 로드를 건너뛴다.
+// (안 그러면 매 pane·매 재마운트마다 unhandled CompileError 가 콘솔을 도배하고
+//  rejection 이 누적돼 탭이 무거워진다.) CSP 가 풀리면 자동으로 다시 켜진다.
+const WASM_ALLOWED = (() => {
+  try {
+    new WebAssembly.Module(new Uint8Array([0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]));
+    return true;
+  } catch {
+    return false;
+  }
+})();
 const TMUX_WHEEL_INPUT_RE = /^(?:\x1b\[<(?:64|65);\d+;\d+M)+$/;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -563,8 +576,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     term.loadAddon(searchAddon);
     searchAddonRef.current = searchAddon;
 
-    const imageAddon = new ImageAddon();
-    term.loadAddon(imageAddon);
+    // ImageAddon 은 SIXEL/이미지 디코딩에 WebAssembly 를 쓴다 — WASM 이 CSP 로 막혀
+    // 있으면(WASM_ALLOWED=false) 로드하지 않는다. 막힌 채 로드하면 CompileError 폭주.
+    if (WASM_ALLOWED) {
+      try {
+        const imageAddon = new ImageAddon();
+        term.loadAddon(imageAddon);
+      } catch { /* 이미지 애드온 로드 실패는 치명적이지 않음 — 텍스트 터미널은 정상 동작 */ }
+    }
 
     // BEL(\x07) 수신 시 탭이 백그라운드면 브라우저 알림 (설정 켜야 동작)
     term.onBell(() => {
@@ -1059,7 +1078,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      const delay = Math.min(8000, Math.pow(2, attempts) * 1000);
+      // 지터(0~50%) — 동시에 끊긴 여러 pane 이 같은 순간 재연결해 공유 Cloudflare
+      // 터널의 연결 풀을 한꺼번에 때리는 thundering herd 를 분산한다.
+      const backoff = Math.min(8000, Math.pow(2, attempts) * 1000);
+      const delay = backoff + Math.floor(Math.random() * backoff * 0.5);
       reconnectAttemptsRef.current = attempts + 1;
       reconnectingRef.current = true;
       setReconnecting(true);
@@ -1108,7 +1130,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (cancelled) return;
       const wsTicket = ticketResult.ticket;
       if (!wsTicket) {
-        logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
+        if (reconnectAttemptsRef.current < 2) logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
         if (!ticketResult.authExpired && autoRecover) {
           if (scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) return;
         }
@@ -1200,7 +1222,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           if (socket.readyState !== WebSocket.OPEN) return;
           // 서버 응답(pong 등)이 임계 시간 넘게 없으면 half-open 으로 보고 강제 close → onclose 가 재연결.
           if (Date.now() - lastRecvRef.current > HEARTBEAT_DEAD_MS) {
-            logger.warn(`WS 하트비트 타임아웃 — 죽은 소켓 감지, 재연결: ${sessionId}`);
+            if (reconnectAttemptsRef.current < 2) logger.warn(`WS 하트비트 타임아웃 — 죽은 소켓 감지, 재연결: ${sessionId}`);
             try { socket.close(); } catch { /* noop */ }
             return;
           }
@@ -1425,7 +1447,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       }
       if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
       if (intentionalCloseRef.current) return;
-      logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
+      if (reconnectAttemptsRef.current < 2) logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
       setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
       setIsReady(false);
       // 재연결 시도 중 실패 — 스피너 해제 (오버레이는 유지)
