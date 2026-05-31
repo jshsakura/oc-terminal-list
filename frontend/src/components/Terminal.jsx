@@ -1103,6 +1103,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     const connect = async (options = {}) => {
       if (cancelled) return;
+      // [저부하 가드] 이미 살아있거나(OPEN) 연결 중(CONNECTING)인 소켓이 있으면
+      // 그대로 둔다 — 멀쩡한 소켓을 닫고 새로 여는 핸드셰이크 폭주가 공유 Cloudflare
+      // 터널을 포화시키는 주범. 중복 connect 호출은 비용 없는 no-op 으로 만든다.
+      const existing = wsRef.current;
+      if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
       const createIfMissing = options.create !== false;
       const autoRecover = options.autoRecover !== false;
       /* 재연결 시작 — evicted 플래그 리셋. tmux 가 재attach 후 버퍼 리플레이 시
@@ -2213,6 +2220,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
       scheduleFitAfterResume();
 
+      // 소켓이 살아있거나(OPEN) 연결 중(CONNECTING)이면 재연결하지 않는다 — 헬시
+      // 소켓을 닫고 새로 여는 핸드셰이크 폭주가 공유 Cloudflare 터널을 포화시키는 주범.
       const ws = wsRef.current;
       if (wasClosedForInactivityRef.current
           || !ws
@@ -2220,11 +2229,19 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           || ws.readyState === WebSocket.CLOSING) {
         wasClosedForInactivityRef.current = false;
         intentionalCloseRef.current = false;
+        // 백오프를 base 로 리셋하고, 대기 중인 단일 재연결 타이머를 먼저 비운다 —
+        // 즉시 재연결과 예약된 재연결이 겹쳐 중복 핸드셰이크가 나가지 않게.
         reconnectAttemptsRef.current = 0;
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        // connect 가드(이미 OPEN/CONNECTING이면 no-op)가 중복 호출을 비용 없이 막는다.
         connectRef.current?.({ create: false });
         return;
       }
 
+      // CONNECTING 이면 헬시로 보고 그대로 둔다 — probe 도 안 쏜다(부하 0).
       if (ws.readyState !== WebSocket.OPEN) return;
 
       const now = Date.now();
