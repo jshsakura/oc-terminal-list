@@ -85,6 +85,8 @@ const RESUME_PROBE_THROTTLE_MS = 1500;
 // 상태 — resume probe 를 아예 건너뛴다. 부하로 pong 이 잠깐 늦을 때 멀쩡한 소켓을 닫고
 // "네트워크 변경" 알림 + 재연결 프리징이 반복되는 오탐을 막는다. (입력시점 liveness probe 와 동일 가드)
 const HEALTHY_RECV_MS = 3000;
+// "재연결 중" 배너를 이 시간만큼 미뤘다가 보여준다. 이 안에 복구되면 배너가 안 뜬다.
+const NOTICE_SHOW_DELAY_MS = 1200;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
@@ -209,6 +211,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 로딩이 오래 걸려 멈춘 것으로 보일 때 true — 스켈레톤 위에 수동 닫기 버튼 노출.
   const [loadStuck, setLoadStuck] = useState(false);
   const [connectionNotice, setConnectionNotice] = useState('');
+  // 배너는 디바운스해서 보여준다 — 짧은 끊김이 NOTICE_SHOW_DELAY_MS 안에 복구되면
+  // 아예 안 뜨게 해서 "재연결 중" 배너가 자꾸 깜빡이며 프롬프트를 가리는 체감을 없앤다.
+  const [noticeVisible, setNoticeVisible] = useState(false);
   // 클립보드 이미지 붙여넣기 진행 상태: 'uploading' | 'done' | 'error' | null
   const [imagePasteState, setImagePasteState] = useState(null);
   const reconnectingRef = useRef(false);
@@ -270,6 +275,19 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       tabId,
     });
   }, [sessionId, paneId, tabId]);
+
+  // 배너 디바운스 — connectionNotice 가 채워져도 NOTICE_SHOW_DELAY_MS 가 지나야 실제 표시.
+  // 그 전에 비워지면(빠른 재연결 성공) 배너는 끝내 안 뜬다. 이미 표시 중일 땐 텍스트만
+  // 바뀌어도 타이머를 재시작하지 않아 깜빡임이 없다.
+  useEffect(() => {
+    if (!connectionNotice) {
+      setNoticeVisible(false);
+      return undefined;
+    }
+    if (noticeVisible) return undefined;
+    const id = setTimeout(() => setNoticeVisible(true), NOTICE_SHOW_DELAY_MS);
+    return () => clearTimeout(id);
+  }, [connectionNotice, noticeVisible]);
 
   const clearEndedForReconnect = useCallback(() => {
     endedRef.current = false;
@@ -1588,7 +1606,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           logger.warn(`입력 시점 생존 확인 실패 — 죽은 소켓, 재연결: ${sessionId}`);
           try { ws.close(); } catch { /* noop */ }
         }
-      }, 3000);
+        // 부하 큰 서버에서 pong 이 잠깐 늦어도 멀쩡한 소켓을 닫지 않게 4s 로 둔다
+        // (resume probe 와 동일 내성). 진짜 죽은 소켓은 35s 하트비트가 백스톱.
+      }, RESUME_PROBE_TIMEOUT_MS);
     };
     probeLivenessRef.current = probeLiveness;
 
@@ -2512,7 +2532,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         </div>
       )}
 
-      {connectionNotice && !ended && !evicted && !closing && (
+      {connectionNotice && noticeVisible && !ended && !evicted && !closing && (
         <div style={styles.inlineBanner(themeUi)}>
           <Loader2 size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
           <span style={styles.bannerText(themeUi)}>
