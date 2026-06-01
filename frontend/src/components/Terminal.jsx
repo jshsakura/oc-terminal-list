@@ -350,40 +350,54 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     return () => clearTimeout(id);
   }, [bannerShown, bannerMounted]);
 
-  // 재연결 교착 워치독. "재연결 중" 배너가 떠 있는데 (1) 살아있는/연결중인 소켓도 없고
-  // (2) 예약된 재연결 타이머도 없고 (3) preflight 복구 폴링도, ticket 발급도 진행 중이 아니면
-  // — 아무도 재연결을 안 하는 교착이다. 모바일 네트워크 전환 때 focus/visibility/online/pageshow
-  // 가 한꺼번에 터지며 비동기 경로가 엇갈려 드물게 이 상태에 빠지고, 그동안은 새로고침 말곤
-  // 탈출구가 없었다. 워치독이 이를 감지해 강제 재연결하고, 그래도 안 되면 ended 로 빠져나간다.
+  // 재연결 교착 워치독. "재연결 중" 배너가 떠 있는데 아무도 실제 재연결을 안 하는 상태를
+  // 주기 점검해 강제 복구한다. 핵심 함정: 모바일에서 ws.close() 를 불러도 onclose 가 영영
+  // 안 오는 좀비 소켓이 생긴다 — 이때 isReady 는 true 로 남고(onclose 만 false 로 내림),
+  // 소켓은 CLOSING/half-dead OPEN 으로 wsRef 에 박혀 connect() 가드까지 막는다. 그래서
+  // 새로고침은 멀쩡한데 인페이지 재연결만 영영 안 됐다. → isReady 에 의존하지 않고,
+  // 좀비 소켓을 wsRef 에서 떼어낸 뒤 새 connect 를 띄운다.
+  // deps 는 배너 문구 변화(networkReconnect↔sameDevice…)에 stuckSince 가 리셋되지 않게
+  // 불리언(hasNotice)으로만 건다.
+  const hasNotice = !!connectionNotice;
   useEffect(() => {
     // closing — 셸이 깨끗이 종료돼 pane 자동 닫기 중이면 재연결을 강제하지 않는다.
-    if (!connectionNotice || isReady || ended || evicted || closing) return undefined;
+    if (!hasNotice || ended || evicted || closing) return undefined;
     const stuckSince = Date.now();
     const id = setInterval(() => {
       if (endedRef.current || evictedRef.current) return;
       const ws = wsRef.current;
-      const socketProgressing = ws
-        && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
-      // 정상적으로 진행 중인 경로가 하나라도 있으면 끼어들지 않는다.
-      if (socketProgressing
-          || reconnectTimeoutRef.current
-          || recoveringRef.current
-          || connectInFlightRef.current) {
+      const rs = ws?.readyState;
+
+      // 1) 진짜 살아있는 소켓(OPEN + 최근 수신)인데 배너만 남음 → 조용히 닫는다(셀프힐).
+      if (rs === WebSocket.OPEN && Date.now() - lastRecvRef.current < HEARTBEAT_DEAD_MS) {
+        setConnectionNotice('');
         return;
       }
-      // 여기까지 왔으면 배너만 남고 아무도 재연결을 안 하는 교착 상태.
+
+      // 2) 정상 복구가 진행 중이면 끼어들지 않는다. 갓 시작한 CONNECTING 은 connect() 의
+      //    openTimer(12s)가 좀비를 책임지므로 여기선 대기로 둔다.
+      if (reconnectTimeoutRef.current || recoveringRef.current || connectInFlightRef.current) return;
+      if (rs === WebSocket.CONNECTING) return;
+
+      // 3) 그 외(소켓 없음 / CLOSING / CLOSED / 수신 끊긴 half-dead OPEN) = 교착.
       if (Date.now() - stuckSince > RECONNECT_WATCHDOG_GIVEUP_MS) {
         markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
         return;
       }
-      // 강제 복구 — 카운터·벽시계 리셋 후 기존 셸로 재연결.
+      // 좀비 소켓이 wsRef 를 잡고 connect 가드를 막지 않게 핸들러를 떼고 닫은 뒤 비운다.
+      if (ws) {
+        try { ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null; } catch { /* noop */ }
+        try { if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) ws.close(); } catch { /* noop */ }
+        if (wsRef.current === ws) wsRef.current = null;
+      }
+      // 카운터·벽시계 리셋 후 기존 셸로 강제 재연결.
       reconnectAttemptsRef.current = 0;
       reconnectingSinceRef.current = 0;
       intentionalCloseRef.current = false;
       connectRef.current?.({ create: false });
     }, RECONNECT_WATCHDOG_POLL_MS);
     return () => clearInterval(id);
-  }, [connectionNotice, isReady, ended, evicted, closing, markEnded, t]);
+  }, [hasNotice, ended, evicted, closing, markEnded, t]);
 
   const clearEndedForReconnect = useCallback(() => {
     endedRef.current = false;
