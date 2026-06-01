@@ -105,8 +105,37 @@ const RECONNECT_STABLE_RESET_MS = 15000;
 // 소켓도 없고 예약된 재연결 타이머도 없는 상태에 드물게 빠진다. 이 경우 markEnded 도 안 불려
 // 새로고침 말곤 탈출구가 없다. 워치독이 주기적으로 이 교착을 감지해 강제 재연결한다.
 const RECONNECT_WATCHDOG_POLL_MS = 4000;
-// 워치독이 강제 재연결을 시도해도 이 시간 안에 OPEN 못 하면 ended 오버레이(수동 버튼)로 탈출구 제공.
+// 워치독 복구 에스컬레이션 사다리 — 배너가 계속 떠 있는 시간 기준으로 점점 "새로고침이 하는 일"에
+// 가깝게 단계를 올린다. 인페이지 재연결은 늘 create=false(기존 셸 attach 만)라, 세션이 사라졌거나
+// (백엔드 재시작/exit) HTTP 연결 계층이 먹통(모바일 h2 wedge, 공유 터널 포화)이면 영영 못 붙는다.
+// 새로고침은 mount 가 create=true 로 세션을 재생성하고, 전체 네비게이션이 wedge 된 연결도 버린다.
+// ESCALATE: 이때부턴 create=true 로 재연결(세션 재생성까지 — 새로고침의 절반).
+const RECONNECT_ESCALATE_MS = 16000;
+// RELOAD: 그래도 안 붙으면 연결 계층 자체가 먹통 — 사용자가 늘 쓰던 전체 새로고침을 자동으로.
+const RECONNECT_RELOAD_MS = 30000;
+// 워치독이 끝까지 못 살리고 새로고침도 막힌(루프/숨김) 경우 ended 오버레이(수동 버튼) 탈출구.
 const RECONNECT_WATCHDOG_GIVEUP_MS = 60000;
+// 자동 새로고침 직후 또 막히면(루프) 더는 새로고침하지 않는다. sessionStorage 로 reload 너머 추적.
+const RECONNECT_RELOAD_LOOP_GUARD_MS = 90000;
+const RECONNECT_RELOAD_MARK = 'tl-ws-autoreload-at';
+// 페이지 수명당 자동 새로고침 1회 — 여러 pane 워치독이 동시에 reload 를 때리지 않게.
+let _wsAutoReloadIssued = false;
+
+// 재연결 교착 최후수단 — 사용자가 늘 하던 전체 새로고침을 자동으로. 보이는 탭 + 온라인 +
+// 루프 아님일 때만. 성공/이미 발동이면 true(곧 navigate), 안전치 않으면 false(수동 탈출구로).
+const tryWsAutoReload = () => {
+  if (_wsAutoReloadIssued) return true;
+  if (typeof window === 'undefined') return false;
+  if (document.hidden || navigator.onLine === false) return false;
+  let last = 0;
+  try { last = Number(sessionStorage.getItem(RECONNECT_RELOAD_MARK) || 0); } catch { /* noop */ }
+  if (last && Date.now() - last < RECONNECT_RELOAD_LOOP_GUARD_MS) return false;
+  try { sessionStorage.setItem(RECONNECT_RELOAD_MARK, String(Date.now())); } catch { /* noop */ }
+  _wsAutoReloadIssued = true;
+  logger.warn('WS 재연결 교착 — 전체 새로고침으로 복구');
+  try { window.location.reload(); } catch { /* noop */ }
+  return true;
+};
 // WASM 가용성 프로브 — 최소 유효 wasm 모듈을 동기 컴파일해본다. CSP(특히 Cloudflare
 // Zaraz 가 재작성한 script-src)가 wasm-unsafe-eval 을 막으면 CompileError 가 동기로
 // 던져진다. 이걸 한 번만 확인해서, 막혀 있으면 ImageAddon 로드를 건너뛴다.
@@ -325,7 +354,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 좀비 소켓(close() 해도 onclose 가 안 오는 모바일 림보 포함)을 wsRef 에서 떼어내고
   // 즉시 기존 셸로 강제 재연결. onclose/워치독 을 기다리지 않는 빠른 복구 경로 — 포커스
   // 복귀 프로브 실패와 워치독 양쪽에서 공용으로 쓴다.
-  const forceReconnect = useCallback((ws, notice = '') => {
+  const forceReconnect = useCallback((ws, { notice = '', create = false } = {}) => {
     if (ws) {
       try { ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null; } catch { /* noop */ }
       try {
@@ -338,7 +367,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     reconnectingSinceRef.current = 0;
     intentionalCloseRef.current = false;
     if (notice) setConnectionNotice(notice);
-    connectRef.current?.({ create: false });
+    connectRef.current?.({ create });
   }, []);
 
   // 배너 디바운스 — connectionNotice 가 채워져도 NOTICE_SHOW_DELAY_MS 가 지나야 실제 표시.
@@ -401,12 +430,24 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (rs === WebSocket.CONNECTING) return;
 
       // 3) 그 외(소켓 없음 / CLOSING / CLOSED / 수신 끊긴 half-dead OPEN) = 교착.
-      if (Date.now() - stuckSince > RECONNECT_WATCHDOG_GIVEUP_MS) {
-        markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
-        return;
+      //    오프라인이면 새로고침·ended 둘 다 무의미 — online 이벤트가 복구를 깨운다.
+      if (navigator.onLine === false) return;
+
+      const stuckMs = Date.now() - stuckSince;
+
+      // 30s+ 인데도 안 붙음 = 연결 계층 먹통일 가능성. 사용자가 늘 쓰던 전체 새로고침을 자동으로.
+      if (stuckMs > RECONNECT_RELOAD_MS && !document.hidden) {
+        if (tryWsAutoReload()) return;
+        // 새로고침이 루프 방지로 막혔고, 끝까지 못 살렸으면 수동 탈출구.
+        if (stuckMs > RECONNECT_WATCHDOG_GIVEUP_MS) {
+          markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
+          return;
+        }
       }
-      // 좀비 소켓을 떼고 즉시 강제 재연결.
-      forceReconnect(ws);
+
+      // 좀비 소켓을 떼고 강제 재연결. 16s 넘게 못 붙었으면 새로고침처럼 create=true 로
+      // (세션이 사라졌어도) 재생성까지 시도한다.
+      forceReconnect(ws, { create: stuckMs > RECONNECT_ESCALATE_MS });
     }, RECONNECT_WATCHDOG_POLL_MS);
     return () => clearInterval(id);
   }, [hasNotice, ended, evicted, closing, markEnded, forceReconnect, t]);
@@ -2365,7 +2406,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         logger.warn(`복귀 후 WS 생존 확인 실패(${reason}) — 재연결: ${sessionId}`);
         // onclose 를 기다리지 않고 즉시 좀비를 떼고 재연결한다 — 모바일은 close() 해도
         // onclose 가 영영 안 와 워치독(4s 폴링)까지 기다리던 지연을 없앤다.
-        forceReconnect(ws, t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...');
+        forceReconnect(ws, { notice: t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...' });
       }, RESUME_PROBE_TIMEOUT_MS);
     };
 
