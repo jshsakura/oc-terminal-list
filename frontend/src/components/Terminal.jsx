@@ -89,8 +89,9 @@ const WS_TICKET_USE_MARGIN_MS = 3000;
 // 상태 — resume probe 를 아예 건너뛴다. 부하로 pong 이 잠깐 늦을 때 멀쩡한 소켓을 닫고
 // "네트워크 변경" 알림 + 재연결 프리징이 반복되는 오탐을 막는다. (입력시점 liveness probe 와 동일 가드)
 const HEALTHY_RECV_MS = 3000;
-// "재연결 중" 배너를 이 시간만큼 미뤘다가 보여준다. 이 안에 복구되면 배너가 안 뜬다.
-const NOTICE_SHOW_DELAY_MS = 1200;
+// 재연결 pill 을 이 시간만큼 미뤘다가 보여준다. 이 안에 복구되면 아무것도 안 뜬다.
+// 티켓 푸시로 짧은 블립은 보통 1초 안에 다시 붙으므로, 2초 미만 끊김은 완전히 무음으로 지나간다.
+const NOTICE_SHOW_DELAY_MS = 2000;
 // xterm 미처리 백로그가 이 바이트를 넘으면 새 출력을 드롭한다(파서가 따라잡을 때까지).
 // 대량 출력 flood(예: 여러 pane 동시 출력 + tmux 재연결 redraw)로 브라우저 탭이 통째로
 // 멈추는 걸 막는 안전밸브. 드롭된 화면은 다음 안정 시점의 출력/redraw 로 회복된다.
@@ -107,37 +108,9 @@ const RECONNECT_STABLE_RESET_MS = 15000;
 // 소켓도 없고 예약된 재연결 타이머도 없는 상태에 드물게 빠진다. 이 경우 markEnded 도 안 불려
 // 새로고침 말곤 탈출구가 없다. 워치독이 주기적으로 이 교착을 감지해 강제 재연결한다.
 const RECONNECT_WATCHDOG_POLL_MS = 4000;
-// 워치독 복구 에스컬레이션 사다리 — 배너가 계속 떠 있는 시간 기준으로 점점 "새로고침이 하는 일"에
-// 가깝게 단계를 올린다. 인페이지 재연결은 늘 create=false(기존 셸 attach 만)라, 세션이 사라졌거나
-// (백엔드 재시작/exit) HTTP 연결 계층이 먹통(모바일 h2 wedge, 공유 터널 포화)이면 영영 못 붙는다.
-// 새로고침은 mount 가 create=true 로 세션을 재생성하고, 전체 네비게이션이 wedge 된 연결도 버린다.
-// ESCALATE: 이때부턴 create=true 로 재연결(세션 재생성까지 — 새로고침의 절반).
+// 워치독이 교착을 풀 때, 이 시간 넘게 못 붙었으면 create=true 로 올려 (세션이 사라졌어도)
+// 재생성까지 시도한다. 페이지 새로고침은 절대 안 한다 — 끊김은 인페이지로만, mosh 처럼 무한 복구.
 const RECONNECT_ESCALATE_MS = 16000;
-// RELOAD: 그래도 안 붙으면 연결 계층 자체가 먹통 — 사용자가 늘 쓰던 전체 새로고침을 자동으로.
-const RECONNECT_RELOAD_MS = 30000;
-// 워치독이 끝까지 못 살리고 새로고침도 막힌(루프/숨김) 경우 ended 오버레이(수동 버튼) 탈출구.
-const RECONNECT_WATCHDOG_GIVEUP_MS = 60000;
-// 자동 새로고침 직후 또 막히면(루프) 더는 새로고침하지 않는다. sessionStorage 로 reload 너머 추적.
-const RECONNECT_RELOAD_LOOP_GUARD_MS = 90000;
-const RECONNECT_RELOAD_MARK = 'tl-ws-autoreload-at';
-// 페이지 수명당 자동 새로고침 1회 — 여러 pane 워치독이 동시에 reload 를 때리지 않게.
-let _wsAutoReloadIssued = false;
-
-// 재연결 교착 최후수단 — 사용자가 늘 하던 전체 새로고침을 자동으로. 보이는 탭 + 온라인 +
-// 루프 아님일 때만. 성공/이미 발동이면 true(곧 navigate), 안전치 않으면 false(수동 탈출구로).
-const tryWsAutoReload = () => {
-  if (_wsAutoReloadIssued) return true;
-  if (typeof window === 'undefined') return false;
-  if (document.hidden || navigator.onLine === false) return false;
-  let last = 0;
-  try { last = Number(sessionStorage.getItem(RECONNECT_RELOAD_MARK) || 0); } catch { /* noop */ }
-  if (last && Date.now() - last < RECONNECT_RELOAD_LOOP_GUARD_MS) return false;
-  try { sessionStorage.setItem(RECONNECT_RELOAD_MARK, String(Date.now())); } catch { /* noop */ }
-  _wsAutoReloadIssued = true;
-  logger.warn('WS 재연결 교착 — 전체 새로고침으로 복구');
-  try { window.location.reload(); } catch { /* noop */ }
-  return true;
-};
 // WASM 가용성 프로브 — 최소 유효 wasm 모듈을 동기 컴파일해본다. CSP(특히 Cloudflare
 // Zaraz 가 재작성한 script-src)가 wasm-unsafe-eval 을 막으면 CompileError 가 동기로
 // 던져진다. 이걸 한 번만 확인해서, 막혀 있으면 ImageAddon 로드를 건너뛴다.
@@ -180,7 +153,9 @@ const execCommandCopy = (text) => {
   if (document.getElementById('tl-spin-kf')) return;
   const s = document.createElement('style');
   s.id = 'tl-spin-kf';
-  s.textContent = '@keyframes tl-spin{to{transform:rotate(360deg)}}';
+  // tl-spin: 스피너 회전. tl-pulse: 재연결 pill 의 차분한 호흡(스피너 대신).
+  s.textContent = '@keyframes tl-spin{to{transform:rotate(360deg)}}'
+    + '@keyframes tl-pulse{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}';
   document.head.appendChild(s);
 })();
 
@@ -392,9 +367,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 배너 페이드아웃 마운트 유지 — 복구되어 배너가 사라질 때 즉시 언마운트하지 않고
   // 페이드아웃이 끝난 뒤 제거해, 깜빡임 없이 부드럽게 빠진다.
   const [bannerMounted, setBannerMounted] = useState(false);
-  // 페이드아웃 중에도 마지막 문구를 유지 — connectionNotice 가 비어도 글자가 안 사라진다.
-  const [bannerText, setBannerText] = useState('');
-  useEffect(() => { if (connectionNotice) setBannerText(connectionNotice); }, [connectionNotice]);
   const bannerShown = !!connectionNotice && noticeVisible && !ended && !evicted && !closing;
   useEffect(() => {
     if (bannerShown) {
@@ -436,27 +408,17 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (rs === WebSocket.CONNECTING) return;
 
       // 3) 그 외(소켓 없음 / CLOSING / CLOSED / 수신 끊긴 half-dead OPEN) = 교착.
-      //    오프라인이면 새로고침·ended 둘 다 무의미 — online 이벤트가 복구를 깨운다.
+      //    오프라인이면 online 이벤트가 복구를 깨운다 — 그동안은 차분한 pill 만 떠 있게 둔다.
       if (navigator.onLine === false) return;
 
-      const stuckMs = Date.now() - stuckSince;
-
-      // 30s+ 인데도 안 붙음 = 연결 계층 먹통일 가능성. 사용자가 늘 쓰던 전체 새로고침을 자동으로.
-      if (stuckMs > RECONNECT_RELOAD_MS && !document.hidden) {
-        if (tryWsAutoReload()) return;
-        // 새로고침이 루프 방지로 막혔고, 끝까지 못 살렸으면 수동 탈출구.
-        if (stuckMs > RECONNECT_WATCHDOG_GIVEUP_MS) {
-          markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
-          return;
-        }
-      }
-
-      // 좀비 소켓을 떼고 강제 재연결. 16s 넘게 못 붙었으면 새로고침처럼 create=true 로
+      // 좀비 소켓을 떼고 강제 재연결. 페이지 새로고침은 하지 않는다 — mosh 처럼 인페이지로
+      // 무한 복구하고, 끊김은 구석 pill 로만 차분히 알린다. 16s 넘게 못 붙었으면 create=true 로
       // (세션이 사라졌어도) 재생성까지 시도한다.
+      const stuckMs = Date.now() - stuckSince;
       forceReconnect(ws, { create: stuckMs > RECONNECT_ESCALATE_MS });
     }, RECONNECT_WATCHDOG_POLL_MS);
     return () => clearInterval(id);
-  }, [hasNotice, ended, evicted, closing, markEnded, forceReconnect, t]);
+  }, [hasNotice, ended, evicted, closing, forceReconnect]);
 
   const clearEndedForReconnect = useCallback(() => {
     endedRef.current = false;
@@ -2822,19 +2784,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         </div>
       )}
 
+      {/* 재연결 pill — 스피너·X 없는 구석의 차분한 표시. 짧은 끊김은 아예 안 뜨고(디바운스),
+          길어지면 펄스 dot 으로만 알린다. 복구되면 스르륵 사라지고 화면은 그대로. */}
       {bannerMounted && (
-        <div style={styles.inlineBanner(themeUi, bannerShown)}>
-          <Loader2 size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
-          <span style={styles.bannerText(themeUi)}>
-            {connectionNotice || bannerText}
+        <div style={styles.reconnectPill(themeUi, bannerShown)}>
+          <span style={styles.reconnectPillDot(themeUi)} />
+          <span style={styles.reconnectPillText(themeUi)}>
+            {t('reconnectingPill') || 'Reconnecting…'}
           </span>
-          <button
-            type="button"
-            onClick={() => setConnectionNotice('')}
-            style={styles.bannerButton(themeUi)}
-          >
-            <X size={11} strokeWidth={2} />
-          </button>
         </div>
       )}
 
@@ -3506,6 +3463,49 @@ const styles = {
     transform: shown ? 'translateY(0)' : 'translateY(6px)',
     transition: 'opacity 220ms ease, transform 220ms ease',
     willChange: 'opacity, transform',
+  }),
+  // 재연결 pill — 구석(우하단)의 작고 차분한 표시. 스피너/버튼 없음.
+  reconnectPill: (themeUi, shown = true) => ({
+    position: 'absolute',
+    bottom: space['2'],
+    right: space['2'],
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: space['1.5'],
+    padding: `${space['1']} ${space['2.5'] || space['2']}`,
+    background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0} 82%, transparent)`,
+    backdropFilter: 'blur(12px)',
+    WebkitBackdropFilter: 'blur(12px)',
+    border: `1px solid ${themeUi.border}`,
+    borderRadius: '999px',
+    boxShadow: '0 2px 10px rgba(0,0,0,0.22)',
+    zIndex: 12,
+    fontSize: fontSize['11'],
+    fontFamily: 'inherit',
+    pointerEvents: 'none',
+    maxWidth: 'calc(100% - 16px)',
+    // 짧은 끊김엔 안 뜨고, 길어지면 스르륵 떴다 복구 시 부드럽게 사라진다.
+    opacity: shown ? 0.96 : 0,
+    transform: shown ? 'translateY(0)' : 'translateY(6px)',
+    transition: 'opacity 240ms ease, transform 240ms ease',
+    willChange: 'opacity, transform',
+  }),
+  reconnectPillDot: (themeUi) => ({
+    flexShrink: 0,
+    width: '7px',
+    height: '7px',
+    borderRadius: '50%',
+    background: themeUi.warning || themeUi.accent,
+    // 스피너 대신 차분한 호흡. 회전 없는 mosh 결의 "outage" 표시.
+    animation: 'tl-pulse 1.6s ease-in-out infinite',
+  }),
+  reconnectPillText: (themeUi) => ({
+    color: themeUi.subtext,
+    fontSize: fontSize['11'],
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    letterSpacing: '0.01em',
   }),
   bannerText: (themeUi) => ({
     flex: 1,
