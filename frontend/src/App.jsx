@@ -1276,6 +1276,9 @@ function App() {
        유지 → 깜빡임 인지 줄임. 진짜 idle 이면 자연 fade. */
     const BUSY_WINDOW_MS = 3500;
     const tick = setInterval(() => {
+      // 탭이 숨겨졌으면(밤새 백그라운드 등) 아무도 안 봄 — Set 생성·setState 다 건너뛰어
+      // idle 백그라운드에서 불필요한 GC·렌더를 0 으로. 복귀하면 다음 tick 이 바로 갱신.
+      if (document.hidden) return;
       const now = Date.now();
       const busyPaneIds = new Set();
       for (const [pid, ts] of activity.entries()) {

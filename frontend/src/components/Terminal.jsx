@@ -2275,33 +2275,44 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // grace = 60s — 사용자가 잠깐 다른 탭 들렀다 돌아오는 경우엔 close 안 됨 (재접속 비용 0).
   useEffect(() => {
     const GRACE_MS = 60_000;
-    if (isActive) {
-      if (graceCloseTimerRef.current) {
-        clearTimeout(graceCloseTimerRef.current);
+    // "연결을 유지할까?" = 이 pane 이 활성이고 + 브라우저 탭이 화면에 보일 때만.
+    // document.hidden(탭을 백그라운드로 둠 — 밤새 켜둠 포함)이면 활성 pane 이라도 grace 후
+    // 소켓을 닫고 완전히 조용해진다(하트비트·티켓 트래픽·타이머 0). 그래야 안 보이는 탭이
+    // 밤새 리소스를 갉아먹다 브라우저(특히 모바일)에 통째로 죽는 일이 없다. tmux 가 세션을
+    // 유지하므로 복귀 시 attach 리플레이로 데이터 손실 없이 매끄럽게 다시 붙는다.
+    const armOrCancel = () => {
+      const shouldHold = isActiveRef.current && !document.hidden;
+      if (shouldHold) {
+        if (graceCloseTimerRef.current) {
+          clearTimeout(graceCloseTimerRef.current);
+          graceCloseTimerRef.current = null;
+        }
+        // 백그라운드 동안 타이머 throttle 로 ping 을 못 보냈을 수 있으니, 복귀 시 워치독 기준 리셋.
+        lastRecvRef.current = Date.now();
+        if (wasClosedForInactivityRef.current && connectRef.current) {
+          wasClosedForInactivityRef.current = false;
+          // 다음 unexpected close 는 다시 auto-reconnect 흐름 타게 reset.
+          intentionalCloseRef.current = false;
+          connectRef.current({ create: false });
+        }
+        return;
+      }
+      if (graceCloseTimerRef.current) return; // 이미 grace 예약됨
+      graceCloseTimerRef.current = setTimeout(() => {
         graceCloseTimerRef.current = null;
-      }
-      // 백그라운드 동안 타이머 throttle 로 ping 을 못 보냈을 수 있으니, 복귀 시 워치독 기준을 리셋.
-      lastRecvRef.current = Date.now();
-      if (wasClosedForInactivityRef.current && connectRef.current) {
-        wasClosedForInactivityRef.current = false;
-        // 다음 unexpected close 는 다시 auto-reconnect 흐름 타게 reset.
-        intentionalCloseRef.current = false;
-        connectRef.current({ create: false });
-      }
-      return undefined;
-    }
-    if (graceCloseTimerRef.current) clearTimeout(graceCloseTimerRef.current);
-    graceCloseTimerRef.current = setTimeout(() => {
-      graceCloseTimerRef.current = null;
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      // evicted/ended overlay 가 떠있으면 사용자 액션 대기 중이므로 건드리지 않음.
-      if (evictedRef.current || endedRef.current) return;
-      intentionalCloseRef.current = true;
-      wasClosedForInactivityRef.current = true;
-      try { ws.close(); } catch { /* noop */ }
-    }, GRACE_MS);
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        // evicted/ended overlay 가 떠있으면 사용자 액션 대기 중이므로 건드리지 않음.
+        if (evictedRef.current || endedRef.current) return;
+        intentionalCloseRef.current = true;
+        wasClosedForInactivityRef.current = true;
+        try { ws.close(); } catch { /* noop */ }
+      }, GRACE_MS);
+    };
+    armOrCancel();
+    document.addEventListener('visibilitychange', armOrCancel);
     return () => {
+      document.removeEventListener('visibilitychange', armOrCancel);
       if (graceCloseTimerRef.current) {
         clearTimeout(graceCloseTimerRef.current);
         graceCloseTimerRef.current = null;
