@@ -98,6 +98,13 @@ const WEBGL_DETACH_GRACE_MS = 8000;
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
 const RECONNECT_STABLE_RESET_MS = 15000;
+// "재연결 중" 배너 교착 워치독. 모바일 네트워크 전환 시 focus/visibility/online/pageshow 가
+// 한꺼번에 터지며 비동기 preflight(checkAndRecover) 와 resume 재연결이 엇갈리면, 배너만 남고
+// 소켓도 없고 예약된 재연결 타이머도 없는 상태에 드물게 빠진다. 이 경우 markEnded 도 안 불려
+// 새로고침 말곤 탈출구가 없다. 워치독이 주기적으로 이 교착을 감지해 강제 재연결한다.
+const RECONNECT_WATCHDOG_POLL_MS = 4000;
+// 워치독이 강제 재연결을 시도해도 이 시간 안에 OPEN 못 하면 ended 오버레이(수동 버튼)로 탈출구 제공.
+const RECONNECT_WATCHDOG_GIVEUP_MS = 60000;
 // WASM 가용성 프로브 — 최소 유효 wasm 모듈을 동기 컴파일해본다. CSP(특히 Cloudflare
 // Zaraz 가 재작성한 script-src)가 wasm-unsafe-eval 을 막으면 CompileError 가 동기로
 // 던져진다. 이걸 한 번만 확인해서, 막혀 있으면 ImageAddon 로드를 건너뛴다.
@@ -219,6 +226,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // resume 이벤트가 attempts 를 리셋해도 이 값은 유지돼 벽시계 데드라인이 살아있게 한다.
   const reconnectingSinceRef = useRef(0);
   const intentionalCloseRef = useRef(false);
+  // checkAndRecover(onclose 후 preflight 폴링)가 도는 동안 true. 워치독이 정상 복구 진행을
+  // 교착으로 오인해 끼어들지 않게 하는 가드.
+  const recoveringRef = useRef(false);
+  // connect() 가 ws-ticket 발급을 await 하는 동안(소켓 아직 없음) true. 워치독/중복 호출이
+  // 이 창에서 또 connect 를 띄워 핸드셰이크가 겹치지 않게 한다.
+  const connectInFlightRef = useRef(false);
   const lastDimsRef = useRef({ cols: 0, rows: 0 });
   /* 다른 클라이언트가 takeover (tmux attach -d) 했을 때 PTY 출력에 들어오는
      `[detached (from session ...)]` 토큰을 감지해 evictedRef 를 세움. WS close 시 이 ref 가
@@ -319,6 +332,41 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     const id = setTimeout(() => setNoticeVisible(true), NOTICE_SHOW_DELAY_MS);
     return () => clearTimeout(id);
   }, [connectionNotice, noticeVisible]);
+
+  // 재연결 교착 워치독. "재연결 중" 배너가 떠 있는데 (1) 살아있는/연결중인 소켓도 없고
+  // (2) 예약된 재연결 타이머도 없고 (3) preflight 복구 폴링도, ticket 발급도 진행 중이 아니면
+  // — 아무도 재연결을 안 하는 교착이다. 모바일 네트워크 전환 때 focus/visibility/online/pageshow
+  // 가 한꺼번에 터지며 비동기 경로가 엇갈려 드물게 이 상태에 빠지고, 그동안은 새로고침 말곤
+  // 탈출구가 없었다. 워치독이 이를 감지해 강제 재연결하고, 그래도 안 되면 ended 로 빠져나간다.
+  useEffect(() => {
+    // closing — 셸이 깨끗이 종료돼 pane 자동 닫기 중이면 재연결을 강제하지 않는다.
+    if (!connectionNotice || isReady || ended || evicted || closing) return undefined;
+    const stuckSince = Date.now();
+    const id = setInterval(() => {
+      if (endedRef.current || evictedRef.current) return;
+      const ws = wsRef.current;
+      const socketProgressing = ws
+        && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
+      // 정상적으로 진행 중인 경로가 하나라도 있으면 끼어들지 않는다.
+      if (socketProgressing
+          || reconnectTimeoutRef.current
+          || recoveringRef.current
+          || connectInFlightRef.current) {
+        return;
+      }
+      // 여기까지 왔으면 배너만 남고 아무도 재연결을 안 하는 교착 상태.
+      if (Date.now() - stuckSince > RECONNECT_WATCHDOG_GIVEUP_MS) {
+        markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
+        return;
+      }
+      // 강제 복구 — 카운터·벽시계 리셋 후 기존 셸로 재연결.
+      reconnectAttemptsRef.current = 0;
+      reconnectingSinceRef.current = 0;
+      intentionalCloseRef.current = false;
+      connectRef.current?.({ create: false });
+    }, RECONNECT_WATCHDOG_POLL_MS);
+    return () => clearInterval(id);
+  }, [connectionNotice, isReady, ended, evicted, closing, markEnded, t]);
 
   const clearEndedForReconnect = useCallback(() => {
     endedRef.current = false;
@@ -1110,6 +1158,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
         return;
       }
+      // ticket 발급 await 창 동안 워치독/중복 호출이 또 connect 를 띄우지 않게 표시.
+      connectInFlightRef.current = true;
       const createIfMissing = options.create !== false;
       const autoRecover = options.autoRecover !== false;
       /* 재연결 시작 — evicted 플래그 리셋. tmux 가 재attach 후 버퍼 리플레이 시
@@ -1134,6 +1184,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       const clientQS = `&client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
       const wsPath = hostId ? `/ws/host/${hostId}` : `/ws/${sessionId}`;
       const ticketResult = await issueWsTicket(wsPath);
+      connectInFlightRef.current = false;
       if (cancelled) return;
       const wsTicket = ticketResult.ticket;
       if (!wsTicket) {
@@ -1579,7 +1630,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found.');
         }
       };
-      checkAndRecover();
+      // recoveringRef — 폴링이 도는 동안 워치독이 정상 복구를 교착으로 오인하지 않게.
+      recoveringRef.current = true;
+      checkAndRecover().finally(() => { recoveringRef.current = false; });
     };
 
       socket.onerror = (error) => {
