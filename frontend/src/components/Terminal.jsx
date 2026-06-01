@@ -79,7 +79,9 @@ const LOAD_STUCK_MS = 8000;
 // 클라이언트가 ping 을 보내고 서버 pong(또는 그 외 메시지) 을 일정 시간 못 받으면 죽은 소켓으로 보고 강제 재연결.
 const HEARTBEAT_INTERVAL_MS = 15000;
 const HEARTBEAT_DEAD_MS = 35000;
-const RESUME_PROBE_TIMEOUT_MS = 4000;
+// 복귀(focus/visibility) 프로브 판정 시간. 살아있는 소켓 pong 은 보통 1초 미만이라
+// 길게 잡을 필요가 없다. 포커스 순간 빠른 복구를 위해 짧게 — 그래도 typical RTT 의 5배+.
+const RESUME_PROBE_TIMEOUT_MS = 2500;
 const RESUME_PROBE_THROTTLE_MS = 1500;
 // 최근 이 시간 안에 서버로부터 무언가(출력/pong) 를 받았으면 소켓은 살아있음이 증명된
 // 상태 — resume probe 를 아예 건너뛴다. 부하로 pong 이 잠깐 늦을 때 멀쩡한 소켓을 닫고
@@ -320,6 +322,25 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     });
   }, [sessionId, paneId, tabId]);
 
+  // 좀비 소켓(close() 해도 onclose 가 안 오는 모바일 림보 포함)을 wsRef 에서 떼어내고
+  // 즉시 기존 셸로 강제 재연결. onclose/워치독 을 기다리지 않는 빠른 복구 경로 — 포커스
+  // 복귀 프로브 실패와 워치독 양쪽에서 공용으로 쓴다.
+  const forceReconnect = useCallback((ws, notice = '') => {
+    if (ws) {
+      try { ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null; } catch { /* noop */ }
+      try {
+        const rs = ws.readyState;
+        if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) ws.close();
+      } catch { /* noop */ }
+      if (wsRef.current === ws) wsRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
+    reconnectingSinceRef.current = 0;
+    intentionalCloseRef.current = false;
+    if (notice) setConnectionNotice(notice);
+    connectRef.current?.({ create: false });
+  }, []);
+
   // 배너 디바운스 — connectionNotice 가 채워져도 NOTICE_SHOW_DELAY_MS 가 지나야 실제 표시.
   // 그 전에 비워지면(빠른 재연결 성공) 배너는 끝내 안 뜬다. 이미 표시 중일 땐 텍스트만
   // 바뀌어도 타이머를 재시작하지 않아 깜빡임이 없다.
@@ -384,20 +405,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
         return;
       }
-      // 좀비 소켓이 wsRef 를 잡고 connect 가드를 막지 않게 핸들러를 떼고 닫은 뒤 비운다.
-      if (ws) {
-        try { ws.onopen = null; ws.onmessage = null; ws.onclose = null; ws.onerror = null; } catch { /* noop */ }
-        try { if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) ws.close(); } catch { /* noop */ }
-        if (wsRef.current === ws) wsRef.current = null;
-      }
-      // 카운터·벽시계 리셋 후 기존 셸로 강제 재연결.
-      reconnectAttemptsRef.current = 0;
-      reconnectingSinceRef.current = 0;
-      intentionalCloseRef.current = false;
-      connectRef.current?.({ create: false });
+      // 좀비 소켓을 떼고 즉시 강제 재연결.
+      forceReconnect(ws);
     }, RECONNECT_WATCHDOG_POLL_MS);
     return () => clearInterval(id);
-  }, [hasNotice, ended, evicted, closing, markEnded, t]);
+  }, [hasNotice, ended, evicted, closing, markEnded, forceReconnect, t]);
 
   const clearEndedForReconnect = useCallback(() => {
     endedRef.current = false;
@@ -2339,8 +2351,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       try {
         ws.send(JSON.stringify({ type: 'ping' }));
       } catch {
-        intentionalCloseRef.current = false;
-        try { ws.close(); } catch { /* noop */ }
+        // ping 조차 못 보내는 죽은 소켓 — 즉시 떼고 재연결.
+        forceReconnect(ws);
         return;
       }
 
@@ -2351,9 +2363,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (authPromptRef.current || evictedRef.current || endedRef.current) return;
         if (lastRecvRef.current > recvBeforeProbe) return;
         logger.warn(`복귀 후 WS 생존 확인 실패(${reason}) — 재연결: ${sessionId}`);
-        setConnectionNotice(t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...');
-        intentionalCloseRef.current = false;
-        try { ws.close(); } catch { /* noop */ }
+        // onclose 를 기다리지 않고 즉시 좀비를 떼고 재연결한다 — 모바일은 close() 해도
+        // onclose 가 영영 안 와 워치독(4s 폴링)까지 기다리던 지연을 없앤다.
+        forceReconnect(ws, t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...');
       }, RESUME_PROBE_TIMEOUT_MS);
     };
 
@@ -2377,7 +2389,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       clearResumeProbe();
       if (fitRaf) cancelAnimationFrame(fitRaf);
     };
-  }, [sessionId]);
+  }, [sessionId, forceReconnect, t]);
 
   // 과거에는 isActive 토글마다 WebglAddon 을 detach/reattach 해 비활성 GPU 비용을 줄였지만,
   // 재부착 시 캔버스 재생성 + 버퍼 전체 repaint 가 탭 전환 때 가시 깜빡임을 만들었다.
