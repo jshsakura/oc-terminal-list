@@ -333,6 +333,23 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     return () => clearTimeout(id);
   }, [connectionNotice, noticeVisible]);
 
+  // 배너 페이드아웃 마운트 유지 — 복구되어 배너가 사라질 때 즉시 언마운트하지 않고
+  // 페이드아웃이 끝난 뒤 제거해, 깜빡임 없이 부드럽게 빠진다.
+  const [bannerMounted, setBannerMounted] = useState(false);
+  // 페이드아웃 중에도 마지막 문구를 유지 — connectionNotice 가 비어도 글자가 안 사라진다.
+  const [bannerText, setBannerText] = useState('');
+  useEffect(() => { if (connectionNotice) setBannerText(connectionNotice); }, [connectionNotice]);
+  const bannerShown = !!connectionNotice && noticeVisible && !ended && !evicted && !closing;
+  useEffect(() => {
+    if (bannerShown) {
+      setBannerMounted(true);
+      return undefined;
+    }
+    if (!bannerMounted) return undefined;
+    const id = setTimeout(() => setBannerMounted(false), 240);
+    return () => clearTimeout(id);
+  }, [bannerShown, bannerMounted]);
+
   // 재연결 교착 워치독. "재연결 중" 배너가 떠 있는데 (1) 살아있는/연결중인 소켓도 없고
   // (2) 예약된 재연결 타이머도 없고 (3) preflight 복구 폴링도, ticket 발급도 진행 중이 아니면
   // — 아무도 재연결을 안 하는 교착이다. 모바일 네트워크 전환 때 focus/visibility/online/pageshow
@@ -2713,11 +2730,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         </div>
       )}
 
-      {connectionNotice && noticeVisible && !ended && !evicted && !closing && (
-        <div style={styles.inlineBanner(themeUi)}>
+      {bannerMounted && (
+        <div style={styles.inlineBanner(themeUi, bannerShown)}>
           <Loader2 size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
           <span style={styles.bannerText(themeUi)}>
-            {connectionNotice}
+            {connectionNotice || bannerText}
           </span>
           <button
             type="button"
@@ -3374,7 +3391,7 @@ const styles = {
     backdropFilter: 'blur(8px)',
     WebkitBackdropFilter: 'blur(8px)',
   }),
-  inlineBanner: (themeUi) => ({
+  inlineBanner: (themeUi, shown = true) => ({
     position: 'absolute',
     bottom: space['2'],
     left: space['2'],
@@ -3392,6 +3409,11 @@ const styles = {
     zIndex: 12,
     fontSize: fontSize['11'],
     fontFamily: 'inherit',
+    // 그레이스풀 페이드 — 팝업처럼 튀지 않고 부드럽게 떴다 사라진다.
+    opacity: shown ? 1 : 0,
+    transform: shown ? 'translateY(0)' : 'translateY(6px)',
+    transition: 'opacity 220ms ease, transform 220ms ease',
+    willChange: 'opacity, transform',
   }),
   bannerText: (themeUi) => ({
     flex: 1,
