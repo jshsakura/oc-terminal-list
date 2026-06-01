@@ -905,7 +905,11 @@ def is_safe_id(value: str | None) -> bool:
 
 # ---------------------- WebSocket ticket ----------------------
 
-WS_TICKET_TTL_SECONDS = 20
+# 30s — 재연결용 사전 발급 티켓이 끊김~재접속 사이 유효하도록 약간 길게(단일 사용).
+WS_TICKET_TTL_SECONDS = 30
+# 연결된 WS 위로 다음 재연결용 티켓을 미리 밀어주는 주기. 클라가 stash 해 두면 재연결 때
+# HTTP fetch 없이 바로 WebSocket 을 연다(= Jupyter 처럼 fresh TCP, wedge 된 연결 풀 우회).
+WS_TICKET_PUSH_INTERVAL_SECONDS = 10
 _ws_tickets: dict[str, dict] = {}
 FILE_TICKET_TTL_SECONDS = 30
 _file_tickets: dict[str, dict] = {}
@@ -945,6 +949,25 @@ def _consume_ws_ticket(ticket: str | None, path: str) -> str | None:
     if meta.get("path") != _normalize_ws_path(path):
         return None
     return meta.get("username")
+
+
+async def _push_ws_tickets(bridge, username: str, ws_path: str) -> None:
+    """연결된 WS 위로 다음 재연결용 단일사용 티켓을 주기적으로 밀어준다.
+
+    클라가 이걸 stash 해 두면, 재연결 시 /api/ws-ticket fetch(공유 HTTP/2 연결을 재사용 —
+    모바일 네트워크 전환 시 wedge 되는 주범) 없이 곧바로 새 WebSocket 을 연다. 새 WebSocket 은
+    항상 fresh TCP 라 wedge 된 연결 풀을 우회한다(= JupyterLab 의 직접 연결과 동일한 회복력).
+    """
+    import json as _json
+    try:
+        while True:
+            tk, exp = _create_ws_ticket(username, ws_path)
+            await bridge.send_control(_json.dumps({"type": "ws_ticket", "ticket": tk, "expires_at": exp}))
+            await asyncio.sleep(WS_TICKET_PUSH_INTERVAL_SECONDS)
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        logger.debug("ws ticket push stopped (%s): %s", ws_path, e)
 
 
 def _cleanup_file_tickets(now: float | None = None) -> None:
@@ -2082,6 +2105,7 @@ async def terminal_websocket(
         logger.warning("usage start record failed (local %s): %s", session_id, e)
     # attach/detach 가 일어났으니 client 수 캐시 즉시 무효화.
     await invalidate_session(session_id)
+    ticket_pusher = asyncio.create_task(_push_ws_tickets(bridge, username, ws_path))
     try:
         await bridge.run()
     except WebSocketDisconnect:
@@ -2089,6 +2113,7 @@ async def terminal_websocket(
     except Exception as e:
         logger.error("WS bridge error (%s): %s", session_id, e)
     finally:
+        ticket_pusher.cancel()
         if usage_event_id is not None:
             try:
                 await storage.record_usage_end(usage_event_id)
@@ -2677,6 +2702,7 @@ async def host_websocket(
         logger.warning("usage start record failed (host %s): %s", host_id, e)
     # 새 attach/spawn 으로 세션 목록/클라이언트 수가 바뀌었을 수 있음 — 캐시 무효화.
     await invalidate_host(host_id)
+    ticket_pusher = asyncio.create_task(_push_ws_tickets(bridge, username, ws_path))
     try:
         await bridge.run()
     except WebSocketDisconnect:
@@ -2684,6 +2710,7 @@ async def host_websocket(
     except Exception as e:
         logger.error("host WS bridge error (%s): %s", host_id, e, exc_info=True)
     finally:
+        ticket_pusher.cancel()
         if usage_event_id is not None:
             try:
                 await storage.record_usage_end(usage_event_id)

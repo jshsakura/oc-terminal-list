@@ -235,6 +235,14 @@ class HostBridge:
         # 출력 펌프와 pong 응답이 동시에 send 하지 않도록 직렬화.
         self._send_lock = asyncio.Lock()
 
+    async def send_control(self, text: str) -> None:
+        """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
+        try:
+            async with self._send_lock:
+                await self.websocket.send_text(text)
+        except Exception as e:
+            logger.debug("control send failed (host): %s", e)
+
     async def _ws_kbdint_prompter(self, name: str, instructions: str, prompts: list) -> list | None:
         """asyncssh keyboard-interactive 챌린지를 WS 로 사용자에게 전달하고 응답 수신.
         TOTP 같은 동적 2FA 에 필요. _connect 도중 호출되며 _input_pump 가 아직 안 켜져있어
@@ -489,6 +497,14 @@ class TailscaleHostBridge:
         self._closed = asyncio.Event()
         # 출력 펌프와 pong 응답이 동시에 send 하지 않도록 직렬화.
         self._send_lock = asyncio.Lock()
+
+    async def send_control(self, text: str) -> None:
+        """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
+        try:
+            async with self._send_lock:
+                await self.websocket.send_text(text)
+        except Exception as e:
+            logger.debug("control send failed (tailscale host): %s", e)
 
     def _build_argv(self) -> list[str]:
         ssh_user = self.host.get("ssh_user") or os.environ.get("USER") or "root"

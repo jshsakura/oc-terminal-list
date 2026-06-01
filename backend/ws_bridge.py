@@ -70,6 +70,14 @@ class TmuxClientBridge:
             self.session_id, self.process.pid, self.cols, self.rows,
         )
 
+    async def send_control(self, text: str) -> None:
+        """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
+        try:
+            async with self._send_lock:
+                await self.websocket.send_text(text)
+        except Exception as e:
+            logger.debug("control send failed (%s): %s", self.session_id, e)
+
     def resize(self, cols: int, rows: int) -> None:
         if not self.process:
             return

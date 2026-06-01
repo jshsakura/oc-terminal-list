@@ -83,6 +83,8 @@ const HEARTBEAT_DEAD_MS = 35000;
 // 길게 잡을 필요가 없다. 포커스 순간 빠른 복구를 위해 짧게 — 그래도 typical RTT 의 5배+.
 const RESUME_PROBE_TIMEOUT_MS = 2500;
 const RESUME_PROBE_THROTTLE_MS = 1500;
+// 서버가 푸시한 사전 티켓을 재연결에 쓸 때 필요한 최소 잔여 유효시간(ms). 핸드셰이크 여유.
+const WS_TICKET_USE_MARGIN_MS = 3000;
 // 최근 이 시간 안에 서버로부터 무언가(출력/pong) 를 받았으면 소켓은 살아있음이 증명된
 // 상태 — resume probe 를 아예 건너뛴다. 부하로 pong 이 잠깐 늦을 때 멀쩡한 소켓을 닫고
 // "네트워크 변경" 알림 + 재연결 프리징이 반복되는 오탐을 막는다. (입력시점 liveness probe 와 동일 가드)
@@ -241,6 +243,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const resumeProbeTimerRef = useRef(null);
   const lastResumeProbeAtRef = useRef(0);
   const lastRecvRef = useRef(0);
+  // 서버가 연결된 WS 위로 미리 밀어준 다음 재연결용 단일사용 티켓 {ticket, expiresAt(ms)}.
+  // 재연결 시 이게 유효하면 /api/ws-ticket fetch 없이 바로 WebSocket 을 연다(= Jupyter 처럼
+  // fresh TCP 로 wedge 된 HTTP/2 연결 풀을 우회 — 모바일 네트워크 전환 회복력의 핵심).
+  const nextTicketRef = useRef(null);
   const authPromptRef = useRef(false);
   const wsFlushTimeoutRef = useRef(null);
   const wsBufferRef = useRef([]);
@@ -1267,13 +1273,27 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       const createQS = createIfMissing ? '' : '&create=0';
       const clientQS = `&client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
       const wsPath = hostId ? `/ws/host/${hostId}` : `/ws/${sessionId}`;
-      const ticketResult = await issueWsTicket(wsPath);
-      connectInFlightRef.current = false;
+      // [Jupyter 식 재연결] 서버가 연결 중 푸시해 둔 사전 티켓이 아직 유효하면 fetch 를 건너뛰고
+      // 곧장 WebSocket 을 연다. 새 WS 는 fresh TCP 라, 모바일 네트워크 전환으로 wedge 된 공유
+      // HTTP/2 연결 풀(= /api/ws-ticket fetch 가 영영 매달리던 주범)을 통째로 우회한다.
+      const stashedTicket = nextTicketRef.current;
+      nextTicketRef.current = null; // 단일 사용 — 쓰든 안 쓰든 비운다.
+      let wsTicket = null;
+      let ticketAuthExpired = false;
+      if (stashedTicket && stashedTicket.ticket
+          && stashedTicket.expiresAt - Date.now() > WS_TICKET_USE_MARGIN_MS) {
+        wsTicket = stashedTicket.ticket;
+        connectInFlightRef.current = false;
+      } else {
+        const ticketResult = await issueWsTicket(wsPath);
+        wsTicket = ticketResult.ticket;
+        ticketAuthExpired = ticketResult.authExpired;
+        connectInFlightRef.current = false;
+      }
       if (cancelled) return;
-      const wsTicket = ticketResult.ticket;
       if (!wsTicket) {
         if (reconnectAttemptsRef.current < 2) logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
-        if (!ticketResult.authExpired && autoRecover) {
+        if (!ticketAuthExpired && autoRecover) {
           if (scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) return;
         }
         // 스피너를 반드시 풀어준다 — 안 그러면 "연결 중..." 무한 대기.
@@ -1548,6 +1568,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           const msg = JSON.parse(event.data);
           if (msg && msg.type === 'pong') {
             // 하트비트 응답 — lastRecv 는 위에서 이미 갱신됨. 터미널로 흘리지 않는다.
+            return;
+          }
+          if (msg && msg.type === 'ws_ticket' && msg.ticket) {
+            // 다음 재연결용 사전 티켓 stash — 재연결 때 fetch 없이 바로 WS 를 연다.
+            nextTicketRef.current = { ticket: msg.ticket, expiresAt: (Number(msg.expires_at) || 0) * 1000 };
             return;
           }
           if (msg && msg.type === 'auth-prompt') {
