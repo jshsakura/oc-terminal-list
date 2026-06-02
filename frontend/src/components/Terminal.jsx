@@ -127,6 +127,37 @@ const WASM_ALLOWED = (() => {
 const TMUX_WHEEL_INPUT_RE = /^(?:\x1b\[<(?:64|65);\d+;\d+M)+$/;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// 붙여넣은 이미지를 업로드 전에 다운스케일/재인코딩. 스크린샷 PNG 는 수 MB 라 공유 터널로
+// 그대로 올리면 느려서 "업로드 중" 이 한참 돈다. 긴 변 2048px 로 줄이고 WebP(q0.85)로 재인코딩하면
+// 보통 수백 KB 로 떨어져 즉시 올라간다. 작은 이미지·재인코딩 불가 포맷(gif/svg)·실패 시 원본 그대로.
+const MAX_PASTE_IMAGE_DIM = 2048;
+const PASTE_IMAGE_COMPRESS_OVER_BYTES = 768 * 1024;
+const compressPastedImage = async (blob) => {
+  try {
+    if (!/^image\/(png|jpe?g|webp|bmp)$/.test(blob.type || '')) return blob;
+    if (typeof createImageBitmap !== 'function') return blob;
+    const bmp = await createImageBitmap(blob);
+    const longest = Math.max(bmp.width, bmp.height);
+    const scale = Math.min(1, MAX_PASTE_IMAGE_DIM / longest);
+    if (scale === 1 && blob.size < PASTE_IMAGE_COMPRESS_OVER_BYTES) { bmp.close?.(); return blob; }
+    const w = Math.max(1, Math.round(bmp.width * scale));
+    const h = Math.max(1, Math.round(bmp.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) { bmp.close?.(); return blob; }
+    ctx.drawImage(bmp, 0, 0, w, h);
+    bmp.close?.();
+    const out = await new Promise((resolve) => {
+      try { canvas.toBlob(resolve, 'image/webp', 0.85); } catch { resolve(null); }
+    });
+    if (!out || out.size >= blob.size) return blob; // 외려 커지면 원본
+    return out;
+  } catch {
+    return blob;
+  }
+};
+
 // clipboard.writeText 가 없거나 비-HTTPS 컨텍스트에서 실패할 경우 textarea 폴백.
 const copyTextToClipboard = (text) => {
   if (navigator.clipboard && window.isSecureContext) {
@@ -872,17 +903,31 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // capture 단계(true)에서 xterm 자체 핸들러보다 먼저 실행해 중복 전송 방지.
     // 클립보드 이미지 → 서버 업로드 후 저장 경로를 터미널 입력으로 주입.
     // (PTY 는 텍스트만 전달하므로 이미지 자체는 못 보냄 → 경로로 우회.)
-    const uploadPastedImage = async (blob) => {
-      setImagePasteState('uploading');
+    const postPasteImage = async (sendBlob, attempt = 0) => {
+      // 매 시도마다 FormData 새로. timeout 으로 무한 대기 차단(대기중 터미널은 공유 HTTP 연결이
+      // wedge 돼 fetch 가 영영 매달리던 게 "업로드 중" 무한 회전의 원인 — 새로고침하면 됐던 이유).
+      const fd = new FormData();
+      const ext = (sendBlob.type.split('/')[1] || 'png').replace('+xml', '');
+      fd.append('file', sendBlob, `pasted.${ext}`);
       try {
-        const fd = new FormData();
-        const ext = (blob.type.split('/')[1] || 'png').replace('+xml', '');
-        fd.append('file', blob, `pasted.${ext}`);
-        const res = await fetch('/api/terminal/paste-image', {
+        return await fetch('/api/terminal/paste-image', {
           method: 'POST',
           headers: authHeaders(),
           body: fd,
+          signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(20000) : undefined,
         });
+      } catch (err) {
+        // timeout/네트워크 오류 — wedge 된 연결일 수 있으니 한 번은 새 연결로 재시도(=새로고침 효과).
+        if (attempt < 1) return postPasteImage(sendBlob, attempt + 1);
+        throw err;
+      }
+    };
+
+    const uploadPastedImage = async (blob) => {
+      setImagePasteState('uploading');
+      try {
+        const sendBlob = await compressPastedImage(blob);
+        const res = await postPasteImage(sendBlob);
         const data = await res.json().catch(() => null);
         if (!res.ok) throw new Error(data?.detail || `${res.status}`);
         // 경로 뒤 공백 — 사용자가 이어서 질문을 타이핑할 수 있게.
