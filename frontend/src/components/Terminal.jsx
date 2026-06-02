@@ -2274,12 +2274,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   //   - 재접속 시 tmux attach 가 현재 화면을 다시 그려서 자연스럽게 동기화.
   // grace = 60s — 사용자가 잠깐 다른 탭 들렀다 돌아오는 경우엔 close 안 됨 (재접속 비용 0).
   useEffect(() => {
-    const GRACE_MS = 60_000;
+    // 비활성 pane(앱은 보이지만 다른 pane 을 보는 중) — 60s 후 닫아 리소스 절약(기존 동작).
+    const INACTIVE_PANE_GRACE_MS = 60_000;
+    // 탭 자체를 숨김(다른 브라우저 탭으로 이동/최소화/잠금) — 더 길게. 잠깐 탭 전환에 매번
+    // 소켓을 닫으면 복귀 때마다 재연결+tmux 리플레이로 "응답 없는 느낌"이 난다. Chrome 도
+    // 보통 5분쯤 지나야 백그라운드 탭을 얼리므로, 그 전까진 소켓을 그대로 둬 즉시 스냅하고,
+    // 진짜 오래(밤새) 비울 때만 닫아 리소스 드레인/크래시를 막는다.
+    const HIDDEN_TAB_GRACE_MS = 5 * 60_000;
     // "연결을 유지할까?" = 이 pane 이 활성이고 + 브라우저 탭이 화면에 보일 때만.
-    // document.hidden(탭을 백그라운드로 둠 — 밤새 켜둠 포함)이면 활성 pane 이라도 grace 후
-    // 소켓을 닫고 완전히 조용해진다(하트비트·티켓 트래픽·타이머 0). 그래야 안 보이는 탭이
-    // 밤새 리소스를 갉아먹다 브라우저(특히 모바일)에 통째로 죽는 일이 없다. tmux 가 세션을
-    // 유지하므로 복귀 시 attach 리플레이로 데이터 손실 없이 매끄럽게 다시 붙는다.
+    // 둘 중 하나라도 아니면 grace 후 소켓을 닫고 완전히 조용해진다(하트비트·티켓·타이머 0).
+    // tmux 가 세션을 유지하므로 복귀 시 attach 리플레이로 손실 없이 다시 붙는다.
     const armOrCancel = () => {
       const shouldHold = isActiveRef.current && !document.hidden;
       if (shouldHold) {
@@ -2298,6 +2302,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         return;
       }
       if (graceCloseTimerRef.current) return; // 이미 grace 예약됨
+      // 탭을 숨긴 경우(document.hidden)는 길게, 단순 pane 비활성은 짧게.
+      const grace = document.hidden ? HIDDEN_TAB_GRACE_MS : INACTIVE_PANE_GRACE_MS;
       graceCloseTimerRef.current = setTimeout(() => {
         graceCloseTimerRef.current = null;
         const ws = wsRef.current;
@@ -2307,7 +2313,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         intentionalCloseRef.current = true;
         wasClosedForInactivityRef.current = true;
         try { ws.close(); } catch { /* noop */ }
-      }, GRACE_MS);
+      }, grace);
     };
     armOrCancel();
     document.addEventListener('visibilitychange', armOrCancel);
