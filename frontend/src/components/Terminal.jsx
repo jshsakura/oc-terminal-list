@@ -153,9 +153,7 @@ const execCommandCopy = (text) => {
   if (document.getElementById('tl-spin-kf')) return;
   const s = document.createElement('style');
   s.id = 'tl-spin-kf';
-  // tl-spin: 스피너 회전. tl-pulse: 재연결 pill 의 차분한 호흡(스피너 대신).
-  s.textContent = '@keyframes tl-spin{to{transform:rotate(360deg)}}'
-    + '@keyframes tl-pulse{0%,100%{opacity:.35;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}';
+  s.textContent = '@keyframes tl-spin{to{transform:rotate(360deg)}}';
   document.head.appendChild(s);
 })();
 
@@ -2801,11 +2799,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         </div>
       )}
 
-      {/* 재연결 pill — 스피너·X 없는 구석의 차분한 표시. 짧은 끊김은 아예 안 뜨고(디바운스),
-          길어지면 펄스 dot 으로만 알린다. 복구되면 스르륵 사라지고 화면은 그대로. */}
+      {/* 재연결 로딩 표시 — 아래쪽 가운데 로딩 스피너 pill. 짧은 끊김은 아예 안 뜨고(디바운스),
+          길어지면 스피너로 "로딩 중" 느낌. 복구되면 스르륵 사라지고 화면은 그대로. */}
       {bannerMounted && (
         <div style={styles.reconnectPill(themeUi, bannerShown)}>
-          <span style={styles.reconnectPillDot(themeUi)} />
+          <Loader2 size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
           <span style={styles.reconnectPillText(themeUi)}>
             {t('reconnectingPill') || 'Reconnecting…'}
           </span>
@@ -3481,15 +3479,15 @@ const styles = {
     transition: 'opacity 220ms ease, transform 220ms ease',
     willChange: 'opacity, transform',
   }),
-  // 재연결 pill — 구석(우하단)의 작고 차분한 표시. 스피너/버튼 없음.
+  // 재연결 로딩 pill — 아래쪽 가운데 로딩 스피너 + 짧은 문구. 버튼 없음.
   reconnectPill: (themeUi, shown = true) => ({
     position: 'absolute',
     bottom: space['2'],
-    right: space['2'],
+    left: '50%',
     display: 'inline-flex',
     alignItems: 'center',
     gap: space['1.5'],
-    padding: `${space['1']} ${space['2.5'] || space['2']}`,
+    padding: `${space['1']} ${space['3']}`,
     background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0} 82%, transparent)`,
     backdropFilter: 'blur(12px)',
     WebkitBackdropFilter: 'blur(12px)',
@@ -3501,20 +3499,12 @@ const styles = {
     fontFamily: 'inherit',
     pointerEvents: 'none',
     maxWidth: 'calc(100% - 16px)',
-    // 짧은 끊김엔 안 뜨고, 길어지면 스르륵 떴다 복구 시 부드럽게 사라진다.
+    whiteSpace: 'nowrap',
+    // 짧은 끊김엔 안 뜨고, 길어지면 스르륵 떴다 복구 시 부드럽게 사라진다. (가운데 정렬 유지)
     opacity: shown ? 0.96 : 0,
-    transform: shown ? 'translateY(0)' : 'translateY(6px)',
+    transform: shown ? 'translateX(-50%) translateY(0)' : 'translateX(-50%) translateY(6px)',
     transition: 'opacity 240ms ease, transform 240ms ease',
     willChange: 'opacity, transform',
-  }),
-  reconnectPillDot: (themeUi) => ({
-    flexShrink: 0,
-    width: '7px',
-    height: '7px',
-    borderRadius: '50%',
-    background: themeUi.warning || themeUi.accent,
-    // 스피너 대신 차분한 호흡. 회전 없는 mosh 결의 "outage" 표시.
-    animation: 'tl-pulse 1.6s ease-in-out infinite',
   }),
   reconnectPillText: (themeUi) => ({
     color: themeUi.subtext,
