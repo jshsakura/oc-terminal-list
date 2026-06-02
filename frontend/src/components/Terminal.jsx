@@ -1518,7 +1518,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         wsBufferRef.current.push(event.data);
         dispatchActivity();
         if (wsFlushTimeoutRef.current) return;
-        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 16 : 50);
+        // 활성 pane 은 8ms(반 프레임) 로 출력을 빠르게 토해내 커서/에코 체감을 줄인다.
+        // 그래도 8ms 창 안의 연속 메시지는 한 번에 머지돼 flood 시 과도한 write 는 막는다.
+        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 8 : 50);
         return;
       }
 
@@ -1558,7 +1560,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         wsBufferRef.current.push(_textEncoder.encode(event.data).buffer);
         dispatchActivity();
         if (wsFlushTimeoutRef.current) return;
-        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 16 : 50);
+        // 활성 pane 은 8ms(반 프레임) 로 출력을 빠르게 토해내 커서/에코 체감을 줄인다.
+        // 그래도 8ms 창 안의 연속 메시지는 한 번에 머지돼 flood 시 과도한 write 는 막는다.
+        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 8 : 50);
       }
     };
 
@@ -2627,8 +2631,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           boxSizing: 'border-box',
           background: currentTheme.background,
           overflow: 'hidden',
-          opacity: hasContent ? 1 : 0,
-          transition: 'opacity 0.18s ease',
+          // 재연결 중(로딩 pill 표시)엔 살짝 디밍해 "지금 stale" 신호를 준다. opacity 만 써서
+          // 컴포지터 단계에서만 처리 → 커서/렌더 비용 0. 복구되면 부드럽게 원래 밝기로.
+          opacity: !hasContent ? 0 : (bannerShown ? 0.5 : 1),
+          transition: 'opacity 0.22s ease',
           caretColor: 'transparent',
           outline: 'none',
         }}
