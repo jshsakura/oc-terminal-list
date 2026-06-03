@@ -13,6 +13,9 @@
  *  - 커서가 줄을 넘어가거나(wrap/scroll) 뒤로 가는 등 모델이 깨지면 즉시 전부 정리.
  */
 
+// 킬 스위치 — 브라우저 크래시 조사 중 강제 비활성(저장된 설정과 무관하게 OFF). 원인 규명 후 해제.
+const KILL_SWITCH = true;
+
 const PRINTABLE_RE = /^[\x20-\x7e]$/; // ASCII 인쇄 가능 (보수적 v1; 추후 유니코드 확장 가능)
 const PASSWORD_LINE_RE = /(password|passphrase|secret|pin|비밀번호|암호)\s*[:：]?\s*$/i;
 // no-echo 판정 타임아웃 — RTT 보다 길어야 정상 프롬프트 오탐이 안 난다. 이 안에 에코로
@@ -56,8 +59,8 @@ export class PredictiveEcho {
   }
 
   setEnabled(on) {
-    this.enabled = !!on;
-    if (!on) this.clear();
+    this.enabled = KILL_SWITCH ? false : !!on;
+    if (!this.enabled) this.clear();
   }
 
   setGhostColor(color) {
