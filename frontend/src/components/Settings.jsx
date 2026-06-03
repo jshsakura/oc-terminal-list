@@ -243,6 +243,12 @@ const GeneralPanel = ({ s, change, username, onLogout, t }) => (
         checked={s.smoothScroll}
         onChange={(v) => change('smoothScroll', v)}
       />
+      <Toggle
+        label={t('predictiveEcho') || 'Predictive echo'}
+        hint={t('predictiveEchoHint') || 'Show typed characters instantly without waiting for the server (mosh-style). Auto-disabled in editors and password prompts.'}
+        checked={s.predictiveEcho !== false}
+        onChange={(v) => change('predictiveEcho', v)}
+      />
       <Field
         label={`${t('scrollSensitivity')} · ${(s.scrollSensitivity ?? 0.8).toFixed(1)}`}
         hint={t('scrollSensitivityHint')}
@@ -523,9 +529,12 @@ const Select = ({ value, onChange, children }) => {
   );
 };
 
-const Toggle = ({ label, checked, onChange }) => (
+const Toggle = ({ label, checked, onChange, hint }) => (
   <label style={styles.toggleRow}>
-    <span style={styles.toggleLabel}>{label}</span>
+    <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, paddingRight: space['3'] }}>
+      <span style={styles.toggleLabel}>{label}</span>
+      {hint ? <span style={styles.hint}>{hint}</span> : null}
+    </span>
     <button
       type="button"
       onClick={() => onChange(!checked)}

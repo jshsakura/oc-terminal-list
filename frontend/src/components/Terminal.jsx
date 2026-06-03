@@ -30,6 +30,7 @@ import {
 import { isTerminalAutoResponse } from '../utils/terminalInput';
 import { pushCommand as pushCommandHistory, pushLocalCommand as pushLocalCommandHistory } from '../utils/commandHistory';
 import { getNetworkSummary, getTerminalClientId } from '../utils/clientIdentity';
+import { PredictiveEcho } from '../utils/predictiveEcho';
 
 // onData / sendData 가 통과한 데이터 중 어떤 것이 "히스토리에 기록할 만한 명령" 인지 판정.
 // 단일 키스트로크와 escape sequence 를 거르고, multi-char 입력만 통과 — paste / Quick Input / IME 조합.
@@ -218,6 +219,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
+  // 예측 입력(predictive local echo) 엔진 — 키를 RTT 안 기다리고 유령 글자로 먼저 그림.
+  const predictiveEchoRef = useRef(null);
   // WebglAddon — 비활성 탭에서는 GPU 페인팅 멈춰서 CPU/배터리 절약 (특히 모바일).
   // 활성화 시 DOM renderer 가 인계 → 활성 복귀 시 새 WebglAddon 재부착.
   const webglAddonRef = useRef(null);
@@ -746,6 +749,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         });
       }
     } catch {}
+
+    // 예측 입력 엔진 — term.open 후 .xterm-screen 이 생겼으니 부착. 유령 색은 테마 전경색을
+    // 흐리게. settings 토글로 on/off (기본 on).
+    try {
+      const pe = new PredictiveEcho(term);
+      pe.setGhostColor(`color-mix(in srgb, ${currentTheme.foreground || '#cdd6f4'} 55%, transparent)`);
+      pe.setEnabled(settings?.predictiveEcho !== false);
+      predictiveEchoRef.current = pe;
+    } catch { /* 예측 입력 부착 실패해도 터미널 자체는 정상 동작 */ }
 
     // Wheel/touch scroll routing.
     // tmux attach runs the outer xterm in the alternate buffer, so xterm's local
@@ -1480,6 +1492,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       }
 
       const onWriteDone = () => {
+        // 서버 출력이 반영됐으니 에코로 확정된 만큼 예측 유령을 줄인다(틀린 예측은 여기서 정정).
+        predictiveEchoRef.current?.onServerOutput();
         handleNewDataRef.current();
         setHasContent(true);
         hasContentRef.current = true;
@@ -1889,6 +1903,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (looksLikeRecoverableBulkInput(data)) {
         try { pushLocalCommandHistory(sessionId, data); } catch { /* noop */ }
       }
+      // 예측 입력 — 인쇄 가능 문자면 RTT 안 기다리고 유령으로 즉시 표시(엔진 내부에서 안전 필터).
+      predictiveEchoRef.current?.onInput(data);
       // 서버가 한동안 조용했는데 사용자가 타이핑하면, 입력이 실제로 닿는지 빠르게 검증.
       if (Date.now() - lastRecvRef.current > 3000) probeLiveness();
       const ws = wsRef.current;
@@ -1945,6 +1961,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (window.__paneResizingActive) return;
       // 비활성 탭에서는 ResizeObserver 콜백 무시 — 활성화될 때 layoutSignal 효과로 fit 됨.
       if (!isActiveRef.current) return;
+      predictiveEchoRef.current?.refreshMetrics(); // 셀 크기 바뀌었을 수 있으니 재측정.
       scheduleFit(isMobileRef.current ? 160 : 32, 'observer');
       if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       resizeTrailingTimeoutRef.current = setTimeout(() => doFit('observer-trailing'), isMobileRef.current ? 360 : 140);
@@ -2001,6 +2018,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       wsBufferRef.current = [];
       try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
       webglAddonRef.current = null;
+      try { predictiveEchoRef.current?.dispose(); } catch { /* noop */ }
+      predictiveEchoRef.current = null;
       flushBufferedOutputRef.current = null;
       if (graceCloseTimerRef.current) clearTimeout(graceCloseTimerRef.current);
       graceCloseTimerRef.current = null;
@@ -2090,7 +2109,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       xtermRef.current.options.fontSize = settings.fontSize;
       xtermRef.current.options.fontFamily = normalizeTerminalFontFamily(settings.fontFamily);
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
-      
+      // 예측 유령 색/셀 크기 갱신 — 테마·폰트 바뀌면 다시 측정.
+      predictiveEchoRef.current?.setGhostColor(`color-mix(in srgb, ${currentTheme.foreground || '#cdd6f4'} 55%, transparent)`);
+      predictiveEchoRef.current?.refreshMetrics();
+
       // 폰트 크기가 바뀌면 즉시 fit() 을 호출해 그리드 크기 재계산 (xterm.js 내부 캐시 갱신)
       if (fitAddonRef.current) {
         try { fitAddonRef.current.fit(); } catch (e) {}
@@ -2113,6 +2135,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       }, 50); // 200ms 는 너무 길어 반응이 느려 보이므로 50ms 로 단축
     }
   }, [currentTheme, settings.fontSize, settings.fontFamily, settings.smoothScroll]);
+
+  // 예측 입력 on/off 설정 동기화.
+  useEffect(() => {
+    predictiveEchoRef.current?.setEnabled(settings.predictiveEcho !== false);
+  }, [settings.predictiveEcho]);
 
   useEffect(() => {
     if (!isActive) return;
