@@ -1577,9 +1577,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         wsBufferRef.current.push(event.data);
         dispatchActivity();
         if (wsFlushTimeoutRef.current) return;
-        // 활성 pane 은 8ms(반 프레임) 로 출력을 빠르게 토해내 커서/에코 체감을 줄인다.
-        // 그래도 8ms 창 안의 연속 메시지는 한 번에 머지돼 flood 시 과도한 write 는 막는다.
-        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 8 : 50);
+        // 활성 16ms(한 프레임)·비활성 50ms 로 배치. flood 시 write/render 폭주를 막는 안정값.
+        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 16 : 50);
         return;
       }
 
@@ -1619,9 +1618,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         wsBufferRef.current.push(_textEncoder.encode(event.data).buffer);
         dispatchActivity();
         if (wsFlushTimeoutRef.current) return;
-        // 활성 pane 은 8ms(반 프레임) 로 출력을 빠르게 토해내 커서/에코 체감을 줄인다.
-        // 그래도 8ms 창 안의 연속 메시지는 한 번에 머지돼 flood 시 과도한 write 는 막는다.
-        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 8 : 50);
+        // 활성 16ms(한 프레임)·비활성 50ms 로 배치. flood 시 write/render 폭주를 막는 안정값.
+        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 16 : 50);
       }
     };
 
