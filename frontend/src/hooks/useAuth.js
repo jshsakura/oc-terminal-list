@@ -16,6 +16,36 @@ const useAuth = () => {
     username: null,
   });
 
+  // verify 를 일시적 실패(네트워크 끊김 / 5xx)에는 재시도하고, 진짜 만료(401/403)만 즉시
+  // 포기한다. Cloudflare 터널이 순간 502/끊김일 때 멀쩡한 세션을 로그인으로 튕기던 문제 방지.
+  // 반환: { ok, expired, username } — ok=검증성공, expired=확정 만료(로그인 필요),
+  // 둘 다 false = 일시적 장애(아직 만료 단정 불가).
+  const VERIFY_MAX_ATTEMPTS = 4;
+  const VERIFY_RETRY_BASE_MS = 400;
+  const verifyWithRetry = async () => {
+    for (let attempt = 0; attempt < VERIFY_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const res = await fetch('/api/auth/verify', {
+          headers: getLegacyAuthToken() ? authHeaders() : {},
+        });
+        // 401/403 = 토큰 진짜 만료/무효 → 재시도해도 소용없다. 즉시 로그인.
+        if (res.status === 401 || res.status === 403) return { ok: false, expired: true };
+        if (res.ok) {
+          const data = await res.json();
+          return { ok: true, expired: false, username: data.username };
+        }
+        // 그 외(5xx/502 등) = 서버/터널 일시 장애 → 재시도.
+      } catch {
+        // 네트워크 오류(터널 순간 끊김 등) → 재시도.
+      }
+      // 마지막 시도가 아니면 백오프 후 재시도.
+      if (attempt < VERIFY_MAX_ATTEMPTS - 1) {
+        await new Promise((r) => setTimeout(r, VERIFY_RETRY_BASE_MS * (attempt + 1)));
+      }
+    }
+    return { ok: false, expired: false }; // 일시적 장애로 확정 못 함
+  };
+
   const checkAuthStatus = async () => {
     try {
       // 1. 초기 설정 완료 여부 확인
@@ -33,31 +63,30 @@ const useAuth = () => {
         return;
       }
 
-      // 2. 쿠키 세션 확인. 예전 localStorage Bearer 토큰이 있으면 이 요청에서
+      // 2. 쿠키 세션 확인(재시도 포함). 예전 localStorage Bearer 토큰이 있으면 이 요청에서
       // 서버가 HttpOnly 쿠키로 승격하고, 성공 후 로컬 토큰은 제거한다.
-      const verifyResponse = await fetch('/api/auth/verify', {
-        headers: getLegacyAuthToken() ? authHeaders() : {},
-      });
+      const result = await verifyWithRetry();
 
-      if (!verifyResponse.ok) {
+      if (result.ok) {
         clearAuthFallbacks();
         setAuthState({
           isLoading: false,
           needsSetup: false,
-          isAuthenticated: false,
-          username: null,
+          isAuthenticated: true,
+          username: result.username,
         });
         return;
       }
 
-      const verifyData = await verifyResponse.json();
+      // 여기까지 왔으면 확정 만료(401/403)이거나, 재시도를 다 쓴 지속적 장애.
+      // 둘 다 로그인 화면으로 보낸다(쿠키는 HttpOnly 라 JS 에서 살릴 수단이 없음).
+      // 단, 일시적 블립은 위 verifyWithRetry(4회 ~2.4s)가 이미 흡수하므로 한 번 끊겼다고 안 튕긴다.
       clearAuthFallbacks();
-
       setAuthState({
         isLoading: false,
         needsSetup: false,
-        isAuthenticated: true,
-        username: verifyData.username,
+        isAuthenticated: false,
+        username: null,
       });
     } catch (error) {
       console.error('Auth check failed:', error);
