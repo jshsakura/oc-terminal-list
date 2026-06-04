@@ -468,6 +468,23 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     setClosing(false);
   }, []);
 
+  // 연결 실패(인증 아님)로 재연결 버스트를 다 소진했을 때, 막다른 "셸 종료" 오버레이(markEnded)로
+  // 끝내지 않고 차분한 재연결 pill 만 유지한다. ended 가 아니므로 워치독(hasNotice && !ended)이
+  // 4s 주기로 계속 복구를 시도해, 터널/서버가 돌아오면 새로고침 없이 자동으로 다시 붙는다
+  // (mosh 식 인페이지 무한 복구). 예산을 리셋해 다음 버스트가 처음부터 다시 시도되게 한다.
+  const keepReconnectingPill = useCallback((notice) => {
+    endedRef.current = false;
+    reconnectAttemptsRef.current = 0;
+    reconnectingSinceRef.current = 0;
+    reconnectingRef.current = true;
+    setEnded(false);
+    setEndedNotice('');
+    setClosing(false);
+    setReconnecting(true);
+    setIsReady(false);
+    setConnectionNotice(notice || (t('networkReconnect') || 'Network connection changed. Reconnecting...'));
+  }, [t]);
+
   const notifyStatus = useCallback(() => {
     onStatusChangeRef.current?.({
       evicted: evictedRef.current,
@@ -1355,8 +1372,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (autoRecover) {
           if (scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) return;
         }
-        // 스피너를 반드시 풀어준다 — 안 그러면 "연결 중..." 무한 대기.
-        markEnded(t('reconnectTicketFailed') || '재연결에 실패했습니다. 세션이 만료되었거나 서버에 연결할 수 없습니다.');
+        // 재연결 버스트를 다 소진했어도 막다른 "셸 종료" 오버레이로 끝내지 않는다 — 차분한 재연결
+        // pill 만 유지하면 워치독이 계속 재연결을 시도해 터널/서버 복귀 시 새로고침 없이 자동 복구.
+        keepReconnectingPill(t('networkReconnect') || 'Network connection changed. Reconnecting...');
         return;
       }
       const authQS = `ticket=${encodeURIComponent(wsTicket)}`;
@@ -1392,7 +1410,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         if (autoRecover && scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) {
           return;
         }
-        markEnded(t('reconnectTimedOut') || '연결이 지연되고 있습니다. 다시 시도해 주세요.');
+        // 좀비 소켓 타임아웃으로 버스트를 다 소진해도 막다른 오버레이로 끝내지 않는다 — 차분한
+        // 재연결 pill 을 유지해 워치독이 계속 복구를 시도하게(mosh 식 인페이지 무한 복구).
+        keepReconnectingPill(t('networkReconnect') || 'Network connection changed. Reconnecting...');
       }, CONNECT_OPEN_TIMEOUT_MS);
       const clearOpenTimer = () => { if (openTimer) { clearTimeout(openTimer); openTimer = null; } };
 
