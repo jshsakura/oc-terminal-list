@@ -1340,11 +1340,22 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (cancelled) return;
       if (!wsTicket) {
         if (reconnectAttemptsRef.current < 2) logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
-        if (!ticketAuthExpired && autoRecover) {
+        if (ticketAuthExpired) {
+          // 세션 만료/로그아웃 — issueWsTicket 이 이미 auth:session-expired 를 쏴서 로그인 화면으로
+          // 전환된다. 여기서 "셸 종료 / 재연결 실패" 오버레이까지 띄우면 로그아웃마다 무서운 에러가
+          // 겹쳐 보인다(오바). 종료 오버레이는 띄우지 않고 연결 UI 만 조용히 내린다. 재로그인하면
+          // 탭/세션이 자동 복원된다.
+          intentionalCloseRef.current = true;
+          reconnectingRef.current = false;
+          setReconnecting(false);
+          setIsReady(false);
+          setConnectionNotice('');
+          return;
+        }
+        if (autoRecover) {
           if (scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) return;
         }
         // 스피너를 반드시 풀어준다 — 안 그러면 "연결 중..." 무한 대기.
-        // 401/403 이면 issueWsTicket 이 이미 session-expired 를 쏴서 로그인 화면이 뜬다.
         markEnded(t('reconnectTicketFailed') || '재연결에 실패했습니다. 세션이 만료되었거나 서버에 연결할 수 없습니다.');
         return;
       }
