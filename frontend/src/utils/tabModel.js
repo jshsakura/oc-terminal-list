@@ -1,0 +1,118 @@
+/**
+ * 탭/pane 모델 팩토리 + tmux 세션명/테마 프로파일 헬퍼 + 뷰포트 판별.
+ * 모델: tab = { id, type, name, ..., panes:[Pane], layout, splitTree, activePaneId, viewMode? }
+ * Pane = { id, mode:'terminal'|'editor', sessionId?, hostId?, ... }
+ * App.jsx 에서 로직 변경 없이 추출한 순수 함수.
+ */
+import { generateUUID } from './helpers';
+import { makeLeaf, treeFromLegacyLayout } from './splitTree';
+import { resolveRandomTheme } from '../components/common/ThemePicker';
+
+export const isPhoneViewport = () => {
+  if (typeof window === 'undefined') return false;
+  const ua = navigator.userAgent || '';
+  const isPhoneUA = /iPhone|iPod/i.test(ua) || (/Android/i.test(ua) && !/Tablet|iPad/i.test(ua));
+  const isTouchLike = window.matchMedia?.('(pointer: coarse)')?.matches || navigator.maxTouchPoints > 0;
+  return window.innerWidth < 768 && (isPhoneUA || isTouchLike);
+};
+
+export const makePane = (extra = {}) => ({
+  id: generateUUID(),
+  mode: 'terminal',
+  ...extra,
+});
+
+export const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = null, themeOverride = null } = {}) => {
+  const pane = makePane({ sessionId, ...(themeOverride ? { themeOverride } : null) });
+  return {
+    id: `local:${sessionId}`,
+    type: 'local',
+    sessionId,
+    name: name || 'terminal',
+    cwd: cwd ?? null,
+    icon: icon || null,
+    color_index: colorIndex ?? 0,
+    panes: [pane],
+    layout: 'single',
+    splitTree: makeLeaf(pane.id),
+    activePaneId: pane.id,
+  };
+};
+
+// 호스트 탭마다 고유 tmux 세션 suffix — 같은 호스트라도 새 탭 = 새 작업공간.
+// 탭이 서버 tab-state 로 복원될 땐 이 값이 보존되어 같은 세션을 다시 attach.
+export const makeTmuxSuffix = () => {
+  try {
+    if (crypto?.randomUUID) return crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  } catch { /* noop */ }
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+};
+
+export const sanitizeTmuxNamePart = (value, fallback = 'mobile') => {
+  const cleaned = String(value || '')
+    .replace(/[^a-zA-Z0-9._-]/g, '')
+    .slice(0, 40);
+  return cleaned || fallback;
+};
+
+export const makeFreshHostTmuxSessionName = (host) => {
+  const base = sanitizeTmuxNamePart(host?.remote_tmux_session || 'mobile');
+  return `${base}-${makeTmuxSuffix()}`.slice(0, 64);
+};
+
+export const isRandomThemeProfile = (themeId) => themeId === 'random-dark' || themeId === 'random-light';
+
+export const usedThemeIdsFromTabs = (tabs = []) => (
+  tabs
+    .flatMap((tab) => tab.panes?.map((pane) => pane.themeOverride) || [])
+    .filter((themeId) => themeId && !isRandomThemeProfile(themeId))
+);
+
+export const resolveProfileTheme = (themeId, usedThemeIds = []) => {
+  if (!themeId) return null;
+  if (isRandomThemeProfile(themeId)) return resolveRandomTheme(themeId, usedThemeIds);
+  return themeId;
+};
+
+export const makeHostTab = (host, cwd = null, tmuxSessionName = null, { themeOverride = undefined, tabId = null } = {}) => {
+  // tmuxSessionName 이 주어지면 이미 존재하는 영속 세션을 명시적으로 attach (Resume).
+  // 새 호스트 터미널도 pane 0 에 fresh tmuxSessionName 을 직접 박는다. paneIndex 기반 이름은
+  // 같은 탭/경로에서 예전 원격 tmux 세션이 살아있을 때 "새 터미널"이 기존 세션으로 붙는
+  // 사고를 만들 수 있으므로, 신규 생성 경로는 항상 명시 세션명으로 분리한다.
+  // profile theme 이 있으면 새 터미널 생성 시점에 구체 테마로 해석해 pane.themeOverride 에 저장.
+  const selectedTheme = themeOverride !== undefined ? themeOverride : host.theme;
+  const isResume = !!tmuxSessionName;
+  const paneTmuxSessionName = tmuxSessionName || makeFreshHostTmuxSessionName(host);
+  const pane = makePane({
+    hostId: host.id,
+    tmuxSessionName: paneTmuxSessionName,
+    ...(selectedTheme ? { themeOverride: selectedTheme } : null),
+  });
+  return {
+    id: tabId || `host:${host.id}:${Date.now()}`,
+    type: 'host',
+    hostId: host.id,
+    tmuxSuffix: null,
+    name: isResume ? `${host.name} · ${tmuxSessionName}` : host.name,
+    icon: host.icon || null,
+    color_index: host.color_index ?? 0,
+    cwd: cwd ?? null,
+    panes: [pane],
+    layout: 'single',
+    splitTree: makeLeaf(pane.id),
+    activePaneId: pane.id,
+  };
+};
+
+// 옛 탭 (panes 없음) 자동 마이그레이션 — localStorage 호환
+export const migrateTab = (t) => {
+  if (t.panes && t.panes.length > 0) {
+    // Ensure splitTree exists
+    if (!t.splitTree) {
+      return { ...t, splitTree: treeFromLegacyLayout(t.panes, t.layout) };
+    }
+    return t;
+  }
+  const pane = makePane({ sessionId: t.sessionId, hostId: t.hostId });
+  return { ...t, panes: [pane], layout: 'single', splitTree: makeLeaf(pane.id), activePaneId: pane.id };
+};
