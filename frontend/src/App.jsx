@@ -7,6 +7,7 @@ import useTranslation from './hooks/useTranslation';
 import useAuth from './hooks/useAuth';
 import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
+import useViewport from './hooks/useViewport';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
@@ -20,7 +21,7 @@ import {
 import { appendPaneAsSplit } from './utils/tabPaneOpen';
 import { EDITOR_STATE_KEY, isEditorSupportedFile, readEditorState } from './utils/editorState';
 import {
-  isPhoneViewport, makePane, makLocalTab, makeFreshHostTmuxSessionName,
+  makePane, makLocalTab, makeFreshHostTmuxSessionName,
   usedThemeIdsFromTabs, resolveProfileTheme, makeHostTab, migrateTab,
 } from './utils/tabModel';
 
@@ -370,7 +371,8 @@ function App() {
   // dir = 'right' | 'left' | 'up' | 'down' | 'h' (→right) | 'v' (→down) | '2x2'
   // 중요: prev (latest) 에서 panes 길이 판단 → useCallback 클로저의 stale activeTab 영향 안 받음
   // 모바일에서는 실제 화면 분할 대신 새 빈 pane 을 sub-tab 으로 연다.
-  const isMobileViewportRef = useRef(false);
+  // 반응형 뷰포트 — isMobile/viewportHeight state + 최신값 ref(탭 viewMode 결정용).
+  const { isMobile, viewportHeight, isMobileRef: isMobileViewportRef } = useViewport();
   const splitActivePane = useCallback((dir = 'h', targetTabId, targetPaneId) => {
     setTabs((prev) => {
       const tid = targetTabId || activeTabIdRef.current;
@@ -1159,10 +1161,8 @@ function App() {
   }, [tabs, activeTabId, busyTabIds]);
 
   // ── UI state ──────────────────────────────────────────────────────────────
-  // isMobile 은 "작은 핸드폰 UI" 기준이다. 데스크탑 브라우저 폭을 좁히거나 태블릿에서
-  // 모바일 전용 폰트/서브탭 UX가 먹지 않게 phone viewport 로만 판정한다.
-  const [isMobile, setIsMobile] = useState(() => isPhoneViewport());
-  const [viewportHeight, setViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
+  // isMobile 은 "작은 핸드폰 UI" 기준(phone viewport 로만 판정). viewportHeight 와 함께
+  // useViewport() 훅에서 관리 — 위 pane operations 부근에서 구조분해해 가져온다.
   // 세션 닫기/열기 후 홈 Resumable 목록 즉시 갱신용 nonce
   const [sessionRefreshNonce, setSessionRefreshNonce] = useState(0);
   const bumpSessionRefresh = useCallback(() => setSessionRefreshNonce((n) => n + 1), []);
@@ -1242,93 +1242,6 @@ function App() {
       : (settings.fontSize ?? 12);
     return { ...settings, fontSize: size };
   }, [settings, isMobile]);
-
-  // ── responsive ────────────────────────────────────────────────────────────
-  useEffect(() => {
-    let viewportRaf = 0;
-    let settleTimer = 0;
-    let lastVVHeight = window.visualViewport?.height ?? window.innerHeight;
-    const check = () => {
-      const m = isPhoneViewport();
-      if (isMobileViewportRef.current !== m) setIsMobile(m);
-      isMobileViewportRef.current = m;
-    };
-
-    // iOS Safari 잔상 방어 — 키보드가 페이지를 위로 밀어 올린 채 visualViewport.offsetTop > 0
-    // 으로 남아있으면, "화면 절반만 살아있고 위에는 잔상" 처럼 보인다. window.scrollTo 만으로는
-    // documentElement/body 의 scrollTop 이 안 풀리는 케이스가 있어 모두 0 으로 강제.
-    const forceScrollToTop = () => {
-      try { window.scrollTo(0, 0); } catch { /* noop */ }
-      if (document.documentElement.scrollTop !== 0) document.documentElement.scrollTop = 0;
-      if (document.body && document.body.scrollTop !== 0) document.body.scrollTop = 0;
-    };
-
-    check();
-    window.addEventListener('resize', check);
-    window.addEventListener('orientationchange', check);
-
-    // visualViewport — 가시 영역 높이 + offsetTop 트래킹.
-    // iOS Safari 는 viewport meta 의 interactive-widget=resizes-content 를 무시한다.
-    // 키보드가 올라오면 visualViewport.height 만 줄어들고 layout viewport 는 그대로라서
-    // position:fixed; inset:0 가 키보드 영역까지 덮음 → CommandInput 모달이 키보드에 가림.
-    // 여기서 visualViewport 값을 state/CSS 변수로 노출해 외곽 컨테이너와 모달이 가시 영역에
-    // 맞춰 줄어들도록 한다.
-    const handleVV = () => {
-      if (viewportRaf) return;
-      viewportRaf = requestAnimationFrame(() => {
-        viewportRaf = 0;
-        const vv = window.visualViewport;
-        if (vv) {
-          if (vv.offsetTop > 0 || window.scrollY > 0
-              || document.documentElement.scrollTop > 0
-              || (document.body && document.body.scrollTop > 0)) {
-            forceScrollToTop();
-          }
-          setViewportHeight(vv.height);
-          document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
-          document.documentElement.style.setProperty('--vvt', `${vv.offsetTop}px`);
-
-          // 잔상 방어 — viewport 가 (특히 키보드 닫혀서) 다시 커진 직후, debounce 된
-          // ResizeObserver fit 만으로는 xterm WebGL canvas 의 drawing buffer 가 CSS 크기와
-          // 어긋난 상태로 남는 경우가 있다. settle 후 한 번 강제로 fit-terminals 발화해
-          // 모든 활성 Terminal 이 fit() → canvas drawing buffer 재동기화하게 한다.
-          if (settleTimer) clearTimeout(settleTimer);
-          const grew = vv.height > lastVVHeight + 4;
-          lastVVHeight = vv.height;
-          settleTimer = setTimeout(() => {
-            settleTimer = 0;
-            // 한 번 더 scroll 보정 (iOS Safari 가 settle 중 다시 미는 케이스).
-            forceScrollToTop();
-            if (grew) {
-              try { window.dispatchEvent(new Event('iterm:fit-terminals')); } catch { /* noop */ }
-            }
-          }, 250);
-        }
-        check();
-      });
-    };
-    // 최초 1회 — mount 시점 visualViewport 값을 CSS 변수에 반영.
-    if (window.visualViewport) {
-      document.documentElement.style.setProperty('--vvh', `${window.visualViewport.height}px`);
-      document.documentElement.style.setProperty('--vvt', `${window.visualViewport.offsetTop}px`);
-    }
-
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleVV);
-      window.visualViewport.addEventListener('scroll', handleVV);
-    }
-
-    return () => {
-      window.removeEventListener('resize', check);
-      window.removeEventListener('orientationchange', check);
-      if (viewportRaf) cancelAnimationFrame(viewportRaf);
-      if (settleTimer) clearTimeout(settleTimer);
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleVV);
-        window.visualViewport.removeEventListener('scroll', handleVV);
-      }
-    };
-  }, []);
 
   useEffect(() => {
     const id = setTimeout(() => localStorage.setItem('editor_height', editorHeight.toString()), 150);
