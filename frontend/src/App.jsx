@@ -8,6 +8,7 @@ import useAuth from './hooks/useAuth';
 import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
 import useViewport from './hooks/useViewport';
+import useTerminalSearch from './hooks/useTerminalSearch';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
@@ -1205,11 +1206,7 @@ function App() {
   const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌
   const [isResizingEditor, setIsResizingEditor] = useState(false);
 
-  // Terminal search
-  const [isTerminalSearchOpen, setIsTerminalSearchOpen] = useState(false);
-  const [terminalSearchQuery, setTerminalSearchQuery] = useState('');
-  const [terminalSearchStatus, setTerminalSearchStatus] = useState('');
-  const terminalSearchInputRef = useRef(null);
+  // Terminal search — state/handlers 는 useTerminalSearch() 훅에서 (actions 섹션에서 구조분해).
 
   // Command palette / file picker
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -1293,29 +1290,10 @@ function App() {
     setIsFilePickerOpen(true);
   }, [openFiles]);
 
-  const openTerminalSearch = useCallback(() => {
-    setTerminalSearchStatus('');
-    setIsTerminalSearchOpen(true);
-    setTimeout(() => terminalSearchInputRef.current?.focus(), 20);
-  }, []);
-
-  const closeTerminalSearch = useCallback(() => {
-    setIsTerminalSearchOpen(false);
-    setTerminalSearchStatus('');
-    const key = activeTab?.sessionId || activeTab?.id;
-    window.terminalSessions?.[key]?.closeSearch?.();
-  }, [activeTab]);
-
-  const executeTerminalSearch = useCallback((dir = 'next') => {
-    if (!terminalSearchQuery.trim()) return;
-    const key = activeTab?.sessionId || activeTab?.id;
-    const api = window.terminalSessions?.[key];
-    if (!api) return;
-    const matched = dir === 'previous'
-      ? api.searchPrevious?.(terminalSearchQuery, {}) || false
-      : api.searchNext?.(terminalSearchQuery, {}) || false;
-    setTerminalSearchStatus(matched ? t('searchMatchFound') : t('searchNoResults'));
-  }, [activeTab, terminalSearchQuery, t]);
+  const {
+    isTerminalSearchOpen, terminalSearchQuery, setTerminalSearchQuery, terminalSearchStatus,
+    terminalSearchInputRef, openTerminalSearch, closeTerminalSearch, executeTerminalSearch,
+  } = useTerminalSearch({ activeTab, t, focusActiveTerminal });
 
   // editor resize
   const onEditorResizeStart = (e) => {
@@ -1398,18 +1376,6 @@ function App() {
     window.addEventListener('terminal:open-search', onSearch);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('terminal:open-search', onSearch); };
   }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane, tabs]);  // splitActivePane 은 deps 비어 있어 stable
-
-  useEffect(() => { setTerminalSearchStatus(''); }, [terminalSearchQuery]);
-
-  useEffect(() => {
-    if (!isTerminalSearchOpen) return;
-    const onKey = (e) => {
-      if (e.key === 'Escape') { e.preventDefault(); closeTerminalSearch(); focusActiveTerminal(); }
-      if (e.key === 'Enter') { e.preventDefault(); executeTerminalSearch(e.shiftKey ? 'previous' : 'next'); }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [isTerminalSearchOpen, closeTerminalSearch, focusActiveTerminal, executeTerminalSearch]);
 
   // 워크스페이스 파일 인덱스 — 한 번 받아서 메모리 캐시 (TTL 60s).
   // ufuzzy 로 클라이언트 매칭 → 키 입력 즉시 결과 (서버 왕복 0).
