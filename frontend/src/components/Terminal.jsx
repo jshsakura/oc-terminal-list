@@ -100,6 +100,12 @@ const MAX_PENDING_WRITE_BYTES = 8 * 1024 * 1024;
 // 탭이 비활성 된 뒤 이 시간이 지나면 WebGL 컨텍스트를 반납한다. 탭을 빠르게 휙휙
 // 넘길 때 컨텍스트를 만들었다 부쉈다 churn 하지 않게 짧은 유예를 둔다.
 const WEBGL_DETACH_GRACE_MS = 8000;
+// WebGL 킬 스위치 — 데스크탑 포그라운드 탭을 밤새 idle 로 켜두면 브라우저 "째로" 멈추는
+// 문제 조사 중. JS 힙 OOM 은 탭 하나만 죽이지만(Aw,Snap), 브라우저 전체 freeze 는 모든 탭이
+// 공유하는 GPU 프로세스가 죽을 때의 증상이다. cursorBlink 가 출력 없이도 GPU 렌더 루프를
+// 계속 돌려 장시간 누적 시 GPU 프로세스 OOM 을 의심. true 인 동안은 저장된 설정과 무관하게
+// DOM 렌더러만 사용(GPU 프로세스 미사용) — freeze 가 멈추면 WebGL 확정. 원인 규명 후 해제.
+const WEBGL_KILL_SWITCH = true;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
@@ -865,7 +871,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
     // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
     // 명시적으로 false 를 저장한 사용자(특정 GPU 이슈 회피용)는 그대로 OFF.
-    const wantWebgl = settings?.useWebgl !== false;
+    const wantWebgl = !WEBGL_KILL_SWITCH && settings?.useWebgl !== false;
     wantWebglRef.current = wantWebgl;
     // WebGL 컨텍스트는 활성 탭의 pane 에만 둔다(컨텍스트 고갈 → 브라우저 크래시 방지).
     // attach/detach 를 isActive effect 에서 호출할 수 있게 ref 로 노출.
