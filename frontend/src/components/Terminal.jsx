@@ -100,12 +100,12 @@ const MAX_PENDING_WRITE_BYTES = 8 * 1024 * 1024;
 // 탭이 비활성 된 뒤 이 시간이 지나면 WebGL 컨텍스트를 반납한다. 탭을 빠르게 휙휙
 // 넘길 때 컨텍스트를 만들었다 부쉈다 churn 하지 않게 짧은 유예를 둔다.
 const WEBGL_DETACH_GRACE_MS = 8000;
-// WebGL 킬 스위치 — 데스크탑 포그라운드 탭을 밤새 idle 로 켜두면 브라우저 "째로" 멈추는
-// 문제 조사 중. JS 힙 OOM 은 탭 하나만 죽이지만(Aw,Snap), 브라우저 전체 freeze 는 모든 탭이
-// 공유하는 GPU 프로세스가 죽을 때의 증상이다. cursorBlink 가 출력 없이도 GPU 렌더 루프를
-// 계속 돌려 장시간 누적 시 GPU 프로세스 OOM 을 의심. true 인 동안은 저장된 설정과 무관하게
-// DOM 렌더러만 사용(GPU 프로세스 미사용) — freeze 가 멈추면 WebGL 확정. 원인 규명 후 해제.
-const WEBGL_KILL_SWITCH = true;
+// 활성·가시 탭이라도 데이터 활동(출력/입력)이 이 시간 동안 없으면 WebGL 컨텍스트를 반납한다.
+// cursorBlink 등으로 idle 터미널이 출력 없이도 GPU 렌더 루프를 계속 돌려, 데스크탑 포그라운드
+// 탭을 밤새 켜두면 GPU 프로세스가 누적 OOM → 브라우저 "째로" 멈추는 문제를 막는다(JS 힙 OOM 은
+// 탭만 죽이지만 GPU 프로세스 사망은 브라우저 전체 freeze). 출력/입력/포커스가 오면 즉시 재부착.
+// 3분 — 잠깐의 사고 휴지에는 churn 없고, 밤샘 idle 은 수 분 내 GPU 를 0 으로 떨군다.
+const WEBGL_IDLE_RELEASE_MS = 3 * 60_000;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
 const CONNECT_OPEN_TIMEOUT_MS = 12000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
@@ -239,6 +239,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const attachWebglRef = useRef(null);
   const detachWebglRef = useRef(null);
   const webglDetachTimerRef = useRef(null);
+  // idle(데이터 활동 없음) 시 WebGL 컨텍스트를 반납하는 카운트다운 타이머 + 활동 알림 함수.
+  const webglIdleTimerRef = useRef(null);
+  const noteWebglActivityRef = useRef(null);
   // 비활성 탭에서 누적된 WS 출력을 활성 복귀 시 한 번에 flush 하기 위한 ref.
   const flushBufferedOutputRef = useRef(null);
   // 비활성 grace-close 타이머 + close 가 inactivity 때문이었는지 표시.
@@ -871,7 +874,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
     // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
     // 명시적으로 false 를 저장한 사용자(특정 GPU 이슈 회피용)는 그대로 OFF.
-    const wantWebgl = !WEBGL_KILL_SWITCH && settings?.useWebgl !== false;
+    const wantWebgl = settings?.useWebgl !== false;
     wantWebglRef.current = wantWebgl;
     // WebGL 컨텍스트는 활성 탭의 pane 에만 둔다(컨텍스트 고갈 → 브라우저 크래시 방지).
     // attach/detach 를 isActive effect 에서 호출할 수 있게 ref 로 노출.
@@ -904,8 +907,29 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     };
     attachWebglRef.current = attachWebgl;
     detachWebglRef.current = detachWebgl;
+
+    // idle 시 GPU 컨텍스트 반납 — 활성·가시 상태라도 WEBGL_IDLE_RELEASE_MS 동안 데이터 활동이
+    // 없으면 detach. cursorBlink 로 도는 GPU 렌더 루프를 끊어 밤샘 idle GPU OOM(브라우저 freeze)
+    // 을 막는다. 반납 후엔 DOM 렌더러가 인계 — 정지 화면 + 깜빡임 커서는 GPU 비용 0 에 수렴.
+    const armWebglIdle = () => {
+      if (!wantWebglRef.current) return;
+      if (webglIdleTimerRef.current) clearTimeout(webglIdleTimerRef.current);
+      webglIdleTimerRef.current = setTimeout(() => {
+        webglIdleTimerRef.current = null;
+        detachWebgl();
+      }, WEBGL_IDLE_RELEASE_MS);
+    };
+    // 출력/입력/포커스 등 활동 신호 — WebGL 이 idle 로 반납돼 있었으면 즉시 재부착하고
+    // idle 카운트다운을 다시 무장. 비활성/숨김 탭은 기존 grace-detach 가 따로 처리하므로 제외.
+    const noteWebglActivity = () => {
+      if (!wantWebglRef.current || !isActiveRef.current || document.hidden) return;
+      if (!webglAddonRef.current) attachWebgl();
+      armWebglIdle();
+    };
+    noteWebglActivityRef.current = noteWebglActivity;
+
     // 초기 부착은 활성 탭일 때만. 비활성으로 마운트되면 활성 전환 시 effect 가 붙인다.
-    if (isActiveRef.current) attachWebgl();
+    if (isActiveRef.current) { attachWebgl(); armWebglIdle(); }
 
     const handleKeyDown = (e) => {
       // Ctrl+Shift+F → 검색 — 표준 터미널 컨벤션과 별개의 앱 단축키
@@ -1545,6 +1569,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       const now = Date.now();
       if (now - lastActivityDispatch < 100) return;
       lastActivityDispatch = now;
+      // 출력 = 활동 → idle 로 반납됐던 WebGL 재부착 + idle 카운트다운 리셋.
+      noteWebglActivityRef.current?.();
       try {
         window.dispatchEvent(new CustomEvent('iterm:activity', {
           detail: { paneId, tabId, sessionId, hostId, ts: now },
@@ -1894,6 +1920,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     probeLivenessRef.current = probeLiveness;
 
     term.onData((data) => {
+      // 입력 = 활동 → idle 로 반납됐던 WebGL 재부착 + idle 카운트다운 리셋(타이핑 즉시 또렷하게).
+      noteWebglActivityRef.current?.();
       if (isTerminalAutoResponse(data)) {
         if (localStorage.getItem('debug_terminal') === '1') {
           console.debug('[xterm] dropped terminal auto-response from input stream', JSON.stringify(data));
@@ -2020,6 +2048,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       connectRef.current = null;
       runPreflightRef.current = null;
       wsBufferRef.current = [];
+      if (webglIdleTimerRef.current) { clearTimeout(webglIdleTimerRef.current); webglIdleTimerRef.current = null; }
+      noteWebglActivityRef.current = null;
       try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
       webglAddonRef.current = null;
       try { predictiveEchoRef.current?.dispose(); } catch { /* noop */ }
@@ -2277,6 +2307,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
   const focus = useCallback(() => {
     xtermRef.current?.focus();
+    // 포커스 복귀 = 활동 → 타이핑 전에 미리 WebGL 재부착해 재부착 repaint 를 사용자 눈에 안 띄게.
+    noteWebglActivityRef.current?.();
   }, []);
 
   const clear = useCallback(() => {
@@ -2329,10 +2361,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clearTimeout(webglDetachTimerRef.current);
         webglDetachTimerRef.current = null;
       }
-      attachWebglRef.current?.();
+      // 부착 + idle 카운트다운 시작(noteWebglActivity 가 둘 다 처리).
+      noteWebglActivityRef.current?.();
       return undefined;
     }
-    // 비활성 — 빠른 탭 전환 churn 방지를 위해 유예 후 반납.
+    // 비활성 — idle 반납 타이머는 멈추고, 빠른 탭 전환 churn 방지를 위해 유예 후 반납.
+    if (webglIdleTimerRef.current) {
+      clearTimeout(webglIdleTimerRef.current);
+      webglIdleTimerRef.current = null;
+    }
     if (webglDetachTimerRef.current) clearTimeout(webglDetachTimerRef.current);
     webglDetachTimerRef.current = setTimeout(() => {
       webglDetachTimerRef.current = null;
@@ -2514,10 +2551,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     };
   }, [sessionId, forceReconnect, t]);
 
-  // 과거에는 isActive 토글마다 WebglAddon 을 detach/reattach 해 비활성 GPU 비용을 줄였지만,
-  // 재부착 시 캔버스 재생성 + 버퍼 전체 repaint 가 탭 전환 때 가시 깜빡임을 만들었다.
-  // 이제는 마운트 시 1회 부착하고 라이프타임 동안 유지 — 비활성 탭은 어차피 deferred xterm.write 가
-  // 새 데이터를 안 흘리므로 paint 거의 일어나지 않음.
+  // WebGL 컨텍스트 수명 관리는 위 isActive effect(부착/유예반납) + noteWebglActivity(idle 반납·
+  // 활동 재부착)가 함께 처리한다. 빠른 탭 전환 churn 은 유예(WEBGL_DETACH_GRACE_MS)로, idle 반납
+  // repaint 는 활동(출력/입력/포커스) 시점에 묻혀 사용자 눈에 거의 안 띈다.
 
   // 전역 세션 관리자에 현재 활성 함수 등록
   useEffect(() => {
