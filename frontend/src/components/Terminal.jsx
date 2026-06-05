@@ -2308,6 +2308,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 화면이 다시 보이면 ping 으로 실제 생존을 확인하고 답이 없으면 close 해서 기존 재연결 경로를 태운다.
   useEffect(() => {
     let fitRaf = null;
+    let fitTrailing = null;
 
     const clearResumeProbe = () => {
       if (resumeProbeTimerRef.current) {
@@ -2323,6 +2324,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         flushBufferedOutputRef.current?.();
         fitNowRef.current?.('resume');
       });
+      // trailing fit — 복귀/재포커스 직후 한 프레임만으론 visualViewport·포커스 전환으로
+      // 레이아웃이 덜 안정돼 살짝 작게 측정→그 크기로 고정되는("쪼그라듦") 문제가 있다.
+      // 안정된 뒤 1회 더 fit 해 원래 크기로 복원한다(resize/global fit 의 trailing 패턴과 동일).
+      if (fitTrailing) clearTimeout(fitTrailing);
+      fitTrailing = setTimeout(() => {
+        fitTrailing = null;
+        fitNowRef.current?.('resume-trailing');
+      }, 180);
     };
 
     const handleResume = (reason = 'resume') => {
@@ -2410,6 +2419,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       window.removeEventListener('online', onOnline);
       clearResumeProbe();
       if (fitRaf) cancelAnimationFrame(fitRaf);
+      if (fitTrailing) clearTimeout(fitTrailing);
     };
   }, [sessionId, forceReconnect, t]);
 
