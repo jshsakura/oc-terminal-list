@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
-import uFuzzy from '@leeoniya/ufuzzy';
 import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare } from 'lucide-react';
 import useSettings from './hooks/useSettings';
 import useAppConfig from './hooks/useAppConfig';
@@ -9,6 +8,7 @@ import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
 import useViewport from './hooks/useViewport';
 import useTerminalSearch from './hooks/useTerminalSearch';
+import useFilePicker from './hooks/useFilePicker';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
@@ -1208,12 +1208,8 @@ function App() {
 
   // Terminal search — state/handlers 는 useTerminalSearch() 훅에서 (actions 섹션에서 구조분해).
 
-  // Command palette / file picker
+  // Command palette / file picker (파일 피커 state/logic 은 useFilePicker() 훅 — 아래 구조분해)
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-  const [isFilePickerOpen, setIsFilePickerOpen] = useState(false);
-  const [filePickerQuery, setFilePickerQuery] = useState('');
-  const [filePickerItems, setFilePickerItems] = useState([]);
-  const [isFilePickerLoading, setIsFilePickerLoading] = useState(false);
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
   const [commandText, setCommandText] = useState('');
@@ -1284,11 +1280,10 @@ function App() {
     if (activeFile === path) setActiveFile(next[next.length - 1] || null);
   };
 
-  const openFilePicker = useCallback(() => {
-    setFilePickerQuery('');
-    setFilePickerItems(openFiles.map((p) => ({ id: `recent:${p}`, path: p, label: p })));
-    setIsFilePickerOpen(true);
-  }, [openFiles]);
+  const {
+    isFilePickerOpen, setIsFilePickerOpen, filePickerQuery, setFilePickerQuery,
+    filePickerItems, isFilePickerLoading, openFilePicker,
+  } = useFilePicker({ openFiles });
 
   const {
     isTerminalSearchOpen, terminalSearchQuery, setTerminalSearchQuery, terminalSearchStatus,
@@ -1376,85 +1371,6 @@ function App() {
     window.addEventListener('terminal:open-search', onSearch);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('terminal:open-search', onSearch); };
   }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane, tabs]);  // splitActivePane 은 deps 비어 있어 stable
-
-  // 워크스페이스 파일 인덱스 — 한 번 받아서 메모리 캐시 (TTL 60s).
-  // ufuzzy 로 클라이언트 매칭 → 키 입력 즉시 결과 (서버 왕복 0).
-  const fileIndexRef = useRef({ files: [], ts: 0, truncated: false });
-  const ufuzzyRef = useRef(null);
-  if (!ufuzzyRef.current) {
-    ufuzzyRef.current = new uFuzzy({ intraMode: 1, intraIns: 1 });
-  }
-  const ensureFileIndex = useCallback(async (force = false) => {
-    const now = Date.now() / 1000;
-    if (!force && fileIndexRef.current.files.length && now - fileIndexRef.current.ts < 60) {
-      return fileIndexRef.current;
-    }
-    try {
-      const r = await fetch('/api/files/index', { headers: authHeaders() });
-      if (!r.ok) return fileIndexRef.current;
-      const data = await r.json();
-      fileIndexRef.current = { files: data.files || [], ts: now, truncated: !!data.truncated };
-    } catch { /* 오프라인 — 다음 호출에서 재시도 */ }
-    return fileIndexRef.current;
-  }, []);
-
-  // file picker search — ufuzzy 로 클라이언트 매칭.
-  // 큰 인덱스 (>10k) 에서도 sub-ms 수준이라 debounce 거의 불필요.
-  useEffect(() => {
-    if (!isFilePickerOpen) return;
-    const query = filePickerQuery.trim();
-    if (!query) {
-      setFilePickerItems(openFiles.map((p) => ({ id: `recent:${p}`, path: p, label: p })));
-      return;
-    }
-    let cancelled = false;
-    setIsFilePickerLoading(true);
-    (async () => {
-      const index = await ensureFileIndex();
-      if (cancelled) return;
-      const haystack = index.files;
-      if (!haystack.length) {
-        // 인덱스 비었으면 레거시 서버 검색으로 폴백 (대용량 워크스페이스 truncated 케이스 등)
-        try {
-          const res = await fetch(`/api/files/search?q=${encodeURIComponent(query)}&limit=200`, {
-            headers: authHeaders(),
-          });
-          const data = await res.json();
-          if (!cancelled) {
-            setFilePickerItems((data.items || []).map((item) => ({ id: `s:${item.path}`, path: item.path, label: item.path })));
-          }
-        } catch { /* noop */ }
-        if (!cancelled) setIsFilePickerLoading(false);
-        return;
-      }
-      const uf = ufuzzyRef.current;
-      const idxs = uf.filter(haystack, query);
-      if (!idxs || idxs.length === 0) {
-        if (!cancelled) {
-          setFilePickerItems([]);
-          setIsFilePickerLoading(false);
-        }
-        return;
-      }
-      const info = uf.info(idxs, haystack, query);
-      const order = uf.sort(info, haystack, query);
-      const limited = order.slice(0, 200);
-      const items = limited.map((oi) => {
-        const path = haystack[info.idx[oi]];
-        return { id: `s:${path}`, path, label: path };
-      });
-      if (!cancelled) {
-        setFilePickerItems(items);
-        setIsFilePickerLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isFilePickerOpen, filePickerQuery, openFiles, ensureFileIndex]);
-
-  // 파일 picker 가 열리는 즉시 인덱스 워밍업 (첫 입력 전에 받아두기)
-  useEffect(() => {
-    if (isFilePickerOpen) ensureFileIndex();
-  }, [isFilePickerOpen, ensureFileIndex]);
 
   // ── terminal key for session registry ─────────────────────────────────────
   // Terminal.jsx 는 `sessionId={pane.sessionId || pane.id}` 로 등록한다.
