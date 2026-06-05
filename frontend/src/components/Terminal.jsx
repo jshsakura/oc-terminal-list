@@ -84,6 +84,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const resizeTrailingTimeoutRef = useRef(null);
   const fitNowRef = useRef(null);
   const reconnectTimeoutRef = useRef(null);
+  // 장애가 길어질수록 자동 재연결 간격을 키우는 백오프 라운드 카운터(콘솔/터널 hammering 방지).
+  // OPEN 성공 또는 포커스/online 복귀 시 0 으로 리셋.
+  const outageRoundRef = useRef(0);
   const stableReconnectTimerRef = useRef(null);
   const heartbeatTimerRef = useRef(null);
   const livenessProbeTimerRef = useRef(null);
@@ -300,12 +303,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   }, []);
 
   // 연결 실패(인증 아님)로 재연결 버스트를 다 소진했을 때, 막다른 "셸 종료" 오버레이(markEnded)로
-  // 끝내지 않고 차분한 재연결 pill 만 유지한다. ended 가 아니므로 워치독(hasNotice && !ended)이
-  // 4s 주기로 계속 복구를 시도해, 터널/서버가 돌아오면 새로고침 없이 자동으로 다시 붙는다
-  // (mosh 식 인페이지 무한 복구). 예산을 리셋해 다음 버스트가 처음부터 다시 시도되게 한다.
+  // 끝내지 않고 차분한 재연결 pill 만 유지하며 mosh 식 인페이지 무한 복구를 이어간다.
+  // 핵심: attempts 를 0 으로 리셋하지 않는다 — 리셋하면 매번 1s 부터 빠른 버스트가 다시 돌아
+  // 콘솔·공유 터널을 도배(hammering)한다. 대신 outage 라운드마다 다음 재시도 간격을 키워
+  // (4→8→16→30s) 죽은 터널을 살살 두드린다. 초기 1회 버스트(짧은 블립 즉시 복구)는 그대로 두고,
+  // 그 뒤부터 백오프가 먹는다. reconnectTimeoutRef 로 직접 예약하므로 워치독은 끼어들지 않는다.
+  // 포커스/online 복귀(handleResume)는 outageRound·attempts 를 0 으로 리셋해 즉시 빠른 재시도.
   const keepReconnectingPill = useCallback((notice) => {
     endedRef.current = false;
-    reconnectAttemptsRef.current = 0;
     reconnectingSinceRef.current = 0;
     reconnectingRef.current = true;
     setEnded(false);
@@ -314,6 +319,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     setReconnecting(true);
     setIsReady(false);
     setConnectionNotice(notice || (t('networkReconnect') || 'Network connection changed. Reconnecting...'));
+    const round = (outageRoundRef.current += 1);
+    const delay = Math.min(30000, 2000 * Math.pow(2, Math.min(round, 4))); // 4s,8s,16s,30s cap
+    if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+    reconnectTimeoutRef.current = setTimeout(() => {
+      reconnectTimeoutRef.current = null;
+      connectRef.current?.({ create: false, autoRecover: true });
+    }, delay);
   }, [t]);
 
   const notifyStatus = useCallback(() => {
@@ -1260,6 +1272,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         reconnectingSinceRef.current = 0;
         ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
         setIsReady(true);
+        outageRoundRef.current = 0; // 연결 성공 — 백오프 라운드 리셋
         // 재연결 성공 — 오버레이 해제
         if (reconnectingRef.current) {
           reconnectingRef.current = false;
@@ -2356,9 +2369,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           || ws.readyState === WebSocket.CLOSING) {
         wasClosedForInactivityRef.current = false;
         intentionalCloseRef.current = false;
-        // 백오프를 base 로 리셋하고, 대기 중인 단일 재연결 타이머를 먼저 비운다 —
-        // 즉시 재연결과 예약된 재연결이 겹쳐 중복 핸드셰이크가 나가지 않게.
+        // 백오프를 base 로 리셋하고(포커스/online 복귀는 즉시 빠른 재시도), 대기 중인 단일
+        // 재연결 타이머를 먼저 비운다 — 즉시 재연결과 예약된 재연결이 겹쳐 중복 핸드셰이크가 나가지 않게.
         reconnectAttemptsRef.current = 0;
+        outageRoundRef.current = 0;
         if (reconnectTimeoutRef.current) {
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
