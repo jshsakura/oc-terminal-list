@@ -17,7 +17,7 @@ const walkSourceFiles = (dir, out = []) => {
       walkSourceFiles(filePath, out);
     } else if (
       SOURCE_EXT_RE.test(entry.name)
-      && !filePath.endsWith(`${path.sep}i18n${path.sep}locales.js`)
+      && !filePath.includes(`${path.sep}i18n${path.sep}locales${path.sep}`)
       && !filePath.endsWith(`${path.sep}hooks${path.sep}useTranslation.test.jsx`)
     ) {
       out.push(filePath);
