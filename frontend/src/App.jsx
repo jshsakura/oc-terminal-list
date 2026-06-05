@@ -10,6 +10,7 @@ import useViewport from './hooks/useViewport';
 import useTerminalSearch from './hooks/useTerminalSearch';
 import useFilePicker from './hooks/useFilePicker';
 import useEditorResize from './hooks/useEditorResize';
+import useEditorTabs from './hooks/useEditorTabs';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
@@ -21,7 +22,6 @@ import {
   swapLeaves,
 } from './utils/splitTree';
 import { appendPaneAsSplit } from './utils/tabPaneOpen';
-import { EDITOR_STATE_KEY, isEditorSupportedFile, readEditorState } from './utils/editorState';
 import {
   makePane, makLocalTab, makeFreshHostTmuxSessionName,
   usedThemeIdsFromTabs, resolveProfileTheme, makeHostTab, migrateTab,
@@ -1199,9 +1199,7 @@ function App() {
   }, []);
 
   // File editor
-  const restoredEditorState = useMemo(() => readEditorState(), []);
-  const [openFiles, setOpenFiles] = useState(restoredEditorState.openFiles);
-  const [activeFile, setActiveFile] = useState(restoredEditorState.activeFile);
+  const { openFiles, activeFile, handleFileOpen, handleFileClose } = useEditorTabs({ t, setNotification });
   const { editorHeight, isResizingEditor, onEditorResizeStart } = useEditorResize();
   const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);
   const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌
@@ -1214,16 +1212,6 @@ function App() {
   const [commandInputOpen, setCommandInputOpen] = useState(false);
   const [commandText, setCommandText] = useState('');
   const [screenDumpText, setScreenDumpText] = useState(null);
-
-  useEffect(() => {
-    const nextActiveFile = activeFile && openFiles.includes(activeFile)
-      ? activeFile
-      : (openFiles[0] || null);
-    try {
-      localStorage.setItem(EDITOR_STATE_KEY, JSON.stringify({ openFiles, activeFile: nextActiveFile }));
-    } catch { /* ignore storage quota/private mode */ }
-    if (nextActiveFile !== activeFile) setActiveFile(nextActiveFile);
-  }, [openFiles, activeFile]);
 
   // 활성 viewport 기준 effective settings — fontSize 를 PC/모바일 분리. 자식들
   // (PaneGrid, Terminal) 은 settings.fontSize 만 보면 자동으로 알맞은 값 적용.
@@ -1254,26 +1242,6 @@ function App() {
     if (activeTab?.sessionId) window.terminalSessions?.[activeTab.sessionId]?.focus?.();
     else if (activeTab?.id) window.terminalSessions?.[activeTab.id]?.focus?.();
   }, [activeTab]);
-
-  const handleFileOpen = (path, hostId = null) => {
-    if (!isEditorSupportedFile(path, hostId)) {
-      setNotification({
-        isOpen: true,
-        message: t('binaryFileNotSupported') || 'Binary file not supported in editor.',
-        type: 'info',
-      });
-      return;
-    }
-    const fileKey = hostId ? `remote:${hostId}:${path}` : path;
-    if (!openFiles.includes(fileKey)) setOpenFiles((prev) => [...prev, fileKey]);
-    setActiveFile(fileKey);
-  };
-
-  const handleFileClose = (path) => {
-    const next = openFiles.filter((f) => f !== path);
-    setOpenFiles(next);
-    if (activeFile === path) setActiveFile(next[next.length - 1] || null);
-  };
 
   const {
     isFilePickerOpen, setIsFilePickerOpen, filePickerQuery, setFilePickerQuery,
