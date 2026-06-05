@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { setupMonaco } from '../setupMonaco';
-import { File, X, Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, FileCode, FileText, Image as ImageIcon, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut } from 'lucide-react';
+import { Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut } from 'lucide-react';
 
 // 워커 환경 + loader 를 번들 monaco 로 고정. 이 모듈(=FileEditor 청크)이 로드되는 시점에 1회 실행되며,
 // 아래 <Editor> 가 mount 되어 loader.init() 하기 전에 끝나야 CDN 폴백 없이 셀프호스트 monaco 를 쓴다.
@@ -18,47 +18,10 @@ import ConfirmModal from './ConfirmModal';
 import useTranslation from '../hooks/useTranslation';
 import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
 import { authHeaders } from '../utils/auth';
+import { DIFF_VIEW_STATE_KEY, readDiffViewState, parseFileKey } from './fileEditor/fileEditorHelpers';
+import { styles } from './fileEditor/fileEditorStyles';
+import { FileEditorTabs } from './fileEditor/FileEditorTabs';
 
-const DIFF_VIEW_STATE_KEY = 'iterm:file-editor-diff-view:v1';
-
-const readDiffViewState = () => {
-  try {
-    const raw = localStorage.getItem(DIFF_VIEW_STATE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-};
-
-// 'remote:{hostId}:{absolutePath}' 형식의 파일 키를 파싱하거나 로컬 경로를 그대로 반환
-const parseFileKey = (key) => {
-  if (!key) return { path: null, hostId: null };
-  if (key.startsWith('remote:')) {
-    const rest = key.slice(7);
-    const idx = rest.indexOf(':');
-    if (idx < 0) return { path: rest, hostId: null };
-    return { hostId: rest.slice(0, idx), path: rest.slice(idx + 1) };
-  }
-  return { path: key, hostId: null };
-};
-
-const getFileIcon = (filename, color) => {
-  const ext = filename.split('.').pop().toLowerCase();
-  switch (ext) {
-    case 'js': case 'jsx': case 'ts': case 'tsx':
-    case 'py': case 'html': case 'css': case 'c': case 'cpp': case 'go': case 'rs':
-      return <FileCode size={14} color={color || '#89b4fa'} />;
-    case 'json': case 'md': case 'txt': case 'csv': case 'env':
-    case 'gitignore': case 'dockerignore':
-      return <FileText size={14} color={color || '#f9e2af'} />;
-    case 'png': case 'jpg': case 'jpeg': case 'gif': case 'svg': case 'ico': case 'webp':
-      return <ImageIcon size={14} color={color || '#a6e3a1'} />;
-    default:
-      return <File size={14} color={color || '#cdd6f4'} />;
-  }
-};
 
 const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, language = 'en', onResizeStart }) => {
   const { t } = useTranslation(language);
@@ -426,140 +389,15 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
       onMouseEnter={() => editorRef.current?.focus()}
     >
       {/* 탭 바 — 메인 TabBar 의 폴더탭 스타일과 동일 */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'stretch',
-        height: '32px',
-        minHeight: '32px',
-        maxHeight: '32px',
-        overflowX: 'auto',
-        scrollbarWidth: 'none',
-        msOverflowStyle: 'none',
-        background: editorSection.background,
-        borderBottom: `1px solid ${editorSection.borderColor}`,
-        gap: 0,
-      }}>
-        {openFiles.map((path) => {
-          const isActive = path === activeFile;
-          const { path: filePath } = parseFileKey(path);
-          const filename = (filePath || path).split('/').pop();
-          const fileHasChanges = fileStates[path]?.hasChanges;
-          const dotColor = theme.ui.accent || '#89b4fa';
-          const inactiveBg = `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`;
-          const activeBg = `color-mix(in srgb, ${theme.ui.bg} 86%, transparent)`;
-          const hoverBg = `color-mix(in srgb, ${theme.ui.bgTertiary || theme.ui.bgSecondary || theme.ui.bg} 84%, ${dotColor} 8%)`;
-
-          return (
-            <div
-              key={path}
-              onClick={() => onFileSelect(path)}
-              onAuxClick={(e) => {
-                if (e.button === 1) { e.preventDefault(); handleCloseClick(path); }
-              }}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '0 8px 0 10px',
-                height: 'calc(100% + 1px)',
-                cursor: 'pointer',
-                background: isActive ? activeBg : inactiveBg,
-                color: isActive ? theme.ui.text : theme.ui.textSecondary,
-                fontWeight: isActive ? 600 : 400,
-                border: `1px solid ${editorSection.borderColor}`,
-                borderTop: isActive ? `2px solid ${dotColor}` : `1px solid ${editorSection.borderColor}`,
-                borderBottom: `1px solid ${isActive ? activeBg : inactiveBg}`,
-                borderRadius: 0,
-                minWidth: '80px',
-                maxWidth: '180px',
-                flexShrink: 0,
-                flex: '1 1 auto',
-                marginLeft: '-1px',
-                boxSizing: 'border-box',
-                userSelect: 'none',
-                transform: 'translateY(0)',
-                boxShadow: isActive ? `inset 0 1px 0 ${dotColor}33` : 'none',
-                transition: 'background 150ms, color 150ms, border-color 150ms, box-shadow 150ms, transform 150ms',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = hoverBg;
-                e.currentTarget.style.color = theme.ui.text;
-                e.currentTarget.style.borderColor = dotColor;
-                e.currentTarget.style.boxShadow = `inset 0 1px 0 ${dotColor}44, 0 0 0 1px ${dotColor}18`;
-                e.currentTarget.style.transform = 'translateY(-1px)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = isActive ? activeBg : inactiveBg;
-                e.currentTarget.style.color = isActive ? theme.ui.text : theme.ui.textSecondary;
-                e.currentTarget.style.borderColor = editorSection.borderColor;
-                e.currentTarget.style.boxShadow = isActive ? `inset 0 1px 0 ${dotColor}33` : 'none';
-                e.currentTarget.style.transform = 'translateY(0)';
-              }}
-            >
-              <span style={{
-                position: 'relative',
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '16px',
-                height: '16px',
-                flexShrink: 0,
-                color: isActive ? theme.ui.text : dotColor,
-                opacity: isActive ? 1 : 0.75,
-              }}>
-                {getFileIcon(filename, isActive ? theme.ui.text : dotColor)}
-                {fileHasChanges && (
-                  <span style={{
-                    position: 'absolute',
-                    top: '-3px',
-                    right: '-3px',
-                    width: '6px',
-                    height: '6px',
-                    borderRadius: '50%',
-                    background: dotColor,
-                    boxShadow: `0 0 0 1.5px ${activeBg}`,
-                    pointerEvents: 'none',
-                  }} />
-                )}
-              </span>
-              <span style={{
-                fontSize: '11px',
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                flex: 1,
-                minWidth: 0,
-                fontFamily: theme.ui.fontFamily,
-              }}>
-                {filename}
-              </span>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleCloseClick(path); }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.opacity = '1'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.opacity = isActive ? '0.65' : '0.45'; }}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '14px',
-                  height: '14px',
-                  flexShrink: 0,
-                  background: 'transparent',
-                  border: 'none',
-                  borderRadius: '3px',
-                  padding: 0,
-                  cursor: 'pointer',
-                  color: theme.ui.textSecondary,
-                  opacity: isActive ? 0.65 : 0.45,
-                  transition: 'opacity 120ms, background 120ms',
-                }}
-              >
-                <X size={9} strokeWidth={2} />
-              </button>
-            </div>
-          );
-        })}
-      </div>
+      <FileEditorTabs
+        openFiles={openFiles}
+        activeFile={activeFile}
+        fileStates={fileStates}
+        theme={theme}
+        editorSection={editorSection}
+        onFileSelect={onFileSelect}
+        onCloseClick={handleCloseClick}
+      />
 
       {/* 액션바 (저장, 새로고침 등) */}
       <div style={{ 
@@ -886,44 +724,5 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   );
 };
 
-const styles = {
-  container: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    zIndex: 100,
-  },
-  content: {
-    flex: 1,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  message: {
-    position: 'absolute',
-    inset: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '14px',
-  },
-  fsBtnStyle: (theme) => ({
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '20px',
-    height: '20px',
-    background: 'transparent',
-    border: 'none',
-    borderRadius: '3px',
-    cursor: 'pointer',
-    color: theme.ui.textSecondary,
-    padding: 0,
-  }),
-};
 
 export default FileEditor;
