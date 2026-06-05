@@ -10,18 +10,21 @@ import asyncio
 import io
 import json
 import logging
+import mimetypes
 import os
 import re
 import secrets as secrets_mod
 import shlex
 import shutil
 import signal as signal_mod
+import stat
 import time
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from urllib.parse import quote
 
+import anyio
 from dotenv import load_dotenv
 from fastapi import (
     Cookie,
@@ -42,6 +45,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
+from starlette.datastructures import Headers
 from starlette.types import Receive, Scope, Send
 
 from _deps import (
@@ -165,7 +169,33 @@ def _client_identity_payload(kind: str, session_key: str, client_id: str | None,
     }
 
 
+# Vite precompress 플러그인이 만들어 둔 사전압축 변형의 확장자/인코딩 매핑.
+# 클라가 받아주면 .br > .gz 순으로 그대로 서빙 — 매 요청 재압축 CPU 0, brotli 는 더 작음.
+_PRECOMPRESS_VARIANTS = ((".br", "br"), (".gz", "gzip"))
+_PRECOMPRESS_EXTS = (".js", ".mjs", ".css", ".svg", ".json", ".wasm", ".map")
+
+
 class CachedStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope: Scope) -> Response:
+        # 압축 가능한 텍스트 자산이고 클라가 받아주면 사전압축본을 서빙.
+        if scope["method"] in ("GET", "HEAD") and path.lower().endswith(_PRECOMPRESS_EXTS):
+            accept = Headers(scope=scope).get("accept-encoding", "")
+            for suffix, encoding in _PRECOMPRESS_VARIANTS:
+                if encoding not in accept:
+                    continue
+                full_path, stat_result = await anyio.to_thread.run_sync(
+                    self.lookup_path, path + suffix
+                )
+                if stat_result and stat.S_ISREG(stat_result.st_mode):
+                    media_type = mimetypes.guess_type(path)[0] or "application/octet-stream"
+                    response = FileResponse(
+                        full_path, stat_result=stat_result, media_type=media_type
+                    )
+                    response.headers["Content-Encoding"] = encoding
+                    response.headers["Vary"] = "Accept-Encoding"
+                    return response
+        return await super().get_response(path, scope)
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         async def send_wrapper(message):
             if message["type"] == "http.response.start":

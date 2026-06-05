@@ -18,9 +18,10 @@ DEFAULT_DB_PATH = os.getenv("DB_PATH") or os.path.join(
     "iterminallist.db",
 )
 
-# 풀 크기 — WAL 은 동시 read 가능 / write 는 직렬화. 5 면 잦은 폴링 + 가끔 write 에
-# 충분하고 더 키워도 의미 없음. 환경변수로 튠 가능.
-_POOL_SIZE = int(os.getenv("SQLITE_POOL_SIZE", "5"))
+# 풀 크기 — WAL 은 동시 read 가능 / write 는 직렬화. 풀이 가득 차면 _get_connection 이
+# 다음 반납까지 블로킹하므로(이벤트 루프 stall), 동시 폴링/탭복원이 겹치는 순간을 위해
+# 10 으로 헤드룸을 둔다. SQLite 커넥션은 가벼워 메모리 부담 미미. 환경변수로 튠 가능.
+_POOL_SIZE = int(os.getenv("SQLITE_POOL_SIZE", "10"))
 
 
 class SQLiteStorage:
