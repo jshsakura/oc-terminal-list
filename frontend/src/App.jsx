@@ -9,6 +9,7 @@ import useSshKeys from './hooks/useSshKeys';
 import useViewport from './hooks/useViewport';
 import useTerminalSearch from './hooks/useTerminalSearch';
 import useFilePicker from './hooks/useFilePicker';
+import useEditorResize from './hooks/useEditorResize';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
@@ -1201,10 +1202,9 @@ function App() {
   const restoredEditorState = useMemo(() => readEditorState(), []);
   const [openFiles, setOpenFiles] = useState(restoredEditorState.openFiles);
   const [activeFile, setActiveFile] = useState(restoredEditorState.activeFile);
-  const [editorHeight, setEditorHeight] = useState(() => parseInt(localStorage.getItem('editor_height') || '400'));
+  const { editorHeight, isResizingEditor, onEditorResizeStart } = useEditorResize();
   const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);
   const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌
-  const [isResizingEditor, setIsResizingEditor] = useState(false);
 
   // Terminal search — state/handlers 는 useTerminalSearch() 훅에서 (actions 섹션에서 구조분해).
 
@@ -1235,11 +1235,6 @@ function App() {
       : (settings.fontSize ?? 12);
     return { ...settings, fontSize: size };
   }, [settings, isMobile]);
-
-  useEffect(() => {
-    const id = setTimeout(() => localStorage.setItem('editor_height', editorHeight.toString()), 150);
-    return () => clearTimeout(id);
-  }, [editorHeight]);
 
   // ── actions ───────────────────────────────────────────────────────────────
   const handleLogoutRequest = () => setConfirmModal({
@@ -1291,38 +1286,6 @@ function App() {
   } = useTerminalSearch({ activeTab, t, focusActiveTerminal });
 
   // editor resize
-  const onEditorResizeStart = (e) => {
-    if (e.preventDefault && e.cancelable !== false) e.preventDefault();
-    setIsResizingEditor(true);
-    const startY = e.clientY || e.touches?.[0]?.clientY;
-    const startH = editorHeight;
-    let resizeRaf = 0;
-    let nextHeight = startH;
-    const onMove = (me) => {
-      const y = me.clientY || me.touches?.[0]?.clientY;
-      nextHeight = Math.max(150, Math.min(window.innerHeight - 150, startH + y - startY));
-      if (resizeRaf) return;
-      resizeRaf = requestAnimationFrame(() => {
-        resizeRaf = 0;
-        setEditorHeight(nextHeight);
-      });
-    };
-    const onUp = () => {
-      setIsResizingEditor(false);
-      if (resizeRaf) cancelAnimationFrame(resizeRaf);
-      setEditorHeight(nextHeight);
-      localStorage.setItem('editor_height', nextHeight.toString());
-      document.removeEventListener('mousemove', onMove);
-      document.removeEventListener('mouseup', onUp);
-      document.removeEventListener('touchmove', onMove);
-      document.removeEventListener('touchend', onUp);
-    };
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup', onUp);
-    document.addEventListener('touchmove', onMove, { passive: true });
-    document.addEventListener('touchend', onUp);
-  };
-
   // ── keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const isForm = (el) => {
