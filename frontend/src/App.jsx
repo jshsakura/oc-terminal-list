@@ -38,18 +38,13 @@ import PaneGrid from './components/PaneGrid';
 import PaneErrorBoundary from './components/PaneErrorBoundary';
 import LazyErrorBoundary from './components/LazyErrorBoundary';
 import LoadingScreen from './components/layout/LoadingScreen';
-import Settings from './components/Settings';
 import ScreenDumpModal from './components/ScreenDumpModal';
+import AppModals from './components/AppModals';
 
 const Terminal        = lazy(() => import('./components/Terminal'));
 const FileEditor      = lazy(() => import('./components/FileEditor'));
-const ConfirmModal    = lazy(() => import('./components/ConfirmModal'));
-const NotificationModal = lazy(() => import('./components/NotificationModal'));
 const InitialSetup    = lazy(() => import('./components/InitialSetup'));
 const Login           = lazy(() => import('./components/Login'));
-const CommandPalette  = lazy(() => import('./components/CommandPalette'));
-const HostEditor      = lazy(() => import('./components/HostEditor'));
-const SshKeyManager   = lazy(() => import('./components/SshKeyManager'));
 const MobileToolbar   = lazy(() => import('./components/MobileToolbar'));
 const CommandInput    = lazy(() => import('./components/CommandInput'));
 
@@ -1698,145 +1693,26 @@ function App() {
         t={t}
       />
 
-      {/* ── modals ── */}
-      <LazyErrorBoundary><Suspense fallback={null}>
-        {isSettingsOpen && (
-          <Settings
-            isOpen={isSettingsOpen}
-            onClose={() => setIsSettingsOpen(false)}
-            settings={settings}
-            onSave={updateSettings}
-            username={username}
-            hosts={hosts}
-            sshKeys={sshKeys}
-            refreshHosts={refreshHosts}
-            onAddHost={() => { setHostEditorState({ isOpen: true, host: null, reopenSettings: true }); }}
-            onEditHost={(h) => { setHostEditorState({ isOpen: true, host: h, reopenSettings: true }); }}
-            onEditLocal={() => { setLocalEditorOpen(true); }}
-            onAddKey={() => { setEditingKey(null); setKeyManagerOpen(true); }}
-            onEditKey={(k) => { setEditingKey(k); setKeyManagerOpen(true); }}
-            onLogout={() => { setIsSettingsOpen(false); logout?.(); }}
-            t={t}
-            globalThemeId={settings.theme}
-            language={settings.language}
-          />
-        )}
-        {keyManagerOpen && (
-          <SshKeyManager
-            isOpen={keyManagerOpen}
-            onClose={() => { setKeyManagerOpen(false); setEditingKey(null); }}
-            keys={sshKeys}
-            onCreate={createKey}
-            onUpdate={updateKey}
-            onDelete={deleteKey}
-            initialEditKey={editingKey}
-            t={t}
-            language={settings.language}
-          />
-        )}
-        {hostEditorState.isOpen && (
-          <HostEditor
-            isOpen={hostEditorState.isOpen}
-            host={hostEditorState.host}
-            sshKeys={sshKeys}
-            zIndex={hostEditorState.reopenSettings ? 200002 : undefined}
-            onSave={async (data) => {
-              if (hostEditorState.host) await updateHost(hostEditorState.host.id, data);
-              else await createHost(data);
-              await refreshHosts();
-              setHostEditorState({ isOpen: false, host: null });
-            }}
-            onDelete={async () => {
-              const target = hostEditorState.host;
-              if (!target) return;
-              await deleteHost(target.id);
-              await refreshHosts();
-              setHostEditorState({ isOpen: false, host: null });
-            }}
-            onKillTmuxServer={async (h) => {
-              await fetch(`/api/hosts/${h.id}/kill-tmux?force=true`, {
-                method: 'POST', headers: authHeaders(),
-              });
-              setNotification({ isOpen: true, message: t('killTmuxServerDone') || 'Remote tmux server killed.' });
-            }}
-            onClose={() => {
-              setHostEditorState({ isOpen: false, host: null });
-            }}
-            t={t}
-            language={settings.language}
-          />
-        )}
-        {confirmModal.isOpen && (
-          <ConfirmModal
-            isOpen={confirmModal.isOpen}
-            title={confirmModal.title}
-            titleIcon={confirmModal.titleIcon}
-            message={confirmModal.message}
-            confirmText={confirmModal.confirmText}
-            cancelText={confirmModal.cancelText}
-            tertiaryText={confirmModal.tertiaryText}
-            danger={!!confirmModal.danger}
-            onConfirm={handleConfirmModal}
-            onCancel={() => setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null })}
-            onTertiary={confirmModal.onTertiary
-              ? async () => {
-                  await confirmModal.onTertiary?.();
-                  setConfirmModal({ isOpen: false, title: '', message: '', onConfirm: null });
-                }
-              : undefined}
-            language={settings.language}
-          />
-        )}
-        {notification.isOpen && (
-          <NotificationModal
-            isOpen={notification.isOpen}
-            message={notification.message}
-            onClose={() => setNotification({ isOpen: false, message: '' })}
-            t={t}
-          />
-        )}
-        {isCommandPaletteOpen && (
-          <CommandPalette
-            isOpen={isCommandPaletteOpen}
-            items={[
-              { id: 'new-tab', label: t('newSession') || 'New tab', action: () => { setIsCommandPaletteOpen(false); handleAddTab(); } },
-              { id: 'settings', label: t('settings'), action: () => { setIsCommandPaletteOpen(false); setIsSettingsOpen(true); } },
-              { id: 'find', label: t('findInTerminal'), action: () => { setIsCommandPaletteOpen(false); openTerminalSearch(); } },
-              { id: 'files', label: t('quickOpenFiles'), action: () => { setIsCommandPaletteOpen(false); openFilePicker(); } },
-            ]}
-            onSelect={(id) => {
-              const item = [
-                { id: 'new-tab', action: () => handleAddTab() },
-                { id: 'settings', action: () => setIsSettingsOpen(true) },
-                { id: 'find', action: () => openTerminalSearch() },
-                { id: 'files', action: () => openFilePicker() },
-              ].find((i) => i.id === id);
-              setIsCommandPaletteOpen(false);
-              item?.action();
-            }}
-            onClose={() => setIsCommandPaletteOpen(false)}
-            t={t}
-            language={settings.language}
-          />
-        )}
-        {isFilePickerOpen && (
-          <CommandPalette
-            isOpen={isFilePickerOpen}
-            items={filePickerItems.map((item) => ({ id: item.id, label: item.label }))}
-            query={filePickerQuery}
-            onQueryChange={setFilePickerQuery}
-            isLoading={isFilePickerLoading}
-            onSelect={(id) => {
-              const item = filePickerItems.find((i) => i.id === id);
-              if (item) handleFileOpen(item.path);
-              setIsFilePickerOpen(false);
-            }}
-            onClose={() => setIsFilePickerOpen(false)}
-            t={t}
-            language={settings.language}
-          />
-        )}
-      </Suspense></LazyErrorBoundary>
+      {/* ── modals ── (Settings/SSH키/호스트편집/확인/알림/커맨드팔레트/파일피커) → AppModals */}
+      <AppModals
+        isSettingsOpen={isSettingsOpen} setIsSettingsOpen={setIsSettingsOpen}
+        settings={settings} updateSettings={updateSettings} username={username}
+        hosts={hosts} sshKeys={sshKeys} refreshHosts={refreshHosts}
+        setHostEditorState={setHostEditorState} setLocalEditorOpen={setLocalEditorOpen}
+        setEditingKey={setEditingKey} setKeyManagerOpen={setKeyManagerOpen} logout={logout}
+        keyManagerOpen={keyManagerOpen} editingKey={editingKey}
+        createKey={createKey} updateKey={updateKey} deleteKey={deleteKey}
+        hostEditorState={hostEditorState} createHost={createHost} updateHost={updateHost}
+        deleteHost={deleteHost} setNotification={setNotification}
+        confirmModal={confirmModal} handleConfirmModal={handleConfirmModal} setConfirmModal={setConfirmModal}
+        notification={notification}
+        isCommandPaletteOpen={isCommandPaletteOpen} setIsCommandPaletteOpen={setIsCommandPaletteOpen}
+        handleAddTab={handleAddTab} openTerminalSearch={openTerminalSearch} openFilePicker={openFilePicker}
+        isFilePickerOpen={isFilePickerOpen} setIsFilePickerOpen={setIsFilePickerOpen}
+        filePickerItems={filePickerItems} filePickerQuery={filePickerQuery} setFilePickerQuery={setFilePickerQuery}
+        isFilePickerLoading={isFilePickerLoading} handleFileOpen={handleFileOpen}
+        t={t}
+      />
     </div>
   );
 }
