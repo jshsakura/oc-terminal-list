@@ -149,13 +149,26 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
   // 다른 기기 (PC↔모바일) tab-state 변경을 SSE 로 수신 — 폴링 제거.
   // 서버가 PUT /api/tab-state 저장 직후 EventSource 로 updatedAt 을 push.
   // EventSource 는 커스텀 헤더 불가 → 일회용 /api/sse-ticket 으로 인증.
-  // 연결 끊기면 지수 백오프(최대 30s)로 자동 재연결.
+  //
+  // 불변식 (CRITICAL): 디바이스당 EventSource 1개 + 대기 타이머 1개만 존재.
+  // 과거 버그 — connect() 가 async 라 중복 호출/onerror 다중 발화 시 재연결 체인이
+  // 병렬로 갈라져 기하급수 증식 → sse-ticket 초당 수십 회 → Cloudflare 공유 터널
+  // 포화 → 터미널 WS 까지 flapping. 아래 세 가드로 단일 연결을 강제한다:
+  //   1) connecting / es 가드 — connect() 가 절대 겹쳐 실행되지 않음
+  //   2) scheduleReconnect() 멱등 — 타이머가 이미 있으면 새로 안 검 (onerror 다중 발화 흡수)
+  //   3) 백오프는 "충분히 오래 살아남은" 연결에서만 리셋 — 터널이 SSE 를 즉시 끊으면
+  //      지수 백오프(최대 30s)로 수렴해 폭주를 차단
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
     let es = null;
     let reconnectTimer = null;
     let reconnectDelay = 2000;
+    let connecting = false;
+    let openedAt = 0;
+
+    const STABLE_MS = 60000;   // 이만큼 살아남은 연결만 백오프 리셋
+    const MAX_DELAY = 30000;
 
     const applyIfChanged = async (updatedAt) => {
       if (!updatedAt || updatedAt === lastAppliedTabVersionRef.current) return;
@@ -166,50 +179,67 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
         const serverState = await r2.json();
         if (cancelled || localDirtyRef.current) return;
         await applyServerTabState(serverState);
-        reconnectDelay = 2000;
       } catch { /* offline noop */ }
     };
 
+    const scheduleReconnect = () => {
+      if (cancelled || reconnectTimer) return;   // 멱등: 대기 중이면 중복 예약 금지
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        reconnectDelay = Math.min(reconnectDelay * 1.5, MAX_DELAY);
+        connect();
+      }, reconnectDelay);
+    };
+
     const connect = async () => {
-      if (cancelled) return;
+      if (cancelled || connecting || es) return;   // 단일 연결 강제
+      connecting = true;
       try {
         const res = await fetch('/api/sse-ticket', { method: 'POST', headers: authHeaders() });
-        if (!res.ok || cancelled) return;
+        if (!res.ok || cancelled) { connecting = false; if (!cancelled) scheduleReconnect(); return; }
         const { ticket } = await res.json();
-        if (cancelled) return;
+        if (cancelled) { connecting = false; return; }
 
-        es = new EventSource(`/api/tab-state/events?ticket=${encodeURIComponent(ticket)}`);
+        const source = new EventSource(`/api/tab-state/events?ticket=${encodeURIComponent(ticket)}`);
+        es = source;
+        connecting = false;
 
-        es.onmessage = (e) => {
+        source.onopen = () => { openedAt = Date.now(); };
+
+        source.onmessage = (e) => {
           if (cancelled) return;
           try { applyIfChanged(JSON.parse(e.data).updatedAt); } catch { /* noop */ }
         };
 
-        es.onerror = () => {
-          if (cancelled) return;
-          es?.close();
+        source.onerror = () => {
+          if (es !== source) return;   // 이미 교체/정리된 연결의 늦은 onerror 무시
+          const lived = openedAt ? Date.now() - openedAt : 0;
+          source.close();
           es = null;
-          reconnectTimer = setTimeout(() => {
-            reconnectDelay = Math.min(reconnectDelay * 1.5, 30000);
-            connect();
-          }, reconnectDelay);
+          openedAt = 0;
+          if (lived > STABLE_MS) reconnectDelay = 2000;   // 안정 연결이었으면만 리셋
+          if (!cancelled) scheduleReconnect();
         };
       } catch {
-        if (!cancelled) reconnectTimer = setTimeout(connect, reconnectDelay);
+        connecting = false;
+        if (!cancelled) scheduleReconnect();
       }
     };
 
     connect();
 
-    // 포커스 복귀 시 끊긴 연결 즉시 재시도
-    const onVisible = () => { if (!document.hidden && !es) connect(); };
+    // 포커스 복귀 시 — 완전히 idle 상태(연결 없음·진행 중 아님·대기 타이머 없음)일 때만 재시도
+    const onVisible = () => {
+      if (!document.hidden && !es && !connecting && !reconnectTimer) connect();
+    };
     document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('focus', onVisible);
 
     return () => {
       cancelled = true;
       es?.close();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
+      es = null;
+      if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
     };
