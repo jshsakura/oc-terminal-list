@@ -70,6 +70,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const attachWebglRef = useRef(null);
   const detachWebglRef = useRef(null);
   const webglDetachTimerRef = useRef(null);
+  // dispose() 만으로는 GPU 컨텍스트가 즉시 안 풀린다(브라우저 지연 회수). 분할 pane 이
+  // 많고 attach/detach churn 이 누적되면 회수 대기 컨텍스트가 ~16 한도를 넘겨 "Too many
+  // active WebGL contexts" → 컨텍스트 손실 캐스케이드 → 탭 freeze. detach 시 이 컨텍스트를
+  // 잡아 WEBGL_lose_context 로 명시 반납해 GPU 자원을 즉시 회수한다.
+  const webglGlRef = useRef(null);
   // idle(데이터 활동 없음) 시 WebGL 컨텍스트를 반납하는 카운트다운 타이머 + 활동 알림 함수.
   const webglIdleTimerRef = useRef(null);
   const noteWebglActivityRef = useRef(null);
@@ -738,6 +743,19 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     wantWebglRef.current = wantWebgl;
     // WebGL 컨텍스트는 활성 탭의 pane 에만 둔다(컨텍스트 고갈 → 브라우저 크래시 방지).
     // attach/detach 를 isActive effect 에서 호출할 수 있게 ref 로 노출.
+    // 막 부착된 WebGL 캔버스의 컨텍스트를 DOM 에서 찾아 보관. getContext('webgl2') 는
+    // 이미 생성된 컨텍스트를 그대로 돌려주므로(같은 type) 새로 만들지 않는다. 텍스트/커서
+    // 캔버스는 '2d' 라 webgl2 요청에 null → 자연히 걸러진다.
+    const captureWebglContext = (tm) => {
+      const el = tm?.element;
+      if (!el) return null;
+      for (const c of el.querySelectorAll('canvas')) {
+        let gl = null;
+        try { gl = c.getContext('webgl2'); } catch { gl = null; }
+        if (gl) return gl;
+      }
+      return null;
+    };
     const attachWebgl = () => {
       if (!wantWebglRef.current || webglAddonRef.current) return;
       const tm = xtermRef.current;
@@ -748,13 +766,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           // GPU context 가 죽으면 더 못 그림 → dispose 후 자동으로 DOM 렌더러가 인계.
           try { webglAddonRef.current?.dispose(); } catch { /* 이미 정리됨 */ }
           webglAddonRef.current = null;
+          webglGlRef.current = null;
         });
         tm.loadAddon(webglAddon);
         webglAddonRef.current = webglAddon;
+        webglGlRef.current = captureWebglContext(tm);
       } catch (e) {
         // 초기화 실패 (WebGL 비활성 환경, iframe 정책 등) — 조용히 폴백.
         try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
         webglAddonRef.current = null;
+        webglGlRef.current = null;
         if (localStorage.getItem('debug_terminal') === '1') {
           console.warn('[xterm] WebGL init failed, using DOM renderer:', e);
         }
@@ -762,8 +783,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     };
     const detachWebgl = () => {
       if (!webglAddonRef.current) return;
+      // dispose() 를 먼저 — 애드온이 자신의 webglcontextlost 리스너를 제거하므로,
+      // 이어지는 loseContext() 가 onContextLoss 재진입을 일으키지 않는다.
       try { webglAddonRef.current.dispose(); } catch { /* noop */ }
       webglAddonRef.current = null;
+      // GPU 컨텍스트 명시 반납 — GC 지연 회수를 기다리지 않고 즉시 슬롯을 비운다.
+      const gl = webglGlRef.current;
+      webglGlRef.current = null;
+      try { gl?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* noop */ }
     };
     attachWebglRef.current = attachWebgl;
     detachWebglRef.current = detachWebgl;
@@ -1925,8 +1952,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       wsBufferRef.current = [];
       if (webglIdleTimerRef.current) { clearTimeout(webglIdleTimerRef.current); webglIdleTimerRef.current = null; }
       noteWebglActivityRef.current = null;
-      try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
-      webglAddonRef.current = null;
+      // dispose 만으로는 GPU 컨텍스트가 GC 때까지 남는다 → unmount(특히 pane 닫기/재생성)가
+      // 잦으면 컨텍스트가 누적돼 한도 초과 freeze. detachWebgl 로 명시 반납까지 수행.
+      try { (detachWebglRef.current || (() => { webglAddonRef.current?.dispose(); webglAddonRef.current = null; }))(); } catch { /* noop */ }
+      detachWebglRef.current = null;
+      attachWebglRef.current = null;
+      if (webglDetachTimerRef.current) { clearTimeout(webglDetachTimerRef.current); webglDetachTimerRef.current = null; }
       try { predictiveEchoRef.current?.dispose(); } catch { /* noop */ }
       predictiveEchoRef.current = null;
       flushBufferedOutputRef.current = null;
