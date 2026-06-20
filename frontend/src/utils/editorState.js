@@ -4,11 +4,14 @@
  */
 export const EDITOR_STATE_KEY = 'iterm:editor-state:v1';
 
+// 에디터/미리보기에서 열 수 없는(또는 브라우저 네이티브 재생 불가) 확장자.
+// pdf·동영상(mp4/webm/mov/...)·오디오(mp3/wav/flac/...)는 FileEditor 가 미리보기로 처리하므로 제외.
+// avi/mkv 는 브라우저 <video> 가 재생 못 하므로 계속 차단.
 const EDITOR_UNSUPPORTED_EXTENSIONS = new Set([
   'zip', '7z', 'rar', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz', 'lzma',
-  'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
   'exe', 'dll', 'so', 'dylib', 'bin', 'dat', 'class', 'jar', 'war',
-  'mp3', 'wav', 'flac', 'mp4', 'mov', 'avi', 'mkv', 'webm',
+  'avi', 'mkv',
   'ttf', 'otf', 'woff', 'woff2',
 ]);
 
@@ -33,21 +36,44 @@ export const isEditorSupportedFileKey = (fileKey) => {
   return isEditorSupportedFile(path);
 };
 
+// 한 탭 슬롯({ openFiles, activeFile })을 검증·정규화.
+const sanitizeSlice = (slice) => {
+  const openFiles = Array.isArray(slice?.openFiles)
+    ? slice.openFiles.filter((p) => typeof p === 'string' && p.trim())
+      .filter(isEditorSupportedFileKey)
+    : [];
+  const activeFile = typeof slice?.activeFile === 'string' && openFiles.includes(slice.activeFile)
+    ? slice.activeFile
+    : (openFiles[0] || null);
+  return { openFiles, activeFile };
+};
+
+/**
+ * 에디터 상태 복원 — 탭별 버킷 { byTab: { [tabKey]: { openFiles, activeFile } } }.
+ * 구버전(전역 { openFiles, activeFile })은 홈 버킷으로 1회 마이그레이션.
+ */
 export const readEditorState = () => {
-  if (typeof localStorage === 'undefined') return { openFiles: [], activeFile: null };
+  if (typeof localStorage === 'undefined') return { byTab: {} };
   try {
     const raw = localStorage.getItem(EDITOR_STATE_KEY);
-    if (!raw) return { openFiles: [], activeFile: null };
+    if (!raw) return { byTab: {} };
     const parsed = JSON.parse(raw);
-    const openFiles = Array.isArray(parsed?.openFiles)
-      ? parsed.openFiles.filter((p) => typeof p === 'string' && p.trim())
-        .filter(isEditorSupportedFileKey)
-      : [];
-    const activeFile = typeof parsed?.activeFile === 'string' && openFiles.includes(parsed.activeFile)
-      ? parsed.activeFile
-      : (openFiles[0] || null);
-    return { openFiles, activeFile };
+    if (parsed?.byTab && typeof parsed.byTab === 'object') {
+      const byTab = {};
+      for (const [k, slice] of Object.entries(parsed.byTab)) {
+        const clean = sanitizeSlice(slice);
+        if (clean.openFiles.length) byTab[k] = clean;
+      }
+      return { byTab };
+    }
+    // 구버전 마이그레이션: 전역 상태 → 홈 버킷
+    const legacy = sanitizeSlice(parsed);
+    return { byTab: legacy.openFiles.length ? { [EDITOR_HOME_KEY]: legacy } : {} };
   } catch {
-    return { openFiles: [], activeFile: null };
+    return { byTab: {} };
   }
 };
+
+// 활성 탭이 없을 때(홈 대시보드) 쓰는 버킷 키.
+export const EDITOR_HOME_KEY = '__home__';
+export const editorTabKey = (tabId) => (tabId == null ? EDITOR_HOME_KEY : String(tabId));

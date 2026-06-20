@@ -1,25 +1,48 @@
 import { useState, useEffect, useMemo } from 'react';
-import { EDITOR_STATE_KEY, isEditorSupportedFile, readEditorState } from '../utils/editorState';
+import {
+  EDITOR_STATE_KEY,
+  isEditorSupportedFile,
+  readEditorState,
+  editorTabKey,
+} from '../utils/editorState';
+
+const EMPTY_SLICE = { openFiles: [], activeFile: null };
 
 /**
- * 에디터 탭 상태 — 열린 파일 목록 + 활성 파일 + localStorage 영속 + 열기/닫기.
- * App.jsx 에서 로직 변경 없이 추출. 입력 { t, setNotification }(미지원 파일 알림용).
- * 반환: { openFiles, activeFile, handleFileOpen, handleFileClose }.
+ * 에디터 탭 상태 — 열린 파일/활성 파일을 **워크스페이스 탭별**로 분리해 보관.
+ * 탭을 옮기면 그 탭이 갖고 있던 에디터만 보이고, 다른 탭 에디터는 따라오지 않는다.
+ * 입력 { t, setNotification, activeTabId }. 반환 { openFiles, activeFile, handleFileOpen, handleFileClose }.
  */
-export default function useEditorTabs({ t, setNotification }) {
-  const restoredEditorState = useMemo(() => readEditorState(), []);
-  const [openFiles, setOpenFiles] = useState(restoredEditorState.openFiles);
-  const [activeFile, setActiveFile] = useState(restoredEditorState.activeFile);
+export default function useEditorTabs({ t, setNotification, activeTabId }) {
+  const restored = useMemo(() => readEditorState(), []);
+  // byTab: { [tabKey]: { openFiles, activeFile } } — 전 탭의 에디터 상태 모음(불변 갱신).
+  const [byTab, setByTab] = useState(restored.byTab);
+
+  const key = editorTabKey(activeTabId);
+  const current = byTab[key] || EMPTY_SLICE;
+  const { openFiles, activeFile } = current;
 
   useEffect(() => {
-    const nextActiveFile = activeFile && openFiles.includes(activeFile)
-      ? activeFile
-      : (openFiles[0] || null);
     try {
-      localStorage.setItem(EDITOR_STATE_KEY, JSON.stringify({ openFiles, activeFile: nextActiveFile }));
+      localStorage.setItem(EDITOR_STATE_KEY, JSON.stringify({ byTab }));
     } catch { /* ignore storage quota/private mode */ }
-    if (nextActiveFile !== activeFile) setActiveFile(nextActiveFile);
-  }, [openFiles, activeFile]);
+  }, [byTab]);
+
+  // 한 탭 슬롯을 불변 갱신 + activeFile 정규화. 비면 키 자체를 제거.
+  const updateSlice = (tabKey, updater) => {
+    setByTab((prev) => {
+      const cur = prev[tabKey] || EMPTY_SLICE;
+      const draft = updater(cur);
+      const nextActive = draft.activeFile && draft.openFiles.includes(draft.activeFile)
+        ? draft.activeFile
+        : (draft.openFiles[0] || null);
+      if (!draft.openFiles.length) {
+        const { [tabKey]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [tabKey]: { openFiles: draft.openFiles, activeFile: nextActive } };
+    });
+  };
 
   const handleFileOpen = (path, hostId = null) => {
     if (!isEditorSupportedFile(path, hostId)) {
@@ -31,14 +54,20 @@ export default function useEditorTabs({ t, setNotification }) {
       return;
     }
     const fileKey = hostId ? `remote:${hostId}:${path}` : path;
-    if (!openFiles.includes(fileKey)) setOpenFiles((prev) => [...prev, fileKey]);
-    setActiveFile(fileKey);
+    updateSlice(key, (cur) => ({
+      openFiles: cur.openFiles.includes(fileKey) ? cur.openFiles : [...cur.openFiles, fileKey],
+      activeFile: fileKey,
+    }));
   };
 
   const handleFileClose = (path) => {
-    const next = openFiles.filter((f) => f !== path);
-    setOpenFiles(next);
-    if (activeFile === path) setActiveFile(next[next.length - 1] || null);
+    updateSlice(key, (cur) => {
+      const next = cur.openFiles.filter((f) => f !== path);
+      return {
+        openFiles: next,
+        activeFile: cur.activeFile === path ? (next[next.length - 1] || null) : cur.activeFile,
+      };
+    });
   };
 
   return { openFiles, activeFile, handleFileOpen, handleFileClose };

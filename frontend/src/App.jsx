@@ -996,7 +996,7 @@ function App() {
   }, []);
 
   // File editor
-  const { openFiles, activeFile, handleFileOpen, handleFileClose } = useEditorTabs({ t, setNotification });
+  const { openFiles, activeFile, handleFileOpen, handleFileClose } = useEditorTabs({ t, setNotification, activeTabId });
   const { editorHeight, isResizingEditor, onEditorResizeStart } = useEditorResize();
   const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);
   const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌
