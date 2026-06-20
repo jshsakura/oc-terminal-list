@@ -1,4 +1,5 @@
-import { File, FileCode, FileText, Image as ImageIcon } from 'lucide-react';
+import { File, FileCode, FileText, FileVideo, FileAudio, Image as ImageIcon } from 'lucide-react';
+import { isImageFile, isVideoFile, isAudioFile, isPdfFile } from '../../utils/fileTypes';
 
 export const DIFF_VIEW_STATE_KEY = 'iterm:file-editor-diff-view:v1';
 
@@ -26,6 +27,11 @@ export const parseFileKey = (key) => {
 };
 
 export const getFileIcon = (filename, color) => {
+  // 미디어(이미지/동영상/오디오/PDF)는 단일 소스(fileTypes)로 판별 — 트리/에디터 일관성.
+  if (isImageFile(filename)) return <ImageIcon size={14} color={color || '#a6e3a1'} />;
+  if (isVideoFile(filename)) return <FileVideo size={14} color={color || '#a6e3a1'} />;
+  if (isAudioFile(filename)) return <FileAudio size={14} color={color || '#a6e3a1'} />;
+  if (isPdfFile(filename)) return <FileText size={14} color={color || '#f38ba8'} />;
   const ext = filename.split('.').pop().toLowerCase();
   switch (ext) {
     case 'js': case 'jsx': case 'ts': case 'tsx':
@@ -34,8 +40,6 @@ export const getFileIcon = (filename, color) => {
     case 'json': case 'md': case 'txt': case 'csv': case 'env':
     case 'gitignore': case 'dockerignore':
       return <FileText size={14} color={color || '#f9e2af'} />;
-    case 'png': case 'jpg': case 'jpeg': case 'gif': case 'svg': case 'ico': case 'webp':
-      return <ImageIcon size={14} color={color || '#a6e3a1'} />;
     default:
       return <File size={14} color={color || '#cdd6f4'} />;
   }

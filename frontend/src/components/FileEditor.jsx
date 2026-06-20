@@ -18,6 +18,7 @@ import ConfirmModal from './ConfirmModal';
 import useTranslation from '../hooks/useTranslation';
 import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
 import { authHeaders } from '../utils/auth';
+import { isImageFile, isPdfFile, isVideoFile, isAudioFile } from '../utils/fileTypes';
 import { DIFF_VIEW_STATE_KEY, readDiffViewState, parseFileKey } from './fileEditor/fileEditorHelpers';
 import { styles } from './fileEditor/fileEditorStyles';
 import { FileEditorTabs } from './fileEditor/FileEditorTabs';
@@ -178,10 +179,10 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
   const { path: activeFilePath, hostId: activeFileHostId } = parseFileKey(activeFile || '');
   const previewName = activeFilePath || activeFile || '';
-  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp|bmp|avif)$/i.test(previewName);
-  const isPdf = /\.pdf$/i.test(previewName);
-  const isVideo = /\.(mp4|webm|ogv|mov|m4v)$/i.test(previewName);
-  const isAudio = /\.(mp3|wav|ogg|oga|m4a|flac|aac)$/i.test(previewName);
+  const isImage = isImageFile(previewName);
+  const isPdf = isPdfFile(previewName);
+  const isVideo = isVideoFile(previewName);
+  const isAudio = isAudioFile(previewName);
   // 바이너리 미리보기: 텍스트 에디터로 로드하지 않고 raw 티켓으로 직접 렌더 (로컬 호스트 전용)
   const isBinaryPreview = isImage || isPdf || isVideo || isAudio;
   const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');

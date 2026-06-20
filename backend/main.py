@@ -3237,9 +3237,9 @@ if STATIC_DIR.exists():
     _ASSET_LIKE_EXTS = (
         ".js", ".mjs", ".cjs", ".css", ".map",
         ".json", ".wasm",
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".ico",
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".avif", ".svg", ".ico", ".bmp",
         ".woff", ".woff2", ".ttf", ".otf", ".eot",
-        ".mp3", ".mp4", ".webm", ".ogg", ".wav",
+        ".mp3", ".mp4", ".webm", ".ogg", ".wav", ".m4a", ".flac", ".mov",
     )
 
     def _is_asset_like(p: str) -> bool:

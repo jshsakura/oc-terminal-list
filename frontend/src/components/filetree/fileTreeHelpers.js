@@ -1,13 +1,18 @@
 import {
-  File, FileText, FileCode, FileImage, FileJson,
+  File, FileText, FileCode, FileImage, FileJson, FileVideo, FileAudio,
 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
+import { isImageFile, isVideoFile, isAudioFile, isPdfFile, extOf } from '../../utils/fileTypes';
 
 const { color } = tokens;
 
 export const iconForFile = (name) => {
-  const ext = name.split('.').pop().toLowerCase();
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'avif'].includes(ext)) return FileImage;
+  // 미디어는 단일 소스(fileTypes)로 — FileEditor 미리보기와 동일 기준.
+  if (isImageFile(name)) return FileImage;
+  if (isVideoFile(name)) return FileVideo;
+  if (isAudioFile(name)) return FileAudio;
+  if (isPdfFile(name)) return FileText;
+  const ext = extOf(name);
   if (['json', 'yaml', 'yml', 'toml'].includes(ext)) return FileJson;
   if (['md', 'mdx', 'rst', 'txt'].includes(ext)) return FileText;
   if (['js', 'jsx', 'ts', 'tsx', 'py', 'rs', 'go', 'rb', 'java', 'c', 'cpp', 'h', 'sh', 'lua'].includes(ext)) return FileCode;
@@ -15,12 +20,12 @@ export const iconForFile = (name) => {
 };
 
 export const fileIconColor = (name) => {
-  const ext = name.split('.').pop().toLowerCase();
+  if (isImageFile(name) || isVideoFile(name) || isAudioFile(name)) return color.dotPalette[5];
+  const ext = extOf(name);
   if (['md', 'mdx'].includes(ext)) return color.success;
   if (['json', 'yaml', 'yml'].includes(ext)) return color.warning;
   if (['js', 'jsx', 'ts', 'tsx'].includes(ext)) return color.info;
   if (['py'].includes(ext)) return color.success;
-  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return color.dotPalette[5];
   return color.muted;
 };
 
