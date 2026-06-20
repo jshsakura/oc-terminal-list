@@ -494,6 +494,7 @@ export const en = {
     enterNewName: 'Enter name:',
     confirmDeleteFile: 'Delete {name}?',
     confirmDeleteMultiple: 'Delete {count} items?',
+    items: 'items',
     changes: 'Changes',
     noChanges: 'No changes',
     changesHint: 'When files change in this repo, they show up here.',

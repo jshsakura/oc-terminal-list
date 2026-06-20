@@ -324,7 +324,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     setSelectedPaths(new Set());
   };
 
-  const { downloadState, downloadNode } = useFileDownload({ apiBase, t });
+  const { downloadState, downloadNode, downloadZip } = useFileDownload({ apiBase, t });
 
   const hasChangedDescendant = useCallback((folderPath) => {
     if (!folderPath) return changedSet.size > 0;
@@ -364,6 +364,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 
   // 행 클릭 — 일반(단일선택+열기/펼치기), ctrl/cmd(토글), shift(범위).
   const handleRowClick = (e, row) => {
+    listRef.current?.focus({ preventScroll: true }); // 키보드(Ctrl+A/Esc/Delete) 활성화
     const additive = e.ctrlKey || e.metaKey;
     const ranged = e.shiftKey && selectionAnchorRef.current;
     if (additive) {
@@ -413,6 +414,30 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     if (!path) return [];
     return selectedPaths.size > 1 && selectedPaths.has(path) ? [...selectedPaths] : [path];
   };
+
+  // 트리 키보드 — Ctrl/Cmd+A 전체선택, Esc 해제, Delete/Backspace 일괄삭제.
+  const handleTreeKeyDown = (e) => {
+    if (e.target.tagName === 'INPUT') return; // 검색/리네임/생성 입력 중엔 무시
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'a' || e.key === 'A')) {
+      e.preventDefault();
+      setSelectedPaths(new Set(visibleRows.map((r) => r.path)));
+      return;
+    }
+    if (e.key === 'Escape') {
+      if (selectedPaths.size) setSelectedPaths(new Set());
+      return;
+    }
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      const targets = selectedPaths.size ? [...selectedPaths] : (selectedPath ? [selectedPath] : []);
+      if (targets.length) { e.preventDefault(); removeNodes(targets); }
+    }
+  };
+
+  // 폴더 이동 시 이전 선택 잔상 제거.
+  useEffect(() => {
+    setSelectedPaths(new Set());
+    setSelectedPath(null);
+  }, [rootPath]);
 
   const virtualRows = useMemo(() => {
     const enabled = !creating && visibleRows.length > VIRTUALIZE_AFTER;
@@ -568,7 +593,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       {renderTransferBar(uploadState, 'upload')}
       {renderTransferBar(downloadState, 'download')}
 
-      <div ref={listRef} style={styles.list} onScroll={handleListScroll} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
+      <div ref={listRef} style={{ ...styles.list, outline: 'none' }} tabIndex={-1} onKeyDown={handleTreeKeyDown} onScroll={handleListScroll} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
         {rootError && (
           <div style={styles.errorBox}>
             <div style={{ fontSize: fontSize['13'], color: color.subtext, fontWeight: fontWeight.medium }}>
@@ -660,7 +685,15 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
           onRename={() => { if (contextMenu.target.path) setRenameTarget({ path: contextMenu.target.path, draftName: contextMenu.target.path.split('/').pop() }); setContextMenu(null); }}
           onDelete={() => { const ts = contextTargets(); if (ts.length) removeNodes(ts); setContextMenu(null); }}
           onOpenTerminal={() => { const p = contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'); onOpenTerminalAtFolder?.(p); setContextMenu(null); }}
-          onDownload={() => { const ts = contextTargets(); ts.forEach((p) => { const node = visibleRows.find((r) => r.path === p); downloadNode(p, node?.type || 'file'); }); setContextMenu(null); }}
+          onDownload={() => {
+            const ts = contextTargets();
+            if (ts.length > 1 && !isHostMode) {
+              downloadZip(ts); // 로컬 다중선택 → 단일 zip
+            } else {
+              ts.forEach((p) => { const node = visibleRows.find((r) => r.path === p); downloadNode(p, node?.type || 'file'); });
+            }
+            setContextMenu(null);
+          }}
           onUpload={() => { openUploadPicker(contextMenu.target.path || null); setContextMenu(null); }}
         />,
         document.body

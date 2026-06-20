@@ -2929,33 +2929,57 @@ class _ZipTooLargeError(Exception):
     """워크스페이스 zip 다운로드가 크기/파일 수 제한을 초과."""
 
 
+# 누적 크기/파일 수 한도를 공유 카운터로 추적하며 base(파일 또는 디렉터리)를 zip 에 추가.
+# 단일/다중 다운로드가 같은 로직을 쓰도록 추출 — 한도 검사 드리프트 방지.
+def _add_path_to_zip(zf: "zipfile.ZipFile", base: Path, counters: dict) -> None:
+    def bump(size: int) -> None:
+        counters["total"] += size
+        counters["count"] += 1
+        if counters["total"] > MAX_LOCAL_ZIP_BYTES or counters["count"] > MAX_LOCAL_ZIP_FILES:
+            raise _ZipTooLargeError(
+                f"download too large (>{MAX_LOCAL_ZIP_BYTES} bytes or "
+                f"> {MAX_LOCAL_ZIP_FILES} files)"
+            )
+
+    if base.is_file():
+        try:
+            bump(base.stat().st_size)
+        except OSError:
+            return
+        zf.write(base, base.name)
+        return
+
+    for current_root, dirs, files in os.walk(base, followlinks=False):
+        # 심볼릭 링크 디렉토리는 따라가지 않음 — zip 폭탄/순환 방지.
+        dirs[:] = [d for d in dirs if not (Path(current_root) / d).is_symlink()]
+        current = Path(current_root)
+        if not dirs and not files:
+            zf.writestr(f"{current.relative_to(base.parent).as_posix()}/", b"")
+        for file_name in files:
+            file_path = current / file_name
+            if file_path.is_symlink():
+                continue
+            try:
+                size = file_path.stat().st_size
+            except OSError:
+                continue
+            bump(size)
+            zf.write(file_path, file_path.relative_to(base.parent).as_posix())
+
+
 def _zip_directory_bytes(root: Path) -> bytes:
     buffer = io.BytesIO()
-    total = 0
-    count = 0
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        for current_root, dirs, files in os.walk(root, followlinks=False):
-            # 심볼릭 링크 디렉토리는 따라가지 않음 — zip 폭탄/순환 방지.
-            dirs[:] = [d for d in dirs if not (Path(current_root) / d).is_symlink()]
-            current = Path(current_root)
-            if not dirs and not files:
-                zf.writestr(f"{current.relative_to(root.parent).as_posix()}/", b"")
-            for file_name in files:
-                file_path = current / file_name
-                if file_path.is_symlink():
-                    continue
-                try:
-                    size = file_path.stat().st_size
-                except OSError:
-                    continue
-                total += size
-                count += 1
-                if total > MAX_LOCAL_ZIP_BYTES or count > MAX_LOCAL_ZIP_FILES:
-                    raise _ZipTooLargeError(
-                        f"download too large (>{MAX_LOCAL_ZIP_BYTES} bytes or "
-                        f"> {MAX_LOCAL_ZIP_FILES} files)"
-                    )
-                zf.write(file_path, file_path.relative_to(root.parent).as_posix())
+        _add_path_to_zip(zf, root, {"total": 0, "count": 0})
+    return buffer.getvalue()
+
+
+def _zip_paths_bytes(paths: list[Path]) -> bytes:
+    buffer = io.BytesIO()
+    counters = {"total": 0, "count": 0}
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for base in paths:
+            _add_path_to_zip(zf, base, counters)
     return buffer.getvalue()
 
 
@@ -2984,6 +3008,40 @@ async def download_workspace_item(
             headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
         )
     raise HTTPException(status_code=400, detail="Unsupported file type")
+
+
+class DownloadZipRequest(BaseModel):
+    paths: list[str] = Field(..., min_length=1, max_length=500)
+
+
+@app.post("/api/files/download-zip")
+async def download_workspace_zip(
+    body: DownloadZipRequest,
+    username: str = Depends(verify_auth_token),
+):
+    """다중 선택 항목을 단일 zip 으로 묶어 다운로드 (로컬 워크스페이스)."""
+    raw_paths = [p for p in body.paths if p and p.strip()]
+    if not raw_paths:
+        raise HTTPException(status_code=400, detail="No paths provided")
+    safes: list[Path] = []
+    for p in raw_paths:
+        safe = validate_path(p)
+        if not safe.exists():
+            raise HTTPException(status_code=404, detail=f"Not found: {p}")
+        if safe.is_symlink():
+            raise HTTPException(status_code=403, detail="Symlinks not allowed")
+        safes.append(safe)
+    try:
+        data = await asyncio.to_thread(_zip_paths_bytes, safes)
+    except _ZipTooLargeError as e:
+        raise HTTPException(status_code=413, detail=str(e))
+    filename = f"download-{len(safes)}-items.zip"
+    quoted = quote(filename)
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+    )
 
 
 @app.head("/api/files/download", include_in_schema=False)
