@@ -100,6 +100,26 @@ describe('FileTree skeleton loading', () => {
     });
   });
 
+  it('opens a file on double-click, not single-click', async () => {
+    const onFileSelect = vi.fn();
+    global.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        path: '',
+        items: [{ name: 'note.txt', path: 'note.txt', type: 'file' }],
+      }),
+    }));
+
+    render(<FileTree onFileSelect={onFileSelect} />);
+
+    const row = await screen.findByText('note.txt');
+    fireEvent.click(row);
+    expect(onFileSelect).not.toHaveBeenCalled(); // 단일 클릭은 선택만
+
+    fireEvent.doubleClick(row);
+    expect(onFileSelect).toHaveBeenCalledWith('note.txt', null);
+  });
+
   it('downloads files through the authenticated download endpoint', async () => {
     global.fetch = vi.fn((url, opts = {}) => {
       const requestUrl = String(url);

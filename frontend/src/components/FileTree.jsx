@@ -388,12 +388,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
         return;
       }
     }
-    // 일반 클릭: 단일선택 + 기존 동작(폴더 펼치기 / 파일 열기)
+    // 일반 클릭: 단일선택. 폴더는 펼치기, 파일은 "선택만"(열기는 더블클릭).
     setSelectedPath(row.path);
     setSelectedPaths(new Set([row.path]));
     selectionAnchorRef.current = row.path;
     if (row.type === 'directory') toggleFolder(row.path);
-    else onFileSelect?.(row.path, hostId);
   };
 
   // 우클릭 — 다중선택 안에서 누르면 선택 유지, 아니면 그 행으로 단일화.
