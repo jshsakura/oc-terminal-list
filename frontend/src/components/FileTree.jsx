@@ -27,6 +27,9 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [nodes, setNodes] = useState({});
   const [expanded, setExpanded] = useState(new Set(['']));
   const [selectedPath, setSelectedPath] = useState(null);
+  // 다중선택: ctrl/cmd 클릭 토글 + shift 범위. selectedPath 는 "주(primary)" 선택(컨텍스트/리네임 대상).
+  const [selectedPaths, setSelectedPaths] = useState(() => new Set());
+  const selectionAnchorRef = useRef(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [renameTarget, setRenameTarget] = useState(null);
   const [creating, setCreating] = useState(null);
@@ -302,6 +305,25 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     } catch (e) { alert(e.message); }
   };
 
+  // 다중 삭제 — 한 번만 확인하고 전부 지운 뒤 영향 받은 부모 폴더만 새로고침.
+  const removeNodes = async (paths) => {
+    const list = [...new Set(paths)].filter(Boolean);
+    if (!list.length) return;
+    if (list.length === 1) return removeNode(list[0]);
+    const msg = t('confirmDeleteMultiple')?.replace('{count}', String(list.length))
+      || `Delete ${list.length} items?`;
+    if (!confirm(msg)) return;
+    const parents = new Set();
+    for (const p of list) {
+      try {
+        await apiCall('delete', p);
+        parents.add(p.split('/').slice(0, -1).join('/'));
+      } catch (e) { alert(e.message); }
+    }
+    for (const parent of parents) await refreshPath(parent);
+    setSelectedPaths(new Set());
+  };
+
   const { downloadState, downloadNode } = useFileDownload({ apiBase, t });
 
   const hasChangedDescendant = useCallback((folderPath) => {
@@ -339,6 +361,58 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     walk('', 0);
     return rows;
   }, [nodes, expanded, filterChangedOnly, changedSet, hasChangedDescendant, searchQuery]);
+
+  // 행 클릭 — 일반(단일선택+열기/펼치기), ctrl/cmd(토글), shift(범위).
+  const handleRowClick = (e, row) => {
+    const additive = e.ctrlKey || e.metaKey;
+    const ranged = e.shiftKey && selectionAnchorRef.current;
+    if (additive) {
+      setSelectedPaths((prev) => {
+        const next = new Set(prev);
+        if (next.has(row.path)) next.delete(row.path); else next.add(row.path);
+        return next;
+      });
+      setSelectedPath(row.path);
+      selectionAnchorRef.current = row.path;
+      return;
+    }
+    if (ranged) {
+      const order = visibleRows.map((r) => r.path);
+      const a = order.indexOf(selectionAnchorRef.current);
+      const b = order.indexOf(row.path);
+      if (a !== -1 && b !== -1) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        setSelectedPaths(new Set(order.slice(lo, hi + 1)));
+        setSelectedPath(row.path);
+        return;
+      }
+    }
+    // 일반 클릭: 단일선택 + 기존 동작(폴더 펼치기 / 파일 열기)
+    setSelectedPath(row.path);
+    setSelectedPaths(new Set([row.path]));
+    selectionAnchorRef.current = row.path;
+    if (row.type === 'directory') toggleFolder(row.path);
+    else onFileSelect?.(row.path, hostId);
+  };
+
+  // 우클릭 — 다중선택 안에서 누르면 선택 유지, 아니면 그 행으로 단일화.
+  const handleRowContextMenu = (e, row) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!(selectedPaths.size > 1 && selectedPaths.has(row.path))) {
+      setSelectedPath(row.path);
+      setSelectedPaths(new Set([row.path]));
+      selectionAnchorRef.current = row.path;
+    }
+    setContextMenu({ x: e.clientX, y: e.clientY, target: { path: row.path, type: row.type } });
+  };
+
+  // 컨텍스트 메뉴 액션 대상 경로들 — 우클릭 행이 다중선택에 포함되면 선택 전체, 아니면 단건.
+  const contextTargets = () => {
+    const path = contextMenu?.target?.path;
+    if (!path) return [];
+    return selectedPaths.size > 1 && selectedPaths.has(path) ? [...selectedPaths] : [path];
+  };
 
   const virtualRows = useMemo(() => {
     const enabled = !creating && visibleRows.length > VIRTUALIZE_AFTER;
@@ -556,10 +630,10 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
               </div>
             ) : (
               <Row
-                depth={row.depth} isOpen={row.type === 'directory' && expanded.has(row.path)} isFolder={row.type === 'directory'} isSelected={selectedPath === row.path} name={row.name} tone={row.git_status ? gitTone(row.git_status) : (selectedPath === row.path ? color.text : color.subtext)} gitStatus={row.git_status} isChanged={changedSet.has(row.path)}
-                onClick={() => { setSelectedPath(row.path); if (row.type === 'directory') toggleFolder(row.path); else onFileSelect?.(row.path, hostId); }}
+                depth={row.depth} isOpen={row.type === 'directory' && expanded.has(row.path)} isFolder={row.type === 'directory'} isSelected={selectedPaths.has(row.path) || selectedPath === row.path} name={row.name} tone={row.git_status ? gitTone(row.git_status) : ((selectedPaths.has(row.path) || selectedPath === row.path) ? color.text : color.subtext)} gitStatus={row.git_status} isChanged={changedSet.has(row.path)}
+                onClick={(e) => handleRowClick(e, row)}
                 onDoubleClick={() => { if (row.type !== 'directory') onFileSelect?.(row.path, hostId); }}
-                onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setSelectedPath(row.path); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: row.path, type: row.type } }); }}
+                onContextMenu={(e) => handleRowContextMenu(e, row)}
               />
             )}
             {creating && creating.parentPath === row.path && (expanded.has(row.path) || searchQuery) && (
@@ -584,9 +658,9 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
           onNewFile={() => { startCreate(contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'), 'file'); setContextMenu(null); }}
           onNewFolder={() => { startCreate(contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'), 'directory'); setContextMenu(null); }}
           onRename={() => { if (contextMenu.target.path) setRenameTarget({ path: contextMenu.target.path, draftName: contextMenu.target.path.split('/').pop() }); setContextMenu(null); }}
-          onDelete={() => { if (contextMenu.target.path) removeNode(contextMenu.target.path); setContextMenu(null); }}
+          onDelete={() => { const ts = contextTargets(); if (ts.length) removeNodes(ts); setContextMenu(null); }}
           onOpenTerminal={() => { const p = contextMenu.target.type === 'directory' ? contextMenu.target.path : contextMenu.target.path.split('/').slice(0, -1).join('/'); onOpenTerminalAtFolder?.(p); setContextMenu(null); }}
-          onDownload={() => { if (contextMenu.target.path) downloadNode(contextMenu.target.path, contextMenu.target.type); setContextMenu(null); }}
+          onDownload={() => { const ts = contextTargets(); ts.forEach((p) => { const node = visibleRows.find((r) => r.path === p); downloadNode(p, node?.type || 'file'); }); setContextMenu(null); }}
           onUpload={() => { openUploadPicker(contextMenu.target.path || null); setContextMenu(null); }}
         />,
         document.body

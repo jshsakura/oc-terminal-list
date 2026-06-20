@@ -490,6 +490,7 @@ export const ko = {
     rename: '이름 변경',
     enterNewName: '새 이름을 입력하세요:',
     confirmDeleteFile: '{name} 을(를) 삭제하시겠습니까?',
+    confirmDeleteMultiple: '{count}개 항목을 삭제하시겠습니까?',
     changes: '변경사항',
     noChanges: '변경사항 없음',
     changesHint: '레포에서 파일이 변경되면 여기에 표시됩니다.',
