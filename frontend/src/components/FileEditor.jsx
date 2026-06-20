@@ -177,7 +177,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   }, []);
 
   const { path: activeFilePath, hostId: activeFileHostId } = parseFileKey(activeFile || '');
-  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp)$/i.test(activeFilePath || activeFile || '');
+  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp|bmp|avif)$/i.test(activeFilePath || activeFile || '');
   const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');
   const isHtml = (activeFilePath || activeFile)?.endsWith('.html');
   const rawPreviewPath = !activeFileHostId && (isImage || (isPreviewMode && isHtml))
