@@ -177,16 +177,22 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   }, []);
 
   const { path: activeFilePath, hostId: activeFileHostId } = parseFileKey(activeFile || '');
-  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp|bmp|avif)$/i.test(activeFilePath || activeFile || '');
+  const previewName = activeFilePath || activeFile || '';
+  const isImage = /\.(png|jpg|jpeg|gif|svg|ico|webp|bmp|avif)$/i.test(previewName);
+  const isPdf = /\.pdf$/i.test(previewName);
+  const isVideo = /\.(mp4|webm|ogv|mov|m4v)$/i.test(previewName);
+  const isAudio = /\.(mp3|wav|ogg|oga|m4a|flac|aac)$/i.test(previewName);
+  // 바이너리 미리보기: 텍스트 에디터로 로드하지 않고 raw 티켓으로 직접 렌더 (로컬 호스트 전용)
+  const isBinaryPreview = isImage || isPdf || isVideo || isAudio;
   const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');
   const isHtml = (activeFilePath || activeFile)?.endsWith('.html');
-  const rawPreviewPath = !activeFileHostId && (isImage || (isPreviewMode && isHtml))
+  const rawPreviewPath = !activeFileHostId && (isBinaryPreview || (isPreviewMode && isHtml))
     ? (activeFilePath || activeFile)
     : null;
 
   // Poll for external changes every 5 seconds (only for text files)
   useEffect(() => {
-    if (activeFile && !isImage && !binaryPathsRef.current.has(activeFile)) {
+    if (activeFile && !isBinaryPreview && !binaryPathsRef.current.has(activeFile)) {
       pollingRef.current = setInterval(() => {
         loadFile(activeFile, true);
       }, 5000);
@@ -194,16 +200,16 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [activeFile, loadFile, isImage]);
+  }, [activeFile, loadFile, isBinaryPreview]);
 
   useEffect(() => {
     if (activeFile && !fileStates[activeFile] && !binaryPathsRef.current.has(activeFile)) {
-      // Don't try to load binary images into state
-      if (!isImage) {
+      // Don't try to load binary previews (image/pdf/video/audio) into text state
+      if (!isBinaryPreview) {
         loadFile(activeFile);
       }
     }
-  }, [activeFile, loadFile, isImage]); // Added isImage to dependency array
+  }, [activeFile, loadFile, isBinaryPreview]);
 
   useEffect(() => {
     setIsPreviewMode(false);
@@ -253,10 +259,10 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
   // 활성 파일이 바뀌면 HEAD 원본을 lazy load. 변경분이 있으면 diff 모드로 자동 진입.
   useEffect(() => {
-    if (!activeFile || isImage || binaryPathsRef.current.has(activeFile)) return;
+    if (!activeFile || isBinaryPreview || binaryPathsRef.current.has(activeFile)) return;
     if (diffStates[activeFile]) return; // 이미 로드됨
     loadOriginalContent(activeFile);
-  }, [activeFile, isImage, loadOriginalContent, diffStates]);
+  }, [activeFile, isBinaryPreview, loadOriginalContent, diffStates]);
 
   // HEAD 원본이 들어왔고 현재 파일 내용과 다르면, 사용자가 명시적으로 끄지 않은 한 diff 자동 ON.
   useEffect(() => {
@@ -488,7 +494,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
 
       {/* 에디터 영역 */}
       <div style={styles.content}>
-        {loading && !content && !isImage ? (
+        {loading && !content && !isBinaryPreview ? (
           <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
             {[80, 60, 72, 45, 90, 55, 68, 40, 78, 50].map((w, i) => (
               <SkeletonRow key={i} width={`${w}%`} height="13px" style={{ marginLeft: i % 3 === 1 ? '16px' : i % 3 === 2 ? '32px' : '0' }} />
@@ -533,6 +539,62 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
             )}
           </div>
+          )
+        ) : isPdf ? (
+          activeFileHostId ? (
+            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
+              <span>Remote PDF preview is not supported.</span>
+            </div>
+          ) : rawPreviewUrl ? (
+            <iframe
+              src={rawPreviewUrl}
+              style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#fff' }}
+              title={activeFilePath || activeFile}
+            />
+          ) : (
+            <div style={styles.message}>
+              <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
+            </div>
+          )
+        ) : isVideo ? (
+          activeFileHostId ? (
+            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
+              <span>Remote video preview is not supported.</span>
+            </div>
+          ) : (
+            <div style={{
+              height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,
+              padding: '20px'
+            }}>
+              {rawPreviewUrl ? (
+                <video
+                  src={rawPreviewUrl}
+                  controls
+                  style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}
+                />
+              ) : (
+                <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
+              )}
+            </div>
+          )
+        ) : isAudio ? (
+          activeFileHostId ? (
+            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
+              <span>Remote audio preview is not supported.</span>
+            </div>
+          ) : (
+            <div style={{
+              height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,
+              padding: '20px'
+            }}>
+              {rawPreviewUrl ? (
+                <audio src={rawPreviewUrl} controls style={{ width: '80%', maxWidth: '480px' }} />
+              ) : (
+                <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
+              )}
+            </div>
           )
         ) : isPreviewMode ? (
           isMarkdown ? (
