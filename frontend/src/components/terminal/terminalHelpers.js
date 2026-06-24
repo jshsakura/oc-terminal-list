@@ -62,6 +62,37 @@ export const compressPastedImage = async (blob) => {
   }
 };
 
+// 붙여넣기/첨부 이미지를 서버에 업로드. timeout 으로 무한 대기 차단(대기중 터미널은 공유 HTTP 연결이
+// wedge 돼 fetch 가 영영 매달리던 게 "업로드 중" 무한 회전의 원인 — 새로고침하면 됐던 이유).
+// timeout/네트워크 오류 시 한 번은 새 연결로 재시도(=새로고침 효과).
+const postPasteImage = async (sendBlob, attempt = 0) => {
+  const fd = new FormData();
+  const ext = (sendBlob.type.split('/')[1] || 'png').replace('+xml', '');
+  fd.append('file', sendBlob, `pasted.${ext}`);
+  try {
+    return await fetch('/api/terminal/paste-image', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: fd,
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(20000) : undefined,
+    });
+  } catch (err) {
+    if (attempt < 1) return postPasteImage(sendBlob, attempt + 1);
+    throw err;
+  }
+};
+
+// 이미지 blob → 압축 → 업로드 → 저장 경로 메타({ path, rel_path, size }). 실패 시 throw.
+// PTY 는 텍스트만 전달하므로 이미지 자체는 못 보냄 → 경로로 우회.
+// 데스크톱(Terminal 클립보드 붙여넣기)·모바일(빠른입력창 첨부/붙여넣기) 공용.
+export const uploadImageAndGetPath = async (blob) => {
+  const sendBlob = await compressPastedImage(blob);
+  const res = await postPasteImage(sendBlob);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.detail || `${res.status}`);
+  return data;
+};
+
 const execCommandCopy = (text) => {
   const ta = document.createElement('textarea');
   ta.value = text;

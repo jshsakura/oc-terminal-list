@@ -41,7 +41,7 @@ import {
 } from './terminal/terminalConstants';
 import {
   sleep, looksLikeBulkCommand, looksLikeRecoverableBulkInput,
-  compressPastedImage, copyTextToClipboard, issueWsTicket,
+  uploadImageAndGetPath, copyTextToClipboard, issueWsTicket,
 } from './terminal/terminalHelpers';
 import { styles } from './terminal/terminalStyles';
 import { GlassOverlayCard, TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
@@ -832,33 +832,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // capture 단계(true)에서 xterm 자체 핸들러보다 먼저 실행해 중복 전송 방지.
     // 클립보드 이미지 → 서버 업로드 후 저장 경로를 터미널 입력으로 주입.
     // (PTY 는 텍스트만 전달하므로 이미지 자체는 못 보냄 → 경로로 우회.)
-    const postPasteImage = async (sendBlob, attempt = 0) => {
-      // 매 시도마다 FormData 새로. timeout 으로 무한 대기 차단(대기중 터미널은 공유 HTTP 연결이
-      // wedge 돼 fetch 가 영영 매달리던 게 "업로드 중" 무한 회전의 원인 — 새로고침하면 됐던 이유).
-      const fd = new FormData();
-      const ext = (sendBlob.type.split('/')[1] || 'png').replace('+xml', '');
-      fd.append('file', sendBlob, `pasted.${ext}`);
-      try {
-        return await fetch('/api/terminal/paste-image', {
-          method: 'POST',
-          headers: authHeaders(),
-          body: fd,
-          signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(20000) : undefined,
-        });
-      } catch (err) {
-        // timeout/네트워크 오류 — wedge 된 연결일 수 있으니 한 번은 새 연결로 재시도(=새로고침 효과).
-        if (attempt < 1) return postPasteImage(sendBlob, attempt + 1);
-        throw err;
-      }
-    };
-
+    // 업로드 로직은 terminalHelpers.uploadImageAndGetPath 로 추출(빠른입력창과 공용).
     const uploadPastedImage = async (blob) => {
       setImagePasteState('uploading');
       try {
-        const sendBlob = await compressPastedImage(blob);
-        const res = await postPasteImage(sendBlob);
-        const data = await res.json().catch(() => null);
-        if (!res.ok) throw new Error(data?.detail || `${res.status}`);
+        const data = await uploadImageAndGetPath(blob);
         // 경로 뒤 공백 — 사용자가 이어서 질문을 타이핑할 수 있게.
         term.paste(`${data.path} `);
         setImagePasteState('done');

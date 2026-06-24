@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import CommandInput from './CommandInput';
+
+// 이미지 업로드 헬퍼는 mock — 컴포넌트의 삽입/상태 동작만 검증(네트워크 분리).
+vi.mock('./terminal/terminalHelpers', () => ({
+  uploadImageAndGetPath: vi.fn(),
+}));
+import { uploadImageAndGetPath } from './terminal/terminalHelpers';
 
 const t = (key) => ({
   commandInput: 'Send command',
@@ -11,6 +17,9 @@ const t = (key) => ({
   paste: 'Paste',
   clearInput: 'Clear',
   confirmClearInput: 'Clear?',
+  attachImage: 'Attach image',
+  imageUploading: 'Uploading image',
+  imageUploadFailed: 'Upload failed',
 }[key] || key);
 
 describe('CommandInput positioning', () => {
@@ -174,5 +183,86 @@ describe('CommandInput positioning', () => {
 
     expect(screen.queryByText('💡')).toBeNull();
     expect(screen.getByPlaceholderText(t('commandInputHint'))).toBeTruthy();
+  });
+});
+
+describe('CommandInput image attach', () => {
+  beforeEach(() => {
+    vi.mocked(uploadImageAndGetPath).mockReset();
+  });
+
+  const renderWith = (props = {}) => {
+    const setCommand = vi.fn();
+    const utils = render(
+      <CommandInput
+        isOpen={true}
+        onClose={vi.fn()}
+        onSend={vi.fn()}
+        command={props.command ?? ''}
+        setCommand={setCommand}
+        t={t}
+      />
+    );
+    const fileInput = utils.container.querySelector('input[type="file"]');
+    return { ...utils, setCommand, fileInput };
+  };
+
+  const imageFile = () => new File(['x'], 'shot.png', { type: 'image/png' });
+
+  it('uploads an attached image and inserts the returned path into the field', async () => {
+    vi.mocked(uploadImageAndGetPath).mockResolvedValue({ path: '/ws/.pasted/p.webp' });
+    const { fileInput, setCommand } = renderWith({ command: '' });
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [imageFile()] } });
+    });
+
+    await waitFor(() => expect(uploadImageAndGetPath).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(setCommand).toHaveBeenCalledWith(expect.stringContaining('/ws/.pasted/p.webp '))
+    );
+  });
+
+  it('inserts the path on clipboard image paste (text paste left to default)', async () => {
+    vi.mocked(uploadImageAndGetPath).mockResolvedValue({ path: '/ws/.pasted/clip.webp' });
+    const { setCommand } = renderWith({ command: '' });
+    const textarea = screen.getByPlaceholderText(t('commandInputHint'));
+
+    await act(async () => {
+      fireEvent.paste(textarea, {
+        clipboardData: {
+          items: [{ kind: 'file', type: 'image/png', getAsFile: () => imageFile() }],
+        },
+      });
+    });
+
+    await waitFor(() => expect(uploadImageAndGetPath).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(setCommand).toHaveBeenCalledWith(expect.stringContaining('/ws/.pasted/clip.webp '))
+    );
+  });
+
+  it('shows a failure label and does not insert a path when upload fails', async () => {
+    vi.mocked(uploadImageAndGetPath).mockRejectedValue(new Error('boom'));
+    const { fileInput, setCommand } = renderWith({ command: '' });
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [imageFile()] } });
+    });
+
+    await waitFor(() => expect(screen.getByText('Upload failed')).toBeTruthy());
+    expect(setCommand).not.toHaveBeenCalled();
+  });
+
+  it('ignores non-image file selections', async () => {
+    const { fileInput } = renderWith({ command: '' });
+
+    await act(async () => {
+      fireEvent.change(fileInput, {
+        target: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })] },
+      });
+    });
+
+    expect(uploadImageAndGetPath).not.toHaveBeenCalled();
   });
 });

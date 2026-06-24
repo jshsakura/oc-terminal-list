@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2 } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
 import useCommandHistory from '../hooks/useCommandHistory';
 import { removeCommand } from '../utils/commandHistory';
+import { uploadImageAndGetPath } from './terminal/terminalHelpers';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -42,8 +43,12 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
   const voiceModeRef = useRef(false);
+  // 이미지 첨부용 숨김 file input — 📎 버튼이 click() 으로 연다(모바일은 카메라/갤러리 선택지 노출).
+  const fileInputRef = useRef(null);
   // 지난 명령 이력 패널 토글 — footer 의 History 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
   const [historyOpen, setHistoryOpen] = useState(false);
+  // 이미지 업로드 진행 상태 — null | 'uploading' | 'error'. 모바일은 hover title 이 없어 인라인 표시.
+  const [imageUploadState, setImageUploadState] = useState(null);
   // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
   // iOS Safari 는 layout viewport 가 키보드를 무시하기 때문에 absolute/fixed inset:0 만으로는
   // 가운데 정렬이 키보드 밑까지 내려가 입력창 일부가 가려진다.
@@ -230,16 +235,15 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
     }
   };
 
-  // 이력 항목 클릭 → 현재 커서 위치(선택 영역이 있으면 대체)에 그 명령을 끼워넣고 패널을 접는다.
-  // 전송이 아니라 삽입만 — 사용자가 편집 후 직접 Send 하도록 (눈 아이콘 popover 의 즉시 재전송과 역할 분리).
-  const handlePickHistory = (text) => {
+  // 현재 커서 위치(선택 영역이 있으면 대체)에 텍스트를 끼워넣고 caret 을 삽입 끝으로 옮긴다.
+  // 이력 삽입·이미지 경로 삽입 공용.
+  const insertAtCursor = (text) => {
     const ta = textareaRef.current;
     const start = ta?.selectionStart ?? command.length;
     const end = ta?.selectionEnd ?? command.length;
     const next = command.slice(0, start) + text + command.slice(end);
     const caret = start + text.length;
     setCommand(next);
-    setHistoryOpen(false);
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (!el) return;
@@ -247,6 +251,49 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       try { el.setSelectionRange(caret, caret); } catch { /* 미지원 환경 무시 */ }
       el.scrollTop = el.scrollHeight;
     });
+  };
+
+  // 이력 항목 클릭 → 커서 위치에 그 명령을 끼워넣고 패널을 접는다.
+  // 전송이 아니라 삽입만 — 사용자가 편집 후 직접 Send 하도록 (눈 아이콘 popover 의 즉시 재전송과 역할 분리).
+  const handlePickHistory = (text) => {
+    insertAtCursor(text);
+    setHistoryOpen(false);
+  };
+
+  // 이미지 blob → 압축·업로드 → 저장 경로를 커서 위치에 삽입(뒤 공백, 데스크톱 붙여넣기와 동일).
+  // PTY 는 텍스트만 보내므로 이미지 자체가 아니라 서버 저장 경로로 우회한다.
+  const uploadImage = async (blob) => {
+    if (imageUploadState === 'uploading') return; // 중복 업로드 차단
+    setImageUploadState('uploading');
+    try {
+      const data = await uploadImageAndGetPath(blob);
+      insertAtCursor(`${data.path} `);
+      setImageUploadState(null);
+    } catch (err) {
+      console.error('image upload failed', err);
+      setImageUploadState('error');
+      setTimeout(() => setImageUploadState(null), 2500);
+    }
+  };
+
+  // textarea 붙여넣기 — 클립보드에 이미지가 있으면 가로채 업로드, 텍스트는 기본 동작에 맡긴다.
+  const handleTextareaPaste = (e) => {
+    const imageItem = Array.from(e.clipboardData?.items || []).find(
+      (it) => it.kind === 'file' && it.type.startsWith('image/'),
+    );
+    if (!imageItem) return;
+    const blob = imageItem.getAsFile();
+    if (!blob) return;
+    e.preventDefault();
+    uploadImage(blob);
+  };
+
+  // 📎 버튼 → 숨김 file input 열기. 같은 파일 재선택을 위해 값 리셋 후 업로드.
+  const handleAttachClick = () => fileInputRef.current?.click();
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file && file.type.startsWith('image/')) uploadImage(file);
   };
 
   const handleKeyDown = (e) => {
@@ -300,6 +347,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         @keyframes command-input-skel-shimmer {
           0%   { background-position: 150% center; }
           100% { background-position: -150% center; }
+        }
+        @keyframes command-input-spin {
+          to { transform: rotate(360deg); }
         }
         .command-input-history-list { scrollbar-width: thin; }
         .command-input-history-list::-webkit-scrollbar { width: 6px; }
@@ -367,6 +417,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handleTextareaPaste}
             onBlur={() => {
               requestAnimationFrame(() => {
                 const active = document.activeElement;
@@ -394,6 +445,25 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             style={styles.footerIconBtn}
           />
           <Button variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} style={styles.footerIconBtn} />
+          {/* 이미지 첨부 — 숨김 file input 을 📎 버튼이 연다. 업로드 중엔 스피너로 표시. */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleAttachClick}
+            disabled={imageUploadState === 'uploading'}
+            icon={imageUploadState === 'uploading' ? Loader2 : ImagePlus}
+            title={t?.('attachImage') || '이미지 첨부'}
+            style={imageUploadState === 'uploading' ? { ...styles.footerIconBtn, ...styles.attachSpin } : styles.footerIconBtn}
+          />
           <Button
             variant="ghost"
             size="icon"
@@ -403,6 +473,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             title={t?.('clearInput')}
             style={styles.footerIconBtn}
           />
+          {imageUploadState === 'uploading' && (
+            <span style={styles.uploadStatus}>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
+          )}
+          {imageUploadState === 'error' && (
+            <span style={{ ...styles.uploadStatus, color: `var(--ui-danger, ${color.danger})` }}>
+              {t?.('imageUploadFailed') || '업로드 실패'}
+            </span>
+          )}
           <div style={{ flex: 1 }} />
           {/* 우측 직전 — 음성 입력 토글. 다른 보조 ghost 버튼들과 사이즈/스타일 통일.
               호버/활성 상태는 아이콘 컬러(빨강)로만 표현 — 점/펄스/박스그림자 같은 과한 장식 없이. */}
@@ -626,6 +704,16 @@ const styles = {
   // 푸터 보조 아이콘 버튼(Copy/Paste/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
   // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.
   footerIconBtn: { width: '30px', height: '30px' },
+  // 업로드 중 📎 버튼 전체를 회전시켜 스피너로 보이게(Loader2 아이콘 + 회전).
+  attachSpin: { animation: 'command-input-spin 0.8s linear infinite' },
+  // 업로드 상태 인라인 라벨 — 모바일은 hover title 이 없어 텍스트로 명시.
+  uploadStatus: {
+    fontSize: fontSize['12'],
+    color: `var(--ui-subtext, ${color.subtext})`,
+    whiteSpace: 'nowrap',
+    alignSelf: 'center',
+    marginLeft: space.xs,
+  },
   historyPanel: {
     // 남는 세로 공간을 모두 차지하고 내부 리스트만 스크롤 → 화면 크기에 맞게 열리되 입력창은 안 가림.
     flex: '1 1 auto',
