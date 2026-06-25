@@ -735,11 +735,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       return false;
     });
 
-    // WebGL 렌더러 — 디폴트 ON. 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
+    // WebGL 렌더러 — 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
     // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
     // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
-    // 명시적으로 false 를 저장한 사용자(특정 GPU 이슈 회피용)는 그대로 OFF.
-    const wantWebgl = settings?.useWebgl !== false;
+    // 기본값: 사용자가 명시적으로 끄면 OFF, 켜면 ON. 미설정 시 모바일은 기본 OFF
+    // (저가형 안드로이드 GPU 안정성/배터리), 데스크탑은 ON.
+    const explicitWebgl = settings?.useWebgl;
+    const wantWebgl = explicitWebgl === undefined ? !isMobileRef.current : explicitWebgl !== false;
     wantWebglRef.current = wantWebgl;
     // WebGL 컨텍스트는 활성 탭의 pane 에만 둔다(컨텍스트 고갈 → 브라우저 크래시 방지).
     // attach/detach 를 isActive effect 에서 호출할 수 있게 ref 로 노출.

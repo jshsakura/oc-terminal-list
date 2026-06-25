@@ -53,7 +53,12 @@ export default defineConfig({
             if (id.includes('monaco-editor') || id.includes('@monaco-editor')) return 'monaco-vendor';
             if (id.includes('lucide-react')) return 'icons-vendor';
             if (id.includes('react-dom') || id.includes('react/')) return 'react-vendor';
-            if (id.includes('react-markdown') || id.includes('remark-') || id.includes('unified') || id.includes('micromark') || id.includes('mdast')) return 'markdown-vendor';
+            // react-markdown/unified/remark 는 유일 consumer 가 FileEditor(lazy) 뿬.
+            // 별도 chunk 도, 공통 vendor chunk 도 아니게 → undefined 반환으로
+            // rolldown 이 자동 분할하게 두면 FileEditor chunk 에 inline 된다.
+            // entry 에 re-export 링크가 생기는 것도 막고, terminal-only 모바일
+            // 경로에서 ~45KB(gz) 가 빠진다.
+            if (id.includes('react-markdown') || id.includes('remark-') || id.includes('unified') || id.includes('micromark') || id.includes('mdast')) return undefined;
             return 'vendor';
           }
         },

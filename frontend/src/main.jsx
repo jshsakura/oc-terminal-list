@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+import { isPhoneViewport } from './utils/tabModel'
 
 // 백스페이스로 브라우저 뒤로가기가 발생하지 않게 앱 코드에서 처리한다.
 document.addEventListener('keydown', (event) => {
@@ -38,9 +39,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(
 // Monaco 에디터(~2.5MB)는 시작 경로에서 제외 — 모바일 초기 로딩바가 이걸 기다리지 않게.
 // 대신 앱이 뜬 뒤 한가할 때 FileEditor 청크(=monaco-vendor)를 백그라운드로 미리 받아둔다.
 // → 사용자가 에디터를 열 땐 보통 이미 캐시돼 있어 빠르게 열린다. (오프라인/실패는 무시)
+// 모바일은 모바일 데이터/배터리 낭비 + 에디터를 거의 안 쓰므로 warm-up 스킵. 에디터를 열면 그때 받는다.
 const warmEditor = () => { import('./components/FileEditor').catch(() => {}) }
-if ('requestIdleCallback' in window) {
-  requestIdleCallback(warmEditor, { timeout: 5000 })
-} else {
-  setTimeout(warmEditor, 3000)
+if (!isPhoneViewport()) {
+  if ('requestIdleCallback' in window) {
+    requestIdleCallback(warmEditor, { timeout: 5000 })
+  } else {
+    setTimeout(warmEditor, 3000)
+  }
+}
+
+// Service Worker — 정적 자원 app shell 캐싱으로 모바일 콜드 로드 최소화.
+// production 빌드에서만 등록. 실패해도 앱 동작엔 영향 없게 silent.
+// API/WS/auth는 SW 내부에서 캐시하지 않는다(network-only).
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {})
+  })
 }

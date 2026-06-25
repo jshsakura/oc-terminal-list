@@ -3304,13 +3304,17 @@ if STATIC_DIR.exists():
         lower = p.lower()
         return any(lower.endswith(ext) for ext in _ASSET_LIKE_EXTS)
 
+    # SW 는 항상 최신이어야 — 갱신 지연(24h) 은 업데이트 정체/구 캐시 고착 원인.
+    NO_CACHE_FILES = {"sw.js"}
+
     @app.get("/{full_path:path}")
     async def catch_all(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("ws/"):
             raise HTTPException(status_code=404, detail="Not found")
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
-            return FileResponse(str(file_path), headers=FILE_CACHE_HEADERS)
+            headers = NO_CACHE_HEADERS if full_path in NO_CACHE_FILES else FILE_CACHE_HEADERS
+            return FileResponse(str(file_path), headers=headers)
         if _is_asset_like(full_path):
             raise HTTPException(status_code=404, detail="Not found")
         # SPA fallback 도 no-cache (라우팅 경로 어디로 와도 최신 index)
@@ -3322,7 +3326,8 @@ if STATIC_DIR.exists():
             raise HTTPException(status_code=404, detail="Not found")
         file_path = STATIC_DIR / full_path
         if file_path.is_file():
-            return Response(status_code=200)
+            headers = NO_CACHE_HEADERS if full_path in NO_CACHE_FILES else None
+            return Response(status_code=200, headers=headers)
         if _is_asset_like(full_path):
             raise HTTPException(status_code=404, detail="Not found")
         return Response(status_code=200, headers=NO_CACHE_HEADERS)
