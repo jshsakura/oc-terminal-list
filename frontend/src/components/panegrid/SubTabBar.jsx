@@ -5,12 +5,14 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Server, Monitor, Plus } from 'lucide-react';
+import { Server, Monitor, Plus, MoreHorizontal, Edit3, X } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
 import { buildThemeUI } from '../../styles/themeUI';
 import HostIcon from '../../utils/hostIcons';
 import useTouchDragReorder from '../../hooks/useTouchDragReorder';
+import { MenuItem } from '../tabBar/TabBarMenus';
+import { glassMenuStyle } from '../../styles/glass';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
@@ -19,7 +21,9 @@ const SubTabBar = ({
   settings = {}, tabColorIndex, activeThemeId = null, onSelect, onClose, onReorder = null, onRenamePane = null, onSplitPane = null, t,
 }) => {
   const scrollRef = useRef(null);
-  const [ctxMenu, setCtxMenu] = useState(null);
+  const [ctxMenu, setCtxMenu] = useState(null); // { paneId, x, y }
+  const [ctxPos, setCtxPos] = useState({ x: 0, y: 0 });
+  const [ctxMeasured, setCtxMeasured] = useState(false);
   const ctxRef = useRef(null);
   const ctxCloseRef = useRef(() => setCtxMenu(null));
   ctxCloseRef.current = () => setCtxMenu(null);
@@ -81,6 +85,23 @@ const SubTabBar = ({
     return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('touchstart', handle); document.removeEventListener('keydown', handleKey); };
   }, [!!ctxMenu]);
 
+  // 메뉴 엘리먼트를 잰 뒤 뷰포트 안으로 밀어넣는다. measured 가 false 인 동안 opacity:0
+  // 으로 렌더해 자리를 잡고, 위치가 확정되면 보여준다 (한 프레임 점멸 방지 — AGENTS.md #1).
+  useEffect(() => {
+    if (!ctxMenu) { setCtxMeasured(false); return; }
+    if (!ctxRef.current) return;
+    const rect = ctxRef.current.getBoundingClientRect();
+    const margin = 8;
+    let nx = ctxMenu.x;
+    let ny = ctxMenu.y;
+    if (nx + rect.width > window.innerWidth - margin) nx = window.innerWidth - rect.width - margin;
+    if (nx < margin) nx = margin;
+    if (ny + rect.height > window.innerHeight - margin) ny = window.innerHeight - rect.height - margin;
+    if (ny < margin) ny = margin;
+    setCtxPos({ x: nx, y: ny });
+    setCtxMeasured(true);
+  }, [ctxMenu]);
+
   return (
     <>
       <style>{`
@@ -108,6 +129,38 @@ const SubTabBar = ({
           pointerEvents: 'none',
         }}>
           {labelTip.label}
+        </div>,
+        document.body
+      )}
+      {ctxMenu && createPortal(
+        <div
+          ref={ctxRef}
+          style={{
+            position: 'fixed',
+            top: ctxPos.y,
+            left: ctxPos.x,
+            ...glassMenuStyle(),
+            zIndex: 300000,
+            minWidth: '130px',
+            fontFamily: font.sans,
+            opacity: ctxMeasured ? 1 : 0,
+          }}
+        >
+          {onRenamePane && (
+            <MenuItem
+              icon={Edit3}
+              onClick={() => { const id = ctxMenu.paneId; ctxCloseRef.current(); onRenamePane(id); }}
+            >
+              {t?.('rename') || 'Rename'}
+            </MenuItem>
+          )}
+          <MenuItem
+            danger
+            icon={X}
+            onClick={() => { const id = ctxMenu.paneId; ctxCloseRef.current(); onClose(id); }}
+          >
+            {t?.('close') || 'Close'}
+          </MenuItem>
         </div>,
         document.body
       )}
@@ -163,6 +216,10 @@ const SubTabBar = ({
               onClick={(e) => {
                 if (isActive) showLabelTip(label, e.currentTarget);
                 onSelect(pane.id);
+              }}
+              onContextMenu={(e) => {
+                e.preventDefault();
+                setCtxMenu({ paneId: pane.id, x: e.clientX, y: e.clientY });
               }}
               style={{
                 display: 'flex',
@@ -256,6 +313,37 @@ const SubTabBar = ({
               >
                 {label}
               </span>
+              {/* 더보기(⋮) — 활성 서브탭에만. 모바일에선 우클릭이 안 되므로 이 버튼으로
+                  rename/close 컨텍스트 메뉴에 접근한다. 메인탭(MoreHorizontal) 과 동일 패턴. */}
+              {isActive && (
+                <button
+                  data-pane-more="true"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setCtxMenu({ paneId: pane.id, x: r.right, y: r.bottom + 4 });
+                  }}
+                  onTouchStart={(e) => e.stopPropagation()}
+                  onTouchEnd={(e) => e.stopPropagation()}
+                  title={t?.('more') || 'More'}
+                  style={{
+                    flexShrink: 0,
+                    width: '16px',
+                    height: '16px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'transparent',
+                    border: 'none',
+                    color: paneUi.subtext,
+                    cursor: 'pointer',
+                    borderRadius: '3px',
+                    padding: 0,
+                  }}
+                >
+                  <MoreHorizontal size={12} strokeWidth={2} />
+                </button>
+              )}
             </div>
           );
         })}

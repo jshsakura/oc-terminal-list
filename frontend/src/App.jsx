@@ -107,11 +107,17 @@ function App() {
     // 호스트/로컬 메타가 바뀌면(이름/아이콘/색/테마 변경) 탭에 즉시 반영 — tab 객체에 캡처된 값은
     // 생성 시점 스냅샷이라 사용자가 호스트 편집해도 안 따라가던 문제 해결.
     if (host) {
+      // 활성 pane 의 실제 호스트를 따라간다 — 한 탭(예: oci) 에서 분할 pane 들을 다른 호스트
+      // (예: 라즈베리파이5) 로 연결해도 메인 탭 이름이 최초 호스트로 굳어 어리버리해지는 걸 막는다.
+      // 사용자가 직접 이름을 지정(manualName) 했으면 그게 우선. 색(color_index)은 탭 정체성으로 유지.
+      const activePane = tt.panes?.find((p) => p.id === tt.activePaneId) || tt.panes?.[0] || null;
+      const activeHost = activePane?.hostId ? hosts.find((h) => h.id === activePane.hostId) : null;
+      const derivedHost = activeHost || host;
       return {
         ...tt,
         isPersistent,
-        name: host.name || tt.name,
-        icon: host.icon ?? tt.icon ?? null,
+        name: tt.manualName ? tt.name : (derivedHost.name || tt.name),
+        icon: derivedHost.icon ?? tt.icon ?? null,
         color_index: host.color_index ?? tt.color_index ?? 0,
       };
     }
