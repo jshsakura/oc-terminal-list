@@ -26,6 +26,11 @@ from vault import decrypt_str
 logger = logging.getLogger(__name__)
 
 DEFAULT_REMOTE_TMUX_SESSION = "mobile"
+# 원격 tmux 스크롤백 한도. 로컬(tmux_manager.DEFAULT_HISTORY_LIMIT=100000)과 맞춘다.
+# 미설정 시 tmux 시스템 기본 2000 줄에 묶여, 스크롤 시 이전 내용이 금방 날아간다.
+# 반드시 new-session 전에 -g(전역)로 걸어야 새 세션의 첫 pane 이 이 한도를 물려받는다
+# (history-limit 은 pane 생성 시점에 고정되며 이후 변경은 기존 pane 에 소급 적용 안 됨).
+REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "100000"))
 CONNECT_TIMEOUT = 15  # 초
 # RPi5 등 wifi/배터리 호스트의 idle drop 빠르게 감지 — 15s × 4 = 1분 안에 끊긴 것 검출.
 KEEPALIVE_INTERVAL = 15
@@ -111,7 +116,11 @@ def _build_remote_command(
     # copy-mode 스크롤을 담당한다. plain drag 선택은 frontend 의 보정층에서 처리한다.
     return (
         f"command -v tmux >/dev/null 2>&1 && {{ "
+        # history-limit 은 new-session 보다 먼저 전역(-g)으로 걸어야 새 세션의 첫 pane 이 물려받는다.
+        f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} >/dev/null 2>&1; "
         f"{create_clause}"
+        # 기존 세션에도 세션 옵션으로 한 번 더 — 이 세션에서 새로 여는 window/pane 이 큰 한도를 받게 한다.
+        f"tmux set-option -t {safe} history-limit {REMOTE_HISTORY_LIMIT} >/dev/null 2>&1; "
         f"tmux set-option -t {safe} aggressive-resize on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} mouse on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
