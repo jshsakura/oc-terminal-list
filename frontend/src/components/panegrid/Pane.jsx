@@ -644,7 +644,11 @@ const Pane = ({
                 {t?.('confirmClosePane') || 'Close this pane?'}
               </div>
               <div style={{ fontSize: fontSize['11'], color: `var(--ui-subtext, ${color.subtext})`, lineHeight: 1.5 }}>
-                {t?.('confirmClosePaneDesc') || 'The terminal session will end.'}
+                {/* 멀티 pane = 이 pane 세션을 바로 종료(kill). 단일 pane = 탭 닫기로 위임돼
+                    다음 단계에서 유지/종료를 다시 고르므로 "종료" 단정 대신 안내 문구. */}
+                {paneCount > 1
+                  ? (t?.('confirmClosePaneDesc') || "This pane's session ends — it can't be reopened from Home.")
+                  : (t?.('confirmClosePaneSingleDesc') || 'Next: choose to keep the session running or terminate it.')}
               </div>
             </div>
             <div style={{ display: 'flex', gap: space['2'], width: '100%' }}>

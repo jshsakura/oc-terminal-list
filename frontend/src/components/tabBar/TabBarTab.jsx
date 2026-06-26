@@ -136,17 +136,27 @@ export const Tab = memo(({
         )}
       </span>
       {isPendingClose ? (
-        /* 인라인 close 확인 — 탭 이름 자리를 차지 */
+        /* 인라인 close 확인 — 탭 이름 자리를 차지. 닫으면 세션이 살아남는지(유지) 종료되는지를
+           라벨에 명시해 "닫으면 죽나?" 혼란을 없앤다. 동작은 closeTab(skipConfirm) 그대로. */
         <>
-          <span style={{ flex: 1, fontSize: '10px', color: color.subtext, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1 }}>
-            {t?.('closeTab') || 'Close?'}
+          <span
+            style={{ flex: 1, fontSize: '10px', color: color.subtext, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1 }}
+            title={tab?.closeKeepsSession !== false
+              ? (t?.('closeTabKeepHint') || 'Session keeps running — reopen from Home')
+              : (t?.('closeTabEndHint') || 'Session ends — running work will be lost')}
+          >
+            {tab?.closeKeepsSession !== false
+              ? (t?.('closeTabKeep') || 'Close (keep)')
+              : (t?.('closeTabEnd') || 'Close (end)')}
           </span>
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onConfirmClose?.(tab.id); }}
             onTouchStart={(e) => e.stopPropagation()}
             style={{ ...styles.miniBtn, background: color.accent, color: color.crust, border: 'none', flexShrink: 0 }}
-            title={t?.('confirm') || 'Confirm'}
+            title={tab?.closeKeepsSession !== false
+              ? (t?.('closeTabKeepHint') || 'Session keeps running — reopen from Home')
+              : (t?.('closeTabEndHint') || 'Session ends — running work will be lost')}
           >
             <Check size={10} strokeWidth={2.5} />
           </button>

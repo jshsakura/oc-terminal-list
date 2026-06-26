@@ -50,6 +50,15 @@ const CommandInput    = lazy(() => import('./components/CommandInput'));
 
 const { color, font, fontSize, fontWeight, space } = tokens;
 
+// 탭을 닫으면 tmux 세션이 살아남는가(detach=true) 아니면 종료되는가(false).
+// pane 중 하나라도 'tmux 꺼진 원격'이면 작업이 소실되므로 종료(false). 로컬 pane 은 항상 tmux.
+// closeTab 의 실제 분기와 탭 칩의 안내 문구가 같은 기준을 쓰도록 한 곳에 둔다(DRY).
+const tabCloseKeepsSession = (tab, hosts) => !(tab?.panes || []).some((p) => {
+  if (!p.hostId) return false;
+  const h = hosts.find((hh) => hh.id === p.hostId);
+  return h && !h.use_remote_tmux;
+});
+
 
 function App() {
   // useAuth 를 먼저 — isAuthenticated 가 useSettings 의 fetch 트리거 dep 으로 들어간다.
@@ -104,6 +113,8 @@ function App() {
   const tabsWithMeta = useMemo(() => tabs.map((tt) => {
     const host = tt.type === 'host' ? hosts.find((h) => h.id === tt.hostId) : null;
     const isPersistent = tt.type === 'local' || !!host?.use_remote_tmux;
+    // 닫기 칩 안내 문구용 — 닫아도 세션이 살아남는지(detach) 모든 pane 기준으로 판정.
+    const closeKeepsSession = tabCloseKeepsSession(tt, hosts);
     // 호스트/로컬 메타가 바뀌면(이름/아이콘/색/테마 변경) 탭에 즉시 반영 — tab 객체에 캡처된 값은
     // 생성 시점 스냅샷이라 사용자가 호스트 편집해도 안 따라가던 문제 해결.
     if (host) {
@@ -116,6 +127,7 @@ function App() {
       return {
         ...tt,
         isPersistent,
+        closeKeepsSession,
         name: tt.manualName ? tt.name : (derivedHost.name || tt.name),
         icon: derivedHost.icon ?? tt.icon ?? null,
         color_index: host.color_index ?? tt.color_index ?? 0,
@@ -125,13 +137,14 @@ function App() {
       return {
         ...tt,
         isPersistent,
+        closeKeepsSession,
         // 로컬은 사용자가 Settings → This machine 에서 바꾼 값을 따라가도록.
         name: (settings.localName || '').trim() || tt.name || 'terminal',
         icon: settings.localIcon || tt.icon || null,
         color_index: settings.localColorIndex ?? tt.color_index ?? 0,
       };
     }
-    return { ...tt, isPersistent };
+    return { ...tt, isPersistent, closeKeepsSession };
   }), [tabs, hosts, settings.localName, settings.localIcon, settings.localColorIndex]);
 
   // ── open / close tabs ─────────────────────────────────────────────────────
@@ -739,12 +752,7 @@ function App() {
 
     // tmux 가 살아있으면 detach = 그냥 탭만 닫기 (홈 Resumable 에서 다시 열기 가능).
     // tmux 가 없는 pane 이 하나라도 있으면 작업이 소실되므로 detach 옵션 없음.
-    const hasNoTmuxPane = (tab.panes || []).some((p) => {
-      if (!p.hostId) return false;
-      const h = hosts.find((hh) => hh.id === p.hostId);
-      return h && !h.use_remote_tmux;
-    });
-    const canDetach = !hasNoTmuxPane;
+    const canDetach = tabCloseKeepsSession(tab, hosts);
 
     if (skipConfirm) {
       // 빠른 닫기 (휠 클릭 인라인 confirm) — tmux 있으면 안전하게 detach, 없으면 terminate.
