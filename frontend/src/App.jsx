@@ -750,6 +750,12 @@ function App() {
 
     const closeAndTerminate = () => { terminateSessions(); removeTabOnly(); };
 
+    // 살아있는 세션이 하나도 없는 빈/신규 탭은 물어볼 게 없다 — 바로 닫는다.
+    // (단일 빈 pane 의 X 가 closePane→closeTab 으로 위임될 때 무의미한 '세션 종료' 모달 방지.)
+    const hasLiveSession = !!tab.sessionId || !!tab.hostId
+      || (tab.panes || []).some((p) => p.sessionId || p.hostId);
+    if (!hasLiveSession) { removeTabOnly(); return; }
+
     // tmux 가 살아있으면 detach = 그냥 탭만 닫기 (홈 Resumable 에서 다시 열기 가능).
     // tmux 가 없는 pane 이 하나라도 있으면 작업이 소실되므로 detach 옵션 없음.
     const canDetach = tabCloseKeepsSession(tab, hosts);

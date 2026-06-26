@@ -428,6 +428,8 @@ const Pane = ({
           pointerEvents: 'none',
         }}
       >
+        {/* onCloseTerminal: 단일 pane(=곧 탭)·빈 pane 은 closeTab(유지/종료 선택 모달)으로 위임해
+            오버레이+탭모달 이중 확인을 없앤다. 멀티 pane 만 인라인 오버레이로 해당 pane 세션 kill. */}
         <TerminalHeader
           isFocused={isFocused}
           showFocusEye={isMultiple}
@@ -471,7 +473,7 @@ const Pane = ({
           onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null, { tabId: tab?.id, paneId: pane.id })}
           onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
           onRefreshCwd={refreshPaneCwd}
-          onCloseTerminal={isEmpty ? onClose : () => setPendingClose(true)}
+          onCloseTerminal={(isEmpty || paneCount <= 1) ? onClose : () => setPendingClose(true)}
           settings={settings}
           updateSettings={updateSettings}
           paneThemeId={effectiveThemeId}
@@ -644,11 +646,8 @@ const Pane = ({
                 {t?.('confirmClosePane') || 'Close this pane?'}
               </div>
               <div style={{ fontSize: fontSize['11'], color: `var(--ui-subtext, ${color.subtext})`, lineHeight: 1.5 }}>
-                {/* 멀티 pane = 이 pane 세션을 바로 종료(kill). 단일 pane = 탭 닫기로 위임돼
-                    다음 단계에서 유지/종료를 다시 고르므로 "종료" 단정 대신 안내 문구. */}
-                {paneCount > 1
-                  ? (t?.('confirmClosePaneDesc') || "This pane's session ends — it can't be reopened from Home.")
-                  : (t?.('confirmClosePaneSingleDesc') || 'Next: choose to keep the session running or terminate it.')}
+                {/* 이 오버레이는 멀티 pane 에서만 뜬다(단일 pane 은 탭 닫기로 위임) → 항상 kill. */}
+                {t?.('confirmClosePaneDesc') || "This pane's session ends — it can't be reopened from Home."}
               </div>
             </div>
             <div style={{ display: 'flex', gap: space['2'], width: '100%' }}>

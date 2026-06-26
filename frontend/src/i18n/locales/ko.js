@@ -583,7 +583,6 @@ export const ko = {
     closePane: '패널 닫기',
     confirmClosePane: '이 패널을 닫을까요?',
     confirmClosePaneDesc: '이 패널의 세션이 종료됩니다 — 홈에서 다시 열 수 없어요.',
-    confirmClosePaneSingleDesc: '다음 단계에서 세션 유지/종료를 선택합니다.',
     confirmClosePaneNoTmux: '이 패널을 닫을까요? tmux 꺼져있어 작업 소실.',
     killTmuxServer: '원격 tmux 서버 종료',
     killTmuxServerHint: '망가진 tmux 상태 한번에 청소. 다음 접속 시 새 서버에 새 세션.',

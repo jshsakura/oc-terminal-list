@@ -586,7 +586,6 @@ export const en = {
     closePane: 'Close pane',
     confirmClosePane: 'Close this pane?',
     confirmClosePaneDesc: "This pane's session ends — it can't be reopened from Home.",
-    confirmClosePaneSingleDesc: 'Next: choose to keep the session running or terminate it.',
     confirmClosePaneNoTmux: 'Close this pane? Work will be lost (tmux off).',
     killTmuxServer: 'Kill remote tmux server',
     killTmuxServerHint: 'Wipes any broken tmux state. Next connect spawns a fresh server.',
