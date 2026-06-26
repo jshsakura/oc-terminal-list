@@ -25,6 +25,14 @@ export const LOAD_STUCK_MS = 8000;
 // 클라이언트가 ping 을 보내고 서버 pong(또는 그 외 메시지) 을 일정 시간 못 받으면 죽은 소켓으로 보고 강제 재연결.
 export const HEARTBEAT_INTERVAL_MS = 15000;
 export const HEARTBEAT_DEAD_MS = 35000;
+// 활성·가시 탭의 빠른 하트비트 — "포커스한 채 타이핑·탭전환 없이 가만히 보는" 사각지대 전용.
+// 이 창에선 입력 probe·resume probe·워치독이 모두 안 걸려 오직 하트비트만 동작하는데,
+// 기본 15s/35s 로는 half-open 소켓 감지에 ~45s 가 걸려 화면이 멈춘 듯 보인다. 활성 pane 에
+// 한해 ping 을 8s 로, dead 임계를 18s 로 좁혀 ~20s 안에 자동 복구한다. ping 이 빨라지는 건
+// 보고 있는 활성 pane 하나뿐이라 공유 터널 부하는 최소. hidden/비활성 pane 은 위 기본값을
+// 백스톱으로 그대로 쓴다(hidden 은 grace-close 가, 비활성 복귀는 resume probe 가 따로 책임).
+export const HEARTBEAT_INTERVAL_ACTIVE_MS = 8000;
+export const HEARTBEAT_DEAD_ACTIVE_MS = 18000;
 // 복귀(focus/visibility) 프로브 판정 시간. 살아있는 소켓 pong 은 보통 1초 미만이라
 // 길게 잡을 필요가 없다. 포커스 순간 빠른 복구를 위해 짧게 — 그래도 typical RTT 의 5배+.
 export const RESUME_PROBE_TIMEOUT_MS = 2500;

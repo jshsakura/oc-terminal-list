@@ -34,7 +34,8 @@ import {
   _textDecoder, _textEncoder,
   RECOVERY_GRACE_MS, RECOVERY_POLL_MS, TAKEOVER_CONFIRM_MS, TAKEOVER_CONFIRM_POLL_MS,
   MAX_RECONNECT_ATTEMPTS, RECONNECT_MAX_WALL_MS, AUTO_CLOSE_MS, LOAD_STUCK_MS,
-  HEARTBEAT_INTERVAL_MS, HEARTBEAT_DEAD_MS, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_THROTTLE_MS,
+  HEARTBEAT_INTERVAL_MS, HEARTBEAT_DEAD_MS, HEARTBEAT_INTERVAL_ACTIVE_MS, HEARTBEAT_DEAD_ACTIVE_MS,
+  RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_THROTTLE_MS,
   WS_TICKET_USE_MARGIN_MS, HEALTHY_RECV_MS, NOTICE_SHOW_DELAY_MS, MAX_PENDING_WRITE_BYTES,
   WEBGL_DETACH_GRACE_MS, WEBGL_IDLE_RELEASE_MS, CONNECT_OPEN_TIMEOUT_MS, RECONNECT_STABLE_RESET_MS,
   RECONNECT_WATCHDOG_POLL_MS, RECONNECT_ESCALATE_MS, WASM_ALLOWED, TMUX_WHEEL_INPUT_RE,
@@ -1311,14 +1312,17 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           // 인증 prompt 중에는 사용자가 응답 중이라 끊지 않는다.
           if (document.hidden || authPromptRef.current) return;
           if (socket.readyState !== WebSocket.OPEN) return;
+          // 여기 도달 = 가시 탭. 보고 있는 활성 pane 은 짧은 dead 임계로 빠르게 감지하고,
+          // 같은 탭의 비활성 pane 은 기본(긴) 임계를 백스톱으로 둔다(복귀 시 resume probe 가 책임).
+          const deadMs = isActiveRef.current ? HEARTBEAT_DEAD_ACTIVE_MS : HEARTBEAT_DEAD_MS;
           // 서버 응답(pong 등)이 임계 시간 넘게 없으면 half-open 으로 보고 강제 close → onclose 가 재연결.
-          if (Date.now() - lastRecvRef.current > HEARTBEAT_DEAD_MS) {
+          if (Date.now() - lastRecvRef.current > deadMs) {
             if (reconnectAttemptsRef.current < 2) logger.warn(`WS 하트비트 타임아웃 — 죽은 소켓 감지, 재연결: ${sessionId}`);
             try { socket.close(); } catch { /* noop */ }
             return;
           }
           try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
-        }, HEARTBEAT_INTERVAL_MS);
+        }, HEARTBEAT_INTERVAL_ACTIVE_MS);
         heartbeatTimerRef.current = hbId;
 
         // 서버에 현재 크기 무조건 한번 더 전송 — tmux 가 이전 클라이언트 차원으로 잠긴 케이스 강제 갱신.
