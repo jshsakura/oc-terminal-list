@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 TMUX_SOCKET_NAME = os.getenv("TMUX_SOCKET_NAME", "iterminallist-app")
 TMUX_BIN = shutil.which("tmux") or "tmux"
-DEFAULT_HISTORY_LIMIT = int(os.getenv("TMUX_HISTORY_LIMIT", "100000"))
+DEFAULT_HISTORY_LIMIT = int(os.getenv("TMUX_HISTORY_LIMIT", "10000"))
 
 
 @dataclass(frozen=True)

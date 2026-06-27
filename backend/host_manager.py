@@ -26,11 +26,11 @@ from vault import decrypt_str
 logger = logging.getLogger(__name__)
 
 DEFAULT_REMOTE_TMUX_SESSION = "mobile"
-# 원격 tmux 스크롤백 한도. 로컬(tmux_manager.DEFAULT_HISTORY_LIMIT=100000)과 맞춘다.
+# 원격 tmux 스크롤백 한도. 로컬(tmux_manager.DEFAULT_HISTORY_LIMIT=10000)과 맞춘다.
 # 미설정 시 tmux 시스템 기본 2000 줄에 묶여, 스크롤 시 이전 내용이 금방 날아간다.
 # 반드시 new-session 전에 -g(전역)로 걸어야 새 세션의 첫 pane 이 이 한도를 물려받는다
 # (history-limit 은 pane 생성 시점에 고정되며 이후 변경은 기존 pane 에 소급 적용 안 됨).
-REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "100000"))
+REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "10000"))
 CONNECT_TIMEOUT = 15  # 초
 # RPi5 등 wifi/배터리 호스트의 idle drop 빠르게 감지 — 15s × 4 = 1분 안에 끊긴 것 검출.
 KEEPALIVE_INTERVAL = 15
