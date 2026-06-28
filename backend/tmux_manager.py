@@ -119,7 +119,18 @@ class TmuxManager:
             logger.debug("tmux session already exists: %s", session_id)
             return
 
+        # history-limit 은 pane 생성(new-session) 시점에 버퍼 크기가 고정된다 — 나중에
+        # set-option 으로 키워도 이미 만들어진 '첫 pane' 엔 소급 적용 안 돼 스크롤백이
+        # 전역 기본값(2000)에 묶인다. 그래서 new-session 보다 먼저 전역(-g)으로 걸어야 한다.
+        #
+        # ⚠️  단, tmux 3.4 에서 `set-option -g` 는 서버가 없으면 '띄우지 않고' 에러로 끝난다
+        # (start-server 만으로도 세션이 없으면 서버가 즉시 종료됨). 따라서 set-option 과
+        # new-session 을 '같은 한 번의 tmux 호출'로 묶어야 콜드 스타트 첫 세션도 큰 한도를
+        # 물려받는다. 별도 호출 2번으로 나누면 첫 set-option 이 no-op 되고, new-session 이
+        # 기본값(2000)으로 서버를 띄워 첫 pane 이 2000 에 묶이는 버그가 재발한다.
+        # (argv 안의 ";" 는 tmux 명령 구분자 — 셸이 아니라 tmux 가 해석한다.)
         args = [
+            "set-option", "-g", "history-limit", str(self.history_limit), ";",
             "new-session", "-d",
             "-s", session_id,
             "-x", str(max(cols, 1)),
@@ -131,12 +142,6 @@ class TmuxManager:
         # 셸을 명시하면 첫 윈도우의 명령으로 사용. 미지정 시 사용자 기본 셸.
         if shell:
             args.append(shell)
-
-        # history-limit 은 pane 생성(new-session) 시점에 버퍼 크기가 고정된다 — 아래 opts 처럼
-        # set-option 으로 나중에 키워도 이미 만들어진 '첫 pane' 엔 소급 적용 안 돼 스크롤백이
-        # 전역 기본값(2000)에 묶인다. 그래서 new-session 보다 먼저 전역(-g)으로 걸어 첫 pane 이
-        # 큰 한도를 물려받게 한다. (set-option -g 는 서버가 없으면 띄우며 옵션을 심는다.)
-        await self._run("set-option", "-g", "history-limit", str(self.history_limit), check=False)
 
         # ⚠️  new-session은 tmux 서버를 daemonize 하므로 stdout/stderr를 잡으면 hang.
         # capture=False 로 DEVNULL 리다이렉트하고, has-session으로 사후 확인.

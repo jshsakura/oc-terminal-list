@@ -102,8 +102,14 @@ def _build_remote_command(
     safe = shlex.quote(tmux_session or DEFAULT_REMOTE_TMUX_SESSION)
     cwd_arg = f" -c {_shell_path(start_path)}" if start_path else ""
     cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
+    # 콜드 스타트 첫 세션이 2000 에 묶이지 않도록 set-option -g 와 new-session 을 '한 번의
+    # tmux 호출'로 묶는다. 별도 프로세스로 나누면 set-option -g 가 no-op 되고 new-session 이
+    # 기본값으로 서버를 띄워 첫 pane 한도가 2000 으로 고정된다. `\;` 는 셸이 tmux 에 리터럴
+    # ";" 를 넘겨 tmux 명령 구분자로 쓰이게 한다.
     create_clause = (
-        f"tmux has-session -t {safe} 2>/dev/null || tmux new-session -d -s {safe}{cwd_arg}; "
+        f"tmux has-session -t {safe} 2>/dev/null || "
+        f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} \\; "
+        f"new-session -d -s {safe}{cwd_arg}; "
         if create_session
         else (
             f"tmux has-session -t {safe} 2>/dev/null || "
