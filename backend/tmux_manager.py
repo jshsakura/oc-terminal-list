@@ -192,12 +192,25 @@ class TmuxManager:
             "send-keys PageDown", "",
             check=False,
         )
-        # tmux 기본 WheelUpPane 은 root table 에서 copy-mode 진입만 하고 실제 scroll-up 을
-        # 하지 않아 웹에서는 "히스토리가 없는 것처럼" 미세하게만 움직인다. 첫 wheel 부터
-        # copy-mode 진입과 스크롤을 같이 수행하도록 명시한다.
+        # WheelUp/Down: alternate_on 으로 분기해야 한다(PageUp 바인딩과 동일한 원리).
+        #   - alt-screen 앱(claude/vim/less/htop …): 휠을 `send-keys -M` 으로 앱에 그대로
+        #     전달 → 앱이 자기 스크롤을 처리한다. 여기서 copy-mode 로 들어가면 alt 버퍼엔
+        #     스크롤백이 없어 "휠 올려도 아무것도 안 움직이는" 것처럼 보이고 앱에도 전달 안 됨.
+        #     (mouse off+PgUp→mouse on+SGR휠 전환 때 이 분기를 빠뜨려 claude 안에서 스크롤이
+        #      통째로 죽었던 회귀 버그.)
+        #   - 일반 셸(normal buffer): copy-mode 진입 + scroll-up 으로 스크롤백을 올린다.
         await self._run(
             "bind-key", "-T", "root", "WheelUpPane",
-            "copy-mode -e; send-keys -X -N 5 scroll-up",
+            "if-shell", "-F", "#{alternate_on}",
+            "send-keys -M", "copy-mode -e; send-keys -X -N 5 scroll-up",
+            check=False,
+        )
+        # copy-mode 밖(normal buffer)에서의 WheelDown: alt-screen 이면 앱에 전달, 아니면 무동작
+        # (이미 맨 아래라 내릴 게 없음). copy-mode 안에서의 휠은 아래 copy-mode 테이블이 처리.
+        await self._run(
+            "bind-key", "-T", "root", "WheelDownPane",
+            "if-shell", "-F", "#{alternate_on}",
+            "send-keys -M", "",
             check=False,
         )
         await self._run(

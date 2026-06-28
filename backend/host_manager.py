@@ -135,6 +135,12 @@ def _build_remote_command(
         f"tmux set-option -ag -t {safe} terminal-overrides ',*256col*:Tc' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageUp if-shell -F '#{{alternate_on}}' 'send-keys PageUp' 'copy-mode -eu' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageDown if-shell -F '#{{alternate_on}}' 'send-keys PageDown' '' >/dev/null 2>&1; "
+        # 휠도 PageUp 과 동일 분기: alt-screen 앱이면 휠을 앱에 전달(send -M), 일반 셸이면
+        # copy-mode 진입+scroll. (로컬과 동일 — claude 등 풀스크린 앱 안에서 휠 스크롤 보장)
+        f"tmux bind-key -T root WheelUpPane if-shell -F '#{{alternate_on}}' 'send-keys -M' 'copy-mode -e; send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "
+        f"tmux bind-key -T root WheelDownPane if-shell -F '#{{alternate_on}}' 'send-keys -M' '' >/dev/null 2>&1; "
+        f"tmux bind-key -T copy-mode WheelUpPane send-keys -X -N 5 scroll-up >/dev/null 2>&1; "
+        f"tmux bind-key -T copy-mode WheelDownPane send-keys -X -N 5 scroll-down >/dev/null 2>&1; "
         f"exec tmux attach-session -t {safe}; "
         f"}} || "
         f"{cd_prefix}exec ${{SHELL:-bash}} -l"
