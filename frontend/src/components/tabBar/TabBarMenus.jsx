@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   ChevronLeft, ChevronRight, Edit3, Copy, LayoutGrid, List,
-  SquareSplitHorizontal, SquareSplitVertical, Grid2x2, X,
+  SquareSplitHorizontal, SquareSplitVertical, Grid2x2, X, Trash2,
   Settings as SettingsIcon, RefreshCw,
 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
@@ -154,10 +154,10 @@ export const TabContextMenu = ({
           </MenuItem>
         </>
       )}
-      <MenuItem onClick={onCloseTab} icon={X}>{t?.('closeTab') || 'Close tab'}</MenuItem>
+      <MenuItem onClick={onCloseTab} icon={X}>{t?.('closeTab') || 'Close tab (keep session)'}</MenuItem>
       {onKillSession && (
-        <MenuItem onClick={onKillSession} danger icon={X}>
-          {t?.('killSession') || 'Kill session'}
+        <MenuItem onClick={onKillSession} danger icon={Trash2}>
+          {t?.('killSession') || 'End session'}
         </MenuItem>
       )}
     </div>

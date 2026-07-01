@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Server, Monitor, Plus, MoreHorizontal, Edit3, X } from 'lucide-react';
+import { Server, Monitor, Plus, MoreHorizontal, Edit3, Trash2 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
 import { buildThemeUI } from '../../styles/themeUI';
@@ -156,10 +156,10 @@ const SubTabBar = ({
           )}
           <MenuItem
             danger
-            icon={X}
+            icon={Trash2}
             onClick={() => { const id = ctxMenu.paneId; ctxCloseRef.current(); onClose(id); }}
           >
-            {t?.('close') || 'Close'}
+            {t?.('killSession') || 'End session'}
           </MenuItem>
         </div>,
         document.body
