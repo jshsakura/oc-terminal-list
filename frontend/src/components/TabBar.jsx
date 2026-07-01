@@ -274,7 +274,7 @@ const TabBar = ({
         canSplit={isCtxActive && canSplit && !!onSplit}
         onSplit={onSplit ? (dir) => { onSplit(dir); setContextMenu(null); } : null}
         onClose={() => setContextMenu(null)}
-        onCloseTab={() => { setPendingCloseTabId(contextMenu.tabId); setContextMenu(null); }}
+        onCloseTab={() => { const id = contextMenu.tabId; setContextMenu(null); onClose?.(id); }}
         onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
         onToggleViewMode={() => { onToggleViewMode?.(contextMenu.tabId); setContextMenu(null); }}
         onMoveLeft={() => {

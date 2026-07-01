@@ -51,25 +51,23 @@ describe('TabBar', () => {
     expect(screen.getByText(/^Settings$/)).toBeInTheDocument();
   });
 
-  it('right-click on tab opens context menu and shows inline close confirmation', () => {
+  it('right-click Close tab triggers the confirm flow via onClose', () => {
+    // 컨텍스트 메뉴의 "Close tab" 은 작은 인라인 chip 대신 onClose(→ 확인 모달)로 바로 간다.
+    // 모바일에서 tiny chip 을 탭하기 어렵던 문제 해소.
     const tabs = [{ id: 'local:1', type: 'local', sessionId: '1', name: 'zsh' }];
-    const onCloseImmediate = vi.fn();
+    const onClose = vi.fn();
     render(
       <TabBar
         tabs={tabs} activeTabId="local:1"
-        onSelect={vi.fn()} onClose={vi.fn()} onCloseImmediate={onCloseImmediate} onHome={vi.fn()}
+        onSelect={vi.fn()} onClose={onClose} onCloseImmediate={vi.fn()} onHome={vi.fn()}
         onOpenKeys={vi.fn()} onOpenSettings={vi.fn()} onLogout={vi.fn()}
       />
     );
     fireEvent.contextMenu(screen.getByText('zsh'));
-    const closeMenuItem = screen.getByText(/Close tab/i);
-    fireEvent.click(closeMenuItem);
-    // Context menu closes; tab enters pending-close state. 탭 닫기 = 내부 세션 전부 종료라
-    // 결과("Close (end)")를 라벨에 명시한다.
-    expect(screen.getByText(/Close \(end\)/i)).toBeInTheDocument();
-    // Confirm(체크 버튼)의 접근명 = 종료 힌트. 취소 버튼(title=Cancel)과 구분해 클릭.
-    fireEvent.click(screen.getByRole('button', { name: /Session ends/i }));
-    expect(onCloseImmediate).toHaveBeenCalledWith('local:1');
+    fireEvent.click(screen.getByText(/Close tab/i));
+    expect(onClose).toHaveBeenCalledWith('local:1');
+    // chip 은 뜨지 않는다(모달 경로로 전환).
+    expect(screen.queryByText(/Close \(end\)/i)).toBeNull();
   });
 
   it('renders tabs and selects on click', () => {
