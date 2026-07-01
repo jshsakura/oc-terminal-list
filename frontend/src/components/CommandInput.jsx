@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2 } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Camera } from 'lucide-react';
 import Button from './common/Button';
+import CameraCapture from './CameraCapture';
 import { tokens } from '../styles/tokens';
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
 import useCommandHistory from '../hooks/useCommandHistory';
@@ -49,6 +50,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const [historyOpen, setHistoryOpen] = useState(false);
   // 이미지 업로드 진행 상태 — null | 'uploading' | 'error'. 모바일은 hover title 이 없어 인라인 표시.
   const [imageUploadState, setImageUploadState] = useState(null);
+  // 라이브 카메라 촬영 오버레이 토글 — 촬영 결과 blob 은 uploadImage 로 흘려 경로 삽입.
+  const [cameraOpen, setCameraOpen] = useState(false);
   // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
   // iOS Safari 는 layout viewport 가 키보드를 무시하기 때문에 absolute/fixed inset:0 만으로는
   // 가운데 정렬이 키보드 밑까지 내려가 입력창 일부가 가려진다.
@@ -367,6 +370,13 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         .ci-modal button:focus, .ci-modal button:focus-visible { outline: none !important; box-shadow: none !important; }
       `}</style>
 
+      <CameraCapture
+        isOpen={cameraOpen}
+        onCapture={uploadImage}
+        onClose={() => setCameraOpen(false)}
+        t={t}
+      />
+
       <div
         ref={modalRef}
         className="ci-modal"
@@ -463,6 +473,16 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             icon={imageUploadState === 'uploading' ? Loader2 : ImagePlus}
             title={t?.('attachImage') || '이미지 첨부'}
             style={imageUploadState === 'uploading' ? { ...styles.footerIconBtn, ...styles.attachSpin } : styles.footerIconBtn}
+          />
+          {/* 라이브 카메라 촬영 — 데스크톱 웹캠/모바일 카메라로 바로 찍어 경로 삽입. */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setCameraOpen(true)}
+            disabled={imageUploadState === 'uploading'}
+            icon={Camera}
+            title={t?.('takePhoto') || '사진 촬영'}
+            style={styles.footerIconBtn}
           />
           <Button
             variant="ghost"
