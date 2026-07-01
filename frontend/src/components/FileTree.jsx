@@ -237,6 +237,22 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     }
   };
 
+  // 업로드 목적지 = "지금 보고 있는/고른 폴더". 폴더를 고르면 그 폴더, 파일을 고르면 그 부모,
+  // 아무것도 안 골랐으면 현재 트리 루트(상위로 이동 시 그 폴더). 헤더 업로드가 늘 루트로만 가던
+  // 혼란을 없앤다. (우클릭 업로드는 대상 노드 경로를 직접 넘겨 그대로 동작.)
+  const uploadTargetPath = useMemo(() => {
+    if (selectedPath) {
+      const type = (Object.values(nodes).flatMap((n) => n.items || []).find((it) => it.path === selectedPath))?.type;
+      if (type === 'directory') return selectedPath;
+      if (type === 'file') return selectedPath.split('/').slice(0, -1).join('/');
+    }
+    const root = rootPath || '';
+    return isHostMode ? (stripHostPathPrefix(resolvedRoot || '') || stripHostPathPrefix(root)) : root;
+  }, [selectedPath, nodes, isHostMode, resolvedRoot, rootPath]);
+  const uploadTargetDisplay = uploadTargetPath
+    ? (isHostMode ? uploadTargetPath : `~/${uploadTargetPath}`)
+    : (isHostMode ? '/' : '~/');
+
   const uploadUrl = isHostMode ? `/api/hosts/${hostId}/files/upload` : '/api/files/upload';
   const { uploadState, uploadFiles: _uploadFilesRaw } = useFileUpload({
     uploadUrl,
@@ -246,17 +262,10 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       else fetchChildren('');
     },
   });
-  const uploadFiles = (files, destPath = null) => {
-    const targetDest = destPath ?? (isHostMode
-      ? (normalizedResolvedRoot || normalizedRootPath || rootPath || '')
-      : (rootPath || ''));
-    return _uploadFilesRaw(files, targetDest);
-  };
+  const uploadFiles = (files, destPath = null) => _uploadFilesRaw(files, destPath ?? uploadTargetPath);
 
   const openUploadPicker = (destPath = null) => {
-    uploadDestRef.current = destPath ?? (isHostMode
-      ? (normalizedResolvedRoot || normalizedRootPath || rootPath || '')
-      : (rootPath || ''));
+    uploadDestRef.current = destPath ?? uploadTargetPath;
     fileInputRef.current?.click();
   };
 
@@ -552,7 +561,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             <HeadAction icon={Filter} title={t('filterChangedOnly')} onClick={() => setFilterChangedOnly(!filterChangedOnly)} active={filterChangedOnly} />
             <HeadAction icon={Plus} title={t('newFile')} onClick={() => startCreate('', 'file')} />
             <HeadAction icon={Folder} title={t('newFolder')} onClick={() => startCreate('', 'directory')} />
-            <HeadAction icon={Upload} title={t('upload') || 'Upload'} onClick={() => openUploadPicker()} />
+            <HeadAction icon={Upload} title={`${t('upload') || 'Upload'} → ${uploadTargetDisplay}`} onClick={() => openUploadPicker()} />
             <HeadAction icon={Terminal} title={t('openTerminalHere')} onClick={() => onOpenTerminalAtFolder?.(terminalTargetPath)} />
             <HeadAction icon={RefreshCw} title={t('refresh')} onClick={refreshAll} />
           </div>
