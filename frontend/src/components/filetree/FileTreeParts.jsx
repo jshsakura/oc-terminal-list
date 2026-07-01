@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState } from 'react';
 import {
   Folder, FolderOpen, ChevronRight, ChevronDown,
-  Plus, Pencil, Trash2, Terminal, Download, Upload,
+  Plus, Pencil, Trash2, Terminal, Download, Upload, Copy, Type,
 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { glassDividerStyle, glassMenuItemHover } from '../../styles/glass';
@@ -112,7 +112,7 @@ export const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
   </button>
 );
 
-export const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal, onDownload, onUpload }) => {
+export const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, onRename, onDelete, onOpenTerminal, onDownload, onUpload, onCopyPath, onCopyName }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
   const [measured, setMeasured] = useState(false);
@@ -164,6 +164,8 @@ export const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, 
       {target.path && (
         <>
           <div style={glassDividerStyle({}, { margin: '4px 0' })} />
+          <MenuItem icon={Copy} label={t('copyPath') || 'Copy path'} onClick={onCopyPath} />
+          <MenuItem icon={Type} label={t('copyName') || 'Copy name'} onClick={onCopyName} />
           <MenuItem icon={Download} label={t('download') || 'Download'} onClick={onDownload} />
           <MenuItem icon={Pencil} label={t('rename') || 'Rename'} onClick={onRename} />
           <MenuItem icon={Trash2} label={t('delete') || 'Delete'} onClick={onDelete} tone="danger" />

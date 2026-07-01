@@ -21,6 +21,25 @@ const { color, font, fontSize, fontWeight } = tokens;
 // 트리 내부 드래그(=이동) 식별용 MIME. 외부 파일 드롭(=업로드, 'Files' 타입)과 구분한다.
 const DND_MIME = 'application/x-filetree-path';
 
+// 클립보드 복사 — navigator.clipboard(비보안 컨텍스트/구형 대비 execCommand 폴백).
+const copyToClipboard = (text) => {
+  if (!text) return;
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    return;
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  } catch { /* noop */ }
+};
+
 
 const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefreshCwd = null, gitContextPath = '', sharedGitChanges = null, language = 'en', initialPath = '', hostId = null }) => {
   const isHostMode = !!hostId;
@@ -765,6 +784,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             setContextMenu(null);
           }}
           onUpload={() => { openUploadPicker(contextMenu.target.path || null); setContextMenu(null); }}
+          onCopyPath={() => { copyToClipboard(contextMenu.target.path || ''); setContextMenu(null); }}
+          onCopyName={() => { copyToClipboard((contextMenu.target.path || '').split('/').pop()); setContextMenu(null); }}
         />,
         document.body
       )}
