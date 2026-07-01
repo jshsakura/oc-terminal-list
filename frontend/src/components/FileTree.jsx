@@ -18,6 +18,9 @@ import { Row, ContextMenu, HeadAction } from './filetree/FileTreeParts';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
+// 트리 내부 드래그(=이동) 식별용 MIME. 외부 파일 드롭(=업로드, 'Files' 타입)과 구분한다.
+const DND_MIME = 'application/x-filetree-path';
+
 
 const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefreshCwd = null, gitContextPath = '', sharedGitChanges = null, language = 'en', initialPath = '', hostId = null }) => {
   const isHostMode = !!hostId;
@@ -31,6 +34,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
   const selectionAnchorRef = useRef(null);
   const [contextMenu, setContextMenu] = useState(null);
+  const [dropTargetPath, setDropTargetPath] = useState(null); // 드래그 이동 중 하이라이트할 폴더 경로
   const [renameTarget, setRenameTarget] = useState(null);
   const [creating, setCreating] = useState(null);
   const [filterChangedOnly, setFilterChangedOnly] = useState(false);
@@ -267,6 +271,58 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const openUploadPicker = (destPath = null) => {
     uploadDestRef.current = destPath ?? uploadTargetPath;
     fileInputRef.current?.click();
+  };
+
+  // ── 드래그 이동 — 트리 내부 파일/폴더를 다른 폴더로 끌어 이동 (백엔드 /files/move) ──
+  const moveItem = async (sourcePath, destFolder) => {
+    if (!sourcePath) return;
+    const name = sourcePath.split('/').pop();
+    const destination = destFolder ? `${destFolder}/${name}` : name;
+    if (destination === sourcePath) return; // 같은 폴더 — no-op
+    if (destFolder === sourcePath || destFolder.startsWith(`${sourcePath}/`)) {
+      alert(t('moveIntoSelf') || "Can't move a folder into itself.");
+      return;
+    }
+    try {
+      const url = isHostMode ? `/api/hosts/${hostId}/files/move` : '/api/files/move';
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ source: sourcePath, destination }),
+      });
+      if (res.status === 409) { alert(t('destExists') || 'A file with that name already exists there.'); return; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const srcParent = sourcePath.split('/').slice(0, -1).join('/');
+      await Promise.all([refreshPath(srcParent), refreshPath(destFolder)]);
+      setSelectedPath(null);
+      setSelectedPaths(new Set());
+    } catch (e) {
+      alert(e.message || 'move failed');
+    }
+  };
+  const handleRowDragStart = (e, row) => {
+    if (!row.path) return;
+    e.dataTransfer.setData(DND_MIME, row.path);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+  const handleRowDragOver = (e, row) => {
+    // 내부 드래그(이동)일 때만 폴더가 드롭 대상. 외부 파일 드롭(업로드)은 루트 핸들러가 처리.
+    if (!e.dataTransfer.types.includes(DND_MIME)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    if (dropTargetPath !== row.path) setDropTargetPath(row.path);
+  };
+  const handleRowDragLeave = (_e, row) => {
+    if (dropTargetPath === row.path) setDropTargetPath(null);
+  };
+  const handleRowDrop = (e, row) => {
+    if (!e.dataTransfer.types.includes(DND_MIME)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDropTargetPath(null);
+    const source = e.dataTransfer.getData(DND_MIME);
+    if (source && row.type === 'directory') moveItem(source, row.path);
   };
 
   const startCreate = (parentPath, type) => {
@@ -667,6 +723,12 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
                 onClick={(e) => handleRowClick(e, row)}
                 onDoubleClick={() => { if (row.type !== 'directory') onFileSelect?.(row.path, hostId); }}
                 onContextMenu={(e) => handleRowContextMenu(e, row)}
+                draggable={!!row.path}
+                onDragStart={(e) => handleRowDragStart(e, row)}
+                onDragOver={row.type === 'directory' ? (e) => handleRowDragOver(e, row) : undefined}
+                onDragLeave={row.type === 'directory' ? (e) => handleRowDragLeave(e, row) : undefined}
+                onDrop={row.type === 'directory' ? (e) => handleRowDrop(e, row) : undefined}
+                isDropTarget={dropTargetPath === row.path}
               />
             )}
             {creating && creating.parentPath === row.path && (expanded.has(row.path) || searchQuery) && (

@@ -10,7 +10,7 @@ import { iconForFile, fileIconColor, gitTone } from './fileTreeHelpers';
 
 const { color, fontWeight } = tokens;
 
-export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu }) => {
+export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu, draggable = false, onDragStart, onDragOver, onDragLeave, onDrop, isDropTarget = false }) => {
   const FileIcon = isFolder ? (isOpen ? FolderOpen : Folder) : iconForFile(name);
   const iconHue = isFolder ? color.accent : fileIconColor(name);
   const nameColor = isChanged && !isFolder ? gitTone(gitStatus || 'M') : tone;
@@ -59,13 +59,19 @@ export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitS
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       style={{
         ...styles.row,
-        background: isSelected ? color.accentSubtle : 'transparent',
+        background: isDropTarget ? color.accentSubtle : (isSelected ? color.accentSubtle : 'transparent'),
+        boxShadow: isDropTarget ? `inset 0 0 0 1px ${color.accent}` : 'none',
         paddingLeft: 4 + depth * 14,
       }}
-      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = color.surface0; }}
-      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+      onMouseEnter={(e) => { if (!isSelected && !isDropTarget) e.currentTarget.style.background = color.surface0; }}
+      onMouseLeave={(e) => { if (!isSelected && !isDropTarget) e.currentTarget.style.background = 'transparent'; }}
     >
       <span style={styles.chevron}>
         {isFolder ? (
