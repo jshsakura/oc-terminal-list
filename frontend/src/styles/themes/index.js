@@ -6,11 +6,13 @@
 import * as partA from './themesPartA';
 import * as partB from './themesPartB';
 import * as partC from './themesPartC';
+import * as partD from './themesPartD';
 
 export * from './commonUI';
 export * from './themesPartA';
 export * from './themesPartB';
 export * from './themesPartC';
+export * from './themesPartD';
 
 const {
   paperColorTheme, rosePineDawnTheme, vscodeLightTheme, tokyoNightDayTheme, flexokiLightTheme, everforestLightTheme, 
@@ -24,7 +26,8 @@ const {
   shadesOfPurpleTheme, cobalt2Theme, monokaiTheme, draculaTheme, oceanicNextTheme, gruvboxDarkTheme, 
   everforestTheme, solarizedDarkTheme, nordTheme, githubDarkTheme, rosePineTheme, gruvboxLightTheme, 
   
-} = { ...partA, ...partB, ...partC };
+  espressoTheme, bloodMoonTheme, matrixTheme, deepSeaTheme, amethystTheme, carbonTheme,
+} = { ...partA, ...partB, ...partC, ...partD };
 
 export const themes = {
   // ── Dark ────────────────────────────────────────────────────────────
@@ -66,6 +69,13 @@ export const themes = {
   // 네온/사이버 계열
   cyberdream:         cyberdreamTheme,
   abyssalEmber:       abyssalEmberTheme,
+  // 색다른 다크 (part D)
+  espresso:           espressoTheme,
+  bloodMoon:          bloodMoonTheme,
+  matrix:             matrixTheme,
+  deepSea:            deepSeaTheme,
+  amethyst:           amethystTheme,
+  carbon:             carbonTheme,
   // ── Light ───────────────────────────────────────────────────────────
   // 흰/크림 계열
   catppuccinLatte:    catppuccinLatteTheme,

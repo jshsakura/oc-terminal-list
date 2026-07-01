@@ -46,6 +46,12 @@ const THEME_LABELS = {
   // Dark — 네온
   cyberdream:          'Cyberdream',
   abyssalEmber:        'Abyssal Ember',
+  espresso:            'Espresso',
+  bloodMoon:           'Blood Moon',
+  matrix:              'Matrix',
+  deepSea:             'Deep Sea',
+  amethyst:            'Amethyst',
+  carbon:              'Carbon',
   // Light
   catppuccinLatte:     'Catppuccin Latte',
   solarizedLight:      'Solarized Light',
