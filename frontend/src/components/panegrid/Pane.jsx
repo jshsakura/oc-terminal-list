@@ -274,11 +274,12 @@ const Pane = ({
     ? paneCwdRel
     : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null);
 
-  // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭 이름 같은 곳에 활용
+  // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭/pane 이름 갱신에 활용.
+  // 원격은 workspace 상대경로가 없으므로 절대경로(paneCwdAbs)도 함께 보내 basename 으로 쓰게 한다.
   useEffect(() => {
     if (!onPaneCwdChange || !pane?.id) return;
-    onPaneCwdChange(pane.id, paneCwdRel ?? '', isLocal);
-  }, [onPaneCwdChange, pane?.id, paneCwdRel, isLocal]);
+    onPaneCwdChange(pane.id, paneCwdRel ?? '', isLocal, paneCwdAbs ?? null);
+  }, [onPaneCwdChange, pane?.id, paneCwdRel, paneCwdAbs, isLocal]);
 
   return (
     <div

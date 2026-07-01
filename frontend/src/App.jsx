@@ -799,28 +799,30 @@ function App() {
   // ── 자동 탭 이름 (Jupyter 식) ────────────────────────────────────────────
   // 활성 pane 의 cwd basename 으로 탭 이름 갱신. 호스트 탭/사용자가 직접 이름 박은 탭
   // (manualName=true) 은 건드리지 않는다.
-  const handlePaneCwdChange = useCallback((paneId, workspaceRel, isLocalPane) => {
+  const handlePaneCwdChange = useCallback((paneId, workspaceRel, isLocalPane, absolutePath = null) => {
     if (!paneId) return;
-    const trimmed = (workspaceRel || '').replace(/\/+$/, '');
+    // 로컬은 workspace 상대경로, 원격은 절대경로 basename 을 이름 소스로 쓴다(주소표시줄과 동일).
+    const source = isLocalPane ? workspaceRel : absolutePath;
+    const trimmed = (source || '').replace(/\/+$/, '');
     const cwdName = trimmed ? trimmed.split('/').pop() : null;
+    if (!cwdName) return; // 루트/홈 등 이름 뽑을 게 없으면 그대로 둔다.
     setTabs((prev) => prev.map((tb) => {
       const paneIdx = (tb.panes || []).findIndex((p) => p.id === paneId);
       if (paneIdx < 0) return tb;
       let next = { ...tb };
-      if (isLocalPane && !tb.manualName) {
-        if (tb.activePaneId === paneId && cwdName && cwdName !== tb.name) {
-          next = { ...next, name: cwdName || (settings.localName || 'workspace') };
-        }
+      // 활성 pane 의 cwd 로 탭 제목 갱신 — 로컬/원격 공통. 사용자가 직접 이름 박은 탭(manualName)은 존중.
+      if (!tb.manualName && tb.activePaneId === paneId && cwdName !== tb.name) {
+        next = { ...next, name: cwdName };
       }
       const pane = next.panes[paneIdx];
-      if (!pane.manualName && cwdName && cwdName !== pane.name) {
+      if (!pane.manualName && cwdName !== pane.name) {
         const newPanes = [...next.panes];
         newPanes[paneIdx] = { ...pane, name: cwdName };
         next = { ...next, panes: newPanes };
       }
       return next === tb ? tb : next;
     }));
-  }, [settings.localName]);
+  }, []);
 
   const handleRenamePane = useCallback((tabId, paneId) => {
     const newName = prompt(t?.('enterNewName') || 'Enter name:');
