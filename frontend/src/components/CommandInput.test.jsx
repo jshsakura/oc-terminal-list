@@ -97,7 +97,8 @@ describe('CommandInput positioning', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
-    expect(onSend).toHaveBeenCalledWith('ls');
+    // 2번째 인자 = 전송 대상. pane 1개(또는 미지정)면 'active'.
+    expect(onSend).toHaveBeenCalledWith('ls', 'active');
     expect(setCommand).toHaveBeenCalledWith('');
     expect(onClose).toHaveBeenCalled();
   });

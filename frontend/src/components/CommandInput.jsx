@@ -40,7 +40,7 @@ const focusToEnd = (ta) => {
  * 입력 보존: command/setCommand 가 부모(App.jsx) state 라 X/ESC/backdrop 으로
  * 닫아도 텍스트는 유지된다. 비우는 건 명시적 "Clear" 또는 "Send" 시에만.
  */
-const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language, terminalKey = null }) => {
+const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language, terminalKey = null, panes = [] }) => {
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
   const voiceModeRef = useRef(false);
@@ -52,6 +52,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const [imageUploadState, setImageUploadState] = useState(null);
   // 라이브 카메라 촬영 오버레이 토글 — 촬영 결과 blob 은 uploadImage 로 흘려 경로 삽입.
   const [cameraOpen, setCameraOpen] = useState(false);
+  // 명령 전송 대상 — 'active'(활성 pane) | 'all'(탭 내 전체) | pane.key(특정 pane).
+  // pane 이 1개면 항상 active. 분할/탭전환으로 대상 pane 이 사라지면 active 로 되돌린다.
+  const [target, setTarget] = useState('active');
+  useEffect(() => {
+    if (target !== 'active' && target !== 'all' && !panes.some((p) => p.key === target)) {
+      setTarget('active');
+    }
+  }, [panes, target]);
   // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
   // iOS Safari 는 layout viewport 가 키보드를 무시하기 때문에 absolute/fixed inset:0 만으로는
   // 가운데 정렬이 키보드 밑까지 내려가 입력창 일부가 가려진다.
@@ -196,7 +204,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
 
   const handleSend = () => {
     if (command.trim()) {
-      onSend(command);
+      onSend(command, panes.length >= 2 ? target : 'active');
       setCommand('');
       onClose();
     }
@@ -537,6 +545,24 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           >
             <Mic size={14} strokeWidth={2} />
           </button>
+          {/* 보낼 대상 선택 — pane 이 2개 이상일 때만. 활성/전체/특정 pane 으로 라우팅. */}
+          {panes.length >= 2 && (
+            <label style={styles.targetWrap} title={t?.('sendTarget') || 'Send to'}>
+              <span style={styles.targetLabel}>{t?.('sendTarget') || 'Send to'}</span>
+              <select
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                style={styles.targetSelect}
+                aria-label={t?.('sendTarget') || 'Send to'}
+              >
+                <option value="active">{t?.('sendToActive') || 'Active'}</option>
+                <option value="all">{t?.('sendToAll') || 'All panes'}</option>
+                {panes.map((p) => (
+                  <option key={p.key} value={p.key}>{p.label}</option>
+                ))}
+              </select>
+            </label>
+          )}
           {/* 우측 — 주 액션 */}
           <Button
             variant="primary"
@@ -724,6 +750,35 @@ const styles = {
   // 푸터 보조 아이콘 버튼(Copy/Paste/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
   // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.
   footerIconBtn: { width: '30px', height: '30px' },
+  // 보낼 대상 선택 — 라벨 + 네이티브 select(모바일 OS 피커, 접근성 무료). 앱 톤에 맞게 최소 스타일.
+  targetWrap: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1'],
+    height: '30px',
+    padding: `0 ${space['1.5']}`,
+    borderRadius: radius.sm,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 80%, transparent)`,
+    background: `var(--ui-surface0, ${color.surface0})`,
+  },
+  targetLabel: {
+    fontSize: fontSize['11'],
+    color: `var(--ui-subtext, ${color.subtext})`,
+    whiteSpace: 'nowrap',
+  },
+  targetSelect: {
+    appearance: 'none',
+    WebkitAppearance: 'none',
+    border: 'none',
+    background: 'transparent',
+    color: `var(--ui-text, ${color.text})`,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    fontFamily: font.sans,
+    cursor: 'pointer',
+    outline: 'none',
+    maxWidth: '96px',
+  },
   // 업로드 중 📎 버튼 전체를 회전시켜 스피너로 보이게(Loader2 아이콘 + 회전).
   attachSpin: { animation: 'command-input-spin 0.8s linear infinite' },
   // 업로드 상태 인라인 라벨 — 모바일은 hover title 이 없어 텍스트로 명시.

@@ -1578,13 +1578,21 @@ function App() {
           <CommandInput
             isOpen={commandInputOpen}
             onClose={() => setCommandInputOpen(false)}
-            onSend={(cmd) => {
-              const terminal = window.terminalSessions?.[terminalKey];
-              if (!terminal?.sendCommand?.(cmd)) {
-                terminal?.sendData?.(cmd);
-                window.setTimeout(() => terminal?.sendData?.('\r'), 40);
-                window.setTimeout(() => terminal?.sendData?.('\r'), 180);
-              }
+            onSend={(cmd, sendTarget = 'active') => {
+              const paneList = activeTab?.panes || [];
+              const keyOf = (p) => p.sessionId || p.id;
+              let keys;
+              if (sendTarget === 'all') keys = paneList.map(keyOf);
+              else if (sendTarget === 'active' || !sendTarget) keys = [terminalKey];
+              else keys = [sendTarget];
+              keys.filter(Boolean).forEach((k) => {
+                const terminal = window.terminalSessions?.[k];
+                if (!terminal?.sendCommand?.(cmd)) {
+                  terminal?.sendData?.(cmd);
+                  window.setTimeout(() => terminal?.sendData?.('\r'), 40);
+                  window.setTimeout(() => terminal?.sendData?.('\r'), 180);
+                }
+              });
               setCommandText('');
             }}
             command={commandText}
@@ -1592,6 +1600,9 @@ function App() {
             t={t}
             language={settings.language}
             terminalKey={terminalKey}
+            panes={(activeTab?.panes || [])
+              .filter((p) => p.sessionId || p.id)
+              .map((p, i) => ({ key: p.sessionId || p.id, label: `${t('pane') || 'Pane'} ${i + 1}` }))}
           />
         </Suspense></LazyErrorBoundary>
       )}
