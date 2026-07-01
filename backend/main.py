@@ -2897,6 +2897,71 @@ async def search_files(
         raise HTTPException(status_code=500, detail="파일 검색에 실패했습니다.")
 
 
+@app.get("/api/files/grep")
+async def grep_files(
+    q: str = Query("", min_length=1, max_length=200),
+    limit: int = Query(200, ge=1, le=500),
+    username: str = Depends(verify_auth_token),
+):
+    """워크스페이스 전체 파일 내용 검색(ripgrep). 리터럴·대소문자 무시.
+    반응성 우선: 파일당 max-count 10, 최대 1MB 파일, 8s 타임아웃, limit 로 총 결과 상한."""
+    query = q.strip()
+    if not query:
+        return {"items": []}
+    workspace_abs = os.path.abspath(WORKSPACE_ROOT)
+    ignore_globs: list[str] = []
+    for d in _FILE_INDEX_IGNORED:
+        ignore_globs += ["-g", f"!{d}"]
+    args = [
+        "rg", "--json", "-i", "-F",
+        "--max-count", "10", "--max-filesize", "1M", "--max-columns", "300",
+        *ignore_globs,
+        "-e", query, "--", workspace_abs,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=8)
+    except asyncio.TimeoutError:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        raise HTTPException(status_code=504, detail="검색 시간이 초과되었습니다.")
+    except FileNotFoundError:
+        raise HTTPException(status_code=501, detail="ripgrep(rg) 가 설치되어 있지 않습니다.")
+    except Exception as e:
+        logger.error("grep failed (q=%s): %s", q, e)
+        raise HTTPException(status_code=500, detail="검색에 실패했습니다.")
+
+    items = []
+    for raw in stdout.splitlines():
+        if len(items) >= limit:
+            break
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            continue
+        if obj.get("type") != "match":
+            continue
+        data = obj.get("data", {})
+        abs_path = (data.get("path") or {}).get("text")
+        if not abs_path:
+            continue
+        rel = os.path.relpath(abs_path, workspace_abs).replace("\\", "/")
+        text = ((data.get("lines") or {}).get("text") or "").rstrip("\n")
+        items.append({
+            "path": rel,
+            "name": os.path.basename(rel),
+            "line": data.get("line_number"),
+            "text": text[:300],
+        })
+    return {"items": items, "truncated": len(items) >= limit}
+
+
 @app.get("/api/files/raw")
 async def get_raw_file(
     path: str | None = Query(None),
