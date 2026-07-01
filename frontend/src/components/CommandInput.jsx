@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Camera, Crosshair } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Crosshair } from 'lucide-react';
 import Button from './common/Button';
-import CameraCapture from './CameraCapture';
 import { tokens } from '../styles/tokens';
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
 import useCommandHistory from '../hooks/useCommandHistory';
@@ -50,8 +49,6 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const [historyOpen, setHistoryOpen] = useState(false);
   // 이미지 업로드 진행 상태 — null | 'uploading' | 'error'. 모바일은 hover title 이 없어 인라인 표시.
   const [imageUploadState, setImageUploadState] = useState(null);
-  // 라이브 카메라 촬영 오버레이 토글 — 촬영 결과 blob 은 uploadImage 로 흘려 경로 삽입.
-  const [cameraOpen, setCameraOpen] = useState(false);
   // 명령 전송 대상 — 'active'(활성 pane) | 'all'(탭 내 전체) | pane.key(특정 pane).
   // pane 이 1개면 항상 active. 분할/탭전환으로 대상 pane 이 사라지면 active 로 되돌린다.
   const [target, setTarget] = useState('active');
@@ -242,21 +239,6 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
     }
   };
 
-  const handleCopy = async () => {
-    if (!command) return;
-    try {
-      await navigator.clipboard.writeText(command);
-    } catch {
-      // 권한/브라우저 fallback — 텍스트 선택 후 execCommand
-      const ta = textareaRef.current;
-      if (ta) {
-        ta.select();
-        try { document.execCommand('copy'); } catch { /* 무시 */ }
-        focusToEnd(ta);
-      }
-    }
-  };
-
   // 현재 커서 위치(선택 영역이 있으면 대체)에 텍스트를 끼워넣고 caret 을 삽입 끝으로 옮긴다.
   // 이력 삽입·이미지 경로 삽입 공용.
   const insertAtCursor = (text) => {
@@ -389,13 +371,6 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         .ci-modal button:focus, .ci-modal button:focus-visible { outline: none !important; box-shadow: none !important; }
       `}</style>
 
-      <CameraCapture
-        isOpen={cameraOpen}
-        onCapture={uploadImage}
-        onClose={() => setCameraOpen(false)}
-        t={t}
-      />
-
       <div
         ref={modalRef}
         className="ci-modal"
@@ -463,18 +438,11 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         </div>
 
         <footer style={styles.footer}>
-          {/* 좌측 — 복사/붙여넣기/비우기 (보조 액션 그룹) */}
+          {/* 좌측 — 붙여넣기/비우기 (보조 액션 그룹) */}
           <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleCopy}
-            disabled={!command}
-            icon={Copy}
-            title={t?.('copy') || 'Copy'}
-            style={styles.footerIconBtn}
-          />
-          <Button variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} style={styles.footerIconBtn} />
-          {/* 이미지 첨부 — 숨김 file input 을 📎 버튼이 연다. 업로드 중엔 스피너로 표시. */}
+            variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} style={styles.footerIconBtn} />
+          {/* 이미지 첨부/촬영 — 숨김 file input(accept=image/*). 모바일은 OS 피커가 카메라 촬영도 제공.
+              업로드 중엔 아이콘만 로딩(Loader2)으로 — 버튼 통째 회전 없음. */}
           <input
             ref={fileInputRef}
             type="file"
@@ -491,16 +459,6 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             disabled={imageUploadState === 'uploading'}
             icon={imageUploadState === 'uploading' ? Loader2 : ImagePlus}
             title={t?.('attachImage') || '이미지 첨부'}
-            style={imageUploadState === 'uploading' ? { ...styles.footerIconBtn, ...styles.attachSpin } : styles.footerIconBtn}
-          />
-          {/* 라이브 카메라 촬영 — 데스크톱 웹캠/모바일 카메라로 바로 찍어 경로 삽입. */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setCameraOpen(true)}
-            disabled={imageUploadState === 'uploading'}
-            icon={Camera}
-            title={t?.('takePhoto') || '사진 촬영'}
             style={styles.footerIconBtn}
           />
           <Button
@@ -512,17 +470,22 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             title={t?.('clearInput')}
             style={styles.footerIconBtn}
           />
-          {imageUploadState === 'uploading' && (
-            <span style={styles.uploadStatus}>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
-          )}
-          {imageUploadState === 'error' && (
-            <span style={{ ...styles.uploadStatus, color: `var(--ui-danger, ${color.danger})` }}>
-              {t?.('imageUploadFailed') || '업로드 실패'}
-            </span>
-          )}
           <div style={{ flex: 1 }} />
-          {/* 우측 직전 — 음성 입력 토글. 다른 보조 ghost 버튼들과 사이즈/스타일 통일.
-              호버/활성 상태는 아이콘 컬러(빨강)로만 표현 — 점/펄스/박스그림자 같은 과한 장식 없이. */}
+          {/* 보낼 대상 — pane 2개 이상일 때만. 아이콘 버튼: 탭해서 순환(활성/전체/P1…), 배지로 현재값. */}
+          {panes.length >= 2 && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={cycleTarget}
+              title={`${t?.('sendTarget') || 'Send to'}: ${target === 'all' ? (t?.('sendToAll') || 'All panes') : (targetPaneIdx >= 0 ? panes[targetPaneIdx].label : (t?.('sendToActive') || 'Active'))}`}
+              aria-label={t?.('sendTarget') || 'Send to'}
+              style={styles.targetBtn}
+            >
+              <Crosshair size={13} strokeWidth={2} />
+              <span style={styles.targetBadge}>{targetShort}</span>
+            </button>
+          )}
+          {/* 음성 입력 토글 — 보조 ghost 버튼과 사이즈/스타일 통일. 상태는 아이콘 컬러(빨강)로만. */}
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -556,31 +519,31 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           >
             <Mic size={14} strokeWidth={2} />
           </button>
-          {/* 보낼 대상 — pane 2개 이상일 때만. 아이콘 버튼: 탭해서 순환(활성/전체/P1…), 배지로 현재값. */}
-          {panes.length >= 2 && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={cycleTarget}
-              title={`${t?.('sendTarget') || 'Send to'}: ${target === 'all' ? (t?.('sendToAll') || 'All panes') : (targetPaneIdx >= 0 ? panes[targetPaneIdx].label : (t?.('sendToActive') || 'Active'))}`}
-              aria-label={t?.('sendTarget') || 'Send to'}
-              style={styles.targetBtn}
-            >
-              <Crosshair size={13} strokeWidth={2} />
-              <span style={styles.targetBadge}>{targetShort}</span>
-            </button>
-          )}
-          {/* 우측 — 주 액션 (아이콘만) */}
+          {/* 우측 — 주 액션 (전송 문구 포함) */}
           <Button
             variant="primary"
-            size="icon"
             onClick={handleSend}
             disabled={!command.trim()}
             icon={Send}
             title={t?.('send') || 'Send'}
-            aria-label={t?.('send') || 'Send'}
-          />
+          >
+            {t?.('send') || 'Send'}
+          </Button>
         </footer>
+        {/* 업로드 상태 — footer 버튼 줄을 어지럽히지 않게 모달 하단 전용 영역에 표시. */}
+        {imageUploadState && imageUploadState !== 'done' && (
+          <div style={styles.statusBar}>
+            {imageUploadState === 'uploading' && (
+              <>
+                <Loader2 size={12} style={{ color: `var(--ui-accent, ${color.accent})`, animation: 'command-input-spin 0.8s linear infinite' }} />
+                <span>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
+              </>
+            )}
+            {imageUploadState === 'error' && (
+              <span style={{ color: `var(--ui-danger, ${color.danger})` }}>{t?.('imageUploadFailed') || '업로드 실패'}</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -779,15 +742,16 @@ const styles = {
     color: `var(--ui-text, ${color.text})`,
     lineHeight: 1,
   },
-  // 업로드 중 📎 버튼 전체를 회전시켜 스피너로 보이게(Loader2 아이콘 + 회전).
-  attachSpin: { animation: 'command-input-spin 0.8s linear infinite' },
-  // 업로드 상태 인라인 라벨 — 모바일은 hover title 이 없어 텍스트로 명시.
-  uploadStatus: {
+  // 업로드 상태 전용 영역 — footer 아래 얇은 바. 버튼 줄을 어지럽히지 않게 분리.
+  statusBar: {
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: space['1'],
+    padding: `${space['1']} ${space['3']}`,
     fontSize: fontSize['12'],
     color: `var(--ui-subtext, ${color.subtext})`,
-    whiteSpace: 'nowrap',
-    alignSelf: 'center',
-    marginLeft: space.xs,
+    borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 60%, transparent)`,
   },
   historyPanel: {
     // 남는 세로 공간을 모두 차지하고 내부 리스트만 스크롤 → 화면 크기에 맞게 열리되 입력창은 안 가림.
