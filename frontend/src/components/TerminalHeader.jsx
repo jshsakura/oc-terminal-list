@@ -23,10 +23,6 @@ import { RailSubMenu, MenuBtn, CommandHistoryPopover } from './terminalheader/Ra
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
-/** Mirrored icons for split-left / split-up — same shape, flipped for visual distinction. */
-const ColumnsFlipX = (props) => <Columns2 {...props} style={{ transform: 'scaleX(-1)' }} />;
-const RowsFlipY = (props) => <Rows2 {...props} style={{ transform: 'scaleY(-1)' }} />;
-
 const DEFAULT_PANEL_WIDTH = 260;
 const MIN_PANEL_WIDTH = 180;
 const MAX_PANEL_WIDTH = 500;
@@ -661,14 +657,9 @@ const TerminalHeader = ({
           onClose={closeSplitMenu}
           t={t}
         >
-          <MenuBtn icon={ColumnsFlipX} onClick={() => { closeSplitMenu(); onSplitPane('left'); }} ui={panelUi}>
-            {t?.('splitLeft') || 'Split left'}
-          </MenuBtn>
+          {/* 흔히 쓰는 오른쪽/아래로 분할만. 왼쪽/위로 분할은 제외(탭 메뉴와 통일). */}
           <MenuBtn icon={Columns2} onClick={() => { closeSplitMenu(); onSplitPane('right'); }} ui={panelUi}>
             {t?.('splitRight') || 'Split right'}
-          </MenuBtn>
-          <MenuBtn icon={RowsFlipY} onClick={() => { closeSplitMenu(); onSplitPane('up'); }} ui={panelUi}>
-            {t?.('splitUp') || 'Split up'}
           </MenuBtn>
           <MenuBtn icon={Rows2} onClick={() => { closeSplitMenu(); onSplitPane('down'); }} ui={panelUi}>
             {t?.('splitDown') || 'Split down'}

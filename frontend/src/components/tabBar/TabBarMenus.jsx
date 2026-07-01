@@ -136,17 +136,13 @@ export const TabContextMenu = ({
       )}
       {canSplit && onSplit && (
         <>
+          {/* 흔히 쓰는 세로/가로 분할 2개 + 2×2 만. 왼쪽/위로 분할은 거의 안 써 메뉴서 제외
+              (오른쪽/아래로 분할 후 재배치로 대체 가능). */}
           <MenuItem onClick={() => onSplit('right')} icon={SquareSplitHorizontal}>
             {`${t?.('splitRight') || 'Split right'} (Ctrl+\\)`}
           </MenuItem>
-          <MenuItem onClick={() => onSplit('left')} icon={SquareSplitHorizontal}>
-            {t?.('splitLeft') || 'Split left'}
-          </MenuItem>
           <MenuItem onClick={() => onSplit('down')} icon={SquareSplitVertical}>
             {`${t?.('splitDown') || 'Split down'} (Ctrl+Shift+\\)`}
-          </MenuItem>
-          <MenuItem onClick={() => onSplit('up')} icon={SquareSplitVertical}>
-            {t?.('splitUp') || 'Split up'}
           </MenuItem>
           <MenuItem onClick={() => onSplit('2x2')} icon={Grid2x2}>
             {t?.('layout2x2') || '2 × 2 grid'}
