@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Crosshair } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Crosshair, Check } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
@@ -49,14 +49,25 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const [historyOpen, setHistoryOpen] = useState(false);
   // 이미지 업로드 진행 상태 — null | 'uploading' | 'error'. 모바일은 hover title 이 없어 인라인 표시.
   const [imageUploadState, setImageUploadState] = useState(null);
-  // 명령 전송 대상 — 'active'(활성 pane) | 'all'(탭 내 전체) | pane.key(특정 pane).
-  // pane 이 1개면 항상 active. 분할/탭전환으로 대상 pane 이 사라지면 active 로 되돌린다.
-  const [target, setTarget] = useState('active');
+  // 명령 전송 대상 — 멀티선택된 pane key 집합. 비어있으면 "활성 pane" 으로 폴백.
+  // 팝업 목록에서 색/호스트 보고 여러 pane 을 골라 동시에 보낼 수 있다.
+  const [targetKeys, setTargetKeys] = useState(() => new Set());
+  const [targetOpen, setTargetOpen] = useState(false);
+  // 분할/탭전환으로 사라진 pane key 는 선택에서 제거.
   useEffect(() => {
-    if (target !== 'active' && target !== 'all' && !panes.some((p) => p.key === target)) {
-      setTarget('active');
-    }
-  }, [panes, target]);
+    setTargetKeys((prev) => {
+      if (!prev.size) return prev;
+      const valid = new Set(panes.map((p) => p.key));
+      const next = new Set([...prev].filter((k) => valid.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [panes]);
+  useEffect(() => { if (panes.length < 2 && targetOpen) setTargetOpen(false); }, [panes.length, targetOpen]);
+  const toggleTargetKey = (key) => setTargetKeys((prev) => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
   // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
   // iOS Safari 는 layout viewport 가 키보드를 무시하기 때문에 absolute/fixed inset:0 만으로는
   // 가운데 정렬이 키보드 밑까지 내려가 입력창 일부가 가려진다.
@@ -201,22 +212,22 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
 
   const handleSend = () => {
     if (command.trim()) {
-      onSend(command, panes.length >= 2 ? target : 'active');
+      // 선택된 pane 들로. 아무것도 안 골랐으면 활성 pane(terminalKey) 으로.
+      const keys = targetKeys.size ? [...targetKeys] : (terminalKey ? [terminalKey] : []);
+      onSend(command, keys);
       setCommand('');
       onClose();
     }
   };
 
-  // 보낼 대상 아이콘 버튼 — 탭해서 활성→전체→P1→P2…→활성 순환(공간 절약). 현재 값은 배지+툴팁.
-  const targetOptions = ['active', 'all', ...panes.map((p) => p.key)];
-  const cycleTarget = () => {
-    const i = targetOptions.indexOf(target);
-    setTarget(targetOptions[(i + 1) % targetOptions.length]);
-  };
-  const targetPaneIdx = panes.findIndex((p) => p.key === target);
-  const targetShort = target === 'all'
-    ? (t?.('sendToAll') || 'All')
-    : (targetPaneIdx >= 0 ? `P${targetPaneIdx + 1}` : (t?.('sendToActive') || 'Active'));
+  // 보낼 대상 배지 — 아무것도 안 고르면 "활성", 전부면 "전체", 아니면 개수.
+  const allSelected = panes.length > 0 && targetKeys.size === panes.length;
+  const targetShort = targetKeys.size === 0
+    ? (t?.('sendToActive') || 'Active')
+    : (allSelected ? (t?.('sendToAll') || 'All') : String(targetKeys.size));
+  const toggleAllTargets = () => setTargetKeys((prev) => (
+    prev.size === panes.length ? new Set() : new Set(panes.map((p) => p.key))
+  ));
 
   const handleClear = () => {
     if (command.trim() && !confirm(t?.('confirmClearInput') || '입력한 내용을 모두 지우시겠습니까?')) return;
@@ -471,19 +482,63 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             style={styles.footerIconBtn}
           />
           <div style={{ flex: 1 }} />
-          {/* 보낼 대상 — pane 2개 이상일 때만. 아이콘 버튼: 탭해서 순환(활성/전체/P1…), 배지로 현재값. */}
+          {/* 보낼 대상 — pane 2개 이상일 때만. 아이콘 누르면 목록에서 멀티선택(색/호스트 표시). */}
           {panes.length >= 2 && (
-            <button
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={cycleTarget}
-              title={`${t?.('sendTarget') || 'Send to'}: ${target === 'all' ? (t?.('sendToAll') || 'All panes') : (targetPaneIdx >= 0 ? panes[targetPaneIdx].label : (t?.('sendToActive') || 'Active'))}`}
-              aria-label={t?.('sendTarget') || 'Send to'}
-              style={styles.targetBtn}
-            >
-              <Crosshair size={13} strokeWidth={2} />
-              <span style={styles.targetBadge}>{targetShort}</span>
-            </button>
+            <div style={{ position: 'relative', display: 'inline-flex' }}>
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setTargetOpen((v) => !v)}
+                title={t?.('sendTarget') || 'Send to'}
+                aria-label={t?.('sendTarget') || 'Send to'}
+                aria-expanded={targetOpen}
+                style={{ ...styles.targetBtn, ...(targetOpen ? styles.targetBtnActive : null) }}
+              >
+                <Crosshair size={13} strokeWidth={2} />
+                <span style={styles.targetBadge}>{targetShort}</span>
+              </button>
+              {targetOpen && (
+                <>
+                  <div style={styles.targetBackdrop} onClick={() => setTargetOpen(false)} onMouseDown={(e) => e.preventDefault()} />
+                  <div style={styles.targetPopup} onMouseDown={(e) => e.preventDefault()}>
+                    <div style={styles.targetPopupHead}>
+                      <span>{t?.('sendTarget') || 'Send to'}</span>
+                      <button type="button" onClick={toggleAllTargets} style={styles.targetAllBtn}>
+                        {allSelected ? (t?.('deselectAll') || '전체 해제') : (t?.('selectAll') || '전체 선택')}
+                      </button>
+                    </div>
+                    {/* 아무것도 안 고르면 활성 pane 으로 감을 명시 */}
+                    {targetKeys.size === 0 && (
+                      <div style={styles.targetActiveNote}>{t?.('sendToActiveNote') || '선택 없음 → 활성 pane 으로'}</div>
+                    )}
+                    <div style={styles.targetList}>
+                      {panes.map((p, i) => {
+                        const checked = targetKeys.has(p.key);
+                        const isActivePane = p.key === terminalKey;
+                        return (
+                          <button
+                            key={p.key}
+                            type="button"
+                            onClick={() => toggleTargetKey(p.key)}
+                            style={{ ...styles.targetRow, ...(checked ? styles.targetRowOn : null) }}
+                          >
+                            <span style={{ ...styles.targetCheck, ...(checked ? styles.targetCheckOn : null) }}>
+                              {checked && <Check size={11} strokeWidth={3} />}
+                            </span>
+                            <span style={{ ...styles.targetDot, background: p.color }} />
+                            <span style={styles.targetName}>
+                              {t?.('pane') || 'Pane'} {i + 1}
+                              {isActivePane && <span style={styles.targetActiveTag}> · {t?.('active') || '활성'}</span>}
+                            </span>
+                            <span style={styles.targetHost} title={p.host}>{p.host}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           )}
           {/* 음성 입력 토글 — 보조 ghost 버튼과 사이즈/스타일 통일. 상태는 아이콘 컬러(빨강)로만. */}
           <button
@@ -741,6 +796,67 @@ const styles = {
     fontFamily: font.mono,
     color: `var(--ui-text, ${color.text})`,
     lineHeight: 1,
+  },
+  targetBtnActive: {
+    borderColor: `var(--ui-accent, ${color.accent})`,
+    color: `var(--ui-accent, ${color.accent})`,
+  },
+  targetBackdrop: { position: 'fixed', inset: 0, zIndex: 60 },
+  // 팝업은 버튼 위로(모달이 하단 고정) 펼친다.
+  targetPopup: {
+    position: 'absolute',
+    bottom: 'calc(100% + 6px)',
+    right: 0,
+    zIndex: 61,
+    width: '220px',
+    maxWidth: '78vw',
+    background: `var(--ui-surface0, ${color.surface0})`,
+    border: `1px solid var(--ui-border, ${color.border})`,
+    borderRadius: radius.md,
+    boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
+    overflow: 'hidden',
+  },
+  targetPopupHead: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: `${space['1.5']} ${space['2.5']}`,
+    fontSize: fontSize['11'], fontWeight: fontWeight.semibold,
+    color: `var(--ui-subtext, ${color.subtext})`,
+    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
+  },
+  targetAllBtn: {
+    background: 'transparent', border: 'none', cursor: 'pointer',
+    color: `var(--ui-accent, ${color.accent})`, fontSize: fontSize['11'], fontWeight: fontWeight.medium, padding: 0,
+  },
+  targetActiveNote: {
+    padding: `${space['1']} ${space['2.5']}`, fontSize: '10.5px',
+    color: `var(--ui-muted, ${color.muted})`,
+  },
+  targetList: { maxHeight: '210px', overflowY: 'auto', padding: space['1'] },
+  targetRow: {
+    display: 'flex', alignItems: 'center', gap: space['2'], width: '100%',
+    padding: `${space['1.5']} ${space['2']}`, background: 'transparent',
+    border: 'none', borderRadius: radius.sm, cursor: 'pointer', textAlign: 'left',
+  },
+  targetRowOn: { background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 12%, transparent)` },
+  targetCheck: {
+    width: '16px', height: '16px', flexShrink: 0, borderRadius: '4px',
+    border: `1px solid var(--ui-border, ${color.border})`,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    color: '#fff',
+  },
+  targetCheckOn: {
+    background: `var(--ui-accent, ${color.accent})`,
+    borderColor: `var(--ui-accent, ${color.accent})`,
+  },
+  targetDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+  targetName: {
+    flex: 1, minWidth: 0, fontSize: fontSize['12'], fontWeight: fontWeight.medium,
+    color: `var(--ui-text, ${color.text})`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+  },
+  targetActiveTag: { color: `var(--ui-accent, ${color.accent})`, fontWeight: fontWeight.semibold },
+  targetHost: {
+    flexShrink: 0, maxWidth: '80px', fontSize: '10px', fontFamily: font.mono,
+    color: `var(--ui-muted, ${color.muted})`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
   // 업로드 상태 전용 영역 — footer 아래 얇은 바. 버튼 줄을 어지럽히지 않게 분리.
   statusBar: {

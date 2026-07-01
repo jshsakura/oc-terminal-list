@@ -92,13 +92,14 @@ describe('CommandInput positioning', () => {
         onSend={onSend}
         command="ls"
         setCommand={setCommand}
+        terminalKey="sess1"
         t={t}
       />
     );
 
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
-    // 2번째 인자 = 전송 대상. pane 1개(또는 미지정)면 'active'.
-    expect(onSend).toHaveBeenCalledWith('ls', 'active');
+    // 2번째 인자 = 보낼 pane key 배열. 선택 없으면 활성 pane(terminalKey) 하나.
+    expect(onSend).toHaveBeenCalledWith('ls', ['sess1']);
     expect(setCommand).toHaveBeenCalledWith('');
     expect(onClose).toHaveBeenCalled();
   });

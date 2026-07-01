@@ -1580,13 +1580,9 @@ function App() {
           <CommandInput
             isOpen={commandInputOpen}
             onClose={() => setCommandInputOpen(false)}
-            onSend={(cmd, sendTarget = 'active') => {
-              const paneList = activeTab?.panes || [];
-              const keyOf = (p) => p.sessionId || p.id;
-              let keys;
-              if (sendTarget === 'all') keys = paneList.map(keyOf);
-              else if (sendTarget === 'active' || !sendTarget) keys = [terminalKey];
-              else keys = [sendTarget];
+            onSend={(cmd, targetKeys) => {
+              // targetKeys = 보낼 pane key 배열. 비면 활성 pane 으로 폴백.
+              const keys = (Array.isArray(targetKeys) && targetKeys.length) ? targetKeys : [terminalKey];
               keys.filter(Boolean).forEach((k) => {
                 const terminal = window.terminalSessions?.[k];
                 if (!terminal?.sendCommand?.(cmd)) {
@@ -1604,7 +1600,18 @@ function App() {
             terminalKey={terminalKey}
             panes={(activeTab?.panes || [])
               .filter((p) => p.sessionId || p.id)
-              .map((p, i) => ({ key: p.sessionId || p.id, label: `${t('pane') || 'Pane'} ${i + 1}` }))}
+              .map((p, i) => {
+                const host = p.hostId ? hosts.find((h) => h.id === p.hostId) : null;
+                const isLocal = !!p.sessionId && !p.hostId;
+                const colorIdx = host?.color_index ?? (isLocal ? settings.localColorIndex : null) ?? activeTab?.color_index ?? 0;
+                return {
+                  key: p.sessionId || p.id,
+                  label: `${t('pane') || 'Pane'} ${i + 1}`,
+                  name: p.name || `${t('pane') || 'Pane'} ${i + 1}`,
+                  color: color.dotPalette[colorIdx % color.dotPalette.length],
+                  host: host?.name || (isLocal ? ((settings.localName || '').trim() || (t('thisMachine') || 'Local')) : '—'),
+                };
+              })}
           />
         </Suspense></LazyErrorBoundary>
       )}
