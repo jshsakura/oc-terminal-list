@@ -544,6 +544,45 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     if (e.key === 'Delete' || e.key === 'Backspace') {
       const targets = selectedPaths.size ? [...selectedPaths] : (selectedPath ? [selectedPath] : []);
       if (targets.length) { e.preventDefault(); removeNodes(targets); }
+      return;
+    }
+
+    // ── 탐색/조작 (단일 선택 기준) ──
+    const idx = visibleRows.findIndex((r) => r.path === selectedPath);
+    const selectRow = (r) => {
+      if (!r) return;
+      setSelectedPath(r.path);
+      setSelectedPaths(new Set([r.path]));
+      selectionAnchorRef.current = r.path;
+    };
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectRow(visibleRows[idx < 0 ? 0 : Math.min(idx + 1, visibleRows.length - 1)]);
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectRow(visibleRows[idx < 0 ? 0 : Math.max(idx - 1, 0)]);
+      return;
+    }
+    if (idx < 0) return;
+    const row = visibleRows[idx];
+    if (e.key === 'F2' && row.path) {
+      e.preventDefault();
+      setRenameTarget({ path: row.path, draftName: row.name });
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (row.type === 'directory') toggleFolder(row.path);
+      else onFileSelect?.(row.path, hostId);
+      return;
+    }
+    if (e.key === 'ArrowRight' && row.type === 'directory' && !expanded.has(row.path)) {
+      e.preventDefault(); toggleFolder(row.path); return;
+    }
+    if (e.key === 'ArrowLeft' && row.type === 'directory' && expanded.has(row.path)) {
+      e.preventDefault(); toggleFolder(row.path);
     }
   };
 
