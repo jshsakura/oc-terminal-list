@@ -10,7 +10,7 @@ import { iconForFile, fileIconColor, gitTone } from './fileTreeHelpers';
 
 const { color, fontWeight } = tokens;
 
-export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu, draggable = false, onDragStart, onDragOver, onDragLeave, onDrop, isDropTarget = false }) => {
+export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu, draggable = false, onDragStart, onDragOver, onDragLeave, onDrop, isDropTarget = false, sizeLabel = '', title }) => {
   const FileIcon = isFolder ? (isOpen ? FolderOpen : Folder) : iconForFile(name);
   const iconHue = isFolder ? color.accent : fileIconColor(name);
   const nameColor = isChanged && !isFolder ? gitTone(gitStatus || 'M') : tone;
@@ -59,6 +59,7 @@ export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitS
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      title={title}
       draggable={draggable}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -86,6 +87,11 @@ export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitS
       }}>
         {name}
       </span>
+      {sizeLabel && (
+        <span style={{ fontSize: '9.5px', color: color.muted, fontFamily: 'monospace', flexShrink: 0, marginLeft: 'auto', opacity: 0.75 }}>
+          {sizeLabel}
+        </span>
+      )}
       {gitStatus && (
         <span style={{ ...styles.gitTag, color: gitTone(gitStatus) }}>
           {gitStatus === '??' ? 'U' : gitStatus}

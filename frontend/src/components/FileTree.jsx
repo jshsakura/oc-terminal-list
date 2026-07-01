@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Folder, File, RefreshCw, Terminal, Plus, Filter,
-  ArrowUp, ArrowDown, Home, Search, X, Upload,
+  ArrowUp, ArrowDown, Home, Search, X, Upload, ArrowDownUp,
 } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
@@ -40,6 +40,23 @@ const copyToClipboard = (text) => {
   } catch { /* noop */ }
 };
 
+// 파일 크기/수정일 표시용 포맷터.
+const formatFileSize = (bytes) => {
+  if (bytes == null) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let n = bytes;
+  let i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i += 1; }
+  return `${n < 10 && i > 0 ? n.toFixed(1) : Math.round(n)}${units[i]}`;
+};
+const formatMtime = (sec) => {
+  if (!sec) return '';
+  try { return new Date(sec * 1000).toLocaleString(); } catch { return ''; }
+};
+
+// 정렬 모드 순환: 이름 → 수정일 → 크기 → (이름). 폴더는 항상 먼저.
+const SORT_MODES = ['name', 'modified', 'size'];
+
 
 const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefreshCwd = null, gitContextPath = '', sharedGitChanges = null, language = 'en', initialPath = '', hostId = null }) => {
   const isHostMode = !!hostId;
@@ -54,6 +71,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const selectionAnchorRef = useRef(null);
   const [contextMenu, setContextMenu] = useState(null);
   const [dropTargetPath, setDropTargetPath] = useState(null); // 드래그 이동 중 하이라이트할 폴더 경로
+  const [sortMode, setSortMode] = useState('name'); // 'name' | 'modified' | 'size' — 폴더 우선 고정
   const [renameTarget, setRenameTarget] = useState(null);
   const [creating, setCreating] = useState(null);
   const [filterChangedOnly, setFilterChangedOnly] = useState(false);
@@ -420,10 +438,23 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const visibleRows = useMemo(() => {
     const rows = [];
     const needle = searchQuery.trim().toLowerCase();
+    const sortItems = (items) => {
+      if (sortMode === 'name') return items; // 백엔드가 이미 폴더우선+이름순 제공
+      const arr = [...items];
+      arr.sort((a, b) => {
+        const aDir = a.type === 'directory';
+        const bDir = b.type === 'directory';
+        if (aDir !== bDir) return aDir ? -1 : 1; // 폴더 먼저
+        if (sortMode === 'modified') return (b.modified || 0) - (a.modified || 0); // 최신 먼저
+        if (sortMode === 'size') return (b.size || 0) - (a.size || 0); // 큰 것 먼저
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+      });
+      return arr;
+    };
     const walk = (parentPath, depth) => {
       const node = nodes[parentPath];
       if (!node || !node.items) return;
-      for (const item of node.items) {
+      for (const item of sortItems(node.items)) {
         if (filterChangedOnly) {
           const isChanged = changedSet.has(item.path);
           const folderHasChanges = item.type === 'directory' && hasChangedDescendant(item.path);
@@ -444,7 +475,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     };
     walk('', 0);
     return rows;
-  }, [nodes, expanded, filterChangedOnly, changedSet, hasChangedDescendant, searchQuery]);
+  }, [nodes, expanded, filterChangedOnly, changedSet, hasChangedDescendant, searchQuery, sortMode]);
 
   // 행 클릭 — 일반(단일선택+열기/펼치기), ctrl/cmd(토글), shift(범위).
   const handleRowClick = (e, row) => {
@@ -634,6 +665,12 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             )}
             <HeadAction icon={Search} title={t('searchFiles')} onClick={() => setSearchOpen((open) => !open)} active={searchVisible} />
             <HeadAction icon={Filter} title={t('filterChangedOnly')} onClick={() => setFilterChangedOnly(!filterChangedOnly)} active={filterChangedOnly} />
+            <HeadAction
+              icon={ArrowDownUp}
+              title={`${t('sortBy') || 'Sort'}: ${t(sortMode === 'modified' ? 'sortModified' : sortMode === 'size' ? 'sortSize' : 'sortName') || sortMode}`}
+              onClick={() => setSortMode((m) => SORT_MODES[(SORT_MODES.indexOf(m) + 1) % SORT_MODES.length])}
+              active={sortMode !== 'name'}
+            />
             <HeadAction icon={Plus} title={t('newFile')} onClick={() => startCreate('', 'file')} />
             <HeadAction icon={Folder} title={t('newFolder')} onClick={() => startCreate('', 'directory')} />
             <HeadAction icon={Upload} title={`${t('upload') || 'Upload'} → ${uploadTargetDisplay}`} onClick={() => openUploadPicker()} />
@@ -742,6 +779,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
                 onClick={(e) => handleRowClick(e, row)}
                 onDoubleClick={() => { if (row.type !== 'directory') onFileSelect?.(row.path, hostId); }}
                 onContextMenu={(e) => handleRowContextMenu(e, row)}
+                sizeLabel={row.type === 'file' ? formatFileSize(row.size) : ''}
+                title={row.modified ? `${row.name}\n${formatMtime(row.modified)}${row.type === 'file' && row.size != null ? ` · ${formatFileSize(row.size)}` : ''}` : row.name}
                 draggable={!!row.path}
                 onDragStart={(e) => handleRowDragStart(e, row)}
                 onDragOver={row.type === 'directory' ? (e) => handleRowDragOver(e, row) : undefined}
