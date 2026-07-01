@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Folder, File, RefreshCw, Terminal, Plus, Filter,
-  ArrowUp, ArrowDown, Home, Search, X, Upload, ArrowDownUp,
+  ArrowUp, ArrowDown, Home, Search, X, Upload, ArrowDownUp, TextSearch,
 } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import useGitChanges from '../hooks/useGitChanges';
@@ -15,6 +15,7 @@ import { ROW_HEIGHT, VIRTUALIZE_AFTER, VIRTUAL_OVERSCAN } from './filetree/fileT
 import { styles } from './filetree/fileTreeStyles';
 import { gitTone, computeParent, stripHostPathPrefix } from './filetree/fileTreeHelpers';
 import { Row, ContextMenu, HeadAction } from './filetree/FileTreeParts';
+import ContentSearch from './filetree/ContentSearch';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
@@ -77,6 +78,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [filterChangedOnly, setFilterChangedOnly] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [searchMode, setSearchMode] = useState('name'); // 'name'(트리 필터) | 'content'(내용 grep)
   const [rootPath, setRootPath] = useState(isHostMode ? stripHostPathPrefix(initialPath || '') : (initialPath || ''));
   const [rootPathForwardStack, setRootPathForwardStack] = useState([]);
   const [resolvedRoot, setResolvedRoot] = useState(null);
@@ -644,6 +646,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const canGoUp = parentOfRoot !== null;
   const rootDisplay = isHostMode ? (normalizedResolvedRoot || (normalizedRootPath || '~')) : (rootPath || '/');
   const searchVisible = searchOpen || !!searchQuery;
+  const isContentMode = searchMode === 'content' && searchVisible && !isHostMode;
   const canGoDown = rootPathForwardStack.length > 0;
   const renderTransferBar = (state, key) => {
     if (!state) return null;
@@ -724,7 +727,18 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 
       <div style={{ ...styles.searchBar, ...(searchVisible ? styles.searchBarOpen : {}) }} aria-hidden={!searchVisible}>
         <Search size={12} style={{ color: color.muted }} />
-        <input ref={searchInputRef} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={t('searchFiles')} style={styles.searchInput} tabIndex={searchVisible ? 0 : -1} />
+        <input ref={searchInputRef} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={searchMode === 'content' ? (t('searchContents') || 'Search in files') : t('searchFiles')} style={styles.searchInput} tabIndex={searchVisible ? 0 : -1} />
+        {!isHostMode && searchVisible && (
+          <button
+            onClick={() => setSearchMode((m) => (m === 'content' ? 'name' : 'content'))}
+            style={styles.searchClearBtn}
+            title={searchMode === 'content' ? (t('searchFilenames') || 'Search filenames') : (t('searchContents') || 'Search in files')}
+            onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          >
+            <TextSearch size={12} style={{ color: searchMode === 'content' ? color.accent : color.muted }} />
+          </button>
+        )}
         {searchVisible && (
           <button
             onClick={() => { setSearchQuery(''); setSearchOpen(false); }}
@@ -752,7 +766,13 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       {renderTransferBar(uploadState, 'upload')}
       {renderTransferBar(downloadState, 'download')}
 
-      <div ref={listRef} style={{ ...styles.list, outline: 'none' }} tabIndex={-1} onKeyDown={handleTreeKeyDown} onScroll={handleListScroll} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
+      {/* 내용 검색 모드 — 트리 리스트 대신 grep 결과. 트리 div 는 언마운트 없이 숨김(상태/스크롤 보존). */}
+      {isContentMode && (
+        <div style={{ ...styles.list, display: 'flex', flexDirection: 'column' }}>
+          <ContentSearch query={searchQuery} onOpen={(p) => onFileSelect?.(p, hostId)} t={t} />
+        </div>
+      )}
+      <div ref={listRef} style={{ ...styles.list, outline: 'none', ...(isContentMode ? { display: 'none' } : {}) }} tabIndex={-1} onKeyDown={handleTreeKeyDown} onScroll={handleListScroll} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
         {rootError && (
           <div style={styles.errorBox}>
             <div style={{ fontSize: fontSize['13'], color: color.subtext, fontWeight: fontWeight.medium }}>
