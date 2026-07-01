@@ -1131,10 +1131,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
-      // 지터(0~50%) — 동시에 끊긴 여러 pane 이 같은 순간 재연결해 공유 Cloudflare
-      // 터널의 연결 풀을 한꺼번에 때리는 thundering herd 를 분산한다.
-      const backoff = Math.min(8000, Math.pow(2, attempts) * 1000);
-      const delay = backoff + Math.floor(Math.random() * backoff * 0.5);
+      // 첫 재연결은 거의 즉시(150~300ms) — 흔한 짧은 끊김을 새로고침만큼 빠르게 복구한다.
+      // 지수 백오프+지터(thundering herd 분산)는 첫 시도가 실패한 뒤부터만 적용해, 반복 실패 시
+      // 공유 Cloudflare 터널의 연결 풀을 한꺼번에 때리는 걸 막는 보호는 그대로 유지한다.
+      const delay = attempts === 0
+        ? 150 + Math.floor(Math.random() * 150)
+        : (() => {
+            const backoff = Math.min(8000, Math.pow(2, attempts) * 1000);
+            return backoff + Math.floor(Math.random() * backoff * 0.5);
+          })();
       reconnectAttemptsRef.current = attempts + 1;
       reconnectingRef.current = true;
       setReconnecting(true);
