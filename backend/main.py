@@ -265,7 +265,7 @@ async def lifespan(_app: FastAPI):
         await storage.close()
 
 
-app = FastAPI(title="Terminal List", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="Terminal List", version="2.0.1", lifespan=lifespan)
 
 # CORS — ALLOWED_ORIGINS env (콤마 구분) 가 있으면 그 origin 만 허용 + credentials 켬.
 # 미설정 시 와일드카드 fallback (개발 호환) — 단 와일드카드 + credentials 는 브라우저가
@@ -1096,7 +1096,7 @@ async def create_raw_file_ticket(
 
 @app.get("/api/health")
 async def health_check():
-    return {"service": "Terminal List", "status": "running", "version": "2.0.0"}
+    return {"service": "Terminal List", "status": "running", "version": "2.0.1"}
 
 
 # 서버 측 feature flag — 향후 추가될 토글의 진입점.
