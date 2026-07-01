@@ -59,6 +59,9 @@ export default defineConfig({
             // entry 에 re-export 링크가 생기는 것도 막고, terminal-only 모바일
             // 경로에서 ~45KB(gz) 가 빠진다.
             if (id.includes('react-markdown') || id.includes('remark-') || id.includes('unified') || id.includes('micromark') || id.includes('mdast')) return undefined;
+            // prettier 는 포맷 실행 시점에만 동적 import 된다 — eager vendor 청크에 섞이면
+            // ~600KB 가 시작 로드에 얹힌다. 전용 청크로 떼어 지연 로드 유지.
+            if (id.includes('/prettier/')) return 'prettier';
             return 'vendor';
           }
         },

@@ -5,7 +5,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { setupMonaco } from '../setupMonaco';
-import { Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut } from 'lucide-react';
+import { Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut, AlignLeft } from 'lucide-react';
 
 // 워커 환경 + loader 를 번들 monaco 로 고정. 이 모듈(=FileEditor 청크)이 로드되는 시점에 1회 실행되며,
 // 아래 <Editor> 가 mount 되어 loader.init() 하기 전에 끝나야 CDN 폴백 없이 셀프호스트 monaco 를 쓴다.
@@ -21,6 +21,7 @@ import { authHeaders } from '../utils/auth';
 import { isImageFile, isPdfFile, isVideoFile, isAudioFile } from '../utils/fileTypes';
 import { DIFF_VIEW_STATE_KEY, readDiffViewState, parseFileKey } from './fileEditor/fileEditorHelpers';
 import { styles } from './fileEditor/fileEditorStyles';
+import { canFormatLanguage } from '../utils/formatSupport';
 import { FileEditorTabs } from './fileEditor/FileEditorTabs';
 
 
@@ -322,6 +323,14 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     }
   }, [activeFile, content, hasChanges, saving, loadOriginalContent]);
 
+  // Prettier "Format Document" — 등록된 프로바이더(setupMonaco)를 통해 동작.
+  // 버튼/모바일 접근성용 명시 트리거. 키보드는 네이티브 Shift+Alt+F 가 이미 붙는다.
+  const formatDocument = useCallback(() => {
+    const editor = editorRef.current;
+    if (!editor) return;
+    editor.getAction?.('editor.action.formatDocument')?.run();
+  }, []);
+
   const handleEditorDidMount = (editor, monaco) => {
     editorRef.current = editor;
     editor.focus();
@@ -449,10 +458,22 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               <CheckCircle2 size={12} /> {t('settingsSaved')}
             </div>
           )}
-          <Button 
-            variant="ghost" 
-            size="small" 
-            onClick={saveFile} 
+          {!isPreviewMode && !isDiffView && canFormatLanguage(getLanguage(activeFile)) && (
+            <Button
+              variant="ghost"
+              size="small"
+              onClick={formatDocument}
+              disabled={loading}
+              theme={theme}
+              title={`${t('formatDocument') || 'Format Document'} (Shift+Alt+F)`}
+              style={{ height: '24px', padding: '0 6px' }}
+              icon={AlignLeft}
+            />
+          )}
+          <Button
+            variant="ghost"
+            size="small"
+            onClick={saveFile}
             disabled={!hasChanges || saving || loading}
             theme={theme}
             style={{ height: '24px', fontSize: '11px', padding: '0 8px' }}

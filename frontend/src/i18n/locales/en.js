@@ -456,6 +456,7 @@ export const en = {
     closePane: 'Close pane',
     menu: 'Menu',
     htmlPreview: 'HTML Preview',
+    formatDocument: 'Format Document',
     workspace: 'workspace',
     repos: 'repos',
     skippedSuffix: '(skipped)',

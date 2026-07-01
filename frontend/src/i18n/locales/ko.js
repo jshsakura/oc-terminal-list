@@ -453,6 +453,7 @@ export const ko = {
     closePane: '패널 닫기',
     menu: '메뉴',
     htmlPreview: 'HTML 미리보기',
+    formatDocument: '문서 서식 정리',
     workspace: '워크스페이스',
     repos: '저장소',
     skippedSuffix: '(생략)',
