@@ -10,7 +10,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { ImageAddon } from '@xterm/addon-image';
-import { MonitorSmartphone, PowerOff, Copy, ArrowDownToLine, RotateCcw, Loader2, AlertTriangle, X } from 'lucide-react';
+import { MonitorSmartphone, PowerOff, Copy, ArrowDownToLine, RotateCcw, Loader2, AlertTriangle, X, WifiOff, ServerCrash } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
@@ -147,6 +147,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const autoCloseTimerRef = useRef(null);
   // 로딩이 오래 걸려 멈춘 것으로 보일 때 true — 스켈레톤 위에 수동 닫기 버튼 노출.
   const [loadStuck, setLoadStuck] = useState(false);
+  // 연결 실패 원인이 "이 기기(클라이언트) 오프라인"인지 "서버/네트워크 경로"인지 구분해
+  // 상태 오버레이 문구/선택지를 그 상황에 맞게만 준다.
+  const [isOffline, setIsOffline] = useState(typeof navigator !== 'undefined' && navigator.onLine === false);
   const [connectionNotice, setConnectionNotice] = useState('');
   // 배너는 디바운스해서 보여준다 — 짧은 끊김이 NOTICE_SHOW_DELAY_MS 안에 복구되면
   // 아예 안 뜨게 해서 "재연결 중" 배너가 자꾸 깜빡이며 프롬프트를 가리는 체감을 없앤다.
@@ -409,6 +412,18 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     const timer = setTimeout(() => setLoadStuck(true), LOAD_STUCK_MS);
     return () => clearTimeout(timer);
   }, [hasContent, ended, evicted, closing, reconnecting]);
+
+  // 온·오프라인 반영 — 상태 오버레이가 "이 기기 오프라인 vs 서버 문제"를 실시간으로 구분.
+  useEffect(() => {
+    const goOnline = () => setIsOffline(false);
+    const goOffline = () => setIsOffline(true);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
 
   // 스마트 스크롤 훅 — xterm buffer API 기반 (DOM scrollTop 아님)
   const { handleUserScroll, handleNewData, forceScrollToBottom } = useSmartScroll(xtermRef, {
@@ -2581,54 +2596,71 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         </div>
       )}
 
-      {/* 로딩이 오래 멈춰 있을 때 — 스켈레톤 위에 다시 시도 / 닫기 탈출구 노출. */}
+      {/* 로딩이 오래 멈춰 있을 때 — 어느 쪽(이 기기 vs 서버) 문제인지 명시하고, 그 상황에서
+          실제로 되는 선택지만 준다. 오프라인이면 "다시 시도"는 숨기고(안 되니까) 자동 재연결 안내. */}
       {loadStuck && !hasContent && !ended && !evicted && !closing && (
         <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
-          <div style={styles.glassIconTile(themeUi, themeUi.warning || themeUi.subtext)}>
-            <AlertTriangle size={18} strokeWidth={1.8} />
+          <div style={styles.glassIconTile(themeUi, isOffline ? (themeUi.danger || themeUi.warning) : (themeUi.warning || themeUi.subtext))}>
+            {isOffline ? <WifiOff size={18} strokeWidth={1.8} /> : <ServerCrash size={18} strokeWidth={1.8} />}
           </div>
           <div style={{ textAlign: 'center' }}>
+            {/* 원인 측 배지 — 클라이언트/서버 즉시 구분 */}
+            <div style={{
+              display: 'inline-flex', alignItems: 'center', gap: '5px', marginBottom: '6px',
+              fontSize: '10px', fontWeight: fontWeight.semibold, letterSpacing: '0.05em', textTransform: 'uppercase',
+              color: isOffline ? (themeUi.danger || themeUi.warning) : themeUi.warning,
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />
+              {isOffline ? (t('sideThisDevice') || '이 기기') : (t('sideServer') || '서버 · 네트워크')}
+            </div>
             <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
-              {t('loadStuckTitle') || '응답이 없습니다'}
+              {isOffline ? (t('offlineTitle') || '인터넷 연결 없음') : (t('serverUnreachableTitle') || '서버에 연결할 수 없습니다')}
             </div>
             <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
-              {t('loadStuckDesc') || '연결이 오래 걸리고 있습니다. 다시 시도하거나 이 탭을 닫을 수 있습니다.'}
+              {isOffline
+                ? (t('offlineDesc') || '이 기기가 오프라인입니다. 네트워크가 복구되면 자동으로 다시 연결됩니다.')
+                : (t('serverUnreachableDesc') || '서버 또는 네트워크 경로 문제일 수 있습니다. 다시 시도하거나 이 탭을 접을 수 있습니다.')}
             </div>
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%' }}>
+            {/* 이 탭 접기 — 연결이 없어도 화면에서 제거는 항상 가능(세션은 살아있으면 홈에서 재개). */}
             {onClosePane && (
               <button
                 type="button"
                 onClick={() => { onClosePane(); }}
+                title={t('dismissTabHint') || '화면에서만 닫습니다. 세션이 살아있으면 홈에서 다시 열 수 있습니다.'}
                 style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: '1 1 92px', minWidth: 0 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
               >
                 <X size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
-                {t('close') || '닫기'}
+                {t('dismissTab') || '이 탭 접기'}
               </button>
             )}
-            <button
-              type="button"
-              disabled={reconnecting}
-              onClick={() => {
-                if (reconnectingRef.current) return;
-                reconnectingRef.current = true;
-                setReconnecting(true);
-                setLoadStuck(false);
-                reconnectAttemptsRef.current = 0;
-                if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
-                else window.location.reload();
-              }}
-              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: '1 1 112px', minWidth: 0, opacity: reconnecting ? 0.7 : 1 }}
-              onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
-            >
-              {reconnecting
-                ? <Loader2 size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px', animation: 'tl-spin 0.8s linear infinite' }} />
-                : <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />}
-              {reconnecting ? (t('reconnecting') || '연결 중...') : (t('retry') || '다시 시도')}
-            </button>
+            {/* 다시 시도 — 오프라인일 땐 어차피 안 되므로 숨김(자동 재연결 안내로 대체). */}
+            {!isOffline && (
+              <button
+                type="button"
+                disabled={reconnecting}
+                onClick={() => {
+                  if (reconnectingRef.current) return;
+                  reconnectingRef.current = true;
+                  setReconnecting(true);
+                  setLoadStuck(false);
+                  reconnectAttemptsRef.current = 0;
+                  if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
+                  else window.location.reload();
+                }}
+                style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: '1 1 112px', minWidth: 0, opacity: reconnecting ? 0.7 : 1 }}
+                onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
+              >
+                {reconnecting
+                  ? <Loader2 size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px', animation: 'tl-spin 0.8s linear infinite' }} />
+                  : <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />}
+                {reconnecting ? (t('reconnecting') || '연결 중...') : (t('retry') || '다시 시도')}
+              </button>
+            )}
           </div>
         </GlassOverlayCard>
       )}
@@ -2827,9 +2859,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           길어지면 스피너로 "로딩 중" 느낌. 복구되면 스르륵 사라지고 화면은 그대로. */}
       {bannerMounted && (
         <div style={styles.reconnectPill(themeUi, bannerShown)}>
-          <Loader2 size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
+          {isOffline
+            ? <WifiOff size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: themeUi.danger || themeUi.warning }} />
+            : <Loader2 size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />}
           <span style={styles.reconnectPillText(themeUi)}>
-            {t('reconnectingPill') || 'Reconnecting…'}
+            {isOffline ? (t('offlinePill') || '오프라인 — 네트워크 대기 중') : (t('reconnectingPill') || 'Reconnecting…')}
           </span>
         </div>
       )}
