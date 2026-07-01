@@ -158,29 +158,44 @@ const StatStripCard = ({
   const totalWindow = windowDays * HOURS_PER_DAY * SECONDS_PER_HOUR;
   const totalPct = totalWindow > 0 ? Math.min(100, (totalSeconds / totalWindow) * 100) : 0;
   const activePct = totalKnownTargets > 0 ? Math.min(100, (activeTargets / totalKnownTargets) * 100) : 0;
-  const avgPct = Math.min(100, (avgSeconds / SECONDS_PER_HOUR) * 100);
 
   return (
     <CardShell icon={Activity} title={title || (t?.('atAGlance') || 'Overview')}>
       {err ? <ErrorState message={err} /> : (
-        <div style={statQuadStyle}>
-          <StatCell value={loading ? '—' : formatDuration(totalSeconds)} label={t?.('totalTime') || 'Total'} accent={color.accent} pct={loading ? 0 : totalPct} />
-          <StatCell value={loading ? '—' : String(sessionCount)} label={t?.('sessions') || 'Sessions'} accent={color.info} dim />
-          <StatCell value={loading ? '—' : `${activeTargets}/${totalKnownTargets}`} label={t?.('activeHosts') || 'Active'} accent={color.success} pct={loading ? 0 : activePct} />
-          <StatCell value={loading ? '—' : formatDuration(avgSeconds)} label={t?.('avgSession') || 'Avg'} accent={color.warning} pct={loading ? 0 : avgPct} />
+        <div style={overviewBodyStyle}>
+          {/* Hero — 총 시간을 지배적으로. 아래 슬림 바로 기간 대비 비중 한눈에. */}
+          <div style={heroStyle}>
+            <div style={heroHeadStyle}>
+              <span style={heroValueStyle}>{loading ? '—' : formatDuration(totalSeconds)}</span>
+              <span style={heroLabelStyle}>{`${t?.('totalTime') || 'Total'} · ${windowDays}d`}</span>
+            </div>
+            <div style={heroBarTrackStyle}>
+              <div style={{ ...heroBarFillStyle, width: `${loading ? 0 : totalPct}%` }} />
+            </div>
+          </div>
+          {/* 서포팅 3 타일 — 세션 / 활성(비율 링) / 평균. 넉넉한 간격, 모바일서 감싸짐. */}
+          <div style={tileRowStyle}>
+            <StatTile value={loading ? '—' : String(sessionCount)} label={t?.('sessions') || 'Sessions'} accent={color.info} />
+            <StatTile value={loading ? '—' : `${activeTargets}/${totalKnownTargets}`} label={t?.('activeHosts') || 'Active'} accent={color.success} ring={loading ? 0 : activePct} />
+            <StatTile value={loading ? '—' : formatDuration(avgSeconds)} label={t?.('avgSession') || 'Avg'} accent={color.warning} />
+          </div>
         </div>
       )}
     </CardShell>
   );
 };
 
-// 4 칸 동일 패턴. dim=true 는 비율 없는 stat(Sessions) — 호는 흐린 풀링.
-const StatCell = ({ value, label, accent, pct = null, dim = false }) => (
-  <div style={statCellStyle}>
-    <RadialGauge size={46} thickness={4} pct={dim ? 100 : (pct ?? 0)} accent={dim ? `${accent}55` : accent}>
-      <span style={statCellValueStyle}>{value}</span>
-    </RadialGauge>
-    <span style={statCellLabelStyle}>{label}</span>
+// 서포팅 타일 — 기본은 큰 숫자+라벨. ring 이 주어지면(활성 비율) 작은 링으로 감싼다.
+const StatTile = ({ value, label, accent, ring = null }) => (
+  <div style={statTileStyle}>
+    {ring != null ? (
+      <RadialGauge size={44} thickness={4} pct={ring} accent={accent}>
+        <span style={{ ...statTileRingValueStyle, color: accent }}>{value}</span>
+      </RadialGauge>
+    ) : (
+      <span style={{ ...statTileValueStyle, color: accent }}>{value}</span>
+    )}
+    <span style={statTileLabelStyle}>{label}</span>
   </div>
 );
 
@@ -327,14 +342,14 @@ function formatDuration(seconds) {
 /* ─── 스타일 (HostRow / Section 톤과 통일) ─────────────────────────── */
 const gridStyle = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))',
-  gap: '8px',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
+  gap: '12px',
 };
 const cardStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '10px',
-  padding: '12px 14px',
+  gap: '14px',
+  padding: '16px 18px',
   background: color.surface0,
   border: `1px solid ${color.border}`,
   borderRadius: radius.lg,
@@ -369,30 +384,86 @@ const emptyStateStyle = {
   lineHeight: 1.45,
 };
 
-/* Overview / Last 30 days — 4 칸 라디얼 grid */
-const statQuadStyle = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-  gap: '6px',
+/* Overview — hero(총 시간) + 서포팅 3 타일 */
+const overviewBodyStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '14px',
 };
-const statCellStyle = {
+const heroStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+};
+const heroHeadStyle = {
+  display: 'flex',
+  alignItems: 'baseline',
+  flexWrap: 'wrap',
+  gap: '4px 8px',
+};
+const heroValueStyle = {
+  fontSize: 'clamp(22px, 6vw, 30px)',
+  fontWeight: fontWeight.bold,
+  fontFamily: font.mono,
+  color: color.text,
+  letterSpacing: '-0.02em',
+  lineHeight: 1,
+};
+const heroLabelStyle = {
+  fontSize: fontSize['11'],
+  color: color.muted,
+  letterSpacing: '0.04em',
+};
+const heroBarTrackStyle = {
+  height: '6px',
+  width: '100%',
+  background: color.crust,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.full,
+  overflow: 'hidden',
+};
+const heroBarFillStyle = {
+  height: '100%',
+  borderRadius: radius.full,
+  background: `linear-gradient(90deg, ${color.accent}aa, ${color.accent})`,
+  transition: 'width 340ms cubic-bezier(0.16, 1, 0.3, 1)',
+};
+/* 타일 행 — 좁아지면 자동으로 감싸져 모바일서 답답하지 않게 */
+const tileRowStyle = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))',
+  gap: '10px',
+};
+const statTileStyle = {
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
-  gap: '4px',
+  justifyContent: 'flex-end',
+  gap: '6px',
+  padding: '10px 6px',
   minWidth: 0,
+  background: color.mantle || color.crust,
+  border: `1px solid ${color.border}`,
+  borderRadius: radius.md,
 };
-const statCellValueStyle = {
-  fontSize: '11px',
-  fontWeight: fontWeight.semibold,
+const statTileValueStyle = {
+  fontSize: 'clamp(15px, 4.5vw, 19px)',
+  fontWeight: fontWeight.bold,
   fontFamily: font.mono,
-  color: color.text,
   letterSpacing: '-0.01em',
+  lineHeight: 1,
   whiteSpace: 'nowrap',
 };
-const statCellLabelStyle = {
-  fontSize: '9.5px',
-  letterSpacing: '0.04em',
+const statTileRingValueStyle = {
+  fontSize: '12px',
+  fontWeight: fontWeight.bold,
+  fontFamily: font.mono,
+  letterSpacing: '-0.02em',
+  whiteSpace: 'nowrap',
+};
+const statTileLabelStyle = {
+  fontSize: fontSize['11'],
+  letterSpacing: '0.03em',
   color: color.muted,
   whiteSpace: 'nowrap',
   overflow: 'hidden',
@@ -405,8 +476,8 @@ const statCellLabelStyle = {
    각 셀: 헤더 (icon name duration) + 전체 폭 막대. */
 const rankListStyle = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-  gap: '10px 14px',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+  gap: '12px 16px',
   margin: 0,
   padding: 0,
   listStyle: 'none',
