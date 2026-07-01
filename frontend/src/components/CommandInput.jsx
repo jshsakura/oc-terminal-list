@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Camera } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Copy, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Camera, Crosshair } from 'lucide-react';
 import Button from './common/Button';
 import CameraCapture from './CameraCapture';
 import { tokens } from '../styles/tokens';
@@ -209,6 +209,17 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       onClose();
     }
   };
+
+  // 보낼 대상 아이콘 버튼 — 탭해서 활성→전체→P1→P2…→활성 순환(공간 절약). 현재 값은 배지+툴팁.
+  const targetOptions = ['active', 'all', ...panes.map((p) => p.key)];
+  const cycleTarget = () => {
+    const i = targetOptions.indexOf(target);
+    setTarget(targetOptions[(i + 1) % targetOptions.length]);
+  };
+  const targetPaneIdx = panes.findIndex((p) => p.key === target);
+  const targetShort = target === 'all'
+    ? (t?.('sendToAll') || 'All')
+    : (targetPaneIdx >= 0 ? `P${targetPaneIdx + 1}` : (t?.('sendToActive') || 'Active'));
 
   const handleClear = () => {
     if (command.trim() && !confirm(t?.('confirmClearInput') || '입력한 내용을 모두 지우시겠습니까?')) return;
@@ -545,33 +556,30 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           >
             <Mic size={14} strokeWidth={2} />
           </button>
-          {/* 보낼 대상 선택 — pane 이 2개 이상일 때만. 활성/전체/특정 pane 으로 라우팅. */}
+          {/* 보낼 대상 — pane 2개 이상일 때만. 아이콘 버튼: 탭해서 순환(활성/전체/P1…), 배지로 현재값. */}
           {panes.length >= 2 && (
-            <label style={styles.targetWrap} title={t?.('sendTarget') || 'Send to'}>
-              <span style={styles.targetLabel}>{t?.('sendTarget') || 'Send to'}</span>
-              <select
-                value={target}
-                onChange={(e) => setTarget(e.target.value)}
-                style={styles.targetSelect}
-                aria-label={t?.('sendTarget') || 'Send to'}
-              >
-                <option value="active">{t?.('sendToActive') || 'Active'}</option>
-                <option value="all">{t?.('sendToAll') || 'All panes'}</option>
-                {panes.map((p) => (
-                  <option key={p.key} value={p.key}>{p.label}</option>
-                ))}
-              </select>
-            </label>
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={cycleTarget}
+              title={`${t?.('sendTarget') || 'Send to'}: ${target === 'all' ? (t?.('sendToAll') || 'All panes') : (targetPaneIdx >= 0 ? panes[targetPaneIdx].label : (t?.('sendToActive') || 'Active'))}`}
+              aria-label={t?.('sendTarget') || 'Send to'}
+              style={styles.targetBtn}
+            >
+              <Crosshair size={13} strokeWidth={2} />
+              <span style={styles.targetBadge}>{targetShort}</span>
+            </button>
           )}
-          {/* 우측 — 주 액션 */}
+          {/* 우측 — 주 액션 (아이콘만) */}
           <Button
             variant="primary"
+            size="icon"
             onClick={handleSend}
             disabled={!command.trim()}
             icon={Send}
-          >
-            {t?.('send') || 'Send'}
-          </Button>
+            title={t?.('send') || 'Send'}
+            aria-label={t?.('send') || 'Send'}
+          />
         </footer>
       </div>
     </div>
@@ -750,34 +758,26 @@ const styles = {
   // 푸터 보조 아이콘 버튼(Copy/Paste/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
   // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.
   footerIconBtn: { width: '30px', height: '30px' },
-  // 보낼 대상 선택 — 라벨 + 네이티브 select(모바일 OS 피커, 접근성 무료). 앱 톤에 맞게 최소 스타일.
-  targetWrap: {
-    display: 'flex',
+  // 보낼 대상 아이콘 버튼 — 아이콘 + 현재값 배지. 탭해서 순환. 공간 최소.
+  targetBtn: {
+    display: 'inline-flex',
     alignItems: 'center',
-    gap: space['1'],
+    gap: '3px',
     height: '30px',
     padding: `0 ${space['1.5']}`,
     borderRadius: radius.sm,
     border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 80%, transparent)`,
     background: `var(--ui-surface0, ${color.surface0})`,
-  },
-  targetLabel: {
-    fontSize: fontSize['11'],
     color: `var(--ui-subtext, ${color.subtext})`,
-    whiteSpace: 'nowrap',
-  },
-  targetSelect: {
-    appearance: 'none',
-    WebkitAppearance: 'none',
-    border: 'none',
-    background: 'transparent',
-    color: `var(--ui-text, ${color.text})`,
-    fontSize: fontSize['12'],
-    fontWeight: fontWeight.medium,
-    fontFamily: font.sans,
     cursor: 'pointer',
-    outline: 'none',
-    maxWidth: '96px',
+    flexShrink: 0,
+  },
+  targetBadge: {
+    fontSize: fontSize['11'],
+    fontWeight: fontWeight.semibold,
+    fontFamily: font.mono,
+    color: `var(--ui-text, ${color.text})`,
+    lineHeight: 1,
   },
   // 업로드 중 📎 버튼 전체를 회전시켜 스피너로 보이게(Loader2 아이콘 + 회전).
   attachSpin: { animation: 'command-input-spin 0.8s linear infinite' },
