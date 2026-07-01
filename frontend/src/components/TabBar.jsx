@@ -43,6 +43,9 @@ const TabBar = ({
   const settingsMenuClosedAtRef = useRef(0);
 
   const handleSettingsClick = useCallback(() => {
+    // 모바일: 서브메뉴(Reload/Equalize) 거치지 않고 설정 화면을 바로 연다 — 좁은 화면에서
+    // 팝업 위치/터치가 어긋나 "눌러도 안 나오는" 느낌을 없앤다.
+    if (isMobile) { onOpenSettings?.(); return; }
     if (settingsMenu) {
       setSettingsMenu(null);
       settingsMenuClosedAtRef.current = Date.now();
@@ -53,7 +56,7 @@ const TabBar = ({
       const rect = settingsBtnRef.current.getBoundingClientRect();
       setSettingsMenu({ x: rect.right, y: rect.bottom + 4 });
     }
-  }, [settingsMenu]);
+  }, [settingsMenu, isMobile, onOpenSettings]);
 
   // 모바일 터치 드래그 — TabBar scroll 컨테이너에 ref 를 걸고 훅에 넘김 (드래그 모드 시 가로 스크롤 락).
   const tabListRef = useRef(null);

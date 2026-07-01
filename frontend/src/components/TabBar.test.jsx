@@ -19,7 +19,8 @@ describe('TabBar', () => {
     expect(screen.queryByTitle(/Sign out/)).not.toBeInTheDocument();
   });
 
-  it('opens the same Settings submenu on mobile instead of direct open', () => {
+  it('opens Settings directly on mobile (no submenu)', () => {
+    // 모바일에선 서브메뉴(Reload/Equalize)를 거치지 않고 설정 화면을 바로 연다.
     const onOpenSettings = vi.fn();
     render(
       <TabBar
@@ -29,13 +30,9 @@ describe('TabBar', () => {
       />
     );
     fireEvent.click(screen.getByTitle(/^Settings/));
-    expect(onOpenSettings).not.toHaveBeenCalled();
-    const settingsItem = screen.getByText(/^Settings$/).closest('button');
-    expect(settingsItem).toHaveStyle({ minHeight: '42px' });
-    expect(settingsItem.parentElement.style.backdropFilter).toMatch(/blur\(.*20px\)/);
-    expect(settingsItem.parentElement.style.background).toContain('34%');
-    fireEvent.click(settingsItem);
     expect(onOpenSettings).toHaveBeenCalled();
+    // 서브메뉴 항목은 뜨지 않는다(버튼 title 은 있지만 메뉴 아이템 텍스트는 없음).
+    expect(screen.queryByText(/^Settings$/)).toBeNull();
   });
 
   it('opens submenu on desktop when Settings gear clicked', () => {
