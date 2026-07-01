@@ -711,7 +711,7 @@ function App() {
   }, []);
 
   const closeTab = useCallback((tabId, opts = {}) => {
-    const { skipConfirm = false, forceTerminate = false } = opts;
+    const { skipConfirm = false } = opts;
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
 
@@ -748,80 +748,35 @@ function App() {
       }
     };
 
+    // 단순·명료 모델: 탭 닫기 = 그 탭의 내부 세션을 전부 종료한다. detach(세션 유지) 개념 없음.
+    // (네트워크 끊김 자동 재연결은 회복력 — Terminal.jsx 가 따로 책임. 여긴 사용자의 명시적 닫기만.)
     const closeAndTerminate = () => { terminateSessions(); removeTabOnly(); };
 
     // 살아있는 세션이 하나도 없는 빈/신규 탭은 물어볼 게 없다 — 바로 닫는다.
-    // (단일 빈 pane 의 X 가 closePane→closeTab 으로 위임될 때 무의미한 '세션 종료' 모달 방지.)
     const hasLiveSession = !!tab.sessionId || !!tab.hostId
       || (tab.panes || []).some((p) => p.sessionId || p.hostId);
     if (!hasLiveSession) { removeTabOnly(); return; }
 
-    // tmux 가 살아있으면 detach = 그냥 탭만 닫기 (홈 Resumable 에서 다시 열기 가능).
-    // tmux 가 없는 pane 이 하나라도 있으면 작업이 소실되므로 detach 옵션 없음.
-    const canDetach = tabCloseKeepsSession(tab, hosts);
-
-    if (skipConfirm) {
-      // 빠른 닫기 (휠 클릭 인라인 confirm) — tmux 있으면 안전하게 detach, 없으면 terminate.
-      if (canDetach) removeTabOnly(); else closeAndTerminate();
-      return;
-    }
-
-    if (forceTerminate) {
-      // Kill session 전용 진입점 — 의도 명확하므로 3-옵션 모달 안 띄우고 단일 confirm.
-      const paneCount = tab.panes?.length || 1;
-      const tabIdx = tabs.findIndex((tb) => tb.id === tabId);
-      const tabNo = tabIdx >= 0 ? tabIdx + 1 : '?';
-      const headerLine = `#${tabNo} · ${tab.name || 'terminal'}`;
-      const killBody = paneCount > 1
-        ? `${t('confirmKillSession') || 'Terminate the session in this tab? Running work will be lost.'} (${paneCount} ${t('panesInTab') || 'panes'})`
-        : (t('confirmKillSession') || 'Terminate the session in this tab? Running work will be lost.');
-      setConfirmModal({
-        isOpen: true,
-        title: t('terminateSession') || 'Terminate session',
-        titleIcon: XCircle,
-        message: `${headerLine}\n\n${killBody}`,
-        danger: true,
-        confirmText: t('terminateSession') || 'Terminate session',
-        onConfirm: closeAndTerminate,
-      });
-      return;
-    }
+    // 휠 클릭 인라인 confirm 등 이미 확인을 거친 빠른 닫기.
+    if (skipConfirm) { closeAndTerminate(); return; }
 
     const paneCount = tab.panes?.length || 1;
     const tabIdx = tabs.findIndex((tb) => tb.id === tabId);
     const tabNo = tabIdx >= 0 ? tabIdx + 1 : '?';
     const headerLine = `#${tabNo} · ${tab.name || 'terminal'}`;
-    const baseMsg = canDetach
-      ? (t('confirmCloseTabKeepable') || 'Close this tab? The session keeps running — reopen it from Home.')
-      : (t('confirmCloseTabLossy') || 'Close this tab? Work in non-tmux sessions will be lost.');
-    const bodyMsg = paneCount > 1
-      ? `${baseMsg} (${paneCount} ${t('panesInTab') || 'panes'})`
-      : baseMsg;
-    const message = `${headerLine}\n\n${bodyMsg}`;
-
-    if (canDetach) {
-      // primary(우측)=세션 종료(danger), tertiary(좌측 ghost)=탭만 닫기 — destructive
-      // 의도가 들어가 있어 위치 강조. 일반 닫기는 좌측의 가벼운 버튼으로.
-      setConfirmModal({
-        isOpen: true,
-        title: t('closeTab') || 'Close tab',
-        titleIcon: XCircle,
-        message,
-        danger: true,
-        confirmText: t('terminateSession') || 'Terminate session',
-        tertiaryText: t('closeTabOnly') || 'Close tab',
-        onConfirm: closeAndTerminate,
-        onTertiary: removeTabOnly,
-      });
-    } else {
-      setConfirmModal({
-        isOpen: true,
-        title: t('closeTab') || 'Close tab',
-        titleIcon: XCircle,
-        message,
-        onConfirm: closeAndTerminate,
-      });
-    }
+    const base = t('confirmCloseTab') || 'Close this tab? All sessions in it will end.';
+    const body = paneCount > 1
+      ? `${base} (${paneCount} ${t('panesInTab') || 'panes'})`
+      : base;
+    setConfirmModal({
+      isOpen: true,
+      title: t('closeTab') || 'Close tab',
+      titleIcon: XCircle,
+      message: `${headerLine}\n\n${body}`,
+      danger: true,
+      confirmText: t('closeTab') || 'Close tab',
+      onConfirm: closeAndTerminate,
+    });
   }, [tabs, activeTabId, t, hosts, computePaneTmuxSession, killRemoteTmuxSession]);
 
   useEffect(() => { closeTabRef.current = closeTab; }, [closeTab]);
@@ -1256,7 +1211,6 @@ function App() {
         onSelect={setActiveTabId}
         onClose={closeTab}
         onCloseImmediate={(tabId) => closeTab(tabId, { skipConfirm: true })}
-        onKillSession={(tabId) => closeTab(tabId, { forceTerminate: true })}
         onToggleViewMode={toggleViewMode}
         onHome={() => setActiveTabId(null)}
         onOpenHosts={() => setHostManagerOpen(true)}

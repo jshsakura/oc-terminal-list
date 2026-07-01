@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   ChevronLeft, ChevronRight, Edit3, Copy, LayoutGrid, List,
-  SquareSplitHorizontal, SquareSplitVertical, Grid2x2, X, Trash2,
+  SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Trash2,
   Settings as SettingsIcon, RefreshCw,
 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
@@ -44,7 +44,6 @@ export const TabContextMenu = ({
   canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null,
   canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null,
   canSplit = false, onSplit = null,
-  onKillSession = null,
 }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
@@ -154,12 +153,7 @@ export const TabContextMenu = ({
           </MenuItem>
         </>
       )}
-      <MenuItem onClick={onCloseTab} icon={X}>{t?.('closeTab') || 'Close tab (keep session)'}</MenuItem>
-      {onKillSession && (
-        <MenuItem onClick={onKillSession} danger icon={Trash2}>
-          {t?.('killSession') || 'End session'}
-        </MenuItem>
-      )}
+      <MenuItem onClick={onCloseTab} danger icon={Trash2}>{t?.('closeTab') || 'Close tab'}</MenuItem>
     </div>
   );
 };

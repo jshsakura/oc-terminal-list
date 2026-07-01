@@ -67,10 +67,11 @@ describe('TabBar', () => {
     fireEvent.contextMenu(screen.getByText('zsh'));
     const closeMenuItem = screen.getByText(/Close tab/i);
     fireEvent.click(closeMenuItem);
-    // Context menu closes; tab enters pending-close state showing "Close?" prompt
-    expect(screen.getByText(/Close\?/i)).toBeInTheDocument();
-    // Confirm closes the tab immediately
-    fireEvent.click(screen.getByTitle(/Confirm/i));
+    // Context menu closes; tab enters pending-close state. 탭 닫기 = 내부 세션 전부 종료라
+    // 결과("Close (end)")를 라벨에 명시한다.
+    expect(screen.getByText(/Close \(end\)/i)).toBeInTheDocument();
+    // Confirm(체크 버튼)의 접근명 = 종료 힌트. 취소 버튼(title=Cancel)과 구분해 클릭.
+    fireEvent.click(screen.getByRole('button', { name: /Session ends/i }));
     expect(onCloseImmediate).toHaveBeenCalledWith('local:1');
   });
 
