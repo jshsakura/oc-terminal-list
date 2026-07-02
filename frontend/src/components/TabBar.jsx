@@ -26,6 +26,7 @@ const TabBar = ({
   onEqualizePanes = null,
   onSplit,
   onDuplicate,
+  onRenameTab = null,
   onReorder,
   /* (tabId) → 해당 탭의 viewMode 토글 (grid ↔ tabs). panes.length > 1 인 탭에서만 의미. */
   onToggleViewMode,
@@ -275,6 +276,7 @@ const TabBar = ({
         onSplit={onSplit ? (dir) => { onSplit(dir); setContextMenu(null); } : null}
         onClose={() => setContextMenu(null)}
         onCloseTab={() => { const id = contextMenu.tabId; setContextMenu(null); onClose?.(id); }}
+        onRenameTab={onRenameTab ? () => { const id = contextMenu.tabId; setContextMenu(null); onRenameTab(id); } : null}
         onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
         onToggleViewMode={() => { onToggleViewMode?.(contextMenu.tabId); setContextMenu(null); }}
         onMoveLeft={() => {

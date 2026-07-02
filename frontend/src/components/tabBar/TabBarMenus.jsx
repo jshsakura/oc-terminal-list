@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  ChevronLeft, ChevronRight, Edit3, Copy, LayoutGrid, List,
+  Edit3, Copy, LayoutGrid, List,
   SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Trash2,
   Settings as SettingsIcon, RefreshCw,
 } from 'lucide-react';
@@ -107,16 +107,7 @@ export const TabContextMenu = ({
         opacity: measured ? 1 : 0,
       }}
     >
-      {(onMoveLeft || onMoveRight) && (
-        <>
-          <MenuItem onClick={onMoveLeft} disabled={!canMoveLeft} icon={ChevronLeft}>
-            {t?.('moveLeft') || 'Move left'}
-          </MenuItem>
-          <MenuItem onClick={onMoveRight} disabled={!canMoveRight} icon={ChevronRight}>
-            {t?.('moveRight') || 'Move right'}
-          </MenuItem>
-        </>
-      )}
+      {/* 왼쪽/오른쪽 이동 제거 — 이제 탭 드래그로 재정렬 가능해 메뉴 항목 불필요. */}
       {onRenameTab && (
         <MenuItem onClick={onRenameTab} icon={Edit3}>
           {t?.('rename') || 'Rename'}

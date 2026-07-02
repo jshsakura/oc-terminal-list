@@ -1234,6 +1234,7 @@ function App() {
             openLocalTab(src.cwd ?? null);
           }
         }}
+        onRenameTab={handleRenameTab}
         canSplit={!!activeTab && !isMobile}
         t={t}
       />
