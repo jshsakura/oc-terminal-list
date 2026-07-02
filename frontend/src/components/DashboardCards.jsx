@@ -25,6 +25,66 @@ const SUMMARY_CACHE_TTL_MS = 10 * 1000;
 // 진행 중인 in-flight promise — 같은 days 키에 대해 단 하나만 유지
 const _summaryInFlight = new Map(); // `days` → Promise
 
+// entrance 애니메이션 — 전부 마운트 1회 bounded. 무한 타이머/매초 리렌더 없음.
+const COUNTUP_MS = 900;
+const GAUGE_SWEEP_MS = 600;
+const easeOutCubic = (t) => 1 - (1 - t) ** 3;
+
+/* prefers-reduced-motion 감지 — reduce 면 모든 entrance 애니메이션을 생략하고 최종값 즉시. */
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      : false);
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.matchMedia) return undefined;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const onChange = () => setReduced(mq.matches);
+    mq.addEventListener?.('change', onChange);
+    return () => mq.removeEventListener?.('change', onChange);
+  }, []);
+  return reduced;
+}
+
+/* 0→target 카운트업 — requestAnimationFrame ease-out, ~900ms 후 반드시 종료(영구 루프 X).
+ * target 이 바뀔 때마다(days 변경/새 데이터) 1회만 재실행. reduce 면 즉시 최종값. */
+function useCountUp(target, enabled) {
+  const prefersReduced = usePrefersReducedMotion();
+  const [value, setValue] = useState(0);
+  const [running, setRunning] = useState(false);
+  const rafRef = useRef(0);
+  const startedForRef = useRef(null);
+
+  useEffect(() => {
+    if (!enabled) return undefined;
+    if (startedForRef.current === target) return undefined; // 같은 target 재애니메이션 금지
+    startedForRef.current = target;
+
+    if (prefersReduced || target <= 0) {
+      setValue(target);
+      setRunning(false);
+      return undefined;
+    }
+
+    setRunning(true);
+    const start = performance.now();
+    const tick = (now) => {
+      const t = Math.min(1, (now - start) / COUNTUP_MS);
+      setValue(Math.round(target * easeOutCubic(t)));
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        setValue(target); // 정확한 최종값으로 정착
+        setRunning(false);
+      }
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [enabled, target, prefersReduced]);
+
+  return { value, running };
+}
+
 const DashboardCards = ({ hosts = [], settings = {}, days = 7, t }) => {
   const [data, setData] = useState(() => _summaryCache.get(days)?.data ?? null);
   const [loading, setLoading] = useState(() => !_summaryCache.get(days));
@@ -203,8 +263,10 @@ const StatStripCard = ({
  * 숫자는 크고 볼드, 단위(d/h/m/s)는 작게 muted, baseline 정렬.
  * 첫(가장 큰) 단위의 숫자에만 절제된 accent 포인트 하나. */
 const HeroDuration = ({ seconds, loading }) => {
+  // 데이터 로드(=!loading) 되면 0→seconds 카운트업. 도중엔 초까지 흐르고, 끝나면 coarse 로 정착.
+  const { value, running } = useCountUp(seconds, !loading);
   if (loading) return <span className="dc-skel" style={heroValueStyle}>—</span>;
-  const parts = durationParts(seconds);
+  const parts = running ? durationPartsFull(value) : durationParts(seconds);
   return (
     <span style={heroValueStyle} aria-label={formatDuration(seconds)}>
       {parts.map((p, i) => (
@@ -222,12 +284,22 @@ const StatCell = ({ divider = false, children }) => (
   <div style={statCellStyle(divider)}>{children}</div>
 );
 
-/* SVG 라디얼 게이지 — 가운데에 children 표시. 얇고 절제된 톤, 글로우 없음. */
+/* SVG 라디얼 게이지 — 가운데에 children 표시. 얇고 절제된 톤, 글로우 없음.
+ * 마운트 시 stroke 를 0→목표로 스윕인(~600ms ease-out). reduce 면 즉시 목표값. */
 const RadialGauge = ({ pct = 0, size = 36, thickness = 3, children }) => {
+  const prefersReduced = usePrefersReducedMotion();
   const safe = Math.max(0, Math.min(100, pct));
+  const [shown, setShown] = useState(prefersReduced ? safe : 0);
+  useEffect(() => {
+    if (prefersReduced) { setShown(safe); return undefined; }
+    // 다음 프레임에 목표값으로 — 초기 0 에서 CSS transition 이 스윕을 그린다(bounded, RAF 1회).
+    const id = requestAnimationFrame(() => setShown(safe));
+    return () => cancelAnimationFrame(id);
+  }, [safe, prefersReduced]);
+
   const r = (size - thickness) / 2;
   const cir = 2 * Math.PI * r;
-  const offset = cir * (1 - safe / 100);
+  const offset = cir * (1 - shown / 100);
   return (
     <div style={{ position: 'relative', width: size, height: size }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
@@ -242,7 +314,7 @@ const RadialGauge = ({ pct = 0, size = 36, thickness = 3, children }) => {
           strokeDashoffset={offset}
           strokeLinecap="round"
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: `stroke-dashoffset ${motion.normal}` }}
+          style={{ transition: prefersReduced ? 'none' : `stroke-dashoffset ${GAUGE_SWEEP_MS}ms cubic-bezier(0.16, 1, 0.3, 1)` }}
         />
       </svg>
       <div style={{
@@ -359,6 +431,22 @@ function durationParts(seconds) {
   const remH = h % 24;
   const out = [{ value: d, unit: 'd' }];
   if (remH) out.push({ value: remH, unit: 'h' });
+  return out;
+}
+
+/* 카운트업 도중 전용 — 초 granularity 까지 쪼개서 마지막 세그먼트가 촤르륵 흐르게.
+ * 선두 0 단위는 생략하되 항상 초로 끝나 "다이나믹"하게 보이도록. */
+function durationPartsFull(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  const out = [];
+  if (d) out.push({ value: d, unit: 'd' });
+  if (d || h) out.push({ value: h, unit: 'h' });
+  if (d || h || m) out.push({ value: m, unit: 'm' });
+  out.push({ value: sec, unit: 's' });
   return out;
 }
 
