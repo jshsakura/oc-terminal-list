@@ -761,7 +761,7 @@ export const ko = {
     usageStats: '사용 통계 · 최근 7일',
     last30Days: '최근 30일',
     addHostHint: '새 SSH 연결',
-    atAGlance: '한눈에 보기',
+    atAGlance: '전체 사용 시간',
     totalTime: '총 시간',
     activeHosts: '활성',
     avgSession: '평균 세션',

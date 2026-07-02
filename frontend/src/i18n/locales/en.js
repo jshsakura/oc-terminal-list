@@ -761,7 +761,7 @@ export const en = {
     usageStats: 'Usage · last 7 days',
     last30Days: 'Last 30 days',
     addHostHint: 'New SSH connection',
-    atAGlance: 'overview',
+    atAGlance: 'Total usage',
     totalTime: 'Total time',
     activeHosts: 'Active',
     avgSession: 'Avg session',
