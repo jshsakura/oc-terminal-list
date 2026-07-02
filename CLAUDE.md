@@ -97,8 +97,20 @@ When done: `sudo systemctl start iterminallist.service`
 | `DB_PATH` | see .env | SQLite database path |
 | `TMUX_SOCKET_NAME` | `iterminallist-app` | Isolated tmux socket |
 | `REDIS_URL` | _(empty)_ | If set, `backend/cache.py` uses Redis; empty falls back to in-memory. This server runs `iterminallist-redis` (Docker, `redis:alpine`, 127.0.0.1:6379). |
+| `AUTH_COOKIE_SECURE` | `auto` | Auth cookie `Secure` flag. `auto` = detect from request scheme; `1` = force Secure (set this when behind an HTTPS-terminating reverse proxy); `0` = force off. Plain-http host deploys must stay `auto`/`0` or login breaks. |
+| `TRUST_PROXY_HEADERS` | `0` | Trust `X-Forwarded-*` (host/proto) — only enable behind a trusted proxy; affects cookie Secure detection and WebAuthn RP-ID. |
 
 Do not put JWT or vault keys in `.env` — they are auto-managed.
+
+## Notable backend endpoints (added 2026-07)
+
+- `POST /api/terminal/paste-file` — upload any file (right-click "Send file"), stored under `WORKSPACE_ROOT/.pasted/`, returns its path (image-only sibling: `/api/terminal/paste-image`).
+- `GET /api/files/grep?q=` — ripgrep workspace content search (file explorer content-search toggle).
+- Session REST endpoints (`/api/sessions/{id}/...`) enforce ownership via `_assert_session_owner` (same check as the WS route).
+
+## Tab/session close model (as of 2026-07)
+
+Closing a tab **terminates all its inner sessions** (no detach/keep-alive). `closeTab` always runs `closeAndTerminate`; there is no separate "kill session" menu item. Network-drop reconnection is unrelated resilience and still auto-recovers. See memory `project_close_session_model`.
 
 ## Architecture rules (do not break)
 
