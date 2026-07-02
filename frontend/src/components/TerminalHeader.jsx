@@ -982,6 +982,14 @@ const stripHostPathPrefix = (path) => {
 
 const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = null, t = null }) => {
   const [refreshing, setRefreshing] = useState(false);
+  // 로딩 스켈레톤 시간 제한 — 연결이 오래 걸려(=loading 이 계속 true) 상단 shimmer 바가 "되다 만"
+  // 채로 영영 남는 게 거슬린다. 잠깐 뒤엔 폴백 경로(~/user@host)를 대신 보여 멈춘 바를 없앤다.
+  const [skeletonExpired, setSkeletonExpired] = useState(false);
+  useEffect(() => {
+    if (!loading) { setSkeletonExpired(false); return undefined; }
+    const id = setTimeout(() => setSkeletonExpired(true), 2500);
+    return () => clearTimeout(id);
+  }, [loading]);
   const isHostPane = paneInfo?.tabType === 'host';
   const iconValue = isHostPane
     ? (paneInfo?.host?.icon || null)
@@ -1047,8 +1055,8 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
     pointerEvents: 'auto',
   };
 
-  // 로딩 중 — 스켈레톤 pill
-  if (loading) {
+  // 로딩 중 — 스켈레톤 pill (단, 오래 걸리면 폴백 경로로 전환해 멈춘 바를 없앤다)
+  if (loading && !skeletonExpired) {
     return (
       <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: 'flex', alignItems: 'center', padding: '0 5px' }}>
         <div style={{ ...pillStyle, pointerEvents: 'none' }}>
