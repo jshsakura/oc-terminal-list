@@ -171,9 +171,7 @@ const StatStripCard = ({
               캡션은 작고 muted. 아래 얇은 진행바 하나가 유일한 accent 포인트. */}
           <div style={heroStyle}>
             <span style={heroCaptionStyle}>{`${t?.('totalTime') || 'Total'} · ${windowDays}d`}</span>
-            <span className={loading ? 'dc-skel' : undefined} style={heroValueStyle}>
-              {loading ? '—' : formatDuration(totalSeconds)}
-            </span>
+            <HeroDuration seconds={totalSeconds} loading={loading} />
             <div style={heroBarTrackStyle}>
               <div style={heroBarFillStyle(loading ? 0 : totalPct)} />
             </div>
@@ -198,6 +196,24 @@ const StatStripCard = ({
         </div>
       )}
     </CardShell>
+  );
+};
+
+/* 히어로 총 시간 — 한 문자열이 아니라 숫자/단위 세그먼트로 렌더.
+ * 숫자는 크고 볼드, 단위(d/h/m/s)는 작게 muted, baseline 정렬.
+ * 첫(가장 큰) 단위의 숫자에만 절제된 accent 포인트 하나. */
+const HeroDuration = ({ seconds, loading }) => {
+  if (loading) return <span className="dc-skel" style={heroValueStyle}>—</span>;
+  const parts = durationParts(seconds);
+  return (
+    <span style={heroValueStyle} aria-label={formatDuration(seconds)}>
+      {parts.map((p, i) => (
+        <span key={p.unit} style={heroSegStyle}>
+          <span style={i === 0 ? heroNumAccentStyle : heroNumStyle}>{p.value}</span>
+          <span style={heroUnitStyle}>{p.unit}</span>
+        </span>
+      ))}
+    </span>
   );
 };
 
@@ -325,6 +341,27 @@ function formatDuration(seconds) {
   return remH ? `${d}d ${remH}h` : `${d}d`;
 }
 
+/* 히어로 렌더용 — formatDuration 과 같은 규칙이되 [{value, unit}] 세그먼트로 반환.
+ * (숫자 대 / 단위 소 대비를 주려면 문자열이 아니라 조각이 필요해서 별도 함수.) */
+function durationParts(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  if (s < 60) return [{ value: s, unit: 's' }];
+  const m = Math.floor(s / 60);
+  if (m < 60) return [{ value: m, unit: 'm' }];
+  const h = Math.floor(m / 60);
+  const remM = m % 60;
+  if (h < 24) {
+    const out = [{ value: h, unit: 'h' }];
+    if (remM) out.push({ value: remM, unit: 'm' });
+    return out;
+  }
+  const d = Math.floor(h / 24);
+  const remH = h % 24;
+  const out = [{ value: d, unit: 'd' }];
+  if (remH) out.push({ value: remH, unit: 'h' });
+  return out;
+}
+
 /* ─── keyframes — 로딩 스켈레톤 펄스뿐. transform 없는 순수 opacity 애니메이션.
  * prefers-reduced-motion: reduce 에서는 정적 opacity 로 대체. */
 const DASHBOARD_KEYFRAMES = `
@@ -406,14 +443,34 @@ const heroCaptionStyle = {
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
 };
+// 히어로 값 컨테이너 — 세그먼트들을 baseline 정렬로 가로 배치.
 const heroValueStyle = {
-  fontSize: 'clamp(34px, 9vw, 48px)',
-  fontWeight: fontWeight.semibold,
+  display: 'inline-flex',
+  alignItems: 'baseline',
+  justifyContent: 'center',
+  gap: '10px',
   fontFamily: font.mono,
-  color: color.text,
-  letterSpacing: '-0.02em',
   lineHeight: 1,
   textAlign: 'center',
+};
+const heroSegStyle = {
+  display: 'inline-flex',
+  alignItems: 'baseline',
+  gap: '2px',
+};
+const heroNumStyle = {
+  fontSize: 'clamp(30px, 8vw, 44px)',
+  fontWeight: fontWeight.semibold,
+  color: color.text,
+  letterSpacing: '-0.02em',
+};
+// 가장 큰 단위의 숫자에만 절제된 accent 포인트 하나.
+const heroNumAccentStyle = { ...heroNumStyle, color: color.accent };
+const heroUnitStyle = {
+  fontSize: 'clamp(13px, 3vw, 15px)',
+  fontWeight: fontWeight.medium,
+  color: color.muted,
+  letterSpacing: '0.01em',
 };
 
 const heroBarTrackStyle = {
