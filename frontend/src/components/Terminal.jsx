@@ -39,6 +39,8 @@ import {
   WS_TICKET_USE_MARGIN_MS, HEALTHY_RECV_MS, NOTICE_SHOW_DELAY_MS, MAX_PENDING_WRITE_BYTES,
   WEBGL_DETACH_GRACE_MS, WEBGL_IDLE_RELEASE_MS, CONNECT_OPEN_TIMEOUT_MS, RECONNECT_STABLE_RESET_MS,
   RECONNECT_WATCHDOG_POLL_MS, RECONNECT_ESCALATE_MS, WASM_ALLOWED, TMUX_WHEEL_INPUT_RE,
+  STALE_CONNECTING_RESUME_MS, OUTAGE_PROBE_INTERVAL_MS, OUTAGE_PROBE_TIMEOUT_MS,
+  OUTAGE_PROBE_MIN_DELAY_MS,
 } from './terminal/terminalConstants';
 import {
   sleep, looksLikeBulkCommand, looksLikeRecoverableBulkInput,
@@ -86,6 +88,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const wasClosedForInactivityRef = useRef(false);
   const wsRef = useRef(null);
   const wsGenerationRef = useRef(0);
+  // 현재 소켓이 CONNECTING 을 시작한 시각(ms). resume 신호/워치독이 "죽은 경로에 매달린
+  // CONNECTING 좀비"를 나이로 판별해 openTimer 만료 전에 끊을 수 있게 한다.
+  const wsConnectingSinceRef = useRef(0);
+  // 장기 outage 백오프 대기 중 서버 복귀를 감지하는 /api/health 프로브 interval id.
+  const outageProbeTimerRef = useRef(null);
   const resizeTimeoutRef = useRef(null);
   const resizeTrailingTimeoutRef = useRef(null);
   const fitNowRef = useRef(null);
@@ -212,6 +219,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   }, []);
 
   const markEnded = useCallback((notice = '') => {
+    if (outageProbeTimerRef.current) {
+      clearInterval(outageProbeTimerRef.current);
+      outageProbeTimerRef.current = null;
+    }
     endedRef.current = true;
     evictedRef.current = false;
     reconnectingRef.current = false;
@@ -305,9 +316,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       }
 
       // 2) 정상 복구가 진행 중이면 끼어들지 않는다. 갓 시작한 CONNECTING 은 connect() 의
-      //    openTimer(12s)가 좀비를 책임지므로 여기선 대기로 둔다.
+      //    openTimer 가 좀비를 책임지므로 여기선 대기로 둔다. 단, openTimer 만료를 한참
+      //    지나도록 CONNECTING 이면(제너레이션 엇갈림 등으로 openTimer 가 죽은 극단 케이스)
+      //    영구 "연결 중" 교착이므로 아래로 진행해 강제 재연결한다.
       if (reconnectTimeoutRef.current || recoveringRef.current || connectInFlightRef.current) return;
-      if (rs === WebSocket.CONNECTING) return;
+      if (rs === WebSocket.CONNECTING
+          && Date.now() - (wsConnectingSinceRef.current || 0)
+             < CONNECT_OPEN_TIMEOUT_MS + RECONNECT_WATCHDOG_POLL_MS * 2) return;
 
       // 3) 그 외(소켓 없음 / CLOSING / CLOSED / 수신 끊긴 half-dead OPEN) = 교착.
       //    오프라인이면 online 이벤트가 복구를 깨운다 — 그동안은 차분한 pill 만 떠 있게 둔다.
@@ -353,6 +368,40 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       reconnectTimeoutRef.current = null;
       connectRef.current?.({ create: false, autoRecover: true });
     }, delay);
+    // 긴 백오프 대기 중 서버 복귀 즉시 감지 — 활성·가시 pane 하나만 /api/health 를 저부하로
+    // 두드리고, 성공하면 예약된 백오프를 기다리지 않고 바로 재연결한다. 데스크탑 포커스 탭은
+    // resume 이벤트(online/focus/visible)가 영영 안 와서 서버가 돌아와도 최대 30s 를 더
+    // 기다리던 구멍을 막는다. 실패는 조용히 무시(다음 tick 재시도), 연결되면 connect() 가 정리.
+    if (delay >= OUTAGE_PROBE_MIN_DELAY_MS) {
+      if (outageProbeTimerRef.current) clearInterval(outageProbeTimerRef.current);
+      // down→up "전환"만 조기 재연결 트리거로 쓴다. 첫 프로브부터 성공이면 서버는 원래
+      // 살아있는데 WS 쪽만 실패 중인 것 — 조기 재연결해 봐야 3s 주기 hammering 만 되므로
+      // 프로브를 접고 라운드 백오프에 맡긴다.
+      let sawServerDown = false;
+      const probeId = setInterval(() => {
+        if (document.hidden || !isActiveRef.current) return;
+        if (!reconnectTimeoutRef.current) return; // 대기 중인 재연결이 없으면 프로브 무의미
+        if (endedRef.current || evictedRef.current) return;
+        fetch('/api/health', {
+          signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+            ? AbortSignal.timeout(OUTAGE_PROBE_TIMEOUT_MS)
+            : undefined,
+        }).then((res) => {
+          // in-flight 응답이 도착했을 때 이미 다른 라운드/connect 가 이 프로브를 교체·정리했다면 무시.
+          if (outageProbeTimerRef.current !== probeId) return;
+          if (!res.ok) { sawServerDown = true; return; }
+          clearInterval(probeId);
+          outageProbeTimerRef.current = null;
+          if (!sawServerDown) return; // 서버는 계속 살아있었음 — 백오프 유지
+          if (reconnectTimeoutRef.current) {
+            clearTimeout(reconnectTimeoutRef.current);
+            reconnectTimeoutRef.current = null;
+          }
+          connectRef.current?.({ create: false, autoRecover: true });
+        }).catch(() => { sawServerDown = true; /* 다음 tick 재시도 */ });
+      }, OUTAGE_PROBE_INTERVAL_MS);
+      outageProbeTimerRef.current = probeId;
+    }
   }, [t]);
 
   const notifyStatus = useCallback(() => {
@@ -1188,12 +1237,21 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     const scheduleExistingReconnect = (notice = t('networkReconnect') || 'Network connection changed. Reconnecting...') => {
       if (cancelled) return false;
       if (scheduleReconnect(false, notice)) return true;
-      markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found. Start a new shell to continue.');
+      // 버스트 소진(횟수/벽시계) — 셸이 죽은 게 아니라 연결이 오래 안 붙는 것뿐이므로
+      // "셸 종료" 데드엔드 대신 차분한 재연결 pill 로 mosh 식 인페이지 무한 복구를 잇는다.
+      // (진짜 셸 종료는 exists=false 확정 → beginAutoClose 경로가 따로 처리한다.)
+      keepReconnectingPill(notice);
       return false;
     };
 
     const connect = async (options = {}) => {
       if (cancelled) return;
+      // outage 프로브는 connect 진입 시점에 정리 — 어떤 경로로든 재연결이 시작(또는 이미
+      // 연결 존재)하면 더 두드릴 필요가 없다.
+      if (outageProbeTimerRef.current) {
+        clearInterval(outageProbeTimerRef.current);
+        outageProbeTimerRef.current = null;
+      }
       // [저부하 가드] 이미 살아있거나(OPEN) 연결 중(CONNECTING)인 소켓이 있으면
       // 그대로 둔다 — 멀쩡한 소켓을 닫고 새로 여는 핸드셰이크 폭주가 공유 Cloudflare
       // 터널을 포화시키는 주범. 중복 connect 호출은 비용 없는 no-op 으로 만든다.
@@ -1285,6 +1343,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
       const socket = new WebSocket(wsUrl);
       socket.binaryType = 'arraybuffer';
+      wsConnectingSinceRef.current = Date.now();
       const wsGeneration = wsGenerationRef.current + 1;
       wsGenerationRef.current = wsGeneration;
       wsRef.current = socket;
@@ -1710,10 +1769,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
         if (isStaleSocket()) return;
         // 호스트 네트워크 불안정 (RPi5 wifi 등) 케이스 대응 — 시도 횟수 늘리고 cap 도 큼.
-        // 1→2→4→8→8→8…s, 최대 12회 ≈ 1분 30초. 그 후 ended 화면.
+        // 1→2→4→8→8→8…s, 최대 12회 ≈ 1분 30초.
         if (!scheduleReconnect(false, t('networkReconnect') || 'Network connection changed. Reconnecting...')) {
-          // 끝까지 실패 — ended 오버레이로 사용자 명시 액션 유도.
-          markEnded(t('reconnectExistingShellFailed') || 'No existing shell was found.');
+          // 버스트 소진 — 셸이 죽었다는 증거가 없으므로(있으면 exists=false 경로가 처리)
+          // "셸 종료" 데드엔드 대신 pill 을 유지하고 저속 백오프로 무한 복구를 계속한다.
+          keepReconnectingPill(t('networkReconnect') || 'Network connection changed. Reconnecting...');
         }
       };
       // recoveringRef — 폴링이 도는 동안 워치독이 정상 복구를 교착으로 오인하지 않게.
@@ -1990,6 +2050,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
       if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (outageProbeTimerRef.current) {
+        clearInterval(outageProbeTimerRef.current);
+        outageProbeTimerRef.current = null;
+      }
       if (stableReconnectTimerRef.current) {
         clearTimeout(stableReconnectTimerRef.current);
         stableReconnectTimerRef.current = null;
@@ -2435,7 +2499,17 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         return;
       }
 
-      // CONNECTING 이면 헬시로 보고 그대로 둔다 — probe 도 안 쏜다(부하 0).
+      // CONNECTING — 갓 시작한 핸드셰이크는 그대로 둔다(probe 도 안 쏜다, 부하 0).
+      // 단, 죽은 네트워크 경로에서 시작돼 3s 넘게 매달린 CONNECTING 은 openTimer 만료까지
+      // 기다리면 "연결 중"에 갇혀 보인다 — 지금이 바로 네트워크가 돌아온 순간(online/focus/
+      // visible)이므로 좀비를 즉시 떼고 fresh 소켓으로 새로 연다.
+      if (ws.readyState === WebSocket.CONNECTING) {
+        if (Date.now() - (wsConnectingSinceRef.current || 0) > STALE_CONNECTING_RESUME_MS) {
+          logger.warn(`복귀 신호 시점에 stale CONNECTING(${reason}) — 좀비 소켓 교체: ${sessionId}`);
+          forceReconnect(ws, { notice: t('networkReconnect') || 'Network connection changed. Reconnecting...' });
+        }
+        return;
+      }
       if (ws.readyState !== WebSocket.OPEN) return;
 
       const now = Date.now();

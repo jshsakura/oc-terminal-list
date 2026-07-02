@@ -28,11 +28,13 @@ export const HEARTBEAT_DEAD_MS = 35000;
 // 활성·가시 탭의 빠른 하트비트 — "포커스한 채 타이핑·탭전환 없이 가만히 보는" 사각지대 전용.
 // 이 창에선 입력 probe·resume probe·워치독이 모두 안 걸려 오직 하트비트만 동작하는데,
 // 기본 15s/35s 로는 half-open 소켓 감지에 ~45s 가 걸려 화면이 멈춘 듯 보인다. 활성 pane 에
-// 한해 ping 을 8s 로, dead 임계를 18s 로 좁혀 ~20s 안에 자동 복구한다. ping 이 빨라지는 건
-// 보고 있는 활성 pane 하나뿐이라 공유 터널 부하는 최소. hidden/비활성 pane 은 위 기본값을
-// 백스톱으로 그대로 쓴다(hidden 은 grace-close 가, 비활성 복귀는 resume probe 가 따로 책임).
-export const HEARTBEAT_INTERVAL_ACTIVE_MS = 8000;
-export const HEARTBEAT_DEAD_ACTIVE_MS = 18000;
+// 한해 ping 을 5s 로, dead 임계를 12s 로 좁혀 ~13s 안에 자동 복구한다(ping 2회 연속 무응답
+// + 여유가 있어야 dead 판정이라 순간 부하로 pong 이 한 번 늦는 정도로는 오탐하지 않는다).
+// ping 이 빨라지는 건 보고 있는 활성 pane 하나뿐이라 공유 터널 부하는 최소. hidden/비활성
+// pane 은 위 기본값을 백스톱으로 그대로 쓴다(hidden 은 grace-close 가, 비활성 복귀는 resume
+// probe 가 따로 책임).
+export const HEARTBEAT_INTERVAL_ACTIVE_MS = 5000;
+export const HEARTBEAT_DEAD_ACTIVE_MS = 12000;
 // 복귀(focus/visibility) 프로브 판정 시간. 살아있는 소켓 pong 은 보통 1초 미만이라
 // 길게 잡을 필요가 없다. 포커스 순간 빠른 복구를 위해 짧게 — 그래도 typical RTT 의 5배+.
 export const RESUME_PROBE_TIMEOUT_MS = 2500;
@@ -60,7 +62,13 @@ export const WEBGL_DETACH_GRACE_MS = 8000;
 // 3분 — 잠깐의 사고 휴지에는 churn 없고, 밤샘 idle 은 수 분 내 GPU 를 0 으로 떨군다.
 export const WEBGL_IDLE_RELEASE_MS = 3 * 60_000;
 // WS 가 이 시간 안에 onopen 못 하면 재연결 실패로 보고 중단 (무한 "연결 중..." 방지).
-export const CONNECT_OPEN_TIMEOUT_MS = 12000;
+// 정상 핸드셰이크는 터널 경유라도 보통 1~2s — 8s 면 충분히 관대하면서, 죽은 경로에
+// 매달린 CONNECTING 좀비를 12s 보다 4s 빨리 끊어 체감 "연결중 갇힘" 창을 줄인다.
+export const CONNECT_OPEN_TIMEOUT_MS = 8000;
+// resume 신호(online/focus/visible) 시점에 이보다 오래 CONNECTING 인 소켓은 죽은
+// 네트워크 경로에서 시작된 좀비로 보고 즉시 떼고 새로 연다. 네트워크 전환 직후
+// openTimer(8s) 만료까지 기다리지 않는 빠른 탈출구.
+export const STALE_CONNECTING_RESUME_MS = 3000;
 // onopen 직후 바로 끊기는 flapping 연결은 성공으로 보지 않는다.
 export const RECONNECT_STABLE_RESET_MS = 15000;
 // "재연결 중" 배너 교착 워치독. 모바일 네트워크 전환 시 focus/visibility/online/pageshow 가
@@ -71,6 +79,14 @@ export const RECONNECT_WATCHDOG_POLL_MS = 4000;
 // 워치독이 교착을 풀 때, 이 시간 넘게 못 붙었으면 create=true 로 올려 (세션이 사라졌어도)
 // 재생성까지 시도한다. 페이지 새로고침은 절대 안 한다 — 끊김은 인페이지로만, mosh 처럼 무한 복구.
 export const RECONNECT_ESCALATE_MS = 16000;
+// 장기 outage 라운드(keepReconnectingPill)의 백오프 대기(4→8→16→30s) 중 서버 복귀를
+// 즉시 감지하는 저부하 프로브. 활성·가시 pane 하나만 /api/health 를 이 주기로 두드리고,
+// 성공하면 예약된 백오프를 기다리지 않고 바로 재연결한다 — 서버가 돌아왔는데 데스크탑
+// 포커스 탭(resume 이벤트가 영영 안 오는 케이스)이 최대 30s 를 더 기다리던 구멍을 막는다.
+export const OUTAGE_PROBE_INTERVAL_MS = 3000;
+export const OUTAGE_PROBE_TIMEOUT_MS = 2500;
+// 이보다 짧은 백오프 대기에는 프로브를 띄우지 않는다(어차피 곧 재시도).
+export const OUTAGE_PROBE_MIN_DELAY_MS = 4000;
 
 // WASM 가용성 프로브 — 최소 유효 wasm 모듈을 동기 컴파일해본다. CSP(특히 Cloudflare
 // Zaraz 가 재작성한 script-src)가 wasm-unsafe-eval 을 막으면 CompileError 가 동기로
