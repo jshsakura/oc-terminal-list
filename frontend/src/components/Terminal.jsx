@@ -49,7 +49,7 @@ import { GlassOverlayCard, TerminalEdgeGutter, AuthPromptOverlay, TerminalContex
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
-const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null }, ref) => {
+const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
   const { t } = useTranslation(settings.language);
   const terminalClientIdRef = useRef(getTerminalClientId());
   const terminalRef = useRef(null);
@@ -2765,10 +2765,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             } catch {}
             setContextMenu(null);
           }}
-          onClear={() => {
-            xtermRef.current?.clear();
-            setContextMenu(null);
-          }}
+          onRefresh={onRefresh ? () => { setContextMenu(null); onRefresh(); } : null}
           onScrollToBottom={() => {
             xtermRef.current?.scrollToBottom();
             setContextMenu(null);

@@ -572,6 +572,7 @@ const Pane = ({
                 onReadyChange={setTerminalReady}
                 onStatusChange={setTerminalStatus}
                 onClosePane={onCloseImmediate || onClose}
+                onRefresh={() => setRefreshNonce((n) => n + 1)}
               />
             </Suspense>
             </>

@@ -7,7 +7,7 @@
  * Terminal.jsx 에서 로직 변경 없이 추출.
  */
 import { useState, useEffect, useRef } from 'react';
-import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RotateCcw, KeyRound, Upload } from 'lucide-react';
+import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RefreshCw, KeyRound, Upload } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { glassDividerStyle, glassMenuItemHover, glassMenuStyle } from '../../styles/glass';
 import { styles } from './terminalStyles';
@@ -173,7 +173,7 @@ export const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) =>
   );
 };
 
-export const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll, onPaste, onClear, onScrollToBottom, onUploadFile, onClose }) => {
+export const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll, onPaste, onRefresh, onScrollToBottom, onUploadFile, onClose }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
   const [measured, setMeasured] = useState(false);
@@ -226,7 +226,9 @@ export const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, on
   if (onUploadFile) {
     items.push({ icon: Upload, label: t('sendFile') || 'Send file', action: onUploadFile });
   }
-  items.push({ icon: RotateCcw, label: t('clear') || 'Clear', action: onClear });
+  if (onRefresh) {
+    items.push({ icon: RefreshCw, label: t('refresh') || 'Refresh', action: onRefresh });
+  }
   items.push({ icon: ArrowDownToLine, label: t('scrollToBottom') || 'Scroll to bottom', action: onScrollToBottom });
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
