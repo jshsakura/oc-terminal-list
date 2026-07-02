@@ -1879,6 +1879,17 @@ def _resolve_shell(requested: str | None) -> str | None:
     return None
 
 
+async def _assert_session_owner(session_id: str, username: str) -> None:
+    """세션 REST 엔드포인트 소유권 체크. WS attach 의 동일 로직(existing_owner 비교)을 재사용.
+    세션이 DB 에 없으면(owner=None) 통과 — WS 쪽과 동일하게 신규/미기록 세션은 허용."""
+    try:
+        owner = await storage.get_session_owner(session_id)
+    except Exception:
+        owner = None
+    if owner and owner != username:
+        raise HTTPException(status_code=403, detail="세션 접근 권한 없음")
+
+
 @app.get("/api/sessions", response_model=list[dict])
 async def list_sessions(username: str = Depends(verify_auth_token)):
     """DB에 기록된 사용자 세션 목록 (tmux에 살아있는지 여부와 무관)."""
@@ -1930,6 +1941,7 @@ async def create_session(
 
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str, username: str = Depends(verify_auth_token)):
+    await _assert_session_owner(session_id, username)
     await tmux_manager.kill_session(session_id)
     await storage.delete_session(session_id)
     await invalidate_session(session_id)
@@ -1948,6 +1960,7 @@ async def get_session_clients(
     세션 자체가 없으면 attached=False 로 통일 (UI 가 그냥 신규 attach 진행하게).
     여러 탭이 같은 세션을 polling 할 때 합치되, close 직후 자기 attach 를 takeover 로
     오판하지 않도록 TTL 은 짧게 유지."""
+    await _assert_session_owner(session_id, username)
     cache_key = key_local_clients(session_id)
     base = await cache.get(cache_key)
     if base is None:
@@ -1968,6 +1981,7 @@ async def resize_terminal(
     request: ResizeRequest,
     username: str = Depends(verify_auth_token),
 ):
+    await _assert_session_owner(session_id, username)
     if not await tmux_manager.session_exists(session_id):
         raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
     await tmux_manager.resize_window(session_id, request.cols, request.rows)
@@ -1977,6 +1991,7 @@ async def resize_terminal(
 @app.get("/api/sessions/{session_id}/activity")
 async def get_session_activity(session_id: str, username: str = Depends(verify_auth_token)):
     """세션의 cwd 타임라인 + 워크스페이스 상대 경로 부가."""
+    await _assert_session_owner(session_id, username)
     workspace_abs = os.path.abspath(WORKSPACE_ROOT)
     raw = tmux_manager.get_cwd_history(session_id)
     items = []
@@ -1999,6 +2014,7 @@ async def get_session_activity(session_id: str, username: str = Depends(verify_a
 @app.get("/api/sessions/{session_id}/cwd")
 async def get_session_cwd(session_id: str, username: str = Depends(verify_auth_token)):
     """활성 pane 의 현재 작업 디렉토리. 워크스페이스 내부면 상대 경로도 같이 반환."""
+    await _assert_session_owner(session_id, username)
     cwd = await tmux_manager.get_pane_cwd(session_id)
     if not cwd:
         return {"session_id": session_id, "cwd": None, "workspace_relative": None, "in_workspace": False}
@@ -2022,6 +2038,7 @@ async def update_session_name(
     request: SessionNameRequest,
     username: str = Depends(verify_auth_token),
 ):
+    await _assert_session_owner(session_id, username)
     await storage.update_session_name(session_id, request.name)
     return {"session_id": session_id, "name": request.name, "status": "updated"}
 
