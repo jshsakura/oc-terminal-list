@@ -161,7 +161,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
       `}</style>
       {/* 세션 */}
       <InfoSection title={t?.('infoSession') || 'Session'} icon={TerminalIcon}>
-        <InfoRow label={t?.('infoTabName') || 'Tab'} value={info?.paneName || info?.tabName || '—'} mono={false} />
+        <InfoRow label={t?.('infoTabName') || 'Tab'} value={info?.paneName || info?.tabName || '—'} mono={false} accent />
         <InfoRow
           label={t?.('infoMode') || 'Mode'}
           value={isHost ? (t?.('infoModeRemote') || 'SSH (remote)') : (t?.('infoModeLocal') || 'Local')}

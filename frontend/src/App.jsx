@@ -138,8 +138,8 @@ function App() {
         ...tt,
         isPersistent,
         closeKeepsSession,
-        // 로컬은 사용자가 Settings → This machine 에서 바꾼 값을 따라가도록.
-        name: (settings.localName || '').trim() || tt.name || 'terminal',
+        // 사용자가 직접 지은 이름(manualName)이 최우선. 아니면 Settings → This machine 값을 따라감.
+        name: tt.manualName ? tt.name : ((settings.localName || '').trim() || tt.name || 'terminal'),
         icon: settings.localIcon || tt.icon || null,
         color_index: settings.localColorIndex ?? tt.color_index ?? 0,
       };
@@ -854,7 +854,11 @@ function App() {
     setTabs((prev) => {
       let resolvedId = themeId;
       if (themeId === 'random-dark' || themeId === 'random-light') {
-        const usedThemes = prev.flatMap((tb) => tb.panes?.map((p) => p.themeOverride) || []).filter(Boolean);
+        // 겹침 최소화 — 전역 테마 + 모든 pane 의 "실효 테마"(override 없으면 전역)를 사용중으로 간주.
+        const usedThemes = [
+          settings.theme,
+          ...prev.flatMap((tb) => (tb.panes || []).map((p) => p.themeOverride || settings.theme)),
+        ].filter(Boolean);
         resolvedId = resolveRandomTheme(themeId, usedThemes);
       }
       return prev.map((tb) => {
@@ -872,7 +876,7 @@ function App() {
         };
       });
     });
-  }, []);
+  }, [settings.theme]);
 
   // ── 탭 busy 인디케이터 (Jupyter 식 활동 점멸) ─────────────────────────────
   // Terminal.jsx 가 데이터 도착 시 'iterm:activity' 윈도우 이벤트를 paneId 와 함께
