@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Server, Monitor, BarChart3 } from 'lucide-react';
+import { Activity, Server, Monitor, BarChart3, Layers, Clock } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
 import HostIcon from '../utils/hostIcons';
 import { authHeaders } from '../utils/auth';
 
@@ -13,8 +14,11 @@ const { color, font, fontSize, fontWeight, radius, space } = tokens;
  * 폴링 없음 — 마운트 + 빈 패널이 viewport 에 다시 들어올 때마다 1회. 30초 안 가까운 재트리거는 skip.
  *
  *  ┌─ 카드 A: At-a-glance ───────┐  카드 B: 호스트 랭킹 막대 (top 5)
- *  │ 7d 총 시간 / 활성 / 세션 수 │  카드 C: 원격 vs 로컬 + 평균 세션
+ *  │ 7d 총 시간 카세트 릴 + 3타일 │  카드 C: 원격 vs 로컬 + 평균 세션
  *  └─────────────────────────────┘
+ *
+ * 비주얼: 글래스모피즘(glass.js) + 헤드라인 총 시간을 스피닝 카세트 릴로 표현.
+ * 릴 회전은 순수 CSS @keyframes(transform: rotate) — JS rAF 루프 없음, prefers-reduced-motion 존중.
  */
 const VISIBLE_REFETCH_COOLDOWN_MS = 30 * 1000;
 // 모듈레벨 캐시 — App-level + EmptyPane 두 인스턴스가 동시 마운트 시 burst 방지
@@ -127,6 +131,9 @@ const DashboardCards = ({ hosts = [], settings = {}, days = 7, t }) => {
 
   return (
     <div ref={containerRef} style={gridStyle}>
+      {/* 릴 회전 + 스켈레톤 펄스 — 카드 두 장이 공유하는 단일 keyframes 블록.
+          prefers-reduced-motion: reduce 에서는 릴이 멈추고 스켈레톤도 정적 opacity 로. */}
+      <style>{DASHBOARD_KEYFRAMES}</style>
       <StatStripCard
         loading={loading}
         err={err}
@@ -158,26 +165,27 @@ const StatStripCard = ({
   const totalWindow = windowDays * HOURS_PER_DAY * SECONDS_PER_HOUR;
   const totalPct = totalWindow > 0 ? Math.min(100, (totalSeconds / totalWindow) * 100) : 0;
   const activePct = totalKnownTargets > 0 ? Math.min(100, (activeTargets / totalKnownTargets) * 100) : 0;
+  const accent = color.accent;
 
   return (
-    <CardShell icon={Activity} title={title || (t?.('atAGlance') || 'Overview')}>
+    <CardShell icon={Activity} title={title || (t?.('atAGlance') || 'Overview')} accent={accent}>
       {err ? <ErrorState message={err} /> : (
         <div style={overviewBodyStyle}>
-          {/* Hero — 총 시간을 지배적으로. 아래 슬림 바로 기간 대비 비중 한눈에. */}
-          <div style={heroStyle}>
-            <div style={heroHeadStyle}>
-              <span style={heroValueStyle}>{loading ? '—' : formatDuration(totalSeconds)}</span>
-              <span style={heroLabelStyle}>{`${t?.('totalTime') || 'Total'} · ${windowDays}d`}</span>
-            </div>
-            <div style={heroBarTrackStyle}>
-              <div style={{ ...heroBarFillStyle, width: `${loading ? 0 : totalPct}%` }} />
-            </div>
+          {/* 헤드라인 — 총 시간을 스피닝 카세트 릴로. 라벨창은 릴 사이, 숫자는 항상 또렷하게. */}
+          <CassetteHero
+            value={formatDuration(totalSeconds)}
+            caption={`${t?.('totalTime') || 'Total'} · ${windowDays}d`}
+            accent={accent}
+            loading={loading}
+          />
+          <div style={heroBarTrackStyle}>
+            <div style={{ ...heroBarFillStyle(accent), width: `${loading ? 0 : totalPct}%` }} />
           </div>
           {/* 서포팅 3 타일 — 세션 / 활성(비율 링) / 평균. 넉넉한 간격, 모바일서 감싸짐. */}
           <div style={tileRowStyle}>
-            <StatTile value={loading ? '—' : String(sessionCount)} label={t?.('sessions') || 'Sessions'} accent={color.info} />
+            <StatTile icon={Layers} value={loading ? '—' : String(sessionCount)} label={t?.('sessions') || 'Sessions'} accent={color.info} />
             <StatTile value={loading ? '—' : `${activeTargets}/${totalKnownTargets}`} label={t?.('activeHosts') || 'Active'} accent={color.success} ring={loading ? 0 : activePct} />
-            <StatTile value={loading ? '—' : formatDuration(avgSeconds)} label={t?.('avgSession') || 'Avg'} accent={color.warning} />
+            <StatTile icon={Clock} value={loading ? '—' : formatDuration(avgSeconds)} label={t?.('avgSession') || 'Avg'} accent={color.warning} />
           </div>
         </div>
       )}
@@ -185,15 +193,121 @@ const StatStripCard = ({
   );
 };
 
-// 서포팅 타일 — 기본은 큰 숫자+라벨. ring 이 주어지면(활성 비율) 작은 링으로 감싼다.
-const StatTile = ({ value, label, accent, ring = null }) => (
-  <div style={statTileStyle}>
+/* ─── 헤드라인: 스피닝 카세트 / 릴투릴 ──────────────────────────────────
+ * SVG 로 카세트 본체 + 좌우 릴을 그리고, 릴은 CSS @keyframes(transform: rotate)
+ * 로 계속 회전(GPU 합성, rAF 없음). 총 시간 숫자는 릴 사이 "라벨창"에 HTML 오버레이
+ * 로 얹어 배율에 상관없이 항상 또렷하게 유지한다.
+ */
+const CASSETTE_VB_W = 300;
+const CASSETTE_VB_H = 130;
+const REEL_SPOKE_ANGLES = [0, 60, 120, 180, 240, 300];
+
+const CassetteHero = ({ value, caption, accent, loading }) => (
+  <div style={cassetteWrapStyle}>
+    <svg
+      viewBox={`0 0 ${CASSETTE_VB_W} ${CASSETTE_VB_H}`}
+      style={cassetteSvgStyle}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <linearGradient id="dcShellGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="rgba(255,255,255,0.10)" />
+          <stop offset="55%" stopColor="rgba(255,255,255,0.02)" />
+          <stop offset="100%" stopColor="rgba(0,0,0,0.06)" />
+        </linearGradient>
+        <linearGradient id="dcTapeGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor={accent} stopOpacity="0.7" />
+          <stop offset="50%" stopColor={accent} stopOpacity="0.15" />
+          <stop offset="100%" stopColor={accent} stopOpacity="0.7" />
+        </linearGradient>
+      </defs>
+
+      {/* 카세트 셸 — 유리 질감 그라디언트 채움 + 액센트 헤어라인 */}
+      <rect
+        x="4" y="4" width={CASSETTE_VB_W - 8} height={CASSETTE_VB_H - 8} rx="18"
+        fill="url(#dcShellGrad)"
+        stroke={`color-mix(in srgb, ${accent} 32%, transparent)`}
+        strokeWidth="1.2"
+      />
+
+      {/* 릴 사이를 지나는 테이프 리본 */}
+      <path
+        d="M96 66 C132 44, 168 44, 204 66 C168 88, 132 88, 96 66 Z"
+        fill="none"
+        stroke="url(#dcTapeGrad)"
+        strokeWidth="3"
+        strokeLinecap="round"
+      />
+
+      <Reel cx={68} cy={66} r={35} accent={accent} speed="6.4s" />
+      <Reel cx={232} cy={66} r={35} accent={accent} speed="5.1s" />
+
+      {/* 나사 구멍 — 레트로 카세트 디테일 */}
+      {[[18, 14], [282, 14], [18, 118], [282, 118]].map(([cx, cy]) => (
+        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={2.4} fill="rgba(0,0,0,0.28)" />
+      ))}
+    </svg>
+
+    {/* 라벨창 — 릴 사이 위에 얹히는 HTML 오버레이. 숫자는 항상 크리스프. */}
+    <div style={cassetteLabelStyle(accent)}>
+      <span className={loading ? 'dc-skel' : undefined} style={cassetteValueStyle(accent)}>
+        {loading ? '—' : value}
+      </span>
+      <span style={cassetteCaptionStyle}>{caption}</span>
+    </div>
+  </div>
+);
+
+/* 릴 하나 — 허브 + 스포크 + 톱니 링. transform-box: fill-box 로 자기 자신의
+ * 바운딩박스 중심을 기준삼아 회전(브라우저 좌표 계산 없이 안전). */
+const Reel = ({ cx, cy, r, accent, speed }) => (
+  <g
+    className="dc-reel"
+    style={{
+      transformBox: 'fill-box',
+      transformOrigin: 'center',
+      animation: `dc-reel-spin ${speed} linear infinite`,
+      willChange: 'transform',
+    }}
+  >
+    <circle cx={cx} cy={cy} r={r} fill="rgba(255,255,255,0.03)" stroke={`color-mix(in srgb, ${accent} 42%, transparent)`} strokeWidth="1.4" />
+    <circle cx={cx} cy={cy} r={r - 6} fill="none" stroke={`color-mix(in srgb, ${accent} 20%, transparent)`} strokeWidth="1" strokeDasharray="2 4.5" />
+    {REEL_SPOKE_ANGLES.map((deg) => {
+      const rad = (deg * Math.PI) / 180;
+      return (
+        <line
+          key={deg}
+          x1={cx} y1={cy}
+          x2={cx + (r - 9) * Math.cos(rad)}
+          y2={cy + (r - 9) * Math.sin(rad)}
+          stroke={`color-mix(in srgb, ${accent} 55%, transparent)`}
+          strokeWidth="2"
+          strokeLinecap="round"
+        />
+      );
+    })}
+    <circle cx={cx} cy={cy} r={6.5} fill={accent} opacity="0.9" />
+    <circle cx={cx} cy={cy} r={2.4} fill="rgba(0,0,0,0.45)" />
+  </g>
+);
+
+// 서포팅 타일 — 기본은 아이콘 배지+큰 숫자+라벨. ring 이 주어지면(활성 비율) 작은 링으로 감싼다.
+const StatTile = ({ icon: Icon, value, label, accent, ring = null }) => (
+  <div style={statTileStyle(accent)}>
     {ring != null ? (
       <RadialGauge size={44} thickness={4} pct={ring} accent={accent}>
         <span style={{ ...statTileRingValueStyle, color: accent }}>{value}</span>
       </RadialGauge>
     ) : (
-      <span style={{ ...statTileValueStyle, color: accent }}>{value}</span>
+      <>
+        {Icon && (
+          <span style={statTileIconStyle(accent)}>
+            <Icon size={12} strokeWidth={2.2} />
+          </span>
+        )}
+        <span style={{ ...statTileValueStyle, color: accent }}>{value}</span>
+      </>
     )}
     <span style={statTileLabelStyle}>{label}</span>
   </div>
@@ -210,7 +324,7 @@ const RadialGauge = ({ pct = 0, accent, size = 96, thickness = 8, children }) =>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden="true">
         <circle
           cx={size / 2} cy={size / 2} r={r}
-          stroke={color.crust} strokeWidth={thickness} fill="none"
+          stroke={`color-mix(in srgb, ${color.text} 12%, transparent)`} strokeWidth={thickness} fill="none"
         />
         <circle
           cx={size / 2} cy={size / 2} r={r}
@@ -219,7 +333,10 @@ const RadialGauge = ({ pct = 0, accent, size = 96, thickness = 8, children }) =>
           strokeDashoffset={offset}
           strokeLinecap="round"
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
-          style={{ transition: 'stroke-dashoffset 320ms cubic-bezier(0.16, 1, 0.3, 1)' }}
+          style={{
+            transition: 'stroke-dashoffset 320ms cubic-bezier(0.16, 1, 0.3, 1)',
+            filter: `drop-shadow(0 0 4px color-mix(in srgb, ${accent} 55%, transparent))`,
+          }}
         />
       </svg>
       <div style={{
@@ -233,34 +350,18 @@ const RadialGauge = ({ pct = 0, accent, size = 96, thickness = 8, children }) =>
   );
 };
 
-const MiniStat = ({ icon: Icon, label, value, accent, pct = null, loading = false }) => (
-  <div style={miniStatStyle}>
-    {pct != null ? (
-      <RadialGauge size={36} thickness={4} pct={loading ? 0 : pct} accent={accent}>
-        <Icon size={11} strokeWidth={2.1} style={{ color: accent }} />
-      </RadialGauge>
-    ) : (
-      <div style={miniStatIconBoxStyle}>
-        <Icon size={14} strokeWidth={2.1} style={{ color: accent }} />
-      </div>
-    )}
-    <div style={miniStatTextStyle}>
-      <span style={miniStatValueStyle}>{value}</span>
-      <span style={miniStatLabelStyle}>{label}</span>
-    </div>
-  </div>
-);
-
 /* ─── 카드 B: 호스트별 막대 (top 5) ───────────────────────────────────── */
 const HostRankingCard = ({ loading, err, targets, t }) => {
   const top = (targets || []).slice(0, 5);
   const max = top.length ? Math.max(...top.map((x) => x.total_seconds), 1) : 1;
   return (
-    <CardShell icon={BarChart3} title={t?.('byHost') || 'By host'}>
+    <CardShell icon={BarChart3} title={t?.('byHost') || 'By host'} accent={color.accent}>
       {err ? (
         <ErrorState message={err} />
       ) : loading ? (
-        <EmptyState message={t?.('loading') || 'Loading…'} />
+        <ul style={rankListStyle}>
+          {[0, 1, 2].map((i) => <RankSkeletonRow key={i} />)}
+        </ul>
       ) : top.length === 0 ? (
         <EmptyState message={t?.('noUsageYet') || 'No usage yet — connect to a host to start tracking.'} />
       ) : (
@@ -271,14 +372,7 @@ const HostRankingCard = ({ loading, err, targets, t }) => {
             return (
               <li key={`${tg.target_type}:${tg.target_id}`} style={rankRowStyle}>
                 <div style={rankHeaderStyle}>
-                  <span
-                    style={{
-                      ...rankIconStyle,
-                      color: tg.accent,
-                      borderColor: `${tg.accent}33`,
-                      background: `${tg.accent}10`,
-                    }}
-                  >
+                  <span style={rankIconStyle(tg.accent)}>
                     <HostIcon value={tg.iconValue} fallback={tg.fallbackIcon} size={12} strokeWidth={1.9} />
                   </span>
                   <span style={rankNameStyle} title={tg.name}>{tg.name}</span>
@@ -290,7 +384,7 @@ const HostRankingCard = ({ loading, err, targets, t }) => {
                       ...rankBarFillStyle,
                       width: `${pct}%`,
                       background: `linear-gradient(90deg, ${tg.accent}aa, ${tg.accent})`,
-                      boxShadow: `0 0 0 1px ${tg.accent}33`,
+                      boxShadow: `0 0 8px ${tg.accent}55, 0 0 0 1px ${tg.accent}33`,
                     }}
                   />
                   <span style={rankBarValueStyle}>{formatDuration(tg.total_seconds)}</span>
@@ -304,14 +398,36 @@ const HostRankingCard = ({ loading, err, targets, t }) => {
   );
 };
 
-/* ─── 공용 카드 셸 ──────────────────────────────────────────────────── */
-const CardShell = ({ icon: Icon, title, children }) => (
-  <div style={cardStyle}>
-    <div style={cardHeadStyle}>
-      {Icon && <Icon size={11} strokeWidth={2.2} style={{ color: color.subtext, flexShrink: 0 }} />}
-      <span style={cardTitleStyle}>{title}</span>
+const RankSkeletonRow = () => (
+  <li style={rankRowStyle} aria-hidden="true">
+    <div style={rankHeaderStyle}>
+      <span style={{ ...rankIconStyle(color.muted), opacity: 0.5 }} />
+      <span className="dc-skel" style={rankSkelNameStyle} />
     </div>
-    <div style={cardBodyStyle}>{children}</div>
+    <div style={rankBarTrackStyle} className="dc-skel" />
+  </li>
+);
+
+/* ─── 공용 카드 셸 — 글래스모피즘 + 그라디언트 헤어라인 링 ─────────────────
+ * 바깥 래퍼(1px padding + 그라디언트 배경)가 헤어라인 보더를 흉내내고,
+ * 안쪽은 glassPanelStyle(blur + 반투명) 로 유리 표면을 만든다.
+ */
+const CardShell = ({ icon: Icon, title, children, accent = color.accent }) => (
+  <div style={cardOuterStyle(accent)}>
+    <div style={cardInnerStyle}>
+      <div style={cardSheenStyle} aria-hidden="true" />
+      <div style={cardContentStyle}>
+        <div style={cardHeadStyle}>
+          {Icon && (
+            <span style={cardIconBadgeStyle(accent)}>
+              <Icon size={12} strokeWidth={2.3} />
+            </span>
+          )}
+          <span style={cardTitleStyle}>{title}</span>
+        </div>
+        <div style={cardBodyStyle}>{children}</div>
+      </div>
+    </div>
   </div>
 );
 
@@ -339,29 +455,76 @@ function formatDuration(seconds) {
   return remH ? `${d}d ${remH}h` : `${d}d`;
 }
 
+/* ─── keyframes — 릴 회전 + 스켈레톤 펄스. 두 카드가 공유하는 단일 <style> 블록.
+ * transform 기반 CSS 애니메이션만 사용(합성 스레드, rAF/레이아웃 스래싱 없음).
+ * prefers-reduced-motion: reduce 에서는 릴 정지 + 스켈레톤도 정적 opacity 로 대체. */
+const DASHBOARD_KEYFRAMES = `
+  @keyframes dc-reel-spin { to { transform: rotate(360deg); } }
+  @keyframes dc-pulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.92; } }
+  .dc-skel { animation: dc-pulse 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .dc-reel { animation: none !important; }
+    .dc-skel { animation: none !important; opacity: 0.7; }
+  }
+`;
+
 /* ─── 스타일 (HostRow / Section 톤과 통일) ─────────────────────────── */
 const gridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
-  gap: '12px',
-};
-const cardStyle = {
-  display: 'flex',
-  flexDirection: 'column',
   gap: '14px',
-  padding: '16px 18px',
-  background: color.surface0,
-  border: `1px solid ${color.border}`,
-  borderRadius: radius.lg,
-  fontFamily: font.sans,
+};
+
+/* 카드 — 바깥은 그라디언트 헤어라인 링 + 앰비언트 글로우, 안쪽은 glass 표면. */
+const cardOuterStyle = (accent = color.accent) => ({
+  position: 'relative',
+  borderRadius: radius.xl,
+  padding: '1px',
+  background: `linear-gradient(135deg, color-mix(in srgb, ${accent} 60%, transparent) 0%, color-mix(in srgb, ${accent} 4%, transparent) 45%, color-mix(in srgb, ${accent} 4%, transparent) 55%, color-mix(in srgb, ${accent} 45%, transparent) 100%)`,
+  boxShadow: `0 20px 46px -22px color-mix(in srgb, ${accent} 50%, transparent), 0 10px 30px rgba(0, 0, 0, 0.30)`,
+});
+const cardInnerStyle = {
+  ...glassPanelStyle({}, { borderRadius: `calc(${radius.xl} - 1px)` }),
+  position: 'relative',
+  overflow: 'hidden',
+  padding: '18px 20px',
   minHeight: '120px',
   boxSizing: 'border-box',
+  fontFamily: font.sans,
+};
+// 상단 유리 하이라이트 — 콘텐츠보다 뒤(zIndex 0)에 깔리는 장식용 그라디언트.
+const cardSheenStyle = {
+  position: 'absolute',
+  inset: 0,
+  background: 'linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0) 55%)',
+  pointerEvents: 'none',
+  zIndex: 0,
+};
+const cardContentStyle = {
+  position: 'relative',
+  zIndex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: space['4'],
+  height: '100%',
 };
 const cardHeadStyle = {
   display: 'flex',
   alignItems: 'center',
-  gap: '6px',
+  gap: '8px',
 };
+const cardIconBadgeStyle = (accent = color.accent) => ({
+  width: '20px',
+  height: '20px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: radius.sm,
+  color: accent,
+  background: `color-mix(in srgb, ${accent} 16%, transparent)`,
+  border: `1px solid color-mix(in srgb, ${accent} 32%, transparent)`,
+  flexShrink: 0,
+});
 const cardTitleStyle = {
   fontSize: fontSize['11'],
   fontWeight: fontWeight.semibold,
@@ -384,57 +547,93 @@ const emptyStateStyle = {
   lineHeight: 1.45,
 };
 
-/* Overview — hero(총 시간) + 서포팅 3 타일 */
+/* Overview — 카세트 헤드라인 + 슬림 윈도우 바 + 서포팅 3 타일 */
 const overviewBodyStyle = {
   display: 'flex',
   flexDirection: 'column',
   gap: '14px',
 };
-const heroStyle = {
+
+/* 카세트 릴 헤드라인 — SVG 는 배경, 숫자/라벨은 HTML 오버레이(항상 크리스프). */
+const cassetteWrapStyle = {
+  position: 'relative',
+  width: '100%',
+  aspectRatio: `${CASSETTE_VB_W} / ${CASSETTE_VB_H}`,
+  maxHeight: '176px',
+};
+const cassetteSvgStyle = {
+  width: '100%',
+  height: '100%',
+  display: 'block',
+};
+const cassetteLabelStyle = (accent) => ({
+  position: 'absolute',
+  left: '50%',
+  top: '52%',
+  transform: 'translate(-50%, -50%)',
   display: 'flex',
   flexDirection: 'column',
-  gap: '8px',
-};
-const heroHeadStyle = {
-  display: 'flex',
-  alignItems: 'baseline',
-  flexWrap: 'wrap',
-  gap: '4px 8px',
-};
-const heroValueStyle = {
-  fontSize: 'clamp(22px, 6vw, 30px)',
+  alignItems: 'center',
+  gap: '2px',
+  padding: '5px 12px',
+  borderRadius: radius.md,
+  background: `color-mix(in srgb, ${color.base} 62%, transparent)`,
+  border: `1px solid color-mix(in srgb, ${accent} 34%, transparent)`,
+  backdropFilter: 'blur(3px)',
+  WebkitBackdropFilter: 'blur(3px)',
+  pointerEvents: 'none',
+  maxWidth: '72%',
+  boxSizing: 'border-box',
+});
+const cassetteValueStyle = (accent) => ({
+  fontSize: 'clamp(20px, 6.4vw, 30px)',
   fontWeight: fontWeight.bold,
   fontFamily: font.mono,
   color: color.text,
   letterSpacing: '-0.02em',
   lineHeight: 1,
-};
-const heroLabelStyle = {
-  fontSize: fontSize['11'],
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  maxWidth: '100%',
+  textShadow: `0 0 18px color-mix(in srgb, ${accent} 45%, transparent)`,
+});
+const cassetteCaptionStyle = {
+  fontSize: '10px',
+  fontWeight: fontWeight.medium,
   color: color.muted,
-  letterSpacing: '0.04em',
+  letterSpacing: '0.05em',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  maxWidth: '100%',
 };
+
 const heroBarTrackStyle = {
   height: '6px',
   width: '100%',
-  background: color.crust,
-  border: `1px solid ${color.border}`,
+  background: `color-mix(in srgb, ${color.crust} 65%, transparent)`,
+  border: `1px solid color-mix(in srgb, ${color.border} 80%, transparent)`,
   borderRadius: radius.full,
   overflow: 'hidden',
 };
-const heroBarFillStyle = {
+const heroBarFillStyle = (accent = color.accent) => ({
   height: '100%',
   borderRadius: radius.full,
-  background: `linear-gradient(90deg, ${color.accent}aa, ${color.accent})`,
+  background: `linear-gradient(90deg, color-mix(in srgb, ${accent} 55%, transparent), ${accent})`,
+  boxShadow: `0 0 10px color-mix(in srgb, ${accent} 50%, transparent)`,
   transition: 'width 340ms cubic-bezier(0.16, 1, 0.3, 1)',
-};
+});
+
 /* 타일 행 — 좁아지면 자동으로 감싸져 모바일서 답답하지 않게 */
 const tileRowStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(72px, 1fr))',
   gap: '10px',
 };
-const statTileStyle = {
+const statTileStyle = (accent = color.accent) => ({
+  ...glassSectionStyle({}, { borderRadius: radius.lg }),
+  border: `1px solid color-mix(in srgb, ${accent} 20%, transparent)`,
   display: 'flex',
   flexDirection: 'column',
   alignItems: 'center',
@@ -442,10 +641,18 @@ const statTileStyle = {
   gap: '6px',
   padding: '10px 6px',
   minWidth: 0,
-  background: color.mantle || color.crust,
-  border: `1px solid ${color.border}`,
-  borderRadius: radius.md,
-};
+  boxSizing: 'border-box',
+});
+const statTileIconStyle = (accent = color.accent) => ({
+  width: '20px',
+  height: '20px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: radius.sm,
+  color: accent,
+  background: `color-mix(in srgb, ${accent} 16%, transparent)`,
+});
 const statTileValueStyle = {
   fontSize: 'clamp(15px, 4.5vw, 19px)',
   fontWeight: fontWeight.bold,
@@ -490,21 +697,24 @@ const rankRowStyle = {
 };
 const rankHeaderStyle = {
   display: 'grid',
-  gridTemplateColumns: '18px minmax(0, 1fr)',
+  gridTemplateColumns: '20px minmax(0, 1fr)',
   alignItems: 'center',
   gap: '8px',
   minWidth: 0,
 };
-const rankIconStyle = {
-  width: '18px',
-  height: '18px',
+const rankIconStyle = (accent) => ({
+  width: '20px',
+  height: '20px',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  border: '1px solid transparent',
+  border: `1px solid ${accent}33`,
   borderRadius: radius.sm,
+  background: `${accent}14`,
+  color: accent,
   flexShrink: 0,
-};
+  boxSizing: 'border-box',
+});
 const rankNameStyle = {
   fontSize: fontSize['12'],
   fontWeight: fontWeight.medium,
@@ -514,12 +724,18 @@ const rankNameStyle = {
   whiteSpace: 'nowrap',
   minWidth: 0,
 };
+const rankSkelNameStyle = {
+  height: '11px',
+  width: '70%',
+  borderRadius: radius.xs,
+  background: `color-mix(in srgb, ${color.text} 14%, transparent)`,
+};
 const rankBarTrackStyle = {
   position: 'relative',
   height: '14px',
   width: '100%',
-  background: color.crust,
-  border: `1px solid ${color.border}`,
+  background: `color-mix(in srgb, ${color.crust} 65%, transparent)`,
+  border: `1px solid color-mix(in srgb, ${color.border} 80%, transparent)`,
   borderRadius: radius.full,
   overflow: 'hidden',
 };
