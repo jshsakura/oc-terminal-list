@@ -167,17 +167,18 @@ const StatStripCard = ({
     <CardShell icon={Activity} title={title || (t?.('atAGlance') || 'Overview')}>
       {err ? <ErrorState message={err} /> : (
         <div style={overviewBodyStyle}>
-          {/* 헤드라인 — 총 시간을 절제된 크기의 숫자 하나로. 옆에 잔잔한 진행바. */}
-          <div style={focalRowStyle}>
-            <span className={loading ? 'dc-skel' : undefined} style={focalValueStyle}>
+          {/* 히어로 — 총 시간이 이 카드의 주인공. 크고 또렷한 mono 숫자를 카드 중앙에 당당하게,
+              캡션은 작고 muted. 아래 얇은 진행바 하나가 유일한 accent 포인트. */}
+          <div style={heroStyle}>
+            <span style={heroCaptionStyle}>{`${t?.('totalTime') || 'Total'} · ${windowDays}d`}</span>
+            <span className={loading ? 'dc-skel' : undefined} style={heroValueStyle}>
               {loading ? '—' : formatDuration(totalSeconds)}
             </span>
-            <span style={focalCaptionStyle}>{`${t?.('totalTime') || 'Total'} · ${windowDays}d`}</span>
+            <div style={heroBarTrackStyle}>
+              <div style={heroBarFillStyle(loading ? 0 : totalPct)} />
+            </div>
           </div>
-          <div style={heroBarTrackStyle}>
-            <div style={heroBarFillStyle(loading ? 0 : totalPct)} />
-          </div>
-          {/* 서포팅 3 칸 — 세션 / 활성(얇은 링) / 평균. 헤어라인 구분선, 넉넉한 여백. */}
+          {/* 서포팅 3 칸 — 세션 / 활성(얇은 링) / 평균. 조용한 아래 줄, 헤어라인 구분선. */}
           <div style={statCellsRowStyle}>
             <StatCell>
               <span style={statValueStyle}>{loading ? '—' : String(sessionCount)}</span>
@@ -381,35 +382,43 @@ const emptyStateStyle = {
   lineHeight: 1.45,
 };
 
-/* Overview — 절제된 헤드라인 숫자 + 슬림 진행바 + 3칸 */
+/* Overview — 총 시간 히어로가 주인공, 그 아래 조용한 서포팅 3칸. */
 const overviewBodyStyle = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '16px',
+  gap: '20px',
+  flex: 1,
 };
 
-const focalRowStyle = {
+/* 히어로 — 카드 중앙에 총 시간을 크게. 캡션(위) → 큰 숫자 → 얇은 진행바 순. */
+const heroStyle = {
+  flex: 1,
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: '10px',
+  padding: '8px 0 4px',
 };
-const focalValueStyle = {
-  fontSize: 'clamp(22px, 5vw, 28px)',
+const heroCaptionStyle = {
+  fontSize: fontSize['11'],
+  color: color.muted,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+};
+const heroValueStyle = {
+  fontSize: 'clamp(34px, 9vw, 48px)',
   fontWeight: fontWeight.semibold,
   fontFamily: font.mono,
   color: color.text,
-  letterSpacing: '-0.01em',
+  letterSpacing: '-0.02em',
   lineHeight: 1,
-};
-const focalCaptionStyle = {
-  fontSize: fontSize['11'],
-  color: color.muted,
-  letterSpacing: '0.02em',
+  textAlign: 'center',
 };
 
 const heroBarTrackStyle = {
+  width: 'min(200px, 75%)',
   height: '6px',
-  width: '100%',
   background: color.crust,
   border: `1px solid ${color.border}`,
   borderRadius: radius.xs,
