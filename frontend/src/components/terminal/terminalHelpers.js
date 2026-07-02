@@ -93,6 +93,31 @@ export const uploadImageAndGetPath = async (blob) => {
   return data;
 };
 
+// 임의 파일(사진 포함) 업로드 → 저장 경로 메타({ path, rel_path, size }). 압축 없음.
+// 우클릭 "파일 보내기" 에서 사용. 큰 파일 대비 timeout 60s + 1회 재시도.
+const postPasteFile = async (file, attempt = 0) => {
+  const fd = new FormData();
+  fd.append('file', file, file.name || 'file');
+  try {
+    return await fetch('/api/terminal/paste-file', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: fd,
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(60000) : undefined,
+    });
+  } catch (err) {
+    if (attempt < 1) return postPasteFile(file, attempt + 1);
+    throw err;
+  }
+};
+
+export const uploadFileAndGetPath = async (file) => {
+  const res = await postPasteFile(file);
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.detail || `${res.status}`);
+  return data;
+};
+
 const execCommandCopy = (text) => {
   const ta = document.createElement('textarea');
   ta.value = text;

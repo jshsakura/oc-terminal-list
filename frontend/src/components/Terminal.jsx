@@ -42,7 +42,7 @@ import {
 } from './terminal/terminalConstants';
 import {
   sleep, looksLikeBulkCommand, looksLikeRecoverableBulkInput,
-  uploadImageAndGetPath, copyTextToClipboard, issueWsTicket,
+  uploadImageAndGetPath, uploadFileAndGetPath, copyTextToClipboard, issueWsTicket,
 } from './terminal/terminalHelpers';
 import { styles } from './terminal/terminalStyles';
 import { GlassOverlayCard, TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
@@ -156,6 +156,24 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const [noticeVisible, setNoticeVisible] = useState(false);
   // 클립보드 이미지 붙여넣기 진행 상태: 'uploading' | 'done' | 'error' | null
   const [imagePasteState, setImagePasteState] = useState(null);
+  // 우클릭 "파일 보내기" 용 숨김 file input — 사진/파일 골라 업로드 후 저장 경로를 터미널에 삽입.
+  const fileUploadRef = useRef(null);
+  const handleFileChosen = useCallback(async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // 같은 파일 재선택 가능하게 리셋
+    if (!file) return;
+    setImagePasteState('uploading');
+    try {
+      const data = await uploadFileAndGetPath(file);
+      xtermRef.current?.paste(`${data.path} `); // 경로 뒤 공백 — 이어서 명령 타이핑
+      setImagePasteState('done');
+      setTimeout(() => setImagePasteState(null), 1200);
+    } catch (err) {
+      logger.error('file upload failed', err);
+      setImagePasteState('error');
+      setTimeout(() => setImagePasteState(null), 2500);
+    }
+  }, []);
   const reconnectingRef = useRef(false);
   const contentReadyRef = useRef(false);
   const onReadyChangeRef = useRef(onReadyChange);
@@ -2755,9 +2773,19 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             xtermRef.current?.scrollToBottom();
             setContextMenu(null);
           }}
+          onUploadFile={() => { fileUploadRef.current?.click(); setContextMenu(null); }}
           onClose={() => setContextMenu(null)}
         />
       )}
+      {/* 우클릭 "파일 보내기" 트리거용 숨김 input — 사진/파일 아무거나. */}
+      <input
+        ref={fileUploadRef}
+        type="file"
+        onChange={handleFileChosen}
+        style={{ display: 'none' }}
+        aria-hidden="true"
+        tabIndex={-1}
+      />
 
       {/* "Copied!" 토스트 — 드래그 선택 후 자동 복사 시 짧게 표시 */}
       {copyFlash && (

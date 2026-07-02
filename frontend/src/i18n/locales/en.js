@@ -480,6 +480,7 @@ export const en = {
     menu: 'Menu',
     htmlPreview: 'HTML Preview',
     formatDocument: 'Format Document',
+    sendFile: 'Send file',
     workspace: 'workspace',
     repos: 'repos',
     skippedSuffix: '(skipped)',

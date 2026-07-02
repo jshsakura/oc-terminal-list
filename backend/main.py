@@ -3401,6 +3401,52 @@ async def paste_image(
     return {"status": "uploaded", "path": str(target), "rel_path": rel, "size": file_size}
 
 
+@app.post("/api/terminal/paste-file")
+async def paste_file(
+    file: UploadFile = FastAPIFile(...),
+    username: str = Depends(verify_auth_token),
+):
+    """터미널로 보낼 임의 파일 업로드 — .pasted/ 에 저장하고 경로를 돌려준다.
+    이미지 전용 paste-image 의 일반판(사진/파일 아무거나 골라 보내기). 파일명은 basename+화이트리스트로
+    정규화해 경로 traversal 을 원천 차단하고, 타임스탬프 prefix 로 충돌을 막는다."""
+    workspace = Path(WORKSPACE_ROOT)
+    dest_dir = workspace / ".pasted"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_name = os.path.basename(file.filename or "file").strip() or "file"
+    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", raw_name)[:80].lstrip(".") or "file"
+    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
+    target = dest_dir / f"{stamp}-{safe_name}"
+
+    file_size = 0
+    chunk_size = 1024 * 1024  # 1 MB
+    tmp = target.with_suffix(target.suffix + ".part")
+    try:
+        with open(tmp, "wb") as out:
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                file_size += len(chunk)
+                if file_size > MAX_UPLOAD_FILE_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"파일이 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)",
+                    )
+                out.write(chunk)
+        os.replace(tmp, target)
+    except Exception:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+    _invalidate_file_index()
+    rel = str(target.relative_to(workspace)).replace("\\", "/")
+    return {"status": "uploaded", "path": str(target), "rel_path": rel, "size": file_size}
+
+
 @app.delete("/api/files")
 async def delete_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
     safe = validate_path(path, allow_root=False)
