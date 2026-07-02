@@ -4,6 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from pathlib import Path
 
@@ -29,6 +30,16 @@ router = APIRouter(prefix="/api/git", tags=["local-git"])
 MAX_COMMIT_MESSAGE_LEN = 4000
 REPO_ITEMS_CAP = 200       # repo 당 응답에 포함할 최대 항목 (over → truncated 플래그)
 REPO_NOISE_THRESHOLD = 800 # 이 이상이면 repo 자체를 noisy 로 분류 → 메타만, items 비움
+
+# git ref(브랜치/태그/commit-ish) 허용 문자 — "-" 로 시작하면 `git show` 가 옵션으로
+# 오인할 수 있어 별도 금지, ".." 시퀀스도 range 문법 악용 방지로 금지.
+_GIT_REF_RE = re.compile(r"^[A-Za-z0-9/_@{}.~^:-]+$")
+
+
+def _validate_git_ref(ref: str) -> str:
+    if not ref or not _GIT_REF_RE.match(ref) or ref.startswith("-") or ".." in ref:
+        raise HTTPException(status_code=400, detail="유효하지 않은 git ref 입니다")
+    return ref
 
 
 async def _find_repo_root(start_path: str) -> str | None:
@@ -396,6 +407,7 @@ async def git_file_content(
     username: str = Depends(verify_auth_token),
 ):
     """파일의 특정 ref(기본 HEAD) 시점 내용. DiffEditor 좌측(원본)에 사용."""
+    ref = _validate_git_ref(ref)
     safe = validate_path(path)
     repo_root = await _find_repo_root(str(safe))
     if not repo_root:

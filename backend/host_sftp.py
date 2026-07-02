@@ -68,6 +68,24 @@ def _drop(host_id: str) -> None:
         except Exception: pass
 
 
+MAX_REMOTE_PATH_LEN = 4096
+
+
+def validate_remote_path(path: str) -> str:
+    """원격(SFTP) 경로 최소 검증. 널바이트 거부 + 길이 상한(defense-in-depth).
+
+    원격 파일시스템은 절대경로 사용이 정상이라 절대경로 자체는 막지 않는다 —
+    호스트 소유자가 이미 신뢰된 대상이므로 여기서는 명백히 잘못된 입력만 거른다.
+    """
+    if not isinstance(path, str) or not path.strip():
+        raise HostConnectError("path is required")
+    if "\x00" in path:
+        raise HostConnectError("invalid path: null byte")
+    if len(path) > MAX_REMOTE_PATH_LEN:
+        raise HostConnectError(f"path too long (>{MAX_REMOTE_PATH_LEN} chars)")
+    return path
+
+
 # ─── Tailscale SSH helpers ────────────────────────────────────────────────────
 
 def _tailscale_target(host: dict) -> str:
@@ -399,8 +417,7 @@ async def read_file(host: dict, secrets: dict, path: str) -> str:
 
 async def read_file_bytes(host: dict, secrets: dict, path: str) -> bytes:
     """원격 파일을 바이너리로 읽음. 10MB 상한."""
-    if not path or not path.strip():
-        raise HostConnectError("path is required")
+    path = validate_remote_path(path)
     if (host.get("auth_method") or "key").lower() == "tailscale":
         return await _read_file_tailscale_bytes(host, path)
     try:
@@ -473,8 +490,7 @@ async def _sftp_zip_directory_bytes(sftp, root: str) -> bytes:
 
 async def download_item(host: dict, secrets: dict, path: str) -> tuple[bytes, str, str]:
     """원격 파일/폴더 다운로드. 폴더는 zip 바이트로 반환."""
-    if not path or not path.strip():
-        raise HostConnectError("path is required")
+    path = validate_remote_path(path)
     if (host.get("auth_method") or "key").lower() == "tailscale":
         return await _download_item_tailscale(host, path)
     try:
@@ -504,8 +520,7 @@ async def download_item(host: dict, secrets: dict, path: str) -> tuple[bytes, st
 
 async def write_file(host: dict, secrets: dict, path: str, content: str | bytes) -> None:
     """원격 파일 덮어쓰기."""
-    if not path or not path.strip():
-        raise HostConnectError("path is required")
+    path = validate_remote_path(path)
     if (host.get("auth_method") or "key").lower() == "tailscale":
         return await _write_file_tailscale(host, path, content)
     try:
@@ -520,6 +535,7 @@ async def write_file(host: dict, secrets: dict, path: str, content: str | bytes)
 
 async def create_item(host: dict, secrets: dict, path: str, kind: str) -> None:
     """원격 파일/폴더 생성."""
+    path = validate_remote_path(path)
     if (host.get("auth_method") or "key").lower() == "tailscale":
         return await _create_item_tailscale(host, path, kind)
     try:
@@ -537,6 +553,8 @@ async def create_item(host: dict, secrets: dict, path: str, kind: str) -> None:
 
 async def move_item(host: dict, secrets: dict, source: str, destination: str) -> None:
     """원격 파일/폴더 이동(rename)."""
+    source = validate_remote_path(source)
+    destination = validate_remote_path(destination)
     if (host.get("auth_method") or "key").lower() == "tailscale":
         return await _move_item_tailscale(host, source, destination)
     try:
@@ -550,6 +568,7 @@ async def move_item(host: dict, secrets: dict, source: str, destination: str) ->
 
 async def delete_item(host: dict, secrets: dict, path: str) -> None:
     """원격 파일/폴더 삭제."""
+    path = validate_remote_path(path)
     if (host.get("auth_method") or "key").lower() == "tailscale":
         return await _delete_item_tailscale(host, path)
     try:

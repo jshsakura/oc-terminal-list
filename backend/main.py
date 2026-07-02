@@ -364,8 +364,46 @@ def _request_is_https(request: Request) -> bool:
     return False
 
 
+# AUTH_COOKIE_SECURE: "auto"(기본) | "1"(강제 secure) | "0"(강제 non-secure).
+# 기본 배포 방식이 리버스 프록시 없이 http://<서버-IP>:<PORT> 로 직접 접속하는 것이라
+# (README/deploy 문서 참고) "non-localhost 면 무조건 secure=True" 로 바꾸면 표준 배포에서
+# 로그인 쿠키가 브라우저에 저장은 되지만 이후 요청에 재전송되지 않아 로그인이 깨진다.
+# 그래서 auto 의 판정 로직 자체는 유지(scheme 기반) 하고, HTTPS 종료 리버스 프록시 뒤에
+# 있는데 TRUST_PROXY_HEADERS 를 안 켠 애매한 구성만 기동 시 경고로 알린다.
+_AUTH_COOKIE_SECURE_MODE = os.getenv("AUTH_COOKIE_SECURE", "auto").strip().lower()
+if _AUTH_COOKIE_SECURE_MODE in {"0", "false", "no", "off"}:
+    logger.warning(
+        "[auth] AUTH_COOKIE_SECURE=%s — 인증 쿠키가 항상 secure=False 로 발급됩니다. "
+        "localhost 개발 환경이 아니라면 위험합니다.",
+        _AUTH_COOKIE_SECURE_MODE,
+    )
+elif _AUTH_COOKIE_SECURE_MODE not in {"1", "true", "yes", "on"} and not _env_flag("TRUST_PROXY_HEADERS"):
+    logger.warning(
+        "[auth] AUTH_COOKIE_SECURE=auto, TRUST_PROXY_HEADERS=0. "
+        "HTTPS 를 종료하는 리버스 프록시 뒤에서 서비스한다면 요청 scheme 이 http 로 보여 "
+        "인증 쿠키가 non-secure 로 발급될 수 있습니다. 그런 구성이면 TRUST_PROXY_HEADERS=1 "
+        "또는 AUTH_COOKIE_SECURE=1 을 설정하세요."
+    )
+
+
+def _resolve_auth_cookie_secure(request: Request) -> bool:
+    """쿠키 secure 플래그 결정.
+
+    - AUTH_COOKIE_SECURE=1/0 이면 명시적으로 강제.
+    - 기본값(auto)은 기존 동작 유지: request scheme(또는 신뢰된 X-Forwarded-Proto) 기반.
+      표준 배포가 프록시 없이 http 로 직접 서비스되므로(README 참고) non-localhost 라고
+      무조건 secure=True 로 바꾸면 그 표준 배포의 로그인이 깨진다 — 그래서 판정 로직은
+      건드리지 않고, 애매한 구성은 기동 시 로그 경고로만 알린다.
+    """
+    if _AUTH_COOKIE_SECURE_MODE in {"1", "true", "yes", "on"}:
+        return True
+    if _AUTH_COOKIE_SECURE_MODE in {"0", "false", "no", "off"}:
+        return False
+    return _request_is_https(request)
+
+
 def _set_auth_cookie(response: Response, request: Request, token: str) -> None:
-    secure = _env_flag("AUTH_COOKIE_SECURE", default=_request_is_https(request))
+    secure = _resolve_auth_cookie_secure(request)
     response.set_cookie(
         key=AUTH_COOKIE_NAME,
         value=token,
@@ -456,6 +494,8 @@ class SshKeyUpdateRequest(BaseModel):
 
 _HOSTNAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-:]{0,253}$")
 _SSH_USER_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9._\-]{0,63}$")
+_REMOTE_TMUX_SESSION_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_MAX_START_PATH_LEN = 4096
 
 
 class HostUpsertRequest(BaseModel):
@@ -496,6 +536,28 @@ class HostUpsertRequest(BaseModel):
     start_path: str | None = None
     icon: str | None = None
     theme: str | None = None  # pane.themeOverride 자동 적용용 (없으면 글로벌 settings.theme)
+
+    @field_validator("remote_tmux_session")
+    @classmethod
+    def _check_remote_tmux_session(cls, v: str | None) -> str | None:
+        # 원격 tmux 세션명으로 그대로 쓰이므로(effective_tmux_session 등) 영문/숫자/하이픈/
+        # 언더스코어만 허용 — tmux 커맨드 인자 인젝션/구분자 오염 방지.
+        if v is None or v == "":
+            return v
+        if not _REMOTE_TMUX_SESSION_RE.match(v):
+            raise ValueError("invalid remote_tmux_session")
+        return v
+
+    @field_validator("start_path")
+    @classmethod
+    def _check_start_path(cls, v: str | None) -> str | None:
+        if v is None or v == "":
+            return v
+        if "\x00" in v:
+            raise ValueError("invalid start_path: null byte")
+        if len(v) >= _MAX_START_PATH_LEN:
+            raise ValueError(f"start_path too long (>{_MAX_START_PATH_LEN} chars)")
+        return v
 
 
 class WsTicketRequest(BaseModel):
@@ -997,7 +1059,9 @@ async def _push_ws_tickets(bridge, username: str, ws_path: str) -> None:
     except asyncio.CancelledError:
         pass
     except Exception as e:
-        logger.debug("ws ticket push stopped (%s): %s", ws_path, e)
+        # 티켓 payload(JSON) 를 보내다 실패한 예외라 str(e) 에 값이 실릴 수 있음 —
+        # 로그에는 타입명만 남기고 티켓 자체는 절대 남기지 않는다.
+        logger.debug("ws ticket push stopped (%s): %s", ws_path, type(e).__name__)
 
 
 def _cleanup_file_tickets(now: float | None = None) -> None:
@@ -1908,6 +1972,9 @@ async def create_session(
     """tmux 세션 생성 + DB 등록."""
     if not is_safe_id(session_id):
         raise HTTPException(status_code=400, detail="유효하지 않은 세션 ID입니다.")
+    # 사용자당 세션 생성 rate limit — 정상적인 멀티 pane/탭 사용(빠르게 여러 개 열기)은
+    # 안 막히도록 넉넉하게. WS 쪽 신규 세션 생성과 버킷을 공유(아래 terminal_websocket).
+    check_rate_limit(f"session:create:{username}", max_attempts=30, window_seconds=60)
     logger.info("[API] create session %s (cwd=%s, shell=%s)", session_id, request.cwd, request.shell)
 
     safe_cwd = _resolve_create_cwd(request.cwd)
@@ -2085,6 +2152,13 @@ async def terminal_websocket(
     if not await tmux_manager.session_exists(session_id):
         if not create:
             await websocket.close(code=1000, reason="session not found")
+            return
+        # 신규 세션 생성만 rate limit (기존 세션 재attach/재연결은 대상 아님) —
+        # REST create_session 과 같은 버킷 공유.
+        try:
+            check_rate_limit(f"session:create:{username}", max_attempts=30, window_seconds=60)
+        except HTTPException as e:
+            await websocket.close(code=1013, reason=str(e.detail)[:120])
             return
         try:
             safe_cwd = _resolve_create_cwd(cwd)
