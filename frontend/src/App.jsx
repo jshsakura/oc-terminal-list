@@ -528,7 +528,12 @@ function App() {
         const newActiveId = t.activePaneId === paneId
           ? (remaining.find((p) => p.sessionId || p.hostId) || remaining[0])?.id
           : t.activePaneId;
-        return { ...t, panes: remaining, layout, splitTree: finalTree, activePaneId: newActiveId };
+        // 탭 레벨 sessionId 의 주인 pane 을 닫으면 남은 로컬 pane 으로 승계 — 죽은 세션을
+        // 가리키는 탭을 서버 sanitize 가 통째로 지워 분할이 단일탭으로 풀리는 사고 방지.
+        const nextSessionId = (!pane.hostId && pane.sessionId && t.sessionId === pane.sessionId)
+          ? (remaining.find((p) => p.sessionId && !p.hostId)?.sessionId ?? t.sessionId)
+          : t.sessionId;
+        return { ...t, sessionId: nextSessionId, panes: remaining, layout, splitTree: finalTree, activePaneId: newActiveId };
       }));
       // 로컬 세션 정리
       if (pane.sessionId && !pane.hostId) {

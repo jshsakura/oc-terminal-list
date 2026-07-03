@@ -1718,8 +1718,41 @@ class TabStateRequest(BaseModel):
 
 
 async def _sanitize_tab_state(tabs: list, active_tab_id: str | None) -> tuple[list, str | None]:
-    """현재 앱 tmux 소켓에 살아있지 않은 local 탭은 저장/복원하지 않는다."""
+    """모든 terminal 로컬 pane 이 죽은 local 탭만 정리한다 — pane 단위 생사 판정.
+
+    탭 레벨 sessionId 는 첫 pane 생성 시점 값으로 고정이라, 분할 후 첫 pane 을 닫으면
+    죽은 세션을 가리킨다. 이 값 하나로 탭을 통째로 지우면 살아있는 분할 pane 들이
+    고아 세션이 되어 프론트가 단일탭으로 재입양 → "분할이 단일탭으로 풀리는" 사고.
+    반드시 panes 를 훑어 하나라도 살아있으면 탭을 유지한다.
+
+    tmux 확인 결과가 비어 있으면 정리를 통째로 건너뛴다 — list-sessions 는 일시
+    오류(rc!=0)와 진짜 빈 상태를 구분할 수 없고, 잘못 지운 탭 레이아웃은 복구
+    불가인 반면 죽은 탭을 남겨두면 프론트가 종료 pane 으로 표시할 뿐이다.
+    """
     live_local_sessions = {session.name for session in await tmux_manager.list_sessions()}
+    if not live_local_sessions:
+        return tabs, active_tab_id
+
+    def _is_tab_alive(tab: dict) -> bool:
+        if tab.get("type") != "local":
+            return True
+        panes = tab.get("panes")
+        if not isinstance(panes, list) or not panes:
+            # 레거시(panes 없는 옛 포맷) — 탭 레벨 sessionId 로 판정.
+            session_id = tab.get("sessionId")
+            return isinstance(session_id, str) and session_id in live_local_sessions
+        for pane in panes:
+            if not isinstance(pane, dict):
+                continue
+            if pane.get("hostId"):  # 호스트 pane 은 로컬 tmux 로 생사 판정 불가 — 유지
+                return True
+            if pane.get("mode") not in (None, "terminal"):  # editor 등 비터미널 pane — 유지
+                return True
+            session_id = pane.get("sessionId")
+            if isinstance(session_id, str) and session_id in live_local_sessions:
+                return True
+        return False
+
     kept_tabs = []
     kept_tab_ids: set[str] = set()
     for tab in tabs:
@@ -1728,10 +1761,8 @@ async def _sanitize_tab_state(tabs: list, active_tab_id: str | None) -> tuple[li
         tab_id = tab.get("id")
         if not isinstance(tab_id, str):
             continue
-        if tab.get("type") == "local":
-            session_id = tab.get("sessionId")
-            if not isinstance(session_id, str) or session_id not in live_local_sessions:
-                continue
+        if not _is_tab_alive(tab):
+            continue
         kept_tabs.append(tab)
         kept_tab_ids.add(tab_id)
 
