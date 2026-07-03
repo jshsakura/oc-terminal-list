@@ -1667,9 +1667,23 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         setEvicted(true);
         return;
       }
+      // [병행 빠른 재연결] 여기 도달 = detach 토큰 없이 끊긴 케이스 — 대부분 평범한 네트워크
+      // 블립이다. preflight 응답(정상 수백 ms, 나쁜 망에선 5s 타임아웃)을 기다리지 않고 즉시
+      // 첫 재연결(150~300ms)을 예약한다. 사전 푸시 티켓이 있으면 fresh TCP 라 wedge 된
+      // HTTP/2 풀도 우회된다. resume 경로(forceReconnect)가 이미 preflight 없이 재연결하는
+      // 것과 같은 원칙. takeover/셸 종료로 판명나면 아래 checkAndRecover 가 예약을 걷어낸다.
+      scheduleReconnect(false, t('networkReconnect') || 'Network connection changed. Reconnecting...');
+      const cancelPendingReconnect = () => {
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+      };
+
       // detach token 못 봤어도 server-initiated close 면 takeover 또는 셸 종료 가능성.
       // preflight: attached 면 takeover 오버레이. exists=false 는 전환 레이스일 수 있어
-      // 충분히 기다린 뒤에도 재연결을 먼저 시도한다.
+      // 충분히 기다린 뒤에도 재연결을 먼저 시도한다. 병행 재연결과 동시에 돌며, 병행 쪽이
+      // 먼저 새 소켓을 열면(isStaleSocket) 이 판정 루프는 조용히 물러난다.
       const checkAndRecover = async () => {
         const isStaleSocket = () => cancelled || wsGeneration !== wsGenerationRef.current || wsRef.current !== socket;
         const getPf = async () => {
@@ -1705,6 +1719,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
         const pf = await getPf();
         if (cancelled) return;
+        // 병행 재연결이 이미 새 소켓을 열었으면(대개 성공 복구) 낡은 판정은 물러난다.
+        if (isStaleSocket()) return;
 
         if (pf.attached) {
           if (pf.same_client_active && !pf.other_client_active) {
@@ -1725,6 +1741,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             scheduleExistingReconnect();
             return;
           }
+          // 대기 중인 병행 재연결이 있으면 걷어낸다 — connect() 는 진입 시 evicted 플래그를
+          // 리셋하므로, 타이머가 살아있으면 eviction 오버레이가 곧바로 풀려버린다.
+          cancelPendingReconnect();
           evictedRef.current = true;
           setEvicted(true);
           return;
@@ -1748,6 +1767,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
                 recovered = true;
                 break;
               }
+              cancelPendingReconnect();
               evictedRef.current = true;
               setEvicted(true);
               return;
@@ -1761,6 +1781,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             // grace window 내내 세션이 없었음 → exit 등으로 셸이 깨끗이 종료된 것.
             // 재연결/오버레이 대신 짧은 취소 카운트다운 후 pane 을 자동으로 닫는다.
             if (isStaleSocket()) return;
+            cancelPendingReconnect(); // 자동 닫기 카운트다운 중 병행 재연결이 끼어들지 않게
             beginAutoClose();
             return;
           }
@@ -1768,6 +1789,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }
 
         if (isStaleSocket()) return;
+        // 병행 예약이 아직 대기 중이면 그대로 둔다 — 중복 예약은 attempts 만 인플레이션.
+        if (reconnectTimeoutRef.current) return;
         // 호스트 네트워크 불안정 (RPi5 wifi 등) 케이스 대응 — 시도 횟수 늘리고 cap 도 큼.
         // 1→2→4→8→8→8…s, 최대 12회 ≈ 1분 30초.
         if (!scheduleReconnect(false, t('networkReconnect') || 'Network connection changed. Reconnecting...')) {
