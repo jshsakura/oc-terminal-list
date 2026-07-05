@@ -287,6 +287,29 @@
     .feature-card h3 { font-size: .9rem; font-weight: 700; margin-bottom: .4rem; color: var(--text); }
     .feature-card p { font-size: .8rem; color: var(--subtext); line-height: 1.65; }
 
+    /* ════ Themes ════ */
+    .theme-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+      gap: .6rem;
+    }
+    .theme-swatch {
+      border-radius: 10px; border: 1px solid var(--border2);
+      padding: .55rem .6rem; display: flex; flex-direction: column; gap: .45rem;
+      transition: transform .15s, box-shadow .15s; cursor: default;
+    }
+    .theme-swatch:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+    .theme-swatch .dots { display: flex; gap: 3px; }
+    .theme-swatch .dots span { width: 8px; height: 8px; border-radius: 2px; }
+    .theme-swatch .name {
+      font-family: var(--font-mono); font-size: .62rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .theme-more {
+      text-align: center; margin-top: 1.5rem; font-size: .82rem; color: var(--subtext);
+    }
+    .theme-more a { font-weight: 600; }
+
     /* ════ Live Demo ════ */
     .browser-frame {
       max-width: 900px; margin: 0 auto;
@@ -565,6 +588,19 @@
 
 <div class="divider"></div>
 
+<!-- ════ Themes ════ -->
+<section class="section reveal" id="themes">
+  <p class="section-eyebrow" data-i18n="themesEyebrow">Theming</p>
+  <h2 class="section-h2" data-i18n="themesH2">52 built-in themes</h2>
+  <p style="text-align:center;color:var(--subtext);font-size:.88rem;margin:-2rem auto 2rem;max-width:560px" data-i18n="themesSub">
+    Every terminal pane can run its own theme independently. Switching is instant — no restart, no reconnect.
+  </p>
+  <div class="theme-grid" id="themeGrid"></div>
+  <p class="theme-more" data-i18n-html="themesMore">Click through all of them in the <a href="#demo">live demo</a> → Settings.</p>
+</section>
+
+<div class="divider"></div>
+
 <!-- ════ Install ════ -->
 <section class="section reveal" id="install">
   <div class="install-wrap">
@@ -677,6 +713,9 @@ const i18n = {
     card7h: 'Mobile-Friendly',            card7p: 'Long-press context menu, tap to invoke iOS keyboard, touch-only toolbar.',
     card8h: 'Security',                   card8p: 'Single admin account, JWT sessions, TOTP 2FA, Fernet vault encryption.',
     card9h: 'Docker / Host-native',       card9p: 'Deploy instantly via GHCR image or install directly with systemd. Both supported.',
+    themesEyebrow: 'Theming', themesH2: '52 built-in themes',
+    themesSub: 'Every terminal pane can run its own theme independently. Switching is instant — no restart, no reconnect.',
+    themesMore: 'Click through all of them in the <a href="#demo">live demo</a> → Settings.',
     installEyebrow: 'Install', installH2: '30-second Setup',
     installSub: 'Default port 38822 — no conflict with common dev ports (3000, 8080, 8888).',
     installGuide: 'Full Guide', installGhcr: 'GHCR Image',
@@ -703,6 +742,9 @@ const i18n = {
     card7h: '모바일 친화적',          card7p: '롱프레스 컨텍스트 메뉴, 탭으로 iOS 키보드 호출, 터치 전용 툴바.',
     card8h: '보안',                   card8p: '단일 관리자 계정, JWT 세션, TOTP 2FA, Fernet vault 암호화.',
     card9h: 'Docker / Host-native',  card9p: 'GHCR 이미지로 즉시 배포 또는 systemd로 호스트 직접 설치. 둘 다 지원.',
+    themesEyebrow: '테마', themesH2: '내장 테마 52종',
+    themesSub: '터미널 pane마다 독립적으로 테마 적용. 전환은 즉시 — 재시작도, 재연결도 없음.',
+    themesMore: '<a href="#demo">라이브 데모</a> → 설정에서 전부 클릭해보세요.',
     installEyebrow: '설치', installH2: '30초 설치',
     installSub: '기본 포트 38822 — 일반 개발 포트(3000, 8080, 8888)와 충돌 없음.',
     installGuide: '전체 가이드', installGhcr: 'GHCR 이미지',
@@ -817,6 +859,21 @@ window.addEventListener('scroll', () => {
   document.querySelector('nav').style.borderBottomColor =
     window.scrollY > 40 ? 'var(--border2)' : 'var(--border)';
 }, { passive: true });
+
+/* ── 테마 쇼케이스 — frontend/src/styles/themes 의 실제 60개 테마 정의에서 뽑은 스와치.
+   프로세스: node --input-type=module 로 themes/index.js 를 esbuild 번들 후 색상만 추출.
+   실제 앱과 다른 값으로 드리프트하지 않도록, 새 테마 추가 시 이 배열도 같이 갱신할 것. */
+const THEME_SWATCHES=[{id:'default',bg:'#282c34',fg:'#abb2bf',c:['#e06c75','#e5c07b','#98c379','#61afef','#c678dd']},{id:'catppuccin',bg:'#1e1e2e',fg:'#cdd6f4',c:['#f38ba8','#f9e2af','#a6e3a1','#89b4fa','#f5c2e7']},{id:'catppuccinMacchiato',bg:'#24273a',fg:'#cad3f5',c:['#ed8796','#eed49f','#a6da95','#8aadf4','#f5bde6']},{id:'tokyoNight',bg:'#1a1b26',fg:'#c0caf5',c:['#f7768e','#e0af68','#9ece6a','#7aa2f7','#bb9af7']},{id:'nord',bg:'#2e3440',fg:'#d8dee9',c:['#bf616a','#ebcb8b','#a3be8c','#81a1c1','#b48ead']},{id:'cobalt2',bg:'#193549',fg:'#ffffff',c:['#ff0000','#ffc600','#3ad900','#0088ff','#ff46cb']},{id:'ayuDark',bg:'#0d1017',fg:'#bfbdb6',c:['#ff3333','#e6b450','#aad94c','#59c2ff','#d2a6ff']},{id:'dracula',bg:'#282a36',fg:'#f8f8f2',c:['#ff5555','#f1fa8c','#50fa7b','#bd93f9','#ff79c6']},{id:'rosePine',bg:'#191724',fg:'#e0def4',c:['#eb6f92','#f6c177','#31748f','#9ccfd8','#c4a7e7']},{id:'shadesOfPurple',bg:'#2d2b55',fg:'#ffffff',c:['#ff628c','#ff9d00','#3ad900','#193549','#ff2cb1']},{id:'synthwave84',bg:'#2b213a',fg:'#ffffff',c:['#fe4450','#fede5d','#72f1b8','#03edf9','#ff7edb']},{id:'sakuraDark',bg:'#1a1124',fg:'#e8d0e8',c:['#f06292','#ffcc80','#80cbc4','#b39ddb','#ff7ab2']},{id:'gruvboxDark',bg:'#282828',fg:'#ebdbb2',c:['#cc241d','#d79921','#98971a','#458588','#b16286']},{id:'monokai',bg:'#272822',fg:'#f8f8f2',c:['#f92672','#f4bf75','#a6e22e','#66d9ef','#ae81ff']},{id:'monokaiPro',bg:'#2d2a2e',fg:'#fcfcfa',c:['#ff6188','#ffd866','#a9dc76','#fc9867','#ab9df2']},{id:'ayuMirage',bg:'#171b24',fg:'#cccac2',c:['#ed8274','#fad07b','#a6cc70','#6dcbfa','#cfbafa']},{id:'tender',bg:'#282828',fg:'#eeeeee',c:['#f43753','#ffc24b','#c9d05c','#b3deef','#d3b987']},{id:'zenburn',bg:'#3f3f3f',fg:'#dcdccc',c:['#cc9393','#d0bf8f','#7f9f7f','#8cd0d3','#dc8cc3']},{id:'everforest',bg:'#2d353b',fg:'#d3c6aa',c:['#e67e80','#dbbc7f','#a7c080','#7fbbb3','#d699b6']},{id:'kanagawa',bg:'#1f1f28',fg:'#dcd7ba',c:['#c34043','#c0a36e','#76946a','#7e9cd8','#957fb8']},{id:'panda',bg:'#292a2b',fg:'#e6e6e6',c:['#ff2c6d','#ffb86c','#19f9d8','#45a9f9','#ff75b5']},{id:'oneDark',bg:'#282c34',fg:'#abb2bf',c:['#e06c75','#d19a66','#98c379','#61afef','#c678dd']},{id:'nightOwl',bg:'#011627',fg:'#d6deeb',c:['#ef5350','#addb67','#22da6e','#82aaff','#c792ea']},{id:'vscodeDark',bg:'#1e1e1e',fg:'#d4d4d4',c:['#f44747','#dcdcaa','#6a9955','#569cd6','#c586c0']},{id:'tomorrowNight',bg:'#1d1f21',fg:'#c5c8c6',c:['#cc6666','#f0c674','#b5bd68','#81a2be','#b294bb']},{id:'solarizedDark',bg:'#002b36',fg:'#839496',c:['#dc322f','#b58900','#859900','#268bd2','#d33682']},{id:'oceanicNext',bg:'#1b2b34',fg:'#d8dee9',c:['#ec5f67','#fac863','#99c794','#6699cc','#c594c5']},{id:'githubDark',bg:'#0d1117',fg:'#c9d1d9',c:['#ff7b72','#d29922','#3fb950','#58a6ff','#bc8cff']},{id:'horizon',bg:'#1c1e26',fg:'#d5d8da',c:['#e95678','#fab795','#29d398','#26bbd9','#ee64ac']},{id:'andromeda',bg:'#23262e',fg:'#d5ced9',c:['#f92672','#ffe66d','#95e454','#00e8c6','#ee82f8']},{id:'cyberdream',bg:'#16181a',fg:'#ffffff',c:['#ff6e5e','#f1ff5e','#55ef94','#00bfff','#ff96ff']},{id:'abyssalEmber',bg:'#07110f',fg:'#d7e8df',c:['#ff5f56','#f7c873','#4fd08b','#5aa7c8','#d783ff']},{id:'espresso',bg:'#1c1410',fg:'#e6d5c3',c:['#e0715c','#d9a066','#a3b565','#8ab0b0','#c99aa8']},{id:'bloodMoon',bg:'#17090b',fg:'#e8d0d0',c:['#e0384f','#d6a45c','#8fae7a','#7a8fb8','#c76b8f']},{id:'matrix',bg:'#0a0f0a',fg:'#9fe0a0',c:['#d66a5a','#b8d65a','#38d651','#5aa8a0','#7ac97a']},{id:'deepSea',bg:'#071018',fg:'#c4dde6',c:['#e0697a','#d6bf7a','#6fc39a','#4a9fd6','#a98fd6']},{id:'amethyst',bg:'#17111f',fg:'#e0d4ec',c:['#e07a9a','#d6b87a','#9fc98a','#8a9fe0','#c78fe0']},{id:'carbon',bg:'#0c0c0e',fg:'#d4d6da',c:['#e0707a','#d6c47a','#8fc98f','#6aa0ff','#b48fd6']},{id:'catppuccinLatte',bg:'#ffffff',fg:'#4c4f69',c:['#d20f39','#df8e1d','#40a02b','#1e66f5','#ea76cb']},{id:'solarizedLight',bg:'#fdf6e3',fg:'#657b83',c:['#dc322f','#b58900','#859900','#268bd2','#d33682']},{id:'flexokiLight',bg:'#fffcf0',fg:'#100f0f',c:['#af3029','#ad8301','#66800b','#205ea6','#5c4aaf']},{id:'gruvboxLight',bg:'#fbf1c7',fg:'#3c3836',c:['#cc241d','#d79921','#98971a','#458588','#b16286']},{id:'ayuLight',bg:'#fcfcfc',fg:'#575f66',c:['#ff3333','#f29718','#86b300','#36a3d9','#a37acc']},{id:'rosePineDawn',bg:'#faf4ed',fg:'#575279',c:['#b4637a','#ea9d34','#286983','#56949f','#907aa9']},{id:'sepia',bg:'#f2e8d5',fg:'#433422',c:['#c0392b','#d35400','#27ae60','#2980b9','#8e44ad']},{id:'noctisLux',bg:'#fef8ec',fg:'#3d2b00',c:['#c0392b','#c07000','#2e7d32','#1565c0','#6a1b9a']},{id:'lavender',bg:'#f5f0ff',fg:'#3d1f6e',c:['#dc2626','#d97706','#059669','#4f46e5','#9333ea']},{id:'blossom',bg:'#fff0f3',fg:'#5c1a2a',c:['#c0392b','#d4a017','#27ae60','#2980b9','#e0486a']},{id:'blueprintPaper',bg:'#eaf6ff',fg:'#12324a',c:['#b4233a','#9c6a00','#1d8a5b','#006fbb','#7b3fb2']},{id:'springDay',bg:'#f0f9f4',fg:'#1a3a2a',c:['#c0392b','#d4ac0d','#27ae60','#1a6ea8','#7d3c98']},{id:'tokyoNightDay',bg:'#e1e2e7',fg:'#3760bf',c:['#f52a65','#8c6c3e','#587539','#2496c6','#7847bd']},{id:'everforestLight',bg:'#fff9e8',fg:'#5c6a72',c:['#f85552','#dfa000','#8da101','#3a94c5','#df69ba']}];
+
+const themeGrid = document.getElementById('themeGrid');
+if (themeGrid) {
+  themeGrid.innerHTML = THEME_SWATCHES.map(t => `
+    <div class="theme-swatch" style="background:${t.bg}">
+      <div class="dots">${t.c.map(c => `<span style="background:${c}"></span>`).join('')}</div>
+      <div class="name" style="color:${t.fg}">${t.id}</div>
+    </div>
+  `).join('');
+}
 
 /* ── 초기 언어 적용 ── */
 applyLang(currentLang);
