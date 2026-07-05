@@ -8,6 +8,8 @@
 
 빠르고 자체 호스팅 가능한 웹 터미널. 지속형 `tmux` 세션, 파일 탐색, SSH 호스트 관리, 모바일 친화적 서버 접속을 지원합니다.
 
+**[▶ 라이브 데모](https://jshsakura.github.io/oc-terminal-list/#demo)** — 샘플 호스트로 스크립트 재생, 설치·가입·실제 쉘 없음. 전체 소개와 스크린샷은 [프로젝트 사이트](https://jshsakura.github.io/oc-terminal-list/)에서 확인하세요.
+
 > Docker로 빠르고 격리된 배포가 가능합니다. **Host-native 설치를 권장합니다** — 앱이 실제 호스트 셸, 호스트 `tmux`, SSH 도구, 로컬 워크스페이스를 직접 제어할 수 있습니다.
 
 ```text

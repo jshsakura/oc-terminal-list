@@ -8,6 +8,8 @@
 
 Fast, self-hosted web terminal for persistent `tmux` sessions, file browsing, SSH host management, and mobile-friendly server access.
 
+**[▶ Live Demo](https://jshsakura.github.io/oc-terminal-list/#demo)** — scripted playback with sample hosts, no install, no signup, no real shell. See the [project site](https://jshsakura.github.io/oc-terminal-list/) for the full pitch and screenshots.
+
 > Docker is supported for quick isolated deployment. **Host-native install is recommended** when you want the app to control the real host shell, host `tmux`, SSH tools, and local workspace directly.
 
 ```text

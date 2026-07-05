@@ -7,6 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "build:demo": "vite build --config vite.demo.config.js",
+    "preview:demo": "vite preview --config vite.demo.config.js --outDir dist-demo",
+    "build:demo:publish": "DEMO_BASE_PATH=/oc-terminal-list/demo/ DEMO_OUT_DIR=../docs/demo vite build --config vite.demo.config.js",
     "smoke:terminal": "node scripts/terminal-smoke.mjs",
     "test": "vitest run",
     "test:watch": "vitest"

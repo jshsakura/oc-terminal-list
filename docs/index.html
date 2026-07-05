@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Persistent tmux sessions, Monaco editor, SSH management, voice input. A self-hosted web terminal that runs directly in your browser." />
+  <meta name="description" content="Persistent tmux sessions, Monaco editor, SSH management, voice input. A self-hosted web terminal that runs directly in your browser. Try the live demo — no install." />
   <meta property="og:title" content="Terminal List" />
-  <meta property="og:description" content="Persistent tmux sessions, Monaco editor, SSH management. Self-hosted web terminal." />
+  <meta property="og:description" content="Persistent tmux sessions, Monaco editor, SSH management. Self-hosted web terminal. Live demo available." />
   <meta property="og:url" content="https://jshsakura.github.io/oc-terminal-list/" />
   <meta name="twitter:card" content="summary" />
   <title>Terminal List — Self-Hosted Web Terminal</title>
@@ -287,6 +287,26 @@
     .feature-card h3 { font-size: .9rem; font-weight: 700; margin-bottom: .4rem; color: var(--text); }
     .feature-card p { font-size: .8rem; color: var(--subtext); line-height: 1.65; }
 
+    /* ════ Live Demo ════ */
+    .browser-frame {
+      max-width: 900px; margin: 0 auto;
+      border: 1px solid var(--border2); border-radius: 14px; overflow: hidden;
+      box-shadow: var(--shadow); background: var(--crust);
+    }
+    .browser-chrome {
+      display: flex; align-items: center; gap: 6px;
+      padding: .7rem 1rem; border-bottom: 1px solid var(--border);
+      background: var(--base);
+    }
+    .browser-chrome-url {
+      flex: 1; text-align: center; font-size: .68rem; font-family: var(--font-mono);
+      color: var(--muted); letter-spacing: .02em;
+    }
+    .demo-frame {
+      width: 100%; height: 460px; border: 0; display: block; background: #11121a;
+    }
+    @media (max-width: 640px) { .demo-frame { height: 340px; } }
+
     /* ════ Install ════ */
     .install-wrap { max-width: 700px; margin: 0 auto; text-align: center; }
 
@@ -415,7 +435,11 @@
     </p>
 
     <div class="btn-row">
-      <a class="btn btn-primary" href="#install">
+      <a class="btn btn-primary" href="#demo">
+        <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+        <span data-i18n="btnLiveDemo">Live Demo</span>
+      </a>
+      <a class="btn btn-ghost" href="#install">
         <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         <span data-i18n="btnInstall">Quick Install</span>
       </a>
@@ -435,6 +459,28 @@
   <div class="stat"><div class="stat-num">MIT</div><div class="stat-label" data-i18n="statOss">Open Source</div></div>
   <div class="stat"><div class="stat-num">Docker</div><div class="stat-label" data-i18n="statDeploy">Deploy</div></div>
 </div>
+
+<!-- ════ Live Demo ════ -->
+<section class="section reveal" id="demo">
+  <p class="section-eyebrow" data-i18n="demoEyebrow">Live Demo</p>
+  <h2 class="section-h2" data-i18n="demoH2">Try it right now — no install</h2>
+  <p style="text-align:center;color:var(--subtext);font-size:.88rem;margin:-2rem auto 2rem;max-width:540px" data-i18n="demoSub">
+    Scripted playback with sample hosts. Nothing below is a real server — no signup, no real shell, no data leaves your browser.
+  </p>
+  <div class="browser-frame">
+    <div class="browser-chrome">
+      <div class="code-dot code-dot-r"></div><div class="code-dot code-dot-y"></div><div class="code-dot code-dot-g"></div>
+      <span class="browser-chrome-url">demo.terminal-list.app</span>
+    </div>
+    <iframe class="demo-frame" src="demo/demo.html" title="Terminal List live demo" loading="lazy"></iframe>
+  </div>
+  <div style="text-align:center;margin-top:1.5rem">
+    <a class="btn btn-ghost" href="demo/demo.html" target="_blank" rel="noopener">
+      <svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg>
+      <span data-i18n="demoOpenFull">Open full-screen demo</span>
+    </a>
+  </div>
+</section>
 
 <!-- ════ Features ════ -->
 <section class="section reveal" id="features">
@@ -616,8 +662,11 @@ const i18n = {
     tagSelfHosted: 'Self-Hosted',
     heroPlain: 'Open in your browser',
     heroSub: 'Persistent tmux sessions, Monaco editor, SSH management, voice input.<br>Install once, open in browser.',
-    btnInstall: 'Quick Install', btnDocs: 'Korean Docs', btnCopy: 'Copy',
+    btnInstall: 'Quick Install', btnDocs: 'Korean Docs', btnCopy: 'Copy', btnLiveDemo: 'Live Demo',
     statFeatures: 'Features', statSession: 'Persistent', statPasskey: 'Passkey', statOss: 'Open Source', statDeploy: 'Deploy',
+    demoEyebrow: 'Live Demo', demoH2: 'Try it right now — no install',
+    demoSub: 'Scripted playback with sample hosts. Nothing below is a real server — no signup, no real shell, no data leaves your browser.',
+    demoOpenFull: 'Open full-screen demo',
     featEyebrow: 'Features', featH2: 'Everything you need',
     card1h: 'Persistent tmux Sessions',   card1p: 'Sessions survive browser close. Auto-reconnect on return.',
     card2h: 'Monaco File Editor',         card2p: 'VS Code engine-based file explorer and editor. Safely sandboxed to your workspace.',
@@ -639,8 +688,11 @@ const i18n = {
     tagSelfHosted: '자체 호스팅',
     heroPlain: '브라우저에서 여는',
     heroSub: '지속형 tmux 세션, Monaco 파일 편집기, SSH 관리, 음성 입력.<br>설치하고 브라우저에서 열면 끝.',
-    btnInstall: '빠른 설치', btnDocs: '한국어 문서', btnCopy: '복사',
+    btnInstall: '빠른 설치', btnDocs: '한국어 문서', btnCopy: '복사', btnLiveDemo: '라이브 데모',
     statFeatures: '주요 기능', statSession: '영속 세션', statPasskey: '패스키', statOss: '오픈소스', statDeploy: '즉시 배포',
+    demoEyebrow: '라이브 데모', demoH2: '설치 없이 지금 바로 체험',
+    demoSub: '샘플 호스트로 스크립트 재생됩니다. 아래는 실제 서버가 아닙니다 — 가입도, 실제 쉘도, 브라우저 밖으로 나가는 데이터도 없습니다.',
+    demoOpenFull: '전체 화면 데모 열기',
     featEyebrow: '기능', featH2: '필요한 건 다 있습니다',
     card1h: '지속형 tmux 세션',      card1p: '브라우저를 닫아도 세션이 유지됩니다. 재접속 시 자동으로 재연결.',
     card2h: 'Monaco 파일 편집기',    card2p: 'VS Code 엔진 기반 파일 탐색기와 에디터. 워크스페이스 범위로 안전하게 격리.',
