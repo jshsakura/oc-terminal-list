@@ -51,6 +51,7 @@ export const en = {
     reconnectTicketFailed: 'Reconnect failed. Your session may have expired, or the server is unreachable.',
     reconnectTimedOut: 'Connection is taking too long. Please try again.',
     networkReconnect: 'Network connection changed. Reconnecting...',
+    sessionGoneNewStart: 'Previous remote session is gone (host restarted?) — starting a fresh session.',
     sameDeviceNetworkReconnect: 'Same device detected after a network change. Reconnecting...',
     reconnectingPill: 'Reconnecting…',
     restartShell: 'Restart shell',

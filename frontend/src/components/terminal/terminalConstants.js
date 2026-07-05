@@ -79,6 +79,13 @@ export const RECONNECT_WATCHDOG_POLL_MS = 4000;
 // 워치독이 교착을 풀 때, 이 시간 넘게 못 붙었으면 create=true 로 올려 (세션이 사라졌어도)
 // 재생성까지 시도한다. 페이지 새로고침은 절대 안 한다 — 끊김은 인페이지로만, mosh 처럼 무한 복구.
 export const RECONNECT_ESCALATE_MS = 16000;
+// 서버가 "재접속 대상 tmux 세션이 원격에 없음"(session-gone, 원격 exit 42)을 알린 직후의
+// close 를 세션 소멸로 식별하는 신선도 창. 이 안의 close 는 create=0 refresh 재시도
+// ("[session not found]" 스팸) 대신 곧장 새 세션 생성으로 전환하고 화면에 알린다.
+export const SESSION_GONE_SIGNAL_MS = 15000;
+// 새로 만든 세션이 이 시간 안에 또 소멸하면(원격이 세션을 유지 못 하는 상태) 생성 루프를
+// 끊고 ended 오버레이로 넘긴다 — 수동 재시작 탈출구.
+export const SESSION_GONE_LOOP_GUARD_MS = 30000;
 // 장기 outage 라운드(keepReconnectingPill)의 백오프 대기(4→8→16→30s) 중 서버 복귀를
 // 즉시 감지하는 저부하 프로브. 활성·가시 pane 하나만 /api/health 를 이 주기로 두드리고,
 // 성공하면 예약된 백오프를 기다리지 않고 바로 재연결한다 — 서버가 돌아왔는데 데스크탑

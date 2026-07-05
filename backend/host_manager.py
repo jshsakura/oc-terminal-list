@@ -31,6 +31,10 @@ DEFAULT_REMOTE_TMUX_SESSION = "mobile"
 # 반드시 new-session 전에 -g(전역)로 걸어야 새 세션의 첫 pane 이 이 한도를 물려받는다
 # (history-limit 은 pane 생성 시점에 고정되며 이후 변경은 기존 pane 에 소급 적용 안 됨).
 REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "10000"))
+# 재접속(create=0 refresh) 대상 tmux 세션이 원격에 없을 때 원격 명령이 반환하는 마커 exit code.
+# 브리지가 이를 감지해 "session-gone" 컨트롤 메시지를 프론트로 보내면, 프론트는 무한 refresh
+# 재시도(스팸) 대신 새 세션 생성(create=1)으로 전환하고 "새 세션 시작"을 화면에 알린다.
+TMUX_SESSION_GONE_EXIT = 42
 CONNECT_TIMEOUT = 15  # 초
 # RPi5 등 wifi/배터리 호스트의 idle drop 빠르게 감지 — 15s × 4 = 1분 안에 끊긴 것 검출.
 KEEPALIVE_INTERVAL = 15
@@ -95,7 +99,10 @@ def _build_remote_command(
     """
     if not use_tmux:
         if not create_session:
-            return "printf '\\r\\n\\033[33m[session not found] this host does not keep a tmux shell to reconnect\\033[0m\\r\\n'; exit 42"
+            return (
+                "printf '\\r\\n\\033[33m[session not found] this host does not keep a tmux shell to reconnect\\033[0m\\r\\n'; "
+                f"exit {TMUX_SESSION_GONE_EXIT}"
+            )
         if start_path:
             return f"cd {_shell_path(start_path)} 2>/dev/null; exec ${{SHELL:-bash}} -l"
         return None
@@ -113,7 +120,7 @@ def _build_remote_command(
         if create_session
         else (
             f"tmux has-session -t {safe} 2>/dev/null || "
-            f"{{ printf '\\r\\n\\033[33m[session not found] refresh could not find {tmux_session}\\033[0m\\r\\n'; exit 42; }}; "
+            f"{{ printf '\\r\\n\\033[33m[session not found] refresh could not find {tmux_session}\\033[0m\\r\\n'; exit {TMUX_SESSION_GONE_EXIT}; }}; "
         )
     )
     # 핵심: new-session 단계에서 stty size 로 PTY 차원 그대로 주입 → 80x24 기본 아래 시작 후
@@ -466,7 +473,22 @@ class HostBridge:
                     await t
                 except (asyncio.CancelledError, Exception):
                     pass
+            await self._notify_if_session_gone()
             await self._teardown()
+
+    async def _notify_if_session_gone(self) -> None:
+        """원격 명령이 exit 42(= 재접속 대상 tmux 세션 없음)로 끝났으면 프론트에 알린다.
+
+        호스트 재부팅 등으로 tmux 세션이 통째로 사라진 경우, 프론트의 create=0 refresh
+        재시도는 전부 같은 exit 42 로 끝나 "[session not found]" 스팸만 반복된다.
+        이 신호를 받으면 프론트는 즉시 새 세션 생성(create=1)으로 전환한다."""
+        try:
+            status = self.process.exit_status if self.process is not None else None
+        except Exception:
+            status = None
+        if status != TMUX_SESSION_GONE_EXIT:
+            return
+        await self.send_control('{"type":"session-gone"}')
 
     async def _teardown(self) -> None:
         try:
@@ -745,11 +767,27 @@ class TailscaleHostBridge:
                     await t
                 except (asyncio.CancelledError, Exception):
                     pass
+            await self._notify_if_session_gone()
             try:
                 if self.process and self.process.isalive():
                     self.process.terminate(force=True)
             except Exception:
                 pass
+
+    async def _notify_if_session_gone(self) -> None:
+        """HostBridge._notify_if_session_gone 과 동일 — ptyprocess 는 isalive() 가
+        자식을 reap 한 뒤에야 exitstatus 를 채우므로 살아있으면 판정하지 않는다."""
+        proc = self.process
+        if proc is None:
+            return
+        try:
+            if proc.isalive():
+                return
+            status = proc.exitstatus
+        except Exception:
+            return
+        if status == TMUX_SESSION_GONE_EXIT:
+            await self.send_control('{"type":"session-gone"}')
 
 
 def resolve_host_secrets(host: dict, key_record: dict | None) -> dict:

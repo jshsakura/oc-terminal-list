@@ -51,6 +51,7 @@ export const ko = {
     reconnectTicketFailed: '재연결에 실패했습니다. 세션이 만료되었거나 서버에 연결할 수 없습니다.',
     reconnectTimedOut: '연결이 지연되고 있습니다. 다시 시도해 주세요.',
     networkReconnect: '네트워크 연결이 바뀌었습니다. 재연결 중...',
+    sessionGoneNewStart: '이전 원격 세션이 사라졌습니다 (호스트 재시작?) — 새 세션으로 시작합니다.',
     sameDeviceNetworkReconnect: '같은 기기의 네트워크 변경으로 판단했습니다. 재연결 중...',
     reconnectingPill: '다시 연결 중…',
     restartShell: '새 셸 시작',

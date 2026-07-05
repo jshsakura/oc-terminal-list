@@ -40,7 +40,7 @@ import {
   WEBGL_DETACH_GRACE_MS, WEBGL_IDLE_RELEASE_MS, CONNECT_OPEN_TIMEOUT_MS, RECONNECT_STABLE_RESET_MS,
   RECONNECT_WATCHDOG_POLL_MS, RECONNECT_ESCALATE_MS, WASM_ALLOWED, TMUX_WHEEL_INPUT_RE,
   STALE_CONNECTING_RESUME_MS, OUTAGE_PROBE_INTERVAL_MS, OUTAGE_PROBE_TIMEOUT_MS,
-  OUTAGE_PROBE_MIN_DELAY_MS,
+  OUTAGE_PROBE_MIN_DELAY_MS, SESSION_GONE_SIGNAL_MS, SESSION_GONE_LOOP_GUARD_MS,
 } from './terminal/terminalConstants';
 import {
   sleep, looksLikeBulkCommand, looksLikeRecoverableBulkInput,
@@ -137,6 +137,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
      `[detached (from session ...)]` 토큰을 감지해 evictedRef 를 세움. WS close 시 이 ref 가
      true 면 자동 재접속 로직을 모두 skip — 사용자가 직접 "내가 가져오기" 버튼을 눌러야만 재attach. */
   const evictedRef = useRef(false);
+  /* 서버 "session-gone"(원격 exit 42 — 재접속 대상 tmux 세션이 원격에 없음) 수신 시각.
+     직후의 close 를 "세션 소멸"로 식별해 refresh 재시도 대신 새 세션 생성으로 전환. */
+  const sessionGoneAtRef = useRef(0);
+  /* 세션 소멸 → 새 세션 생성으로 전환한 시각. 생성 직후 또 소멸이면 루프 방지(ended 전환). */
+  const sessionGoneCreateAtRef = useRef(0);
   const endedRef = useRef(false);
   const hasContentRef = useRef(false);
   /* useEffect 내부의 connect()/runPreflight() 를 takeover 버튼/자동 재attach 폴링/탭 활성 변경에서
@@ -1618,6 +1623,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setTmuxFallback(true);
             return;
           }
+          if (msg && msg.type === 'session-gone') {
+            /* 원격에 재접속 대상 tmux 세션이 없음(호스트 재부팅 등) — 직후 close 에서
+               refresh 재시도 대신 새 세션 생성으로 전환한다. 터미널로 흘리지 않는다. */
+            sessionGoneAtRef.current = Date.now();
+            return;
+          }
         } catch { /* JSON 아님, 일반 출력으로 통과 */ }
       }
       /* tmux 가 다른 클라이언트에게 takeover 당해 우리를 detach 시킬 때, 마지막에 보내는
@@ -1665,6 +1676,31 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (evictedRef.current) {
         /* takeover 당함 — 자동 재접속 금지. 사용자가 "내가 가져오기" 버튼으로만 재attach. */
         setEvicted(true);
+        return;
+      }
+      // [세션 소멸] 서버가 session-gone(원격 exit 42) 을 보낸 직후의 close — 호스트 재부팅
+      // 등으로 원격 tmux 세션이 통째로 사라졌다. create=0 refresh 재시도는 전부 같은 결과라
+      // "[session not found]" 스팸만 반복되므로, 즉시 새 세션 생성(create=1)으로 전환하고
+      // 화면(터미널 스크롤백 + 재연결 pill)에 "새 세션 시작"임을 뚜렷이 알린다.
+      if (sessionGoneAtRef.current && Date.now() - sessionGoneAtRef.current < SESSION_GONE_SIGNAL_MS) {
+        sessionGoneAtRef.current = 0;
+        const goneNotice = t('sessionGoneNewStart')
+          || 'Previous remote session is gone (host restarted?) — starting a fresh session.';
+        if (Date.now() - sessionGoneCreateAtRef.current < SESSION_GONE_LOOP_GUARD_MS) {
+          // 방금 새로 만든 세션이 곧바로 또 소멸 — 원격이 세션을 유지 못 하는 상태.
+          // 생성 루프 대신 ended 오버레이로 수동 재시작 탈출구를 준다.
+          markEnded(goneNotice);
+          return;
+        }
+        sessionGoneCreateAtRef.current = Date.now();
+        try {
+          term.write(`\r\n\x1b[33m[${goneNotice}]\x1b[0m\r\n`);
+        } catch { /* noop */ }
+        // 세션 소멸은 확정 신호(SSH 도달 성공 + 세션 부재) — 그동안의 outage 재시도로
+        // 소진된 버스트 카운터와 무관한 새 국면이므로 리셋 후 곧장 생성 재연결.
+        reconnectAttemptsRef.current = 0;
+        reconnectingSinceRef.current = 0;
+        scheduleReconnect(true, goneNotice);
         return;
       }
       // [병행 빠른 재연결] 여기 도달 = detach 토큰 없이 끊긴 케이스 — 대부분 평범한 네트워크
