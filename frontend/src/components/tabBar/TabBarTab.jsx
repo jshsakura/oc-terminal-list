@@ -6,6 +6,11 @@ import { styles } from './tabBarStyles';
 
 const { color, font, fontWeight } = tokens;
 
+// 혼합 호스트 미니 타일 — 최대 개수와 캐스케이드 배치(주 타일 18px 뒤로 7px 씩 우측 오프셋).
+const MAX_SECONDARY_ICONS = 2;
+const MINI_TILE_BASE_LEFT_PX = 12;
+const MINI_TILE_STEP_PX = 7;
+
 export const Tab = memo(({
   tab, index, isFirst = false, isActive, isBusy = false, isDragging = false, isDragOver = false,
   isMobile = false,
@@ -18,14 +23,41 @@ export const Tab = memo(({
   const isHostTab = tab.type === 'host' || tab.hostId;
   const isLocalTab = tab.type === 'local';
   const Icon = isHostTab ? Server : (isLocalTab ? Monitor : TerminalIcon);
-  const dotColor = tab.color_index != null
-    ? color.dotPalette?.[tab.color_index % (color.dotPalette?.length || 8)] || color.accent
-    : color.accent;
-  // pane 들이 다른 호스트로 섞인 탭 — 두 번째 호스트 미니 아이콘을 겹쳐 표시 (App.tabsWithMeta 파생).
-  const secondary = tab.secondaryIdentity || null;
-  const secondaryColor = secondary
-    ? color.dotPalette?.[secondary.colorIndex % (color.dotPalette?.length || 8)] || color.accent
-    : null;
+  const paletteColor = (idx) =>
+    color.dotPalette?.[(idx ?? 0) % (color.dotPalette?.length || 8)] || color.accent;
+  const dotColor = tab.color_index != null ? paletteColor(tab.color_index) : color.accent;
+  // pane 들이 다른 호스트로 섞인 탭 — 나머지 호스트 미니 아이콘을 캐스케이드로 겹쳐 표시
+  // (App.tabsWithMeta 파생). 미니 타일은 최대 2개, 그 이상은 마지막 자리를 "+N" 칩으로.
+  const secondaries = tab.secondaryIdentities || [];
+  const shownSecondaries = secondaries.length > MAX_SECONDARY_ICONS
+    ? secondaries.slice(0, MAX_SECONDARY_ICONS - 1)
+    : secondaries;
+  const overflowCount = secondaries.length - shownSecondaries.length;
+  const overflowNames = overflowCount > 0
+    ? secondaries.slice(shownSecondaries.length).map((s) => s.name).filter(Boolean).join(', ')
+    : '';
+  const miniTileCount = shownSecondaries.length + (overflowCount > 0 ? 1 : 0);
+  // 미니 타일 공통 스타일 — i 번째 타일은 주 타일 우하단에서 7px 씩 우측으로 캐스케이드.
+  const miniTileStyle = (i, tint) => ({
+    position: 'absolute',
+    left: `${MINI_TILE_BASE_LEFT_PX + MINI_TILE_STEP_PX * i}px`,
+    bottom: '-2px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '13px',
+    height: '13px',
+    background: tint
+      ? `color-mix(in srgb, ${tint} 22%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`
+      : color.surface2,
+    border: `1px solid ${tint ? `${tint}66` : 'var(--ui-border-strong)'}`,
+    borderRadius: '3.5px',
+    color: tint || color.subtext,
+    /* crust ring 으로 주/이웃 타일과 분리 — 아바타 스택처럼 "겹쳐 있음"이 읽히게. */
+    boxShadow: `0 0 0 1.5px ${color.crust}`,
+    opacity: isActive ? 1 : 0.8,
+    zIndex: i + 1,
+  });
 
   return (
     <div
@@ -104,13 +136,13 @@ export const Tab = memo(({
       )}
 
       {/* 호스트 아이콘 타일 — dot 색 tint. busy 시 타일 자체는 변화 없음, 우상단 dot 만 깜빡.
-          다른 호스트 pane 이 섞인 탭이면 우하단에 그 호스트의 미니 타일을 겹쳐 표시. */}
+          다른 호스트 pane 이 섞인 탭이면 우하단에 그 호스트들의 미니 타일을 캐스케이드로 겹쳐 표시. */}
       <span
         style={{
           position: 'relative',
           display: 'inline-flex',
           flexShrink: 0,
-          width: secondary ? '25px' : '18px',
+          width: `${18 + MINI_TILE_STEP_PX * miniTileCount}px`,
           height: '18px',
         }}
       >
@@ -149,34 +181,29 @@ export const Tab = memo(({
             />
           )}
         </span>
-        {secondary && (
-          <span
-            title={secondary.name}
-            style={{
-              position: 'absolute',
-              right: 0,
-              bottom: '-2px',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: '13px',
-              height: '13px',
-              background: `color-mix(in srgb, ${secondaryColor} 22%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`,
-              border: `1px solid ${secondaryColor}66`,
-              borderRadius: '3.5px',
-              color: secondaryColor,
-              /* crust ring 으로 주 타일과 분리 — 아바타 스택처럼 "겹쳐 있음"이 읽히게. */
-              boxShadow: `0 0 0 1.5px ${color.crust}`,
-              opacity: isActive ? 1 : 0.8,
-              zIndex: 1,
-            }}
-          >
+        {shownSecondaries.map((s, i) => (
+          <span key={`${s.kind}:${s.name}:${i}`} title={s.name} style={miniTileStyle(i, paletteColor(s.colorIndex))}>
             <HostIcon
-              value={secondary.icon || ''}
-              fallback={secondary.kind === 'local' ? Monitor : Server}
+              value={s.icon || ''}
+              fallback={s.kind === 'local' ? Monitor : Server}
               size={8}
               strokeWidth={2.1}
             />
+          </span>
+        ))}
+        {overflowCount > 0 && (
+          <span
+            title={overflowNames}
+            style={{
+              ...miniTileStyle(shownSecondaries.length, null),
+              fontSize: '7px',
+              fontWeight: 700,
+              fontFamily: font.mono,
+              letterSpacing: '-0.5px',
+              lineHeight: 1,
+            }}
+          >
+            +{overflowCount}
           </span>
         )}
       </span>

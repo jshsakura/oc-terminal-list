@@ -110,12 +110,15 @@ describe('TabBar', () => {
     expect(onHome).toHaveBeenCalled();
   });
 
-  it('renders overlapped secondary host icon on a mixed-host tab', () => {
-    // pane 들이 서로 다른 호스트로 섞인 탭 — 두 번째 호스트의 미니 아이콘(이모지)이 겹쳐 뜬다.
+  it('renders overlapped secondary host icons on a mixed-host tab', () => {
+    // pane 들이 서로 다른 호스트로 섞인 탭 — 나머지 호스트들의 미니 아이콘(이모지)이 겹쳐 뜬다.
     const tabs = [
       {
         id: 'host:1', type: 'host', hostId: 'h1', name: 'Proxmox VE', color_index: 44, icon: '⚛️',
-        secondaryIdentity: { kind: 'host', name: 'ArgonEON', icon: '🐳', colorIndex: 36 },
+        secondaryIdentities: [
+          { kind: 'host', name: 'ArgonEON', icon: '🐳', colorIndex: 36 },
+          { kind: 'host', name: 'TrueNAS Scale', icon: '🥧', colorIndex: 13 },
+        ],
       },
     ];
     render(
@@ -123,6 +126,29 @@ describe('TabBar', () => {
     );
     expect(screen.getByText('🐳')).toBeInTheDocument();
     expect(screen.getByTitle('ArgonEON')).toBeInTheDocument();
+    expect(screen.getByText('🥧')).toBeInTheDocument();
+    expect(screen.getByTitle('TrueNAS Scale')).toBeInTheDocument();
+  });
+
+  it('collapses 3+ secondary hosts into a +N chip with names in the tooltip', () => {
+    const tabs = [
+      {
+        id: 'host:1', type: 'host', hostId: 'h1', name: 'Proxmox VE', color_index: 44, icon: '⚛️',
+        secondaryIdentities: [
+          { kind: 'host', name: 'ArgonEON', icon: '🐳', colorIndex: 36 },
+          { kind: 'host', name: 'TrueNAS Scale', icon: '🥧', colorIndex: 13 },
+          { kind: 'local', name: 'dev-box', icon: '🖥️', colorIndex: 24 },
+        ],
+      },
+    ];
+    render(
+      <TabBar tabs={tabs} activeTabId="host:1" onSelect={vi.fn()} onClose={vi.fn()} onAdd={vi.fn()} onHome={vi.fn()} />
+    );
+    // 첫 번째 미니 아이콘만 그대로, 나머지 둘은 "+2" 칩으로 접힌다.
+    expect(screen.getByText('🐳')).toBeInTheDocument();
+    expect(screen.queryByText('🥧')).toBeNull();
+    expect(screen.getByText('+2')).toBeInTheDocument();
+    expect(screen.getByTitle('TrueNAS Scale, dev-box')).toBeInTheDocument();
   });
 
   it('renders host tab with emoji icon', () => {

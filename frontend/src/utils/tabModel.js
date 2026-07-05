@@ -113,34 +113,38 @@ export const paneIdentityKey = (pane) => {
 };
 
 // 탭 안 pane 들이 서로 다른 호스트(또는 호스트+로컬)로 섞였을 때, 활성 pane 과 다른
-// 두 번째 정체성의 표시 메타를 돌려준다. TabBar 제목탭이 아이콘을 겹쳐 그려
-// "이 탭엔 다른 호스트도 있다"를 알리는 용도. 안 섞였으면 null.
-export const deriveTabSecondaryIdentity = (tab, hosts = [], settings = {}) => {
+// 정체성 전부의 표시 메타를 pane 순서대로 돌려준다(중복 제거). TabBar 제목탭이
+// 아이콘을 겹쳐 그려 "이 탭엔 다른 호스트들도 있다"를 알리는 용도. 안 섞였으면 [].
+export const deriveTabSecondaryIdentities = (tab, hosts = [], settings = {}) => {
   const panes = tab?.panes || [];
-  if (panes.length < 2) return null;
+  if (panes.length < 2) return [];
   const activePane = panes.find((p) => p.id === tab.activePaneId) || panes[0];
   const activeKey = paneIdentityKey(activePane);
-  if (!activeKey) return null;
-  const otherPane = panes.find((p) => {
-    const key = paneIdentityKey(p);
-    return key != null && key !== activeKey;
-  });
-  if (!otherPane) return null;
-  if (otherPane.hostId) {
-    const host = hosts.find((h) => h.id === otherPane.hostId);
-    return {
-      kind: 'host',
-      name: host?.name || otherPane.name || '',
-      icon: host?.icon || '',
-      colorIndex: host?.color_index ?? 0,
-    };
+  if (!activeKey) return [];
+  const seenKeys = new Set([activeKey]);
+  const identities = [];
+  for (const pane of panes) {
+    const key = paneIdentityKey(pane);
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    if (pane.hostId) {
+      const host = hosts.find((h) => h.id === pane.hostId);
+      identities.push({
+        kind: 'host',
+        name: host?.name || pane.name || '',
+        icon: host?.icon || '',
+        colorIndex: host?.color_index ?? 0,
+      });
+    } else {
+      identities.push({
+        kind: 'local',
+        name: (settings.localName || '').trim() || pane.name || 'terminal',
+        icon: settings.localIcon || '',
+        colorIndex: settings.localColorIndex ?? 0,
+      });
+    }
   }
-  return {
-    kind: 'local',
-    name: (settings.localName || '').trim() || otherPane.name || 'terminal',
-    icon: settings.localIcon || '',
-    colorIndex: settings.localColorIndex ?? 0,
-  };
+  return identities;
 };
 
 // 옛 탭 (panes 없음) 자동 마이그레이션 — localStorage 호환
