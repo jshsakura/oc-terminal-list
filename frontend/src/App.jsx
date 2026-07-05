@@ -26,6 +26,7 @@ import { appendPaneAsSplit } from './utils/tabPaneOpen';
 import {
   makePane, makLocalTab, makeFreshHostTmuxSessionName,
   usedThemeIdsFromTabs, resolveProfileTheme, makeHostTab,
+  deriveTabPrimaryIdentity,
   deriveTabSecondaryIdentities,
 } from './utils/tabModel';
 
@@ -120,23 +121,21 @@ function App() {
     const secondaryIdentities = deriveTabSecondaryIdentities(tt, hosts, settings);
     // 호스트/로컬 메타가 바뀌면(이름/아이콘/색/테마 변경) 탭에 즉시 반영 — tab 객체에 캡처된 값은
     // 생성 시점 스냅샷이라 사용자가 호스트 편집해도 안 따라가던 문제 해결.
+    // 탭 이름/아이콘/색은 항상 활성 pane 의 정체성(호스트든 로컬이든)을 따라간다 — 탭에 캡처된
+    // 생성 시점 스냅샷으로 굳지 않게. 활성 pane 이 로컬인데 호스트로 폴백하면 secondaries(활성
+    // pane 기준 dedup)에 같은 호스트가 또 들어가 "첫 아이콘이 두 번" 보이는 버그가 된다.
+    // 사용자가 직접 지은 이름(manualName)이 최우선. primary 판별 불가 시 기존 스냅샷/설정 폴백.
+    const primary = deriveTabPrimaryIdentity(tt, hosts, settings);
     if (host) {
-      // 활성 pane 의 실제 호스트를 따라간다 — 한 탭(예: oci) 에서 분할 pane 들을 다른 호스트
-      // (예: 라즈베리파이5) 로 연결해도 메인 탭 이름이 최초 호스트로 굳어 어리버리해지는 걸 막는다.
-      // 사용자가 직접 이름을 지정(manualName) 했으면 그게 우선. 색(color_index)도 이름/아이콘과
-      // 같이 활성 pane 호스트를 따라간다 — 이름은 Proxmox 인데 색은 원래 탭 호스트(파랑) 그대로라
-      // "호스트 색 바꿔도 탭이 안 변함"으로 보이던 혼란 제거.
-      const activePane = tt.panes?.find((p) => p.id === tt.activePaneId) || tt.panes?.[0] || null;
-      const activeHost = activePane?.hostId ? hosts.find((h) => h.id === activePane.hostId) : null;
-      const derivedHost = activeHost || host;
       return {
         ...tt,
         isPersistent,
         closeKeepsSession,
         secondaryIdentities,
-        name: tt.manualName ? tt.name : (derivedHost.name || tt.name),
-        icon: derivedHost.icon ?? tt.icon ?? null,
-        color_index: derivedHost.color_index ?? tt.color_index ?? 0,
+        primaryKind: primary?.kind || 'host',
+        name: tt.manualName ? tt.name : (primary?.name || host.name || tt.name),
+        icon: primary ? (primary.icon || null) : (host.icon ?? tt.icon ?? null),
+        color_index: primary ? primary.colorIndex : (host.color_index ?? tt.color_index ?? 0),
       };
     }
     if (tt.type === 'local') {
@@ -145,10 +144,10 @@ function App() {
         isPersistent,
         closeKeepsSession,
         secondaryIdentities,
-        // 사용자가 직접 지은 이름(manualName)이 최우선. 아니면 Settings → This machine 값을 따라감.
-        name: tt.manualName ? tt.name : ((settings.localName || '').trim() || tt.name || 'terminal'),
-        icon: settings.localIcon || tt.icon || null,
-        color_index: settings.localColorIndex ?? tt.color_index ?? 0,
+        primaryKind: primary?.kind || 'local',
+        name: tt.manualName ? tt.name : (primary?.name || tt.name || 'terminal'),
+        icon: primary ? (primary.icon || null) : (settings.localIcon || tt.icon || null),
+        color_index: primary ? primary.colorIndex : (settings.localColorIndex ?? tt.color_index ?? 0),
       };
     }
     return { ...tt, isPersistent, closeKeepsSession, secondaryIdentities };

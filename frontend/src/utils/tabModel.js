@@ -112,6 +112,30 @@ export const paneIdentityKey = (pane) => {
   return null;
 };
 
+// 활성 pane 의 표시 정체성 — 탭 제목 타일(이름/아이콘/색)은 항상 활성 pane 을 따라간다.
+// 호스트 pane 이면 그 호스트, 로컬 pane 이면 Settings 의 This machine 값. 판별 불가(빈 pane,
+// 호스트 목록 미로딩/삭제)면 null — 호출부가 탭 스냅샷 값으로 폴백한다.
+// secondaries(deriveTabSecondaryIdentities)와 같은 활성 pane 기준을 써야 주 타일과 스택이
+// 절대 같은 정체성을 중복 표시하지 않는다.
+export const deriveTabPrimaryIdentity = (tab, hosts = [], settings = {}) => {
+  const panes = tab?.panes || [];
+  const activePane = panes.find((p) => p.id === tab?.activePaneId) || panes[0] || null;
+  if (activePane?.hostId) {
+    const host = hosts.find((h) => h.id === activePane.hostId);
+    if (!host) return null;
+    return { kind: 'host', name: host.name || '', icon: host.icon || '', colorIndex: host.color_index ?? 0 };
+  }
+  if (activePane?.sessionId) {
+    return {
+      kind: 'local',
+      name: (settings.localName || '').trim() || 'terminal',
+      icon: settings.localIcon || '',
+      colorIndex: settings.localColorIndex ?? 0,
+    };
+  }
+  return null;
+};
+
 // 탭 안 pane 들이 서로 다른 호스트(또는 호스트+로컬)로 섞였을 때, 활성 pane 과 다른
 // 정체성 전부의 표시 메타를 pane 순서대로 돌려준다(중복 제거). TabBar 제목탭이
 // 아이콘을 겹쳐 그려 "이 탭엔 다른 호스트들도 있다"를 알리는 용도. 안 섞였으면 [].

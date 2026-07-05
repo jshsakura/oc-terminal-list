@@ -4,7 +4,10 @@ import DemoPaneGrid from './DemoPaneGrid';
 import DemoBanner from './DemoBanner';
 import DemoSettingsModal from './DemoSettingsModal';
 import { DEMO_HOSTS, DEMO_TABS, DEMO_PANE_POOL } from './demoData';
-import { deriveTabSecondaryIdentities } from '../utils/tabModel';
+import { deriveTabPrimaryIdentity, deriveTabSecondaryIdentities } from '../utils/tabModel';
+
+// 데모의 "This machine" 정체성 — DEMO_TABS 의 로컬 탭(workspace) 스냅샷과 동일하게 유지.
+const DEMO_LOCAL_SETTINGS = { localName: 'workspace', localIcon: 'TerminalSquare', localColorIndex: 24 };
 import { generateUUID } from '../utils/helpers';
 import { splitLeaf, ensureTree, makeLeaf, treeFromLegacyLayout } from '../utils/splitTree';
 import themes, { defaultTheme } from '../styles/themes';
@@ -106,10 +109,21 @@ const DemoApp = () => {
 
   // 활성 pane 과 다른 정체성(다른 호스트/로컬)을 전부 파생 — 실제 App.jsx tabsWithMeta 와
   // 동일한 함수라서, split/duplicate 로 호스트가 섞여도 아이콘 스택이 그대로 따라온다.
-  const displayedTabs = useMemo(() => tabs.map((t) => ({
-    ...t,
-    secondaryIdentities: deriveTabSecondaryIdentities(t, DEMO_HOSTS, {}),
-  })), [tabs]);
+  // 주 타일(이름/아이콘/색)도 App 과 같이 활성 pane 정체성을 따라간다 — 로컬 pane 활성 시
+  // 호스트로 폴백하면 스택에 같은 호스트가 중복 표시된다.
+  const displayedTabs = useMemo(() => tabs.map((t) => {
+    const primary = deriveTabPrimaryIdentity(t, DEMO_HOSTS, DEMO_LOCAL_SETTINGS);
+    const secondaryIdentities = deriveTabSecondaryIdentities(t, DEMO_HOSTS, DEMO_LOCAL_SETTINGS);
+    if (!primary) return { ...t, secondaryIdentities };
+    return {
+      ...t,
+      secondaryIdentities,
+      primaryKind: primary.kind,
+      name: primary.name || t.name,
+      icon: primary.icon || null,
+      color_index: primary.colorIndex,
+    };
+  }), [tabs]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'column', background: 'var(--ui-base)' }}>

@@ -24,9 +24,11 @@ export const Tab = memo(({
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   t,
 }) => {
-  const isHostTab = tab.type === 'host' || tab.hostId;
-  const isLocalTab = tab.type === 'local';
-  const Icon = isHostTab ? Server : (isLocalTab ? Monitor : TerminalIcon);
+  // 주 타일 폴백 글리프는 탭 타입이 아니라 활성 pane 정체성(primaryKind)을 따라간다 —
+  // 호스트 탭이라도 활성 pane 이 로컬이면 Monitor. (App.tabsWithMeta 파생, 없으면 탭 타입 폴백)
+  const primaryKind = tab.primaryKind
+    || ((tab.type === 'host' || tab.hostId) ? 'host' : (tab.type === 'local' ? 'local' : null));
+  const Icon = primaryKind === 'host' ? Server : (primaryKind === 'local' ? Monitor : TerminalIcon);
   const paletteColor = (idx) =>
     color.dotPalette?.[(idx ?? 0) % (color.dotPalette?.length || 8)] || color.accent;
   const dotColor = tab.color_index != null ? paletteColor(tab.color_index) : color.accent;
