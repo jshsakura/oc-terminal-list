@@ -110,6 +110,21 @@ describe('TabBar', () => {
     expect(onHome).toHaveBeenCalled();
   });
 
+  it('renders overlapped secondary host icon on a mixed-host tab', () => {
+    // pane 들이 서로 다른 호스트로 섞인 탭 — 두 번째 호스트의 미니 아이콘(이모지)이 겹쳐 뜬다.
+    const tabs = [
+      {
+        id: 'host:1', type: 'host', hostId: 'h1', name: 'Proxmox VE', color_index: 44, icon: '⚛️',
+        secondaryIdentity: { kind: 'host', name: 'ArgonEON', icon: '🐳', colorIndex: 36 },
+      },
+    ];
+    render(
+      <TabBar tabs={tabs} activeTabId="host:1" onSelect={vi.fn()} onClose={vi.fn()} onAdd={vi.fn()} onHome={vi.fn()} />
+    );
+    expect(screen.getByText('🐳')).toBeInTheDocument();
+    expect(screen.getByTitle('ArgonEON')).toBeInTheDocument();
+  });
+
   it('renders host tab with emoji icon', () => {
     const tabs = [
       { id: 'host:1', type: 'host', hostId: 'h1', name: 'srv', color_index: 0, icon: '🚀' },

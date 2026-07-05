@@ -26,6 +26,7 @@ import { appendPaneAsSplit } from './utils/tabPaneOpen';
 import {
   makePane, makLocalTab, makeFreshHostTmuxSessionName,
   usedThemeIdsFromTabs, resolveProfileTheme, makeHostTab,
+  deriveTabSecondaryIdentity,
 } from './utils/tabModel';
 
 import TabBar from './components/TabBar';
@@ -115,6 +116,8 @@ function App() {
     const isPersistent = tt.type === 'local' || !!host?.use_remote_tmux;
     // 닫기 칩 안내 문구용 — 닫아도 세션이 살아남는지(detach) 모든 pane 기준으로 판정.
     const closeKeepsSession = tabCloseKeepsSession(tt, hosts);
+    // pane 들이 다른 호스트(또는 호스트+로컬)로 섞인 탭 — 제목탭에 두 번째 아이콘을 겹쳐 표시.
+    const secondaryIdentity = deriveTabSecondaryIdentity(tt, hosts, settings);
     // 호스트/로컬 메타가 바뀌면(이름/아이콘/색/테마 변경) 탭에 즉시 반영 — tab 객체에 캡처된 값은
     // 생성 시점 스냅샷이라 사용자가 호스트 편집해도 안 따라가던 문제 해결.
     if (host) {
@@ -130,6 +133,7 @@ function App() {
         ...tt,
         isPersistent,
         closeKeepsSession,
+        secondaryIdentity,
         name: tt.manualName ? tt.name : (derivedHost.name || tt.name),
         icon: derivedHost.icon ?? tt.icon ?? null,
         color_index: derivedHost.color_index ?? tt.color_index ?? 0,
@@ -140,13 +144,14 @@ function App() {
         ...tt,
         isPersistent,
         closeKeepsSession,
+        secondaryIdentity,
         // 사용자가 직접 지은 이름(manualName)이 최우선. 아니면 Settings → This machine 값을 따라감.
         name: tt.manualName ? tt.name : ((settings.localName || '').trim() || tt.name || 'terminal'),
         icon: settings.localIcon || tt.icon || null,
         color_index: settings.localColorIndex ?? tt.color_index ?? 0,
       };
     }
-    return { ...tt, isPersistent, closeKeepsSession };
+    return { ...tt, isPersistent, closeKeepsSession, secondaryIdentity };
   }), [tabs, hosts, settings.localName, settings.localIcon, settings.localColorIndex]);
 
   // ── open / close tabs ─────────────────────────────────────────────────────

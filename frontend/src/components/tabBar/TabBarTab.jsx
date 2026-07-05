@@ -21,6 +21,11 @@ export const Tab = memo(({
   const dotColor = tab.color_index != null
     ? color.dotPalette?.[tab.color_index % (color.dotPalette?.length || 8)] || color.accent
     : color.accent;
+  // pane 들이 다른 호스트로 섞인 탭 — 두 번째 호스트 미니 아이콘을 겹쳐 표시 (App.tabsWithMeta 파생).
+  const secondary = tab.secondaryIdentity || null;
+  const secondaryColor = secondary
+    ? color.dotPalette?.[secondary.colorIndex % (color.dotPalette?.length || 8)] || color.accent
+    : null;
 
   return (
     <div
@@ -98,41 +103,81 @@ export const Tab = memo(({
         </span>
       )}
 
-      {/* 호스트 아이콘 타일 — dot 색 tint. busy 시 타일 자체는 변화 없음, 우상단 dot 만 깜빡. */}
+      {/* 호스트 아이콘 타일 — dot 색 tint. busy 시 타일 자체는 변화 없음, 우상단 dot 만 깜빡.
+          다른 호스트 pane 이 섞인 탭이면 우하단에 그 호스트의 미니 타일을 겹쳐 표시. */}
       <span
         style={{
           position: 'relative',
           display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: '18px',
-          height: '18px',
           flexShrink: 0,
-          background: isActive ? `${dotColor}26` : `${dotColor}12`,
-          border: `1px solid ${isActive ? `${dotColor}77` : `${dotColor}33`}`,
-          borderRadius: '4px',
-          color: isActive ? color.text : dotColor,
-          opacity: isActive ? 1 : 0.85,
+          width: secondary ? '25px' : '18px',
+          height: '18px',
         }}
       >
-        <HostIcon value={tab.icon || ''} fallback={Icon} size={11} strokeWidth={1.9} />
-        {isBusy && (
+        <span
+          style={{
+            position: 'relative',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '18px',
+            height: '18px',
+            background: isActive ? `${dotColor}26` : `${dotColor}12`,
+            border: `1px solid ${isActive ? `${dotColor}77` : `${dotColor}33`}`,
+            borderRadius: '4px',
+            color: isActive ? color.text : dotColor,
+            opacity: isActive ? 1 : 0.85,
+          }}
+        >
+          <HostIcon value={tab.icon || ''} fallback={Icon} size={11} strokeWidth={1.9} />
+          {isBusy && (
+            <span
+              className="iterm-tab-busy-dot"
+              aria-hidden
+              style={{
+                position: 'absolute',
+                top: '-3px',
+                right: '-3px',
+                width: '7px',
+                height: '7px',
+                borderRadius: '50%',
+                background: dotColor,
+                /* crust outline 으로 탭/이웃 탭과 분리해 어디서든 또렷이. 부드러운 opacity 박동. */
+                boxShadow: `0 0 0 1.5px ${color.crust}`,
+                pointerEvents: 'none',
+              }}
+            />
+          )}
+        </span>
+        {secondary && (
           <span
-            className="iterm-tab-busy-dot"
-            aria-hidden
+            title={secondary.name}
             style={{
               position: 'absolute',
-              top: '-3px',
-              right: '-3px',
-              width: '7px',
-              height: '7px',
-              borderRadius: '50%',
-              background: dotColor,
-              /* crust outline 으로 탭/이웃 탭과 분리해 어디서든 또렷이. 부드러운 opacity 박동. */
+              right: 0,
+              bottom: '-2px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: '13px',
+              height: '13px',
+              background: `color-mix(in srgb, ${secondaryColor} 22%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`,
+              border: `1px solid ${secondaryColor}66`,
+              borderRadius: '3.5px',
+              color: secondaryColor,
+              /* crust ring 으로 주 타일과 분리 — 아바타 스택처럼 "겹쳐 있음"이 읽히게. */
               boxShadow: `0 0 0 1.5px ${color.crust}`,
-              pointerEvents: 'none',
+              opacity: isActive ? 1 : 0.8,
+              zIndex: 1,
             }}
-          />
+          >
+            <HostIcon
+              value={secondary.icon || ''}
+              fallback={secondary.kind === 'local' ? Monitor : Server}
+              size={8}
+              strokeWidth={2.1}
+            />
+          </span>
         )}
       </span>
       {isPendingClose ? (
