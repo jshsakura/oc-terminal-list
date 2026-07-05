@@ -45,6 +45,13 @@ export const Tab = memo(({
   const iconSize = isMobile ? 9 : 11;
   // 스택에 실제로 그려지는 타일 총 개수(보이는 호스트 + "+N" 칩 자체 1개).
   const stackedCount = visibleSecondaries.length + (hiddenCount > 0 ? 1 : 0);
+  const tabBase = isActive ? 'var(--ui-base)' : 'var(--ui-mantle)';
+  // 스택 타일은 전부 완전 불투명이어야 한다 — 알파 배경/테두리나 opacity 를 쓰면
+  // 겹친 아래 타일이 비쳐 색이 섞여 보인다. 톤 조절은 전부 opaque color-mix 로.
+  const tileBackground = (tint) =>
+    `color-mix(in srgb, ${tint} ${isActive ? 22 : 14}%, ${tabBase})`;
+  const tileBorder = (tint) =>
+    `1px solid color-mix(in srgb, ${tint} ${isActive ? 47 : 22}%, ${tabBase})`;
   // i 번째(0=활성 뒤 첫 호스트) 타일 — 주 타일과 동일 스타일, 절반씩 우측 캐스케이드.
   const stackTileStyle = (i, tint) => ({
     position: 'absolute',
@@ -55,13 +62,12 @@ export const Tab = memo(({
     justifyContent: 'center',
     width: `${tileSize}px`,
     height: `${tileSize}px`,
-    background: `color-mix(in srgb, ${tint} ${isActive ? 22 : 14}%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`,
-    border: `1px solid ${isActive ? `${tint}77` : `${tint}33`}`,
+    background: tileBackground(tint),
+    border: tileBorder(tint),
     borderRadius: '4px',
     color: tint,
     /* crust ring 으로 이웃 타일과 분리 — "겹쳐 있음"이 읽히게. */
     boxShadow: `0 0 0 1.5px ${color.crust}`,
-    opacity: isActive ? 1 : 0.85,
     zIndex: stackedCount - i, // 앞 타일이 위, 뒤로 갈수록 아래로 깔림
   });
 
@@ -161,11 +167,10 @@ export const Tab = memo(({
             justifyContent: 'center',
             width: `${tileSize}px`,
             height: `${tileSize}px`,
-            background: isActive ? `${dotColor}26` : `${dotColor}12`,
-            border: `1px solid ${isActive ? `${dotColor}77` : `${dotColor}33`}`,
+            background: tileBackground(dotColor),
+            border: tileBorder(dotColor),
             borderRadius: '4px',
             color: isActive ? color.text : dotColor,
-            opacity: isActive ? 1 : 0.85,
             /* 스택일 때 뒤 타일과 분리되는 crust ring. 단일 타일이면 없음(기존 모양 유지). */
             boxShadow: secondaries.length ? `0 0 0 1.5px ${color.crust}` : 'none',
             zIndex: stackedCount + 1,
