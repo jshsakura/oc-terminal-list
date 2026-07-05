@@ -6,10 +6,9 @@ import { styles } from './tabBarStyles';
 
 const { color, font, fontWeight } = tokens;
 
-// 혼합 호스트 미니 타일 — 최대 개수와 캐스케이드 배치(주 타일 18px 뒤로 7px 씩 우측 오프셋).
-const MAX_SECONDARY_ICONS = 2;
-const MINI_TILE_BASE_LEFT_PX = 12;
-const MINI_TILE_STEP_PX = 7;
+// 혼합 호스트 타일 스택 — 모든 타일 동일 크기(18px), 절반(9px)씩 겹치는 아바타 스택.
+const HOST_TILE_PX = 18;
+const HOST_TILE_OVERLAP_STEP_PX = 9;
 
 export const Tab = memo(({
   tab, index, isFirst = false, isActive, isBusy = false, isDragging = false, isDragOver = false,
@@ -26,37 +25,28 @@ export const Tab = memo(({
   const paletteColor = (idx) =>
     color.dotPalette?.[(idx ?? 0) % (color.dotPalette?.length || 8)] || color.accent;
   const dotColor = tab.color_index != null ? paletteColor(tab.color_index) : color.accent;
-  // pane 들이 다른 호스트로 섞인 탭 — 나머지 호스트 미니 아이콘을 캐스케이드로 겹쳐 표시
-  // (App.tabsWithMeta 파생). 미니 타일은 최대 2개, 그 이상은 마지막 자리를 "+N" 칩으로.
+  // pane 들이 다른 호스트로 섞인 탭 — 나머지 호스트들도 주 타일과 같은 크기의 라인 아이콘
+  // 타일로, 절반씩 겹치는 아바타 스택으로 전부 표시 (App.tabsWithMeta 파생).
+  // 앞(왼쪽)이 활성 pane 호스트, 뒤로 갈수록 나머지. 각 타일 색 = 그 호스트의 dot 색.
   const secondaries = tab.secondaryIdentities || [];
-  const shownSecondaries = secondaries.length > MAX_SECONDARY_ICONS
-    ? secondaries.slice(0, MAX_SECONDARY_ICONS - 1)
-    : secondaries;
-  const overflowCount = secondaries.length - shownSecondaries.length;
-  const overflowNames = overflowCount > 0
-    ? secondaries.slice(shownSecondaries.length).map((s) => s.name).filter(Boolean).join(', ')
-    : '';
-  const miniTileCount = shownSecondaries.length + (overflowCount > 0 ? 1 : 0);
-  // 미니 타일 공통 스타일 — i 번째 타일은 주 타일 우하단에서 7px 씩 우측으로 캐스케이드.
-  const miniTileStyle = (i, tint) => ({
+  // i 번째(0=활성 뒤 첫 호스트) 타일 — 주 타일과 동일 스타일, 절반씩 우측 캐스케이드.
+  const stackTileStyle = (i, tint) => ({
     position: 'absolute',
-    left: `${MINI_TILE_BASE_LEFT_PX + MINI_TILE_STEP_PX * i}px`,
-    bottom: '-2px',
+    left: `${HOST_TILE_OVERLAP_STEP_PX * (i + 1)}px`,
+    top: 0,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: '13px',
-    height: '13px',
-    background: tint
-      ? `color-mix(in srgb, ${tint} 22%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`
-      : color.surface2,
-    border: `1px solid ${tint ? `${tint}66` : 'var(--ui-border-strong)'}`,
-    borderRadius: '3.5px',
-    color: tint || color.subtext,
-    /* crust ring 으로 주/이웃 타일과 분리 — 아바타 스택처럼 "겹쳐 있음"이 읽히게. */
+    width: `${HOST_TILE_PX}px`,
+    height: `${HOST_TILE_PX}px`,
+    background: `color-mix(in srgb, ${tint} ${isActive ? 22 : 14}%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`,
+    border: `1px solid ${isActive ? `${tint}77` : `${tint}33`}`,
+    borderRadius: '4px',
+    color: tint,
+    /* crust ring 으로 이웃 타일과 분리 — "겹쳐 있음"이 읽히게. */
     boxShadow: `0 0 0 1.5px ${color.crust}`,
-    opacity: isActive ? 1 : 0.8,
-    zIndex: i + 1,
+    opacity: isActive ? 1 : 0.85,
+    zIndex: secondaries.length - i, // 앞 타일이 위, 뒤로 갈수록 아래로 깔림
   });
 
   return (
@@ -136,14 +126,14 @@ export const Tab = memo(({
       )}
 
       {/* 호스트 아이콘 타일 — dot 색 tint. busy 시 타일 자체는 변화 없음, 우상단 dot 만 깜빡.
-          다른 호스트 pane 이 섞인 탭이면 우하단에 그 호스트들의 미니 타일을 캐스케이드로 겹쳐 표시. */}
+          다른 호스트 pane 이 섞인 탭이면 같은 크기 타일들이 절반씩 겹치는 스택으로 전부 표시. */}
       <span
         style={{
           position: 'relative',
           display: 'inline-flex',
           flexShrink: 0,
-          width: `${18 + MINI_TILE_STEP_PX * miniTileCount}px`,
-          height: '18px',
+          width: `${HOST_TILE_PX + HOST_TILE_OVERLAP_STEP_PX * secondaries.length}px`,
+          height: `${HOST_TILE_PX}px`,
         }}
       >
         <span
@@ -152,13 +142,16 @@ export const Tab = memo(({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: '18px',
-            height: '18px',
+            width: `${HOST_TILE_PX}px`,
+            height: `${HOST_TILE_PX}px`,
             background: isActive ? `${dotColor}26` : `${dotColor}12`,
             border: `1px solid ${isActive ? `${dotColor}77` : `${dotColor}33`}`,
             borderRadius: '4px',
             color: isActive ? color.text : dotColor,
             opacity: isActive ? 1 : 0.85,
+            /* 스택일 때 뒤 타일과 분리되는 crust ring. 단일 타일이면 없음(기존 모양 유지). */
+            boxShadow: secondaries.length ? `0 0 0 1.5px ${color.crust}` : 'none',
+            zIndex: secondaries.length + 1,
           }}
         >
           <HostIcon value={tab.icon || ''} fallback={Icon} size={11} strokeWidth={1.9} />
@@ -181,31 +174,16 @@ export const Tab = memo(({
             />
           )}
         </span>
-        {shownSecondaries.map((s, i) => (
-          <span key={`${s.kind}:${s.name}:${i}`} title={s.name} style={miniTileStyle(i, paletteColor(s.colorIndex))}>
+        {secondaries.map((s, i) => (
+          <span key={`${s.kind}:${s.name}:${i}`} title={s.name} style={stackTileStyle(i, paletteColor(s.colorIndex))}>
             <HostIcon
               value={s.icon || ''}
               fallback={s.kind === 'local' ? Monitor : Server}
-              size={8}
-              strokeWidth={2.1}
+              size={11}
+              strokeWidth={1.9}
             />
           </span>
         ))}
-        {overflowCount > 0 && (
-          <span
-            title={overflowNames}
-            style={{
-              ...miniTileStyle(shownSecondaries.length, null),
-              fontSize: '7px',
-              fontWeight: 700,
-              fontFamily: font.mono,
-              letterSpacing: '-0.5px',
-              lineHeight: 1,
-            }}
-          >
-            +{overflowCount}
-          </span>
-        )}
       </span>
       {isPendingClose ? (
         /* 인라인 close 확인 — 탭 이름 자리를 차지. 탭 닫기 = 내부 세션 전부 종료라는 결과를
