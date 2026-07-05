@@ -120,7 +120,9 @@ function App() {
     if (host) {
       // 활성 pane 의 실제 호스트를 따라간다 — 한 탭(예: oci) 에서 분할 pane 들을 다른 호스트
       // (예: 라즈베리파이5) 로 연결해도 메인 탭 이름이 최초 호스트로 굳어 어리버리해지는 걸 막는다.
-      // 사용자가 직접 이름을 지정(manualName) 했으면 그게 우선. 색(color_index)은 탭 정체성으로 유지.
+      // 사용자가 직접 이름을 지정(manualName) 했으면 그게 우선. 색(color_index)도 이름/아이콘과
+      // 같이 활성 pane 호스트를 따라간다 — 이름은 Proxmox 인데 색은 원래 탭 호스트(파랑) 그대로라
+      // "호스트 색 바꿔도 탭이 안 변함"으로 보이던 혼란 제거.
       const activePane = tt.panes?.find((p) => p.id === tt.activePaneId) || tt.panes?.[0] || null;
       const activeHost = activePane?.hostId ? hosts.find((h) => h.id === activePane.hostId) : null;
       const derivedHost = activeHost || host;
@@ -130,7 +132,7 @@ function App() {
         closeKeepsSession,
         name: tt.manualName ? tt.name : (derivedHost.name || tt.name),
         icon: derivedHost.icon ?? tt.icon ?? null,
-        color_index: host.color_index ?? tt.color_index ?? 0,
+        color_index: derivedHost.color_index ?? tt.color_index ?? 0,
       };
     }
     if (tt.type === 'local') {
