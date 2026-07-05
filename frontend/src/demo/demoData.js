@@ -3,9 +3,10 @@
  * output captured from any real machine. Safe to publish on a public static
  * site (GitHub Pages) alongside the real repo.
  *
- * Shape mirrors the real app's tab/host model (utils/tabModel.js) closely
- * enough that TabBar/Tab render exactly as they do in production — this
- * demo is a faithful preview, not a mockup drawn from scratch.
+ * Panes carry a `scriptId` (which DemoTerminal replays) and, for host panes,
+ * a `hostId` — same shape the real app uses, so DemoApp can reuse the real
+ * split-tree utils (utils/splitTree.js) and secondary-identity derivation
+ * (utils/tabModel.js) instead of faking split/mixed-host behavior.
  */
 
 export const DEMO_HOSTS = [
@@ -14,26 +15,50 @@ export const DEMO_HOSTS = [
   { id: 'demo-edge', name: 'edge-node-pi', icon: 'Cpu', color_index: 36 },
 ];
 
+// 새 pane 을 split/duplicate 할 때 순환시키는 풀 — local 워크스페이스와 3개 호스트를 오간다.
+export const DEMO_PANE_POOL = [
+  { scriptId: 'local', hostId: null, sessionId: 'demo-local' },
+  { scriptId: 'web', hostId: 'demo-web' },
+  { scriptId: 'db', hostId: 'demo-db' },
+  { scriptId: 'edge', hostId: 'demo-edge' },
+];
+
 export const DEMO_TABS = [
   {
     id: 'tab-local', type: 'local', name: 'workspace',
-    icon: 'TerminalSquare', color_index: 24, scriptId: 'local',
+    icon: 'TerminalSquare', color_index: 24,
+    panes: [{ id: 'p-local-1', scriptId: 'local', hostId: null, sessionId: 'demo-local' }],
+    splitTree: { type: 'pane', paneId: 'p-local-1' },
+    activePaneId: 'p-local-1',
   },
   {
     id: 'tab-web', type: 'host', hostId: 'demo-web', name: 'web-app-01',
-    icon: 'Server', color_index: 4, scriptId: 'web',
+    icon: 'Server', color_index: 4,
+    panes: [{ id: 'p-web-1', scriptId: 'web', hostId: 'demo-web' }],
+    splitTree: { type: 'pane', paneId: 'p-web-1' },
+    activePaneId: 'p-web-1',
   },
   {
     id: 'tab-db', type: 'host', hostId: 'demo-db', name: 'cache-redis-01',
-    icon: 'Database', color_index: 2, scriptId: 'db',
+    icon: 'Database', color_index: 2,
+    panes: [{ id: 'p-db-1', scriptId: 'db', hostId: 'demo-db' }],
+    splitTree: { type: 'pane', paneId: 'p-db-1' },
+    activePaneId: 'p-db-1',
   },
   {
-    // 두 호스트를 오가는 탭 — 오늘 추가된 "혼합 호스트 아이콘 스택" 기능을 데모에서도 보여준다.
-    id: 'tab-mixed', type: 'host', hostId: 'demo-edge', name: 'edge-node-pi',
-    icon: 'Cpu', color_index: 36, scriptId: 'mixed',
-    secondaryIdentities: [
-      { kind: 'host', name: 'web-app-01', icon: 'Server', colorIndex: 4 },
+    // 시작부터 분할 + 서로 다른 호스트 pane 두 개 — split view 와 "혼합 호스트 아이콘 스택"
+    // 기능을 클릭 한 번 없이 처음 화면에서 바로 보여준다.
+    id: 'tab-split', type: 'host', hostId: 'demo-edge', name: 'edge-node-pi',
+    icon: 'Cpu', color_index: 36,
+    panes: [
+      { id: 'p-split-1', scriptId: 'edge', hostId: 'demo-edge' },
+      { id: 'p-split-2', scriptId: 'web', hostId: 'demo-web' },
     ],
+    splitTree: {
+      type: 'split', direction: 'row',
+      children: [{ type: 'pane', paneId: 'p-split-1' }, { type: 'pane', paneId: 'p-split-2' }],
+    },
+    activePaneId: 'p-split-1',
   },
 ];
 
@@ -121,7 +146,7 @@ export const DEMO_SCRIPTS = {
       },
     ],
   },
-  mixed: {
+  edge: {
     prompt: '\x1b[1;32mdemo@edge-node-pi\x1b[0m:\x1b[1;34m~\x1b[0m$ ',
     commands: [
       {
