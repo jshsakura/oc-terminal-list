@@ -131,6 +131,32 @@ describe('TabBar', () => {
     expect(screen.getByTitle('dev-box')).toBeInTheDocument();
   });
 
+  it('caps mixed-host tiles to 2 + overflow chip on mobile (no overlap stack)', () => {
+    // 모바일은 hover 가 없고 탭 폭도 좁아 데스크탑의 절반-겹침 스택이 탭 밖으로
+    // 삐져나가/뭉개져 보이던 버그 — 최대 2개 + "+N" 칩으로 캡핑됐는지 확인.
+    const tabs = [
+      {
+        id: 'host:1', type: 'host', hostId: 'h1', name: 'Proxmox VE', color_index: 44, icon: 'Atom',
+        secondaryIdentities: [
+          { kind: 'host', name: 'ArgonEON', icon: 'Server', colorIndex: 36 },
+          { kind: 'host', name: 'TrueNAS Scale', icon: 'PieChart', colorIndex: 13 },
+          { kind: 'local', name: 'dev-box', icon: 'Monitor', colorIndex: 24 },
+        ],
+      },
+    ];
+    render(
+      <TabBar
+        tabs={tabs} activeTabId="host:1" isMobile={true}
+        onSelect={vi.fn()} onClose={vi.fn()} onAdd={vi.fn()} onHome={vi.fn()}
+      />
+    );
+    expect(screen.getByTitle('ArgonEON')).toBeInTheDocument();
+    expect(screen.getByTitle('TrueNAS Scale')).toBeInTheDocument();
+    // 3번째(dev-box)는 개별 타일 대신 "+1" 칩으로 접히고, 칩 title 로 이름을 알 수 있음.
+    expect(screen.getByText('+1')).toBeInTheDocument();
+    expect(screen.getByTitle('dev-box')).toBeInTheDocument();
+  });
+
   it('renders host tab with emoji icon', () => {
     const tabs = [
       { id: 'host:1', type: 'host', hostId: 'h1', name: 'srv', color_index: 0, icon: '🚀' },

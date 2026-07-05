@@ -33,6 +33,9 @@ export const styles = {
     paddingRight: '8px',
     gap: '5px',
     borderRadius: 0,
+    // 안전망 — 호스트 아이콘 스택 등 고정폭 요소가 좁은 탭 폭을 넘으면 이웃 탭으로
+    // 삐져나가는 대신 여기서 잘리게.
+    overflow: 'hidden',
   },
   miniBtnMobile: {
     width: '28px',
