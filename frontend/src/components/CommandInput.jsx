@@ -526,11 +526,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
                               {checked && <Check size={11} strokeWidth={3} />}
                             </span>
                             <span style={{ ...styles.targetDot, background: p.color }} />
-                            <span style={styles.targetName}>
-                              {t?.('pane') || 'Pane'} {i + 1}
-                              {isActivePane && <span style={styles.targetActiveTag}> · {t?.('active') || '활성'}</span>}
+                            {/* 이름 + 호스트를 한 줄에 욱여넣지 않고 2줄로 — 좁은 팝업에서 둘 다 잘리는 걸 막는다. */}
+                            <span style={styles.targetText}>
+                              <span style={styles.targetName}>
+                                {t?.('pane') || 'Pane'} {i + 1}
+                                {isActivePane && <span style={styles.targetActiveTag}> · {t?.('active') || '활성'}</span>}
+                              </span>
+                              {p.host && <span style={styles.targetHost} title={p.host}>{p.host}</span>}
                             </span>
-                            <span style={styles.targetHost} title={p.host}>{p.host}</span>
                           </button>
                         );
                       })}
@@ -808,8 +811,8 @@ const styles = {
     bottom: 'calc(100% + 6px)',
     right: 0,
     zIndex: 61,
-    width: '220px',
-    maxWidth: '78vw',
+    width: '264px',
+    maxWidth: '86vw',
     background: `var(--ui-surface0, ${color.surface0})`,
     border: `1px solid var(--ui-border, ${color.border})`,
     borderRadius: radius.md,
@@ -831,7 +834,7 @@ const styles = {
     padding: `${space['1']} ${space['2.5']}`, fontSize: '10.5px',
     color: `var(--ui-muted, ${color.muted})`,
   },
-  targetList: { maxHeight: '210px', overflowY: 'auto', padding: space['1'] },
+  targetList: { maxHeight: '240px', overflowY: 'auto', padding: space['1'], display: 'flex', flexDirection: 'column', gap: '2px' },
   targetRow: {
     display: 'flex', alignItems: 'center', gap: space['2'], width: '100%',
     padding: `${space['1.5']} ${space['2']}`, background: 'transparent',
@@ -849,13 +852,15 @@ const styles = {
     borderColor: `var(--ui-accent, ${color.accent})`,
   },
   targetDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+  // 이름/호스트 2줄 컬럼 — 남는 가로폭을 전부 쓰고 각 줄이 독립적으로 ellipsis.
+  targetText: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px', overflow: 'hidden' },
   targetName: {
-    flex: 1, minWidth: 0, fontSize: fontSize['12'], fontWeight: fontWeight.medium,
+    minWidth: 0, fontSize: fontSize['12'], fontWeight: fontWeight.medium,
     color: `var(--ui-text, ${color.text})`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
   targetActiveTag: { color: `var(--ui-accent, ${color.accent})`, fontWeight: fontWeight.semibold },
   targetHost: {
-    flexShrink: 0, maxWidth: '80px', fontSize: '10px', fontFamily: font.mono,
+    minWidth: 0, fontSize: '10.5px', fontFamily: font.mono,
     color: `var(--ui-muted, ${color.muted})`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
   // 업로드 상태 전용 영역 — footer 아래 얇은 바. 버튼 줄을 어지럽히지 않게 분리.
