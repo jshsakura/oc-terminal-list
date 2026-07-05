@@ -48,6 +48,13 @@
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
+    /* ── themed scrollbar (page + any scrollable panel) ── */
+    html { scrollbar-color: var(--faint) var(--crust); scrollbar-width: thin; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: var(--crust); }
+    ::-webkit-scrollbar-thumb { background: var(--faint); border-radius: 999px; border: 2px solid var(--crust); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+
     /* ── icon helper ── */
     .ico { display: inline-block; vertical-align: middle; flex-shrink: 0; }
 
@@ -216,6 +223,16 @@
     .btn-ghost:hover { border-color: rgba(168,172,196,.35); background: rgba(35,35,47,.9); }
 
     @keyframes fade-up { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+    .scroll-cue {
+      position: absolute; left: 50%; bottom: 28px; transform: translateX(-50%);
+      color: var(--muted); display: flex; z-index: 1;
+      animation: scroll-cue-bounce 2s ease-in-out infinite, fade-up .5s ease .6s both;
+      transition: color .15s;
+    }
+    .scroll-cue:hover { color: var(--accent); }
+    @keyframes scroll-cue-bounce { 0%,100%{transform:translateX(-50%) translateY(0)} 50%{transform:translateX(-50%) translateY(8px)} }
+    @media (prefers-reduced-motion: reduce) { .scroll-cue { animation: none; } }
 
     /* ════ Stats ════ */
     .stats-strip {
@@ -549,10 +566,14 @@
       </a>
     </div>
   </div>
+
+  <a class="scroll-cue" href="#stats" aria-label="Scroll down">
+    <svg class="ico" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+  </a>
 </section>
 
 <!-- ════ Stats ════ -->
-<div class="stats-strip reveal">
+<div class="stats-strip reveal" id="stats">
   <div class="stat"><div class="stat-num" data-count="9">0</div><div class="stat-label" data-i18n="statFeatures">Features</div></div>
   <div class="stat"><div class="stat-num">tmux</div><div class="stat-label" data-i18n="statSession">Persistent</div></div>
   <div class="stat"><div class="stat-num">WebAuthn</div><div class="stat-label" data-i18n="statPasskey">Passkey</div></div>
