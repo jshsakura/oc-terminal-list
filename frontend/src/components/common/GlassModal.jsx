@@ -1,10 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
 const VIEWPORT_GAP = 12;
+// 모바일 ghost-click 방어 — 상단의 메뉴 항목을 탭해서 모달을 열면, 그 탭의 touchend 뒤에
+// 브라우저가 합성하는 click 이 방금 뜬 전체화면 오버레이(backdrop=onClose) 위로 떨어져
+// 모달이 같은 제스처에 즉시 닫히던 버그. 열린 직후 짧은 유예 동안 backdrop 닫힘을 무시한다.
+const OVERLAY_DISMISS_GRACE_MS = 400;
 
 const GlassModal = ({
   isOpen,
@@ -32,6 +36,16 @@ const GlassModal = ({
     }
     return { height: window.visualViewport.height, offsetTop: window.visualViewport.offsetTop };
   });
+
+  // 오버레이가 열린 시각 — backdrop 클릭이 진짜 사용자 의도인지(유예 이후) ghost-click 인지 구분.
+  const openedAtRef = useRef(0);
+  useEffect(() => {
+    if (isOpen) openedAtRef.current = Date.now();
+  }, [isOpen]);
+  const handleOverlayClick = () => {
+    if (Date.now() - openedAtRef.current < OVERLAY_DISMISS_GRACE_MS) return;
+    onClose?.();
+  };
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -65,7 +79,7 @@ const GlassModal = ({
   };
 
   return (
-    <div data-testid="glass-modal-overlay" style={overlayStyle} onClick={onClose} role="presentation">
+    <div data-testid="glass-modal-overlay" style={overlayStyle} onClick={handleOverlayClick} role="presentation">
       <div
         className="iterm-glass-modal"
         role="dialog"
