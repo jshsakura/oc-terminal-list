@@ -609,7 +609,16 @@ export const en = {
     killSession: 'End session',
     confirmKillSession: 'Kill session',
     attached: 'attached',
-    confirmCloseTab: 'Close this tab?',
+    confirmCloseTab: "This tab's session will end.",
+    // "All N sessions in this tab will end." assembled as pre + count + post (t() has no interpolation).
+    confirmCloseTabSessionsPre: 'All ',
+    confirmCloseTabSessionsPost: ' sessions in this tab will end.',
+    // Tab right-click "Close tab" trailing hint — signals that closing ends sessions.
+    endsSession: 'ends session',
+    endsSessions: 'end',
+    // Sub-tab (split) close — make clear it ends only THIS split, not the whole tab.
+    endSplitSession: 'End this split',
+    confirmClosePaneSession: "This split's session will end.",
     confirmCloseTabLossy: 'Close this tab? Work in non-tmux sessions will be lost.',
     confirmCloseTabTerminate: 'Close this tab? The remote tmux session(s) will be terminated.',
     confirmCloseTabKeepable: 'Close this tab? The session keeps running — reopen it from Home.',

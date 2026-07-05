@@ -606,7 +606,16 @@ export const ko = {
     killSession: '세션 종료',
     confirmKillSession: '세션 종료',
     attached: '연결 중',
-    confirmCloseTab: '이 탭을 닫을까요?',
+    confirmCloseTab: '이 탭의 세션이 종료됩니다.',
+    // 닫기=세션 종료임을 명시. pane 여러 개면 "이 탭의 세션 N개가 모두 종료됩니다." 로 조립.
+    confirmCloseTabSessionsPre: '이 탭의 세션 ',
+    confirmCloseTabSessionsPost: '개가 모두 종료됩니다.',
+    // 탭 우클릭 메뉴 "탭 닫기" 옆 소비성 힌트 — 닫으면 세션이 끝난다는 신호.
+    endsSession: '세션 종료',
+    endsSessions: '세션 종료',
+    // 서브탭(분할) 종료 — "탭 전체"가 아니라 "이 분할만" 임을 명확히.
+    endSplitSession: '이 분할 세션 종료',
+    confirmClosePaneSession: '이 분할의 세션이 종료됩니다.',
     confirmCloseTabLossy: '이 탭을 닫을까요? tmux 안 쓰는 세션의 작업은 사라집니다.',
     confirmCloseTabTerminate: '이 탭을 닫을까요? 원격 tmux 세션도 함께 종료됩니다.',
     confirmCloseTabKeepable: '이 탭을 닫을까요? 세션은 백그라운드에서 계속 살아있고, 홈에서 다시 열 수 있습니다.',

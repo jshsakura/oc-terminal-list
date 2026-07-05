@@ -159,7 +159,7 @@ const SubTabBar = ({
             icon={Trash2}
             onClick={() => { const id = ctxMenu.paneId; ctxCloseRef.current(); onClose(id); }}
           >
-            {t?.('killSession') || 'End session'}
+            {t?.('endSplitSession') || t?.('killSession') || 'End this split'}
           </MenuItem>
         </div>,
         document.body

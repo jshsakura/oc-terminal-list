@@ -580,10 +580,13 @@ function App() {
     const host = isHost ? hosts.find((h) => h.id === pane.hostId) : null;
     const willPersist = !isHost /* local 항상 tmux */ || !!host?.use_remote_tmux;
 
-    const title = t('closePane') || 'Close pane';
-    const message = willPersist
-      ? (t('confirmClosePane') || 'Close this pane?')
-      : (t('confirmClosePaneNoTmux') || 'Close this pane? Work will be lost (tmux off).');
+    // 서브탭(분할) 종료도 "이 분할의 세션만 끝난다" 를 명확히 — 탭 전체 닫기와 헷갈리지 않게.
+    const paneLabel = `#${paneIndex + 1} · ${t('pane') || 'Pane'} ${paneIndex + 1}`;
+    const title = t('endSplitSession') || 'End this split';
+    const base = willPersist
+      ? (t('confirmClosePaneSession') || "This split's session will end.")
+      : (t('confirmClosePaneNoTmux') || 'Close this split? Work will be lost (tmux off).');
+    const message = `${paneLabel}\n\n${base}`;
 
     if (skipConfirm) {
       doClose();
@@ -775,10 +778,11 @@ function App() {
     const tabIdx = tabs.findIndex((tb) => tb.id === tabId);
     const tabNo = tabIdx >= 0 ? tabIdx + 1 : '?';
     const headerLine = `#${tabNo} · ${tab.name || 'terminal'}`;
-    const base = t('confirmCloseTab') || 'Close this tab? All sessions in it will end.';
+    // "닫기 = 세션 종료" 를 문구로 못 박는다. pane 여러 개면 몇 개가 끝나는지 명시.
+    // t() 는 보간이 없어 pre + 숫자 + post 로 조립(언어별 어순 유지).
     const body = paneCount > 1
-      ? `${base} (${paneCount} ${t('panesInTab') || 'panes'})`
-      : base;
+      ? `${t('confirmCloseTabSessionsPre') || 'All '}${paneCount}${t('confirmCloseTabSessionsPost') || ' sessions in this tab will end.'}`
+      : (t('confirmCloseTab') || "This tab's session will end.");
     setConfirmModal({
       isOpen: true,
       title: t('closeTab') || 'Close tab',

@@ -41,6 +41,7 @@ export const MenuItem = ({ onClick, children, danger, disabled = false, icon: Ic
 
 export const TabContextMenu = ({
   ctx, t, onClose, onCloseTab, onDuplicateTab, onRenameTab = null,
+  paneCount = 1,
   canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null,
   canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null,
   canSplit = false, onSplit = null,
@@ -140,7 +141,15 @@ export const TabContextMenu = ({
           </MenuItem>
         </>
       )}
-      <MenuItem onClick={onCloseTab} danger icon={Trash2}>{t?.('closeTab') || 'Close tab'}</MenuItem>
+      {/* 닫기 = 세션 종료임을 라벨에 명시 — pane 여러 개면 몇 개가 끝나는지까지 보여준다. */}
+      <MenuItem onClick={onCloseTab} danger icon={Trash2}>
+        {t?.('closeTab') || 'Close tab'}
+        <span style={{ marginLeft: 'auto', paddingLeft: '10px', fontSize: '10.5px', color: color.muted, whiteSpace: 'nowrap' }}>
+          {paneCount > 1
+            ? `${t?.('endsSessions') || 'ends'} ${paneCount}`
+            : (t?.('endsSession') || 'ends session')}
+        </span>
+      </MenuItem>
     </div>
   );
 };

@@ -268,6 +268,7 @@ const TabBar = ({
       <TabContextMenu
         ctx={contextMenu}
         t={t}
+        paneCount={ctxPaneCount}
         viewMode={ctxViewMode}
         canToggleViewMode={false}
         canMoveLeft={ctxIdx > 0 && !!onReorder}
