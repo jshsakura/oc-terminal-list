@@ -6,15 +6,14 @@ import { styles } from './tabBarStyles';
 
 const { color, font, fontWeight } = tokens;
 
-// 혼합 호스트 타일 스택 — 모든 타일 동일 크기(18px), 절반(9px)씩 겹치는 아바타 스택.
-// (데스크탑 전용 — 마우스 hover 로 각 타일을 구분 가능하다는 전제.)
+// 혼합 호스트 타일 스택 — 모든 타일 동일 크기, 절반씩 겹치는 아바타 스택.
+// 모바일/데스크탑 둘 다 같은 겹침 스택이되, 모바일은 탭 폭이 좁아(128~190px)
+// 타일/겹침 폭을 줄이고 개수를 캡핑(+N 칩)해 탭 밖으로 삐져나가지 않게 한다.
 const HOST_TILE_PX = 18;
 const HOST_TILE_OVERLAP_STEP_PX = 9;
-// 모바일은 hover 가 없고 탭 폭도 좁아(128~190px) 절반 겹침 스택이 탭 밖으로
-// 삐져나가거나 인접 타일과 뭉개져 보인다. 겹치지 않는 작은 타일 + 간격 + "+N" 칩으로 대체.
 const HOST_TILE_PX_MOBILE = 14;
-const HOST_TILE_GAP_MOBILE_PX = 3;
-const HOST_TILE_MAX_VISIBLE_MOBILE = 2;
+const HOST_TILE_OVERLAP_STEP_MOBILE_PX = 7;
+const HOST_TILE_MAX_VISIBLE_MOBILE = 3;
 
 export const Tab = memo(({
   tab, index, isFirst = false, isActive, isBusy = false, isDragging = false, isDragOver = false,
@@ -35,22 +34,27 @@ export const Tab = memo(({
   // 타일로, 절반씩 겹치는 아바타 스택으로 전부 표시 (App.tabsWithMeta 파생).
   // 앞(왼쪽)이 활성 pane 호스트, 뒤로 갈수록 나머지. 각 타일 색 = 그 호스트의 dot 색.
   const secondaries = tab.secondaryIdentities || [];
-  // 모바일: 겹치지 않는 간격 스택 + 최대 2개까지만, 나머지는 "+N" 칩(툴팁에 이름 목록).
-  const mobileVisible = isMobile ? secondaries.slice(0, HOST_TILE_MAX_VISIBLE_MOBILE) : secondaries;
-  const mobileHiddenCount = isMobile ? secondaries.length - mobileVisible.length : 0;
-  const mobileHiddenNames = isMobile && mobileHiddenCount > 0
-    ? secondaries.slice(HOST_TILE_MAX_VISIBLE_MOBILE).map((s) => s.name).filter(Boolean).join(', ')
+  // 모바일은 탭 폭이 좁으니 최대 N개까지만 겹쳐 보여주고, 그 이상은 "+N" 칩으로 스택 끝에 합류.
+  const visibleSecondaries = isMobile ? secondaries.slice(0, HOST_TILE_MAX_VISIBLE_MOBILE) : secondaries;
+  const hiddenCount = secondaries.length - visibleSecondaries.length;
+  const hiddenNames = hiddenCount > 0
+    ? secondaries.slice(visibleSecondaries.length).map((s) => s.name).filter(Boolean).join(', ')
     : '';
+  const tileSize = isMobile ? HOST_TILE_PX_MOBILE : HOST_TILE_PX;
+  const overlapStep = isMobile ? HOST_TILE_OVERLAP_STEP_MOBILE_PX : HOST_TILE_OVERLAP_STEP_PX;
+  const iconSize = isMobile ? 9 : 11;
+  // 스택에 실제로 그려지는 타일 총 개수(보이는 호스트 + "+N" 칩 자체 1개).
+  const stackedCount = visibleSecondaries.length + (hiddenCount > 0 ? 1 : 0);
   // i 번째(0=활성 뒤 첫 호스트) 타일 — 주 타일과 동일 스타일, 절반씩 우측 캐스케이드.
   const stackTileStyle = (i, tint) => ({
     position: 'absolute',
-    left: `${HOST_TILE_OVERLAP_STEP_PX * (i + 1)}px`,
+    left: `${overlapStep * (i + 1)}px`,
     top: 0,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: `${HOST_TILE_PX}px`,
-    height: `${HOST_TILE_PX}px`,
+    width: `${tileSize}px`,
+    height: `${tileSize}px`,
     background: `color-mix(in srgb, ${tint} ${isActive ? 22 : 14}%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`,
     border: `1px solid ${isActive ? `${tint}77` : `${tint}33`}`,
     borderRadius: '4px',
@@ -58,7 +62,7 @@ export const Tab = memo(({
     /* crust ring 으로 이웃 타일과 분리 — "겹쳐 있음"이 읽히게. */
     boxShadow: `0 0 0 1.5px ${color.crust}`,
     opacity: isActive ? 1 : 0.85,
-    zIndex: secondaries.length - i, // 앞 타일이 위, 뒤로 갈수록 아래로 깔림
+    zIndex: stackedCount - i, // 앞 타일이 위, 뒤로 갈수록 아래로 깔림
   });
 
   return (
@@ -138,21 +142,15 @@ export const Tab = memo(({
       )}
 
       {/* 호스트 아이콘 타일 — dot 색 tint. busy 시 타일 자체는 변화 없음, 우상단 dot 만 깜빡.
-          데스크탑: 다른 호스트 pane 섞인 탭이면 같은 크기 타일들이 절반씩 겹치는 스택으로 전부 표시(hover 로 구분).
-          모바일: hover 없고 탭도 좁아 겹침 스택이 탭 밖으로 삐져나가거나 뭉개져 보이므로,
-          겹치지 않는 작은 타일 + 간격으로 최대 2개까지만, 나머지는 "+N" 칩. */}
+          다른 호스트 pane 이 섞인 탭이면 같은 크기 타일들이 절반씩 겹치는 스택으로 표시.
+          모바일은 타일/겹침 폭을 줄이고 최대 개수를 캡핑(+N 칩)해 좁은 탭 폭 안에 들어오게 한다. */}
       <span
-        style={isMobile ? {
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: `${HOST_TILE_GAP_MOBILE_PX}px`,
-          flexShrink: 0,
-        } : {
+        style={{
           position: 'relative',
           display: 'inline-flex',
           flexShrink: 0,
-          width: `${HOST_TILE_PX + HOST_TILE_OVERLAP_STEP_PX * secondaries.length}px`,
-          height: `${HOST_TILE_PX}px`,
+          width: `${tileSize + overlapStep * stackedCount}px`,
+          height: `${tileSize}px`,
         }}
       >
         <span
@@ -161,20 +159,19 @@ export const Tab = memo(({
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: `${isMobile ? HOST_TILE_PX_MOBILE : HOST_TILE_PX}px`,
-            height: `${isMobile ? HOST_TILE_PX_MOBILE : HOST_TILE_PX}px`,
-            flexShrink: 0,
+            width: `${tileSize}px`,
+            height: `${tileSize}px`,
             background: isActive ? `${dotColor}26` : `${dotColor}12`,
             border: `1px solid ${isActive ? `${dotColor}77` : `${dotColor}33`}`,
             borderRadius: '4px',
             color: isActive ? color.text : dotColor,
             opacity: isActive ? 1 : 0.85,
-            /* 스택일 때 뒤 타일과 분리되는 crust ring. 단일 타일이면 없음(기존 모양 유지). 모바일은 간격으로 이미 분리되어 불필요. */
-            boxShadow: (!isMobile && secondaries.length) ? `0 0 0 1.5px ${color.crust}` : 'none',
-            zIndex: secondaries.length + 1,
+            /* 스택일 때 뒤 타일과 분리되는 crust ring. 단일 타일이면 없음(기존 모양 유지). */
+            boxShadow: secondaries.length ? `0 0 0 1.5px ${color.crust}` : 'none',
+            zIndex: stackedCount + 1,
           }}
         >
-          <HostIcon value={tab.icon || ''} fallback={Icon} size={isMobile ? 9 : 11} strokeWidth={1.9} />
+          <HostIcon value={tab.icon || ''} fallback={Icon} size={iconSize} strokeWidth={1.9} />
           {isBusy && (
             <span
               className="iterm-tab-busy-dot"
@@ -194,67 +191,24 @@ export const Tab = memo(({
             />
           )}
         </span>
-        {isMobile ? (
-          <>
-            {mobileVisible.map((s, i) => (
-              <span
-                key={`${s.kind}:${s.name}:${i}`}
-                title={s.name}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  width: `${HOST_TILE_PX_MOBILE}px`,
-                  height: `${HOST_TILE_PX_MOBILE}px`,
-                  background: `color-mix(in srgb, ${paletteColor(s.colorIndex)} ${isActive ? 22 : 14}%, ${isActive ? 'var(--ui-base)' : 'var(--ui-mantle)'})`,
-                  border: `1px solid ${isActive ? `${paletteColor(s.colorIndex)}77` : `${paletteColor(s.colorIndex)}33`}`,
-                  borderRadius: '4px',
-                  color: paletteColor(s.colorIndex),
-                  opacity: isActive ? 1 : 0.85,
-                }}
-              >
-                <HostIcon
-                  value={s.icon || ''}
-                  fallback={s.kind === 'local' ? Monitor : Server}
-                  size={9}
-                  strokeWidth={1.9}
-                />
-              </span>
-            ))}
-            {mobileHiddenCount > 0 && (
-              <span
-                title={mobileHiddenNames}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                  width: `${HOST_TILE_PX_MOBILE}px`,
-                  height: `${HOST_TILE_PX_MOBILE}px`,
-                  background: 'var(--ui-surface0)',
-                  border: `1px solid var(--ui-border)`,
-                  borderRadius: '4px',
-                  color: color.muted,
-                  fontSize: '8px',
-                  fontWeight: fontWeight.semibold,
-                  lineHeight: 1,
-                }}
-              >
-                +{mobileHiddenCount}
-              </span>
-            )}
-          </>
-        ) : secondaries.map((s, i) => (
+        {visibleSecondaries.map((s, i) => (
           <span key={`${s.kind}:${s.name}:${i}`} title={s.name} style={stackTileStyle(i, paletteColor(s.colorIndex))}>
             <HostIcon
               value={s.icon || ''}
               fallback={s.kind === 'local' ? Monitor : Server}
-              size={11}
+              size={iconSize}
               strokeWidth={1.9}
             />
           </span>
         ))}
+        {hiddenCount > 0 && (
+          <span
+            title={hiddenNames}
+            style={{ ...stackTileStyle(visibleSecondaries.length, color.muted), fontSize: '8px', fontWeight: fontWeight.semibold, lineHeight: 1 }}
+          >
+            +{hiddenCount}
+          </span>
+        )}
       </span>
       {isPendingClose ? (
         /* 인라인 close 확인 — 탭 이름 자리를 차지. 탭 닫기 = 내부 세션 전부 종료라는 결과를

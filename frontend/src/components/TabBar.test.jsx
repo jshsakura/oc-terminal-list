@@ -131,9 +131,9 @@ describe('TabBar', () => {
     expect(screen.getByTitle('dev-box')).toBeInTheDocument();
   });
 
-  it('caps mixed-host tiles to 2 + overflow chip on mobile (no overlap stack)', () => {
-    // 모바일은 hover 가 없고 탭 폭도 좁아 데스크탑의 절반-겹침 스택이 탭 밖으로
-    // 삐져나가/뭉개져 보이던 버그 — 최대 2개 + "+N" 칩으로 캡핑됐는지 확인.
+  it('still overlap-stacks mixed-host tiles on mobile, but caps count with a +N chip', () => {
+    // 모바일도 데스크탑과 같은 절반-겹침 캐스케이드를 쓰되, 탭 폭이 좁아(128~190px)
+    // 타일이 무제한 늘어나면 탭 밖으로 삐져나가므로 최대 3개 + "+N" 칩으로 캡핑.
     const tabs = [
       {
         id: 'host:1', type: 'host', hostId: 'h1', name: 'Proxmox VE', color_index: 44, icon: 'Atom',
@@ -141,6 +141,7 @@ describe('TabBar', () => {
           { kind: 'host', name: 'ArgonEON', icon: 'Server', colorIndex: 36 },
           { kind: 'host', name: 'TrueNAS Scale', icon: 'PieChart', colorIndex: 13 },
           { kind: 'local', name: 'dev-box', icon: 'Monitor', colorIndex: 24 },
+          { kind: 'host', name: 'Pi Cluster', icon: 'Server', colorIndex: 5 },
         ],
       },
     ];
@@ -152,9 +153,10 @@ describe('TabBar', () => {
     );
     expect(screen.getByTitle('ArgonEON')).toBeInTheDocument();
     expect(screen.getByTitle('TrueNAS Scale')).toBeInTheDocument();
-    // 3번째(dev-box)는 개별 타일 대신 "+1" 칩으로 접히고, 칩 title 로 이름을 알 수 있음.
-    expect(screen.getByText('+1')).toBeInTheDocument();
     expect(screen.getByTitle('dev-box')).toBeInTheDocument();
+    // 4번째(Pi Cluster)는 개별 타일 대신 "+1" 칩으로 스택 끝에 겹쳐 합류, 칩 title 로 이름 확인.
+    expect(screen.getByText('+1')).toBeInTheDocument();
+    expect(screen.getByTitle('Pi Cluster')).toBeInTheDocument();
   });
 
   it('renders host tab with emoji icon', () => {
