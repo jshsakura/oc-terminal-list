@@ -8,6 +8,7 @@
   <meta property="og:description" content="Persistent tmux sessions, Monaco editor, SSH management. Self-hosted web terminal. Live demo available." />
   <meta property="og:url" content="https://jshsakura.github.io/oc-terminal-list/" />
   <meta name="twitter:card" content="summary" />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
   <title>Terminal List — Self-Hosted Web Terminal</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -330,6 +331,82 @@
     }
     @media (max-width: 640px) { .demo-frame { height: 340px; } }
 
+    /* ════ Feature Spotlights ════ */
+    .spotlight {
+      display: flex; align-items: center; gap: 3rem;
+      padding: 2.5rem 0;
+    }
+    .spotlight.reverse { flex-direction: row-reverse; }
+    .spotlight-text { flex: 1 1 320px; min-width: 260px; }
+    .spotlight-visual { flex: 1 1 360px; min-width: 260px; }
+    .spotlight-eyebrow {
+      font-family: var(--font-mono); font-size: .65rem; font-weight: 700;
+      letter-spacing: .12em; text-transform: uppercase; color: var(--accent);
+      margin-bottom: .5rem;
+    }
+    .spotlight h3 { font-size: 1.4rem; font-weight: 800; margin-bottom: .7rem; letter-spacing: -.01em; }
+    .spotlight p { color: var(--subtext); font-size: .9rem; line-height: 1.7; }
+    @media (max-width: 760px) {
+      .spotlight, .spotlight.reverse { flex-direction: column; }
+    }
+
+    /* mock terminal chrome shared by spotlight visuals — same language as .browser-frame */
+    .mock-term {
+      border: 1px solid var(--border2); border-radius: 12px; overflow: hidden;
+      box-shadow: var(--shadow); background: var(--crust); font-family: var(--font-mono);
+    }
+    .mock-term-bar {
+      display: flex; align-items: center; gap: 6px; padding: .6rem .9rem;
+      border-bottom: 1px solid var(--border); background: var(--base);
+    }
+    .mock-term-body { padding: 1rem 1.1rem; font-size: .78rem; line-height: 1.9; }
+    .mock-dim { color: var(--muted); }
+    .mock-prompt { color: var(--green); }
+
+    /* tmux-persistence mockup: before/after browser state */
+    .mock-session-row { display: flex; align-items: center; gap: .6rem; }
+    .mock-session-badge {
+      display: inline-flex; align-items: center; gap: .35rem;
+      font-size: .68rem; padding: .15rem .55rem; border-radius: 999px;
+      background: rgba(166,227,161,.12); color: var(--green); border: 1px solid rgba(166,227,161,.28);
+    }
+    .mock-session-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse-dot 2.4s ease infinite; }
+
+    /* split-pane mockup */
+    .mock-split { display: flex; gap: 3px; padding: 3px; height: 190px; }
+    .mock-split > div {
+      flex: 1; min-width: 0; padding: .6rem .7rem; overflow: hidden;
+      border-radius: 6px; background: rgba(255,255,255,.02);
+    }
+    .mock-split .active { box-shadow: inset 0 0 0 1.5px var(--accent); }
+    .mock-tab-row { display: flex; gap: 4px; padding: .5rem .6rem 0; }
+    .mock-tab-chip {
+      font-size: .64rem; padding: .2rem .55rem; border-radius: 6px 6px 0 0;
+      background: var(--s0); color: var(--subtext); display: inline-flex; align-items: center; gap: .3rem;
+    }
+    .mock-tab-chip.active { background: var(--crust); color: var(--text); font-weight: 600; }
+
+    /* host list mockup (SSH / Tailscale) */
+    .mock-host-row {
+      display: flex; align-items: center; gap: .7rem;
+      padding: .6rem .9rem; border-bottom: 1px solid var(--border);
+    }
+    .mock-host-row:last-child { border-bottom: none; }
+    .mock-host-icon {
+      width: 28px; height: 28px; border-radius: 8px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: var(--accent12); color: var(--accent);
+    }
+    .mock-host-name { font-family: var(--font-sans); font-size: .82rem; font-weight: 600; flex: 1; }
+    .mock-host-tag {
+      font-size: .64rem; padding: .15rem .5rem; border-radius: 999px;
+      font-family: var(--font-mono); white-space: nowrap;
+    }
+    .mock-host-tag.tailscale { background: rgba(203,166,247,.14); color: var(--mauve); border: 1px solid rgba(203,166,247,.3); }
+    .mock-host-tag.key { background: rgba(137,180,250,.14); color: var(--accent); border: 1px solid var(--accent32); }
+    .mock-host-tag.pw { background: rgba(249,226,175,.14); color: var(--yellow); border: 1px solid rgba(249,226,175,.3); }
+    .mock-host-online { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; }
+
     /* ════ Install ════ */
     .install-wrap { max-width: 700px; margin: 0 auto; text-align: center; }
 
@@ -504,6 +581,101 @@
     </a>
   </div>
 </section>
+
+<!-- ════ Feature Spotlights (static illustrations, not live) ════ -->
+<section class="section reveal">
+
+  <div class="spotlight">
+    <div class="spotlight-text">
+      <p class="spotlight-eyebrow" data-i18n="spot1Eyebrow">Reliability</p>
+      <h3 data-i18n="spot1H">Sessions that outlive your browser</h3>
+      <p data-i18n-html="spot1P">Every terminal runs inside a real <code>tmux</code> session on the host. Close the tab,
+        lose wifi, restart your laptop — reopen and you're back exactly where you left off, scrollback
+        included. The backend can even restart without killing your shells.</p>
+    </div>
+    <div class="spotlight-visual">
+      <div class="mock-term">
+        <div class="mock-term-bar">
+          <div class="code-dot code-dot-r"></div><div class="code-dot code-dot-y"></div><div class="code-dot code-dot-g"></div>
+          <span class="mock-session-badge" style="margin-left:auto"><span class="dot"></span>attached · 3d 14h</span>
+        </div>
+        <div class="mock-term-body">
+          <div><span class="mock-prompt">deploy@prod-01</span><span class="mock-dim">:~$</span> npm run build</div>
+          <div class="mock-dim">✓ built in 2.14s</div>
+          <div class="mock-dim">— tab closed, laptop slept for 6 hours —</div>
+          <div class="mock-dim">— reopened, reattached in 340ms —</div>
+          <div><span class="mock-prompt">deploy@prod-01</span><span class="mock-dim">:~$</span> <span style="opacity:.5">▊</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spotlight reverse">
+    <div class="spotlight-text">
+      <p class="spotlight-eyebrow" data-i18n="spot2Eyebrow">Workspace</p>
+      <h3 data-i18n="spot2H">Split screens, mix any host</h3>
+      <p data-i18n="spot2P">Split a tab as many ways as you need and connect each pane to a different host —
+        or your local shell. A tab with mixed hosts shows a stacked icon at a glance, so you always know
+        what's inside before you click in.</p>
+    </div>
+    <div class="spotlight-visual">
+      <div class="mock-term">
+        <div class="mock-tab-row">
+          <span class="mock-tab-chip">workspace</span>
+          <span class="mock-tab-chip active">edge-pi + web-01</span>
+          <span class="mock-tab-chip">cache-redis</span>
+        </div>
+        <div class="mock-split">
+          <div class="active">
+            <div class="mock-dim" style="font-size:.7rem">edge-node-pi</div>
+            <div style="font-size:.72rem;margin-top:.4rem">$ tmux ls</div>
+            <div class="mock-dim" style="font-size:.7rem">main: 1 windows</div>
+          </div>
+          <div>
+            <div class="mock-dim" style="font-size:.7rem">web-app-01</div>
+            <div style="font-size:.72rem;margin-top:.4rem">$ docker ps</div>
+            <div class="mock-dim" style="font-size:.7rem">web-01  Up 3h</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="spotlight">
+    <div class="spotlight-text">
+      <p class="spotlight-eyebrow" data-i18n="spot3Eyebrow">Connectivity</p>
+      <h3 data-i18n="spot3H">SSH keys, passwords, or Tailscale</h3>
+      <p data-i18n="spot3P">Register hosts with a key, a password, or your server's Tailscale identity —
+        no exposed public SSH port required. Every secret is encrypted at rest in a Fernet-sealed vault,
+        never stored in plain env files.</p>
+    </div>
+    <div class="spotlight-visual">
+      <div class="mock-term">
+        <div class="mock-host-row">
+          <div class="mock-host-icon"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></div>
+          <span class="mock-host-name">web-app-01</span>
+          <span class="mock-host-tag key">SSH key</span>
+          <span class="mock-host-online"></span>
+        </div>
+        <div class="mock-host-row">
+          <div class="mock-host-icon"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg></div>
+          <span class="mock-host-name">cache-redis-01</span>
+          <span class="mock-host-tag pw">Password</span>
+          <span class="mock-host-online"></span>
+        </div>
+        <div class="mock-host-row">
+          <div class="mock-host-icon"><svg class="ico" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="4"/><line x1="12" x2="12" y1="2" y2="8"/><line x1="12" x2="12" y1="16" y2="22"/></svg></div>
+          <span class="mock-host-name">edge-node-pi</span>
+          <span class="mock-host-tag tailscale">Tailscale</span>
+          <span class="mock-host-online"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<div class="divider"></div>
 
 <!-- ════ Features ════ -->
 <section class="section reveal" id="features">
@@ -703,6 +875,12 @@ const i18n = {
     demoEyebrow: 'Live Demo', demoH2: 'Try it right now — no install',
     demoSub: 'Scripted playback with sample hosts. Nothing below is a real server — no signup, no real shell, no data leaves your browser.',
     demoOpenFull: 'Open full-screen demo',
+    spot1Eyebrow: 'Reliability', spot1H: 'Sessions that outlive your browser',
+    spot1P: 'Every terminal runs inside a real <code>tmux</code> session on the host. Close the tab, lose wifi, restart your laptop — reopen and you\'re back exactly where you left off, scrollback included. The backend can even restart without killing your shells.',
+    spot2Eyebrow: 'Workspace', spot2H: 'Split screens, mix any host',
+    spot2P: 'Split a tab as many ways as you need and connect each pane to a different host — or your local shell. A tab with mixed hosts shows a stacked icon at a glance, so you always know what\'s inside before you click in.',
+    spot3Eyebrow: 'Connectivity', spot3H: 'SSH keys, passwords, or Tailscale',
+    spot3P: 'Register hosts with a key, a password, or your server\'s Tailscale identity — no exposed public SSH port required. Every secret is encrypted at rest in a Fernet-sealed vault, never stored in plain env files.',
     featEyebrow: 'Features', featH2: 'Everything you need',
     card1h: 'Persistent tmux Sessions',   card1p: 'Sessions survive browser close. Auto-reconnect on return.',
     card2h: 'Monaco File Editor',         card2p: 'VS Code engine-based file explorer and editor. Safely sandboxed to your workspace.',
@@ -732,6 +910,12 @@ const i18n = {
     demoEyebrow: '라이브 데모', demoH2: '설치 없이 지금 바로 체험',
     demoSub: '샘플 호스트로 스크립트 재생됩니다. 아래는 실제 서버가 아닙니다 — 가입도, 실제 쉘도, 브라우저 밖으로 나가는 데이터도 없습니다.',
     demoOpenFull: '전체 화면 데모 열기',
+    spot1Eyebrow: '신뢰성', spot1H: '브라우저를 닫아도 살아있는 세션',
+    spot1P: '모든 터미널은 호스트의 실제 <code>tmux</code> 세션 위에서 동작합니다. 탭을 닫든, 와이파이가 끊기든, 노트북을 재부팅하든 — 다시 열면 스크롤백까지 그대로 이어집니다. 백엔드가 재시작해도 셸은 죽지 않습니다.',
+    spot2Eyebrow: '워크스페이스', spot2H: '화면 분할, 호스트 자유롭게 섞기',
+    spot2P: '탭을 원하는 만큼 분할하고 각 pane을 서로 다른 호스트(또는 로컬 셸)에 연결할 수 있습니다. 호스트가 섞인 탭은 아이콘이 겹쳐 보여서, 클릭하기 전에도 안에 뭐가 있는지 바로 알 수 있습니다.',
+    spot3Eyebrow: '연결', spot3H: 'SSH 키, 비밀번호, 혹은 Tailscale',
+    spot3P: '키, 비밀번호, 또는 서버의 Tailscale 아이덴티티로 호스트를 등록하세요 — 공개 SSH 포트를 열 필요가 없습니다. 모든 비밀정보는 Fernet으로 암호화되어 저장되며, 평문 env 파일에는 절대 남지 않습니다.',
     featEyebrow: '기능', featH2: '필요한 건 다 있습니다',
     card1h: '지속형 tmux 세션',      card1p: '브라우저를 닫아도 세션이 유지됩니다. 재접속 시 자동으로 재연결.',
     card2h: 'Monaco 파일 편집기',    card2p: 'VS Code 엔진 기반 파일 탐색기와 에디터. 워크스페이스 범위로 안전하게 격리.',

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- 배경 -->
+  <rect width="100" height="100" rx="20" fill="#282a36"/>
+
+  <!-- 터미널 창 -->
+  <rect x="10" y="10" width="80" height="80" rx="8" fill="#44475a" stroke="#bd93f9" stroke-width="2"/>
+
+  <!-- 프롬프트 기호 > -->
+  <text x="20" y="50" font-family="monospace" font-size="35" fill="#50fa7b" font-weight="bold">&gt;</text>
+
+  <!-- 커서 _ -->
+  <rect x="45" y="38" width="20" height="4" fill="#f8f8f2">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+</svg>
