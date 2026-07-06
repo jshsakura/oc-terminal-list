@@ -97,6 +97,16 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           onChange={(v) => change('fontSize', v)}
         />
       </Field>
+      <Field
+        label={t('textContrast') || 'Text contrast'}
+        hint={t('textContrastHint') || 'High maximizes legibility but flattens theme colors. Original shows the theme palette as-is.'}
+      >
+        <Select value={s.terminalContrast ?? 'high'} onChange={(v) => change('terminalContrast', v)}>
+          <option value="high">{t('textContrastHigh') || 'High (default)'}</option>
+          <option value="balanced">{t('textContrastBalanced') || 'Balanced'}</option>
+          <option value="original">{t('textContrastOriginal') || 'Original palette'}</option>
+        </Select>
+      </Field>
     </Section>
 
     <Divider />

@@ -156,6 +156,11 @@ export const ko = {
     reset: '초기화',
     scrollSensitivity: '스크롤 감도 (AI)',
     scrollSensitivityHint: '높을수록 사용자 조작에 민감하게 반응합니다',
+    textContrast: '글자 대비',
+    textContrastHint: '‘또렷’은 저대비 색을 밝혀 가독성을 높이지만 테마 색이 다소 뭉개집니다. ‘원본 팔레트’는 테마 색을 그대로 보여줍니다.',
+    textContrastHigh: '또렷 (기본)',
+    textContrastBalanced: '표준',
+    textContrastOriginal: '원본 팔레트',
 
     // 테마
     themeCatppuccin: 'Catppuccin',

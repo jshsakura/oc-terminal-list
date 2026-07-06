@@ -57,6 +57,7 @@ export const DEFAULT_SETTINGS = {
   localName: '',       // 비우면 i18n 의 'thisMachine' 기본값 사용
   localIcon: '',       // 비우면 Monitor 아이콘
   localColorIndex: 0,  // 호스트 카드의 ColorPicker 와 동일한 인덱스
+  terminalContrast: 'high', // 글자 대비 강제 수위 — 'high'(7,또렷) | 'balanced'(4.5) | 'original'(1,테마 팔레트 그대로). high 는 저대비 색을 밝혀 가독성↑ 대신 테마 개성이 다소 뭉개짐.
   useWebgl: true,      // GPU 가속 렌더러 — context loss / 초기화 실패 시 Terminal.jsx 가 자동으로 DOM 으로 폴백
   predictiveEcho: true, // 예측 입력(local echo) — 키를 RTT 안 기다리고 유령 글자로 즉시 표시. 오예측 싫으면 off
 

@@ -159,6 +159,11 @@ export const en = {
     reset: 'Reset to Default',
     scrollSensitivity: 'Scroll Sensitivity (AI)',
     scrollSensitivityHint: 'Higher values respond more sensitively to user scrolling',
+    textContrast: 'Text contrast',
+    textContrastHint: 'High brightens low-contrast colors for legibility but flattens theme colors. Original shows the theme palette as-is.',
+    textContrastHigh: 'High (default)',
+    textContrastBalanced: 'Balanced',
+    textContrastOriginal: 'Original palette',
 
     // Themes
     themeCatppuccin: 'Catppuccin',

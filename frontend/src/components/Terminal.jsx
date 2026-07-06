@@ -50,6 +50,11 @@ import { styles } from './terminal/terminalStyles';
 import { GlassOverlayCard, TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
 import TerminalTexture from './TerminalTexture';
 
+// 글자 대비 설정 → xterm minimumContrastRatio.
+// high=또렷(저대비 색 자동 보정, 가독성 최대) / original=테마 팔레트 그대로(1=보정 없음).
+const CONTRAST_RATIOS = { high: 7, balanced: 4.5, original: 1 };
+const resolveContrast = (mode) => CONTRAST_RATIOS[mode] ?? 7;
+
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
 const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
@@ -623,7 +628,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       cursorInactiveStyle: 'outline',
       scrollback: 3000,
       tabStopWidth: 4,
-      minimumContrastRatio: 7,
+      minimumContrastRatio: resolveContrast(settings.terminalContrast),
       allowProposedApi: true,
       convertEol: false,
       bracketedPasteMode: true,
@@ -2195,6 +2200,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       xtermRef.current.options.fontSize = settings.fontSize;
       xtermRef.current.options.fontFamily = normalizeTerminalFontFamily(settings.fontFamily);
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
+      xtermRef.current.options.minimumContrastRatio = resolveContrast(settings.terminalContrast);
       // 예측 유령 색/셀 크기 갱신 — 테마·폰트 바뀌면 다시 측정.
       predictiveEchoRef.current?.setGhostColor(`color-mix(in srgb, ${currentTheme.foreground || '#cdd6f4'} 55%, transparent)`);
       predictiveEchoRef.current?.refreshMetrics();
