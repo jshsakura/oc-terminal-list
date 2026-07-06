@@ -32,6 +32,10 @@ export const Tab = memo(({
   const paletteColor = (idx) =>
     color.dotPalette?.[(idx ?? 0) % (color.dotPalette?.length || 8)] || color.accent;
   const dotColor = tab.color_index != null ? paletteColor(tab.color_index) : color.accent;
+  // 탭 안의 서브탭(pane) 개수 — 2개 이상(분할)일 때만 busy-dot 자리에 숫자 뱃지로 노출.
+  // busy 면 뱃지가 그대로 깜빡여(같은 애니메이션) 활동 신호도 겸한다.
+  const paneCount = tab.panes?.length || 1;
+  const showPaneCount = paneCount > 1;
   // pane 들이 다른 호스트로 섞인 탭 — 나머지 호스트들도 주 타일과 같은 크기의 라인 아이콘
   // 타일로, 절반씩 겹치는 아바타 스택으로 전부 표시 (App.tabsWithMeta 파생).
   // 앞(왼쪽)이 활성 pane 호스트, 뒤로 갈수록 나머지. 각 타일 색 = 그 호스트의 dot 색.
@@ -179,7 +183,37 @@ export const Tab = memo(({
           }}
         >
           <HostIcon value={tab.icon || ''} fallback={Icon} size={iconSize} strokeWidth={1.9} />
-          {isBusy && (
+          {showPaneCount ? (
+            /* 서브탭 개수 뱃지 — busy-dot 자리(우상단). busy 면 같은 blink 애니메이션으로 깜빡인다. */
+            <span
+              className={isBusy ? 'iterm-tab-busy-dot' : undefined}
+              aria-hidden
+              title={`${paneCount} ${t?.('panesInTab') || 'panes'}`}
+              style={{
+                position: 'absolute',
+                top: '-6px',
+                right: '-7px',
+                minWidth: '13px',
+                height: '13px',
+                padding: '0 2.5px',
+                boxSizing: 'border-box',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '7px',
+                background: dotColor,
+                color: color.crust,
+                fontSize: '9px',
+                fontWeight: fontWeight.semibold,
+                fontFamily: font.mono,
+                lineHeight: 1,
+                boxShadow: `0 0 0 1.5px ${color.crust}`,
+                pointerEvents: 'none',
+              }}
+            >
+              {paneCount}
+            </span>
+          ) : (isBusy && (
             <span
               className="iterm-tab-busy-dot"
               aria-hidden
@@ -196,7 +230,7 @@ export const Tab = memo(({
                 pointerEvents: 'none',
               }}
             />
-          )}
+          ))}
         </span>
         {visibleSecondaries.map((s, i) => (
           <span key={`${s.kind}:${s.name}:${i}`} title={s.name} style={stackTileStyle(i, paletteColor(s.colorIndex))}>
