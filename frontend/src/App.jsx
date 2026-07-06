@@ -16,7 +16,6 @@ import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
 import { tokens } from './styles/tokens';
-import { withScanlines } from './styles/scanlines';
 import { generateUUID } from './utils/helpers';
 import { authHeaders } from './utils/auth';
 import {
@@ -1130,9 +1129,7 @@ function App() {
       // 데스크탑은 100% 유지 — visualViewport 가 없어도 영향 없음.
       height: isMobile ? 'var(--vvh, 100%)' : '100%',
       width: '100%',
-      // 터미널 외 영역(프레임/틈/글래스 크롬 뒤)에 은은한 레트로 스캔라인.
-      // 불투명한 터미널 pane 이 위를 덮으므로 터미널엔 얹히지 않는다.
-      background: withScanlines(currentTheme.ui.bg),
+      background: currentTheme.ui.bg,
       overflow: 'hidden',
       fontFamily: font.sans,
     }}>
