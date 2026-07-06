@@ -4,6 +4,7 @@ import {
   Link2, BarChart3,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import { withScanlines } from '../styles/scanlines';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import useHostReorder from '../hooks/useHostReorder';
@@ -330,7 +331,8 @@ const styles = {
   root: {
     width: '100%',
     height: '100%',
-    background: color.base,
+    // 홈은 가장 큰 "터미널 외 배경" — 여기도 동일한 레트로 스캔라인.
+    background: withScanlines(color.base),
     overflow: 'auto',
     fontFamily: font.sans,
     padding: `${space['4']} ${space['5']}`,
