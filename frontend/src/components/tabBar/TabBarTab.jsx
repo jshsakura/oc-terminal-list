@@ -191,27 +191,28 @@ export const Tab = memo(({
               title={`${paneCount} ${t?.('panesInTab') || 'panes'}`}
               style={{
                 position: 'absolute',
-                top: '-6px',
-                right: '-7px',
-                minWidth: '13px',
-                height: '13px',
-                padding: '0 2.5px',
+                top: '-4px',
+                right: '-4px',
+                minWidth: '9px',
+                height: '9px',
+                padding: '0 1px',
                 boxSizing: 'border-box',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderRadius: '7px',
+                borderRadius: '5px',
                 background: dotColor,
                 color: color.crust,
-                fontSize: '9px',
+                fontSize: '6.5px',
                 fontWeight: fontWeight.semibold,
                 fontFamily: font.mono,
                 lineHeight: 1,
-                boxShadow: `0 0 0 1.5px ${color.crust}`,
+                boxShadow: `0 0 0 1px ${color.crust}`,
                 pointerEvents: 'none',
               }}
             >
-              {paneCount}
+              {/* 모노 숫자가 baseline 위로 살짝 떠 보여서(위로 쏠림) 시각 중앙에 맞게 아래로 미세 보정. */}
+              <span style={{ display: 'block', lineHeight: 1, transform: 'translateY(0.5px)' }}>{paneCount}</span>
             </span>
           ) : (isBusy && (
             <span
@@ -219,14 +220,15 @@ export const Tab = memo(({
               aria-hidden
               style={{
                 position: 'absolute',
-                top: '-3px',
-                right: '-3px',
-                width: '7px',
-                height: '7px',
+                /* 개수 뱃지와 동일한 자리·크기(footprint) — 1없는 busy 점도 뱃지와 크기 맞춤. */
+                top: '-4px',
+                right: '-4px',
+                width: '9px',
+                height: '9px',
                 borderRadius: '50%',
                 background: dotColor,
                 /* crust outline 으로 탭/이웃 탭과 분리해 어디서든 또렷이. 부드러운 opacity 박동. */
-                boxShadow: `0 0 0 1.5px ${color.crust}`,
+                boxShadow: `0 0 0 1px ${color.crust}`,
                 pointerEvents: 'none',
               }}
             />
