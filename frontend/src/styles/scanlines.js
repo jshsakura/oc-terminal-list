@@ -12,8 +12,8 @@
  */
 export const SCANLINE_BG =
   'repeating-linear-gradient(0deg,' +
-  ' rgba(255,255,255,0.08) 0px,' +
-  ' rgba(255,255,255,0.08) 1px,' +
+  ' rgba(255,255,255,0.045) 0px,' +
+  ' rgba(255,255,255,0.045) 1px,' +
   ' transparent 1px,' +
   ' transparent 3px)';
 
