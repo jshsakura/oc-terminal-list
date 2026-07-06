@@ -7,12 +7,14 @@ import * as partA from './themesPartA';
 import * as partB from './themesPartB';
 import * as partC from './themesPartC';
 import * as partD from './themesPartD';
+import * as partE from './themesPartE';
 
 export * from './commonUI';
 export * from './themesPartA';
 export * from './themesPartB';
 export * from './themesPartC';
 export * from './themesPartD';
+export * from './themesPartE';
 
 const {
   paperColorTheme, rosePineDawnTheme, vscodeLightTheme, tokyoNightDayTheme, flexokiLightTheme, everforestLightTheme, 
@@ -27,9 +29,19 @@ const {
   everforestTheme, solarizedDarkTheme, nordTheme, githubDarkTheme, rosePineTheme, gruvboxLightTheme, 
   
   espressoTheme, bloodMoonTheme, matrixTheme, deepSeaTheme, amethystTheme, carbonTheme,
-} = { ...partA, ...partB, ...partC, ...partD };
+
+  crtAmberTheme, crtGreenTheme, cyberpunkTheme, vaporwaveTheme, paperEinkTheme, trueBlackTheme, gameboyTheme,
+} = { ...partA, ...partB, ...partC, ...partD, ...partE };
 
 export const themes = {
+  // ── Hero (질감/배경으로 확연히 구분되는 정예) ──────────────────────────
+  crtAmber:           crtAmberTheme,
+  crtGreen:           crtGreenTheme,
+  cyberpunk:          cyberpunkTheme,
+  vaporwave:          vaporwaveTheme,
+  trueBlack:          trueBlackTheme,
+  paperEink:          paperEinkTheme,
+  gameboy:            gameboyTheme,
   // ── Dark ────────────────────────────────────────────────────────────
   default:            defaultThemeObj,
   // 차갑고 어두운 계열

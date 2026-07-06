@@ -48,6 +48,7 @@ import {
 } from './terminal/terminalHelpers';
 import { styles } from './terminal/terminalStyles';
 import { GlassOverlayCard, TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
+import TerminalTexture from './TerminalTexture';
 
 const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
 
@@ -2840,6 +2841,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           outline: 'none',
         }}
       />
+
+      {/* 테마 질감 오버레이 (CRT 주사선 / 네온 비네트). 정적 CSS 라 pane 마다 얹어도 비용 0.
+          콘텐츠가 그려진 뒤에만 표시해 스켈레톤 위에 얹히지 않게 한다. */}
+      {hasContent && (
+        <TerminalTexture
+          texture={currentTheme.texture}
+          accent={currentTheme.ui?.accent || currentTheme.foreground}
+        />
+      )}
 
       <TerminalEdgeGutter
         right={edgeGutter.right}

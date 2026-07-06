@@ -7,6 +7,14 @@ import { tokens } from '../../styles/tokens';
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
 const THEME_LABELS = {
+  // Hero — 질감/배경으로 확 다른 정예 (상단 노출)
+  crtAmber:            'CRT Amber',
+  crtGreen:            'CRT Green',
+  cyberpunk:           'Cyberpunk',
+  vaporwave:           'Vaporwave',
+  trueBlack:           'True Black',
+  paperEink:           'Paper E‑ink',
+  gameboy:             'Game Boy',
   // Dark — default first
   default:              'Default',
   // Dark — 차갑고 어두운

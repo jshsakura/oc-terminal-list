@@ -7,7 +7,7 @@
  * 다크 vs 라이트는 background 밝기로 자동 분기.
  */
 
-const LIGHT_BACKGROUNDS = new Set(['#ffffff', '#fdf6e3', '#fbf1c7', '#fafafa']);
+const LIGHT_BACKGROUNDS = new Set(['#ffffff', '#fdf6e3', '#fbf1c7', '#fafafa', '#9bbc0f']);
 
 export const isLight = (bg) => {
   if (!bg) return false;
