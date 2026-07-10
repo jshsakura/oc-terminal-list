@@ -12,6 +12,7 @@ import LocalFolderPicker from '../LocalFolderPicker';
 import RemoteFolderPicker from '../RemoteFolderPicker';
 import BroadcastBadge from './BroadcastBadge';
 import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
+import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
 
 const Terminal = lazy(() => import('../Terminal'));
@@ -38,6 +39,7 @@ const Pane = ({
   isBroadcastExcluded = false,
   onToggleBroadcastExclude = null,
   onReadyChange = null,  // (paneId, ready) → 터미널 접속 완료 여부를 PaneGrid 로 보고
+  registerPaneActions = null,  // (paneId, {restart}) → PaneGrid 가 메뉴에서 호출
   activeFilePath = null,
   registerTerminal = null,
   onBroadcastData = null,
@@ -293,6 +295,37 @@ const Pane = ({
     if (!onPaneCwdChange || !pane?.id) return;
     onPaneCwdChange(pane.id, paneCwdRel ?? '', isLocal, paneCwdAbs ?? null);
   }, [onPaneCwdChange, pane?.id, paneCwdRel, paneCwdAbs, isLocal]);
+
+  // ── 세션 재시작 ────────────────────────────────────────────────────────────
+  // tmux 를 죽인 *뒤에* remount 한다. 순서가 뒤집히면 아직 살아있는 세션에 재부착돼
+  // 아무 일도 안 일어난다. 재생성은 재접속이 create=1 로 알아서 하고, 시작 디렉토리는
+  // 이 mount 에 한해 restartCwd 로 덮어쓴다.
+  const [restartCwd, setRestartCwd] = useState(null);
+  const restartingRef = useRef(false);
+  const restartSession = useCallback(async () => {
+    if (isEmpty) return { ok: false, error: 'empty pane' };
+    if (restartingRef.current) return { ok: false, error: 'already restarting' };
+    restartingRef.current = true;
+    const nextCwd = restartCwdFor({ isLocal, paneCwdRel, paneCwdAbs });
+    const result = await killPaneSession({
+      isLocal,
+      sessionId: pane.sessionId,
+      hostId: pane.hostId,
+      remoteTmuxSession,
+    });
+    if (result.ok) {
+      setRestartCwd(nextCwd);
+      setRefreshNonce((n) => n + 1);
+    }
+    restartingRef.current = false;
+    return result;
+  }, [isEmpty, isLocal, paneCwdRel, paneCwdAbs, pane.sessionId, pane.hostId, remoteTmuxSession]);
+
+  useEffect(() => {
+    if (!registerPaneActions || !pane?.id) return undefined;
+    registerPaneActions(pane.id, { restart: restartSession });
+    return () => registerPaneActions(pane.id, null);
+  }, [registerPaneActions, pane?.id, restartSession]);
 
   return (
     <div
@@ -579,7 +612,9 @@ const Pane = ({
                 paneIndex={paneIndex}
                 paneId={pane.id}
                 tabId={tab?.id}
-                cwd={pane.cwd ?? cwd}
+                // 재시작 직후 mount 에서만 살아있는 cwd 로 새 세션을 연다.
+                // 세션이 이미 있으면 백엔드가 cwd 쿼리를 무시하므로 남아 있어도 무해하다.
+                cwd={restartCwd ?? pane.cwd ?? cwd}
                 settings={paneSettings}
                 /* isActive = 탭 활성 여부 (split grid 의 모든 pane 이 동시에 보이므로 visible).
                    isFocused = 같은 탭 내 어느 pane 이 키보드 포커스 받을지 (분할 시 1개만 true).

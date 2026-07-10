@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { RotateCw } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import useSnippets from '../hooks/useSnippets';
 import SnippetPalette from './SnippetPalette';
@@ -154,6 +155,35 @@ const PaneGrid = ({
     if (handle) termRefMap.current[paneId] = handle;
     else delete termRefMap.current[paneId];
   }, []);
+
+  // ── pane 액션 레지스트리 (현재는 세션 재시작) ──────────────────────────────
+  // 재시작은 pane 안에서만 알 수 있는 것(sessionId/원격 tmux 세션명/살아있는 cwd/remount)에
+  // 의존하므로 Pane 이 구현하고, 메뉴가 있는 여기서는 등록된 함수를 부르기만 한다.
+  const paneActionsRef = useRef({});
+  const registerPaneActions = useCallback((paneId, actions) => {
+    if (actions) paneActionsRef.current[paneId] = actions;
+    else delete paneActionsRef.current[paneId];
+  }, []);
+
+  // tmux 를 죽이면 그 안에서 돌던 프로세스도 함께 끝난다 — 되돌릴 수 없으니 한 번 확인받는다.
+  const handleRestartPane = useCallback((paneId) => {
+    const run = async () => {
+      const result = await paneActionsRef.current[paneId]?.restart?.();
+      if (result && !result.ok) {
+        onNotify?.(t?.('restartSessionFailed') || 'Failed to restart the session.');
+      }
+    };
+    if (!onConfirm) { run(); return; }
+    onConfirm({
+      title: t?.('restartSession') || 'Restart session',
+      titleIcon: RotateCw,
+      message: t?.('restartSessionConfirm')
+        || 'This ends the current tmux session and reopens it at the same path. Every running process is terminated.',
+      confirmText: t?.('restartSession') || 'Restart',
+      danger: true,
+      onConfirm: run,
+    });
+  }, [onConfirm, onNotify, t]);
   // pane 2개 이상일 때만 토글 가능. 그 외엔 null → TabBar 버튼 숨김.
   const broadcastToggle = panes.length >= 2 ? () => setBroadcastActive((v) => !v) : null;
 
@@ -322,6 +352,7 @@ const PaneGrid = ({
           onClose={(paneId) => onClosePane?.(tab.id, paneId)}
           onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}
           onRenamePane={onRenamePane ? (paneId) => onRenamePane(tab.id, paneId) : null}
+          onRestartPane={handleRestartPane}
           onSplitPane={onSplitPane ? (paneId, dir) => onSplitPane(tab.id, paneId, dir) : null}
           isMobile={isMobile}
           t={t}
@@ -404,6 +435,7 @@ const PaneGrid = ({
                   isBroadcastExcluded={broadcastExcluded.has(pane.id)}
                   onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
                   onReadyChange={handlePaneReady}
+                  registerPaneActions={registerPaneActions}
                   registerTerminal={registerTerminal}
                   onBroadcastData={handleBroadcast}
                   activeFilePath={activeFilePath}
@@ -491,6 +523,7 @@ const PaneGrid = ({
             isBroadcastExcluded={broadcastExcluded.has(pane.id)}
             onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
             onReadyChange={handlePaneReady}
+            registerPaneActions={registerPaneActions}
             registerTerminal={registerTerminal}
             onBroadcastData={handleBroadcast}
             activeFilePath={activeFilePath}
@@ -651,6 +684,7 @@ const PaneGrid = ({
           isBroadcastExcluded={broadcastExcluded.has(pane.id)}
           onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
           onReadyChange={handlePaneReady}
+          registerPaneActions={registerPaneActions}
           registerTerminal={registerTerminal}
           onBroadcastData={handleBroadcast}
           activeFilePath={activeFilePath}

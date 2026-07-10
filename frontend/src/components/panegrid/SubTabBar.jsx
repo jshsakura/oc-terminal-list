@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Server, Monitor, Plus, MoreHorizontal, Edit3, Trash2 } from 'lucide-react';
+import { Server, Monitor, Plus, MoreHorizontal, Edit3, Trash2, RotateCw } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
 import { buildThemeUI } from '../../styles/themeUI';
@@ -18,7 +18,7 @@ const { color, font, fontSize, fontWeight } = tokens;
 
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
-  settings = {}, tabColorIndex, activeThemeId = null, onSelect, onClose, onReorder = null, onRenamePane = null, onSplitPane = null, t,
+  settings = {}, tabColorIndex, activeThemeId = null, onSelect, onClose, onReorder = null, onRenamePane = null, onRestartPane = null, onSplitPane = null, t,
 }) => {
   const scrollRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState(null); // { paneId, x, y }
@@ -152,6 +152,14 @@ const SubTabBar = ({
               onClick={() => { const id = ctxMenu.paneId; ctxCloseRef.current(); onRenamePane(id); }}
             >
               {t?.('rename') || 'Rename'}
+            </MenuItem>
+          )}
+          {onRestartPane && (
+            <MenuItem
+              icon={RotateCw}
+              onClick={() => { const id = ctxMenu.paneId; ctxCloseRef.current(); onRestartPane(id); }}
+            >
+              {t?.('restartSession') || 'Restart session'}
             </MenuItem>
           )}
           <MenuItem
