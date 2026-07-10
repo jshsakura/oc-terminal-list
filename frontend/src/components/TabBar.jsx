@@ -35,8 +35,6 @@ const TabBar = ({
   onDuplicate,
   onRenameTab = null,
   onReorder,
-  /* (tabId) → 해당 탭의 viewMode 토글 (grid ↔ tabs). panes.length > 1 인 탭에서만 의미. */
-  onToggleViewMode,
   onCloseImmediate = null,
   canSplit = false,
   isMobile = false,
@@ -303,7 +301,6 @@ const TabBar = ({
   (() => {
     const ctxTab = tabs.find((tt) => tt.id === contextMenu.tabId);
     const ctxPaneCount = ctxTab?.panes?.length || 1;
-    const ctxViewMode = ctxTab?.viewMode || 'grid';
     const ctxIdx = tabs.findIndex((tt) => tt.id === contextMenu.tabId);
     const isCtxActive = contextMenu.tabId === activeTabId;
     return (
@@ -311,8 +308,6 @@ const TabBar = ({
         ctx={contextMenu}
         t={t}
         paneCount={ctxPaneCount}
-        viewMode={ctxViewMode}
-        canToggleViewMode={false}
         canMoveLeft={ctxIdx > 0 && !!onReorder}
         canMoveRight={ctxIdx >= 0 && ctxIdx < tabs.length - 1 && !!onReorder}
         canSplit={isCtxActive && canSplit && !!onSplit}
@@ -321,7 +316,6 @@ const TabBar = ({
         onCloseTab={() => { const id = contextMenu.tabId; setContextMenu(null); onClose?.(id); }}
         onRenameTab={onRenameTab ? () => { const id = contextMenu.tabId; setContextMenu(null); onRenameTab(id); } : null}
         onDuplicateTab={onDuplicate ? () => { onDuplicate(contextMenu.tabId); setContextMenu(null); } : null}
-        onToggleViewMode={() => { onToggleViewMode?.(contextMenu.tabId); setContextMenu(null); }}
         onMoveLeft={() => {
           if (ctxIdx > 0) onReorder?.(contextMenu.tabId, tabs[ctxIdx - 1].id);
           setContextMenu(null);

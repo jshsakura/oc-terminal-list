@@ -308,8 +308,6 @@ export const en = {
     viewAsText: 'View as text',
     pageUp: 'Page up',
     pageDown: 'Page down',
-    switchToTabsView: 'Switch to tabs view',
-    switchToGridView: 'Switch to split view',
     detachPane: 'Detach to new tab',
     goUp: 'Go up',
     goDown: 'Go back down',

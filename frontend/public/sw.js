@@ -9,9 +9,14 @@
 //   - 그 외 same-origin GET  → stale-while-revalidate
 //   - /api/* /ws/* cross-origin, non-GET → 통과(네트워크만)
 //
-// 버전을 올리면 activate 단계에서 구 캐시를 모두 지우고 skipWaiting+claim 한다.
+// 버전이 바뀌면 activate 단계에서 구 캐시를 모두 지우고 skipWaiting+claim 한다.
+//
+// CACHE_VERSION 은 손으로 관리하지 않는다 — 빌드 때 vite.config.js 의 stampServiceWorker
+// 플러그인이 assets/ 파일명 해시로 덮어쓴다. 아래 "dev" 는 개발 서버용 자리표시자다.
+// (손으로 두면 배포해도 이 파일 바이트가 그대로라 브라우저가 SW 업데이트를 감지하지 못하고,
+//  옛 캐시가 영원히 남아 지워진 청크를 물고 있다가 페이지가 스스로 리로드된다.)
 
-const CACHE_VERSION = "v1";
+const CACHE_VERSION = "dev";
 const CACHE_NAME = `iterminallist-shell-${CACHE_VERSION}`;
 const PRECACHE = ["/", "/index.html", "/favicon.svg"];
 

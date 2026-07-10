@@ -305,8 +305,6 @@ export const ko = {
     viewAsText: '텍스트로 보기',
     pageUp: '페이지 업',
     pageDown: '페이지 다운',
-    switchToTabsView: '탭 보기로 전환',
-    switchToGridView: '분할 보기로 전환',
     detachPane: '새 탭으로 분리',
     goUp: '상위 폴더로',
     goDown: '다시 하위 폴더로',

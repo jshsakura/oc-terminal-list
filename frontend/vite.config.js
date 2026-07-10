@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import fs from 'node:fs'
 import zlib from 'node:zlib'
+import crypto from 'node:crypto'
 
 const BACKEND_HOST = process.env.VITE_BACKEND_HOST || 'localhost'
 const BACKEND_PORT = process.env.VITE_BACKEND_PORT || '8000'
@@ -13,12 +14,51 @@ const BACKEND_PORT = process.env.VITE_BACKEND_PORT || '8000'
 const PRECOMPRESS_EXT = /\.(js|mjs|css|svg|json|wasm|map)$/i
 const PRECOMPRESS_MIN_BYTES = 1024
 
+const OUT_DIR = path.resolve(__dirname, '../backend/static')
+
+/**
+ * sw.js 의 CACHE_VERSION 을 빌드 산출물 해시로 각인한다.
+ *
+ * 손으로 관리하면 배포해도 sw.js 바이트가 그대로라 브라우저가 서비스워커 업데이트를
+ * 감지하지 못한다 → activate 가 다시 안 돌아 옛 캐시가 영원히 남고, 지워진 해시 청크를
+ * 물고 있다가 페이지가 스스로 리로드되는 사고로 이어진다.
+ *
+ * 해시는 assets/ 파일명 목록(내용 해시가 이미 박혀 있다)에서 뽑는다 — 코드가 안 바뀌면
+ * 값도 그대로라 불필요한 서비스워커 교체가 일어나지 않는다.
+ *
+ * precompressAssets 보다 **먼저** 실행돼야 한다. 순서가 뒤바뀌면 .br/.gz 만 옛 내용으로 남는다.
+ */
+function stampServiceWorker() {
+  return {
+    name: 'stamp-service-worker',
+    apply: 'build',
+    closeBundle() {
+      const swPath = path.join(OUT_DIR, 'sw.js')
+      const assetsDir = path.join(OUT_DIR, 'assets')
+      if (!fs.existsSync(swPath) || !fs.existsSync(assetsDir)) return
+
+      const names = fs.readdirSync(assetsDir)
+        .filter((n) => !n.endsWith('.br') && !n.endsWith('.gz'))
+        .sort()
+      const version = crypto.createHash('sha256').update(names.join('\n')).digest('hex').slice(0, 12)
+
+      const src = fs.readFileSync(swPath, 'utf8')
+      const next = src.replace(/const CACHE_VERSION = "[^"]*";/, `const CACHE_VERSION = "${version}";`)
+      if (next === src) {
+        this.warn('sw.js 의 CACHE_VERSION 자리를 못 찾았다 — 캐시 무효화가 동작하지 않는다')
+        return
+      }
+      fs.writeFileSync(swPath, next)
+    },
+  }
+}
+
 function precompressAssets() {
   return {
     name: 'precompress-assets',
     apply: 'build',
     closeBundle() {
-      const outDir = path.resolve(__dirname, '../backend/static')
+      const outDir = OUT_DIR
       const walk = (dir) => {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
           const full = path.join(dir, entry.name)
@@ -39,9 +79,9 @@ function precompressAssets() {
 }
 
 export default defineConfig({
-  plugins: [react(), precompressAssets()],
+  plugins: [react(), stampServiceWorker(), precompressAssets()],
   build: {
-    outDir: path.resolve(__dirname, '../backend/static'),
+    outDir: OUT_DIR,
     emptyOutDir: true,
     rollupOptions: {
       output: {

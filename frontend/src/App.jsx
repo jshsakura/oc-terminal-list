@@ -196,7 +196,7 @@ function App() {
   // dir = 'right' | 'left' | 'up' | 'down' | 'h' (→right) | 'v' (→down) | '2x2'
   // 중요: prev (latest) 에서 panes 길이 판단 → useCallback 클로저의 stale activeTab 영향 안 받음
   // 모바일에서는 실제 화면 분할 대신 새 빈 pane 을 sub-tab 으로 연다.
-  // 반응형 뷰포트 — isMobile/viewportHeight state + 최신값 ref(탭 viewMode 결정용).
+  // 반응형 뷰포트 — isMobile/viewportHeight state + 최신값 ref.
   const { isMobile, viewportHeight, isMobileRef: isMobileViewportRef } = useViewport();
   const splitActivePane = useCallback((dir = 'h', targetTabId, targetPaneId) => {
     setTabs((prev) => {
@@ -218,7 +218,6 @@ function App() {
             layout: '2x2',
             splitTree: treeFromLegacyLayout(panes, '2x2'),
             activePaneId: panes[panes.length - 1]?.id || t.activePaneId || panes[0].id,
-            ...(isMobileViewportRef.current ? { viewMode: 'tabs' } : null),
           };
         }
 
@@ -240,7 +239,6 @@ function App() {
           layout,
           splitTree: newTree,
           activePaneId: newPane.id,
-          ...(isMobileViewportRef.current ? { viewMode: 'tabs' } : null),
         };
       });
     });
@@ -604,16 +602,6 @@ function App() {
 
   const focusPane = useCallback((tabId, paneId) => {
     setTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, activePaneId: paneId } : t));
-  }, []);
-
-  // grid ↔ sub-tabs 보기 모드 토글 — 좁은 화면에서 4분할이 답답할 때 탭 형태로 전환.
-  // panes.length > 1 일 때만 의미 있음. 모바일은 자동 sub-tabs 라 토글 별개로 적용.
-  const toggleViewMode = useCallback((tabId) => {
-    setTabs((prev) => prev.map((t) => {
-      if (t.id !== tabId) return t;
-      const next = (t.viewMode === 'tabs') ? 'grid' : 'tabs';
-      return { ...t, viewMode: next };
-    }));
   }, []);
 
   // 분할 pane → 새 단독 탭으로 분리 (detach). 빈 pane (sessionId/hostId 없음) 은
@@ -1271,7 +1259,6 @@ function App() {
         onSelect={setActiveTabId}
         onClose={closeTab}
         onCloseImmediate={(tabId) => closeTab(tabId, { skipConfirm: true })}
-        onToggleViewMode={toggleViewMode}
         onHome={() => setActiveTabId(null)}
         onOpenHosts={() => setHostManagerOpen(true)}
         onOpenKeys={() => { setEditingKey(null); setKeyManagerOpen(true); }}
@@ -1480,7 +1467,6 @@ function App() {
                               }), {
                                 afterPaneId: source.paneId,
                                 dir: 'right',
-                                viewMode: 'tabs',
                               })
                             : tt
                         ));

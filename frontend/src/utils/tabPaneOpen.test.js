@@ -14,13 +14,12 @@ describe('appendPaneAsSplit', () => {
     const next = appendPaneAsSplit(
       tab,
       { id: 'pane-2', sessionId: 's2', cwd: 'src' },
-      { afterPaneId: 'pane-1', dir: 'right', viewMode: 'tabs' },
+      { afterPaneId: 'pane-1', dir: 'right' },
     );
 
     expect(next.id).toBe('tab-1');
     expect(next.panes).toHaveLength(2);
     expect(next.activePaneId).toBe('pane-2');
-    expect(next.viewMode).toBe('tabs');
     expect(next.layout).toBe('h');
     expect(JSON.stringify(next.splitTree)).toContain('pane-1');
     expect(JSON.stringify(next.splitTree)).toContain('pane-2');

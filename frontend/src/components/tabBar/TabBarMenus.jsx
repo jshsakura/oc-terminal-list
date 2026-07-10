@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import {
-  Edit3, Copy, LayoutGrid, List,
+  Edit3, Copy, LayoutGrid,
   SquareSplitHorizontal, SquareSplitVertical, Grid2x2, Trash2,
   Settings as SettingsIcon, RefreshCw,
 } from 'lucide-react';
@@ -42,7 +42,6 @@ export const MenuItem = ({ onClick, children, danger, disabled = false, icon: Ic
 export const TabContextMenu = ({
   ctx, t, onClose, onCloseTab, onDuplicateTab, onRenameTab = null,
   paneCount = 1,
-  canToggleViewMode = false, viewMode = 'grid', onToggleViewMode = null,
   canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null,
   canSplit = false, onSplit = null,
 }) => {
@@ -117,13 +116,6 @@ export const TabContextMenu = ({
       {onDuplicateTab && (
         <MenuItem onClick={onDuplicateTab} icon={Copy}>
           {t?.('duplicateTab') || 'Duplicate (same path)'}
-        </MenuItem>
-      )}
-      {canToggleViewMode && onToggleViewMode && (
-        <MenuItem onClick={onToggleViewMode} icon={viewMode === 'tabs' ? LayoutGrid : List}>
-          {viewMode === 'tabs'
-            ? (t?.('switchToGridView') || 'Switch to split view')
-            : (t?.('switchToTabsView') || 'Switch to tabs view')}
         </MenuItem>
       )}
       {canSplit && onSplit && (

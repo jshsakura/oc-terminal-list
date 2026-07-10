@@ -6,7 +6,7 @@ export const layoutForPaneCount = (count, preferredDir = 'right', currentLayout 
   return currentLayout === 'single' ? '2x2' : '2x2';
 };
 
-export const appendPaneAsSplit = (tab, newPane, { afterPaneId = null, dir = 'right', viewMode = null } = {}) => {
+export const appendPaneAsSplit = (tab, newPane, { afterPaneId = null, dir = 'right' } = {}) => {
   const currentPanes = tab?.panes || [];
   const activeId = afterPaneId || tab?.activePaneId || currentPanes[0]?.id;
   const panes = [...currentPanes, newPane];
@@ -19,6 +19,5 @@ export const appendPaneAsSplit = (tab, newPane, { afterPaneId = null, dir = 'rig
     layout: layoutForPaneCount(panes.length, dir, tab?.layout || 'single'),
     splitTree: tree,
     activePaneId: newPane.id,
-    ...(viewMode ? { viewMode } : null),
   };
 };

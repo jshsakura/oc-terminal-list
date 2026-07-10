@@ -1,6 +1,6 @@
 /**
  * 탭/pane 모델 팩토리 + tmux 세션명/테마 프로파일 헬퍼 + 뷰포트 판별.
- * 모델: tab = { id, type, name, ..., panes:[Pane], layout, splitTree, activePaneId, viewMode? }
+ * 모델: tab = { id, type, name, ..., panes:[Pane], layout, splitTree, activePaneId }
  * Pane = { id, mode:'terminal'|'editor', sessionId?, hostId?, ... }
  * App.jsx 에서 로직 변경 없이 추출한 순수 함수.
  */

@@ -9,7 +9,7 @@ import { isPhoneViewport } from '../utils/tabModel';
  *  - isMobile: 폰 뷰포트 여부(state)
  *  - viewportHeight: visualViewport.height (키보드 올라오면 줄어듦)
  *  - isMobileRef: 콜백에서 stale closure 없이 최신 모바일 여부를 읽기 위한 ref
- *    (탭 생성 시 viewMode:'tabs' 결정 등에 사용)
+ *    (탭 생성 등 최신 뷰포트 판정이 필요한 콜백에서 사용)
  */
 export default function useViewport() {
   const [isMobile, setIsMobile] = useState(() => isPhoneViewport());
