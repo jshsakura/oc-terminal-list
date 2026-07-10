@@ -208,5 +208,24 @@ describe('TabBar', () => {
       expect(screen.getByTitle('Quick Input')).not.toBeDisabled();
       expect(screen.getByTitle('Broadcast')).not.toBeDisabled();
     });
+
+    it('hides the desktop-only actions on mobile', () => {
+      renderActions({ isMobile: true });
+
+      expect(screen.queryByTitle('Equalize panes')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Quick Input')).not.toBeInTheDocument();
+      expect(screen.queryByTitle('Broadcast')).not.toBeInTheDocument();
+    });
+
+    it('still shows Broadcast on mobile while it is on, so it can be turned off', () => {
+      // 이 버튼이 유일한 전역 off 스위치다 — 데스크탑에서 켠 채 폰으로 열면 끌 방법이 없어진다.
+      const onBroadcastToggle = vi.fn();
+      renderActions({ isMobile: true, isBroadcasting: true, onBroadcastToggle });
+
+      const btn = screen.getByTitle('Broadcast off');
+      expect(btn).not.toBeDisabled();
+      fireEvent.click(btn);
+      expect(onBroadcastToggle).toHaveBeenCalledTimes(1);
+    });
   });
 });

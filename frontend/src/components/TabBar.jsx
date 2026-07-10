@@ -267,7 +267,10 @@ const TabBar = ({
             />
           </div>
         )}
-        {onBroadcastToggle && (
+        {/* 브로드캐스트는 데스크탑 기능이다. 다만 모바일에서도 *켜져 있으면* 계속 보여준다 —
+            이 버튼이 유일한 전역 off 스위치라(pane 배지의 ✕ 는 그 pane 제외일 뿐),
+            데스크탑에서 켠 채 폰으로 열면 끌 방법이 사라진다. */}
+        {onBroadcastToggle && (!isMobile || isBroadcasting) && (
           <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <RailIconBtn
               icon={Radio}
