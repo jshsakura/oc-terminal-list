@@ -96,6 +96,45 @@ describe('TerminalHeader', () => {
     expect(spacer).toBeTruthy();
   });
 
+  describe('… menu — restart session', () => {
+    const openMoreMenu = (props) => {
+      const result = render(<TerminalHeader {...baseProps(props)} />);
+      fireEvent.click(result.container.querySelector('[title="more"]'));
+      return result;
+    };
+
+    it('offers Restart session alongside Reload terminal', () => {
+      openMoreMenu({ terminalKey: 'local:1', onRefreshTerminal: vi.fn(), onRestartSession: vi.fn() });
+
+      expect(screen.getByText('refreshTerminal')).toBeInTheDocument();
+      expect(screen.getByText('restartSession')).toBeInTheDocument();
+    });
+
+    it('calls onRestartSession when the item is clicked', () => {
+      const onRestartSession = vi.fn();
+      openMoreMenu({ terminalKey: 'local:1', onRestartSession });
+
+      fireEvent.click(screen.getByText('restartSession'));
+
+      expect(onRestartSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives an empty pane no … menu at all, so no restart entry', () => {
+      const { container } = render(
+        <TerminalHeader {...baseProps({ disabled: true, onRestartSession: vi.fn(), onCloseTerminal: vi.fn() })} />
+      );
+
+      expect(container.querySelector('[title="more"]')).toBeNull();
+      expect(screen.queryByText('restartSession')).not.toBeInTheDocument();
+    });
+
+    it('hides Restart session when no handler is provided', () => {
+      openMoreMenu({ terminalKey: 'local:1', onRefreshTerminal: vi.fn() });
+
+      expect(screen.queryByText('restartSession')).not.toBeInTheDocument();
+    });
+  });
+
   it('disables nav section pointer events when disabled=true', () => {
     const { container } = render(<TerminalHeader {...baseProps({ disabled: true })} />);
     const nav = container.querySelector('[style*="pointer-events: none"]') ||

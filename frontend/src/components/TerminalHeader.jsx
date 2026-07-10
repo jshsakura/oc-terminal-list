@@ -6,7 +6,7 @@ import {
   ExternalLink, MoreHorizontal,
   GripVertical, Columns2, Rows2,
   Eye, EyeOff,
-  XCircle, Zap,
+  XCircle, Zap, RotateCw,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RailSkeleton from './common/RailSkeleton';
@@ -63,7 +63,10 @@ const TerminalHeader = ({
   onFileSelect,
   onFolderSelect,
   onOpenTerminalAtFolder,
-  onRefreshTerminal = null,  // 호출 시 활성 터미널을 통째로 remount (WS 재접속)
+  onRefreshTerminal = null,
+  /* 세션 재시작 — onRefreshTerminal 과 다르다. 저쪽은 살아있는 tmux 에 다시 붙을 뿐이라
+     셸 환경이 그대로고, 이쪽은 tmux 를 죽이고 같은 경로에서 새 셸을 띄운다. */
+  onRestartSession = null,
   onRefreshCwd = null,       // 파일 패널 새로고침 시 현재 tmux cwd 를 1회 재조회
   selectedFolderPath = '',
   settings,
@@ -572,6 +575,13 @@ const TerminalHeader = ({
           {onRefreshTerminal && !disabled && (
             <MenuBtn icon={RefreshCw} onClick={() => { closeRailMenu(); onRefreshTerminal(); }} ui={panelUi}>
               {t?.('refreshTerminal') || 'Reload terminal'}
+            </MenuBtn>
+          )}
+          {/* 새로고침은 살아있는 tmux 에 다시 붙을 뿐이라 셸 환경이 그대로다.
+              재시작은 셸을 새로 띄운다 — 방금 설치한 명령이 PATH 에 안 잡힐 때 쓴다. */}
+          {onRestartSession && !disabled && (
+            <MenuBtn icon={RotateCw} onClick={() => { closeRailMenu(); onRestartSession(); }} ui={panelUi}>
+              {t?.('restartSession') || 'Restart session'}
             </MenuBtn>
           )}
         </RailSubMenu>,

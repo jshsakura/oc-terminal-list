@@ -436,6 +436,7 @@ const PaneGrid = ({
                   onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
                   onReadyChange={handlePaneReady}
                   registerPaneActions={registerPaneActions}
+                  onRestartPane={handleRestartPane}
                   registerTerminal={registerTerminal}
                   onBroadcastData={handleBroadcast}
                   activeFilePath={activeFilePath}
@@ -524,6 +525,7 @@ const PaneGrid = ({
             onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
             onReadyChange={handlePaneReady}
             registerPaneActions={registerPaneActions}
+            onRestartPane={handleRestartPane}
             registerTerminal={registerTerminal}
             onBroadcastData={handleBroadcast}
             activeFilePath={activeFilePath}
@@ -685,6 +687,7 @@ const PaneGrid = ({
           onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
           onReadyChange={handlePaneReady}
           registerPaneActions={registerPaneActions}
+          onRestartPane={handleRestartPane}
           registerTerminal={registerTerminal}
           onBroadcastData={handleBroadcast}
           activeFilePath={activeFilePath}

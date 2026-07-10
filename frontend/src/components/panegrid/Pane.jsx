@@ -40,6 +40,7 @@ const Pane = ({
   onToggleBroadcastExclude = null,
   onReadyChange = null,  // (paneId, ready) → 터미널 접속 완료 여부를 PaneGrid 로 보고
   registerPaneActions = null,  // (paneId, {restart}) → PaneGrid 가 메뉴에서 호출
+  onRestartPane = null,        // (paneId) → 확인창을 거쳐 재시작. PaneGrid 가 구현.
   activeFilePath = null,
   registerTerminal = null,
   onBroadcastData = null,
@@ -519,6 +520,7 @@ const Pane = ({
           onFolderSelect={onFolderSelect}
           onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null, { tabId: tab?.id, paneId: pane.id })}
           onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
+          onRestartSession={isEmpty || !onRestartPane ? null : () => onRestartPane(pane.id)}
           onRefreshCwd={refreshPaneCwd}
           onCloseTerminal={(isEmpty || paneCount <= 1) ? onClose : () => setPendingClose(true)}
           settings={settings}
