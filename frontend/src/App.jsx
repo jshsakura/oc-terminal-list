@@ -18,6 +18,7 @@ import { applyThemeVars } from './styles/themeUI';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
 import { authHeaders } from './utils/auth';
+import { loadDraft, saveDraft } from './utils/quickInputDraft';
 import {
   makeLeaf, treeFromLegacyLayout, splitLeaf, removeLeaf, ensureTree,
   swapLeaves,
@@ -1016,7 +1017,10 @@ function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
-  const [commandText, setCommandText] = useState('');
+  // 쓰다 만 명령은 localStorage 에 남긴다 — 배포 직후 지연로드 청크 404 로
+  // LazyErrorBoundary 가 페이지를 리로드해도 입력이 날아가지 않게. (utils/quickInputDraft.js)
+  const [commandText, setCommandText] = useState(loadDraft);
+  useEffect(() => { saveDraft(commandText); }, [commandText]);
   const [screenDumpText, setScreenDumpText] = useState(null);
 
   // 활성 viewport 기준 effective settings — fontSize 를 PC/모바일 분리. 자식들
