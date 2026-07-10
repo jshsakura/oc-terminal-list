@@ -85,7 +85,7 @@ backup-*.tar.gz
 opencode-resolve/
 
 # Local screenshots / debug captures (may contain private UI data)
-app-current.png
+# 문서용 스크린샷은 docs/screenshots/ 에 커밋한다 — 여긴 임시 캡처만.
 *.screenshot.png
 *-current.png
 
