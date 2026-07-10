@@ -10,6 +10,7 @@ import { buildThemeUI } from '../../styles/themeUI';
 import TerminalHeader from '../TerminalHeader';
 import LocalFolderPicker from '../LocalFolderPicker';
 import RemoteFolderPicker from '../RemoteFolderPicker';
+import BroadcastBadge from './BroadcastBadge';
 import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
 import EmptyPane from './EmptyPane';
 
@@ -34,7 +35,10 @@ const Pane = ({
   onEqualizePane = null,
   reloadSignal = 0,
   isBroadcasting = false,
-  onBroadcastToggle = null,
+  isBroadcastExcluded = false,
+  onToggleBroadcastExclude = null,
+  onReadyChange = null,  // (paneId, ready) → 터미널 접속 완료 여부를 PaneGrid 로 보고
+  activeFilePath = null,
   registerTerminal = null,
   onBroadcastData = null,
 }) => {
@@ -244,6 +248,13 @@ const Pane = ({
     setTerminalReady(false);
     setTerminalStatus(null);
   }, [isEmpty, pane.sessionId, pane.id, refreshNonce]);
+
+  // 접속 완료 여부를 위로 보고 — TabBar 의 브로드캐스트/빠른입력/자동맞춤 버튼은
+  // 터미널이 붙기 전엔 눌러봐야 아무 데도 못 보내므로 그동안 비활성화된다.
+  // 빈 pane 은 보낼 터미널 자체가 없으므로 "준비됨" 으로 쳐서 다른 pane 을 막지 않는다.
+  useEffect(() => {
+    onReadyChange?.(pane.id, isEmpty || terminalReady);
+  }, [onReadyChange, pane.id, isEmpty, terminalReady]);
 
   // 리모트 호스트 메타 — 훅보다 먼저 계산 (훅 파라미터로 필요)
   const remoteHost = !isLocal && pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null;
@@ -492,8 +503,7 @@ const Pane = ({
           sessionStatus={terminalStatus}
           onSplitPane={onSplitPane}
           onEqualizePane={onEqualizePane}
-          isBroadcasting={isBroadcasting}
-          onBroadcastToggle={onBroadcastToggle}
+          activeFilePath={activeFilePath}
           isMobile={isMobile}
         />
       </div>
@@ -529,7 +539,8 @@ const Pane = ({
             />
           ) : (
             <>
-            {isBroadcasting && (
+            {/* 브로드캐스트 대상 pane 만 앰버 테두리. 제외된 pane 은 테두리 없이 배지만. */}
+            {isBroadcasting && !isBroadcastExcluded && (
               <div style={{
                 position: 'absolute', inset: 0, zIndex: 5,
                 border: '2px solid #f59e0b',
@@ -537,6 +548,13 @@ const Pane = ({
                 pointerEvents: 'none',
                 boxShadow: 'inset 0 0 0 1px rgba(245,158,11,0.15)',
               }} />
+            )}
+            {isBroadcasting && onToggleBroadcastExclude && (
+              <BroadcastBadge
+                isExcluded={isBroadcastExcluded}
+                onToggle={onToggleBroadcastExclude}
+                t={t}
+              />
             )}
 
             <Suspense fallback={null}>

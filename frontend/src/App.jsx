@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
-import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare } from 'lucide-react';
+import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare, LayoutGrid } from 'lucide-react';
 import useSettings from './hooks/useSettings';
 import useAppConfig from './hooks/useAppConfig';
 import useTranslation from './hooks/useTranslation';
@@ -1000,6 +1000,15 @@ function App() {
   const { editorHeight, isResizingEditor, onEditorResizeStart } = useEditorResize();
   const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);
   const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌
+  // Broadcast 토글은 TabBar(설정 버튼 옆)에 있고, 실제 상태/동작은 활성 탭의 PaneGrid 소유.
+  const broadcastTabRef = useRef(null);
+  const [broadcastActive, setBroadcastActive] = useState(false);
+  // 탭별 "모든 pane 접속 완료" 여부 — 로딩 중엔 TabBar 액션 버튼을 비활성화한다.
+  // 탭 id 로 보관해야 탭 전환 시 이전 탭의 값이 새 탭으로 새어나가지 않는다.
+  const [readyByTabId, setReadyByTabId] = useState({});
+  const handleTabReady = useCallback((tabId, ready) => setReadyByTabId(
+    (prev) => (prev[tabId] === ready ? prev : { ...prev, [tabId]: ready }),
+  ), []);
 
   // Terminal search — state/handlers 는 useTerminalSearch() 훅에서 (actions 섹션에서 구조분해).
 
@@ -1028,6 +1037,15 @@ function App() {
     titleIcon: LogOut,
     message: t('logoutMessage'),
     onConfirm: logout,
+  });
+
+  // 균등 분할은 수동 조정한 pane 크기를 되돌리는 파괴적 동작이라 한 번 확인받는다.
+  const handleEqualizeRequest = () => setConfirmModal({
+    isOpen: true,
+    title: t('equalizePane'),
+    titleIcon: LayoutGrid,
+    message: t('equalizePaneConfirm'),
+    onConfirm: () => equalizeTabRef.current?.(),
   });
 
   const handleConfirmModal = async () => {
@@ -1061,8 +1079,15 @@ function App() {
     };
 
     const onKey = (e) => {
-      if (isForm(e.target) || isCommandPaletteOpen || isTerminalSearchOpen || isFilePickerOpen) return;
+      if (isForm(e.target) || isCommandPaletteOpen || isTerminalSearchOpen || isFilePickerOpen || commandInputOpen) return;
       const ctrl = e.ctrlKey || e.metaKey;
+      // 빠른 입력창 — 모바일 전용이던 걸 데스크탑에서도 열 수 있게.
+      // 버튼과 같은 조건으로 잠근다: 터미널이 붙기 전엔 보낼 곳이 없다.
+      if (ctrl && e.shiftKey && e.key === 'Enter') {
+        e.preventDefault();
+        if (activeTabId !== null && readyByTabId[activeTabId]) setCommandInputOpen(true);
+        return;
+      }
       if (ctrl && e.shiftKey && (e.key === 'P' || e.key === 'p')) { e.preventDefault(); setIsCommandPaletteOpen(true); return; }
       if (ctrl && e.key === 'p') { e.preventDefault(); openFilePicker(); return; }
       if (ctrl && e.key === ',') { e.preventDefault(); setIsSettingsOpen(true); return; }
@@ -1098,7 +1123,7 @@ function App() {
     window.addEventListener('keydown', onKey);
     window.addEventListener('terminal:open-search', onSearch);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('terminal:open-search', onSearch); };
-  }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane, tabs]);  // splitActivePane 은 deps 비어 있어 stable
+  }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, commandInputOpen, readyByTabId, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane, tabs]);  // splitActivePane 은 deps 비어 있어 stable
 
   // ── terminal key for session registry ─────────────────────────────────────
   // Terminal.jsx 는 `sessionId={pane.sessionId || pane.id}` 로 등록한다.
@@ -1237,8 +1262,27 @@ function App() {
         onOpenHosts={() => setHostManagerOpen(true)}
         onOpenKeys={() => { setEditingKey(null); setKeyManagerOpen(true); }}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        // 보낼 터미널이 실제로 있을 때만 노출 — 홈 화면/빈 탭에선 의미 없음.
+        onOpenCommandInput={
+          activeTabId !== null && !!focusedPane && (focusedPane.sessionId || focusedPane.hostId)
+            ? () => setCommandInputOpen(true)
+            : null
+        }
+        // 터미널이 붙기 전엔 눌러봐야 보낼 곳이 없다 — 로딩 중엔 액션 버튼을 흐리게 잠근다.
+        actionsDisabled={activeTabId !== null && !readyByTabId[activeTabId]}
         onReloadTerminals={() => setTerminalReloadSignal((s) => s + 1)}
-        onEqualizePanes={!isMobile ? () => equalizeTabRef.current?.() : null}
+        // 분할이 2개 이상일 때만 의미 있음 — 단일 pane 에선 숨긴다.
+        onEqualizePanes={
+          !isMobile && (activeTab?.panes?.length || 0) > 1
+            ? handleEqualizeRequest
+            : null
+        }
+        isBroadcasting={broadcastActive}
+        onBroadcastToggle={
+          (activeTab?.panes?.length || 0) > 1
+            ? () => broadcastTabRef.current?.()
+            : null
+        }
         onLogout={handleLogoutRequest}
         onSplit={splitActivePane}
         onDuplicate={(tabId) => {
@@ -1377,6 +1421,10 @@ function App() {
                     hosts={hosts}
                     isActive={isThisActive}
                     equalizeRef={isThisActive ? equalizeTabRef : null}
+                    broadcastRef={isThisActive ? broadcastTabRef : null}
+                    onBroadcastChange={isThisActive ? setBroadcastActive : null}
+                    onReadyChange={handleTabReady}
+                    activeFilePath={isThisActive ? activeFile : null}
                     isMobile={isMobile}
                     onFocusPane={focusPane}
                     onClosePane={closePane}
@@ -1618,20 +1666,25 @@ function App() {
             t={t}
             language={settings.language}
             terminalKey={terminalKey}
-            panes={(activeTab?.panes || [])
+            // 활성 탭만이 아니라 열려있는 모든 탭의 pane 을 모아서 넘긴다 — 팝업에서
+            // 탭을 넘나들며 그룹으로 선택해 동시에 보낼 수 있게 (탭별로 묶어 표시).
+            panes={tabsWithMeta.flatMap((tb, ti) => (tb.panes || [])
               .filter((p) => p.sessionId || p.id)
               .map((p, i) => {
                 const host = p.hostId ? hosts.find((h) => h.id === p.hostId) : null;
                 const isLocal = !!p.sessionId && !p.hostId;
-                const colorIdx = host?.color_index ?? (isLocal ? settings.localColorIndex : null) ?? activeTab?.color_index ?? 0;
+                const colorIdx = host?.color_index ?? (isLocal ? settings.localColorIndex : null) ?? tb.color_index ?? 0;
                 return {
                   key: p.sessionId || p.id,
                   label: `${t('pane') || 'Pane'} ${i + 1}`,
                   name: p.name || `${t('pane') || 'Pane'} ${i + 1}`,
                   color: color.dotPalette[colorIdx % color.dotPalette.length],
                   host: host?.name || (isLocal ? ((settings.localName || '').trim() || (t('thisMachine') || 'Local')) : '—'),
+                  tabId: tb.id,
+                  tabName: tb.name || `${t('tab', 'Tab')} ${ti + 1}`,
+                  isActiveTab: tb.id === activeTabId,
                 };
-              })}
+              }))}
           />
         </Suspense></LazyErrorBoundary>
       )}

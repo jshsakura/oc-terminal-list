@@ -8,6 +8,29 @@ import SubTabBar from './panegrid/SubTabBar';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
+// splitTree 하위의 pane(leaf) 개수. (테스트용 export)
+export const countLeaves = (node) => (
+  node?.type === 'pane' ? 1 : (node?.children || []).reduce((sum, c) => sum + countLeaves(c), 0)
+);
+
+/**
+ * 한 분할 노드의 기본 비율 — 모든 pane 이 같은 "면적"을 갖도록 자식을 leaf 개수로 가중한다.
+ *
+ * 자식을 1/n 로 나누면 중첩 트리에서 leaf 가 균등해지지 않는다
+ * (4분할 중 한 칸을 또 2분할하면 그 둘은 나머지의 절반).
+ * leaf 개수로 가중하면 부모 축 길이를 leaf 수에 비례해 나눠 갖게 되어,
+ * 방향(row/column)이 섞여 있어도 최종 leaf 면적이 모두 같아진다.
+ *
+ * 이게 *기본값* 이라는 점이 핵심 — splitSizes 는 저장되지 않아 새로고침하면 항상 여기로
+ * 돌아온다. 예전엔 기본값이 1/n 이라 균등 분할 후 새로고침하면 다시 불균등해졌다.
+ */
+export const balancedRatios = (children = []) => {
+  if (!children.length) return [];
+  const total = children.reduce((sum, c) => sum + countLeaves(c), 0);
+  if (!total) return children.map(() => 1 / children.length);
+  return children.map((c) => countLeaves(c) / total);
+};
+
 /**
  * 탭 내부의 1–4 pane. 각 pane = (Terminal/Empty) + 자체 TerminalHeader.
  * TerminalHeader 패널은 absolute overlay 라 터미널 폭을 안 밀어냄.
@@ -64,6 +87,12 @@ const PaneGrid = ({
   onClosePaneImmediate = null,
   reloadSignal = 0,
   equalizeRef = null,  // 부모가 equalizeCurrentTab 을 호출할 수 있도록 ref 노출
+  /* Broadcast 토글은 TabBar(설정 버튼 옆)로 올라갔다. equalizeRef 와 같은 방식으로
+     토글 함수를 ref 에 노출하고, 켜짐 여부는 콜백으로 부모에 보고한다. */
+  broadcastRef = null,
+  onBroadcastChange = null,
+  onReadyChange = null,  // (tabId, ready) → 이 탭의 모든 pane 이 접속 완료됐는지 부모에 보고
+  activeFilePath = null,  // 열려 있는 에디터 파일 경로 — FileTree 업로드 목적지 폴백용
 }) => {
   const panes = tab?.panes || [];
 
@@ -78,6 +107,29 @@ const PaneGrid = ({
   const [broadcastActive, setBroadcastActive] = useState(false);
   const broadcastActiveRef = useRef(false);
   useEffect(() => { broadcastActiveRef.current = broadcastActive; }, [broadcastActive]);
+  // 브로드캐스트에서 뺀 pane 들 — 5분할 중 한 곳만 빼고 보내는 용도.
+  // 제외된 pane 은 입력을 받지도, 자기 입력을 남에게 보내지도 않는다.
+  const [broadcastExcluded, setBroadcastExcluded] = useState(() => new Set());
+  const broadcastExcludedRef = useRef(broadcastExcluded);
+  useEffect(() => { broadcastExcludedRef.current = broadcastExcluded; }, [broadcastExcluded]);
+  const toggleBroadcastExclude = useCallback((paneId) => setBroadcastExcluded((prev) => {
+    const next = new Set(prev);
+    if (next.has(paneId)) next.delete(paneId); else next.add(paneId);
+    return next;
+  }), []);
+  // 브로드캐스트를 끄면 제외 목록도 초기화 — 다시 켤 때 전원 참여가 기본.
+  useEffect(() => {
+    if (!broadcastActive) setBroadcastExcluded((prev) => (prev.size ? new Set() : prev));
+  }, [broadcastActive]);
+  // 사라진 pane 의 id 는 제외 목록에서 정리.
+  useEffect(() => {
+    setBroadcastExcluded((prev) => {
+      if (!prev.size) return prev;
+      const live = new Set(panes.map((p) => p.id));
+      const next = new Set([...prev].filter((id) => live.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [panes]);
   // 탭이 바뀌거나 pane 수가 1이 되면 broadcast 자동 해제
   useEffect(() => {
     if (panes.length < 2) setBroadcastActive(false);
@@ -90,8 +142,11 @@ const PaneGrid = ({
   // stable fan-out 콜백 — broadcastActiveRef + panesRef 를 통해 최신 상태 읽음
   const handleBroadcast = useCallback((fromPaneId, data) => {
     if (!broadcastActiveRef.current) return;
+    const excluded = broadcastExcludedRef.current;
+    // 제외된 pane 에서 친 입력은 자기 자신에게만 남는다.
+    if (excluded.has(fromPaneId)) return;
     for (const p of panesRef.current) {
-      if (p.id !== fromPaneId) termRefMap.current[p.id]?.sendData?.(data);
+      if (p.id !== fromPaneId && !excluded.has(p.id)) termRefMap.current[p.id]?.sendData?.(data);
     }
   }, []);
   // Terminal imperative handle 등록/해제 — Pane 으로 내려보내 ref 콜백에서 호출.
@@ -99,8 +154,32 @@ const PaneGrid = ({
     if (handle) termRefMap.current[paneId] = handle;
     else delete termRefMap.current[paneId];
   }, []);
-  // pane 2개 이상일 때만 토글 가능. 그 외엔 null → 헤더 버튼 숨김.
+  // pane 2개 이상일 때만 토글 가능. 그 외엔 null → TabBar 버튼 숨김.
   const broadcastToggle = panes.length >= 2 ? () => setBroadcastActive((v) => !v) : null;
+
+  // 활성 탭의 broadcast 토글/상태를 부모(App→TabBar)에 노출.
+  // 비활성 탭이 자기 상태를 덮어쓰지 않도록 isActive 일 때만 보고한다.
+  useEffect(() => {
+    if (!isActive) return;
+    if (broadcastRef) broadcastRef.current = broadcastToggle;
+    onBroadcastChange?.(broadcastActive);
+  }, [isActive, broadcastRef, onBroadcastChange, broadcastActive, panes.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── pane 접속 완료 집계 ────────────────────────────────────────────────────
+  // 모든 pane 이 붙어야 이 탭이 "준비됨". TabBar 액션 버튼의 disabled 판단에 쓰인다.
+  const [readyPaneIds, setReadyPaneIds] = useState(() => new Set());
+  const handlePaneReady = useCallback((paneId, ready) => setReadyPaneIds((prev) => {
+    if (prev.has(paneId) === ready) return prev;
+    const next = new Set(prev);
+    if (ready) next.add(paneId); else next.delete(paneId);
+    return next;
+  }), []);
+  // 탭 id 와 함께 보고한다 — 부모가 탭별로 보관하므로, 탭을 바꿔도 이전 탭의 값이
+  // 새 탭의 상태로 새어나가지 않는다.
+  const tabReady = panes.length > 0 && panes.every((p) => readyPaneIds.has(p.id));
+  useEffect(() => {
+    onReadyChange?.(tab.id, tabReady);
+  }, [onReadyChange, tab.id, tabReady]);
 
   // ── Snippet Palette ────────────────────────────────────────────────────────
   const [snippetOpen, setSnippetOpen] = useState(false);
@@ -126,6 +205,8 @@ const PaneGrid = ({
     termRefMap.current[focusedPane.id]?.sendData?.(command + '\n');
   }, [tab?.activePaneId]);
 
+  // 저장된 크기를 버리면 renderNode 의 기본값(balancedRatios)으로 돌아간다 —
+  // 그 기본값이 이미 모든 pane 을 같은 면적으로 만든다.
   const equalizeCurrentTab = useCallback(() => {
     setSplitSizes((prev) => {
       const prefix = `${tab.id}:`;
@@ -199,11 +280,28 @@ const PaneGrid = ({
   // sub-tabs 모드: 모바일 전용. 데스크탑에서는 split panes 를 항상 분할 화면으로 보여준다.
   const useSubTabs = panes.length > 1 && isMobile;
 
+  // 레이아웃 분기(subTabs / splitTree / legacy grid) 셋 다 공통으로 얹는 오버레이.
+  // 예전엔 legacy grid 분기에만 있어서 splitTree 탭·모바일 서브탭에선 Ctrl+Shift+P 로
+  // snippetOpen 만 켜지고 팔레트가 렌더되지 않았다.
+  const overlays = snippetOpen ? createPortal(
+    <SnippetPalette
+      isOpen={snippetOpen}
+      onClose={() => setSnippetOpen(false)}
+      snippets={snippets}
+      onCreate={createSnippet}
+      onDelete={deleteSnippet}
+      onRun={handleRunSnippet}
+      t={t}
+    />,
+    document.body,
+  ) : null;
+
   // 모바일 분할: 서브탭 바 + 활성 pane 만 fullscreen
   if (useSubTabs) {
     const activePane = panes.find((p) => p.id === tab.activePaneId) || panes[0];
     return (
       <div style={{ display: 'flex', flexDirection: 'column', width: '100%', height: '100%' }}>
+        {overlays}
         <SubTabBar
           panes={panes}
           activePaneId={activePane.id}
@@ -295,9 +393,12 @@ const PaneGrid = ({
                   onDropTabToPane={onDropTabToPane}
                   onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, pane.id) : null}
                   isBroadcasting={broadcastActive}
-                  onBroadcastToggle={broadcastToggle}
+                  isBroadcastExcluded={broadcastExcluded.has(pane.id)}
+                  onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
+                  onReadyChange={handlePaneReady}
                   registerTerminal={registerTerminal}
                   onBroadcastData={handleBroadcast}
+                  activeFilePath={activeFilePath}
                 />
               </div>
             );
@@ -379,9 +480,12 @@ const PaneGrid = ({
             onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, pane.id) : null}
             onEqualizePane={panes.length > 1 ? equalizeCurrentTab : null}
             isBroadcasting={broadcastActive}
-            onBroadcastToggle={broadcastToggle}
+            isBroadcastExcluded={broadcastExcluded.has(pane.id)}
+            onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
+            onReadyChange={handlePaneReady}
             registerTerminal={registerTerminal}
             onBroadcastData={handleBroadcast}
+            activeFilePath={activeFilePath}
           />
         );
       }
@@ -389,7 +493,7 @@ const PaneGrid = ({
       // split node
       const { direction, children } = node;
       const sizeKey = `${tab.id}:${path}`;
-      const defaultSizes = children.map(() => 1 / children.length);
+      const defaultSizes = balancedRatios(children);
       // Guard against stale cached sizes with wrong child count (rebuild equal in that case)
       const cached = splitSizes[sizeKey];
       const sizes = (cached && cached.length === children.length) ? cached : defaultSizes;
@@ -449,7 +553,12 @@ const PaneGrid = ({
       );
     };
 
-    return <div style={{ width: '100%', height: '100%', minHeight: 0, minWidth: 0 }}>{renderNode(splitTree, 'root', resizeSignal)}</div>;
+    return (
+      <div style={{ width: '100%', height: '100%', minHeight: 0, minWidth: 0, position: 'relative' }}>
+        {overlays}
+        {renderNode(splitTree, 'root', resizeSignal)}
+      </div>
+    );
   }
 
   // ── legacy grid fallback (no splitTree) ─────────────────────────────────────
@@ -458,6 +567,8 @@ const PaneGrid = ({
     width: '100%',
     height: '100%',
     gap: 0,
+    // Broadcast 배너를 pane 영역 우측 상단에 절대배치하기 위한 기준. 그리드 아이템 배치엔 영향 없음.
+    position: 'relative',
     ...(layout === 'h' && { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr' }),
     ...(layout === 'v' && { gridTemplateColumns: '1fr', gridTemplateRows: '1fr 1fr' }),
     ...(layout === '2x2' && { gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr' }),
@@ -466,18 +577,7 @@ const PaneGrid = ({
 
   return (
     <>
-    {snippetOpen && createPortal(
-      <SnippetPalette
-        isOpen={snippetOpen}
-        onClose={() => setSnippetOpen(false)}
-        snippets={snippets}
-        onCreate={createSnippet}
-        onDelete={deleteSnippet}
-        onRun={handleRunSnippet}
-        t={t}
-      />,
-      document.body
-    )}
+    {overlays}
     <div style={gridStyle}>
       {panes.map((pane, idx) => (
         <Pane
@@ -540,9 +640,12 @@ const PaneGrid = ({
           onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, pane.id) : null}
           onEqualizePane={panes.length > 1 ? equalizeCurrentTab : null}
           isBroadcasting={broadcastActive}
-          onBroadcastToggle={broadcastToggle}
+          isBroadcastExcluded={broadcastExcluded.has(pane.id)}
+          onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
+          onReadyChange={handlePaneReady}
           registerTerminal={registerTerminal}
           onBroadcastData={handleBroadcast}
+          activeFilePath={activeFilePath}
         />
       ))}
     </div>

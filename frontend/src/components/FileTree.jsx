@@ -59,7 +59,7 @@ const formatMtime = (sec) => {
 const SORT_MODES = ['name', 'modified', 'size'];
 
 
-const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefreshCwd = null, gitContextPath = '', sharedGitChanges = null, language = 'en', initialPath = '', hostId = null }) => {
+const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefreshCwd = null, gitContextPath = '', sharedGitChanges = null, language = 'en', initialPath = '', hostId = null, activeFilePath = null }) => {
   const isHostMode = !!hostId;
   const apiBase = isHostMode ? `/api/hosts/${hostId}/files` : '/api/files';
   const { t } = useTranslation(language);
@@ -280,9 +280,13 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     }
   };
 
-  // 업로드 목적지 = "지금 보고 있는/고른 폴더". 폴더를 고르면 그 폴더, 파일을 고르면 그 부모,
-  // 아무것도 안 골랐으면 현재 트리 루트(상위로 이동 시 그 폴더). 헤더 업로드가 늘 루트로만 가던
-  // 혼란을 없앤다. (우클릭 업로드는 대상 노드 경로를 직접 넘겨 그대로 동작.)
+  // 업로드 목적지 우선순위:
+  //   1) 고른 폴더 → 그 폴더 / 고른 파일 → 그 부모
+  //   2) 트리에서 하위 폴더로 들어가 있으면 그 폴더(rootPath)
+  //   3) 아무것도 안 골랐고 루트에 있으면 지금 에디터에 열려 있는 파일의 폴더
+  //   4) 그래도 없으면 루트
+  // 헤더 업로드가 늘 루트로만 가던 혼란을 없앤다. (우클릭 업로드는 대상 노드 경로를 직접 넘김.)
+  // 에디터 파일 경로는 워크스페이스 기준이라 호스트 모드에선 쓰지 않는다.
   const uploadTargetPath = useMemo(() => {
     if (selectedPath) {
       const type = (Object.values(nodes).flatMap((n) => n.items || []).find((it) => it.path === selectedPath))?.type;
@@ -290,8 +294,11 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       if (type === 'file') return selectedPath.split('/').slice(0, -1).join('/');
     }
     const root = rootPath || '';
-    return isHostMode ? (stripHostPathPrefix(resolvedRoot || '') || stripHostPathPrefix(root)) : root;
-  }, [selectedPath, nodes, isHostMode, resolvedRoot, rootPath]);
+    if (isHostMode) return stripHostPathPrefix(resolvedRoot || '') || stripHostPathPrefix(root);
+    if (root) return root;
+    if (activeFilePath) return activeFilePath.split('/').slice(0, -1).join('/');
+    return '';
+  }, [selectedPath, nodes, isHostMode, resolvedRoot, rootPath, activeFilePath]);
   const uploadTargetDisplay = uploadTargetPath
     ? (isHostMode ? uploadTargetPath : `~/${uploadTargetPath}`)
     : (isHostMode ? '/' : '~/');

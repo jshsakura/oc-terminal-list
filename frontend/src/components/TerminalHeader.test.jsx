@@ -29,16 +29,28 @@ describe('TerminalHeader', () => {
     expect(container.firstChild).toBeTruthy();
   });
 
-  it('shows skeleton icons in rail when loading=true', () => {
+  // 레일 스켈레톤은 실제 RailIconBtn 자리마다 하나씩 — 4개 패널 탭 + (분할) + (… 메뉴).
+  const railSkeletons = (container) => container.querySelectorAll('[style*="iterm-rail-skel"]');
+
+  it('shows one skeleton per rail button when loading=true', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: true })} />);
-    const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
-    expect(skeletons.length).toBeGreaterThanOrEqual(4);
+    // 4 panel tabs + the … menu (no split button without onSplitPane)
+    expect(railSkeletons(container).length).toBe(5);
+  });
+
+  it('adds a skeleton for the split button when onSplitPane is provided', () => {
+    const { container } = render(<TerminalHeader {...baseProps({ loading: true, onSplitPane: vi.fn() })} />);
+    expect(railSkeletons(container).length).toBe(6);
+  });
+
+  it('omits the … menu skeleton for a disabled (empty) pane', () => {
+    const { container } = render(<TerminalHeader {...baseProps({ loading: true, disabled: true })} />);
+    expect(railSkeletons(container).length).toBe(4);
   });
 
   it('shows no skeleton when loading=false', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: false })} />);
-    const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
-    expect(skeletons.length).toBe(0);
+    expect(railSkeletons(container).length).toBe(0);
   });
 
   it('keeps the focus eye slot while loading and unfocused', () => {
@@ -53,23 +65,14 @@ describe('TerminalHeader', () => {
     expect(container.querySelector('.lucide-eye')).toBeTruthy();
   });
 
-  it('shows skeleton for close button when loading=true and onCloseTerminal provided', () => {
-    const { container } = render(
-      <TerminalHeader {...baseProps({ loading: true, onCloseTerminal: vi.fn() })} />
-    );
-    const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
-    expect(skeletons.length).toBeGreaterThanOrEqual(5);
-  });
-
   it('shows no skeleton for close button when loading=false', () => {
     const { container } = render(
       <TerminalHeader {...baseProps({ loading: false, onCloseTerminal: vi.fn() })} />
     );
-    const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
-    expect(skeletons.length).toBe(0);
+    expect(railSkeletons(container).length).toBe(0);
   });
 
-  it('shows skeleton for extract and close when both provided and loading', () => {
+  it('keeps the rail skeleton count stable for actions hidden behind the … menu', () => {
     const { container } = render(
       <TerminalHeader {...baseProps({
         loading: true,
@@ -78,8 +81,19 @@ describe('TerminalHeader', () => {
       })} />
     );
     // 4 tab skeletons + 1 more-button skeleton (secondary actions consolidated behind menu)
-    const skeletons = container.querySelectorAll('[style*="skel-pulse"]');
-    expect(skeletons.length).toBeGreaterThanOrEqual(5);
+    expect(railSkeletons(container).length).toBe(5);
+  });
+
+  it('reserves the drag-handle slot while loading on desktop so the rail does not shift', () => {
+    const loaded = render(<TerminalHeader {...baseProps({ loading: false })} />);
+    const handle = loaded.container.querySelector('[title="paneHandle"]');
+    expect(handle).toHaveStyle({ width: '22px' });
+
+    const { container } = render(<TerminalHeader {...baseProps({ loading: true })} />);
+    expect(container.querySelector('[title="paneHandle"]')).toBeNull();
+    // 핸들 자리를 같은 폭의 빈 칸으로 채워둔다.
+    const spacer = container.querySelector('[aria-hidden="true"][style*="22px"]');
+    expect(spacer).toBeTruthy();
   });
 
   it('disables nav section pointer events when disabled=true', () => {

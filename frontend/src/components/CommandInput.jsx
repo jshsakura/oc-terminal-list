@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Crosshair, Check } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Crosshair, Check, CheckSquare, Square, SquareTerminal, AppWindow } from 'lucide-react';
 import Button from './common/Button';
+import GlassModal from './common/GlassModal';
 import { tokens } from '../styles/tokens';
 import useSpeechRecognition from '../hooks/useSpeechRecognition';
 import useCommandHistory from '../hooks/useCommandHistory';
@@ -228,6 +230,19 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const toggleAllTargets = () => setTargetKeys((prev) => (
     prev.size === panes.length ? new Set() : new Set(panes.map((p) => p.key))
   ));
+
+  // 열려있는 모든 탭의 pane 을 탭 단위로 묶는다 — 팝업에서 탭 그룹 헤더 아래로
+  // 그 탭의 pane 들이 나열되고, 탭을 넘나들며 체크해 그룹으로 동시에 보낼 수 있다.
+  const paneGroups = panes.reduce((groups, p) => {
+    const tid = p.tabId ?? '_';
+    let g = groups[groups.length - 1];
+    if (!g || g.tabId !== tid) {
+      g = { tabId: tid, tabName: p.tabName || '', isActiveTab: !!p.isActiveTab, items: [] };
+      groups.push(g);
+    }
+    g.items.push(p);
+    return groups;
+  }, []);
 
   const handleClear = () => {
     if (command.trim() && !confirm(t?.('confirmClearInput') || '입력한 내용을 모두 지우시겠습니까?')) return;
@@ -497,49 +512,94 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
                 <Crosshair size={13} strokeWidth={2} />
                 <span style={styles.targetBadge}>{targetShort}</span>
               </button>
-              {targetOpen && (
-                <>
-                  <div style={styles.targetBackdrop} onClick={() => setTargetOpen(false)} onMouseDown={(e) => e.preventDefault()} />
-                  <div style={styles.targetPopup} onMouseDown={(e) => e.preventDefault()}>
+              {/* 버튼에 앵커된 작은 드롭다운 대신, 공용 GlassModal 을 document.body 로 포탈해
+                  독립된 중앙 팝업으로 띄운다 — .ci-modal 의 overflow:hidden/backdropFilter 에
+                  잘리지 않고, 모바일 ghost-click 방어(400ms 유예)와 터치 스크롤도 그대로 상속. */}
+              {targetOpen && createPortal(
+                <GlassModal
+                  isOpen={targetOpen}
+                  onClose={() => setTargetOpen(false)}
+                  title={t?.('sendTarget') || 'Send to'}
+                  titleIcon={Crosshair}
+                  ariaLabel={t?.('sendTarget') || 'Send to'}
+                  closeTitle={t?.('close') || 'Close'}
+                  width="88%"
+                  maxWidth="340px"
+                  maxHeight="64vh"
+                  bodyStyle={{ padding: space['1'] }}
+                  afterHeader={(
                     <div style={styles.targetPopupHead}>
-                      <span>{t?.('sendTarget') || 'Send to'}</span>
+                      <span style={styles.targetPopupHint}>
+                        {targetKeys.size === 0
+                          ? (t?.('sendToActiveNote') || '선택 없음 → 활성 pane 으로')
+                          : `${targetKeys.size} / ${panes.length}`}
+                      </span>
                       <button type="button" onClick={toggleAllTargets} style={styles.targetAllBtn}>
+                        {allSelected ? <CheckSquare size={13} strokeWidth={2} /> : <Square size={13} strokeWidth={2} />}
                         {allSelected ? (t?.('deselectAll') || '전체 해제') : (t?.('selectAll') || '전체 선택')}
                       </button>
                     </div>
-                    {/* 아무것도 안 고르면 활성 pane 으로 감을 명시 */}
-                    {targetKeys.size === 0 && (
-                      <div style={styles.targetActiveNote}>{t?.('sendToActiveNote') || '선택 없음 → 활성 pane 으로'}</div>
-                    )}
-                    <div style={styles.targetList}>
-                      {panes.map((p, i) => {
-                        const checked = targetKeys.has(p.key);
-                        const isActivePane = p.key === terminalKey;
-                        return (
+                  )}
+                >
+                  <div style={styles.targetList}>
+                    {paneGroups.map((group) => {
+                      const groupChecked = group.items.every((p) => targetKeys.has(p.key));
+                      return (
+                        <div key={group.tabId} style={styles.targetGroup}>
+                          {/* 탭 그룹 헤더 — 탭 이름 누르면 그 탭의 pane 전부를 한 번에 토글. */}
                           <button
-                            key={p.key}
                             type="button"
-                            onClick={() => toggleTargetKey(p.key)}
-                            style={{ ...styles.targetRow, ...(checked ? styles.targetRowOn : null) }}
+                            aria-pressed={groupChecked}
+                            onClick={() => setTargetKeys((prev) => {
+                              const next = new Set(prev);
+                              const keys = group.items.map((p) => p.key);
+                              if (groupChecked) keys.forEach((k) => next.delete(k));
+                              else keys.forEach((k) => next.add(k));
+                              return next;
+                            })}
+                            style={{ ...styles.targetGroupHead, ...(group.isActiveTab ? styles.targetGroupHeadActive : null) }}
                           >
-                            <span style={{ ...styles.targetCheck, ...(checked ? styles.targetCheckOn : null) }}>
-                              {checked && <Check size={11} strokeWidth={3} />}
-                            </span>
-                            <span style={{ ...styles.targetDot, background: p.color }} />
-                            {/* 이름 + 호스트를 한 줄에 욱여넣지 않고 2줄로 — 좁은 팝업에서 둘 다 잘리는 걸 막는다. */}
-                            <span style={styles.targetText}>
-                              <span style={styles.targetName}>
-                                {t?.('pane') || 'Pane'} {i + 1}
-                                {isActivePane && <span style={styles.targetActiveTag}> · {t?.('active') || '활성'}</span>}
-                              </span>
-                              {p.host && <span style={styles.targetHost} title={p.host}>{p.host}</span>}
+                            <AppWindow size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+                            <span style={styles.targetGroupName}>{group.tabName}</span>
+                            <span style={styles.targetGroupCount}>{group.items.length}</span>
+                            <span style={{ ...styles.targetCheck, ...(groupChecked ? styles.targetCheckOn : null) }}>
+                              {groupChecked && <Check size={10} strokeWidth={3} />}
                             </span>
                           </button>
-                        );
-                      })}
-                    </div>
+                          {group.items.map((p, i) => {
+                            const checked = targetKeys.has(p.key);
+                            const isActivePane = p.key === terminalKey;
+                            return (
+                              <button
+                                key={p.key}
+                                type="button"
+                                onClick={() => toggleTargetKey(p.key)}
+                                style={{ ...styles.targetRow, ...(checked ? styles.targetRowOn : null) }}
+                              >
+                                <span style={{ ...styles.targetCheck, ...(checked ? styles.targetCheckOn : null) }}>
+                                  {checked && <Check size={11} strokeWidth={3} />}
+                                </span>
+                                <span style={{ ...styles.targetIcon, background: p.color }}>
+                                  <SquareTerminal size={12} strokeWidth={2} color="#0b0f14" />
+                                </span>
+                                {/* 이름 + 호스트를 한 줄에 욱여넣지 않고 2줄로 — 좁은 팝업에서 둘 다 잘리는 걸 막는다. */}
+                                <span style={styles.targetText}>
+                                  <span style={styles.targetName}>{t?.('pane') || 'Pane'} {i + 1}</span>
+                                  {p.host && <span style={styles.targetHost} title={p.host}>{p.host}</span>}
+                                </span>
+                                {/* "활성" 은 이름 뒤에 붙이지 않고 행 끝 칩으로 — ellipsis 와 겹치지 않게. */}
+                                {isActivePane && (
+                                  <span style={styles.targetActiveTag}>{t?.('active') || '활성'}</span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
                   </div>
-                </>
+                </GlassModal>,
+                document.body,
               )}
             </div>
           )}
@@ -804,40 +864,45 @@ const styles = {
     borderColor: `var(--ui-accent, ${color.accent})`,
     color: `var(--ui-accent, ${color.accent})`,
   },
-  targetBackdrop: { position: 'fixed', inset: 0, zIndex: 60 },
-  // 팝업은 버튼 위로(모달이 하단 고정) 펼친다.
-  targetPopup: {
-    position: 'absolute',
-    bottom: 'calc(100% + 6px)',
-    right: 0,
-    zIndex: 61,
-    width: '264px',
-    maxWidth: '86vw',
-    background: `var(--ui-surface0, ${color.surface0})`,
-    border: `1px solid var(--ui-border, ${color.border})`,
-    borderRadius: radius.md,
-    boxShadow: '0 12px 32px rgba(0,0,0,0.45)',
-    overflow: 'hidden',
-  },
+  // 메인 헤더(아이콘+제목+X)와 동일한 세로 패딩/최소높이 — 서브헤더만 얇아 보이지 않게.
   targetPopupHead: {
     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    padding: `${space['1.5']} ${space['2.5']}`,
+    minHeight: '38px',
+    padding: `${space['2']} ${space['3']}`,
     fontSize: fontSize['11'], fontWeight: fontWeight.semibold,
     color: `var(--ui-subtext, ${color.subtext})`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 30%, transparent)`,
     borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
   },
+  targetPopupHint: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
   targetAllBtn: {
+    display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0,
     background: 'transparent', border: 'none', cursor: 'pointer',
-    color: `var(--ui-accent, ${color.accent})`, fontSize: fontSize['11'], fontWeight: fontWeight.medium, padding: 0,
+    color: `var(--ui-accent, ${color.accent})`, fontSize: fontSize['11'], fontWeight: fontWeight.medium,
+    padding: `${space['1']} ${space['1.5']}`, marginRight: `-${space['1.5']}`, borderRadius: radius.sm,
   },
-  targetActiveNote: {
-    padding: `${space['1']} ${space['2.5']}`, fontSize: '10.5px',
-    color: `var(--ui-muted, ${color.muted})`,
+  // 고정 maxHeight 대신 flex:1 로 팝업(동적으로 계산된 maxHeight)의 남는 공간을 전부 차지 —
+  // 헤더/노트를 뺀 나머지 안에서만 스크롤돼 항목이 잘리지 않는다.
+  targetList: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: space['1'], display: 'flex', flexDirection: 'column', gap: '6px' },
+  // 탭 하나에 속한 pane 묶음 — 그룹 헤더 + 그 아래 pane 행들.
+  targetGroup: { display: 'flex', flexDirection: 'column', gap: '2px' },
+  targetGroupHead: {
+    display: 'flex', alignItems: 'center', gap: space['1.5'], width: '100%',
+    padding: `${space['1']} ${space['2']}`, background: 'transparent',
+    border: 'none', borderRadius: radius.sm, cursor: 'pointer', textAlign: 'left',
+    fontSize: '10.5px', fontWeight: fontWeight.semibold, letterSpacing: '0.02em',
+    color: `var(--ui-muted, ${color.muted})`, textTransform: 'uppercase',
   },
-  targetList: { maxHeight: '240px', overflowY: 'auto', padding: space['1'], display: 'flex', flexDirection: 'column', gap: '2px' },
+  targetGroupHeadActive: { color: `var(--ui-accent, ${color.accent})` },
+  targetGroupName: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  targetGroupCount: {
+    flexShrink: 0, fontFamily: font.mono, fontSize: '10px', lineHeight: 1,
+    padding: '2px 5px', borderRadius: '999px',
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 60%, transparent)`,
+  },
   targetRow: {
     display: 'flex', alignItems: 'center', gap: space['2'], width: '100%',
-    padding: `${space['1.5']} ${space['2']}`, background: 'transparent',
+    padding: `${space['1.5']} ${space['2']}`, paddingLeft: space['4'], background: 'transparent',
     border: 'none', borderRadius: radius.sm, cursor: 'pointer', textAlign: 'left',
   },
   targetRowOn: { background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 12%, transparent)` },
@@ -851,14 +916,26 @@ const styles = {
     background: `var(--ui-accent, ${color.accent})`,
     borderColor: `var(--ui-accent, ${color.accent})`,
   },
-  targetDot: { width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0 },
+  // 색 점 대신 pane 색으로 채운 아이콘 칩 — 식별력은 유지하면서 아이콘을 적극적으로 쓴다.
+  targetIcon: {
+    width: '20px', height: '20px', borderRadius: '6px', flexShrink: 0,
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+  },
   // 이름/호스트 2줄 컬럼 — 남는 가로폭을 전부 쓰고 각 줄이 독립적으로 ellipsis.
   targetText: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px', overflow: 'hidden' },
   targetName: {
     minWidth: 0, fontSize: fontSize['12'], fontWeight: fontWeight.medium,
     color: `var(--ui-text, ${color.text})`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   },
-  targetActiveTag: { color: `var(--ui-accent, ${color.accent})`, fontWeight: fontWeight.semibold },
+  // 행 끝에 붙는 "활성" 칩 — 이름 ellipsis 와 분리돼 절대 겹치지 않는다.
+  targetActiveTag: {
+    flexShrink: 0, lineHeight: 1, whiteSpace: 'nowrap',
+    fontSize: '10px', fontWeight: fontWeight.semibold,
+    padding: '3px 6px', borderRadius: '999px',
+    color: `var(--ui-accent, ${color.accent})`,
+    background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 16%, transparent)`,
+    border: `1px solid color-mix(in srgb, var(--ui-accent, ${color.accent}) 32%, transparent)`,
+  },
   targetHost: {
     minWidth: 0, fontSize: '10.5px', fontFamily: font.mono,
     color: `var(--ui-muted, ${color.muted})`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',

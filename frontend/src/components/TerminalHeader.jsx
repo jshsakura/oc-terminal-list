@@ -6,9 +6,10 @@ import {
   ExternalLink, MoreHorizontal,
   GripVertical, Columns2, Rows2,
   Eye, EyeOff,
-  XCircle, Zap, Radio,
+  XCircle, Zap,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import RailSkeleton from './common/RailSkeleton';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
 import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
@@ -81,6 +82,7 @@ const TerminalHeader = ({
   loading = false,   // 터미널 연결 중 — 레일 아이콘 스켈레톤
   terminalKey = null, // window.terminalSessions[key] lookup — 페이지 업/다운 송신용
   paneCwd = null,     // 호스트 모드 FileTree 시작 경로 (없으면 host.start_path)
+  activeFilePath = null, // 열려 있는 에디터 파일 — FileTree 업로드 목적지 폴백
   onScreenDump = null, // 텍스트 덤프 모달 열기 콜백 (App.jsx 가 처리)
   onCloseTerminal = null, // pane 닫기 — 단일 pane 이면 closePane 이 closeTab 으로 위임
   /* 분할 pane 을 새 탭으로 detach — null 이면 버튼 숨김 (단일 pane / 빈 pane). */
@@ -89,9 +91,6 @@ const TerminalHeader = ({
   onSplitPane = null,
   /* 모든 분할 팬 사이즈 균등 리셋 */
   onEqualizePane = null,
-  /* Broadcast — 같은 탭의 모든 pane 에 동시 입력. paneCount>=2 일 때만 표시. */
-  isBroadcasting = false,
-  onBroadcastToggle = null,
   /* busy 인디케이터 — 터미널 활동 점멸 여부. */
   isBusy = false,
   /* 터미널 세션 상태 — { evicted, ended, isReady, hasContent }. */
@@ -363,6 +362,11 @@ const TerminalHeader = ({
         background: panelUi.base,
         borderBottomColor: panelUi.borderSubtle || panelUi.border,
       }}>
+        {/* 로딩 중엔 핸들 자리만 비워둔다 — 로딩이 끝나며 레일 전체가 옆으로 밀리지 않게. */}
+        {!isMobile && loading && (
+          <div style={{ width: '22px', height: '22px', marginRight: '1px', flexShrink: 0 }} aria-hidden="true" />
+        )}
+
         {/* Far-left: drag/move handle affordance — empty panes can be dragged too */}
         {!isMobile && !loading && (
           <div
@@ -411,23 +415,7 @@ const TerminalHeader = ({
           pointerEvents: (disabled || loading) ? 'none' : 'auto',
         }}>
           {loading ? (
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '0 2px', overflow: 'hidden' }}>
-              {TABS.map((_, i) => (
-                <div key={i} style={{
-                  width: '13px',
-                  height: '13px',
-                  borderRadius: '50%',
-                  background: `linear-gradient(90deg,
-                    color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
-                    color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
-                    color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
-                  backgroundSize: '300% 100%',
-                  animation: `iterm-skel-shimmer ${1.6 + i * 0.08}s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite`,
-                  animationDelay: `${i * 130}ms`,
-                  flexShrink: 0,
-                }} />
-              ))}
-            </div>
+            <RailSkeleton count={TABS.length} compact ui={panelUi} gap="2px" />
           ) : (
             TABS.map(({ id, icon: Icon, label }) => {
               const isFilesTab = id === 'files';
@@ -508,33 +496,11 @@ const TerminalHeader = ({
                 </div>
               );
             })()}
-            {/* Broadcast toggle — 다중 pane 일 때만 표시 */}
-            {!disabled && !loading && onBroadcastToggle && (paneInfo?.paneCount ?? 1) > 1 && (
-              <RailIconBtn
-                icon={Radio}
-                onClick={onBroadcastToggle}
-                title={isBroadcasting ? (t?.('broadcastOff') || 'Broadcast off') : (t?.('broadcastOn') || 'Broadcast')}
-                active={isBroadcasting}
-                ui={panelUi}
-                compact
-              />
-            )}
+            {/* Broadcast 토글은 TabBar(설정 버튼 옆)로 이동. 켜짐 상태는 pane 영역 우측 상단 배너로 표시. */}
 
             {/* Single split button — opens dropdown with left/right/up/down choices */}
             {loading && onSplitPane && (
-              <div style={{
-                width: '20px',
-                height: '6px',
-                borderRadius: '3px',
-                background: `linear-gradient(90deg,
-                  color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
-                  color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
-                  color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
-                backgroundSize: '300% 100%',
-                animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
-                animationDelay: '480ms',
-                flexShrink: 0,
-              }} />
+              <RailSkeleton count={1} compact ui={panelUi} delayOffset={480} />
             )}
             {!disabled && !loading && onSplitPane && (
               <div ref={splitBtnRef}>
@@ -565,19 +531,7 @@ const TerminalHeader = ({
             {!disabled && (
             <div ref={moreBtnRef}>
               {loading ? (
-                <div style={{
-                  width: '13px',
-                  height: '13px',
-                  borderRadius: '50%',
-                  background: `linear-gradient(90deg,
-                    color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 0%,
-                    color-mix(in srgb, ${panelUi.accent || '#89b4fa'} 22%, transparent) 50%,
-                    color-mix(in srgb, ${panelUi.surface1 || '#45475a'} 50%, transparent) 100%)`,
-                  backgroundSize: '300% 100%',
-                  animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
-                  animationDelay: '640ms',
-                  flexShrink: 0,
-                }} />
+                <RailSkeleton count={1} compact ui={panelUi} delayOffset={640} />
               ) : (
                 <RailIconBtn
                   icon={MoreHorizontal}
@@ -754,6 +708,7 @@ const TerminalHeader = ({
                   sharedGitChanges={gitChanges}
                   language={language}
                   initialPath={filePanelInitialPath}
+                  activeFilePath={activeFilePath}
                 />
               </div>
             )}
@@ -1071,7 +1026,8 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
               color-mix(in srgb, ${ui.accent || '#89b4fa'} 18%, transparent) 50%,
               color-mix(in srgb, ${ui.surface1 || '#45475a'} 50%, transparent) 100%)`,
             backgroundSize: '300% 100%',
-            animation: 'iterm-skel-shimmer 1.8s ease-in-out infinite, skel-pulse 1.4s ease-in-out infinite',
+            // shimmer + pulse 이중 애니메이션은 겹쳐 보이기만 하고 메인스레드만 더 먹는다.
+            animation: 'iterm-skel-shimmer 1.6s ease-in-out infinite',
           }} />
         </div>
       </div>

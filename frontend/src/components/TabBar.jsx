@@ -1,6 +1,6 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Terminal as TerminalIcon, Settings as SettingsIcon } from 'lucide-react';
+import { Terminal as TerminalIcon, Settings as SettingsIcon, Keyboard, LayoutGrid, Radio } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RailIconBtn from './common/RailIconBtn';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
@@ -22,6 +22,13 @@ const TabBar = ({
   onOpenHosts,
   onOpenKeys,
   onOpenSettings,
+  /* () → 빠른 입력창 열기. 모바일은 MobileToolbar 에 이미 있어 데스크탑에서만 노출. */
+  onOpenCommandInput = null,
+  /* Broadcast(동시 입력) 토글 — 활성 탭 pane 2개 이상일 때만 전달된다. */
+  isBroadcasting = false,
+  onBroadcastToggle = null,
+  /* 활성 탭 터미널이 아직 접속 중이면 우측 액션(자동 맞춤/빠른 입력/브로드캐스트)을 잠근다. */
+  actionsDisabled = false,
   onReloadTerminals = null,
   onEqualizePanes = null,
   onSplit,
@@ -238,8 +245,42 @@ const TabBar = ({
         ))}
       </div>
 
-      {/* right action group — Settings menu */}
+      {/* right action group — 자동 맞춤 + 빠른 입력 + Broadcast + Settings menu */}
       <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0, borderLeft: '1px solid var(--ui-border)' }}>
+        {!isMobile && onEqualizePanes && (
+          <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <RailIconBtn
+              icon={LayoutGrid}
+              onClick={onEqualizePanes}
+              disabled={actionsDisabled}
+              title={t?.('equalizePane') || 'Equalize panes'}
+              compact
+            />
+          </div>
+        )}
+        {!isMobile && onOpenCommandInput && (
+          <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <RailIconBtn
+              icon={Keyboard}
+              onClick={onOpenCommandInput}
+              disabled={actionsDisabled}
+              title={t?.('commandInput') || 'Quick Input'}
+              compact
+            />
+          </div>
+        )}
+        {onBroadcastToggle && (
+          <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <RailIconBtn
+              icon={Radio}
+              onClick={onBroadcastToggle}
+              active={isBroadcasting}
+              disabled={actionsDisabled}
+              title={isBroadcasting ? (t?.('broadcastOff') || 'Broadcast off') : (t?.('broadcastOn') || 'Broadcast')}
+              compact
+            />
+          </div>
+        )}
         <div ref={settingsBtnRef} style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <RailIconBtn icon={SettingsIcon} onClick={handleSettingsClick} active={!!settingsMenu} title={t?.('settings') || 'Settings'} compact />
         </div>
