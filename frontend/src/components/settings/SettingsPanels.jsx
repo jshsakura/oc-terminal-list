@@ -338,6 +338,7 @@ export const InfoPanel = ({ t }) => (
     <Divider />
     <div style={shortcutStyles.group}>
       <ShortcutRow keys={['Ctrl', 'Shift', 'P']} desc={t('shortcutCommandPalette') || 'Command palette'} />
+      <ShortcutRow keys={['Ctrl', 'Shift', 'Enter']} desc={t('shortcutQuickInput') || 'Quick Input'} />
       <ShortcutRow keys={['Ctrl', 'T']} desc={t('shortcutNewTab') || 'New tab'} />
       <ShortcutRow keys={['Ctrl', 'W']} desc={t('shortcutCloseTab') || 'Close tab'} />
       <ShortcutRow keys={['Ctrl', '\\']} desc={t('shortcutSplitRight') || 'Split right'} />

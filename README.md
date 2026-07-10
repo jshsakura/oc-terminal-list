@@ -26,6 +26,7 @@ Use GHCR Docker only if I want an isolated container terminal.
 ## Table of Contents
 
 - [What it is](#what-it-is)
+- [Screenshots](#screenshots)
 - [Features](#features)
 - [Install modes](#install-modes)
 - [Quick Start: Docker / GHCR](#quick-start-docker--ghcr)
@@ -52,6 +53,7 @@ Terminal List is a browser-based terminal workspace for machines you own.
 It combines:
 
 - a web terminal backed by persistent host `tmux` sessions
+- split panes with broadcast typing and per-pane opt-out
 - a VS Code-style file browser and editor scoped to a workspace directory
 - SSH host/key management
 - single-admin login with optional TOTP 2FA and passkey (WebAuthn)
@@ -62,19 +64,54 @@ It is useful when you want a lightweight terminal dashboard that feels faster an
 
 ---
 
+## Screenshots
+
+### Split panes and Broadcast
+
+Split a tab into as many panes as you need. Turn on **Broadcast** and every keystroke is mirrored to the other panes in the tab — each pane gets an amber border and a badge. Press the badge's `✕` to drop just that pane out of the broadcast (it then neither receives nor sends).
+
+![Split panes with Broadcast on, one pane excluded](docs/screenshots/broadcast.png)
+
+### Quick Input, targeted across tabs
+
+Compose a command once, then pick exactly which terminals receive it. Panes are grouped by tab; tap a tab heading to select all of its panes at once. With nothing selected, the command goes to the focused pane.
+
+<p align="center">
+  <img src="docs/screenshots/send-to.png" alt="Send-to picker with panes grouped by tab" width="380">
+</p>
+
+### Home dashboard
+
+![Home dashboard with connections, running sessions, and usage](docs/screenshots/home.png)
+
+### Mobile
+
+Splits collapse into sub-tabs, and a key toolbar supplies `Esc`, `Tab`, `Ctrl+C`, arrows, and paste. Quick Input sidesteps the Korean IME issues that plague mobile terminal input.
+
+<p align="center">
+  <img src="docs/screenshots/mobile.png" alt="Mobile view with sub-tabs and key toolbar" width="300">
+  <img src="docs/screenshots/mobile-quick-input.png" alt="Quick Input on mobile" width="300">
+</p>
+
+---
+
 ## Features
 
 | Area | Capability |
 | --- | --- |
-| Terminal | xterm.js terminal UI, persistent `tmux` sessions, reconnect-friendly WebSocket bridge |
+| Terminal | xterm.js terminal UI, persistent `tmux` sessions, reconnect-friendly WebSocket bridge, predictive echo (mosh-style local echo) |
+| Panes | Split right/down, 2×2 grid, drag to resize, equalize (every pane gets equal area, even in nested splits), drag a pane out into its own tab |
+| Broadcast | Mirror your typing to every pane in the tab; exclude individual panes on the fly |
+| Quick Input | Compose a command and send it to any set of panes, grouped by tab; voice dictation (Web Speech API); per-terminal history with infinite scroll |
 | Sessions | SQLite-backed session metadata and restoration |
-| Files | Workspace-scoped file browser, Monaco editor, create/move/delete actions |
+| Files | Workspace-scoped file browser, Monaco editor, content search (ripgrep), upload into the selected folder, create/move/delete |
+| Git | Per-pane change list and branch indicator for the pane's repository |
+| Snippets | Saved commands, opened with a palette and run in the focused pane |
 | SSH | Host and key management with encrypted secret storage |
 | Auth | Initial admin setup, JWT sessions, optional TOTP 2FA, one-time backup codes, passkey (WebAuthn) |
 | Vault | SSH passwords, private-key passphrases, and OTP secrets encrypted with `data/.vault-key` |
-| Input | Quick Input panel with voice input (Web Speech API), per-terminal command history with infinite scroll |
-| UI | Themes, language switch, mobile toolbar (long-press context menu, tap-to-focus), responsive layout |
-| Performance | Gzip, long-lived static asset cache, lazy loaded frontend chunks, Monaco idle prefetch, WebSocket batching |
+| UI | 60+ themes, per-pane theme override, language switch (EN/KO), mobile sub-tabs and key toolbar, responsive layout |
+| Performance | Gzip/Brotli, long-lived static asset cache, lazy loaded frontend chunks, Monaco idle prefetch, WebSocket batching, WebGL renderer |
 | Deployment | GHCR Docker image, Compose example, systemd host-native service |
 
 ---
@@ -322,26 +359,34 @@ sudo systemctl restart iterminallist.service
 
 ### Terminal
 
-- Create a terminal from the sidebar or top action button.
-- Switch sessions from the session list.
-- Rename sessions by editing the session name.
-- Reconnect after browser refresh; backend reattaches to persistent `tmux` sessions.
-- Use mobile toolbar keys for `Esc`, `Tab`, `Ctrl+C`, arrows, and paste on touch devices.
+- Open a terminal from the Home dashboard ("This machine") or from any registered SSH host.
+- Reconnect after browser refresh; the backend reattaches to persistent `tmux` sessions.
+- Rename a tab from its `⋯` menu; close a tab to end the sessions inside it.
+- Use the mobile toolbar keys for `Esc`, `Tab`, `Ctrl+C`, arrows, and paste on touch devices.
+
+### Splits and Broadcast
+
+- Split a pane right (`Ctrl+\`) or down (`Ctrl+Shift+\`), or pick a 2×2 grid from the tab menu.
+- Drag the divider to resize. **Equalize panes** (grid icon in the tab bar) restores equal area to every pane — including nested splits, where a naive "half each" would leave inner panes at half size.
+- **Broadcast** (antenna icon) mirrors your typing to every pane in the tab. Broadcasting panes get an amber border and a badge; press the badge's `✕` to exclude one pane, `+` to bring it back.
+- An excluded pane neither receives broadcast input nor sends its own, so a stray keystroke there cannot leak into the others.
+- Turning Broadcast off clears the exclusions, so it always starts with everyone included.
+
+### Quick Input, voice, and targeting
+
+- Open Quick Input from the tab bar (keyboard icon), the mobile toolbar, or `Ctrl+Shift+Enter`.
+- It sidesteps mobile IME problems: type the whole command, then send it once.
+- Type directly or tap the mic to dictate via the Web Speech API.
+- Press the crosshair button to choose **which** terminals receive the command. Panes from every open tab are listed, grouped by tab — tap a tab heading to select all of its panes. With nothing selected, the command goes to the focused pane.
+- The **Command History** panel (eye icon) shows per-terminal history with infinite scroll. Click an entry to insert it at the cursor.
 
 ### File browser
 
 - Browse under `WORKSPACE_ROOT` only.
-- Open and edit files in the built-in editor.
-- Create files/directories.
-- Move or delete workspace entries.
+- Open and edit files in the built-in Monaco editor; search file contents with ripgrep.
+- Create, move, rename, and delete workspace entries.
+- Upload lands in the folder you have selected. With nothing selected it falls back to the folder you have navigated into, then to the folder of the file open in the editor.
 - Open a terminal in a selected folder.
-
-### Quick Input and voice
-
-- Open Quick Input from the mobile toolbar or keyboard shortcut.
-- Type a command directly or tap the mic button to dictate via Web Speech API.
-- The **Command History** panel (eye icon) shows per-terminal history with infinite scroll.
-- Click any history entry to insert it at the cursor.
 
 ### Passkey / WebAuthn
 
@@ -351,11 +396,30 @@ sudo systemctl restart iterminallist.service
 
 ### Settings
 
-- Theme selection: Catppuccin, Dracula, Monokai, Solarized Dark, GitHub Dark.
+- Theme selection: 60+ themes (Catppuccin, Tokyo Night, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, GitHub, …), overridable per pane.
+- Text contrast: brighten low-contrast palettes for legibility, or show the theme colors as-is.
 - Language: Korean / English.
-- Font size.
-- Terminal auto-scroll behavior.
+- Font size and family, separately for desktop and mobile.
+- Terminal auto-scroll behavior, smooth scroll, scroll sensitivity.
+- Predictive echo (mosh-style local echo), auto-disabled in editors and password prompts.
 - TOTP 2FA, backup-code management, and passkey registration.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+| --- | --- |
+| `Ctrl+Shift+Enter` | Quick Input |
+| `Ctrl+Shift+P` | Command palette |
+| `Ctrl+P` | Quick open files |
+| `Ctrl+T` | New tab |
+| `Ctrl+W` | Close tab |
+| `Ctrl+1` … `Ctrl+9` | Switch to tab N |
+| `Ctrl+\` | Split right |
+| `Ctrl+Shift+\` | Split down |
+| `Ctrl+,` | Settings |
+| `Ctrl+Shift+F` | Find in terminal |
+
+On macOS, use `Cmd` in place of `Ctrl`.
 
 ---
 

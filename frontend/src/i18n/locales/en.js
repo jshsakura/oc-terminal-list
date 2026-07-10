@@ -119,6 +119,7 @@ export const en = {
     shortcutSplitRight: 'Split right',
     shortcutSplitDown: 'Split down',
     shortcutCommandPalette: 'Command palette',
+    shortcutQuickInput: 'Quick Input',
     shortcutQuickOpen: 'Quick open files',
     shortcutSave: 'Save file',
     tmuxNotAvailable: 'tmux not found on this host. Install tmux on the remote server to enable persistent sessions.',

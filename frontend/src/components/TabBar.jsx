@@ -275,7 +275,8 @@ const TabBar = ({
               icon={Radio}
               onClick={onBroadcastToggle}
               active={isBroadcasting}
-              disabled={actionsDisabled}
+              // 켜져 있을 땐 절대 잠그지 않는다 — 끌 방법이 사라지면 입력이 계속 퍼진다.
+              disabled={actionsDisabled && !isBroadcasting}
               title={isBroadcasting ? (t?.('broadcastOff') || 'Broadcast off') : (t?.('broadcastOn') || 'Broadcast')}
               compact
             />

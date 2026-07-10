@@ -166,7 +166,7 @@ const PaneGrid = ({
   }, [isActive, broadcastRef, onBroadcastChange, broadcastActive, panes.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── pane 접속 완료 집계 ────────────────────────────────────────────────────
-  // 모든 pane 이 붙어야 이 탭이 "준비됨". TabBar 액션 버튼의 disabled 판단에 쓰인다.
+  // TabBar 액션 버튼의 disabled 판단에 쓰인다.
   const [readyPaneIds, setReadyPaneIds] = useState(() => new Set());
   const handlePaneReady = useCallback((paneId, ready) => setReadyPaneIds((prev) => {
     if (prev.has(paneId) === ready) return prev;
@@ -174,9 +174,12 @@ const PaneGrid = ({
     if (ready) next.add(paneId); else next.delete(paneId);
     return next;
   }), []);
-  // 탭 id 와 함께 보고한다 — 부모가 탭별로 보관하므로, 탭을 바꿔도 이전 탭의 값이
-  // 새 탭의 상태로 새어나가지 않는다.
-  const tabReady = panes.length > 0 && panes.every((p) => readyPaneIds.has(p.id));
+  // 포커스된 pane 하나만 본다. "모든 pane 이 준비" 로 두면 배경 pane 하나가
+  // (모바일 서브탭 전환처럼 remount 로) 잠깐 not-ready 가 되는 순간 탭 전체 액션이
+  // 잠겨버리고, 되돌아오지 않으면 영영 잠긴다. 기본 전송 대상도 포커스 pane 이다.
+  // 탭 id 와 함께 보고 — 부모가 탭별로 보관하므로 탭을 바꿔도 값이 새어나가지 않는다.
+  const focusedPaneId = panes.find((p) => p.id === tab.activePaneId)?.id || panes[0]?.id || null;
+  const tabReady = !!focusedPaneId && readyPaneIds.has(focusedPaneId);
   useEffect(() => {
     onReadyChange?.(tab.id, tabReady);
   }, [onReadyChange, tab.id, tabReady]);

@@ -119,6 +119,7 @@ export const ko = {
     shortcutSplitRight: '오른쪽 분할',
     shortcutSplitDown: '아래 분할',
     shortcutCommandPalette: '명령 팔레트',
+    shortcutQuickInput: '빠른 입력',
     shortcutQuickOpen: '빠른 파일 열기',
     shortcutSave: '파일 저장',
     rightClick: '우클릭',

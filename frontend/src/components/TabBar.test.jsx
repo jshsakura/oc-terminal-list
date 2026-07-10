@@ -168,4 +168,45 @@ describe('TabBar', () => {
     );
     expect(screen.getByText('🚀')).toBeInTheDocument();
   });
+
+  describe('right action group', () => {
+    const renderActions = (overrides = {}) => render(
+      <TabBar
+        tabs={[{ id: 'local:1', type: 'local', name: 'terminal', color_index: 0 }]}
+        activeTabId="local:1"
+        onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()} onOpenSettings={vi.fn()}
+        onEqualizePanes={vi.fn()} onOpenCommandInput={vi.fn()} onBroadcastToggle={vi.fn()}
+        {...overrides}
+      />
+    );
+
+    it('locks the rail actions while the focused terminal is still connecting', () => {
+      renderActions({ actionsDisabled: true });
+      expect(screen.getByTitle('Equalize panes')).toBeDisabled();
+      expect(screen.getByTitle('Quick Input')).toBeDisabled();
+    });
+
+    it('keeps Broadcast clickable while it is on, even when actions are locked', () => {
+      // 켜진 채로 잠기면 끌 방법이 없어져 입력이 계속 다른 pane 으로 퍼진다.
+      const onBroadcastToggle = vi.fn();
+      renderActions({ actionsDisabled: true, isBroadcasting: true, onBroadcastToggle });
+
+      const btn = screen.getByTitle('Broadcast off');
+      expect(btn).not.toBeDisabled();
+      fireEvent.click(btn);
+      expect(onBroadcastToggle).toHaveBeenCalledTimes(1);
+    });
+
+    it('locks Broadcast while it is off and the terminal is still connecting', () => {
+      renderActions({ actionsDisabled: true, isBroadcasting: false });
+      expect(screen.getByTitle('Broadcast')).toBeDisabled();
+    });
+
+    it('enables every rail action once the terminal is ready', () => {
+      renderActions({ actionsDisabled: false });
+      expect(screen.getByTitle('Equalize panes')).not.toBeDisabled();
+      expect(screen.getByTitle('Quick Input')).not.toBeDisabled();
+      expect(screen.getByTitle('Broadcast')).not.toBeDisabled();
+    });
+  });
 });
