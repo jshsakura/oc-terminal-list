@@ -252,8 +252,10 @@ const Pane = ({
   // 접속 완료 여부를 위로 보고 — TabBar 의 브로드캐스트/빠른입력/자동맞춤 버튼은
   // 터미널이 붙기 전엔 눌러봐야 아무 데도 못 보내므로 그동안 비활성화된다.
   // 빈 pane 은 보낼 터미널 자체가 없으므로 "준비됨" 으로 쳐서 다른 pane 을 막지 않는다.
+  // 언마운트 시 not-ready 로 되돌린다 — 안 그러면 닫힌 pane 의 id 가 부모의 ready 집합에 남는다.
   useEffect(() => {
     onReadyChange?.(pane.id, isEmpty || terminalReady);
+    return () => onReadyChange?.(pane.id, false);
   }, [onReadyChange, pane.id, isEmpty, terminalReady]);
 
   // 리모트 호스트 메타 — 훅보다 먼저 계산 (훅 파라미터로 필요)

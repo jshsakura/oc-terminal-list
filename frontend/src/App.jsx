@@ -1004,12 +1004,22 @@ function App() {
   // Broadcast 토글은 TabBar(설정 버튼 옆)에 있고, 실제 상태/동작은 활성 탭의 PaneGrid 소유.
   const broadcastTabRef = useRef(null);
   const [broadcastActive, setBroadcastActive] = useState(false);
-  // 탭별 "모든 pane 접속 완료" 여부 — 로딩 중엔 TabBar 액션 버튼을 비활성화한다.
+  // 탭별 "포커스 pane 접속 완료" 여부 — 로딩 중엔 TabBar 액션 버튼을 비활성화한다.
   // 탭 id 로 보관해야 탭 전환 시 이전 탭의 값이 새 탭으로 새어나가지 않는다.
   const [readyByTabId, setReadyByTabId] = useState({});
   const handleTabReady = useCallback((tabId, ready) => setReadyByTabId(
     (prev) => (prev[tabId] === ready ? prev : { ...prev, [tabId]: ready }),
   ), []);
+  // 닫힌 탭의 항목은 정리 — 안 그러면 세션 내내 쌓인다.
+  const liveTabIdsKey = tabs.map((tb) => tb.id).join('|');
+  useEffect(() => {
+    setReadyByTabId((prev) => {
+      const live = new Set(liveTabIdsKey ? liveTabIdsKey.split('|') : []);
+      const kept = Object.keys(prev).filter((id) => live.has(id));
+      if (kept.length === Object.keys(prev).length) return prev;
+      return Object.fromEntries(kept.map((id) => [id, prev[id]]));
+    });
+  }, [liveTabIdsKey]);
 
   // Terminal search — state/handlers 는 useTerminalSearch() 훅에서 (actions 섹션에서 구조분해).
 
@@ -1672,16 +1682,17 @@ function App() {
             terminalKey={terminalKey}
             // 활성 탭만이 아니라 열려있는 모든 탭의 pane 을 모아서 넘긴다 — 팝업에서
             // 탭을 넘나들며 그룹으로 선택해 동시에 보낼 수 있게 (탭별로 묶어 표시).
+            // CommandInput 은 탭 그룹 안에서 자기 인덱스로 "분할 N" 을 붙이므로
+            // 여기서 label/name 을 만들 필요가 없다. 그룹핑은 탭 순서대로 이어붙인
+            // 이 배열이 tabId 기준으로 연속이라는 점에 의존한다(flatMap 이 보장).
             panes={tabsWithMeta.flatMap((tb, ti) => (tb.panes || [])
               .filter((p) => p.sessionId || p.id)
-              .map((p, i) => {
+              .map((p) => {
                 const host = p.hostId ? hosts.find((h) => h.id === p.hostId) : null;
                 const isLocal = !!p.sessionId && !p.hostId;
                 const colorIdx = host?.color_index ?? (isLocal ? settings.localColorIndex : null) ?? tb.color_index ?? 0;
                 return {
                   key: p.sessionId || p.id,
-                  label: `${t('pane') || 'Pane'} ${i + 1}`,
-                  name: p.name || `${t('pane') || 'Pane'} ${i + 1}`,
                   color: color.dotPalette[colorIdx % color.dotPalette.length],
                   host: host?.name || (isLocal ? ((settings.localName || '').trim() || (t('thisMachine') || 'Local')) : '—'),
                   tabId: tb.id,

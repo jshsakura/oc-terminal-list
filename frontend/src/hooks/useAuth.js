@@ -7,6 +7,8 @@ import {
   getLegacyAuthToken,
   setVolatileAuthToken,
 } from '../utils/auth';
+import { clearDraft } from '../utils/quickInputDraft';
+import { clearAllLocalCommands } from '../utils/commandHistory';
 
 const useAuth = () => {
   const [authState, setAuthState] = useState({
@@ -175,6 +177,11 @@ const useAuth = () => {
       // 네트워크 실패여도 클라이언트 상태는 정리한다.
     }
     clearAuthFallbacks();
+    // 명시적 로그아웃에서만 기기에 남은 명령 흔적을 지운다 — 쓰다 만 빠른입력 초안과
+    // 터미널별 로컬 복구 슬롯에는 비밀번호가 섞일 수 있고, 공용 PC 라면 다음 사용자가
+    // localStorage 에서 그대로 읽는다. (세션 만료 경로는 재로그인 복원을 위해 남겨둔다.)
+    clearDraft();
+    clearAllLocalCommands();
     setAuthState({
       isLoading: false,
       needsSetup: false,

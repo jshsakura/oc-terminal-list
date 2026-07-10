@@ -2,6 +2,24 @@ import { tokens } from '../../styles/tokens';
 
 const { color, radius } = tokens;
 
+// keyframes 는 인스턴스마다 <style> 을 박지 않고 한 번만 head 에 넣는다.
+// (common/SkeletonRow.jsx 와 같은 방식 — 레일 하나에 스켈레톤이 여러 개 뜬다.)
+const STYLE_ID = 'iterm-rail-skel-style';
+let injected = false;
+const ensureStyle = () => {
+  if (typeof document === 'undefined' || injected) return;
+  if (!document.getElementById(STYLE_ID)) {
+    const el = document.createElement('style');
+    el.id = STYLE_ID;
+    el.textContent = `@keyframes iterm-rail-skel {
+      0%   { background-position: 150% center; }
+      100% { background-position: -150% center; }
+    }`;
+    document.head.appendChild(el);
+  }
+  injected = true;
+};
+
 /**
  * RailIconBtn 자리를 채우는 로딩 자리표시자.
  *
@@ -20,15 +38,10 @@ const RailSkeleton = ({
   const palette = ui || color;
   const outer = compact ? 28 : 32;
   const inner = compact ? 22 : 24;
+  ensureStyle();
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap, flexShrink: 0 }} aria-hidden="true">
-      <style>{`
-        @keyframes iterm-rail-skel {
-          0%   { background-position: 150% center; }
-          100% { background-position: -150% center; }
-        }
-      `}</style>
       {Array.from({ length: count }, (_, i) => (
         <span
           key={i}

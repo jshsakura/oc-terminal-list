@@ -327,10 +327,6 @@ const TerminalHeader = ({
           0%   { background-position: 150% center; }
           100% { background-position: -150% center; }
         }
-        @keyframes skel-pulse {
-          0%, 100% { opacity: 0.42; }
-          50% { opacity: 0.78; }
-        }
         @keyframes iterm-cwd-shine {
           0%,  70% { background-position: -200% center; }
           85%, 100% { background-position: 200% center; }

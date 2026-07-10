@@ -3,6 +3,31 @@ import { tokens } from '../../styles/tokens';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
+// pane 마다 배지가 하나씩 뜨므로 keyframes 는 head 에 한 번만 넣는다
+// (common/SkeletonRow.jsx 와 같은 방식).
+const STYLE_ID = 'iterm-broadcast-badge-style';
+let injected = false;
+const ensureStyle = () => {
+  if (typeof document === 'undefined' || injected) return;
+  if (!document.getElementById(STYLE_ID)) {
+    const el = document.createElement('style');
+    el.id = STYLE_ID;
+    el.textContent = `
+      @keyframes iterm-broadcast-in {
+        from { opacity: 0; transform: translateY(-4px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      @keyframes iterm-broadcast-pulse {
+        0%, 100% { opacity: 1; }
+        50%      { opacity: 0.3; }
+      }
+      .iterm-bc-action:hover { background: color-mix(in srgb, currentColor 20%, transparent); }
+    `;
+    document.head.appendChild(el);
+  }
+  injected = true;
+};
+
 /**
  * Broadcast(동시 입력)가 켜져 있을 때 각 pane 우측 상단에 뜨는 배지.
  *
@@ -14,20 +39,10 @@ const BroadcastBadge = ({ isExcluded = false, onToggle, t }) => {
   const toggleLabel = isExcluded
     ? (t?.('broadcastInclude') || 'Include this pane again')
     : (t?.('broadcastExclude') || 'Exclude this pane');
+  ensureStyle();
 
   return (
   <div style={{ ...styles.wrap, ...(isExcluded ? styles.wrapExcluded : null) }}>
-    <style>{`
-      @keyframes iterm-broadcast-in {
-        from { opacity: 0; transform: translateY(-4px); }
-        to   { opacity: 1; transform: translateY(0); }
-      }
-      @keyframes iterm-broadcast-pulse {
-        0%, 100% { opacity: 1; }
-        50%      { opacity: 0.3; }
-      }
-      .iterm-bc-action:hover { background: color-mix(in srgb, currentColor 20%, transparent); }
-    `}</style>
     {isExcluded
       ? <span style={styles.dotMuted} />
       : <span style={styles.dot} />}

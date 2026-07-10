@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import LazyErrorBoundary from './LazyErrorBoundary';
 import { authHeaders } from '../utils/auth';
 
@@ -32,6 +32,16 @@ export default function AppModals({
   isFilePickerLoading, handleFileOpen,
   t,
 }) {
+  // 커맨드 팔레트의 검색어는 이 묶음이 소유한다 — App 까지 올릴 이유가 없다.
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const closeCommandPalette = () => { setIsCommandPaletteOpen(false); setPaletteQuery(''); };
+  const paletteCommands = useMemo(() => [
+    { id: 'new-tab', label: t('newSession') || 'New tab', action: handleAddTab },
+    { id: 'settings', label: t('settings'), action: () => setIsSettingsOpen(true) },
+    { id: 'find', label: t('findInTerminal'), action: openTerminalSearch },
+    { id: 'files', label: t('quickOpenFiles'), action: openFilePicker },
+  ], [t, handleAddTab, setIsSettingsOpen, openTerminalSearch, openFilePicker]);
+
   return (
     <LazyErrorBoundary><Suspense fallback={null}>
       {isSettingsOpen && (
@@ -132,42 +142,33 @@ export default function AppModals({
       {isCommandPaletteOpen && (
         <CommandPalette
           isOpen={isCommandPaletteOpen}
-          items={[
-            { id: 'new-tab', label: t('newSession') || 'New tab', action: () => { setIsCommandPaletteOpen(false); handleAddTab(); } },
-            { id: 'settings', label: t('settings'), action: () => { setIsCommandPaletteOpen(false); setIsSettingsOpen(true); } },
-            { id: 'find', label: t('findInTerminal'), action: () => { setIsCommandPaletteOpen(false); openTerminalSearch(); } },
-            { id: 'files', label: t('quickOpenFiles'), action: () => { setIsCommandPaletteOpen(false); openFilePicker(); } },
-          ]}
-          onSelect={(id) => {
-            const item = [
-              { id: 'new-tab', action: () => handleAddTab() },
-              { id: 'settings', action: () => setIsSettingsOpen(true) },
-              { id: 'find', action: () => openTerminalSearch() },
-              { id: 'files', action: () => openFilePicker() },
-            ].find((i) => i.id === id);
-            setIsCommandPaletteOpen(false);
-            item?.action();
+          query={paletteQuery}
+          onQueryChange={setPaletteQuery}
+          commands={paletteCommands}
+          onExecute={(id) => {
+            const command = paletteCommands.find((c) => c.id === id);
+            closeCommandPalette();
+            command?.action();
           }}
-          onClose={() => setIsCommandPaletteOpen(false)}
-          t={t}
-          language={settings.language}
+          onClose={closeCommandPalette}
+          placeholder={t('commandPalettePlaceholder') || 'Type a command...'}
+          emptyLabel={t('commandPaletteEmpty') || 'No commands found'}
         />
       )}
       {isFilePickerOpen && (
         <CommandPalette
           isOpen={isFilePickerOpen}
-          items={filePickerItems.map((item) => ({ id: item.id, label: item.label }))}
           query={filePickerQuery}
           onQueryChange={setFilePickerQuery}
-          isLoading={isFilePickerLoading}
-          onSelect={(id) => {
+          commands={filePickerItems.map((item) => ({ id: item.id, label: item.label }))}
+          onExecute={(id) => {
             const item = filePickerItems.find((i) => i.id === id);
             if (item) handleFileOpen(item.path);
             setIsFilePickerOpen(false);
           }}
           onClose={() => setIsFilePickerOpen(false)}
-          t={t}
-          language={settings.language}
+          placeholder={t('quickOpenFiles') || 'Quick open files'}
+          emptyLabel={isFilePickerLoading ? (t('loading') || 'Loading…') : (t('filePickerEmpty') || 'No files found')}
         />
       )}
     </Suspense></LazyErrorBoundary>

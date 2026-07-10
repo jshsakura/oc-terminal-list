@@ -219,5 +219,26 @@ export const clearCommandsFor = async (terminalKey) => {
   dispatchUpdate(terminalKey);
 };
 
+/**
+ * 이 기기에 남은 모든 터미널의 로컬 복구 슬롯을 지운다 (서버 이력은 건드리지 않는다).
+ *
+ * 명시적 로그아웃 전용 — 명령에는 비밀번호가 섞일 수 있는데, 공용 PC 에서 로그아웃해도
+ * 다음 사용자가 localStorage 에서 그대로 읽을 수 있었다.
+ * 세션 만료(auth:session-expired)에는 부르지 않는다. 자리를 비웠다 돌아와 재로그인하는
+ * 흐름에서 작업 맥락까지 날리지 않기 위해서다.
+ */
+export const clearAllLocalCommands = () => {
+  if (typeof localStorage === 'undefined') return;
+  try {
+    // 순회 중 removeItem 하면 인덱스가 밀리므로 키를 먼저 모은다.
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key?.startsWith(LOCAL_STORAGE_PREFIX)) keys.push(key);
+    }
+    keys.forEach((key) => localStorage.removeItem(key));
+  } catch { /* private mode — 지울 게 없다 */ }
+};
+
 export const COMMAND_HISTORY_EVENT = EVENT;
 export const COMMAND_HISTORY_PAGE_SIZE = PAGE_SIZE;

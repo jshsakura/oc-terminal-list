@@ -107,11 +107,11 @@ Terminal List는 사용자가 소유한 머신을 위한 브라우저 기반 터
 | 세션 | SQLite 기반 세션 메타데이터 및 복원 |
 | 파일 | 워크스페이스 범위 파일 탐색기, Monaco 에디터, 내용 검색(ripgrep), 선택한 폴더로 업로드, 생성/이동/삭제 |
 | Git | pane이 속한 저장소의 변경 목록과 브랜치 표시 |
-| 스니펫 | 저장한 명령을 팔레트로 열어 포커스된 pane에서 실행 |
+| 스니펫 | 저장한 명령을 `Ctrl+Shift+S` 로 열어 포커스된 pane에서 실행 |
 | SSH | 호스트 및 키 관리, 암호화된 비밀 저장소 |
 | 인증 | 초기 관리자 설정, JWT 세션, 선택적 TOTP 2FA, 일회성 백업 코드, 패스키(WebAuthn) |
 | Vault | SSH 비밀번호, 개인키 암호문, OTP 비밀이 `data/.vault-key`로 Fernet 암호화 |
-| UI | 60종 이상 테마, pane별 테마 오버라이드, 언어 전환(한/영), 모바일 서브탭·키 툴바, 반응형 레이아웃 |
+| UI | 59종 테마, pane별 테마 오버라이드, 언어 전환(한/영), 모바일 서브탭·키 툴바, 반응형 레이아웃 |
 | 성능 | Gzip/Brotli, 장기 정적 자산 캐시, 지연 로딩 프론트엔드 청크, Monaco idle prefetch, WebSocket 배치, WebGL 렌더러 |
 | 배포 | GHCR Docker 이미지, Compose 예시, systemd host-native 서비스 |
 
@@ -397,7 +397,7 @@ sudo systemctl restart iterminallist.service
 
 ### 설정
 
-- 테마 선택: 60종 이상 (Catppuccin, Tokyo Night, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, GitHub …), pane별로 덮어쓸 수 있습니다.
+- 테마 선택: 59종 (Catppuccin, Tokyo Night, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, GitHub …), pane별로 덮어쓸 수 있습니다.
 - 글자 대비: 저대비 팔레트를 밝혀 가독성을 높이거나, 테마 색을 원본 그대로 보여줍니다.
 - 언어: 한국어 / English.
 - 글꼴 크기·서체 (PC와 모바일 각각 설정).
@@ -411,6 +411,7 @@ sudo systemctl restart iterminallist.service
 | --- | --- |
 | `Ctrl+Shift+Enter` | 빠른 입력 |
 | `Ctrl+Shift+P` | 명령 팔레트 |
+| `Ctrl+Shift+S` | 스니펫 팔레트 |
 | `Ctrl+P` | 빠른 파일 열기 |
 | `Ctrl+T` | 새 탭 |
 | `Ctrl+W` | 탭 닫기 |

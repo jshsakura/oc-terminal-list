@@ -106,11 +106,11 @@ Splits collapse into sub-tabs, and a key toolbar supplies `Esc`, `Tab`, `Ctrl+C`
 | Sessions | SQLite-backed session metadata and restoration |
 | Files | Workspace-scoped file browser, Monaco editor, content search (ripgrep), upload into the selected folder, create/move/delete |
 | Git | Per-pane change list and branch indicator for the pane's repository |
-| Snippets | Saved commands, opened with a palette and run in the focused pane |
+| Snippets | Saved commands, opened with `Ctrl+Shift+S` and run in the focused pane |
 | SSH | Host and key management with encrypted secret storage |
 | Auth | Initial admin setup, JWT sessions, optional TOTP 2FA, one-time backup codes, passkey (WebAuthn) |
 | Vault | SSH passwords, private-key passphrases, and OTP secrets encrypted with `data/.vault-key` |
-| UI | 60+ themes, per-pane theme override, language switch (EN/KO), mobile sub-tabs and key toolbar, responsive layout |
+| UI | 59 themes, per-pane theme override, language switch (EN/KO), mobile sub-tabs and key toolbar, responsive layout |
 | Performance | Gzip/Brotli, long-lived static asset cache, lazy loaded frontend chunks, Monaco idle prefetch, WebSocket batching, WebGL renderer |
 | Deployment | GHCR Docker image, Compose example, systemd host-native service |
 
@@ -396,7 +396,7 @@ sudo systemctl restart iterminallist.service
 
 ### Settings
 
-- Theme selection: 60+ themes (Catppuccin, Tokyo Night, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, GitHub, …), overridable per pane.
+- Theme selection: 59 themes (Catppuccin, Tokyo Night, Dracula, Gruvbox, Nord, Rosé Pine, Solarized, GitHub, …), overridable per pane.
 - Text contrast: brighten low-contrast palettes for legibility, or show the theme colors as-is.
 - Language: Korean / English.
 - Font size and family, separately for desktop and mobile.
@@ -410,6 +410,7 @@ sudo systemctl restart iterminallist.service
 | --- | --- |
 | `Ctrl+Shift+Enter` | Quick Input |
 | `Ctrl+Shift+P` | Command palette |
+| `Ctrl+Shift+S` | Snippet palette |
 | `Ctrl+P` | Quick open files |
 | `Ctrl+T` | New tab |
 | `Ctrl+W` | Close tab |

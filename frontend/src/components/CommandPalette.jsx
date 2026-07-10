@@ -6,10 +6,13 @@ const { color, font, fontSize, fontWeight, radius, space, motion, shadow } = tok
 
 const CommandPalette = ({
   isOpen,
-  query,
+  // 기본값을 둔다 — 이 컴포넌트는 AppModals 의 단일 LazyErrorBoundary 안에서 렌더된다.
+  // 호출 측이 prop 이름을 틀리면 여기서 던진 예외를 그 경계가 삼켜, 설정·확인창 등
+  // 형제 모달까지 전부 사라진다. 잘못 부르면 빈 팔레트가 뜨는 편이 낫다.
+  query = '',
   onQueryChange,
   onClose,
-  commands,
+  commands = [],
   onExecute,
   title,
   placeholder = 'Type a command...',

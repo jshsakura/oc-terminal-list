@@ -188,11 +188,16 @@ const PaneGrid = ({
   const [snippetOpen, setSnippetOpen] = useState(false);
   const { snippets, create: createSnippet, remove: deleteSnippet } = useSnippets(true);
 
-  // Ctrl+Shift+P → 팔레트 열기 (pane 이 활성 상태일 때만)
+  // Ctrl+Shift+S → 스니펫 팔레트 (pane 이 활성 상태일 때만)
+  //
+  // 예전엔 Ctrl+Shift+P 였는데 App 의 커맨드 팔레트와 같은 키다. 둘은 각자 window 에
+  // keydown 을 걸고 있어 preventDefault 로는 서로를 막지 못하므로(stopImmediatePropagation
+  // 이 필요) 한 번 누르면 두 팔레트가 동시에 열렸다. Ctrl+Shift+P 는 커맨드 팔레트(VS Code
+  // 관례)에 양보하고 스니펫을 옮긴다.
   useEffect(() => {
     if (!isActive) return undefined;
     const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'P') {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'S' || e.key === 's')) {
         e.preventDefault();
         setSnippetOpen((v) => !v);
       }
