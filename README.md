@@ -99,7 +99,7 @@ Splits collapse into sub-tabs, and a key toolbar supplies `Esc`, `Tab`, `Ctrl+C`
 
 | Area | Capability |
 | --- | --- |
-| Terminal | xterm.js terminal UI, persistent `tmux` sessions, reconnect-friendly WebSocket bridge, predictive echo (mosh-style local echo) |
+| Terminal | xterm.js terminal UI, persistent `tmux` sessions, reconnect-friendly WebSocket bridge, predictive echo (mosh-style local echo), restart a session in place (fresh shell, same cwd) |
 | Panes | Split right/down, 2×2 grid, drag to resize, equalize (every pane gets equal area, even in nested splits), drag a pane out into its own tab |
 | Broadcast | Mirror your typing to every pane in the tab; exclude individual panes on the fly |
 | Quick Input | Compose a command and send it to any set of panes, grouped by tab; voice dictation (Web Speech API); per-terminal history with infinite scroll |
@@ -363,6 +363,8 @@ sudo systemctl restart iterminallist.service
 - Reconnect after browser refresh; the backend reattaches to persistent `tmux` sessions.
 - Rename a tab from its `⋯` menu; close a tab to end the sessions inside it.
 - Use the mobile toolbar keys for `Esc`, `Tab`, `Ctrl+C`, arrows, and paste on touch devices.
+- **Reload terminal** (pane `…` menu) remounts the view and re-attaches to the *same* shell — its PATH, shell hash, and running processes are untouched.
+- **Restart session** (pane `…` menu) kills the tmux session and opens a fresh shell **at the same directory**. Use it when a just-installed binary isn't on `PATH` yet. Everything running inside dies, so it asks for confirmation first.
 
 ### Splits and Broadcast
 
