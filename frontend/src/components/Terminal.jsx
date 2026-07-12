@@ -2,7 +2,7 @@
  * Terminal 컴포넌트
  * xterm.js 기반 터미널 에뮬레이터 (테마 및 스마트 스크롤 지원)
  */
-import { useEffect, useRef, useState, useCallback, useMemo, memo, forwardRef, useImperativeHandle } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo, memo, forwardRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -10,16 +10,15 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { ImageAddon } from '@xterm/addon-image';
-import { MonitorSmartphone, PowerOff, Copy, ArrowDownToLine, RotateCcw, Loader2, AlertTriangle, X, WifiOff, ServerCrash } from 'lucide-react';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
-import { tokens } from '../styles/tokens';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 import { authHeaders } from '../utils/auth';
 import { measureTerminalFit } from '../utils/terminalFit';
+import createTerminalGeometry from '../utils/terminalGeometry';
 import {
   shouldUseNaturalMouseSelection,
   selectionArgsFromCells,
@@ -27,7 +26,7 @@ import {
   shouldClearSelectionOnScroll,
 } from '../utils/terminalMouseSelection';
 import { isTerminalAutoResponse } from '../utils/terminalInput';
-import { pushCommand as pushCommandHistory, pushLocalCommand as pushLocalCommandHistory } from '../utils/commandHistory';
+import { pushLocalCommand as pushLocalCommandHistory } from '../utils/commandHistory';
 import { getNetworkSummary, getTerminalClientId } from '../utils/clientIdentity';
 import { PredictiveEcho } from '../utils/predictiveEcho';
 import {
@@ -43,11 +42,14 @@ import {
   OUTAGE_PROBE_MIN_DELAY_MS, SESSION_GONE_SIGNAL_MS, SESSION_GONE_LOOP_GUARD_MS,
 } from './terminal/terminalConstants';
 import {
-  sleep, looksLikeBulkCommand, looksLikeRecoverableBulkInput,
+  sleep, looksLikeRecoverableBulkInput,
   uploadImageAndGetPath, uploadFileAndGetPath, copyTextToClipboard, issueWsTicket,
 } from './terminal/terminalHelpers';
-import { styles } from './terminal/terminalStyles';
-import { GlassOverlayCard, TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
+import { TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
+import { CopiedToast, ImagePasteToast, ReconnectPill, TerminalSkeleton, TmuxFallbackBanner } from './terminal/TerminalChrome';
+import { ConnectionTroubleCard, ShellClosingCard, ShellEndedCard, TakeoverCard } from './terminal/TerminalStatusCards';
+import ensureXtermGlobalStyles from './terminal/xtermGlobalCss';
+import useTerminalApi from './terminal/useTerminalApi';
 import TerminalTexture from './TerminalTexture';
 
 // 글자 대비 설정 → xterm minimumContrastRatio.
@@ -55,10 +57,37 @@ import TerminalTexture from './TerminalTexture';
 const CONTRAST_RATIOS = { high: 7, balanced: 4.5, original: 1 };
 const resolveContrast = (mode) => CONTRAST_RATIOS[mode] ?? 7;
 
-const { fontSize, fontWeight, lineHeight, radius, shadow, space } = tokens;
+// xterm 이 래퍼 크기를 그대로 따르게 고정. 분수 셀 잔여는 늘리지 않고
+// TerminalEdgeGutter 가 테마색 가장자리로 마감한다.
+const TERMINAL_CSS = `
+  @keyframes term-skeleton-pulse {
+    0%   { opacity: 0.35; }
+    50%  { opacity: 0.7; }
+    100% { opacity: 0.35; }
+  }
+  .xterm {
+    width: 100% !important;
+    height: 100% !important;
+    overflow: hidden !important;
+  }
+  .xterm-scrollable-element { height: 100% !important; }
+  .xterm-viewport { height: 100% !important; }
+`;
+
+// 디버그 로거 — debug_terminal=1 일 때만 info 를 흘린다. warn/error 는 항상.
+const createLogger = (sessionId) => ({
+  info: (msg) => {
+    if (localStorage.getItem('debug_terminal') === '1') {
+      console.log(`[Terminal:${sessionId}] ${msg}`);
+    }
+  },
+  warn: (msg) => console.warn(`[Terminal:${sessionId}] ${msg}`),
+  error: (msg, err) => console.error(`[Terminal:${sessionId}] ${msg}`, err),
+});
 
 const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
   const { t } = useTranslation(settings.language);
+  const logger = useMemo(() => createLogger(sessionId), [sessionId]);
   const terminalClientIdRef = useRef(getTerminalClientId());
   const terminalRef = useRef(null);
   const touchOverlayRef = useRef(null);
@@ -541,69 +570,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   useEffect(() => {
     if (!terminalRef.current) return;
 
-    // 모바일에서 키보드 팝업 시 화면 밀림 방지를 위한 CSS 주입
-    const styleId = 'xterm-mobile-fix';
-    if (!document.getElementById(styleId)) {
-      const style = document.createElement('style');
-      style.id = styleId;
-      style.innerHTML = `
-        /* xterm.js 의 숨겨진 입력창이 브라우저 스크롤을 유발하지 않게 터미널 상단에 고정 */
-        .xterm .xterm-helper-textarea {
-          top: 0 !important;
-          left: 0 !important;
-          position: absolute !important;
-          width: 1px !important;
-          height: 1px !important;
-          z-index: -1 !important;
-          opacity: 0 !important;
-          padding: 0 !important;
-          margin: 0 !important;
-        }
-      `;
-      document.head.appendChild(style);
-    }
-
-    // xterm 스크롤바 완전 제거
-    // 1) .xterm-viewport 네이티브 브라우저 스크롤바
-    // 2) .xterm-scrollable-element > .scrollbar — xterm 자체 DOM 오버레이 스크롤바 (스크롤 시 .visible 추가됨)
-    const scrollbarFixId = 'xterm-scrollbar-fix-v2';
-    if (!document.getElementById(scrollbarFixId)) {
-      document.getElementById('xterm-scrollbar-fix')?.remove();
-      const style = document.createElement('style');
-      style.id = scrollbarFixId;
-      style.innerHTML = `
-        .xterm .xterm-viewport {
-          scrollbar-width: none !important;
-          -ms-overflow-style: none !important;
-          overflow-x: hidden !important;
-        }
-        .xterm .xterm-viewport::-webkit-scrollbar {
-          width: 0 !important;
-          height: 0 !important;
-          display: none !important;
-          background: transparent !important;
-        }
-        .xterm-scroll-area {
-          scrollbar-width: none !important;
-        }
-        .xterm-scroll-area::-webkit-scrollbar {
-          display: none !important;
-        }
-        .xterm .xterm-scrollable-element > .scrollbar {
-          display: none !important;
-        }
-        .xterm .xterm-scrollable-element > .shadow {
-          display: none !important;
-        }
-        /* Let iOS native-scroll the xterm-viewport (overflow-y:scroll covers the full
-           terminal area). xterm.js _handleScroll fires on scrollTop changes and
-           re-renders the canvas — no custom JS touch handler needed. */
-        .xterm .xterm-viewport {
-          -webkit-overflow-scrolling: touch;
-        }
-      `;
-      document.head.appendChild(style);
-    }
+    ensureXtermGlobalStyles();
 
     setIsReady(false);
     setHasContent(false);
@@ -735,41 +702,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     let wheelLineRemainder = 0;
     let touchLineRemainder = 0;
 
-    const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-
-    const getCellHeight = () => (
-      term._core?._renderService?.dimensions?.css?.cell?.height
-      || Math.max(1, Math.round((term.element?.clientHeight || 0) / Math.max(1, term.rows)))
-      || 17
-    );
-
-    const deltaToLines = (deltaY, deltaMode = 0) => {
-      if (deltaMode === 1) return deltaY;
-      if (deltaMode === 2) return deltaY * Math.max(1, term.rows);
-      return deltaY / getCellHeight();
-    };
-
-    const cellFromClientPoint = (clientX, clientY) => {
-      const screen = term.element?.querySelector('.xterm-screen') || term.element;
-      const rect = screen?.getBoundingClientRect?.();
-      const dims = term._core?._renderService?.dimensions?.css?.cell;
-      const cellW = dims?.width || Math.max(1, (rect?.width || 0) / Math.max(1, term.cols)) || 9;
-      const cellH = dims?.height || getCellHeight();
-      const x = Number.isFinite(clientX) ? clientX : ((rect?.left || 0) + (rect?.width || 0) / 2);
-      const y = Number.isFinite(clientY) ? clientY : ((rect?.top || 0) + (rect?.height || 0) / 2);
-      return {
-        col: clamp(Math.floor((x - (rect?.left || 0)) / cellW) + 1, 1, Math.max(1, term.cols)),
-        row: clamp(Math.floor((y - (rect?.top || 0)) / cellH) + 1, 1, Math.max(1, term.rows)),
-      };
-    };
-
-    const bufferCellFromClientPoint = (clientX, clientY) => {
-      const cell = cellFromClientPoint(clientX, clientY);
-      return {
-        col: cell.col - 1,
-        row: (term.buffer?.active?.viewportY || 0) + cell.row - 1,
-      };
-    };
+    // 픽셀 ↔ 셀 좌표 변환 — 휠/터치 라우팅과 자연 마우스 선택이 공유.
+    const { deltaToLines, cellFromClientPoint, bufferCellFromClientPoint } = createTerminalGeometry(term);
 
     const sendTmuxWheel = (lines, clientX, clientY, source = 'wheel') => {
       const ws = wsRef.current;
@@ -2262,136 +2196,24 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     return () => cancelAnimationFrame(rafId);
   }, [layoutSignal, isActive]);
 
-  // 외부 전송용 핸들러 (MobileToolbar / Quick Input 등에서 사용)
-  const sendData = useCallback((data) => {
-    if (looksLikeBulkCommand(data)) {
-      try { pushCommandHistory(sessionId, data); } catch { /* noop */ }
-    }
-    if (enqueueInputRef.current?.(data, { delay: 0 })) {
-      return true;
-    }
-    if (wsRef.current?.readyState === WebSocket.OPEN && typeof data === 'string') {
-      wsRef.current.send(data);
-      return true;
-    }
-    return false;
-  }, [sessionId]);
-
-  const sendCommand = useCallback((command) => {
-    if (typeof command !== 'string' || !command.trim()) return false;
-    try { pushCommandHistory(sessionId, command); } catch { /* noop */ }
-    try { forceScrollToBottomRef.current?.(); } catch { /* noop */ }
-    const payload = command.endsWith('\r') || command.endsWith('\n') ? command : `${command}\r`;
-    if (enqueueInputRef.current?.(payload, { delay: 0, priority: true, dropQueuedWheel: true })) {
-      return true;
-    }
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(payload);
-      return true;
-    }
-    return false;
-  }, [sessionId]);
-
   // Broadcast: onBroadcast prop 은 broadcastActive 변화마다 교체되므로 ref 로 최신 유지
   const onBroadcastRef = useRef(onBroadcast);
   useEffect(() => { onBroadcastRef.current = onBroadcast; }, [onBroadcast]);
 
-  // 부모(PaneGrid)가 ref 를 통해 sendData 를 호출 — broadcast fan-out 에서 사용.
-  useImperativeHandle(ref, () => ({ sendData, sendCommand }), [sendData, sendCommand]);
-
-  const getSelection = useCallback(() => {
-    return xtermRef.current?.getSelection() || '';
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    forceScrollToBottomRef.current?.();
-  }, []);
-
-  // 페이지/라인 단위 스크롤 — xterm.js client-side scrollback 만 조작한다.
-  // 편집기/셸이 해석하지 못하는 PgUp/PgDn escape sequence 를 PTY 로 보내면
-  // 파일이나 prompt 에 `^[[5~` / `^[[6~` 가 그대로 들어갈 수 있다.
-  const scrollPages = useCallback((pages) => {
-    const term = xtermRef.current;
-    if (!term || pages === 0) return;
-    if (term.buffer?.active?.type === 'normal') {
-      try { term.scrollPages(pages); } catch { /* noop */ }
-    }
-  }, []);
-
-  const scrollLines = useCallback((lines) => {
-    const term = xtermRef.current;
-    if (!term || lines === 0) return;
-    if (term.buffer?.active?.type === 'normal') {
-      try { term.scrollLines(lines); } catch { /* noop */ }
-    }
-  }, []);
-
-  const scrollToTop = useCallback(() => {
-    const term = xtermRef.current;
-    if (!term) return;
-    if (term.buffer?.active?.type === 'normal') {
-      try { term.scrollToTop(); } catch { /* noop */ }
-    }
-  }, []);
-
-  // 전체 버퍼 → 일반 텍스트. 모바일에서 손가락 선택이 까다로워 화면 통째로
-  // 텍스트로 띄워주거나 한번에 클립보드에 복사하는 편의 기능에 사용.
-  // includeScrollback=true 면 스크롤백 전체, false 면 viewport 만.
-  const getBufferText = useCallback((includeScrollback = true) => {
-    const term = xtermRef.current;
-    if (!term) return '';
-    const buf = term.buffer.active;
-    const start = includeScrollback ? 0 : buf.viewportY;
-    const end = buf.length;
-    const lines = [];
-    for (let i = start; i < end; i++) {
-      const line = buf.getLine(i);
-      if (!line) continue;
-      // translateToString(true) — trailing whitespace trim
-      lines.push(line.translateToString(true));
-    }
-    // 끝쪽 빈 줄 정리
-    while (lines.length && lines[lines.length - 1] === '') lines.pop();
-    return lines.join('\n');
-  }, []);
-
-  // 전체 버퍼를 한번에 클립보드로 — 모바일 long-select 가 어려운 환경에서 유용.
-  const copyAll = useCallback(async () => {
-    const text = getBufferText(true);
-    if (!text) return false;
-    await copyTextToClipboard(text);
-    return true;
-  }, [getBufferText]);
-
-  const focus = useCallback(() => {
-    xtermRef.current?.focus();
-    // 포커스 복귀 = 활동 → 타이핑 전에 미리 WebGL 재부착해 재부착 repaint 를 사용자 눈에 안 띄게.
-    noteWebglActivityRef.current?.();
-  }, []);
-
-  const clear = useCallback(() => {
-    xtermRef.current?.clear();
-  }, []);
-
-  const searchNext = useCallback((query, options = {}) => {
-    if (!query || !searchAddonRef.current) return false;
-    return searchAddonRef.current.findNext(query, {
-      incremental: true,
-      ...options,
-    }) || false;
-  }, []);
-
-  const searchPrevious = useCallback((query, options = {}) => {
-    if (!query || !searchAddonRef.current) return false;
-    return searchAddonRef.current.findPrevious(query, {
-      incremental: true,
-      ...options,
-    }) || false;
-  }, []);
-
-  const closeSearch = useCallback(() => {
-    searchAddonRef.current?.clearDecorations();
-  }, []);
+  /* 명령형 API — forwardRef(부모 PaneGrid 의 broadcast fan-out) + window.terminalSessions
+     (빠른입력·모바일바·팔레트) 양쪽으로 노출. 전부 ref 위에서만 동작한다. */
+  const { copyAll } = useTerminalApi({
+    refs: {
+      xtermRef, wsRef, searchAddonRef,
+      enqueueInputRef, forceScrollToBottomRef, fitNowRef, noteWebglActivityRef,
+      lastDimsRef, evictedRef, endedRef, hasContentRef,
+    },
+    forwardedRef: ref,
+    sessionId,
+    paneId,
+    tabId,
+    isReady,
+  });
 
   // 키보드 포커스는 visible 한 pane 들 중 "focused" 한 1개에만 줘야 한다.
   // 분할(grid) 레이아웃에서 4 pane 모두 isActive=true 이지만 isFocused 는 1개뿐.
@@ -2634,193 +2456,69 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 활동 재부착)가 함께 처리한다. 빠른 탭 전환 churn 은 유예(WEBGL_DETACH_GRACE_MS)로, idle 반납
   // repaint 는 활동(출력/입력/포커스) 시점에 묻혀 사용자 눈에 거의 안 띈다.
 
-  // 전역 세션 관리자에 현재 활성 함수 등록
-  useEffect(() => {
-    if (!window.terminalSessions) window.terminalSessions = {};
-    window.terminalSessions[sessionId] = {
-      sendData,
-      sendCommand,
-      getSelection,
-      getBufferText,
-      copyAll,
-      scrollToBottom,
-      scrollToTop,
-      scrollPages,
-      scrollLines,
-      focus,
-      clear,
-      fit: () => fitNowRef.current?.('api'),
-      searchNext,
-      searchPrevious,
-      closeSearch,
-      // xterm에 PTY 출력인 척 escape sequence 주입. 마우스 트래킹 임시 제어 등에 사용.
-      writeEscape: (seq) => xtermRef.current?.write(seq),
-      setMouseTracking: (enabled) => {
-        const t = xtermRef.current;
-        if (!t) return;
-        if (enabled) {
-          t.write('\x1b[?1000h\x1b[?1002h\x1b[?1006h');
-        } else {
-          t.write('\x1b[?1000l\x1b[?1002l\x1b[?1006l');
-        }
-      },
-      /* Info 패널이 읽어가는 라이브 메타데이터 — 사이즈/연결상태 등.
-         값은 ref 기반이라 항상 최신. (객체 자체는 그대로, 내부 ref 만 변동) */
-      getDims: () => ({ ...lastDimsRef.current }),
-      getConnectionState: () => {
-        const ws = wsRef.current;
-        if (!ws) return 'closed';
-        switch (ws.readyState) {
-          case WebSocket.CONNECTING: return 'connecting';
-          case WebSocket.OPEN:       return 'open';
-          case WebSocket.CLOSING:    return 'closing';
-          default:                   return 'closed';
-        }
-      },
-      getSessionStatus: () => ({
-        evicted: evictedRef.current,
-        ended: endedRef.current,
-        isReady,
-        hasContent: hasContentRef.current,
-        sessionId,
-        paneId,
-        tabId,
-      }),
-    };
+  /* 상태 카드의 버튼으로 사용자가 직접 거는 재연결.
+     이미 시도 중이면 무시(중복 핸드셰이크 방지). connect 가 아직 없으면(effect 정리 직후 등)
+     새로고침으로 폴백한다. 아래 네 핸들러가 이 가드를 공유한다. */
+  const beginManualReconnect = () => {
+    if (reconnectingRef.current) return false;
+    reconnectingRef.current = true;
+    setReconnecting(true);
+    return true;
+  };
 
-    return () => {
-      if (window.terminalSessions) {
-        delete window.terminalSessions[sessionId];
-      }
-    };
-  }, [sessionId, sendData, sendCommand, getSelection, getBufferText, copyAll, scrollToBottom, scrollToTop, scrollPages, scrollLines, focus, clear, searchNext, searchPrevious, closeSearch, isReady]);
+  // 연결 실패 카드의 "다시 시도" — autoRecover:false 라 실패하면 재연결 버스트를 돌지 않는다.
+  const handleRetryConnect = () => {
+    if (!beginManualReconnect()) return;
+    setLoadStuck(false);
+    reconnectAttemptsRef.current = 0;
+    if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
+    else window.location.reload();
+  };
 
-  // 로깅 헬퍼
-  const logger = {
-    info: (msg) => {
-      if (localStorage.getItem('debug_terminal') === '1') {
-        console.log(`[Terminal:${sessionId}] ${msg}`);
-      }
-    },
-    warn: (msg) => console.warn(`[Terminal:${sessionId}] ${msg}`),
-    error: (msg, err) => console.error(`[Terminal:${sessionId}] ${msg}`, err),
+  // takeover 카드의 "내가 가져오기" — tmux attach -d 로 세션을 되찾는다.
+  const handleTakeOver = () => {
+    if (!beginManualReconnect()) return;
+    if (connectRef.current) connectRef.current();
+    else if (onTakeOver) onTakeOver();
+    else window.location.reload();
+  };
+
+  // 종료 카드 — 기존 셸에 다시 붙는다(없으면 실패).
+  const handleReconnectExisting = () => {
+    if (!beginManualReconnect()) return;
+    clearEndedForReconnect();
+    reconnectAttemptsRef.current = 0;
+    if (connectRef.current) connectRef.current({ create: false });
+    else window.location.reload();
+  };
+
+  // 종료 카드 — 새 셸을 만든다(create:true).
+  const handleRestartShell = () => {
+    if (!beginManualReconnect()) return;
+    clearEndedForReconnect();
+    reconnectAttemptsRef.current = 0;
+    if (connectRef.current) connectRef.current({ create: true });
+    else window.location.reload();
   };
 
   return (
     <>
-      <style>{`
-        @keyframes term-skeleton-pulse {
-          0%   { opacity: 0.35; }
-          50%  { opacity: 0.7; }
-          100% { opacity: 0.35; }
-        }
-        /* Keep xterm sizing tied to the wrapper. Fractional cell remainders are
-           rendered as a themed edge gutter below instead of stretching cells. */
-        .xterm {
-          width: 100% !important;
-          height: 100% !important;
-          overflow: hidden !important;
-        }
-        .xterm-scrollable-element { height: 100% !important; }
-        .xterm-viewport { height: 100% !important; }
-      `}</style>
+      <style>{TERMINAL_CSS}</style>
 
       {/* 스켈레톤: 첫 콘텐츠가 그려지기 전까지 표시 */}
-      {!hasContent && (
-        <div
-          aria-hidden="true"
-          style={{
-            ...styles.statusOverlay,
-            backgroundColor: themeUi.base,
-            padding: '14px 18px',
-            justifyContent: 'flex-start',
-            alignItems: 'stretch',
-            gap: '10px',
-          }}
-        >
-          {[62, 38, 84, 50, 72, 30, 66, 44, 78, 40].map((width, i) => (
-            <div
-              key={i}
-              style={{
-                height: '12px',
-                width: `${width}%`,
-                borderRadius: '4px',
-                background: themeUi.surface1 || themeUi['border-strong'] || '#313244',
-                animation: 'term-skeleton-pulse 1.4s ease-in-out infinite',
-                animationDelay: `${i * 90}ms`,
-              }}
-            />
-          ))}
-        </div>
-      )}
+      {!hasContent && <TerminalSkeleton themeUi={themeUi} />}
 
-      {/* 로딩이 오래 멈춰 있을 때 — 어느 쪽(이 기기 vs 서버) 문제인지 명시하고, 그 상황에서
-          실제로 되는 선택지만 준다. 오프라인이면 "다시 시도"는 숨기고(안 되니까) 자동 재연결 안내. */}
+      {/* 로딩이 오래 멈춰 있을 때 — 어느 쪽(이 기기 vs 서버) 문제인지 명시하고,
+          그 상황에서 실제로 되는 선택지만 준다. */}
       {loadStuck && !hasContent && !ended && !evicted && !closing && (
-        <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
-          <div style={styles.glassIconTile(themeUi, isOffline ? (themeUi.danger || themeUi.warning) : (themeUi.warning || themeUi.subtext))}>
-            {isOffline ? <WifiOff size={18} strokeWidth={1.8} /> : <ServerCrash size={18} strokeWidth={1.8} />}
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            {/* 원인 측 배지 — 클라이언트/서버 즉시 구분 */}
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: '5px', marginBottom: '6px',
-              fontSize: '10px', fontWeight: fontWeight.semibold, letterSpacing: '0.05em', textTransform: 'uppercase',
-              color: isOffline ? (themeUi.danger || themeUi.warning) : themeUi.warning,
-            }}>
-              <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />
-              {isOffline ? (t('sideThisDevice') || '이 기기') : (t('sideServer') || '서버 · 네트워크')}
-            </div>
-            <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
-              {isOffline ? (t('offlineTitle') || '인터넷 연결 없음') : (t('serverUnreachableTitle') || '서버에 연결할 수 없습니다')}
-            </div>
-            <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
-              {isOffline
-                ? (t('offlineDesc') || '이 기기가 오프라인입니다. 네트워크가 복구되면 자동으로 다시 연결됩니다.')
-                : (t('serverUnreachableDesc') || '서버 또는 네트워크 경로 문제일 수 있습니다. 다시 시도하거나 이 탭을 접을 수 있습니다.')}
-            </div>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%' }}>
-            {/* 이 탭 접기 — 연결이 없어도 화면에서 제거는 항상 가능(세션은 살아있으면 홈에서 재개). */}
-            {onClosePane && (
-              <button
-                type="button"
-                onClick={() => { onClosePane(); }}
-                title={t('dismissTabHint') || '화면에서만 닫습니다. 세션이 살아있으면 홈에서 다시 열 수 있습니다.'}
-                style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: '1 1 92px', minWidth: 0 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
-              >
-                <X size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
-                {t('dismissTab') || '이 탭 접기'}
-              </button>
-            )}
-            {/* 다시 시도 — 오프라인일 땐 어차피 안 되므로 숨김(자동 재연결 안내로 대체). */}
-            {!isOffline && (
-              <button
-                type="button"
-                disabled={reconnecting}
-                onClick={() => {
-                  if (reconnectingRef.current) return;
-                  reconnectingRef.current = true;
-                  setReconnecting(true);
-                  setLoadStuck(false);
-                  reconnectAttemptsRef.current = 0;
-                  if (connectRef.current) connectRef.current({ create: false, autoRecover: false });
-                  else window.location.reload();
-                }}
-                style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: '1 1 112px', minWidth: 0, opacity: reconnecting ? 0.7 : 1 }}
-                onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
-              >
-                {reconnecting
-                  ? <Loader2 size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px', animation: 'tl-spin 0.8s linear infinite' }} />
-                  : <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />}
-                {reconnecting ? (t('reconnecting') || '연결 중...') : (t('retry') || '다시 시도')}
-              </button>
-            )}
-          </div>
-        </GlassOverlayCard>
+        <ConnectionTroubleCard
+          themeUi={themeUi}
+          t={t}
+          isOffline={isOffline}
+          reconnecting={reconnecting}
+          onClosePane={onClosePane}
+          onRetry={handleRetryConnect}
+        />
       )}
 
       {/* xterm.js 컨테이너 — 좌/우/상에 약간의 호흡 패딩.
@@ -2934,251 +2632,42 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       />
 
       {/* "Copied!" 토스트 — 드래그 선택 후 자동 복사 시 짧게 표시 */}
-      {copyFlash && (
-        <div
-          aria-live="assertive"
-          aria-atomic="true"
-          style={{
-            position: 'absolute',
-            bottom: '10px',
-            right: '10px',
-            background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0 || '#313244'} 92%, transparent)`,
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)',
-            color: themeUi.text,
-            border: `1px solid ${themeUi.border}`,
-            borderRadius: '6px',
-            padding: '4px 10px',
-            fontSize: '11px',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            fontWeight: 500,
-            pointerEvents: 'none',
-            zIndex: 15,
-            opacity: 0.92,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-          }}
-        >
-          <Copy size={11} strokeWidth={2} style={{ color: themeUi.accent }} />
-          {t('copied') || 'Copied'}
-        </div>
-      )}
+      {copyFlash && <CopiedToast themeUi={themeUi} t={t} />}
 
-      {imagePasteState && (
-        <div
-          aria-live="assertive"
-          aria-atomic="true"
-          style={{
-            position: 'absolute',
-            bottom: '10px',
-            right: '10px',
-            background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0 || '#313244'} 92%, transparent)`,
-            backdropFilter: 'blur(8px)',
-            WebkitBackdropFilter: 'blur(8px)',
-            color: imagePasteState === 'error' ? (themeUi.danger || themeUi.text) : themeUi.text,
-            border: `1px solid ${themeUi.border}`,
-            borderRadius: '6px',
-            padding: '4px 10px',
-            fontSize: '11px',
-            fontFamily: 'system-ui, -apple-system, sans-serif',
-            fontWeight: 500,
-            pointerEvents: 'none',
-            zIndex: 15,
-            opacity: 0.95,
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-          }}
-        >
-          {imagePasteState === 'uploading' && (
-            <>
-              <Loader2 size={11} strokeWidth={2} style={{ color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
-              {t('imagePasteUploading') || '이미지 업로드 중...'}
-            </>
-          )}
-          {imagePasteState === 'done' && (
-            <>
-              <ArrowDownToLine size={11} strokeWidth={2} style={{ color: themeUi.accent }} />
-              {t('imagePasteDone') || '이미지 경로 입력됨'}
-            </>
-          )}
-          {imagePasteState === 'error' && (
-            <>
-              <AlertTriangle size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
-              {t('imagePasteError') || '이미지 업로드 실패'}
-            </>
-          )}
-        </div>
-      )}
+      <ImagePasteToast state={imagePasteState} themeUi={themeUi} t={t} />
 
-      {/* takeover 배너 — 패널 하단 인라인, 여러 패널에 동시 노출 가능 */}
       {tmuxFallback && (
-        <div style={styles.inlineBanner(themeUi)}>
-          <AlertTriangle size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: themeUi.warning || '#f9e2af' }} />
-          <span style={styles.bannerText(themeUi)}>
-            {t('tmuxFallbackWarning') || 'tmux not found on this host — session will not persist across disconnects'}
-          </span>
-          <button
-            type="button"
-            onClick={() => setTmuxFallback(false)}
-            style={styles.bannerButton(themeUi)}
-          >
-            <X size={11} strokeWidth={2} />
-          </button>
-        </div>
+        <TmuxFallbackBanner themeUi={themeUi} t={t} onDismiss={() => setTmuxFallback(false)} />
       )}
 
-      {/* 재연결 로딩 표시 — 아래쪽 가운데 로딩 스피너 pill. 짧은 끊김은 아예 안 뜨고(디바운스),
-          길어지면 스피너로 "로딩 중" 느낌. 복구되면 스르륵 사라지고 화면은 그대로. */}
+      {/* 재연결 pill — 짧은 끊김은 아예 안 뜨고(디바운스), 길어지면 스피너. 복구되면 스르륵 사라진다. */}
       {bannerMounted && (
-        <div style={styles.reconnectPill(themeUi, bannerShown)}>
-          {isOffline
-            ? <WifiOff size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: themeUi.danger || themeUi.warning }} />
-            : <Loader2 size={13} strokeWidth={1.9} style={{ flexShrink: 0, color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />}
-          <span style={styles.reconnectPillText(themeUi)}>
-            {isOffline ? (t('offlinePill') || '오프라인 — 네트워크 대기 중') : (t('reconnectingPill') || 'Reconnecting…')}
-          </span>
-        </div>
+        <ReconnectPill themeUi={themeUi} t={t} isOffline={isOffline} visible={bannerShown} />
       )}
 
       {evicted && (
-        <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
-          <div style={styles.glassIconTile(themeUi, themeUi.warning || '#f9e2af')}>
-            <MonitorSmartphone size={18} strokeWidth={1.8} />
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
-              {t('takenOverTitle') || '다른 기기에서 접속 중'}
-            </div>
-            <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
-              {t('takenOverDesc') || '이 세션은 다른 기기가 사용하고 있습니다.'}
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled={reconnecting}
-            onClick={() => {
-              if (reconnectingRef.current) return;
-              reconnectingRef.current = true;
-              setReconnecting(true);
-              if (connectRef.current) connectRef.current();
-              else if (onTakeOver) onTakeOver();
-              else window.location.reload();
-            }}
-            style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), opacity: reconnecting ? 0.7 : 1 }}
-            onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
-          >
-            {reconnecting
-              ? <Loader2 size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px', animation: 'tl-spin 0.8s linear infinite' }} />
-              : null}
-            {reconnecting ? (t('reconnecting') || '연결 중...') : (t('takeOver') || '내가 가져오기')}
-          </button>
-        </GlassOverlayCard>
+        <TakeoverCard
+          themeUi={themeUi}
+          t={t}
+          reconnecting={reconnecting}
+          onTakeOver={handleTakeOver}
+        />
       )}
 
       {closing && !evicted && (
-        <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
-          <div style={styles.glassIconTile(themeUi, themeUi.subtext)}>
-            <PowerOff size={18} strokeWidth={1.8} />
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
-              {t('shellEndedTitle') || '셸이 종료되었습니다'}
-            </div>
-            <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
-              {t('autoClosingDesc') || '잠시 후 이 탭이 닫힙니다.'}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={cancelAutoClose}
-            style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), width: '100%' }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
-          >
-            <RotateCcw size={12} strokeWidth={2} style={{ verticalAlign: '-2px', marginRight: '5px' }} />
-            {t('undoClose') || '되돌리기'}
-          </button>
-        </GlassOverlayCard>
+        <ShellClosingCard themeUi={themeUi} t={t} onUndo={cancelAutoClose} />
       )}
 
       {ended && !evicted && !closing && (
-        <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
-          <div style={styles.glassIconTile(themeUi, themeUi.subtext)}>
-            <PowerOff size={18} strokeWidth={1.8} />
-          </div>
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px' }}>
-              {t('shellEndedTitle') || '셸이 종료되었습니다'}
-            </div>
-            <div style={{ fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5 }}>
-              {t('shellEndedDesc') || '기존 셸에 다시 연결할 수 있습니다.'}
-            </div>
-            {endedNotice && (
-              <div style={{ marginTop: '6px', fontSize: fontSize['11'], color: themeUi.warning || themeUi.subtext, lineHeight: 1.45 }}>
-                {endedNotice}
-              </div>
-            )}
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%' }}>
-            {onClosePane && (
-              <button
-                type="button"
-                onClick={() => { onClosePane(); }}
-                style={{ ...styles.glassActionBtn(themeUi, themeUi.subtext), flex: '1 1 0', minWidth: 0 }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 35%, transparent)`; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.subtext} 22%, transparent)`; }}
-              >
-                <X size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
-                <span style={styles.glassActionLabel}>{t('close') || '닫기'}</span>
-              </button>
-            )}
-            <button
-              type="button"
-              disabled={reconnecting}
-              onClick={() => {
-                if (reconnectingRef.current) return;
-                reconnectingRef.current = true;
-                setReconnecting(true);
-                clearEndedForReconnect();
-                reconnectAttemptsRef.current = 0;
-                if (connectRef.current) connectRef.current({ create: false });
-                else window.location.reload();
-              }}
-              style={{ ...styles.glassActionBtn(themeUi, themeUi.accent), flex: '1 1 0', minWidth: 0, opacity: reconnecting ? 0.7 : 1 }}
-              onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 35%, transparent)`; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.accent} 22%, transparent)`; }}
-            >
-              {reconnecting
-                ? <Loader2 size={12} strokeWidth={2} style={{ flexShrink: 0, animation: 'tl-spin 0.8s linear infinite' }} />
-                : <RotateCcw size={12} strokeWidth={2} style={{ flexShrink: 0 }} />}
-              <span style={styles.glassActionLabel}>
-                {reconnecting ? (t('reconnecting') || '연결 중...') : (t('reconnectExistingShell') || '다시 연결')}
-              </span>
-            </button>
-            <button
-              type="button"
-              disabled={reconnecting}
-              onClick={() => {
-                if (reconnectingRef.current) return;
-                reconnectingRef.current = true;
-                setReconnecting(true);
-                clearEndedForReconnect();
-                reconnectAttemptsRef.current = 0;
-                if (connectRef.current) connectRef.current({ create: true });
-                else window.location.reload();
-              }}
-              style={{ ...styles.glassActionBtn(themeUi, themeUi.warning || themeUi.accent), flex: '1 1 0', minWidth: 0, opacity: reconnecting ? 0.7 : 1 }}
-              onMouseEnter={(e) => { if (!reconnecting) e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.warning || themeUi.accent} 35%, transparent)`; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${themeUi.warning || themeUi.accent} 22%, transparent)`; }}
-            >
-              <PowerOff size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
-              <span style={styles.glassActionLabel}>{t('restartShell') || '새 셸 시작'}</span>
-            </button>
-          </div>
-        </GlassOverlayCard>
+        <ShellEndedCard
+          themeUi={themeUi}
+          t={t}
+          notice={endedNotice}
+          reconnecting={reconnecting}
+          onClosePane={onClosePane}
+          onReconnect={handleReconnectExisting}
+          onRestart={handleRestartShell}
+        />
       )}
 
       {/* SSH keyboard-interactive (TOTP/OTP/2FA) 챌린지 prompt — 호스트 연결 직전에 백엔드가 트리거. */}
