@@ -3,59 +3,43 @@
  * xterm.js 기반 터미널 에뮬레이터 (테마 및 스마트 스크롤 지원)
  */
 import { useEffect, useRef, useState, useCallback, useMemo, memo, forwardRef } from 'react';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
-import { SearchAddon } from '@xterm/addon-search';
-import { WebLinksAddon } from '@xterm/addon-web-links';
-import { WebglAddon } from '@xterm/addon-webgl';
-import { Unicode11Addon } from '@xterm/addon-unicode11';
-import { ImageAddon } from '@xterm/addon-image';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
-import { authHeaders } from '../utils/auth';
-import { measureTerminalFit } from '../utils/terminalFit';
-import createTerminalGeometry from '../utils/terminalGeometry';
-import {
-  shouldUseNaturalMouseSelection,
-  selectionArgsFromCells,
-  shouldRouteWheelToPty,
-  shouldClearSelectionOnScroll,
-} from '../utils/terminalMouseSelection';
 import { isTerminalAutoResponse } from '../utils/terminalInput';
 import { pushLocalCommand as pushLocalCommandHistory } from '../utils/commandHistory';
 import { getNetworkSummary, getTerminalClientId } from '../utils/clientIdentity';
-import { PredictiveEcho } from '../utils/predictiveEcho';
 import {
   _textDecoder, _textEncoder,
   RECOVERY_GRACE_MS, RECOVERY_POLL_MS, TAKEOVER_CONFIRM_MS, TAKEOVER_CONFIRM_POLL_MS,
   MAX_RECONNECT_ATTEMPTS, RECONNECT_MAX_WALL_MS, AUTO_CLOSE_MS, LOAD_STUCK_MS,
   HEARTBEAT_INTERVAL_MS, HEARTBEAT_DEAD_MS, HEARTBEAT_INTERVAL_ACTIVE_MS, HEARTBEAT_DEAD_ACTIVE_MS,
   RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_THROTTLE_MS,
-  WS_TICKET_USE_MARGIN_MS, HEALTHY_RECV_MS, NOTICE_SHOW_DELAY_MS, MAX_PENDING_WRITE_BYTES,
+  WS_TICKET_USE_MARGIN_MS, HEALTHY_RECV_MS, NOTICE_SHOW_DELAY_MS,
   WEBGL_DETACH_GRACE_MS, WEBGL_IDLE_RELEASE_MS, CONNECT_OPEN_TIMEOUT_MS, RECONNECT_STABLE_RESET_MS,
-  RECONNECT_WATCHDOG_POLL_MS, RECONNECT_ESCALATE_MS, WASM_ALLOWED, TMUX_WHEEL_INPUT_RE,
+  RECONNECT_WATCHDOG_POLL_MS, RECONNECT_ESCALATE_MS,
   STALE_CONNECTING_RESUME_MS, OUTAGE_PROBE_INTERVAL_MS, OUTAGE_PROBE_TIMEOUT_MS,
   OUTAGE_PROBE_MIN_DELAY_MS, SESSION_GONE_SIGNAL_MS, SESSION_GONE_LOOP_GUARD_MS,
 } from './terminal/terminalConstants';
 import {
   sleep, looksLikeRecoverableBulkInput,
-  uploadImageAndGetPath, uploadFileAndGetPath, copyTextToClipboard, issueWsTicket,
+  uploadFileAndGetPath, copyTextToClipboard, issueWsTicket,
 } from './terminal/terminalHelpers';
 import { TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
 import { CopiedToast, ImagePasteToast, ReconnectPill, TerminalSkeleton, TmuxFallbackBanner } from './terminal/TerminalChrome';
 import { ConnectionTroubleCard, ShellClosingCard, ShellEndedCard, TakeoverCard } from './terminal/TerminalStatusCards';
+import attachTerminalInteractions from './terminal/attachTerminalInteractions';
+import createInputQueue, { isLatencySensitiveInput, WS_BUFFER_HIGH_WATER } from './terminal/createInputQueue';
+import createOutputSink from './terminal/createOutputSink';
+import createWebglController from './terminal/createWebglController';
+import createXtermInstance, { resolveContrast } from './terminal/createXtermInstance';
+import { buildWsUrl, fetchSessionClients, wsPathFor } from './terminal/sessionEndpoints';
 import ensureXtermGlobalStyles from './terminal/xtermGlobalCss';
 import useTerminalApi from './terminal/useTerminalApi';
 import TerminalTexture from './TerminalTexture';
-
-// 글자 대비 설정 → xterm minimumContrastRatio.
-// high=또렷(저대비 색 자동 보정, 가독성 최대) / original=테마 팔레트 그대로(1=보정 없음).
-const CONTRAST_RATIOS = { high: 7, balanced: 4.5, original: 1 };
-const resolveContrast = (mode) => CONTRAST_RATIOS[mode] ?? 7;
 
 // xterm 이 래퍼 크기를 그대로 따르게 고정. 분수 셀 잔여는 늘리지 않고
 // TerminalEdgeGutter 가 테마색 가장자리로 마감한다.
@@ -98,26 +82,20 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const predictiveEchoRef = useRef(null);
   // WebglAddon — 비활성 탭에서는 GPU 페인팅 멈춰서 CPU/배터리 절약 (특히 모바일).
   // 활성화 시 DOM renderer 가 인계 → 활성 복귀 시 새 WebglAddon 재부착.
-  const webglAddonRef = useRef(null);
   // 사용자가 명시적으로 WebGL 끈 경우엔 (settings.useWebgl===false) 자동 재부착 안 함.
-  const wantWebglRef = useRef(true);
   // WebGL 컨텍스트는 활성 탭의 pane 에만 둔다. 브라우저는 WebGL 컨텍스트를 ~16개로
   // 하드 제한하므로, 탭/분할이 많아 pane 이 10+ 개면 컨텍스트 고갈 → 렌더러 OOM 으로
   // 브라우저 탭이 통째로 크래시한다. 비활성 탭은 컨텍스트를 반납(dispose)하고, 활성
   // 복귀 시 재부착. attach/detach 를 isActive effect 에서 호출하기 위한 ref.
-  const attachWebglRef = useRef(null);
-  const detachWebglRef = useRef(null);
+  // WebGL 컨트롤러(부착/반납/idle) + 비활성 유예 반납 타이머.
+  const webglRef = useRef(null);
   const webglDetachTimerRef = useRef(null);
   // dispose() 만으로는 GPU 컨텍스트가 즉시 안 풀린다(브라우저 지연 회수). 분할 pane 이
   // 많고 attach/detach churn 이 누적되면 회수 대기 컨텍스트가 ~16 한도를 넘겨 "Too many
   // active WebGL contexts" → 컨텍스트 손실 캐스케이드 → 탭 freeze. detach 시 이 컨텍스트를
   // 잡아 WEBGL_lose_context 로 명시 반납해 GPU 자원을 즉시 회수한다.
-  const webglGlRef = useRef(null);
   // idle(데이터 활동 없음) 시 WebGL 컨텍스트를 반납하는 카운트다운 타이머 + 활동 알림 함수.
-  const webglIdleTimerRef = useRef(null);
-  const noteWebglActivityRef = useRef(null);
   // 비활성 탭에서 누적된 WS 출력을 활성 복귀 시 한 번에 flush 하기 위한 ref.
-  const flushBufferedOutputRef = useRef(null);
   // 비활성 grace-close 타이머 + close 가 inactivity 때문이었는지 표시.
   const graceCloseTimerRef = useRef(null);
   const wasClosedForInactivityRef = useRef(false);
@@ -146,16 +124,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // fresh TCP 로 wedge 된 HTTP/2 연결 풀을 우회 — 모바일 네트워크 전환 회복력의 핵심).
   const nextTicketRef = useRef(null);
   const authPromptRef = useRef(false);
-  const wsFlushTimeoutRef = useRef(null);
-  const wsBufferRef = useRef([]);
   // xterm 으로 보낸 뒤 아직 파싱 안 끝난(콜백 미도착) 바이트 수. 부하/대량 출력 시
   // term.write 를 무한정 쌓으면 xterm 내부 write 버퍼가 폭증해 브라우저 탭이 통째로 멈춘다.
   // 이 백로그가 상한을 넘으면 새 출력을 잠깐 버려(드롭) 파서가 따라잡게 한다.
-  const pendingWriteBytesRef = useRef(0);
-  const inputQueueRef = useRef([]);
+  // 출력 싱크 / 입력 큐 (모듈이 자체 상태를 들고 있고, ref 는 그 핸들만 잡는다).
+  const outputRef = useRef(null);
+  const inputRef = useRef(null);
   const enqueueInputRef = useRef(null);
   const probeLivenessRef = useRef(null);
-  const inputFlushTimeoutRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
   // 연속 재연결을 시작한 시각(ms). 0 이면 현재 재연결 중 아님. OPEN 성공 시 0 으로 리셋.
   // resume 이벤트가 attempts 를 리셋해도 이 값은 유지돼 벽시계 데드라인이 살아있게 한다.
@@ -474,7 +450,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const [tmuxFallback, setTmuxFallback] = useState(false);
   const [copyFlash, setCopyFlash] = useState(false);
   const [edgeGutter, setEdgeGutter] = useState({ right: 0, bottom: 0 });
-  const copyFlashTimerRef = useRef(null);
   const edgeGutterRef = useRef(edgeGutter);
 
   const updateEdgeGutter = useCallback((metrics) => {
@@ -579,522 +554,79 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     evictedRef.current = false;
     endedRef.current = false;
     // 새 term 생성 — 옛 term 의 미완료 write 콜백은 더 이상 안 오므로 백로그 카운터 리셋.
-    pendingWriteBytesRef.current = 0;
     onReadyChangeRef.current?.(false);
 
-    // 1. xterm.js 인스턴스 생성 (최신 프리미엄 옵션 적용)
-    const terminalFont = normalizeTerminalFontFamily(settings.fontFamily);
-    const term = new Terminal({
+    // xterm + 애드온 한 벌 생성 후 컨테이너에 부착. 배선은 아래에서.
+    const { term, fitAddon, searchAddon, predictiveEcho } = createXtermInstance({
+      container: terminalRef.current,
+      settings,
       theme: currentTheme,
-      fontFamily: terminalFont,
-      fontSize: settings.fontSize,
-      lineHeight: 1.2,
-      letterSpacing: 0,
-      cursorBlink: true,
-      cursorStyle: 'block',
-      cursorInactiveStyle: 'outline',
-      scrollback: 3000,
-      tabStopWidth: 4,
-      minimumContrastRatio: resolveContrast(settings.terminalContrast),
-      allowProposedApi: true,
-      convertEol: false,
-      bracketedPasteMode: true,
-      windowsMode: false,
-      smoothScrollDuration: settings.smoothScroll ? 100 : 0,
-      macOptionIsMeta: true,
-      macOptionClickForcesSelection: true,
-      altClickMovesCursor: true,
-      drawBoldTextInBrightColors: true,
+      paneId,
+      sessionId,
+      onEdgeGutter: updateEdgeGutter,
     });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-
-    // FitAddon v0.11.0 이 scrollbarWidth 만큼 cols 를 과소계산해서 우측 빈틈 생기는 문제 해결.
-    // proposeDimensions 를 덮어써 scrollbarWidth 공제를 완전히 스킵.
-    const origPropose = fitAddon.proposeDimensions.bind(fitAddon);
-    fitAddon.proposeDimensions = function() {
-      const metrics = measureTerminalFit(this._terminal, null);
-      if (!metrics) return origPropose();
-      updateEdgeGutter(metrics);
-      return { cols: metrics.cols, rows: metrics.rows };
-    };
-
-    const origFit = fitAddon.fit.bind(fitAddon);
-    fitAddon.fit = function() {
-      const container = terminalRef.current;
-      if (container) {
-        container.style.width = '100%';
-        container.style.height = '100%';
-      }
-      origFit();
-      const metrics = measureTerminalFit(this._terminal, null);
-      updateEdgeGutter(metrics);
-    };
-
-    const webLinksAddon = new WebLinksAddon();
-    term.loadAddon(webLinksAddon);
-
-    const unicode11Addon = new Unicode11Addon();
-    term.loadAddon(unicode11Addon);
-    term.unicode.activeVersion = '11';
-
-    const searchAddon = new SearchAddon();
-    term.loadAddon(searchAddon);
-    searchAddonRef.current = searchAddon;
-
-    // ImageAddon 은 SIXEL/이미지 디코딩에 WebAssembly 를 쓴다 — WASM 이 CSP 로 막혀
-    // 있으면(WASM_ALLOWED=false) 로드하지 않는다. 막힌 채 로드하면 CompileError 폭주.
-    if (WASM_ALLOWED) {
-      try {
-        const imageAddon = new ImageAddon();
-        term.loadAddon(imageAddon);
-      } catch { /* 이미지 애드온 로드 실패는 치명적이지 않음 — 텍스트 터미널은 정상 동작 */ }
-    }
-
-    // BEL(\x07) 수신 시 탭이 백그라운드면 브라우저 알림 (설정 켜야 동작)
-    term.onBell(() => {
-      if (!settings.bellNotifications) return;
-      if (!document.hidden) return;
-      if (Notification.permission !== 'granted') return;
-      new Notification('Terminal bell', {
-        body: paneId ? `Pane ${paneId.slice(0, 6)}` : 'Terminal',
-        icon: '/favicon.svg',
-        tag: `bell-${paneId || sessionId}`,
-        silent: false,
-      });
-    });
-
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
-
-    term.open(terminalRef.current);
-
-    // NOTE: xterm v6 에서 FitAddon 은 core.viewport.scrollBarWidth 대신
-    // options.overviewRuler?.width || DEFAULT_SCROLL_BAR_WIDTH(=14) 를 사용하므로
-    // 위에서 proposeDimensions 를 monkey-patch 해서 scrollbarWidth 공제를 스킵함.
-    // 아래 defineProperty 도 혹시 모를 내부 viewport 참조용으로 유지.
-    try {
-      const core = term._core;
-      if (core?.viewport) {
-        Object.defineProperty(core.viewport, 'scrollBarWidth', {
-          configurable: true,
-          get: () => 0,
-          set: () => {},
-        });
-      }
-    } catch {}
-
-    // 예측 입력 엔진 — term.open 후 .xterm-screen 이 생겼으니 부착. 유령 색은 테마 전경색을
-    // 흐리게. settings 토글로 on/off (기본 on).
-    try {
-      const pe = new PredictiveEcho(term);
-      pe.setGhostColor(`color-mix(in srgb, ${currentTheme.foreground || '#cdd6f4'} 55%, transparent)`);
-      pe.setEnabled(settings?.predictiveEcho !== false);
-      predictiveEchoRef.current = pe;
-    } catch { /* 예측 입력 부착 실패해도 터미널 자체는 정상 동작 */ }
-
-    // Wheel/touch scroll routing.
-    // tmux attach runs the outer xterm in the alternate buffer, so xterm's local
-    // scrollback cannot represent the real tmux history. In that state we send
-    // SGR mouse-wheel reports to tmux. This intentionally prioritizes scrolling
-    // over native xterm mouse selection/copy behavior.
-    let wheelLineRemainder = 0;
-    let touchLineRemainder = 0;
-
-    // 픽셀 ↔ 셀 좌표 변환 — 휠/터치 라우팅과 자연 마우스 선택이 공유.
-    const { deltaToLines, cellFromClientPoint, bufferCellFromClientPoint } = createTerminalGeometry(term);
-
-    const sendTmuxWheel = (lines, clientX, clientY, source = 'wheel') => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN || lines === 0) return;
-      const { col, row } = cellFromClientPoint(clientX, clientY);
-      const button = lines < 0 ? 64 : 65; // SGR mouse: wheel up/down
-      const maxPerEvent = source === 'touch' ? 8 : 12;
-      const count = Math.min(maxPerEvent, Math.max(1, Math.abs(lines)));
-      let payload = '';
-      for (let i = 0; i < count; i++) {
-        payload += `\x1b[<${button};${col};${row}M`;
-      }
-      // 즉시 ws.send 대신 입력 큐에 push — 트랙패드 스무스 스크롤로 초당 100+ 회 호출돼도
-      // 다음 flush 틱에 합쳐서 1회 전송. 키 입력과 같은 경로라 순서도 그대로 유지.
-      inputQueueRef.current.push(payload);
-      scheduleInputFlush(0);
-    };
-
-    const handleTerminalScrollDelta = (deltaY, deltaMode, clientX, clientY, source = 'wheel') => {
-      const rawLines = deltaToLines(deltaY, deltaMode);
-      if (!Number.isFinite(rawLines) || rawLines === 0) return false;
-
-      if (source === 'touch') {
-        touchLineRemainder += rawLines;
-      } else {
-        wheelLineRemainder += rawLines;
-      }
-      const remainder = source === 'touch' ? touchLineRemainder : wheelLineRemainder;
-      const lines = Math.trunc(remainder);
-      if (source === 'touch') {
-        touchLineRemainder -= lines;
-      } else {
-        wheelLineRemainder -= lines;
-      }
-      if (lines === 0) return true;
-      if (shouldClearSelectionOnScroll({ hasSelection: term.hasSelection(), lines })) {
-        try { term.clearSelection(); } catch { /* noop */ }
-      }
-
-      const routeToPty = shouldRouteWheelToPty({
-        bufferType: term.buffer?.active?.type || 'normal',
-        mouseTrackingMode: term.modes?.mouseTrackingMode || 'none',
-      });
-      if (!routeToPty) {
-        try { term.scrollLines(lines); } catch { /* noop */ }
-      } else {
-        sendTmuxWheel(lines, clientX, clientY, source);
-      }
-      return true;
-    };
-
-    // attachCustomWheelEventHandler return semantics (from xterm.d.ts):
-    //   return true  → allow xterm.js default processing
-    //   return false → cancel xterm.js processing (we handled it)
-    term.attachCustomWheelEventHandler((e) => {
-      handleTerminalScrollDelta(e.deltaY, e.deltaMode, e.clientX, e.clientY, 'wheel');
-      return false;
-    });
-
-    // WebGL 렌더러 — 입력 → 화면 반영이 DOM 보다 훨씬 빠르고
-    // CPU 점유도 낮아진다. 단, 초기화 실패하거나 GPU context 가 lost 되면
-    // 조용히 dispose 하고 xterm.js 의 DOM 렌더러로 자동 폴백 (사용자 개입 X).
-    // 기본값: 사용자가 명시적으로 끄면 OFF, 켜면 ON. 미설정 시 모바일은 기본 OFF
-    // (저가형 안드로이드 GPU 안정성/배터리), 데스크탑은 ON.
-    const explicitWebgl = settings?.useWebgl;
-    const wantWebgl = explicitWebgl === undefined ? !isMobileRef.current : explicitWebgl !== false;
-    wantWebglRef.current = wantWebgl;
-    // WebGL 컨텍스트는 활성 탭의 pane 에만 둔다(컨텍스트 고갈 → 브라우저 크래시 방지).
-    // attach/detach 를 isActive effect 에서 호출할 수 있게 ref 로 노출.
-    // 막 부착된 WebGL 캔버스의 컨텍스트를 DOM 에서 찾아 보관. getContext('webgl2') 는
-    // 이미 생성된 컨텍스트를 그대로 돌려주므로(같은 type) 새로 만들지 않는다. 텍스트/커서
-    // 캔버스는 '2d' 라 webgl2 요청에 null → 자연히 걸러진다.
-    const captureWebglContext = (tm) => {
-      const el = tm?.element;
-      if (!el) return null;
-      for (const c of el.querySelectorAll('canvas')) {
-        let gl = null;
-        try { gl = c.getContext('webgl2'); } catch { gl = null; }
-        if (gl) return gl;
-      }
-      return null;
-    };
-    const attachWebgl = () => {
-      if (!wantWebglRef.current || webglAddonRef.current) return;
-      const tm = xtermRef.current;
-      if (!tm) return;
-      try {
-        const webglAddon = new WebglAddon();
-        webglAddon.onContextLoss(() => {
-          // GPU context 가 죽으면 더 못 그림 → dispose 후 자동으로 DOM 렌더러가 인계.
-          try { webglAddonRef.current?.dispose(); } catch { /* 이미 정리됨 */ }
-          webglAddonRef.current = null;
-          webglGlRef.current = null;
-        });
-        tm.loadAddon(webglAddon);
-        webglAddonRef.current = webglAddon;
-        webglGlRef.current = captureWebglContext(tm);
-      } catch (e) {
-        // 초기화 실패 (WebGL 비활성 환경, iframe 정책 등) — 조용히 폴백.
-        try { webglAddonRef.current?.dispose(); } catch { /* noop */ }
-        webglAddonRef.current = null;
-        webglGlRef.current = null;
-        if (localStorage.getItem('debug_terminal') === '1') {
-          console.warn('[xterm] WebGL init failed, using DOM renderer:', e);
-        }
-      }
-    };
-    const detachWebgl = () => {
-      if (!webglAddonRef.current) return;
-      // dispose() 를 먼저 — 애드온이 자신의 webglcontextlost 리스너를 제거하므로,
-      // 이어지는 loseContext() 가 onContextLoss 재진입을 일으키지 않는다.
-      try { webglAddonRef.current.dispose(); } catch { /* noop */ }
-      webglAddonRef.current = null;
-      // GPU 컨텍스트 명시 반납 — GC 지연 회수를 기다리지 않고 즉시 슬롯을 비운다.
-      const gl = webglGlRef.current;
-      webglGlRef.current = null;
-      try { gl?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* noop */ }
-    };
-    attachWebglRef.current = attachWebgl;
-    detachWebglRef.current = detachWebgl;
-
-    // idle 시 GPU 컨텍스트 반납 — 활성·가시 상태라도 WEBGL_IDLE_RELEASE_MS 동안 데이터 활동이
-    // 없으면 detach. cursorBlink 로 도는 GPU 렌더 루프를 끊어 밤샘 idle GPU OOM(브라우저 freeze)
-    // 을 막는다. 반납 후엔 DOM 렌더러가 인계 — 정지 화면 + 깜빡임 커서는 GPU 비용 0 에 수렴.
-    const armWebglIdle = () => {
-      if (!wantWebglRef.current) return;
-      if (webglIdleTimerRef.current) clearTimeout(webglIdleTimerRef.current);
-      webglIdleTimerRef.current = setTimeout(() => {
-        webglIdleTimerRef.current = null;
-        detachWebgl();
-      }, WEBGL_IDLE_RELEASE_MS);
-    };
-    // 출력/입력/포커스 등 활동 신호 — WebGL 이 idle 로 반납돼 있었으면 즉시 재부착하고
-    // idle 카운트다운을 다시 무장. 비활성/숨김 탭은 기존 grace-detach 가 따로 처리하므로 제외.
-    const noteWebglActivity = () => {
-      if (!wantWebglRef.current || !isActiveRef.current || document.hidden) return;
-      if (!webglAddonRef.current) attachWebgl();
-      armWebglIdle();
-    };
-    noteWebglActivityRef.current = noteWebglActivity;
-
-    // 초기 부착은 활성 탭일 때만. 비활성으로 마운트되면 활성 전환 시 effect 가 붙인다.
-    if (isActiveRef.current) { attachWebgl(); armWebglIdle(); }
-
-    const handleKeyDown = (e) => {
-      // Ctrl+Shift+F → 검색 — 표준 터미널 컨벤션과 별개의 앱 단축키
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'F' || e.key === 'f')) {
-        e.preventDefault();
-        window.dispatchEvent(new CustomEvent('terminal:open-search', { detail: { sessionId } }));
-      }
-    };
-
-    /* xterm 키 가로채기 — Ctrl+V → paste, Ctrl+Shift+C → copy, F12 → DevTools. */
-
-    // paste 이벤트: ClipboardEvent.clipboardData → clipboard-read 권한 불필요.
-    // capture 단계(true)에서 xterm 자체 핸들러보다 먼저 실행해 중복 전송 방지.
-    // 클립보드 이미지 → 서버 업로드 후 저장 경로를 터미널 입력으로 주입.
-    // (PTY 는 텍스트만 전달하므로 이미지 자체는 못 보냄 → 경로로 우회.)
-    // 업로드 로직은 terminalHelpers.uploadImageAndGetPath 로 추출(빠른입력창과 공용).
-    const uploadPastedImage = async (blob) => {
-      setImagePasteState('uploading');
-      try {
-        const data = await uploadImageAndGetPath(blob);
-        // 경로 뒤 공백 — 사용자가 이어서 질문을 타이핑할 수 있게.
-        term.paste(`${data.path} `);
-        setImagePasteState('done');
-        setTimeout(() => setImagePasteState(null), 1200);
-      } catch (err) {
-        logger.error('image paste upload failed', err);
-        setImagePasteState('error');
-        setTimeout(() => setImagePasteState(null), 2500);
-      }
-    };
-
-    const handlePaste = (e) => {
-      const cd = e.clipboardData;
-      if (!cd) return;
-      // 이미지가 클립보드에 있으면 텍스트보다 우선 처리.
-      const imageItem = Array.from(cd.items || []).find(
-        (it) => it.kind === 'file' && it.type.startsWith('image/'),
-      );
-      if (imageItem) {
-        const blob = imageItem.getAsFile();
-        if (blob) {
-          e.preventDefault();
-          e.stopPropagation();
-          uploadPastedImage(blob);
-          return;
-        }
-      }
-      const text = cd.getData('text/plain');
-      if (!text) return;
-      e.preventDefault();
-      e.stopPropagation();
-      term.paste(text);
-    };
-    term.attachCustomKeyEventHandler((e) => {
-      if (e.type !== 'keydown') return true;
-      if (e.key === 'F12') return false;
-      // Ctrl+V / Cmd+V: return false(xterm 처리 중단) but e.preventDefault() 호출 안 함 →
-      // 브라우저가 paste 이벤트를 발화 → handlePaste 가 clipboardData 로 권한 없이 읽음.
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')) {
-        return false;
-      }
-      // Ctrl+Shift+C (Linux/Win) 또는 Cmd+C (Mac, 선택 있을 때) → copy
-      if ((e.ctrlKey && e.shiftKey && (e.key === 'c' || e.key === 'C')) ||
-          (e.metaKey && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C'))) {
-        const sel = term.getSelection();
-        if (sel) {
-          e.preventDefault();
-          copyTextToClipboard(sel);
-          return false;
-        }
-      }
-      return true;
-    });
-
-    // 우클릭: 브라우저 메뉴와 원격 TUI/tmux 마우스 이벤트를 모두 막고 앱 메뉴만 띄운다.
-    // contextmenu 시점만 막으면 먼저 발생한 right-button mousedown 이 xterm 을 통해
-    // 원격 앱으로 전달되어 TUI 자체 메뉴가 터미널 위에 그려질 수 있다.
-    let lastRightClickMenuAt = 0;
-    const openContextMenuFromEvent = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation?.();
-      const term = xtermRef.current;
-      if (!term) return;
-      lastRightClickMenuAt = Date.now();
-      setContextMenu({
-        x: e.clientX,
-        y: e.clientY,
-        hasSelection: !!term.hasSelection(),
-      });
-    };
-    const handleRightMouseDown = (e) => {
-      if (e.button !== 2) return;
-      openContextMenuFromEvent(e);
-    };
-    const handleContextMenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation?.();
-      if (Date.now() - lastRightClickMenuAt < 700) return;
-      openContextMenuFromEvent(e);
-    };
-
-    /* 드래그 중 mousemove 마다 onSelectionChange fire — 정착(80ms idle) 후 한 번만 클립보드 write.
-       race / 이중 발화 방지. */
-    let selectionTimer = null;
-    term.onSelectionChange(() => {
-      if (selectionTimer) clearTimeout(selectionTimer);
-      selectionTimer = setTimeout(() => {
-        const selection = term.getSelection();
-        // 모바일은 자동 복사가 방해될 수 있으므로 (선택 핸들 유지 등) PC 에서만 자동 복사.
-        if (selection && !isMobileRef.current) {
-          copyTextToClipboard(selection).then(() => {
-            setCopyFlash(true);
-            if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
-            copyFlashTimerRef.current = setTimeout(() => setCopyFlash(false), 1800);
-          });
-        }
-      }, 80);
-    });
+    searchAddonRef.current = searchAddon;
+    predictiveEchoRef.current = predictiveEcho;
 
     const container = terminalRef.current;
-    container.addEventListener('mousedown', handleRightMouseDown, true);
-    container.addEventListener('contextmenu', handleContextMenu, true);
-    container.addEventListener('keydown', handleKeyDown);
-    container.addEventListener('paste', handlePaste, true);
-
-    // tmux/vim 계열이 mouse tracking 을 켜도 PC 기본 UX 는 유지한다.
-    // 클릭은 앱으로 보내고, plain left-drag 가 임계값을 넘는 순간부터만 xterm selection 으로 전환한다.
-    let naturalSelection = null;
-    const handleNaturalMouseDown = (e) => {
-      const screen = term.element?.querySelector('.xterm-screen');
-      if (!screen?.contains(e.target)) {
-        naturalSelection = null;
-        return;
-      }
-      if (!shouldUseNaturalMouseSelection({
-        event: e,
-        isMobile: isMobileRef.current,
-        mouseTrackingMode: term.modes?.mouseTrackingMode || 'none',
-      })) {
-        naturalSelection = null;
-        return;
-      }
-      naturalSelection = {
-        startX: e.clientX,
-        startY: e.clientY,
-        start: bufferCellFromClientPoint(e.clientX, e.clientY),
-        selecting: false,
-      };
-    };
-    const handleNaturalMouseMove = (e) => {
-      if (!naturalSelection || (e.buttons & 1) !== 1) return;
-      const dx = Math.abs(e.clientX - naturalSelection.startX);
-      const dy = Math.abs(e.clientY - naturalSelection.startY);
-      if (!naturalSelection.selecting && Math.max(dx, dy) < 5) return;
-      naturalSelection.selecting = true;
-      e.preventDefault();
-      e.stopPropagation();
-      const args = selectionArgsFromCells(
-        naturalSelection.start,
-        bufferCellFromClientPoint(e.clientX, e.clientY),
-        term.cols,
-      );
-      if (args) term.select(args.column, args.row, args.length);
-    };
-    const handleNaturalMouseUp = (e) => {
-      if (!naturalSelection) return;
-      if (naturalSelection.selecting) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      naturalSelection = null;
-    };
-    container.addEventListener('mousedown', handleNaturalMouseDown, true);
-    document.addEventListener('mousemove', handleNaturalMouseMove, true);
-    document.addEventListener('mouseup', handleNaturalMouseUp, true);
-
-    // Mobile scroll + long-press: 오버레이 div가 canvas 위에서 터치를 독점 처리.
-    // touch-action:none 이 오버레이에 있으므로 iOS가 scroll 제스처를 선점하지 않고
-    // touchmove passive:false 에서 preventDefault() 가 보장됨.
     const overlay = touchOverlayRef.current;
-    let touchStartX = 0;
-    let touchStartY = 0;
-    let isTouchScrolling = false;
-    let longPressFired = false;
-    let scrollAccum = 0;
-    let longPressTimer = null;
 
-    const handleTouchStart = (e) => {
-      if (e.touches.length !== 1) return;
-      e.preventDefault();
-      touchStartX = e.touches[0].clientX;
-      touchStartY = e.touches[0].clientY;
-      isTouchScrolling = false;
-      longPressFired = false;
-      scrollAccum = 0;
-      longPressTimer = setTimeout(() => {
-        if (!isTouchScrolling) {
-          longPressFired = true;
-          const t = xtermRef.current;
-          if (t) setContextMenu({ x: touchStartX, y: touchStartY, hasSelection: !!t.hasSelection() });
-        }
-      }, 500);
-    };
+    /* 출력 싱크 — WS 바이트를 배치·백프레셔·비활성지연을 거쳐 xterm 에 쓴다. */
+    const output = createOutputSink({
+      term,
+      isActive: () => isActiveRef.current,
+      onServerOutput: () => predictiveEchoRef.current?.onServerOutput(),
+      onNewData: () => handleNewDataRef.current(),
+      onContent: () => {
+        setHasContent(true);
+        hasContentRef.current = true;
+        if (contentReadyRef.current) return;
+        contentReadyRef.current = true;
+        onReadyChangeRef.current?.(true);
+      },
+    });
+    outputRef.current = output;
 
-    const handleTouchMove = (e) => {
-      if (e.touches.length !== 1) return;
-      clearTimeout(longPressTimer);
-      const dy = touchStartY - e.touches[0].clientY; // positive = 손가락 위로
-      const dx = Math.abs(e.touches[0].clientX - touchStartX);
+    /* 입력 큐 — 청크 분할·백프레셔. 소켓이 닫혀 있어도 버리지 않고 쌓아뒀다 재연결 후 보낸다. */
+    const input = createInputQueue({
+      getSocket: () => wsRef.current,
+      getLastRecvAt: () => lastRecvRef.current,
+      onProbeLiveness: () => probeLivenessRef.current?.(),
+      onBroadcast: (data) => onBroadcastRef.current?.(data),
+      onDisconnected: () => setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...'),
+    });
+    inputRef.current = input;
+    enqueueInputRef.current = input.enqueue;
 
-      if (!isTouchScrolling) {
-        if (Math.abs(dy) > 5 && Math.abs(dy) > dx) isTouchScrolling = true;
-        else return;
-      }
 
-      e.preventDefault();
-      touchStartY = e.touches[0].clientY;
-      scrollAccum += dy;
+    /* WebGL 렌더러 — DOM 렌더러보다 입력→화면 반영이 빠르고 CPU 도 덜 먹는다.
+       기본값: 명시 설정이 없으면 모바일 OFF(저가형 GPU 안정성/배터리) · 데스크탑 ON.
+       컨텍스트 수명(비활성 유예 반납 / idle 반납)은 컨트롤러가 관리한다. */
+    const explicitWebgl = settings?.useWebgl;
+    webglRef.current = createWebglController({
+      term,
+      enabled: explicitWebgl === undefined ? !isMobileRef.current : explicitWebgl !== false,
+      isActive: () => isActiveRef.current,
+      debug: localStorage.getItem('debug_terminal') === '1',
+    });
 
-      handleTerminalScrollDelta(scrollAccum, 0, e.touches[0].clientX, e.touches[0].clientY, 'touch');
-      scrollAccum = 0;
-    };
-
-    const handleTouchEnd = () => {
-      clearTimeout(longPressTimer);
-      // 짧은 탭(스크롤·롱프레스 아님) → 터미널 포커스로 iOS 키보드 호출.
-      // touchstart 에서 preventDefault 하면 합성 click 이 억제되므로
-      // onClick 대신 여기서 사용자 제스처 컨텍스트 안에서 직접 focus 한다.
-      if (!isTouchScrolling && !longPressFired) {
-        xtermRef.current?.focus();
-      }
-    };
-    const handleTouchContextMenu = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-
-    if (overlay) {
-      overlay.addEventListener('contextmenu', handleTouchContextMenu);
-      overlay.addEventListener('touchstart', handleTouchStart, { passive: false });
-      overlay.addEventListener('touchmove', handleTouchMove, { passive: false });
-      overlay.addEventListener('touchend', handleTouchEnd, { passive: true });
-    }
-    container.addEventListener('touchstart', handleTouchStart, { passive: false });
-    container.addEventListener('touchend', handleTouchEnd, { passive: true });
-
+    /* 포인터·키보드 배선 — 휠/터치 스크롤 라우팅, 자연 마우스 선택, 붙여넣기(이미지 포함),
+       컨텍스트 메뉴, 키 가로채기. detach() 로 한 번에 걷는다. */
+    const interactions = attachTerminalInteractions({
+      term,
+      container,
+      overlay,
+      input,
+      getSocket: () => wsRef.current,
+      isMobile: () => isMobileRef.current,
+      sessionId,
+      logger,
+      setContextMenu,
+      setCopyFlash,
+      setImagePasteState,
+    });
 
     // ⚠️  WS 연결 전에 fit() 동기 호출 — xterm.js 의 cols/rows 와 백엔드/tmux 에
     // 알리는 차원이 일치하도록 한다. 늦게 fit 하면 첫 렌더가 80x24 로 나간 뒤
@@ -1106,38 +638,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     }
     term.focus();
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const shell = encodeURIComponent(settings.defaultShell || 'bash');
-
-    /* preflight 결과로 WS 오픈을 gating. 다른 기기가 이미 attach 중이면 건드리지 않고
-       evicted 오버레이만 띄움. 사용자가 명시적으로 "내가 가져오기" 누를 때까지 대기. */
+    /* preflight 로 WS 오픈을 gating. 다른 기기가 이미 attach 중이면 건드리지 않고 evicted
+       오버레이만 띄운다 — 사용자가 "내가 가져오기" 를 누를 때까지 기다린다. */
     let cancelled = false;
-    const runPreflight = async () => {
-      const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
-      if (!sessionToCheck) return { attached: false, exists: true };
-      const clientQS = `&client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
-      const url = hostId
-        ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}${clientQS}`
-        : `/api/sessions/${sessionToCheck}/clients?client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
-      try {
-        const res = await fetch(url, {
-          headers: authHeaders(),
-          signal: AbortSignal.timeout(5000),
-        });
-        if (!res.ok) return { attached: false, exists: true };
-        const data = await res.json();
-        // exists 가 false 면 셸이 exit 등으로 tmux 세션이 사라진 상태 → 사용자에게 알리고 명시적 restart.
-        return {
-          ...data,
-          attached: !!data.attached,
-          count: data.count || 0,
-          exists: data.exists !== false,
-        };
-      } catch {
-        return { attached: false, exists: true };
-      }
-    };
+    const runPreflight = () => fetchSessionClients({
+      sessionId,
+      hostId,
+      tmuxSession: effectiveTmuxSession,
+      clientId: terminalClientIdRef.current,
+    });
 
     const scheduleReconnect = (createIfMissing, notice = '') => {
       if (cancelled) return false;
@@ -1219,25 +728,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       const cols = proposed?.cols || term.cols || 80;
       const rows = proposed?.rows || term.rows || 24;
       lastDimsRef.current = { cols, rows };
-      // 호스트 연결이면 SSH 브리지로, 아니면 로컬 tmux 브리지로
-      const cwdQS = cwd ? `&cwd=${encodeURIComponent(cwd)}` : '';
-      const paneQS = paneIndex ? `&pane_index=${paneIndex}` : '';
-      // tmuxSuffix — 호스트 탭마다 별도 base session 분리 (새 탭 = 새 작업공간)
-      const sfxQS = (hostId && tmuxSuffix) ? `&tmux_suffix=${encodeURIComponent(tmuxSuffix)}` : '';
-      // tmuxSessionName — 명시적 영속 세션 attach (Home 의 Resume). 주어지면 base/suffix 무시.
-      const sessQS = (hostId && tmuxSessionName) ? `&tmux_session_name=${encodeURIComponent(tmuxSessionName)}` : '';
-      const createQS = createIfMissing ? '' : '&create=0';
-      const clientQS = `&client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
-      const wsPath = hostId ? `/ws/host/${hostId}` : `/ws/${sessionId}`;
-      // [Jupyter 식 재연결] 서버가 연결 중 푸시해 둔 사전 티켓이 아직 유효하면 fetch 를 건너뛰고
-      // 곧장 WebSocket 을 연다. 새 WS 는 fresh TCP 라, 모바일 네트워크 전환으로 wedge 된 공유
-      // HTTP/2 연결 풀(= /api/ws-ticket fetch 가 영영 매달리던 주범)을 통째로 우회한다.
+
+      const wsPath = wsPathFor({ sessionId, hostId });
+      /* [Jupyter 식 재연결] 서버가 연결 중 미리 밀어준 티켓이 아직 유효하면 fetch 를 건너뛰고
+         곧장 WebSocket 을 연다. 새 WS 는 fresh TCP 라, 모바일 네트워크 전환으로 wedge 된 공유
+         HTTP/2 연결 풀(= /api/ws-ticket fetch 가 영영 매달리던 주범)을 통째로 우회한다. */
       const stashedTicket = nextTicketRef.current;
       nextTicketRef.current = null; // 단일 사용 — 쓰든 안 쓰든 비운다.
       let wsTicket = null;
       let ticketAuthExpired = false;
-      if (stashedTicket && stashedTicket.ticket
-          && stashedTicket.expiresAt - Date.now() > WS_TICKET_USE_MARGIN_MS) {
+      if (stashedTicket?.ticket && stashedTicket.expiresAt - Date.now() > WS_TICKET_USE_MARGIN_MS) {
         wsTicket = stashedTicket.ticket;
         connectInFlightRef.current = false;
       } else {
@@ -1250,10 +750,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (!wsTicket) {
         if (reconnectAttemptsRef.current < 2) logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
         if (ticketAuthExpired) {
-          // 세션 만료/로그아웃 — issueWsTicket 이 이미 auth:session-expired 를 쏴서 로그인 화면으로
-          // 전환된다. 여기서 "셸 종료 / 재연결 실패" 오버레이까지 띄우면 로그아웃마다 무서운 에러가
-          // 겹쳐 보인다(오바). 종료 오버레이는 띄우지 않고 연결 UI 만 조용히 내린다. 재로그인하면
-          // 탭/세션이 자동 복원된다.
+          /* 세션 만료/로그아웃 — issueWsTicket 이 이미 auth:session-expired 를 쏴서 로그인 화면으로
+             전환된다. 여기서 "셸 종료" 오버레이까지 띄우면 로그아웃마다 무서운 에러가 겹쳐 보인다.
+             연결 UI 만 조용히 내린다 — 재로그인하면 탭/세션이 자동 복원된다. */
           intentionalCloseRef.current = true;
           reconnectingRef.current = false;
           setReconnecting(false);
@@ -1261,18 +760,31 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           setConnectionNotice('');
           return;
         }
-        if (autoRecover) {
-          if (scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) return;
+        if (autoRecover
+            && scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) {
+          return;
         }
-        // 재연결 버스트를 다 소진했어도 막다른 "셸 종료" 오버레이로 끝내지 않는다 — 차분한 재연결
-        // pill 만 유지하면 워치독이 계속 재연결을 시도해 터널/서버 복귀 시 새로고침 없이 자동 복구.
+        // 버스트를 다 소진해도 막다른 "셸 종료" 로 끝내지 않는다 — 차분한 pill 을 유지하면
+        // 워치독이 계속 재시도해 터널/서버가 돌아오면 새로고침 없이 자동 복구된다.
         keepReconnectingPill(t('networkReconnect') || 'Network connection changed. Reconnecting...');
         return;
       }
-      const authQS = `ticket=${encodeURIComponent(wsTicket)}`;
-      const wsUrl = hostId
-        ? `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}${paneQS}${cwdQS}${sfxQS}${sessQS}${createQS}${clientQS}`
-        : `${protocol}//${host}${wsPath}?${authQS}&cols=${cols}&rows=${rows}&shell=${shell}${cwdQS}${createQS}${clientQS}`;
+
+      const wsUrl = buildWsUrl({
+        origin: `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`,
+        ticket: wsTicket,
+        sessionId,
+        hostId,
+        cols,
+        rows,
+        shell: settings.defaultShell || 'bash',
+        cwd,
+        paneIndex,
+        tmuxSuffix,
+        tmuxSessionName,
+        createIfMissing,
+        clientId: terminalClientIdRef.current,
+      });
 
       // 새 소켓을 만들기 전, 이전 소켓이 남아있으면 핸들러를 떼고 닫는다.
       // 재연결 폭주 시 옛 소켓이 OPEN 으로 남아 버퍼·핸들러를 누적하는 누수를 차단.
@@ -1338,7 +850,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }, RECONNECT_STABLE_RESET_MS);
 
         // 재연결로 다시 열렸을 때, 끊겨있는 동안 큐에 쌓인 입력을 즉시 흘려보낸다.
-        if (inputQueueRef.current.length > 0) scheduleInputFlush(0);
+        if (input.hasPending()) input.schedule(0);
 
         // 하트비트 시작 — half-open 소켓 감지. onopen 직후 lastRecv 초기화.
         lastRecvRef.current = Date.now();
@@ -1403,92 +915,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }
       };
 
-    // 비활성 탭에서 누적된 raw bytes 가 일정 이상 쌓이면 가장 오래된 것부터 폐기 (메모리 방어).
-    // 활성 복귀 시 tmux 가 화면을 다시 그려주므로 일부 scrollback 손실은 허용 가능.
-    const INACTIVE_BUFFER_MAX_BYTES = 8 * 1024 * 1024;
-    const dropOldestIfOverCap = () => {
-      let total = 0;
-      for (const b of wsBufferRef.current) total += b.byteLength;
-      while (total > INACTIVE_BUFFER_MAX_BYTES && wsBufferRef.current.length > 1) {
-        total -= wsBufferRef.current.shift().byteLength;
-      }
-    };
-
-    const flushBufferedOutput = () => {
-      wsFlushTimeoutRef.current = null;
-
-      if (wsBufferRef.current.length === 0) return;
-
-      // 비활성 탭은 parse/render 비용을 미룬다 — wsBufferRef 에 누적된 채로 두고,
-      // isActive 가 true 가 되는 effect 에서 다시 flush. xterm parser CPU + cell buffer
-      // 갱신 + setState 트리거 다 절약. tmux 가 활성 시 화면 redraw 도 같이 보내옴.
-      if (!isActiveRef.current) {
-        dropOldestIfOverCap();
-        return;
-      }
-
-      // wsBufferRef.current contains ArrayBuffers. We need to calculate total length and combine them.
-      let totalLength = 0;
-      for (const buffer of wsBufferRef.current) {
-        totalLength += buffer.byteLength;
-      }
-
-      const mergedBuffer = new Uint8Array(totalLength);
-      let offset = 0;
-      for (const buffer of wsBufferRef.current) {
-        mergedBuffer.set(new Uint8Array(buffer), offset);
-        offset += buffer.byteLength;
-      }
-
-      wsBufferRef.current = [];
-
-      // 백프레셔 — xterm 이 못 따라와 미처리 백로그가 상한을 넘으면 이번 출력은 드롭한다.
-      // 무한정 write 하면 xterm 내부 버퍼가 폭증해 브라우저 탭이 통째로 멈추기 때문.
-      // 드롭해도 wsBuffer 는 이미 비웠고, 화면은 다음 출력/redraw 로 회복된다.
-      if (pendingWriteBytesRef.current > MAX_PENDING_WRITE_BYTES) {
-        return;
-      }
-
-      const onWriteDone = () => {
-        // 서버 출력이 반영됐으니 에코로 확정된 만큼 예측 유령을 줄인다(틀린 예측은 여기서 정정).
-        predictiveEchoRef.current?.onServerOutput();
-        handleNewDataRef.current();
-        setHasContent(true);
-        hasContentRef.current = true;
-        if (!contentReadyRef.current) {
-          contentReadyRef.current = true;
-          onReadyChangeRef.current?.(true);
-        }
-      };
-
-      // 미처리 바이트 카운트 — 콜백에서 차감해 백프레셔 판단에 쓴다.
-      pendingWriteBytesRef.current += mergedBuffer.byteLength;
-      const settle = (n) => {
-        pendingWriteBytesRef.current = Math.max(0, pendingWriteBytesRef.current - n);
-      };
-
-      // 비활성 탭 누적분(최대 INACTIVE_BUFFER_MAX_BYTES)을 한 번에 write 하면 xterm 파서가
-      // 메인 스레드를 길게 점유해 재활성 순간 UI 가 멈춘다. 청크로 쪼개 xterm WriteBuffer 가
-      // 프레임 사이사이 렌더를 끼워넣게 한다. subarray 는 복사 없이 뷰만 공유.
-      const WRITE_CHUNK_BYTES = 256 * 1024;
-      if (mergedBuffer.byteLength <= WRITE_CHUNK_BYTES) {
-        const n = mergedBuffer.byteLength;
-        term.write(mergedBuffer, () => { settle(n); onWriteDone(); });
-      } else {
-        for (let off = 0; off < mergedBuffer.byteLength; off += WRITE_CHUNK_BYTES) {
-          const end = Math.min(off + WRITE_CHUNK_BYTES, mergedBuffer.byteLength);
-          const isLast = end >= mergedBuffer.byteLength;
-          const chunkLen = end - off;
-          term.write(
-            mergedBuffer.subarray(off, end),
-            () => { settle(chunkLen); if (isLast) onWriteDone(); },
-          );
-        }
-      }
-    };
-    // 외부 effect 에서 활성 복귀 시 호출할 수 있게 ref 노출.
-    flushBufferedOutputRef.current = flushBufferedOutput;
-
     // 데이터 도착 시 활동 신호 — 탭 busy 인디케이터 트리거.
     // 100ms 쓰로틀로 조여 반응성 ↑ (이전 300ms 면 짧은 출력 burst 가 한 번 디스패치되고 끝나
     // busy on/off 가 깜빡 보였음). App.jsx 가 별도 윈도우로 fade-out 처리.
@@ -1498,7 +924,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (now - lastActivityDispatch < 100) return;
       lastActivityDispatch = now;
       // 출력 = 활동 → idle 로 반납됐던 WebGL 재부착 + idle 카운트다운 리셋.
-      noteWebglActivityRef.current?.();
+      webglRef.current?.noteActivity();
       try {
         window.dispatchEvent(new CustomEvent('iterm:activity', {
           detail: { paneId, tabId, sessionId, hostId, ts: now },
@@ -1508,12 +934,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     const handleEviction = () => {
       evictedRef.current = true;
-      // Clear any buffered output — nothing after eviction should reach the terminal
-      wsBufferRef.current = [];
-      if (wsFlushTimeoutRef.current) {
-        clearTimeout(wsFlushTimeoutRef.current);
-        wsFlushTimeoutRef.current = null;
-      }
+      // eviction 이후의 출력은 아무것도 터미널에 닿으면 안 된다.
+      output.clear();
       setEvicted(true);
     };
 
@@ -1534,11 +956,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           } catch {}
         }
 
-        wsBufferRef.current.push(event.data);
+        output.push(event.data);
         dispatchActivity();
-        if (wsFlushTimeoutRef.current) return;
-        // 활성 16ms(한 프레임)·비활성 50ms 로 배치. flood 시 write/render 폭주를 막는 안정값.
-        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 16 : 50);
         return;
       }
 
@@ -1581,11 +1000,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
       // string payload (like detached message, or unhandled json fallback)
       if (typeof event.data === 'string') {
-        wsBufferRef.current.push(_textEncoder.encode(event.data).buffer);
+        output.push(_textEncoder.encode(event.data).buffer);
         dispatchActivity();
-        if (wsFlushTimeoutRef.current) return;
-        // 활성 16ms(한 프레임)·비활성 50ms 로 배치. flood 시 write/render 폭주를 막는 안정값.
-        wsFlushTimeoutRef.current = setTimeout(flushBufferedOutput, isActiveRef.current ? 16 : 50);
       }
     };
 
@@ -1800,81 +1216,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // 대용량 paste 는 절대 동기 while 루프로 WebSocket.send() 를 몰아넣지 않는다.
     // 브라우저 WebSocket buffer / 서버 receive_text / PTY / tmux / vim 이 모두 별도 속도로 drain 되므로
     // 수 MB~수십 MB 를 한 번에 밀면 UI freeze, WS close, tmux/vim 입력 유실이 생길 수 있다.
-    const INPUT_CHUNK = 16 * 1024;
-    const INPUT_BYTES_PER_TICK = 128 * 1024;
-    const WS_BUFFER_HIGH_WATER = 512 * 1024;
-    const isLatencySensitiveInput = (data) => (
-      typeof data === 'string'
-      && (data.length === 1 || (data.charCodeAt(0) === 0x1b && data.length <= 16))
-    );
-
-    const scheduleInputFlush = (delay = 0) => {
-      if (inputFlushTimeoutRef.current) return;
-      inputFlushTimeoutRef.current = setTimeout(flushInputQueue, delay);
-    };
-
-    const flushInputQueue = () => {
-      inputFlushTimeoutRef.current = null;
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      if (inputQueueRef.current.length === 0) return;
-
-      if (ws.bufferedAmount > WS_BUFFER_HIGH_WATER) {
-        scheduleInputFlush(16);
-        return;
-      }
-
-      let sent = 0;
-      while (inputQueueRef.current.length > 0 && sent < INPUT_BYTES_PER_TICK) {
-        if (ws.bufferedAmount > WS_BUFFER_HIGH_WATER) break;
-        let next = inputQueueRef.current[0];
-        if (!next) {
-          inputQueueRef.current.shift();
-          continue;
-        }
-        const chunk = next.length > INPUT_CHUNK ? next.slice(0, INPUT_CHUNK) : next;
-        ws.send(chunk);
-        sent += chunk.length;
-        if (next.length > INPUT_CHUNK) {
-          inputQueueRef.current[0] = next.slice(INPUT_CHUNK);
-        } else {
-          inputQueueRef.current.shift();
-        }
-      }
-
-      if (inputQueueRef.current.length > 0) {
-        scheduleInputFlush(ws.bufferedAmount > WS_BUFFER_HIGH_WATER ? 16 : 1);
-      }
-    };
-
-    const enqueueInput = (data, { broadcast = false, delay = 0, priority = false, dropQueuedWheel = false } = {}) => {
-      if (typeof data !== 'string' || data.length === 0) return false;
-      if (dropQueuedWheel) {
-        inputQueueRef.current = inputQueueRef.current.filter((item) => !TMUX_WHEEL_INPUT_RE.test(item));
-      }
-      const MAX_QUEUE_BYTES = 1024 * 1024;
-      let totalBytes = data.length;
-      for (const item of inputQueueRef.current) totalBytes += item.length;
-      while (totalBytes > MAX_QUEUE_BYTES && inputQueueRef.current.length > 1) {
-        totalBytes -= inputQueueRef.current.shift().length;
-      }
-      if (priority) inputQueueRef.current.unshift(data);
-      else inputQueueRef.current.push(data);
-      const ws = wsRef.current;
-      if (ws?.readyState === WebSocket.OPEN && Date.now() - lastRecvRef.current > 3000) {
-        probeLivenessRef.current?.();
-      }
-      if (!ws || ws.readyState !== WebSocket.OPEN) {
-        setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
-        scheduleInputFlush(Math.max(delay, 50));
-      } else {
-        scheduleInputFlush(delay);
-      }
-      if (broadcast) onBroadcastRef.current?.(data);
-      return true;
-    };
-    enqueueInputRef.current = enqueueInput;
-
     // 입력 시점 빠른 생존 확인 — 사용자가 타이핑하는데 서버로부터 한동안 아무 것도 못 받았으면
     // half-open 의심. ping 을 즉시 쏘고 짧게 기다려 pong(또는 그 외 메시지) 이 안 오면 죽은 소켓으로
     // 보고 재연결. pong 은 셸 상태와 무관하게 브리지가 응답하므로, 비밀번호 입력/장기 실행 명령처럼
@@ -1904,7 +1245,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     term.onData((data) => {
       // 입력 = 활동 → idle 로 반납됐던 WebGL 재부착 + idle 카운트다운 리셋(타이핑 즉시 또렷하게).
-      noteWebglActivityRef.current?.();
+      webglRef.current?.noteActivity();
       if (isTerminalAutoResponse(data)) {
         if (localStorage.getItem('debug_terminal') === '1') {
           console.debug('[xterm] dropped terminal auto-response from input stream', JSON.stringify(data));
@@ -1927,15 +1268,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       // 입력을 버리지 않고 큐에 적재해 다음 OPEN 또는 flush 틱에 전송. drop 으로 인한
       // "키 씹힘" 의 주요 원인 차단. 단 너무 오래 쌓이지 않게 큐 사이즈 보호.
       if (!ws || ws.readyState !== WebSocket.OPEN) {
-        enqueueInput(data, { broadcast: false, delay: 50 });
+        input.enqueue(data, { broadcast: false, delay: 50 });
         return;
       }
-      if (isLatencySensitiveInput(data) && inputQueueRef.current.length === 0 && ws.bufferedAmount < WS_BUFFER_HIGH_WATER) {
+      if (isLatencySensitiveInput(data) && !input.hasPending() && ws.bufferedAmount < WS_BUFFER_HIGH_WATER) {
         ws.send(data);
         onBroadcastRef.current?.(data);
         return;
       }
-      enqueueInput(data, { broadcast: true, delay: 0 });
+      input.enqueue(data, { broadcast: true, delay: 0 });
     });
 
     // 스크롤 이벤트 연결
@@ -2010,38 +1351,19 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleResize);
       }
-      if (overlay) {
-        overlay.removeEventListener('contextmenu', handleTouchContextMenu);
-        overlay.removeEventListener('touchstart', handleTouchStart);
-        overlay.removeEventListener('touchmove', handleTouchMove);
-        overlay.removeEventListener('touchend', handleTouchEnd);
-      }
-      if (container) {
-        container.removeEventListener('mousedown', handleRightMouseDown, true);
-        container.removeEventListener('contextmenu', handleContextMenu, true);
-        container.removeEventListener('keydown', handleKeyDown);
-        container.removeEventListener('paste', handlePaste, true);
-        container.removeEventListener('mousedown', handleNaturalMouseDown, true);
-        container.removeEventListener('touchstart', handleTouchStart);
-        container.removeEventListener('touchend', handleTouchEnd);
-      }
-      document.removeEventListener('mousemove', handleNaturalMouseMove, true);
-      document.removeEventListener('mouseup', handleNaturalMouseUp, true);
+      interactions.detach();
       try { wsRef.current?.close(); } catch {}
       connectRef.current = null;
       runPreflightRef.current = null;
-      wsBufferRef.current = [];
-      if (webglIdleTimerRef.current) { clearTimeout(webglIdleTimerRef.current); webglIdleTimerRef.current = null; }
-      noteWebglActivityRef.current = null;
-      // dispose 만으로는 GPU 컨텍스트가 GC 때까지 남는다 → unmount(특히 pane 닫기/재생성)가
-      // 잦으면 컨텍스트가 누적돼 한도 초과 freeze. detachWebgl 로 명시 반납까지 수행.
-      try { (detachWebglRef.current || (() => { webglAddonRef.current?.dispose(); webglAddonRef.current = null; }))(); } catch { /* noop */ }
-      detachWebglRef.current = null;
-      attachWebglRef.current = null;
+      output.dispose();
+      outputRef.current = null;
+      // dispose 만으로는 GPU 컨텍스트가 GC 때까지 남는다 → pane 닫기/재생성이 잦으면
+      // 컨텍스트가 누적돼 한도 초과 freeze. 컨트롤러가 명시 반납(loseContext)까지 한다.
+      try { webglRef.current?.dispose(); } catch { /* noop */ }
+      webglRef.current = null;
       if (webglDetachTimerRef.current) { clearTimeout(webglDetachTimerRef.current); webglDetachTimerRef.current = null; }
       try { predictiveEchoRef.current?.dispose(); } catch { /* noop */ }
       predictiveEchoRef.current = null;
-      flushBufferedOutputRef.current = null;
       if (graceCloseTimerRef.current) clearTimeout(graceCloseTimerRef.current);
       graceCloseTimerRef.current = null;
       wasClosedForInactivityRef.current = false;
@@ -2060,11 +1382,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (heartbeatTimerRef.current) { clearInterval(heartbeatTimerRef.current); heartbeatTimerRef.current = null; }
       if (livenessProbeTimerRef.current) { clearTimeout(livenessProbeTimerRef.current); livenessProbeTimerRef.current = null; }
       if (resumeProbeTimerRef.current) { clearTimeout(resumeProbeTimerRef.current); resumeProbeTimerRef.current = null; }
-      if (wsFlushTimeoutRef.current) clearTimeout(wsFlushTimeoutRef.current);
-      if (inputFlushTimeoutRef.current) clearTimeout(inputFlushTimeoutRef.current);
-      if (copyFlashTimerRef.current) clearTimeout(copyFlashTimerRef.current);
-      if (selectionTimer) clearTimeout(selectionTimer);
-      inputQueueRef.current = [];
+      input.dispose();
+      inputRef.current = null;
       enqueueInputRef.current = null;
       probeLivenessRef.current = null;
       fitNowRef.current = null;
@@ -2077,42 +1396,37 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
      비활성 탭 / 페이지 hidden 일 땐 폴링 중단 — 사용자가 그 탭을 보지 않는데 미리 재attach 할 이유 없음. */
   useEffect(() => {
     if (!evicted || !isActive) return undefined;
-    const sessionToCheck = hostId ? effectiveTmuxSession : sessionId;
-    if (!sessionToCheck) return undefined;
-    const clientQS = `client_id=${encodeURIComponent(terminalClientIdRef.current)}`;
-    const url = hostId
-      ? `/api/hosts/${hostId}/tmux-clients?session=${encodeURIComponent(sessionToCheck)}&${clientQS}`
-      : `/api/sessions/${sessionToCheck}/clients?${clientQS}`;
+    if (!(hostId ? effectiveTmuxSession : sessionId)) return undefined;
     let cancelled = false;
     let zeroStreak = 0;
-    const ZERO_THRESHOLD = 2; // 2회 연속 count=0 이어야 재attach
+    const ZERO_THRESHOLD = 2; // 2회 연속 "붙은 사람 없음" 이어야 재attach (단발 0 = blip)
     const tick = async () => {
-      if (document.hidden) return; // 페이지 hidden 이면 폴링 스킵 — 사용자 보이면 visibilitychange 가 다시 tick
-      try {
-        const res = await fetch(url, { headers: authHeaders() });
-        if (cancelled) return;
-        if (!res.ok) { zeroStreak = 0; return; }
-        const data = await res.json();
-        if (data.same_client_active && !data.other_client_active) {
-          evictedRef.current = false;
-          setEvicted(false);
-          setConnectionNotice(t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...');
-          if (connectRef.current) connectRef.current({ create: false });
-          return;
-        }
-        if (!data.attached) {
-          zeroStreak++;
-          if (zeroStreak >= ZERO_THRESHOLD) {
-            /* 다른 기기 다 떨어짐 → 자동 재attach. connectRef 직접 호출해 remount 없이 WS 만 다시 열음.
-               새 attach 가 PC 의 PTY 사이즈로 spawn 되니 tmux 가 자동으로 PC 사이즈로 resize 됨. */
-            evictedRef.current = false;
-            setEvicted(false);
-            if (connectRef.current) connectRef.current();
-          }
-        } else {
-          zeroStreak = 0;
-        }
-      } catch { zeroStreak = 0; /* 네트워크 일시 실패 — 다음 tick 에서 다시 */ }
+      if (document.hidden) return; // 안 보이는 탭은 쉰다 — visibilitychange 가 다시 깨운다
+      const data = await fetchSessionClients({
+        sessionId,
+        hostId,
+        tmuxSession: effectiveTmuxSession,
+        clientId: terminalClientIdRef.current,
+      });
+      if (cancelled) return;
+      if (data.same_client_active && !data.other_client_active) {
+        evictedRef.current = false;
+        setEvicted(false);
+        setConnectionNotice(t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...');
+        connectRef.current?.({ create: false });
+        return;
+      }
+      if (data.attached) {
+        zeroStreak = 0;
+        return;
+      }
+      zeroStreak += 1;
+      if (zeroStreak < ZERO_THRESHOLD) return;
+      /* 다른 기기가 다 떨어졌다 → 자동 재attach. remount 없이 WS 만 다시 연다.
+         새 attach 가 이 기기의 PTY 크기로 뜨므로 tmux 도 따라서 resize 된다. */
+      evictedRef.current = false;
+      setEvicted(false);
+      connectRef.current?.();
     };
     /* 초기 대기 8s(기기가 안정화될 시간) + 이후 10s 간격으로 폴링. */
     const initial = setTimeout(tick, 8000);
@@ -2205,7 +1519,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const { copyAll } = useTerminalApi({
     refs: {
       xtermRef, wsRef, searchAddonRef,
-      enqueueInputRef, forceScrollToBottomRef, fitNowRef, noteWebglActivityRef,
+      enqueueInputRef, forceScrollToBottomRef, fitNowRef, webglRef,
       lastDimsRef, evictedRef, endedRef, hasContentRef,
     },
     forwardedRef: ref,
@@ -2229,7 +1543,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 활성 복귀 시 비활성 동안 쌓인 출력을 즉시 flush. tmux 도 별도로 화면 redraw 를 보내옴.
   useEffect(() => {
     if (!isActive) return;
-    if (flushBufferedOutputRef.current) flushBufferedOutputRef.current();
+    outputRef.current?.flush();
   }, [isActive]);
 
   // WebGL 컨텍스트 수명 = 활성 탭에 한정. 비활성 탭은 유예 후 컨텍스트 반납해서
@@ -2241,19 +1555,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clearTimeout(webglDetachTimerRef.current);
         webglDetachTimerRef.current = null;
       }
-      // 부착 + idle 카운트다운 시작(noteWebglActivity 가 둘 다 처리).
-      noteWebglActivityRef.current?.();
+      // 부착 + idle 카운트다운 시작(noteActivity 가 둘 다 처리).
+      webglRef.current?.noteActivity();
       return undefined;
     }
-    // 비활성 — idle 반납 타이머는 멈추고, 빠른 탭 전환 churn 방지를 위해 유예 후 반납.
-    if (webglIdleTimerRef.current) {
-      clearTimeout(webglIdleTimerRef.current);
-      webglIdleTimerRef.current = null;
-    }
+    // 비활성 — idle 반납 카운트다운은 멈추고, 빠른 탭 전환 churn 방지를 위해 유예 후 반납.
+    webglRef.current?.cancelIdle();
     if (webglDetachTimerRef.current) clearTimeout(webglDetachTimerRef.current);
     webglDetachTimerRef.current = setTimeout(() => {
       webglDetachTimerRef.current = null;
-      detachWebglRef.current?.();
+      webglRef.current?.detach();
     }, WEBGL_DETACH_GRACE_MS);
     return () => {
       if (webglDetachTimerRef.current) {
@@ -2339,7 +1650,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (fitRaf) cancelAnimationFrame(fitRaf);
       fitRaf = requestAnimationFrame(() => {
         fitRaf = null;
-        flushBufferedOutputRef.current?.();
+        outputRef.current?.flush();
         fitNowRef.current?.('resume');
       });
       // trailing fit — 복귀/재포커스 직후 한 프레임만으론 visualViewport·포커스 전환으로

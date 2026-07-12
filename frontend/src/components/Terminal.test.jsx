@@ -22,8 +22,9 @@ vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class { activate() {} 
 vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: class { activate() {} dispose() {} } }));
 vi.mock('@xterm/addon-image', () => ({ ImageAddon: class { activate() {} dispose() {} } }));
 
-// 실제 fit 측정은 DOM 크기에 의존 — null 을 주면 컴포넌트가 FitAddon 기본값으로 폴백한다.
-vi.mock('../utils/terminalFit', () => ({ measureTerminalFit: () => null }));
+// 실제 fit 측정은 DOM 크기에 의존. 기본은 null → 컴포넌트가 FitAddon 기본값(80x24)으로 폴백.
+// 컴포넌트가 fitAddon.proposeDimensions 를 몽키패치하므로, 치수를 바꾸려면 여기를 조작한다.
+vi.mock('../utils/terminalFit', () => ({ measureTerminalFit: vi.fn(() => null) }));
 
 // 예측 입력은 .xterm-screen 에 오버레이를 붙인다 — 여기선 관심사가 아니라 대역.
 vi.mock('../utils/predictiveEcho', () => ({
@@ -44,6 +45,7 @@ vi.mock('./terminal/terminalHelpers', async (importOriginal) => ({
 }));
 
 import TerminalComponent from './Terminal';
+import { measureTerminalFit } from '../utils/terminalFit';
 import { harness, FakeWebSocket, testSettings } from '../test/xtermHarness';
 
 const renderTerminal = (props = {}) => render(
@@ -73,6 +75,7 @@ describe('Terminal', () => {
 
   beforeEach(() => {
     harness.reset();
+    vi.mocked(measureTerminalFit).mockReturnValue(null);
     realWebSocket = global.WebSocket;
     global.WebSocket = FakeWebSocket;
   });
@@ -232,6 +235,133 @@ describe('Terminal', () => {
 
       await waitFor(() => expect(ws.sent).toContain('echo hi\r'));
     });
+  });
+
+  describe('입력', () => {
+    // 지연에 민감한 단일 키는 큐를 거치지 않고 곧장 소켓으로 — 타이핑 체감 지연의 핵심.
+    it('단일 키 입력은 큐를 우회해 즉시 보낸다', async () => {
+      renderTerminal();
+      const ws = await openSocket();
+
+      await act(async () => { harness.term.handlers.data('a'); });
+
+      expect(ws.sent).toContain('a');
+    });
+
+    // 대용량 paste 를 한 번에 밀면 WS 버퍼/PTY/tmux 가 못 따라와 UI 가 얼고 입력이 유실된다.
+    it('대용량 붙여넣기는 16KB 청크로 쪼개 보낸다', async () => {
+      renderTerminal({ sessionId: 'bulk' });
+      const ws = await openSocket();
+      await waitFor(() => expect(window.terminalSessions?.bulk).toBeTruthy());
+
+      const big = 'x'.repeat(40 * 1024);
+      await act(async () => {
+        window.terminalSessions.bulk.sendData(big);
+        await new Promise((r) => setTimeout(r, 60));
+      });
+
+      const chunks = ws.sent.filter((s) => typeof s === 'string' && s.startsWith('x'));
+      expect(chunks.length).toBeGreaterThan(1);
+      expect(Math.max(...chunks.map((c) => c.length))).toBeLessThanOrEqual(16 * 1024);
+      expect(chunks.join('')).toBe(big);
+    });
+
+    // 끊긴 동안 친 키를 버리면 "키 씹힘"이 된다 — 큐에 쌓아뒀다가 다시 열리면 흘려보낸다.
+    it('소켓이 닫힌 동안의 입력을 버리지 않고 재연결 후 보낸다', async () => {
+      renderTerminal();
+      const first = await openSocket();
+
+      await act(async () => { first.serverClose(); });
+      await act(async () => { harness.term.handlers.data('queued'); });
+
+      // 재연결이 새 소켓을 연다(첫 시도는 150~300ms).
+      await waitFor(() => expect(harness.sockets.length).toBeGreaterThan(1), { timeout: 3000 });
+      const next = harness.socket;
+      await act(async () => { next.serverOpen(); await new Promise((r) => setTimeout(r, 60)); });
+
+      expect(next.sent).toContain('queued');
+    });
+  });
+
+  describe('출력 배치', () => {
+    // 비활성 pane 에서 xterm 파싱/렌더를 돌리면 메인스레드만 먹는다 — 활성 복귀 때 한 번에 쓴다.
+    it('비활성 pane 은 출력을 모아뒀다가 활성 복귀 시 쓴다', async () => {
+      const props = { sessionId: 's', settings: testSettings(), isFocused: true };
+      const { rerender } = render(<TerminalComponent {...props} isActive={false} />);
+      const ws = await openSocket();
+
+      await act(async () => {
+        ws.serverSendBytes('while-inactive');
+        await new Promise((r) => setTimeout(r, 80));
+      });
+      expect(harness.term.text).not.toContain('while-inactive');
+
+      await act(async () => {
+        rerender(<TerminalComponent {...props} isActive={true} />);
+        await new Promise((r) => setTimeout(r, 40));
+      });
+      await waitFor(() => expect(harness.term.text).toContain('while-inactive'));
+    });
+  });
+
+  describe('재연결', () => {
+    it('예기치 않은 끊김이면 새 소켓을 연다', async () => {
+      renderTerminal();
+      const first = await openSocket();
+
+      await act(async () => { first.serverClose(1006); });
+
+      await waitFor(() => expect(harness.sockets.length).toBeGreaterThan(1), { timeout: 3000 });
+      expect(harness.socket).not.toBe(first);
+    });
+
+    it('연결이 열려 있으면 하트비트 ping 을 보낸다', async () => {
+      renderTerminal();
+      const ws = await openSocket();
+
+      await act(async () => { await new Promise((r) => setTimeout(r, 5200)); });
+
+      expect(ws.jsonSent().some((m) => m.type === 'ping')).toBe(true);
+    }, 10000);
+  });
+
+  describe('리사이즈', () => {
+    it('크기가 바뀌면 서버에 새 cols/rows 를 보낸다', async () => {
+      renderTerminal();
+      const ws = await openSocket();
+      await waitFor(() => expect(ws.jsonSent().some((m) => m.type === 'resize')).toBe(true));
+
+      vi.mocked(measureTerminalFit).mockReturnValue({ cols: 120, rows: 40, remainderX: 0, remainderY: 0 });
+      await act(async () => {
+        window.dispatchEvent(new Event('resize'));
+        await new Promise((r) => setTimeout(r, 400));
+      });
+
+      await waitFor(() => {
+        expect(ws.jsonSent().some((m) => m.type === 'resize' && m.cols === 120 && m.rows === 40)).toBe(true);
+      });
+    });
+  });
+
+  describe('WebGL 수명', () => {
+    // 컨텍스트는 브라우저당 ~16개 한도 — 비활성 pane 이 물고 있으면 고갈되어 탭이 통째로 죽는다.
+    it('활성이면 부착하고, 비활성이 되면 유예 후 반납한다', async () => {
+      const props = { sessionId: 'gl', settings: testSettings({ useWebgl: true }), isFocused: true };
+      const { rerender } = render(<TerminalComponent {...props} isActive={true} />);
+      await openSocket();
+
+      await waitFor(() => expect(harness.webgl).toBeTruthy());
+      const addon = harness.webgl;
+      expect(addon.dispose).not.toHaveBeenCalled();
+
+      // 주의: rerender 와 대기를 한 act() 에 넣으면 안 된다 — 이펙트가 act 종료 시점에야
+      // flush 돼서 반납 타이머가 대기가 끝난 뒤에 걸린다. act 를 나눠 이펙트를 먼저 태운다.
+      await act(async () => { rerender(<TerminalComponent {...props} isActive={false} />); });
+      // WEBGL_DETACH_GRACE_MS(8s) 유예를 넘겨야 반납한다 — 빠른 탭 전환 churn 방지용 유예.
+      await act(async () => { await new Promise((r) => setTimeout(r, 8400)); });
+
+      expect(addon.dispose).toHaveBeenCalled();
+    }, 20000);
   });
 
   describe('정리', () => {

@@ -15,7 +15,7 @@ import { pushCommand as pushCommandHistory } from '../../utils/commandHistory';
 const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady }) => {
   const {
     xtermRef, wsRef, searchAddonRef,
-    enqueueInputRef, forceScrollToBottomRef, fitNowRef, noteWebglActivityRef,
+    enqueueInputRef, forceScrollToBottomRef, fitNowRef, webglRef,
     lastDimsRef, evictedRef, endedRef, hasContentRef,
   } = refs;
 
@@ -113,8 +113,8 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
   const focus = useCallback(() => {
     xtermRef.current?.focus();
     // 포커스 복귀 = 활동 → 타이핑 전에 미리 WebGL 을 재부착해 repaint 가 눈에 안 띄게.
-    noteWebglActivityRef.current?.();
-  }, [xtermRef, noteWebglActivityRef]);
+    webglRef.current?.noteActivity();
+  }, [xtermRef, webglRef]);
 
   const clear = useCallback(() => {
     xtermRef.current?.clear();

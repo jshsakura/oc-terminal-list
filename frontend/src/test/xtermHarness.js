@@ -12,12 +12,18 @@ import { vi } from 'vitest';
 export const harness = {
   terms: [],
   sockets: [],
+  fits: [],
+  webgls: [],
   reset() {
     this.terms = [];
     this.sockets = [];
+    this.fits = [];
+    this.webgls = [];
   },
   get term() { return this.terms[this.terms.length - 1]; },
   get socket() { return this.sockets[this.sockets.length - 1]; },
+  get fit() { return this.fits[this.fits.length - 1]; },
+  get webgl() { return this.webgls[this.webgls.length - 1]; },
 };
 
 const makeBuffer = () => ({
@@ -98,6 +104,7 @@ export class FakeFitAddon {
     this._terminal = null;
     this.fit = vi.fn();
     this.proposeDimensions = vi.fn(() => ({ cols: 80, rows: 24 }));
+    harness.fits.push(this);
   }
   activate(term) { this._terminal = term; }
   dispose() {}
@@ -122,6 +129,7 @@ export class FakeWebglAddon extends NoopAddon {
     super();
     this.onContextLoss = vi.fn();
     this.dispose = vi.fn();
+    harness.webgls.push(this);
   }
 }
 
