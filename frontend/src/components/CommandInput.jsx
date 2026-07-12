@@ -1,38 +1,25 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Crosshair, Check, CheckSquare, Square, SquareTerminal, AppWindow } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2 } from 'lucide-react';
 import Button from './common/Button';
-import GlassModal from './common/GlassModal';
 import { tokens } from '../styles/tokens';
-import useSpeechRecognition from '../hooks/useSpeechRecognition';
-import useCommandHistory from '../hooks/useCommandHistory';
-import { removeCommand } from '../utils/commandHistory';
-import { uploadImageAndGetPath } from './terminal/terminalHelpers';
+import useVisualViewport from '../hooks/useVisualViewport';
+import HistoryPanel from './commandinput/HistoryPanel';
+import TargetSelect from './commandinput/TargetSelect';
+import focusToEnd from './commandinput/focusToEnd';
+import useImageAttach from './commandinput/useImageAttach';
+import useSendTargets from './commandinput/useSendTargets';
+import useVoiceDictation from './commandinput/useVoiceDictation';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
-
-// 앱 i18n 코드(ko / en) → Web Speech API BCP-47 태그.
-// ko 외 모든 값은 기본적으로 en-US 로 떨어진다.
-const speechLangFor = (language) => (language === 'ko' ? 'ko-KR' : 'en-US');
 
 // 키보드 위에 살짝 띄우는 여백 — 입력창이 키보드 / suggestion bar 와 딱 붙지 않게.
 const MOBILE_BOTTOM_GAP = 8;
 // 모달과 가시 영역 상단 사이 최소 간격 — 키보드 + 모달이 화면을 다 차지해도 위로 빈틈이 보이게.
 const MOBILE_TOP_GAP = 12;
-const VOICE_CHUNK_MAX_CHARS = 1000;
-
-// textarea 의 caret 을 항상 텍스트 끝으로 — 다시 열 때, 붙여넣기 후, clear 후 등
-// 사용자가 이어서 입력하기 좋은 위치에 두기 위함.
-const focusToEnd = (ta) => {
-  if (!ta) return;
-  ta.focus();
-  try {
-    const len = ta.value.length;
-    ta.setSelectionRange(len, len);
-    // 멀티라인일 때 caret 위치까지 스크롤되게 강제 reflow 트릭
-    ta.scrollTop = ta.scrollHeight;
-  } catch { /* setSelectionRange 미지원 환경 무시 */ }
-};
+// 가시 영역이 이만큼 줄면 키보드가 올라온 것으로 본다(브라우저 UI 바 변동은 이보다 작다).
+const KEYBOARD_SHRINK_THRESHOLD = 60;
+// 보낼 대상 선택 UI 는 고를 게 둘 이상일 때만 의미가 있다.
+const MIN_PANES_FOR_TARGETS = 2;
 
 /**
  * 모바일에서 한글 IME 자소 분리 문제를 우회하기 위한 별도 입력창.
@@ -44,125 +31,35 @@ const focusToEnd = (ta) => {
 const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language, terminalKey = null, panes = [] }) => {
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
-  const voiceModeRef = useRef(false);
-  // 이미지 첨부용 숨김 file input — 📎 버튼이 click() 으로 연다(모바일은 카메라/갤러리 선택지 노출).
-  const fileInputRef = useRef(null);
-  // 지난 명령 이력 패널 토글 — footer 의 History 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
+  // 지난 명령 이력 패널 토글 — 헤더의 화살표 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
   const [historyOpen, setHistoryOpen] = useState(false);
-  // 이미지 업로드 진행 상태 — null | 'uploading' | 'error'. 모바일은 hover title 이 없어 인라인 표시.
-  const [imageUploadState, setImageUploadState] = useState(null);
-  // 명령 전송 대상 — 멀티선택된 pane key 집합. 비어있으면 "활성 pane" 으로 폴백.
-  // 팝업 목록에서 색/호스트 보고 여러 pane 을 골라 동시에 보낼 수 있다.
-  const [targetKeys, setTargetKeys] = useState(() => new Set());
-  const [targetOpen, setTargetOpen] = useState(false);
-  // 분할/탭전환으로 사라진 pane key 는 선택에서 제거.
-  useEffect(() => {
-    setTargetKeys((prev) => {
-      if (!prev.size) return prev;
-      const valid = new Set(panes.map((p) => p.key));
-      const next = new Set([...prev].filter((k) => valid.has(k)));
-      return next.size === prev.size ? prev : next;
+
+  const viewport = useVisualViewport(isOpen);
+  const targets = useSendTargets(panes, terminalKey);
+  const voice = useVoiceDictation({ isOpen, language, setCommand, textareaRef });
+
+  // 현재 커서 위치(선택 영역이 있으면 대체)에 텍스트를 끼워넣고 caret 을 삽입 끝으로 옮긴다.
+  // 이력 삽입·이미지 경로 삽입 공용.
+  const insertAtCursor = (text) => {
+    const ta = textareaRef.current;
+    const start = ta?.selectionStart ?? command.length;
+    const end = ta?.selectionEnd ?? command.length;
+    const caret = start + text.length;
+    setCommand(command.slice(0, start) + text + command.slice(end));
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      try { el.setSelectionRange(caret, caret); } catch { /* 미지원 환경 무시 */ }
+      el.scrollTop = el.scrollHeight;
     });
-  }, [panes]);
-  useEffect(() => { if (panes.length < 2 && targetOpen) setTargetOpen(false); }, [panes.length, targetOpen]);
-  const toggleTargetKey = (key) => setTargetKeys((prev) => {
-    const next = new Set(prev);
-    if (next.has(key)) next.delete(key); else next.add(key);
-    return next;
-  });
-  // 가시 영역 (visualViewport) 추적 — 키보드가 올라올 때 모달 상하 위치/높이를 그 안으로 클램프.
-  // iOS Safari 는 layout viewport 가 키보드를 무시하기 때문에 absolute/fixed inset:0 만으로는
-  // 가운데 정렬이 키보드 밑까지 내려가 입력창 일부가 가려진다.
-  const [vv, setVv] = useState(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) {
-      return { height: typeof window !== 'undefined' ? window.innerHeight : 0, offsetTop: 0 };
-    }
-    return { height: window.visualViewport.height, offsetTop: window.visualViewport.offsetTop };
-  });
-
-  // 인식된 텍스트를 textarea 끝에 이어붙인다. 직전 문자가 공백/줄바꿈이 아니면 한 칸 띄움.
-  // setCommand 가 함수형이 아닐 가능성에 대비해 직접 command 를 참조 — App 의 상태는 일반 useState.
-  const appendVoiceText = useCallback((text) => {
-    const chunk = text.replace(/\s+/g, ' ').trim().slice(0, VOICE_CHUNK_MAX_CHARS);
-    if (!chunk) return;
-    setCommand((prev = '') => {
-      const needsSpace = prev && !/[\s\n]$/.test(prev);
-      return prev + (needsSpace ? ' ' : '') + chunk;
-    });
-    if (!voiceModeRef.current) requestAnimationFrame(() => focusToEnd(textareaRef.current));
-  }, [setCommand]);
-
-  const {
-    supported: voiceSupported,
-    listening: voiceListening,
-    error: voiceError,
-    start: voiceStart,
-    stop: voiceStop,
-  } = useSpeechRecognition({
-    language: speechLangFor(language),
-    onResult: appendVoiceText,
-  });
-
-  // 모달이 닫히면 진행 중인 음성 인식도 함께 정지 — 백그라운드에서 마이크가 살아있지 않게.
-  // 이력 패널도 함께 접어, 다음에 열 때 항상 입력창부터 보이게 한다.
-  useEffect(() => {
-    if (isOpen) return;
-    voiceModeRef.current = false;
-    if (voiceListening) voiceStop();
-    setHistoryOpen(false);
-  }, [isOpen, voiceListening, voiceStop]);
-
-  useEffect(() => {
-    if (voiceListening) {
-      voiceModeRef.current = true;
-      return;
-    }
-    if (!voiceModeRef.current) return;
-    voiceModeRef.current = false;
-    if (isOpen) requestAnimationFrame(() => focusToEnd(textareaRef.current));
-  }, [voiceListening, isOpen]);
-
-  useEffect(() => {
-    if (!voiceError || !voiceModeRef.current) return;
-    voiceModeRef.current = false;
-    if (isOpen) requestAnimationFrame(() => focusToEnd(textareaRef.current));
-  }, [voiceError, isOpen]);
-
-  const toggleVoice = () => {
-    if (!voiceSupported) return;
-    if (voiceListening || voiceModeRef.current) {
-      voiceModeRef.current = false;
-      voiceStop();
-      requestAnimationFrame(() => focusToEnd(textareaRef.current));
-      return;
-    }
-    // 모바일에서 textarea focus 를 유지한 채 SpeechRecognition 을 열면 가상 키보드와
-    // 마이크 UI 가 동시에 경쟁해 심한 렉/프리즈가 난다. 음성 중에는 강제 refocus 도 멈춘다.
-    voiceModeRef.current = true;
-    try { textareaRef.current?.blur(); } catch { /* noop */ }
-    voiceStart();
   };
 
+  const image = useImageAttach(insertAtCursor);
+
+  // 모달이 닫히면 이력 패널도 접어, 다음에 열 때 항상 입력창부터 보이게 한다.
   useEffect(() => {
-    if (!isOpen) return undefined;
-    const target = window.visualViewport;
-    if (!target) return undefined;
-    let raf = 0;
-    const update = () => {
-      raf = 0;
-      setVv({ height: target.height, offsetTop: target.offsetTop });
-    };
-    const onChange = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(update);
-    };
-    target.addEventListener('resize', onChange);
-    target.addEventListener('scroll', onChange);
-    return () => {
-      target.removeEventListener('resize', onChange);
-      target.removeEventListener('scroll', onChange);
-      if (raf) cancelAnimationFrame(raf);
-    };
+    if (!isOpen) setHistoryOpen(false);
   }, [isOpen]);
 
   // 모달이 mount 되는 즉시 caret 을 텍스트 끝으로 두고 focus.
@@ -170,14 +67,13 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   // setTimeout 100ms 같은 지연을 두면 iOS Safari 가 user gesture 컨텍스트를 잃어
   // 키보드가 자동으로 안 올라오는 사고가 난다.
   useLayoutEffect(() => {
-    if (!isOpen) return;
-    focusToEnd(textareaRef.current);
+    if (isOpen) focusToEnd(textareaRef.current);
   }, [isOpen]);
 
   // 일부 모바일 브라우저는 useLayoutEffect 후에도 keyboard 가 즉시 안 올라오는
   // 케이스가 있어 다음 frame 에 한 번 더 보강. 데스크톱은 이미 끝나서 영향 없음.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
     const raf = requestAnimationFrame(() => focusToEnd(textareaRef.current));
     return () => cancelAnimationFrame(raf);
   }, [isOpen]);
@@ -185,6 +81,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   // 모달이 떠있는 동안 포커스가 뒤쪽 xterm/input 으로 빠지면 즉시 되돌린다.
   // xterm 이 상태 변경/클릭 잔상으로 focus() 를 다시 호출하는 타이밍이 있어
   // document focusin + textarea blur 양쪽에서 방어한다.
+  // (받아쓰기 중에는 쉰다 — 마이크 UI 와 가상 키보드가 경쟁하면 모바일이 프리즈한다.)
+  const isDictatingRef = voice.isDictatingRef;
   useEffect(() => {
     if (!isOpen) return undefined;
     let raf = 0;
@@ -192,10 +90,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       if (raf) return;
       raf = requestAnimationFrame(() => {
         raf = 0;
-        const modal = modalRef.current;
-        const active = document.activeElement;
-        if (voiceModeRef.current || voiceListening) return;
-        if (!modal || modal.contains(active)) return;
+        if (isDictatingRef.current) return;
+        if (!modalRef.current || modalRef.current.contains(document.activeElement)) return;
         focusToEnd(textareaRef.current);
       });
     };
@@ -208,41 +104,16 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       document.removeEventListener('focusin', handleFocusIn, true);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [isOpen]);
+  }, [isOpen, isDictatingRef]);
 
   if (!isOpen) return null;
 
   const handleSend = () => {
-    if (command.trim()) {
-      // 선택된 pane 들로. 아무것도 안 골랐으면 활성 pane(terminalKey) 으로.
-      const keys = targetKeys.size ? [...targetKeys] : (terminalKey ? [terminalKey] : []);
-      onSend(command, keys);
-      setCommand('');
-      onClose();
-    }
+    if (!command.trim()) return;
+    onSend(command, targets.resolveTargets());
+    setCommand('');
+    onClose();
   };
-
-  // 보낼 대상 배지 — 아무것도 안 고르면 "활성", 전부면 "전체", 아니면 개수.
-  const allSelected = panes.length > 0 && targetKeys.size === panes.length;
-  const targetShort = targetKeys.size === 0
-    ? (t?.('sendToActive') || 'Active')
-    : (allSelected ? (t?.('sendToAll') || 'All') : String(targetKeys.size));
-  const toggleAllTargets = () => setTargetKeys((prev) => (
-    prev.size === panes.length ? new Set() : new Set(panes.map((p) => p.key))
-  ));
-
-  // 열려있는 모든 탭의 pane 을 탭 단위로 묶는다 — 팝업에서 탭 그룹 헤더 아래로
-  // 그 탭의 pane 들이 나열되고, 탭을 넘나들며 체크해 그룹으로 동시에 보낼 수 있다.
-  const paneGroups = panes.reduce((groups, p) => {
-    const tid = p.tabId ?? '_';
-    let g = groups[groups.length - 1];
-    if (!g || g.tabId !== tid) {
-      g = { tabId: tid, tabName: p.tabName || '', isActiveTab: !!p.isActiveTab, items: [] };
-      groups.push(g);
-    }
-    g.items.push(p);
-    return groups;
-  }, []);
 
   const handleClear = () => {
     if (command.trim() && !confirm(t?.('confirmClearInput') || '입력한 내용을 모두 지우시겠습니까?')) return;
@@ -258,72 +129,17 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       requestAnimationFrame(() => focusToEnd(textareaRef.current));
     } catch {
       const text = prompt(t?.('paste') || '붙여넣을 텍스트:');
-      if (text) {
-        setCommand(command + text);
-        requestAnimationFrame(() => focusToEnd(textareaRef.current));
-      }
+      if (!text) return;
+      setCommand(command + text);
+      requestAnimationFrame(() => focusToEnd(textareaRef.current));
     }
-  };
-
-  // 현재 커서 위치(선택 영역이 있으면 대체)에 텍스트를 끼워넣고 caret 을 삽입 끝으로 옮긴다.
-  // 이력 삽입·이미지 경로 삽입 공용.
-  const insertAtCursor = (text) => {
-    const ta = textareaRef.current;
-    const start = ta?.selectionStart ?? command.length;
-    const end = ta?.selectionEnd ?? command.length;
-    const next = command.slice(0, start) + text + command.slice(end);
-    const caret = start + text.length;
-    setCommand(next);
-    requestAnimationFrame(() => {
-      const el = textareaRef.current;
-      if (!el) return;
-      el.focus();
-      try { el.setSelectionRange(caret, caret); } catch { /* 미지원 환경 무시 */ }
-      el.scrollTop = el.scrollHeight;
-    });
   };
 
   // 이력 항목 클릭 → 커서 위치에 그 명령을 끼워넣고 패널을 접는다.
-  // 전송이 아니라 삽입만 — 사용자가 편집 후 직접 Send 하도록 (눈 아이콘 popover 의 즉시 재전송과 역할 분리).
+  // 전송이 아니라 삽입만 — 사용자가 편집 후 직접 Send 하도록.
   const handlePickHistory = (text) => {
     insertAtCursor(text);
     setHistoryOpen(false);
-  };
-
-  // 이미지 blob → 압축·업로드 → 저장 경로를 커서 위치에 삽입(뒤 공백, 데스크톱 붙여넣기와 동일).
-  // PTY 는 텍스트만 보내므로 이미지 자체가 아니라 서버 저장 경로로 우회한다.
-  const uploadImage = async (blob) => {
-    if (imageUploadState === 'uploading') return; // 중복 업로드 차단
-    setImageUploadState('uploading');
-    try {
-      const data = await uploadImageAndGetPath(blob);
-      insertAtCursor(`${data.path} `);
-      setImageUploadState(null);
-    } catch (err) {
-      console.error('image upload failed', err);
-      setImageUploadState('error');
-      setTimeout(() => setImageUploadState(null), 2500);
-    }
-  };
-
-  // textarea 붙여넣기 — 클립보드에 이미지가 있으면 가로채 업로드, 텍스트는 기본 동작에 맡긴다.
-  const handleTextareaPaste = (e) => {
-    const imageItem = Array.from(e.clipboardData?.items || []).find(
-      (it) => it.kind === 'file' && it.type.startsWith('image/'),
-    );
-    if (!imageItem) return;
-    const blob = imageItem.getAsFile();
-    if (!blob) return;
-    e.preventDefault();
-    uploadImage(blob);
-  };
-
-  // 📎 버튼 → 숨김 file input 열기. 같은 파일 재선택을 위해 값 리셋 후 업로드.
-  const handleAttachClick = () => fileInputRef.current?.click();
-  const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
-    if (file && file.type.startsWith('image/')) uploadImage(file);
   };
 
   const handleKeyDown = (e) => {
@@ -339,15 +155,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const blockTouch = (e) => { e.preventDefault(); };
 
   // 가시 영역 안에서만 모달이 보이도록 overlay 를 visualViewport 좌표로 클램프.
-  // 키보드가 올라오면 vv.height 가 줄고 vv.offsetTop 이 양수가 될 수 있다.
-  // 모달은 가시 영역 *하단* (키보드 suggestion bar 바로 위) 에 붙임 — 사용자 의도는
-  // "단축키 바 위에 떠있는 입력 도크" 라 상단에 띄우면 어색하다.
-  const keyboardUp = vv.height < window.innerHeight - 60;
+  // 키보드가 올라오면 모달을 가시 영역 *하단* (suggestion bar 바로 위) 에 붙인다 —
+  // 사용자 의도는 "단축키 바 위에 떠있는 입력 도크" 라 상단에 띄우면 어색하다.
+  const keyboardUp = viewport.height < window.innerHeight - KEYBOARD_SHRINK_THRESHOLD;
 
   const overlayStyle = {
     ...styles.overlay,
-    top: `${vv.offsetTop}px`,
-    height: `${vv.height}px`,
+    top: `${viewport.offsetTop}px`,
+    height: `${viewport.height}px`,
     alignItems: keyboardUp ? 'flex-end' : 'center',
     paddingTop: `${MOBILE_TOP_GAP}px`,
     paddingBottom: keyboardUp ? `${MOBILE_BOTTOM_GAP}px` : '0',
@@ -356,8 +171,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const modalStyle = {
     ...styles.modal,
     // 가시 영역 내 위/아래 여백을 빼고 남은 높이만 차지 — 키보드 떠있어도 푸터 버튼 안 잘림.
-    maxHeight: `calc(${vv.height}px - ${MOBILE_TOP_GAP + MOBILE_BOTTOM_GAP}px)`,
+    maxHeight: `calc(${viewport.height}px - ${MOBILE_TOP_GAP + MOBILE_BOTTOM_GAP}px)`,
   };
+
+  const micTitle = !voice.supported
+    ? (t?.('voiceInputUnsupported') || 'Voice input is not supported in this browser')
+    : voice.listening
+      ? (t?.('voiceInputStop') || 'Stop voice input')
+      : (t?.('voiceInputStart') || 'Start voice input');
 
   return (
     <div
@@ -368,34 +189,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       onPointerDown={(e) => { e.stopPropagation(); }}
       onTouchMove={blockTouch}
     >
-      <style>{`
-        .command-input-textarea::placeholder { color: ${color.muted}; }
-        @keyframes command-input-history-in {
-          from { opacity: 0; transform: translateY(6px); }
-          to   { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes command-input-skel-shimmer {
-          0%   { background-position: 150% center; }
-          100% { background-position: -150% center; }
-        }
-        @keyframes command-input-spin {
-          to { transform: rotate(360deg); }
-        }
-        .command-input-history-list { scrollbar-width: thin; }
-        .command-input-history-list::-webkit-scrollbar { width: 6px; }
-        .command-input-history-list::-webkit-scrollbar-thumb {
-          background: var(--ui-surface1, ${color.surface1}); border-radius: 3px;
-        }
-        .command-input-history-row:hover {
-          background: color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 70%, transparent);
-        }
-        .command-input-history-row:active {
-          background: color-mix(in srgb, var(--ui-accent, ${color.accent}) 22%, transparent);
-        }
-        .command-input-history-row .ci-rm:hover { color: var(--ui-danger, ${color.danger}); }
-        /* 클릭/포커스 후 남는 브라우저 기본 흰 아웃라인 제거 — 모달 내 모든 버튼 공통. */
-        .ci-modal button:focus, .ci-modal button:focus-visible { outline: none !important; box-shadow: none !important; }
-      `}</style>
+      <style>{CSS}</style>
 
       <div
         ref={modalRef}
@@ -447,12 +241,11 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             onKeyDown={handleKeyDown}
-            onPaste={handleTextareaPaste}
+            onPaste={image.handlePaste}
             onBlur={() => {
               requestAnimationFrame(() => {
-                const active = document.activeElement;
-                if (voiceModeRef.current || voiceListening) return;
-                if (!isOpen || modalRef.current?.contains(active)) return;
+                if (isDictatingRef.current) return;
+                if (!isOpen || modalRef.current?.contains(document.activeElement)) return;
                 focusToEnd(textareaRef.current);
               });
             }}
@@ -464,16 +257,16 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         </div>
 
         <footer style={styles.footer}>
-          {/* 좌측 — 붙여넣기/비우기 (보조 액션 그룹) */}
+          {/* 좌측 — 붙여넣기 / 이미지 첨부 / 비우기 (보조 액션 그룹) */}
           <Button
             variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} style={styles.footerIconBtn} />
           {/* 이미지 첨부/촬영 — 숨김 file input(accept=image/*). 모바일은 OS 피커가 카메라 촬영도 제공.
               업로드 중엔 아이콘만 로딩(Loader2)으로 — 버튼 통째 회전 없음. */}
           <input
-            ref={fileInputRef}
+            ref={image.fileInputRef}
             type="file"
             accept="image/*"
-            onChange={handleFileChange}
+            onChange={image.handleFileChange}
             style={{ display: 'none' }}
             aria-hidden="true"
             tabIndex={-1}
@@ -481,9 +274,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           <Button
             variant="ghost"
             size="icon"
-            onClick={handleAttachClick}
-            disabled={imageUploadState === 'uploading'}
-            icon={imageUploadState === 'uploading' ? Loader2 : ImagePlus}
+            onClick={image.openPicker}
+            disabled={image.isUploading}
+            icon={image.isUploading ? Loader2 : ImagePlus}
             title={t?.('attachImage') || '이미지 첨부'}
             style={styles.footerIconBtn}
           />
@@ -497,146 +290,41 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             style={styles.footerIconBtn}
           />
           <div style={{ flex: 1 }} />
+
           {/* 보낼 대상 — pane 2개 이상일 때만. 아이콘 누르면 목록에서 멀티선택(색/호스트 표시). */}
-          {panes.length >= 2 && (
-            <div style={{ position: 'relative', display: 'inline-flex' }}>
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setTargetOpen((v) => !v)}
-                title={t?.('sendTarget') || 'Send to'}
-                aria-label={t?.('sendTarget') || 'Send to'}
-                aria-expanded={targetOpen}
-                style={{ ...styles.targetBtn, ...(targetOpen ? styles.targetBtnActive : null) }}
-              >
-                <Crosshair size={13} strokeWidth={2} />
-                <span style={styles.targetBadge}>{targetShort}</span>
-              </button>
-              {/* 버튼에 앵커된 작은 드롭다운 대신, 공용 GlassModal 을 document.body 로 포탈해
-                  독립된 중앙 팝업으로 띄운다 — .ci-modal 의 overflow:hidden/backdropFilter 에
-                  잘리지 않고, 모바일 ghost-click 방어(400ms 유예)와 터치 스크롤도 그대로 상속. */}
-              {targetOpen && createPortal(
-                <GlassModal
-                  isOpen={targetOpen}
-                  onClose={() => setTargetOpen(false)}
-                  title={t?.('sendTarget') || 'Send to'}
-                  titleIcon={Crosshair}
-                  ariaLabel={t?.('sendTarget') || 'Send to'}
-                  closeTitle={t?.('close') || 'Close'}
-                  width="88%"
-                  maxWidth="340px"
-                  maxHeight="64vh"
-                  bodyStyle={{ padding: space['1'] }}
-                  afterHeader={(
-                    <div style={styles.targetPopupHead}>
-                      <span style={styles.targetPopupHint}>
-                        {targetKeys.size === 0
-                          ? (t?.('sendToActiveNote') || '선택 없음 → 활성 pane 으로')
-                          : `${targetKeys.size} / ${panes.length}`}
-                      </span>
-                      <button type="button" onClick={toggleAllTargets} style={styles.targetAllBtn}>
-                        {allSelected ? <CheckSquare size={13} strokeWidth={2} /> : <Square size={13} strokeWidth={2} />}
-                        {allSelected ? (t?.('deselectAll') || '전체 해제') : (t?.('selectAll') || '전체 선택')}
-                      </button>
-                    </div>
-                  )}
-                >
-                  <div style={styles.targetList}>
-                    {paneGroups.map((group) => {
-                      const groupChecked = group.items.every((p) => targetKeys.has(p.key));
-                      return (
-                        <div key={group.tabId} style={styles.targetGroup}>
-                          {/* 탭 그룹 헤더 — 탭 이름 누르면 그 탭의 pane 전부를 한 번에 토글. */}
-                          <button
-                            type="button"
-                            aria-pressed={groupChecked}
-                            onClick={() => setTargetKeys((prev) => {
-                              const next = new Set(prev);
-                              const keys = group.items.map((p) => p.key);
-                              if (groupChecked) keys.forEach((k) => next.delete(k));
-                              else keys.forEach((k) => next.add(k));
-                              return next;
-                            })}
-                            style={{ ...styles.targetGroupHead, ...(group.isActiveTab ? styles.targetGroupHeadActive : null) }}
-                          >
-                            <AppWindow size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
-                            <span style={styles.targetGroupName}>{group.tabName}</span>
-                            <span style={styles.targetGroupCount}>{group.items.length}</span>
-                            <span style={{ ...styles.targetCheck, ...(groupChecked ? styles.targetCheckOn : null) }}>
-                              {groupChecked && <Check size={10} strokeWidth={3} />}
-                            </span>
-                          </button>
-                          {group.items.map((p, i) => {
-                            const checked = targetKeys.has(p.key);
-                            const isActivePane = p.key === terminalKey;
-                            return (
-                              <button
-                                key={p.key}
-                                type="button"
-                                onClick={() => toggleTargetKey(p.key)}
-                                style={{ ...styles.targetRow, ...(checked ? styles.targetRowOn : null) }}
-                              >
-                                <span style={{ ...styles.targetCheck, ...(checked ? styles.targetCheckOn : null) }}>
-                                  {checked && <Check size={11} strokeWidth={3} />}
-                                </span>
-                                <span style={{ ...styles.targetIcon, background: p.color }}>
-                                  <SquareTerminal size={12} strokeWidth={2} color="#0b0f14" />
-                                </span>
-                                {/* 이름 + 호스트를 한 줄에 욱여넣지 않고 2줄로 — 좁은 팝업에서 둘 다 잘리는 걸 막는다. */}
-                                <span style={styles.targetText}>
-                                  <span style={styles.targetName}>{t?.('pane') || 'Pane'} {i + 1}</span>
-                                  {p.host && <span style={styles.targetHost} title={p.host}>{p.host}</span>}
-                                </span>
-                                {/* "활성" 은 이름 뒤에 붙이지 않고 행 끝 칩으로 — ellipsis 와 겹치지 않게. */}
-                                {isActivePane && (
-                                  <span style={styles.targetActiveTag}>{t?.('active') || '활성'}</span>
-                                )}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </GlassModal>,
-                document.body,
-              )}
-            </div>
+          {panes.length >= MIN_PANES_FOR_TARGETS && (
+            <TargetSelect targets={targets} terminalKey={terminalKey} t={t} />
           )}
+
           {/* 음성 입력 토글 — 보조 ghost 버튼과 사이즈/스타일 통일. 상태는 아이콘 컬러(빨강)로만. */}
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={toggleVoice}
-            disabled={!voiceSupported}
-            title={
-              !voiceSupported
-                ? (t?.('voiceInputUnsupported') || 'Voice input is not supported in this browser')
-                : voiceListening
-                  ? (t?.('voiceInputStop') || 'Stop voice input')
-                  : (t?.('voiceInputStart') || 'Start voice input')
-            }
-            aria-pressed={voiceListening}
+            onClick={voice.toggle}
+            disabled={!voice.supported}
+            title={micTitle}
+            aria-pressed={voice.listening}
             aria-label={t?.('voiceInput') || 'Voice input'}
             onMouseEnter={(e) => {
-              if (!voiceSupported || voiceListening) return;
+              if (!voice.supported || voice.listening) return;
               e.currentTarget.style.color = `var(--ui-danger, ${color.danger})`;
               e.currentTarget.style.background = `var(--ui-surface0, ${color.surface0})`;
             }}
             onMouseLeave={(e) => {
-              if (!voiceSupported || voiceListening) return;
+              if (!voice.supported || voice.listening) return;
               e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`;
               e.currentTarget.style.background = 'transparent';
             }}
             style={{
               ...styles.micBtn,
-              ...(voiceListening ? styles.micBtnActive : null),
-              cursor: voiceSupported ? 'pointer' : 'not-allowed',
-              opacity: voiceSupported ? 1 : 0.45,
+              ...(voice.listening ? styles.micBtnActive : null),
+              cursor: voice.supported ? 'pointer' : 'not-allowed',
+              opacity: voice.supported ? 1 : 0.45,
             }}
           >
             <Mic size={14} strokeWidth={2} />
           </button>
+
           {/* 우측 — 주 액션 (전송 문구 포함) */}
           <Button
             variant="primary"
@@ -648,16 +336,17 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             {t?.('send') || 'Send'}
           </Button>
         </footer>
+
         {/* 업로드 상태 — footer 버튼 줄을 어지럽히지 않게 모달 하단 전용 영역에 표시. */}
-        {imageUploadState && imageUploadState !== 'done' && (
+        {image.uploadState && (
           <div style={styles.statusBar}>
-            {imageUploadState === 'uploading' && (
+            {image.uploadState === 'uploading' && (
               <>
                 <Loader2 size={12} style={{ color: `var(--ui-accent, ${color.accent})`, animation: 'command-input-spin 0.8s linear infinite' }} />
                 <span>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
               </>
             )}
-            {imageUploadState === 'error' && (
+            {image.uploadState === 'error' && (
               <span style={{ color: `var(--ui-danger, ${color.danger})` }}>{t?.('imageUploadFailed') || '업로드 실패'}</span>
             )}
           </div>
@@ -667,77 +356,12 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   );
 };
 
-/**
- * 빠른입력 모달 안에서 입력창 위로 펼쳐지는 지난 명령 목록.
- * 항목 터치 → onPick(text) 로 textarea 에 채우고 패널은 부모가 접는다.
- * 끝까지 스크롤하면 sentinel 이 다음 페이지를 lazy fetch (무한 스크롤).
- */
-const HistoryPanel = ({ terminalKey, onPick, t }) => {
-  const listRef = useRef(null);
-  const sentinelRef = useRef(null);
-  const { items, hasMore, loading, loadingMore, loadMore } = useCommandHistory(terminalKey);
-
-  useEffect(() => {
-    if (!sentinelRef.current || !listRef.current || !hasMore) return undefined;
-    const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) loadMore();
-    }, { root: listRef.current, rootMargin: '60px 0px' });
-    io.observe(sentinelRef.current);
-    return () => io.disconnect();
-  }, [hasMore, loadMore]);
-
-  return (
-    <div style={styles.historyPanel}>
-      <div style={styles.historyHeader}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-          {t?.('historyTitle') || 'Recent commands'}
-          {items.length > 0 && (
-            <span style={styles.historyCount}>{items.length}{hasMore ? '+' : ''}</span>
-          )}
-        </span>
-      </div>
-      <div ref={listRef} className="command-input-history-list" style={styles.historyList}>
-        {loading && items.length === 0 ? (
-          [0, 1, 2, 3, 4, 5].map((i) => (
-            <div key={i} style={{ ...styles.historySkel, animationDelay: `${i * 80}ms`, width: `${92 - (i % 3) * 16}%` }} />
-          ))
-        ) : items.length === 0 ? (
-          <div style={styles.historyEmpty}>{t?.('historyEmpty') || 'No history yet'}</div>
-        ) : (
-          <>
-            {items.map((entry, idx) => (
-              <div key={`${entry.ts}-${idx}`} className="command-input-history-row" style={styles.historyRow}>
-                <button
-                  type="button"
-                  // mousedown 에서 focus 안 뺏게 — iOS 키보드 유지 (cmdInput 버튼과 동일 패턴).
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => onPick(entry.text)}
-                  title={`${entry.text}\n— ${t?.('clickToInsert') || 'click to insert into input'}`}
-                  style={styles.historyItemText}
-                >
-                  {entry.text}
-                </button>
-                <button
-                  type="button"
-                  className="ci-rm"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={(e) => { e.stopPropagation(); removeCommand(terminalKey, entry.text); }}
-                  title={t?.('remove') || 'Remove'}
-                  aria-label={t?.('remove') || 'Remove'}
-                  style={styles.historyRemove}
-                >
-                  <X size={12} strokeWidth={2} />
-                </button>
-              </div>
-            ))}
-            {hasMore && <div ref={sentinelRef} style={{ height: '1px', flexShrink: 0 }} />}
-            {loadingMore && <div style={{ ...styles.historySkel, width: '70%' }} />}
-          </>
-        )}
-      </div>
-    </div>
-  );
-};
+const CSS = `
+  .command-input-textarea::placeholder { color: ${color.muted}; }
+  @keyframes command-input-spin { to { transform: rotate(360deg); } }
+  /* 클릭/포커스 후 남는 브라우저 기본 흰 아웃라인 제거 — 모달 내 모든 버튼 공통. */
+  .ci-modal button:focus, .ci-modal button:focus-visible { outline: none !important; box-shadow: none !important; }
+`;
 
 const styles = {
   overlay: {
@@ -836,110 +460,9 @@ const styles = {
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
     background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
   },
-  // 푸터 보조 아이콘 버튼(Copy/Paste/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
+  // 푸터 보조 아이콘 버튼(Paste/Attach/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
   // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.
   footerIconBtn: { width: '30px', height: '30px' },
-  // 보낼 대상 아이콘 버튼 — 아이콘 + 현재값 배지. 탭해서 순환. 공간 최소.
-  targetBtn: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '3px',
-    height: '30px',
-    padding: `0 ${space['1.5']}`,
-    borderRadius: radius.sm,
-    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 80%, transparent)`,
-    background: `var(--ui-surface0, ${color.surface0})`,
-    color: `var(--ui-subtext, ${color.subtext})`,
-    cursor: 'pointer',
-    flexShrink: 0,
-  },
-  targetBadge: {
-    fontSize: fontSize['11'],
-    fontWeight: fontWeight.semibold,
-    fontFamily: font.mono,
-    color: `var(--ui-text, ${color.text})`,
-    lineHeight: 1,
-  },
-  targetBtnActive: {
-    borderColor: `var(--ui-accent, ${color.accent})`,
-    color: `var(--ui-accent, ${color.accent})`,
-  },
-  // 메인 헤더(아이콘+제목+X)와 동일한 세로 패딩/최소높이 — 서브헤더만 얇아 보이지 않게.
-  targetPopupHead: {
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-    minHeight: '38px',
-    padding: `${space['2']} ${space['3']}`,
-    fontSize: fontSize['11'], fontWeight: fontWeight.semibold,
-    color: `var(--ui-subtext, ${color.subtext})`,
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 30%, transparent)`,
-    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
-  },
-  targetPopupHint: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  targetAllBtn: {
-    display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0,
-    background: 'transparent', border: 'none', cursor: 'pointer',
-    color: `var(--ui-accent, ${color.accent})`, fontSize: fontSize['11'], fontWeight: fontWeight.medium,
-    padding: `${space['1']} ${space['1.5']}`, marginRight: `-${space['1.5']}`, borderRadius: radius.sm,
-  },
-  // 고정 maxHeight 대신 flex:1 로 팝업(동적으로 계산된 maxHeight)의 남는 공간을 전부 차지 —
-  // 헤더/노트를 뺀 나머지 안에서만 스크롤돼 항목이 잘리지 않는다.
-  targetList: { flex: '1 1 auto', minHeight: 0, overflowY: 'auto', padding: space['1'], display: 'flex', flexDirection: 'column', gap: '6px' },
-  // 탭 하나에 속한 pane 묶음 — 그룹 헤더 + 그 아래 pane 행들.
-  targetGroup: { display: 'flex', flexDirection: 'column', gap: '2px' },
-  targetGroupHead: {
-    display: 'flex', alignItems: 'center', gap: space['1.5'], width: '100%',
-    padding: `${space['1']} ${space['2']}`, background: 'transparent',
-    border: 'none', borderRadius: radius.sm, cursor: 'pointer', textAlign: 'left',
-    fontSize: '10.5px', fontWeight: fontWeight.semibold, letterSpacing: '0.02em',
-    color: `var(--ui-muted, ${color.muted})`, textTransform: 'uppercase',
-  },
-  targetGroupHeadActive: { color: `var(--ui-accent, ${color.accent})` },
-  targetGroupName: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  targetGroupCount: {
-    flexShrink: 0, fontFamily: font.mono, fontSize: '10px', lineHeight: 1,
-    padding: '2px 5px', borderRadius: '999px',
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 60%, transparent)`,
-  },
-  targetRow: {
-    display: 'flex', alignItems: 'center', gap: space['2'], width: '100%',
-    padding: `${space['1.5']} ${space['2']}`, paddingLeft: space['4'], background: 'transparent',
-    border: 'none', borderRadius: radius.sm, cursor: 'pointer', textAlign: 'left',
-  },
-  targetRowOn: { background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 12%, transparent)` },
-  targetCheck: {
-    width: '16px', height: '16px', flexShrink: 0, borderRadius: '4px',
-    border: `1px solid var(--ui-border, ${color.border})`,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    color: '#fff',
-  },
-  targetCheckOn: {
-    background: `var(--ui-accent, ${color.accent})`,
-    borderColor: `var(--ui-accent, ${color.accent})`,
-  },
-  // 색 점 대신 pane 색으로 채운 아이콘 칩 — 식별력은 유지하면서 아이콘을 적극적으로 쓴다.
-  targetIcon: {
-    width: '20px', height: '20px', borderRadius: '6px', flexShrink: 0,
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-  },
-  // 이름/호스트 2줄 컬럼 — 남는 가로폭을 전부 쓰고 각 줄이 독립적으로 ellipsis.
-  targetText: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px', overflow: 'hidden' },
-  targetName: {
-    minWidth: 0, fontSize: fontSize['12'], fontWeight: fontWeight.medium,
-    color: `var(--ui-text, ${color.text})`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  },
-  // 행 끝에 붙는 "활성" 칩 — 이름 ellipsis 와 분리돼 절대 겹치지 않는다.
-  targetActiveTag: {
-    flexShrink: 0, lineHeight: 1, whiteSpace: 'nowrap',
-    fontSize: '10px', fontWeight: fontWeight.semibold,
-    padding: '3px 6px', borderRadius: '999px',
-    color: `var(--ui-accent, ${color.accent})`,
-    background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 16%, transparent)`,
-    border: `1px solid color-mix(in srgb, var(--ui-accent, ${color.accent}) 32%, transparent)`,
-  },
-  targetHost: {
-    minWidth: 0, fontSize: '10.5px', fontFamily: font.mono,
-    color: `var(--ui-muted, ${color.muted})`, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-  },
   // 업로드 상태 전용 영역 — footer 아래 얇은 바. 버튼 줄을 어지럽히지 않게 분리.
   statusBar: {
     flexShrink: 0,
@@ -950,110 +473,6 @@ const styles = {
     fontSize: fontSize['12'],
     color: `var(--ui-subtext, ${color.subtext})`,
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 60%, transparent)`,
-  },
-  historyPanel: {
-    // 남는 세로 공간을 모두 차지하고 내부 리스트만 스크롤 → 화면 크기에 맞게 열리되 입력창은 안 가림.
-    flex: '1 1 auto',
-    minHeight: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    overflow: 'hidden',
-    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
-    // 또렷한 배경 — 모달보다 살짝 어둡게 깔아 카드형 항목이 떠 보이게 한다.
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 88%, transparent)`,
-    animation: 'command-input-history-in 160ms ease both',
-  },
-  historyHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: `${space['1.5']} ${space['3']}`,
-    fontSize: fontSize['11'],
-    fontWeight: fontWeight.semibold,
-    color: `var(--ui-subtext, ${color.subtext})`,
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-  },
-  historyCount: {
-    fontSize: '10px',
-    color: `var(--ui-muted, ${color.muted})`,
-    letterSpacing: 'normal',
-    textTransform: 'none',
-  },
-  historyList: {
-    // flex:1 + minHeight:0 → 패널(=남은 공간) 안에서만 스크롤. 고정 maxHeight 없이 화면에 맞춰 늘어남.
-    flex: 1,
-    minHeight: 0,
-    overflowY: 'auto',
-    overflowX: 'hidden',
-    padding: `0 ${space['2']} ${space['1.5']}`,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px',
-  },
-  // 스켈레톤 블록과 동일한 모양의 카드 행 — 같은 높이/radius, 테두리 없이 동일 톤 배경.
-  // 안에 텍스트 버튼(클릭→삽입) + X 버튼(개별 삭제) 을 담는다.
-  historyRow: {
-    flexShrink: 0,
-    display: 'flex',
-    alignItems: 'center',
-    width: '100%',
-    height: '30px',
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent)`,
-    borderRadius: radius.sm,
-    overflow: 'hidden',
-    transition: `background ${motion.fast}`,
-  },
-  historyItemText: {
-    flex: 1,
-    minWidth: 0,
-    height: '100%',
-    textAlign: 'left',
-    padding: `0 ${space['1']} 0 ${space['2']}`,
-    background: 'transparent',
-    color: `var(--ui-text, ${color.text})`,
-    border: 'none',
-    fontSize: fontSize['12'],
-    fontFamily: font.mono,
-    lineHeight: '30px',
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-  },
-  historyRemove: {
-    flexShrink: 0,
-    width: '26px',
-    height: '100%',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'transparent',
-    color: `var(--ui-subtext, ${color.subtext})`,
-    border: 'none',
-    cursor: 'pointer',
-    padding: 0,
-    WebkitTapHighlightColor: 'transparent',
-    transition: `color ${motion.fast}`,
-  },
-  // 로딩 placeholder — historyItem 과 같은 높이/모양에 shimmer 만 흐른다.
-  historySkel: {
-    flexShrink: 0,
-    height: '30px',
-    borderRadius: radius.sm,
-    background: `linear-gradient(90deg,
-      color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent) 0%,
-      color-mix(in srgb, var(--ui-accent, ${color.accent}) 16%, transparent) 50%,
-      color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent) 100%)`,
-    backgroundSize: '300% 100%',
-    animation: 'command-input-skel-shimmer 1.6s ease-in-out infinite',
-  },
-  historyEmpty: {
-    padding: `${space['3']} ${space['2']}`,
-    textAlign: 'center',
-    fontSize: fontSize['12'],
-    color: `var(--ui-subtext, ${color.subtext})`,
-    opacity: 0.7,
   },
   // 음성 입력 토글 — 다른 보조 아이콘 버튼들 및 Send 와 동일한 30x30.
   // 비활성: subtext color · 호버: danger color + subtle bg · 활성: danger color + subtle danger bg.

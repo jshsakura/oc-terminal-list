@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
+import useVisualViewport from '../../hooks/useVisualViewport';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -30,12 +31,7 @@ const GlassModal = ({
   footerStyle = null,
   closeTitle = 'Close',
 }) => {
-  const [vv, setVv] = useState(() => {
-    if (typeof window === 'undefined' || !window.visualViewport) {
-      return { height: typeof window !== 'undefined' ? window.innerHeight : 0, offsetTop: 0 };
-    }
-    return { height: window.visualViewport.height, offsetTop: window.visualViewport.offsetTop };
-  });
+  const vv = useVisualViewport(isOpen);
 
   // 오버레이가 열린 시각 — backdrop 클릭이 진짜 사용자 의도인지(유예 이후) ghost-click 인지 구분.
   const openedAtRef = useRef(0);
@@ -46,28 +42,6 @@ const GlassModal = ({
     if (Date.now() - openedAtRef.current < OVERLAY_DISMISS_GRACE_MS) return;
     onClose?.();
   };
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-    const target = window.visualViewport;
-    if (!target) return undefined;
-    let raf = 0;
-    const update = () => {
-      raf = 0;
-      setVv({ height: target.height, offsetTop: target.offsetTop });
-    };
-    const onChange = () => {
-      if (raf) return;
-      raf = requestAnimationFrame(update);
-    };
-    target.addEventListener('resize', onChange);
-    target.addEventListener('scroll', onChange);
-    return () => {
-      target.removeEventListener('resize', onChange);
-      target.removeEventListener('scroll', onChange);
-      if (raf) cancelAnimationFrame(raf);
-    };
-  }, [isOpen]);
 
   if (!isOpen) return null;
 

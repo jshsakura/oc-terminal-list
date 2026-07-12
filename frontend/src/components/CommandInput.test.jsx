@@ -188,6 +188,95 @@ describe('CommandInput positioning', () => {
   });
 });
 
+// 탭 2개에 걸친 pane 3개 — 팝업의 탭 그룹핑을 검증하기 위한 최소 구성.
+const PANES = [
+  { key: 'a', color: '#f00', host: 'alpha', tabId: 't1', tabName: 'Tab One', isActiveTab: true },
+  { key: 'b', color: '#0f0', host: 'beta', tabId: 't1', tabName: 'Tab One', isActiveTab: true },
+  { key: 'c', color: '#00f', host: 'gamma', tabId: 't2', tabName: 'Tab Two', isActiveTab: false },
+];
+
+describe('CommandInput send targets', () => {
+  const renderWith = (props = {}) => {
+    const onSend = vi.fn();
+    render(
+      <CommandInput
+        isOpen={true}
+        onClose={vi.fn()}
+        onSend={onSend}
+        command="ls"
+        setCommand={vi.fn()}
+        terminalKey="a"
+        panes={PANES}
+        t={t}
+        {...props}
+      />
+    );
+    return { onSend };
+  };
+
+  const openPopup = () => fireEvent.click(screen.getByRole('button', { name: 'sendTarget' }));
+  const send = () => fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+
+  it('hides the target picker when there is nothing to choose between', () => {
+    renderWith({ panes: [PANES[0]] });
+    expect(screen.queryByRole('button', { name: 'sendTarget' })).toBeNull();
+  });
+
+  it('falls back to the active pane when nothing is selected', () => {
+    const { onSend } = renderWith();
+    expect(screen.getByRole('button', { name: 'sendTarget' })).toHaveTextContent('sendToActive');
+    send();
+    expect(onSend).toHaveBeenCalledWith('ls', ['a']);
+  });
+
+  it('sends to exactly the panes picked in the popup', () => {
+    const { onSend } = renderWith();
+    openPopup();
+    fireEvent.click(screen.getByText('gamma'));
+    send();
+    expect(onSend).toHaveBeenCalledWith('ls', ['c']);
+  });
+
+  it('selects every pane of a tab from its group header', () => {
+    const { onSend } = renderWith();
+    openPopup();
+    fireEvent.click(screen.getByText('Tab One'));
+    send();
+    // Tab One 의 pane 두 개만 — 다른 탭(t2)은 건드리지 않는다.
+    expect(onSend).toHaveBeenCalledWith('ls', ['a', 'b']);
+  });
+
+  it('toggles all panes across tabs and back to the active-pane fallback', () => {
+    const { onSend } = renderWith();
+    openPopup();
+
+    fireEvent.click(screen.getByText('selectAll'));
+    expect(screen.getByRole('button', { name: 'sendTarget' })).toHaveTextContent('sendToAll');
+
+    // 다시 누르면 전체 해제 → 선택 없음 → 활성 pane 폴백으로 되돌아간다.
+    fireEvent.click(screen.getByText('deselectAll'));
+    send();
+    expect(onSend).toHaveBeenCalledWith('ls', ['a']);
+  });
+
+  it('drops panes that disappear (split closed) from the selection', () => {
+    const setCommand = vi.fn();
+    const onSend = vi.fn();
+    const props = {
+      isOpen: true, onClose: vi.fn(), onSend, command: 'ls', setCommand, terminalKey: 'a', t,
+    };
+    const { rerender } = render(<CommandInput {...props} panes={PANES} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'sendTarget' }));
+    fireEvent.click(screen.getByText('gamma'));
+
+    // 'c' 를 고른 상태에서 그 pane 이 사라지면, 죽은 key 로 보내지 않고 활성 pane 으로 폴백.
+    rerender(<CommandInput {...props} panes={PANES.slice(0, 2)} />);
+    fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
+    expect(onSend).toHaveBeenCalledWith('ls', ['a']);
+  });
+});
+
 describe('CommandInput image attach', () => {
   beforeEach(() => {
     vi.mocked(uploadImageAndGetPath).mockReset();
