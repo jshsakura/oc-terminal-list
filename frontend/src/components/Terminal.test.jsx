@@ -45,6 +45,7 @@ vi.mock('./terminal/terminalHelpers', async (importOriginal) => ({
 }));
 
 import TerminalComponent from './Terminal';
+import { issueWsTicket } from './terminal/terminalHelpers';
 import { measureTerminalFit } from '../utils/terminalFit';
 import { harness, FakeWebSocket, testSettings } from '../test/xtermHarness';
 
@@ -72,16 +73,20 @@ const openSocket = async () => {
 
 describe('Terminal', () => {
   let realWebSocket;
+  let realFetch;
 
   beforeEach(() => {
     harness.reset();
     vi.mocked(measureTerminalFit).mockReturnValue(null);
+    vi.mocked(issueWsTicket).mockResolvedValue({ ticket: 'test-ticket', authExpired: false });
     realWebSocket = global.WebSocket;
+    realFetch = global.fetch;
     global.WebSocket = FakeWebSocket;
   });
 
   afterEach(() => {
     global.WebSocket = realWebSocket;
+    global.fetch = realFetch;
     delete window.terminalSessions;
   });
 
@@ -323,6 +328,107 @@ describe('Terminal', () => {
 
       expect(ws.jsonSent().some((m) => m.type === 'ping')).toBe(true);
     }, 10000);
+  });
+
+  describe('재연결 — 티켓', () => {
+    /* 서버가 연결 중 미리 밀어준 티켓을 쓰면 재연결 때 /api/ws-ticket fetch 를 건너뛴다.
+       모바일 네트워크 전환으로 wedge 된 HTTP/2 풀을 우회하는 핵심 경로. */
+    it('서버가 푸시한 티켓을 다음 재연결에 재사용한다 (fetch 생략)', async () => {
+      renderTerminal();
+      const first = await openSocket();
+      const ticketCallsBefore = vi.mocked(issueWsTicket).mock.calls.length;
+
+      await act(async () => {
+        first.serverSend(JSON.stringify({
+          type: 'ws_ticket',
+          ticket: 'pushed-ticket',
+          expires_at: Math.floor(Date.now() / 1000) + 60,
+        }));
+      });
+      await act(async () => { first.serverClose(); });
+
+      await waitFor(() => expect(harness.sockets.length).toBeGreaterThan(1), { timeout: 3000 });
+      expect(harness.socket.url).toContain('ticket=pushed-ticket');
+      // 티켓을 이미 들고 있었으므로 발급 fetch 를 다시 하지 않는다.
+      expect(vi.mocked(issueWsTicket).mock.calls.length).toBe(ticketCallsBefore);
+    });
+
+    /* 로그아웃/세션만료로 티켓을 못 받으면, 로그인 화면 전환 위에 "셸 종료" 오버레이까지
+       겹쳐 띄우면 안 된다(로그아웃마다 무서운 에러가 뜨는 것처럼 보인다). */
+    it('인증 만료로 티켓을 못 받으면 종료 오버레이를 띄우지 않는다', async () => {
+      vi.mocked(issueWsTicket).mockResolvedValueOnce({ ticket: null, authExpired: true });
+      renderTerminal();
+
+      await act(async () => { await new Promise((r) => setTimeout(r, 200)); });
+
+      expect(harness.sockets.length).toBe(0);
+      expect(screen.queryByText(/셸이 종료|Shell ended/i)).toBeNull();
+    });
+  });
+
+  describe('재연결 — 세션 소멸', () => {
+    /* 호스트 재부팅 등으로 원격 tmux 세션이 통째로 사라진 경우. create=0 재시도는 전부 같은
+       결과라 "[session not found]" 스팸만 반복된다 → 새 세션 생성으로 전환해야 한다. */
+    it('session-gone 직후 끊기면 새 세션 생성(create 생략)으로 재연결한다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const first = await openSocket();
+
+      await act(async () => { first.serverSend(JSON.stringify({ type: 'session-gone' })); });
+      await act(async () => { first.serverClose(); });
+
+      await waitFor(() => expect(harness.sockets.length).toBeGreaterThan(1), { timeout: 3000 });
+      // create=0 이 없다 = 없으면 만들어라(새 세션).
+      expect(harness.socket.url).not.toContain('create=0');
+    });
+
+    it('평범한 끊김은 기존 셸에만 재연결한다 (create=0)', async () => {
+      renderTerminal();
+      const first = await openSocket();
+
+      await act(async () => { first.serverClose(); });
+
+      await waitFor(() => expect(harness.sockets.length).toBeGreaterThan(1), { timeout: 3000 });
+      expect(harness.socket.url).toContain('create=0');
+    });
+  });
+
+  describe('재연결 — preflight 판정', () => {
+    it('다른 기기가 붙어 있으면 자동 재연결하지 않고 인계 카드를 띄운다', async () => {
+      // preflight 가 "다른 클라이언트가 attach 중" 이라고 답하게 한다.
+      global.fetch = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ attached: true, other_client_active: true, same_client_active: false, exists: true }),
+      }));
+
+      renderTerminal();
+      const first = await openSocket();
+      await act(async () => { first.serverClose(); });
+
+      // TAKEOVER_CONFIRM_MS(3.5s) 동안 재확인한 뒤에야 확정한다 — 단발 오탐 방지.
+      await act(async () => { await new Promise((r) => setTimeout(r, 4500)); });
+
+      await waitFor(() => expect(screen.getByText(/다른 기기에서 접속 중|Another device/i)).toBeTruthy());
+    }, 15000);
+
+    it('셸이 정말 종료됐으면(exists=false) pane 을 자동으로 닫는다', async () => {
+      global.fetch = vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ attached: false, exists: false }),
+      }));
+      const onClosePane = vi.fn();
+
+      renderTerminal({ onClosePane });
+      const first = await openSocket();
+      await act(async () => { first.serverClose(); });
+
+      /* 전환 레이스(attach 중, tmux 재기동)와 겹칠 수 있어 RECOVERY_GRACE_MS(12s) 동안
+         회복을 기다린 뒤에야 종료로 확정하고, AUTO_CLOSE_MS(1.8s) 취소 여유를 준다. */
+      await act(async () => { await new Promise((r) => setTimeout(r, 15000)); });
+
+      expect(onClosePane).toHaveBeenCalled();
+    }, 25000);
   });
 
   describe('리사이즈', () => {

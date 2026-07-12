@@ -1077,7 +1077,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       // 충분히 기다린 뒤에도 재연결을 먼저 시도한다. 병행 재연결과 동시에 돌며, 병행 쪽이
       // 먼저 새 소켓을 열면(isStaleSocket) 이 판정 루프는 조용히 물러난다.
       const checkAndRecover = async () => {
-        const isStaleSocket = () => cancelled || wsGeneration !== wsGenerationRef.current || wsRef.current !== socket;
+        /* 진단을 접어야 하는 때 = "병행 재연결이 *성공*했을 때" 뿐이다.
+           예전엔 새 소켓이 *생기기만* 해도(제너레이션 증가) 접었다. 그런데 병행 재연결은
+           150~300ms 만에 무조건 새 소켓을 만들고, 아래 진단은 매 단계 500ms~1s 를 기다린다.
+           그래서 진단이 결론에 닿기 전에 늘 접혀버렸다 — 셸이 exit 해도(exists=false) 자동
+           닫기가 영영 안 돌고 "재연결 중" pill 만 무한히 도는 상태였다.
+           재연결이 아직 못 붙은(CONNECTING/CLOSED) 동안에는 계속 진단한다. */
+        const isStaleSocket = () => cancelled
+          || (wsRef.current !== socket && wsRef.current?.readyState === WebSocket.OPEN);
         const getPf = async () => {
           try {
             return await (runPreflightRef.current?.() || Promise.resolve({ attached: false, exists: true }));
@@ -1191,7 +1198,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           keepReconnectingPill(t('networkReconnect') || 'Network connection changed. Reconnecting...');
         }
       };
-      // recoveringRef — 폴링이 도는 동안 워치독이 정상 복구를 교착으로 오인하지 않게.
+      /* recoveringRef — 폴링이 도는 동안 워치독이 정상 복구를 교착으로 오인하지 않게 한다.
+         겸해서 진단 중복도 막는다: 재연결이 반복 실패하면 close 마다 진단이 새로 떠서 겹치는데,
+         같은 세션을 여러 번 진단해봐야 결론은 같고 beginAutoClose 만 중복 예약된다. */
+      if (recoveringRef.current) return;
       recoveringRef.current = true;
       checkAndRecover().finally(() => { recoveringRef.current = false; });
     };
