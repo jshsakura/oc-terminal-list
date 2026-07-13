@@ -154,11 +154,28 @@ export class FakeWebSocket {
     harness.sockets.push(this);
   }
 
-  send(data) { this.sent.push(data); }
+  /* 실제 브리지는 ping 에 pong 으로 답한다 — 셸 상태와 무관하게 항상. 이게 없으면
+     하트비트가 멀쩡한 소켓을 죽은 걸로 보고 끊어버려 테스트가 통째로 오염된다.
+     `silent = true` 로 두면 답을 끊어 half-open(OPEN 인데 무응답) 소켓을 흉내낸다. */
+  send(data) {
+    this.sent.push(data);
+    if (this.silent || this.readyState !== FakeWebSocket.OPEN) return;
+    if (typeof data !== 'string' || !data.startsWith('{')) return;
+    try {
+      if (JSON.parse(data).type !== 'ping') return;
+    } catch { return; }
+    setTimeout(() => this.onmessage?.({ data: JSON.stringify({ type: 'pong' }) }), 0);
+  }
 
+  /* 실제 브라우저는 close() 뒤에 onclose 를 쏜다 — 컴포넌트의 재연결은 전부 그걸 타고 돈다.
+     `zombie = true` 로 두면 onclose 가 영영 안 오는 모바일 좀비 소켓을 흉내낸다
+     (close() 를 불러도 onclose 가 안 와서 인페이지 재연결이 영영 안 되던 바로 그 케이스). */
   close() {
+    if (this.closed) return;
     this.closed = true;
     this.readyState = FakeWebSocket.CLOSED;
+    if (this.zombie) return;
+    setTimeout(() => this.onclose?.({ code: 1000 }), 0);
   }
 
   // ── 테스트에서 서버 역할 ──
