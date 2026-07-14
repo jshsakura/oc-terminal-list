@@ -37,6 +37,7 @@ import createOutputSink from './terminal/createOutputSink';
 import createWebglController from './terminal/createWebglController';
 import createXtermInstance, { resolveContrast } from './terminal/createXtermInstance';
 import { buildWsUrl, fetchSessionClients, wsPathFor } from './terminal/sessionEndpoints';
+import { recordDisconnect, recordReconnect } from './terminal/reconnectDiag';
 import ensureXtermGlobalStyles from './terminal/xtermGlobalCss';
 import useTerminalApi from './terminal/useTerminalApi';
 import TerminalTexture from './TerminalTexture';
@@ -119,6 +120,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const resumeProbeTimerRef = useRef(null);
   const lastResumeProbeAtRef = useRef(0);
   const lastRecvRef = useRef(0);
+  // 재연결 진단용 — 하트비트가 죽인 소켓인지, 마지막 끊김이 언제/계획된 것이었는지.
+  const heartbeatKilledRef = useRef(false);
+  const lastDownRef = useRef(null);
   // 서버가 연결된 WS 위로 미리 밀어준 다음 재연결용 단일사용 티켓 {ticket, expiresAt(ms)}.
   // 재연결 시 이게 유효하면 /api/ws-ticket fetch 없이 바로 WebSocket 을 연다(= Jupyter 처럼
   // fresh TCP 로 wedge 된 HTTP/2 연결 풀을 우회 — 모바일 네트워크 전환 회복력의 핵심).
@@ -825,6 +829,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clearOpenTimer();
         if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
         logger.info(`WebSocket 연결 성공: ${sessionId}`);
+        if (lastDownRef.current) {
+          const { at, planned } = lastDownRef.current;
+          lastDownRef.current = null;
+          recordReconnect({
+            sessionId,
+            outageMs: Date.now() - at,
+            attempts: reconnectAttemptsRef.current,
+            planned,
+          });
+        }
         if (stableReconnectTimerRef.current) {
           clearTimeout(stableReconnectTimerRef.current);
           stableReconnectTimerRef.current = null;
@@ -871,7 +885,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           const deadMs = isActiveRef.current ? HEARTBEAT_DEAD_ACTIVE_MS : HEARTBEAT_DEAD_MS;
           // 서버 응답(pong 등)이 임계 시간 넘게 없으면 half-open 으로 보고 강제 close → onclose 가 재연결.
           if (Date.now() - lastRecvRef.current > deadMs) {
-            if (reconnectAttemptsRef.current < 2) logger.warn(`WS 하트비트 타임아웃 — 죽은 소켓 감지, 재연결: ${sessionId}`);
+            heartbeatKilledRef.current = true;
             try { socket.close(); } catch { /* noop */ }
             return;
           }
@@ -1016,8 +1030,22 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         heartbeatTimerRef.current = null;
       }
       if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
+
+      const planned = intentionalCloseRef.current || wasClosedForInactivityRef.current;
+      recordDisconnect({
+        sessionId,
+        code: event.code,
+        wasClean: event.wasClean,
+        intentional: intentionalCloseRef.current,
+        graceClosed: wasClosedForInactivityRef.current,
+        silentMs: Date.now() - lastRecvRef.current,
+        heartbeatKilled: heartbeatKilledRef.current,
+        attempts: reconnectAttemptsRef.current,
+      });
+      heartbeatKilledRef.current = false;
+      lastDownRef.current = { at: Date.now(), planned };
+
       if (intentionalCloseRef.current) return;
-      if (reconnectAttemptsRef.current < 2) logger.warn(`WebSocket 연결 끊김: ${sessionId} (code: ${event.code})`);
       setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
       setIsReady(false);
       // 재연결 시도 중 실패 — 스피너 해제 (오버레이는 유지)
