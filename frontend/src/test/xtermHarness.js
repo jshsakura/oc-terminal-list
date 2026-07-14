@@ -142,6 +142,7 @@ export class FakeWebSocket {
 
   constructor(url) {
     this.url = url;
+    this.createdAt = Date.now(); // 재연결 간격(백오프) 검증용
     this.readyState = FakeWebSocket.CONNECTING;
     this.bufferedAmount = 0;
     this.sent = [];
