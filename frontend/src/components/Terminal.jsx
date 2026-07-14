@@ -17,6 +17,7 @@ import {
   RECOVERY_GRACE_MS, RECOVERY_POLL_MS, TAKEOVER_CONFIRM_MS, TAKEOVER_CONFIRM_POLL_MS,
   MAX_RECONNECT_ATTEMPTS, RECONNECT_MAX_WALL_MS, AUTO_CLOSE_MS, LOAD_STUCK_MS,
   HEARTBEAT_INTERVAL_MS, HEARTBEAT_DEAD_MS, HEARTBEAT_INTERVAL_ACTIVE_MS, HEARTBEAT_DEAD_ACTIVE_MS,
+  HEARTBEAT_LAST_CHANCE_MS,
   RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_THROTTLE_MS,
   WS_TICKET_USE_MARGIN_MS, HEALTHY_RECV_MS, NOTICE_SHOW_DELAY_MS,
   WEBGL_DETACH_GRACE_MS, WEBGL_IDLE_RELEASE_MS, CONNECT_OPEN_TIMEOUT_MS, RECONNECT_STABLE_RESET_MS,
@@ -122,6 +123,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const lastRecvRef = useRef(0);
   // 재연결 진단용 — 하트비트가 죽인 소켓인지, 마지막 끊김이 언제/계획된 것이었는지.
   const heartbeatKilledRef = useRef(false);
+  // 하트비트 임계를 넘긴 시각 — 곧장 안 끊고 마지막 기회를 주기 위한 유예 기준.
+  const heartbeatSuspectSinceRef = useRef(0);
   const lastDownRef = useRef(null);
   // 서버가 연결된 WS 위로 미리 밀어준 다음 재연결용 단일사용 티켓 {ticket, expiresAt(ms)}.
   // 재연결 시 이게 유효하면 /api/ws-ticket fetch 없이 바로 WebSocket 을 연다(= Jupyter 처럼
@@ -883,13 +886,32 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           // 여기 도달 = 가시 탭. 보고 있는 활성 pane 은 짧은 dead 임계로 빠르게 감지하고,
           // 같은 탭의 비활성 pane 은 기본(긴) 임계를 백스톱으로 둔다(복귀 시 resume probe 가 책임).
           const deadMs = isActiveRef.current ? HEARTBEAT_DEAD_ACTIVE_MS : HEARTBEAT_DEAD_MS;
-          // 서버 응답(pong 등)이 임계 시간 넘게 없으면 half-open 으로 보고 강제 close → onclose 가 재연결.
-          if (Date.now() - lastRecvRef.current > deadMs) {
-            heartbeatKilledRef.current = true;
-            try { socket.close(); } catch { /* noop */ }
+          const silentMs = Date.now() - lastRecvRef.current;
+
+          // 응답이 돌아왔다 — 의심을 거둔다.
+          if (silentMs <= deadMs) {
+            heartbeatSuspectSinceRef.current = 0;
+            try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
             return;
           }
-          try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+
+          /* 임계 초과 — 하지만 곧장 죽이지 않는다. 공유 터널이 잠깐 막혀 pong 두 번이 늦은
+             것뿐일 수 있고, 그때 멀쩡한 소켓을 끊으면 재연결 + tmux 리플레이로 수십 초를
+             잃는다. ping 을 한 번 더 쏘고 HEARTBEAT_LAST_CHANCE_MS 만큼 더 기다린다. */
+          if (!heartbeatSuspectSinceRef.current) {
+            heartbeatSuspectSinceRef.current = Date.now();
+            try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+            return;
+          }
+          if (Date.now() - heartbeatSuspectSinceRef.current < HEARTBEAT_LAST_CHANCE_MS) {
+            try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+            return;
+          }
+
+          // 마지막 기회에도 답이 없다 — 진짜 죽은 소켓. 끊어서 재연결 경로를 태운다.
+          heartbeatSuspectSinceRef.current = 0;
+          heartbeatKilledRef.current = true;
+          try { socket.close(); } catch { /* noop */ }
         }, HEARTBEAT_INTERVAL_ACTIVE_MS);
         heartbeatTimerRef.current = hbId;
 
@@ -1618,7 +1640,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   //   - 재접속 시 tmux attach 가 현재 화면을 다시 그려서 자연스럽게 동기화.
   // grace = 60s — 사용자가 잠깐 다른 탭 들렀다 돌아오는 경우엔 close 안 됨 (재접속 비용 0).
   useEffect(() => {
-    // 비활성 pane(앱은 보이지만 다른 pane 을 보는 중) — 60s 후 닫아 리소스 절약(기존 동작).
+    // 비활성 pane 절전 — 모바일에서만. 이유는 아래 graceFor() 참고.
     const INACTIVE_PANE_GRACE_MS = 60_000;
     // 탭 자체를 숨김(다른 브라우저 탭으로 이동/최소화/잠금) — 더 길게. 잠깐 탭 전환에 매번
     // 소켓을 닫으면 복귀 때마다 재연결+tmux 리플레이로 "응답 없는 느낌"이 난다. Chrome 도
@@ -1646,8 +1668,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         return;
       }
       if (graceCloseTimerRef.current) return; // 이미 grace 예약됨
-      // 탭을 숨긴 경우(document.hidden)는 길게, 단순 pane 비활성은 짧게.
-      const grace = document.hidden ? HIDDEN_TAB_GRACE_MS : INACTIVE_PANE_GRACE_MS;
+
+      /* 브라우저 탭 자체를 숨긴 경우(다른 탭/최소화/잠금)는 기기와 무관하게 정리한다 — 길게.
+         단순 pane 비활성(앱은 보이는데 다른 pane 을 보는 중)은 *모바일에서만* 정리한다:
+         모바일은 안 보이는 pane 이 소켓·하트비트·티켓을 계속 돌리면 OS 가 탭을 통째로
+         죽인다(밤새 켜두면 뻗던 문제). 데스크탑엔 그 위험이 없고, 끊어봐야 탭을 오갈 때마다
+         재연결 + tmux 리플레이로 "재연결 중" 만 뜬다 — 이득 없이 비용만 든다. */
+      const grace = document.hidden
+        ? HIDDEN_TAB_GRACE_MS
+        : (isMobileRef.current ? INACTIVE_PANE_GRACE_MS : null);
+      if (grace === null) return; // 데스크탑 비활성 pane — 끊지 않는다
       graceCloseTimerRef.current = setTimeout(() => {
         graceCloseTimerRef.current = null;
         const ws = wsRef.current;

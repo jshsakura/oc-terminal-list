@@ -35,6 +35,10 @@ export const HEARTBEAT_DEAD_MS = 35000;
 // probe 가 따로 책임).
 export const HEARTBEAT_INTERVAL_ACTIVE_MS = 5000;
 export const HEARTBEAT_DEAD_ACTIVE_MS = 12000;
+/* 임계를 넘겨도 곧장 끊지 않는다 — ping 을 한 번 더 쏘고 이만큼 더 기다린다.
+   공유 터널이 잠깐 막혀 pong 두 번이 늦은 것뿐이면 멀쩡한 소켓이다. 그걸 죽이면
+   재연결 + tmux 리플레이로 수십 초를 잃는다("가만히 보고 있는데 갑자기 재연결 중"). */
+export const HEARTBEAT_LAST_CHANCE_MS = 6000;
 // 복귀(focus/visibility) 프로브 판정 시간. 살아있는 소켓 pong 은 보통 1초 미만이라
 // 길게 잡을 필요가 없다. 포커스 순간 빠른 복구를 위해 짧게 — 그래도 typical RTT 의 5배+.
 export const RESUME_PROBE_TIMEOUT_MS = 2500;

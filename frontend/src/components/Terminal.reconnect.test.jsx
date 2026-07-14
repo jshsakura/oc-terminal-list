@@ -133,13 +133,14 @@ describe('Terminal 재연결 타이머', () => {
     });
 
     /* half-open 소켓 — OPEN 인 채로 아무 응답이 없는 상태. 모바일 네트워크 전환에서 흔하다.
-       HEARTBEAT_DEAD_ACTIVE_MS(12s) 무응답이면 죽은 걸로 보고 닫아 재연결 경로를 태운다. */
-    it('12초간 응답이 없으면 죽은 소켓으로 보고 끊는다', async () => {
+       임계(12s) 를 넘겨도 곧장 끊지 않고 마지막으로 한 번 더 물어본 뒤(6s) 끊는다 —
+       터널이 잠깐 막힌 것뿐이면 멀쩡한 소켓이기 때문. 그래도 답이 없으면 죽은 것이다. */
+    it('응답이 완전히 끊기면 (마지막 확인까지 실패) 죽은 소켓으로 보고 끊는다', async () => {
       renderTerminal();
       const ws = await openSocket();
       ws.silent = true; // half-open: OPEN 인데 서버가 답을 끊었다
 
-      await tick(16000); // 하트비트는 5s 간격 — 15s 틱에서 "12s 무응답" 이 성립한다
+      await tick(25000); // 임계(12s) + 마지막 기회(6s) + 하트비트 간격(5s)
 
       expect(ws.closed).toBe(true);
       // 죽은 소켓을 닫으면 onclose 가 재연결을 태운다.
@@ -184,7 +185,7 @@ describe('Terminal 재연결 타이머', () => {
       first.zombie = true;  // close() 해도 onclose 가 영영 안 온다 (모바일에서 실제로 생긴다)
       first.silent = true;  // 서버 응답도 끊겼다
 
-      await tick(16000); // 하트비트가 죽은 소켓을 감지해 close() — 그러나 onclose 는 안 온다
+      await tick(25000); // 하트비트가(마지막 확인까지 실패 후) close() — 그러나 onclose 는 안 온다
       expect(first.closed).toBe(true);
 
       // 사용자가 타이핑한다 → 소켓이 없으니 "재연결 중" 배너만 뜬다. 아무도 재연결을 안 한다.
@@ -197,11 +198,12 @@ describe('Terminal 재연결 타이머', () => {
     });
   });
 
-  describe('비활성 pane grace-close', () => {
-    /* 비활성 pane 이 소켓·하트비트·티켓을 계속 돌리면 OS 가 탭을 죽인다(특히 모바일).
-       60초 뒤 조용히 닫고, 활성 복귀 시 다시 붙는다 — tmux 가 세션을 들고 있어 손실은 없다. */
+  describe('비활성 pane grace-close (모바일)', () => {
+    /* 모바일은 안 보이는 pane 이 소켓·하트비트·티켓을 계속 돌리면 OS 가 탭을 통째로 죽인다.
+       60초 뒤 조용히 닫고, 활성 복귀 시 다시 붙는다 — tmux 가 세션을 들고 있어 손실은 없다.
+       (데스크탑에서는 끊지 않는다 — Terminal.resilience.test.jsx 참고) */
     it('비활성 60초 뒤 소켓을 닫고, 활성 복귀 시 다시 연결한다', async () => {
-      const props = { sessionId: 's1', settings, isFocused: true };
+      const props = { sessionId: 's1', settings, isFocused: true, isMobile: true };
       const { rerender } = render(<TerminalComponent {...props} isActive />);
       const ws = await openSocket();
 
@@ -218,7 +220,7 @@ describe('Terminal 재연결 타이머', () => {
     });
 
     it('60초 전에 돌아오면 소켓을 그대로 둔다 (재연결 비용 0)', async () => {
-      const props = { sessionId: 's1', settings, isFocused: true };
+      const props = { sessionId: 's1', settings, isFocused: true, isMobile: true };
       const { rerender } = render(<TerminalComponent {...props} isActive />);
       const ws = await openSocket();
 
