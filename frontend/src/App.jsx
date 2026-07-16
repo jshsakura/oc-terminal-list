@@ -12,6 +12,7 @@ import useFilePicker from './hooks/useFilePicker';
 import useEditorResize from './hooks/useEditorResize';
 import useEditorTabs from './hooks/useEditorTabs';
 import useWorkspaceTabs from './hooks/useWorkspaceTabs';
+import useBlockStrayFileDrop from './hooks/useBlockStrayFileDrop';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
@@ -64,6 +65,8 @@ const tabCloseKeepsSession = (tab, hosts) => !(tab?.panes || []).some((p) => {
 
 
 function App() {
+  // 터미널을 조준하다 빗맞은 파일 드롭 → 브라우저가 파일을 열며 앱 이탈. 창 전체에서 삼킨다.
+  useBlockStrayFileDrop();
   // useAuth 를 먼저 — isAuthenticated 가 useSettings 의 fetch 트리거 dep 으로 들어간다.
   // (로그인 후 처음 로드되는 경우에도 server 의 mobile fontSize 등을 가져오기 위함.)
   const { isLoading, needsSetup, isAuthenticated, username, login, logout, completeSetup } = useAuth();

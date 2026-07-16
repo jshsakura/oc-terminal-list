@@ -1,3 +1,4 @@
+import { isFileDrag } from '../../utils/fileDrag';
 import { uploadFileAndGetPath } from './terminalHelpers';
 
 /**
@@ -12,9 +13,6 @@ import { uploadFileAndGetPath } from './terminalHelpers';
 
 const TOAST_DONE_MS = 1200;
 const TOAST_ERROR_MS = 2500;
-
-/** OS 파일 드래그인지 — 탭/pane 내부 드래그(자체 MIME)와 구분한다. */
-export const isFileDrag = (dataTransfer) => Array.from(dataTransfer?.types || []).includes('Files');
 
 /**
  * 삽입된 경로는 셸 인자로 바로 쓰인다 — 공백·특수문자가 있으면 인자가 쪼개지므로 감싼다.

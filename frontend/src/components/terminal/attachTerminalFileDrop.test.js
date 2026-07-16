@@ -6,9 +6,9 @@ vi.mock('./terminalHelpers', () => ({
 
 import attachTerminalFileDrop, {
   collectDroppedFiles,
-  isFileDrag,
   quotePathForShell,
 } from './attachTerminalFileDrop';
+import { isFileDrag } from '../../utils/fileDrag';
 import { uploadFileAndGetPath } from './terminalHelpers';
 
 /* PC 파일 드롭 → 업로드 → 경로 삽입.
