@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowDownToLine, Copy, Loader2, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ArrowDownToLine, Copy, FolderX, Loader2, Upload, WifiOff, X } from 'lucide-react';
 import { styles } from './terminalStyles';
 
 /**
@@ -79,11 +79,53 @@ export const CopiedToast = ({ themeUi, t }) => (
   </CornerToast>
 );
 
-/** 이미지/파일 붙여넣기 업로드 상태 — 'uploading' | 'done' | 'error'. */
+/**
+ * 드롭 존 하이라이트 — PC 에서 파일을 터미널 위로 끌고 왔을 때만.
+ * pointerEvents:none 이라 정작 drop 이벤트는 아래 xterm 컨테이너가 그대로 받는다(필수).
+ */
+export const FileDropOverlay = ({ themeUi, t }) => (
+  <div
+    aria-hidden="true"
+    style={{
+      position: 'absolute',
+      inset: 0,
+      zIndex: 14,
+      pointerEvents: 'none',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: `color-mix(in srgb, ${themeUi.accent} 10%, transparent)`,
+      border: `2px dashed ${themeUi.accent}`,
+      borderRadius: '6px',
+      boxSizing: 'border-box',
+    }}
+  >
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: '7px',
+        padding: '7px 13px',
+        borderRadius: '6px',
+        background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0 || '#313244'} 94%, transparent)`,
+        border: `1px solid ${themeUi.border}`,
+        color: themeUi.text,
+        fontSize: '12px',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        fontWeight: 500,
+      }}
+    >
+      <Upload size={13} strokeWidth={2} style={{ color: themeUi.accent }} />
+      {t('fileDropHint') || '놓으면 업로드 후 경로가 입력됩니다'}
+    </div>
+  </div>
+);
+
+/** 이미지/파일 붙여넣기 업로드 상태 — 'uploading' | 'done' | 'error' | 'folder'. */
 export const ImagePasteToast = ({ state, themeUi, t }) => {
   if (!state) return null;
   return (
-    <CornerToast themeUi={themeUi} tone={state === 'error' ? 'error' : 'default'}>
+    <CornerToast themeUi={themeUi} tone={state === 'error' || state === 'folder' ? 'error' : 'default'}>
       {state === 'uploading' && (
         <>
           <Loader2 size={11} strokeWidth={2} style={{ color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
@@ -100,6 +142,12 @@ export const ImagePasteToast = ({ state, themeUi, t }) => {
         <>
           <AlertTriangle size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
           {t('imagePasteError') || '이미지 업로드 실패'}
+        </>
+      )}
+      {state === 'folder' && (
+        <>
+          <FolderX size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
+          {t('fileDropFolderUnsupported') || '폴더는 보낼 수 없습니다'}
         </>
       )}
     </CornerToast>

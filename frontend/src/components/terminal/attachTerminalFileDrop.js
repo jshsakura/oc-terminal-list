@@ -1,0 +1,137 @@
+import { uploadFileAndGetPath } from './terminalHelpers';
+
+/**
+ * PC 에서 터미널로 파일 드래그&드롭 → 업로드 → 저장 경로 삽입.
+ *
+ * PTY 는 텍스트만 나르므로 파일 자체는 못 보낸다 — 클립보드 이미지 붙여넣기와 같은 우회를 쓴다.
+ * 서버(.pasted/)에 올리고 그 *경로* 를 타이핑한 것처럼 넣는다. 엔터는 치지 않는다:
+ * 드롭이 곧 실행이면 vim/claude 안에서 사고가 난다. 경로만 주고 판단은 사용자가.
+ *
+ * 전부 DOM 리스너다. detach() 로 한 번에 걷는다.
+ */
+
+const TOAST_DONE_MS = 1200;
+const TOAST_ERROR_MS = 2500;
+
+/** OS 파일 드래그인지 — 탭/pane 내부 드래그(자체 MIME)와 구분한다. */
+export const isFileDrag = (dataTransfer) => Array.from(dataTransfer?.types || []).includes('Files');
+
+/**
+ * 삽입된 경로는 셸 인자로 바로 쓰인다 — 공백·특수문자가 있으면 인자가 쪼개지므로 감싼다.
+ * 백엔드가 파일명을 [A-Za-z0-9._-] 로 정규화하니 보통은 그냥 통과하고,
+ * WORKSPACE_ROOT 자체에 공백이 있는 경우에만 실제로 걸린다.
+ */
+export const quotePathForShell = (path) => {
+  if (/^[A-Za-z0-9._\-/=:@,+]+$/.test(path)) return path;
+  return `'${path.replace(/'/g, "'\\''")}'`;
+};
+
+/**
+ * drop 순간에 동기로 훑어야 한다 — await 을 한 번이라도 넘기면 DataTransfer 가 비워진다.
+ * 폴더도 File 로 오지만 읽으면 실패한다. webkitGetAsEntry 만이 확실한 구분법.
+ */
+export const collectDroppedFiles = (dataTransfer) => {
+  const items = Array.from(dataTransfer?.items || []);
+  if (!items.length) return { files: Array.from(dataTransfer?.files || []), skippedDirs: 0 };
+
+  const files = [];
+  let skippedDirs = 0;
+  for (const item of items) {
+    if (item.kind !== 'file') continue;
+    if (item.webkitGetAsEntry?.()?.isDirectory) { skippedDirs += 1; continue; }
+    const file = item.getAsFile();
+    if (file) files.push(file);
+  }
+  return { files, skippedDirs };
+};
+
+const attachTerminalFileDrop = ({
+  term,
+  container,
+  logger,
+  setDropActive,
+  setImagePasteState,
+}) => {
+  const timers = new Set();
+  const later = (fn, ms) => {
+    const id = setTimeout(() => { timers.delete(id); fn(); }, ms);
+    timers.add(id);
+    return id;
+  };
+  const flashToast = (state, ms) => {
+    setImagePasteState(state);
+    later(() => setImagePasteState(null), ms);
+  };
+
+  let uploading = false;
+
+  const uploadDropped = async (files) => {
+    uploading = true;
+    setImagePasteState('uploading');
+    const paths = [];
+    let failed = 0;
+    // 순차 업로드 — 공유 터널을 동시에 때리면 WS 까지 같이 느려진다(기존 업로드도 같은 방식).
+    for (const file of files) {
+      try {
+        const data = await uploadFileAndGetPath(file);
+        paths.push(quotePathForShell(data.path));
+      } catch (err) {
+        failed += 1;
+        logger.error('file drop upload failed', file.name, err);
+      }
+    }
+    uploading = false;
+    // 일부만 실패해도 올라간 것들의 경로는 넣어준다 — 다시 드롭할 때 중복 업로드를 줄인다.
+    if (paths.length) term.paste(`${paths.join(' ')} `); // 뒤 공백 — 이어서 타이핑할 수 있게
+    flashToast(failed ? 'error' : 'done', failed ? TOAST_ERROR_MS : TOAST_DONE_MS);
+  };
+
+  const handleDragOver = (e) => {
+    if (!isFileDrag(e.dataTransfer)) return;
+    // preventDefault 를 빠뜨리면 브라우저가 드롭한 파일을 그냥 열어버린다(=페이지 이탈).
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    setDropActive(true);
+  };
+
+  const handleDragLeave = (e) => {
+    if (!isFileDrag(e.dataTransfer)) return;
+    // 자식 위를 지날 때마다 dragleave 가 터진다 — 컨테이너를 진짜 벗어났을 때만 끈다.
+    if (e.relatedTarget && container.contains(e.relatedTarget)) return;
+    setDropActive(false);
+  };
+
+  const handleDrop = (e) => {
+    if (!isFileDrag(e.dataTransfer)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDropActive(false);
+    if (uploading) return; // 앞 업로드가 도는 중엔 무시 — 경로가 뒤섞여 들어가지 않게
+
+    const { files, skippedDirs } = collectDroppedFiles(e.dataTransfer);
+    if (!files.length) {
+      if (skippedDirs) flashToast('folder', TOAST_ERROR_MS);
+      return;
+    }
+    if (skippedDirs) logger.warn?.(`file drop: skipped ${skippedDirs} folder(s)`);
+    term.focus(); // 경로가 들어갈 곳을 보이게 — 드롭 전 포커스가 딴 데 있었을 수 있다
+    uploadDropped(files);
+  };
+
+  container.addEventListener('dragover', handleDragOver);
+  container.addEventListener('dragleave', handleDragLeave);
+  container.addEventListener('drop', handleDrop);
+
+  return {
+    detach: () => {
+      container.removeEventListener('dragover', handleDragOver);
+      container.removeEventListener('dragleave', handleDragLeave);
+      container.removeEventListener('drop', handleDrop);
+      timers.forEach(clearTimeout);
+      timers.clear();
+    },
+  };
+};
+
+export default attachTerminalFileDrop;

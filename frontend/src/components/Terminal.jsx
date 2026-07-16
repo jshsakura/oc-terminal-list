@@ -30,8 +30,9 @@ import {
   uploadFileAndGetPath, copyTextToClipboard, issueWsTicket,
 } from './terminal/terminalHelpers';
 import { TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
-import { CopiedToast, ImagePasteToast, ReconnectPill, TerminalSkeleton, TmuxFallbackBanner } from './terminal/TerminalChrome';
+import { CopiedToast, FileDropOverlay, ImagePasteToast, ReconnectPill, TerminalSkeleton, TmuxFallbackBanner } from './terminal/TerminalChrome';
 import { ConnectionTroubleCard, ShellClosingCard, ShellEndedCard, TakeoverCard } from './terminal/TerminalStatusCards';
+import attachTerminalFileDrop from './terminal/attachTerminalFileDrop';
 import attachTerminalInteractions from './terminal/attachTerminalInteractions';
 import createInputQueue, { isLatencySensitiveInput, WS_BUFFER_HIGH_WATER } from './terminal/createInputQueue';
 import createOutputSink from './terminal/createOutputSink';
@@ -184,8 +185,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 배너는 디바운스해서 보여준다 — 짧은 끊김이 NOTICE_SHOW_DELAY_MS 안에 복구되면
   // 아예 안 뜨게 해서 "재연결 중" 배너가 자꾸 깜빡이며 프롬프트를 가리는 체감을 없앤다.
   const [noticeVisible, setNoticeVisible] = useState(false);
-  // 클립보드 이미지 붙여넣기 진행 상태: 'uploading' | 'done' | 'error' | null
+  // 클립보드 이미지 붙여넣기 / 파일 보내기 / 드롭 업로드 진행 상태:
+  // 'uploading' | 'done' | 'error' | 'folder' | null
   const [imagePasteState, setImagePasteState] = useState(null);
+  // PC 에서 파일을 터미널 위로 끌고 온 동안만 true — 드롭 존 하이라이트.
+  const [dropActive, setDropActive] = useState(false);
   // 우클릭 "파일 보내기" 용 숨김 file input — 사진/파일 골라 업로드 후 저장 경로를 터미널에 삽입.
   const fileUploadRef = useRef(null);
   const handleFileChosen = useCallback(async (e) => {
@@ -632,6 +636,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       logger,
       setContextMenu,
       setCopyFlash,
+      setImagePasteState,
+    });
+
+    /* PC 파일 드래그&드롭 → 업로드 → 경로 삽입. 우클릭 "파일 보내기" 와 같은 결과의 지름길. */
+    const fileDrop = attachTerminalFileDrop({
+      term,
+      container,
+      logger,
+      setDropActive,
       setImagePasteState,
     });
 
@@ -1412,6 +1425,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         window.visualViewport.removeEventListener('resize', handleResize);
       }
       interactions.detach();
+      fileDrop.detach();
       try { wsRef.current?.close(); } catch {}
       connectRef.current = null;
       runPreflightRef.current = null;
@@ -2009,6 +2023,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         aria-hidden="true"
         tabIndex={-1}
       />
+
+      {/* PC 파일 드래그 중 드롭 존 하이라이트 — pointerEvents:none 이라 drop 은 아래로 통과한다. */}
+      {dropActive && <FileDropOverlay themeUi={themeUi} t={t} />}
 
       {/* "Copied!" 토스트 — 드래그 선택 후 자동 복사 시 짧게 표시 */}
       {copyFlash && <CopiedToast themeUi={themeUi} t={t} />}
