@@ -10,7 +10,7 @@ import { iconForFile, fileIconColor, gitTone } from './fileTreeHelpers';
 
 const { color, fontWeight } = tokens;
 
-export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu, draggable = false, onDragStart, onDragOver, onDragLeave, onDrop, isDropTarget = false, sizeLabel = '', title }) => {
+export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitStatus, isChanged, onClick, onDoubleClick, onContextMenu, draggable = false, onDragStart, onDragOver, onDrop, isDropTarget = false, isDropTargetRoot = false, sizeLabel = '', title }) => {
   const FileIcon = isFolder ? (isOpen ? FolderOpen : Folder) : iconForFile(name);
   const iconHue = isFolder ? color.accent : fileIconColor(name);
   const nameColor = isChanged && !isFolder ? gitTone(gitStatus || 'M') : tone;
@@ -63,12 +63,13 @@ export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitS
       draggable={draggable}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
       onDrop={onDrop}
       style={{
         ...styles.row,
-        background: isDropTarget ? color.accentSubtle : (isSelected ? color.accentSubtle : 'transparent'),
-        boxShadow: isDropTarget ? `inset 0 0 0 1px ${color.accent}` : 'none',
+        // 드롭 대상은 폴더 자신 + 하위 전부를 채워 한 덩어리로 보이게 한다(어디로 들어가는지
+        // 한눈에). 테두리 링은 대상 폴더 행에만 — 하위마다 그리면 상자가 층층이 쌓여 보인다.
+        background: (isDropTarget || isSelected) ? color.accentSubtle : 'transparent',
+        boxShadow: isDropTargetRoot ? `inset 0 0 0 1px ${color.accent}` : 'none',
         paddingLeft: 4 + depth * 14,
       }}
       onMouseEnter={(e) => { if (!isSelected && !isDropTarget) e.currentTarget.style.background = color.surface0; }}

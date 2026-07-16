@@ -11,9 +11,10 @@ import useFileUpload from '../hooks/useFileUpload';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
 import { authHeaders } from '../utils/auth';
+import { isFileDrag } from '../utils/fileDrag';
 import { ROW_HEIGHT, VIRTUALIZE_AFTER, VIRTUAL_OVERSCAN } from './filetree/fileTreeConstants';
 import { styles } from './filetree/fileTreeStyles';
-import { gitTone, computeParent, stripHostPathPrefix } from './filetree/fileTreeHelpers';
+import { gitTone, computeParent, dropFolderForRow, isRowInDropTarget, stripHostPathPrefix } from './filetree/fileTreeHelpers';
 import { Row, ContextMenu, HeadAction } from './filetree/FileTreeParts';
 import ContentSearch from './filetree/ContentSearch';
 
@@ -71,7 +72,9 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
   const selectionAnchorRef = useRef(null);
   const [contextMenu, setContextMenu] = useState(null);
-  const [dropTargetPath, setDropTargetPath] = useState(null); // 드래그 이동 중 하이라이트할 폴더 경로
+  // 드롭이 들어갈 폴더 경로. null=대상 없음, ''=루트(칠할 행이 없어 외곽선이 대신한다).
+  // 내부 이동 드래그와 외부 파일 드롭이 같이 쓴다.
+  const [dropTargetPath, setDropTargetPath] = useState(null);
   const [sortMode, setSortMode] = useState('name'); // 'name' | 'modified' | 'size' — 폴더 우선 고정
   const [renameTarget, setRenameTarget] = useState(null);
   const [creating, setCreating] = useState(null);
@@ -308,11 +311,14 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     uploadUrl,
     t,
     onUploadComplete: (destPath) => {
-      if (destPath && nodes[destPath]) fetchChildren(destPath);
-      else fetchChildren('');
+      // 폴더에 떨궜으면 그 폴더를 펼쳐서 결과를 보여준다 — 접힌 폴더에 올리고 아무 일도
+      // 안 일어난 것처럼 보이던 문제(한 번도 안 연 폴더는 갱신 대상에서 빠졌다).
+      if (destPath) setExpanded((prev) => new Set([...prev, destPath]));
+      fetchChildren(destPath || '');
     },
   });
   const uploadFiles = (files, destPath = null) => _uploadFilesRaw(files, destPath ?? uploadTargetPath);
+
 
   const openUploadPicker = (destPath = null) => {
     uploadDestRef.current = destPath ?? uploadTargetPath;
@@ -352,23 +358,37 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     e.dataTransfer.effectAllowed = 'move';
   };
   const handleRowDragOver = (e, row) => {
-    // 내부 드래그(이동)일 때만 폴더가 드롭 대상. 외부 파일 드롭(업로드)은 루트 핸들러가 처리.
-    if (!e.dataTransfer.types.includes(DND_MIME)) return;
+    // 내부 드래그(이동)는 폴더 행만 대상. 외부 파일(업로드)은 파일 행이어도 그 부모 폴더로.
+    const isInternal = e.dataTransfer.types.includes(DND_MIME);
+    if (!isInternal && !isFileDrag(e.dataTransfer)) return;
+    const target = isInternal
+      ? (row.type === 'directory' ? row.path : null)
+      : dropFolderForRow(row);
+    if (target === null) return; // 파일 행 위의 내부 드래그 — 대상 아님(루트로 흘려보낸다)
     e.preventDefault();
     e.stopPropagation();
-    e.dataTransfer.dropEffect = 'move';
-    if (dropTargetPath !== row.path) setDropTargetPath(row.path);
+    e.dataTransfer.dropEffect = isInternal ? 'move' : 'copy';
+    // 행 위에서도 dragOver 를 세워둔다 — 대상이 루트('')일 때 외곽선으로 보여줘야 하므로.
+    if (!isInternal) setDragOver(true);
+    if (dropTargetPath !== target) setDropTargetPath(target);
   };
-  const handleRowDragLeave = (_e, row) => {
-    if (dropTargetPath === row.path) setDropTargetPath(null);
-  };
+  /* 행에는 dragleave 를 걸지 않는다. 하위 행으로 옮겨갈 때 dragleave(폴더) 가 dragover(자식)
+     보다 먼저 와서 하이라이트가 한 프레임 꺼졌다 켜진다(깜빡임). 지우는 건 wrap 이 맡는다 —
+     여백으로 나가면 wrap 의 dragover 가, 트리를 벗어나면 wrap 의 dragleave 가 지운다. */
   const handleRowDrop = (e, row) => {
-    if (!e.dataTransfer.types.includes(DND_MIME)) return;
+    const isInternal = e.dataTransfer.types.includes(DND_MIME);
+    if (!isInternal && !isFileDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();
     setDropTargetPath(null);
-    const source = e.dataTransfer.getData(DND_MIME);
-    if (source && row.type === 'directory') moveItem(source, row.path);
+    setDragOver(false);
+    if (isInternal) {
+      const source = e.dataTransfer.getData(DND_MIME);
+      if (source && row.type === 'directory') moveItem(source, row.path);
+      return;
+    }
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) uploadFiles(files, dropFolderForRow(row));
   };
 
   const startCreate = (parentPath, type) => {
@@ -694,11 +714,23 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 
   return (
     <div
-      style={{ ...styles.wrap, ...(dragOver ? { outline: `2px dashed ${color.accent}`, outlineOffset: '-2px', background: `${color.accent}08` } : {}) }}
-      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); if (e.dataTransfer.types.includes('Files')) setDragOver(true); }}
-      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false); }}
+      /* 외곽선 = "특정 폴더가 아니라 루트로 간다". 폴더가 대상이면 그쪽이 칠해지므로 끈다.
+         대상이 루트('')면 dropTargetPath 가 falsy 라 여기서 외곽선이 뜬다 — 의도된 동작. */
+      style={{ ...styles.wrap, ...(dragOver && !dropTargetPath ? { outline: `2px dashed ${color.accent}`, outlineOffset: '-2px', background: `${color.accent}08` } : {}) }}
+      onDragOver={(e) => {
+        e.preventDefault(); e.stopPropagation();
+        // 대상이 되는 행은 stopPropagation 하므로, 여기 도달 = 여백이거나 대상 아닌 행
+        // (파일 행 위의 내부 이동 드래그) = 대상 없음. 내부 드래그도 여기서 하이라이트를 건다.
+        setDropTargetPath(null);
+        setDragOver(isFileDrag(e.dataTransfer));
+      }}
+      onDragLeave={(e) => {
+        if (e.currentTarget.contains(e.relatedTarget)) return;
+        setDragOver(false);
+        setDropTargetPath(null); // 트리를 완전히 벗어남 — 행 하이라이트도 같이 걷는다
+      }}
       onDrop={(e) => {
-        e.preventDefault(); e.stopPropagation(); setDragOver(false);
+        e.preventDefault(); e.stopPropagation(); setDragOver(false); setDropTargetPath(null);
         const files = Array.from(e.dataTransfer.files);
         if (files.length > 0) uploadFiles(files);
       }}
@@ -849,10 +881,12 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
                 title={row.modified ? `${row.name}\n${formatMtime(row.modified)}${row.type === 'file' && row.size != null ? ` · ${formatFileSize(row.size)}` : ''}` : row.name}
                 draggable={!!row.path}
                 onDragStart={(e) => handleRowDragStart(e, row)}
-                onDragOver={row.type === 'directory' ? (e) => handleRowDragOver(e, row) : undefined}
-                onDragLeave={row.type === 'directory' ? (e) => handleRowDragLeave(e, row) : undefined}
-                onDrop={row.type === 'directory' ? (e) => handleRowDrop(e, row) : undefined}
-                isDropTarget={dropTargetPath === row.path}
+                /* 파일 행에도 건다 — 외부 파일 드롭은 그 파일의 부모 폴더가 대상이 되므로.
+                   내부 드래그는 핸들러 안에서 폴더 행만 통과시킨다. */
+                onDragOver={(e) => handleRowDragOver(e, row)}
+                onDrop={(e) => handleRowDrop(e, row)}
+                isDropTarget={isRowInDropTarget(dropTargetPath, row.path)}
+                isDropTargetRoot={!!dropTargetPath && row.path === dropTargetPath}
               />
             )}
             {creating && creating.parentPath === row.path && (expanded.has(row.path) || searchQuery) && (
