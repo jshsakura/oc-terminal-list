@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 import main
+from routes import user_state  # tab-state 로직은 main 에서 분리됨
 
 
 def _live(*names):
@@ -31,9 +32,9 @@ def _local_tab(tab_id, tab_session, pane_sessions):
 async def test_split_tab_kept_when_tab_session_dead_but_pane_alive():
     # 탭 레벨 sessionId("dead")는 죽었지만 pane 하나("alive")가 살아있음 → 유지.
     tab = _local_tab("t1", "dead", ["dead", "alive"])
-    with patch.object(main, "tmux_manager", autospec=False) as m:
+    with patch.object(user_state, "tmux_manager", autospec=False) as m:
         m.list_sessions = AsyncMock(return_value=_live("alive"))
-        tabs, active = await main._sanitize_tab_state([tab], "t1")
+        tabs, active = await user_state._sanitize_tab_state([tab], "t1")
     assert tabs == [tab]
     assert active == "t1"
 
@@ -41,9 +42,9 @@ async def test_split_tab_kept_when_tab_session_dead_but_pane_alive():
 @pytest.mark.anyio
 async def test_tab_dropped_when_all_panes_dead():
     tab = _local_tab("t1", "dead1", ["dead1", "dead2"])
-    with patch.object(main, "tmux_manager", autospec=False) as m:
+    with patch.object(user_state, "tmux_manager", autospec=False) as m:
         m.list_sessions = AsyncMock(return_value=_live("other"))
-        tabs, active = await main._sanitize_tab_state([tab], "t1")
+        tabs, active = await user_state._sanitize_tab_state([tab], "t1")
     assert tabs == []
     assert active is None
 
@@ -52,9 +53,9 @@ async def test_tab_dropped_when_all_panes_dead():
 async def test_no_pruning_when_tmux_list_empty():
     # list-sessions 는 일시 오류와 진짜 빈 상태를 구분 못 함 → 빈 결과면 정리 skip.
     tab = _local_tab("t1", "s1", ["s1"])
-    with patch.object(main, "tmux_manager", autospec=False) as m:
+    with patch.object(user_state, "tmux_manager", autospec=False) as m:
         m.list_sessions = AsyncMock(return_value=[])
-        tabs, active = await main._sanitize_tab_state([tab], "t1")
+        tabs, active = await user_state._sanitize_tab_state([tab], "t1")
     assert tabs == [tab]
     assert active == "t1"
 
@@ -71,9 +72,9 @@ async def test_tab_with_host_pane_kept():
             {"id": "p1", "mode": "terminal", "hostId": "h1", "tmuxSessionName": "mobile-abc"},
         ],
     }
-    with patch.object(main, "tmux_manager", autospec=False) as m:
+    with patch.object(user_state, "tmux_manager", autospec=False) as m:
         m.list_sessions = AsyncMock(return_value=_live("other"))
-        tabs, _ = await main._sanitize_tab_state([tab], "t1")
+        tabs, _ = await user_state._sanitize_tab_state([tab], "t1")
     assert tabs == [tab]
 
 
@@ -88,9 +89,9 @@ async def test_tab_with_editor_pane_kept():
             {"id": "p1", "mode": "editor"},
         ],
     }
-    with patch.object(main, "tmux_manager", autospec=False) as m:
+    with patch.object(user_state, "tmux_manager", autospec=False) as m:
         m.list_sessions = AsyncMock(return_value=_live("other"))
-        tabs, _ = await main._sanitize_tab_state([tab], "t1")
+        tabs, _ = await user_state._sanitize_tab_state([tab], "t1")
     assert tabs == [tab]
 
 
@@ -99,8 +100,8 @@ async def test_legacy_tab_without_panes_uses_tab_session():
     dead = {"id": "t1", "type": "local", "sessionId": "dead"}
     alive = {"id": "t2", "type": "local", "sessionId": "alive"}
     host_tab = {"id": "t3", "type": "host", "hostId": "h1"}
-    with patch.object(main, "tmux_manager", autospec=False) as m:
+    with patch.object(user_state, "tmux_manager", autospec=False) as m:
         m.list_sessions = AsyncMock(return_value=_live("alive"))
-        tabs, active = await main._sanitize_tab_state([dead, alive, host_tab], "t1")
+        tabs, active = await user_state._sanitize_tab_state([dead, alive, host_tab], "t1")
     assert [t["id"] for t in tabs] == ["t2", "t3"]
     assert active == "t2"  # 지워진 활성 탭은 첫 생존 탭으로 이동

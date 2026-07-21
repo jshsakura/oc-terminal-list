@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+from routes import user_state  # tab-state 로직은 main 에서 분리됨
 
 
 @pytest.fixture
@@ -25,7 +26,7 @@ def client():
 @pytest.fixture
 def storage_mock():
     """storage 의 호출되는 메소드들을 모두 mock."""
-    with patch.object(main, "storage", autospec=False) as m:
+    with patch.object(user_state, "storage", autospec=False) as m:
         m.get_tab_state_updated_at = AsyncMock(return_value=None)
         m.get_tab_state = AsyncMock(return_value=None)
         m.save_tab_state = AsyncMock(return_value="2026-05-18T03:00:00")
@@ -35,7 +36,7 @@ def storage_mock():
 @pytest.fixture
 def tmux_mock():
     """_sanitize_tab_state 가 호출하는 tmux_manager.list_sessions 모킹."""
-    with patch.object(main, "tmux_manager", autospec=False) as m:
+    with patch.object(user_state, "tmux_manager", autospec=False) as m:
         m.list_sessions = AsyncMock(return_value=[])
         yield m
 

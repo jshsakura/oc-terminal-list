@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 
 from fastapi import Cookie, Header, HTTPException
@@ -115,3 +116,15 @@ def get_auth_manager():
     의존을 유지해야 순환 import 가 안 생긴다.
     """
     return _auth_manager
+
+
+# ---------------------- ID 검증 ----------------------
+
+# session_id / host_id 는 클라이언트가 UUID v4 로 생성하지만, 셸/tmux 메타문자
+# (; | $ ` 공백 따옴표 등) 가 섞인 값을 거부해 명령 인젝션 여지를 원천 차단한다.
+# UUID 외에도 영숫자·하이픈·언더스코어 조합이면 허용 (친화적 세션명 대비).
+_SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+
+
+def is_safe_id(value: str | None) -> bool:
+    return bool(value) and bool(_SAFE_ID_RE.match(value))
