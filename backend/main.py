@@ -74,6 +74,7 @@ from host_manager import HostBridge, HostConnectError, resolve_host_secrets
 from sqlite_storage import storage
 from ssh_pool import ssh_pool
 from tmux_manager import tmux_manager
+from agent_status_watcher import AgentStatusWatcher, PANE_FORMAT as AGENT_PANE_FORMAT
 from rate_limit import check_rate_limit, client_ip_from_request, trust_proxy_headers
 from vault import encrypt_str
 from ws_bridge import TmuxClientBridge
@@ -226,6 +227,11 @@ async def lifespan(_app: FastAPI):
         logger.error("tmux 바이너리를 찾을 수 없습니다. 호스트에 tmux를 설치해주세요.")
     elif await tmux_manager.server_alive():
         await tmux_manager._run("set-option", "-s", "escape-time", "0", check=False)
+        # pane 타이틀 전달을 전역으로도 켠다. create_session 은 새 세션에만 거는데,
+        # 그러면 백엔드 재시작 시점에 이미 돌고 있던 세션들은 영영 상태를 못 흘린다
+        # (tmux 세션은 백엔드보다 오래 산다 — KillMode=process).
+        await tmux_manager._run("set-option", "-g", "set-titles", "on", check=False)
+        await tmux_manager._run("set-option", "-g", "set-titles-string", "#{pane_title}", check=False)
     # 서버 강제 종료로 detach hook 이 못 돈 orphan usage row 정리
     try:
         closed = await storage.close_orphan_usage_sessions()
@@ -248,10 +254,12 @@ async def lifespan(_app: FastAPI):
     except Exception as e:
         logger.warning("bootstrap host registration failed: %s", e)
     ssh_pool.start_janitor(idle_timeout=300)
+    agent_status_watcher.start()
     try:
         yield
     finally:
         logger.info("=== Terminal List 종료 ===")
+        await agent_status_watcher.stop()
         ssh_pool.stop_janitor()
         try:
             await ssh_pool.close_all()
@@ -1126,11 +1134,44 @@ _tab_state_sse_queues: dict[str, list[asyncio.Queue]] = {}
 
 def _notify_tab_state_change(username: str, updated_at: str) -> None:
     """PUT /api/tab-state 저장 후 호출 — 모든 SSE 클라이언트에 버전 전파."""
-    for q in list(_tab_state_sse_queues.get(username, [])):
-        try:
-            q.put_nowait(updated_at)
-        except asyncio.QueueFull:
-            pass
+    _broadcast_sse({"updatedAt": updated_at}, username=username)
+
+
+def _broadcast_sse(payload: dict, username: str | None = None) -> None:
+    """SSE 페이로드를 클라이언트 큐에 넣는다. username 이 None 이면 전체.
+
+    같은 스트림에 여러 종류의 이벤트가 흐른다. 구 클라이언트는 `updatedAt` 만 읽고
+    없으면 조용히 무시하므로, 새 타입을 얹어도 하위호환이 깨지지 않는다.
+    """
+    targets = (
+        [_tab_state_sse_queues.get(username, [])] if username
+        else list(_tab_state_sse_queues.values())
+    )
+    for queues in targets:
+        for q in list(queues):
+            try:
+                q.put_nowait(payload)
+            except asyncio.QueueFull:
+                # 큐가 밀렸다는 건 그 클라이언트가 못 따라온다는 뜻 — 버린다.
+                # 상태는 재연결 시 /api/agent-status 로 다시 하이드레이션된다.
+                pass
+
+
+# ---------------------- 에이전트 상태 워처 ----------------------
+
+async def _list_agent_panes() -> str:
+    return await tmux_manager.list_panes_raw(AGENT_PANE_FORMAT)
+
+
+async def _on_agent_status_change(changes: list[dict]) -> None:
+    _broadcast_sse({"type": "agentStatus", "changes": changes})
+
+
+agent_status_watcher = AgentStatusWatcher(
+    list_panes=_list_agent_panes,
+    on_change=_on_agent_status_change,
+    has_listeners=lambda: any(_tab_state_sse_queues.values()),
+)
 
 
 # ---------------------- 인증 ----------------------
@@ -1866,6 +1907,15 @@ async def get_tab_state_version(username: str = Depends(verify_auth_token)):
     return {"updatedAt": await storage.get_tab_state_updated_at(username)}
 
 
+@app.get("/api/agent-status")
+async def get_agent_status(username: str = Depends(verify_auth_token)):
+    """세션ID → {status, title, command} 전체 스냅샷.
+
+    SSE 는 변경분만 흘리므로, 새로 붙은 클라이언트는 여기서 한 번 하이드레이션한다.
+    """
+    return {"sessions": agent_status_watcher.snapshot()}
+
+
 @app.post("/api/sse-ticket")
 async def create_sse_ticket(username: str = Depends(verify_auth_token)):
     """EventSource 는 커스텀 헤더를 보낼 수 없으므로 일회용 티켓으로 인증."""
@@ -1895,8 +1945,8 @@ async def tab_state_events(ticket: str = Query(...)):
             yield f"data: {json.dumps({'updatedAt': current})}\n\n"
             while True:
                 try:
-                    updated_at = await asyncio.wait_for(queue.get(), timeout=30.0)
-                    yield f"data: {json.dumps({'updatedAt': updated_at})}\n\n"
+                    payload = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"data: {json.dumps(payload)}\n\n"
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
         finally:

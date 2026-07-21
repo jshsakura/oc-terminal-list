@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "에이전트 상태 판정의 단일 진실 공급원.",
+    "같은 로직이 백엔드(agent_status.py, tmux 폴링)와 프론트(utils/agentTitle.js, xterm onTitleChange)",
+    "양쪽에 존재한다 — 두 경로의 판정이 갈라지면 같은 pane 이 보는 각도에 따라 다른 상태가 된다.",
+    "양쪽 테스트가 이 파일을 읽으므로, 여기 케이스를 추가하면 두 구현 모두에서 검증된다.",
+    "판정 규칙 출처: stablyai/orca (MIT) src/shared/agent-title-status.ts"
+  ],
+  "status": [
+    { "title": "✳ 메모리 fault 분석 및 정리", "expect": "idle", "why": "Claude idle 글리프" },
+    { "title": "✳", "expect": "idle" },
+    { "title": "⠂ 폴더 로더와 XIP 캐시 슬롯 식별 수정", "expect": "working", "why": "브라유 스피너" },
+    { "title": "⠼ game-and-watch-retro-…", "expect": "working" },
+    { "title": "⣾ thinking", "expect": "working" },
+    { "title": "✦ Gemini", "expect": "working" },
+    { "title": "⏲ Gemini", "expect": "working" },
+    { "title": "◇ Gemini", "expect": "idle" },
+    { "title": "✋ Gemini", "expect": "permission" },
+
+    { "title": "claude — waiting for permission", "expect": "permission" },
+    { "title": "codex: action required", "expect": "permission" },
+    { "title": "claude ready", "expect": "idle" },
+    { "title": "codex working", "expect": "working" },
+    { "title": "opencode thinking", "expect": "working" },
+    { "title": "CLAUDE ready", "expect": "idle", "why": "대소문자 무시" },
+    { "title": "claude.exe working", "expect": "working", "why": "윈도 런처 접미사" },
+
+    { "title": "", "expect": null },
+    { "title": "~/app/front", "expect": null, "why": "에이전트 이름 없음 = 그냥 셸" },
+    { "title": "a1-ubuntu", "expect": null },
+    { "title": "vim backend/main.py", "expect": null },
+    { "title": "npm run dev", "expect": null },
+
+    { "title": "~/codex/ready", "expect": null, "why": "경로 안의 이름/키워드는 무시" },
+    { "title": "/home/ubuntu/claude-workspace", "expect": null },
+    { "title": "reworking the parser", "expect": null },
+    { "title": "is-thinking-cap", "expect": null },
+    { "title": "opencode-blinker", "expect": null, "why": "substring 매치 금지" },
+    { "title": "my-claude-fork", "expect": null, "why": "하이픈으로 감싼 이름은 에이전트가 아님" },
+    { "title": "grokking the code", "expect": null },
+    { "title": "android build running", "expect": null, "why": "android ⊃ droid" },
+    { "title": "timestamp ready", "expect": null, "why": "amp 를 이름 목록에서 뺀 이유" },
+
+    { "title": "claude reworking the parser", "expect": "idle", "why": "이름은 있으나 working 키워드가 하이픈에 묶임" },
+    { "title": "claude is-thinking-cap", "expect": "idle" },
+    { "title": "claude ~/codex/ready", "expect": "idle" }
+  ],
+  "displayTitle": [
+    { "title": "⠂ 폴더 로더와 XIP 캐시 슬롯 식별 수정", "expect": "폴더 로더와 XIP 캐시 슬롯 식별 수정" },
+    { "title": "✳ 메모리 fault 분석 및 정리", "expect": "메모리 fault 분석 및 정리" },
+    { "title": "~/app/front", "expect": "~/app/front" },
+    { "title": "✳", "expect": "✳", "why": "전부 떼면 빈 문자열 — 원본을 돌려준다" },
+    { "title": "⠂", "expect": "⠂" }
+  ],
+  "spinnerOnlyChange": [
+    { "before": "⠂ 폴더 로더 수정", "after": "⠴ 폴더 로더 수정", "expect": true },
+    { "before": "⠂ 폴더 로더 수정", "after": "⠴ 다른 작업 시작", "expect": false }
+  ]
+}

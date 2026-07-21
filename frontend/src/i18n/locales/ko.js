@@ -647,6 +647,8 @@ export const ko = {
     closeTabEndHint: '세션 종료 — 실행 중 작업 소실',
     confirmCloseTerminalNoTmux: '이 터미널을 닫을까요? tmux 가 꺼져있어 작업이 사라집니다.',
     panesInTab: '개 패널',
+    agentWorking: '에이전트 작업 중',
+    agentNeedsYou: '에이전트가 기다리는 중',
     confirmRemoveEmptyPane: '비어있는 이 패널을 제거할까요?',
     removePane: '패널 제거',
     closePane: '패널 닫기',

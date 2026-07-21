@@ -12,6 +12,8 @@ import useFilePicker from './hooks/useFilePicker';
 import useEditorResize from './hooks/useEditorResize';
 import useEditorTabs from './hooks/useEditorTabs';
 import useWorkspaceTabs from './hooks/useWorkspaceTabs';
+import useAgentStatus from './hooks/useAgentStatus';
+import { deriveTabAgentStatus } from './utils/tabAgentStatus';
 import useBlockStrayFileDrop from './hooks/useBlockStrayFileDrop';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
@@ -85,6 +87,8 @@ function App() {
   // 탭 상태 + 영속(localStorage·서버 저장/복원/SSE)은 useWorkspaceTabs 가 단일 소유.
   // 탭 "조작"(추가/닫기/분할/열기 등)은 아래 App 본체에 남아 setTabs/setActiveTabId 를 쓴다.
   const { tabs, setTabs, activeTabId, setActiveTabId, isRestoringWorkspace, setIsRestoringWorkspace } = useWorkspaceTabs({ isAuthenticated });
+  // 세션ID → 에이전트 상태. xterm 타이틀(즉시·원격 포함) + 백엔드 tmux 폴링(무인 세션) 합류점.
+  const agentStatusMap = useAgentStatus();
 
   // 키보드 핸들러 클로저에서 stale 안 되게 ref 로 보관
   const activeTabIdRef = useRef(null);
@@ -117,6 +121,9 @@ function App() {
   // 탭별 영속성 (tmux 로 작업이 살아남는지) — 로컬은 항상 true, 호스트는 use_remote_tmux 따라감.
   // TabBar 가 시각 표시할 수 있게 derived field 로 붙여서 넘김.
   const tabsWithMeta = useMemo(() => tabs.map((tt) => {
+    // 에이전트 상태 — tmux pane 타이틀에서 파생(utils/agentTitle.js). 상태 전이 때만
+    // 맵이 바뀌므로(스피너 프레임은 접힘) 이 memo 가 초당 열두 번 돌지는 않는다.
+    const agentStatus = deriveTabAgentStatus(tt, agentStatusMap);
     const host = tt.type === 'host' ? hosts.find((h) => h.id === tt.hostId) : null;
     const isPersistent = tt.type === 'local' || !!host?.use_remote_tmux;
     // 닫기 칩 안내 문구용 — 닫아도 세션이 살아남는지(detach) 모든 pane 기준으로 판정.
@@ -136,6 +143,7 @@ function App() {
         isPersistent,
         closeKeepsSession,
         secondaryIdentities,
+        agentStatus,
         primaryKind: primary?.kind || 'host',
         name: tt.manualName ? tt.name : (primary?.name || host.name || tt.name),
         icon: primary ? (primary.icon || null) : (host.icon ?? tt.icon ?? null),
@@ -148,14 +156,15 @@ function App() {
         isPersistent,
         closeKeepsSession,
         secondaryIdentities,
+        agentStatus,
         primaryKind: primary?.kind || 'local',
         name: tt.manualName ? tt.name : (primary?.name || tt.name || 'terminal'),
         icon: primary ? (primary.icon || null) : (settings.localIcon || tt.icon || null),
         color_index: primary ? primary.colorIndex : (settings.localColorIndex ?? tt.color_index ?? 0),
       };
     }
-    return { ...tt, isPersistent, closeKeepsSession, secondaryIdentities };
-  }), [tabs, hosts, settings.localName, settings.localIcon, settings.localColorIndex]);
+    return { ...tt, isPersistent, closeKeepsSession, secondaryIdentities, agentStatus };
+  }), [tabs, hosts, agentStatusMap, settings.localName, settings.localIcon, settings.localColorIndex]);
 
   // ── open / close tabs ─────────────────────────────────────────────────────
   // 새 로컬 터미널 — 명시 cwd 없으면 settings.localStartPath 사용. 비어 있어도 '' (= 워크스페이스 루트)

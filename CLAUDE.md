@@ -14,6 +14,7 @@ frontend/src/components/   UI components
 frontend/src/hooks/        Custom React hooks
 deploy/         systemd unit file + local-deploy.sh (host install)
 Dockerfile, compose.yml          container deployment (single image from GHCR)
+shared/         Cross-stack single-source fixtures (agent-title cases read by both test suites)
 secrets/        SSH key for bootstrap host (gitignored; .gitkeep only)
 data/           SQLite DB + vault key (not committed)
 workspace/      User file workspace (not committed)
@@ -130,6 +131,31 @@ Restart only *kills*; recreation is done by the reconnect (the WS route creates 
 Never hand-manage it. If `sw.js`'s bytes don't change on deploy, the browser never detects a service-worker update, `activate` never re-runs, and the old cache lives forever — holding hashed chunks that the next build deletes (`emptyOutDir: true`). The page then self-reloads via `LazyErrorBoundary` when a lazy chunk 404s.
 
 The plugin must run **before** `precompressAssets`, or only the `.br`/`.gz` copies keep the stale bytes.
+
+## Agent status detection (2026-07-21)
+
+Terminal panes report agent state (`working` / `permission` / `idle`) with **no LLM call** — it is parsed from the tmux pane title.
+
+**tmux already parses OSC 0/2 titles for us.** That is the whole trick: no PTY byte scanning, no chunk-boundary carry, no backpressure interaction. Two feeds:
+
+| Feed | Covers | Latency |
+|---|---|---|
+| xterm `onTitleChange` (`createXtermInstance.js`) | any attached pane, **incl. remote SSH hosts** | instant |
+| backend `tmux list-panes -a -F` poll (`agent_status_watcher.py`) | local sessions **with no client attached** | 1.5s active / 5s idle |
+
+Remote panes live in the *remote* box's tmux, so the backend poll cannot see them — remote status depends entirely on the xterm feed.
+
+Both feeds require `set-titles on` + `set-titles-string '#{pane_title}'`; tmux's default is **off**, which forwards nothing. Set in three places: `tmux_manager.create_session` (new local), `host_manager` remote bootstrap, and globally in `lifespan` (so sessions that outlived a backend restart still report).
+
+Parser lives twice — `backend/agent_status.py` and `frontend/src/utils/agentTitle.js`. **They must agree**, so the case table is single-sourced at `shared/agent-title-cases.json` and both test suites read it. Add cases there, not in either test file.
+
+Traps:
+- Braille spinners change the title 10–12×/sec. Every layer folds spinner-only changes (`is_spinner_only_change`) — skip it and the SSE broadcast or React re-render storms.
+- Agent names are matched as **whole tokens**. Substring matching made `android` ⊃ `droid`, `opencode-blinker` ⊃ `opencode`, `~/codex/ready` ⊃ `codex` all false-positive.
+- Status rides the **existing** tab-state SSE as `{type:'agentStatus'}`. Never open a second EventSource — see `project_sse_reconnect_storm`.
+- `idle` deliberately draws no tab badge; a dot on every agent tab is noise, not signal.
+
+Detection rules ported from [stablyai/orca](https://github.com/stablyai/orca) (MIT), `src/shared/agent-title-status.ts`.
 
 ## Architecture rules (do not break)
 

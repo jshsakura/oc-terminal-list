@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { migrateTab, makLocalTab } from '../utils/tabModel';
 import { authHeaders } from '../utils/auth';
+import { applyAgentStatusChanges, hydrateAgentStatus } from '../utils/agentStatusStore';
 
 /**
  * 워크스페이스 탭 상태 + 영속의 단일 소유 모듈.
@@ -204,11 +205,27 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
         es = source;
         connecting = false;
 
-        source.onopen = () => { openedAt = Date.now(); };
+        source.onopen = () => {
+          openedAt = Date.now();
+          // SSE 는 변경분만 흘린다 — 연결(재연결)마다 전체 스냅샷을 한 번 받는다.
+          fetch('/api/agent-status', { headers: authHeaders() })
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => { if (!cancelled && d) hydrateAgentStatus(d.sessions); })
+            .catch(() => { /* 상태 점이 조금 늦게 뜰 뿐 — 다음 변경에 채워진다 */ });
+        };
 
         source.onmessage = (e) => {
           if (cancelled) return;
-          try { applyIfChanged(JSON.parse(e.data).updatedAt); } catch { /* noop */ }
+          try {
+            const payload = JSON.parse(e.data);
+            // 같은 스트림에 여러 타입이 흐른다 — 새 EventSource 를 열면 단일 연결
+            // 불변식이 깨져 재연결 폭주가 재발한다(위 CRITICAL 주석 참고).
+            if (payload.type === 'agentStatus') {
+              applyAgentStatusChanges(payload.changes);
+              return;
+            }
+            applyIfChanged(payload.updatedAt);
+          } catch { /* noop */ }
         };
 
         source.onerror = () => {

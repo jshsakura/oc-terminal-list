@@ -139,6 +139,11 @@ def _build_remote_command(
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
         f"tmux set-option -t {safe} focus-events on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} status off >/dev/null 2>&1; "
+        # pane 타이틀을 클라이언트로 흘려보낸다 (기본값 off). 이게 켜져야 원격 pane 에서
+        # 도는 에이전트의 상태 타이틀이 브라우저 xterm 까지 도달한다 — 원격은 로컬 tmux
+        # 폴링으로 볼 수 없으므로, 원격 상태 감지는 전적으로 이 경로에 의존한다.
+        f"tmux set-option -t {safe} set-titles on >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} set-titles-string '#{{pane_title}}' >/dev/null 2>&1; "
         f"tmux set-option -ag -t {safe} terminal-overrides ',*256col*:Tc' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageUp if-shell -F '#{{alternate_on}}' 'send-keys PageUp' 'copy-mode -eu' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageDown if-shell -F '#{{alternate_on}}' 'send-keys PageDown' '' >/dev/null 2>&1; "

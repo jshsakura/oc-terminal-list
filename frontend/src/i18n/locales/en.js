@@ -650,6 +650,8 @@ export const en = {
     closeTabEndHint: 'Session ends — running work will be lost',
     confirmCloseTerminalNoTmux: 'Close this terminal? Work will be lost (tmux disabled).',
     panesInTab: 'panes',
+    agentWorking: 'Agent working',
+    agentNeedsYou: 'Agent waiting for you',
     confirmRemoveEmptyPane: 'Remove this empty pane?',
     removePane: 'Remove pane',
     closePane: 'Close pane',

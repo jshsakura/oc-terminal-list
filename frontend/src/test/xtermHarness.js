@@ -78,6 +78,8 @@ export class FakeTerminal {
     this.onBell = vi.fn((h) => { this.handlers.bell = h; });
     this.onData = vi.fn((h) => { this.handlers.data = h; });
     this.onScroll = vi.fn((h) => { this.handlers.scroll = h; });
+    // tmux 가 set-titles on 으로 흘려주는 pane 타이틀(OSC 0) — 에이전트 상태의 입구.
+    this.onTitleChange = vi.fn((h) => { this.handlers.title = h; });
     this.onSelectionChange = vi.fn((h) => { this.handlers.selection = h; });
 
     // write(data, cb) — 실제 xterm 처럼 파싱 후 비동기로 콜백. 컴포넌트는 이 콜백에서

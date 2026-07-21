@@ -168,6 +168,13 @@ class TmuxManager:
             ("status", "off"),                 # 하단 상태바 숨김 (xterm.js 임베드 친화)
             ("renumber-windows", "on"),
             ("focus-events", "on"),
+            # pane 타이틀(OSC 0/2)을 클라이언트로 그대로 흘려보낸다.
+            # tmux 기본값은 off 라 xterm.js 가 타이틀 변화를 아예 못 본다. on 으로 두면
+            # 에이전트가 찍는 상태 타이틀("⠂ 작업중" / "✳ 대기")이 브라우저까지 도달해
+            # 폴링 없이 즉시 상태를 알 수 있다 — 원격 호스트 pane 도 같은 경로로 온다.
+            # 우리 xterm 엔 타이틀바가 없으므로 화면에는 아무 영향이 없다.
+            ("set-titles", "on"),
+            ("set-titles-string", "#{pane_title}"),
         ]
         for key, val in opts:
             await self._run("set-option", "-t", session_id, key, val, check=False)
@@ -281,6 +288,16 @@ class TmuxManager:
             except ValueError:
                 continue
         return result
+
+    async def list_panes_raw(self, pane_format: str) -> str:
+        """`list-panes -a -F <format>` 원시 출력.
+
+        tmux 는 OSC 0/2 타이틀을 이미 파싱해 `#{pane_title}` 로 들고 있다 —
+        에이전트 상태를 알아내려고 PTY 바이트를 따로 긁을 필요가 없다는 뜻이다.
+        서버가 없으면 rc!=0 이고, 그건 정상(세션 0개)이므로 빈 문자열을 준다.
+        """
+        rc, out, _ = await self._run("list-panes", "-a", "-F", pane_format, check=False)
+        return out if rc == 0 else ""
 
     async def clients_count(self, session_id: str) -> int:
         """해당 세션에 현재 attach 된 tmux 클라이언트 수.

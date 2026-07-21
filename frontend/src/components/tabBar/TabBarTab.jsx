@@ -32,6 +32,13 @@ export const Tab = memo(({
   const paletteColor = (idx) =>
     color.dotPalette?.[(idx ?? 0) % (color.dotPalette?.length || 8)] || color.accent;
   const dotColor = tab.color_index != null ? paletteColor(tab.color_index) : color.accent;
+  // 에이전트 상태 뱃지. idle 은 일부러 안 그린다 — 에이전트 띄운 탭마다 상시 점이
+  // 켜지면 "평소" 와 "볼 것 있음" 이 구분되지 않는다 (utils/tabAgentStatus.js).
+  const agentDot = tab.agentStatus === 'permission'
+    ? { tint: color.danger, pulse: false, label: t?.('agentNeedsYou') || 'Waiting for you' }
+    : tab.agentStatus === 'working'
+      ? { tint: color.warning, pulse: true, label: t?.('agentWorking') || 'Agent working' }
+      : null;
   // 탭 안의 서브탭(pane) 개수 — 2개 이상(분할)일 때만 busy-dot 자리에 숫자 뱃지로 노출.
   // busy 면 뱃지가 그대로 깜빡여(같은 애니메이션) 활동 신호도 겸한다.
   const paneCount = tab.panes?.length || 1;
@@ -233,6 +240,27 @@ export const Tab = memo(({
               }}
             />
           ))}
+          {agentDot && (
+            /* 에이전트 상태 — pane 개수 뱃지(우상단)와 절대 겹치지 않게 좌하단.
+               working 은 은은히 박동, permission 은 손을 기다리는 상태라 정적이고 또렷하다. */
+            <span
+              className={agentDot.pulse ? 'iterm-tab-busy-dot' : undefined}
+              aria-hidden
+              title={agentDot.label}
+              style={{
+                position: 'absolute',
+                bottom: '-3px',
+                left: '-3px',
+                width: '8px',
+                height: '8px',
+                borderRadius: '50%',
+                background: agentDot.tint,
+                boxShadow: `0 0 0 1px ${color.crust}`,
+                pointerEvents: 'none',
+                zIndex: stackedCount + 2,
+              }}
+            />
+          )}
         </span>
         {visibleSecondaries.map((s, i) => (
           <span key={`${s.kind}:${s.name}:${i}`} title={s.name} style={stackTileStyle(i, paletteColor(s.colorIndex))}>

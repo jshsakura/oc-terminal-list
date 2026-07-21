@@ -7,6 +7,7 @@ import { ImageAddon } from '@xterm/addon-image';
 import { normalizeTerminalFontFamily } from '../../utils/terminalFonts';
 import { measureTerminalFit } from '../../utils/terminalFit';
 import { PredictiveEcho } from '../../utils/predictiveEcho';
+import { reportTerminalTitle } from '../../utils/agentStatusStore';
 import { WASM_ALLOWED } from './terminalConstants';
 
 // 글자 대비 설정 → xterm minimumContrastRatio.
@@ -98,6 +99,13 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
       tag: `bell-${paneId || sessionId}`,
       silent: false,
     });
+  });
+
+  // 에이전트 상태 — tmux 가 `set-titles on` 으로 pane 타이틀을 OSC 0 으로 흘려준다.
+  // 별도 파싱 없이 여기서 받는다. 원격 호스트 pane 도 같은 경로로 온다(백엔드 tmux
+  // 폴링은 로컬 세션만 볼 수 있어서, 원격 감지는 전적으로 이 경로에 의존한다).
+  term.onTitleChange((title) => {
+    reportTerminalTitle(sessionId, title);
   });
 
   term.open(container);
