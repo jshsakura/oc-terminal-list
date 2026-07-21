@@ -14,6 +14,7 @@ import BroadcastBadge from './BroadcastBadge';
 import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
 import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
+import PaneAddressLabel from './PaneAddressLabel';
 
 const Terminal = lazy(() => import('../Terminal'));
 const { color, font, fontSize, fontWeight, space } = tokens;
@@ -62,6 +63,12 @@ const Pane = ({
   const [terminalReady, setTerminalReady] = useState(false);
   // Declare isEmpty early — used in useEffect dependency arrays below (TDZ guard)
   const isEmpty = !pane.sessionId && !pane.hostId;
+  // 전체 주소(`탭.pane`) — 다른 탭에서 이 pane 을 부를 때 쓴다. 같은 탭 안에서는
+  // pane 번호만으로 충분하다(itl 이 호출자의 탭을 기준점으로 삼는다).
+  const paneAddress = (() => {
+    const tabIndex = allTabs.findIndex((tt) => tt.id === tab?.id);
+    return tabIndex >= 0 ? `${tabIndex + 1}.${paneIndex + 1}` : null;
+  })();
 
   // Global reload signal from settings menu → bump refreshNonce to remount terminal
   const prevReloadSignalRef = useRef(reloadSignal);
@@ -585,6 +592,14 @@ const Pane = ({
                 pointerEvents: 'none',
                 boxShadow: 'inset 0 0 0 1px rgba(245,158,11,0.15)',
               }} />
+            )}
+            {/* pane 번호 — `itl send 3` 의 주소. 단일 pane 이면 부를 이름이 필요 없다. */}
+            {isMultiple && (
+              <PaneAddressLabel
+                paneNumber={paneIndex + 1}
+                fullAddress={paneAddress}
+                isProminent={isFocused || hover}
+              />
             )}
             {isBroadcasting && onToggleBroadcastExclude && (
               <BroadcastBadge
