@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dropFolderForRow, isRowInDropTarget } from './fileTreeHelpers';
+import { dropFolderForRow, isRowInDropTarget, planMove } from './fileTreeHelpers';
 
 /* 외부 파일 드롭 대상 판정 — Zed project panel 모델(대상과 하이라이트 분리).
    "폴더에 떨궜는데 루트로 갔다" 가 원래 증상이라 경로 계산이 곧 기능이다. */
@@ -52,5 +52,41 @@ describe('isRowInDropTarget', () => {
   it('대상이 루트면 아무 행도 안 칠한다 — 그 역할은 패널 외곽선이 맡는다', () => {
     expect(isRowInDropTarget('', 'README.md')).toBe(false);
     expect(isRowInDropTarget(null, 'README.md')).toBe(false);
+  });
+});
+
+describe('planMove — 드래그 이동 가드', () => {
+  it('폴더로 옮기면 그 안의 같은 이름으로 간다', () => {
+    expect(planMove('a/b.txt', 'c')).toEqual({ ok: true, destination: 'c/b.txt' });
+    expect(planMove('src/utils', 'lib')).toEqual({ ok: true, destination: 'lib/utils' });
+  });
+
+  it('루트로 옮기면 이름만 남는다', () => {
+    expect(planMove('a/b.txt', '')).toEqual({ ok: true, destination: 'b.txt' });
+  });
+
+  it('같은 폴더 안이면 아무것도 안 한다', () => {
+    expect(planMove('a/b.txt', 'a')).toEqual({ ok: false, reason: 'noop' });
+    expect(planMove('b.txt', '')).toEqual({ ok: false, reason: 'noop' });
+  });
+
+  it('폴더를 자기 자신으로 옮길 수 없다', () => {
+    expect(planMove('src', 'src')).toEqual({ ok: false, reason: 'intoSelf' });
+  });
+
+  it('폴더를 자기 하위로 옮길 수 없다 — 허용하면 트리가 끊긴다', () => {
+    expect(planMove('src', 'src/utils')).toEqual({ ok: false, reason: 'intoSelf' });
+    expect(planMove('src', 'src/a/b/c')).toEqual({ ok: false, reason: 'intoSelf' });
+  });
+
+  it('이름이 겹치는 형제 폴더로는 옮길 수 있다 — src2 는 src 의 하위가 아니다', () => {
+    // 후행 슬래시 없이 startsWith 만 보면 여기서 잘못 막힌다.
+    expect(planMove('src', 'src2')).toEqual({ ok: true, destination: 'src2/src' });
+    expect(planMove('src', 'src-backup')).toEqual({ ok: true, destination: 'src-backup/src' });
+  });
+
+  it('소스가 없으면 조용히 no-op', () => {
+    expect(planMove('', 'x')).toEqual({ ok: false, reason: 'noop' });
+    expect(planMove(null, 'x')).toEqual({ ok: false, reason: 'noop' });
   });
 });

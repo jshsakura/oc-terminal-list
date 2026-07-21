@@ -14,7 +14,7 @@ import { authHeaders } from '../utils/auth';
 import { isFileDrag } from '../utils/fileDrag';
 import { ROW_HEIGHT, VIRTUALIZE_AFTER, VIRTUAL_OVERSCAN } from './filetree/fileTreeConstants';
 import { styles } from './filetree/fileTreeStyles';
-import { gitTone, computeParent, dropFolderForRow, isRowInDropTarget, stripHostPathPrefix } from './filetree/fileTreeHelpers';
+import { gitTone, computeParent, dropFolderForRow, isRowInDropTarget, planMove, stripHostPathPrefix } from './filetree/fileTreeHelpers';
 import { Row, ContextMenu, HeadAction } from './filetree/FileTreeParts';
 import ContentSearch from './filetree/ContentSearch';
 
@@ -327,14 +327,12 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 
   // ── 드래그 이동 — 트리 내부 파일/폴더를 다른 폴더로 끌어 이동 (백엔드 /files/move) ──
   const moveItem = async (sourcePath, destFolder) => {
-    if (!sourcePath) return;
-    const name = sourcePath.split('/').pop();
-    const destination = destFolder ? `${destFolder}/${name}` : name;
-    if (destination === sourcePath) return; // 같은 폴더 — no-op
-    if (destFolder === sourcePath || destFolder.startsWith(`${sourcePath}/`)) {
-      alert(t('moveIntoSelf') || "Can't move a folder into itself.");
+    const plan = planMove(sourcePath, destFolder);
+    if (!plan.ok) {
+      if (plan.reason === 'intoSelf') alert(t('moveIntoSelf') || "Can't move a folder into itself.");
       return;
     }
+    const { destination } = plan;
     try {
       const url = isHostMode ? `/api/hosts/${hostId}/files/move` : '/api/files/move';
       const res = await fetch(url, {

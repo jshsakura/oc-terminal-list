@@ -71,3 +71,24 @@ export const stripHostPathPrefix = (path) => {
   const match = trimmed.match(/^[^\s/:]+(?:@[^\s/:]+)?:([/~].*)$/);
   return match ? match[1] : trimmed;
 };
+
+/**
+ * 드래그 이동의 목적지를 계산하고, 해서는 안 되는 이동을 걸러낸다.
+ *
+ * 반환: { ok: true, destination } | { ok: false, reason: 'noop' | 'intoSelf' }
+ *  - 'noop'     같은 폴더 안 — 아무것도 안 한다(경고도 필요 없다).
+ *  - 'intoSelf' 폴더를 자기 자신이나 자기 하위로 옮기려 함 — 허용하면 트리가 끊긴다.
+ *
+ * ⚠️ 하위 판정에 후행 슬래시가 반드시 있어야 한다. `startsWith(sourcePath)` 로만 보면
+ * 이름이 겹치는 형제 폴더(`src` 로 옮기려는데 `src2`)가 자기 하위로 오인된다.
+ */
+export const planMove = (sourcePath, destFolder) => {
+  if (!sourcePath) return { ok: false, reason: 'noop' };
+  const name = sourcePath.split('/').pop();
+  const destination = destFolder ? `${destFolder}/${name}` : name;
+  if (destination === sourcePath) return { ok: false, reason: 'noop' };
+  if (destFolder === sourcePath || destFolder.startsWith(`${sourcePath}/`)) {
+    return { ok: false, reason: 'intoSelf' };
+  }
+  return { ok: true, destination };
+};
