@@ -231,6 +231,20 @@ class SchemaMixin:
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_snippets_user ON snippets(username, sort_index)")
 
+        # 웹 푸시 구독 — 기기마다 하나. endpoint 가 브라우저가 발급한 고유 주소라 PK 로 쓴다.
+        # 구독이 만료/취소되면 푸시 서비스가 404/410 을 주고, 그때 이 행을 지운다.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS push_subscriptions (
+                endpoint TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                p256dh TEXT NOT NULL,
+                auth TEXT NOT NULL,
+                user_agent TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_push_sub_user ON push_subscriptions(username)")
+
         conn.commit()
         self._release_connection(conn)
 

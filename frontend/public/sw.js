@@ -167,3 +167,59 @@ async function staleWhileRevalidate(req) {
 function eventFallbackRevalidate(_networkPromise) {
   // no-op: put 단계에서 이미 revalidate 됨.
 }
+
+// ─────────────────────────────────────────────────────────────
+// 웹 푸시 — 에이전트가 한 턴을 끝냈을 때 기기로 알린다.
+//
+// 서버는 "보낼지"만 정하고 "보여줄지"는 여기서 정한다. 서버는 사용자가 지금 어느
+// pane 을 보고 있는지 알 수 없기 때문이다. 이미 그 화면을 보고 있는데 폰이 울리면
+// 그건 소음이고, 사용자는 알림을 꺼버린다.
+// ─────────────────────────────────────────────────────────────
+
+/** 포커스된 창이 하나라도 열려 있으면 사용자는 지금 앱을 보고 있는 것이다. */
+async function isAppInForeground() {
+  const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  return windows.some((c) => c.focused);
+}
+
+self.addEventListener('push', (event) => {
+  event.waitUntil((async () => {
+    let payload = {};
+    try {
+      payload = event.data ? event.data.json() : {};
+    } catch {
+      return; // 우리 형식이 아닌 푸시 — 조용히 무시
+    }
+    if (!payload.title) return;
+
+    // 앱을 보고 있는 중이면 알림을 띄우지 않는다. 화면 안에서는 탭의 상태 점이
+    // 이미 같은 정보를 (더 조용히) 보여주고 있다.
+    if (await isAppInForeground()) return;
+
+    await self.registration.showNotification(payload.title, {
+      body: payload.body || '',
+      icon: '/favicon.svg',
+      badge: '/favicon.svg',
+      // 세션별 tag — 같은 pane 의 알림이 쌓이지 않고 최신 것으로 교체된다.
+      tag: payload.tag || 'agent-done',
+      renotify: false,
+      data: { sessionId: payload.sessionId || null },
+    });
+  })());
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    // 이미 열린 창이 있으면 새로 띄우지 않고 그쪽으로 포커스를 옮긴다.
+    const existing = windows[0];
+    if (existing) {
+      await existing.focus();
+      // 어느 세션이 끝났는지 앱에 알려 해당 pane 으로 이동하게 한다.
+      existing.postMessage({ type: 'agentDoneClick', sessionId: event.notification.data?.sessionId });
+      return;
+    }
+    await self.clients.openWindow('/');
+  })());
+});

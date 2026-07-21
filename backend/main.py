@@ -137,6 +137,13 @@ async def lifespan(_app: FastAPI):
         await register_bootstrap_host()
     except Exception as e:
         logger.warning("bootstrap host registration failed: %s", e)
+    # VAPID 키를 기동 시 만들어 둔다 — 지연 생성하면 권한/디스크 문제를 사용자가
+    # "알림 켜기"를 누르는 순간에야 알게 된다. 실패해도 앱은 뜬다(푸시만 비활성).
+    try:
+        from push_keys import get_public_key
+        get_public_key()
+    except Exception as e:
+        logger.warning("VAPID 키 준비 실패 — 웹 푸시가 비활성화됩니다: %s", e)
     ssh_pool.start_janitor(idle_timeout=300)
     agent_status_watcher.start()
     try:
@@ -322,6 +329,7 @@ from routes.local_git import router as local_git_router  # noqa: E402
 from routes.snippets import router as snippets_router  # noqa: E402
 from routes.files_read import router as files_read_router  # noqa: E402
 from routes.files_write import router as files_write_router  # noqa: E402
+from routes.push import router as push_router  # noqa: E402
 
 for _router in (
     auth_router,          # 로그인 / OTP / 패스키
@@ -339,6 +347,7 @@ for _router in (
     snippets_router,      # 명령 스니펫
     files_read_router,    # 워크스페이스 파일 읽기
     files_write_router,   # 워크스페이스 파일 쓰기
+    push_router,          # 웹 푸시 구독
 ):
     app.include_router(_router)
 

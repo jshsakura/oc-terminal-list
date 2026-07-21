@@ -10,6 +10,7 @@ import useHostReorder from '../../hooks/useHostReorder';
 import { DEFAULT_MOBILE_KEYS } from '../../utils/mobileKeys';
 import { styles, shortcutStyles } from './settingsStyles';
 import { Section, Divider, Field, Select, Toggle, FontSizeRow, ShortcutRow } from './SettingsFields';
+import PushNotificationToggle from './PushNotificationToggle';
 
 const { color, space } = tokens;
 
@@ -107,6 +108,12 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           <option value="original">{t('textContrastOriginal') || 'Original palette'}</option>
         </Select>
       </Field>
+    </Section>
+
+    <Divider />
+
+    <Section title={t('notifications') || 'Notifications'}>
+      <PushNotificationToggle t={t} />
     </Section>
 
     <Divider />

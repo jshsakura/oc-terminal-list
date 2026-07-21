@@ -184,6 +184,19 @@ Traps:
 
 Detection rules ported from [stablyai/orca](https://github.com/stablyai/orca) (MIT), `src/shared/agent-title-status.ts`.
 
+## Web push (agent-done notifications)
+
+Fires on the watcher's `working → not-working` transition (`completed: true`), so it rides entirely on the tmux title feed — still no LLM call anywhere.
+
+**The server decides whether to *send*; the service worker decides whether to *show*.** The server cannot know which pane you are looking at, so `sw.js` calls `clients.matchAll` and suppresses the notification when any window is focused. In-app, the tab status dot already carries the same signal more quietly.
+
+- VAPID keys: `data/.vapid-key` (PEM, 0600), auto-created at startup. **Changing it invalidates every existing subscription** — browsers bind subscriptions to the public key. Never put it in `.env`.
+- `py-vapid` wants the private key as **base64url of the raw 32-byte scalar**, not PEM. Passing PEM dies with "ASN.1 parsing error".
+- Subscribing *is* the opt-in — there is no separate server-side setting. Unsubscribe to turn it off.
+- A 60s per-session cooldown (`agent_status_service`) absorbs working↔idle flapping; without it a flickering title makes the phone buzz repeatedly and the user turns notifications off for good.
+- Push services returning 404/410 mean the subscription is permanently dead — it is deleted on the spot rather than retried forever.
+- **Requires a secure context.** `localhost` and HTTPS work; `http://<LAN-IP>:38822` does not — the browser hides the API entirely. `pushCapability()` reports `insecure` distinctly from `unsupported` so the UI can say "change how you connect", not "your browser is too old".
+
 ## Architecture rules (do not break)
 
 - **No LLM API calls from the backend.** The backend routes terminal stdin/stdout only. Vendor-neutral.
