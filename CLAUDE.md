@@ -149,6 +149,8 @@ The plugin must run **before** `precompressAssets`, or only the `.br`/`.gz` copi
 | `session_launch.py` | cwd/shell resolution + ownership check — REST and WS **must** share this |
 | `ws_clients.py` · `sse_broadcast.py` · `file_index.py` · `system_monitor.py` · `auth_cookie.py` · `models.py` | shared state / helpers |
 
+`sqlite_storage.py` composes per-domain mixins from `db/` (`db/schema.py` owns all DDL). Call sites are unchanged — it is still `storage.list_hosts(...)`. **A mixin left out of the composition still imports cleanly and passes lint**; it only fails at the call site, in production. `tests/test_storage_mixins.py` does one round-trip per domain to catch that.
+
 **Router registration order is matching priority.** FastAPI takes the first route that matches, so reordering `main.py`'s registration list can silently route a literal path into a `{param}` handler. Tests do not catch this. When refactoring, diff the route list *including order* against the previous commit:
 
 ```python
