@@ -106,3 +106,12 @@ async def run_proc(args: list[str], timeout: float, **kwargs) -> tuple[int, byte
             pass
         raise
     return proc.returncode or 0, stdout or b"", stderr or b""
+
+
+def get_auth_manager():
+    """인증 관리자. lifespan 이 set_auth_manager 로 주입하기 전엔 None.
+
+    라우트 모듈이 main 의 전역을 역참조하지 않게 하는 접근자 — main → routes 단방향
+    의존을 유지해야 순환 import 가 안 생긴다.
+    """
+    return _auth_manager
