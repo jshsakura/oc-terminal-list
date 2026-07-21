@@ -113,8 +113,15 @@ class TmuxManager:
         rows: int = 24,
         cwd: str | None = None,
         shell: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> None:
-        """새 detached 세션 생성. 이미 존재하면 no-op."""
+        """새 detached 세션 생성. 이미 존재하면 no-op.
+
+        `env` 는 `new-session -e` 로 세션 환경에 주입된다(tmux 3.2+). itl CLI 가
+        "나는 어느 터미널인가"를 아는 통로다. ⚠️ 여기 넣은 값은 같은 tmux 소켓에
+        접근할 수 있으면 `show-environment` 로 읽힌다 — 그래서 ITL_TOKEN 은 용도가
+        제한된 scoped 토큰이어야 한다(auth_manager.create_scoped_token).
+        """
         if await self.session_exists(session_id):
             logger.debug("tmux session already exists: %s", session_id)
             return
@@ -138,6 +145,8 @@ class TmuxManager:
         ]
         if cwd:
             args += ["-c", cwd]
+        for key, value in (env or {}).items():
+            args += ["-e", f"{key}={value}"]
 
         # 셸을 명시하면 첫 윈도우의 명령으로 사용. 미지정 시 사용자 기본 셸.
         if shell:
@@ -288,6 +297,23 @@ class TmuxManager:
             except ValueError:
                 continue
         return result
+
+    async def send_keys(self, session_id: str, text: str, *, submit: bool = False) -> None:
+        """세션에 문자열을 입력한다. `-l` 은 리터럴 — tmux 키 이름 해석을 막는다.
+
+        `submit=False` 가 기본인 이유: 사람이 확인하고 엔터를 치는 편이 안전하다.
+        vim/claude 같은 대화형 앱 한가운데에 엔터가 들어가면 의도치 않은 동작이 된다.
+        (터미널 파일 드롭이 경로만 넣고 엔터를 안 치는 것과 같은 원칙.)
+        """
+        if not text:
+            return
+        # ⚠️ send-keys 의 -t 는 **pane** 타겟이라 `=name` 만으로는 "can't find pane" 이 난다
+        # (세션 타겟에서는 되는 문법이라 헷갈린다). `=name:` 로 써야 정확 매칭을 유지하면서
+        # "그 세션의 현재 윈도우"로 해소된다.
+        target = f"={session_id}:"
+        await self._run("send-keys", "-t", target, "-l", text, check=False)
+        if submit:
+            await self._run("send-keys", "-t", target, "Enter", check=False)
 
     async def list_panes_raw(self, pane_format: str) -> str:
         """`list-panes -a -F <format>` 원시 출력.

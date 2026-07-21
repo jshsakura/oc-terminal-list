@@ -58,3 +58,59 @@ def test_remote_tmux_command_enables_mouse_for_scroll():
 
     assert "tmux set-option -t mobile mouse on" in cmd
     assert "mouse off" not in cmd
+
+
+# ---------------------- send-keys 타겟 문법 ----------------------
+
+@pytest.mark.asyncio
+async def test_send_keys_uses_pane_target_syntax(tmux_manager):
+    """`=name` 만 쓰면 "can't find pane" 이 난다.
+
+    send-keys 의 -t 는 세션이 아니라 **pane** 타겟이라, 세션 타겟에서 통하는 `=name`
+    문법이 여기서는 안 먹는다. `=name:` 이어야 정확 매칭을 유지하면서 "그 세션의
+    현재 윈도우"로 해소된다. 조용히 회귀하면 전송이 통째로 죽는다.
+    """
+    calls = []
+    async def fake_run(*args, **kwargs):
+        calls.append(args)
+        return (0, "", "")
+    with patch.object(tmux_manager, '_run', side_effect=fake_run):
+        await tmux_manager.send_keys("sess-1", "hello")
+    assert calls == [("send-keys", "-t", "=sess-1:", "-l", "hello")]
+
+
+@pytest.mark.asyncio
+async def test_send_keys_submit_appends_enter(tmux_manager):
+    calls = []
+    async def fake_run(*args, **kwargs):
+        calls.append(args)
+        return (0, "", "")
+    with patch.object(tmux_manager, '_run', side_effect=fake_run):
+        await tmux_manager.send_keys("sess-1", "ls", submit=True)
+    assert len(calls) == 2
+    assert calls[1] == ("send-keys", "-t", "=sess-1:", "Enter")
+
+
+@pytest.mark.asyncio
+async def test_send_keys_ignores_empty_text(tmux_manager):
+    """빈 문자열에 엔터만 치는 사고를 막는다."""
+    with patch.object(tmux_manager, '_run') as run:
+        await tmux_manager.send_keys("sess-1", "", submit=True)
+        run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_create_session_injects_env(tmux_manager):
+    """itl CLI 가 자기 정체를 아는 통로 — 빠지면 CLI 가 조용히 안 된다."""
+    calls = []
+    async def fake_run(*args, **kwargs):
+        calls.append(args)
+        return (0, "", "")
+    with patch.object(tmux_manager, '_run', side_effect=fake_run), \
+         patch.object(tmux_manager, 'session_exists', side_effect=[False, True]):
+        await tmux_manager.create_session("s1", env={"ITL_TOKEN": "t", "ITL_SESSION": "s1"})
+    # new-session 은 set-option -g 와 **한 호출로 묶여** 나간다(콜드스타트 시
+    # history-limit 이 첫 pane 에 적용되게 하려고). 그래서 argv 를 내용으로 찾는다.
+    argv = next(a for a in calls if "new-session" in a)
+    assert "-e" in argv
+    assert "ITL_TOKEN=t" in argv and "ITL_SESSION=s1" in argv

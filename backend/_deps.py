@@ -128,3 +128,32 @@ _SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 def is_safe_id(value: str | None) -> bool:
     return bool(value) and bool(_SAFE_ID_RE.match(value))
+
+
+# ---------------------- 용도 제한 토큰 ----------------------
+
+ITL_TOKEN_SCOPE = "itl"
+
+
+async def verify_itl_token(
+    authorization: str | None = Header(None),
+    auth_cookie: str | None = Cookie(None, alias=AUTH_COOKIE_NAME),
+) -> str:
+    """itl CLI 전용 인증.
+
+    일반 세션 토큰(쿠키/Bearer)도 받아준다 — 사람이 브라우저 세션으로 API 를
+    직접 두드리는 건 정상이다. 반대로 ITL_TOKEN 은 여기서만 통한다.
+    """
+    if not _auth_manager:
+        raise HTTPException(status_code=503, detail="인증 관리자가 초기화되지 않았습니다")
+    bearer = None
+    if authorization and authorization.startswith("Bearer "):
+        bearer = authorization[len("Bearer "):].strip()
+    for token in (t for t in (bearer, auth_cookie) if t):
+        username = await _auth_manager.verify_scoped_token(token, ITL_TOKEN_SCOPE)
+        if username:
+            return username
+        username = await _auth_manager.verify_token(token)
+        if username:
+            return username
+    raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")

@@ -12,6 +12,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from _deps import is_safe_id
+from itl_env import build_itl_env
 from cache import invalidate_session
 from rate_limit import check_rate_limit
 from session_launch import _resolve_create_cwd, _resolve_shell
@@ -86,6 +87,7 @@ async def terminal_websocket(
                 rows=rows,
                 cwd=safe_cwd,
                 shell=_resolve_shell(shell),
+                env=await build_itl_env(username, session_id),
             )
             try:
                 await storage.create_session(session_id, username, cwd=cwd or "")

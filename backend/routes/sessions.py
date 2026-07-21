@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 import os
 
 from _deps import WORKSPACE_ROOT, is_safe_id, verify_auth_token
+from itl_env import build_itl_env
 from cache import cache, invalidate_session, key_local_clients
 from models import ResizeRequest, SessionCreateRequest, SessionNameRequest
 from rate_limit import check_rate_limit
@@ -60,6 +61,7 @@ async def create_session(
             rows=request.rows or 24,
             cwd=safe_cwd,
             shell=shell_path,
+            env=await build_itl_env(username, session_id),
         )
     except Exception as e:
         logger.error("tmux create failed (%s): %s", session_id, e, exc_info=True)

@@ -197,6 +197,30 @@ Fires on the watcher's `working → not-working` transition (`completed: true`),
 - Push services returning 404/410 mean the subscription is permanently dead — it is deleted on the spot rather than retried forever.
 - **Requires a secure context.** `localhost` and HTTPS work; `http://<LAN-IP>:38822` does not — the browser hides the API entirely. `pushCapability()` reports `insecure` distinctly from `unsupported` so the UI can say "change how you connect", not "your browser is too old".
 
+## Terminal-to-terminal messaging (`itl`)
+
+An agent running inside one pane can drive another pane. `backend/cli/itl` is a single stdlib-only Python file; sessions learn their identity from env injected at `tmux new-session -e` time (`ITL_API` / `ITL_TOKEN` / `ITL_SESSION`, built in `itl_env.py`, wired into **both** creation paths — REST and WS attach).
+
+Addresses (`itl list` prints the table that documents them):
+
+| Form | Means |
+|---|---|
+| `3` | pane 3 of the caller's tab (needs `ITL_SESSION`; refuses rather than guessing globally) |
+| `1.3` / `1:3` | tab 1, pane 3 |
+| `@name` / `@name.2` | tab by name — its active pane, or pane 2 |
+| `@working` `@idle` `@permission` | by agent status |
+| `@claude` `@node` … | by running command |
+| `@all` | everything (capped at `MAX_FANOUT`) |
+
+**Numbers are what humans say; session IDs are identity.** Closing a pane shifts every later number, so an address is resolved to a session at call time and nothing downstream reuses the number. A **user-given tab name always beats a built-in group** — no exceptions, so naming a tab "working" can't turn `@working` into a trap.
+
+Traps:
+- `send-keys -t` takes a **pane** target. `=name` works for session targets but fails here with "can't find pane" — use `=name:` to keep exact matching while resolving to the session's current window.
+- `--submit` is off by default. Text lands on the prompt and a human presses Enter; a stray Enter inside vim/claude executes something nobody asked for (same rule as terminal file drop).
+- `ITL_TOKEN` is readable via `tmux show-environment`, so it is a **scoped** JWT (`scope: "itl"`). `verify_auth_token` rejects any token carrying a scope claim — a leaked ITL_TOKEN cannot read files or host secrets.
+- Remote panes are addressable but **not yet sendable** (needs an SSH round trip); `send` reports them as `skipped: remote-unsupported` rather than silently dropping.
+- Status groups only cover local sessions — the backend watcher cannot see remote tmux (see the agent-status section).
+
 ## Architecture rules (do not break)
 
 - **No LLM API calls from the backend.** The backend routes terminal stdin/stdout only. Vendor-neutral.

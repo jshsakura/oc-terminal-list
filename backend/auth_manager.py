@@ -223,13 +223,45 @@ class AuthManager:
         encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
         return encoded_jwt
 
+    async def create_scoped_token(self, username: str, scope: str, hours: int = 24 * 30) -> str:
+        """제한된 용도로만 쓰이는 토큰.
+
+        `ITL_TOKEN` 처럼 tmux 환경변수에 실려 나가는 토큰용이다 —
+        `tmux show-environment` 로 읽히므로, 유출돼도 그 scope 밖(파일 읽기·쓰기,
+        호스트 비밀)에는 닿지 못해야 한다. verify_token 은 scope 가 붙은 토큰을
+        일반 API 용으로 인정하지 않는다.
+        """
+        secret_key = await self.ensure_secret_key()
+        to_encode = {
+            "sub": username,
+            "scope": scope,
+            "exp": datetime.utcnow() + timedelta(hours=hours),
+            "iat": datetime.utcnow(),
+        }
+        return jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+
+    async def verify_scoped_token(self, token: str, scope: str) -> str | None:
+        """해당 scope 로 발급된 토큰만 통과."""
+        try:
+            secret_key = await self.ensure_secret_key()
+            payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+            if payload.get("scope") != scope:
+                return None
+            return payload.get("sub")
+        except JWTError:
+            return None
+
     async def verify_token(self, token: str) -> str | None:
-        """Verify JWT token and return username (단, otp_pending 토큰은 거부)."""
+        """Verify JWT token and return username (단, otp_pending / scoped 토큰은 거부)."""
         try:
             secret_key = await self.ensure_secret_key()
             payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
             if payload.get("otp_pending"):
                 # 2FA 가 끝나지 않은 토큰으로는 일반 API 접근 불가
+                return None
+            if payload.get("scope"):
+                # 용도 제한 토큰(ITL_TOKEN 등)은 일반 API 에 쓸 수 없다.
+                # 이게 없으면 tmux 환경변수로 새어나간 토큰이 전체 권한이 된다.
                 return None
             username: str = payload.get("sub")
             if username is None:
