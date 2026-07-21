@@ -4,6 +4,7 @@ import zipfile
 import pytest
 
 import main
+from routes import files_read  # zip 헬퍼/상한은 main 에서 분리됨
 
 
 def test_zip_directory_bytes_includes_files(tmp_path):
@@ -14,7 +15,7 @@ def test_zip_directory_bytes_includes_files(tmp_path):
     sub.mkdir()
     (sub / "b.txt").write_text("BBB")
 
-    data = main._zip_directory_bytes(root)
+    data = files_read._zip_directory_bytes(root)
 
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         names = sorted(zf.namelist())
@@ -24,26 +25,26 @@ def test_zip_directory_bytes_includes_files(tmp_path):
 
 
 def test_zip_directory_bytes_raises_on_too_many_files(tmp_path, monkeypatch):
-    monkeypatch.setattr(main, "MAX_LOCAL_ZIP_FILES", 2)
+    monkeypatch.setattr(files_read, "MAX_LOCAL_ZIP_FILES", 2)
 
     root = tmp_path / "proj"
     root.mkdir()
     for i in range(3):
         (root / f"f{i}.txt").write_text("x")
 
-    with pytest.raises(main._ZipTooLargeError):
-        main._zip_directory_bytes(root)
+    with pytest.raises(files_read._ZipTooLargeError):
+        files_read._zip_directory_bytes(root)
 
 
 def test_zip_directory_bytes_raises_on_too_large(tmp_path, monkeypatch):
-    monkeypatch.setattr(main, "MAX_LOCAL_ZIP_BYTES", 10)
+    monkeypatch.setattr(files_read, "MAX_LOCAL_ZIP_BYTES", 10)
 
     root = tmp_path / "proj"
     root.mkdir()
     (root / "big.txt").write_bytes(b"x" * 20)
 
-    with pytest.raises(main._ZipTooLargeError):
-        main._zip_directory_bytes(root)
+    with pytest.raises(files_read._ZipTooLargeError):
+        files_read._zip_directory_bytes(root)
 
 
 def test_zip_directory_bytes_skips_symlinks(tmp_path):
@@ -58,7 +59,7 @@ def test_zip_directory_bytes_skips_symlinks(tmp_path):
     except OSError:
         pytest.skip("symlinks unavailable on this filesystem")
 
-    data = main._zip_directory_bytes(root)
+    data = files_read._zip_directory_bytes(root)
     with zipfile.ZipFile(io.BytesIO(data)) as zf:
         names = zf.namelist()
         assert "proj/real.txt" in names
