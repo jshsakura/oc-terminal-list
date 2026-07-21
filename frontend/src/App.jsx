@@ -27,6 +27,10 @@ import {
   swapLeaves,
 } from './utils/splitTree';
 import { appendPaneAsSplit } from './utils/tabPaneOpen';
+// 탭/pane 상태 전이 순수 리듀서 — 로직은 utils/tabOperations.js 가 소유(테스트 있음).
+import {
+  splitPaneOp, dropTabToSplitPaneOp, activatePaneOp, reorderPaneOp, dropPaneToSplitOp,
+} from './utils/tabOperations';
 import {
   makePane, makLocalTab, makeFreshHostTmuxSessionName,
   usedThemeIdsFromTabs, resolveProfileTheme, makeHostTab,
@@ -211,49 +215,9 @@ function App() {
   // 반응형 뷰포트 — isMobile/viewportHeight state + 최신값 ref.
   const { isMobile, viewportHeight, isMobileRef: isMobileViewportRef } = useViewport();
   const splitActivePane = useCallback((dir = 'h', targetTabId, targetPaneId) => {
-    setTabs((prev) => {
-      const tid = targetTabId || activeTabIdRef.current;
-      if (!tid) return prev;
-      return prev.map((t) => {
-        if (t.id !== tid) return t;
-        const currentPanes = t.panes || [];
-        const activeId = targetPaneId || t.activePaneId || currentPanes[0]?.id;
-
-        /* '2x2' — up to 4 empty picker panes. */
-        if (dir === '2x2') {
-          if (currentPanes.length >= 4) return { ...t, layout: '2x2', splitTree: treeFromLegacyLayout(currentPanes, '2x2') };
-          const panes = [...currentPanes];
-          while (panes.length < 4) panes.push(makePane({}));
-          return {
-            ...t,
-            panes,
-            layout: '2x2',
-            splitTree: treeFromLegacyLayout(panes, '2x2'),
-            activePaneId: panes[panes.length - 1]?.id || t.activePaneId || panes[0].id,
-          };
-        }
-
-        /* direction split — no pane limit, creates an empty picker pane */
-        const effectiveDir = dir === 'h' ? 'right' : dir === 'v' ? 'down' : dir;
-        const newPane = makePane({});
-        const panes = [...currentPanes, newPane];
-        const currentTree = ensureTree(currentPanes, t.splitTree) || makeLeaf(activeId);
-        const { tree: newTree } = splitLeaf(currentTree, activeId, effectiveDir, newPane.id);
-
-        // Legacy layout hint for compatibility
-        let layout = t.layout || 'single';
-        if (panes.length === 2) layout = (effectiveDir === 'down' || effectiveDir === 'up') ? 'v' : 'h';
-        else if (panes.length >= 3) layout = '2x2';
-
-        return {
-          ...t,
-          panes,
-          layout,
-          splitTree: newTree,
-          activePaneId: newPane.id,
-        };
-      });
-    });
+    setTabs((prev) => splitPaneOp(prev, {
+      dir, targetTabId, targetPaneId, activeTabId: activeTabIdRef.current,
+    }));
   }, []);
 
   // Drag a tab onto a pane to split or absorb it.
@@ -262,150 +226,9 @@ function App() {
   // targetPaneId: pane the tab was dropped onto
   // dir: 'top' | 'bottom' | 'left' | 'right' | 'center'
   const dropTabToSplitPane = useCallback((sourceTabId, targetTabId, targetPaneId, dir) => {
-    const currentHosts = hosts;
-    setTabs((prev) => {
-      const srcTab = prev.find((t) => t.id === sourceTabId);
-      const destTab = prev.find((t) => t.id === targetTabId);
-      if (!srcTab || !destTab) return prev;
-
-      const srcActivePanes = (srcTab.panes || []).filter((p) => p.sessionId || p.hostId);
-      if (srcActivePanes.length === 0) return prev.filter((t) => t.id !== sourceTabId);
-
-      // Preserve the effective tmux session name so the moved pane reconnects to the correct session
-      // regardless of its new paneIndex in the destination tab.
-      const getEffectiveSession = (sp) => {
-        if (!sp.hostId) return sp.tmuxSessionName;
-        const paneIdx = (srcTab.panes || []).indexOf(sp);
-        const host = currentHosts.find((h) => h.id === sp.hostId);
-        return computePaneTmuxSession(host, srcTab, sp, paneIdx);
-      };
-
-      // center = target pane occupied → SWAP sessions; target pane empty → fill it
-      if (dir === 'center') {
-        const currentPanes = [...(destTab.panes || [])];
-        const targetIdx = currentPanes.findIndex((p) => p.id === targetPaneId);
-        const targetOccupant = targetIdx >= 0 ? currentPanes[targetIdx] : null;
-        const isOccupied = !!(targetOccupant?.sessionId || targetOccupant?.hostId);
-
-        if (isOccupied) {
-          // Swap: source's first active pane ↔ the specific target pane
-          const sp = srcActivePanes[0];
-          const dispHostId = targetOccupant.hostId;
-          const dispHost = dispHostId ? currentHosts.find((h) => h.id === dispHostId) : null;
-          const dispSession = targetOccupant.tmuxSessionName ||
-            (dispHostId ? computePaneTmuxSession(dispHost, destTab, targetOccupant, targetIdx) : null);
-
-          const newDestPanes = currentPanes.map((p) =>
-            p.id === targetPaneId
-              ? { ...p, sessionId: sp.sessionId, hostId: sp.hostId, themeOverride: sp.themeOverride, tmuxSessionName: getEffectiveSession(sp) }
-              : p,
-          );
-          const newSrcPanes = (srcTab.panes || []).map((p) =>
-            p.id === sp.id
-              ? { ...p, sessionId: targetOccupant.sessionId, hostId: targetOccupant.hostId, themeOverride: targetOccupant.themeOverride, tmuxSessionName: dispSession }
-              : p,
-          );
-
-          const makeLayout = (panes, base) => {
-            const n = panes.length;
-            if (n === 1) return 'single';
-            if (n === 2) return base === 'v' ? 'v' : 'h';
-            return '2x2';
-          };
-          const dLayout = makeLayout(newDestPanes, destTab.layout || 'single');
-          const sLayout = makeLayout(newSrcPanes, srcTab.layout || 'single');
-
-          return prev.map((t) => {
-            if (t.id === targetTabId) return { ...t, panes: newDestPanes, layout: dLayout, splitTree: treeFromLegacyLayout(newDestPanes, dLayout) };
-            if (t.id === sourceTabId) return { ...t, panes: newSrcPanes, layout: sLayout, splitTree: treeFromLegacyLayout(newSrcPanes, sLayout) };
-            return t;
-          });
-        }
-
-        // Target pane is empty → fill it (and any other empty slots) with source panes
-        const emptyIndices = [];
-        currentPanes.forEach((p, i) => { if (!p.sessionId && !p.hostId) emptyIndices.push(i); });
-
-        let srcIdx = 0;
-        const filledPanes = currentPanes.map((p, i) => {
-          if (emptyIndices.includes(i) && srcIdx < srcActivePanes.length) {
-            const sp = srcActivePanes[srcIdx++];
-            return { ...p, sessionId: sp.sessionId, hostId: sp.hostId, themeOverride: sp.themeOverride, tmuxSessionName: getEffectiveSession(sp) };
-          }
-          return p;
-        });
-
-        const movedCount = srcIdx;
-        const movedSrcIds = new Set(srcActivePanes.slice(0, movedCount).map((p) => p.id));
-        const srcRemaining = (srcTab.panes || []).filter((p) => !movedSrcIds.has(p.id) && (p.sessionId || p.hostId));
-
-        const total = filledPanes.length;
-        let layout = destTab.layout || 'single';
-        if (total === 1) layout = 'single';
-        else if (total === 2) layout = (layout === 'v' ? 'v' : 'h');
-        else layout = '2x2';
-        const splitTree = treeFromLegacyLayout(filledPanes, layout);
-
-        return prev.map((t) => {
-          if (t.id === targetTabId) return { ...t, panes: filledPanes, layout, splitTree };
-          if (t.id === sourceTabId) {
-            if (srcRemaining.length === 0) return null;
-            const nTotal = srcRemaining.length;
-            let nLayout = t.layout || 'single';
-            if (nTotal === 1) nLayout = 'single';
-            else if (nTotal === 2) nLayout = (nLayout === 'v' ? 'v' : 'h');
-            else nLayout = '2x2';
-            return { ...t, panes: srcRemaining, layout: nLayout, splitTree: treeFromLegacyLayout(srcRemaining, nLayout), activePaneId: srcRemaining[0].id };
-          }
-          return t;
-        }).filter(Boolean);
-      }
-
-      // directional drop: split the target pane, then fill the new empty pane with source tab's active panes
-      const effectiveDir = dir === 'top' ? 'up' : dir === 'bottom' ? 'down' : dir;
-      const newPane = makePane({});
-      const currentPanes = [...(destTab.panes || []), newPane];
-      const currentTree = ensureTree(destTab.panes || [], destTab.splitTree) || makeLeaf(targetPaneId);
-      const { tree: newTree } = splitLeaf(currentTree, targetPaneId, effectiveDir, newPane.id);
-
-      let layout = destTab.layout || 'single';
-      if (currentPanes.length === 2) layout = (effectiveDir === 'down' || effectiveDir === 'up') ? 'v' : 'h';
-      else if (currentPanes.length >= 3) layout = '2x2';
-
-      // Fill newly created empty pane (and any other empty panes) with source panes
-      const emptyIndices = [];
-      currentPanes.forEach((p, i) => { if (!p.sessionId && !p.hostId) emptyIndices.push(i); });
-      // Prioritize the newly created pane index
-      const newPaneIdx = currentPanes.findIndex((p) => p.id === newPane.id);
-      const orderedEmpty = [newPaneIdx, ...emptyIndices.filter((i) => i !== newPaneIdx)];
-
-      let srcIdx = 0;
-      const filledPanes = currentPanes.map((p, i) => {
-        if (orderedEmpty.includes(i) && srcIdx < srcActivePanes.length) {
-          const sp = srcActivePanes[srcIdx++];
-          return { ...p, sessionId: sp.sessionId, hostId: sp.hostId, themeOverride: sp.themeOverride, tmuxSessionName: getEffectiveSession(sp) };
-        }
-        return p;
-      });
-
-      const movedCount = srcIdx;
-      const movedSrcIds = new Set(srcActivePanes.slice(0, movedCount).map((p) => p.id));
-      const srcRemaining = (srcTab.panes || []).filter((p) => !movedSrcIds.has(p.id) && (p.sessionId || p.hostId));
-
-      return prev.map((t) => {
-        if (t.id === targetTabId) return { ...t, panes: filledPanes, layout, splitTree: newTree, activePaneId: newPane.id };
-        if (t.id === sourceTabId) {
-          if (srcRemaining.length === 0) return null;
-          const nTotal = srcRemaining.length;
-          let nLayout = t.layout || 'single';
-          if (nTotal === 1) nLayout = 'single';
-          else if (nTotal === 2) nLayout = (nLayout === 'v' ? 'v' : 'h');
-          else nLayout = '2x2';
-          return { ...t, panes: srcRemaining, layout: nLayout, splitTree: treeFromLegacyLayout(srcRemaining, nLayout), activePaneId: srcRemaining[0].id };
-        }
-        return t;
-      }).filter(Boolean);
-    });
+    setTabs((prev) => dropTabToSplitPaneOp(prev, {
+      sourceTabId, targetTabId, targetPaneId, dir, hosts, computePaneTmuxSession,
+    }));
   }, [hosts, computePaneTmuxSession]);
 
   // 빈 pane 활성화 — target 종류:
@@ -416,109 +239,10 @@ function App() {
   //                                    대상 탭에 합류.
   // target 없으면 부모 탭 타입 그대로 따라감 (단순 클릭 케이스)
   const activatePane = useCallback((tabId, paneId, target = null) => {
-    setTabs((prev) => {
-      // 병합인 경우 원본 탭의 pane 들을 빈 슬롯에 채워넣는 로직을 한 번에 처리.
-      if (target?.type === 'tab' && target.sourceTabId) {
-        const src = prev.find((tt) => tt.id === target.sourceTabId);
-        if (!src) return prev;
-        const srcActivePanes = (src.panes || []).filter((p) => p.sessionId || p.hostId);
-        if (srcActivePanes.length === 0) {
-          return prev.filter((t) => t.id !== target.sourceTabId);
-        }
-
-        // Preserve effective tmux session name so moved pane reconnects to the correct session
-        const getEffectiveSession = (sp) => {
-          if (!sp.hostId) return sp.tmuxSessionName;
-          const paneIdx = (src.panes || []).indexOf(sp);
-          const host = hosts.find((h) => h.id === sp.hostId);
-          return computePaneTmuxSession(host, src, sp, paneIdx);
-        };
-
-        const destTab = prev.find((t) => t.id === tabId);
-        const currentPanes = [...(destTab?.panes || [])];
-
-        const emptyIndices = [];
-        currentPanes.forEach((p, i) => {
-          if (!p.sessionId && !p.hostId) emptyIndices.push(i);
-        });
-
-        let srcIdx = 0;
-        const filledPanes = currentPanes.map((p, i) => {
-          if (emptyIndices.includes(i) && srcIdx < srcActivePanes.length) {
-            const sp = srcActivePanes[srcIdx++];
-            return { ...p, sessionId: sp.sessionId, hostId: sp.hostId, themeOverride: sp.themeOverride, tmuxSessionName: getEffectiveSession(sp) };
-          }
-          return p;
-        });
-
-        const overflowSrcIds = new Set(srcActivePanes.slice(srcIdx).map((p) => p.id));
-        const movedSrcIds = new Set(srcActivePanes.slice(0, srcIdx).map((p) => p.id));
-
-        const srcRemaining = (src.panes || []).filter((p) => !movedSrcIds.has(p.id));
-        const srcStillActive = srcRemaining.some((p) => p.sessionId || p.hostId);
-
-        let result = prev.map((t) => {
-          if (t.id === tabId) {
-            const allP = filledPanes;
-            const total = allP.length;
-            let layout = t.layout || 'single';
-            if (total === 1) layout = 'single';
-            else if (total === 2) layout = (layout === 'v' ? 'v' : 'h');
-            else layout = '2x2';
-            // Rebuild splitTree from panes — simplest correct approach
-            const splitTree = treeFromLegacyLayout(allP, layout);
-            return { ...t, panes: allP, layout, splitTree };
-          }
-          if (t.id === target.sourceTabId) {
-            const realRemaining = srcRemaining.filter((p) => p.sessionId || p.hostId);
-            if (realRemaining.length === 0) return null;
-            const nTotal = realRemaining.length;
-            let nLayout = t.layout || 'single';
-            if (nTotal === 1) nLayout = 'single';
-            else if (nTotal === 2) nLayout = (nLayout === 'v' ? 'v' : 'h');
-            else nLayout = '2x2';
-            const nSplitTree = treeFromLegacyLayout(realRemaining, nLayout);
-            return { ...t, panes: realRemaining, layout: nLayout, splitTree: nSplitTree, activePaneId: realRemaining[0].id };
-          }
-          return t;
-        }).filter(Boolean);
-        return result;
-      }
-
-      // 병합이 아닌 단순 활성화 케이스
-      return prev.map((t) => {
-        if (t.id !== tabId) return t;
-        const panes = (t.panes || []).map((p) => {
-          if (p.id !== paneId) return p;
-          if (p.sessionId || p.hostId) return p;
-          // target.cwd 가 있으면 pane.cwd 에 저장 → Terminal 이 그 경로로 SSH/셸 시작
-          // '' (workspace root) 도 유효한 cwd 이므로 null/undefined 가 아닌 이상 보존.
-          const cwdPatch = target?.cwd != null ? { cwd: target.cwd } : {};
-          if (target?.type === 'host' && target.hostId) {
-            // 호스트 프로필 테마가 있으면 새 pane 생성 시점에 구체 테마로 해석.
-            const h = hosts.find((hh) => hh.id === target.hostId);
-            const resolvedTheme = resolveProfileTheme(h?.theme, usedThemeIdsFromTabs(prev));
-            const themePatch = resolvedTheme ? { themeOverride: resolvedTheme } : {};
-            const tmuxPatch = {
-              tmuxSessionName: target.tmuxSessionName || makeFreshHostTmuxSessionName(h),
-            };
-            return { ...p, hostId: target.hostId, sessionId: undefined, ...tmuxPatch, ...cwdPatch, ...themePatch };
-          }
-          if (target?.type === 'local') {
-            const resolvedTheme = resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev));
-            const themePatch = resolvedTheme ? { themeOverride: resolvedTheme } : {};
-            return { ...p, sessionId: generateUUID(), hostId: undefined, tmuxSessionName: undefined, ...cwdPatch, ...themePatch };
-          }
-          if (t.type === 'host') {
-            const h = hosts.find((hh) => hh.id === t.hostId);
-            return { ...p, hostId: t.hostId, tmuxSessionName: makeFreshHostTmuxSessionName(h), ...cwdPatch };
-          }
-          return { ...p, sessionId: generateUUID(), tmuxSessionName: undefined, ...cwdPatch };
-        });
-        return { ...t, panes, activePaneId: paneId };
-      });
-    });
-  }, [hosts, settings.localTheme, computePaneTmuxSession]);
+    setTabs((prev) => activatePaneOp(prev, {
+      tabId, paneId, target, hosts, settings, computePaneTmuxSession,
+    }));
+  }, [hosts, settings, computePaneTmuxSession]);
 
   const closePane = useCallback((tabId, paneId, opts = {}) => {
     const { skipConfirm = false } = opts;
@@ -685,44 +409,13 @@ function App() {
   // (tabId, fromPaneId, toPaneId) → 해당 탭의 panes 배열에서 fromPaneId 를 toPaneId 위치로 이동.
   // splitTree 가 있으면 leaf paneId 도 swap 해서 시각적 위치가 바뀌도록 함.
   const reorderPane = useCallback((tabId, fromPaneId, toPaneId) => {
-    if (!fromPaneId || !toPaneId || fromPaneId === toPaneId) return;
-    setTabs((prev) => prev.map((tt) => {
-      if (tt.id !== tabId) return tt;
-      const panes = tt.panes || [];
-      const fromIdx = panes.findIndex((p) => p.id === fromPaneId);
-      const toIdx = panes.findIndex((p) => p.id === toPaneId);
-      if (fromIdx < 0 || toIdx < 0) return tt;
-      const next = [...panes];
-      const [moved] = next.splice(fromIdx, 1);
-      next.splice(toIdx, 0, moved);
-      // Swap leaf positions in the split tree so the visual layout reflects the reorder
-      const nextSplitTree = tt.splitTree
-        ? swapLeaves(tt.splitTree, fromPaneId, toPaneId)
-        : null;
-      return { ...tt, panes: next, ...(nextSplitTree ? { splitTree: nextSplitTree } : {}) };
-    }));
+    setTabs((prev) => reorderPaneOp(prev, { tabId, fromPaneId, toPaneId }));
   }, []);
 
   // Drag a pane onto another pane with a directional zone → move src next to dest in split tree.
   // dir: 'top' | 'bottom' | 'left' | 'right' (center = swap handled by reorderPane)
   const dropPaneToSplit = useCallback((tabId, srcPaneId, destPaneId, dir) => {
-    if (!srcPaneId || !destPaneId || srcPaneId === destPaneId) return;
-    setTabs((prev) => prev.map((tt) => {
-      if (tt.id !== tabId) return tt;
-      const panes = tt.panes || [];
-      if (!panes.find((p) => p.id === srcPaneId) || !panes.find((p) => p.id === destPaneId)) return tt;
-      const effectiveDir = dir === 'top' ? 'up' : dir === 'bottom' ? 'down' : dir;
-      const currentTree = ensureTree(panes, tt.splitTree);
-      const treeWithoutSrc = removeLeaf(currentTree, srcPaneId);
-      const { tree: finalTree } = splitLeaf(
-        treeWithoutSrc || makeLeaf(destPaneId),
-        destPaneId,
-        effectiveDir,
-        srcPaneId,
-        true, // forceNested: drag-drop always nests the pair within the dest's space
-      );
-      return { ...tt, splitTree: finalTree, activePaneId: srcPaneId };
-    }));
+    setTabs((prev) => dropPaneToSplitOp(prev, { tabId, srcPaneId, destPaneId, dir }));
   }, []);
 
   const closeTab = useCallback((tabId, opts = {}) => {
