@@ -30,6 +30,7 @@ import { appendPaneAsSplit } from './utils/tabPaneOpen';
 // 탭/pane 상태 전이 순수 리듀서 — 로직은 utils/tabOperations.js 가 소유(테스트 있음).
 import {
   splitPaneOp, dropTabToSplitPaneOp, activatePaneOp, reorderPaneOp, dropPaneToSplitOp,
+  removePaneOp, planPaneClose, extractPaneToTabOp,
 } from './utils/tabOperations';
 import {
   makePane, makLocalTab, makeFreshHostTmuxSessionName,
@@ -252,30 +253,7 @@ function App() {
     const paneIndex = tab.panes.findIndex((p) => p.id === paneId);
 
     const doClose = () => {
-      setTabs((prev) => prev.map((t) => {
-        if (t.id !== tabId) return t;
-        const panes = t.panes || [];
-        if (panes.length === 0) return t;       // 안전장치
-        // 다중 pane → 해당 pane 제거 (단일 pane 케이스는 closeTab 으로 위임됨)
-        const remaining = panes.filter((p) => p.id !== paneId);
-        if (remaining.length === 0) return t;
-
-        // Remove from splitTree and collapse
-        const currentTree = ensureTree(panes, t.splitTree);
-        const newTree = removeLeaf(currentTree, paneId);
-        const finalTree = ensureTree(remaining, newTree);
-
-        const layout = remaining.length === 1 ? 'single' : (remaining.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
-        const newActiveId = t.activePaneId === paneId
-          ? (remaining.find((p) => p.sessionId || p.hostId) || remaining[0])?.id
-          : t.activePaneId;
-        // 탭 레벨 sessionId 의 주인 pane 을 닫으면 남은 로컬 pane 으로 승계 — 죽은 세션을
-        // 가리키는 탭을 서버 sanitize 가 통째로 지워 분할이 단일탭으로 풀리는 사고 방지.
-        const nextSessionId = (!pane.hostId && pane.sessionId && t.sessionId === pane.sessionId)
-          ? (remaining.find((p) => p.sessionId && !p.hostId)?.sessionId ?? t.sessionId)
-          : t.sessionId;
-        return { ...t, sessionId: nextSessionId, panes: remaining, layout, splitTree: finalTree, activePaneId: newActiveId };
-      }));
+      setTabs((prev) => removePaneOp(prev, { tabId, paneId }));
       // 로컬 세션 정리
       if (pane.sessionId && !pane.hostId) {
         fetch(`/api/sessions/${pane.sessionId}`, {
@@ -296,29 +274,14 @@ function App() {
       bumpSessionRefresh();
     };
 
-    const paneCount = tab.panes?.length || 0;
-    const isEmpty = !pane.sessionId && !pane.hostId;
-
-    // 단일 pane = 탭 자체 닫기로 위임. 빈 picker (새 탭) 든 활성 세션이든 동일.
-    if (paneCount <= 1) {
-      closeTabRef.current?.(tabId);
-      return;
-    }
-
-    // 빈 pane (멀티 중) — 확인 없이 즉시 제거
-    if (isEmpty) {
-      doClose();
-      return;
-    }
-
-    const isHost = !!pane.hostId;
-    const host = isHost ? hosts.find((h) => h.id === pane.hostId) : null;
-    const willPersist = !isHost /* local 항상 tmux */ || !!host?.use_remote_tmux;
+    const plan = planPaneClose(tab, paneId, hosts);
+    if (plan.action === 'delegateToTab') { closeTabRef.current?.(tabId); return; }
+    if (plan.action === 'immediate') { doClose(); return; }
 
     // 서브탭(분할) 종료도 "이 분할의 세션만 끝난다" 를 명확히 — 탭 전체 닫기와 헷갈리지 않게.
-    const paneLabel = `#${paneIndex + 1} · ${t('pane') || 'Pane'} ${paneIndex + 1}`;
+    const paneLabel = `#${plan.paneIndex + 1} · ${t('pane') || 'Pane'} ${plan.paneIndex + 1}`;
     const title = t('endSplitSession') || 'End this split';
-    const base = willPersist
+    const base = plan.willPersist
       ? (t('confirmClosePaneSession') || "This split's session will end.")
       : (t('confirmClosePaneNoTmux') || 'Close this split? Work will be lost (tmux off).');
     const message = `${paneLabel}\n\n${base}`;
@@ -343,66 +306,10 @@ function App() {
   // 분할 pane → 새 단독 탭으로 분리 (detach). 빈 pane (sessionId/hostId 없음) 은
   // 추출 의미 없으므로 무시. 새 탭은 원본 바로 뒤에 삽입되고 즉시 활성화.
   const extractPaneToTab = useCallback((tabId, paneId) => {
-    const src = tabs.find((tt) => tt.id === tabId);
-    if (!src) return;
-    const pane = src.panes?.find((p) => p.id === paneId);
-    if (!pane || (!pane.sessionId && !pane.hostId)) return;
-
-    // 새 탭/pane id 를 한 번만 계산 — setTabs 클로저에 캡처해 setActiveTabId 와 일관성 유지.
-    const newPane = makePane({
-      sessionId: pane.sessionId,
-      hostId: pane.hostId,
-      ...(pane.tmuxSessionName ? { tmuxSessionName: pane.tmuxSessionName } : null),
-      ...(pane.themeOverride ? { themeOverride: pane.themeOverride } : null),
-    });
-    const newTabId = pane.hostId
-      ? `host:${pane.hostId}:${Date.now()}:${newPane.id.slice(0, 6)}`
-      : `local:${pane.sessionId}:${Date.now()}:${newPane.id.slice(0, 6)}`;
-
-    // pane 의 실제 호스트 기준으로 새 탭 메타데이터 재구성.
-    // src 의 name/hostId/icon/color 를 그대로 복사하면 pane 이 src 와 다른 호스트로
-    // 옮겨진 상태에서 분리 시 "이전 탭 호스트명이 따라오는" 버그가 됨.
-    const paneHost = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
-    const newTabType = pane.hostId ? 'host' : 'local';
-    const newTabName = paneHost?.name || (pane.hostId ? src.name : (src.type === 'local' ? src.name : 'Local'));
-    const newTabIcon = paneHost?.icon ?? (pane.hostId ? null : (src.icon || null));
-    const newTabColorIndex = paneHost?.color_index ?? (pane.hostId ? 0 : (src.color_index ?? 0));
-
-    setTabs((prev) => {
-      const remaining = (src.panes || []).filter((p) => p.id !== paneId);
-      const layout = remaining.length === 1 ? 'single' : (remaining.length === 2 ? (src.layout === 'v' ? 'v' : 'h') : '2x2');
-      // Update splitTree: remove the extracted pane
-      const currentTree = ensureTree(src.panes, src.splitTree);
-      const newSrcTree = removeLeaf(currentTree, paneId);
-      const finalSrcTree = ensureTree(remaining, newSrcTree);
-      const trimmedSrc = {
-        ...src,
-        panes: remaining,
-        layout,
-        splitTree: finalSrcTree,
-        activePaneId: remaining[0]?.id || null,
-      };
-      const newTab = {
-        id: newTabId,
-        type: newTabType,
-        name: newTabName,
-        cwd: src.cwd ?? null,
-        icon: newTabIcon,
-        color_index: newTabColorIndex,
-        panes: [newPane],
-        layout: 'single',
-        splitTree: makeLeaf(newPane.id),
-        activePaneId: newPane.id,
-        ...(pane.hostId ? { hostId: pane.hostId } : null),
-        // src 가 같은 호스트면 tmuxSuffix 도 유지 — pane 컴패니언 세션이 같은 base 유지.
-        ...(pane.hostId && src.hostId === pane.hostId && src.tmuxSuffix ? { tmuxSuffix: src.tmuxSuffix } : null),
-        ...(!pane.hostId && pane.sessionId ? { sessionId: pane.sessionId } : null),
-      };
-      const next = prev.map((t) => (t.id === tabId ? trimmedSrc : t));
-      const idx = next.findIndex((t) => t.id === tabId);
-      return [...next.slice(0, idx + 1), newTab, ...next.slice(idx + 1)];
-    });
-    setActiveTabId(newTabId);
+    const result = extractPaneToTabOp(tabs, { tabId, paneId, hosts, now: Date.now() });
+    if (!result) return;
+    setTabs(result.tabs);
+    setActiveTabId(result.newTabId);
   }, [tabs, hosts]);
 
   // 분할 pane 순서 변경 — subTabs 컨텍스트 메뉴(Move left/right) 및 드래그 핸들에서 사용.

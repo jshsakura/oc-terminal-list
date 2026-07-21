@@ -357,3 +357,105 @@ export const dropPaneToSplitOp = (tabs, { tabId, srcPaneId, destPaneId, dir }) =
     return { ...tt, splitTree: finalTree, activePaneId: srcPaneId };
   });
 };
+
+/**
+ * 분할 탭에서 pane 하나를 제거한다(멀티 pane 전용 — 단일 pane 은 탭 닫기로 위임된다).
+ *
+ * 탭 레벨 sessionId 의 주인 pane 을 닫으면 남은 로컬 pane 으로 승계시킨다. 안 그러면
+ * 죽은 세션을 가리키는 탭을 서버 sanitize 가 통째로 지워 분할이 단일탭으로 풀린다.
+ */
+export const removePaneOp = (tabs, { tabId, paneId }) => tabs.map((t) => {
+  if (t.id !== tabId) return t;
+  const panes = t.panes || [];
+  if (panes.length === 0) return t;
+  const pane = panes.find((p) => p.id === paneId);
+  const remaining = panes.filter((p) => p.id !== paneId);
+  if (!pane || remaining.length === 0) return t;
+
+  const currentTree = ensureTree(panes, t.splitTree);
+  const finalTree = ensureTree(remaining, removeLeaf(currentTree, paneId));
+  const layout = remaining.length === 1
+    ? 'single'
+    : (remaining.length === 2 ? (t.layout === 'v' ? 'v' : 'h') : '2x2');
+  const newActiveId = t.activePaneId === paneId
+    ? (remaining.find((p) => p.sessionId || p.hostId) || remaining[0])?.id
+    : t.activePaneId;
+  const nextSessionId = (!pane.hostId && pane.sessionId && t.sessionId === pane.sessionId)
+    ? (remaining.find((p) => p.sessionId && !p.hostId)?.sessionId ?? t.sessionId)
+    : t.sessionId;
+  return { ...t, sessionId: nextSessionId, panes: remaining, layout, splitTree: finalTree, activePaneId: newActiveId };
+});
+
+/**
+ * pane 을 닫으려 할 때 무엇을 해야 하는가 — 순수 판정.
+ *
+ * 'delegateToTab' 단일 pane 이라 탭 자체를 닫아야 한다(빈 picker 든 활성 세션이든 동일).
+ * 'immediate'     멀티 중 빈 pane — 물어볼 것 없이 제거.
+ * 'confirm'       세션이 살아있는 pane — 확인을 받아야 한다(닫기 = 세션 종료 모델).
+ */
+export const planPaneClose = (tab, paneId, hosts = []) => {
+  const panes = tab?.panes || [];
+  const pane = panes.find((p) => p.id === paneId);
+  if (!tab || !pane) return { action: 'none' };
+  if (panes.length <= 1) return { action: 'delegateToTab' };
+  if (!pane.sessionId && !pane.hostId) return { action: 'immediate' };
+  const host = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
+  return {
+    action: 'confirm',
+    paneIndex: panes.findIndex((p) => p.id === paneId),
+    // 로컬은 항상 tmux 위에서 돈다. 원격은 호스트 설정에 달렸다.
+    willPersist: !pane.hostId || !!host?.use_remote_tmux,
+  };
+};
+
+/**
+ * 분할 pane 하나를 새 탭으로 떼어낸다. `{ tabs, newTabId }` 또는 뗄 게 없으면 null.
+ *
+ * 새 탭의 이름/아이콘/색은 **pane 의 실제 호스트**를 따른다. 원본 탭 것을 복사하면
+ * pane 이 다른 호스트로 옮겨진 뒤 분리할 때 이전 탭 호스트명이 따라온다.
+ */
+export const extractPaneToTabOp = (tabs, { tabId, paneId, hosts = [], now = 0 }) => {
+  const src = tabs.find((tt) => tt.id === tabId);
+  const pane = src?.panes?.find((p) => p.id === paneId);
+  if (!src || !pane || (!pane.sessionId && !pane.hostId)) return null;
+
+  const newPane = makePane({
+    sessionId: pane.sessionId,
+    hostId: pane.hostId,
+    ...(pane.tmuxSessionName ? { tmuxSessionName: pane.tmuxSessionName } : null),
+    ...(pane.themeOverride ? { themeOverride: pane.themeOverride } : null),
+  });
+  const newTabId = pane.hostId
+    ? `host:${pane.hostId}:${now}:${newPane.id.slice(0, 6)}`
+    : `local:${pane.sessionId}:${now}:${newPane.id.slice(0, 6)}`;
+
+  const paneHost = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
+  const remaining = (src.panes || []).filter((p) => p.id !== paneId);
+  const layout = remaining.length === 1
+    ? 'single'
+    : (remaining.length === 2 ? (src.layout === 'v' ? 'v' : 'h') : '2x2');
+  const finalSrcTree = ensureTree(remaining, removeLeaf(ensureTree(src.panes, src.splitTree), paneId));
+
+  const trimmedSrc = {
+    ...src, panes: remaining, layout, splitTree: finalSrcTree,
+    activePaneId: remaining[0]?.id || null,
+  };
+  const newTab = {
+    id: newTabId,
+    type: pane.hostId ? 'host' : 'local',
+    name: paneHost?.name || (pane.hostId ? src.name : (src.type === 'local' ? src.name : 'Local')),
+    cwd: src.cwd ?? null,
+    icon: paneHost?.icon ?? (pane.hostId ? null : (src.icon || null)),
+    color_index: paneHost?.color_index ?? (pane.hostId ? 0 : (src.color_index ?? 0)),
+    panes: [newPane],
+    layout: 'single',
+    splitTree: makeLeaf(newPane.id),
+    activePaneId: newPane.id,
+    ...(pane.hostId ? { hostId: pane.hostId } : null),
+    ...(pane.hostId && src.hostId === pane.hostId && src.tmuxSuffix ? { tmuxSuffix: src.tmuxSuffix } : null),
+    ...(!pane.hostId && pane.sessionId ? { sessionId: pane.sessionId } : null),
+  };
+  const next = tabs.map((t) => (t.id === tabId ? trimmedSrc : t));
+  const idx = next.findIndex((t) => t.id === tabId);
+  return { tabs: [...next.slice(0, idx + 1), newTab, ...next.slice(idx + 1)], newTabId };
+};

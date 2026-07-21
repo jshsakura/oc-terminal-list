@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   splitPaneOp, dropTabToSplitPaneOp, activatePaneOp, reorderPaneOp, dropPaneToSplitOp,
+  removePaneOp, planPaneClose, extractPaneToTabOp,
 } from './tabOperations';
 
 // 이 로직은 App.jsx 안에 있는 동안 테스트가 하나도 없었다. 순수 함수로 나온 김에
@@ -174,5 +175,111 @@ describe('불변성 (CRITICAL)', () => {
     splitPaneOp([original], { dir: 'h', targetTabId: 't1' });
     reorderPaneOp([original], { tabId: 't1', fromPaneId: 'p1', toPaneId: 'p1' });
     expect(original).toEqual(snapshot);
+  });
+});
+
+describe('removePaneOp', () => {
+  it('분할에서 pane 하나를 빼고 레이아웃을 좁힌다', () => {
+    const [t] = removePaneOp([tab('t1', [filled('a', 's1'), filled('b', 's2')])],
+      { tabId: 't1', paneId: 'a' });
+    expect(t.panes.map((p) => p.id)).toEqual(['b']);
+    expect(t.layout).toBe('single');
+  });
+
+  it('마지막 하나는 남긴다 — 빈 탭이 되면 안 된다(탭 닫기가 할 일)', () => {
+    const tabs = [tab('t1', [filled('a', 's1')])];
+    expect(removePaneOp(tabs, { tabId: 't1', paneId: 'a' })[0].panes).toHaveLength(1);
+  });
+
+  it('닫은 pane 이 활성이었으면 세션 있는 pane 으로 활성을 옮긴다', () => {
+    const src = tab('t1', [filled('a', 's1'), pane('empty'), filled('c', 's3')]);
+    src.activePaneId = 'a';
+    const [t] = removePaneOp([src], { tabId: 't1', paneId: 'a' });
+    expect(t.activePaneId).toBe('c');   // 빈 pane 이 아니라 세션 있는 쪽
+  });
+
+  it('탭 레벨 sessionId 의 주인을 닫으면 남은 로컬 pane 이 승계한다', () => {
+    // 승계 안 하면 죽은 세션을 가리키는 탭을 서버 sanitize 가 지워 분할이 풀린다.
+    const src = tab('t1', [filled('a', 's1'), filled('b', 's2')], { sessionId: 's1' });
+    const [t] = removePaneOp([src], { tabId: 't1', paneId: 'a' });
+    expect(t.sessionId).toBe('s2');
+  });
+
+  it('다른 탭은 건드리지 않는다', () => {
+    const other = tab('t2', [filled('x', 's9')]);
+    const [, t2] = removePaneOp([tab('t1', [filled('a', 's1'), filled('b', 's2')]), other],
+      { tabId: 't1', paneId: 'a' });
+    expect(t2).toBe(other);
+  });
+});
+
+describe('planPaneClose', () => {
+  const hosts = [{ id: 'h1', use_remote_tmux: 1 }, { id: 'h2', use_remote_tmux: 0 }];
+
+  it('단일 pane 이면 탭 닫기로 위임한다', () => {
+    expect(planPaneClose(tab('t1', [filled('a', 's1')]), 'a', hosts).action).toBe('delegateToTab');
+    expect(planPaneClose(tab('t1', [pane('a')]), 'a', hosts).action).toBe('delegateToTab');
+  });
+
+  it('멀티 중 빈 pane 은 묻지 않고 제거한다', () => {
+    expect(planPaneClose(tab('t1', [pane('a'), filled('b', 's2')]), 'a', hosts).action).toBe('immediate');
+  });
+
+  it('세션이 살아있으면 확인을 받는다 — 닫기 = 세션 종료', () => {
+    const p = planPaneClose(tab('t1', [filled('a', 's1'), filled('b', 's2')]), 'a', hosts);
+    expect(p.action).toBe('confirm');
+    expect(p.paneIndex).toBe(0);
+    expect(p.willPersist).toBe(true);    // 로컬은 항상 tmux 위
+  });
+
+  it('원격 tmux 를 끈 호스트는 willPersist=false (작업이 사라진다고 알려야 한다)', () => {
+    const panes = [pane('a', { hostId: 'h2' }), filled('b', 's2')];
+    expect(planPaneClose(tab('t1', panes), 'a', hosts).willPersist).toBe(false);
+    const panes2 = [pane('a', { hostId: 'h1' }), filled('b', 's2')];
+    expect(planPaneClose(tab('t1', panes2), 'a', hosts).willPersist).toBe(true);
+  });
+
+  it('없는 pane 이면 아무것도 안 한다', () => {
+    expect(planPaneClose(tab('t1', [filled('a', 's1')]), 'nope', hosts).action).toBe('none');
+    expect(planPaneClose(null, 'a', hosts).action).toBe('none');
+  });
+});
+
+describe('extractPaneToTabOp', () => {
+  it('pane 을 새 탭으로 떼고 원본에서 지운다', () => {
+    const r = extractPaneToTabOp([tab('t1', [filled('a', 's1'), filled('b', 's2')])],
+      { tabId: 't1', paneId: 'a', hosts: [], now: 111 });
+    expect(r.tabs).toHaveLength(2);
+    expect(r.tabs[0].panes.map((p) => p.id)).toEqual(['b']);
+    expect(r.tabs[1].id).toBe(r.newTabId);
+    expect(r.tabs[1].panes[0].sessionId).toBe('s1');
+  });
+
+  it('새 탭을 원본 바로 뒤에 끼워넣는다', () => {
+    const r = extractPaneToTabOp(
+      [tab('t0', [filled('z', 's0')]), tab('t1', [filled('a', 's1'), filled('b', 's2')]), tab('t2', [filled('y', 's9')])],
+      { tabId: 't1', paneId: 'a', hosts: [], now: 111 });
+    expect(r.tabs.map((t) => t.id)).toEqual(['t0', 't1', r.newTabId, 't2']);
+  });
+
+  it('새 탭 이름·색은 원본 탭이 아니라 pane 의 호스트를 따른다', () => {
+    // 원본 것을 복사하면 pane 이 다른 호스트로 옮겨진 뒤 분리할 때 옛 이름이 따라온다.
+    const hosts = [{ id: 'h1', name: 'realbox', icon: 'srv', color_index: 5 }];
+    const panes = [pane('a', { hostId: 'h1', sessionId: 's1' }), filled('b', 's2')];
+    const r = extractPaneToTabOp([tab('t1', panes, { name: '옛날이름', color_index: 2 })],
+      { tabId: 't1', paneId: 'a', hosts, now: 111 });
+    const created = r.tabs.find((t) => t.id === r.newTabId);
+    expect(created.name).toBe('realbox');
+    expect(created.color_index).toBe(5);
+    expect(created.hostId).toBe('h1');
+  });
+
+  it('빈 pane 은 뗄 수 없다', () => {
+    expect(extractPaneToTabOp([tab('t1', [pane('a'), filled('b', 's2')])],
+      { tabId: 't1', paneId: 'a', hosts: [], now: 1 })).toBe(null);
+  });
+
+  it('없는 탭/pane 이면 null', () => {
+    expect(extractPaneToTabOp([], { tabId: 'x', paneId: 'y', hosts: [], now: 1 })).toBe(null);
   });
 });
