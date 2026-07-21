@@ -6,7 +6,7 @@ import json
 import logging
 import shutil
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from _deps import verify_auth_token
 

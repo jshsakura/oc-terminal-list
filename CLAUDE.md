@@ -8,7 +8,8 @@ Web-based multi-pane terminal manager. React (Vite) frontend + FastAPI backend. 
 ## Project layout
 
 ```
-backend/        FastAPI app (main.py entry), Python, uvicorn
+backend/        FastAPI app (main.py = 앱/미들웨어/lifespan/라우터 등록만)
+backend/routes/ 도메인별 APIRouter — 새 엔드포인트는 여기 추가
 frontend/src/   React + xterm.js UI (Vite, JSX)
 frontend/src/components/   UI components
 frontend/src/hooks/        Custom React hooks
@@ -131,6 +132,30 @@ Restart only *kills*; recreation is done by the reconnect (the WS route creates 
 Never hand-manage it. If `sw.js`'s bytes don't change on deploy, the browser never detects a service-worker update, `activate` never re-runs, and the old cache lives forever — holding hashed chunks that the next build deletes (`emptyOutDir: true`). The page then self-reloads via `LazyErrorBoundary` when a lazy chunk 404s.
 
 The plugin must run **before** `precompressAssets`, or only the `.br`/`.gz` copies keep the stale bytes.
+
+## Backend module layout
+
+`main.py` owns only the app object, middleware, lifespan, and router registration. Endpoints live in `routes/*.py`; shared state lives in focused top-level modules. **Add new endpoints to a `routes/` module, never back into `main.py`.**
+
+| Module | Owns |
+|---|---|
+| `routes/auth.py` | login/token, OTP, passkey |
+| `routes/sessions.py` · `routes/terminal_ws.py` | session REST · local terminal WS |
+| `routes/hosts.py` · `routes/host_ws.py` · `routes/host_files.py` · `routes/host_git.py` | SSH hosts |
+| `routes/files_read.py` · `routes/files_write.py` | workspace files, split by side effects |
+| `routes/user_state.py` | UI settings, command history, tab state, SSE |
+| `_deps.py` | boundary validators (`validate_path`, `is_safe_id`), auth dependency |
+| `tickets.py` | WS/file/SSE single-use tickets (together so their rules stay in lockstep) |
+| `session_launch.py` | cwd/shell resolution + ownership check — REST and WS **must** share this |
+| `ws_clients.py` · `sse_broadcast.py` · `file_index.py` · `system_monitor.py` · `auth_cookie.py` · `models.py` | shared state / helpers |
+
+**Router registration order is matching priority.** FastAPI takes the first route that matches, so reordering `main.py`'s registration list can silently route a literal path into a `{param}` handler. Tests do not catch this. When refactoring, diff the route list *including order* against the previous commit:
+
+```python
+[(sorted(r.methods), r.path) for r in main.app.routes]   # compare as a list, never sorted
+```
+
+Tests that reach into module internals (`patch.object(main, "storage")`, `main._zip_directory_bytes`) must follow the code when it moves — a stale patch target does not fail loudly, it silently patches nothing and hits the real dependency.
 
 ## Agent status detection (2026-07-21)
 

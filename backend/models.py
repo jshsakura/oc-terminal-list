@@ -6,9 +6,8 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, field_validator
 
 
 class ResizeRequest(BaseModel):
@@ -56,14 +55,6 @@ class PasswordChangeRequest(BaseModel):
     new_password: str
 
 
-from file_models import (  # noqa: E402
-    FileCreateRequest,
-    FileMoveRequest,
-    FileWriteRequest,
-    HostFileWriteRequest,
-    MAX_FILE_WRITE_BYTES,
-    MAX_PATH_FIELD_LEN,
-)
 
 
 class SshKeyCreateRequest(BaseModel):

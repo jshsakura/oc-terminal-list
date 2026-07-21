@@ -19,7 +19,7 @@ from session_launch import (
     _assert_session_owner, _basename_or_none, _resolve_create_cwd, _resolve_shell,
 )
 from sqlite_storage import storage
-from tmux_manager import TmuxError, tmux_manager
+from tmux_manager import tmux_manager
 from ws_clients import _client_identity_payload
 
 logger = logging.getLogger(__name__)

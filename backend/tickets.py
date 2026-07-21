@@ -7,7 +7,6 @@ WebSocket 핸드셰이크)를 인증하는 일회용 토큰. TTL·단일사용·
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import secrets as secrets_mod
 import time
