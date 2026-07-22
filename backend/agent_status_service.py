@@ -12,7 +12,7 @@ import time
 from agent_status_watcher import AgentStatusWatcher, PANE_FORMAT
 from push_service import build_agent_done_payload, send_to_user
 from notify_message import summarize_others
-from session_label import describe_session, format_label
+from session_label import describe_session, format_label, shorten_path
 from telegram_service import notify_agent_done
 from sqlite_storage import storage
 from sse_broadcast import _broadcast_sse, _tab_state_sse_queues
@@ -90,7 +90,7 @@ async def _notify_completions(changes: list[dict]) -> None:
             continue   # 원격 pane 등 우리가 소유자를 모르는 세션
 
         # "작업 완료" 만으로는 어느 터미널인지 알 수 없다 — 주소(탭.pane)를 붙인다.
-        described = await describe_session(owner, session_id)
+        described = await describe_session(owner, session_id, change.get("cwd", ""))
         label = format_label(described, session_id)
 
         try:
@@ -104,7 +104,7 @@ async def _notify_completions(changes: list[dict]) -> None:
             await notify_agent_done(
                 session_id, change.get("command", ""), change.get("title", ""), label,
                 duration_seconds=elapsed,
-                described=described,
+                described={**described, "cwd": shorten_path(described.get("cwd", ""))},
                 others=summarize_others(agent_status_watcher.snapshot(), session_id),
             )
         except Exception as e:

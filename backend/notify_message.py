@@ -46,10 +46,33 @@ def summarize_others(snapshot: dict, exclude_session: str) -> str:
     return " · ".join(parts)
 
 
+def _is_redundant(value: str, *already_shown: str) -> bool:
+    """이미 보여준 것과 사실상 같은 값인가.
+
+    탭 이름은 대개 폴더명에서 나온다 — 그대로 두면 같은 문자열이 라벨과 경로에
+    두 번 찍힌다. 경로의 마지막 조각까지 비교해서 걸러낸다.
+    """
+    candidate = (value or "").strip().rstrip("/")
+    if not candidate:
+        return True
+    tail = candidate.rsplit("/", 1)[-1]
+    for shown in already_shown:
+        text = (shown or "").strip()
+        if not text:
+            continue
+        if candidate == text or tail == text or tail and tail in text.split(" · "):
+            return True
+    return False
+
+
 def build_done_message(*, label: str = "", command: str = "", title: str = "",
                        cwd: str = "", host: str = "", duration_seconds: float | None = None,
                        excerpt: str = "", others: str = "") -> str:
-    """완료 알림 본문. 값이 없는 줄은 아예 넣지 않는다 — 빈 항목이 늘어지면 못 훑는다."""
+    """완료 알림 본문.
+
+    값이 없는 줄은 넣지 않고, **이미 보여준 값도 다시 넣지 않는다** — 같은 문자열이
+    두 번 찍히면 정보량은 그대로인데 훑을 줄만 늘어난다.
+    """
     lines = [f"✅ {label}" if label else "✅ 작업 완료"]
 
     meta = []
@@ -63,9 +86,10 @@ def build_done_message(*, label: str = "", command: str = "", title: str = "",
     if meta:
         lines.append(" · ".join(meta))
 
-    if cwd:
+    if cwd and not _is_redundant(cwd, label):
         lines.append(f"📁 {cwd}")
-    if title:
+    # 작업 내용이 발췌 안에 이미 보이면 굳이 한 번 더 쓰지 않는다.
+    if title and title.strip() not in (excerpt or ""):
         lines.append(f"💬 {title}")
     if excerpt:
         lines.append("")

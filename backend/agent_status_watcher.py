@@ -21,7 +21,11 @@ INTERVAL_ACTIVE_SECONDS = 1.5
 INTERVAL_IDLE_SECONDS = 5.0
 
 # tmux -F 포맷. 타이틀이 마지막이라 그 안의 탭 문자는 maxsplit 으로 흡수된다.
-PANE_FORMAT = "#{session_name}\t#{?pane_active,1,0}\t#{pane_current_command}\t#{pane_title}"
+# 타이틀이 **마지막**이어야 한다 — 그 안의 탭 문자를 maxsplit 이 흡수한다.
+PANE_FORMAT = (
+    "#{session_name}\t#{?pane_active,1,0}\t#{pane_current_command}"
+    "\t#{pane_current_path}\t#{pane_title}"
+)
 
 
 def parse_pane_lines(raw: str) -> list[dict]:
@@ -30,15 +34,17 @@ def parse_pane_lines(raw: str) -> list[dict]:
     for line in (raw or "").splitlines():
         if not line.strip():
             continue
-        parts = line.split("\t", 3)
-        if len(parts) < 4:
+        parts = line.split("\t", 4)
+        if len(parts) < 5:
             continue
-        session_id, active, command, raw_title = parts
+        session_id, active, command, cwd, raw_title = parts
         if active != "1":
             continue
         panes.append({
             "sessionId": session_id,
             "command": command,
+            # tmux 가 아는 **실제** 경로. tab-state 의 cwd 는 저장 시점 값이라 낡는다.
+            "cwd": cwd,
             "title": display_title(raw_title),
             "rawTitle": raw_title,
             "status": detect_status(raw_title),

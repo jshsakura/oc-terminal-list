@@ -53,3 +53,27 @@ def test_summarize_others_excludes_self():
 def test_summarize_others_empty_when_alone():
     assert summarize_others({"me": {"status": "idle"}}, "me") == ""
     assert summarize_others({}, "me") == ""
+
+
+def test_cwd_is_not_repeated_when_it_equals_the_tab_name():
+    """탭 이름은 대개 폴더명에서 나온다 — 그대로 두면 같은 문자열이 두 번 찍힌다."""
+    out = build_done_message(label="1.1 · game-and-watch", cwd="game-and-watch")
+    assert out.count("game-and-watch") == 1
+    assert "📁" not in out
+
+
+def test_cwd_is_kept_when_it_adds_information():
+    out = build_done_message(label="1.1 · web", cwd="~/projects/api")
+    assert "📁 ~/projects/api" in out
+
+
+def test_cwd_tail_matching_the_tab_name_is_dropped():
+    """경로 전체는 달라도 마지막 조각이 탭 이름이면 새 정보가 아니다."""
+    out = build_done_message(label="1.1 · myapp", cwd="/home/me/src/myapp")
+    assert "📁" not in out
+
+
+def test_title_is_not_repeated_when_the_excerpt_already_shows_it():
+    out = build_done_message(title="빌드 완료", excerpt="빌드 완료\n47 passing")
+    assert out.count("빌드 완료") == 1
+    assert "💬" not in out
