@@ -82,7 +82,7 @@ describe('Settings', () => {
     render(
       <Settings isOpen={true} onClose={onClose} settings={fullSettings} onSave={onSave} />
     );
-    fireEvent.click(screen.getByText(/Save/i));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ theme: 'catppuccin' }));
     expect(onClose).toHaveBeenCalled();
   });

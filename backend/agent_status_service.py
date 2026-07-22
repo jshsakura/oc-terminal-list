@@ -11,6 +11,7 @@ import time
 
 from agent_status_watcher import AgentStatusWatcher, PANE_FORMAT
 from push_service import build_agent_done_payload, send_to_user
+from telegram_service import notify_agent_done
 from sqlite_storage import storage
 from sse_broadcast import _broadcast_sse, _tab_state_sse_queues
 from tmux_manager import tmux_manager
@@ -67,6 +68,12 @@ async def _notify_completions(changes: list[dict]) -> None:
         except Exception as e:
             # 알림 실패가 상태 브로드캐스트를 막으면 안 된다.
             logger.debug("push notify failed (%s): %s", session_id, e)
+        try:
+            # 텔레그램은 **버튼이 붙는** 알림을 맡는다. 웹푸시 액션 버튼은 iOS 에서
+            # 렌더되지 않아 아이폰에선 "계속"이 아예 안 보인다.
+            await notify_agent_done(session_id, change.get("command", ""), change.get("title", ""))
+        except Exception as e:
+            logger.debug("telegram notify failed (%s): %s", session_id, e)
 
 
 async def _on_agent_status_change(changes: list[dict]) -> None:

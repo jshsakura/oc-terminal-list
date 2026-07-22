@@ -233,6 +233,19 @@ Filenames are `<timestamp>-<random>-<safe-basename>`. **The timestamp alone is n
 
 **Broadcasting an attachment to panes on different hosts uploads to each host.** One path cannot be valid on two machines, but the send already fans out per pane, so the path is swapped per pane too (`useImageAttach.resolveTextForTargets`). The image goes up once when pasted (to the focused pane's host, so the user sees a real path) and again per additional host at send time, cached so a host is never hit twice. If one host's upload fails, only that pane keeps the unusable path — the rest still send. When there is no attachment the send stays **fully synchronous**; adding an `await` to the common path costs perceptible latency.
 
+## Telegram notifications (buttons that work on iOS)
+
+Web push delivers notifications, but **`showNotification` action buttons are not rendered on iOS** — on an iPhone the "계속" button simply does not appear. So Telegram carries the notifications that need buttons; web push stays for plain ones.
+
+Flow: watcher sees `working → idle` → Telegram message with an inline keyboard → tap on the lock screen → long-poll worker receives `callback_query` → text injected into that pane.
+
+- Config: `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` in `.env` (**env wins over the DB**, so secrets need not live in SQLite). The settings UI is the fallback path and vault-encrypts what it stores; it never returns the token.
+- **Long-poll, not webhook.** A webhook would mean opening another inbound door; `getUpdates` only makes outbound connections. Note that Telegram delivers each update **once** — if another integration polls the same bot, the two steal updates from each other.
+- Two security boundaries: only callbacks from the configured `chat_id` are honored, and the callback carries an **action id only** — `push_actions.PUSH_ACTIONS` maps it to text. There is deliberately no path for arbitrary strings to reach a terminal.
+- `callback_data` is capped at 64 bytes by Telegram; the format is `action:sessionId`.
+- Discovering the chat ID needs the user to message the bot first — bots cannot start conversations. `discover_chats()` reads updates **without an offset** so it does not consume them; the normal poll filters to `callback_query`, which is why a plain message is invisible to it.
+- This sends data outward: pane titles (your task text) pass through Telegram's servers.
+
 ## Architecture rules (do not break)
 
 - **No LLM API calls from the backend.** The backend routes terminal stdin/stdout only. Vendor-neutral.

@@ -146,11 +146,14 @@ async def lifespan(_app: FastAPI):
         logger.warning("VAPID 키 준비 실패 — 웹 푸시가 비활성화됩니다: %s", e)
     ssh_pool.start_janitor(idle_timeout=300)
     agent_status_watcher.start()
+    # 텔레그램 버튼 콜백 롱폴링 — 설정이 없으면 스스로 쉰다(연결 시도 안 함).
+    telegram_worker.start()
     try:
         yield
     finally:
         logger.info("=== Terminal List 종료 ===")
         await agent_status_watcher.stop()
+        await telegram_worker.stop()
         ssh_pool.stop_janitor()
         try:
             await ssh_pool.close_all()
@@ -265,6 +268,7 @@ from tickets import (  # noqa: E402
 # SSE 브로드캐스트 레지스트리 — sse_broadcast.py
 # 에이전트 상태 워처 배선 — agent_status_service.py
 from agent_status_service import agent_status_watcher  # noqa: E402
+from telegram_service import telegram_worker  # noqa: E402
 
 
 
