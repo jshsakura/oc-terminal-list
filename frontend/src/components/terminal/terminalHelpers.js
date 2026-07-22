@@ -65,10 +65,13 @@ export const compressPastedImage = async (blob) => {
 // 붙여넣기/첨부 이미지를 서버에 업로드. timeout 으로 무한 대기 차단(대기중 터미널은 공유 HTTP 연결이
 // wedge 돼 fetch 가 영영 매달리던 게 "업로드 중" 무한 회전의 원인 — 새로고침하면 됐던 이유).
 // timeout/네트워크 오류 시 한 번은 새 연결로 재시도(=새로고침 효과).
-const postPasteImage = async (sendBlob, attempt = 0) => {
+const postPasteImage = async (sendBlob, hostId, attempt = 0) => {
   const fd = new FormData();
   const ext = (sendBlob.type.split('/')[1] || 'png').replace('+xml', '');
   fd.append('file', sendBlob, `pasted.${ext}`);
+  // 원격 pane 이면 그 호스트에 올려야 한다 — 로컬에 올리면 상대 셸이 못 여는
+  // 경로가 삽입되고, 붙여넣기는 성공한 것처럼 보인다.
+  if (hostId) fd.append('host_id', hostId);
   try {
     return await fetch('/api/terminal/paste-image', {
       method: 'POST',
@@ -77,27 +80,28 @@ const postPasteImage = async (sendBlob, attempt = 0) => {
       signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(20000) : undefined,
     });
   } catch (err) {
-    if (attempt < 1) return postPasteImage(sendBlob, attempt + 1);
+    if (attempt < 1) return postPasteImage(sendBlob, hostId, attempt + 1);
     throw err;
   }
 };
 
-// 이미지 blob → 압축 → 업로드 → 저장 경로 메타({ path, rel_path, size }). 실패 시 throw.
+// 이미지 blob → 압축 → 업로드 → 저장 경로 메타({ path, size, scope }). 실패 시 throw.
 // PTY 는 텍스트만 전달하므로 이미지 자체는 못 보냄 → 경로로 우회.
 // 데스크톱(Terminal 클립보드 붙여넣기)·모바일(빠른입력창 첨부/붙여넣기) 공용.
-export const uploadImageAndGetPath = async (blob) => {
+export const uploadImageAndGetPath = async (blob, hostId = null) => {
   const sendBlob = await compressPastedImage(blob);
-  const res = await postPasteImage(sendBlob);
+  const res = await postPasteImage(sendBlob, hostId);
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.detail || `${res.status}`);
   return data;
 };
 
-// 임의 파일(사진 포함) 업로드 → 저장 경로 메타({ path, rel_path, size }). 압축 없음.
+// 임의 파일(사진 포함) 업로드 → 저장 경로 메타({ path, size, scope }). 압축 없음.
 // 우클릭 "파일 보내기" 에서 사용. 큰 파일 대비 timeout 60s + 1회 재시도.
-const postPasteFile = async (file, attempt = 0) => {
+const postPasteFile = async (file, hostId, attempt = 0) => {
   const fd = new FormData();
   fd.append('file', file, file.name || 'file');
+  if (hostId) fd.append('host_id', hostId);
   try {
     return await fetch('/api/terminal/paste-file', {
       method: 'POST',
@@ -106,13 +110,13 @@ const postPasteFile = async (file, attempt = 0) => {
       signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(60000) : undefined,
     });
   } catch (err) {
-    if (attempt < 1) return postPasteFile(file, attempt + 1);
+    if (attempt < 1) return postPasteFile(file, hostId, attempt + 1);
     throw err;
   }
 };
 
-export const uploadFileAndGetPath = async (file) => {
-  const res = await postPasteFile(file);
+export const uploadFileAndGetPath = async (file, hostId = null) => {
+  const res = await postPasteFile(file, hostId);
   const data = await res.json().catch(() => null);
   if (!res.ok) throw new Error(data?.detail || `${res.status}`);
   return data;

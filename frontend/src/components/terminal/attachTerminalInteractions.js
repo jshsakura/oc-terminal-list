@@ -37,6 +37,8 @@ const attachTerminalInteractions = ({
   getSocket,
   isMobile,
   sessionId,
+  // 원격 pane 이면 붙여넣은 이미지가 **그 호스트에** 올라가야 한다.
+  hostId = null,
   logger,
   setContextMenu,
   setCopyFlash,
@@ -115,7 +117,7 @@ const attachTerminalInteractions = ({
   const uploadPastedImage = async (blob) => {
     setImagePasteState('uploading');
     try {
-      const data = await uploadImageAndGetPath(blob);
+      const data = await uploadImageAndGetPath(blob, hostId);
       term.paste(`${data.path} `); // 뒤 공백 — 이어서 타이핑할 수 있게
       setImagePasteState('done');
       later(() => setImagePasteState(null), IMAGE_TOAST_DONE_MS);

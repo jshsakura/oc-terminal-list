@@ -198,7 +198,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     if (!file) return;
     setImagePasteState('uploading');
     try {
-      const data = await uploadFileAndGetPath(file);
+      const data = await uploadFileAndGetPath(file, hostId);
       xtermRef.current?.paste(`${data.path} `); // 경로 뒤 공백 — 이어서 명령 타이핑
       setImagePasteState('done');
       setTimeout(() => setImagePasteState(null), 1200);
@@ -633,6 +633,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       getSocket: () => wsRef.current,
       isMobile: () => isMobileRef.current,
       sessionId,
+      hostId,
       logger,
       setContextMenu,
       setCopyFlash,
@@ -644,6 +645,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       term,
       container,
       logger,
+      hostId,
       setDropActive,
       setImagePasteState,
     });

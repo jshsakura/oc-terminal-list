@@ -47,6 +47,8 @@ const attachTerminalFileDrop = ({
   term,
   container,
   logger,
+  // 원격 pane 이면 드롭한 파일도 그 호스트로.
+  hostId = null,
   setDropActive,
   setImagePasteState,
 }) => {
@@ -71,7 +73,7 @@ const attachTerminalFileDrop = ({
     // 순차 업로드 — 공유 터널을 동시에 때리면 WS 까지 같이 느려진다(기존 업로드도 같은 방식).
     for (const file of files) {
       try {
-        const data = await uploadFileAndGetPath(file);
+        const data = await uploadFileAndGetPath(file, hostId);
         paths.push(quotePathForShell(data.path));
       } catch (err) {
         failed += 1;

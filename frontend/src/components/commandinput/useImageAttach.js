@@ -10,8 +10,13 @@ const ERROR_HOLD_MS = 2500;
  * 커서 위치에 끼워넣는 식으로 우회한다.
  *
  * @param insertAtCursor 업로드된 경로를 입력창 커서 위치에 삽입하는 콜백
+ * @param hostId 지금 보고 있는 pane 의 호스트(로컬이면 null). 원격이면 이미지가 그
+ *   호스트에 올라가야 상대 셸이 열 수 있다.
+ *
+ * ⚠️ 여러 pane 에 동시 전송할 때는 **보고 있는 pane 의 호스트** 기준으로 한 번만
+ * 올린다. 경로 하나가 서로 다른 머신에서 동시에 유효할 수는 없다.
  */
-const useImageAttach = (insertAtCursor) => {
+const useImageAttach = (insertAtCursor, hostId = null) => {
   // 숨김 file input — 📎 버튼이 click() 으로 연다(모바일은 카메라/갤러리 선택지 노출).
   const fileInputRef = useRef(null);
   // null | 'uploading' | 'error'. 모바일은 hover title 이 없어 인라인 표시가 필요하다.
@@ -24,7 +29,7 @@ const useImageAttach = (insertAtCursor) => {
     if (uploadState === 'uploading') return; // 중복 업로드 차단
     setUploadState('uploading');
     try {
-      const data = await uploadImageAndGetPath(blob);
+      const data = await uploadImageAndGetPath(blob, hostId);
       insertAtCursor(`${data.path} `);
       setUploadState(null);
     } catch (err) {

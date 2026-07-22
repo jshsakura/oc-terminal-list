@@ -55,7 +55,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
     });
   };
 
-  const image = useImageAttach(insertAtCursor);
+  // 첨부 이미지는 지금 보고 있는 pane 의 호스트로 올린다.
+  const focusedHostId = panes.find((p) => p.key === terminalKey)?.hostId || null;
+  const image = useImageAttach(insertAtCursor, focusedHostId);
 
   // 모달이 닫히면 이력 패널도 접어, 다음에 열 때 항상 입력창부터 보이게 한다.
   useEffect(() => {

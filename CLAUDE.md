@@ -106,7 +106,7 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 
 ## Notable backend endpoints (added 2026-07)
 
-- `POST /api/terminal/paste-file` — upload any file (right-click "Send file"), stored under `WORKSPACE_ROOT/.pasted/`, returns its path (image-only sibling: `/api/terminal/paste-image`).
+- `POST /api/terminal/paste-file` / `paste-image` — upload a file for the terminal, returns the path to insert. Takes an optional `host_id` form field; see the rule below.
 - `GET /api/files/grep?q=` — ripgrep workspace content search (file explorer content-search toggle).
 - Session REST endpoints (`/api/sessions/{id}/...`) enforce ownership via `_assert_session_owner` (same check as the WS route).
 
@@ -220,6 +220,16 @@ Traps:
 - `ITL_TOKEN` is readable via `tmux show-environment`, so it is a **scoped** JWT (`scope: "itl"`). `verify_auth_token` rejects any token carrying a scope claim — a leaked ITL_TOKEN cannot read files or host secrets.
 - Remote panes are addressable but **not yet sendable** (needs an SSH round trip); `send` reports them as `skipped: remote-unsupported` rather than silently dropping.
 - Status groups only cover local sessions — the backend watcher cannot see remote tmux (see the agent-status section).
+
+## Terminal paste destination (the rule)
+
+**Pasted files land in `/tmp/iterminallist-paste/` on the machine the pane lives on.** Local pane → this server's `/tmp`; remote pane → that host's `/tmp`, over SFTP.
+
+The host half matters: a remote pane given a *local* path gets a file its shell cannot open, and the paste looks like it succeeded. The frontend threads the pane's `hostId` through all four upload call sites (clipboard paste, right-click send-file, drag-drop, mobile quick-input attach).
+
+Why `/tmp` and not the workspace: `WORKSPACE_ROOT` is the jupyterLab/notebooks directory in this deployment. Pasted images accumulating there pollute the notebook folder, and inside a git repo they get swept into commits. `/tmp` is writable on any POSIX host, needs no cleanup (cleared on reboot), and can never touch project files. Trade-off accepted: pastes do not survive a reboot and are not browsable in the file explorer. Override the local dir with `PASTE_DIR` if a deployment needs it.
+
+Filenames are `<timestamp>-<random>-<safe-basename>`. **The timestamp alone is not enough** — dropping several files at once puts them in the same millisecond and the earlier upload is silently overwritten. The multi-target quick-input uploads once, to the *focused* pane's host; one path cannot be valid on two machines.
 
 ## Architecture rules (do not break)
 

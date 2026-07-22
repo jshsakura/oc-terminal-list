@@ -1291,6 +1291,7 @@ function App() {
                 const colorIdx = host?.color_index ?? (isLocal ? settings.localColorIndex : null) ?? tb.color_index ?? 0;
                 return {
                   key: p.sessionId || p.id,
+                  hostId: p.hostId || null,   // 이미지 첨부를 그 호스트로 올리기 위해
                   color: color.dotPalette[colorIdx % color.dotPalette.length],
                   host: host?.name || (isLocal ? ((settings.localName || '').trim() || (t('thisMachine') || 'Local')) : '—'),
                   tabId: tb.id,

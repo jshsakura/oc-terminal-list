@@ -242,7 +242,8 @@ describe('Terminal 사용자 액션', () => {
       const file = new File(['x'], 'a.bin', { type: 'application/octet-stream' });
       await act(async () => { fireEvent.change(fileInput, { target: { files: [file] } }); });
 
-      await waitFor(() => expect(uploadFileAndGetPath).toHaveBeenCalledWith(file));
+      // hostId 가 함께 넘어가야 원격 pane 에서도 그 호스트에 올라간다.
+      await waitFor(() => expect(uploadFileAndGetPath).toHaveBeenCalledWith(file, undefined));
       await waitFor(() => expect(harness.term.pasted).toContain('/ws/.pasted/f.bin '));
     });
   });

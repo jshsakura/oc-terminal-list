@@ -8,16 +8,20 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import shutil
-import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File as FastAPIFile, Form, HTTPException, Query, UploadFile
 
 from _deps import WORKSPACE_ROOT, validate_path, verify_auth_token
 from file_index import _invalidate_file_index
-from host_common import MAX_UPLOAD_FILES, MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_TOTAL_BYTES
+from host_common import (
+    MAX_UPLOAD_FILES, MAX_UPLOAD_FILE_BYTES, MAX_UPLOAD_TOTAL_BYTES,
+    resolve_host_with_secrets,
+)
+from host_manager import HostConnectError
+import host_sftp
+from paste_targets import local_paste_dir, remote_paste_dir, safe_basename, stamped_name
 from file_models import FileCreateRequest, FileMoveRequest, FileWriteRequest
 
 logger = logging.getLogger(__name__)
@@ -134,80 +138,27 @@ _PASTE_IMAGE_EXT = {
 }
 
 
-@router.post("/api/terminal/paste-image")
-async def paste_image(
-    file: UploadFile = FastAPIFile(...),
-    username: str = Depends(verify_auth_token),
-):
-    content_type = (file.content_type or "").lower()
-    if content_type not in _PASTE_IMAGE_EXT:
-        raise HTTPException(status_code=400, detail="이미지 파일만 붙여넣을 수 있습니다")
+# ---------------------- 터미널 붙여넣기 ----------------------
+#
+# PTY 는 텍스트만 나른다. 그래서 이미지/파일은 "올리고 경로만 삽입" 으로 우회한다.
+# ⚠️ 파일은 **그 pane 이 사는 머신에** 있어야 한다 — 원격 pane 인데 로컬에 올리면
+# 붙여넣기는 성공한 것처럼 보이는데 상대 셸은 그 경로를 열 수 없다.
 
-    workspace = Path(WORKSPACE_ROOT)
-    dest_dir = workspace / ".pasted"
+
+async def _save_local_paste(file: UploadFile, filename: str) -> dict:
+    dest_dir = local_paste_dir()
     dest_dir.mkdir(parents=True, exist_ok=True)
-
-    ext = _PASTE_IMAGE_EXT[content_type]
-    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
-    target = dest_dir / f"pasted-{stamp}.{ext}"
-
-    file_size = 0
-    chunk_size = 1024 * 1024  # 1 MB
+    target = dest_dir / filename
     tmp = target.with_suffix(target.suffix + ".part")
+    size = 0
     try:
         with open(tmp, "wb") as out:
             while True:
-                chunk = await file.read(chunk_size)
+                chunk = await file.read(1024 * 1024)
                 if not chunk:
                     break
-                file_size += len(chunk)
-                if file_size > MAX_UPLOAD_FILE_BYTES:
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"이미지가 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)",
-                    )
-                out.write(chunk)
-        os.replace(tmp, target)
-    except Exception:
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
-        raise
-
-    _invalidate_file_index()
-    rel = str(target.relative_to(workspace)).replace("\\", "/")
-    return {"status": "uploaded", "path": str(target), "rel_path": rel, "size": file_size}
-
-
-@router.post("/api/terminal/paste-file")
-async def paste_file(
-    file: UploadFile = FastAPIFile(...),
-    username: str = Depends(verify_auth_token),
-):
-    """터미널로 보낼 임의 파일 업로드 — .pasted/ 에 저장하고 경로를 돌려준다.
-    이미지 전용 paste-image 의 일반판(사진/파일 아무거나 골라 보내기). 파일명은 basename+화이트리스트로
-    정규화해 경로 traversal 을 원천 차단하고, 타임스탬프 prefix 로 충돌을 막는다."""
-    workspace = Path(WORKSPACE_ROOT)
-    dest_dir = workspace / ".pasted"
-    dest_dir.mkdir(parents=True, exist_ok=True)
-
-    raw_name = os.path.basename(file.filename or "file").strip() or "file"
-    safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", raw_name)[:80].lstrip(".") or "file"
-    stamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{int(time.time() * 1000) % 1000:03d}"
-    target = dest_dir / f"{stamp}-{safe_name}"
-
-    file_size = 0
-    chunk_size = 1024 * 1024  # 1 MB
-    tmp = target.with_suffix(target.suffix + ".part")
-    try:
-        with open(tmp, "wb") as out:
-            while True:
-                chunk = await file.read(chunk_size)
-                if not chunk:
-                    break
-                file_size += len(chunk)
-                if file_size > MAX_UPLOAD_FILE_BYTES:
+                size += len(chunk)
+                if size > MAX_UPLOAD_FILE_BYTES:
                     raise HTTPException(
                         status_code=413,
                         detail=f"파일이 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)",
@@ -220,10 +171,66 @@ async def paste_file(
         except OSError:
             pass
         raise
+    return {"status": "uploaded", "path": str(target), "size": size, "scope": "local"}
 
+
+async def _save_remote_paste(host_id: str, username: str, file: UploadFile, filename: str) -> dict:
+    """원격 호스트의 temp 폴더로 SFTP 업로드."""
+    content = await file.read(MAX_UPLOAD_FILE_BYTES + 1)
+    if len(content) > MAX_UPLOAD_FILE_BYTES:
+        raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)")
+
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    remote_dir = remote_paste_dir()
+    remote_path = f"{remote_dir}/{filename}"
+    try:
+        # 폴더가 이미 있으면 실패하는 구현이 있어 무시하고 진행한다 — 실제 판정은 write 가 한다.
+        try:
+            await host_sftp.create_item(host, secrets, remote_dir, "directory")
+        except Exception:
+            pass
+        await host_sftp.write_file(host, secrets, remote_path, content)
+    except HostConnectError as e:
+        logger.warning("paste SFTP failed (%s, %s): %s", host_id, remote_path, e)
+        raise HTTPException(status_code=502, detail=f"원격 호스트에 올리지 못했습니다: {e}")
+    except Exception as e:
+        logger.warning("paste SFTP failed (%s, %s): %s", host_id, remote_path, e)
+        raise HTTPException(status_code=500, detail="원격 업로드 실패")
+    return {"status": "uploaded", "path": remote_path, "size": len(content),
+            "scope": "host", "host_id": host_id}
+
+
+@router.post("/api/terminal/paste-image")
+async def paste_image(
+    file: UploadFile = FastAPIFile(...),
+    host_id: str = Form(""),
+    username: str = Depends(verify_auth_token),
+):
+    """클립보드 이미지 → 붙여넣을 pane 이 사는 머신의 temp 폴더."""
+    content_type = (file.content_type or "").lower()
+    if content_type not in _PASTE_IMAGE_EXT:
+        raise HTTPException(status_code=400, detail="이미지 파일만 붙여넣을 수 있습니다")
+    filename = stamped_name(f"pasted.{_PASTE_IMAGE_EXT[content_type]}")
+    if host_id:
+        return await _save_remote_paste(host_id, username, file, filename)
+    result = await _save_local_paste(file, filename)
     _invalidate_file_index()
-    rel = str(target.relative_to(workspace)).replace("\\", "/")
-    return {"status": "uploaded", "path": str(target), "rel_path": rel, "size": file_size}
+    return result
+
+
+@router.post("/api/terminal/paste-file")
+async def paste_file(
+    file: UploadFile = FastAPIFile(...),
+    host_id: str = Form(""),
+    username: str = Depends(verify_auth_token),
+):
+    """우클릭 "파일 보내기" / 드래그&드롭 — 이미지 전용 paste-image 의 일반판."""
+    filename = stamped_name(safe_basename(file.filename))
+    if host_id:
+        return await _save_remote_paste(host_id, username, file, filename)
+    result = await _save_local_paste(file, filename)
+    _invalidate_file_index()
+    return result
 
 
 @router.delete("/api/files")

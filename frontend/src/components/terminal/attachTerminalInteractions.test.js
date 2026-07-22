@@ -356,9 +356,29 @@ describe('attachTerminalInteractions', () => {
       const blob = new File(['x'], 'a.png', { type: 'image/png' });
       container.dispatchEvent(pasteEvent([{ kind: 'file', type: 'image/png', getAsFile: () => blob }]));
 
-      await vi.waitFor(() => expect(uploadImageAndGetPath).toHaveBeenCalledWith(blob));
+      // 두 번째 인자는 pane 의 hostId — 원격이면 그 호스트로 올려야 한다.
+      await vi.waitFor(() => expect(uploadImageAndGetPath).toHaveBeenCalledWith(blob, null));
       await vi.waitFor(() => expect(term.paste).toHaveBeenCalledWith('/ws/.pasted/a.webp '));
       expect(setImagePasteState).toHaveBeenCalledWith('uploading');
+    });
+
+    it('원격 pane 이면 그 호스트로 올린다 — 로컬에 올리면 상대가 못 여는 경로가 된다', async () => {
+      handle.detach();
+      handle = attachTerminalInteractions({
+        term, container, overlay, input,
+        getSocket: () => socket,
+        isMobile: () => false,
+        sessionId: 's1',
+        hostId: 'host-abc',
+        logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        setContextMenu, setCopyFlash, setImagePasteState,
+      });
+      uploadImageAndGetPath.mockResolvedValue({ path: '/tmp/iterminallist-paste/x.webp' });
+      const blob = new Blob(['x'], { type: 'image/png' });
+      container.dispatchEvent(Object.assign(new Event('paste', { bubbles: true }), {
+        clipboardData: { items: [{ kind: 'file', type: 'image/png', getAsFile: () => blob }], getData: () => '' },
+      }));
+      await vi.waitFor(() => expect(uploadImageAndGetPath).toHaveBeenCalledWith(blob, 'host-abc'));
     });
 
     it('업로드가 실패하면 경로를 붙이지 않고 실패를 알린다', async () => {
