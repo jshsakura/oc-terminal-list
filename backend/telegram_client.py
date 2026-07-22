@@ -55,6 +55,10 @@ async def get_me(token: str) -> dict:
     return await _call(token, "getMe")
 
 
+# 텔레그램 메시지 본문 상한. 넘기면 400 으로 통째로 실패하므로 보내기 전에 자른다.
+MAX_MESSAGE_CHARS = 4000
+
+
 async def send_message(token: str, chat_id: str, text: str,
                        buttons: list[dict] | None = None) -> dict:
     """메시지 + 인라인 키보드.
@@ -62,6 +66,12 @@ async def send_message(token: str, chat_id: str, text: str,
     `buttons` 는 [{"text": 라벨, "callback_data": 값}] — callback_data 는 텔레그램이
     **64바이트로 제한**하므로 짧게 유지해야 한다(액션명 + 세션ID 로 충분).
     """
+    # ⚠️ parse_mode 를 **켜지 마라.** 본문에는 터미널 화면 발췌가 들어가는데, 거기엔
+    # `*` `_` `[` 백틱 같은 문자가 아무렇게나 섞여 있다. 마크다운으로 해석시키면
+    # "unclosed entity" 로 전송이 통째로 실패하거나 글자가 사라진다.
+    # 평문이면 텔레그램이 그대로 전달한다(한글·이모지·박스문자 포함, 실측 확인).
+    if len(text) > MAX_MESSAGE_CHARS:
+        text = text[:MAX_MESSAGE_CHARS - 1] + "…"
     payload: dict = {"chat_id": chat_id, "text": text, "disable_notification": False}
     if buttons:
         payload["reply_markup"] = {"inline_keyboard": [[

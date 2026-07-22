@@ -170,3 +170,41 @@ async def test_notification_carries_a_screen_excerpt():
     assert "1.2 · web" in body        # 어느 터미널인지
     assert "47 passing" in body       # 무슨 일이 있었는지
     assert "─────" not in body        # UI 장식은 빼고
+
+
+# ---------------------- 본문 안 깨지기 ----------------------
+
+@pytest.mark.anyio
+async def test_send_message_never_sets_parse_mode():
+    """본문에 터미널 발췌가 들어간다 — `*` `_` 백틱이 아무렇게나 섞여 있다.
+
+    parse_mode 를 켜면 "unclosed entity" 로 전송이 통째로 실패하거나 글자가 사라진다.
+    평문이라야 한글·이모지·박스문자가 그대로 간다.
+    """
+    import telegram_client as tgc
+    captured = {}
+
+    async def fake_call(token, method, payload=None, timeout=15.0):
+        captured.update(payload or {})
+        return {}
+
+    with patch.object(tgc, "_call", fake_call):
+        await tgc.send_message("t", "1", "*별* _밑줄_ `백틱` [링크](x)")
+    assert "parse_mode" not in captured
+    assert captured["text"] == "*별* _밑줄_ `백틱` [링크](x)"
+
+
+@pytest.mark.anyio
+async def test_send_message_truncates_over_the_limit():
+    """4096 을 넘기면 텔레그램이 400 으로 거절해 알림이 통째로 사라진다."""
+    import telegram_client as tgc
+    captured = {}
+
+    async def fake_call(token, method, payload=None, timeout=15.0):
+        captured.update(payload or {})
+        return {}
+
+    with patch.object(tgc, "_call", fake_call):
+        await tgc.send_message("t", "1", "가" * 9000)
+    assert len(captured["text"]) <= tgc.MAX_MESSAGE_CHARS
+    assert captured["text"].endswith("…")

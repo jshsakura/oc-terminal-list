@@ -248,7 +248,8 @@ Flow: watcher sees `working → idle` → Telegram message with an inline keyboa
 - Two security boundaries: only callbacks from the configured `chat_id` are honored, and the callback carries an **action id only** — `push_actions.PUSH_ACTIONS` maps it to text. There is deliberately no path for arbitrary strings to reach a terminal.
 - `callback_data` is capped at 64 bytes by Telegram; the format is `action:sessionId`.
 - Discovering the chat ID needs the user to message the bot first — bots cannot start conversations. `discover_chats()` reads updates **without an offset** so it does not consume them; the normal poll filters to `callback_query`, which is why a plain message is invisible to it.
-- This sends data outward: pane titles (your task text) pass through Telegram's servers.
+- **Never set `parse_mode`.** The body carries a raw terminal excerpt, so `*`, `_`, backticks and brackets appear arbitrarily; asking Telegram to parse it as Markdown fails the whole send with "unclosed entity" or silently drops characters. Plain text passes Korean, emoji and box-drawing through untouched (verified against the live API). Bodies are truncated to 4000 chars — over the limit Telegram rejects with 400 and the notification vanishes entirely.
+- This sends data outward: pane titles (your task text) and a few lines of screen content pass through Telegram's servers.
 
 ## Architecture rules (do not break)
 
