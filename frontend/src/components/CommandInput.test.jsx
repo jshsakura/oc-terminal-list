@@ -99,7 +99,7 @@ describe('CommandInput positioning', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /Send/i }));
     // 2번째 인자 = 보낼 pane key 배열. 선택 없으면 활성 pane(terminalKey) 하나.
-    expect(onSend).toHaveBeenCalledWith('ls', ['sess1']);
+    expect(onSend).toHaveBeenCalledWith('ls', ['sess1'], {});
     expect(setCommand).toHaveBeenCalledWith('');
     expect(onClose).toHaveBeenCalled();
   });
@@ -226,7 +226,7 @@ describe('CommandInput send targets', () => {
     const { onSend } = renderWith();
     expect(screen.getByRole('button', { name: 'sendTarget' })).toHaveTextContent('sendToActive');
     send();
-    expect(onSend).toHaveBeenCalledWith('ls', ['a']);
+    expect(onSend).toHaveBeenCalledWith('ls', ['a'], {});
   });
 
   it('sends to exactly the panes picked in the popup', () => {
@@ -234,7 +234,7 @@ describe('CommandInput send targets', () => {
     openPopup();
     fireEvent.click(screen.getByText('gamma'));
     send();
-    expect(onSend).toHaveBeenCalledWith('ls', ['c']);
+    expect(onSend).toHaveBeenCalledWith('ls', ['c'], {});
   });
 
   it('selects every pane of a tab from its group header', () => {
@@ -243,7 +243,7 @@ describe('CommandInput send targets', () => {
     fireEvent.click(screen.getByText('Tab One'));
     send();
     // Tab One 의 pane 두 개만 — 다른 탭(t2)은 건드리지 않는다.
-    expect(onSend).toHaveBeenCalledWith('ls', ['a', 'b']);
+    expect(onSend).toHaveBeenCalledWith('ls', ['a', 'b'], {});
   });
 
   it('toggles all panes across tabs and back to the active-pane fallback', () => {
@@ -256,7 +256,7 @@ describe('CommandInput send targets', () => {
     // 다시 누르면 전체 해제 → 선택 없음 → 활성 pane 폴백으로 되돌아간다.
     fireEvent.click(screen.getByText('deselectAll'));
     send();
-    expect(onSend).toHaveBeenCalledWith('ls', ['a']);
+    expect(onSend).toHaveBeenCalledWith('ls', ['a'], {});
   });
 
   it('drops panes that disappear (split closed) from the selection', () => {
@@ -273,7 +273,7 @@ describe('CommandInput send targets', () => {
     // 'c' 를 고른 상태에서 그 pane 이 사라지면, 죽은 key 로 보내지 않고 활성 pane 으로 폴백.
     rerender(<CommandInput {...props} panes={PANES.slice(0, 2)} />);
     fireEvent.click(screen.getByRole('button', { name: /^Send$/i }));
-    expect(onSend).toHaveBeenCalledWith('ls', ['a']);
+    expect(onSend).toHaveBeenCalledWith('ls', ['a'], {});
   });
 });
 

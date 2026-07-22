@@ -229,7 +229,9 @@ The host half matters: a remote pane given a *local* path gets a file its shell 
 
 Why `/tmp` and not the workspace: `WORKSPACE_ROOT` is the jupyterLab/notebooks directory in this deployment. Pasted images accumulating there pollute the notebook folder, and inside a git repo they get swept into commits. `/tmp` is writable on any POSIX host, needs no cleanup (cleared on reboot), and can never touch project files. Trade-off accepted: pastes do not survive a reboot and are not browsable in the file explorer. Override the local dir with `PASTE_DIR` if a deployment needs it.
 
-Filenames are `<timestamp>-<random>-<safe-basename>`. **The timestamp alone is not enough** — dropping several files at once puts them in the same millisecond and the earlier upload is silently overwritten. The multi-target quick-input uploads once, to the *focused* pane's host; one path cannot be valid on two machines.
+Filenames are `<timestamp>-<random>-<safe-basename>`. **The timestamp alone is not enough** — dropping several files at once puts them in the same millisecond and the earlier upload is silently overwritten.
+
+**Broadcasting an attachment to panes on different hosts uploads to each host.** One path cannot be valid on two machines, but the send already fans out per pane, so the path is swapped per pane too (`useImageAttach.resolveTextForTargets`). The image goes up once when pasted (to the focused pane's host, so the user sees a real path) and again per additional host at send time, cached so a host is never hit twice. If one host's upload fails, only that pane keeps the unusable path — the rest still send. When there is no attachment the send stays **fully synchronous**; adding an `await` to the common path costs perceptible latency.
 
 ## Architecture rules (do not break)
 

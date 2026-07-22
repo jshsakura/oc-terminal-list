@@ -112,7 +112,20 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
 
   const handleSend = () => {
     if (!command.trim()) return;
-    onSend(command, targets.resolveTargets());
+    const keys = targets.resolveTargets();
+
+    // 첨부가 없으면 **동기로** 보낸다. 흔한 경우에 await 를 끼우면 클릭과 전송
+    // 사이에 마이크로태스크가 들어가 체감 지연이 생긴다.
+    if (!image.hasAttachments()) {
+      onSend(command, keys, {});
+    } else {
+      // 첨부가 있으면 대상 호스트마다 올린 뒤 그 pane 에 갈 텍스트의 경로만 갈아끼운다.
+      // 입력창은 먼저 닫고 전송은 업로드가 끝나는 대로 — 사용자를 붙잡아두지 않는다.
+      image.resolveTextForTargets(command, keys, panes).then((textByKey) => {
+        onSend(command, keys, textByKey);
+        image.clearAttachments();
+      });
+    }
     setCommand('');
     onClose();
   };

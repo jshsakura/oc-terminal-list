@@ -1260,13 +1260,15 @@ function App() {
           <CommandInput
             isOpen={commandInputOpen}
             onClose={() => setCommandInputOpen(false)}
-            onSend={(cmd, targetKeys) => {
+            onSend={(cmd, targetKeys, textByKey = {}) => {
               // targetKeys = 보낼 pane key 배열. 비면 활성 pane 으로 폴백.
+              // textByKey = pane 별로 다른 텍스트(첨부 이미지 경로가 호스트마다 다르다).
               const keys = (Array.isArray(targetKeys) && targetKeys.length) ? targetKeys : [terminalKey];
               keys.filter(Boolean).forEach((k) => {
                 const terminal = window.terminalSessions?.[k];
-                if (!terminal?.sendCommand?.(cmd)) {
-                  terminal?.sendData?.(cmd);
+                const text = textByKey[k] ?? cmd;
+                if (!terminal?.sendCommand?.(text)) {
+                  terminal?.sendData?.(text);
                   window.setTimeout(() => terminal?.sendData?.('\r'), 40);
                   window.setTimeout(() => terminal?.sendData?.('\r'), 180);
                 }
