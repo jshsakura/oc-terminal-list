@@ -11,6 +11,7 @@ import time
 
 from agent_status_watcher import AgentStatusWatcher, PANE_FORMAT
 from push_service import build_agent_done_payload, send_to_user
+from session_label import describe_session, format_label
 from telegram_service import notify_agent_done
 from sqlite_storage import storage
 from sse_broadcast import _broadcast_sse, _tab_state_sse_queues
@@ -60,18 +61,28 @@ async def _notify_completions(changes: list[dict]) -> None:
             continue
         if not _should_notify(session_id, now):
             continue
+        owner = None
         try:
             owner = await storage.get_session_owner(session_id)
-            if not owner:
-                continue   # 원격 pane 등 우리가 소유자를 모르는 세션
-            await send_to_user(owner, build_agent_done_payload(change))
+        except Exception as e:
+            logger.debug("session owner lookup failed (%s): %s", session_id, e)
+        if not owner:
+            continue   # 원격 pane 등 우리가 소유자를 모르는 세션
+
+        # "작업 완료" 만으로는 어느 터미널인지 알 수 없다 — 주소(탭.pane)를 붙인다.
+        label = format_label(await describe_session(owner, session_id), session_id)
+
+        try:
+            await send_to_user(owner, build_agent_done_payload(change, label))
         except Exception as e:
             # 알림 실패가 상태 브로드캐스트를 막으면 안 된다.
             logger.debug("push notify failed (%s): %s", session_id, e)
         try:
             # 텔레그램은 **버튼이 붙는** 알림을 맡는다. 웹푸시 액션 버튼은 iOS 에서
             # 렌더되지 않아 아이폰에선 "계속"이 아예 안 보인다.
-            await notify_agent_done(session_id, change.get("command", ""), change.get("title", ""))
+            await notify_agent_done(
+                session_id, change.get("command", ""), change.get("title", ""), label,
+            )
         except Exception as e:
             logger.debug("telegram notify failed (%s): %s", session_id, e)
 

@@ -85,7 +85,7 @@ async def send_to_user(username: str, payload: dict) -> int:
     return sent
 
 
-def build_agent_done_payload(change: dict) -> dict:
+def build_agent_done_payload(change: dict, label: str = "") -> dict:
     """워처의 완료 이벤트 → 알림 페이로드.
 
     `tag` 는 세션ID 다 — 같은 pane 의 알림이 쌓이지 않고 최신 것으로 교체된다.
@@ -93,10 +93,12 @@ def build_agent_done_payload(change: dict) -> dict:
     """
     title = (change.get("title") or "").strip()
     command = (change.get("command") or "agent").strip()
+    # 제목에 주소(탭.pane)를 넣는다 — 알림 목록에서 어느 터미널인지 바로 보여야 한다.
+    heading = f"{label} · {command}" if label else f"{command} 작업 완료"
     return {
         "type": "agentDone",
         "sessionId": change.get("sessionId"),
-        "title": f"{command} 작업 완료",
+        "title": heading,
         "body": title[:MAX_BODY_CHARS] if title else "에이전트가 대기 상태로 돌아왔습니다.",
         "tag": f"agent-done-{change.get('sessionId')}",
     }

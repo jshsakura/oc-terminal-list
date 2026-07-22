@@ -13,13 +13,13 @@ from push_actions import action_buttons, resolve_action
 
 
 def test_callback_data_roundtrip():
-    data = svc.build_callback_data("continue", "sess-abc")
-    assert svc.parse_callback_data(data) == ("continue", "sess-abc")
+    data = svc.build_callback_data("a0", "sess-abc")
+    assert svc.parse_callback_data(data) == ("a0", "sess-abc")
 
 
 def test_callback_data_stays_within_telegram_limit():
     """텔레그램은 callback_data 를 64바이트로 자른다 — 넘으면 조용히 깨진다."""
-    data = svc.build_callback_data("continue", "0" * 36)   # UUID 길이
+    data = svc.build_callback_data("a0", "0" * 36)   # UUID 길이
     assert len(data.encode()) <= 64
 
 
@@ -29,9 +29,40 @@ def test_malformed_callback_data_rejected(bad):
 
 
 def test_action_whitelist():
-    assert resolve_action("continue") == ("계속", True)
+    assert resolve_action("a0") == ("계속", True)   # 기본 액션
     assert resolve_action("rm -rf /") is None      # 임의 텍스트 주입 통로가 없다
+    assert resolve_action("nope") is None
     assert resolve_action("") is None
+
+
+def test_actions_are_configurable(monkeypatch):
+    """'왜 하필 계속이냐' 에 대한 답 — TELEGRAM_ACTIONS 로 사용자가 정한다."""
+    import importlib
+    import push_actions
+    monkeypatch.setenv("TELEGRAM_ACTIONS", "계속,테스트 돌려,커밋해")
+    importlib.reload(push_actions)
+    try:
+        assert [b["title"] for b in push_actions.action_buttons()] == ["계속", "테스트 돌려", "커밋해"]
+        assert push_actions.resolve_action("a1") == ("테스트 돌려", True)
+    finally:
+        monkeypatch.delenv("TELEGRAM_ACTIONS", raising=False)
+        importlib.reload(push_actions)
+
+
+def test_callback_data_fits_with_long_action_text(monkeypatch):
+    """긴 버튼 문구를 넣어도 callback_data 가 64바이트를 넘으면 안 된다 —
+    id 를 a0/a1 로 짧게 두는 이유다."""
+    import importlib
+    import push_actions
+    monkeypatch.setenv("TELEGRAM_ACTIONS", "아주 긴 한글 버튼 문구를 넣어도 괜찮아야 한다")
+    importlib.reload(push_actions)
+    try:
+        key = list(push_actions.PUSH_ACTIONS)[0]
+        data = svc.build_callback_data(key, "0" * 36)
+        assert len(data.encode()) <= 64
+    finally:
+        monkeypatch.delenv("TELEGRAM_ACTIONS", raising=False)
+        importlib.reload(push_actions)
 
 
 def test_action_buttons_are_capped():
@@ -42,7 +73,7 @@ def test_action_buttons_are_capped():
 
 # ---------------------- 콜백 처리 ----------------------
 
-def _callback(chat_id="100", data="continue:sess-1"):
+def _callback(chat_id="100", data="a0:sess-1"):
     return {"id": "cb1", "data": data, "message": {"chat": {"id": chat_id}}}
 
 

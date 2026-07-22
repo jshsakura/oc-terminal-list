@@ -84,13 +84,20 @@ def parse_callback_data(data: str) -> tuple[str, str] | None:
     return action, session_id
 
 
-async def notify_agent_done(session_id: str, command: str, title: str) -> bool:
-    """완료 알림 + [계속] 버튼. 설정이 없으면 조용히 no-op."""
+async def notify_agent_done(session_id: str, command: str, title: str,
+                            label: str = "") -> bool:
+    """완료 알림 + 액션 버튼. 설정이 없으면 조용히 no-op.
+
+    `label` 은 "1.3 · frontend" 같은 주소다. 터미널을 여러 개 굴리면 이게 없는
+    알림은 쓸모가 없다 — 어느 놈이 끝났는지 알 수가 없기 때문이다.
+    """
     config = await get_config()
     if not (config["token"] and config["chat_id"]):
         return False
-    label = command or "agent"
-    body = f"✅ {label} 작업 완료"
+    head = f"✅ {label}" if label else "✅ 작업 완료"
+    if command:
+        head += f" · {command}"
+    body = head
     if title:
         body += f"\n{title}"
     buttons = [

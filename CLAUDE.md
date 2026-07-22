@@ -240,6 +240,8 @@ Web push delivers notifications, but **`showNotification` action buttons are not
 Flow: watcher sees `working → idle` → Telegram message with an inline keyboard → tap on the lock screen → long-poll worker receives `callback_query` → text injected into that pane.
 
 - Config: `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` in `.env` (**env wins over the DB**, so secrets need not live in SQLite). The settings UI is the fallback path and vault-encrypts what it stores; it never returns the token.
+- Buttons come from `TELEGRAM_ACTIONS` (comma-separated, e.g. `계속,테스트 돌려`); pressing one types that text into the pane and presses Enter. Default is a single `계속`. Action ids stay short (`a0`, `a1`) precisely so a long button label cannot push the session ID past Telegram's 64-byte `callback_data` limit.
+- **Every notification carries the pane address** (`1.3 · frontend`, from `session_label.py`, same numbering as `itl list`). Without it a "작업 완료" ping is useless once more than one terminal is running.
 - **Long-poll, not webhook.** A webhook would mean opening another inbound door; `getUpdates` only makes outbound connections. Note that Telegram delivers each update **once** — if another integration polls the same bot, the two steal updates from each other.
 - Two security boundaries: only callbacks from the configured `chat_id` are honored, and the callback carries an **action id only** — `push_actions.PUSH_ACTIONS` maps it to text. There is deliberately no path for arbitrary strings to reach a terminal.
 - `callback_data` is capped at 64 bytes by Telegram; the format is `action:sessionId`.
