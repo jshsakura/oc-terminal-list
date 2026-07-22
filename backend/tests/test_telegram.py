@@ -133,3 +133,40 @@ async def test_notify_sends_buttons_bound_to_the_session():
     buttons = send.await_args.args[3]
     assert buttons and all(b["callback_data"].endswith(":s1") for b in buttons)
     assert "폴더 로더 수정" in send.await_args.args[2]
+
+
+# ---------------------- 중단(제어키) 액션 ----------------------
+
+@pytest.mark.anyio
+async def test_stop_action_sends_a_control_key_not_text():
+    """'C-c' 를 리터럴로 보내면 터미널에 'C-c' 라는 **글자**가 찍힌다.
+
+    "계속" 만 있고 중단이 없으면 알림이 감시 도구가 못 된다 — 폭주하는 에이전트를
+    폰에서 멈출 수 있어야 한다.
+    """
+    with patch.object(svc.tmux_manager, "session_exists", AsyncMock(return_value=True)), \
+         patch.object(svc.tmux_manager, "send_key", AsyncMock()) as send_key, \
+         patch.object(svc.tmux_manager, "send_keys", AsyncMock()) as send_text, \
+         patch.object(svc.tg, "answer_callback", AsyncMock()):
+        await svc._handle_callback("tok", "100", _callback(data="stop:sess-1"))
+    send_key.assert_awaited_once_with("sess-1", "C-c")
+    send_text.assert_not_awaited()
+
+
+def test_stop_button_is_always_offered():
+    labels = [b["title"] for b in action_buttons()]
+    assert "중단" in labels
+
+
+@pytest.mark.anyio
+async def test_notification_carries_a_screen_excerpt():
+    """"작업 완료" 만으로는 확인할지 말지 판단할 수 없다."""
+    screen = "빌드 성공: 47 passing\n─────\n❯\n"
+    with patch.object(svc, "get_config", AsyncMock(return_value={"token": "t", "chat_id": "100"})), \
+         patch.object(svc.tmux_manager, "_run", AsyncMock(return_value=(0, screen, ""))), \
+         patch.object(svc.tg, "send_message", AsyncMock()) as send:
+        await svc.notify_agent_done("s1", "claude", "빌드", "1.2 · web")
+    body = send.await_args.args[2]
+    assert "1.2 · web" in body        # 어느 터미널인지
+    assert "47 passing" in body       # 무슨 일이 있었는지
+    assert "─────" not in body        # UI 장식은 빼고

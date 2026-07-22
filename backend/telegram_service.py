@@ -24,7 +24,8 @@ import logging
 import os
 
 import telegram_client as tg
-from push_actions import action_buttons, resolve_action
+from pane_excerpt import extract_excerpt
+from push_actions import action_buttons, resolve_action, resolve_key_action
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
 from vault import decrypt_str, encrypt_str
@@ -100,6 +101,18 @@ async def notify_agent_done(session_id: str, command: str, title: str,
     body = head
     if title:
         body += f"\n{title}"
+
+    # 화면 마지막 몇 줄 — 이게 없으면 확인할지 말지 판단할 근거가 없다.
+    # LLM 은 쓰지 않는다. capture-pane 출력에서 UI 장식만 걷어낸다.
+    try:
+        _rc, pane_text, _err = await tmux_manager._run(
+            "capture-pane", "-p", "-t", f"={session_id}:", check=False,
+        )
+        excerpt = extract_excerpt(pane_text)
+        if excerpt:
+            body += f"\n\n{excerpt}"
+    except Exception as e:
+        logger.debug("발췌 실패 (%s): %s", session_id, e)
     buttons = [
         {"text": b["title"], "callback_data": build_callback_data(b["action"], session_id)}
         for b in action_buttons()
@@ -127,18 +140,24 @@ async def _handle_callback(token: str, allowed_chat: str, callback: dict) -> Non
         return
     action, session_id = parsed
 
+    key = resolve_key_action(action)
     resolved = resolve_action(action)
-    if not resolved:
+    if not key and not resolved:
         await tg.answer_callback(token, callback_id, "알 수 없는 동작")
         return
-    text, submit = resolved
 
     if not await tmux_manager.session_exists(session_id):
         await tg.answer_callback(token, callback_id, "터미널이 이미 닫혔습니다")
         return
 
-    await tmux_manager.send_keys(session_id, text, submit=submit)
-    await tg.answer_callback(token, callback_id, f"보냈습니다: {text}")
+    if key:
+        # 제어키는 리터럴로 보내면 "C-c" 라는 글자가 입력된다 — 별도 경로.
+        await tmux_manager.send_key(session_id, key)
+        await tg.answer_callback(token, callback_id, "중단 신호를 보냈습니다")
+    else:
+        text, submit = resolved
+        await tmux_manager.send_keys(session_id, text, submit=submit)
+        await tg.answer_callback(token, callback_id, f"보냈습니다: {text}")
     logger.info("텔레그램 액션 '%s' → session=%s", action, session_id)
 
 

@@ -315,6 +315,16 @@ class TmuxManager:
         if submit:
             await self._run("send-keys", "-t", target, "Enter", check=False)
 
+    async def send_key(self, session_id: str, key: str) -> None:
+        """tmux 키 이름을 그대로 보낸다 (`C-c`, `Escape`, `Enter` …).
+
+        send_keys 의 `-l`(리터럴)과 반대다 — 리터럴로 보내면 "C-c" 라는 **글자**가
+        입력된다. 중단 같은 제어키는 반드시 이 경로여야 한다.
+        """
+        if not key:
+            return
+        await self._run("send-keys", "-t", f"={session_id}:", key, check=False)
+
     async def list_panes_raw(self, pane_format: str) -> str:
         """`list-panes -a -F <format>` 원시 출력.
 

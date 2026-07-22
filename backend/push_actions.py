@@ -28,6 +28,14 @@ def _load_action_texts() -> list[str]:
     return texts or DEFAULT_ACTION_TEXTS
 
 
+# 제어키 액션 — 텍스트가 아니라 키를 보낸다.
+# "계속" 만 있고 중단이 없으면 반쪽이다. 폭주하는 에이전트를 폰에서 멈출 수 있어야
+# 알림이 감시 도구가 된다.
+KEY_ACTIONS: dict[str, tuple[str, str]] = {
+    "stop": ("중단", "C-c"),
+}
+
+
 def _build_actions() -> dict[str, tuple[str, str, bool]]:
     """action id → (버튼 라벨, 보낼 텍스트, 엔터까지 칠지).
 
@@ -46,8 +54,11 @@ MAX_ACTION_BUTTONS = 3
 
 
 def action_buttons() -> list[dict]:
-    """알림에 붙일 버튼 정의. 텔레그램과 서비스워커가 그대로 그린다."""
-    items = list(PUSH_ACTIONS.items())
+    """알림에 붙일 버튼 정의. 텔레그램과 서비스워커가 그대로 그린다.
+
+    중단은 항상 마지막에 붙는다 — 어떤 상황에서도 멈출 수 있어야 한다.
+    """
+    items = list(PUSH_ACTIONS.items()) + [(k, (label, key, False)) for k, (label, key) in KEY_ACTIONS.items()]
     if len(items) > MAX_ACTION_BUTTONS:
         dropped = [label for _k, (label, _t, _s) in items[MAX_ACTION_BUTTONS:]]
         logger.warning("알림 버튼이 %d개 상한을 넘어 제외됨: %s", MAX_ACTION_BUTTONS, dropped)
@@ -58,9 +69,15 @@ def action_buttons() -> list[dict]:
 
 
 def resolve_action(action: str) -> tuple[str, bool] | None:
-    """action id → (텍스트, submit). 모르는 id 는 None — 조용히 무시하지 말고 거절한다."""
+    """텍스트 액션 → (텍스트, submit). 키 액션이거나 모르는 id 면 None."""
     entry = PUSH_ACTIONS.get(action)
     if not entry:
         return None
     _label, text, submit = entry
     return text, submit
+
+
+def resolve_key_action(action: str) -> str | None:
+    """키 액션 → tmux 키 이름 (`C-c` 등). 아니면 None."""
+    entry = KEY_ACTIONS.get(action)
+    return entry[1] if entry else None
