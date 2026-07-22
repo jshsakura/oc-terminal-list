@@ -24,10 +24,19 @@ async def describe_session(username: str, session_id: str) -> dict:
         state = await storage.get_tab_state(username) or {}
         for target in build_targets(state.get("tabs") or []):
             if target["sessionId"] == session_id or target["tmuxSession"] == session_id:
+                host = ""
+                if target["hostId"]:
+                    try:
+                        record = await storage.get_host(target["hostId"], username)
+                        host = (record or {}).get("name") or ""
+                    except Exception:
+                        host = ""
                 return {
                     "addr": target["addr"],
                     "tabName": target["tabName"],
                     "paneIndex": target["paneIndex"],
+                    "cwd": target["cwd"],
+                    "host": host,
                 }
     except Exception as e:
         logger.debug("세션 라벨 조회 실패 (%s): %s", session_id, e)

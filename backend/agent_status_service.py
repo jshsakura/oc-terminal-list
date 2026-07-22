@@ -11,6 +11,7 @@ import time
 
 from agent_status_watcher import AgentStatusWatcher, PANE_FORMAT
 from push_service import build_agent_done_payload, send_to_user
+from notify_message import summarize_others
 from session_label import describe_session, format_label
 from telegram_service import notify_agent_done
 from sqlite_storage import storage
@@ -25,6 +26,9 @@ logger = logging.getLogger(__name__)
 DONE_NOTIFY_COOLDOWN_SECONDS = 60
 
 _last_notified_at: dict[str, float] = {}
+# 세션이 working 으로 들어간 시각 — 완료 알림의 "얼마나 걸렸나" 는 여기서 나온다.
+# 워처가 이미 전이를 보고 있으므로 추가 비용이 없다.
+_working_since: dict[str, float] = {}
 
 
 def _should_notify(session_id: str, now: float) -> bool:
@@ -37,6 +41,20 @@ def _should_notify(session_id: str, now: float) -> bool:
 
 def _forget_session(session_id: str) -> None:
     _last_notified_at.pop(session_id, None)
+    _working_since.pop(session_id, None)
+
+
+def _track_working(change: dict, now: float) -> float | None:
+    """working 진입을 기록하고, 끝났으면 소요시간을 돌려준다."""
+    session_id = change.get("sessionId")
+    status, previous = change.get("status"), change.get("previousStatus")
+    if status == "working" and previous != "working":
+        _working_since[session_id] = now
+        return None
+    if previous == "working" and status != "working":
+        started = _working_since.pop(session_id, None)
+        return now - started if started else None
+    return None
 
 
 async def _list_agent_panes() -> str:
@@ -57,6 +75,8 @@ async def _notify_completions(changes: list[dict]) -> None:
         if change.get("gone"):
             _forget_session(session_id)
             continue
+        # 완료가 아니어도 working 진입은 기록해 둬야 나중에 소요시간을 낼 수 있다.
+        elapsed = _track_working(change, now)
         if not change.get("completed"):
             continue
         if not _should_notify(session_id, now):
@@ -70,7 +90,8 @@ async def _notify_completions(changes: list[dict]) -> None:
             continue   # 원격 pane 등 우리가 소유자를 모르는 세션
 
         # "작업 완료" 만으로는 어느 터미널인지 알 수 없다 — 주소(탭.pane)를 붙인다.
-        label = format_label(await describe_session(owner, session_id), session_id)
+        described = await describe_session(owner, session_id)
+        label = format_label(described, session_id)
 
         try:
             await send_to_user(owner, build_agent_done_payload(change, label))
@@ -82,6 +103,9 @@ async def _notify_completions(changes: list[dict]) -> None:
             # 렌더되지 않아 아이폰에선 "계속"이 아예 안 보인다.
             await notify_agent_done(
                 session_id, change.get("command", ""), change.get("title", ""), label,
+                duration_seconds=elapsed,
+                described=described,
+                others=summarize_others(agent_status_watcher.snapshot(), session_id),
             )
         except Exception as e:
             logger.debug("telegram notify failed (%s): %s", session_id, e)

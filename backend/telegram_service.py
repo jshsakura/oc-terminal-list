@@ -24,6 +24,7 @@ import logging
 import os
 
 import telegram_client as tg
+from notify_message import build_done_message
 from pane_excerpt import extract_excerpt
 from push_actions import action_buttons, resolve_action, resolve_key_action
 from sqlite_storage import storage
@@ -86,33 +87,33 @@ def parse_callback_data(data: str) -> tuple[str, str] | None:
 
 
 async def notify_agent_done(session_id: str, command: str, title: str,
-                            label: str = "") -> bool:
+                            label: str = "", *, duration_seconds: float | None = None,
+                            described: dict | None = None, others: str = "") -> bool:
     """완료 알림 + 액션 버튼. 설정이 없으면 조용히 no-op.
 
-    `label` 은 "1.3 · frontend" 같은 주소다. 터미널을 여러 개 굴리면 이게 없는
-    알림은 쓸모가 없다 — 어느 놈이 끝났는지 알 수가 없기 때문이다.
+    있는 정보는 다 담는다 — 주소·에이전트·소요시간·호스트·경로·작업내용·화면 발췌·
+    다른 터미널 상태. 알림 하나로 "지금 봐야 하나" 를 판단할 수 있어야 한다.
     """
     config = await get_config()
     if not (config["token"] and config["chat_id"]):
         return False
-    head = f"✅ {label}" if label else "✅ 작업 완료"
-    if command:
-        head += f" · {command}"
-    body = head
-    if title:
-        body += f"\n{title}"
 
-    # 화면 마지막 몇 줄 — 이게 없으면 확인할지 말지 판단할 근거가 없다.
-    # LLM 은 쓰지 않는다. capture-pane 출력에서 UI 장식만 걷어낸다.
+    described = described or {}
+    # 화면 마지막 몇 줄 — LLM 없이 capture-pane 출력에서 UI 장식만 걷어낸다.
+    excerpt = ""
     try:
         _rc, pane_text, _err = await tmux_manager._run(
             "capture-pane", "-p", "-t", f"={session_id}:", check=False,
         )
         excerpt = extract_excerpt(pane_text)
-        if excerpt:
-            body += f"\n\n{excerpt}"
     except Exception as e:
         logger.debug("발췌 실패 (%s): %s", session_id, e)
+
+    body = build_done_message(
+        label=label, command=command, title=title,
+        cwd=described.get("cwd", ""), host=described.get("host", ""),
+        duration_seconds=duration_seconds, excerpt=excerpt, others=others,
+    )
     buttons = [
         {"text": b["title"], "callback_data": build_callback_data(b["action"], session_id)}
         for b in action_buttons()
