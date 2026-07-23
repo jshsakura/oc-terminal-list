@@ -73,10 +73,21 @@ def build_done_message(*, label: str = "", command: str = "", title: str = "",
     값이 없는 줄은 넣지 않고, **이미 보여준 값도 다시 넣지 않는다** — 같은 문자열이
     두 번 찍히면 정보량은 그대로인데 훑을 줄만 늘어난다.
 
-    ※ "열기" 딥링크는 본문에 넣지 않는다 — 텔레그램 푸시 미리보기는 첫 줄을 쓰는데,
-    거기에 URL 이 끼면 알림 제목이 링크로 뭉개진다. 링크는 인라인 **버튼**으로 나간다.
+    **첫 줄(헤더)에 작업 제목을 앞세운다.** 텔레그램 푸시 미리보기는 메시지 첫 줄을
+    쓰므로, 주소만 있으면(예: "1.1 · web") 알림만 봐선 무슨 일이 끝났는지 알 수 없다.
+    제목을 맨 앞에 두고 주소를 뒤에 붙여 "메모리 분석 — 1.1 · web" 처럼 만든다.
+    제목이 헤더로 올라갔으니 아래에 따로 💬 줄을 두지 않는다.
+
+    ※ "열기" 딥링크는 본문에 넣지 않는다 — 첫 줄에 URL 이 끼면 미리보기가 링크로
+    뭉개진다. 링크는 인라인 **버튼**으로 나간다.
     """
-    lines = [f"✅ {label}" if label else "✅ 작업 완료"]
+    title_text = (title or "").strip()
+    label_text = (label or "").strip()
+    if title_text and label_text:
+        head = f"{title_text} — {label_text}"
+    else:
+        head = title_text or label_text or "작업 완료"
+    lines = [f"✅ {head}"]
 
     meta = []
     if command:
@@ -91,9 +102,6 @@ def build_done_message(*, label: str = "", command: str = "", title: str = "",
 
     if cwd and not _is_redundant(cwd, label):
         lines.append(f"📁 {cwd}")
-    # 작업 내용이 발췌 안에 이미 보이면 굳이 한 번 더 쓰지 않는다.
-    if title and title.strip() not in (excerpt or ""):
-        lines.append(f"💬 {title}")
     if excerpt:
         lines.append("")
         lines.append(excerpt)

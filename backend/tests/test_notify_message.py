@@ -79,7 +79,14 @@ def test_cwd_tail_matching_the_tab_name_is_dropped():
     assert "📁" not in out
 
 
-def test_title_is_not_repeated_when_the_excerpt_already_shows_it():
-    out = build_done_message(title="빌드 완료", excerpt="빌드 완료\n47 passing")
-    assert out.count("빌드 완료") == 1
-    assert "💬" not in out
+def test_title_leads_the_header_for_the_push_preview():
+    """작업 제목이 첫 줄 맨 앞에 와야 알림 미리보기만 보고도 뭘 했는지 안다."""
+    out = build_done_message(title="빌드 완료", label="1.1 · web", excerpt="47 passing")
+    first = out.splitlines()[0]
+    assert first == "✅ 빌드 완료 — 1.1 · web"
+    assert "💬" not in out          # 제목은 헤더로 올라갔으니 별도 줄 없음
+
+
+def test_header_falls_back_to_label_or_address_without_title():
+    assert build_done_message(label="1.1 · web").splitlines()[0] == "✅ 1.1 · web"
+    assert build_done_message(title="배포").splitlines()[0] == "✅ 배포"
