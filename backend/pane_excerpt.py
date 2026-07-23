@@ -28,14 +28,26 @@ _DIVIDER_MIN_LEN = 8
 # 프롬프트/입력 placeholder — 뒤쪽 UI 영역에서 이걸로 시작하는 줄은 내용이 아니다.
 _PROMPT_PREFIX = re.compile(r"^\s*[❯›>$#%➜⏵]")
 
-# 상태바 — 모양만으로는 안 잡히는 것들에 대한 보조 그물.
+# 상태바 / 진행 표시 — 결정과 무관한 잡음. 모양으로 잡는다.
 _STATUSLINE = re.compile(
     r"[█▓▒░]{2,}"                     # 진행 막대
     r"|bypass permissions"
     r"|shift\+tab to cycle"
-    r"|\b\d+%\s*\(\d",                 # "4% (22:30)" 형태
+    r"|\b\d+%\s*\(\d"                  # "4% (22:30)" 형태
+    r"|[↓↑]\s*\d"                      # "↓ 187" 토큰 카운트 — 서브에이전트 상태줄
+    r"|\b\d+m\s*\d+s\b"                # "15m 33s" 소요시간 — 진행 중 표시
+    r"|esc to interrupt",
     re.IGNORECASE,
 )
+
+# URL 이 들어간 줄. 텔레그램이 큰 프리뷰 카드를 붙이는 원인이고(그건 별도로 껐지만)
+# 대개 홍보 배너·문서 링크라 "결정이 필요한 내용" 이 아니다.
+_URL = re.compile(r"https?://\S+")
+# 홍보 배너의 "자세히" 유도 꼬리 — 다음 줄에 URL 이 오는 패턴.
+_PROMO_TAIL = re.compile(r"\b(learn more|자세히|사용해보|use it)\b", re.IGNORECASE)
+# 에이전트 트리 노드 — 글리프 하나 + 짧은 단어(● main, ○ general-purpose).
+# 서브에이전트 오케스트레이션 표시라 결정과 무관하다.
+_TREE_NODE = re.compile(r"^[●○◍◉⎿⏺·▪▸►]\s*\S{1,24}$")
 
 # 화면 하단 UI 블록으로 볼 최대 높이(입력 상자 + 상태바). 이보다 위의 구분선은
 # 본문 속 구분선으로 본다 — 전부 잘라내면 정작 내용이 사라진다.
@@ -65,6 +77,14 @@ def _is_chrome(line: str) -> bool:
         return True
     # 전부 선문자면 길이와 무관하게 장식이다(짧은 구분선도 있다).
     if all(ch in _BOX_CHARS for ch in stripped):
+        return True
+    # URL 을 뺀 나머지가 얼마 안 되면 그 줄은 사실상 링크(홍보/문서) — 결정과 무관.
+    without_url = _URL.sub("", stripped).strip()
+    if _URL.search(stripped) and len(without_url) < 12:
+        return True
+    if _PROMO_TAIL.search(stripped) and len(stripped) < 60:
+        return True
+    if _TREE_NODE.match(stripped):
         return True
     return bool(_is_divider(line) or _PROMPT_PREFIX.match(line) or _STATUSLINE.search(line))
 

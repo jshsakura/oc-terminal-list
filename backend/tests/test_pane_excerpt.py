@@ -65,3 +65,31 @@ def test_interleaved_dividers_are_removed():
     out = extract_excerpt("결과 A\n────────\n결과 B\n────────\n결과 C\n")
     assert "────" not in out
     assert "결과 C" in out
+
+
+# 실제 알림에서 잡음으로 들어온 화면 — 서브에이전트 상태줄·홍보 배너·URL.
+NOISY_CLAUDE = """작업을 마쳤습니다. 결과를 확인해주세요.
+and select Fable to use it. Learn more:
+https://support.claude.com/en/articles/15424964-claude-fable-5-promotional-access
+● main
+● general-purpose  Grepping run.sh log for FAIL/error lines   15m 33s · ↓ 187
+─────────────────────────────────────────
+❯
+─────────────────────────────────────────
+"""
+
+
+def test_drops_urls_subagent_status_and_promo():
+    out = extract_excerpt(NOISY_CLAUDE)
+    assert "결과를 확인해주세요" in out          # 진짜 내용은 남는다
+    assert "http" not in out                     # URL 줄 제거(프리뷰 카드 원인)
+    assert "↓ 187" not in out                    # 서브에이전트 토큰 카운트
+    assert "15m 33s" not in out                  # 진행 중 소요시간
+    assert "Learn more" not in out               # URL 딸린 홍보 배너
+
+
+def test_token_delta_lines_are_status():
+    from pane_excerpt import _is_chrome
+    assert _is_chrome("● general-purpose  검색 중  2m 10s · ↓ 42")
+    assert _is_chrome("생성 중… ↑ 1.2k")
+    assert not _is_chrome("파일 3개를 187번 줄에서 고쳤습니다")   # 숫자만으론 잡음 아님

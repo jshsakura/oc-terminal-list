@@ -72,7 +72,11 @@ async def send_message(token: str, chat_id: str, text: str,
     # 평문이면 텔레그램이 그대로 전달한다(한글·이모지·박스문자 포함, 실측 확인).
     if len(text) > MAX_MESSAGE_CHARS:
         text = text[:MAX_MESSAGE_CHARS - 1] + "…"
-    payload: dict = {"chat_id": chat_id, "text": text, "disable_notification": False}
+    payload: dict = {
+        "chat_id": chat_id, "text": text, "disable_notification": False,
+        # 발췌에 URL 이 섞이면 텔레그램이 큰 링크 프리뷰 카드를 붙인다 — 순수 노이즈다.
+        "disable_web_page_preview": True,
+    }
     if buttons:
         payload["reply_markup"] = {"inline_keyboard": [[
             {"text": b["text"], "callback_data": b["callback_data"]} for b in buttons
