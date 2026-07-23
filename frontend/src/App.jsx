@@ -465,6 +465,14 @@ function App() {
   // ── per-pane 테마 오버라이드 ─────────────────────────────────────────────
   // 우측 사이드바의 테마 픽커는 "이 터미널만" 적용 — 전역 settings.theme 은 안 건드림.
   // themeId === null 이면 override 해제 (전역 테마로 복귀).
+  // 분할 크기를 탭에 저장 — 이걸 안 하면 splitSizes 가 PaneGrid 로컬 state 라
+  // 새로고침 때 통째로 날아간다(설정한 창 크기가 균등분할로 되돌아감).
+  // 탭 필드에 넣으면 기존 tab-state 영속(debounced PUT + SSE)을 그대로 탄다.
+  const handlePersistSplitSizes = useCallback((tabId, splitSizes) => {
+    if (!tabId) return;
+    setTabs((prev) => prev.map((tb) => (tb.id === tabId ? { ...tb, splitSizes } : tb)));
+  }, []);
+
   const handlePaneThemeChange = useCallback((paneId, themeId) => {
     if (!paneId) return;
     setTabs((prev) => {
@@ -1050,6 +1058,7 @@ function App() {
                     onDropTabToPane={(sourceTabId, targetTabId, targetPaneId, dir) => dropTabToSplitPane(sourceTabId, targetTabId, targetPaneId, dir)}
                     onPaneCwdChange={handlePaneCwdChange}
                     onPaneThemeChange={handlePaneThemeChange}
+                    onPersistSplitSizes={handlePersistSplitSizes}
                     onRenamePane={handleRenamePane}
                     layoutSignal={tabLayoutSignal}
                     reloadSignal={isThisActive ? terminalReloadSignal : 0}

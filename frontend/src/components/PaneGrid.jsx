@@ -50,6 +50,7 @@ const PaneGrid = ({
   onPaneDragToSplit,   // (tabId, srcPaneId, destPaneId, dir) → pane 드래그로 분할 배치
   onPaneCwdChange,     // (paneId, workspaceRel, isLocal) → 부모로 cwd 변화 보고 (자동 탭명 등)
   onPaneThemeChange,   // (paneId, themeId|null) → pane 별 테마 오버라이드 설정/해제
+  onPersistSplitSizes, // (tabId, splitSizes) → 분할 크기를 탭에 저장(새로고침 복원)
   onSplitPane,         // (tabId, paneId, dir) → pane rail 의 split 버튼에서 호출
   layoutSignal,
   settings,
@@ -98,8 +99,13 @@ const PaneGrid = ({
   const panes = tab?.panes || [];
 
   // ── split-pane resize state ─────────────────────────────────────────────────
-  // Key: `${tab.id}:${path}` so sizes persist when switching tabs within same PaneGrid instance.
-  const [splitSizes, setSplitSizes] = useState({});
+  // Key: `${tab.id}:${path}`. 탭 전환 사이에서는 이 컴포넌트가 유지돼 살아남고,
+  // **새로고침 후에는 탭에 저장된 값으로 복원**된다(useState 초기값을 탭에서 읽는다).
+  const [splitSizes, setSplitSizes] = useState(() => tab?.splitSizes || {});
+  const splitSizesRef = useRef(splitSizes);
+  useEffect(() => { splitSizesRef.current = splitSizes; }, [splitSizes]);
+  const onPersistSplitSizesRef = useRef(onPersistSplitSizes);
+  useEffect(() => { onPersistSplitSizesRef.current = onPersistSplitSizes; }, [onPersistSplitSizes]);
   const resizeDragRef = useRef(null); // tracks active resize drag
   const [resizeSignal, setResizeSignal] = useState(0); // bumped on drag-end → triggers single fit
 
@@ -253,6 +259,8 @@ const PaneGrid = ({
       return next;
     });
     setResizeSignal((s) => s + 1);
+    // 균등화도 저장 — 안 그러면 새로고침 때 옛 수동 크기로 되돌아간다.
+    setTimeout(() => onPersistSplitSizesRef.current?.(tab?.id, splitSizesRef.current), 0);
   }, [tab.id]);
 
   useEffect(() => {
@@ -301,6 +309,11 @@ const PaneGrid = ({
         // Bump signal → layoutSignal change → each Terminal does a single clean fit
         setResizeSignal((s) => s + 1);
         requestAnimationFrame(() => window.dispatchEvent(new CustomEvent('iterm:fit-terminals')));
+        // 드래그가 끝난 지금의 크기를 탭에 저장 — 새로고침해도 살아남게.
+        // 드래그 중(onMove)이 아니라 여기서 한 번만 저장해 PUT 폭주를 피한다.
+        if (onPersistSplitSizesRef.current) {
+          onPersistSplitSizesRef.current(tab?.id, splitSizesRef.current);
+        }
       }
       resizeDragRef.current = null;
     };
