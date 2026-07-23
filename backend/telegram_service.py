@@ -43,9 +43,6 @@ CONFIG_CHAT_KEY = "telegram_chat_id"
 # env `PUBLIC_BASE_URL` 이 있으면 그걸, 없으면 설정 화면에서 저장한 값을 쓴다.
 CONFIG_BASE_URL_KEY = "public_base_url"
 
-# "열기" 버튼 라벨. 콜백이 아니라 URL 버튼이라 눌러도 봇으로 되돌아오지 않고
-# 브라우저만 연다.
-OPEN_BUTTON_LABEL = "🔗 열기"
 # 딥링크 쿼리 파라미터 — 프론트가 이 값(세션 ID)으로 탭·pane 을 찾아 활성화한다.
 OPEN_QUERY_PARAM = "open"
 
@@ -144,20 +141,17 @@ async def notify_agent_done(session_id: str, command: str, title: str,
             logger.debug("발췌 실패 (%s): %s", session_id, e)
             excerpt = ""
 
+    # "열기" 딥링크 — 기준 주소가 설정돼 있을 때만. 본문에 평문 링크로 들어간다
+    # (인라인 URL 버튼은 텔레그램 내부 브라우저로 열려 로그인 세션이 없다).
+    open_url = build_open_url(config["base_url"], session_id) if config.get("base_url") else ""
+
     body = build_done_message(
         label=label, command=command, title=title,
         cwd=described.get("cwd", ""), host=described.get("host", ""),
         duration_seconds=duration_seconds, excerpt=excerpt, others=others,
+        open_url=open_url,
     )
-    buttons = []
-    # "열기" 링크 버튼 — 기준 주소가 설정돼 있을 때만. 없으면 조용히 생략한다
-    # (깨진 링크보다 버튼이 없는 편이 낫다).
-    if config.get("base_url"):
-        buttons.append({
-            "text": OPEN_BUTTON_LABEL,
-            "url": build_open_url(config["base_url"], session_id),
-        })
-    buttons += [
+    buttons = [
         {"text": b["title"], "callback_data": build_callback_data(b["action"], session_id)}
         for b in action_buttons()
     ]

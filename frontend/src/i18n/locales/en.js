@@ -657,7 +657,7 @@ export const en = {
     telegramChatId: 'Telegram chat ID',
     telegramChatIdHint: 'Chat that receives notifications. Only buttons pressed in this chat are honored. Pane titles (your task text) pass through Telegram servers.',
     telegramBaseUrl: 'App URL (Open link)',
-    telegramBaseUrlHint: 'Public address the notification "Open" button points to (e.g. https://term.example.com). Leave blank to omit the button.',
+    telegramBaseUrlHint: 'Public address the notification "Open" link points to (e.g. https://term.example.com). Leave blank to omit the link.',
     telegramBaseUrlEnv: 'Set via the PUBLIC_BASE_URL environment variable — not editable here.',
     telegramTest: 'Send test',
     telegramSave: 'Save connection',

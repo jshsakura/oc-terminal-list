@@ -37,6 +37,20 @@ def test_falls_back_when_nothing_is_known():
     assert build_done_message() == "✅ 작업 완료"
 
 
+def test_open_link_sits_right_under_the_label():
+    """딥링크는 라벨 바로 아래 평문 링크 — 발췌가 길어 잘려도 살아남게."""
+    url = "https://term.example.com/?open=s1"
+    out = build_done_message(label="1.1 · web", excerpt="긴 발췌", open_url=url)
+    lines = out.splitlines()
+    assert lines[0].startswith("✅")
+    assert lines[1] == f"🔗 {url}"
+
+
+def test_no_open_link_when_absent():
+    out = build_done_message(label="1.1")
+    assert "🔗" not in out
+
+
 def test_summarize_others_excludes_self():
     snap = {
         "me": {"status": "idle"},

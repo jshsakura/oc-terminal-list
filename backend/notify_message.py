@@ -67,13 +67,20 @@ def _is_redundant(value: str, *already_shown: str) -> bool:
 
 def build_done_message(*, label: str = "", command: str = "", title: str = "",
                        cwd: str = "", host: str = "", duration_seconds: float | None = None,
-                       excerpt: str = "", others: str = "") -> str:
+                       excerpt: str = "", others: str = "", open_url: str = "") -> str:
     """완료 알림 본문.
 
     값이 없는 줄은 넣지 않고, **이미 보여준 값도 다시 넣지 않는다** — 같은 문자열이
     두 번 찍히면 정보량은 그대로인데 훑을 줄만 늘어난다.
+
+    `open_url` 은 웹 앱에서 그 pane 을 바로 여는 딥링크다. **버튼이 아니라 평문 링크**
+    로 라벨 바로 아래에 넣는다 — 인라인 URL 버튼은 텔레그램 내부 WebView 로 열려
+    로그인 세션이 없는 브라우저에 붙기 때문. 평문 링크는 길게 눌러 복사하거나 외부
+    브라우저로 열 수 있다. 라벨 바로 아래라 발췌가 길어 본문이 잘려도 살아남는다.
     """
     lines = [f"✅ {label}" if label else "✅ 작업 완료"]
+    if open_url:
+        lines.append(f"🔗 {open_url}")
 
     meta = []
     if command:

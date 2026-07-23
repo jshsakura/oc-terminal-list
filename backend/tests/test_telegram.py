@@ -144,48 +144,32 @@ def test_build_open_url_encodes_session():
 
 
 @pytest.mark.anyio
-async def test_notify_adds_open_button_when_base_url_set():
-    """기준 주소가 있으면 세션을 가리키는 URL 버튼이 맨 앞에 붙는다."""
+async def test_notify_puts_open_link_in_body_not_button():
+    """기준 주소가 있으면 딥링크가 **본문 평문 링크**로 들어간다(버튼 아님).
+
+    인라인 URL 버튼은 텔레그램 내부 WebView 로 열려 로그인 세션이 없다 —
+    본문 링크라야 길게 눌러 외부 브라우저로 열거나 복사할 수 있다.
+    """
     with patch.object(svc, "get_config", AsyncMock(return_value={
             "token": "t", "chat_id": "100", "base_url": "https://term.example.com"})), \
          patch.object(svc.tg, "send_message", AsyncMock()) as send:
         await svc.notify_agent_done("s1", "claude", "작업")
+    body = send.await_args.args[2]
+    assert "https://term.example.com/?open=s1" in body
+    # 버튼은 콜백 버튼만 — URL 버튼은 만들지 않는다.
     buttons = send.await_args.args[3]
-    assert buttons[0].get("url") == "https://term.example.com/?open=s1"
-    assert "callback_data" not in buttons[0]      # 링크 버튼은 콜백을 안 만든다
+    assert all("callback_data" in b and "url" not in b for b in buttons)
 
 
 @pytest.mark.anyio
-async def test_notify_omits_open_button_without_base_url():
-    """기준 주소가 없으면 깨진 링크 대신 버튼을 아예 넣지 않는다."""
+async def test_notify_omits_open_link_without_base_url():
+    """기준 주소가 없으면 깨진 링크 대신 아무 링크도 넣지 않는다."""
     with patch.object(svc, "get_config", AsyncMock(return_value={
             "token": "t", "chat_id": "100", "base_url": ""})), \
          patch.object(svc.tg, "send_message", AsyncMock()) as send:
         await svc.notify_agent_done("s1", "claude", "작업")
-    buttons = send.await_args.args[3]
-    assert all(b.get("url") is None for b in buttons)
-
-
-@pytest.mark.anyio
-async def test_url_button_gets_its_own_row():
-    """URL 버튼은 전폭 한 행, 콜백 버튼들은 그 아래 한 행."""
-    import telegram_client as tgc
-    captured = {}
-
-    async def fake_call(token, method, payload=None, timeout=15.0):
-        captured.update(payload or {})
-        return {}
-
-    buttons = [
-        {"text": "🔗 열기", "url": "https://x/?open=s1"},
-        {"text": "계속", "callback_data": "a0:s1"},
-        {"text": "중단", "callback_data": "stop:s1"},
-    ]
-    with patch.object(tgc, "_call", fake_call):
-        await tgc.send_message("t", "1", "본문", buttons)
-    keyboard = captured["reply_markup"]["inline_keyboard"]
-    assert keyboard[0] == [{"text": "🔗 열기", "url": "https://x/?open=s1"}]
-    assert [b["text"] for b in keyboard[1]] == ["계속", "중단"]
+    body = send.await_args.args[2]
+    assert "?open=" not in body
 
 
 # ---------------------- 중단(제어키) 액션 ----------------------

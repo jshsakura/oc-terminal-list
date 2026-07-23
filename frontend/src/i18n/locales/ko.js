@@ -654,7 +654,7 @@ export const ko = {
     telegramChatId: '텔레그램 Chat ID',
     telegramChatIdHint: '알림을 받을 대화방 ID. 이 방에서 온 버튼만 처리합니다. pane 제목(작업 내용)이 텔레그램 서버를 지납니다.',
     telegramBaseUrl: '앱 주소 (열기 링크)',
-    telegramBaseUrlHint: '알림의 "열기" 버튼이 가리킬 공개 주소(예: https://term.example.com). 비우면 버튼이 붙지 않습니다.',
+    telegramBaseUrlHint: '알림의 "열기" 링크가 가리킬 공개 주소(예: https://term.example.com). 비우면 링크가 붙지 않습니다.',
     telegramBaseUrlEnv: 'PUBLIC_BASE_URL 환경변수로 설정됨 — 여기서는 수정할 수 없습니다.',
     telegramTest: '테스트 전송',
     telegramSave: '연결 저장',
