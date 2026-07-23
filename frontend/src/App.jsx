@@ -36,8 +36,7 @@ import {
 import {
   makePane, makLocalTab, makeFreshHostTmuxSessionName,
   usedThemeIdsFromTabs, resolveProfileTheme, makeHostTab,
-  deriveTabPrimaryIdentity,
-  deriveTabSecondaryIdentities,
+  deriveTabMeta,
 } from './utils/tabModel';
 
 import TabBar from './components/TabBar';
@@ -65,13 +64,6 @@ const { color, font, fontSize, fontWeight, space } = tokens;
 // 탭을 닫으면 tmux 세션이 살아남는가(detach=true) 아니면 종료되는가(false).
 // pane 중 하나라도 'tmux 꺼진 원격'이면 작업이 소실되므로 종료(false). 로컬 pane 은 항상 tmux.
 // closeTab 의 실제 분기와 탭 칩의 안내 문구가 같은 기준을 쓰도록 한 곳에 둔다(DRY).
-const tabCloseKeepsSession = (tab, hosts) => !(tab?.panes || []).some((p) => {
-  if (!p.hostId) return false;
-  const h = hosts.find((hh) => hh.id === p.hostId);
-  return h && !h.use_remote_tmux;
-});
-
-
 function App() {
   // 터미널을 조준하다 빗맞은 파일 드롭 → 브라우저가 파일을 열며 앱 이탈. 창 전체에서 삼킨다.
   useBlockStrayFileDrop();
@@ -126,51 +118,12 @@ function App() {
 
   // 탭별 영속성 (tmux 로 작업이 살아남는지) — 로컬은 항상 true, 호스트는 use_remote_tmux 따라감.
   // TabBar 가 시각 표시할 수 있게 derived field 로 붙여서 넘김.
-  const tabsWithMeta = useMemo(() => tabs.map((tt) => {
-    // 에이전트 상태 — tmux pane 타이틀에서 파생(utils/agentTitle.js). 상태 전이 때만
-    // 맵이 바뀌므로(스피너 프레임은 접힘) 이 memo 가 초당 열두 번 돌지는 않는다.
-    const agentStatus = deriveTabAgentStatus(tt, agentStatusMap);
-    const host = tt.type === 'host' ? hosts.find((h) => h.id === tt.hostId) : null;
-    const isPersistent = tt.type === 'local' || !!host?.use_remote_tmux;
-    // 닫기 칩 안내 문구용 — 닫아도 세션이 살아남는지(detach) 모든 pane 기준으로 판정.
-    const closeKeepsSession = tabCloseKeepsSession(tt, hosts);
-    // pane 들이 다른 호스트(또는 호스트+로컬)로 섞인 탭 — 제목탭에 나머지 정체성 아이콘을 겹쳐 표시.
-    const secondaryIdentities = deriveTabSecondaryIdentities(tt, hosts, settings);
-    // 호스트/로컬 메타가 바뀌면(이름/아이콘/색/테마 변경) 탭에 즉시 반영 — tab 객체에 캡처된 값은
-    // 생성 시점 스냅샷이라 사용자가 호스트 편집해도 안 따라가던 문제 해결.
-    // 탭 이름/아이콘/색은 항상 활성 pane 의 정체성(호스트든 로컬이든)을 따라간다 — 탭에 캡처된
-    // 생성 시점 스냅샷으로 굳지 않게. 활성 pane 이 로컬인데 호스트로 폴백하면 secondaries(활성
-    // pane 기준 dedup)에 같은 호스트가 또 들어가 "첫 아이콘이 두 번" 보이는 버그가 된다.
-    // 사용자가 직접 지은 이름(manualName)이 최우선. primary 판별 불가 시 기존 스냅샷/설정 폴백.
-    const primary = deriveTabPrimaryIdentity(tt, hosts, settings);
-    if (host) {
-      return {
-        ...tt,
-        isPersistent,
-        closeKeepsSession,
-        secondaryIdentities,
-        agentStatus,
-        primaryKind: primary?.kind || 'host',
-        name: tt.manualName ? tt.name : (primary?.name || host.name || tt.name),
-        icon: primary ? (primary.icon || null) : (host.icon ?? tt.icon ?? null),
-        color_index: primary ? primary.colorIndex : (host.color_index ?? tt.color_index ?? 0),
-      };
-    }
-    if (tt.type === 'local') {
-      return {
-        ...tt,
-        isPersistent,
-        closeKeepsSession,
-        secondaryIdentities,
-        agentStatus,
-        primaryKind: primary?.kind || 'local',
-        name: tt.manualName ? tt.name : (primary?.name || tt.name || 'terminal'),
-        icon: primary ? (primary.icon || null) : (settings.localIcon || tt.icon || null),
-        color_index: primary ? primary.colorIndex : (settings.localColorIndex ?? tt.color_index ?? 0),
-      };
-    }
-    return { ...tt, isPersistent, closeKeepsSession, secondaryIdentities, agentStatus };
-  }), [tabs, hosts, agentStatusMap, settings.localName, settings.localIcon, settings.localColorIndex]);
+  const tabsWithMeta = useMemo(
+    () => tabs.map((tt) => deriveTabMeta(tt, {
+      hosts, settings, agentStatus: deriveTabAgentStatus(tt, agentStatusMap),
+    })),
+    [tabs, hosts, agentStatusMap, settings.localName, settings.localIcon, settings.localColorIndex],
+  );
 
   // ── open / close tabs ─────────────────────────────────────────────────────
   // 새 로컬 터미널 — 명시 cwd 없으면 settings.localStartPath 사용. 비어 있어도 '' (= 워크스페이스 루트)

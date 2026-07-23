@@ -183,3 +183,46 @@ export const migrateTab = (t) => {
   const pane = makePane({ sessionId: t.sessionId, hostId: t.hostId });
   return { ...t, panes: [pane], layout: 'single', splitTree: makeLeaf(pane.id), activePaneId: pane.id };
 };
+
+/** 탭을 닫아도 세션이 살아남는가 — 모든 pane 이 영속(로컬 tmux / use_remote_tmux) 인지. */
+export const tabCloseKeepsSession = (tab, hosts = []) => !(tab?.panes || []).some((p) => {
+  if (!p.hostId) return false;
+  const h = hosts.find((hh) => hh.id === p.hostId);
+  return h && !h.use_remote_tmux;
+});
+
+/**
+ * 탭 하나에 렌더용 파생 메타를 붙인다 — 순수 함수.
+ *
+ * 이름/아이콘/색은 항상 **활성 pane 의 정체성**을 따라간다(탭에 캡처된 생성 시점
+ * 스냅샷으로 굳지 않게). 사용자가 직접 지은 이름(manualName)이 최우선.
+ * agentStatus 는 별도 소스(tabAgentStatus)라 여기서 계산하지 않고 인자로 받는다.
+ */
+export const deriveTabMeta = (tab, { hosts = [], settings = {}, agentStatus = null } = {}) => {
+  const host = tab.type === 'host' ? hosts.find((h) => h.id === tab.hostId) : null;
+  const isPersistent = tab.type === 'local' || !!host?.use_remote_tmux;
+  const closeKeepsSession = tabCloseKeepsSession(tab, hosts);
+  const secondaryIdentities = deriveTabSecondaryIdentities(tab, hosts, settings);
+  const primary = deriveTabPrimaryIdentity(tab, hosts, settings);
+  const common = { ...tab, isPersistent, closeKeepsSession, secondaryIdentities, agentStatus };
+
+  if (host) {
+    return {
+      ...common,
+      primaryKind: primary?.kind || 'host',
+      name: tab.manualName ? tab.name : (primary?.name || host.name || tab.name),
+      icon: primary ? (primary.icon || null) : (host.icon ?? tab.icon ?? null),
+      color_index: primary ? primary.colorIndex : (host.color_index ?? tab.color_index ?? 0),
+    };
+  }
+  if (tab.type === 'local') {
+    return {
+      ...common,
+      primaryKind: primary?.kind || 'local',
+      name: tab.manualName ? tab.name : (primary?.name || tab.name || 'terminal'),
+      icon: primary ? (primary.icon || null) : (settings.localIcon || tab.icon || null),
+      color_index: primary ? primary.colorIndex : (settings.localColorIndex ?? tab.color_index ?? 0),
+    };
+  }
+  return common;
+};

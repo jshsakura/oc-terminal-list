@@ -22,6 +22,7 @@ import { isImageFile, isPdfFile, isVideoFile, isAudioFile } from '../utils/fileT
 import { DIFF_VIEW_STATE_KEY, readDiffViewState, parseFileKey } from './fileEditor/fileEditorHelpers';
 import { styles } from './fileEditor/fileEditorStyles';
 import { canFormatLanguage } from '../utils/formatSupport';
+import { monacoLanguageForFile } from '../utils/fileTypes';
 import { FileEditorTabs } from './fileEditor/FileEditorTabs';
 
 
@@ -58,32 +59,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const hasChanges = currentFileState.hasChanges;
 
   // 확장자에 따른 언어 결정
-  const getLanguage = useCallback((path) => {
-    if (!path) return 'plaintext';
-    const ext = path.split('.').pop().toLowerCase();
-    const map = {
-      'js': 'javascript',
-      'jsx': 'javascript',
-      'ts': 'typescript',
-      'tsx': 'typescript',
-      'py': 'python',
-      'html': 'html',
-      'css': 'css',
-      'json': 'json',
-      'md': 'markdown',
-      'c': 'c',
-      'cpp': 'cpp',
-      'go': 'go',
-      'rs': 'rust',
-      'sh': 'shell',
-      'yml': 'yaml',
-      'yaml': 'yaml',
-      'xml': 'xml',
-      'sql': 'sql',
-      'php': 'php',
-    };
-    return map[ext] || 'plaintext';
-  }, []);
+  // 확장자 → Monaco 언어. 매핑은 utils/fileTypes.js 가 소유(테스트 있음).
+  const getLanguage = useCallback((path) => monacoLanguageForFile(path), []);
 
   const loadFile = useCallback(async (fileKey, isSilent = false) => {
     if (!fileKey) return;
