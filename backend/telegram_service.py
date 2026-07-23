@@ -88,7 +88,8 @@ def parse_callback_data(data: str) -> tuple[str, str] | None:
 
 async def notify_agent_done(session_id: str, command: str, title: str,
                             label: str = "", *, duration_seconds: float | None = None,
-                            described: dict | None = None, others: str = "") -> bool:
+                            described: dict | None = None, others: str = "",
+                            excerpt: str | None = None) -> bool:
     """완료 알림 + 액션 버튼. 설정이 없으면 조용히 no-op.
 
     있는 정보는 다 담는다 — 주소·에이전트·소요시간·호스트·경로·작업내용·화면 발췌·
@@ -99,15 +100,16 @@ async def notify_agent_done(session_id: str, command: str, title: str,
         return False
 
     described = described or {}
-    # 화면 마지막 몇 줄 — LLM 없이 capture-pane 출력에서 UI 장식만 걷어낸다.
-    excerpt = ""
-    try:
-        _rc, pane_text, _err = await tmux_manager._run(
-            "capture-pane", "-p", "-t", f"={session_id}:", check=False,
-        )
-        excerpt = extract_excerpt(pane_text)
-    except Exception as e:
-        logger.debug("발췌 실패 (%s): %s", session_id, e)
+    # 발췌는 호출부에서 한 번 뽑아 넘겨준다(지문 계산과 공유). 없으면 여기서 뽑는다.
+    if excerpt is None:
+        try:
+            _rc, pane_text, _err = await tmux_manager._run(
+                "capture-pane", "-p", "-t", f"={session_id}:", check=False,
+            )
+            excerpt = extract_excerpt(pane_text)
+        except Exception as e:
+            logger.debug("발췌 실패 (%s): %s", session_id, e)
+            excerpt = ""
 
     body = build_done_message(
         label=label, command=command, title=title,

@@ -3,7 +3,6 @@
 실제 발송(네트워크)은 테스트하지 않는다. 대신 그 앞단 — 키 포맷, 구독 수명주기,
 "언제 보낼지" 판정 — 을 고정한다. 발송 자체는 pywebpush 의 책임이다.
 """
-import time
 
 import pytest
 
@@ -111,26 +110,3 @@ def test_payload_truncates_long_title():
     p = build_agent_done_payload({"sessionId": "s1", "command": "claude", "title": "가" * 500})
     assert len(p["body"]) <= 120
 
-
-def test_cooldown_suppresses_flapping():
-    """working↔idle 이 연달아 잡히면 폰이 계속 울린다 — 그러면 사용자가 알림을 꺼버린다."""
-    from agent_status_service import _should_notify, DONE_NOTIFY_COOLDOWN_SECONDS
-    now = time.time()
-    assert _should_notify("flap", now) is True
-    assert _should_notify("flap", now + 1) is False
-    assert _should_notify("flap", now + DONE_NOTIFY_COOLDOWN_SECONDS + 1) is True
-
-
-def test_cooldown_is_per_session():
-    from agent_status_service import _should_notify
-    now = time.time()
-    assert _should_notify("s-a", now) is True
-    assert _should_notify("s-b", now) is True     # 다른 세션은 서로 막지 않는다
-
-
-def test_forgetting_a_gone_session_clears_cooldown():
-    from agent_status_service import _should_notify, _forget_session
-    now = time.time()
-    assert _should_notify("s-x", now) is True
-    _forget_session("s-x")
-    assert _should_notify("s-x", now) is True     # 세션이 죽고 새로 생기면 다시 알린다

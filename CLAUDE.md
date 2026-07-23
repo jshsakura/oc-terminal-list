@@ -193,7 +193,7 @@ Fires on the watcher's `working → not-working` transition (`completed: true`),
 - VAPID keys: `data/.vapid-key` (PEM, 0600), auto-created at startup. **Changing it invalidates every existing subscription** — browsers bind subscriptions to the public key. Never put it in `.env`.
 - `py-vapid` wants the private key as **base64url of the raw 32-byte scalar**, not PEM. Passing PEM dies with "ASN.1 parsing error".
 - Subscribing *is* the opt-in — there is no separate server-side setting. Unsubscribe to turn it off.
-- A 60s per-session cooldown (`agent_status_service`) absorbs working↔idle flapping; without it a flickering title makes the phone buzz repeatedly and the user turns notifications off for good.
+- Duplicate suppression is **by content, not by clock**. A completion is re-sent only when its signature (task title + screen excerpt) differs from the last one. An agent that answers briefly and pauses over and over does not buzz the phone each time. Crucially this is not a "waiting for you to press 계속" latch: the moment the content changes, the next notification fires immediately regardless of elapsed time — there is no held-back state. Spinner flapping never reaches here anyway; the watcher folds it before `completed` is emitted.
 - Push services returning 404/410 mean the subscription is permanently dead — it is deleted on the spot rather than retried forever.
 - **Requires a secure context.** `localhost` and HTTPS work; `http://<LAN-IP>:38822` does not — the browser hides the API entirely. `pushCapability()` reports `insecure` distinctly from `unsupported` so the UI can say "change how you connect", not "your browser is too old".
 
