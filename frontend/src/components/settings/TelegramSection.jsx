@@ -18,6 +18,8 @@ const TelegramSection = ({ t }) => {
   const [configured, setConfigured] = useState(false);
   const [chatId, setChatId] = useState('');
   const [token, setToken] = useState('');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [baseUrlFromEnv, setBaseUrlFromEnv] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
 
@@ -29,6 +31,8 @@ const TelegramSection = ({ t }) => {
         if (cancelled || !d) return;
         setConfigured(!!d.configured);
         setChatId(d.chat_id || '');
+        setBaseUrl(d.base_url || '');
+        setBaseUrlFromEnv(!!d.base_url_from_env);
       })
       .catch(() => { /* 설정 화면이 못 뜰 이유는 아니다 */ });
     return () => { cancelled = true; };
@@ -41,7 +45,7 @@ const TelegramSection = ({ t }) => {
       const res = await fetch('/api/push/telegram', {
         method: 'PUT',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
-        body: JSON.stringify({ token: token.trim(), chat_id: chatId.trim() }),
+        body: JSON.stringify({ token: token.trim(), chat_id: chatId.trim(), base_url: baseUrl.trim() }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -58,7 +62,7 @@ const TelegramSection = ({ t }) => {
       setNotice({ kind: 'error', text: t?.('telegramSaveFailed') || '저장 실패' });
     }
     setBusy(false);
-  }, [token, chatId, t]);
+  }, [token, chatId, baseUrl, t]);
 
   const sendTest = useCallback(async () => {
     setBusy(true);
@@ -102,6 +106,23 @@ const TelegramSection = ({ t }) => {
           placeholder="123456789"
           style={styles.input}
           inputMode="numeric"
+        />
+      </Field>
+      <Field
+        label={t?.('telegramBaseUrl') || '앱 주소 (열기 링크)'}
+        hint={baseUrlFromEnv
+          ? (t?.('telegramBaseUrlEnv') || 'PUBLIC_BASE_URL 환경변수로 설정됨 — 여기서는 수정할 수 없습니다.')
+          : (t?.('telegramBaseUrlHint')
+            || '알림의 "열기" 버튼이 가리킬 공개 주소(예: https://term.example.com). 비우면 버튼이 붙지 않습니다.')}
+      >
+        <input
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="https://term.example.com"
+          style={styles.input}
+          inputMode="url"
+          autoComplete="off"
+          disabled={baseUrlFromEnv}
         />
       </Field>
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>

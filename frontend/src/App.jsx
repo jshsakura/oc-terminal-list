@@ -12,6 +12,7 @@ import useFilePicker from './hooks/useFilePicker';
 import useEditorResize from './hooks/useEditorResize';
 import useEditorTabs from './hooks/useEditorTabs';
 import useWorkspaceTabs from './hooks/useWorkspaceTabs';
+import useDeepLinkOpen from './hooks/useDeepLinkOpen';
 import useAgentStatus from './hooks/useAgentStatus';
 import { deriveTabAgentStatus } from './utils/tabAgentStatus';
 import useBlockStrayFileDrop from './hooks/useBlockStrayFileDrop';
@@ -85,6 +86,9 @@ function App() {
   // 탭 상태 + 영속(localStorage·서버 저장/복원/SSE)은 useWorkspaceTabs 가 단일 소유.
   // 탭 "조작"(추가/닫기/분할/열기 등)은 아래 App 본체에 남아 setTabs/setActiveTabId 를 쓴다.
   const { tabs, setTabs, activeTabId, setActiveTabId, isRestoringWorkspace, setIsRestoringWorkspace } = useWorkspaceTabs({ isAuthenticated });
+  // 딥링크(`?open=<sessionId>`, 텔레그램 "열기" 버튼 등) → 그 세션 탭·pane 활성화.
+  // 복원이 끝나야 탭이 채워지므로 ready 로 "포기 시점"을 알려준다.
+  useDeepLinkOpen({ tabs, setActiveTabId, setTabs, ready: isAuthenticated && !isRestoringWorkspace });
   // 세션ID → 에이전트 상태. xterm 타이틀(즉시·원격 포함) + 백엔드 tmux 폴링(무인 세션) 합류점.
   const agentStatusMap = useAgentStatus();
 

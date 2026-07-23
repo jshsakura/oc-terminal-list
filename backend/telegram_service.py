@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from urllib.parse import quote
 
 import telegram_client as tg
 from itl_targets import build_targets, resolve
@@ -37,6 +38,16 @@ logger = logging.getLogger(__name__)
 
 CONFIG_TOKEN_KEY = "telegram_bot_token_enc"
 CONFIG_CHAT_KEY = "telegram_chat_id"
+# 알림의 "열기" 링크가 가리킬 공개 주소 — 폰 잠금화면에서 눌렀을 때 실제로 열리는
+# URL 이라, 백엔드가 request 없이 알 방법이 없어 **명시 설정**이 필요하다.
+# env `PUBLIC_BASE_URL` 이 있으면 그걸, 없으면 설정 화면에서 저장한 값을 쓴다.
+CONFIG_BASE_URL_KEY = "public_base_url"
+
+# "열기" 버튼 라벨. 콜백이 아니라 URL 버튼이라 눌러도 봇으로 되돌아오지 않고
+# 브라우저만 연다.
+OPEN_BUTTON_LABEL = "🔗 열기"
+# 딥링크 쿼리 파라미터 — 프론트가 이 값(세션 ID)으로 탭·pane 을 찾아 활성화한다.
+OPEN_QUERY_PARAM = "open"
 
 # 폴링이 실패했을 때의 재시도 간격 — 토큰이 잘못됐거나 네트워크가 끊긴 상황에서
 # 초당 수십 번 두드리지 않도록.
@@ -66,13 +77,30 @@ async def get_config() -> dict:
     if not chat_id:
         chat_id = (await storage.get_config(CONFIG_CHAT_KEY)) or None
 
-    return {"token": token, "chat_id": chat_id, "from_env": bool(env_token)}
+    env_base = (os.getenv("PUBLIC_BASE_URL") or "").strip()
+    base_url = env_base or (await storage.get_config(CONFIG_BASE_URL_KEY)) or ""
+    base_url = base_url.strip().rstrip("/")
+
+    return {
+        "token": token, "chat_id": chat_id, "from_env": bool(env_token),
+        "base_url": base_url, "base_url_from_env": bool(env_base),
+    }
 
 
 async def save_config(token: str | None, chat_id: str | None) -> None:
     """토큰은 SSH 키와 같은 방식으로 vault 암호화해 저장한다."""
     await storage.set_config(CONFIG_TOKEN_KEY, encrypt_str(token) if token else "")
     await storage.set_config(CONFIG_CHAT_KEY, chat_id or "")
+
+
+async def save_public_base_url(url: str | None) -> None:
+    """알림 "열기" 링크의 기준 주소를 저장한다. 빈 값이면 버튼이 붙지 않는다."""
+    await storage.set_config(CONFIG_BASE_URL_KEY, (url or "").strip().rstrip("/"))
+
+
+def build_open_url(base_url: str, session_id: str) -> str:
+    """딥링크 — 이 세션을 가진 탭·pane 을 열어 보여주는 URL."""
+    return f"{base_url}/?{OPEN_QUERY_PARAM}={quote(session_id, safe='')}"
 
 
 async def is_enabled() -> bool:
@@ -121,7 +149,15 @@ async def notify_agent_done(session_id: str, command: str, title: str,
         cwd=described.get("cwd", ""), host=described.get("host", ""),
         duration_seconds=duration_seconds, excerpt=excerpt, others=others,
     )
-    buttons = [
+    buttons = []
+    # "열기" 링크 버튼 — 기준 주소가 설정돼 있을 때만. 없으면 조용히 생략한다
+    # (깨진 링크보다 버튼이 없는 편이 낫다).
+    if config.get("base_url"):
+        buttons.append({
+            "text": OPEN_BUTTON_LABEL,
+            "url": build_open_url(config["base_url"], session_id),
+        })
+    buttons += [
         {"text": b["title"], "callback_data": build_callback_data(b["action"], session_id)}
         for b in action_buttons()
     ]

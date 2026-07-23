@@ -59,12 +59,31 @@ async def get_me(token: str) -> dict:
 MAX_MESSAGE_CHARS = 4000
 
 
+def _build_keyboard(buttons: list[dict]) -> list[list[dict]]:
+    """버튼 목록 → 인라인 키보드 행들.
+
+    버튼은 두 종류다:
+      - **URL 버튼** (`{"text", "url"}`) — 잠금화면에서 눌러 웹 터미널을 여는 링크.
+        각자 한 행을 통째로 차지하게 둔다(전폭 = 눈에 잘 띔).
+      - **콜백 버튼** (`{"text", "callback_data"}`) — 계속/중단 등. 한 행에 모은다.
+    URL 버튼을 위에, 콜백 버튼을 아래 한 줄로 배치한다.
+    """
+    url_rows = [[{"text": b["text"], "url": b["url"]}] for b in buttons if b.get("url")]
+    action_row = [
+        {"text": b["text"], "callback_data": b["callback_data"]}
+        for b in buttons if b.get("callback_data")
+    ]
+    rows = url_rows + ([action_row] if action_row else [])
+    return rows
+
+
 async def send_message(token: str, chat_id: str, text: str,
                        buttons: list[dict] | None = None) -> dict:
     """메시지 + 인라인 키보드.
 
-    `buttons` 는 [{"text": 라벨, "callback_data": 값}] — callback_data 는 텔레그램이
-    **64바이트로 제한**하므로 짧게 유지해야 한다(액션명 + 세션ID 로 충분).
+    `buttons` 항목은 콜백형 `{"text", "callback_data"}` 또는 링크형 `{"text", "url"}`.
+    callback_data 는 텔레그램이 **64바이트로 제한**하므로 짧게 유지해야 한다(액션명 +
+    세션ID 로 충분). url 버튼은 눌러도 봇으로 콜백이 오지 않고 브라우저만 연다.
     """
     # ⚠️ parse_mode 를 **켜지 마라.** 본문에는 터미널 화면 발췌가 들어가는데, 거기엔
     # `*` `_` `[` 백틱 같은 문자가 아무렇게나 섞여 있다. 마크다운으로 해석시키면
@@ -78,9 +97,9 @@ async def send_message(token: str, chat_id: str, text: str,
         "disable_web_page_preview": True,
     }
     if buttons:
-        payload["reply_markup"] = {"inline_keyboard": [[
-            {"text": b["text"], "callback_data": b["callback_data"]} for b in buttons
-        ]]}
+        rows = _build_keyboard(buttons)
+        if rows:
+            payload["reply_markup"] = {"inline_keyboard": rows}
     return await _call(token, "sendMessage", payload)
 
 

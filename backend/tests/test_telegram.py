@@ -131,8 +131,61 @@ async def test_notify_sends_buttons_bound_to_the_session():
          patch.object(svc.tg, "send_message", AsyncMock()) as send:
         assert await svc.notify_agent_done("s1", "claude", "폴더 로더 수정") is True
     buttons = send.await_args.args[3]
-    assert buttons and all(b["callback_data"].endswith(":s1") for b in buttons)
+    callback_buttons = [b for b in buttons if b.get("callback_data")]
+    assert callback_buttons and all(b["callback_data"].endswith(":s1") for b in callback_buttons)
     assert "폴더 로더 수정" in send.await_args.args[2]
+
+
+# ---------------------- "열기" 딥링크 버튼 ----------------------
+
+def test_build_open_url_encodes_session():
+    url = svc.build_open_url("https://term.example.com", "sess/1 2")
+    assert url == "https://term.example.com/?open=sess%2F1%202"
+
+
+@pytest.mark.anyio
+async def test_notify_adds_open_button_when_base_url_set():
+    """기준 주소가 있으면 세션을 가리키는 URL 버튼이 맨 앞에 붙는다."""
+    with patch.object(svc, "get_config", AsyncMock(return_value={
+            "token": "t", "chat_id": "100", "base_url": "https://term.example.com"})), \
+         patch.object(svc.tg, "send_message", AsyncMock()) as send:
+        await svc.notify_agent_done("s1", "claude", "작업")
+    buttons = send.await_args.args[3]
+    assert buttons[0].get("url") == "https://term.example.com/?open=s1"
+    assert "callback_data" not in buttons[0]      # 링크 버튼은 콜백을 안 만든다
+
+
+@pytest.mark.anyio
+async def test_notify_omits_open_button_without_base_url():
+    """기준 주소가 없으면 깨진 링크 대신 버튼을 아예 넣지 않는다."""
+    with patch.object(svc, "get_config", AsyncMock(return_value={
+            "token": "t", "chat_id": "100", "base_url": ""})), \
+         patch.object(svc.tg, "send_message", AsyncMock()) as send:
+        await svc.notify_agent_done("s1", "claude", "작업")
+    buttons = send.await_args.args[3]
+    assert all(b.get("url") is None for b in buttons)
+
+
+@pytest.mark.anyio
+async def test_url_button_gets_its_own_row():
+    """URL 버튼은 전폭 한 행, 콜백 버튼들은 그 아래 한 행."""
+    import telegram_client as tgc
+    captured = {}
+
+    async def fake_call(token, method, payload=None, timeout=15.0):
+        captured.update(payload or {})
+        return {}
+
+    buttons = [
+        {"text": "🔗 열기", "url": "https://x/?open=s1"},
+        {"text": "계속", "callback_data": "a0:s1"},
+        {"text": "중단", "callback_data": "stop:s1"},
+    ]
+    with patch.object(tgc, "_call", fake_call):
+        await tgc.send_message("t", "1", "본문", buttons)
+    keyboard = captured["reply_markup"]["inline_keyboard"]
+    assert keyboard[0] == [{"text": "🔗 열기", "url": "https://x/?open=s1"}]
+    assert [b["text"] for b in keyboard[1]] == ["계속", "중단"]
 
 
 # ---------------------- 중단(제어키) 액션 ----------------------

@@ -73,6 +73,8 @@ async def push_unsubscribe(
 class TelegramConfigRequest(BaseModel):
     token: str = Field(default="", max_length=200)
     chat_id: str = Field(default="", max_length=64)
+    # 알림 "열기" 링크의 기준 주소(예: https://term.example.com). 비우면 버튼 없음.
+    base_url: str = Field(default="", max_length=300)
 
 
 @router.get("/telegram")
@@ -84,6 +86,9 @@ async def telegram_status(username: str = Depends(verify_auth_token)):
         "chat_id": config["chat_id"] or "",
         # env 로 넣었으면 화면에서 토큰을 물어볼 이유가 없다.
         "from_env": bool(config.get("from_env")),
+        # 알림 "열기" 링크의 기준 주소 — env 로 왔으면 화면에서 편집 불가로 표시.
+        "base_url": config.get("base_url") or "",
+        "base_url_from_env": bool(config.get("base_url_from_env")),
     }
 
 
@@ -95,6 +100,12 @@ async def telegram_save(
     """저장 전에 토큰을 검증한다 — 잘못된 토큰을 저장해두면 알림이 조용히 안 온다."""
     token = request.token.strip()
     chat_id = request.chat_id.strip()
+
+    # 기준 주소는 토큰/chat 과 독립적으로 저장한다 — env 로 온 값은 env 가 이기므로
+    # 덮어쓰지 않는다.
+    current = await telegram_service.get_config()
+    if not current.get("base_url_from_env"):
+        await telegram_service.save_public_base_url(request.base_url)
 
     if not token and not chat_id:
         await telegram_service.save_config(None, None)
