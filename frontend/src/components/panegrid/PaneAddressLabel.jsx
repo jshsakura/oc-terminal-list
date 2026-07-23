@@ -21,7 +21,7 @@ const PaneAddressLabel = memo(({ paneNumber, fullAddress = null, isProminent = f
     style={{
       position: 'absolute',
       right: '6px',
-      bottom: '4px',
+      top: '4px',
       zIndex: 6,
       // 터미널 글자 위에 얹히므로 클릭을 가로채면 안 된다.
       pointerEvents: 'none',
@@ -38,8 +38,9 @@ const PaneAddressLabel = memo(({ paneNumber, fullAddress = null, isProminent = f
       // 알파면 터미널 글자가 비쳐 숫자가 뭉개진다.
       background: `color-mix(in srgb, ${color.surface1} 82%, transparent)`,
       border: `1px solid color-mix(in srgb, ${color.overlay0} 40%, transparent)`,
-      // 평소엔 있는 줄도 모를 만큼, 마우스를 올리거나 포커스되면 읽을 만큼.
-      opacity: isProminent ? 0.62 : 0.2,
+      // 우상단은 스크롤되는 출력에 묻히지 않는 자리라, 평소에도 읽히게 둔다.
+      // (우하단은 출력에 가려 0.2 로도 거슬렸지만, 여기선 오히려 안 보였다.)
+      opacity: isProminent ? 0.85 : 0.45,
       transition: 'opacity 120ms ease',
     }}
   >
