@@ -95,7 +95,9 @@ async def answer_callback(token: str, callback_id: str, text: str = "") -> None:
 
 async def get_updates(token: str, offset: int | None = None) -> list[dict]:
     """롱폴링. `offset` 은 '이 id 이전은 처리했다'는 확인 응답을 겸한다."""
-    payload: dict = {"timeout": POLL_TIMEOUT_SECONDS, "allowed_updates": ["callback_query"]}
+    # callback_query(버튼) + message(직접 입력) 둘 다 받는다.
+    payload: dict = {"timeout": POLL_TIMEOUT_SECONDS,
+                     "allowed_updates": ["callback_query", "message"]}
     if offset is not None:
         payload["offset"] = offset
     result = await _call(token, "getUpdates", payload, timeout=REQUEST_TIMEOUT_SECONDS)

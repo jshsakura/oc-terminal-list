@@ -24,8 +24,10 @@ import logging
 import os
 
 import telegram_client as tg
+from itl_targets import build_targets, resolve
 from notify_message import build_done_message
 from pane_excerpt import extract_excerpt
+from telegram_command import parse_command
 from push_actions import action_buttons, resolve_action, resolve_key_action
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
@@ -41,6 +43,9 @@ CONFIG_CHAT_KEY = "telegram_chat_id"
 RETRY_BACKOFF_SECONDS = 15
 # callback_data 는 텔레그램이 64바이트로 자른다. "action:session" 형태를 쓴다.
 CALLBACK_SEPARATOR = ":"
+# 한 메시지가 한 번에 칠 수 있는 pane 수 상한 — @all 오타로 전 터미널에 명령이
+# 박히는 걸 막는다(itl send 와 같은 이유).
+MAX_MESSAGE_FANOUT = 20
 
 
 async def get_config() -> dict:
@@ -128,6 +133,63 @@ async def notify_agent_done(session_id: str, command: str, title: str,
         return False
 
 
+async def _handle_message(token: str, allowed_chat: str, message: dict) -> None:
+    """폰에서 친 자유 텍스트를 주소가 가리키는 pane 으로 보낸다.
+
+    ⚠️ 임의 문자열이 터미널로 들어간다. 유일한 방벽은 chat_id 가드다 — 설정된
+    방에서 온 게 아니면 즉시 버린다. 봇을 다른 방에 초대해도 무력.
+    """
+    chat_id = str((message.get("chat") or {}).get("id") or "")
+    if chat_id != str(allowed_chat):
+        logger.warning("텔레그램: 허용되지 않은 chat 의 메시지 무시 (%s)", chat_id)
+        return
+
+    text = message.get("text") or ""
+    parsed = parse_command(text)
+    if not parsed:
+        # 주소 없는 메시지 — 봇에게 그냥 말을 건 것일 수 있다. 사용법만 조용히 안내.
+        if text.strip():
+            await tg.send_message(
+                token, allowed_chat,
+                "보낼 곳을 앞에 붙여주세요:\n  1.1 <내용>  ·  @claude <내용>  ·  @all <내용>\n"
+                "여는 터미널 목록은 앱의 알림에 붙는 주소(예: 1.1)를 쓰면 됩니다.",
+            )
+        return
+
+    address, body = parsed
+    # 이 앱은 단일 사용자(admin) 다. 텔레그램에는 사용자 개념이 없으므로 탭 상태는
+    # admin 것을 본다 — chat_id 가드가 이미 "이 방 = 소유자" 를 보장한다.
+    admin = await storage.get_admin()
+    if not admin:
+        return
+    state = await storage.get_tab_state(admin["username"]) or {}
+    targets = resolve(build_targets(state.get("tabs") or []), address)
+    if not targets:
+        await tg.send_message(token, allowed_chat, f"'{address}' 에 해당하는 터미널이 없습니다.")
+        return
+
+    delivered, skipped = [], []
+    for target in targets[:MAX_MESSAGE_FANOUT]:
+        session_id = target.get("sessionId")
+        if not session_id:
+            skipped.append(target["addr"])          # 원격 pane — 아직 미지원
+            continue
+        if not await tmux_manager.session_exists(session_id):
+            skipped.append(target["addr"])
+            continue
+        # 폰에서 한 줄 보내는 건 "실행해" 라는 뜻 — 엔터까지 친다.
+        await tmux_manager.send_keys(session_id, body, submit=True)
+        delivered.append(target["addr"])
+
+    parts = []
+    if delivered:
+        parts.append(f"→ {', '.join(delivered)} 전송")
+    if skipped:
+        parts.append(f"건너뜀: {', '.join(skipped)}")
+    await tg.send_message(token, allowed_chat, " · ".join(parts) or "보낼 대상이 없습니다.")
+    logger.info("텔레그램 직접입력 '%s' → %s", address, delivered)
+
+
 async def _handle_callback(token: str, allowed_chat: str, callback: dict) -> None:
     callback_id = callback.get("id") or ""
     chat_id = str(((callback.get("message") or {}).get("chat") or {}).get("id") or "")
@@ -182,9 +244,10 @@ class TelegramWorker:
                 updates = await tg.get_updates(token, self._offset)
                 for update in updates:
                     self._offset = int(update.get("update_id", 0)) + 1
-                    callback = update.get("callback_query")
-                    if callback:
-                        await _handle_callback(token, chat_id, callback)
+                    if update.get("callback_query"):
+                        await _handle_callback(token, chat_id, update["callback_query"])
+                    elif update.get("message"):
+                        await _handle_message(token, chat_id, update["message"])
             except asyncio.CancelledError:
                 raise
             except tg.TelegramError as e:

@@ -208,3 +208,69 @@ async def test_send_message_truncates_over_the_limit():
         await tgc.send_message("t", "1", "가" * 9000)
     assert len(captured["text"]) <= tgc.MAX_MESSAGE_CHARS
     assert captured["text"].endswith("…")
+
+
+# ---------------------- 직접 입력(자유 메시지) ----------------------
+
+def _message(chat_id="100", text="1.1 테스트 돌려"):
+    return {"chat": {"id": chat_id}, "text": text}
+
+
+@pytest.mark.anyio
+async def test_message_from_allowed_chat_sends_to_the_pane():
+    targets = [{"addr": "1.1", "sessionId": "sess-1", "tmuxSession": None}]
+    with patch.object(svc.storage, "get_admin", AsyncMock(return_value={"username": "u"})), \
+         patch.object(svc.storage, "get_tab_state", AsyncMock(return_value={"tabs": []})), \
+         patch.object(svc, "resolve", return_value=targets), \
+         patch.object(svc.tmux_manager, "session_exists", AsyncMock(return_value=True)), \
+         patch.object(svc.tmux_manager, "send_keys", AsyncMock()) as send, \
+         patch.object(svc.tg, "send_message", AsyncMock()):
+        await svc._handle_message("tok", "100", _message())
+    send.assert_awaited_once()
+    assert send.await_args.args[1] == "테스트 돌려"
+    assert send.await_args.kwargs["submit"] is True     # 폰에서 보낸 건 실행
+
+
+@pytest.mark.anyio
+async def test_message_from_other_chat_is_dropped():
+    """유일한 방벽 — 봇을 다른 방에 초대해도 그 방에서는 터미널을 못 건드린다."""
+    with patch.object(svc.tmux_manager, "send_keys", AsyncMock()) as send, \
+         patch.object(svc.tg, "send_message", AsyncMock()) as reply:
+        await svc._handle_message("tok", "100", _message(chat_id="999"))
+    send.assert_not_awaited()
+    reply.assert_not_awaited()      # 남의 방엔 답장조차 하지 않는다
+
+
+@pytest.mark.anyio
+async def test_message_without_address_gets_usage_hint():
+    with patch.object(svc.tmux_manager, "send_keys", AsyncMock()) as send, \
+         patch.object(svc.tg, "send_message", AsyncMock()) as reply:
+        await svc._handle_message("tok", "100", _message(text="그냥 하는 말"))
+    send.assert_not_awaited()
+    assert "보낼 곳" in reply.await_args.args[2]
+
+
+@pytest.mark.anyio
+async def test_message_to_unknown_address_reports_back():
+    with patch.object(svc.storage, "get_admin", AsyncMock(return_value={"username": "u"})), \
+         patch.object(svc.storage, "get_tab_state", AsyncMock(return_value={"tabs": []})), \
+         patch.object(svc, "resolve", return_value=[]), \
+         patch.object(svc.tmux_manager, "send_keys", AsyncMock()) as send, \
+         patch.object(svc.tg, "send_message", AsyncMock()) as reply:
+        await svc._handle_message("tok", "100", _message(text="9.9 없는곳"))
+    send.assert_not_awaited()
+    assert "없습니다" in reply.await_args.args[2]
+
+
+@pytest.mark.anyio
+async def test_message_fanout_is_capped():
+    """@all 오타 하나로 전 터미널에 명령이 박히면 안 된다."""
+    targets = [{"addr": f"1.{i}", "sessionId": f"s{i}", "tmuxSession": None} for i in range(50)]
+    with patch.object(svc.storage, "get_admin", AsyncMock(return_value={"username": "u"})), \
+         patch.object(svc.storage, "get_tab_state", AsyncMock(return_value={"tabs": []})), \
+         patch.object(svc, "resolve", return_value=targets), \
+         patch.object(svc.tmux_manager, "session_exists", AsyncMock(return_value=True)), \
+         patch.object(svc.tmux_manager, "send_keys", AsyncMock()) as send, \
+         patch.object(svc.tg, "send_message", AsyncMock()):
+        await svc._handle_message("tok", "100", _message(text="@all 위험"))
+    assert send.await_count <= svc.MAX_MESSAGE_FANOUT
