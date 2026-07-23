@@ -80,6 +80,9 @@ export class FakeTerminal {
     this.onScroll = vi.fn((h) => { this.handlers.scroll = h; });
     // tmux 가 set-titles on 으로 흘려주는 pane 타이틀(OSC 0) — 에이전트 상태의 입구.
     this.onTitleChange = vi.fn((h) => { this.handlers.title = h; });
+    // 파일 경로 클릭 링크 프로바이더 — provideLinks 콜백을 잡아두면 테스트에서
+    // 임의 줄을 먹여 실제 링크 파싱/activate 경로를 검증할 수 있다.
+    this.registerLinkProvider = vi.fn((provider) => { this.handlers.linkProvider = provider; });
     this.onSelectionChange = vi.fn((h) => { this.handlers.selection = h; });
 
     // write(data, cb) — 실제 xterm 처럼 파싱 후 비동기로 콜백. 컴포넌트는 이 콜백에서

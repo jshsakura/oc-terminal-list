@@ -2,6 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { findFileLinks } from '../../utils/terminalFileLinks';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { ImageAddon } from '@xterm/addon-image';
 import { normalizeTerminalFontFamily } from '../../utils/terminalFonts';
@@ -24,7 +25,7 @@ const SMOOTH_SCROLL_MS = 100;
  *
  * @returns {{ term, fitAddon, searchAddon, predictiveEcho }}
  */
-const createXtermInstance = ({ container, settings, theme, paneId, sessionId, onEdgeGutter }) => {
+const createXtermInstance = ({ container, settings, theme, paneId, sessionId, onEdgeGutter, onFileLinkClick = null }) => {
   const term = new Terminal({
     theme,
     fontFamily: normalizeTerminalFontFamily(settings.fontFamily),
@@ -73,6 +74,30 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
   };
 
   term.loadAddon(new WebLinksAddon());
+
+  // 터미널 출력의 파일 경로를 클릭 → 에디터로. http 링크는 위 WebLinksAddon 이 맡고,
+  // 이건 `src/x.ts:12:7` 같은 파일 경로만 잡는다(utils/terminalFileLinks.js).
+  // onFileLinkClick 이 없으면(원격 pane 등) 등록하지 않아 죽은 밑줄이 생기지 않는다.
+  if (onFileLinkClick && term.registerLinkProvider) {
+    term.registerLinkProvider({
+      provideLinks(bufferLineNumber, callback) {
+        const line = term.buffer.active.getLine(bufferLineNumber - 1);
+        if (!line) { callback(undefined); return; }
+        const text = line.translateToString(true);
+        const found = findFileLinks(text);
+        if (!found.length) { callback(undefined); return; }
+        callback(found.map((fl) => ({
+          // xterm range 는 1-based, end.x 는 포함 경계(inclusive) 라 +1 안 한다.
+          range: {
+            start: { x: fl.start + 1, y: bufferLineNumber },
+            end: { x: fl.end, y: bufferLineNumber },
+          },
+          text: fl.path,
+          activate() { onFileLinkClick(fl); },
+        })));
+      },
+    });
+  }
 
   term.loadAddon(new Unicode11Addon());
   term.unicode.activeVersion = '11';

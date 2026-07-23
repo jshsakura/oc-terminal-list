@@ -21,6 +21,7 @@ import { applyThemeVars } from './styles/themeUI';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
 import { authHeaders } from './utils/auth';
+import { resolveWorkspacePath } from './utils/terminalFileLinks';
 import { loadDraft, saveDraft } from './utils/quickInputDraft';
 import {
   makeLeaf, treeFromLegacyLayout, splitLeaf, removeLeaf, ensureTree,
@@ -606,6 +607,32 @@ function App() {
     liveTabIds: tabs.map((tb) => tb.id),
     pruneEnabled: !isRestoringWorkspace,
   });
+  // 터미널의 파일 경로 클릭 → 에디터로 연다. 워크스페이스 루트는 한 번만 가져와 캐시.
+  const workspaceRootRef = useRef('');
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    fetch('/api/files/workspace', { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.root) workspaceRootRef.current = d.root; })
+      .catch(() => { /* 경로 클릭이 안 될 뿐, 앱은 정상 */ });
+  }, [isAuthenticated]);
+  useEffect(() => {
+    const onOpenFile = (e) => {
+      const link = e?.detail;
+      if (!link?.path) return;
+      const rel = resolveWorkspacePath(link.path, {
+        workspaceRoot: workspaceRootRef.current,
+        cwd: link.cwd || '',
+      });
+      // 워크스페이스 밖이거나 홈 경로면 못 연다 — 조용히 무시(엉뚱한 파일 열지 않음).
+      if (rel == null) return;
+      handleFileOpen(rel);
+      // TODO: link.line 으로 해당 줄 이동 — handleFileOpen 이 line 인자를 받게 확장 필요.
+    };
+    window.addEventListener('iterm:open-file', onOpenFile);
+    return () => window.removeEventListener('iterm:open-file', onOpenFile);
+  }, [handleFileOpen]);
+
   const { editorHeight, isResizingEditor, onEditorResizeStart } = useEditorResize();
   const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);
   const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌

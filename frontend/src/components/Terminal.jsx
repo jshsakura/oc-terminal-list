@@ -575,6 +575,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       paneId,
       sessionId,
       onEdgeGutter: updateEdgeGutter,
+      // 터미널의 파일 경로 클릭 → App 이 에디터로 연다. 로컬 pane 만(원격은 워크스페이스가
+      // 다르다). App↔Terminal 은 이미 window 이벤트로 신호를 주고받으므로 prop 6단계
+      // 대신 그 패턴을 쓴다(iterm:activity / iterm:auth-prompt 와 동일).
+      onFileLinkClick: hostId ? null : (link) => {
+        window.dispatchEvent(new CustomEvent('iterm:open-file', {
+          detail: { ...link, cwd },
+        }));
+      },
     });
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;

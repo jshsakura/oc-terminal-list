@@ -255,6 +255,17 @@ Flow: watcher sees `working → idle` → Telegram message with an inline keyboa
 - **Never set `parse_mode`.** The body carries a raw terminal excerpt, so `*`, `_`, backticks and brackets appear arbitrarily; asking Telegram to parse it as Markdown fails the whole send with "unclosed entity" or silently drops characters. Plain text passes Korean, emoji and box-drawing through untouched (verified against the live API). Bodies are truncated to 4000 chars — over the limit Telegram rejects with 400 and the notification vanishes entirely.
 - This sends data outward: pane titles (your task text) and a few lines of screen content pass through Telegram's servers.
 
+## Terminal file-path links (P4, from orca)
+
+Clicking `src/components/Button.tsx:12:7` in terminal output opens that file in the editor. Ported from orca's `terminal-file-link-conformance.ts` cases. `utils/terminalFileLinks.js` is pure (17 tests); registration lives in `createXtermInstance` via `registerLinkProvider` (http links stay with `WebLinksAddon`).
+
+- **Spaced paths are deliberately not matched.** xterm's link model is a contiguous character range on one line; deciding which space is inside a path vs. sentence separation needs the hover point (orca had it, our range model does not). Better to catch only the certain cases than to open the wrong file.
+- URLs are excluded (scheme-prefixed) so `WebLinksAddon` owns them; bare words without a `dir/` segment are not paths (avoids linking "Button", "config").
+- Only **local** panes register the provider — remote panes have a different workspace root, so `onFileLinkClick` is null there and no dead underline appears.
+- `resolveWorkspacePath` maps the clicked path to a workspace-relative one: absolute paths must be inside `WORKSPACE_ROOT`, relative paths resolve against the pane cwd, `..` escaping the root → null (ignored). `~/` paths cannot be opened this way → null.
+- App↔Terminal use a `window` CustomEvent (`iterm:open-file`) rather than threading a prop 6 levels — same pattern as `iterm:activity` / `iterm:auth-prompt`.
+- **Not yet wired: line navigation.** `handleFileOpen(path, hostId)` takes no line arg; the parsed `line`/`column` are passed in the event but dropped. Monaco's `revealLineInCenter` makes this a small follow-up.
+
 ## Architecture rules (do not break)
 
 - **No LLM API calls from the backend.** The backend routes terminal stdin/stdout only. Vendor-neutral.
