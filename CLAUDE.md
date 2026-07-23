@@ -266,6 +266,17 @@ Clicking `src/components/Button.tsx:12:7` in terminal output opens that file in 
 - App↔Terminal use a `window` CustomEvent (`iterm:open-file`) rather than threading a prop 6 levels — same pattern as `iterm:activity` / `iterm:auth-prompt`.
 - **Not yet wired: line navigation.** `handleFileOpen(path, hostId)` takes no line arg; the parsed `line`/`column` are passed in the event but dropped. Monaco's `revealLineInCenter` makes this a small follow-up.
 
+## Terminal.jsx — what can and cannot move
+
+Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, updateEdgeGutter]`). Not all of it is equal:
+
+- `connect()` and the `socket.onmessage/onclose/onerror` handlers capture **effect-local variables** (`socket`, `cancelled`) and are the home of the hard-to-reproduce reconnect bugs. **Do not move these.** Tests cover state transitions, not timing.
+- The **fit/resize cluster** captures only **refs** (`fitAddonRef`, `wsRef`, `lastDimsRef`, …), which never go stale, so it moves out safely — `createFitController.js`. `computeFitResize` is the pure "when do we send a resize" core (send only when WS is open *and* dims changed); the controller owns the listeners and returns a dispose. This is the pattern for thinning Terminal.jsx further: move ref-only clusters, leave closure-capturing ones.
+
+⚠️ Resize/fit is a real-device concern (mobile keyboard, visualViewport). The 67 Terminal tests are the only net; after any change here, confirm on an actual device that resizing the window and opening/closing the editor still refit cleanly.
+
+## Frontend derivation utils
+
 ## Frontend derivation utils
 
 Pure derivations that used to live inline in `App.jsx` are extracted to `utils/` with their own tests, because **App.jsx has no render test** — logic left inside it is untested. `tabsWithMeta` (per-tab name/icon/color/persistence, following the active pane's identity) is now `tabModel.deriveTabMeta`; extension→Monaco language is `fileTypes.monacoLanguageForFile`. When thinning App, move the pure part out and test it there rather than trusting the whole component to be exercised.

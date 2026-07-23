@@ -36,6 +36,7 @@ import attachTerminalFileDrop from './terminal/attachTerminalFileDrop';
 import attachTerminalInteractions from './terminal/attachTerminalInteractions';
 import createInputQueue, { isLatencySensitiveInput, WS_BUFFER_HIGH_WATER } from './terminal/createInputQueue';
 import createOutputSink from './terminal/createOutputSink';
+import { attachFitController } from './terminal/createFitController';
 import createWebglController from './terminal/createWebglController';
 import createXtermInstance, { resolveContrast } from './terminal/createXtermInstance';
 import { buildWsUrl, fetchSessionClients, wsPathFor } from './terminal/sessionEndpoints';
@@ -1371,69 +1372,20 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // - 데스크탑: rAF 직후 빠르게 1회 fit 해서 열린 pane 들이 즉시 따라오게 한다.
     // - 모바일 visualViewport/키보드: 최종 크기 안정화 후 trailing fit 을 한 번 더 쏴서 떨림과
     //   중간 크기 고정을 동시에 피한다.
-    const doFit = (reason = 'resize') => {
-      if (!fitAddonRef.current) return;
-      const proposed = fitAddonRef.current.proposeDimensions();
-      if (!proposed || proposed.cols <= 0 || proposed.rows <= 0) return;
-      fitAddonRef.current.fit();
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        const dims = fitAddonRef.current.proposeDimensions();
-        if (dims && dims.cols > 0 && dims.rows > 0
-            && (dims.cols !== lastDimsRef.current.cols || dims.rows !== lastDimsRef.current.rows)) {
-          lastDimsRef.current = { cols: dims.cols, rows: dims.rows };
-          wsRef.current.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
-        }
-      }
-    };
-    fitNowRef.current = doFit;
-
-    const scheduleFit = (delay = 0, reason = 'resize') => {
-      if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
-      resizeTimeoutRef.current = setTimeout(() => {
-        resizeTimeoutRef.current = null;
-        requestAnimationFrame(() => doFit(reason));
-      }, delay);
-    };
-
-    const handleResize = () => {
-      // Skip intermediate fits during pane drag — a single fit fires via layoutSignal on mouseup
-      if (window.__paneResizingActive) return;
-      // 비활성 탭에서는 ResizeObserver 콜백 무시 — 활성화될 때 layoutSignal 효과로 fit 됨.
-      if (!isActiveRef.current) return;
-      predictiveEchoRef.current?.refreshMetrics(); // 셀 크기 바뀌었을 수 있으니 재측정.
-      scheduleFit(isMobileRef.current ? 160 : 32, 'observer');
-      if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
-      resizeTrailingTimeoutRef.current = setTimeout(() => doFit('observer-trailing'), isMobileRef.current ? 360 : 140);
-    };
-
-    const handleGlobalFit = () => {
-      if (window.__paneResizingActive) return;
-      if (!isActiveRef.current) return;
-      scheduleFit(0, 'global');
-      if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
-      resizeTrailingTimeoutRef.current = setTimeout(() => doFit('global-trailing'), 120);
-    };
-
-    // [중요] ResizeObserver를 통한 컨테이너 크기 변화 감지 (에디터 열고 닫기 등 레이아웃 변화 대응)
-    const observer = new ResizeObserver(() => handleResize());
-    if (terminalRef.current) observer.observe(terminalRef.current);
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('iterm:fit-terminals', handleGlobalFit);
-    if (window.visualViewport) {
-      window.visualViewport.addEventListener('resize', handleResize);
-    }
+    // fit/resize 클러스터는 createFitController.js 로 분리 — 캡처가 전부 ref 라 안전하다.
+    // dispose 는 아래 cleanup 에서 부른다.
+    const disposeFit = attachFitController({
+      fitAddonRef, wsRef, lastDimsRef, predictiveEchoRef,
+      resizeTimeoutRef, resizeTrailingTimeoutRef, isActiveRef, isMobileRef,
+      fitNowRef, containerRef: terminalRef,
+    });
 
     return () => {
+      disposeFit();
       cancelled = true;
       intentionalCloseRef.current = true;
       contentReadyRef.current = false;
       onReadyChangeRef.current?.(false);
-      if (observer) observer.disconnect();
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('iterm:fit-terminals', handleGlobalFit);
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', handleResize);
-      }
       interactions.detach();
       fileDrop.detach();
       try { wsRef.current?.close(); } catch {}
@@ -1452,8 +1404,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       graceCloseTimerRef.current = null;
       wasClosedForInactivityRef.current = false;
       try { term.dispose(); } catch {}
-      if (resizeTimeoutRef.current) clearTimeout(resizeTimeoutRef.current);
-      if (resizeTrailingTimeoutRef.current) clearTimeout(resizeTrailingTimeoutRef.current);
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (outageProbeTimerRef.current) {
         clearInterval(outageProbeTimerRef.current);
@@ -1470,7 +1420,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       inputRef.current = null;
       enqueueInputRef.current = null;
       probeLivenessRef.current = null;
-      fitNowRef.current = null;
     };
   }, [connectionKey, updateEdgeGutter]);
 
