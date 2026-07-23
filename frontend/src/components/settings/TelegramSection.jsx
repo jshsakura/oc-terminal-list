@@ -109,11 +109,11 @@ const TelegramSection = ({ t }) => {
         />
       </Field>
       <Field
-        label={t?.('telegramBaseUrl') || '앱 주소 (열기 링크)'}
+        label={t?.('telegramBaseUrl') || '앱 주소 (열기 버튼)'}
         hint={baseUrlFromEnv
           ? (t?.('telegramBaseUrlEnv') || 'PUBLIC_BASE_URL 환경변수로 설정됨 — 여기서는 수정할 수 없습니다.')
           : (t?.('telegramBaseUrlHint')
-            || '알림의 "열기" 링크가 가리킬 공개 주소(예: https://term.example.com). 비우면 링크가 붙지 않습니다.')}
+            || '알림의 "열기" 버튼이 가리킬 공개 주소(예: https://term.example.com). 비우면 버튼이 붙지 않습니다.')}
       >
         <input
           value={baseUrl}

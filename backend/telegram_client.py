@@ -59,17 +59,24 @@ async def get_me(token: str) -> dict:
 MAX_MESSAGE_CHARS = 4000
 
 
+def _render_button(b: dict) -> dict:
+    """버튼 하나 → 텔레그램 형식. 링크형(`url`) 과 콜백형(`callback_data`) 둘 다 지원.
+
+    링크 버튼은 눌러도 봇으로 콜백이 오지 않고 브라우저만 연다. callback_data 는
+    텔레그램이 **64바이트로 제한**하므로 짧게 유지해야 한다(액션명 + 세션ID 로 충분).
+    """
+    if b.get("url"):
+        return {"text": b["text"], "url": b["url"]}
+    return {"text": b["text"], "callback_data": b["callback_data"]}
+
+
 async def send_message(token: str, chat_id: str, text: str,
                        buttons: list[dict] | None = None) -> dict:
     """메시지 + 인라인 키보드.
 
-    `buttons` 는 [{"text": 라벨, "callback_data": 값}] — callback_data 는 텔레그램이
-    **64바이트로 제한**하므로 짧게 유지해야 한다(액션명 + 세션ID 로 충분).
-
-    ※ "열기" 링크는 **버튼이 아니라 본문 평문 URL** 로 넣는다 — 인라인 URL 버튼은
-    텔레그램 내부 WebView 로 열려 로그인 세션이 없는 브라우저에 붙고, 봇 API 로
-    외부 브라우저를 강제할 방법이 없다. 본문 링크는 길게 눌러 복사·외부 브라우저
-    선택이 가능하다.
+    `buttons` 항목은 콜백형 `{"text", "callback_data"}` 또는 링크형 `{"text", "url"}`.
+    **한 행에 모두 넣는다** — 행을 나누면 링크 버튼이 전폭이 되어 너무 커진다.
+    같은 행이면 폭을 나눠 가지므로 열기·계속·중단이 나란히 작게 놓인다.
     """
     # ⚠️ parse_mode 를 **켜지 마라.** 본문에는 터미널 화면 발췌가 들어가는데, 거기엔
     # `*` `_` `[` 백틱 같은 문자가 아무렇게나 섞여 있다. 마크다운으로 해석시키면
@@ -83,9 +90,9 @@ async def send_message(token: str, chat_id: str, text: str,
         "disable_web_page_preview": True,
     }
     if buttons:
-        payload["reply_markup"] = {"inline_keyboard": [[
-            {"text": b["text"], "callback_data": b["callback_data"]} for b in buttons
-        ]]}
+        payload["reply_markup"] = {
+            "inline_keyboard": [[_render_button(b) for b in buttons]]
+        }
     return await _call(token, "sendMessage", payload)
 
 
