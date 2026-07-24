@@ -48,15 +48,24 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
   // 현재 화면까지 강제로 끌려가는 UX가 된다. 초기 복원 시에만 syncActive=true 로 한 번 반영.
   const applyServerTabState = useCallback(async (serverState, { syncActive = false } = {}) => {
     if (!serverState) return;
+    // 살아있는 세션 "재입양"(orphan 주입)은 **초기 복원(syncActive)에서만** 한다.
+    // 라이브 동기화(SSE·409 충돌)에서까지 매번 하면 치명적이다:
+    //   (1) 적용마다 /api/sessions fetch → 요청 폭주,
+    //   (2) 다른 기기가 의도적으로 닫은 세션을 이쪽이 계속 되살려 되던지는 핑퐁 →
+    //       tab-state 버전이 무한히 튀며 리퀘스트 수백 개(=실제 겪은 폭주 + "탭이 터짐").
+    // 라이브에선 서버 상태(canonical)를 그대로 채택한다. (cf. project_tab_unwrap_sanitize)
     let aliveSessions = [];
-    try {
-      const r = await fetch('/api/sessions');
-      if (r.ok) aliveSessions = (await r.json()).filter((s) => s.alive);
-    } catch { /* noop */ }
+    if (syncActive) {
+      try {
+        const r = await fetch('/api/sessions');
+        if (r.ok) aliveSessions = (await r.json()).filter((s) => s.alive);
+      } catch { /* noop */ }
+    }
     setTabs((prev) => {
       const base = (serverState?.tabs?.length > 0)
         ? serverState.tabs.map(migrateTab)
         : prev;
+      if (!syncActive) return base;   // 라이브 동기화 — 주입 없이 서버 상태 그대로
       const knownIds = new Set(
         base.flatMap((t) => (t.panes || []).map((p) => p.sessionId).filter(Boolean))
       );
