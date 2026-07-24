@@ -201,39 +201,15 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   }, [diffViewByPath]);
 
   useEffect(() => {
-    let cancelled = false;
     if (!rawPreviewPath) {
       setRawPreviewUrl(null);
-      return undefined;
+      return;
     }
-
-    const loadRawPreviewTicket = async () => {
-      try {
-        const res = await fetch('/api/files/raw-ticket', {
-          method: 'POST',
-          headers: authHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({ path: rawPreviewPath }),
-        });
-        if (!res.ok) {
-          const errorData = await res.json().catch(() => ({}));
-          throw new Error(errorData.detail || 'Failed to create file preview ticket');
-        }
-        const data = await res.json();
-        if (!cancelled) {
-          setRawPreviewUrl(`/api/files/raw?ticket=${encodeURIComponent(data.ticket)}&_t=${Date.now()}`);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setRawPreviewUrl(null);
-          setError(error.message || 'Failed to create file preview ticket');
-        }
-      }
-    };
-
-    loadRawPreviewTicket();
-    return () => {
-      cancelled = true;
-    };
+    // <img> 는 same-origin 요청에 인증 쿠키를 자동으로 싣는다 — 별도 /api/files/raw-ticket
+    // POST 없이 ?path= 로 바로 로드한다. 그 POST 는 재연결마다 wedge 되는 공유 HTTP/2 풀을
+    // 재사용하던 취약점이었다(서버가 쿠키로 폴백 인증, 경로는 validate_path 로 워크스페이스
+    // 밖을 차단). _t 로 캐시를 우회해 편집 후에도 최신 원본을 보여준다.
+    setRawPreviewUrl(`/api/files/raw?path=${encodeURIComponent(rawPreviewPath)}&_t=${Date.now()}`);
   }, [rawPreviewPath]);
 
   // 활성 파일이 바뀌면 HEAD 원본을 lazy load. 변경분이 있으면 diff 모드로 자동 진입.

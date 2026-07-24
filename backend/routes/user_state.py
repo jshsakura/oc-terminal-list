@@ -13,11 +13,11 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
-from _deps import verify_auth_token
+from _deps import AUTH_COOKIE_NAME, verify_auth_token
 from agent_status_service import agent_status_watcher
 from models import CommandHistoryPushRequest
 from sqlite_storage import storage
@@ -210,15 +210,23 @@ async def create_sse_ticket(username: str = Depends(verify_auth_token)):
 
 
 @router.get("/api/tab-state/events")
-async def tab_state_events(ticket: str = Query(...)):
+async def tab_state_events(
+    ticket: str | None = Query(None),
+    auth_cookie: str | None = Cookie(None, alias=AUTH_COOKIE_NAME),
+):
     """tab-state 변경을 Server-Sent Events 로 푸시.
 
     연결 즉시 현재 updatedAt 을 전송하고, PUT /api/tab-state 가 저장할 때마다
     새 updatedAt 을 emit. 30초마다 keepalive comment 로 프록시 타임아웃 방지.
+
+    인증: 티켓 우선, 없으면 same-origin 쿠키 폴백. EventSource 는 same-origin 요청에
+    쿠키를 자동으로 실으므로, 재연결이 wedge 되는 /api/sse-ticket POST(공유 HTTP/2 풀
+    재사용)에 의존하지 않는다. CSRF 는 쿠키의 SameSite=Strict 가 막는다(앱 전역 규칙).
     """
-    username = _consume_sse_ticket(ticket)
+    username = _consume_sse_ticket(ticket) if ticket else None
     if not username:
-        raise HTTPException(status_code=401, detail="SSE 티켓이 유효하지 않거나 만료됨")
+        # 쿠키 폴백 — 무효면 verify_auth_token 이 401 을 던진다.
+        username = await verify_auth_token(None, auth_cookie)
 
     queue: asyncio.Queue = asyncio.Queue(maxsize=10)
 

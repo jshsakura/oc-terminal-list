@@ -120,6 +120,12 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 - **Same trust as every cookie endpoint:** fallback uses `verify_token`, which rejects scoped (ITL) / otp_pending tokens — a leaked `ITL_TOKEN` can't attach a WS.
 - **Client (`Terminal.jsx` `connect()`):** when the ticket fetch fails and it is **not** a 401 (i.e. the wedge case), it no longer bails — it opens the WS with no ticket and lets cookie auth bootstrap it. `buildWsUrl` omits the `ticket` param when falsy. Genuine auth expiry (401) still routes to the login screen; if the cookie is also dead the server closes 1008 and the next ticket fetch's 401 triggers login.
 
+**SSE and raw-file tickets got the same cookie fallback (2026-07-24).** Same wedge, same cure — but simpler, because both are ordinary GET routes (not a WS handshake), so they reuse `verify_auth_token` directly instead of `ws_auth`:
+- **SSE** (`/api/tab-state/events`, `useWorkspaceTabs.js`): the client now opens `new EventSource('/api/tab-state/events')` with **no** `/api/sse-ticket` POST — EventSource carries the same-origin cookie automatically. The endpoint takes ticket-or-cookie. This also removes the ticket POST that fed the SSE-reconnect storm.
+- **Raw file** (`/api/files/raw`, `FileEditor.jsx`): the `<img>` preview loads `?path=…` directly (cookie) with **no** `/api/files/raw-ticket` POST. The endpoint's non-ticket branch now accepts the cookie (`verify_auth_token(authorization, auth_cookie)`); `validate_path` still scopes the path to the workspace.
+- CSRF for these two is the app-wide convention — the cookie's `SameSite=Strict` — not a per-endpoint Origin check (a same-origin `<img>`/EventSource GET often sends no `Origin`, so requiring one would break it). The WS handshake keeps its stricter Origin check because browsers always send `Origin` there.
+- Ticket endpoints stay for backward-compat with cached clients; new clients don't call them.
+
 ## Tab/session close model (as of 2026-07)
 
 Closing a tab **terminates all its inner sessions** (no detach/keep-alive). `closeTab` always runs `closeAndTerminate`; there is no separate "kill session" menu item. Network-drop reconnection is unrelated resilience and still auto-recovers. See memory `project_close_session_model`.

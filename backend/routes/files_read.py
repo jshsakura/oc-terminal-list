@@ -15,11 +15,11 @@ import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from _deps import WORKSPACE_ROOT, validate_path, verify_auth_token
+from _deps import AUTH_COOKIE_NAME, WORKSPACE_ROOT, validate_path, verify_auth_token
 from file_index import (
     _FILE_INDEX_IGNORED, _FILE_INDEX_TTL, _build_file_index, _file_index_cache,
 )
@@ -200,6 +200,7 @@ async def get_raw_file(
     path: str | None = Query(None),
     ticket: str | None = Query(None),
     authorization: str | None = Header(None),
+    auth_cookie: str | None = Cookie(None, alias=AUTH_COOKIE_NAME),
 ):
     if ticket:
         ticket_path = _consume_file_ticket(ticket)
@@ -209,7 +210,10 @@ async def get_raw_file(
     else:
         if not path:
             raise HTTPException(status_code=400, detail="파일 경로가 필요합니다")
-        await verify_auth_token(authorization)
+        # Bearer 또는 same-origin 쿠키. <img>/다운로드는 헤더를 못 실으니 쿠키가 주 경로 —
+        # 재연결이 wedge 되는 /api/files/raw-ticket POST 에 의존하지 않게 한다. 경로는
+        # validate_path 로 워크스페이스 밖을 차단하고, CSRF 는 쿠키 SameSite=Strict 가 막는다.
+        await verify_auth_token(authorization, auth_cookie)
         safe = validate_path(path)
     if not safe.exists() or not safe.is_file():
         raise HTTPException(status_code=404, detail="File not found")
