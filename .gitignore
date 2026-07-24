@@ -91,3 +91,7 @@ opencode-resolve/
 
 # Local deployment helper (machine-specific service/user assumptions)
 deploy/local-deploy.sh
+
+# Handoff / 작업 인수인계 메모 — 세션 간 컨텍스트 전달용 작업 로그.
+# 코드가 아니라 진행 상황 기록이므로 레포에는 커밋하지 않는다(항구적 문서는 docs/ 로).
+handoff/
