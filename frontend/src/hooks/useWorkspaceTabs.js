@@ -196,12 +196,16 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
       if (cancelled || connecting || es) return;   // 단일 연결 강제
       connecting = true;
       try {
+        // NOTE(2026-07-24): 쿠키 폴백으로 티켓 fetch 를 없앴다가 되돌렸다 — 그 변경 직후
+        // SSE 폭주(리퀘스트 수백)가 재발. 이 경로는 [[project_sse_reconnect_storm]] 이력이
+        // 있어 known-good(티켓 방식)을 유지한다. 백엔드는 쿠키 폴백을 그대로 받지만
+        // 프론트는 티켓으로 연결한다.
+        const res = await fetch('/api/sse-ticket', { method: 'POST', headers: authHeaders() });
+        if (!res.ok || cancelled) { connecting = false; if (!cancelled) scheduleReconnect(); return; }
+        const { ticket } = await res.json();
         if (cancelled) { connecting = false; return; }
 
-        // EventSource 는 same-origin 요청에 인증 쿠키를 자동으로 싣는다 — 별도 /api/sse-ticket
-        // POST 없이 바로 연다. 그 POST 는 재연결마다 wedge 되는 공유 HTTP/2 풀을 재사용하던
-        // 취약점이자 SSE 재연결 폭주의 원인이었다(서버가 쿠키로 폴백 인증).
-        const source = new EventSource('/api/tab-state/events');
+        const source = new EventSource(`/api/tab-state/events?ticket=${encodeURIComponent(ticket)}`);
         es = source;
         connecting = false;
 
