@@ -31,6 +31,13 @@ describe('formatSessionTarget', () => {
   it('서버만 있으면 서버만', () => {
     expect(formatSessionTarget({ server: 'ubuntu@nas' })).toBe('ubuntu@nas');
   });
+  it('cwd(경로)까지 있으면 뒤에 붙인다', () => {
+    expect(formatSessionTarget({ server: 'nas', tmuxSession: 'abc', cwd: '/home/me/app' }))
+      .toBe('nas  tmux:abc  /home/me/app');
+  });
+  it('cwd 만 있어도 그것만', () => {
+    expect(formatSessionTarget({ cwd: '/tmp' })).toBe('/tmp');
+  });
   it('둘 다 없으면 빈 문자열', () => {
     expect(formatSessionTarget({})).toBe('');
     expect(formatSessionTarget()).toBe('');

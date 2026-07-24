@@ -13,18 +13,22 @@ const { color, font, fontWeight } = tokens;
  * 번호가 필요한 순간은 드물다. pane 에 마우스를 올리면 진해진다.
  * 단일 pane 탭에는 아예 그리지 않는다(부를 이름이 필요 없다).
  */
-const PaneAddressLabel = memo(({ paneNumber, fullAddress = null, isProminent = false }) => (
+const PaneAddressLabel = memo(({ paneNumber, fullAddress = null, isProminent = false, onCopy = null, copyLabel = '' }) => (
   <span
     className="iterm-pane-address"
-    aria-hidden
-    title={fullAddress ? `itl send ${fullAddress}` : undefined}
+    role={onCopy ? 'button' : undefined}
+    aria-hidden={onCopy ? undefined : true}
+    title={onCopy ? copyLabel : (fullAddress ? `itl send ${fullAddress}` : undefined)}
+    onClick={onCopy ? (e) => { e.stopPropagation(); onCopy(); } : undefined}
     style={{
       position: 'absolute',
       right: '6px',
       top: '4px',
       zIndex: 6,
-      // 터미널 글자 위에 얹히므로 클릭을 가로채면 안 된다.
-      pointerEvents: 'none',
+      // 평소엔 터미널 글자 위라 클릭 통과(pointerEvents none). 복사 핸들이 붙으면 이 작은
+      // 배지만 클릭 대상이 된다(주변 터미널 영역은 그대로 클릭 가능).
+      pointerEvents: onCopy ? 'auto' : 'none',
+      cursor: onCopy ? 'pointer' : 'default',
       minWidth: '15px',
       padding: '0 4px',
       borderRadius: '4px',

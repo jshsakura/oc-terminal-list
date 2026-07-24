@@ -15,6 +15,7 @@ import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
 import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
 import PaneAddressLabel from './PaneAddressLabel';
+import { buildSshAddr, formatSessionTarget } from '../../utils/sessionTarget';
 
 const Terminal = lazy(() => import('../Terminal'));
 const { color, font, fontSize, fontWeight, space } = tokens;
@@ -296,6 +297,22 @@ const Pane = ({
   const livePaneCwd = isLocal
     ? paneCwdRel
     : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null);
+
+  // pane 우상단 번호 클릭 → 이 pane 의 "접속주소 + tmux 세션 + 경로(cwd)" 를 클립보드로
+  // 복사(+토스트). "저 터미널 봐라" 처럼 특정 pane 을 지목/재접속할 때 쓰는 핸들.
+  const handleCopyPaneTarget = useCallback(() => {
+    const server = isLocal ? window.location.host : (buildSshAddr(remoteHost) || pane.hostId || '');
+    const tmuxSession = isLocal ? (pane.sessionId || '') : (pane.tmuxSessionName || '');
+    const cwd = paneCwdAbs || pane.cwd || '';
+    const target = formatSessionTarget({ server, tmuxSession, cwd });
+    if (!target) return;
+    const done = () => onNotify?.(`${t?.('copied') || 'Copied'}: ${target}`);
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(target).then(done).catch(() => onNotify?.(t?.('clipboardError') || 'Copy failed'));
+    } else {
+      done(); // 비보안 컨텍스트 — 최소한 무엇을 복사하려 했는지 보여준다.
+    }
+  }, [isLocal, remoteHost, pane, paneCwdAbs, onNotify, t]);
 
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭/pane 이름 갱신에 활용.
   // 원격은 workspace 상대경로가 없으므로 절대경로(paneCwdAbs)도 함께 보내 basename 으로 쓰게 한다.
@@ -599,6 +616,8 @@ const Pane = ({
                 paneNumber={paneIndex + 1}
                 fullAddress={paneAddress}
                 isProminent={isFocused || hover}
+                onCopy={handleCopyPaneTarget}
+                copyLabel={`${t?.('copyPaneTarget') || 'Copy server + tmux session + path'}${paneAddress ? ` · itl send ${paneAddress}` : ''}`}
               />
             )}
             {isBroadcasting && onToggleBroadcastExclude && (

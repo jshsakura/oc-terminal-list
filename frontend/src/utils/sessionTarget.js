@@ -16,10 +16,11 @@ export function buildSshAddr(host) {
   return `${user ? `${user}@` : ''}${name}${port}`;
 }
 
-/** "<접속주소>  tmux:<세션>" 한 줄. 둘 중 하나만 있으면 그것만. */
-export function formatSessionTarget({ server = '', tmuxSession = '' } = {}) {
+/** "<접속주소>  tmux:<세션>  <cwd>" 한 줄. 있는 조각만 이어 붙인다. */
+export function formatSessionTarget({ server = '', tmuxSession = '', cwd = '' } = {}) {
   const parts = [];
   if (server) parts.push(server);
   if (tmuxSession) parts.push(`tmux:${tmuxSession}`);
+  if (cwd) parts.push(cwd);
   return parts.join('  ');
 }
