@@ -20,7 +20,7 @@ export const Tab = memo(({
   isMobile = false,
   touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
   isPendingClose = false,
-  onSelect, onClose, onRequestClose, onConfirmClose, onCancelClose, onContextMenu, onMore,
+  onSelect, onCopyTarget, onClose, onRequestClose, onConfirmClose, onCancelClose, onContextMenu, onMore,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   t,
 }) => {
@@ -44,6 +44,9 @@ export const Tab = memo(({
   const showStatusMark = showPaneCount || isPermission || isWorking || isBusy;
   const markTint = isPermission ? color.danger : dotColor;
   const markPulse = (isWorking || isBusy) && !isPermission;
+  // 마크에 글자가 들어가나(permission '!' 또는 개수 숫자) — 그러면 알약형, 아니면 점.
+  // permission 은 '!' 를 우선한다: 개수보다 "너 결정 기다림" 이 급하다.
+  const hasMarkContent = isPermission || showPaneCount;
   const markLabel = isPermission
     ? (t?.('agentNeedsYou') || 'Waiting for you')
     : isWorking
@@ -144,11 +147,16 @@ export const Tab = memo(({
         if (!isActive) { e.currentTarget.style.background = 'var(--ui-mantle)'; e.currentTarget.style.color = color.muted; }
       }}
     >
-      {/* Ctrl+N 번호 — 박스 없이 모노 숫자만. 알림 뱃지 느낌 없이 식별만. */}
+      {/* Ctrl+N 번호 — 모노 숫자. 클릭하면 그 터미널의 접속주소+tmux 세션을 복사(+토스트).
+          "저 터미널 봐라" 처럼 특정 pane 을 지목/재접속할 때 쓰는 핸들. */}
       {index != null && index <= 9 && (
         <span
-          aria-hidden
-          title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
+          role="button"
+          tabIndex={-1}
+          title={t?.('copyTabTarget') || 'Copy server + tmux session'}
+          onClick={(e) => { e.stopPropagation(); onCopyTarget?.(tab.id); }}
+          onMouseEnter={(e) => { if (!isMobile) { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = color.text; } }}
+          onMouseLeave={(e) => { if (!isMobile) { e.currentTarget.style.opacity = isActive ? 0.95 : 0.75; e.currentTarget.style.color = isActive ? color.subtext : color.muted; } }}
           style={{
             fontFamily: font.mono,
             fontSize: '10px',
@@ -160,6 +168,7 @@ export const Tab = memo(({
             letterSpacing: 0,
             width: '10px',
             textAlign: 'center',
+            cursor: 'pointer',
           }}
         >
           {index}
@@ -197,9 +206,11 @@ export const Tab = memo(({
         >
           <HostIcon value={tab.icon || ''} fallback={Icon} size={iconSize} strokeWidth={1.9} />
           {showStatusMark && (
-            /* 개수 + 상태 통합 마크 (우상단). 숫자(pane 2개+)면 개수, 1개면 점.
-               working/busy 면 blink 애니메이션으로 깜빡이고, permission 이면 빨강 정적으로 또렷.
-               모노 숫자는 baseline 위로 살짝 떠 보여 아래로 미세 보정(translateY). */
+            /* 개수 + 상태 통합 마크 (우상단).
+               - permission: 빨강 '!' — 멈춰서 네 결정을 기다림. 깜빡이는 것들 사이에서
+                 정적 빨강 '!' 가 오히려 확 튄다("멈춰있으니 보아라").
+               - working/busy: 깜빡임. 숫자(pane 2개+)면 개수, 1개면 점.
+               모노 글자는 baseline 위로 살짝 떠 보여 아래로 미세 보정(translateY). */
             <span
               className={markPulse ? 'iterm-tab-busy-dot' : undefined}
               aria-hidden
@@ -210,12 +221,12 @@ export const Tab = memo(({
                 right: '-4px',
                 minWidth: '9px',
                 height: '9px',
-                padding: showPaneCount ? '0 1px' : 0,
+                padding: hasMarkContent ? '0 1px' : 0,
                 boxSizing: 'border-box',
                 display: 'inline-flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderRadius: showPaneCount ? '5px' : '50%',
+                borderRadius: hasMarkContent ? '5px' : '50%',
                 background: markTint,
                 color: color.crust,
                 fontSize: '6.5px',
@@ -228,9 +239,12 @@ export const Tab = memo(({
                 zIndex: stackedCount + 2,
               }}
             >
-              {showPaneCount && (
+              {isPermission ? (
+                /* '!' 는 개수 숫자보다 크고 굵게 — 경고가 확 읽히게. */
+                <span style={{ display: 'block', lineHeight: 1, fontSize: '8px', fontWeight: 800, transform: 'translateY(0.5px)' }}>!</span>
+              ) : showPaneCount ? (
                 <span style={{ display: 'block', lineHeight: 1, transform: 'translateY(0.5px)' }}>{paneCount}</span>
-              )}
+              ) : null}
             </span>
           )}
         </span>

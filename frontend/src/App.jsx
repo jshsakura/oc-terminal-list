@@ -23,6 +23,7 @@ import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
 import { authHeaders } from './utils/auth';
 import { resolveWorkspacePath } from './utils/terminalFileLinks';
+import { buildSshAddr, formatSessionTarget } from './utils/sessionTarget';
 import { loadDraft, saveDraft } from './utils/quickInputDraft';
 import {
   makeLeaf, treeFromLegacyLayout, splitLeaf, removeLeaf, ensureTree,
@@ -549,6 +550,38 @@ function App() {
   });
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
+
+  /* 탭 번호 클릭 → 그 탭 활성 pane 의 "접속주소 + tmux 세션" 을 클립보드로 복사.
+     특정 터미널을 지목("저거 봐라")·재접속할 때 쓰는 핸들. 로컬=웹 접속주소+sessionId,
+     원격=SSH주소+원격 tmux 세션명. 복사 결과를 알림 토스트로 그대로 보여준다. */
+  const handleCopyTabTarget = useCallback((tabId) => {
+    const tab = tabs.find((tt) => tt.id === tabId);
+    const panes = tab?.panes || [];
+    const pane = panes.find((p) => p.id === tab.activePaneId) || panes[0];
+    if (!pane) return;
+    let server = '';
+    let tmuxSession = '';
+    if (pane.hostId) {
+      const host = hosts.find((h) => h.id === pane.hostId);
+      server = buildSshAddr(host) || pane.hostId;
+      tmuxSession = host?.use_remote_tmux === false
+        ? '' : computePaneTmuxSession(host, tab, pane, panes.indexOf(pane));
+    } else {
+      server = window.location.host;
+      tmuxSession = pane.sessionId || '';
+    }
+    const target = formatSessionTarget({ server, tmuxSession });
+    if (!target) return;
+    const ok = () => setNotification({ isOpen: true, message: `${t('copied') || 'Copied'}: ${target}`, type: 'success' });
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(target).then(ok).catch(() => {
+        setNotification({ isOpen: true, message: t('clipboardError') || 'Copy failed', type: 'error' });
+      });
+    } else {
+      ok(); // 비보안 컨텍스트 등 — 최소한 무엇을 복사하려 했는지 보여준다.
+    }
+  }, [tabs, hosts, computePaneTmuxSession, t]);
+
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // SSH keyboard-interactive prompt 가 열려 있는지 — 모바일 단축키바 가림 처리.
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
@@ -861,6 +894,7 @@ function App() {
           });
         }}
         onSelect={setActiveTabId}
+        onCopyTarget={handleCopyTabTarget}
         onClose={closeTab}
         onCloseImmediate={(tabId) => closeTab(tabId, { skipConfirm: true })}
         onHome={() => setActiveTabId(null)}

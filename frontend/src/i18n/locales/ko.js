@@ -588,6 +588,7 @@ export const ko = {
     more: '더 보기',
     close: '닫기',
     switchToTab: '이 탭으로 전환',
+    copyTabTarget: '접속주소 + tmux 세션 복사',
     closeTab: '탭 닫기',
     confirmCloseTab: '이 탭을 닫을까요? 내부 세션이 모두 종료됩니다.',
     reloadTerminals: '터미널 새로고침',

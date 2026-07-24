@@ -591,6 +591,7 @@ export const en = {
     more: 'More',
     close: 'Close',
     switchToTab: 'Switch to tab',
+    copyTabTarget: 'Copy server + tmux session',
     closeTab: 'Close tab',
     confirmCloseTab: 'Close this tab? All sessions in it will end.',
     reloadTerminals: 'Reload terminals',
