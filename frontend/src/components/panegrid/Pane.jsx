@@ -298,13 +298,18 @@ const Pane = ({
     ? paneCwdRel
     : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null);
 
-  // pane 우상단 번호 클릭 → 이 pane 의 "접속주소 + tmux 세션 + 경로(cwd)" 를 클립보드로
-  // 복사(+토스트). "저 터미널 봐라" 처럼 특정 pane 을 지목/재접속할 때 쓰는 핸들.
+  // pane 우상단 번호 클릭 → 이 pane 의 **LLM 친화 핸들**을 클립보드로 복사(+토스트).
+  // "저 터미널(2.3) 봐줘" 처럼 LLM 에게 지목할 때 붙여넣는다. 웹 도메인은 빼고(LLM 에겐
+  // 무용지물) itl 주소 · tmux 세션 · 경로만. 원격은 어느 머신인지 SSH 주소를 함께.
   const handleCopyPaneTarget = useCallback(() => {
-    const server = isLocal ? window.location.host : (buildSshAddr(remoteHost) || pane.hostId || '');
     const tmuxSession = isLocal ? (pane.sessionId || '') : (pane.tmuxSessionName || '');
     const cwd = paneCwdAbs || pane.cwd || '';
-    const target = formatSessionTarget({ server, tmuxSession, cwd });
+    const target = formatSessionTarget({
+      address: paneAddress || '',
+      server: isLocal ? '' : (buildSshAddr(remoteHost) || pane.hostId || ''),
+      tmuxSession,
+      cwd,
+    });
     if (!target) return;
     const done = () => onNotify?.(`${t?.('copied') || 'Copied'}: ${target}`);
     if (navigator.clipboard?.writeText) {
@@ -312,7 +317,7 @@ const Pane = ({
     } else {
       done(); // 비보안 컨텍스트 — 최소한 무엇을 복사하려 했는지 보여준다.
     }
-  }, [isLocal, remoteHost, pane, paneCwdAbs, onNotify, t]);
+  }, [paneAddress, isLocal, remoteHost, pane, paneCwdAbs, onNotify, t]);
 
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭/pane 이름 갱신에 활용.
   // 원격은 workspace 상대경로가 없으므로 절대경로(paneCwdAbs)도 함께 보내 basename 으로 쓰게 한다.

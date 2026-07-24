@@ -21,6 +21,14 @@ describe('buildSshAddr', () => {
 });
 
 describe('formatSessionTarget', () => {
+  it('itl 주소를 맨 앞에 둔다 (LLM 핸들)', () => {
+    expect(formatSessionTarget({ address: '2.3', tmuxSession: 'abc', cwd: '/w' }))
+      .toBe('2.3  tmux:abc  /w');
+  });
+  it('원격은 itl주소 + ssh주소 + tmux + cwd', () => {
+    expect(formatSessionTarget({ address: '3.1', server: 'pi@10.0.0.5', tmuxSession: 'mobile-xx', cwd: '/home/pi' }))
+      .toBe('3.1  pi@10.0.0.5  tmux:mobile-xx  /home/pi');
+  });
   it('접속주소 + tmux 세션', () => {
     expect(formatSessionTarget({ server: 'term.example.com', tmuxSession: 'abc-123' }))
       .toBe('term.example.com  tmux:abc-123');

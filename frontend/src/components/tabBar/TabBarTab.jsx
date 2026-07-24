@@ -20,7 +20,7 @@ export const Tab = memo(({
   isMobile = false,
   touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
   isPendingClose = false,
-  onSelect, onCopyTarget, onClose, onRequestClose, onConfirmClose, onCancelClose, onContextMenu, onMore,
+  onSelect, onClose, onRequestClose, onConfirmClose, onCancelClose, onContextMenu, onMore,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   t,
 }) => {
@@ -147,16 +147,12 @@ export const Tab = memo(({
         if (!isActive) { e.currentTarget.style.background = 'var(--ui-mantle)'; e.currentTarget.style.color = color.muted; }
       }}
     >
-      {/* Ctrl+N 번호 — 모노 숫자. 클릭하면 그 터미널의 접속주소+tmux 세션을 복사(+토스트).
-          "저 터미널 봐라" 처럼 특정 pane 을 지목/재접속할 때 쓰는 핸들. */}
+      {/* Ctrl+N 번호 — 박스 없이 모노 숫자만. 알림 뱃지 느낌 없이 식별만.
+          (복사는 각 pane 우상단의 itl 주소 번호에 붙어 있다 — PaneAddressLabel) */}
       {index != null && index <= 9 && (
         <span
-          role="button"
-          tabIndex={-1}
-          title={t?.('copyTabTarget') || 'Copy server + tmux session'}
-          onClick={(e) => { e.stopPropagation(); onCopyTarget?.(tab.id); }}
-          onMouseEnter={(e) => { if (!isMobile) { e.currentTarget.style.opacity = 1; e.currentTarget.style.color = color.text; } }}
-          onMouseLeave={(e) => { if (!isMobile) { e.currentTarget.style.opacity = isActive ? 0.95 : 0.75; e.currentTarget.style.color = isActive ? color.subtext : color.muted; } }}
+          aria-hidden
+          title={`${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${index})`}
           style={{
             fontFamily: font.mono,
             fontSize: '10px',
@@ -168,7 +164,6 @@ export const Tab = memo(({
             letterSpacing: 0,
             width: '10px',
             textAlign: 'center',
-            cursor: 'pointer',
           }}
         >
           {index}

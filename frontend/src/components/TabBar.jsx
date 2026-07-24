@@ -17,8 +17,6 @@ const TabBar = ({
   activeTabId,
   busyTabIds,
   onSelect,
-  /* (tabId) → 탭 번호 클릭 시 그 터미널의 접속주소+tmux 세션을 클립보드로 복사. */
-  onCopyTarget = null,
   onClose,
   onHome,
   onOpenHosts,
@@ -229,7 +227,6 @@ const TabBar = ({
             isPendingClose={pendingCloseTabId === tab.id}
             /* 모두 useEvent 로 안정화된 dispatcher — Tab 의 memo() 가 유효해짐 */
             onSelect={handleSelectTab}
-            onCopyTarget={onCopyTarget}
             onClose={handleCloseTab}
             onRequestClose={handleRequestClose}
             onConfirmClose={handleConfirmClose}
