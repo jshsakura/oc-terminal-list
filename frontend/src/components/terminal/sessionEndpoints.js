@@ -32,7 +32,9 @@ export const buildWsUrl = ({
   clientId,
 }) => {
   const params = new URLSearchParams();
-  params.set('ticket', ticket);
+  // 티켓이 없으면(발급 실패 — wedge 된 HTTP 풀) 파라미터를 생략한다. 서버가 same-origin
+  // 쿠키로 폴백 인증하므로 티켓 없이도 연결이 부트스트랩된다(ws_auth.py).
+  if (ticket) params.set('ticket', ticket);
   params.set('cols', String(cols));
   params.set('rows', String(rows));
 

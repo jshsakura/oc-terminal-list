@@ -778,27 +778,25 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         connectInFlightRef.current = false;
       }
       if (cancelled) return;
-      if (!wsTicket) {
-        if (reconnectAttemptsRef.current < 2) logger.warn(`WebSocket ticket 발급 실패: ${sessionId}`);
-        if (ticketAuthExpired) {
-          /* 세션 만료/로그아웃 — issueWsTicket 이 이미 auth:session-expired 를 쏴서 로그인 화면으로
-             전환된다. 여기서 "셸 종료" 오버레이까지 띄우면 로그아웃마다 무서운 에러가 겹쳐 보인다.
-             연결 UI 만 조용히 내린다 — 재로그인하면 탭/세션이 자동 복원된다. */
-          intentionalCloseRef.current = true;
-          reconnectingRef.current = false;
-          setReconnecting(false);
-          setIsReady(false);
-          setConnectionNotice('');
-          return;
-        }
-        if (autoRecover
-            && scheduleReconnect(createIfMissing, t('networkReconnect') || 'Network connection changed. Reconnecting...')) {
-          return;
-        }
-        // 버스트를 다 소진해도 막다른 "셸 종료" 로 끝내지 않는다 — 차분한 pill 을 유지하면
-        // 워치독이 계속 재시도해 터널/서버가 돌아오면 새로고침 없이 자동 복구된다.
-        keepReconnectingPill(t('networkReconnect') || 'Network connection changed. Reconnecting...');
+      if (!wsTicket && ticketAuthExpired) {
+        /* 세션 만료/로그아웃 — issueWsTicket 이 이미 auth:session-expired 를 쏴서 로그인 화면으로
+           전환된다. 여기서 "셸 종료" 오버레이까지 띄우면 로그아웃마다 무서운 에러가 겹쳐 보인다.
+           연결 UI 만 조용히 내린다 — 재로그인하면 탭/세션이 자동 복원된다. */
+        intentionalCloseRef.current = true;
+        reconnectingRef.current = false;
+        setReconnecting(false);
+        setIsReady(false);
+        setConnectionNotice('');
         return;
+      }
+      /* [쿠키 폴백 부트스트랩 — 근본 수정] 티켓 발급이 실패해도(401 아님 = 대개 공유 HTTP/2 풀
+         wedge: 모바일 네트워크 전환/Cloudflare 터널) 여기서 멈추지 않는다. 티켓 없이 곧장 fresh
+         WS 를 열고 same-origin 쿠키(iterm_auth, SameSite=Strict)로 인증한다(서버 ws_auth.py).
+         새 WS 는 새 TCP 라 wedge 된 풀을 우회하므로 새로고침 없이 재연결이 부트스트랩된다.
+         쿠키까지 무효면 서버가 1008 로 닫고 → onclose 가 재시도 → 다음 티켓 fetch 가 401 을
+         받으면 그때 로그인으로 전환된다(막다른 pill 무한루프 없음). */
+      if (!wsTicket && reconnectAttemptsRef.current < 2) {
+        logger.warn(`WS 티켓 없이 쿠키 인증으로 연결 시도: ${sessionId}`);
       }
 
       const wsUrl = buildWsUrl({

@@ -110,6 +110,16 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 - `GET /api/files/grep?q=` — ripgrep workspace content search (file explorer content-search toggle).
 - Session REST endpoints (`/api/sessions/{id}/...`) enforce ownership via `_assert_session_owner` (same check as the WS route).
 
+## WS reconnect auth — ticket first, same-origin cookie fallback (2026-07-24)
+
+**The root cause of "all panes stuck on 다시 연결 중 until a refresh":** WS reconnect needed a `/api/ws-ticket` HTTP fetch to get a ticket, and that fetch reuses the browser's **shared HTTP/2 connection** — the one that wedges on mobile network switches / the Cloudflare single tunnel. When it wedges, no ticket → no reconnect → only a page reload (fresh connection pool) recovers. The pre-pushed ticket (`_push_ws_tickets`, 10s interval / 30s TTL) bypasses this, but only if a valid stash exists — it doesn't on first connect, after >30s disconnect (phone locked), or once burned by a failed attempt.
+
+**Fix (`backend/ws_auth.py`):** the WS handshake authenticates by ticket **or**, if none, by the same-origin auth cookie (`iterm_auth`). A fresh WebSocket is always a fresh TCP connection, so it sidesteps the wedged HTTP/2 pool, and the cookie rides the handshake automatically — reconnect no longer depends on an HTTP fetch. Both `routes/terminal_ws.py` and `routes/host_ws.py` call `authenticate_ws()`.
+
+- **CSWSH defense:** the cookie is `SameSite=Strict` (browser won't attach it cross-site) **plus** an Origin check — cookie fallback is refused unless `Origin` is in `ALLOWED_ORIGINS` (or, when that's unset/wildcard, `Origin` host == `Host`). No `Origin` header (non-browser) → cookie fallback refused. Tickets are unaffected by the Origin check.
+- **Same trust as every cookie endpoint:** fallback uses `verify_token`, which rejects scoped (ITL) / otp_pending tokens — a leaked `ITL_TOKEN` can't attach a WS.
+- **Client (`Terminal.jsx` `connect()`):** when the ticket fetch fails and it is **not** a 401 (i.e. the wedge case), it no longer bails — it opens the WS with no ticket and lets cookie auth bootstrap it. `buildWsUrl` omits the `ticket` param when falsy. Genuine auth expiry (401) still routes to the login screen; if the cookie is also dead the server closes 1008 and the next ticket fetch's 401 triggers login.
+
 ## Tab/session close model (as of 2026-07)
 
 Closing a tab **terminates all its inner sessions** (no detach/keep-alive). `closeTab` always runs `closeAndTerminate`; there is no separate "kill session" menu item. Network-drop reconnection is unrelated resilience and still auto-recovers. See memory `project_close_session_model`.

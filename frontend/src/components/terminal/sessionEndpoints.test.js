@@ -26,6 +26,13 @@ describe('buildWsUrl', () => {
     expect(q.get('client_id')).toBe('client-9');
   });
 
+  it('티켓이 없으면(발급 실패=wedge) ticket 파라미터를 생략한다 — 서버가 쿠키로 폴백 인증', () => {
+    expect(query(buildWsUrl({ ...base, ticket: null })).get('ticket')).toBeNull();
+    expect(query(buildWsUrl({ ...base, ticket: '' })).get('ticket')).toBeNull();
+    // 티켓 없이도 나머지 계약은 그대로 실린다.
+    expect(query(buildWsUrl({ ...base, ticket: null })).get('client_id')).toBe('client-9');
+  });
+
   it('호스트 세션은 /ws/host/<hostId> 로 가고 셸은 싣지 않는다', () => {
     // 원격 셸은 호스트 설정이 정한다 — 로컬 defaultShell 을 보내면 안 된다.
     const url = buildWsUrl({ ...base, hostId: 'h1', shell: 'zsh' });

@@ -17,8 +17,9 @@ from cache import invalidate_session
 from rate_limit import check_rate_limit
 from session_launch import _resolve_create_cwd, _resolve_shell
 from sqlite_storage import storage
-from tickets import _consume_ws_ticket, _push_ws_tickets
+from tickets import _push_ws_tickets
 from tmux_manager import tmux_manager
+from ws_auth import authenticate_ws
 from ws_bridge import TmuxClientBridge
 from ws_clients import _register_ws_client, _unregister_ws_client
 
@@ -44,7 +45,9 @@ async def terminal_websocket(
         return
 
     ws_path = f"/ws/{session_id}"
-    username = _consume_ws_ticket(ticket, ws_path) if ticket else None
+    # 티켓 우선, 없거나 만료면 same-origin 쿠키 폴백(ws_auth 참고) — 재연결이 wedge 되는
+    # HTTP 티켓 fetch 에 의존하지 않게 하는 근본 수정.
+    username = await authenticate_ws(websocket, ws_path, ticket)
     if not username:
         await websocket.close(code=1008, reason="인증 필요")
         return

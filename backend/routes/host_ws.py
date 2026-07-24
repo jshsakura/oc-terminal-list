@@ -14,7 +14,8 @@ from _deps import is_safe_id
 from cache import invalidate_host
 from host_manager import HostBridge, resolve_host_secrets
 from sqlite_storage import storage
-from tickets import _consume_ws_ticket, _push_ws_tickets
+from tickets import _push_ws_tickets
+from ws_auth import authenticate_ws
 from ws_clients import _register_ws_client, _unregister_ws_client
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,8 @@ async def host_websocket(
         return
 
     ws_path = f"/ws/host/{host_id}"
-    username = _consume_ws_ticket(ticket, ws_path) if ticket else None
+    # 티켓 우선, 없거나 만료면 same-origin 쿠키 폴백(ws_auth 참고).
+    username = await authenticate_ws(websocket, ws_path, ticket)
     if not username:
         await websocket.close(code=1008, reason="인증 필요")
         return
