@@ -1,7 +1,22 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { migrateTab, makLocalTab } from '../utils/tabModel';
+import { areTabsEquivalent, tabsFingerprint, pickFallbackTabId } from '../utils/tabStateSync';
 import { authHeaders } from '../utils/auth';
 import { applyAgentStatusChanges, hydrateAgentStatus } from '../utils/agentStatusStore';
+
+/**
+ * 어느 탭에도 안 붙어 있는 살아있는 세션을 앞쪽 탭으로 되살린다.
+ * 되살릴 게 없으면 **입력 배열을 그대로** 돌려준다 — 호출부가 참조 동일성으로
+ * "변경 없음"을 판정해 불필요한 저장(PUT)을 건너뛸 수 있게.
+ */
+const injectOrphanSessions = (tabs, aliveSessions) => {
+  const knownIds = new Set(
+    tabs.flatMap((t) => (t.panes || []).map((p) => p.sessionId).filter(Boolean))
+  );
+  const missing = aliveSessions.filter((s) => !knownIds.has(s.id));
+  if (!missing.length) return tabs;
+  return [...missing.map((s) => makLocalTab(s.id, s.name || 'terminal', s.cwd || null)), ...tabs];
+};
 
 /**
  * 워크스페이스 탭 상태 + 영속의 단일 소유 모듈.
@@ -31,10 +46,19 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
   }, [activeTabId]);
 
   // validate active tab still exists (activeTabId=null 은 홈 화면 의도이므로 건드리지 않음)
+  // 사라졌으면 첫 탭이 아니라 **그 자리의 이웃**으로 간다 — 다른 기기가 내가 보던 탭을 닫았을 때
+  // 화면이 맨 앞으로 확 튀는 게 "탭이 자꾸 이동한다"의 체감 원인이었다.
+  const lastActiveIndexRef = useRef(0);
   useEffect(() => {
-    if (activeTabId && !tabs.some((t) => t.id === activeTabId)) {
-      setActiveTabId(tabs[0]?.id || null);
+    const index = tabs.findIndex((t) => t.id === activeTabId);
+    if (index >= 0) {
+      lastActiveIndexRef.current = index;
+      return;
     }
+    // 탭이 하나도 없을 땐 기억을 지우지 않는다 — 부팅 직후 (복원 전) 탭 목록은 비어 있고,
+    // 여기서 지워버리면 이 기기가 보던 탭이 사라져 서버(=다른 기기) 값을 채택하게 된다.
+    // 사용자가 마지막 탭을 닫는 경우엔 App.closeTab 이 직접 null 로 만든다.
+    if (activeTabId && tabs.length > 0) setActiveTabId(pickFallbackTabId(tabs, lastActiveIndexRef.current));
   }, [tabs, activeTabId]);
 
   // 서버 탭 상태의 마지막 적용 버전. 자기 자신의 PUT 응답으로 갱신해
@@ -42,6 +66,10 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
   const lastAppliedTabVersionRef = useRef(null);
   // 로컬에서 입력 중 (debounce 대기) 인지 — 폴링이 도중에 덮어쓰지 않게 가드.
   const localDirtyRef = useRef(false);
+  // 마지막으로 서버와 일치한다고 아는 탭 내용의 지문. PUT 성공 시 / 서버 상태를 그대로
+  // 채택했을 때 갱신하고, 저장 effect 는 지문이 같으면 PUT 자체를 건너뛴다.
+  // 이게 두 기기 사이 tab-state 에코 왕복(내용 동일한데 버전만 계속 튀는)을 끊는 두 번째 자물쇠.
+  const syncedTabsFingerprintRef = useRef(null);
 
   // 다른 기기에서 받은 서버 상태를 로컬에 적용 (alive 세션 머지 포함).
   // 중요: activeTabId 는 라이브 동기화하지 않는다. 다른 기기/탭에서 활성 탭을 바꿀 때
@@ -61,22 +89,36 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
         if (r.ok) aliveSessions = (await r.json()).filter((s) => s.alive);
       } catch { /* noop */ }
     }
-    setTabs((prev) => {
-      const base = (serverState?.tabs?.length > 0)
-        ? serverState.tabs.map(migrateTab)
-        : prev;
-      if (!syncActive) return base;   // 라이브 동기화 — 주입 없이 서버 상태 그대로
-      const knownIds = new Set(
-        base.flatMap((t) => (t.panes || []).map((p) => p.sessionId).filter(Boolean))
-      );
-      const missing = aliveSessions.filter((s) => !knownIds.has(s.id));
-      return missing.length
-        ? [...missing.map((s) => makLocalTab(s.id, s.name || 'terminal', s.cwd || null)), ...base]
-        : base;
-    });
-    if (syncActive && serverState?.activeTabId !== undefined) {
-      setActiveTabId(serverState.activeTabId || null);
+    const incoming = (serverState?.tabs?.length > 0) ? serverState.tabs.map(migrateTab) : null;
+    // 내용이 이미 같으면 **참조를 유지**한다. 새 배열을 돌려주면 저장 effect 가 다시 돌아
+    // 같은 내용을 PUT → 서버가 버전을 새로 찍음 → 상대 기기가 또 적용 → … 무한 왕복.
+    const keepIfSame = (prev, next) => (areTabsEquivalent(prev, next) ? prev : next);
+
+    if (!syncActive) {
+      // 라이브 동기화 — 서버가 canonical. 서버에 탭이 없으면 로컬을 건드리지 않는다.
+      if (!incoming) return;
+      setTabs((prev) => keepIfSame(prev, incoming));
+      syncedTabsFingerprintRef.current = tabsFingerprint(incoming);
+      if (serverState?.updatedAt) lastAppliedTabVersionRef.current = serverState.updatedAt;
+      return;
     }
+
+    const injected = incoming ? injectOrphanSessions(incoming, aliveSessions) : null;
+    if (injected) {
+      setTabs((prev) => keepIfSame(prev, injected));
+      // 주입 없이 서버 상태 그대로면 이미 서버와 일치 — 로그인 직후 무의미한 PUT 을 막는다.
+      if (injected === incoming) syncedTabsFingerprintRef.current = tabsFingerprint(incoming);
+    } else {
+      // 서버에 저장된 탭이 없다 — 로컬 상태를 유지하되 살아있는 세션만 되살린다.
+      setTabs((prev) => injectOrphanSessions(prev, aliveSessions));
+    }
+    // 복원 시 활성 탭: **이 기기가 보던 탭이 아직 살아있으면 그걸 유지**한다. 서버 값은
+    // 마지막으로 저장한 아무 기기의 것이라, 무조건 채택하면 새로고침할 때마다 PC 가 보던
+    // 탭으로 끌려간다. 이 기기에 기억된 탭이 없거나 사라졌을 때만 서버 값으로.
+    setActiveTabId((prev) => {
+      if (prev && (!injected || injected.some((t) => t.id === prev))) return prev;
+      return serverState?.activeTabId || null;
+    });
     if (serverState?.updatedAt) lastAppliedTabVersionRef.current = serverState.updatedAt;
   }, []);
 
@@ -123,10 +165,15 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
   //   2) ifMatch (= 마지막으로 본 서버 updatedAt) 동봉 — 다른 기기가 그 사이 더 새 상태를
   //      썼다면 서버가 409 반환. 그땐 즉시 서버 상태로 동기화 (stale 클라이언트가 더 풍부한
   //      상태를 덮어쓰는 사고 방지).
+  //   3) 지문 비교 — 서버와 내용이 같으면 PUT 자체를 안 한다. 서버는 내용이 같아도 저장할
+  //      때마다 updated_at 을 새로 찍고 그게 SSE 로 상대 기기에 전파되므로, 이 가드가 없으면
+  //      두 기기가 같은 내용을 영원히 되받아친다.
   const _saveTabTimer = useRef(null);
   useEffect(() => {
     if (!isAuthenticated) return;
     if (isRestoringWorkspace) return;
+    const fingerprint = tabsFingerprint(tabs);
+    if (fingerprint === syncedTabsFingerprintRef.current) return;   // 서버와 동일 — 보낼 것 없음
     localDirtyRef.current = true;
     if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current);
     _saveTabTimer.current = setTimeout(async () => {
@@ -149,11 +196,18 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
         } else if (res.ok) {
           const data = await res.json().catch(() => null);
           if (data?.updatedAt) lastAppliedTabVersionRef.current = data.updatedAt;
+          syncedTabsFingerprintRef.current = fingerprint;   // 이제 서버와 일치
         }
       } catch { /* offline ok — 다음 변경에 다시 시도 */ }
       localDirtyRef.current = false;
     }, 800);
-    return () => { if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current); };
+    return () => {
+      if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current);
+      // 예약이 취소됐으면 "저장 대기 중"도 아니다. 이걸 안 풀면 dirty 가 true 로 박혀
+      // SSE 라이브 동기화가 다음 로컬 변경 때까지 통째로 무시된다 — 마운트 직후 (복원 시작
+      // 전에 한 번 예약됐다가 isRestoringWorkspace 로 취소되는) 경로에서 실제로 그랬다.
+      localDirtyRef.current = false;
+    };
   }, [tabs, isAuthenticated, isRestoringWorkspace, applyServerTabState]);
 
   // 다른 기기 (PC↔모바일) tab-state 변경을 SSE 로 수신 — 폴링 제거.
@@ -181,6 +235,7 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
     const MAX_DELAY = 30000;
 
     const applyIfChanged = async (updatedAt) => {
+      console.log('DBG applyIfChanged', updatedAt, lastAppliedTabVersionRef.current, localDirtyRef.current);
       if (!updatedAt || updatedAt === lastAppliedTabVersionRef.current) return;
       if (localDirtyRef.current) return;
       try {

@@ -278,6 +278,15 @@ async def put_tab_state(
                 content={"detail": "tab-state version mismatch", "current": current_state},
             )
     tabs, active_tab_id = await _sanitize_tab_state(request.tabs, request.activeTabId)
+
+    # 내용이 그대로면 새 버전을 찍지 않는다 (no-op write 차단).
+    # save_tab_state 는 내용과 무관하게 updated_at 을 새로 찍고, 그 값이 SSE 로 다른 기기에
+    # 전파된다. 받은 기기는 상태를 적용하고 그 적용이 다시 자기 PUT 을 부르므로, 기기 두 대만
+    # 켜져 있어도 같은 내용이 1초 주기로 무한히 오간다. 여기서 끊는 게 근본이다.
+    existing = await storage.get_tab_state(username)
+    if existing and existing.get("tabs") == tabs and existing.get("activeTabId") == active_tab_id:
+        return {"status": "unchanged", "updatedAt": existing.get("updatedAt")}
+
     updated_at = await storage.save_tab_state(username, tabs, active_tab_id)
     _notify_tab_state_change(username, updated_at)
     return {"status": "saved", "updatedAt": updated_at}

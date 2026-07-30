@@ -130,6 +130,22 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 
 Closing a tab **terminates all its inner sessions** (no detach/keep-alive). `closeTab` always runs `closeAndTerminate`; there is no separate "kill session" menu item. Network-drop reconnection is unrelated resilience and still auto-recovers. See memory `project_close_session_model`.
 
+## Multi-device tab-state sync (the echo rule, 2026-07-30)
+
+Two clients open at once (PC + phone) share one server-side tab-state. The rule that keeps them from fighting:
+
+**A no-op must produce no version.** `save_tab_state` stamps a fresh `updated_at` regardless of content, and that stamp is broadcast over SSE. Applying a received state used to hand `setTabs` a brand-new array, which re-armed the save effect, which PUT the *same* content back — so two devices bounced identical state off each other about once a second, forever. Three locks, all of which must stay:
+
+1. `PUT /api/tab-state` compares the sanitized payload against the stored row and returns `{"status":"unchanged"}` without saving or notifying when they match (`routes/user_state.py`).
+2. `applyServerTabState` returns the **previous array reference** when the incoming state is content-equal (`utils/tabStateSync.js` `areTabsEquivalent` — key-order-insensitive, so a server round-trip doesn't read as a change).
+3. The save effect skips the PUT entirely when the tabs' fingerprint equals the last known-synced one.
+
+Related behavior, same file:
+- **`activeTabId` is never live-synced**, and on restore this device's remembered tab wins if it still exists — the server value is whatever device saved last, so adopting it unconditionally drags you to the PC's tab on every refresh.
+- When the tab you're on disappears (another device closed it), you land on the **neighbor at that index**, not `tabs[0]`.
+- The active-tab validator does nothing while `tabs` is empty. Boot order is: validator effect runs before restore, so clearing there would erase the remembered tab before the restore can match it.
+- `localDirtyRef` (the "a save is pending, don't let SSE overwrite" latch) is released in the effect cleanup. It used to stick `true` when a pending save was cancelled — on mount that happens every time, and a stuck latch silently disables live sync until the next local change.
+
 ## Reload vs Restart (pane `…` menu)
 
 Two different things — don't conflate them:

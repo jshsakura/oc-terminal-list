@@ -94,6 +94,46 @@ def test_put_with_ifmatch_when_server_has_no_state_saves(client, storage_mock, t
     assert res.status_code == 200
 
 
+def test_put_with_identical_content_does_not_bump_version(client, storage_mock, tmux_mock):
+    """내용이 같은 PUT 은 저장도 SSE 통지도 하지 않는다 — 기기 간 에코 루프의 연료 차단."""
+    stored = {
+        "tabs": [{"id": "host:x", "type": "host", "panes": []}],
+        "activeTabId": "host:x",
+        "updatedAt": "2026-05-18T02:00:00",
+    }
+    storage_mock.get_tab_state_updated_at.return_value = "2026-05-18T02:00:00"
+    storage_mock.get_tab_state.return_value = stored
+
+    with patch.object(user_state, "_notify_tab_state_change") as notify:
+        res = client.put("/api/tab-state", json={
+            "tabs": stored["tabs"],
+            "activeTabId": stored["activeTabId"],
+            "ifMatch": "2026-05-18T02:00:00",
+        })
+
+    assert res.status_code == 200
+    assert res.json() == {"status": "unchanged", "updatedAt": "2026-05-18T02:00:00"}
+    storage_mock.save_tab_state.assert_not_awaited()
+    notify.assert_not_called()
+
+
+def test_put_with_changed_active_tab_still_saves(client, storage_mock, tmux_mock):
+    """활성 탭만 달라져도 실제 변경이므로 저장된다."""
+    storage_mock.get_tab_state_updated_at.return_value = "2026-05-18T02:00:00"
+    storage_mock.get_tab_state.return_value = {
+        "tabs": [{"id": "host:x", "type": "host", "panes": []}],
+        "activeTabId": "host:x",
+        "updatedAt": "2026-05-18T02:00:00",
+    }
+    res = client.put("/api/tab-state", json={
+        "tabs": [{"id": "host:x", "type": "host", "panes": []}],
+        "activeTabId": None,
+    })
+    assert res.status_code == 200
+    assert res.json()["status"] == "saved"
+    storage_mock.save_tab_state.assert_awaited_once()
+
+
 def test_put_rejects_non_list_tabs(client, storage_mock, tmux_mock):
     res = client.put("/api/tab-state", json={
         "tabs": "not a list",
