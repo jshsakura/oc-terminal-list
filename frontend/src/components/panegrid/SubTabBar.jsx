@@ -187,9 +187,10 @@ const SubTabBar = ({
         style={{
           display: 'flex',
           alignItems: 'stretch',
-          /* 메인 탭바(34px)의 2/3 남짓인 26px. 30px 은 아직 두 행이 같은 급으로 보였다 —
-             행 높이 차이가 위계를 가장 빨리 읽히게 한다. 폰 크롬 총높이도 68 → 60px. */
-          height: '26px',
+          /* 26px 은 위계는 확실했지만 손가락으로 누르기엔 좁았다 — 32px 로 올린다.
+             메인 탭바(34px)와는 2px 차이지만, 위계는 유리판·칩 크기·글자(11 vs 12px)·폭이
+             이미 나르고 있어 행 높이는 "누를 수 있는가"를 우선한다. */
+          height: '32px',
           /* 메인 탭바와 **같은 면**(crust). 둘은 하나의 크롬 덩어리이고, 경계가 필요한 곳은
              크롬↔터미널뿐이다. 서브바를 한 단계 어둡게 깔았더니 그 위 활성 칩의 대비가
              메인바의 활성 칩보다 커져서(6.5% vs 4%) 종속된 행이 더 크게 말하는 역전이 났다.
@@ -269,8 +270,8 @@ const SubTabBar = ({
                 display: 'flex',
                 alignItems: 'stretch',
                 height: '100%',
-                /* 메인 탭 칩(24px)의 뚜렷한 아래 단계인 20px. */
-                padding: '3px 0',
+                /* 위아래 5px 씩 — 칩(약 21px)이 행 안에서 숨 쉬고, 히트 영역은 행 전체(32px). */
+                padding: '5px 0',
                 boxSizing: 'border-box',
                 minWidth: '100px',
                 maxWidth: '150px',
