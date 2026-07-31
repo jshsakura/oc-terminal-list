@@ -72,7 +72,9 @@ export const styles = {
     gap: '2px',
     paddingLeft: '4px',
     paddingRight: '4px',
-    background: 'var(--ui-surface0)',
+    // 실제 배경은 TerminalHeader 가 pane 테마(panelUi.mantle)로 덮어쓴다 — 여기 값은
+    // 테마가 없을 때의 폴백. 둘이 어긋나지 않게 같은 층(mantle)으로 맞춰 둔다.
+    background: 'var(--ui-mantle)',
     borderBottom: '1px solid var(--ui-border)',
     boxSizing: 'border-box',
     overflow: 'hidden',

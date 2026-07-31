@@ -335,8 +335,11 @@ const TerminalHeader = ({
       {/* activity bar */}
       <div style={{
         ...styles.activityBar,
-        background: panelUi.base,
-        borderBottomColor: panelUi.borderSubtle || panelUi.border,
+        // 레일은 터미널 **위로 뜬 크롬**이다 — base(터미널 배경)를 그대로 쓰면 한 톤으로
+        // 뭉쳐 어디까지가 도구줄이고 어디부터 출력인지 안 보인다(DESIGN §14 의 사다리를
+        // pane 안에도 적용). pane 자기 테마의 mantle 이라 테마를 바꾸면 같이 따라간다.
+        background: panelUi.mantle,
+        borderBottomColor: panelUi.border,
       }}>
         {/* 로딩 중엔 핸들 자리만 비워둔다 — 로딩이 끝나며 레일 전체가 옆으로 밀리지 않게. */}
         {!isMobile && loading && (
