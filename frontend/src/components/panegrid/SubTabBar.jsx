@@ -11,6 +11,7 @@ import themes from '../../styles/themes';
 import { buildThemeUI } from '../../styles/themeUI';
 import HostIcon from '../../utils/hostIcons';
 import { derivePaneLabel } from '../../utils/paneLabel';
+import { numberTileStyle } from '../../styles/numberTile';
 import useTouchDragReorder from '../../hooks/useTouchDragReorder';
 import { MenuItem } from '../tabBar/TabBarMenus';
 import { glassMenuStyle } from '../../styles/glass';
@@ -18,7 +19,8 @@ import { glassMenuStyle } from '../../styles/glass';
 const { color, font, fontSize, fontWeight, radius } = tokens;
 
 // 서브탭 아이콘/숫자 타일 한 변 — 둘이 같은 값을 봐야 한 줄로 정렬된다.
-const SUB_ICON_PX = 12;
+// (한동안 아이콘이 14px 하드코딩이라 이 상수가 아무 데도 안 쓰이고 있었다)
+const SUB_ICON_PX = 14;
 // 칩 좌우 안쪽 여백 — 메인 탭 칩과 같은 5px.
 const SUB_CHIP_PAD_X = 5;
 
@@ -196,7 +198,8 @@ const SubTabBar = ({
           overflowY: 'hidden',
           flexShrink: 0,
           padding: '0 4px 0 6px',
-          gap: '4px',
+          // 메인 탭바(6px)보다 한 단계 좁게 — 서브 행은 밀도가 더 촘촘해야 위계가 산다.
+          gap: '5px',
           fontFamily: font.sans,
         }}
       >
@@ -219,16 +222,16 @@ const SubTabBar = ({
             ? color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length]
             : null;
           const paneAccent = hostAccent || localAccent || paneUi.accent || tabBarAccent;
-          // 칩 모델 — 비활성은 면 없음(바가 그대로 비침), 활성만 한 단계 밝게 떠오른다.
-          // 활성 색을 pane **자기 테마**의 surface0 에서 뽑아, pane 마다 다른 테마를 쓸 때
-          // 그 색조가 서브탭에 그대로 드러나게 한다(기존 paneUi.base 가 하던 역할).
-          // 메인 탭바와 같은 3단계 — 바(crust) < 비활성 칩(surface0) < 활성 칩(surface2).
-          // 비활성도 자기 면을 가져야 탭 경계가 읽힌다. 활성 색은 pane **자기 테마**에서
-          // 뽑아, pane 마다 다른 테마를 쓸 때 그 색조가 서브탭에 드러나게 한다.
-          const chipBg = paneUi.surface2 || paneUi.surface1 || paneUi.base;
-          const tabBg = isActive
-            ? chipBg
+          // 면은 **바 테마**(subUi)의 3단계를 따르고, 정체성은 그 위에 얹는 **pane 색 tint**로
+          // 표현한다: 바(crust) < 비활성(+8.2%) < 활성(surface2), 각각 paneAccent 를 옅게 섞는다.
+          //
+          // 이전엔 활성 칩 배경만 pane 자기 테마(paneUi)에서 뽑고 글자색도 paneUi 를 썼는데,
+          // 비활성 칩의 배경은 바 테마라 짝이 안 맞았다 — pane 에 라이트 테마를 주면 어두운 칩
+          // 위에 라이트 테마 글자색이 얹혀 안 읽힌다. 색은 tint 한 곳에만 두고 글자는 바 테마로.
+          const chipSurface = isActive
+            ? subUi.surface2
             : `color-mix(in srgb, ${subUi.surface0} 55%, ${subUi.crust})`;
+          const tabBg = `color-mix(in srgb, ${paneAccent} ${isActive ? 14 : 7}%, ${chipSurface})`;
           // ring/outline 은 칩이 실제로 얹힌 바탕색을 따라가야 주변과 깔끔히 분리된다.
           const chipBase = tabBg;
           const isDragging = touchReorder.draggingId === pane.id;
@@ -280,7 +283,7 @@ const SubTabBar = ({
                   flex: 1,
                   minWidth: 0,
                   background: isDragOver ? `color-mix(in srgb, ${color.accent} 14%, ${chipBase})` : tabBg,
-                  color: isActive ? paneUi.text : paneUi.muted,
+                  color: isActive ? subUi.text : subUi.muted,
                   fontWeight: fontWeight.medium,
                   fontSize: fontSize['11'],   // 메인 탭(12px) 아래 한 단계
                   border: 'none',
@@ -291,17 +294,12 @@ const SubTabBar = ({
                 }}
               >
                 {idx < 9 && (
-                  /* 번호는 배경 없는 맨 숫자다 — 왼쪽에 색 깔린 칸을 만들면 칩이 둘로 쪼개져
-                     보인다. 번호·아이콘·이름이 배경 하나 위에서 붙어 한 덩어리로 읽히면 된다. */
+                  /* 메인탭과 같은 사각 타일. 옆 아이콘과 같은 한 변(SUB_ICON_PX)을 본다. */
                   <span
                     aria-hidden
                     style={{
-                      fontFamily: font.mono,
-                      fontWeight: fontWeight.semibold,
-                      fontSize: '9.5px',
-                      lineHeight: 1,
-                      flexShrink: 0,
-                      color: isActive ? paneUi.subtext : paneUi.muted,
+                      ...numberTileStyle({ size: SUB_ICON_PX, fontSize: '9px', base: chipBase, dim: !isActive }),
+                      color: isActive ? subUi.subtext : subUi.muted,
                     }}
                   >
                     {idx + 1}
@@ -315,8 +313,8 @@ const SubTabBar = ({
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    width: '14px',
-                    height: '14px',
+                    width: `${SUB_ICON_PX}px`,
+                    height: `${SUB_ICON_PX}px`,
                     flexShrink: 0,
                     color: isActive ? paneAccent : `${paneAccent}cc`,
                     opacity: isActive ? 1 : 0.75,
@@ -375,7 +373,7 @@ const SubTabBar = ({
                       justifyContent: 'center',
                       background: 'transparent',
                       border: 'none',
-                      color: paneUi.subtext,
+                      color: subUi.subtext,
                       cursor: 'pointer',
                       borderRadius: '3px',
                       padding: 0,

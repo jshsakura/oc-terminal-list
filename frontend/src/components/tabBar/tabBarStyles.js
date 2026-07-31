@@ -96,8 +96,8 @@ export const styles = {
     display: 'flex',
     alignItems: 'stretch',
     // 칩 사이 간격 — 그어진 구분선 대신 빈 틈(=바 면)이 경계를 만든다.
-    // 2px 은 면이 붙은 칩끼리 다닥다닥 붙어 보였다.
-    gap: '4px',
+    // 2px 은 면이 붙은 칩끼리 다닥다닥 붙어 보였고, 4px 도 아직 빡빡했다.
+    gap: '6px',
     overflowX: 'auto',
     overflowY: 'hidden',
     flex: '1 1 auto',
@@ -109,7 +109,7 @@ export const styles = {
     msOverflowStyle: 'none',           // IE/Edge legacy
   },
   tabListMobile: {
-    gap: '4px',
+    gap: '6px',
     flex: '1 1 auto',
     paddingTop: '0',
     paddingBottom: '0',
