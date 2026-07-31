@@ -194,7 +194,10 @@ const SubTabBar = ({
              크롬↔터미널뿐이다. 서브바를 한 단계 어둡게 깔았더니 그 위 활성 칩의 대비가
              메인바의 활성 칩보다 커져서(6.5% vs 4%) 종속된 행이 더 크게 말하는 역전이 났다.
              위계는 면이 아니라 아래 칩의 크기·세기로 만든다. */
-          background: subUi.crust,
+          // 메인 탭바(crust)와 **같은 계열, 다른 단계**. 완전히 같은 색이면 두 행이 한 덩어리로
+          // 뭉치고, 다른 계열(예전의 pane 테마 파생)이면 따로 논다. 깊이 순서는
+          // 메인바(crust) → 서브바(mantle) → 터미널(base) 로 콘텐츠에 한 칸씩 가까워진다.
+          background: subUi.mantle,
           overflowX: 'auto',
           overflowY: 'hidden',
           flexShrink: 0,
@@ -227,9 +230,11 @@ const SubTabBar = ({
           // 이전엔 활성 칩 배경만 pane 자기 테마(paneUi)에서 뽑고 글자색도 paneUi 를 썼는데,
           // 비활성 칩의 배경은 바 테마라 짝이 안 맞았다 — pane 에 라이트 테마를 주면 어두운 칩
           // 위에 라이트 테마 글자색이 얹혀 안 읽힌다. 색은 tint 한 곳에만 두고 글자는 바 테마로.
+          // 서브바가 한 단계 어두우므로 칩도 한 단계씩 낮춘다. 메인바와 같은 surface2 를
+          // 쓰면 (바가 더 어두운 만큼) 대비가 커져 아래 행이 위 행보다 크게 말하는 역전이 난다.
           const chipSurface = isActive
-            ? subUi.surface2
-            : `color-mix(in srgb, ${subUi.surface0} 55%, ${subUi.crust})`;
+            ? subUi.surface1
+            : `color-mix(in srgb, ${subUi.surface0} 40%, ${subUi.mantle})`;
           const tabBg = `color-mix(in srgb, ${paneAccent} ${isActive ? 14 : 5}%, ${chipSurface})`;
           // ring/outline 은 칩이 실제로 얹힌 바탕색을 따라가야 주변과 깔끔히 분리된다.
           const chipBase = tabBg;

@@ -311,7 +311,13 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
       }
     };
 
-    connect();
+    // SSE 는 **문서 로드가 끝난 뒤** 연다. EventSource 는 응답이 끝나지 않는 HTTP 요청이라,
+    // 로드 중에 열면 iOS 사파리가 이걸 "아직 안 끝난 페이지 리소스"로 보고 주소창 밑
+    // 진행바를 10%쯤에서 영영 멈춘 채 남겨둔다(새로고침해야 사라지던 그 바).
+    // load 이후에 열면 진행 계산에 안 들어간다.
+    const startSse = () => { if (!cancelled) connect(); };
+    if (document.readyState === 'complete') startSse();
+    else window.addEventListener('load', startSse, { once: true });
 
     // 포커스 복귀 시 — 완전히 idle 상태(연결 없음·진행 중 아님·대기 타이머 없음)일 때만 재시도
     const onVisible = () => {
@@ -325,6 +331,7 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
       es?.close();
       es = null;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      window.removeEventListener('load', startSse);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
     };
