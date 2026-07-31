@@ -89,7 +89,7 @@ export const Tab = memo(({
   // 화려해지는 역전이 난다(활성 타일 글리프는 중립 text 색이므로). 색상(hue)만 남기고
   // muted 쪽으로 눕혀 "무슨 호스트인지"는 유지하되 시선은 안 끌게.
   const glyphColor = (tint) =>
-    (isActive ? color.text : `color-mix(in srgb, ${tint} 45%, ${color.muted})`);
+    (isActive ? color.text : `color-mix(in srgb, ${tint} 40%, ${color.muted})`);
   // i 번째(0=활성 뒤 첫 호스트) 타일 — 주 타일과 동일 스타일, 절반씩 우측 캐스케이드.
   const stackTileStyle = (i, tint) => ({
     position: 'absolute',

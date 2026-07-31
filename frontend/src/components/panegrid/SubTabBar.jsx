@@ -327,7 +327,7 @@ const SubTabBar = ({
                     flexShrink: 0,
                     // 비활성은 색상만 남기고 muted 쪽으로 눕힌다(메인탭 glyphColor 와 같은 규칙).
                     // 알파(`cc`)+opacity 로 흐리면 색이 배경과 섞여 탁해질 뿐 눈에는 계속 띈다.
-                    color: isActive ? paneAccent : `color-mix(in srgb, ${paneAccent} 45%, ${subUi.muted})`,
+                    color: isActive ? paneAccent : `color-mix(in srgb, ${paneAccent} 40%, ${subUi.muted})`,
                   }}
                 >
                   <HostIcon value={iconValue} fallback={FallbackIcon} size={11} strokeWidth={1.9} />
