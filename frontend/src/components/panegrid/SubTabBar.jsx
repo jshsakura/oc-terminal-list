@@ -198,6 +198,14 @@ const SubTabBar = ({
           // 뭉치고, 다른 계열(예전의 pane 테마 파생)이면 따로 논다. 깊이 순서는
           // 메인바(crust) → 서브바(mantle) → 터미널(base) 로 콘텐츠에 한 칸씩 가까워진다.
           background: subUi.mantle,
+          // 면 차이만으로는 **테마별 최소 대비가 보장되지 않는다**. crust↔mantle 은 배경에서
+          // 흰색 쪽으로 6% / 3.5% 라 차이가 2.5% 뿐이고, 배경이 밝거나 저대비인 테마에서는
+          // 두 행이 그냥 붙어 보인다(실제 제보). 어떤 테마에서도 경계가 사라지지 않게
+          // 두 행이 맞닿는 자리에 hairline 을 깐다 — 층이 맞닿는 곳에만 쓰는 선이다.
+          // (아래쪽은 안 긋는다: 메인바도 바닥 실선이 없고, 터미널과의 경계는 면 차이가
+          //  6% 로 여기보다 넉넉하다.)
+          borderTop: `1px solid ${subUi.borderStrong}`,
+          boxSizing: 'border-box',
           overflowX: 'auto',
           overflowY: 'hidden',
           flexShrink: 0,
