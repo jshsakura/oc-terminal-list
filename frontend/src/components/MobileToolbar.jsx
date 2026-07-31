@@ -27,6 +27,18 @@ const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
  */
 const SYNTHETIC_MOUSE_GRACE_MS = 700;
 
+// 스켈레톤은 **실제 키와 같은 크기**로 그린다. minWidth 로만 그리면 로딩이 끝나는 순간
+// 'ESC'·'Shift+Tab' 처럼 긴 키가 늘어나며 줄 전체가 출렁인다.
+const SKELETON_CHAR_PX = 6.2;   // fontSize 11 sans 의 대략적인 글자 폭
+const skeletonKeyLabel = (k) => (
+  k.label || (k.kind === 'mod' ? (k.modifier || 'ctrl').toUpperCase() : '')
+);
+const skeletonKeyBox = (k) => {
+  const label = skeletonKeyLabel(k);
+  const iconPx = k.icon ? 17 : 0;   // 아이콘(13) + 라벨과의 gap(4)
+  return { width: `${Math.round(10 + iconPx + label.length * SKELETON_CHAR_PX)}px` };
+};
+
 const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en', keys = null, terminalSessionId = null }) => {
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
@@ -66,6 +78,10 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
   }, []);
 
   const list = sanitizeMobileKeys(keys ?? DEFAULT_MOBILE_KEYS);
+  // 빠른입력(⌘)은 스크롤 밖 좌측에 고정한다 — 키를 옆으로 밀다 보면 정작 제일 자주 쓰는
+  // 버튼이 화면 밖으로 사라진다. 나머지 키만 가로 스크롤 영역에 남긴다.
+  const pinnedKey = list.find((k) => k.kind === 'cmdInput') || null;
+  const scrollKeys = pinnedKey ? list.filter((k) => k !== pinnedKey) : list;
 
   const sendWithModifiers = (key) => {
     let finalKey = key;
@@ -232,29 +248,36 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
       `}</style>
 
       <div style={styles.toolbar}>
+        {pinnedKey && <div style={styles.pinned}>{renderItem(pinnedKey, 'pinned')}</div>}
         <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
           <div style={styles.row}>
             {!terminalReady && terminalSessionId ? (
-              list.map((k, i) => {
+              scrollKeys.map((k, i) => {
                 if (k.kind === 'cmdInput') return renderItem(k, i);
+                // 구분자는 키가 아니라 선이다 — 키 크기로 그리면 로딩 중에만 굵은 막대가 선다.
+                if (k.kind === 'sep') {
+                  return (
+                    <div key={i} style={{
+                      ...styles.divider,
+                      animation: 'skel-pulse 1.4s ease-in-out infinite',
+                      animationDelay: `${i * 80}ms`,
+                    }} />
+                  );
+                }
                 return (
                   <div key={i} style={{
                     ...styles.key,
+                    ...skeletonKeyBox(k),
                     background: color.surface0,
-                    borderRadius: radius.xs,
-                    minWidth: k.kind === 'sep' ? '1px' : styles.key.minWidth,
-                    width: k.kind === 'sep' ? '1px' : undefined,
-                    padding: k.kind === 'sep' ? 0 : styles.key.padding,
-                    height: styles.key.height,
                     animation: 'skel-pulse 1.4s ease-in-out infinite',
                     animationDelay: `${i * 80}ms`,
                     border: `1px solid ${color.border}`,
-                    margin: k.kind === 'sep' ? `0 ${space['1']}` : 0,
+                    margin: 0,
                   }} />
                 );
               })
             ) : (
-              list.map(renderItem)
+              scrollKeys.map(renderItem)
             )}
           </div>
         </div>
@@ -300,8 +323,9 @@ const styles = {
   toolbar: {
     flexShrink: 0,
     width: '100%',
-    // 34 → 26px. 키 높이(24→20)와 함께 비율로 줄여 바가 화면을 덜 먹게 한다.
-    height: 'calc(26px + env(safe-area-inset-bottom, 0px))',
+    // 34 → 28px. 키(18px)와 함께 줄이되 위아래 5px 씩은 남긴다 — 키가 바 가장자리에
+    // 붙으면 답답하다. 여백을 지키는 선에서 최대한 낮춘 값.
+    height: 'calc(28px + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 2px)',
     display: 'flex',
     alignItems: 'center',
@@ -309,6 +333,14 @@ const styles = {
     borderTop: `1px solid ${color.border}`,
     fontFamily: font.sans,
     zIndex: 10,
+  },
+  // 좌측 고정 슬롯 — 좌우 패딩은 최소로(스크롤 영역과 붙지 않을 만큼만).
+  pinned: {
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    paddingLeft: space['1'],
+    paddingRight: space['0.5'],
   },
   scroll: {
     flex: 1,
@@ -323,13 +355,13 @@ const styles = {
   row: {
     display: 'flex',
     alignItems: 'center',
-    // 키가 작아진 만큼 사이는 오히려 벌린다(4 → 6px) — 안 그러면 다닥다닥 붙어 보인다.
-    gap: space['1.5'],
+    // 키가 작아진 만큼 사이는 오히려 벌린다(4 → 8px) — 안 그러면 다닥다닥 붙어 보인다.
+    gap: space['2'],
     paddingRight: space['5'],
   },
   key: {
     flexShrink: 0,
-    height: '20px',
+    height: '18px',
     minWidth: '24px',
     padding: '0 5px',
     display: 'inline-flex',
@@ -350,7 +382,9 @@ const styles = {
     width: '1px',
     height: '12px',
     background: color.border,
-    margin: `0 ${space['1']}`,
+    // 자체 마진 없음 — row 의 gap(8px)만 받는다. 마진을 더하면 구분자 주변만 뻥 뚫려
+    // 그룹 사이가 아니라 "빈칸"으로 보인다.
+    margin: 0,
     flexShrink: 0,
   },
 };
