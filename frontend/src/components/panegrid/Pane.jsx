@@ -72,6 +72,13 @@ const Pane = ({
     return tabIndex >= 0 ? tabIndex + 1 : null;
   })();
   const paneAddress = tabNumber != null ? `${tabNumber}.${paneIndex + 1}` : null;
+  // 주소 배지 접힘 — 설정에 저장해 새로고침·재분할 후에도 유지된다(pane 마다 다시 접게
+  // 만들면 매번 같은 동작을 반복하게 된다). 기본은 펼침: 이름이 안 보이면 붙인 의미가 없다.
+  const isAddressExpanded = settings?.paneAddressExpanded !== false;
+  const toggleAddressExpanded = useCallback(
+    () => updateSettings?.({ paneAddressExpanded: !isAddressExpanded }),
+    [updateSettings, isAddressExpanded],
+  );
 
   // Global reload signal from settings menu → bump refreshNonce to remount terminal
   const prevReloadSignalRef = useRef(reloadSignal);
@@ -629,6 +636,10 @@ const Pane = ({
                 isProminent={isFocused || hover}
                 onCopy={handleCopyPaneTarget}
                 copyLabel={`${t?.('copyPaneTarget') || 'Copy server + tmux session + path'}${paneAddress ? ` · itl send ${paneAddress}` : ''}`}
+                isExpanded={isAddressExpanded}
+                onToggleExpand={toggleAddressExpanded}
+                expandLabel={t?.('showPaneName') || 'Show pane name'}
+                collapseLabel={t?.('hidePaneName') || 'Show address only'}
               />
             )}
             {isBroadcasting && onToggleBroadcastExclude && (

@@ -1,10 +1,11 @@
-import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi } from 'vitest';
+import { render, screen, fireEvent } from '@testing-library/react';
 import PaneAddressLabel from './PaneAddressLabel';
 
-// 배지는 [숫자][이름] 두 조각으로 나뉘어 있다 — 스타일/aria/title 은 바깥 배지가 들고 있으므로
-// getByText(숫자) 로 잡히는 안쪽 span 이 아니라 루트를 봐야 한다.
+// 배지는 [주소 버튼][이름][복사 버튼] 으로 나뉜다. 스타일/aria 는 바깥 배지가,
+// title/클릭은 각 버튼이 들고 있으므로 무엇을 보는지 구분해서 잡는다.
 const badge = (container) => container.querySelector('.iterm-pane-address');
+const addressBtn = (container) => container.querySelectorAll('button')[0];
 
 describe('PaneAddressLabel', () => {
   it('pane 번호를 그린다 — 이게 `itl send 3` 의 주소다', () => {
@@ -37,12 +38,12 @@ describe('PaneAddressLabel', () => {
 
   it('tooltip 에 다른 탭에서 부를 전체 주소를 담는다', () => {
     const { container } = render(<PaneAddressLabel paneNumber={3} fullAddress="2.3" />);
-    expect(badge(container).getAttribute('title')).toBe('itl send 2.3');
+    expect(addressBtn(container).getAttribute('title')).toBe('itl send 2.3');
   });
 
   it('전체 주소를 모르면 tooltip 을 붙이지 않는다', () => {
     const { container } = render(<PaneAddressLabel paneNumber={1} fullAddress={null} />);
-    expect(badge(container).getAttribute('title')).toBe(null);
+    expect(addressBtn(container).getAttribute('title')).toBe(null);
   });
 
   it('평소엔 옅고 포커스/호버 시 진해진다 — 터미널 내용과 경쟁하면 안 된다', () => {
@@ -55,6 +56,28 @@ describe('PaneAddressLabel', () => {
   it('클릭을 가로채지 않는다 — 터미널 글자 위에 얹혀 있다', () => {
     const { container } = render(<PaneAddressLabel paneNumber={2} />);
     expect(badge(container).style.pointerEvents).toBe('none');
+  });
+
+  it('접으면 이름과 복사 버튼이 사라지고 주소만 남는다', () => {
+    const { container } = render(
+      <PaneAddressLabel paneNumber={3} tabNumber={1} paneLabel="frontend" onCopy={() => {}} isExpanded={false} onToggleExpand={() => {}} />
+    );
+    expect(screen.queryByText('frontend')).toBeNull();
+    expect(container.querySelectorAll('button')).toHaveLength(1);   // 주소(=접기 핸들) 하나뿐
+  });
+
+  it('주소를 누르면 접기 토글, 복사는 별도 버튼 — 읽으려 눌렀다 클립보드가 바뀌면 안 된다', () => {
+    const toggle = vi.fn();
+    const copy = vi.fn();
+    const { container } = render(
+      <PaneAddressLabel paneNumber={3} tabNumber={1} paneLabel="frontend" onCopy={copy} onToggleExpand={toggle} />
+    );
+    const [address, copyBtn] = container.querySelectorAll('button');
+    fireEvent.click(address);
+    expect(toggle).toHaveBeenCalledTimes(1);
+    expect(copy).not.toHaveBeenCalled();
+    fireEvent.click(copyBtn);
+    expect(copy).toHaveBeenCalledTimes(1);
   });
 
   it('스크린리더에서 숨긴다 — 시각적 보조 표시일 뿐이다', () => {

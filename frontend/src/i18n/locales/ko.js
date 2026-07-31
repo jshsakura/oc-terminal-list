@@ -590,6 +590,8 @@ export const ko = {
     switchToTab: '이 탭으로 전환',
     copyTabTarget: '접속주소 + tmux 세션 복사',
     copyPaneTarget: '접속주소 + tmux 세션 + 경로 복사',
+    showPaneName: '패널 이름 펼치기',
+    hidePaneName: '주소만 보기',
     closeTab: '탭 닫기',
     confirmCloseTab: '이 탭을 닫을까요? 내부 세션이 모두 종료됩니다.',
     reloadTerminals: '터미널 새로고침',
