@@ -46,6 +46,49 @@ const mix = (col1, col2, t) => {
   return `#${[rr, gg, bb].map((c) => c.toString(16).padStart(2, '0')).join('')}`;
 };
 
+// 체감 밝기(0~255). 테마가 들고 온 색이 어느 슬롯에 들어갈 수 있는지 판정하는 데 쓴다.
+const lumOf = (hex) => {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return ((n >> 16) & 0xff) * 0.299 + ((n >> 8) & 0xff) * 0.587 + (n & 0xff) * 0.114;
+};
+
+// 인접한 두 층이 이만큼은 벌어져야 "다른 톤"으로 읽힌다(0~255 기준).
+const MIN_TONE_STEP = 8;
+
+/**
+ * 테마가 **자기 두 번째 배경**(ui.bgSecondary)을 들고 있으면 파생값 대신 그걸 쓴다 —
+ * 색 계열이 테마 저자 의도대로 간다(파생은 흰색/검정 쪽으로 미는 거라 계열이 밋밋해진다).
+ *
+ * 다만 아무 값이나 받으면 사다리가 깨진다. 두 조건을 만족할 때만 채택한다:
+ *   1) 배경과 최소 단차 이상 떨어져 있을 것 — 아니면 한 톤으로 뭉쳐 보인다(원래 문제).
+ *   2) 위층(crust)보다 밝지 않을 것 — 아니면 순서가 뒤집힌다.
+ * 어느 하나라도 어긋나면 조용히 파생값으로 되돌아간다.
+ */
+/**
+ * 최소 단차가 보장되는 파생 톤. 배경이 밝거나(라이트 테마) 채도가 특이하면 고정 비율
+ * 혼합만으로는 단차가 안 나오므로(예: gameboy 6.6), 기준을 넘을 때까지 비율을 키운다.
+ */
+const derivedSecondTone = (bg, toward, ratio) => {
+  const b = lumOf(bg);
+  for (let r = ratio; r <= 0.3; r += 0.02) {
+    const c = mix(bg, toward, r);
+    if (b == null || Math.abs(lumOf(c) - b) >= MIN_TONE_STEP) return c;
+  }
+  return mix(bg, toward, 0.3);
+};
+
+const pickSecondTone = (candidate, bg, derived, ceiling) => {
+  const c = lumOf(candidate);
+  const b = lumOf(bg);
+  const top = lumOf(ceiling);
+  if (c == null || b == null) return derived;
+  if (Math.abs(c - b) < MIN_TONE_STEP) return derived;
+  if (top != null && c >= top) return derived;
+  return candidate;
+};
+
 export const buildThemeUI = (theme) => {
   const bg = theme.background || '#1a1a25';
   const fg = theme.foreground || '#e4e6f1';
@@ -59,9 +102,10 @@ export const buildThemeUI = (theme) => {
   if (light) {
     // 라이트 테마: 거의 흰 surface, 어두운 텍스트
     const black = '#000000';
+    const lightCrust = '#ffffff';
     return {
-      crust:    '#ffffff',
-      mantle:   mix(bg, black, 0.04),
+      crust:    lightCrust,
+      mantle:   pickSecondTone(theme.ui?.bgSecondary, bg, derivedSecondTone(bg, black, 0.04), null),
       base:     bg,
       surface0: mix(bg, black, 0.05),
       surface1: mix(bg, black, 0.10),
@@ -94,9 +138,11 @@ export const buildThemeUI = (theme) => {
   // 사다리는 단조 증가여야 한다 — base < mantle < crust < surface0 < 1 < 2.
   // hover(surface0)가 크롬 바닥(crust)보다 확실히 밝아야 반응이 읽힌다.
   const white = '#ffffff';
+  const crust = mix(bg, white, 0.06);
   return {
-    crust:    mix(bg, white, 0.06),    // 가장 바깥 프레임 (탭바·사이드바 바탕)
-    mantle:   mix(bg, white, 0.035),   // 그 위 한 단계 (비활성 탭 등)
+    crust,                             // 가장 바깥 프레임 (탭바·사이드바 바탕)
+    // pane 상단 레일·서브탭바가 쓰는 "한 단계 다른 톤". 테마가 직접 들고 온 값이 우선.
+    mantle:   pickSecondTone(theme.ui?.bgSecondary, bg, derivedSecondTone(bg, white, 0.035), crust),
     base:     bg,                      // 콘텐츠(터미널) — 가장 깊은 면
     surface0: mix(bg, white, 0.10),
     surface1: mix(bg, white, 0.145),
