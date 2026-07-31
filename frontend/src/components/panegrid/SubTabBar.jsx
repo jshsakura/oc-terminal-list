@@ -231,7 +231,7 @@ const SubTabBar = ({
           const chipSurface = isActive
             ? subUi.surface2
             : `color-mix(in srgb, ${subUi.surface0} 55%, ${subUi.crust})`;
-          const tabBg = `color-mix(in srgb, ${paneAccent} ${isActive ? 14 : 7}%, ${chipSurface})`;
+          const tabBg = `color-mix(in srgb, ${paneAccent} ${isActive ? 14 : 5}%, ${chipSurface})`;
           // ring/outline 은 칩이 실제로 얹힌 바탕색을 따라가야 주변과 깔끔히 분리된다.
           const chipBase = tabBg;
           const isDragging = touchReorder.draggingId === pane.id;
@@ -325,8 +325,9 @@ const SubTabBar = ({
                     width: `${SUB_ICON_PX}px`,
                     height: `${SUB_ICON_PX}px`,
                     flexShrink: 0,
-                    color: isActive ? paneAccent : `${paneAccent}cc`,
-                    opacity: isActive ? 1 : 0.75,
+                    // 비활성은 색상만 남기고 muted 쪽으로 눕힌다(메인탭 glyphColor 와 같은 규칙).
+                    // 알파(`cc`)+opacity 로 흐리면 색이 배경과 섞여 탁해질 뿐 눈에는 계속 띈다.
+                    color: isActive ? paneAccent : `color-mix(in srgb, ${paneAccent} 45%, ${subUi.muted})`,
                   }}
                 >
                   <HostIcon value={iconValue} fallback={FallbackIcon} size={11} strokeWidth={1.9} />

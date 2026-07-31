@@ -82,9 +82,14 @@ export const Tab = memo(({
   // 스택 타일은 전부 완전 불투명이어야 한다 — 알파 배경/테두리나 opacity 를 쓰면
   // 겹친 아래 타일이 비쳐 색이 섞여 보인다. 톤 조절은 전부 opaque color-mix 로.
   const tileBackground = (tint) =>
-    `color-mix(in srgb, ${tint} ${isActive ? 22 : 14}%, ${tabBase})`;
+    `color-mix(in srgb, ${tint} ${isActive ? 22 : 10}%, ${tabBase})`;
   const tileBorder = (tint) =>
-    `1px solid color-mix(in srgb, ${tint} ${isActive ? 47 : 22}%, ${tabBase})`;
+    `1px solid color-mix(in srgb, ${tint} ${isActive ? 47 : 15}%, ${tabBase})`;
+  // 비활성 글리프는 호스트 색을 그대로 쓰지 않는다 — 색이 원본이면 비활성 탭이 활성보다
+  // 화려해지는 역전이 난다(활성 타일 글리프는 중립 text 색이므로). 색상(hue)만 남기고
+  // muted 쪽으로 눕혀 "무슨 호스트인지"는 유지하되 시선은 안 끌게.
+  const glyphColor = (tint) =>
+    (isActive ? color.text : `color-mix(in srgb, ${tint} 45%, ${color.muted})`);
   // i 번째(0=활성 뒤 첫 호스트) 타일 — 주 타일과 동일 스타일, 절반씩 우측 캐스케이드.
   const stackTileStyle = (i, tint) => ({
     position: 'absolute',
@@ -98,7 +103,7 @@ export const Tab = memo(({
     background: tileBackground(tint),
     border: tileBorder(tint),
     borderRadius: '4px',
-    color: tint,
+    color: glyphColor(tint),
     /* 탭 자신의 바탕색 ring 으로 이웃 타일과 분리 — "겹쳐 있음"이 읽히게.
        칩 모델에선 비활성 탭 바탕이 바(crust), 활성이 surface0 이라 tabBase 를 따라간다. */
     boxShadow: `0 0 0 1.5px ${tabBase}`,
@@ -213,7 +218,7 @@ export const Tab = memo(({
               background: tileBackground(dotColor),
               border: tileBorder(dotColor),
               borderRadius: '4px',
-              color: isActive ? color.text : dotColor,
+              color: glyphColor(dotColor),
               /* 스택일 때 뒤 타일과 분리되는 ring. 단일 타일이면 없음(기존 모양 유지). */
               boxShadow: secondaries.length ? `0 0 0 1.5px ${tabBase}` : 'none',
               zIndex: stackedCount + 1,
