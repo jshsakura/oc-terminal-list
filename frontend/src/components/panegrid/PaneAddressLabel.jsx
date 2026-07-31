@@ -72,9 +72,10 @@ const PaneAddressLabel = memo(({
         alignItems: 'center',
         gap: '5px',
         minWidth: '15px',
-        // 접었을 땐 주소뿐이라 좁고, 펼쳤을 땐 이름을 읽으라고 편 것이니 넉넉히 준다.
-        // (45% 로 묶어두면 펼쳐도 이름이 잘려 펼친 의미가 없다.)
-        maxWidth: showName ? '70%' : 'max-content',
+        // 폭은 내용만큼만 — 펼쳤다고 넓게 잡아둘 이유는 없고, 대신 %로 묶어 잘리지도 않게.
+        // pane 밖으로 나가지 않는 선(좌우 6px 여백)에서만 말줄임이 걸린다.
+        width: 'max-content',
+        maxWidth: 'calc(100% - 12px)',
         padding: '0 5px',
         borderRadius: '4px',
         fontSize: '10px',

@@ -360,7 +360,6 @@ const PaneGrid = ({
           busyPaneIds={busyPaneIds}
           settings={settings}
           tabColorIndex={tab.color_index}
-          activeThemeId={activePane?.themeOverride || settings?.theme}
           onSelect={(paneId) => onFocusPane?.(tab.id, paneId)}
           onClose={(paneId) => onClosePane?.(tab.id, paneId)}
           onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}

@@ -7,8 +7,6 @@ import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Server, Monitor, Plus, MoreHorizontal, Edit3, Trash2, RotateCw } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
-import themes from '../../styles/themes';
-import { buildThemeUI } from '../../styles/themeUI';
 import HostIcon from '../../utils/hostIcons';
 import { derivePaneLabel } from '../../utils/paneLabel';
 import { numberDividerStyle } from '../../styles/numberTile';
@@ -26,7 +24,7 @@ const SUB_CHIP_PAD_X = 5;
 
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
-  settings = {}, tabColorIndex, activeThemeId = null, onSelect, onClose, onReorder = null, onRenamePane = null, onRestartPane = null, onSplitPane = null, t,
+  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, onRestartPane = null, onSplitPane = null, t,
 }) => {
   const scrollRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState(null); // { paneId, x, y }
@@ -54,8 +52,11 @@ const SubTabBar = ({
   const tabBarAccent = tabColorIndex != null
     ? (color.dotPalette || ['#89b4fa'])[tabColorIndex % (color.dotPalette || ['#89b4fa']).length]
     : color.accent;
-  const activeTheme = themes[activeThemeId || settings?.theme] || themes.catppuccin;
-  const subUi = buildThemeUI(activeTheme);
+  // 크롬 색은 **전역 UI 팔레트**(var(--ui-*))에서만 온다 — 메인 탭바와 같은 출처.
+  // 예전엔 활성 pane 테마로 buildThemeUI 해서 서브탭바만 다른 색 계열이 됐다(따뜻한 pane
+  // 테마 + 차가운 전역 테마 조합에서 두 행이 대놓고 따로 놀았다). pane 정체성은 아래
+  // paneAccent tint 로만 표현한다.
+  const subUi = color;
 
   // 메인 TabBar 와 동일 패턴 — 활성 서브탭이 시야 밖이면 자동 스크롤. 모바일에서 pane 많을 때 핵심.
   useEffect(() => {
@@ -213,15 +214,13 @@ const SubTabBar = ({
           const label = derivePaneLabel(pane, { hosts, settings, t });
           const iconValue = host?.icon || (isLocal ? (settings.localIcon || '') : '');
           const FallbackIcon = host ? Server : (isLocal ? Monitor : Plus);
-          const paneTheme = themes[pane.themeOverride || settings?.theme] || activeTheme;
-          const paneUi = buildThemeUI(paneTheme);
           const hostAccent = host?.color_index != null
             ? color.dotPalette[(host.color_index ?? 0) % color.dotPalette.length]
             : null;
           const localAccent = isLocal && settings?.localColorIndex != null
             ? color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length]
             : null;
-          const paneAccent = hostAccent || localAccent || paneUi.accent || tabBarAccent;
+          const paneAccent = hostAccent || localAccent || tabBarAccent;
           // 면은 **바 테마**(subUi)의 3단계를 따르고, 정체성은 그 위에 얹는 **pane 색 tint**로
           // 표현한다: 바(crust) < 비활성(+8.2%) < 활성(surface2), 각각 paneAccent 를 옅게 섞는다.
           //
@@ -311,7 +310,9 @@ const SubTabBar = ({
                     >
                       {idx + 1}
                     </span>
-                    <span aria-hidden style={numberDividerStyle} />
+                    {/* 칩 높이를 꽉 채우는 세로선 — 8px 짜리는 모바일에서 "중간에 뭐 낀 것"
+                        처럼 보인다. 위아래로 확실히 쪼개야 그룹 버튼으로 읽힌다. */}
+                    <span aria-hidden style={{ ...numberDividerStyle, height: 'auto', alignSelf: 'stretch' }} />
                   </>
                 )}
                 {/* 서브탭은 메인탭보다 한 단계 아래 위계 — 아이콘 박스(테두리/배경) 제거.

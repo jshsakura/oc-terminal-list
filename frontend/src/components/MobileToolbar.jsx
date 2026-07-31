@@ -4,6 +4,7 @@ import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys } from '../utils/mobileKeys';
 import HostIcon from '../utils/hostIcons';
+import { createKeyRepeater } from '../utils/keyRepeat';
 
 /* kind 별 기본 아이콘 — 키에 명시적 icon 이 없으면 fallback. */
 const DEFAULT_ICON_FOR_KIND = {
@@ -24,12 +25,25 @@ const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
  * 위치 전략: App.jsx wrapper 의 flex flow 마지막 child. 키보드 올라오면
  * wrapper 가 줄고 toolbar 도 자연스럽게 따라 올라감.
  */
+const SYNTHETIC_MOUSE_GRACE_MS = 700;
+
 const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en', keys = null, terminalSessionId = null }) => {
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
   const scrollRef = useRef(null);
   const [terminalReady, setTerminalReady] = useState(false);
+  // 길게 누르기 반복 — 반복 발사는 modifier 를 다시 소모하지 않게 onSendKey 로 직행한다
+  // (^ 조합은 첫 발에서 이미 소비됐다). 최신 콜백을 보게 ref 경유.
+  const onSendKeyRef = useRef(onSendKey);
+  onSendKeyRef.current = onSendKey;
+  const repeaterRef = useRef(null);
+  if (!repeaterRef.current) {
+    repeaterRef.current = createKeyRepeater({ onFire: (payload) => onSendKeyRef.current?.(payload) });
+  }
+  // 터치로 이미 쏜 뒤 따라오는 합성 mousedown 을 흘려보내는 시각.
+  const touchFiredAtRef = useRef(0);
+  useEffect(() => () => repeaterRef.current?.stop(), []);
 
   useEffect(() => {
     if (!terminalSessionId) { setTerminalReady(false); return undefined; }
@@ -162,11 +176,32 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
     }
 
     // kind === 'send'
+    // iOS 는 손가락을 떼야 합성 mousedown 을 보내므로, 길게 누르기 반복은 반드시 터치
+    // 이벤트로 만들어야 한다. touchstart 에서 즉시 1회 발사하고 타이머로 반복하며,
+    // 그 뒤 따라오는 합성 mousedown 은 flag 로 흘려보낸다(두 번 입력 방지).
+    const payload = k.payload || '';
     return (
       <Key
         key={k.id}
         tone={k.tone}
-        onMouseDown={(e) => { e.preventDefault(); sendWithModifiers(k.payload || ''); }}
+        onTouchStart={() => {
+          touchFiredAtRef.current = Date.now();
+          sendWithModifiers(payload);
+          repeaterRef.current?.start(payload);
+        }}
+        // 손가락이 움직이면 툴바를 가로 스크롤하려는 것 — 반복을 끊는다.
+        onTouchMove={() => repeaterRef.current?.stop()}
+        onTouchEnd={() => repeaterRef.current?.stop()}
+        onTouchCancel={() => repeaterRef.current?.stop()}
+        onMouseDown={(e) => {
+          e.preventDefault();
+          // 방금 터치로 이미 쏜 키의 합성 이벤트면 무시.
+          if (Date.now() - touchFiredAtRef.current < SYNTHETIC_MOUSE_GRACE_MS) return;
+          sendWithModifiers(payload);
+          repeaterRef.current?.start(payload);
+        }}
+        onMouseUp={() => repeaterRef.current?.stop()}
+        onMouseLeave={() => repeaterRef.current?.stop()}
       >
         {renderKeyContent(k)}
       </Key>
@@ -228,7 +263,9 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
   );
 };
 
-const Key = ({ children, onClick, onMouseDown, active, tone, title }) => {
+// 나머지 핸들러(onTouch*/onMouseUp/onMouseLeave)는 rest 로 그대로 넘긴다 — 길게 누르기
+// 반복이 여기 붙는다. 명시 나열로 두면 새 핸들러를 추가할 때마다 조용히 누락된다.
+const Key = ({ children, onClick, onMouseDown, active, tone, title, ...rest }) => {
   const palette =
     tone === 'danger'
       ? { background: 'transparent', col: color.danger, border: `${color.danger}33` }
@@ -242,6 +279,7 @@ const Key = ({ children, onClick, onMouseDown, active, tone, title }) => {
       title={title}
       onClick={onClick}
       onMouseDown={onMouseDown}
+      {...rest}
       className={`mt-key ${active ? 'is-toggle-active' : ''}`}
       style={{
         ...styles.key,
@@ -262,7 +300,8 @@ const styles = {
   toolbar: {
     flexShrink: 0,
     width: '100%',
-    height: 'calc(34px + env(safe-area-inset-bottom, 0px))',
+    // 34 → 26px. 키 높이(24→20)와 함께 비율로 줄여 바가 화면을 덜 먹게 한다.
+    height: 'calc(26px + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 2px)',
     display: 'flex',
     alignItems: 'center',
@@ -284,13 +323,14 @@ const styles = {
   row: {
     display: 'flex',
     alignItems: 'center',
-    gap: space['1'],
+    // 키가 작아진 만큼 사이는 오히려 벌린다(4 → 6px) — 안 그러면 다닥다닥 붙어 보인다.
+    gap: space['1.5'],
     paddingRight: space['5'],
   },
   key: {
     flexShrink: 0,
-    height: '24px',
-    minWidth: '26px',
+    height: '20px',
+    minWidth: '24px',
     padding: '0 5px',
     display: 'inline-flex',
     alignItems: 'center',
@@ -308,7 +348,7 @@ const styles = {
   },
   divider: {
     width: '1px',
-    height: '14px',
+    height: '12px',
     background: color.border,
     margin: `0 ${space['1']}`,
     flexShrink: 0,

@@ -8,6 +8,11 @@ import { TMUX_WHEEL_INPUT_RE } from './terminalConstants';
  * 입력이 유실된다. 청크로 쪼개 틱마다 조금씩 흘려보내고, 소켓 버퍼가 차면 쉬어간다.
  *
  * 소켓이 닫혀 있어도 입력을 버리지 않는다 — 큐에 쌓아뒀다가 다시 열리면 흘려보낸다("키 씹힘" 방지).
+ *
+ * 다만 **오래된 입력은 되살리지 않는다.** 큐는 소켓이 다시 열릴 때까지 살아 있으므로,
+ * 비활성 탭에서 스크롤(마우스 리포트)하거나 끊긴 동안 붙여넣은 텍스트가 몇 분 뒤 그 탭을
+ * 다시 열 때 프롬프트에 우르르 쏟아진다("외계어가 들어갔다"). 200ms 깜빡임을 메우자는 것이지
+ * 몇 분 전 입력을 재생하자는 게 아니다.
  */
 
 const INPUT_CHUNK = 16 * 1024;         // 한 번에 send 할 최대 바이트
@@ -16,6 +21,10 @@ const MAX_QUEUE_BYTES = 1024 * 1024;   // 큐 상한 — 넘으면 오래된 것
 const BUSY_RETRY_MS = 16;              // 소켓 버퍼가 찼을 때 다시 시도할 간격
 const DISCONNECTED_FLUSH_MS = 50;      // 소켓이 없을 때의 최소 재시도 간격
 const LIVENESS_SILENCE_MS = 3000;      // 이만큼 조용했는데 입력이 오면 소켓 생존을 의심
+const STALE_INPUT_MS = 4000;           // 이보다 오래 큐에 머문 입력은 보내지 않고 버린다
+// 마우스/휠 리포트는 그 순간의 좌표 보고라 나중에 재생하면 의미가 없다 — 끊긴 동안 쌓인 건
+// 나이와 무관하게 버린다(프롬프트에 `[<64;10;20M` 같은 글자로 박히는 정체가 이것).
+const isPointerReport = (data) => TMUX_WHEEL_INPUT_RE.test(data);
 
 export const WS_BUFFER_HIGH_WATER = 512 * 1024;
 
@@ -32,8 +41,22 @@ const createInputQueue = ({
   onBroadcast,
   onDisconnected,
 }) => {
+  // 항목: { data, at } — at 은 큐에 들어온 시각(나이 판정용).
   let queue = [];
   let flushTimer = null;
+  // 소켓이 닫힌 걸 관측한 순간. 다시 열렸을 때 "끊긴 동안 쌓인 것"을 가려내는 기준.
+  let disconnectedAt = 0;
+
+  /** 나이 지난 입력과 끊긴 동안의 포인터 리포트를 걷어낸다. 소켓이 열릴 때마다 호출. */
+  const dropStale = () => {
+    const now = Date.now();
+    queue = queue.filter((item) => {
+      if (now - item.at > STALE_INPUT_MS) return false;
+      if (disconnectedAt && item.at >= disconnectedAt && isPointerReport(item.data)) return false;
+      return true;
+    });
+    disconnectedAt = 0;
+  };
 
   const schedule = (delay = 0) => {
     if (flushTimer) return;
@@ -44,6 +67,7 @@ const createInputQueue = ({
     flushTimer = null;
     const ws = getSocket();
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    dropStale();
     if (queue.length === 0) return;
 
     // 소켓 송신 버퍼가 이미 높으면 이번 틱은 건너뛴다 — 더 밀어봐야 버퍼만 부풀린다.
@@ -55,7 +79,8 @@ const createInputQueue = ({
     let sent = 0;
     while (queue.length > 0 && sent < INPUT_BYTES_PER_TICK) {
       if (ws.bufferedAmount > WS_BUFFER_HIGH_WATER) break;
-      const next = queue[0];
+      const head = queue[0];
+      const next = head?.data;
       if (!next) {
         queue.shift();
         continue;
@@ -63,7 +88,7 @@ const createInputQueue = ({
       const chunk = next.length > INPUT_CHUNK ? next.slice(0, INPUT_CHUNK) : next;
       ws.send(chunk);
       sent += chunk.length;
-      if (next.length > INPUT_CHUNK) queue[0] = next.slice(INPUT_CHUNK);
+      if (next.length > INPUT_CHUNK) queue[0] = { data: next.slice(INPUT_CHUNK), at: head.at };
       else queue.shift();
     }
 
@@ -75,9 +100,9 @@ const createInputQueue = ({
   // 큐가 상한을 넘으면 오래된 것부터 버린다(마지막 하나는 남긴다).
   const trimToCap = (incomingBytes) => {
     let total = incomingBytes;
-    for (const item of queue) total += item.length;
+    for (const item of queue) total += item.data.length;
     while (total > MAX_QUEUE_BYTES && queue.length > 1) {
-      total -= queue.shift().length;
+      total -= queue.shift().data.length;
     }
   };
 
@@ -86,12 +111,13 @@ const createInputQueue = ({
 
     // 밀린 휠 리포트를 걷어낸다 — 명령이 스크롤 뒤에 줄서지 않게(sendCommand 경로).
     if (dropQueuedWheel) {
-      queue = queue.filter((item) => !TMUX_WHEEL_INPUT_RE.test(item));
+      queue = queue.filter((item) => !isPointerReport(item.data));
     }
 
     trimToCap(data.length);
-    if (priority) queue.unshift(data);
-    else queue.push(data);
+    const item = { data, at: Date.now() };
+    if (priority) queue.unshift(item);
+    else queue.push(item);
 
     const ws = getSocket();
     // 사용자가 타이핑하는데 서버가 한참 조용했다면 half-open 을 의심해 생존을 확인한다.
@@ -100,6 +126,7 @@ const createInputQueue = ({
     }
 
     if (!ws || ws.readyState !== WebSocket.OPEN) {
+      if (!disconnectedAt) disconnectedAt = Date.now();
       onDisconnected?.();
       schedule(Math.max(delay, DISCONNECTED_FLUSH_MS));
     } else {
@@ -112,7 +139,7 @@ const createInputQueue = ({
 
   /** 휠 리포트처럼 이미 OPEN 을 확인하고 보내는 내부 경로 — 큐에 넣고 다음 틱에 합쳐 보낸다. */
   const push = (data) => {
-    queue.push(data);
+    queue.push({ data, at: Date.now() });
     schedule(0);
   };
 
