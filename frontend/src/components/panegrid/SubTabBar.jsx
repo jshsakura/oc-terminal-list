@@ -10,11 +10,17 @@ import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
 import { buildThemeUI } from '../../styles/themeUI';
 import HostIcon from '../../utils/hostIcons';
+import { derivePaneLabel } from '../../utils/paneLabel';
 import useTouchDragReorder from '../../hooks/useTouchDragReorder';
 import { MenuItem } from '../tabBar/TabBarMenus';
 import { glassMenuStyle } from '../../styles/glass';
 
-const { color, font, fontSize, fontWeight } = tokens;
+const { color, font, fontSize, fontWeight, radius } = tokens;
+
+// 서브탭 아이콘/숫자 타일 한 변 — 둘이 같은 값을 봐야 한 줄로 정렬된다.
+const SUB_ICON_PX = 12;
+// 칩 좌우 안쪽 여백 — 메인 탭 칩과 같은 5px.
+const SUB_CHIP_PAD_X = 5;
 
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
@@ -178,32 +184,34 @@ const SubTabBar = ({
         style={{
           display: 'flex',
           alignItems: 'stretch',
-          height: '34px',
-          background: `linear-gradient(180deg, ${subUi.mantle}, ${subUi.crust})`,
-          borderBottom: `1px solid ${subUi.border}`,
+          /* 메인 탭바(34px)보다 낮은 30px — 색·칩 크기만으로는 두 행이 여전히 비슷해 보인다.
+             행 높이 차이가 위계를 가장 빨리 읽히게 하고, 폰에서 크롬 총높이도 68 → 64px 로 준다. */
+          height: '30px',
+          /* 메인 탭바와 **같은 면**(crust). 둘은 하나의 크롬 덩어리이고, 경계가 필요한 곳은
+             크롬↔터미널뿐이다. 서브바를 한 단계 어둡게 깔았더니 그 위 활성 칩의 대비가
+             메인바의 활성 칩보다 커져서(6.5% vs 4%) 종속된 행이 더 크게 말하는 역전이 났다.
+             위계는 면이 아니라 아래 칩의 크기·세기로 만든다. */
+          background: subUi.crust,
           overflowX: 'auto',
           overflowY: 'hidden',
           flexShrink: 0,
           padding: '0 4px 0 6px',
-          gap: '0',
+          gap: '4px',
           fontFamily: font.sans,
         }}
       >
         {panes.map((pane, idx) => {
-          const isFirst = idx === 0;
           const isActive = pane.id === activePaneId;
           const isEmpty = !pane.sessionId && !pane.hostId;
           const isLocal = !!pane.sessionId && !pane.hostId;
           const isBusy = !!busyPaneIds && busyPaneIds.has(pane.id) && !isEmpty;
           const host = pane.hostId ? hosts.find((h) => h.id === pane.hostId) : null;
-          const label = pane.manualName ? pane.name
-            : (pane.name || host?.name
-              || (isLocal ? ((settings.localName || '').trim() || (t?.('thisMachine') || 'Local')) : (t?.('startSession') || 'Empty')));
+          // pane 우상단 주소 배지와 **같은 규칙**을 쓴다 — 두 곳이 다른 이름을 말하면 안 된다.
+          const label = derivePaneLabel(pane, { hosts, settings, t });
           const iconValue = host?.icon || (isLocal ? (settings.localIcon || '') : '');
           const FallbackIcon = host ? Server : (isLocal ? Monitor : Plus);
           const paneTheme = themes[pane.themeOverride || settings?.theme] || activeTheme;
           const paneUi = buildThemeUI(paneTheme);
-          const paneBorderStrong = paneUi['border-strong'] || paneUi.border;
           const hostAccent = host?.color_index != null
             ? color.dotPalette[(host.color_index ?? 0) % color.dotPalette.length]
             : null;
@@ -211,7 +219,18 @@ const SubTabBar = ({
             ? color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length]
             : null;
           const paneAccent = hostAccent || localAccent || paneUi.accent || tabBarAccent;
-          const tabBg = isActive ? paneUi.base : subUi.mantle;
+          // 칩 모델 — 비활성은 면 없음(바가 그대로 비침), 활성만 한 단계 밝게 떠오른다.
+          // 활성 색을 pane **자기 테마**의 surface0 에서 뽑아, pane 마다 다른 테마를 쓸 때
+          // 그 색조가 서브탭에 그대로 드러나게 한다(기존 paneUi.base 가 하던 역할).
+          // 메인 탭바와 같은 3단계 — 바(crust) < 비활성 칩(surface0) < 활성 칩(surface2).
+          // 비활성도 자기 면을 가져야 탭 경계가 읽힌다. 활성 색은 pane **자기 테마**에서
+          // 뽑아, pane 마다 다른 테마를 쓸 때 그 색조가 서브탭에 드러나게 한다.
+          const chipBg = paneUi.surface2 || paneUi.surface1 || paneUi.base;
+          const tabBg = isActive
+            ? chipBg
+            : `color-mix(in srgb, ${subUi.surface0} 55%, ${subUi.crust})`;
+          // ring/outline 은 칩이 실제로 얹힌 바탕색을 따라가야 주변과 깔끔히 분리된다.
+          const chipBase = tabBg;
           const isDragging = touchReorder.draggingId === pane.id;
           const isDragOver = touchReorder.dragOverId === pane.id && touchReorder.draggingId && touchReorder.draggingId !== pane.id;
           const touchProps = onReorder ? touchReorder.getItemProps(pane.id) : null;
@@ -229,129 +248,143 @@ const SubTabBar = ({
                 e.preventDefault();
                 setCtxMenu({ paneId: pane.id, x: e.clientX, y: e.clientY });
               }}
+              /* 바깥 = 터치 타깃. 바 높이(34px) 전체를 유지한다 — 서브탭바는 모바일 전용이라
+                 칩 크기로 히트 영역을 줄이면 위아래 여백을 눌렀을 때 아무 탭도 안 잡힌다.
+                 보이는 칩(28px)은 안쪽 div 가 그린다. hover 는 없다 (터치 화면). */
               style={{
                 display: 'flex',
-                alignItems: 'center',
-                gap: '7px',
-                padding: '0 8px 0 10px',
-                height: 'calc(100% + 1px)',
-                minWidth: '140px',
-                maxWidth: '200px',
-                background: isDragOver ? `color-mix(in srgb, ${color.accent} 14%, ${tabBg})` : tabBg,
-                color: isActive ? paneUi.text : paneUi.muted,
-                fontWeight: isActive ? fontWeight.semibold : fontWeight.medium,
-                fontSize: fontSize['12'],
-                border: `1px solid ${isActive ? paneBorderStrong : subUi.border}`,
-                borderBottom: `1px solid ${tabBg}`,
-                boxShadow: isDragOver ? `inset 0 0 0 2px ${color.accent}` : 'none',
-                borderRadius: 0,
+                alignItems: 'stretch',
+                height: '100%',
+                /* 메인 탭 칩(28px)보다 확실히 작은 22px. */
+                padding: '4px 0',
                 boxSizing: 'border-box',
-                marginLeft: isFirst ? 0 : '-1px',
-                flex: '0 0 150px',
+                minWidth: '112px',
+                maxWidth: '170px',
+                /* 메인 탭(140px)보다 좁게. 124 는 "web-app-01" 이 잘려서 132. */
+                flex: '0 0 132px',
                 cursor: 'pointer',
                 opacity: isDragging ? 0.4 : 1,
                 userSelect: 'none',
                 position: 'relative',
                 zIndex: isDragOver ? 2 : (isActive ? 1 : 0),
-                transition: 'background 150ms, color 150ms, box-shadow 120ms',
               }}
             >
-              {idx < 9 && (
-                <span
-                  aria-hidden
-                  style={{
-                    fontFamily: font.mono,
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    color: isActive ? paneUi.subtext : paneUi.muted,
-                    opacity: isActive ? 0.95 : 0.75,
-                    flexShrink: 0,
-                    lineHeight: 1,
-                    letterSpacing: 0,
-                    width: '10px',
-                    textAlign: 'center',
-                  }}
-                >
-                  {idx + 1}
-                </span>
-              )}
-              {/* 서브탭은 메인탭보다 한 단계 아래 위계 — 아이콘 박스(테두리/배경) 제거.
-                  순수 아이콘 + 색만 입혀 가볍게, 메인탭과 시각적 차별. */}
-              <span
+              <div
                 style={{
-                  position: 'relative',
-                  display: 'inline-flex',
+                  display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  width: '14px',
-                  height: '14px',
-                  flexShrink: 0,
-                  color: isActive ? paneAccent : `${paneAccent}cc`,
-                  opacity: isActive ? 1 : 0.75,
+                  /* 번호 타일 · 아이콘 · 이름이 한 덩어리로 붙어 보이게 좁게(4px).
+                     메인 탭(7px)처럼 벌리면 작은 칩 안에서 조각들이 흩어져 보인다. */
+                  gap: '4px',
+                  padding: `0 ${SUB_CHIP_PAD_X}px`,
+                  flex: 1,
+                  minWidth: 0,
+                  background: isDragOver ? `color-mix(in srgb, ${color.accent} 14%, ${chipBase})` : tabBg,
+                  color: isActive ? paneUi.text : paneUi.muted,
+                  fontWeight: fontWeight.medium,
+                  fontSize: fontSize['11'],   // 메인 탭(12px) 아래 한 단계
+                  border: 'none',
+                  boxShadow: isDragOver ? `inset 0 0 0 2px ${color.accent}` : 'none',
+                  borderRadius: radius.sm,
+                  boxSizing: 'border-box',
+                  transition: 'background 120ms, color 120ms, box-shadow 120ms',
                 }}
               >
-                <HostIcon value={iconValue} fallback={FallbackIcon} size={13} strokeWidth={1.9} />
-                {isBusy && (
+                {idx < 9 && (
+                  /* 번호는 배경 없는 맨 숫자다 — 왼쪽에 색 깔린 칸을 만들면 칩이 둘로 쪼개져
+                     보인다. 번호·아이콘·이름이 배경 하나 위에서 붙어 한 덩어리로 읽히면 된다. */
                   <span
-                    className="iterm-subtab-busy-dot"
                     aria-hidden
                     style={{
-                      position: 'absolute',
-                      top: '-4px',
-                      right: '-4px',
-                      width: '6px',
-                      height: '6px',
-                      borderRadius: '50%',
-                      background: paneAccent,
-                      boxShadow: `0 0 0 1.5px ${subUi.crust}`,
-                      pointerEvents: 'none',
+                      fontFamily: font.mono,
+                      fontWeight: fontWeight.semibold,
+                      fontSize: '9.5px',
+                      lineHeight: 1,
+                      flexShrink: 0,
+                      color: isActive ? paneUi.subtext : paneUi.muted,
                     }}
-                  />
+                  >
+                    {idx + 1}
+                  </span>
                 )}
-              </span>
-              <span
-                style={{
-                  flex: 1,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  minWidth: 0,
-                  letterSpacing: '0.005em',
-                }}
-              >
-                {label}
-              </span>
-              {/* 더보기(⋮) — 활성 서브탭에만. 모바일에선 우클릭이 안 되므로 이 버튼으로
-                  rename/close 컨텍스트 메뉴에 접근한다. 메인탭(MoreHorizontal) 과 동일 패턴. */}
-              {isActive && (
-                <button
-                  data-pane-more="true"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const r = e.currentTarget.getBoundingClientRect();
-                    setCtxMenu({ paneId: pane.id, x: r.right, y: r.bottom + 4 });
-                  }}
-                  onTouchStart={(e) => e.stopPropagation()}
-                  onTouchEnd={(e) => e.stopPropagation()}
-                  title={t?.('more') || 'More'}
+                {/* 서브탭은 메인탭보다 한 단계 아래 위계 — 아이콘 박스(테두리/배경) 제거.
+                    순수 아이콘 + 색만 입혀 가볍게, 메인탭과 시각적 차별. */}
+                <span
                   style={{
-                    flexShrink: 0,
-                    width: '16px',
-                    height: '16px',
+                    position: 'relative',
                     display: 'inline-flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: 'transparent',
-                    border: 'none',
-                    color: paneUi.subtext,
-                    cursor: 'pointer',
-                    borderRadius: '3px',
-                    padding: 0,
+                    width: '14px',
+                    height: '14px',
+                    flexShrink: 0,
+                    color: isActive ? paneAccent : `${paneAccent}cc`,
+                    opacity: isActive ? 1 : 0.75,
                   }}
                 >
-                  <MoreHorizontal size={12} strokeWidth={2} />
-                </button>
-              )}
+                  <HostIcon value={iconValue} fallback={FallbackIcon} size={11} strokeWidth={1.9} />
+                  {isBusy && (
+                    <span
+                      className="iterm-subtab-busy-dot"
+                      aria-hidden
+                      style={{
+                        position: 'absolute',
+                        top: '-4px',
+                        right: '-4px',
+                        width: '6px',
+                        height: '6px',
+                        borderRadius: '50%',
+                        background: paneAccent,
+                        boxShadow: `0 0 0 1.5px ${chipBase}`,
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  )}
+                </span>
+                <span
+                  style={{
+                    flex: 1,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    minWidth: 0,
+                    letterSpacing: '0.005em',
+                  }}
+                >
+                  {label}
+                </span>
+                {/* 더보기(⋮) — 활성 서브탭에만. 모바일에선 우클릭이 안 되므로 이 버튼으로
+                    rename/close 컨텍스트 메뉴에 접근한다. 메인탭(MoreHorizontal) 과 동일 패턴. */}
+                {isActive && (
+                  <button
+                    data-pane-more="true"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setCtxMenu({ paneId: pane.id, x: r.right, y: r.bottom + 4 });
+                    }}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
+                    title={t?.('more') || 'More'}
+                    style={{
+                      flexShrink: 0,
+                      width: '16px',
+                      height: '16px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      background: 'transparent',
+                      border: 'none',
+                      color: paneUi.subtext,
+                      cursor: 'pointer',
+                      borderRadius: '3px',
+                      padding: 0,
+                    }}
+                  >
+                    <MoreHorizontal size={12} strokeWidth={2} />
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}

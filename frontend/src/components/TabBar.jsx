@@ -189,15 +189,14 @@ const TabBar = ({
         onMouseEnter={(e) => { if (!isHome) e.currentTarget.style.background = 'var(--ui-surface0)'; }}
         onMouseLeave={(e) => { if (!isHome) e.currentTarget.style.background = 'transparent'; }}
       >
-        <TerminalIcon
-          size={13}
-          strokeWidth={2}
-          style={{
-            filter: `drop-shadow(0 0 4px ${color.accent}99) drop-shadow(0 0 8px ${color.accent}44)`,
-            transition: 'filter 200ms',
-          }}
-        />
+        {/* 네온 drop-shadow 2겹은 제거 — 부드러움이 아니라 화려함이고, 크롬에서 유일하게
+            빛나는 요소라 시선을 계속 끌었다. 강조는 accent 색만으로 충분하다. */}
+        <TerminalIcon size={13} strokeWidth={2} />
       </button>
+
+      {/* 탭 스트립의 양 끝 경계 — 좌우 대칭이어야 한다. 한쪽에만 있으면 그게 더 눈에 걸린다.
+          바 높이를 다 긋는 실선 대신 가운데 정렬된 짧은 rule 로. */}
+      <div style={styles.railDivider} />
 
       <div
         ref={tabListRef}
@@ -243,8 +242,10 @@ const TabBar = ({
         ))}
       </div>
 
+      <div style={styles.railDivider} />
+
       {/* right action group — 자동 맞춤 + 빠른 입력 + Broadcast + Settings menu */}
-      <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0, borderLeft: '1px solid var(--ui-border)' }}>
+      <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
         {!isMobile && onEqualizePanes && (
           <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <RailIconBtn

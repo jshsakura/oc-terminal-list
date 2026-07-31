@@ -81,17 +81,31 @@ export const buildThemeUI = (theme) => {
     };
   }
 
-  // 다크 테마: 사이드바를 base 보다 한 단계 더 깊게 (Zed 톤)
-  const black = '#000000';
+  // 다크 테마: 크롬이 콘텐츠보다 **위로 뜬다** (Termius/Warp 모델).
+  //
+  // 이전엔 crust/mantle 을 bg 에서 검정 쪽으로 25~40% 깎아 사이드바·탭바를 콘텐츠보다
+  // 더 깊게 눌렀다(Zed/VSCode 관행). 그러면 크롬이 거의 순검정이 되고 그 위에 fg 가
+  // 그대로 올라가 대비가 18:1 근처까지 벌어진다 — "고대비 모드" 같은 투박한 인상의 정체.
+  //
+  // 뒤집어서 터미널(base)이 가장 깊은 면이 되고 그걸 감싸는 크롬이 살짝 밝은 프레임이
+  // 되게 한다. 부수 효과로 활성 탭(base)이 아래 터미널과 같은 톤으로 이어지고 비활성
+  // 탭(mantle)이 그 위에 얹힌다.
+  //
+  // 사다리는 단조 증가여야 한다 — base < mantle < crust < surface0 < 1 < 2.
+  // hover(surface0)가 크롬 바닥(crust)보다 확실히 밝아야 반응이 읽힌다.
+  const white = '#ffffff';
   return {
-    crust:    mix(bg, black, 0.40),
-    mantle:   mix(bg, black, 0.25),
-    base:     bg,
-    surface0: mix(bg, '#ffffff', 0.05),
-    surface1: mix(bg, '#ffffff', 0.10),
-    surface2: mix(bg, '#ffffff', 0.16),
+    crust:    mix(bg, white, 0.06),    // 가장 바깥 프레임 (탭바·사이드바 바탕)
+    mantle:   mix(bg, white, 0.035),   // 그 위 한 단계 (비활성 탭 등)
+    base:     bg,                      // 콘텐츠(터미널) — 가장 깊은 면
+    surface0: mix(bg, white, 0.10),
+    surface1: mix(bg, white, 0.145),
+    surface2: mix(bg, white, 0.20),
     text:     fg,
-    subtext:  mix(fg, bg, 0.25),
+    // 크롬이 밝아진 만큼 보조 텍스트를 한 단계 내려 대비를 좁힌다.
+    // muted/faint 는 건드리지 않는다 — 비활성 탭 라벨(12px)이 이미 AA 하한 근처라
+    // 더 흐리면 가독성이 깨진다.
+    subtext:  mix(fg, bg, 0.32),
     muted:    mix(fg, bg, 0.50),
     faint:    mix(fg, bg, 0.70),
     accent,
