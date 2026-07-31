@@ -311,8 +311,18 @@ const SubTabBar = ({
                       {idx + 1}
                     </span>
                     {/* 칩 높이를 꽉 채우는 세로선 — 8px 짜리는 모바일에서 "중간에 뭐 낀 것"
-                        처럼 보인다. 위아래로 확실히 쪼개야 그룹 버튼으로 읽힌다. */}
-                    <span aria-hidden style={{ ...numberDividerStyle, height: 'auto', alignSelf: 'stretch' }} />
+                        처럼 보인다. 위아래로 확실히 쪼개야 그룹 버튼으로 읽힌다.
+                        다만 꽉 찬 실선은 기계적이라, 배지(22%)보다 옅게(14%) 깔고 위아래
+                        끝을 투명으로 흘려 칩 안에서 자연스럽게 사라지게 한다. */}
+                    <span
+                      aria-hidden
+                      style={{
+                        ...numberDividerStyle,
+                        height: 'auto',
+                        alignSelf: 'stretch',
+                        background: `linear-gradient(to bottom, transparent 0%, color-mix(in srgb, ${subUi.text} 14%, transparent) 30%, color-mix(in srgb, ${subUi.text} 14%, transparent) 70%, transparent 100%)`,
+                      }}
+                    />
                   </>
                 )}
                 {/* 서브탭은 메인탭보다 한 단계 아래 위계 — 아이콘 박스(테두리/배경) 제거.
