@@ -232,8 +232,9 @@ export const Tab = memo(({
                 title={markLabel}
                 style={{
                   position: 'absolute',
-                  top: '-4px',
-                  right: '-4px',
+                  // 타일이 16px 로 줄어든 만큼 마크도 당긴다(18px 타일 시절의 -4 는 멀다).
+                  top: '-3px',
+                  right: '-3px',
                   minWidth: '9px',
                   height: '9px',
                   padding: hasMarkContent ? '0 1px' : 0,

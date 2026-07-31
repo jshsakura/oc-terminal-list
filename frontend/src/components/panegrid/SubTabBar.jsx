@@ -11,7 +11,7 @@ import themes from '../../styles/themes';
 import { buildThemeUI } from '../../styles/themeUI';
 import HostIcon from '../../utils/hostIcons';
 import { derivePaneLabel } from '../../utils/paneLabel';
-import { numberTileStyle } from '../../styles/numberTile';
+import { numberDividerStyle } from '../../styles/numberTile';
 import useTouchDragReorder from '../../hooks/useTouchDragReorder';
 import { MenuItem } from '../tabBar/TabBarMenus';
 import { glassMenuStyle } from '../../styles/glass';
@@ -20,7 +20,7 @@ const { color, font, fontSize, fontWeight, radius } = tokens;
 
 // 서브탭 아이콘/숫자 타일 한 변 — 둘이 같은 값을 봐야 한 줄로 정렬된다.
 // (한동안 아이콘이 14px 하드코딩이라 이 상수가 아무 데도 안 쓰이고 있었다)
-const SUB_ICON_PX = 14;
+const SUB_ICON_PX = 12;
 // 칩 좌우 안쪽 여백 — 메인 탭 칩과 같은 5px.
 const SUB_CHIP_PAD_X = 5;
 
@@ -186,9 +186,9 @@ const SubTabBar = ({
         style={{
           display: 'flex',
           alignItems: 'stretch',
-          /* 메인 탭바(34px)보다 낮은 30px — 색·칩 크기만으로는 두 행이 여전히 비슷해 보인다.
-             행 높이 차이가 위계를 가장 빨리 읽히게 하고, 폰에서 크롬 총높이도 68 → 64px 로 준다. */
-          height: '30px',
+          /* 메인 탭바(34px)의 2/3 남짓인 26px. 30px 은 아직 두 행이 같은 급으로 보였다 —
+             행 높이 차이가 위계를 가장 빨리 읽히게 한다. 폰 크롬 총높이도 68 → 60px. */
+          height: '26px',
           /* 메인 탭바와 **같은 면**(crust). 둘은 하나의 크롬 덩어리이고, 경계가 필요한 곳은
              크롬↔터미널뿐이다. 서브바를 한 단계 어둡게 깔았더니 그 위 활성 칩의 대비가
              메인바의 활성 칩보다 커져서(6.5% vs 4%) 종속된 행이 더 크게 말하는 역전이 났다.
@@ -258,13 +258,14 @@ const SubTabBar = ({
                 display: 'flex',
                 alignItems: 'stretch',
                 height: '100%',
-                /* 메인 탭 칩(28px)보다 확실히 작은 22px. */
-                padding: '4px 0',
+                /* 메인 탭 칩(24px)의 뚜렷한 아래 단계인 20px. */
+                padding: '3px 0',
                 boxSizing: 'border-box',
-                minWidth: '112px',
-                maxWidth: '170px',
-                /* 메인 탭(140px)보다 좁게. 124 는 "web-app-01" 이 잘려서 132. */
-                flex: '0 0 132px',
+                minWidth: '100px',
+                maxWidth: '150px',
+                /* 메인 탭(156px)보다 확실히 좁게 — 번호 행처럼 가볍게 흐른다.
+                   120 은 "web-app-01" 이 잘려서 128. */
+                flex: '0 0 128px',
                 cursor: 'pointer',
                 opacity: isDragging ? 0.4 : 1,
                 userSelect: 'none',
@@ -294,16 +295,24 @@ const SubTabBar = ({
                 }}
               >
                 {idx < 9 && (
-                  /* 메인탭과 같은 사각 타일. 옆 아이콘과 같은 한 변(SUB_ICON_PX)을 본다. */
-                  <span
-                    aria-hidden
-                    style={{
-                      ...numberTileStyle({ size: SUB_ICON_PX, fontSize: '9px', base: chipBase, dim: !isActive }),
-                      color: isActive ? subUi.subtext : subUi.muted,
-                    }}
-                  >
-                    {idx + 1}
-                  </span>
+                  /* pane 우상단 주소 배지와 같은 라벨 문법 — 상자 없는 모노 숫자 + 옅은 세로선.
+                     메인탭은 사각 타일, 서브탭은 이 가벼운 라벨로 두 행의 격을 나눈다. */
+                  <>
+                    <span
+                      aria-hidden
+                      style={{
+                        fontFamily: font.mono,
+                        fontWeight: fontWeight.semibold,
+                        fontSize: '9.5px',
+                        lineHeight: 1,
+                        flexShrink: 0,
+                        color: isActive ? subUi.subtext : subUi.muted,
+                      }}
+                    >
+                      {idx + 1}
+                    </span>
+                    <span aria-hidden style={numberDividerStyle} />
+                  </>
                 )}
                 {/* 서브탭은 메인탭보다 한 단계 아래 위계 — 아이콘 박스(테두리/배경) 제거.
                     순수 아이콘 + 색만 입혀 가볍게, 메인탭과 시각적 차별. */}
@@ -327,10 +336,11 @@ const SubTabBar = ({
                       aria-hidden
                       style={{
                         position: 'absolute',
-                        top: '-4px',
-                        right: '-4px',
-                        width: '6px',
-                        height: '6px',
+                        // 아이콘이 12px 로 작아진 만큼 점도 바짝 당긴다 — -4 는 허공에 뜬다.
+                        top: '-2px',
+                        right: '-3px',
+                        width: '5px',
+                        height: '5px',
                         borderRadius: '50%',
                         background: paneAccent,
                         boxShadow: `0 0 0 1.5px ${chipBase}`,

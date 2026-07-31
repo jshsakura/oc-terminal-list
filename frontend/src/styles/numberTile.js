@@ -30,4 +30,15 @@ export const numberTileStyle = ({ size = 14, fontSize = '9.5px', base = 'transpa
   flexShrink: 0,
 });
 
+/**
+ * 숫자와 이름 사이를 끊는 옅은 세로선 — pane 우상단 주소 배지와 모바일 서브탭이 공유한다.
+ * 상자를 두르지 않고도 "번호"와 "이름"이 다른 값임을 알리는 최소 장치.
+ */
+export const numberDividerStyle = {
+  width: '1px',
+  height: '8px',
+  flexShrink: 0,
+  background: `color-mix(in srgb, ${color.text} 22%, transparent)`,
+};
+
 export default numberTileStyle;

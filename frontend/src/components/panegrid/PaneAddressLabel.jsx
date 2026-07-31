@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { tokens } from '../../styles/tokens';
+import { numberDividerStyle } from '../../styles/numberTile';
 
 const { color, font, fontWeight } = tokens;
 
@@ -26,13 +27,6 @@ const addressGroupStyle = {
   fontFamily: font.mono,
   fontWeight: fontWeight.semibold,
   lineHeight: 1,
-};
-
-const addressDividerStyle = {
-  width: '1px',
-  height: '8px',
-  flexShrink: 0,
-  background: `color-mix(in srgb, ${color.text} 22%, transparent)`,
 };
 
 const PaneAddressLabel = memo(({
@@ -83,7 +77,7 @@ const PaneAddressLabel = memo(({
       {tabNumber != null && (
         <>
           <span>{tabNumber}</span>
-          <span aria-hidden style={addressDividerStyle} />
+          <span aria-hidden style={numberDividerStyle} />
         </>
       )}
       <span>{paneNumber}</span>
