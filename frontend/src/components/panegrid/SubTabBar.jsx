@@ -9,10 +9,10 @@ import { Server, Monitor, Plus, MoreHorizontal, Edit3, Trash2, RotateCw } from '
 import { tokens } from '../../styles/tokens';
 import HostIcon from '../../utils/hostIcons';
 import { derivePaneLabel } from '../../utils/paneLabel';
-import { numberDividerStyle } from '../../styles/numberTile';
+import { numberTileStyle } from '../../styles/numberTile';
 import useTouchDragReorder from '../../hooks/useTouchDragReorder';
 import { MenuItem } from '../tabBar/TabBarMenus';
-import { glassMenuStyle } from '../../styles/glass';
+import { glassMenuStyle, glassPanelStyle } from '../../styles/glass';
 
 const { color, font, fontSize, fontWeight, radius } = tokens;
 
@@ -197,14 +197,14 @@ const SubTabBar = ({
           // 메인 탭바(crust)와 **같은 계열, 다른 단계**. 완전히 같은 색이면 두 행이 한 덩어리로
           // 뭉치고, 다른 계열(예전의 pane 테마 파생)이면 따로 논다. 깊이 순서는
           // 메인바(crust) → 서브바(mantle) → 터미널(base) 로 콘텐츠에 한 칸씩 가까워진다.
-          background: subUi.mantle,
-          // 면 차이만으로는 **테마별 최소 대비가 보장되지 않는다**. crust↔mantle 은 배경에서
-          // 흰색 쪽으로 6% / 3.5% 라 차이가 2.5% 뿐이고, 배경이 밝거나 저대비인 테마에서는
-          // 두 행이 그냥 붙어 보인다(실제 제보). 어떤 테마에서도 경계가 사라지지 않게
-          // 두 행이 맞닿는 자리에 hairline 을 깐다 — 층이 맞닿는 곳에만 쓰는 선이다.
-          // (아래쪽은 안 긋는다: 메인바도 바닥 실선이 없고, 터미널과의 경계는 면 차이가
-          //  6% 로 여기보다 넉넉하다.)
+          // 서브탭바는 **유리판**이다 — 아래 터미널이 비쳐 흐려지므로, 불투명 면끼리
+          // 몇 % 차이로 겨루던 문제(테마에 따라 메인바와 구분이 사라짐)가 원천적으로 없다.
+          // 색은 바가 아니라 각 칩의 번호 박스가 나른다.
+          ...glassPanelStyle(),
+          // 유리판이라도 맞닿는 경계는 선으로 못박는다 — 배경이 밝은 테마에서 blur 만으로는
+          // 위 행과의 경계가 약해진다.
           borderTop: `1px solid ${subUi.borderStrong}`,
+          boxShadow: 'none',
           boxSizing: 'border-box',
           overflowX: 'auto',
           overflowY: 'hidden',
@@ -238,12 +238,11 @@ const SubTabBar = ({
           // 이전엔 활성 칩 배경만 pane 자기 테마(paneUi)에서 뽑고 글자색도 paneUi 를 썼는데,
           // 비활성 칩의 배경은 바 테마라 짝이 안 맞았다 — pane 에 라이트 테마를 주면 어두운 칩
           // 위에 라이트 테마 글자색이 얹혀 안 읽힌다. 색은 tint 한 곳에만 두고 글자는 바 테마로.
-          // 서브바가 한 단계 어두우므로 칩도 한 단계씩 낮춘다. 메인바와 같은 surface2 를
-          // 쓰면 (바가 더 어두운 만큼) 대비가 커져 아래 행이 위 행보다 크게 말하는 역전이 난다.
-          const chipSurface = isActive
-            ? subUi.surface1
-            : `color-mix(in srgb, ${subUi.surface0} 40%, ${subUi.mantle})`;
-          const tabBg = `color-mix(in srgb, ${paneAccent} ${isActive ? 14 : 5}%, ${chipSurface})`;
+          // 칩은 색을 싣지 않는다 — 유리판 위 반투명 면으로만 활성/비활성을 가른다.
+          // pane 색은 아래 번호 박스가 나른다(색이 한 곳에만 있어야 시끄럽지 않다).
+          const tabBg = isActive
+            ? `color-mix(in srgb, ${subUi.surface1} 62%, transparent)`
+            : `color-mix(in srgb, ${subUi.surface0} 26%, transparent)`;
           // ring/outline 은 칩이 실제로 얹힌 바탕색을 따라가야 주변과 깔끔히 분리된다.
           const chipBase = tabBg;
           const isDragging = touchReorder.draggingId === pane.id;
@@ -307,36 +306,19 @@ const SubTabBar = ({
                 }}
               >
                 {idx < 9 && (
-                  /* pane 우상단 주소 배지와 같은 라벨 문법 — 상자 없는 모노 숫자 + 옅은 세로선.
-                     메인탭은 사각 타일, 서브탭은 이 가벼운 라벨로 두 행의 격을 나눈다. */
-                  <>
-                    <span
-                      aria-hidden
-                      style={{
-                        fontFamily: font.mono,
-                        fontWeight: fontWeight.semibold,
-                        fontSize: '9.5px',
-                        lineHeight: 1,
-                        flexShrink: 0,
-                        color: isActive ? subUi.subtext : subUi.muted,
-                      }}
-                    >
-                      {idx + 1}
-                    </span>
-                    {/* 칩 높이를 꽉 채우는 세로선 — 8px 짜리는 모바일에서 "중간에 뭐 낀 것"
-                        처럼 보인다. 위아래로 확실히 쪼개야 그룹 버튼으로 읽힌다.
-                        다만 꽉 찬 실선은 기계적이라, 배지(22%)보다 옅게(14%) 깔고 위아래
-                        끝을 투명으로 흘려 칩 안에서 자연스럽게 사라지게 한다. */}
-                    <span
-                      aria-hidden
-                      style={{
-                        ...numberDividerStyle,
-                        height: 'auto',
-                        alignSelf: 'stretch',
-                        background: `linear-gradient(to bottom, transparent 0%, color-mix(in srgb, ${subUi.text} 14%, transparent) 30%, color-mix(in srgb, ${subUi.text} 14%, transparent) 70%, transparent 100%)`,
-                      }}
-                    />
-                  </>
+                  /* 색은 여기 하나에만 — pane(호스트/로컬) 색을 옅게 깐 번호 박스.
+                     칩 배경이나 옆 세로선으로 색을 나르면 유리판 위에서 지저분해진다. */
+                  <span
+                    aria-hidden
+                    style={{
+                      ...numberTileStyle({ size: SUB_ICON_PX, fontSize: '9px', base: 'transparent' }),
+                      background: `color-mix(in srgb, ${paneAccent} ${isActive ? 30 : 16}%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${paneAccent} ${isActive ? 46 : 24}%, transparent)`,
+                      color: isActive ? subUi.text : subUi.subtext,
+                    }}
+                  >
+                    {idx + 1}
+                  </span>
                 )}
                 {/* 서브탭은 메인탭보다 한 단계 아래 위계 — 아이콘 박스(테두리/배경) 제거.
                     순수 아이콘 + 색만 입혀 가볍게, 메인탭과 시각적 차별. */}
