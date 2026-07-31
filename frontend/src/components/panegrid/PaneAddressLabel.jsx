@@ -26,6 +26,8 @@ const addressGroupStyle = {
   flexShrink: 0,
   fontFamily: font.mono,
   fontWeight: fontWeight.semibold,
+  // 모노 숫자는 같은 px 에서 sans 보다 크게 보인다 — 이름(10px)보다 한 단계 낮춘다.
+  fontSize: '9px',
   lineHeight: 1,
   background: 'none',
   border: 'none',
@@ -38,8 +40,8 @@ const iconBtnStyle = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '14px',
-  height: '14px',
+  width: '15px',
+  height: '15px',
   flexShrink: 0,
   padding: 0,
   background: 'none',
@@ -71,15 +73,18 @@ const PaneAddressLabel = memo(({
         display: 'inline-flex',
         alignItems: 'center',
         gap: '5px',
-        minWidth: '15px',
+        // 배지가 15px 밖에 안 돼 납작했다. 20px 로 세우고 좌우도 7px 로 — 접어서 숫자만
+        // 남았을 때 특히 5px 은 글자가 테두리에 붙어 보였다.
+        height: '20px',
+        minWidth: '20px',
         // 폭은 내용만큼만 — 펼쳤다고 넓게 잡아둘 이유는 없고, 대신 %로 묶어 잘리지도 않게.
         // pane 밖으로 나가지 않는 선(좌우 6px 여백)에서만 말줄임이 걸린다.
         width: 'max-content',
         maxWidth: 'calc(100% - 12px)',
-        padding: '0 5px',
-        borderRadius: '4px',
+        padding: '0 7px',
+        borderRadius: '5px',
         fontSize: '10px',
-        lineHeight: '15px',
+        lineHeight: 1,
         color: color.text,
         // 배경을 깔아 아래 글자와 겹쳐도 숫자가 읽힌다. 알파가 아니라 opaque color-mix —
         // 알파면 터미널 글자가 비쳐 숫자가 뭉개진다.
