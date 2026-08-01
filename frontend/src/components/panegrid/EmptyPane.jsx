@@ -9,7 +9,7 @@ import { authHeaders } from '../../utils/auth';
 import HomeDashboard, { HostRow } from '../HomeDashboard';
 import HostIcon from '../../utils/hostIcons';
 
-const { color, font } = tokens;
+const { color, font, fontSize, fontWeight } = tokens;
 
 // 호스트 카드 subtitle 한 줄 truncate + block — 멀티라인 안에서 각 라인 ellipsis 적용용.
 const SUB_LINE = {
@@ -285,7 +285,8 @@ const VncDisplayPicker = ({ host, t, onPick, onClose }) => {
           </div>
         )}
 
-        {!state.loading && !state.error && state.data?.installed === false && (
+        {!state.loading && !state.error && state.data?.available !== false
+          && displays.length === 0 && state.data?.installed === false && (
           <div style={{
             padding: '12px',
             background: `color-mix(in srgb, ${color.warning} 12%, transparent)`,
@@ -298,7 +299,7 @@ const VncDisplayPicker = ({ host, t, onPick, onClose }) => {
           </div>
         )}
 
-        {!state.loading && !state.error && state.data?.installed !== false && state.data?.available === false && (
+        {!state.loading && !state.error && state.data?.available === false && (
           <div style={{
             padding: '12px',
             background: `color-mix(in srgb, ${color.danger} 12%, transparent)`,
@@ -311,8 +312,23 @@ const VncDisplayPicker = ({ host, t, onPick, onClose }) => {
           </div>
         )}
 
-        {!state.loading && !state.error && state.data?.installed !== false && state.data?.available !== false && (
+        {!state.loading && !state.error && state.data?.available !== false
+          && (displays.length > 0 || state.data?.installed !== false) && (
           <>
+            {/* displays 는 있으나 vncserver 미발견 — 기존 디스플레이 연결은 가능 */}
+            {displays.length > 0 && state.data?.installed === false && (
+              <div style={{
+                padding: '8px 12px',
+                background: `color-mix(in srgb, ${color.warning} 10%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${color.warning} 25%, transparent)`,
+                borderRadius: '6px',
+                color: color.warning,
+                fontSize: fontSize['11'],
+                marginBottom: '8px',
+              }}>
+                {t?.('vncConnectOnly') || 'Existing displays can be connected. New session creation is disabled (vncserver not found).'}
+              </div>
+            )}
             {displays.length === 0 ? (
               <div style={{ padding: '12px', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] }}>
                 {t?.('vncNoDisplays') || 'No active VNC displays found.'}
@@ -540,4 +556,5 @@ const mirrorStyles = {
   },
 };
 
+export { VncDisplayPicker };
 export default EmptyPane;

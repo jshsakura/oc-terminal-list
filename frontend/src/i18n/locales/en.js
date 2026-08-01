@@ -851,6 +851,7 @@ export const en = {
     vncInvalidDisplay: 'No VNC display selected.',
     vncNoDisplays: 'No active VNC displays found.',
     vncNotInstalled: 'VNC is not installed on this host.',
+    vncConnectOnly: 'Existing displays can be connected. New session creation is disabled (vncserver not found).',
     vncPaused: 'VNC paused — tab inactive',
     vncUnavailable: 'VNC is not available on this host right now.',
     vncGpuAvailable: 'GPU acceleration (VirtualGL)',

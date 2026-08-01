@@ -851,6 +851,7 @@ export const ko = {
     vncInvalidDisplay: '선택된 VNC 디스플레이가 없습니다.',
     vncNoDisplays: '활성 VNC 디스플레이가 없습니다.',
     vncNotInstalled: '이 호스트에 VNC가 설치되어 있지 않습니다.',
+    vncConnectOnly: '기존 디스플레이에 연결할 수 있습니다. 새 세션 만들기는 비활성화되었습니다 (vncserver 미발견).',
     vncPaused: 'VNC 일시정지됨 — 탭이 비활성',
     vncUnavailable: '현재 이 호스트에서 VNC를 사용할 수 없습니다.',
     vncGpuAvailable: 'GPU 가속 가능 (VirtualGL)',
