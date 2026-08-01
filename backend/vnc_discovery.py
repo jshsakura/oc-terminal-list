@@ -7,7 +7,7 @@ ssh_pool, tailscale 호스트는 tailscale ssh 서브프로세스로 runner 를 
 수집하는 세 가지:
   - ls -1 /tmp/.X11-unix/    → 존재하는 디스플레이 번호 (``X1`` → ``:1``)
   - ss -ltnH (또는 netstat)  → 5900번대 리스닝 포트 + 바인딩 주소
-  - ps -eo pid,user,args     → Xtigervnc / Xvnc 프로세스, -geometry, 소유 유저
+  - ps -eo pid,user:32,args → Xtigervnc / Xvnc 프로세스, -geometry, 소유 유저
 설치 여부는 후보 경로들(vncserver, /opt/TurboVNC/bin/vncserver, …)을 순회해
 첫 히트한 경로를 ``vncserver_path`` 로 돌려준다. GPU 가속 가능 여부는
 vglrun + nvidia-smi 로 ``gpu`` 필드에 정리한다.
@@ -38,7 +38,7 @@ _GPU_MARK = "__ITL_VNC_GPU__"
 DISCOVERY_CMD = (
     f"echo {_X11_MARK}; ls -1 /tmp/.X11-unix/ 2>/dev/null; "
     f"echo {_SS_MARK}; (ss -ltnH 2>/dev/null || netstat -ltn 2>/dev/null); "
-    f"echo {_PS_MARK}; ps -eo pid,user,args 2>/dev/null; "
+    f"echo {_PS_MARK}; ps -eo pid,user:32,args 2>/dev/null; "
     f"echo {_WHICH_MARK}; "
     f'for p in vncserver /opt/TurboVNC/bin/vncserver /usr/bin/vncserver '
     f'/usr/local/bin/vncserver Xtigervnc; do command -v "$p" 2>/dev/null && break; done; '
@@ -94,10 +94,14 @@ def parse_listening_ports(text: str) -> dict[int, str]:
 
 
 def parse_vnc_processes(text: str) -> list[dict]:
-    """``ps -eo pid,user,args`` 결과 → VNC 서버 프로세스 목록.
+    """``ps -eo pid,user:32,args`` 결과 → VNC 서버 프로세스 목록.
 
     각 항목: ``{pid, user, server, display, geometry}``. ``display``/``geometry`` 는
     args 에서 파싱 못 하면 각각 ``None``/``""``.
+
+    ``user:32`` 로 8자 잘림을 방지한다 — 기본 ``user`` 컬럼은 8자 제한이라 긴
+    사용자명이 ``+`` 로 잘린다. ``split(None, 2)`` 는 연속 공백을 하나로 collapses
+    하므로 32자 패딩에 영향받지 않는다.
     """
     procs: list[dict] = []
     for line in (text or "").splitlines():

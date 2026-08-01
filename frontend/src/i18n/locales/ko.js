@@ -868,4 +868,10 @@ export const ko = {
     vncKillConfirm: '이 VNC 데스크탑을 종료할까요? 안에서 돌던 모든 것이 죽습니다.',
     vncKill: '종료',
     vncKillFailed: '데스크탑 종료에 실패했습니다',
+    vncPassword: 'VNC 비밀번호',
+    vncConnect: '연결',
+    vncSecurityFailure: '인증 실패',
+    vncQualitySharp: '선명하게',
+    vncQualityBalanced: '균형',
+    vncQualityLight: '가볍게',
 };

@@ -6,13 +6,24 @@
  * 재연결 시 전체 화면을 다시 그려야 하며, noVNC RFB 가 내부적으로 한 번 시도한다.
  * 사용자는 상태 배지로 연결 상태를 보고 필요시 새로고침할 수 있다.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { tokens } from '../../styles/tokens';
 import { issueWsTicket } from '../terminal/terminalHelpers';
 import createVncClient from './createVncClient';
 import { computeVncResize, createResizeScheduler } from '../../utils/vncResize';
 
 const { color, font, fontSize, fontWeight, radius } = tokens;
+
+// VNC 화질/압축 프리셋 — 3 단면으로 단순화. 값 자체를 UI 에 노출하지 않고 이름으로 고른다.
+//   sharp:    최고 화질, 압축 없음 — 빠른 망/로컬에서 화면이 또렷함. 페이로드 큼.
+//   balanced: 기본값 — 적당한 화질과 가벼운 압축. 대부분의 환경에서 무난.
+//   light:    강한 압축 + 저화질 — 느린 망에서 끊김 최소화. CPU 도 더 씀.
+// noVNC qualityLevel(0-9, 높을수록 선명) + compressionLevel(0-9, 높을수록 압축 강함).
+const VNC_QUALITY_PRESETS = {
+  sharp: { qualityLevel: 9, compressionLevel: 0 },
+  balanced: { qualityLevel: 6, compressionLevel: 3 },
+  light: { qualityLevel: 3, compressionLevel: 7 },
+};
 
 /**
  * VNC WS URL 조립 — 터미널 buildWsUrl 과 모양이 다르다(/ws/vnc/<host> + display 쿼리).
@@ -31,6 +42,7 @@ const buildVncWsUrl = ({ origin, path, ticket, display, clientId }) => {
 const STATUS_COLOR = {
   connecting: color.warning,
   connected: color.success,
+  credentials: color.warning,
   disconnected: color.muted,
   error: color.danger,
 };
@@ -38,15 +50,25 @@ const STATUS_COLOR = {
 const STATUS_LABEL = {
   connecting: 'Connecting…',
   connected: 'Connected',
+  credentials: 'Password required',
   disconnected: 'Disconnected',
   error: 'Connection error',
 };
 
-const VncPane = ({ hostId, display, isActive, isFocused, settings, t, onReadyChange }) => {
+const VncPane = ({
+  hostId, display, isActive, isFocused, settings, t, onReadyChange, updateSettings,
+}) => {
   const containerRef = useRef(null);
   const clientRef = useRef(null);
   const [status, setStatus] = useState('connecting');
   const [errorMsg, setErrorMsg] = useState('');
+  // Task 3 — VNC 비밀번호 입력. credentialsrequired 이벤트 시 입력 폼을 띄운다.
+  // 비밀번호는 React state(메모리) 에만 존재 — localStorage / 탭 상태 / 서버 에 영속화하지 않는다.
+  // pane 이 언마운트되면 state 도 사라진다.
+  const [passwordValue, setPasswordValue] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  // credentials 프롬프트를 이미 보였는지 추적 — securityfailure 시 재시도 폼으로 돌아갈지 판단.
+  const credentialsShownRef = useRef(false);
 
   // Phase 5 — 탭 숨김/활성 전환 추적. Xvnc 세션은 상태 저장 스트림이라 연결을
   // 끊었다 다시 붙여도 화면이 손실되지 않는다. 그래서 탭이 숨거나 pane 이
@@ -90,6 +112,9 @@ const VncPane = ({ hostId, display, isActive, isFocused, settings, t, onReadyCha
     // 정리 함수가 기존 연결을 끊으므로, 비활성/숨김 전환 시 자동으로 disconnect 된다.
     if (!hostId || !validDisplay || !isActive || docHidden) return undefined;
 
+    // 새 연결 시도 — credentials 추적 초기화.
+    credentialsShownRef.current = false;
+
     let cancelled = false;
     let destroyClient = null;
     // ro·scheduler 는 async 블록 안에서 만들어지지만 cleanup 에서 해제해야 하므로
@@ -122,23 +147,45 @@ const VncPane = ({ hostId, display, isActive, isFocused, settings, t, onReadyCha
       });
 
       try {
+        // 화질 프리셋 — settings.vncQuality → qualityLevel/compressionLevel.
+        const qPreset = VNC_QUALITY_PRESETS[settings?.vncQuality] || VNC_QUALITY_PRESETS.balanced;
         const client = await createVncClient({
           container: containerRef.current,
           url,
-          onConnected: () => { if (!cancelled) setStatus('connected'); },
+          qualityLevel: qPreset.qualityLevel,
+          compressionLevel: qPreset.compressionLevel,
+          onConnected: () => {
+            if (!cancelled) {
+              setStatus('connected');
+              // 연결 성공 — 비밀번호를 메모리에서 즉시 제거.
+              setPasswordValue('');
+              setPasswordError('');
+            }
+          },
           onDisconnected: () => { if (!cancelled) setStatus('disconnected'); },
           onCredentialsRequired: () => {
+            // 서버가 비밀번호를 요구 — 입력 폼을 띄운다.
             if (!cancelled) {
-              setStatus('error');
-              setErrorMsg(tRef.current?.('vncCredentialsRequired') || 'VNC credentials required');
+              credentialsShownRef.current = true;
+              setStatus('credentials');
+              setPasswordError('');
             }
           },
           onSecurityFailure: (detail) => {
             if (!cancelled) {
-              setStatus('error');
-              setErrorMsg(detail?.reason
+              const reason = detail?.reason
                 || tRef.current?.('vncSecurityFailure')
-                || 'VNC security negotiation failed');
+                || 'Authentication failed';
+              if (credentialsShownRef.current) {
+                // 비밀번호 틀림 — 재시도 폼으로 돌아간다.
+                setStatus('credentials');
+                setPasswordError(reason);
+                setPasswordValue('');
+              } else {
+                // credentials 프롬프트 없이 보안 협상 자체가 실패 — 에러 표시.
+                setStatus('error');
+                setErrorMsg(reason);
+              }
             }
           },
         });
@@ -202,6 +249,32 @@ const VncPane = ({ hostId, display, isActive, isFocused, settings, t, onReadyCha
   useEffect(() => {
     onReadyChangeRef.current?.(status === 'connected');
   }, [status]);
+
+  // Task 3 — 비밀번호 제출. rfb.sendCredentials({password}) 로 noVNC 에 전달.
+  // 비밀번호는 이 함수 호출 후 즉시 state 에서 비운다 — 메모리 잔류 시간 최소화.
+  const submitPassword = useCallback(() => {
+    const c = clientRef.current;
+    if (!c?.rfb) return;
+    try {
+      c.rfb.sendCredentials({ password: passwordValue });
+      setStatus('connecting'); // 보안 협상 대기
+      setPasswordValue('');     // 전송 후 즉시 제거
+    } catch {
+      setStatus('error');
+      setErrorMsg('sendCredentials failed');
+    }
+  }, [passwordValue]);
+
+  // Task 4 — 화질 프리셋 변경 시 즉시 반영 (재연결 없음).
+  // noVNC 는 qualityLevel/compressionLevel 속성 대입으로 인코딩 파라미터를 즉시 바꾼다.
+  const vncQuality = settings?.vncQuality || 'balanced';
+  useEffect(() => {
+    const c = clientRef.current;
+    if (!c?.rfb) return;
+    const preset = VNC_QUALITY_PRESETS[vncQuality] || VNC_QUALITY_PRESETS.balanced;
+    c.rfb.qualityLevel = preset.qualityLevel;
+    c.rfb.compressionLevel = preset.compressionLevel;
+  }, [vncQuality]);
 
   // display 누락/무효 — 에러 메시지.
   if (!hostId || !validDisplay) {
@@ -287,11 +360,119 @@ const VncPane = ({ hostId, display, isActive, isFocused, settings, t, onReadyCha
             borderRadius: '50%',
             background: STATUS_COLOR[status] || color.muted,
             flexShrink: 0,
-            ...(status === 'connecting' ? {
+            ...(status === 'connecting' || status === 'credentials' ? {
               animation: 'iterm-vnc-pulse 1.2s ease-in-out infinite',
             } : null),
           }} />
           {t?.(`vncStatus_${status}`) || STATUS_LABEL[status]}
+        </div>
+      )}
+
+      {/* Task 4 — 화질/속도 프리셋 컨트롤 (우상단). 연결 중에 바꾸면 즉시 반영. */}
+      <select
+        value={vncQuality}
+        onChange={(e) => updateSettings?.({ vncQuality: e.target.value })}
+        style={{
+          position: 'absolute',
+          top: '8px',
+          right: '8px',
+          zIndex: 10,
+          padding: '3px 8px',
+          background: `color-mix(in srgb, ${color.surface1} 85%, transparent)`,
+          border: `1px solid ${color.border}`,
+          borderRadius: radius.md,
+          fontFamily: font.sans,
+          fontSize: fontSize['11'],
+          fontWeight: fontWeight.medium,
+          color: color.subtext,
+          backdropFilter: 'blur(8px)',
+          WebkitBackdropFilter: 'blur(8px)',
+          cursor: 'pointer',
+          outline: 'none',
+        }}
+      >
+        <option value="sharp">{t?.('vncQualitySharp') || 'Sharp'}</option>
+        <option value="balanced">{t?.('vncQualityBalanced') || 'Balanced'}</option>
+        <option value="light">{t?.('vncQualityLight') || 'Light'}</option>
+      </select>
+
+      {/* Task 3 — 비밀번호 입력 폼. credentialsrequired 이벤트 시 표시.
+          비밀번호는 컴포넌트 state(메모리) 에만 존재 — 영속화하지 않는다. */}
+      {status === 'credentials' && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          background: `color-mix(in srgb, ${color.base} 90%, transparent)`,
+          zIndex: 20,
+        }}>
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitPassword(); }}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px',
+              padding: '20px',
+              background: color.surface0,
+              border: `1px solid ${color.border}`,
+              borderRadius: radius.md,
+              minWidth: '240px',
+              maxWidth: '320px',
+            }}
+          >
+            <label style={{
+              fontSize: fontSize['12'],
+              color: color.text,
+              fontFamily: font.sans,
+              fontWeight: fontWeight.semibold,
+            }}>
+              {t?.('vncPassword') || 'VNC Password'}
+            </label>
+            {passwordError && (
+              <div style={{
+                fontSize: fontSize['11'],
+                color: color.danger,
+                fontFamily: font.sans,
+              }}>
+                {passwordError}
+              </div>
+            )}
+            <input
+              type="password"
+              autoComplete="off"
+              autoFocus
+              value={passwordValue}
+              onChange={(e) => setPasswordValue(e.target.value)}
+              style={{
+                padding: '6px 10px',
+                background: color.surface1,
+                border: `1px solid ${color.border}`,
+                borderRadius: radius.md,
+                color: color.text,
+                fontFamily: font.sans,
+                fontSize: fontSize['13'],
+                outline: 'none',
+              }}
+            />
+            <button
+              type="submit"
+              style={{
+                padding: '6px 16px',
+                background: color.accent,
+                color: '#fff',
+                border: 'none',
+                borderRadius: radius.md,
+                cursor: 'pointer',
+                fontFamily: font.sans,
+                fontSize: fontSize['12'],
+                fontWeight: fontWeight.semibold,
+              }}
+            >
+              {t?.('vncConnect') || 'Connect'}
+            </button>
+          </form>
         </div>
       )}
 

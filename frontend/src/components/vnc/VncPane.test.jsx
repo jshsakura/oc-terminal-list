@@ -9,8 +9,16 @@ import { render, screen, waitFor } from '@testing-library/react';
 // createVncClient mock — 호출 기록 + 즉시 resolved 가짜 클라이언트 반환.
 const createVncClientMock = vi.fn();
 let lastClientOpts;
+// 가짜 RFB — createVncClient 가 반환하는 client.rfb. sendCredentials 호출 추적.
 const fakeClient = {
-  rfb: { resizeSession: false, scaleViewport: false, disconnect: vi.fn() },
+  rfb: {
+    resizeSession: false,
+    scaleViewport: false,
+    qualityLevel: 0,
+    compressionLevel: 0,
+    disconnect: vi.fn(),
+    sendCredentials: vi.fn(),
+  },
   destroy: vi.fn(),
 };
 vi.mock('./createVncClient', () => ({
@@ -39,6 +47,7 @@ describe('VncPane', () => {
     issueWsTicketMock.mockClear();
     fakeClient.destroy.mockClear();
     fakeClient.rfb.disconnect.mockClear();
+    fakeClient.rfb.sendCredentials.mockClear();
     lastClientOpts = null;
   });
 
@@ -92,6 +101,97 @@ describe('VncPane', () => {
     rerender(<VncPane {...baseProps({ display: 1 })} />);
     await waitFor(() => expect(issueWsTicketMock).toHaveBeenCalledTimes(2));
     expect(issueWsTicketMock).toHaveBeenLastCalledWith('/ws/vnc/host1');
+  });
+
+  // ── Task 3: 비밀번호 입력 플로우 ──
+
+  it('credentialsrequired 이벤트 → 비밀번호 입력 폼이 뜬다', async () => {
+    render(<VncPane {...baseProps()} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    act(() => { lastClientOpts.onCredentialsRequired(); });
+    // 비밀번호 라벨이 보여야 함
+    expect(screen.getByText('vncPassword')).toBeTruthy();
+    // input[type=password] 가 있어야 함
+    expect(document.querySelector('input[type="password"]')).toBeTruthy();
+  });
+
+  it('비밀번호 입력 후 제출 → rfb.sendCredentials({password}) 가 불린다', async () => {
+    render(<VncPane {...baseProps()} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    act(() => { lastClientOpts.onCredentialsRequired(); });
+    const input = document.querySelector('input[type="password"]');
+    expect(input).toBeTruthy();
+    act(() => {
+      // React 의 controlled input 시뮬레이션 — native setter 로 value 변경 후 input 이벤트.
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value',
+      ).set;
+      nativeInputValueSetter.call(input, 'secretpw');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const form = input.closest('form');
+    act(() => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    expect(fakeClient.rfb.sendCredentials).toHaveBeenCalledWith({ password: 'secretpw' });
+  });
+
+  it('securityfailure (틀린 비밀번호) → 재시도 폼으로 돌아간다', async () => {
+    render(<VncPane {...baseProps()} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    // 먼저 credentialsrequired → 폼 표시
+    act(() => { lastClientOpts.onCredentialsRequired(); });
+    expect(screen.getByText('vncPassword')).toBeTruthy();
+    // 틀린 비밀번호로 securityfailure
+    act(() => { lastClientOpts.onSecurityFailure({ reason: 'bad password' }); });
+    // 여전히 비밀번호 폼이 보여야 함 (재시도)
+    expect(screen.getByText('vncPassword')).toBeTruthy();
+    expect(screen.getByText('bad password')).toBeTruthy();
+  });
+
+  it('비밀번호는 state 에만 존재 — updateSettings 에 저장하지 않는다', async () => {
+    const updateSettings = vi.fn();
+    render(<VncPane {...baseProps({ updateSettings })} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    act(() => { lastClientOpts.onCredentialsRequired(); });
+    const input = document.querySelector('input[type="password"]');
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'mypw');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const form = input.closest('form');
+    act(() => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    // updateSettings 가 비밀번호와 함께 호출되지 않아야 함
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  // ── Task 4: 화질 프리셋 ──
+
+  it('qualityLevel/compressionLevel 이 rfb 에 적용된다 (balanced 기본)', async () => {
+    render(<VncPane {...baseProps()} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    // balanced = { qualityLevel: 6, compressionLevel: 3 }
+    expect(lastClientOpts.qualityLevel).toBe(6);
+    expect(lastClientOpts.compressionLevel).toBe(3);
+  });
+
+  it('settings.vncQuality=sharp → qualityLevel=9, compressionLevel=0', async () => {
+    render(<VncPane {...baseProps({ settings: { vncQuality: 'sharp' } })} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    expect(lastClientOpts.qualityLevel).toBe(9);
+    expect(lastClientOpts.compressionLevel).toBe(0);
+  });
+
+  it('화질 변경 시 updateSettings 가 불린다', async () => {
+    const updateSettings = vi.fn();
+    render(<VncPane {...baseProps({ updateSettings })} />);
+    const select = document.querySelector('select');
+    expect(select).toBeTruthy();
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
+      setter.call(select, 'light');
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(updateSettings).toHaveBeenCalledWith({ vncQuality: 'light' });
   });
 });
 

@@ -10,6 +10,8 @@
  * @param {object} opts
  * @param {HTMLElement} opts.container - RFB 가 캔버스를 붙일 DOM 노드
  * @param {string} opts.url - WS 터널 URL (티켓·디스플레이 쿼리 포함)
+ * @param {number=} opts.qualityLevel - noVNC 화질 (0-9, 높을수록 선명). 기본 6.
+ * @param {number=} opts.compressionLevel - noVNC 압축 (0-9, 높을수록 압축 강함). 기본 3.
  * @param {function=} opts.onConnected - RFB 'connect' 이벤트
  * @param {function=} opts.onDisconnected - RFB 'disconnect' 이벤트 (detail.clean)
  * @param {function=} opts.onCredentialsRequired - 인증 정보 요구
@@ -19,6 +21,8 @@
 export default async function createVncClient({
   container,
   url,
+  qualityLevel = 6,
+  compressionLevel = 3,
   onConnected,
   onDisconnected,
   onCredentialsRequired,
@@ -39,6 +43,12 @@ export default async function createVncClient({
   //   다시 true 로 돌려 noVNC 가 _requestRemoteResize() 로 1회만 전송하게 한다.
   rfb.scaleViewport = true;
   rfb.resizeSession = true;
+
+  // 화질/압축 프리셋 — VncPane 이 settings.vncQuality 에서 매핑해 넘겨준다.
+  // 연결 중에 바뀌면 VncPane 의 useEffect 가 rfb.qualityLevel/compressionLevel 을
+  // 직접 대입한다 (재연결 불필요 — noVNC 는 속성 대입으로 즉시 반영).
+  rfb.qualityLevel = qualityLevel;
+  rfb.compressionLevel = compressionLevel;
 
   // 로컬 커서 표시 — noVNC 1.7 은 Cursor 클래스로 자동 처리하지만, showLocalCursor
   // 메서드가 있는 버전에서는 명시적으로 켠다(없으면 무시).

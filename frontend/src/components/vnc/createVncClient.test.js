@@ -14,6 +14,8 @@ class FakeRFB {
     this.listeners = {};
     this.scaleViewport = null;
     this.resizeSession = null;
+    this.qualityLevel = null;
+    this.compressionLevel = null;
     this.disconnected = false;
     this._listenersRemoved = false;
     lastRfb = this;
@@ -60,6 +62,18 @@ describe('createVncClient', () => {
     await createVncClient(baseOpts());
     expect(lastRfb.scaleViewport).toBe(true);
     expect(lastRfb.resizeSession).toBe(true);
+  });
+
+  it('qualityLevel / compressionLevel 을 rfb 에 적용한다 (Task 4)', async () => {
+    await createVncClient({ ...baseOpts(), qualityLevel: 9, compressionLevel: 0 });
+    expect(lastRfb.qualityLevel).toBe(9);
+    expect(lastRfb.compressionLevel).toBe(0);
+  });
+
+  it('qualityLevel / compressionLevel 기본값은 balanced (6, 3)', async () => {
+    await createVncClient(baseOpts());
+    expect(lastRfb.qualityLevel).toBe(6);
+    expect(lastRfb.compressionLevel).toBe(3);
   });
 
   it('connect/disconnect/credentialsrequired/securityfailure 리스너를 건다', async () => {

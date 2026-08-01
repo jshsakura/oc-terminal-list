@@ -630,6 +630,7 @@ const Pane = ({
                 settings={settings}
                 t={t}
                 onReadyChange={setTerminalReady}
+                updateSettings={updateSettings}
               />
             </Suspense>
           ) : (

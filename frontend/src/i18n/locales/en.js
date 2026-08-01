@@ -868,4 +868,10 @@ export const en = {
     vncKillConfirm: 'Terminate this VNC desktop? Everything running in it will be killed.',
     vncKill: 'Terminate',
     vncKillFailed: 'Failed to terminate desktop',
+    vncPassword: 'VNC Password',
+    vncConnect: 'Connect',
+    vncSecurityFailure: 'Authentication failed',
+    vncQualitySharp: 'Sharp',
+    vncQualityBalanced: 'Balanced',
+    vncQualityLight: 'Light',
 };

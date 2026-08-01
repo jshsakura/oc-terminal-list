@@ -107,3 +107,83 @@ async def test_create_session_uninstalled_returns_available():
         res = await vnc.create_vnc_session("h1", req, "alice")
     assert res["installed"] is False
     assert "installed" in res.get("error", "")
+
+
+def _turbovnc_combined():
+    """TurboVNC 설치 + :1 실행 중인 호스트의 통합 출력."""
+    return (
+        "__ITL_VNC_X11__\nX1\n"
+        "__ITL_VNC_SS__\nLISTEN 0 128 127.0.0.1:5901 0.0.0.0:*\n"
+        "__ITL_VNC_PS__\n1234 ubuntu Xvnc :1 -geometry 1920x1080\n"
+        "__ITL_VNC_WHICH__\n/opt/TurboVNC/bin/vncserver\n"
+    )
+
+
+def _tigervnc_combined():
+    """TigerVNC 설치 + :1 실행 중인 호스트의 통합 출력."""
+    return (
+        "__ITL_VNC_X11__\nX1\n"
+        "__ITL_VNC_SS__\nLISTEN 0 128 127.0.0.1:5901 0.0.0.0:*\n"
+        "__ITL_VNC_PS__\n1234 ubuntu Xtigervnc :1 -geometry 1920x1080\n"
+        "__ITL_VNC_WHICH__\n/usr/bin/Xtigervnc\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_session_turbovnc_uses_boolean_localhost():
+    """flavor=turbovnc → ``-localhost`` (불리언 플래그, yes 없음).
+
+    TurboVNC 의 -localhost 는 인자를 받지 않는다. ``yes`` 를 붙이면 Xvnc 가
+    ``Unrecognized option: yes`` 로 죽는다.
+    """
+    host = _host()
+    captured = {}
+
+    async def fake_run(cmd):
+        captured["cmd"] = cmd
+        return ""
+
+    # 첫 호출(discovery)은 turbovnc 통합 출력, 두 번째(실제 기동)는 빈 출력.
+    runner_calls = [_turbovnc_combined(), ""]
+
+    async def two_phase_runner(cmd):
+        captured["cmd"] = cmd
+        return runner_calls.pop(0)
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=two_phase_runner)):
+        req = vnc.CreateSessionRequest(geometry="1920x1080", display=2)
+        await vnc.create_vnc_session("h1", req, "alice")
+    cmd = captured["cmd"]
+    assert "-localhost " not in cmd or "-localhost yes" not in cmd  # yes 가 없어야
+    assert "-localhost " in cmd or cmd.endswith("-localhost ") or "-localhost -geometry" in cmd
+    # TurboVNC: -localhost 다음에 바로 -geometry 가 와야 함 (yes 없음)
+    assert "-localhost -geometry" in cmd
+    assert "-localhost yes" not in cmd
+
+
+@pytest.mark.asyncio
+async def test_create_session_tigervnc_uses_localhost_yes():
+    """flavor=tigervnc → ``-localhost yes`` (TigerVNC 표준 형태)."""
+    host = _host()
+    captured = {}
+
+    runner_calls = [_tigervnc_combined(), ""]
+
+    async def two_phase_runner(cmd):
+        captured["cmd"] = cmd
+        return runner_calls.pop(0)
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=two_phase_runner)):
+        req = vnc.CreateSessionRequest(geometry="1280x800", display=2)
+        await vnc.create_vnc_session("h1", req, "alice")
+    cmd = captured["cmd"]
+    assert "-localhost yes" in cmd
+
+
+def test_localhost_flag_helper():
+    """_localhost_flag 헬퍼 직접 검증."""
+    assert vnc._localhost_flag("turbovnc") == "-localhost"
+    assert vnc._localhost_flag("tigervnc") == "-localhost yes"
+    assert vnc._localhost_flag("") == "-localhost yes"  # 알 수 없으면 TigerVNC 형태

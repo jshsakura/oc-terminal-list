@@ -111,6 +111,32 @@ def test_parse_vnc_processes_ignores_non_vnc():
     assert parse_vnc_processes(ps) == []
 
 
+def test_parse_vnc_processes_long_username_user32_format():
+    """user:32 컬럼 폭 — 긴 사용자명이 공백 패딩과 함께 나온다.
+
+    기본 ``user`` 컬럼은 8자 제한이라 ``jshsaku+`` 처럼 잘리지만, ``user:32`` 는
+    32자 폭으로 패딩만 추가하고 이름은 온전히 나온다. ``split(None, 2)`` 가 연속
+    공백을 하나로 collapses 하므로 패딩에 영향받지 않는다.
+    """
+    # user:32 출력 시뮬레이션 — "jshsaku" 뒤에 32-7=25개 공백
+    ps = "12345 jshsaku                         Xtigervnc :1 -geometry 1920x1080\n"
+    procs = parse_vnc_processes(ps)
+    assert len(procs) == 1
+    assert procs[0]["user"] == "jshsaku"
+    assert procs[0]["display"] == 1
+
+
+def test_parse_vnc_processes_truncated_username_old_format():
+    """구형 user(8자) 출력 — ``jshsaku+`` 로 잘린 이름도 파싱 자체는 된다.
+
+    user:32 마이그레이션 전의 출력과도 호환되어야 한다 (구 ps 출력을 캐시한 경우 등).
+    """
+    ps = "12345 jshsaku+ Xtigervnc :1 -geometry 1920x1080\n"
+    procs = parse_vnc_processes(ps)
+    assert len(procs) == 1
+    assert procs[0]["user"] == "jshsaku+"
+
+
 def test_parse_installed():
     assert parse_installed("/usr/bin/vncserver\n/usr/bin/Xtigervnc\n") is True
     assert parse_installed("/usr/bin/Xtigervnc\n") is True

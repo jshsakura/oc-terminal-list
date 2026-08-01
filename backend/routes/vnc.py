@@ -1,8 +1,12 @@
 """Xvnc 원격 데스크탑 — 디스커버리 + 세션 기동/종료.
 
-VNC 는 항상 ``-localhost yes``(루프백 바인딩)로 띄운다. 우리는 SSH direct-tcpip
-터널 안에서만 접속하므로 루프백이 정상 상태다. 이 플래그를 빼면 VNC 가 인터넷에
-그대로 노출되므로 **어떤 경로로도 뺄 수 없게** 명령문에 고정한다.
+VNC 는 항상 루프백 바인딩으로 띄운다. 우리는 SSH direct-tcpip 터널 안에서만
+접속하므로 루프백이 정상 상태다. 이 플래그를 빼면 VNC 가 인터넷에 그대로 노출되므로
+**어떤 경로로도 뺄 수 없게** 명령문에 고정한다.
+
+flavor 에 따라 표기가 다르다: TigerVNC 는 ``-localhost yes``, TurboVNC 는
+``-localhost``(불리언 플래그, 인자 없음). 둘 다 127.0.0.1 전용 바인딩을 강제하므로
+보안 의미는 동일하다. flavor 는 디스커버리가 이미 판정해 갖고 있다.
 
 응답 계약은 routes/tailscale.py 와 동일 — VNC 가 없거나 명령이 실패해도 500 대신
 ``{"available": false, "displays": [], "error": "..."}`` 로 내려 UI 가 스스로
@@ -30,6 +34,16 @@ router = APIRouter(tags=["vnc"])
 
 # -geometry 인자 형태만 허용 (명령 주입 차단).
 _GEOMETRY_RE = re.compile(r"^\d+x\d+$")
+
+
+def _localhost_flag(flavor: str) -> str:
+    """flavor 에 맞는 루프백 바인딩 플래그.
+
+    TurboVNC 의 ``-localhost`` 는 인자 없는 불리언 플래그다 — ``yes`` 를 주면
+    Xvnc 가 ``Unrecognized option: yes`` 로 죽는다. TigerVNC(및 구형 Xvnc) 는
+    ``-localhost yes`` 형태를 쓴다. 어느 쪽이든 루프백 바인딩을 강제한다.
+    """
+    return "-localhost" if flavor == "turbovnc" else "-localhost yes"
 
 
 # ---------------------- runner (key/pass vs tailscale) ----------------------
@@ -116,10 +130,11 @@ async def create_vnc_session(
     request: CreateSessionRequest,
     username: str = Depends(verify_auth_token),
 ):
-    """새 가상 데스크탑 기동 — ``vncserver -localhost yes -geometry <WxH> :<N>``.
+    """새 가상 데스크탑 기동 — ``vncserver -localhost ... -geometry <WxH> :<N>``.
 
     display 를 주지 않으면 현재 사용 중인 번호를 피해 1..99 중 빈 번호를 고른다.
-    ``-localhost yes`` 는 필수(인터넷 노출 차단)이므로 고정 문자열로 박아둔다.
+    루프백 바인딩(``-localhost``)은 필수(인터넷 노출 차단)이므로 항상 들어간다.
+    flavor 에 따라 ``-localhost``(TurboVNC) 또는 ``-localhost yes``(TigerVNC) 로 표기.
     """
     host = await _resolve_host_or_404(host_id, username)
 
@@ -148,12 +163,14 @@ async def create_vnc_session(
         raise HTTPException(status_code=409, detail="사용 가능한 디스플레이 번호가 없습니다")
     chosen = int(chosen)
 
-    # -localhost yes 는 절대 빠지면 안 된다 — 빠지면 VNC 가 인터넷에 노출된다.
+    # 루프백 바인딩은 절대 빠지면 안 된다 — 빠지면 VNC 가 인터넷에 노출된다.
     # TurboVNC 처럼 PATH 밖에 설치된 vncserver 도 잡기 위해 디스커버리에서
     # 찾은 경로를 쓰고, 없으면 폴백으로 "vncserver" 를 쓴다.
+    # flavor 에 따라 -localhost 표기가 다르다: TurboVNC 는 불리언 플래그, TigerVNC 는 yes 인자.
     safe_geom = shlex.quote(geometry)
     vncserver_path = state.get("vncserver_path") or "vncserver"
-    cmd = f"{shlex.quote(vncserver_path)} -localhost yes -geometry {safe_geom} :{chosen}"
+    localhost_flag = _localhost_flag(state.get("flavor", ""))
+    cmd = f"{shlex.quote(vncserver_path)} {localhost_flag} -geometry {safe_geom} :{chosen}"
     try:
         output = await runner(cmd)
     except Exception as e:
