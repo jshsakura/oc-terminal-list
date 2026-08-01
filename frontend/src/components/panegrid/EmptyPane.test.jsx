@@ -397,4 +397,61 @@ describe('VncDisplayPicker', () => {
       expect(screen.getByText(/vncCreateFailed/)).toBeTruthy();
     });
   });
+
+  // ── Primary "create and connect" action (0 displays) ────────────────────
+
+  it('shows primary "create and connect" action when 0 displays + installed', async () => {
+    mockFetchResponse({ available: true, installed: true, displays: [] });
+
+    renderPicker();
+
+    await waitFor(() => {
+      expect(screen.getByText('vncCreateAndConnect')).toBeTruthy();
+    });
+  });
+
+  it('primary action sends POST with default geometry and auto-connects', async () => {
+    const GET_RESP = { available: true, installed: true, displays: [] };
+    const POST_RESP = { available: true, installed: true, display: 3, port: 5903, geometry: '1280x800' };
+    global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      const method = (opts.method || 'GET').toUpperCase();
+      if (method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => POST_RESP });
+      }
+      return Promise.resolve({ ok: true, json: async () => GET_RESP });
+    });
+
+    const onPick = vi.fn();
+    render(<VncDisplayPicker host={HOST} t={(k) => k} onPick={onPick} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('vncCreateAndConnect')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('vncCreateAndConnect'));
+
+    await waitFor(() => {
+      const postCall = global.fetch.mock.calls.find(
+        ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
+      );
+      expect(postCall).toBeTruthy();
+      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1280x800' });
+    });
+
+    await waitFor(() => {
+      expect(onPick).toHaveBeenCalledWith(3);
+    });
+  });
+
+  it('does not show primary create action when installed is false', async () => {
+    mockFetchResponse({ available: true, installed: false, displays: [] });
+
+    renderPicker();
+
+    await waitFor(() => {
+      expect(screen.getByText('vncNotInstalled')).toBeTruthy();
+    });
+
+    expect(screen.queryByText('vncCreateAndConnect')).toBeNull();
+  });
 });

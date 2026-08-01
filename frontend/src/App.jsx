@@ -36,12 +36,13 @@ import {
 } from './utils/tabOperations';
 import {
   makePane, makLocalTab, makeFreshHostTmuxSessionName,
-  usedThemeIdsFromTabs, resolveProfileTheme, makeHostTab,
+  usedThemeIdsFromTabs, resolveProfileTheme, makeHostTab, makeVncTab,
   deriveTabMeta,
 } from './utils/tabModel';
 
 import TabBar from './components/TabBar';
 import HomeDashboard from './components/HomeDashboard';
+import { VncDisplayPicker } from './components/panegrid/EmptyPane';
 import RemoteFolderPicker from './components/RemoteFolderPicker';
 import LocalEditor from './components/LocalEditor';
 import LocalFolderPicker from './components/LocalFolderPicker';
@@ -165,6 +166,21 @@ function App() {
     });
     setActiveTabId(tabId);
   }, [openLocalTab]);
+
+  // VNC 원격 데스크톱 — 홈 화면에서 호스트 카드의 ScreenShare 버튼으로 연다.
+  // openHostTab 과 동일한 패턴: 새 탭 생성 + 활성화. pane 은 mode:'vnc'.
+  const openVncTab = useCallback((host, display) => {
+    if (!host || host.isLocal || host.id === 'local') return;
+    const tabId = `vnc:${host.id}:${Date.now()}`;
+    setTabs((prev) => {
+      const tab = makeVncTab(host, display, {
+        tabId,
+        themeOverride: resolveProfileTheme(host.theme, usedThemeIdsFromTabs(prev)),
+      });
+      return [...prev, tab];
+    });
+    setActiveTabId(tabId);
+  }, []);
 
   // ── pane operations ───────────────────────────────────────────────────────
   // Split active pane — creates an empty pane picker. The user chooses local/host/tab there.
@@ -549,6 +565,7 @@ function App() {
   });
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
+  const [vncPickerHost, setVncPickerHost] = useState(null);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // SSH keyboard-interactive prompt 가 열려 있는지 — 모바일 단축키바 가림 처리.
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
@@ -937,6 +954,7 @@ function App() {
                 startPath: settings.localStartPath || '',
               }}
               onOpenHost={openHostTab}
+              onOpenVnc={(host) => setVncPickerHost(host)}
               refreshHosts={refreshHosts}
               onOpenHostAtPath={(h) => setFolderPickerHost(h)}
               onEditLocal={() => setLocalEditorOpen(true)}
@@ -1342,6 +1360,17 @@ function App() {
         }}
         t={t}
       />
+
+      {/* ── VNC display picker (home dashboard entry) ── */}
+      {vncPickerHost && (
+        <VncDisplayPicker
+          host={vncPickerHost}
+          t={t}
+          onConfirm={(opts) => setConfirmModal({ isOpen: true, ...opts })}
+          onPick={(display) => { openVncTab(vncPickerHost, display); setVncPickerHost(null); }}
+          onClose={() => setVncPickerHost(null)}
+        />
+      )}
 
       {/* ── local machine editor ── */}
       <LocalEditor

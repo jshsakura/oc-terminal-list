@@ -863,6 +863,7 @@ export const en = {
     vncGeometryPlaceholder: 'e.g. 1600x900',
     vncInvalidGeometry: 'Use WxH format (e.g. 1600x900)',
     vncCreate: 'Create',
+    vncCreateAndConnect: 'Create and connect',
     vncCreating: 'Creating…',
     vncCreateFailed: 'Failed to create desktop',
     vncKillDesktop: 'Terminate desktop',

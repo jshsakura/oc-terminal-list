@@ -863,6 +863,7 @@ export const ko = {
     vncGeometryPlaceholder: '예: 1600x900',
     vncInvalidGeometry: 'WxH 형식으로 입력 (예: 1600x900)',
     vncCreate: '만들기',
+    vncCreateAndConnect: '만들고 연결',
     vncCreating: '생성 중…',
     vncCreateFailed: '데스크탑 생성에 실패했습니다',
     vncKillDesktop: '데스크탑 종료',

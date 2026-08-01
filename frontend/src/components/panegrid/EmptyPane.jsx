@@ -3,7 +3,7 @@
  * PaneGrid.jsx 에서 로직 변경 없이 추출. EmptyPane 만 외부로 노출하고 나머지는 내부 전용.
  */
 import { useState, useEffect, useCallback } from 'react';
-import { ArrowRightLeft, Copy, Cpu, Monitor, Power, Server, Terminal as TerminalIcon, X, Zap } from 'lucide-react';
+import { ArrowRightLeft, Copy, Cpu, Monitor, Plus, Power, Server, Terminal as TerminalIcon, X, Zap } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
 import HomeDashboard, { HostRow } from '../HomeDashboard';
@@ -162,9 +162,11 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
   }, [refresh]);
 
   // ── 새 가상 데스크탑 만들기 ──────────────────────────────────────────────
-  const handleCreate = async () => {
+  // overrideGeom: 주 액션(0-displays "create and connect")이 기본 해상도로 강제 호출할 때 사용.
+  const handleCreate = async (overrideGeom) => {
     setActionError('');
-    const geom = useCustom ? customGeometry.trim() : geometry;
+    const override = typeof overrideGeom === 'string' ? overrideGeom : '';
+    const geom = override || (useCustom ? customGeometry.trim() : geometry);
     if (!_GEOMETRY_RE.test(geom)) {
       setActionError(t?.('vncInvalidGeometry') || 'Use WxH format (e.g. 1600x900)');
       return;
@@ -434,8 +436,39 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
               </div>
             )}
             {displays.length === 0 ? (
-              <div style={{ padding: '12px', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] }}>
-                {t?.('vncNoDisplays') || 'No active VNC displays found.'}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <div style={{ padding: '12px', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] }}>
+                  {t?.('vncNoDisplays') || 'No active VNC displays found.'}
+                </div>
+                {/* 주 액션 — 한 번에 기본 해상도(1280x800) 로 만들고 연결. installed=false 면 비활성. */}
+                {state.data?.installed !== false && (
+                  <button
+                    type="button"
+                    disabled={creating}
+                    onClick={() => handleCreate('1280x800')}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '12px 16px',
+                      background: creating ? color.surface1 : color.accent,
+                      color: creating ? color.subtext : color.surface0,
+                      border: `1px solid ${creating ? color.border : color.accent}`,
+                      borderRadius: '8px',
+                      cursor: creating ? 'not-allowed' : 'pointer',
+                      fontSize: fontSize['13'],
+                      fontWeight: fontWeight.semibold,
+                      appearance: 'none',
+                      transition: 'background 120ms, opacity 120ms',
+                    }}
+                  >
+                    <Plus size={15} strokeWidth={2} />
+                    {creating
+                      ? (t?.('vncCreating') || 'Creating…')
+                      : (t?.('vncCreateAndConnect') || 'Create and connect')}
+                  </button>
+                )}
               </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -602,7 +635,7 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
                 <button
                   type="button"
                   disabled={creating || (useCustom && !_GEOMETRY_RE.test(customGeometry.trim()))}
-                  onClick={handleCreate}
+                  onClick={() => handleCreate()}
                   style={{
                     width: '100%',
                     padding: '8px 12px',

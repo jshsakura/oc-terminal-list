@@ -104,6 +104,29 @@ export const makeHostTab = (host, cwd = null, tmuxSessionName = null, { themeOve
   };
 };
 
+export const makeVncTab = (host, display, { themeOverride = undefined, tabId = null } = {}) => {
+  const selectedTheme = themeOverride !== undefined ? themeOverride : host.theme;
+  const pane = makePane({
+    mode: 'vnc',
+    hostId: host.id,
+    display,
+    ...(selectedTheme ? { themeOverride: selectedTheme } : null),
+  });
+  return {
+    id: tabId || `vnc:${host.id}:${Date.now()}`,
+    type: 'host',
+    hostId: host.id,
+    name: `${host.name} · :${display}`,
+    icon: host.icon || null,
+    color_index: host.color_index ?? 0,
+    cwd: null,
+    panes: [pane],
+    layout: 'single',
+    splitTree: makeLeaf(pane.id),
+    activePaneId: pane.id,
+  };
+};
+
 // pane 의 표시 정체성 키 — 호스트 pane 은 호스트별, 로컬 pane 은 'local' 하나로 묶는다.
 // 빈 pane(세션도 호스트도 없음)은 정체성 없음(null).
 export const paneIdentityKey = (pane) => {
