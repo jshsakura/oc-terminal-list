@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { computeVncResize, createResizeScheduler } from './vncResize';
+import { computeVncResize, createResizeScheduler, computeVncGeometry } from './vncResize';
 
 // vncResize: "드래그 중엔 안 보내고, 안정화 뒤에 1회만 보낸다" 는 판정.
 // 이게 틀리면 분할 테두리를 드래그할 때마다 Xvnc framebuffer 가 쓸데없이
@@ -143,5 +143,52 @@ describe('createResizeScheduler — 디바운스', () => {
     schedule();
     vi.advanceTimersByTime(250);
     expect(onApply).toHaveBeenCalledTimes(1);
+  });
+});
+
+// computeVncGeometry: pane/뷰포트 실측 → 'WxH' 문자열.
+// 이게 틀리면 데스크탑이 처음에 엉뚱한 비율로 떴다가 리사이즈되거나,
+// 비정상적으로 큰/작은 값이 백엔드로 전송된다.
+describe('computeVncGeometry — 초기 해상도 계산', () => {
+  it('정상 크기를 WxH 문자열로 반환한다', () => {
+    expect(computeVncGeometry(1920, 1080)).toBe('1920x1080');
+    expect(computeVncGeometry(1280, 800)).toBe('1280x800');
+  });
+
+  it('홀수 크기를 짝수로 반올림한다', () => {
+    expect(computeVncGeometry(1921, 1081)).toBe('1922x1082');
+    expect(computeVncGeometry(999, 601)).toBe('1000x602');
+  });
+
+  it('소수점을 반올림한다', () => {
+    expect(computeVncGeometry(1920.4, 1080.3)).toBe('1920x1080');
+    expect(computeVncGeometry(1023.6, 767.6)).toBe('1024x768');
+  });
+
+  it('하한(640x480) 미만을 클램프한다', () => {
+    expect(computeVncGeometry(100, 100)).toBe('640x480');
+    expect(computeVncGeometry(300, 200)).toBe('640x480');
+  });
+
+  it('상한(3840x2160) 초과를 클램프한다', () => {
+    expect(computeVncGeometry(5000, 3000)).toBe('3840x2160');
+    expect(computeVncGeometry(7680, 4320)).toBe('3840x2160');
+  });
+
+  it('무효/0/음수 → 1280x800 폴백', () => {
+    expect(computeVncGeometry(null, 800)).toBe('1280x800');
+    expect(computeVncGeometry(1920, null)).toBe('1280x800');
+    expect(computeVncGeometry(undefined, undefined)).toBe('1280x800');
+    expect(computeVncGeometry(0, 0)).toBe('1280x800');
+    expect(computeVncGeometry(-100, 800)).toBe('1280x800');
+    expect(computeVncGeometry(NaN, 800)).toBe('1280x800');
+  });
+
+  it('하한 경계값은 그대로 통과한다', () => {
+    expect(computeVncGeometry(640, 480)).toBe('640x480');
+  });
+
+  it('상한 경계값은 그대로 통과한다', () => {
+    expect(computeVncGeometry(3840, 2160)).toBe('3840x2160');
   });
 });

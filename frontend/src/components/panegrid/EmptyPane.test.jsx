@@ -406,13 +406,13 @@ describe('VncDisplayPicker', () => {
     renderPicker();
 
     await waitFor(() => {
-      expect(screen.getByText('vncCreateAndConnect')).toBeTruthy();
+      expect(screen.getByText(/vncCreateAndConnect/)).toBeTruthy();
     });
   });
 
-  it('primary action sends POST with default geometry and auto-connects', async () => {
+  it('primary action sends paneSize-based geometry and auto-connects', async () => {
     const GET_RESP = { available: true, installed: true, displays: [] };
-    const POST_RESP = { available: true, installed: true, display: 3, port: 5903, geometry: '1280x800' };
+    const POST_RESP = { available: true, installed: true, display: 3, port: 5903, geometry: '1920x1080' };
     global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
       const method = (opts.method || 'GET').toUpperCase();
       if (method === 'POST') {
@@ -422,24 +422,113 @@ describe('VncDisplayPicker', () => {
     });
 
     const onPick = vi.fn();
-    render(<VncDisplayPicker host={HOST} t={(k) => k} onPick={onPick} onClose={vi.fn()} />);
+    render(
+      <VncDisplayPicker
+        host={HOST} t={(k) => k} onPick={onPick} onClose={vi.fn()}
+        paneSize={{ width: 1920, height: 1080 }}
+      />,
+    );
 
     await waitFor(() => {
-      expect(screen.getByText('vncCreateAndConnect')).toBeTruthy();
+      expect(screen.getByText(/vncCreateAndConnect/)).toBeTruthy();
     });
 
-    fireEvent.click(screen.getByText('vncCreateAndConnect'));
+    fireEvent.click(screen.getByText(/vncCreateAndConnect/));
 
     await waitFor(() => {
       const postCall = global.fetch.mock.calls.find(
         ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
       );
       expect(postCall).toBeTruthy();
-      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1280x800' });
+      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1920x1080' });
     });
 
     await waitFor(() => {
       expect(onPick).toHaveBeenCalledWith(3);
+    });
+  });
+
+  it('primary action rounds odd paneSize to even geometry', async () => {
+    const GET_RESP = { available: true, installed: true, displays: [] };
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ available: true, installed: true, display: 1, port: 5901 }),
+    });
+
+    render(
+      <VncDisplayPicker
+        host={HOST} t={(k) => k} onPick={vi.fn()} onClose={vi.fn()}
+        paneSize={{ width: 1023, height: 767 }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/vncCreateAndConnect/)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText(/vncCreateAndConnect/));
+
+    await waitFor(() => {
+      const postCall = global.fetch.mock.calls.find(
+        ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
+      );
+      expect(postCall).toBeTruthy();
+      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1024x768' });
+    });
+  });
+
+  it('primary action clamps tiny paneSize to lower bound', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ available: true, installed: true, display: 1, port: 5901 }),
+    });
+
+    render(
+      <VncDisplayPicker
+        host={HOST} t={(k) => k} onPick={vi.fn()} onClose={vi.fn()}
+        paneSize={{ width: 100, height: 100 }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/vncCreateAndConnect/)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText(/vncCreateAndConnect/));
+
+    await waitFor(() => {
+      const postCall = global.fetch.mock.calls.find(
+        ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
+      );
+      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '640x480' });
+    });
+  });
+
+  it('falls back to viewport size when paneSize is null', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ available: true, installed: true, display: 1, port: 5901 }),
+    });
+
+    // paneSize null → computeVncGeometry(window.innerWidth, window.innerHeight)
+    // jsdom default: 1024 x 768 → both even, within bounds → '1024x768'
+    render(
+      <VncDisplayPicker host={HOST} t={(k) => k} onPick={vi.fn()} onClose={vi.fn()} />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/vncCreateAndConnect/)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText(/vncCreateAndConnect/));
+
+    await waitFor(() => {
+      const postCall = global.fetch.mock.calls.find(
+        ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
+      );
+      // jsdom 의 window 크기는 1024x768 — computeVncGeometry 가 그대로 통과시킨다.
+      const geom = JSON.parse(postCall[1].body).geometry;
+      expect(geom).toMatch(/^\d+x\d+$/);
     });
   });
 
@@ -452,6 +541,6 @@ describe('VncDisplayPicker', () => {
       expect(screen.getByText('vncNotInstalled')).toBeTruthy();
     });
 
-    expect(screen.queryByText('vncCreateAndConnect')).toBeNull();
+    expect(screen.queryByText(/vncCreateAndConnect/)).toBeNull();
   });
 });

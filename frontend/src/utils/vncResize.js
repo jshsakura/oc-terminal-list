@@ -97,3 +97,41 @@ export const createResizeScheduler = ({ onApply, debounceMs = 250 }) => {
 
   return { schedule, flush, cancel };
 };
+
+/**
+ * 데스크탑 생성 시 초기 해상도 계산 — pane/뷰포트 실측 크기를 "WxH" 문자열로 변환.
+ *
+ * resizeSession=true 이므로 연결 직후 SetDesktopSize 로 pane 크기가 원격에 통보되어
+ * 해상도가 바뀐다. 즉 생성 시의 geometry 는 사실상 "첫 1프레임 크기" 에 불과하다.
+ * 그런데 처음에 엉뚱한 비율(1280x800)로 떴다가 바뀌면 시각적으로 어색하다.
+ * 이 함수는 생성 시점에 pane/뷰포트 실측 크기를 그대로 써서 왕복을 없앤다.
+ *
+ * 가드:
+ *   - 짝수 반올림 (홀수 폭을 싫어하는 인코더가 있다).
+ *   - 하한 640x480 / 상한 3840x2160 클램프.
+ *   - 측정 불가(무효/0/음수) → '1280x800' 폴백.
+ *   - devicePixelRatio 를 곱하지 않는다 — CSS 픽셀 기준이면 충분하다.
+ *
+ * @param {number|null|undefined} width - CSS 픽셀 폭.
+ * @param {number|null|undefined} height - CSS 픽셀 높이.
+ * @returns {string} 'WxH' (예: '1920x1080'). 폴백 '1280x800'.
+ */
+const _GEO_MIN_W = 640;
+const _GEO_MIN_H = 480;
+const _GEO_MAX_W = 3840;
+const _GEO_MAX_H = 2160;
+const _GEO_FALLBACK = '1280x800';
+
+export const computeVncGeometry = (width, height) => {
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return _GEO_FALLBACK;
+  }
+  // 짝수 반올림: Math.round 후 홀수면 +1.
+  const evenRound = (n) => {
+    const r = Math.round(n);
+    return r % 2 !== 0 ? r + 1 : r;
+  };
+  const w = Math.min(_GEO_MAX_W, Math.max(_GEO_MIN_W, evenRound(width)));
+  const h = Math.min(_GEO_MAX_H, Math.max(_GEO_MIN_H, evenRound(height)));
+  return `${w}x${h}`;
+};

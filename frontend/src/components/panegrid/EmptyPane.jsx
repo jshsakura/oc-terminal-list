@@ -2,10 +2,11 @@
  * 빈 pane 의 홈 화면 — 호스트/로컬 대시보드 + "다른 열린 탭 미러" 섹션.
  * PaneGrid.jsx 에서 로직 변경 없이 추출. EmptyPane 만 외부로 노출하고 나머지는 내부 전용.
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowRightLeft, Copy, Cpu, Monitor, Plus, Power, Server, Terminal as TerminalIcon, X, Zap } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
+import { computeVncGeometry } from '../../utils/vncResize';
 import HomeDashboard, { HostRow } from '../HomeDashboard';
 import HostIcon from '../../utils/hostIcons';
 
@@ -28,6 +29,8 @@ const EmptyPane = ({
 }) => {
   // VNC 디스플레이 픽커 — 어느 호스트의 픽커가 열려 있는지(host 객체) 추적.
   const [vncPickerHost, setVncPickerHost] = useState(null);
+  // pane 컨테이너 실측 — VNC 생성 시 초기 해상도를 pane 크기에 맞추기 위해.
+  const paneContainerRef = useRef(null);
 
   // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러.
   // index 는 상단 탭바와 동일한 1-base 순번 (Ctrl+N 단축키와 짝).
@@ -59,7 +62,7 @@ const EmptyPane = ({
   ) : null;
 
   return (
-    <div onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
+    <div ref={paneContainerRef} onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>
       <HomeDashboard
         isVisible={isVisible}
         hosts={hosts}
@@ -102,6 +105,9 @@ const EmptyPane = ({
           host={vncPickerHost}
           t={t}
           onConfirm={onConfirm}
+          paneSize={paneContainerRef.current
+            ? { width: paneContainerRef.current.clientWidth, height: paneContainerRef.current.clientHeight }
+            : null}
           onPick={(display) => {
             onActivate?.({ type: 'vnc', hostId: vncPickerHost.id, display });
             setVncPickerHost(null);
@@ -125,7 +131,7 @@ const EmptyPane = ({
 const VNC_GEOMETRY_PRESETS = ['1280x800', '1920x1080', '2560x1440', '1024x768'];
 const _GEOMETRY_RE = /^\d+x\d+$/;
 
-const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
+const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => {
   const [state, setState] = useState({ loading: true, data: null, error: '' });
   // 생성/종료 액션 전용 에러 — fetch 에러와 분리.
   const [actionError, setActionError] = useState('');
@@ -135,6 +141,13 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
   const [geometry, setGeometry] = useState('1280x800');
   const [useCustom, setUseCustom] = useState(false);
   const [customGeometry, setCustomGeometry] = useState('');
+
+  // 주 액션용 동적 해상도 — pane 실측이 있으면 그것을, 없으면 뷰포트를 기준.
+  // paneSize 가 명시적으로 null 이면(측정 전/불가) computeVncGeometry 가 '1280x800' 폴백.
+  const dynamicGeometry = computeVncGeometry(
+    paneSize?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0),
+    paneSize?.height ?? (typeof window !== 'undefined' ? window.innerHeight : 0),
+  );
 
   // 디스플레이 목록 조회. host 가 바뀌면 useEffect 가 다시 부른다.
   const refresh = useCallback(async () => {
@@ -440,12 +453,12 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
                 <div style={{ padding: '12px', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] }}>
                   {t?.('vncNoDisplays') || 'No active VNC displays found.'}
                 </div>
-                {/* 주 액션 — 한 번에 기본 해상도(1280x800) 로 만들고 연결. installed=false 면 비활성. */}
+                {/* 주 액션 — pane/뷰포트 실측 크기로 만들고 연결. installed=false 면 비활성. */}
                 {state.data?.installed !== false && (
                   <button
                     type="button"
                     disabled={creating}
-                    onClick={() => handleCreate('1280x800')}
+                    onClick={() => handleCreate(dynamicGeometry)}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
@@ -467,6 +480,11 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
                     {creating
                       ? (t?.('vncCreating') || 'Creating…')
                       : (t?.('vncCreateAndConnect') || 'Create and connect')}
+                    {!creating && (
+                      <span style={{ fontFamily: font.mono, fontSize: fontSize['11'], opacity: 0.8 }}>
+                        {dynamicGeometry}
+                      </span>
+                    )}
                   </button>
                 )}
               </div>
