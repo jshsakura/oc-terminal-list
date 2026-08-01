@@ -6,7 +6,12 @@
 
 전송 계층은 호스트 종류에 따라 둘로 갈라진다:
   - key/password → asyncssh direct-tcpip 채널 (SSH 터널)
-  - tailscale    → tailscale IP 로 직접 TCP (WireGuard 가 암호화 담당)
+  - tailscale    → tailscale ssh 서브프로세스로 원격 loopback 파이프 (WireGuard 암호화)
+
+⚠️ tailscale 호스트는 asyncssh 연결이 없으므로 direct-tcpip 가 불가능하다. Xvnc 가
+``-localhost yes`` 로 127.0.0.1 에만 바인딩되므로 tailscale IP 직접 TCP 도 거부된다.
+대신 ``tailscale ssh`` 서브프로세스로 SSH 채널을 열고 원격에서 nc/ncat/bash-dev/tcp
+폴백 체인으로 loopback 에 바이너리 파이프한다.
 
 ⚠️ ssh_pool 을 쓰지 않는다. ssh_pool janitor 가 300s idle 커넥션을 닫아버리는데,
 RFB 스트림은 ssh_pool.run() 을 거치지 않아 last_used 가 갱신되지 않는다 — 그러면
@@ -16,6 +21,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import shutil
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
@@ -99,6 +106,78 @@ async def _stream_to_ws(reader, websocket: WebSocket, bridge: _VncBridge) -> Non
         logger.debug("stream→ws pump ended (vnc): %s", type(e).__name__)
 
 
+async def _spawn_tailscale_vnc_pipe(host: dict, vnc_port: int) -> asyncio.subprocess.Process:
+    """tailscale ssh 서브프로세스로 원격 127.0.0.1:vnc_port 에 바이너리 파이프를 연다.
+
+    Xvnc 는 ``-localhost yes`` 로 127.0.0.1 에만 바인딩되므로 tailscale IP 로는 직접
+    연결이 거부된다. ``tailscale ssh`` 로 SSH 채널을 열고 원격에서 nc → ncat → bash
+    /dev/tcp 폴백 체인으로 loopback 에 파이프한다. WireGuard 가 전송을 암호화한다.
+
+    ``-t`` (PTY) 를 주지 않는다 — RFB 는 바이너리 프로토콜이므로 PTY 라인 디스플린이
+    바이트를 망가뜨린다. 순수 파이프(stdin/stdout) 모드로 연다.
+    """
+    if not shutil.which("tailscale"):
+        raise RuntimeError("tailscale 바이너리를 찾을 수 없음")
+
+    ssh_user = host.get("ssh_user") or os.environ.get("USER") or "root"
+    target = f"{ssh_user}@{host['hostname']}"
+
+    # SSH quoting: tailscale ssh target <cmd> → 원격 $SHELL -c "<cmd>".
+    # 다단 인자를 주면 원격 셸이 단어 단위로 쪼개버리므로 단일 문자열로 전달한다.
+    # nc → ncat → bash /dev/tcp 폴백. vnc_port 는 검증된 int (5900-5999) — 주입 위험 없음.
+    remote_cmd = (
+        f"if command -v nc >/dev/null 2>&1; then exec nc 127.0.0.1 {vnc_port}; "
+        f"elif command -v ncat >/dev/null 2>&1; then exec ncat 127.0.0.1 {vnc_port}; "
+        f"else exec bash -c 'exec 3<>/dev/tcp/127.0.0.1/{vnc_port}; cat >&3 & cat <&3'; fi"
+    )
+    argv = ["tailscale", "ssh", target, remote_cmd]
+
+    return await asyncio.create_subprocess_exec(
+        *argv,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+
+async def _drain_stderr(proc: asyncio.subprocess.Process) -> None:
+    """서브프로세스 stderr 를 버려 버퍼 가득 참으로 인한 블록을 방지."""
+    try:
+        stream = proc.stderr
+        if stream is None:
+            return
+        while True:
+            data = await stream.read(4096)
+            if not data:
+                break
+            logger.debug(
+                "tailscale vnc stderr: %s", data.decode("utf-8", errors="replace").strip()
+            )
+    except Exception:
+        pass
+
+
+async def _terminate_proc(proc: asyncio.subprocess.Process) -> None:
+    """tailscale ssh 서브프로세스 정리 — SIGTERM → 3s 대기 → SIGKILL 폴백 (좀비 방지)."""
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        return  # 이미 종료됨
+    except Exception:
+        pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=3.0)
+    except Exception:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        try:
+            await proc.wait()
+        except Exception:
+            pass
+
+
 @router.websocket("/ws/vnc/{host_id}")
 async def vnc_websocket(
     websocket: WebSocket,
@@ -137,14 +216,18 @@ async def vnc_websocket(
 
     # 6. 전송 계층 오픈 — key/password (asyncssh direct-tcpip) vs tailscale (직접 TCP)
     conn = None  # asyncssh.SSHClientConnection | None (tailscale 은 None)
+    proc = None  # tailscale ssh subprocess | None (key/pass 는 None)
     reader = None
     writer = None
     auth_method = host.get("auth_method")
     try:
         if auth_method == "tailscale":
             # tailscale 호스트는 asyncssh 연결이 없다 (tailscale ssh 서브프로세스).
-            # direct-tcpip 불가능 — 대신 Tailscale IP 로 직접 TCP. WireGuard 가 암호화.
-            reader, writer = await asyncio.open_connection(host["hostname"], vnc_port)
+            # direct-tcpip 불가능 — Xvnc 가 -localhost yes 로 127.0.0.1 에만 바인딩되므로
+            # tailscale IP 직접 TCP 도 거부된다. tailscale ssh 로 원격 loopback 에 파이프.
+            proc = await _spawn_tailscale_vnc_pipe(host, vnc_port)
+            reader = proc.stdout
+            writer = proc.stdin
         else:
             # key/password — 전용 SSH 연결을 연다 (ssh_pool 절대 사용 금지, 위 주석 참고).
             key_record = None
@@ -182,13 +265,18 @@ async def vnc_websocket(
                 conn.close()
             except Exception:
                 pass
+        if proc is not None:
+            await _terminate_proc(proc)
         return
 
     # 7. 티켓 푸셔 — bridge.send_control(json) 으로 다음 재연결 티켓을 주기적으로 밀어줌.
     bridge = _VncBridge(websocket)
     ticket_pusher = asyncio.create_task(_push_ws_tickets(bridge, username, ws_path))
 
-    # 8. 양방향 바이너리 펌프
+    # 8. 양방향 바이너리 펌프 (+ tailscale stderr 드레인)
+    stderr_drain = None
+    if proc is not None:
+        stderr_drain = asyncio.create_task(_drain_stderr(proc))
     pump_ws = asyncio.create_task(_ws_to_stream(websocket, writer))
     pump_stream = asyncio.create_task(_stream_to_ws(reader, websocket, bridge))
 
@@ -200,11 +288,17 @@ async def vnc_websocket(
     except Exception as e:
         logger.error("vnc WS pump error (%s): %s", host_id, e, exc_info=True)
     finally:
-        # 9. 정리 — 푸셔/펌프 취소, 채널/연결 종료
+        # 9. 정리 — 푸셔/펌프/stderr 드레인 취소, 채널/연결/서브프로세스 종료
         ticket_pusher.cancel()
         pump_ws.cancel()
         pump_stream.cancel()
-        await asyncio.gather(ticket_pusher, pump_ws, pump_stream, return_exceptions=True)
+        if stderr_drain is not None:
+            stderr_drain.cancel()
+            await asyncio.gather(
+                ticket_pusher, pump_ws, pump_stream, stderr_drain, return_exceptions=True
+            )
+        else:
+            await asyncio.gather(ticket_pusher, pump_ws, pump_stream, return_exceptions=True)
         if writer is not None:
             try:
                 writer.close()
@@ -223,4 +317,6 @@ async def vnc_websocket(
                 await conn.wait_closed()
             except Exception:
                 pass
+        if proc is not None:
+            await _terminate_proc(proc)
         _unregister_ws_client("vnc", f"{host_id}:{display}", client_token)

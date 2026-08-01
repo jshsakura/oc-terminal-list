@@ -73,6 +73,7 @@ export class FakeTerminal {
     this.scrollToTop = vi.fn();
     this.scrollToBottom = vi.fn();
     this.resize = vi.fn();
+    this.refresh = vi.fn();  // createWebglController 가 렌더러 교체 후 전체 재페인트 용도로 호출
     this.attachCustomWheelEventHandler = vi.fn((h) => { this.handlers.wheel = h; });
     this.attachCustomKeyEventHandler = vi.fn((h) => { this.handlers.key = h; });
     this.onBell = vi.fn((h) => { this.handlers.bell = h; });

@@ -3,12 +3,19 @@
 RFB 는 바이너리 프로토콜이므로 펌프가 반드시 receive_bytes/send_bytes 를 써야 한다.
 실제 SSH/VNC 서버 없이 펌프 함수와 bridge 직렬화만 검증한다.
 """
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import WebSocketDisconnect
 
-from routes.vnc_ws import _stream_to_ws, _VncBridge, _ws_to_stream
+from routes.vnc_ws import (
+    _drain_stderr,
+    _spawn_tailscale_vnc_pipe,
+    _stream_to_ws,
+    _terminate_proc,
+    _VncBridge,
+    _ws_to_stream,
+)
 
 
 class _FakeWriter:
@@ -143,3 +150,127 @@ async def test_bridge_send_control_swallows_send_failure():
     bridge = _VncBridge(ws)
     await bridge.send_control("ignored")  # 예외 없음
     ws.send_text.assert_awaited_once()
+
+
+# ── tailscale 서브프로세스 파이프 ─────────────────────────────────────────────
+
+
+class _FakeProc:
+    """asyncio.subprocess.Process 최소 흉내 — terminate/kill/wait + stdout/stderr."""
+
+    def __init__(self, stdout_chunks=None, stderr_chunks=None):
+        self.stdout = _FakeReader(stdout_chunks or [])
+        self.stdin = _FakeWriter()
+        self.stderr = _FakeReader(stderr_chunks or [])
+        self.terminated = False
+        self.killed = False
+        self.wait_count = 0
+
+    def terminate(self):
+        self.terminated = True
+
+    def kill(self):
+        self.killed = True
+
+    async def wait(self):
+        self.wait_count += 1
+        return 0
+
+
+@pytest.mark.asyncio
+async def test_spawn_tailscale_pipe_builds_correct_argv():
+    """tailscale ssh 서브프로세스 argv 가 올바르게 조립되는지."""
+    host = {"hostname": "host.ts.net", "ssh_user": "admin"}
+    fake_proc = _FakeProc()
+    with (
+        patch("routes.vnc_ws.shutil.which", return_value="/usr/bin/tailscale"),
+        patch("routes.vnc_ws.asyncio.create_subprocess_exec", new=AsyncMock(return_value=fake_proc)) as mock_exec,
+    ):
+        proc = await _spawn_tailscale_vnc_pipe(host, 5901)
+    assert proc is fake_proc
+    argv = mock_exec.call_args.args
+    assert argv[0] == "tailscale"
+    assert argv[1] == "ssh"
+    assert argv[2] == "admin@host.ts.net"
+    # remote_cmd 에 nc 폴백 체인 + 포트 포함
+    remote_cmd = argv[3]
+    assert "nc 127.0.0.1 5901" in remote_cmd
+    assert "ncat 127.0.0.1 5901" in remote_cmd
+    assert "/dev/tcp/127.0.0.1/5901" in remote_cmd
+
+
+@pytest.mark.asyncio
+async def test_spawn_tailscale_pipe_defaults_ssh_user():
+    """ssh_user 가 없으면 환경 변수 USER (또는 'root') 를 폴백으로 쓰는지."""
+    host = {"hostname": "node.ts.net"}
+    with (
+        patch("routes.vnc_ws.shutil.which", return_value="/usr/bin/tailscale"),
+        patch.dict("os.environ", {"USER": "deploy"}),
+        patch("routes.vnc_ws.asyncio.create_subprocess_exec", new=AsyncMock(return_value=_FakeProc())) as mock_exec,
+    ):
+        await _spawn_tailscale_vnc_pipe(host, 5900)
+    assert mock_exec.call_args.args[2] == "deploy@node.ts.net"
+
+
+@pytest.mark.asyncio
+async def test_spawn_tailscale_pipe_raises_without_binary():
+    """tailscale 바이너리가 없으면 RuntimeError."""
+    host = {"hostname": "h.ts.net"}
+    with patch("routes.vnc_ws.shutil.which", return_value=None):
+        with pytest.raises(RuntimeError, match="tailscale"):
+            await _spawn_tailscale_vnc_pipe(host, 5901)
+
+
+@pytest.mark.asyncio
+async def test_terminate_proc_sends_sigterm_then_waits():
+    """정상 종료: SIGTERM → wait 성공 → kill 미사용."""
+    proc = _FakeProc()
+    await _terminate_proc(proc)
+    assert proc.terminated
+    assert not proc.killed
+    assert proc.wait_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_terminate_proc_falls_back_to_kill_on_timeout():
+    """wait 타임아웃 시 SIGKILL 폴백."""
+    proc = _FakeProc()
+
+    async def _wait_for_timeout(coro, **kwargs):
+        coro.close()  # 미소비 코루틴 정리
+        raise TimeoutError()
+
+    with patch("routes.vnc_ws.asyncio.wait_for", new=_wait_for_timeout):
+        await _terminate_proc(proc)
+    assert proc.terminated
+    assert proc.killed
+
+
+@pytest.mark.asyncio
+async def test_terminate_proc_already_dead():
+    """이미 종료된 프로세스 (ProcessLookupError) → 즉시 반환, kill 미사용."""
+    proc = _FakeProc()
+
+    def boom():
+        raise ProcessLookupError(123)
+
+    proc.terminate = boom
+    await _terminate_proc(proc)
+    assert not proc.killed
+
+
+@pytest.mark.asyncio
+async def test_drain_stderr_reads_until_eof():
+    """stderr 를 끝까지 읽고 조용히 종료하는지."""
+    proc = _FakeProc(stderr_chunks=[b"warning: blah\n", b"another line\n"])
+    await _drain_stderr(proc)
+    # _FakeReader 가 chunks 를 모두 소진했는지 확인
+    assert proc.stderr._chunks == []
+
+
+@pytest.mark.asyncio
+async def test_drain_stderr_handles_none_stderr():
+    """stderr 가 None 이어도 예외 없이 종료."""
+    proc = _FakeProc()
+    proc.stderr = None
+    await _drain_stderr(proc)  # 예외 없음

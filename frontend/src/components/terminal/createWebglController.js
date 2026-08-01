@@ -53,6 +53,9 @@ const createWebglController = ({ term, enabled, isActive, debug = false }) => {
     const lost = gl;
     gl = null;
     try { lost?.getExtension('WEBGL_lose_context')?.loseContext(); } catch { /* noop */ }
+    // DOM 렌더러가 인계받을 때 전체 재페인트 — WebGL 시절의 "clean" 행 플래그가 남아
+    // 있으면 DOM 렌더러가 해당 행을 다시 그리지 않아 잔상·중복 라인이 생긴다.
+    try { term.refresh(0, term.rows - 1); } catch { /* term 이미 dispose 됨 */ }
   };
 
   const attach = () => {
@@ -64,10 +67,16 @@ const createWebglController = ({ term, enabled, isActive, debug = false }) => {
         try { addon?.dispose(); } catch { /* 이미 정리됨 */ }
         addon = null;
         gl = null;
+        // 컨텍스트 손실도 렌더러 교체 — 4분할 컨텍스트 고갈이 관측된 버그의 실제 경로.
+        // DOM 렌더러가 인계받을 때 전체 재페인트하지 않으면 잔상·중복 라인이 남는다.
+        try { term.refresh(0, term.rows - 1); } catch { /* term 이미 dispose 됨 */ }
       });
       term.loadAddon(next);
       addon = next;
       gl = captureContext();
+      // 렌더러 교체 후 전체 재페인트 — DOM↔WebGL 전환 시 이전 렌더러가 "clean" 으로
+      // 표시한 행들이 남아 새 렌더러가 해당 행을 다시 그리지 않아 잔상·중복 라인이 생긴다.
+      try { term.refresh(0, term.rows - 1); } catch { /* noop */ }
     } catch (err) {
       // WebGL 이 꺼진 환경, iframe 정책 등 — 조용히 DOM 렌더러로 폴백.
       try { addon?.dispose(); } catch { /* noop */ }
