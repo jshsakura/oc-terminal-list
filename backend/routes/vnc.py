@@ -8,6 +8,15 @@ flavor 에 따라 표기가 다르다: TigerVNC 는 ``-localhost yes``, TurboVNC
 ``-localhost``(불리언 플래그, 인자 없음). 둘 다 127.0.0.1 전용 바인딩을 강제하므로
 보안 의미는 동일하다. flavor 는 디스커버리가 이미 판정해 갖고 있다.
 
+보안 타입: ``~/.vnc/passwd`` 가 있으면 기본 VncAuth 를 존중하고(비밀번호 입력 UI 가
+받침됨), 없으면 ``-SecurityTypes None`` 로 세션을 띄운다. 어느 쪽이든 루프백 +
+SSH 터널 안이므로 외부 접근은 불가하다. 단 같은 호스트 셸 사용자는 붙을 수 있다 —
+실재하는 트레이드오프.
+
+원격 명령은 항상 ``< /dev/null`` 로 stdin 을 막고 타임아웃을 건다. 원격에 사람이
+없으니 대화형 프롬프트(vncpasswd 등)가 입력을 기다리며 영원히 멈추는 것을
+원천 차단한다.
+
 응답 계약은 routes/tailscale.py 와 동일 — VNC 가 없거나 명령이 실패해도 500 대신
 ``{"available": false, "displays": [], "error": "..."}`` 로 내려 UI 가 스스로
 비활성화하게 한다. 소유권 검증은 기존과 동일하게 ``storage.get_host(host_id, username)``.
@@ -169,20 +178,30 @@ async def create_vnc_session(
     # flavor 에 따라 -localhost 표기가 다르다: TurboVNC 는 불리언 플래그, TigerVNC 는 yes 인자.
     # GPU 가속: VirtualGL 이 있고 TurboVNC 일 때만 -vgl + VGL_DISPLAY=egl.
     # TigerVNC 에는 -vgl 이 없고, VirtualGL 이 없으면 -vgl 이 실패한다.
+    # 보안 타입: ~/.vnc/passwd 가 있으면 기본 VncAuth 를 존중(비밀번호 입력 UI 있음).
+    # 없으면 -SecurityTypes None — vncpasswd 대화형 프롬프트로 무한 대기하는 것을 막는다.
     safe_geom = shlex.quote(geometry)
     vncserver_path = state.get("vncserver_path") or "vncserver"
     localhost_flag = _localhost_flag(state.get("flavor", ""))
     gpu = state.get("gpu") or {}
     use_vgl = bool(gpu.get("virtualgl")) and state.get("flavor") == "turbovnc"
+    has_vnc_passwd = state.get("has_vnc_passwd", False)
+    security_flag = "" if has_vnc_passwd else " -SecurityTypes None"
     if use_vgl:
         cmd = (
             f"VGL_DISPLAY=egl {shlex.quote(vncserver_path)} {localhost_flag}"
-            f" -vgl -geometry {safe_geom} :{chosen}"
+            f" -vgl -geometry {safe_geom}{security_flag} :{chosen}"
         )
     else:
-        cmd = f"{shlex.quote(vncserver_path)} {localhost_flag} -geometry {safe_geom} :{chosen}"
+        cmd = f"{shlex.quote(vncserver_path)} {localhost_flag} -geometry {safe_geom}{security_flag} :{chosen}"
+    # stdin 을 /dev/null 로 — 원격에 사람이 없으니 대화형 프롬프트(vncpasswd 등)가
+    # 입력을 기다리며 영원히 멈추는 것을 원천 차단한다.
+    cmd += " < /dev/null"
     try:
-        output = await runner(cmd)
+        output = await asyncio.wait_for(runner(cmd), timeout=30)
+    except TimeoutError:
+        logger.warning("vnc create timed out (%s:%s)", host_id, chosen)
+        return {"available": False, "installed": True, "error": "vncserver 실행 시간 초과 (30초)"}
     except Exception as e:
         logger.warning("vnc create failed (%s:%s): %s", host_id, chosen, e)
         return {"available": False, "installed": True, "error": str(e)}
@@ -194,6 +213,7 @@ async def create_vnc_session(
         "port": 5900 + chosen,
         "geometry": geometry,
         "gpu_accelerated": use_vgl,
+        "password_required": has_vnc_passwd,
         "output": output[-500:] if isinstance(output, str) else "",
     }
 
@@ -213,9 +233,13 @@ async def delete_vnc_session(
     state = await gather_discovery(runner)
     vncserver_path = state.get("vncserver_path") or "vncserver"
     # display 는 int 로 강제되므로 안전. 그래도 포맷 고정.
-    cmd = f"{shlex.quote(vncserver_path)} -kill :{int(display)}"
+    # stdin 을 /dev/null 로 막아 kill 경로에서도 대화형 프롬프트가 뜨지 않게.
+    cmd = f"{shlex.quote(vncserver_path)} -kill :{int(display)} < /dev/null"
     try:
-        output = await runner(cmd)
+        output = await asyncio.wait_for(runner(cmd), timeout=15)
+    except TimeoutError:
+        logger.warning("vnc kill timed out (%s:%s)", host_id, display)
+        return {"available": False, "error": "vncserver 종료 시간 초과 (15초)"}
     except Exception as e:
         logger.warning("vnc kill failed (%s:%s): %s", host_id, display, e)
         return {"available": False, "error": str(e)}

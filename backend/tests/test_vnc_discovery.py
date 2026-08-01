@@ -7,6 +7,7 @@ import pytest
 
 from vnc_discovery import (
     _GPU_MARK,
+    _PASSWD_MARK,
     _PS_MARK,
     _SS_MARK,
     _WHICH_MARK,
@@ -17,6 +18,7 @@ from vnc_discovery import (
     discover,
     gather_discovery,
     parse_gpu,
+    parse_has_vnc_passwd,
     parse_installed,
     parse_listening_ports,
     parse_vnc_processes,
@@ -25,7 +27,9 @@ from vnc_discovery import (
 )
 
 
-def _combined(x11: str = "", ss: str = "", ps: str = "", which: str = "", gpu: str = "") -> str:
+def _combined(
+    x11: str = "", ss: str = "", ps: str = "", which: str = "", gpu: str = "", passwd: str = ""
+) -> str:
     """테스트용 통합 출력 조립 — 마커 포함."""
     return (
         f"{_X11_MARK}\n{x11}"
@@ -33,6 +37,7 @@ def _combined(x11: str = "", ss: str = "", ps: str = "", which: str = "", gpu: s
         f"{_PS_MARK}\n{ps}"
         f"{_WHICH_MARK}\n{which}"
         f"{_GPU_MARK}\n{gpu}"
+        f"{_PASSWD_MARK}\n{passwd}"
     )
 
 
@@ -500,3 +505,51 @@ async def test_gather_discovery_error_includes_gpu_defaults():
     assert out["gpu"]["nvidia"] is False
     assert out["gpu"]["virtualgl"] is False
     assert out["gpu"]["vendor"] is None
+    assert out["has_vnc_passwd"] is False
+
+
+# ---------------------- has_vnc_passwd 파서 ----------------------
+
+
+def test_parse_has_vnc_passwd_yes():
+    """passwd 파일 존재 → True."""
+    assert parse_has_vnc_passwd("yes\n") is True
+
+
+def test_parse_has_vnc_passwd_no():
+    """passwd 파일 부재 → False."""
+    assert parse_has_vnc_passwd("no\n") is False
+
+
+def test_parse_has_vnc_passwd_empty():
+    """빈 출력 → False (test 명령 자체가 실패한 경우)."""
+    assert parse_has_vnc_passwd("") is False
+    assert parse_has_vnc_passwd("\n") is False
+
+
+def test_discover_includes_has_vnc_passwd():
+    """discover() 응답에 has_vnc_passwd 필드가 포함된다."""
+    combined = _combined(
+        which="/opt/TurboVNC/bin/vncserver\n",
+        passwd="yes\n",
+    )
+    out = discover(combined)
+    assert out["has_vnc_passwd"] is True
+
+
+def test_discover_has_vnc_passwd_false_when_absent():
+    """passwd 섹션이 no 이면 has_vnc_passwd=False."""
+    combined = _combined(
+        which="/opt/TurboVNC/bin/vncserver\n",
+        passwd="no\n",
+    )
+    out = discover(combined)
+    assert out["has_vnc_passwd"] is False
+
+
+def test_discover_has_vnc_passwd_defaults_false_when_section_missing():
+    """passwd 섹션이 통합 출력에 없어도 기본값 False 로 안전."""
+    # passwd 인자를 주지 않으면 _combined 기본값 "" → parse_has_vnc_passwd("") → False
+    combined = _combined(which="/usr/bin/Xtigervnc\n")
+    out = discover(combined)
+    assert out["has_vnc_passwd"] is False

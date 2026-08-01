@@ -857,6 +857,7 @@ export const en = {
     vncGpuAvailable: 'GPU acceleration (VirtualGL)',
     vncSoftwareRender: 'Software rendering',
     vncCreateDesktop: 'Create new desktop',
+    vncNoPassword: 'New desktop will be created without a password. Anyone with shell access to this host can connect.',
     vncResolution: 'Resolution',
     vncCustom: 'Custom',
     vncGeometryPlaceholder: 'e.g. 1600x900',

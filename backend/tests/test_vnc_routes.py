@@ -286,3 +286,107 @@ async def test_create_session_tigervnc_with_vgl_omits_vgl():
     assert "VGL_DISPLAY" not in cmd
     assert "-vgl" not in cmd
     assert res["gpu_accelerated"] is False
+
+
+# ---------------------- 보안 타입 + stdin + 타임아웃 ----------------------
+
+
+def _turbovnc_with_passwd():
+    """TurboVNC 설치 + ~/.vnc/passwd 존재."""
+    return (
+        "__ITL_VNC_X11__\nX1\n"
+        "__ITL_VNC_SS__\nLISTEN 0 128 127.0.0.1:5901 0.0.0.0:*\n"
+        "__ITL_VNC_PS__\n1234 ubuntu Xvnc :1 -geometry 1920x1080\n"
+        "__ITL_VNC_WHICH__\n/opt/TurboVNC/bin/vncserver\n"
+        "__ITL_VNC_GPU__\nVGL:\nNSMI:no\nVGA:\n"
+        "__ITL_VNC_PASSWD__\nyes\n"
+    )
+
+
+def _turbovnc_without_passwd():
+    """TurboVNC 설치 + ~/.vnc/passwd 부재."""
+    return (
+        "__ITL_VNC_X11__\nX1\n"
+        "__ITL_VNC_SS__\nLISTEN 0 128 127.0.0.1:5901 0.0.0.0:*\n"
+        "__ITL_VNC_PS__\n1234 ubuntu Xvnc :1 -geometry 1920x1080\n"
+        "__ITL_VNC_WHICH__\n/opt/TurboVNC/bin/vncserver\n"
+        "__ITL_VNC_GPU__\nVGL:\nNSMI:no\nVGA:\n"
+        "__ITL_VNC_PASSWD__\nno\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_passwd_present_omits_security_types():
+    """~/.vnc/passwd 있음 → -SecurityTypes 를 붙이지 않는다 (기본 VncAuth 존중)."""
+    host = _host()
+    captured = {}
+    runner_calls = [_turbovnc_with_passwd(), ""]
+
+    async def two_phase_runner(cmd):
+        captured["cmd"] = cmd
+        return runner_calls.pop(0)
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=two_phase_runner)):
+        req = vnc.CreateSessionRequest(geometry="1280x800", display=2)
+        res = await vnc.create_vnc_session("h1", req, "alice")
+    cmd = captured["cmd"]
+    assert "-SecurityTypes" not in cmd
+    assert res["password_required"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_passwd_absent_adds_security_types_none():
+    """~/.vnc/passwd 없음 → -SecurityTypes None (vncpasswd 프롬프트 무한 대기 차단)."""
+    host = _host()
+    captured = {}
+    runner_calls = [_turbovnc_without_passwd(), ""]
+
+    async def two_phase_runner(cmd):
+        captured["cmd"] = cmd
+        return runner_calls.pop(0)
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=two_phase_runner)):
+        req = vnc.CreateSessionRequest(geometry="1280x800", display=2)
+        res = await vnc.create_vnc_session("h1", req, "alice")
+    cmd = captured["cmd"]
+    assert "-SecurityTypes None" in cmd
+    assert res["password_required"] is False
+
+
+@pytest.mark.asyncio
+async def test_create_session_stdin_redirected_to_dev_null():
+    """명령에 < /dev/null 이 붙어 대화형 프롬프트가 입력을 기다리지 않게."""
+    host = _host()
+    captured = {}
+    runner_calls = [_turbovnc_without_passwd(), ""]
+
+    async def two_phase_runner(cmd):
+        captured["cmd"] = cmd
+        return runner_calls.pop(0)
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=two_phase_runner)):
+        req = vnc.CreateSessionRequest(geometry="1280x800", display=2)
+        await vnc.create_vnc_session("h1", req, "alice")
+    assert "< /dev/null" in captured["cmd"]
+
+
+@pytest.mark.asyncio
+async def test_create_session_timeout_returns_visible_error():
+    """runner 타임아웃 → 무한 대기가 아니라 사용자에게 보이는 오류로 끝난다."""
+    host = _host()
+
+    async def runner(cmd):
+        # 첫 호출(discovery)은 정상, 두 번째(기동)는 타임아웃.
+        if "__ITL_VNC_X11__" in cmd:
+            return _turbovnc_without_passwd()
+        raise TimeoutError  # asyncio.wait_for 가 터질 때와 동일한 예외
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=runner)):
+        req = vnc.CreateSessionRequest(geometry="1280x800", display=2)
+        res = await vnc.create_vnc_session("h1", req, "alice")
+    assert res["available"] is False
+    assert "초과" in res["error"]

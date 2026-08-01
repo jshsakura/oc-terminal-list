@@ -288,6 +288,30 @@ describe('VncDisplayPicker', () => {
     expect(screen.queryByText('vncCreateDesktop')).toBeNull();
   });
 
+  it('shows passwordless warning when has_vnc_passwd is false', async () => {
+    mockFetchResponse({ available: true, installed: true, displays: [], has_vnc_passwd: false });
+
+    renderPicker();
+
+    await waitFor(() => {
+      expect(screen.getByText('vncCreateDesktop')).toBeTruthy();
+    });
+
+    expect(screen.getByText('vncNoPassword')).toBeTruthy();
+  });
+
+  it('does not show passwordless warning when has_vnc_passwd is true', async () => {
+    mockFetchResponse({ available: true, installed: true, displays: [], has_vnc_passwd: true });
+
+    renderPicker();
+
+    await waitFor(() => {
+      expect(screen.getByText('vncCreateDesktop')).toBeTruthy();
+    });
+
+    expect(screen.queryByText('vncNoPassword')).toBeNull();
+  });
+
   it('kill goes through confirmation before sending DELETE request', async () => {
     const GET_RESP = {
       available: true, installed: true,

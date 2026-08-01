@@ -523,6 +523,20 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
                 }}>
                   {t?.('vncCreateDesktop') || 'Create new desktop'}
                 </div>
+                {state.data?.has_vnc_passwd === false && (
+                  <div style={{
+                    marginBottom: '8px',
+                    padding: '6px 8px',
+                    background: `color-mix(in srgb, ${color.warning} 10%, transparent)`,
+                    border: `1px solid color-mix(in srgb, ${color.warning} 25%, transparent)`,
+                    borderRadius: '6px',
+                    fontSize: fontSize['11'],
+                    color: color.warning,
+                    lineHeight: 1.4,
+                  }}>
+                    {t?.('vncNoPassword') || 'New desktop will be created without a password. Anyone with shell access to this host can connect.'}
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: useCustom ? '8px' : '10px' }}>
                   {VNC_GEOMETRY_PRESETS.map((p) => {
                     const active = !useCustom && geometry === p;

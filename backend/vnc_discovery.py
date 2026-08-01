@@ -10,7 +10,8 @@ ssh_pool, tailscale 호스트는 tailscale ssh 서브프로세스로 runner 를 
   - ps -eo pid,user:32,args → Xtigervnc / Xvnc 프로세스, -geometry, 소유 유저
 설치 여부는 후보 경로들(vncserver, /opt/TurboVNC/bin/vncserver, …)을 순회해
 첫 히트한 경로를 ``vncserver_path`` 로 돌려준다. GPU 가속 가능 여부는
-vglrun + nvidia-smi 로 ``gpu`` 필드에 정리한다.
+vglrun + nvidia-smi 로 ``gpu`` 필드에 정리한다. ``~/.vnc/passwd`` 존재 여부는
+``has_vnc_passwd`` 로 알려 세션 생성 시 보안 타입을 갈라 만든다.
 
 디스플레이 번호 → 포트는 ``5900 + display``.
 """
@@ -26,6 +27,7 @@ _SS_MARK = "__ITL_VNC_SS__"
 _PS_MARK = "__ITL_VNC_PS__"
 _WHICH_MARK = "__ITL_VNC_WHICH__"
 _GPU_MARK = "__ITL_VNC_GPU__"
+_PASSWD_MARK = "__ITL_VNC_PASSWD__"
 
 # 원격에서 한 번에 실행하는 디스커버리 명령. 각 subcommand 가 자신의 stderr 를
 # 삼키도록 2>/dev/null 를 달아뒀다 — runner 가 stdout/stderr 를 합쳐도 파서가
@@ -46,7 +48,8 @@ DISCOVERY_CMD = (
     f"echo {_GPU_MARK}; "
     f'echo "VGL:$(command -v vglrun 2>/dev/null || true)"; '
     f'nvidia-smi -L >/dev/null 2>&1 && echo "NSMI:yes" || echo "NSMI:no"; '
-    f'echo "VGA:$(lspci 2>/dev/null | grep -i vga | head -1 || true)"'
+    f'echo "VGA:$(lspci 2>/dev/null | grep -i vga | head -1 || true)"; '
+    f"echo {_PASSWD_MARK}; test -f ~/.vnc/passwd && echo yes || echo no"
 )
 
 # Xtigervnc(TigerVNC) 와 Xvnc(RealVNC/TigerVNC 구형) — 둘 다 가상 디스플레이 서버.
@@ -64,7 +67,7 @@ _GEOMETRY_RE = re.compile(r"-geometry\s+(\d+x\d+)", re.IGNORECASE)
 
 # 디스커버리 명령 자신을 배제하기 위한 마커 목록. ps 출력에 이 마커들이 포함된
 # 줄은 우리가 실행한 셸 명령 자신이므로 버린다.
-_ALL_MARKERS = (_X11_MARK, _SS_MARK, _PS_MARK, _WHICH_MARK, _GPU_MARK)
+_ALL_MARKERS = (_X11_MARK, _SS_MARK, _PS_MARK, _WHICH_MARK, _GPU_MARK, _PASSWD_MARK)
 
 # VNC 포트 범위 — display 0..99 → 5900..5999.
 _VNC_PORT_LO = 5900
@@ -244,15 +247,29 @@ def parse_gpu(text: str) -> dict:
     }
 
 
+def parse_has_vnc_passwd(text: str) -> bool:
+    """``test -f ~/.vnc/passwd`` 결과(yes/no) → bool.
+
+    비밀번호 파일이 있으면 세션 생성 시 기본 VncAuth 를 존중하고, 없으면
+    ``-SecurityTypes None`` 로 프롬프트 없이 띄운다.
+    """
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if line:
+            return line == "yes"
+    return False
+
+
 def split_sections(combined: str) -> dict[str, str]:
     """마커로 구분된 통합 출력을 섹션별로 분할. 순수 함수."""
-    sections: dict[str, str] = {"x11": "", "ss": "", "ps": "", "which": "", "gpu": ""}
+    sections: dict[str, str] = {"x11": "", "ss": "", "ps": "", "which": "", "gpu": "", "passwd": ""}
     marks = {
         _X11_MARK: "x11",
         _SS_MARK: "ss",
         _PS_MARK: "ps",
         _WHICH_MARK: "which",
         _GPU_MARK: "gpu",
+        _PASSWD_MARK: "passwd",
     }
     current: str | None = None
     for line in (combined or "").splitlines():
@@ -316,12 +333,14 @@ def discover(combined_output: str) -> dict:
     installed = vncserver_path is not None
     flavor = detect_flavor(vncserver_path)
     gpu = parse_gpu(sections["gpu"])
+    has_vnc_passwd = parse_has_vnc_passwd(sections["passwd"])
     return {
         "available": True,
         "installed": installed,
         "vncserver_path": vncserver_path,
         "flavor": flavor,
         "gpu": gpu,
+        "has_vnc_passwd": has_vnc_passwd,
         "displays": build_displays(x11, ports, procs),
     }
 
@@ -341,6 +360,7 @@ async def gather_discovery(run: Callable[[str], Awaitable[str]]) -> dict:
             "vncserver_path": None,
             "flavor": "",
             "gpu": {"nvidia": False, "virtualgl": False, "vendor": None, "renderer_hint": "software"},
+            "has_vnc_passwd": False,
             "displays": [],
             "error": str(e),
         }

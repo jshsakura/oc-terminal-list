@@ -857,6 +857,7 @@ export const ko = {
     vncGpuAvailable: 'GPU 가속 가능 (VirtualGL)',
     vncSoftwareRender: '소프트웨어 렌더링',
     vncCreateDesktop: '새 데스크탑 만들기',
+    vncNoPassword: '비밀번호 없이 생성됩니다. 이 호스트의 셸 접근 권한이 있으면 누구나 연결할 수 있습니다.',
     vncResolution: '해상도',
     vncCustom: '사용자 지정',
     vncGeometryPlaceholder: '예: 1600x900',
