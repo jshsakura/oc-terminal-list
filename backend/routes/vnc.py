@@ -167,10 +167,20 @@ async def create_vnc_session(
     # TurboVNC 처럼 PATH 밖에 설치된 vncserver 도 잡기 위해 디스커버리에서
     # 찾은 경로를 쓰고, 없으면 폴백으로 "vncserver" 를 쓴다.
     # flavor 에 따라 -localhost 표기가 다르다: TurboVNC 는 불리언 플래그, TigerVNC 는 yes 인자.
+    # GPU 가속: VirtualGL 이 있고 TurboVNC 일 때만 -vgl + VGL_DISPLAY=egl.
+    # TigerVNC 에는 -vgl 이 없고, VirtualGL 이 없으면 -vgl 이 실패한다.
     safe_geom = shlex.quote(geometry)
     vncserver_path = state.get("vncserver_path") or "vncserver"
     localhost_flag = _localhost_flag(state.get("flavor", ""))
-    cmd = f"{shlex.quote(vncserver_path)} {localhost_flag} -geometry {safe_geom} :{chosen}"
+    gpu = state.get("gpu") or {}
+    use_vgl = bool(gpu.get("virtualgl")) and state.get("flavor") == "turbovnc"
+    if use_vgl:
+        cmd = (
+            f"VGL_DISPLAY=egl {shlex.quote(vncserver_path)} {localhost_flag}"
+            f" -vgl -geometry {safe_geom} :{chosen}"
+        )
+    else:
+        cmd = f"{shlex.quote(vncserver_path)} {localhost_flag} -geometry {safe_geom} :{chosen}"
     try:
         output = await runner(cmd)
     except Exception as e:
@@ -183,6 +193,7 @@ async def create_vnc_session(
         "display": chosen,
         "port": 5900 + chosen,
         "geometry": geometry,
+        "gpu_accelerated": use_vgl,
         "output": output[-500:] if isinstance(output, str) else "",
     }
 

@@ -137,6 +137,83 @@ def test_parse_vnc_processes_truncated_username_old_format():
     assert procs[0]["user"] == "jshsaku+"
 
 
+# ---------------------- 자기 탐지(유령 디스플레이) 방지 ----------------------
+
+
+def test_parse_vnc_processes_excludes_discovery_command_itself():
+    """ps 출력에 디스커버리 명령 자신의 줄이 포함되어도 유령이 나오면 안 된다.
+
+    실제 ubuntu-ai 호스트에서 발견한 버그: 디스커버리 명령줄에 ``Xtigervnc``(후보
+    경로 루프)와 ``:32``(``user:32``)가 같은 줄에 있어서 디스플레이 32번이 유령으로
+    잡혔다. 두 겹 방어(exe basename + 마커 배제)로 잡는다.
+    """
+    # 실제 ps 출력에 포함되는 디스커버리 명령줄 시뮬레이션
+    discovery_line = (
+        "99999 jshsakura                         /bin/sh -c "
+        f"echo {_X11_MARK}; ls -1 /tmp/.X11-unix/ 2>/dev/null; "
+        f"echo {_SS_MARK}; (ss -ltnH 2>/dev/null || netstat -ltn 2>/dev/null); "
+        f"echo {_PS_MARK}; ps -eo pid,user:32,args 2>/dev/null; "
+        f"echo {_WHICH_MARK}; for p in vncserver /opt/TurboVNC/bin/vncserver "
+        f"/usr/bin/vncserver /usr/local/bin/vncserver Xtigervnc; "
+        f'do command -v "$p" 2>/dev/null && break; done'
+    )
+    # 정상 Xvnc 프로세스 한 줄 + 디스커버리 명령줄 한 줄
+    ps = (
+        f"{discovery_line}\n"
+        "12345 jshsakura                         Xvnc :1 -localhost yes -geometry 1920x1080\n"
+    )
+    procs = parse_vnc_processes(ps)
+    # 디스플레이 1만 잡히고, 디스플레이 32(유령)는 없어야 한다
+    assert len(procs) == 1
+    assert procs[0]["display"] == 1
+    assert procs[0]["server"] == "Xvnc"
+
+
+def test_parse_vnc_processes_user32_not_display_number():
+    """``user:32`` 토큰이 디스플레이 번호 ``:32`` 로 오인되지 않아야 한다.
+
+    Layer 1(exe basename)이 이미 잡지만, 디스플레이 토큰 검사도 독립적으로
+    검증한다 — 첫 토큰이 ``Xtigervnc`` 이더라도 ``user:32`` 는 standalone ``:N``
+    토큰이 아니므로 display 에 잡히면 안 된다.
+    """
+    # 극단적 케이스: exe basename 이 맞지만 user:32 가 args 에 섞인 경우
+    # (실제로는 발생하지 않지만 디스플레이 토큰 로직을 독립 검증)
+    ps = "12345 ubuntu Xtigervnc -localhost yes user:32 :1 -geometry 1920x1080\n"
+    procs = parse_vnc_processes(ps)
+    assert len(procs) == 1
+    assert procs[0]["display"] == 1  # :1, not :32
+
+
+def test_parse_vnc_processes_absolute_path_exe():
+    """실행 파일이 절대경로(``/opt/TurboVNC/bin/Xvnc``)여도 잡힌다."""
+    ps = "1111 ubuntu /opt/TurboVNC/bin/Xvnc :1 -geometry 1920x1080\n"
+    procs = parse_vnc_processes(ps)
+    assert len(procs) == 1
+    assert procs[0]["server"] == "Xvnc"
+    assert procs[0]["display"] == 1
+
+
+def test_parse_vnc_processes_path_exe_xtigervnc():
+    """PATH 실행(``Xtigervnc`` 직접)도 잡힌다."""
+    ps = "2222 root Xtigervnc :2 -localhost yes -geometry 1366x768\n"
+    procs = parse_vnc_processes(ps)
+    assert len(procs) == 1
+    assert procs[0]["server"] == "Xtigervnc"
+    assert procs[0]["display"] == 2
+
+
+def test_parse_vnc_processes_rejects_wrapper_script():
+    """``vncserver`` 래퍼 스크립트는 실제 X 서버가 아니다 — 잡히면 안 된다."""
+    ps = "3333 ubuntu vncserver :1 -localhost yes -geometry 1280x800\n"
+    assert parse_vnc_processes(ps) == []
+
+
+def test_parse_vnc_processes_rejects_marker_only_line():
+    """마커가 포함된 줄은 우리 명령이므로 통째로 버린다 — exe basename 과 무관."""
+    ps = f"4444 ubuntu Xtigervnc :5 -geometry 1920x1080 {_X11_MARK} something\n"
+    assert parse_vnc_processes(ps) == []
+
+
 def test_parse_installed():
     assert parse_installed("/usr/bin/vncserver\n/usr/bin/Xtigervnc\n") is True
     assert parse_installed("/usr/bin/Xtigervnc\n") is True

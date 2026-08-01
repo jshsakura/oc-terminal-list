@@ -187,3 +187,102 @@ def test_localhost_flag_helper():
     assert vnc._localhost_flag("turbovnc") == "-localhost"
     assert vnc._localhost_flag("tigervnc") == "-localhost yes"
     assert vnc._localhost_flag("") == "-localhost yes"  # 알 수 없으면 TigerVNC 형태
+
+
+# ---------------------- GPU 가속 (-vgl + VGL_DISPLAY=egl) ----------------------
+
+
+def _turbovnc_with_vgl_combined():
+    """TurboVNC + VirtualGL 설치된 호스트의 통합 출력."""
+    return (
+        "__ITL_VNC_X11__\nX1\n"
+        "__ITL_VNC_SS__\nLISTEN 0 128 127.0.0.1:5901 0.0.0.0:*\n"
+        "__ITL_VNC_PS__\n1234 ubuntu Xvnc :1 -geometry 1920x1080\n"
+        "__ITL_VNC_WHICH__\n/opt/TurboVNC/bin/vncserver\n"
+        "__ITL_VNC_GPU__\nVGL:/usr/bin/vglrun\nNSMI:yes\nVGA:NVIDIA Corporation ...\n"
+    )
+
+
+def _turbovnc_without_vgl_combined():
+    """TurboVNC 설치, VirtualGL 없음."""
+    return (
+        "__ITL_VNC_X11__\nX1\n"
+        "__ITL_VNC_SS__\nLISTEN 0 128 127.0.0.1:5901 0.0.0.0:*\n"
+        "__ITL_VNC_PS__\n1234 ubuntu Xvnc :1 -geometry 1920x1080\n"
+        "__ITL_VNC_WHICH__\n/opt/TurboVNC/bin/vncserver\n"
+        "__ITL_VNC_GPU__\nVGL:\nNSMI:no\nVGA:\n"
+    )
+
+
+def _tigervnc_with_vgl_combined():
+    """TigerVNC + VirtualGL — TigerVNC 는 -vgl 미지원."""
+    return (
+        "__ITL_VNC_X11__\nX1\n"
+        "__ITL_VNC_SS__\nLISTEN 0 128 127.0.0.1:5901 0.0.0.0:*\n"
+        "__ITL_VNC_PS__\n1234 ubuntu Xtigervnc :1 -geometry 1920x1080\n"
+        "__ITL_VNC_WHICH__\n/usr/bin/Xtigervnc\n"
+        "__ITL_VNC_GPU__\nVGL:/usr/bin/vglrun\nNSMI:yes\nVGA:NVIDIA Corporation ...\n"
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_session_turbovnc_with_vgl_adds_vgl():
+    """virtualgl=true + turbovnc → ``-vgl`` + ``VGL_DISPLAY=egl`` + gpu_accelerated:true."""
+    host = _host()
+    captured = {}
+    runner_calls = [_turbovnc_with_vgl_combined(), ""]
+
+    async def two_phase_runner(cmd):
+        captured["cmd"] = cmd
+        return runner_calls.pop(0)
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=two_phase_runner)):
+        req = vnc.CreateSessionRequest(geometry="1920x1080", display=2)
+        res = await vnc.create_vnc_session("h1", req, "alice")
+    cmd = captured["cmd"]
+    assert cmd.startswith("VGL_DISPLAY=egl ")
+    assert "-vgl " in cmd
+    assert res["gpu_accelerated"] is True
+
+
+@pytest.mark.asyncio
+async def test_create_session_turbovnc_without_vgl_omits_vgl():
+    """virtualgl=false + turbovnc → ``-vgl`` 없음, gpu_accelerated:false."""
+    host = _host()
+    captured = {}
+    runner_calls = [_turbovnc_without_vgl_combined(), ""]
+
+    async def two_phase_runner(cmd):
+        captured["cmd"] = cmd
+        return runner_calls.pop(0)
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=two_phase_runner)):
+        req = vnc.CreateSessionRequest(geometry="1280x800", display=2)
+        res = await vnc.create_vnc_session("h1", req, "alice")
+    cmd = captured["cmd"]
+    assert "VGL_DISPLAY" not in cmd
+    assert "-vgl" not in cmd
+    assert res["gpu_accelerated"] is False
+
+
+@pytest.mark.asyncio
+async def test_create_session_tigervnc_with_vgl_omits_vgl():
+    """tigervnc + virtualgl → ``-vgl`` 없음 (TigerVNC 에는 -vgl 자체가 없다)."""
+    host = _host()
+    captured = {}
+    runner_calls = [_tigervnc_with_vgl_combined(), ""]
+
+    async def two_phase_runner(cmd):
+        captured["cmd"] = cmd
+        return runner_calls.pop(0)
+
+    with patch.object(vnc.storage, "get_host", AsyncMock(return_value=host)), \
+         patch.object(vnc, "_make_runner_for", AsyncMock(return_value=two_phase_runner)):
+        req = vnc.CreateSessionRequest(geometry="1280x800", display=2)
+        res = await vnc.create_vnc_session("h1", req, "alice")
+    cmd = captured["cmd"]
+    assert "VGL_DISPLAY" not in cmd
+    assert "-vgl" not in cmd
+    assert res["gpu_accelerated"] is False

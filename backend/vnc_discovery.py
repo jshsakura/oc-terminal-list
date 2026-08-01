@@ -16,6 +16,7 @@ vglrun + nvidia-smi 로 ``gpu`` 필드에 정리한다.
 """
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Awaitable, Callable
 
@@ -50,9 +51,20 @@ DISCOVERY_CMD = (
 
 # Xtigervnc(TigerVNC) 와 Xvnc(RealVNC/TigerVNC 구형) — 둘 다 가상 디스플레이 서버.
 # x11vnc(실제 모니터 미러링)는 범위 밖이라 여기서 잡지 않는다.
-_VNC_SERVER_RE = re.compile(r"\b(Xtigervnc|Xvnc)\b")
-_DISPLAY_RE = re.compile(r":(\d+)\b")
+#
+# 프로세스 판정은 엄격하게: args 의 첫 토큰(실행 파일) basename 이 정확히
+# Xvnc / Xtigervnc 여야 한다. 명령줄 아무 곳에나 "Xtigervnc" 가 등장하는 것으로는
+# 잡지 않는다 — 그러면 디스커버리 명령 자신(for 루프 후보 경로에 "Xtigervnc" 포함)
+# 이나 vncserver 래퍼 스크립트를 잘못 잡는다.
+_VNC_SERVER_NAMES = {"Xvnc", "Xtigervnc"}
+# 디스플레이 번호는 독립된 ":N" 인자여야 한다. "user:32" 처럼 다른 토큰에 붙어
+# 있는 것은 디스플레이 번호가 아니다.
+_DISPLAY_TOKEN_RE = re.compile(r"^:(\d+)$")
 _GEOMETRY_RE = re.compile(r"-geometry\s+(\d+x\d+)", re.IGNORECASE)
+
+# 디스커버리 명령 자신을 배제하기 위한 마커 목록. ps 출력에 이 마커들이 포함된
+# 줄은 우리가 실행한 셸 명령 자신이므로 버린다.
+_ALL_MARKERS = (_X11_MARK, _SS_MARK, _PS_MARK, _WHICH_MARK, _GPU_MARK)
 
 # VNC 포트 범위 — display 0..99 → 5900..5999.
 _VNC_PORT_LO = 5900
@@ -102,22 +114,39 @@ def parse_vnc_processes(text: str) -> list[dict]:
     ``user:32`` 로 8자 잘림을 방지한다 — 기본 ``user`` 컬럼은 8자 제한이라 긴
     사용자명이 ``+`` 로 잘린다. ``split(None, 2)`` 는 연속 공백을 하나로 collapses
     하므로 32자 패딩에 영향받지 않는다.
+
+    **자기 탐지 방지 (두 겹):**
+    1. args 첫 토큰의 basename 이 정확히 ``Xvnc`` / ``Xtigervnc`` 여야 한다. 명령줄
+       아무 곳에나 등장하는 문자열로는 잡지 않는다.
+    2. 디스커버리 마커(``__ITL_VNC_*``)가 포함된 줄은 우리 명령 자신이므로 버린다.
+    디스플레이 번호도 독립된 ``:N`` 인자여야 하며 ``user:32`` 같은 토큰에서 오인되지
+    않는다.
     """
     procs: list[dict] = []
     for line in (text or "").splitlines():
+        # Layer 2 — 디스커버리 명령 자신을 배제.
+        if any(m in line for m in _ALL_MARKERS):
+            continue
         parts = line.split(None, 2)
         if len(parts) < 3:
             continue
         pid_s, user, args = parts
-        m = _VNC_SERVER_RE.search(args)
-        if not m:
-            continue
         if not pid_s.isdigit():
             continue
+        # Layer 1 — 실행 파일 basename 이 정확히 Xvnc / Xtigervnc 여야 한다.
+        args_tokens = args.split()
+        if not args_tokens:
+            continue
+        exe_name = os.path.basename(args_tokens[0])
+        if exe_name not in _VNC_SERVER_NAMES:
+            continue
+        # 디스플레이 번호는 독립된 ":N" 인자 — user:32 같은 토큰은 제외.
         display: int | None = None
-        dm = _DISPLAY_RE.search(args)
-        if dm:
-            display = int(dm.group(1))
+        for tok in args_tokens[1:]:
+            dm = _DISPLAY_TOKEN_RE.fullmatch(tok)
+            if dm:
+                display = int(dm.group(1))
+                break
         geometry = ""
         gm = _GEOMETRY_RE.search(args)
         if gm:
@@ -125,7 +154,7 @@ def parse_vnc_processes(text: str) -> list[dict]:
         procs.append({
             "pid": int(pid_s),
             "user": user,
-            "server": m.group(1),
+            "server": exe_name,
             "display": display,
             "geometry": geometry,
         })
