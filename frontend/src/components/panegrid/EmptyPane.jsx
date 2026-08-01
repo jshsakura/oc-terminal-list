@@ -2,8 +2,8 @@
  * 빈 pane 의 홈 화면 — 호스트/로컬 대시보드 + "다른 열린 탭 미러" 섹션.
  * PaneGrid.jsx 에서 로직 변경 없이 추출. EmptyPane 만 외부로 노출하고 나머지는 내부 전용.
  */
-import { useState, useEffect } from 'react';
-import { ArrowRightLeft, Copy, Cpu, Monitor, Server, Terminal as TerminalIcon, X, Zap } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { ArrowRightLeft, Copy, Cpu, Monitor, Power, Server, Terminal as TerminalIcon, X, Zap } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
 import HomeDashboard, { HostRow } from '../HomeDashboard';
@@ -101,6 +101,7 @@ const EmptyPane = ({
         <VncDisplayPicker
           host={vncPickerHost}
           t={t}
+          onConfirm={onConfirm}
           onPick={(display) => {
             onActivate?.({ type: 'vnc', hostId: vncPickerHost.id, display });
             setVncPickerHost(null);
@@ -121,33 +122,122 @@ const EmptyPane = ({
  *   { installed: bool, available: bool, displays: [{ display: N, geometry: "WxH" }] }
  * installed=false → VNC 미설치 메시지. available=false → 오류 메시지.
  */
-const VncDisplayPicker = ({ host, t, onPick, onClose }) => {
-  const [state, setState] = useState({ loading: true, data: null, error: '' });
+const VNC_GEOMETRY_PRESETS = ['1280x800', '1920x1080', '2560x1440', '1024x768'];
+const _GEOMETRY_RE = /^\d+x\d+$/;
 
-  // 호스트가 바뀔 때마다 재조회. cancelled 플래그로 언마운트 후 setState 차단.
-  useEffect(() => {
-    let cancelled = false;
+const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm }) => {
+  const [state, setState] = useState({ loading: true, data: null, error: '' });
+  // 생성/종료 액션 전용 에러 — fetch 에러와 분리.
+  const [actionError, setActionError] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [killingDisplay, setKillingDisplay] = useState(null);
+  // 해상도 선택 — presets 또는 custom.
+  const [geometry, setGeometry] = useState('1280x800');
+  const [useCustom, setUseCustom] = useState(false);
+  const [customGeometry, setCustomGeometry] = useState('');
+
+  // 디스플레이 목록 조회. host 가 바뀌면 useEffect 가 다시 부른다.
+  const refresh = useCallback(async () => {
     setState({ loading: true, data: null, error: '' });
-    (async () => {
-      try {
-        const res = await fetch(`/api/hosts/${host?.id}/vnc/displays`, {
-          headers: authHeaders(),
-          signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
-            ? AbortSignal.timeout(8000)
-            : undefined,
-        });
-        if (!res.ok) {
-          if (!cancelled) setState({ loading: false, data: null, error: `${res.status}` });
-          return;
-        }
-        const json = await res.json();
-        if (!cancelled) setState({ loading: false, data: json, error: '' });
-      } catch (err) {
-        if (!cancelled) setState({ loading: false, data: null, error: err?.message || String(err) });
+    try {
+      const res = await fetch(`/api/hosts/${host?.id}/vnc/displays`, {
+        headers: authHeaders(),
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+          ? AbortSignal.timeout(8000)
+          : undefined,
+      });
+      if (!res.ok) {
+        setState({ loading: false, data: null, error: `${res.status}` });
+        return;
       }
-    })();
-    return () => { cancelled = true; };
+      const json = await res.json();
+      setState({ loading: false, data: json, error: '' });
+    } catch (err) {
+      setState({ loading: false, data: null, error: err?.message || String(err) });
+    }
   }, [host?.id]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // ── 새 가상 데스크탑 만들기 ──────────────────────────────────────────────
+  const handleCreate = async () => {
+    setActionError('');
+    const geom = useCustom ? customGeometry.trim() : geometry;
+    if (!_GEOMETRY_RE.test(geom)) {
+      setActionError(t?.('vncInvalidGeometry') || 'Use WxH format (e.g. 1600x900)');
+      return;
+    }
+    setCreating(true);
+    try {
+      const res = await fetch(`/api/hosts/${host?.id}/vnc/sessions`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ geometry: geom }),
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+          ? AbortSignal.timeout(15000)
+          : undefined,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = json?.detail || `${res.status}`;
+        setActionError(`${t?.('vncCreateFailed') || 'Failed to create desktop'}: ${msg}`);
+        return;
+      }
+      if (json.available === false) {
+        setActionError(`${t?.('vncCreateFailed') || 'Failed to create desktop'}: ${json.error || ''}`);
+        return;
+      }
+      // 성공 — 목록 갱신 후 새 디스플레이로 바로 연결.
+      await refresh();
+      if (json.display != null) onPick(json.display);
+    } catch (err) {
+      setActionError(`${t?.('vncCreateFailed') || 'Failed to create desktop'}: ${err?.message || String(err)}`);
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  // ── 가상 데스크탑 종료 — 반드시 확인 절차를 거친다 ──────────────────────
+  const handleKill = (display) => {
+    if (!onConfirm) return; // 확인 모달이 없으면 종료 금지 (안전장치)
+    setActionError('');
+    onConfirm({
+      title: t?.('vncKillDesktop') || 'Terminate desktop',
+      message: t?.('vncKillConfirm')
+        || 'Terminate this VNC desktop? Everything running in it will be killed.',
+      confirmText: t?.('vncKill') || 'Terminate',
+      danger: true,
+      onConfirm: async () => {
+        setKillingDisplay(display);
+        try {
+          const res = await fetch(`/api/hosts/${host?.id}/vnc/sessions/${display}`, {
+            method: 'DELETE',
+            headers: authHeaders(),
+            signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+              ? AbortSignal.timeout(15000)
+              : undefined,
+          });
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            const msg = json?.detail || `${res.status}`;
+            setActionError(`${t?.('vncKillFailed') || 'Failed to terminate desktop'}: ${msg}`);
+            return;
+          }
+          if (json.available === false) {
+            setActionError(`${t?.('vncKillFailed') || 'Failed to terminate desktop'}: ${json.error || ''}`);
+            return;
+          }
+          await refresh();
+        } catch (err) {
+          setActionError(`${t?.('vncKillFailed') || 'Failed to terminate desktop'}: ${err?.message || String(err)}`);
+        } finally {
+          setKillingDisplay(null);
+        }
+      },
+    });
+  };
 
   const displays = Array.isArray(state.data?.displays) ? state.data.displays : [];
 
@@ -315,6 +405,20 @@ const VncDisplayPicker = ({ host, t, onPick, onClose }) => {
         {!state.loading && !state.error && state.data?.available !== false
           && (displays.length > 0 || state.data?.installed !== false) && (
           <>
+            {/* 생성/종료 액션 에러 배너 */}
+            {actionError && (
+              <div style={{
+                padding: '10px 12px',
+                background: `color-mix(in srgb, ${color.danger} 12%, transparent)`,
+                border: `1px solid color-mix(in srgb, ${color.danger} 35%, transparent)`,
+                borderRadius: '8px',
+                color: color.danger,
+                fontSize: fontSize['12'],
+                marginBottom: '8px',
+              }}>
+                {actionError}
+              </div>
+            )}
             {/* displays 는 있으나 vncserver 미발견 — 기존 디스플레이 연결은 가능 */}
             {displays.length > 0 && state.data?.installed === false && (
               <div style={{
@@ -338,41 +442,168 @@ const VncDisplayPicker = ({ host, t, onPick, onClose }) => {
                 {displays.map((d, idx) => {
                   const num = d.display != null ? d.display : d.id;
                   const label = `:${num} (${d.geometry || (t?.('unknown') || 'unknown')})`;
+                  const isKilling = killingDisplay === num;
                   return (
-                    <button
-                      key={`${num}-${idx}`}
-                      type="button"
-                      onClick={() => onPick(num)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '10px',
-                        padding: '10px 12px',
-                        background: color.surface1,
-                        border: `1px solid ${color.border}`,
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        color: color.text,
-                        fontSize: fontSize['13'],
-                        fontFamily: font.mono,
-                        textAlign: 'left',
-                        appearance: 'none',
-                        transition: 'background 120ms, border-color 120ms',
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.background = color.surface2;
-                        e.currentTarget.style.borderColor = color.accent;
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = color.surface1;
-                        e.currentTarget.style.borderColor = color.border;
-                      }}
-                    >
-                      <Monitor size={15} strokeWidth={1.6} style={{ color: color.accent, flexShrink: 0 }} />
-                      {label}
-                    </button>
+                    <div key={`${num}-${idx}`} style={{ display: 'flex', alignItems: 'stretch', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => onPick(num)}
+                        style={{
+                          flex: 1,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '10px',
+                          padding: '10px 12px',
+                          background: color.surface1,
+                          border: `1px solid ${color.border}`,
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          color: color.text,
+                          fontSize: fontSize['13'],
+                          fontFamily: font.mono,
+                          textAlign: 'left',
+                          appearance: 'none',
+                          transition: 'background 120ms, border-color 120ms',
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = color.surface2;
+                          e.currentTarget.style.borderColor = color.accent;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = color.surface1;
+                          e.currentTarget.style.borderColor = color.border;
+                        }}
+                      >
+                        <Monitor size={15} strokeWidth={1.6} style={{ color: color.accent, flexShrink: 0 }} />
+                        {label}
+                      </button>
+                      {onConfirm && (
+                        <button
+                          type="button"
+                          title={t?.('vncKillDesktop') || 'Terminate desktop'}
+                          disabled={isKilling}
+                          onClick={(e) => { e.stopPropagation(); handleKill(num); }}
+                          style={{
+                            width: '34px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: color.surface1,
+                            border: `1px solid color-mix(in srgb, ${color.danger} 30%, transparent)`,
+                            borderRadius: '8px',
+                            cursor: isKilling ? 'not-allowed' : 'pointer',
+                            color: color.danger,
+                            opacity: isKilling ? 0.5 : 1,
+                            appearance: 'none',
+                            transition: 'background 120ms',
+                          }}
+                          onMouseEnter={(e) => { if (!isKilling) e.currentTarget.style.background = `color-mix(in srgb, ${color.danger} 15%, transparent)`; }}
+                          onMouseLeave={(e) => { if (!isKilling) e.currentTarget.style.background = color.surface1; }}
+                        >
+                          <Power size={13} strokeWidth={1.8} />
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
+              </div>
+            )}
+            {/* 새 가상 데스크탑 만들기 — vncserver 가 있을 때만 */}
+            {state.data?.installed !== false && (
+              <div style={{
+                marginTop: '12px',
+                paddingTop: '12px',
+                borderTop: `1px solid ${color.border}`,
+              }}>
+                <div style={{
+                  marginBottom: '8px',
+                  fontSize: fontSize['12'],
+                  fontWeight: fontWeight.semibold,
+                  color: color.text,
+                }}>
+                  {t?.('vncCreateDesktop') || 'Create new desktop'}
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: useCustom ? '8px' : '10px' }}>
+                  {VNC_GEOMETRY_PRESETS.map((p) => {
+                    const active = !useCustom && geometry === p;
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => { setGeometry(p); setUseCustom(false); }}
+                        style={{
+                          padding: '4px 10px',
+                          background: active ? color.accent : color.surface1,
+                          color: active ? color.surface0 : color.text,
+                          border: `1px solid ${active ? color.accent : color.border}`,
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          fontSize: fontSize['11'],
+                          fontFamily: font.mono,
+                          appearance: 'none',
+                        }}
+                      >
+                        {p}
+                      </button>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => setUseCustom(true)}
+                    style={{
+                      padding: '4px 10px',
+                      background: useCustom ? color.accent : color.surface1,
+                      color: useCustom ? color.surface0 : color.text,
+                      border: `1px solid ${useCustom ? color.accent : color.border}`,
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: fontSize['11'],
+                      appearance: 'none',
+                    }}
+                  >
+                    {t?.('vncCustom') || 'Custom'}
+                  </button>
+                </div>
+                {useCustom && (
+                  <input
+                    type="text"
+                    placeholder={t?.('vncGeometryPlaceholder') || 'e.g. 1600x900'}
+                    value={customGeometry}
+                    onChange={(e) => setCustomGeometry(e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      background: color.surface1,
+                      border: `1px solid ${color.border}`,
+                      borderRadius: '6px',
+                      color: color.text,
+                      fontSize: fontSize['12'],
+                      fontFamily: font.mono,
+                      boxSizing: 'border-box',
+                      marginBottom: '10px',
+                      outline: 'none',
+                    }}
+                  />
+                )}
+                <button
+                  type="button"
+                  disabled={creating || (useCustom && !_GEOMETRY_RE.test(customGeometry.trim()))}
+                  onClick={handleCreate}
+                  style={{
+                    width: '100%',
+                    padding: '8px 12px',
+                    background: creating ? color.surface1 : color.accent,
+                    color: creating ? color.subtext : color.surface0,
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: creating ? 'not-allowed' : 'pointer',
+                    fontSize: fontSize['12'],
+                    fontWeight: fontWeight.semibold,
+                    appearance: 'none',
+                  }}
+                >
+                  {creating ? (t?.('vncCreating') || 'Creating…') : (t?.('vncCreate') || 'Create')}
+                </button>
               </div>
             )}
           </>

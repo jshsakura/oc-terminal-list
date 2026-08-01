@@ -233,4 +233,144 @@ describe('VncDisplayPicker', () => {
     fireEvent.click(container.firstChild);
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  // ── Create session ──────────────────────────────────────────────────────
+
+  it('sends correct body on create and auto-connects to new display', async () => {
+    const GET_RESP = { available: true, installed: true, displays: [] };
+    const POST_RESP = { available: true, installed: true, display: 7, port: 5907, geometry: '1280x800' };
+    global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      const method = (opts.method || 'GET').toUpperCase();
+      if (method === 'POST') {
+        return Promise.resolve({ ok: true, json: async () => POST_RESP });
+      }
+      return Promise.resolve({ ok: true, json: async () => GET_RESP });
+    });
+
+    const onPick = vi.fn();
+    render(<VncDisplayPicker host={HOST} t={(k) => k} onPick={onPick} onClose={vi.fn()} />);
+
+    // 리스트 로드 대기
+    await waitFor(() => {
+      expect(screen.getByText('vncCreateDesktop')).toBeTruthy();
+    });
+
+    // Create 버튼 클릭
+    fireEvent.click(screen.getByText('vncCreate'));
+
+    // POST 호출 검증
+    await waitFor(() => {
+      const postCall = global.fetch.mock.calls.find(
+        ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
+      );
+      expect(postCall).toBeTruthy();
+      expect(postCall[0]).toContain('/vnc/sessions');
+      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1280x800' });
+    });
+
+    // 새 디스플레이로 자동 연결
+    await waitFor(() => {
+      expect(onPick).toHaveBeenCalledWith(7);
+    });
+  });
+
+  it('does not show create action when installed is false', async () => {
+    mockFetchResponse({ available: true, installed: false, displays: [] });
+
+    renderPicker();
+
+    await waitFor(() => {
+      expect(screen.getByText('vncNotInstalled')).toBeTruthy();
+    });
+
+    // Create 버튼이 없어야 함
+    expect(screen.queryByText('vncCreate')).toBeNull();
+    expect(screen.queryByText('vncCreateDesktop')).toBeNull();
+  });
+
+  it('kill goes through confirmation before sending DELETE request', async () => {
+    const GET_RESP = {
+      available: true, installed: true,
+      displays: [{ display: 2, geometry: '1280x800' }],
+    };
+    const DELETE_RESP = { available: true, display: 2, status: 'killed' };
+    global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      const method = (opts.method || 'GET').toUpperCase();
+      if (method === 'DELETE') {
+        return Promise.resolve({ ok: true, json: async () => DELETE_RESP });
+      }
+      return Promise.resolve({ ok: true, json: async () => GET_RESP });
+    });
+
+    const onConfirm = vi.fn();
+    render(
+      <VncDisplayPicker
+        host={HOST}
+        t={(k) => k}
+        onPick={vi.fn()}
+        onClose={vi.fn()}
+        onConfirm={onConfirm}
+      />,
+    );
+
+    // 디스플레이 로드 대기
+    await waitFor(() => {
+      expect(screen.getByText(':2 (1280x800)')).toBeTruthy();
+    });
+
+    // Kill 버튼 클릭 (title 로 찾기)
+    const killBtn = screen.getByTitle('vncKillDesktop');
+    fireEvent.click(killBtn);
+
+    // 확인 모달이 호출되어야 함
+    expect(onConfirm).toHaveBeenCalledOnce();
+    const confirmArg = onConfirm.mock.calls[0][0];
+    expect(confirmArg.danger).toBe(true);
+    expect(typeof confirmArg.onConfirm).toBe('function');
+
+    // 확인 전에는 DELETE 가 나가지 않아야 함
+    const deleteBefore = global.fetch.mock.calls.find(
+      ([, opts]) => (opts?.method || 'GET').toUpperCase() === 'DELETE',
+    );
+    expect(deleteBefore).toBeUndefined();
+
+    // 확인 콜백 실행 → DELETE 전송
+    await confirmArg.onConfirm();
+
+    await waitFor(() => {
+      const deleteCall = global.fetch.mock.calls.find(
+        ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'DELETE',
+      );
+      expect(deleteCall).toBeTruthy();
+      expect(deleteCall[0]).toContain('/vnc/sessions/2');
+    });
+  });
+
+  it('shows error banner when create fails with 409', async () => {
+    const GET_RESP = { available: true, installed: true, displays: [] };
+    global.fetch = vi.fn().mockImplementation((url, opts = {}) => {
+      const method = (opts.method || 'GET').toUpperCase();
+      if (method === 'POST') {
+        return Promise.resolve({
+          ok: false,
+          status: 409,
+          json: async () => ({ detail: '사용 가능한 디스플레이 번호가 없습니다' }),
+        });
+      }
+      return Promise.resolve({ ok: true, json: async () => GET_RESP });
+    });
+
+    renderPicker();
+
+    await waitFor(() => {
+      expect(screen.getByText('vncCreateDesktop')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('vncCreate'));
+
+    // 에러 배너 표시
+    await waitFor(() => {
+      expect(screen.getByText(/vncCreateFailed/)).toBeTruthy();
+    });
+  });
 });
