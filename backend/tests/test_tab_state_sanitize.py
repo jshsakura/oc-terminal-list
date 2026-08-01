@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-import main
 from routes import user_state  # tab-state 로직은 main 에서 분리됨
 
 
@@ -93,6 +92,31 @@ async def test_tab_with_editor_pane_kept():
         m.list_sessions = AsyncMock(return_value=_live("other"))
         tabs, _ = await user_state._sanitize_tab_state([tab], "t1")
     assert tabs == [tab]
+
+
+@pytest.mark.anyio
+async def test_tab_with_vnc_pane_kept():
+    """mode:'vnc' pane 은 terminal/None 이 아니므로 sanitize 가 보존한다.
+
+    새로고침 후 탭 복원 시 VNC pane 이 살아남아야 한다 (Phase 7 회귀 방지).
+    """
+    tab = {
+        "id": "t1",
+        "type": "local",
+        "sessionId": "dead",
+        "panes": [
+            {"id": "p0", "mode": "terminal", "sessionId": "dead"},
+            {"id": "p1", "mode": "vnc", "hostId": "h1", "display": 1},
+        ],
+    }
+    with patch.object(user_state, "tmux_manager", autospec=False) as m:
+        m.list_sessions = AsyncMock(return_value=_live("other"))
+        tabs, _ = await user_state._sanitize_tab_state([tab], "t1")
+    assert tabs == [tab]
+    vnc_pane = tabs[0]["panes"][1]
+    assert vnc_pane["mode"] == "vnc"
+    assert vnc_pane["hostId"] == "h1"
+    assert vnc_pane["display"] == 1
 
 
 @pytest.mark.anyio

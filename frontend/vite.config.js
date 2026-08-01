@@ -102,6 +102,9 @@ export default defineConfig({
             // prettier 는 포맷 실행 시점에만 동적 import 된다 — eager vendor 청크에 섞이면
             // ~600KB 가 시작 로드에 얹힌다. 전용 청크로 떼어 지연 로드 유지.
             if (id.includes('/prettier/')) return 'prettier';
+            // noVNC(@novnc/novnc) 는 VNC pane 최초 접속 시점에만 동적 import 된다 —
+            // eager vendor 청크에 섞이면 수백 KB 가 시작 로드에 얹힌다. 전용 청크로 떼어 지연 로드 유지.
+            if (id.includes('@novnc/novnc')) return 'novnc';
             return 'vendor';
           }
         },

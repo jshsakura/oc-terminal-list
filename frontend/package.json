@@ -17,6 +17,7 @@
   "dependencies": {
     "@leeoniya/ufuzzy": "^1.0.19",
     "@monaco-editor/react": "^4.7.0",
+    "@novnc/novnc": "^1.7.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-image": "^0.9.0",
     "@xterm/addon-search": "^0.16.0",

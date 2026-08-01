@@ -1,7 +1,7 @@
 import { useState, memo, useRef, useEffect } from 'react';
 import {
   Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
-  Link2, BarChart3,
+  Link2, BarChart3, ScreenShare,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
@@ -26,6 +26,7 @@ const HomeDashboard = ({
   settings = {},
   onOpenHost,
   onOpenHostAtPath,
+  onOpenVnc,
   onAddHost,
   onEditHost,
   onDeleteHost,
@@ -144,6 +145,8 @@ const HomeDashboard = ({
                   editTitle={t?.('hostSettings') || 'Host settings'}
                   onPickPath={onOpenHostAtPath ? () => onOpenHostAtPath(host) : null}
                   pickPathTitle={t?.('openAtPath') || 'Open at path…'}
+                  onOpenVnc={onOpenVnc ? () => onOpenVnc(host) : null}
+                  openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
                 />
               );
             })}
@@ -199,6 +202,7 @@ export const HostRow = memo(({
   isHovered, isDragging, isDragOver,
   onHover, onClick, onEdit, editTitle,
   onPickPath, pickPathTitle,
+  onOpenVnc, openVncTitle,
   // useHostReorder.rowPropsFor 가 spread 로 보내는 것들: data-host-row, onPointerDown, isDragging, isDragOver.
   ...rest
 }) => (
@@ -246,8 +250,13 @@ export const HostRow = memo(({
       <div style={styles.sub}>{subtitle}</div>
     </div>
 
-    {(onPickPath || onEdit) && (
+    {(onPickPath || onEdit || onOpenVnc) && (
       <div style={styles.actions} onClick={(e) => e.stopPropagation()}>
+        {onOpenVnc && (
+          <RowBtn onClick={(e) => { e.stopPropagation(); onOpenVnc(); }} title={openVncTitle}>
+            <ScreenShare size={13} strokeWidth={1.8} />
+          </RowBtn>
+        )}
         {onPickPath && (
           <RowBtn onClick={(e) => { e.stopPropagation(); onPickPath(); }} title={pickPathTitle}>
             <FolderOpen size={13} strokeWidth={1.8} />

@@ -2,9 +2,10 @@
  * 빈 pane 의 홈 화면 — 호스트/로컬 대시보드 + "다른 열린 탭 미러" 섹션.
  * PaneGrid.jsx 에서 로직 변경 없이 추출. EmptyPane 만 외부로 노출하고 나머지는 내부 전용.
  */
-import { useState } from 'react';
-import { ArrowRightLeft, Copy, Server, Terminal as TerminalIcon } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowRightLeft, Copy, Cpu, Monitor, Server, Terminal as TerminalIcon, X, Zap } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
+import { authHeaders } from '../../utils/auth';
 import HomeDashboard, { HostRow } from '../HomeDashboard';
 import HostIcon from '../../utils/hostIcons';
 
@@ -25,6 +26,9 @@ const EmptyPane = ({
   onPickHostPath = null, onPickLocalPath = null, onEditHost = null, onEditLocal = null, refreshHosts = null,
   isVisible = true,
 }) => {
+  // VNC 디스플레이 픽커 — 어느 호스트의 픽커가 열려 있는지(host 객체) 추적.
+  const [vncPickerHost, setVncPickerHost] = useState(null);
+
   // 현재 탭 자신은 후보에서 제외 — 다른 열린 탭의 활성 pane 을 미러.
   // index 는 상단 탭바와 동일한 1-base 순번 (Ctrl+N 단축키와 짝).
   const otherTabs = (allTabs || [])
@@ -70,6 +74,8 @@ const EmptyPane = ({
           }
         }}
         onOpenHostAtPath={onPickHostPath || null}
+        // VNC 원격 데스크톱 — 호스트 카드의 ScreenShare 버튼 → 디스플레이 픽커 오픈.
+        onOpenVnc={(host) => setVncPickerHost(host)}
         onEditLocal={onEditLocal || null}
         onPickLocalPath={onPickLocalPath || null}
         // 빈 패널에서는 호스트 추가/편집 진입은 부모 콜백 사용. 없으면 EmptyRow 가 빈 핸들러로 동작.
@@ -91,6 +97,271 @@ const EmptyPane = ({
         extraTopSlot={openTabsSlot}
         t={t}
       />
+      {vncPickerHost && (
+        <VncDisplayPicker
+          host={vncPickerHost}
+          t={t}
+          onPick={(display) => {
+            onActivate?.({ type: 'vnc', hostId: vncPickerHost.id, display });
+            setVncPickerHost(null);
+          }}
+          onClose={() => setVncPickerHost(null)}
+        />
+      )}
+    </div>
+  );
+};
+
+/**
+ * VNC 디스플레이 픽커 — 호스트 카드의 "Remote desktop" 버튼으로 열린다.
+ * GET /api/hosts/{id}/vnc/displays 로 가용 디스플레이 목록을 조회하고,
+ * 사용자가 하나를 고르면 onPick(displayNumber) 로 활성화한다.
+ *
+ * 백엔드 응답 형태:
+ *   { installed: bool, available: bool, displays: [{ display: N, geometry: "WxH" }] }
+ * installed=false → VNC 미설치 메시지. available=false → 오류 메시지.
+ */
+const VncDisplayPicker = ({ host, t, onPick, onClose }) => {
+  const [state, setState] = useState({ loading: true, data: null, error: '' });
+
+  // 호스트가 바뀔 때마다 재조회. cancelled 플래그로 언마운트 후 setState 차단.
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, data: null, error: '' });
+    (async () => {
+      try {
+        const res = await fetch(`/api/hosts/${host?.id}/vnc/displays`, {
+          headers: authHeaders(),
+          signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+            ? AbortSignal.timeout(8000)
+            : undefined,
+        });
+        if (!res.ok) {
+          if (!cancelled) setState({ loading: false, data: null, error: `${res.status}` });
+          return;
+        }
+        const json = await res.json();
+        if (!cancelled) setState({ loading: false, data: json, error: '' });
+      } catch (err) {
+        if (!cancelled) setState({ loading: false, data: null, error: err?.message || String(err) });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [host?.id]);
+
+  const displays = Array.isArray(state.data?.displays) ? state.data.displays : [];
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 100,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'rgba(0,0,0,0.4)',
+        backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: `color-mix(in srgb, ${color.surface0} 92%, transparent)`,
+          border: `1px solid ${color.border}`,
+          borderRadius: '12px',
+          boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
+          padding: '20px',
+          minWidth: '300px',
+          maxWidth: '420px',
+          maxHeight: '80vh',
+          overflow: 'auto',
+          boxSizing: 'border-box',
+          fontFamily: font.sans,
+        }}
+      >
+        {/* 헤더 — 호스트명 + 닫기 */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          marginBottom: '14px',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Monitor size={15} strokeWidth={1.8} style={{ color: color.accent }} />
+            <span style={{
+              fontSize: fontSize['13'],
+              fontWeight: fontWeight.semibold,
+              color: color.text,
+            }}>
+              {t?.('remoteDesktop') || 'Remote desktop'} · {host?.name || host?.id}
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title={t?.('close') || 'Close'}
+            style={{
+              width: '26px',
+              height: '26px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              color: color.subtext,
+              padding: 0,
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.color = color.text; e.currentTarget.style.background = color.surface1; }}
+            onMouseLeave={(e) => { e.currentTarget.style.color = color.subtext; e.currentTarget.style.background = 'transparent'; }}
+          >
+            <X size={15} strokeWidth={1.8} />
+          </button>
+        </div>
+
+        {/* GPU 가속 능력 배지 — 호스트 수준. 설치/가용일 때만 표시. */}
+        {!state.loading && !state.error && state.data?.installed !== false && state.data?.available !== false && (() => {
+          const isGpu = state.data?.gpu?.renderer_hint === 'gpu';
+          const flavor = state.data?.flavor || '';
+          const Badge = isGpu ? Zap : Cpu;
+          const badgeColor = isGpu ? color.success : color.subtext;
+          return (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '8px',
+              marginBottom: '12px',
+              padding: '6px 10px',
+              background: `color-mix(in srgb, ${badgeColor} 12%, transparent)`,
+              border: `1px solid color-mix(in srgb, ${badgeColor} 32%, transparent)`,
+              borderRadius: '8px',
+            }}>
+              <Badge size={13} strokeWidth={2} style={{ color: badgeColor, flexShrink: 0 }} />
+              <span style={{
+                fontSize: fontSize['11'],
+                fontWeight: fontWeight.medium,
+                color: badgeColor,
+              }}>
+                {isGpu
+                  ? (t?.('vncGpuAvailable') || 'GPU acceleration (VirtualGL)')
+                  : (t?.('vncSoftwareRender') || 'Software rendering')}
+              </span>
+              {flavor && (
+                <span style={{
+                  fontSize: fontSize['10'],
+                  fontWeight: fontWeight.medium,
+                  color: color.subtext,
+                  marginLeft: 'auto',
+                  textTransform: 'capitalize',
+                }}>
+                  {flavor === 'turbovnc' ? 'TurboVNC' : 'TigerVNC'}
+                </span>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* 본문 — 로딩 / 에러 / 디스플레이 목록 */}
+        {state.loading && (
+          <div style={{ padding: '16px 0', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] }}>
+            {t?.('loading') || 'Loading…'}
+          </div>
+        )}
+
+        {!state.loading && state.error && (
+          <div style={{
+            padding: '12px',
+            background: `color-mix(in srgb, ${color.danger} 12%, transparent)`,
+            border: `1px solid color-mix(in srgb, ${color.danger} 35%, transparent)`,
+            borderRadius: '8px',
+            color: color.danger,
+            fontSize: fontSize['12'],
+          }}>
+            {t?.('vncFetchError') || 'Could not query VNC displays.'} ({state.error})
+          </div>
+        )}
+
+        {!state.loading && !state.error && state.data?.installed === false && (
+          <div style={{
+            padding: '12px',
+            background: `color-mix(in srgb, ${color.warning} 12%, transparent)`,
+            border: `1px solid color-mix(in srgb, ${color.warning} 35%, transparent)`,
+            borderRadius: '8px',
+            color: color.warning,
+            fontSize: fontSize['12'],
+          }}>
+            {t?.('vncNotInstalled') || 'VNC is not installed on this host.'}
+          </div>
+        )}
+
+        {!state.loading && !state.error && state.data?.installed !== false && state.data?.available === false && (
+          <div style={{
+            padding: '12px',
+            background: `color-mix(in srgb, ${color.danger} 12%, transparent)`,
+            border: `1px solid color-mix(in srgb, ${color.danger} 35%, transparent)`,
+            borderRadius: '8px',
+            color: color.danger,
+            fontSize: fontSize['12'],
+          }}>
+            {t?.('vncUnavailable') || 'VNC is not available on this host right now.'}
+          </div>
+        )}
+
+        {!state.loading && !state.error && state.data?.installed !== false && state.data?.available !== false && (
+          <>
+            {displays.length === 0 ? (
+              <div style={{ padding: '12px', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] }}>
+                {t?.('vncNoDisplays') || 'No active VNC displays found.'}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                {displays.map((d, idx) => {
+                  const num = d.display != null ? d.display : d.id;
+                  const label = `:${num} (${d.geometry || (t?.('unknown') || 'unknown')})`;
+                  return (
+                    <button
+                      key={`${num}-${idx}`}
+                      type="button"
+                      onClick={() => onPick(num)}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '10px',
+                        padding: '10px 12px',
+                        background: color.surface1,
+                        border: `1px solid ${color.border}`,
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        color: color.text,
+                        fontSize: fontSize['13'],
+                        fontFamily: font.mono,
+                        textAlign: 'left',
+                        appearance: 'none',
+                        transition: 'background 120ms, border-color 120ms',
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = color.surface2;
+                        e.currentTarget.style.borderColor = color.accent;
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = color.surface1;
+                        e.currentTarget.style.borderColor = color.border;
+                      }}
+                    >
+                      <Monitor size={15} strokeWidth={1.6} style={{ color: color.accent, flexShrink: 0 }} />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };

@@ -300,6 +300,19 @@ export const activatePaneOp = (tabs, { tabId, paneId, target = null, hosts, sett
         };
         return { ...p, hostId: target.hostId, sessionId: undefined, ...tmuxPatch, ...cwdPatch, ...themePatch };
       }
+      // VNC 원격 데스크톱 — 터미널 세션이 아닌 noVNC RFB 연결 pane. host/display 만 설정하고
+      // sessionId/tmuxSessionName 은 비운다. 위 empty-pane guard(p.sessionId || p.hostId) 가
+      // 이미 점유된 pane 을 통과시키지 않으므로 빈 pane 에만 채워진다.
+      if (target?.type === 'vnc' && target.hostId) {
+        return {
+          ...p,
+          mode: 'vnc',
+          hostId: target.hostId,
+          display: target.display,
+          sessionId: undefined,
+          tmuxSessionName: undefined,
+        };
+      }
       if (target?.type === 'local') {
         const resolvedTheme = resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev));
         const themePatch = resolvedTheme ? { themeOverride: resolvedTheme } : {};

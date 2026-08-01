@@ -1,0 +1,226 @@
+"""noVNC WebSocket — 브라우저 ↔ 원격 Xvnc RFB 바이너리 터널.
+
+인증·소유권·티켓 갱신 규칙은 routes/host_ws.py 와 동일하다. 다른 점은 목적지가
+인터랙티브 셸이 아니라 ``127.0.0.1:5900+display`` 의 RFB(Remote Frame Buffer)
+바이너리 스트림이라는 것이다.
+
+전송 계층은 호스트 종류에 따라 둘로 갈라진다:
+  - key/password → asyncssh direct-tcpip 채널 (SSH 터널)
+  - tailscale    → tailscale IP 로 직접 TCP (WireGuard 가 암호화 담당)
+
+⚠️ ssh_pool 을 쓰지 않는다. ssh_pool janitor 가 300s idle 커넥션을 닫아버리는데,
+RFB 스트림은 ssh_pool.run() 을 거치지 않아 last_used 가 갱신되지 않는다 — 그러면
+화면을 보는 중에도 5분 뒤 끊긴다. 그래서 전용 연결을 연다.
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+
+from _deps import is_safe_id
+from host_manager import open_connection, resolve_host_secrets
+from sqlite_storage import storage
+from tickets import _push_ws_tickets
+from ws_auth import authenticate_ws
+from ws_clients import _register_ws_client, _unregister_ws_client
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+
+class _VncBridge:
+    """noVNC WS 를 RFB 바이너리 펌프로 감싸는 얇은 셸.
+
+    ``_push_ws_tickets`` 가 ``bridge.send_control(json_str)`` 을 호출하므로 이 메서드만
+    제공하면 된다. 텍스트 제어 프레임(ws_ticket 푸시)과 바이너리 RFB 프레임이 같은 WS
+    위에서 동시에 send 되면 인터리브가 깨져 RFB 핸드셰이크가 망가진다 — 그래서
+    ``_send_lock`` 으로 직렬화한다 (HostBridge.send_control / _stdout_pump 와 동일 패턴).
+    """
+
+    def __init__(self, websocket: WebSocket):
+        self.websocket = websocket
+        # 제어 프레임(텍스트)과 RFB 출력 프레임(바이너리)이 섞이지 않게 직렬화.
+        self.send_lock = asyncio.Lock()
+
+    async def send_control(self, text: str) -> None:
+        try:
+            async with self.send_lock:
+                await self.websocket.send_text(text)
+        except Exception as e:
+            logger.debug("control send failed (vnc): %s", e)
+
+
+async def _ws_to_stream(websocket: WebSocket, writer) -> None:
+    """브라우저 → RFB 스트림: receive_bytes → writer.write + drain.
+
+    RFB 는 바이너리 프로토콜이므로 반드시 receive_bytes() 를 쓴다 — receive_text() 로
+    받으면 UTF-8 디코딩이 RFB 바이트를 망가뜨린다.
+    """
+    try:
+        while True:
+            data = await websocket.receive_bytes()
+            if not data:
+                continue
+            writer.write(data)
+            await writer.drain()
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.debug("ws→stream pump ended (vnc): %s", type(e).__name__)
+
+
+async def _stream_to_ws(reader, websocket: WebSocket, bridge: _VncBridge) -> None:
+    """RFB 스트림 → 브라우저: reader.read → send_bytes (바이너리, lock + 5s 타임아웃).
+
+    send 가 5초 안에 안 끝나면 클라가 죽은 것으로 보고 종료 — 느린/죽은 TCP 가 send
+    buffer 를 무한 누적시키지 않도록 (HostBridge._stdout_pump 와 동일).
+    """
+    try:
+        while True:
+            data = await reader.read(65536)
+            if not data:
+                break  # 스트림 EOF
+            if websocket.client_state.name != "CONNECTED":
+                break
+            try:
+                # 제어 텍스트 프레임과 인터리브 되지 않게 lock 으로 직렬화.
+                async with bridge.send_lock:
+                    await asyncio.wait_for(websocket.send_bytes(data), timeout=5.0)
+            except TimeoutError:
+                logger.info("ws send timeout (vnc bridge) — closing")
+                break
+            except Exception as e:
+                logger.info("ws send failed (vnc bridge): %s", e)
+                break
+    except Exception as e:
+        logger.debug("stream→ws pump ended (vnc): %s", type(e).__name__)
+
+
+@router.websocket("/ws/vnc/{host_id}")
+async def vnc_websocket(
+    websocket: WebSocket,
+    host_id: str,
+    display: int = Query(...),
+    ticket: str | None = Query(None),
+    client_id: str | None = Query(None),
+):
+    # 1. host_id 형식 검증
+    if not is_safe_id(host_id):
+        await websocket.close(code=1008, reason="유효하지 않은 호스트 ID")
+        return
+
+    ws_path = f"/ws/vnc/{host_id}"
+    # 2. 인증 — 티켓 우선, same-origin 쿠키 폴백 (ws_auth 참고)
+    username = await authenticate_ws(websocket, ws_path, ticket)
+    if not username:
+        await websocket.close(code=1008, reason="인증 필요")
+        return
+
+    # 3. 소유권 — 본인 호스트인지
+    host = await storage.get_host(host_id, username)
+    if not host:
+        await websocket.close(code=1008, reason="호스트를 찾을 수 없음")
+        return
+
+    # 4. 디스플레이 번호 검증 — 0..99 (5900..5999)
+    if not (0 <= display <= 99):
+        await websocket.close(code=1008, reason="잘못된 디스플레이 번호")
+        return
+
+    vnc_port = 5900 + display
+
+    # 5. WS 수락
+    await websocket.accept()
+
+    # 6. 전송 계층 오픈 — key/password (asyncssh direct-tcpip) vs tailscale (직접 TCP)
+    conn = None  # asyncssh.SSHClientConnection | None (tailscale 은 None)
+    reader = None
+    writer = None
+    auth_method = host.get("auth_method")
+    try:
+        if auth_method == "tailscale":
+            # tailscale 호스트는 asyncssh 연결이 없다 (tailscale ssh 서브프로세스).
+            # direct-tcpip 불가능 — 대신 Tailscale IP 로 직접 TCP. WireGuard 가 암호화.
+            reader, writer = await asyncio.open_connection(host["hostname"], vnc_port)
+        else:
+            # key/password — 전용 SSH 연결을 연다 (ssh_pool 절대 사용 금지, 위 주석 참고).
+            key_record = None
+            if auth_method == "key" and host.get("key_id"):
+                key_record = await storage.get_ssh_key(host["key_id"], username)
+                if not key_record:
+                    await websocket.close(code=1011, reason="연결된 SSH 키를 찾을 수 없음")
+                    return
+            secrets = resolve_host_secrets(host, key_record)
+            conn = await open_connection(
+                host,
+                private_key=secrets["private_key"],
+                passphrase=secrets["passphrase"],
+                password=secrets["password"],
+            )
+            # direct-tcpip 채널 — (SSHReader, SSHWriter) 반환
+            reader, writer = await conn.open_connection("127.0.0.1", vnc_port)
+    except Exception as e:
+        logger.error(
+            "VNC transport open failed (%s, display %d): %s",
+            host_id, display, e, exc_info=True,
+        )
+        try:
+            await websocket.close(code=1011, reason=f"VNC 포트 {vnc_port} 연결 실패: {e}")
+        except Exception:
+            pass
+        # 열어둔 연결/채널이 있다면 정리
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        return
+
+    # 7. 티켓 푸셔 — bridge.send_control(json) 으로 다음 재연결 티켓을 주기적으로 밀어줌.
+    bridge = _VncBridge(websocket)
+    ticket_pusher = asyncio.create_task(_push_ws_tickets(bridge, username, ws_path))
+
+    # 8. 양방향 바이너리 펌프
+    pump_ws = asyncio.create_task(_ws_to_stream(websocket, writer))
+    pump_stream = asyncio.create_task(_stream_to_ws(reader, websocket, bridge))
+
+    client_token = _register_ws_client("vnc", f"{host_id}:{display}", client_id, websocket)
+    try:
+        await asyncio.wait({pump_ws, pump_stream}, return_when=asyncio.FIRST_COMPLETED)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.error("vnc WS pump error (%s): %s", host_id, e, exc_info=True)
+    finally:
+        # 9. 정리 — 푸셔/펌프 취소, 채널/연결 종료
+        ticket_pusher.cancel()
+        pump_ws.cancel()
+        pump_stream.cancel()
+        await asyncio.gather(ticket_pusher, pump_ws, pump_stream, return_exceptions=True)
+        if writer is not None:
+            try:
+                writer.close()
+            except Exception:
+                pass
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            try:
+                await conn.wait_closed()
+            except Exception:
+                pass
+        _unregister_ws_client("vnc", f"{host_id}:{display}", client_token)

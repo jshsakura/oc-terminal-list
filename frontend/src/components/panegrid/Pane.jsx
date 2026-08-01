@@ -19,6 +19,7 @@ import { derivePaneLabel, isEmptyPane } from '../../utils/paneLabel';
 import { buildSshAddr, formatSessionTarget } from '../../utils/sessionTarget';
 
 const Terminal = lazy(() => import('../Terminal'));
+const VncPane = lazy(() => import('../vnc/VncPane'));
 const { color, font, fontSize, fontWeight, space } = tokens;
 
 const Pane = ({
@@ -65,6 +66,8 @@ const Pane = ({
   const [terminalReady, setTerminalReady] = useState(false);
   // Declare isEmpty early — used in useEffect dependency arrays below (TDZ guard)
   const isEmpty = !pane.sessionId && !pane.hostId;
+  // VNC pane — mode:'vnc' 로 활성화된 원격 데스크톱. TerminalHeader 없이 전체 영역 사용.
+  const isVnc = pane.mode === 'vnc';
   // 전체 주소(`탭.pane`) — 다른 탭에서 이 pane 을 부를 때 쓴다. 같은 탭 안에서는
   // pane 번호만으로 충분하다(itl 이 호출자의 탭을 기준점으로 삼는다).
   const tabNumber = (() => {
@@ -505,7 +508,10 @@ const Pane = ({
         );
       })()}
       {/* TerminalHeader — top rail (30px) + optional side panel overlay.
-          Absolute overlay covers full pane; rail sits at top with pointer-events. */}
+          Absolute overlay covers full pane; rail sits at top with pointer-events.
+          VNC pane 에서는 렌더하지 않는다 — 터미널 전용 크롬(파일·폴더·재시작)이 VNC 에
+          의미 없고, 30px rail 없이 캔버스가 전체 영역을 채운다. */}
+      {!isVnc && (
       <div
         style={{
           position: 'absolute',
@@ -582,12 +588,13 @@ const Pane = ({
           isMobile={isMobile}
         />
       </div>
+      )}
 
-      {/* 본문 영역 — top rail 30px 만큼 상단 마진. */}
+      {/* 본문 영역 — top rail 30px 만큼 상단 마진. VNC pane 은 rail 이 없으므로 0. */}
       <div style={{
         flex: 1,
         position: 'relative',
-        marginTop: '30px',
+        marginTop: isVnc ? 0 : '30px',
         overflow: 'hidden',
         minHeight: 0,
         minWidth: 0,
@@ -612,6 +619,19 @@ const Pane = ({
               onEditLocal={onEditLocal}
               refreshHosts={refreshHosts}
             />
+          ) : isVnc ? (
+            <Suspense fallback={null}>
+              <VncPane
+                key={`vnc-${pane.id}-${pane.hostId}-${pane.display}`}
+                hostId={pane.hostId}
+                display={pane.display}
+                isActive={isActive}
+                isFocused={isFocused}
+                settings={settings}
+                t={t}
+                onReadyChange={setTerminalReady}
+              />
+            </Suspense>
           ) : (
             <>
             {/* 브로드캐스트 대상 pane 만 앰버 테두리. 제외된 pane 은 테두리 없이 배지만. */}

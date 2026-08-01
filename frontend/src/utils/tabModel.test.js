@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deriveTabPrimaryIdentity, deriveTabSecondaryIdentities, paneIdentityKey } from './tabModel';
+import { deriveTabPrimaryIdentity, deriveTabSecondaryIdentities, migrateTab, paneIdentityKey } from './tabModel';
 
 const HOSTS = [
   { id: 'h-argon', name: 'ArgonEON', icon: null, color_index: 36 },
@@ -111,5 +111,49 @@ describe('deriveTabPrimaryIdentity', () => {
   it('returns null for an empty pane', () => {
     const tab = { panes: [{ id: 'p1' }], activePaneId: 'p1' };
     expect(deriveTabPrimaryIdentity(tab, HOSTS)).toBeNull();
+  });
+});
+
+describe('migrateTab — VNC pane restoration', () => {
+  it('preserves mode/hostId/display through the restore path', () => {
+    // 서버 tab-state 에서 받은 VNC pane 이 migrateTab 을 거쳐도 필드가 살아있어야
+    // 새로고침 후 VncPane 이 다시 렌더된다 (Phase 7 회귀 방지).
+    const tab = {
+      id: 'host:h1:1',
+      type: 'host',
+      hostId: 'h1',
+      name: 'server · remote desktop',
+      panes: [
+        { id: 'p1', mode: 'vnc', hostId: 'h1', display: 2 },
+      ],
+      layout: 'single',
+      splitTree: { type: 'leaf', id: 'p1' },
+      activePaneId: 'p1',
+    };
+    const migrated = migrateTab({ ...tab });
+    expect(migrated.panes[0].mode).toBe('vnc');
+    expect(migrated.panes[0].hostId).toBe('h1');
+    expect(migrated.panes[0].display).toBe(2);
+  });
+
+  it('preserves VNC pane alongside a terminal pane in a split tab', () => {
+    const tab = {
+      id: 'local:s1',
+      type: 'local',
+      sessionId: 's1',
+      panes: [
+        { id: 'p0', mode: 'terminal', sessionId: 's1' },
+        { id: 'p1', mode: 'vnc', hostId: 'h1', display: 1 },
+      ],
+      splitTree: { type: 'split', direction: 'horizontal', children: [
+        { type: 'leaf', id: 'p0' },
+        { type: 'leaf', id: 'p1' },
+      ] },
+      activePaneId: 'p1',
+    };
+    const migrated = migrateTab({ ...tab });
+    expect(migrated.panes[1].mode).toBe('vnc');
+    expect(migrated.panes[1].hostId).toBe('h1');
+    expect(migrated.panes[1].display).toBe(1);
   });
 });
