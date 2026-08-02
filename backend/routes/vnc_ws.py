@@ -1,8 +1,13 @@
 """noVNC WebSocket — 브라우저 ↔ 원격 Xvnc RFB 바이너리 터널.
 
-인증·소유권·티켓 갱신 규칙은 routes/host_ws.py 와 동일하다. 다른 점은 목적지가
+인증·소유권 규칙은 routes/host_ws.py 와 동일하다. 다른 점은 목적지가
 인터랙티브 셸이 아니라 ``127.0.0.1:5900+display`` 의 RFB(Remote Frame Buffer)
 바이너리 스트림이라는 것이다.
+
+⚠️ VNC WS 로는 **어떤 제어 메시지도 보내지 않는다.** 스트림은 순수 RFB 바이너리여야
+한다. 터미널 WS 의 티켓 푸셼(``_push_ws_tickets``) 을 재사용하면 텍스트 JSON 프레임이
+RFB 바이트 사이에 끼어들어 noVNC 핸드셰이크가 깨진다. 재연결은 same-origin 쿠키
+인증(ws_auth) 으로 충분하다 — 티켓을 밀어넣을 이유가 없다.
 
 전송 계층은 호스트 종류에 따라 둘로 갈라진다:
   - key/password → asyncssh direct-tcpip 채널 (SSH 터널)
@@ -29,35 +34,12 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from _deps import is_safe_id
 from host_manager import open_connection, resolve_host_secrets
 from sqlite_storage import storage
-from tickets import _push_ws_tickets
 from ws_auth import authenticate_ws
 from ws_clients import _register_ws_client, _unregister_ws_client
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-class _VncBridge:
-    """noVNC WS 를 RFB 바이너리 펌프로 감싸는 얇은 셸.
-
-    ``_push_ws_tickets`` 가 ``bridge.send_control(json_str)`` 을 호출하므로 이 메서드만
-    제공하면 된다. 텍스트 제어 프레임(ws_ticket 푸시)과 바이너리 RFB 프레임이 같은 WS
-    위에서 동시에 send 되면 인터리브가 깨져 RFB 핸드셰이크가 망가진다 — 그래서
-    ``_send_lock`` 으로 직렬화한다 (HostBridge.send_control / _stdout_pump 와 동일 패턴).
-    """
-
-    def __init__(self, websocket: WebSocket):
-        self.websocket = websocket
-        # 제어 프레임(텍스트)과 RFB 출력 프레임(바이너리)이 섞이지 않게 직렬화.
-        self.send_lock = asyncio.Lock()
-
-    async def send_control(self, text: str) -> None:
-        try:
-            async with self.send_lock:
-                await self.websocket.send_text(text)
-        except Exception as e:
-            logger.debug("control send failed (vnc): %s", e)
 
 
 async def _ws_to_stream(websocket: WebSocket, writer) -> None:
@@ -79,8 +61,8 @@ async def _ws_to_stream(websocket: WebSocket, writer) -> None:
         logger.debug("ws→stream pump ended (vnc): %s", type(e).__name__)
 
 
-async def _stream_to_ws(reader, websocket: WebSocket, bridge: _VncBridge) -> None:
-    """RFB 스트림 → 브라우저: reader.read → send_bytes (바이너리, lock + 5s 타임아웃).
+async def _stream_to_ws(reader, websocket: WebSocket) -> None:
+    """RFB 스트림 → 브라우저: reader.read → send_bytes (바이너리, 5s 타임아웃).
 
     send 가 5초 안에 안 끝나면 클라가 죽은 것으로 보고 종료 — 느린/죽은 TCP 가 send
     buffer 를 무한 누적시키지 않도록 (HostBridge._stdout_pump 와 동일).
@@ -93,14 +75,12 @@ async def _stream_to_ws(reader, websocket: WebSocket, bridge: _VncBridge) -> Non
             if websocket.client_state.name != "CONNECTED":
                 break
             try:
-                # 제어 텍스트 프레임과 인터리브 되지 않게 lock 으로 직렬화.
-                async with bridge.send_lock:
-                    await asyncio.wait_for(websocket.send_bytes(data), timeout=5.0)
+                await asyncio.wait_for(websocket.send_bytes(data), timeout=5.0)
             except TimeoutError:
-                logger.info("ws send timeout (vnc bridge) — closing")
+                logger.info("ws send timeout (vnc) — closing")
                 break
             except Exception as e:
-                logger.info("ws send failed (vnc bridge): %s", e)
+                logger.info("ws send failed (vnc): %s", e)
                 break
     except Exception as e:
         logger.debug("stream→ws pump ended (vnc): %s", type(e).__name__)
@@ -282,16 +262,13 @@ async def vnc_websocket(
             await _terminate_proc(proc)
         return
 
-    # 7. 티켓 푸셔 — bridge.send_control(json) 으로 다음 재연결 티켓을 주기적으로 밀어줌.
-    bridge = _VncBridge(websocket)
-    ticket_pusher = asyncio.create_task(_push_ws_tickets(bridge, username, ws_path))
-
-    # 8. 양방향 바이너리 펌프 (+ tailscale stderr 드레인)
+    # 7. 양방향 바이너리 펌프 (+ tailscale stderr 드레인)
+    #    ⚠️ 티켓 푸셔를 쓰지 않는다 — VNC 스트림은 순수 RFB 바이너리여야 한다.
     stderr_drain = None
     if proc is not None:
         stderr_drain = asyncio.create_task(_drain_stderr(proc))
     pump_ws = asyncio.create_task(_ws_to_stream(websocket, writer))
-    pump_stream = asyncio.create_task(_stream_to_ws(reader, websocket, bridge))
+    pump_stream = asyncio.create_task(_stream_to_ws(reader, websocket))
 
     client_token = _register_ws_client("vnc", f"{host_id}:{display}", client_id, websocket)
     try:
@@ -301,17 +278,14 @@ async def vnc_websocket(
     except Exception as e:
         logger.error("vnc WS pump error (%s): %s", host_id, e, exc_info=True)
     finally:
-        # 9. 정리 — 푸셔/펌프/stderr 드레인 취소, 채널/연결/서브프로세스 종료
-        ticket_pusher.cancel()
+        # 8. 정리 — 펌프/stderr 드레인 취소, 채널/연결/서브프로세스 종료
         pump_ws.cancel()
         pump_stream.cancel()
         if stderr_drain is not None:
             stderr_drain.cancel()
-            await asyncio.gather(
-                ticket_pusher, pump_ws, pump_stream, stderr_drain, return_exceptions=True
-            )
+            await asyncio.gather(pump_ws, pump_stream, stderr_drain, return_exceptions=True)
         else:
-            await asyncio.gather(ticket_pusher, pump_ws, pump_stream, return_exceptions=True)
+            await asyncio.gather(pump_ws, pump_stream, return_exceptions=True)
         if writer is not None:
             try:
                 writer.close()

@@ -14,7 +14,6 @@ from routes.vnc_ws import (
     _spawn_tailscale_vnc_pipe,
     _stream_to_ws,
     _terminate_proc,
-    _VncBridge,
     _ws_to_stream,
 )
 
@@ -105,8 +104,7 @@ async def test_stream_to_ws_pumps_bytes_to_ws():
     """reader.read 로 읽은 바이트가 send_bytes 로 전달되는지 (바이너리 프레임)."""
     reader = _FakeReader([b"framebuffer-update", b"\x00\x01"])
     ws = _FakeWS()
-    bridge = _VncBridge(ws)
-    await _stream_to_ws(reader, ws, bridge)
+    await _stream_to_ws(reader, ws)
     assert b"".join(ws.sent) == b"framebuffer-update\x00\x01"
 
 
@@ -115,8 +113,7 @@ async def test_stream_to_ws_stops_on_eof():
     """reader 가 빈 바이트(EOF)를 반환하면 펌프가 종료되는지."""
     reader = _FakeReader([b"data", b""])  # 두 번째 read → b"" (EOF)
     ws = _FakeWS()
-    bridge = _VncBridge(ws)
-    await _stream_to_ws(reader, ws, bridge)
+    await _stream_to_ws(reader, ws)
     assert ws.sent == [b"data"]
 
 
@@ -126,31 +123,24 @@ async def test_stream_to_ws_stops_when_ws_not_connected():
     reader = _FakeReader([b"should-not-send"])
     ws = _FakeWS()
     ws.client_state.name = "DISCONNECTED"
-    bridge = _VncBridge(ws)
-    await _stream_to_ws(reader, ws, bridge)
+    await _stream_to_ws(reader, ws)
     assert ws.sent == []  # 전송되지 않음
 
 
-# ── _VncBridge.send_control 직렬화 ─────────────────────────────────────────
-
-
 @pytest.mark.asyncio
-async def test_bridge_send_control_sends_text():
-    """send_control 이 텍스트 프레임으로 JSON 제어 메시지를 보내는지."""
-    ws = _FakeWS()
-    bridge = _VncBridge(ws)
-    await bridge.send_control('{"type":"ws_ticket","ticket":"abc"}')
-    assert ws.text_sent == ['{"type":"ws_ticket","ticket":"abc"}']
+async def test_stream_to_ws_first_frame_is_rfb_handshake():
+    """첫 프레임이 RFB 인사(RFB 003. 로 시작)이고, 텍스트 프레임이 단 하나도 없어야 한다.
 
-
-@pytest.mark.asyncio
-async def test_bridge_send_control_swallows_send_failure():
-    """send_text 실패해도 예외가 밖으로 새어나가지 않는지 (펌프 중단 방지)."""
+    티켓 푸셔(JSON send_text) 가 제거되었으므로, noVNC 가 받는 첫 바이트는
+    Xvnc 의 RFB 핸드셰이크 여야 한다 — 그렇지 않으면 noVNC 가 프로토콜을
+    파싱하지 못하고 화면이 검게 남는다.
+    """
+    rfb_greeting = b"RFB 003.008\n"
+    reader = _FakeReader([rfb_greeting, b""])
     ws = _FakeWS()
-    ws.send_text = AsyncMock(side_effect=RuntimeError("ws closed"))
-    bridge = _VncBridge(ws)
-    await bridge.send_control("ignored")  # 예외 없음
-    ws.send_text.assert_awaited_once()
+    await _stream_to_ws(reader, ws)
+    assert ws.sent == [rfb_greeting]
+    assert ws.text_sent == []  # 텍스트 프레임은 단 하나도 없어야 함
 
 
 # ── tailscale 서브프로세스 파이프 ─────────────────────────────────────────────
