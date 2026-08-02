@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import TabBar from './TabBar';
+import { tokens } from '../styles/tokens';
 
 describe('TabBar', () => {
   it('renders with no tabs and shows brand + home + settings only', () => {
@@ -167,6 +168,64 @@ describe('TabBar', () => {
       <TabBar tabs={tabs} activeTabId="host:1" onSelect={vi.fn()} onClose={vi.fn()} onAdd={vi.fn()} onHome={vi.fn()} />
     );
     expect(screen.getByText('🚀')).toBeInTheDocument();
+  });
+
+  // ── VNC 탭 시각적 구분 (Monitor 글리프가 탭 색을 띤다) ────────────────────
+
+  it('renders VNC tab with colored Monitor glyph and no stripe', () => {
+    // VNC 탭의 활성 pane mode 가 'vnc' 이면 Monitor 아이콘이 탭 색(dotColor)을 직접 띤다.
+    // 터미널 탭은 중립 text 색 — 이 색 차이가 "화면인지 셸인지"를 아이콘으로 읽힌다.
+    // 스트라이프(inset box-shadow)는 더 이상 쓰지 않는다.
+    const neutralText = tokens.color.text;
+
+    const vncTab = {
+      id: 'vnc:h1:1', type: 'host', hostId: 'h1', name: 'myhost · :2', color_index: 0,
+      panes: [{ id: 'p1', mode: 'vnc', hostId: 'h1', display: 2 }],
+      activePaneId: 'p1',
+    };
+    const termTab = {
+      id: 'host:h1:2', type: 'host', hostId: 'h1', name: 'myhost', color_index: 0,
+      panes: [{ id: 'p2', mode: 'terminal', hostId: 'h1', sessionId: 's1' }],
+      activePaneId: 'p2',
+    };
+    render(
+      <TabBar tabs={[vncTab, termTab]} activeTabId="vnc:h1:1"
+        onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()} />
+    );
+
+    // VNC 칩은 스트라이프가 없다 (제거됨).
+    const vncChip = screen.getByText('myhost · :2').parentElement;
+    const vncShadow = vncChip.style.boxShadow;
+    expect(vncShadow).not.toContain('inset 3px');
+
+    // VNC Monitor 아이콘을 감싼 타일 span 의 color 가 중립 text 가 아님 (dotColor 가 실림).
+    // jsdom 은 hex 를 rgb() 로 변환하므로 직접 비교 대신 "중립이 아님"으로 검증.
+    const vncSvg = vncChip.querySelector('svg');
+    expect(vncSvg).toBeTruthy();
+    const vncTileColor = vncSvg.parentElement.style.color;
+    expect(vncTileColor).toBeTruthy();
+    expect(vncTileColor).not.toBe(neutralText);
+    // dotColor(#89b4fa) → jsdom 은 rgb(137, 180, 250) 로 변환. hex 접두사만 추출해 비교.
+    expect(vncTileColor).toMatch(/137.*180.*250/i);
+  });
+
+  it('inactive VNC tab uses muted glyph color (no raw dotColor)', () => {
+    // 비활성 VNC 탭은 원색 글리프를 쓰지 않는다 — 기존 글리프 규칙(muted tint)을 따른다.
+    const vncTab = {
+      id: 'vnc:h1:1', type: 'host', hostId: 'h1', name: 'myhost · :2', color_index: 0,
+      panes: [{ id: 'p1', mode: 'vnc', hostId: 'h1', display: 2 }],
+      activePaneId: 'p1',
+    };
+    render(
+      <TabBar tabs={[vncTab]} activeTabId="other-tab"
+        onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()} />
+    );
+
+    const vncChip = screen.getByText('myhost · :2').parentElement;
+    const vncSvg = vncChip.querySelector('svg');
+    const vncTileColor = vncSvg.parentElement.style.color;
+    // 비활성이면 color-mix 형태여야 하고, 순수 dotColor(단일 hex)가 아니어야 한다.
+    expect(vncTileColor).toContain('color-mix');
   });
 
   describe('right action group', () => {

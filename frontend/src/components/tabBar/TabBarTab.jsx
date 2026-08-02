@@ -31,7 +31,13 @@ export const Tab = memo(({
   // 호스트 탭이라도 활성 pane 이 로컬이면 Monitor. (App.tabsWithMeta 파생, 없으면 탭 타입 폴백)
   const primaryKind = tab.primaryKind
     || ((tab.type === 'host' || tab.hostId) ? 'host' : (tab.type === 'local' ? 'local' : null));
-  const Icon = primaryKind === 'host' ? Server : (primaryKind === 'local' ? Monitor : TerminalIcon);
+  // VNC(원격 데스크탑) 탭 — 활성 pane 의 mode 가 'vnc' 이면 화면(모니터) 글리프를 쓴다.
+  // 터미널(Server)과 달리 "이것은 셸이 아니라 화면이다"를 아이콘으로 읽힌다.
+  const _activePane = tab.panes?.find((p) => p.id === tab.activePaneId) || tab.panes?.[0];
+  const isVnc = _activePane?.mode === 'vnc';
+  const Icon = isVnc
+    ? Monitor
+    : (primaryKind === 'host' ? Server : (primaryKind === 'local' ? Monitor : TerminalIcon));
   const paletteColor = (idx) =>
     color.dotPalette?.[(idx ?? 0) % (color.dotPalette?.length || 8)] || color.accent;
   const dotColor = tab.color_index != null ? paletteColor(tab.color_index) : color.accent;
@@ -157,7 +163,9 @@ export const Tab = memo(({
           // 굵기는 고정 — 활성 표시는 면과 글자색이 한다. 굵기가 바뀌면 탭을 옮길 때마다
           // 라벨 폭이 미세하게 흔들린다.
           fontWeight: fontWeight.medium,
-          boxShadow: isDragOver ? `inset 0 0 0 2px ${color.accent}` : 'none',
+          boxShadow: isDragOver
+            ? `inset 0 0 0 2px ${color.accent}`
+            : 'none',
         }}
         onMouseEnter={(e) => {
           if (isMobile) return;
@@ -218,7 +226,11 @@ export const Tab = memo(({
               background: tileBackground(dotColor),
               border: tileBorder(dotColor),
               borderRadius: '4px',
-              color: glyphColor(dotColor),
+              // VNC(원격 데스크탑) 탭은 활성일 때 Monitor 글리프가 탭 색(dotColor)을 직접 띤다 —
+              // 터미널(Server, 중립 text 색)과의 색+형태 이중 차이. 비활성일 때는 기존 글리프
+              // 규칙(muted tint)을 그대로 따른다 — 원색 글리프가 비활성 탭에서 튀는 건 이 저장소가
+              // 되돌린 실패다.
+              color: (isVnc && isActive) ? dotColor : glyphColor(dotColor),
               /* 스택일 때 뒤 타일과 분리되는 ring. 단일 타일이면 없음(기존 모양 유지). */
               boxShadow: secondaries.length ? `0 0 0 1.5px ${tabBase}` : 'none',
               zIndex: stackedCount + 1,
