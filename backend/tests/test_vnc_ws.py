@@ -10,6 +10,7 @@ from fastapi import WebSocketDisconnect
 
 from routes.vnc_ws import (
     _drain_stderr,
+    _select_subprotocol,
     _spawn_tailscale_vnc_pipe,
     _stream_to_ws,
     _terminate_proc,
@@ -274,3 +275,30 @@ async def test_drain_stderr_handles_none_stderr():
     proc = _FakeProc()
     proc.stderr = None
     await _drain_stderr(proc)  # 예외 없음
+
+
+# ── _select_subprotocol: RFC 6455 서브프로토콜 협상 ────────────────────────
+
+
+def test_select_subprotocol_returns_binary_when_offered():
+    """클라이언트가 'binary' 를 제시하면 'binary' 를 선택한다."""
+    assert _select_subprotocol({"subprotocols": ["binary"]}) == "binary"
+    assert _select_subprotocol({"subprotocols": ["binary", "base64"]}) == "binary"
+
+
+def test_select_subprotocol_returns_none_when_binary_absent():
+    """클라이언트가 'binary' 를 제시하지 않으면 None (인자 없이 accept)."""
+    assert _select_subprotocol({"subprotocols": ["base64"]}) is None
+    assert _select_subprotocol({"subprotocols": []}) is None
+
+
+def test_select_subprotocol_does_not_pick_unoffered_protocol():
+    """클라이언트가 제시하지 않은 서브프로토콜을 임의로 고르지 않는다."""
+    # 'binary' 가 없으면 'base64' 만 있어도 None 이 나와야 한다.
+    assert _select_subprotocol({"subprotocols": ["base64", "chat"]}) is None
+
+
+def test_select_subprotocol_handles_missing_scope_key():
+    """scope 에 subprotocols 키 자체가 없어도 None."""
+    assert _select_subprotocol({}) is None
+    assert _select_subprotocol({"subprotocols": None}) is None

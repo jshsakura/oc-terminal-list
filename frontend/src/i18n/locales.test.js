@@ -62,4 +62,22 @@ describe('locales', () => {
       expect(missing, `${lang} is missing translation keys`).toEqual([]);
     }
   });
+
+  // 동적 키(t?.(`vncStatus_${status}`)) 는 정적 스캐너가 잡지 못한다 — 명시 검증.
+  it('defines all vncStatus_* keys (used via template literal, not caught by scanner)', () => {
+    const required = [
+      'vncStatus_connecting',
+      'vncStatus_connected',
+      'vncStatus_credentials',
+      'vncStatus_disconnected',
+      'vncStatus_error',
+    ];
+    for (const [lang, dict] of Object.entries(locales)) {
+      for (const key of required) {
+        expect(key in dict, `${lang} missing ${key}`).toBe(true);
+        // 값이 키 자체가 아니라 사람이 읽을 수 있는 문자열이어야 한다.
+        expect(dict[key], `${lang}.${key} should not be the raw key`).not.toBe(key);
+      }
+    }
+  });
 });

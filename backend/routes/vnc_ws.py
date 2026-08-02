@@ -178,6 +178,18 @@ async def _terminate_proc(proc: asyncio.subprocess.Process) -> None:
             pass
 
 
+def _select_subprotocol(scope: dict) -> str | None:
+    """클라이언트가 제시한 서브프로토콜 목록에서 'binary' 를 선택한다.
+
+    RFC 6455: 클라이언트가 Sec-WebSocket-Protocol 로 제시한 값 중 하나를 서버가
+    응답에 포함하지 않으면 브라우저가 연결을 실패 처리한다. noVNC(RFB) 는
+    ``wsProtocols:['binary']`` 로 열므로 'binary' 가 있으면 반드시 선택해야 한다.
+    클라이언트가 제시하지 않은 값을 임의로 고르면 안 된다 — 그것도 실패한다.
+    """
+    subprotocols = scope.get("subprotocols") or []
+    return "binary" if "binary" in subprotocols else None
+
+
 @router.websocket("/ws/vnc/{host_id}")
 async def vnc_websocket(
     websocket: WebSocket,
@@ -211,8 +223,9 @@ async def vnc_websocket(
 
     vnc_port = 5900 + display
 
-    # 5. WS 수락
-    await websocket.accept()
+    # 5. WS 수락 — noVNC 가 'binary' 서브프로토콜을 요청하면 반드시 선택해야 한다.
+    chosen = _select_subprotocol(websocket.scope)
+    await websocket.accept(subprotocol=chosen)
 
     # 6. 전송 계층 오픈 — key/password (asyncssh direct-tcpip) vs tailscale (직접 TCP)
     conn = None  # asyncssh.SSHClientConnection | None (tailscale 은 None)

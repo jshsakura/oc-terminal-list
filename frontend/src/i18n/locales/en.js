@@ -876,4 +876,9 @@ export const en = {
     vncQualitySharp: 'Sharp',
     vncQualityBalanced: 'Balanced',
     vncQualityLight: 'Light',
+    vncStatus_connecting: 'Connecting…',
+    vncStatus_connected: 'Connected',
+    vncStatus_credentials: 'Password required',
+    vncStatus_disconnected: 'Disconnected',
+    vncStatus_error: 'Connection error',
 };
