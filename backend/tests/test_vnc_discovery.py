@@ -448,17 +448,73 @@ def test_discover_uninstalled_host():
 
 
 def test_build_displays_merges_three_sources():
+    """X11 소켓만으로는 디스플레이로 인정하지 않는다 — 포트 또는 프로세스가 있어야 함."""
     displays = build_displays(
         x11_nums=[1],
         ports={5902: "127.0.0.1"},
         procs=[{"pid": 9, "user": "u", "server": "Xvnc", "display": 3, "geometry": "800x600"}],
     )
     nums = [d["display"] for d in displays]
-    assert nums == [1, 2, 3]
+    assert nums == [2, 3]  # :1(X11 단독) 제외, :2(포트), :3(프로세스)
     by_disp = {d["display"]: d for d in displays}
-    assert by_disp[1]["server"] == ""        # X11 소켓만 있고 프로세스 정보 없음
     assert by_disp[2]["bind"] == "127.0.0.1"  # 포트로만 발견
     assert by_disp[3]["server"] == "Xvnc"     # 프로세스로 발견
+
+
+# ── X11 소켓 단독은 디스플레이에서 제외 (VNC 서버가 실제로 듣고 있는가) ──────────
+
+
+def test_build_displays_excludes_x11_only_socket():
+    """X11 소켓만 있고 5900번대 리스닝도 Xvnc 프로세스도 없음 → 목록에서 제외."""
+    displays = build_displays(
+        x11_nums=[0, 1],
+        ports={},
+        procs=[],
+    )
+    assert displays == []
+
+
+def test_build_displays_includes_port_only_no_socket():
+    """리스닝만 있고 소켓이 없음 → 포함."""
+    displays = build_displays(
+        x11_nums=[],
+        ports={5901: "127.0.0.1"},
+        procs=[],
+    )
+    assert len(displays) == 1
+    assert displays[0]["display"] == 1
+    assert displays[0]["port"] == 5901
+    assert displays[0]["bind"] == "127.0.0.1"
+
+
+def test_build_displays_includes_proc_only_no_port():
+    """Xvnc 프로세스만 잡히고 리스닝을 못 읽음(ss/netstat 없는 환경) → 포함."""
+    displays = build_displays(
+        x11_nums=[],
+        ports={},
+        procs=[{"pid": 42, "user": "pi", "server": "Xtigervnc", "display": 2, "geometry": "1920x1080"}],
+    )
+    assert len(displays) == 1
+    assert displays[0]["display"] == 2
+    assert displays[0]["server"] == "Xtigervnc"
+    assert displays[0]["geometry"] == "1920x1080"
+
+
+def test_build_displays_all_three_sources_present():
+    """셋 다 있는 정상 케이스 → 포함, 기존 필드 유지."""
+    displays = build_displays(
+        x11_nums=[1],
+        ports={5901: "127.0.0.1"},
+        procs=[{"pid": 42, "user": "pi", "server": "Xtigervnc", "display": 1, "geometry": "1920x1080"}],
+    )
+    assert len(displays) == 1
+    d = displays[0]
+    assert d["display"] == 1
+    assert d["port"] == 5901
+    assert d["bind"] == "127.0.0.1"
+    assert d["server"] == "Xtigervnc"
+    assert d["user"] == "pi"
+    assert d["geometry"] == "1920x1080"
 
 
 # ---------------------- gather_discovery (runner 주입) ----------------------

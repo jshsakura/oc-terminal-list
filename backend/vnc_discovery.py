@@ -288,12 +288,17 @@ def build_displays(
 ) -> list[dict]:
     """세 소스를 합쳐 디스플레이 목록을 만든다.
 
-    디스플레이 번호는 (a) X11 소켓, (b) VNC 프로세스의 ``:N`` 인자,
-    (c) 5900번대 리스닝 포트 어느 하나에라도 나타나면 보고한다.
+    디스플레이로 인정하는 근거는 **VNC 서버가 실제로 듣고 있는가** 이다:
+      (a) 5900번대 리스닝 포트, 또는
+      (b) ``Xvnc``/``Xtigervnc`` 프로세스의 ``:N`` 인자.
+
+    X11 소켓(``/tmp/.X11-unix/X0``)은 데스크탑이 도는 기계라면 항상 존재하므로 단독
+    근거로 쓰지 않는다 — VNC 와 무관한 ``:0`` 이 목록에 올라 5900 연결 거부로 끝난다.
+    소켓 정보는 보조 근거로만 쓴다(현재는 부가 정보 없이 포트/프로세스 기반만 목록에 넣음).
     포트는 ``5900 + display``. 프로세스 메타(server/user/geometry)는 display 가
     일치하는 프로세스에서 보강한다.
     """
-    display_set: set[int] = set(x11_nums)
+    display_set: set[int] = set()
     for p in procs:
         if p["display"] is not None:
             display_set.add(p["display"])
