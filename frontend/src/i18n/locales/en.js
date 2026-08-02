@@ -881,4 +881,6 @@ export const en = {
     vncStatus_credentials: 'Password required',
     vncStatus_disconnected: 'Disconnected',
     vncStatus_error: 'Connection error',
+    vncPhaseConnecting: 'Connecting to host…',
+    vncPhaseNegotiating: 'Negotiating display…',
 };

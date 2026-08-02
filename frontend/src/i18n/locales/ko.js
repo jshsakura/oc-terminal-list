@@ -881,4 +881,6 @@ export const ko = {
     vncStatus_credentials: '비밀번호 필요',
     vncStatus_disconnected: '연결 끊김',
     vncStatus_error: '연결 오류',
+    vncPhaseConnecting: '호스트에 연결 중…',
+    vncPhaseNegotiating: '디스플레이 협상 중…',
 };

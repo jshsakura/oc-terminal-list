@@ -193,6 +193,69 @@ describe('VncPane', () => {
     });
     expect(updateSettings).toHaveBeenCalledWith({ vncQuality: 'light' });
   });
+
+  // ── 로딩 진행 표현 ──
+
+  it('connecting 상태에서 진행 단계 표현이 렌더된다', async () => {
+    render(<VncPane {...baseProps()} />);
+    // 첫 연결 시도 중 — ticket 또는 negotiating 단계 텍스트가 보여야 함.
+    await waitFor(() => {
+      const phase = screen.queryByText('vncPhaseConnecting') || screen.queryByText('vncPhaseNegotiating');
+      expect(phase).toBeTruthy();
+    });
+  });
+
+  it('연결 완료 후 진행 표현이 사라진다', async () => {
+    render(<VncPane {...baseProps()} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    // 연결 전에는 진행 표현이 있음
+    await waitFor(() => {
+      const phase = screen.queryByText('vncPhaseConnecting') || screen.queryByText('vncPhaseNegotiating');
+      expect(phase).toBeTruthy();
+    });
+    // onConnected 발화 → connected
+    act(() => { lastClientOpts.onConnected(); });
+    // 진행 표현이 사라져야 함
+    await waitFor(() => {
+      expect(screen.queryByText('vncPhaseConnecting')).toBeNull();
+      expect(screen.queryByText('vncPhaseNegotiating')).toBeNull();
+    });
+  });
+
+  it('실패 시 오류 표시가 유지되고 진행 표현은 사라진다', async () => {
+    render(<VncPane {...baseProps()} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    // credentials 프롬프트 없이 securityfailure → 에러
+    act(() => { lastClientOpts.onSecurityFailure({ reason: 'auth failed' }); });
+    // 진행 표현은 없어야 함
+    expect(screen.queryByText('vncPhaseConnecting')).toBeNull();
+    expect(screen.queryByText('vncPhaseNegotiating')).toBeNull();
+    // 에러 메시지는 보여야 함
+    expect(screen.getByText('auth failed')).toBeTruthy();
+  });
+
+  it('재부착(isActive 토글) 시에도 진행 표현이 매번 보인다 — 조용히 생략하지 않는다', async () => {
+    const { rerender } = render(<VncPane {...baseProps()} />);
+    // 첫 연결
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    act(() => { lastClientOpts.onConnected(); });
+    // connected → 진행 표현 숨김
+    await waitFor(() => {
+      expect(screen.queryByText('vncPhaseConnecting')).toBeNull();
+      expect(screen.queryByText('vncPhaseNegotiating')).toBeNull();
+    });
+    // 백그라운드 전환 — 일시정지 메시지가 뜰 때까지 대기
+    rerender(<VncPane {...baseProps({ isActive: false })} />);
+    await waitFor(() => expect(screen.getByText('vncPaused')).toBeTruthy());
+    // 복귀 — 재부착 시작
+    rerender(<VncPane {...baseProps({ isActive: true })} />);
+    // 재부착 연결 시작 → 진행 표현이 다시 보여야 함
+    await waitFor(() => {
+      const phase = screen.queryByText('vncPhaseConnecting')
+        || screen.queryByText('vncPhaseNegotiating');
+      expect(phase).toBeTruthy();
+    });
+  });
 });
 
 // act 를 인라인으로 쓰기 위한 헬퍼 import (react testing-library act).

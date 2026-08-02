@@ -283,3 +283,121 @@ describe('extractPaneToTabOp', () => {
     expect(extractPaneToTabOp([], { tabId: 'x', paneId: 'y', hosts: [], now: 1 })).toBe(null);
   });
 });
+
+// ============================================================================
+// VNC pane 이동 시 필드 통째로 보존 (회귀 방지)
+// 화이트리스트 복사가 아니라 원본을 통째로 옮기는지 검사한다.
+// 특정 필드(mode/display)만 확인하면 다음 속성이 생겼을 때 또 놓친다 —
+// 임의 필드(customMarker)가 살아있는지까지 확인한다.
+// ============================================================================
+
+const noSession = () => null;
+
+// 원본 pane 의 모든 필드가 id/tmuxSessionName 외에 그대로 따라왔는지 검사.
+const expectHolisticPreservation = (moved, source) => {
+  for (const key of Object.keys(source)) {
+    if (key === 'id') continue;              // 슬롯 고유 id — 대상 것을 쓴다
+    if (key === 'tmuxSessionName') continue; // 새 탭 문맥에 맞게 재계산된다
+    expect(moved[key]).toEqual(source[key]);
+  }
+  // 역방향: 이동한 pane 에 원본에 없는 필드가 슬롯에서 새어 들어오지 않았는지
+  for (const key of Object.keys(moved)) {
+    if (key === 'id') continue;
+    if (key === 'tmuxSessionName') continue;
+    expect(source[key]).toEqual(moved[key]);
+  }
+};
+
+const vncPane = (id, extra = {}) => ({
+  id,
+  mode: 'vnc',
+  hostId: 'h1',
+  display: 3,
+  customMarker: 'preserve-me',
+  ...extra,
+});
+
+describe('VNC pane 이동 — 필드 통째로 보존', () => {
+  it('activatePaneOp 탭 흡수: VNC pane 의 mode/display/임의필드가 유지된다', () => {
+    const src = tab('src', [vncPane('sp')]);
+    const dst = tab('dst', [pane('dp')]);
+    const out = activatePaneOp([src, dst], {
+      tabId: 'dst', paneId: 'dp', target: { type: 'tab', sourceTabId: 'src' },
+      hosts: [], settings: {}, computePaneTmuxSession: noSession,
+    });
+    const moved = out[0].panes[0];
+    expect(moved.id).toBe('dp');           // 대상 슬롯 id 유지
+    expectHolisticPreservation(moved, vncPane('sp'));
+  });
+
+  it('dropTabToSplitPaneOp center 빈 슬롯: VNC pane 필드 통째로 보존', () => {
+    const src = tab('src', [vncPane('sp')]);
+    const dst = tab('dst', [pane('dp')]);
+    const out = dropTabToSplitPaneOp([src, dst], {
+      sourceTabId: 'src', targetTabId: 'dst', targetPaneId: 'dp', dir: 'center',
+      hosts: [], computePaneTmuxSession: noSession,
+    });
+    const moved = out[0].panes[0];
+    expect(moved.id).toBe('dp');
+    expectHolisticPreservation(moved, vncPane('sp'));
+  });
+
+  it('dropTabToSplitPaneOp 방향 드롭: VNC pane 필드 통째로 보존', () => {
+    const src = tab('src', [vncPane('sp')]);
+    const dst = tab('dst', [filled('dp', 'D')]);
+    const out = dropTabToSplitPaneOp([src, dst], {
+      sourceTabId: 'src', targetTabId: 'dst', targetPaneId: 'dp', dir: 'right',
+      hosts: [], computePaneTmuxSession: noSession,
+    });
+    const dstOut = out.find((t) => t.id === 'dst');
+    const moved = dstOut.panes.find((p) => p.customMarker === 'preserve-me');
+    expect(moved).toBeTruthy();
+    expectHolisticPreservation(moved, vncPane('sp'));
+  });
+
+  it('dropTabToSplitPaneOp center 교환: 양쪽 pane 모두 필드 통째로 보존', () => {
+    const vnc = vncPane('sp');
+    const term = pane('dp', { sessionId: 'D', customTerm: 'term-marker' });
+    const src = tab('src', [vnc]);
+    const dst = tab('dst', [term]);
+    const out = dropTabToSplitPaneOp([src, dst], {
+      sourceTabId: 'src', targetTabId: 'dst', targetPaneId: 'dp', dir: 'center',
+      hosts: [], computePaneTmuxSession: noSession,
+    });
+    const dstOut = out.find((t) => t.id === 'dst');
+    const srcOut = out.find((t) => t.id === 'src');
+    // VNC pane → dst (id 는 dst 슬롯 것)
+    const movedVnc = dstOut.panes[0];
+    expect(movedVnc.id).toBe('dp');
+    expectHolisticPreservation(movedVnc, vnc);
+    // Terminal pane → src (id 는 src 슬롯 것)
+    const movedTerm = srcOut.panes[0];
+    expect(movedTerm.id).toBe('sp');
+    expectHolisticPreservation(movedTerm, term);
+  });
+
+  it('extractPaneToTabOp: VNC pane 의 mode/display/임의필드가 새 탭으로 그대로 간다', () => {
+    const vnc = vncPane('a');
+    const r = extractPaneToTabOp(
+      [tab('t1', [vnc, filled('b', 's2')])],
+      { tabId: 't1', paneId: 'a', hosts: [{ id: 'h1', name: 'box' }], now: 111 },
+    );
+    const created = r.tabs.find((t) => t.id === r.newTabId);
+    const moved = created.panes[0];
+    expect(moved.id).not.toBe('a');   // 새 id 발급
+    expectHolisticPreservation(moved, vnc);
+  });
+
+  it('터미널 pane 이동 회귀 — hostId/sessionId 도 통째로 보존', () => {
+    const hostPane = pane('sp', { sessionId: 'S', hostId: 'h1', customHost: 'host-marker' });
+    const src = tab('src', [hostPane]);
+    const dst = tab('dst', [pane('dp')]);
+    const out = activatePaneOp([src, dst], {
+      tabId: 'dst', paneId: 'dp', target: { type: 'tab', sourceTabId: 'src' },
+      hosts: [], settings: {}, computePaneTmuxSession: noSession,
+    });
+    const moved = out[0].panes[0];
+    expect(moved.id).toBe('dp');
+    expectHolisticPreservation(moved, hostPane);
+  });
+});

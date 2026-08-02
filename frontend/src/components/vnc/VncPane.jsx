@@ -7,6 +7,7 @@
  * 사용자는 상태 배지로 연결 상태를 보고 필요시 새로고침할 수 있다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Monitor } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { issueWsTicket } from '../terminal/terminalHelpers';
 import createVncClient from './createVncClient';
@@ -62,6 +63,11 @@ const VncPane = ({
   const clientRef = useRef(null);
   const [status, setStatus] = useState('connecting');
   const [errorMsg, setErrorMsg] = useState('');
+  // 연결 진행 단계 — 'ticket'(티켓 발급 중) → 'negotiating'(WS+RFB 협상 중).
+  // 첫 연결 시 로딩 오버레이에서 어디서 오래 걸리는지 단서를 준다.
+  const [connectPhase, setConnectPhase] = useState('ticket');
+  // 첫 프레임 페이드인 — connected 전환 시 CSS opacity transition 으로 화면이 갑자기 튀어나오지 않게.
+  const [frameVisible, setFrameVisible] = useState(false);
   // Task 3 — VNC 비밀번호 입력. credentialsrequired 이벤트 시 입력 폼을 띄운다.
   // 비밀번호는 React state(메모리) 에만 존재 — localStorage / 탭 상태 / 서버 에 영속화하지 않는다.
   // pane 이 언마운트되면 state 도 사라진다.
@@ -114,6 +120,11 @@ const VncPane = ({
 
     // 새 연결 시도 — credentials 추적 초기화.
     credentialsShownRef.current = false;
+    // 진행 상태를 매번 'connecting' 으로 리셋 — 재부착 시에도 로딩 표현이 보이려면 필수.
+    setStatus('connecting');
+    setErrorMsg('');
+    // 진행 단계 초기화 — 티켓 발급부터 시작.
+    setConnectPhase('ticket');
 
     let cancelled = false;
     let destroyClient = null;
@@ -149,6 +160,8 @@ const VncPane = ({
       try {
         // 화질 프리셋 — settings.vncQuality → qualityLevel/compressionLevel.
         const qPreset = VNC_QUALITY_PRESETS[settings?.vncQuality] || VNC_QUALITY_PRESETS.balanced;
+        // 티켓 발급 완료 → RFB 인스턴스 생성(WS 오픈 + RFB 협상) 단계로 전환.
+        setConnectPhase('negotiating');
         const client = await createVncClient({
           container: containerRef.current,
           url,
@@ -157,6 +170,8 @@ const VncPane = ({
           onConnected: () => {
             if (!cancelled) {
               setStatus('connected');
+              // 첫 프레임 페이드인 — 다음 틱에서 opacity 0→1 전환 (RFB 가 이미 canvas 를 그렸음).
+              requestAnimationFrame(() => { if (!cancelled) setFrameVisible(true); });
               // 연결 성공 — 비밀번호를 메모리에서 즉시 제거.
               setPasswordValue('');
               setPasswordError('');
@@ -234,6 +249,8 @@ const VncPane = ({
 
     return () => {
       cancelled = true;
+      // 다음 연결 시도를 위해 프레임 페이드인 상태 리셋.
+      setFrameVisible(false);
       // destroyClient(=client.destroy) 를 우선 호출 — createVncClient 가 반환한 정리 함수.
       // 아직 client 가 만들어지지 않았다면(clientRef.current 없음) 정리할 것도 없다.
       ro?.disconnect();
@@ -329,8 +346,63 @@ const VncPane = ({
       background: color.base,
       overflow: 'hidden',
     }}>
-      {/* RFB 캔버스가 붙는 컨테이너 — scaleViewport=true 가 이 영역에 맞춰 스케일. */}
-      <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+      {/* RFB 캔버스가 붙는 컨테이너 — scaleViewport=true 가 이 영역에 맞춰 스케일.
+          첫 프레임 도착 시 opacity transition 으로 부드럽게 나타난다 (갑작스런 팝 방지). */}
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          opacity: frameVisible ? 1 : 0,
+          transition: 'opacity 250ms ease-out',
+        }}
+      />
+
+      {/* 연결 진행 오버레이 — 매 연결(첫 연결·재부착 포함) 마다 표시.
+          회색 빈 화면 대신 단계 표시 + 펄스 바 로 "무슨 일이 일어나는지" 보여준다.
+          매번 보이므로 과하지 않게 — 아이콘 + 한 줄 텍스트 + 얇은 바. */}
+      {status === 'connecting' && (
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 5,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '14px',
+          background: color.base,
+          pointerEvents: 'none',
+        }}>
+          <Monitor size={32} strokeWidth={1.5} style={{ color: color.subtext }} />
+          <div style={{
+            fontFamily: font.sans,
+            fontSize: fontSize['13'],
+            color: color.subtext,
+            fontWeight: fontWeight.medium,
+          }}>
+            {connectPhase === 'negotiating'
+              ? (t?.('vncPhaseNegotiating') || 'Negotiating display…')
+              : (t?.('vncPhaseConnecting') || 'Connecting to host…')}
+          </div>
+          {/* 펄스 바 — 기존 skeleton 패턴(term-skeleton-pulse)과 같은 CSS 애니메이션. */}
+          <div style={{
+            width: '120px',
+            height: '3px',
+            borderRadius: '2px',
+            background: color.surface1,
+            overflow: 'hidden',
+            position: 'relative',
+          }}>
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: color.accent,
+              animation: 'iterm-vnc-progress 1.4s ease-in-out infinite',
+            }} />
+          </div>
+        </div>
+      )}
 
       {/* 연결 상태 배지 — 터미널 connection badge 스타일 미러. 연결 중/끊김/에러일 때만 표시. */}
       {status !== 'connected' && (
@@ -502,6 +574,10 @@ const VncPane = ({
         @keyframes iterm-vnc-pulse {
           0%, 100% { opacity: 0.5; transform: scale(0.85); }
           50% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes iterm-vnc-progress {
+          0% { transform: translateX(-100%); }
+          100% { transform: translateX(100%); }
         }
       `}</style>
     </div>
