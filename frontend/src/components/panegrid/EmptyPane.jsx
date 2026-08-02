@@ -10,7 +10,7 @@ import { computeVncGeometry } from '../../utils/vncResize';
 import HomeDashboard, { HostRow } from '../HomeDashboard';
 import HostIcon from '../../utils/hostIcons';
 
-const { color, font, fontSize, fontWeight } = tokens;
+const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
 // 호스트 카드 subtitle 한 줄 truncate + block — 멀티라인 안에서 각 라인 ellipsis 적용용.
 const SUB_LINE = {
@@ -174,6 +174,15 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
     refresh();
   }, [refresh]);
 
+  // Esc → 닫기 (RemoteFolderPicker 와 동일한 동선).
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose?.();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
   // ── 새 가상 데스크탑 만들기 ──────────────────────────────────────────────
   // overrideGeom: 주 액션(0-displays "create and connect")이 기본 해상도로 강제 호출할 때 사용.
   const handleCreate = async (overrideGeom) => {
@@ -262,46 +271,51 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
       style={{
         position: 'fixed',
         inset: 0,
-        zIndex: 100,
+        zIndex: 10001,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'rgba(0,0,0,0.4)',
-        backdropFilter: 'blur(4px)',
-        WebkitBackdropFilter: 'blur(4px)',
+        background: color.scrim,
+        backdropFilter: 'blur(2px)',
+        WebkitBackdropFilter: 'blur(2px)',
       }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: `color-mix(in srgb, ${color.surface0} 92%, transparent)`,
-          border: `1px solid ${color.border}`,
-          borderRadius: '12px',
-          boxShadow: '0 12px 40px rgba(0,0,0,0.5)',
-          padding: '20px',
-          minWidth: '300px',
-          maxWidth: '420px',
-          maxHeight: '80vh',
-          overflow: 'auto',
-          boxSizing: 'border-box',
+          width: '92%',
+          maxWidth: '460px',
+          maxHeight: '78vh',
+          background: color.base,
+          border: `1px solid ${color.borderStrong}`,
+          borderRadius: radius.lg,
+          boxShadow: '0 16px 48px rgba(0,0,0,0.5)',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
           fontFamily: font.sans,
         }}
       >
-        {/* 헤더 — 호스트명 + 닫기 */}
-        <div style={{
+        {/* 헤더 — 제목 + 호스트명 + 닫기 (RemoteFolderPicker 패턴) */}
+        <header style={{
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          marginBottom: '14px',
+          padding: `12px ${space['4']}`,
+          borderBottom: `1px solid ${color.border}`,
+          flexShrink: 0,
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Monitor size={15} strokeWidth={1.8} style={{ color: color.accent }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+            <Monitor size={15} strokeWidth={1.8} style={{ color: color.accent, flexShrink: 0 }} />
             <span style={{
               fontSize: fontSize['13'],
               fontWeight: fontWeight.semibold,
               color: color.text,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
             }}>
-              {t?.('remoteDesktop') || 'Remote desktop'} · {host?.name || host?.id}
+              {t?.('remoteDesktop') || 'Remote desktop'} <span style={{ color: color.muted }}>— {host?.name || host?.id}</span>
             </span>
           </div>
           <button
@@ -309,24 +323,33 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
             onClick={onClose}
             title={t?.('close') || 'Close'}
             style={{
-              width: '26px',
-              height: '26px',
+              width: '24px',
+              height: '24px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               background: 'transparent',
               border: 'none',
-              borderRadius: '6px',
+              borderRadius: '4px',
               cursor: 'pointer',
               color: color.subtext,
               padding: 0,
+              flexShrink: 0,
             }}
             onMouseEnter={(e) => { e.currentTarget.style.color = color.text; e.currentTarget.style.background = color.surface1; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = color.subtext; e.currentTarget.style.background = 'transparent'; }}
           >
             <X size={15} strokeWidth={1.8} />
           </button>
-        </div>
+        </header>
+
+        {/* 본문 — 스크롤 가능 영역 */}
+        <div style={{
+          flex: 1,
+          overflow: 'auto',
+          padding: `12px ${space['4']}`,
+          minHeight: '160px',
+        }}>
 
         {/* GPU 가속 능력 배지 — 호스트 수준. 설치/가용일 때만 표시. */}
         {!state.loading && !state.error && state.data?.installed !== false && state.data?.available !== false && (() => {
@@ -673,6 +696,7 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
             )}
           </>
         )}
+        </div>
       </div>
     </div>
   );

@@ -170,10 +170,10 @@ describe('TabBar', () => {
     expect(screen.getByText('🚀')).toBeInTheDocument();
   });
 
-  // ── VNC 탭 시각적 구분 (Monitor 글리프가 탭 색을 띤다) ────────────────────
+  // ── VNC 탭 시각적 구분 (ScreenShare 글리프가 탭 색을 띤다) ──────────────────
 
-  it('renders VNC tab with colored Monitor glyph and no stripe', () => {
-    // VNC 탭의 활성 pane mode 가 'vnc' 이면 Monitor 아이콘이 탭 색(dotColor)을 직접 띤다.
+  it('renders VNC tab with colored ScreenShare glyph and no stripe', () => {
+    // VNC 탭의 활성 pane mode 가 'vnc' 이면 ScreenShare 아이콘이 탭 색(dotColor)을 직접 띤다.
     // 터미널 탭은 중립 text 색 — 이 색 차이가 "화면인지 셸인지"를 아이콘으로 읽힌다.
     // 스트라이프(inset box-shadow)는 더 이상 쓰지 않는다.
     const neutralText = tokens.color.text;
@@ -198,7 +198,7 @@ describe('TabBar', () => {
     const vncShadow = vncChip.style.boxShadow;
     expect(vncShadow).not.toContain('inset 3px');
 
-    // VNC Monitor 아이콘을 감싼 타일 span 의 color 가 중립 text 가 아님 (dotColor 가 실림).
+    // VNC ScreenShare 아이콘을 감싼 타일 span 의 color 가 중립 text 가 아님 (dotColor 가 실림).
     // jsdom 은 hex 를 rgb() 로 변환하므로 직접 비교 대신 "중립이 아님"으로 검증.
     const vncSvg = vncChip.querySelector('svg');
     expect(vncSvg).toBeTruthy();
@@ -226,6 +226,28 @@ describe('TabBar', () => {
     const vncTileColor = vncSvg.parentElement.style.color;
     // 비활성이면 color-mix 형태여야 하고, 순수 dotColor(단일 hex)가 아니어야 한다.
     expect(vncTileColor).toContain('color-mix');
+  });
+
+  it('VNC tab ignores host custom icon, always renders ScreenShare', () => {
+    // 호스트에 커스텀 아이콘(emoji 등)이 있어도 VNC 탭은 항상 ScreenShare 글리프를 쓴다.
+    // "이것은 셸이 아니라 화면이다"를 형태로 읽히기 위해 HostIcon 경로를 바이패스한다.
+    const vncTab = {
+      id: 'vnc:h1:1', type: 'host', hostId: 'h1', name: 'myhost · :2', color_index: 0,
+      icon: '🚀',
+      panes: [{ id: 'p1', mode: 'vnc', hostId: 'h1', display: 2 }],
+      activePaneId: 'p1',
+    };
+    render(
+      <TabBar tabs={[vncTab]} activeTabId="vnc:h1:1"
+        onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()} />
+    );
+
+    const vncChip = screen.getByText('myhost · :2').parentElement;
+    // ScreenShare SVG 가 렌더되어야 한다.
+    const vncSvg = vncChip.querySelector('svg');
+    expect(vncSvg).toBeTruthy();
+    // 커스텀 emoji 아이콘은 렌더되지 않아야 한다 (HostIcon 바이패스).
+    expect(vncChip.textContent).not.toContain('🚀');
   });
 
   describe('right action group', () => {

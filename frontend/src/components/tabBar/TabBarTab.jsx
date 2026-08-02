@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Terminal as TerminalIcon, Server, Monitor, Check, X, MoreHorizontal } from 'lucide-react';
+import { Terminal as TerminalIcon, Server, Monitor, ScreenShare, Check, X, MoreHorizontal } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import HostIcon from '../../utils/hostIcons';
 import { styles } from './tabBarStyles';
@@ -31,12 +31,13 @@ export const Tab = memo(({
   // 호스트 탭이라도 활성 pane 이 로컬이면 Monitor. (App.tabsWithMeta 파생, 없으면 탭 타입 폴백)
   const primaryKind = tab.primaryKind
     || ((tab.type === 'host' || tab.hostId) ? 'host' : (tab.type === 'local' ? 'local' : null));
-  // VNC(원격 데스크탑) 탭 — 활성 pane 의 mode 가 'vnc' 이면 화면(모니터) 글리프를 쓴다.
-  // 터미널(Server)과 달리 "이것은 셸이 아니라 화면이다"를 아이콘으로 읽힌다.
+  // VNC(원격 데스크탑) 탭 — 활성 pane 의 mode 가 'vnc' 이면 ScreenShare 글리프를 쓴다.
+  // 호스트 커스텀 아이콘(tab.icon)을 무시하고 항상 ScreenShare — "이것은 셸이 아니라 화면이다"를
+  // 아이콘으로 읽힌다. 색은 dotColor 경로를 타서 호스트별 색을 따라간다.
   const _activePane = tab.panes?.find((p) => p.id === tab.activePaneId) || tab.panes?.[0];
   const isVnc = _activePane?.mode === 'vnc';
   const Icon = isVnc
-    ? Monitor
+    ? ScreenShare
     : (primaryKind === 'host' ? Server : (primaryKind === 'local' ? Monitor : TerminalIcon));
   const paletteColor = (idx) =>
     color.dotPalette?.[(idx ?? 0) % (color.dotPalette?.length || 8)] || color.accent;
@@ -226,7 +227,7 @@ export const Tab = memo(({
               background: tileBackground(dotColor),
               border: tileBorder(dotColor),
               borderRadius: '4px',
-              // VNC(원격 데스크탑) 탭은 활성일 때 Monitor 글리프가 탭 색(dotColor)을 직접 띤다 —
+              // VNC(원격 데스크탑) 탭은 활성일 때 ScreenShare 글리프가 탭 색(dotColor)을 직접 띤다 —
               // 터미널(Server, 중립 text 색)과의 색+형태 이중 차이. 비활성일 때는 기존 글리프
               // 규칙(muted tint)을 그대로 따른다 — 원색 글리프가 비활성 탭에서 튀는 건 이 저장소가
               // 되돌린 실패다.
@@ -236,7 +237,9 @@ export const Tab = memo(({
               zIndex: stackedCount + 1,
             }}
           >
-            <HostIcon value={tab.icon || ''} fallback={Icon} size={iconSize} strokeWidth={1.9} />
+            {isVnc
+              ? <ScreenShare size={iconSize} strokeWidth={1.9} />
+              : <HostIcon value={tab.icon || ''} fallback={Icon} size={iconSize} strokeWidth={1.9} />}
             {showStatusMark && (
               /* 개수 + 상태 통합 마크 (우상단).
                  - permission: 빨강 '!' — 멈춰서 네 결정을 기다림. 깜빡이는 것들 사이에서

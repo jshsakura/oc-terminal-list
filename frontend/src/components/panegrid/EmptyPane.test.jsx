@@ -7,17 +7,20 @@ vi.mock('../../utils/auth', () => ({
   authHeaders: () => ({ Authorization: 'Bearer test' }),
 }));
 
-// tokens mock — VncDisplayPicker 가 color/fontSize/fontWeight/font 를 사용
+// tokens mock — VncDisplayPicker 가 color/fontSize/fontWeight/font/radius/space 를 사용
 vi.mock('../../styles/tokens', () => ({
   tokens: {
     color: {
-      surface0: '#1a1b26', surface1: '#24283b', border: '#3b4261',
-      text: '#c0caf5', subtext: '#565f89', accent: '#7aa2f7',
+      surface0: '#1a1b26', surface1: '#24283b', surface2: '#2f334d', base: '#16161e',
+      border: '#3b4261', borderStrong: '#414868', text: '#c0caf5', subtext: '#565f89',
+      muted: '#7f87b3', accent: '#7aa2f7', scrim: 'rgba(0,0,0,0.55)',
       success: '#9ece6a', warning: '#e0af68', danger: '#f7768e',
     },
-    font: { sans: 'sans-serif' },
+    font: { sans: 'sans-serif', mono: 'monospace' },
     fontSize: { '10': '10px', '11': '11px', '12': '12px', '13': '13px' },
     fontWeight: { medium: 500, semibold: 600 },
+    radius: { sm: '5px', md: '7px', lg: '10px' },
+    space: { '1.5': '6px', '2': '8px', '3': '12px', '4': '16px' },
   },
 }));
 
@@ -542,5 +545,26 @@ describe('VncDisplayPicker', () => {
     });
 
     expect(screen.queryByText(/vncCreateAndConnect/)).toBeNull();
+  });
+
+  // ── RemoteFolderPicker 패턴 셸 (header/body, Esc 닫기) ──────────────────────
+
+  it('calls onClose when Escape is pressed', () => {
+    mockFetchResponse({ available: true, installed: true, displays: [] });
+    const onClose = vi.fn();
+    render(<VncDisplayPicker host={HOST} t={(k) => k} onPick={vi.fn()} onClose={onClose} />);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders header with title and host name in RemoteFolderPicker pattern', async () => {
+    mockFetchResponse({ available: true, installed: true, displays: [] });
+    render(<VncDisplayPicker host={HOST} t={(k) => k} onPick={vi.fn()} onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      // 헤더가 "remoteDesktop — test-host" 형태 (RemoteFolderPicker 패턴).
+      expect(screen.getByText(/remoteDesktop/)).toBeTruthy();
+      expect(screen.getByText(/test-host/)).toBeTruthy();
+    });
   });
 });
