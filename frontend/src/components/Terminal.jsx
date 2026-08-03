@@ -1942,11 +1942,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           x={contextMenu.x}
           y={contextMenu.y}
           hasSelection={contextMenu.hasSelection}
+          linkUrl={contextMenu.linkUrl}
           themeUi={themeUi}
           t={t}
           onCopy={() => {
             const sel = xtermRef.current?.getSelection();
             if (sel) copyTextToClipboard(sel);
+            setContextMenu(null);
+          }}
+          onCopyLink={() => {
+            if (contextMenu.linkUrl) copyTextToClipboard(contextMenu.linkUrl);
             setContextMenu(null);
           }}
           onCopyAll={() => {
@@ -1968,6 +1973,26 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setContextMenu(null);
           }}
           onUploadFile={() => { fileUploadRef.current?.click(); setContextMenu(null); }}
+          onScreenDump={() => {
+            const term = xtermRef.current;
+            if (term) {
+              // viewport + 200줄 스크롤백 — URL을 긁으려면 방금 지나간 줄까지 필요.
+              // 상한 800줄로 모달이 수만 줄이 되지 않게 한다.
+              const buf = term.buffer.active;
+              const scrollback = 200;
+              const maxLines = 800;
+              const start = Math.max(0, buf.viewportY - scrollback);
+              const end = Math.min(buf.length, start + maxLines);
+              const lines = [];
+              for (let i = start; i < end; i++) {
+                const line = buf.getLine(i);
+                if (line) lines.push(line.translateToString(true));
+              }
+              while (lines.length && lines[lines.length - 1] === '') lines.pop();
+              window.dispatchEvent(new CustomEvent('itl:screen-dump', { detail: { text: lines.join('\n') } }));
+            }
+            setContextMenu(null);
+          }}
           onClose={() => setContextMenu(null)}
         />
       )}

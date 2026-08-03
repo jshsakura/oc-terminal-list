@@ -641,6 +641,13 @@ function App() {
   const [commandText, setCommandText] = useState(loadDraft);
   useEffect(() => { saveDraft(commandText); }, [commandText]);
   const [screenDumpText, setScreenDumpText] = useState(null);
+  // 터미널 컨텍스트 메뉴 "텍스트로 보기" → ScreenDumpModal. prop 드릴링(App→PaneGrid→Pane→Terminal)
+  // 대신 CustomEvent 로 터미널이 직접 화면 텍스트를 보내고 여기서 수신한다.
+  useEffect(() => {
+    const handler = (e) => setScreenDumpText(e.detail?.text || '— empty —');
+    window.addEventListener('itl:screen-dump', handler);
+    return () => window.removeEventListener('itl:screen-dump', handler);
+  }, []);
 
   // 활성 viewport 기준 effective settings — fontSize 를 PC/모바일 분리. 자식들
   // (PaneGrid, Terminal) 은 settings.fontSize 만 보면 자동으로 알맞은 값 적용.

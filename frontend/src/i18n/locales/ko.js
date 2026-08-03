@@ -302,6 +302,7 @@ export const ko = {
     remote: '원격',
     untitled: '이름 없음',
     copyAll: '전체 복사',
+    copyLink: '링크 복사',
     copyScreen: '화면 텍스트 복사',
     screenDump: '터미널 텍스트',
     screenDumpHint: '원하는 부분 자유롭게 선택해 복사하세요. ESC 로 닫기.',

@@ -246,7 +246,7 @@ describe('attachTerminalInteractions', () => {
       overlay.dispatchEvent(touchEvent('touchstart', 120, 220));
       await new Promise((r) => setTimeout(r, 560)); // LONG_PRESS_MS = 500
 
-      expect(setContextMenu).toHaveBeenCalledWith({ x: 120, y: 220, hasSelection: false });
+      expect(setContextMenu).toHaveBeenCalledWith({ x: 120, y: 220, hasSelection: false, linkUrl: null });
     });
 
     it('스크롤 중이면 롱프레스가 뜨지 않는다', async () => {
@@ -268,7 +268,7 @@ describe('attachTerminalInteractions', () => {
       mount();
       rightDown();
 
-      expect(setContextMenu).toHaveBeenCalledWith({ x: 30, y: 40, hasSelection: false });
+      expect(setContextMenu).toHaveBeenCalledWith({ x: 30, y: 40, hasSelection: false, linkUrl: null });
     });
 
     it('뒤따르는 contextmenu 는 중복으로 열지 않는다', () => {

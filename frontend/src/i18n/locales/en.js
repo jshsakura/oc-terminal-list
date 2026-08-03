@@ -305,6 +305,7 @@ export const en = {
     remote: 'remote',
     untitled: 'Untitled',
     copyAll: 'Copy all',
+    copyLink: 'Copy link',
     copyScreen: 'Copy screen text',
     screenDump: 'Terminal text',
     screenDumpHint: 'Free select & copy any portion. ESC to close.',

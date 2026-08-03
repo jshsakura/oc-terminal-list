@@ -7,7 +7,7 @@
  * Terminal.jsx 에서 로직 변경 없이 추출.
  */
 import { useState, useEffect, useRef } from 'react';
-import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RefreshCw, KeyRound, Upload } from 'lucide-react';
+import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RefreshCw, KeyRound, Upload, Link as LinkIcon, FileText } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { glassDividerStyle, glassMenuItemHover, glassMenuStyle } from '../../styles/glass';
 import { styles } from './terminalStyles';
@@ -173,7 +173,7 @@ export const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) =>
   );
 };
 
-export const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, onCopyAll, onPaste, onRefresh, onScrollToBottom, onUploadFile, onClose }) => {
+export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onCopyLink, onCopyAll, onPaste, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
   const [measured, setMeasured] = useState(false);
@@ -221,6 +221,9 @@ export const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, on
   if (hasSelection) {
     items.push({ icon: Copy, label: t('copy') || 'Copy', action: onCopy });
   }
+  if (linkUrl && onCopyLink) {
+    items.push({ icon: LinkIcon, label: t('copyLink') || 'Copy link', action: onCopyLink });
+  }
   items.push({ icon: Scissors, label: t('copyAll') || 'Copy all', action: onCopyAll });
   items.push({ icon: ClipboardPaste, label: t('paste') || 'Paste', action: onPaste });
   if (onUploadFile) {
@@ -230,6 +233,9 @@ export const TerminalContextMenu = ({ x, y, hasSelection, themeUi, t, onCopy, on
     items.push({ icon: RefreshCw, label: t('refresh') || 'Refresh', action: onRefresh });
   }
   items.push({ icon: ArrowDownToLine, label: t('scrollToBottom') || 'Scroll to bottom', action: onScrollToBottom });
+  if (onScreenDump) {
+    items.push({ icon: FileText, label: t('viewAsText') || 'View as text', action: onScreenDump });
+  }
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
   const selectHint = isMac ? 'Option+drag to select' : 'Shift+drag to select';

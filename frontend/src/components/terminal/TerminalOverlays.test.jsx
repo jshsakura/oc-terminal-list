@@ -244,4 +244,45 @@ describe('TerminalContextMenu', () => {
     expect(menu.style.top).toBe('92px');   // 300 - 200 - 8
     vi.restoreAllMocks();
   });
+
+  // 링크 복사 — linkUrl + onCopyLink 이 있을 때만
+  it('linkUrl 이 있으면 "링크 복사" 항목을 보여준다', () => {
+    render(<TerminalContextMenu {...baseProps()} linkUrl="https://example.com" onCopyLink={vi.fn()} />);
+    expect(screen.getByText('copyLink')).toBeTruthy();
+  });
+
+  it('linkUrl 이 없으면 "링크 복사" 항목을 감춘다', () => {
+    render(<TerminalContextMenu {...baseProps()} onCopyLink={vi.fn()} />);
+    expect(screen.queryByText('copyLink')).toBeNull();
+  });
+
+  it('onCopyLink 이 없으면 linkUrl 이 있어도 감춘다', () => {
+    render(<TerminalContextMenu {...baseProps()} linkUrl="https://example.com" />);
+    expect(screen.queryByText('copyLink')).toBeNull();
+  });
+
+  it('"링크 복사" 항목을 누르면 onCopyLink 가 실행된다', () => {
+    const onCopyLink = vi.fn();
+    render(<TerminalContextMenu {...baseProps()} linkUrl="https://example.com" onCopyLink={onCopyLink} />);
+    fireEvent.click(screen.getByText('copyLink'));
+    expect(onCopyLink).toHaveBeenCalled();
+  });
+
+  // 텍스트로 보기 — onScreenDump 가 있을 때만
+  it('onScreenDump 가 있으면 "텍스트로 보기" 항목을 보여준다', () => {
+    render(<TerminalContextMenu {...baseProps()} onScreenDump={vi.fn()} />);
+    expect(screen.getByText('viewAsText')).toBeTruthy();
+  });
+
+  it('onScreenDump 가 없으면 "텍스트로 보기" 항목을 감춘다', () => {
+    render(<TerminalContextMenu {...baseProps()} />);
+    expect(screen.queryByText('viewAsText')).toBeNull();
+  });
+
+  it('"텍스트로 보기" 항목을 누르면 onScreenDump 가 실행된다', () => {
+    const onScreenDump = vi.fn();
+    render(<TerminalContextMenu {...baseProps()} onScreenDump={onScreenDump} />);
+    fireEvent.click(screen.getByText('viewAsText'));
+    expect(onScreenDump).toHaveBeenCalled();
+  });
 });

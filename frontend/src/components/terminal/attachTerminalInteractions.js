@@ -6,6 +6,7 @@ import {
   shouldClearSelectionOnScroll,
 } from '../../utils/terminalMouseSelection';
 import { copyTextToClipboard, uploadImageAndGetPath } from './terminalHelpers';
+import { getLinkAtClient } from '../../utils/terminalLinkAt';
 
 /**
  * 터미널의 포인터/키보드 배선 — 휠·터치 스크롤 라우팅, 자연스러운 마우스 선택,
@@ -187,7 +188,7 @@ const attachTerminalInteractions = ({
     e.stopPropagation();
     e.stopImmediatePropagation?.();
     lastRightClickMenuAt = Date.now();
-    setContextMenu({ x: e.clientX, y: e.clientY, hasSelection: !!term.hasSelection() });
+    setContextMenu({ x: e.clientX, y: e.clientY, hasSelection: !!term.hasSelection(), linkUrl: getLinkAtClient(term, e.clientX, e.clientY) });
   };
   const handleRightMouseDown = (e) => {
     if (e.button !== 2) return;
@@ -288,7 +289,7 @@ const attachTerminalInteractions = ({
     longPressTimer = setTimeout(() => {
       if (isTouchScrolling) return;
       longPressFired = true;
-      setContextMenu({ x: touchStartX, y: touchStartY, hasSelection: !!term.hasSelection() });
+      setContextMenu({ x: touchStartX, y: touchStartY, hasSelection: !!term.hasSelection(), linkUrl: getLinkAtClient(term, touchStartX, touchStartY) });
     }, LONG_PRESS_MS);
   };
 
