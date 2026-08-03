@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageSquare, ClipboardPaste, Copy, FileText } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
-import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys } from '../utils/mobileKeys';
+import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
 import HostIcon from '../utils/hostIcons';
 import { createKeyRepeater } from '../utils/keyRepeat';
 
@@ -80,8 +80,8 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
   const list = sanitizeMobileKeys(keys ?? DEFAULT_MOBILE_KEYS);
   // 빠른입력(⌘)은 스크롤 밖 좌측에 고정한다 — 키를 옆으로 밀다 보면 정작 제일 자주 쓰는
   // 버튼이 화면 밖으로 사라진다. 나머지 키만 가로 스크롤 영역에 남긴다.
-  const pinnedKey = list.find((k) => k.kind === 'cmdInput') || null;
-  const scrollKeys = pinnedKey ? list.filter((k) => k !== pinnedKey) : list;
+  // 고정 영역 바로 뒤가 구분자면 그 구분자도 함께 고정(splitPinnedAndScroll 참조).
+  const { pinnedKey, pinnedDivider, scrollKeys } = splitPinnedAndScroll(list);
 
   const sendWithModifiers = (key) => {
     let finalKey = key;
@@ -248,7 +248,12 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
       `}</style>
 
       <div style={styles.toolbar}>
-        {pinnedKey && <div style={styles.pinned}>{renderItem(pinnedKey, 'pinned')}</div>}
+        {pinnedKey && (
+          <div style={styles.pinned}>
+            {renderItem(pinnedKey, 'pinned')}
+            {pinnedDivider && <Divider />}
+          </div>
+        )}
         <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
           <div style={styles.row}>
             {!terminalReady && terminalSessionId ? (

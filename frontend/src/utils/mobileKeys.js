@@ -23,8 +23,21 @@ export const DEFAULT_MOBILE_KEYS = [
    { id: 'tab',   kind: 'send', label: 'TAB', payload: '\t' },
    // ^C 는 터미널 작업 중단(SIGINT) 의 표준 단축키 — CTRL 토글 + 'c' 입력은 모바일에 별도
    // 알파벳 키가 없어 실제로 못 보내므로 디폴트 툴바에 직접 박아 둔다.
-   { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', tone: 'danger' },
-   { id: 'sep_pg', kind: 'sep' },
+    { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', tone: 'danger' },
+    // 줄 편집 — bash readline 단축키. 모바일에서 커서 옮기기/지우기가 손이 많이 가므로
+    // 기본 툴바에 둔다. payload/tone 은 KEY_PRESETS 의 값을 그대로 쓴다.
+    { id: 'sep_line', kind: 'sep' },
+    { id: 'ctrla', kind: 'send', label: '^A', payload: '\x01', tone: 'muted' },  // 줄 시작
+    { id: 'ctrle', kind: 'send', label: '^E', payload: '\x05', tone: 'muted' },  // 줄 끝
+    { id: 'ctrlu', kind: 'send', label: '^U', payload: '\x15', tone: 'muted' },  // 줄 전체 삭제
+    { id: 'ctrlw', kind: 'send', label: '^W', payload: '\x17', tone: 'muted' },  // 단어 삭제
+    // 세션 / 히스토리
+    { id: 'sep_ses', kind: 'sep' },
+    { id: 'ctrlr', kind: 'send', label: '^R', payload: '\x12', tone: 'muted' },  // 히스토리 검색
+    { id: 'ctrll', kind: 'send', label: '^L', payload: '\x0c', tone: 'muted' },  // clear
+    { id: 'ctrld', kind: 'send', label: '^D', payload: '\x04', tone: 'muted' },  // EOF
+    { id: 'ctrlz', kind: 'send', label: '^Z', payload: '\x1a', tone: 'muted' },  // SIGTSTP
+    { id: 'sep_pg', kind: 'sep' },
    { id: 'pgup',  kind: 'send', label: 'PgUp', payload: '\x1b[5~' },
    { id: 'pgdn',  kind: 'send', label: 'PgDn', payload: '\x1b[6~' },
    { id: 'sep3',  kind: 'sep' },
@@ -139,4 +152,27 @@ export const sanitizeMobileKeys = (keys) => {
   if (!cleaned.length) return DEFAULT_MOBILE_KEYS;
   if (cleaned.some((k) => k.kind === 'cmdInput')) return cleaned;
   return [{ id: 'cmd', kind: 'cmdInput', tone: 'accent' }, ...cleaned];
+};
+
+// 툴바를 고정 영역(pinned)과 스크롤 영역(scroll)으로 나눈다.
+// 빠른입력(cmdInput)은 항상 고정. 그 바로 뒤 항목이 구분자(sep)면 그 구분자도 함께
+// 고정해서 스크롤 경계를 구분자가 지키게 한다 — 키를 옆으로 밀어도 고정 버튼 옆에
+// 엉뚱한 키가 붙지 않는다. pinnedKey 뒤가 sep가 아닌 구성에서는 pinnedDivider=null.
+export const splitPinnedAndScroll = (list) => {
+  const pinnedKey = list.find((k) => k.kind === 'cmdInput') || null;
+  let pinnedDivider = null;
+  let scrollKeys;
+  if (pinnedKey) {
+    const pinnedIdx = list.indexOf(pinnedKey);
+    const next = list[pinnedIdx + 1];
+    if (next && next.kind === 'sep') {
+      pinnedDivider = next;
+      scrollKeys = list.filter((k) => k !== pinnedKey && k !== pinnedDivider);
+    } else {
+      scrollKeys = list.filter((k) => k !== pinnedKey);
+    }
+  } else {
+    scrollKeys = list;
+  }
+  return { pinnedKey, pinnedDivider, scrollKeys };
 };
