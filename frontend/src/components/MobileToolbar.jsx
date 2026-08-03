@@ -35,7 +35,7 @@ const skeletonKeyLabel = (k) => (
 );
 const skeletonKeyBox = (k) => {
   const label = skeletonKeyLabel(k);
-  const iconPx = k.icon ? 17 : 0;   // 아이콘(13) + 라벨과의 gap(4)
+  const iconPx = k.icon ? 18 : 0;   // 아이콘(14) + 라벨과의 gap(4)
   return { width: `${Math.round(10 + iconPx + label.length * SKELETON_CHAR_PX)}px` };
 };
 
@@ -116,8 +116,8 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
   const renderKeyContent = (k) => {
     const FallbackIcon = DEFAULT_ICON_FOR_KIND[k.kind] || null;
     const iconEl = k.icon
-      ? <HostIcon value={k.icon} size={13} strokeWidth={2.2} />
-      : (FallbackIcon ? <FallbackIcon size={13} strokeWidth={2.2} /> : null);
+      ? <HostIcon value={k.icon} size={14} strokeWidth={2.2} />
+      : (FallbackIcon ? <FallbackIcon size={14} strokeWidth={2.2} /> : null);
     let labelText = k.label || '';
     if (!iconEl && !labelText) {
       if (k.kind === 'mod') labelText = (k.modifier || 'ctrl').toUpperCase();
@@ -323,9 +323,9 @@ const styles = {
   toolbar: {
     flexShrink: 0,
     width: '100%',
-    // 34 → 28px. 키(18px)와 함께 줄이되 위아래 5px 씩은 남긴다 — 키가 바 가장자리에
-    // 붙으면 답답하다. 여백을 지키는 선에서 최대한 낮춘 값.
-    height: 'calc(28px + env(safe-area-inset-bottom, 0px))',
+    // 28 → 34px. 키(24px)와 함께 올리되 위아래 5px 씩은 남긴다 — 키가 바 가장자리에
+    // 붙으면 답답하다. 여백(5px)은 종전과 동일, 비율은 더 좋아진다.
+    height: 'calc(34px + env(safe-area-inset-bottom, 0px))',
     paddingBottom: 'env(safe-area-inset-bottom, 2px)',
     display: 'flex',
     alignItems: 'center',
@@ -361,7 +361,7 @@ const styles = {
   },
   key: {
     flexShrink: 0,
-    height: '18px',
+    height: '24px',
     minWidth: '24px',
     padding: '0 5px',
     display: 'inline-flex',
@@ -380,7 +380,7 @@ const styles = {
   },
   divider: {
     width: '1px',
-    height: '12px',
+    height: '14px',
     background: color.border,
     // 자체 마진 없음 — row 의 gap(8px)만 받는다. 마진을 더하면 구분자 주변만 뻥 뚫려
     // 그룹 사이가 아니라 "빈칸"으로 보인다.
