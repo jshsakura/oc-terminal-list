@@ -568,6 +568,25 @@ function App() {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
   const [vncPickerHost, setVncPickerHost] = useState(null);
+  /* 이 배포의 로컬 머신이 VNC 를 쓸 수 있는가 — 한 번만 조회해 캐시한다.
+     컨테이너 배포에서 local 은 컨테이너 자신이고 이미지에 VNC 가 없으므로 false 가 된다.
+     설치돼 있거나 이미 떠 있는 디스플레이가 있으면 true. 실패는 조용히 false —
+     이 조회 때문에 홈이 깨지면 안 된다. */
+  const [localVncAvailable, setLocalVncAvailable] = useState(false);
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/hosts/local/vnc/displays', { headers: authHeaders() });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        setLocalVncAvailable(!!json?.installed || (json?.displays?.length ?? 0) > 0);
+      } catch { /* 조회 실패 = 노출 안 함 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated]);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // SSH keyboard-interactive prompt 가 열려 있는지 — 모바일 단축키바 가림 처리.
   const [authPromptOpen, setAuthPromptOpen] = useState(false);
@@ -964,6 +983,12 @@ function App() {
               }}
               onOpenHost={openHostTab}
               onOpenVnc={(host) => setVncPickerHost(host)}
+              /* 로컬 원격 데스크톱은 "이 배포에 VNC 가 실제로 있을 때" 만 노출한다.
+                 컨테이너 배포에서 local 은 컨테이너 자신이고 이미지에 VNC 가 없다 —
+                 버튼만 있고 눌러야 미설치 안내가 나오면 소음이다. 원격 호스트는
+                 SSH 를 타야 알 수 있어 매번 프로브할 수 없지만(클릭 시 조회),
+                 로컬은 SSH 없이 한 번이면 알 수 있으므로 자동 감지한다. */
+              showLocalVnc={localVncAvailable}
               refreshHosts={refreshHosts}
               onOpenHostAtPath={(h) => setFolderPickerHost(h)}
               onEditLocal={() => setLocalEditorOpen(true)}

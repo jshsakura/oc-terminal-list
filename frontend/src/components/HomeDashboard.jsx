@@ -27,6 +27,7 @@ const HomeDashboard = ({
   onOpenHost,
   onOpenHostAtPath,
   onOpenVnc,
+  showLocalVnc = false,
   onAddHost,
   onEditHost,
   onDeleteHost,
@@ -117,9 +118,11 @@ const HomeDashboard = ({
                 editTitle={t?.('editLocalMachine') || 'Edit this machine'}
                 onPickPath={onPickLocalPath || null}
                 pickPathTitle={t?.('openAtPath') || 'Open at path…'}
-                /* 로컬도 원격 데스크톱을 쓸 수 있다 — 백엔드가 도는 기계라
-                   SSH 터널 없이 루프백에 바로 붙는다(가장 짧은 경로). */
-                onOpenVnc={onOpenVnc ? () => onOpenVnc({ id: 'local', isLocal: true, name: localCard?.name || 'local' }) : null}
+                /* 로컬도 원격 데스크톱을 쓸 수 있다 — 백엔드가 도는 기계라 SSH 터널 없이
+                   루프백에 바로 붙는다(가장 짧은 경로). 단 이 배포에 VNC 가 실제로
+                   있을 때만 노출한다(showLocalVnc) — 컨테이너 배포처럼 없는 환경에서는
+                   버튼 자체가 뜨지 않아야 한다. */
+                onOpenVnc={(onOpenVnc && showLocalVnc) ? () => onOpenVnc({ id: 'local', isLocal: true, name: localCard?.name || 'local' }) : null}
                 openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
               />
             )}
