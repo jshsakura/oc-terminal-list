@@ -117,6 +117,10 @@ const HomeDashboard = ({
                 editTitle={t?.('editLocalMachine') || 'Edit this machine'}
                 onPickPath={onPickLocalPath || null}
                 pickPathTitle={t?.('openAtPath') || 'Open at path…'}
+                /* 로컬도 원격 데스크톱을 쓸 수 있다 — 백엔드가 도는 기계라
+                   SSH 터널 없이 루프백에 바로 붙는다(가장 짧은 경로). */
+                onOpenVnc={onOpenVnc ? () => onOpenVnc({ id: 'local', isLocal: true, name: localCard?.name || 'local' }) : null}
+                openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
               />
             )}
 

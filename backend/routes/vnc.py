@@ -94,8 +94,31 @@ def _make_tailscale_runner(host: dict):
     return run
 
 
+def _make_local_runner():
+    """이 서버 자신에서 실행하는 runner — SSH 를 타지 않는다.
+
+    백엔드가 도는 기계가 곧 대상이므로 원격 호스트에 필요했던 SSH 채널·터널이
+    전부 불필요하다. 디스커버리 명령은 원격과 **완전히 동일한 문자열**을 쓴다 —
+    파싱 로직이 하나뿐이므로 여기서 명령을 바꾸면 두 경로가 갈라진다.
+    """
+
+    async def run(cmd: str) -> str:
+        proc = await asyncio.create_subprocess_exec(
+            "bash", "-lc", cmd,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, _stderr = await asyncio.wait_for(proc.communicate(), timeout=20)
+        return stdout.decode("utf-8", errors="replace")
+
+    return run
+
+
 async def _make_runner_for(host: dict, username: str):
     """호스트 auth_method 에 맞춰 runner 를 만든다."""
+    if host.get("is_local"):
+        return _make_local_runner()
     if host.get("auth_method") == "tailscale":
         return _make_tailscale_runner(host)
     key_record = None
@@ -105,7 +128,18 @@ async def _make_runner_for(host: dict, username: str):
     return _make_pool_runner(host, secrets)
 
 
+# 로컬(이 서버 자신)을 가리키는 예약 host_id. 프론트의 로컬 카드가 쓰는 값과 같다.
+LOCAL_HOST_ID = "local"
+
+
 async def _resolve_host_or_404(host_id: str, username: str) -> dict:
+    """host_id 를 호스트 레코드로. ``local`` 은 DB 에 없는 가상 호스트다.
+
+    백엔드가 도는 기계 자신이므로 SSH 자격증명도 소유권 검사 대상도 아니다 —
+    로그인한 사용자는 이미 이 서버의 셸을 쓸 수 있다(터미널 pane 이 그것이다).
+    """
+    if host_id == LOCAL_HOST_ID:
+        return {"id": LOCAL_HOST_ID, "name": "local", "is_local": True}
     host = await storage.get_host(host_id, username)
     if not host:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")

@@ -33,6 +33,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from _deps import is_safe_id
 from host_manager import open_connection, resolve_host_secrets
+from routes.vnc import LOCAL_HOST_ID
 from sqlite_storage import storage
 from ws_auth import authenticate_ws
 from ws_clients import _register_ws_client, _unregister_ws_client
@@ -190,11 +191,14 @@ async def vnc_websocket(
         await websocket.close(code=1008, reason="인증 필요")
         return
 
-    # 3. 소유권 — 본인 호스트인지
-    host = await storage.get_host(host_id, username)
-    if not host:
-        await websocket.close(code=1008, reason="호스트를 찾을 수 없음")
-        return
+    # 3. 소유권 — 본인 호스트인지. 'local' 은 이 서버 자신이라 DB 에 없다.
+    if host_id == LOCAL_HOST_ID:
+        host = {"id": LOCAL_HOST_ID, "name": "local", "is_local": True}
+    else:
+        host = await storage.get_host(host_id, username)
+        if not host:
+            await websocket.close(code=1008, reason="호스트를 찾을 수 없음")
+            return
 
     # 4. 디스플레이 번호 검증 — 0..99 (5900..5999)
     if not (0 <= display <= 99):
@@ -214,7 +218,11 @@ async def vnc_websocket(
     writer = None
     auth_method = host.get("auth_method")
     try:
-        if auth_method == "tailscale":
+        if host.get("is_local"):
+            # 이 서버 자신 — 백엔드가 도는 기계가 곧 대상이다. SSH 채널도 터널도
+            # 필요 없고, Xvnc 가 바인딩한 루프백에 그냥 붙는다. 가장 짧은 경로다.
+            reader, writer = await asyncio.open_connection("127.0.0.1", vnc_port)
+        elif auth_method == "tailscale":
             # tailscale 호스트는 asyncssh 연결이 없다 (tailscale ssh 서브프로세스).
             # direct-tcpip 불가능 — Xvnc 가 -localhost yes 로 127.0.0.1 에만 바인딩되므로
             # tailscale IP 직접 TCP 도 거부된다. tailscale ssh 로 원격 loopback 에 파이프.

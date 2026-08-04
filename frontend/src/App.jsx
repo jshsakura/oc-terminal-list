@@ -170,7 +170,9 @@ function App() {
   // VNC 원격 데스크톱 — 홈 화면에서 호스트 카드의 ScreenShare 버튼으로 연다.
   // openHostTab 과 동일한 패턴: 새 탭 생성 + 활성화. pane 은 mode:'vnc'.
   const openVncTab = useCallback((host, display) => {
-    if (!host || host.isLocal || host.id === 'local') return;
+    // 로컬도 허용한다 — 백엔드가 도는 기계라 SSH 터널 없이 루프백에 바로 붙는다.
+    // 백엔드는 host_id 'local' 을 예약어로 받는다(routes/vnc.py LOCAL_HOST_ID).
+    if (!host) return;
     const tabId = `vnc:${host.id}:${Date.now()}`;
     setTabs((prev) => {
       const tab = makeVncTab(host, display, {
