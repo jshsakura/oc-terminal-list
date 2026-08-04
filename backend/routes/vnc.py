@@ -284,3 +284,102 @@ async def delete_vnc_session(
         "status": "killed",
         "output": output[-500:] if isinstance(output, str) else "",
     }
+
+
+# ---------------------- 비밀번호 설정 ----------------------
+
+# 고전 VNC 인증(VncAuth)은 비밀번호를 **8자까지만** 쓴다 — 9자 이상은 잘린다.
+# 사용자가 긴 비밀번호를 넣고 "설정됐다" 고 믿게 두면 안 되므로 경계에서 막는다.
+VNC_PASSWORD_MIN = 6
+VNC_PASSWORD_MAX = 8
+
+
+async def _write_vnc_password(host: dict, username: str, password: str) -> None:
+    """호스트의 ``~/.vnc/passwd`` 를 만든다.
+
+    비밀번호는 **stdin 으로만** 넘긴다. 명령줄 인자로 주면 원격의 ``ps`` 에 그대로
+    노출된다. ``vncpasswd -f`` 는 stdin 의 평문을 읽어 난독화된 파일 내용을 stdout
+    으로 낸다 — 그걸 리다이렉트하고 0600 으로 조인다.
+    """
+    runner = await _make_runner_for(host, username)
+    state = await gather_discovery(runner)
+    vnc_path = state.get("vncserver_path")
+    # vncpasswd 는 vncserver 와 같은 디렉토리에 있다(TurboVNC 는 /opt/TurboVNC/bin).
+    if vnc_path and "/" in vnc_path:
+        passwd_bin = vnc_path.rsplit("/", 1)[0] + "/vncpasswd"
+    else:
+        passwd_bin = "vncpasswd"
+    cmd = (
+        f"mkdir -p ~/.vnc && umask 077 && {shlex.quote(passwd_bin)} -f > ~/.vnc/passwd "
+        f"&& chmod 600 ~/.vnc/passwd && echo OK"
+    )
+
+    if host.get("is_local"):
+        proc = await asyncio.create_subprocess_exec(
+            "bash", "-lc", cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await asyncio.wait_for(proc.communicate(input=password.encode()), timeout=20)
+        ok = b"OK" in out
+        detail = err.decode("utf-8", errors="replace")[:200]
+    elif host.get("auth_method") == "tailscale":
+        target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
+        proc = await asyncio.create_subprocess_exec(
+            "tailscale", "ssh", target, cmd,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await asyncio.wait_for(proc.communicate(input=password.encode()), timeout=25)
+        ok = b"OK" in out
+        detail = err.decode("utf-8", errors="replace")[:200]
+    else:
+        key_record = None
+        if host.get("auth_method") == "key" and host.get("key_id"):
+            key_record = await storage.get_ssh_key(host["key_id"], username)
+        secrets = resolve_host_secrets(host, key_record)
+        conn = await open_connection(host, **secrets)
+        try:
+            result = await conn.run(cmd, input=password, check=False)
+            out = result.stdout or ""
+            ok = "OK" in (out if isinstance(out, str) else out.decode("utf-8", "replace"))
+            stderr = result.stderr or ""
+            detail = (stderr if isinstance(stderr, str) else stderr.decode("utf-8", "replace"))[:200]
+        finally:
+            conn.close()
+
+    if not ok:
+        # detail 에 비밀번호가 실릴 일은 없다(stdin 으로만 넘겼다).
+        raise HTTPException(status_code=502, detail=f"비밀번호 설정 실패: {detail or 'unknown'}")
+
+
+class SetPasswordRequest(BaseModel):
+    password: str
+
+
+@router.post("/api/hosts/{host_id}/vnc/password")
+async def set_vnc_password(
+    host_id: str,
+    request: SetPasswordRequest,
+    username: str = Depends(verify_auth_token),
+):
+    """호스트의 VNC 비밀번호를 설정한다.
+
+    설정하면 이후 만드는 세션이 ``-SecurityTypes None`` 대신 VncAuth 로 뜨고,
+    클라이언트가 비밀번호 입력을 받는다(백엔드는 ~/.vnc/passwd 유무로 분기한다).
+    우리 DB 에는 저장하지 않는다 — 호스트의 passwd 파일이 유일한 보관처다.
+    """
+    pw = (request.password or "").strip()
+    if not (VNC_PASSWORD_MIN <= len(pw) <= VNC_PASSWORD_MAX):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"비밀번호는 {VNC_PASSWORD_MIN}~{VNC_PASSWORD_MAX}자여야 합니다"
+                " (VNC 규격상 8자 초과분은 무시됩니다)"
+            ),
+        )
+    host = await _resolve_host_or_404(host_id, username)
+    await _write_vnc_password(host, username, pw)
+    return {"ok": True}

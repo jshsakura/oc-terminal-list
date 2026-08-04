@@ -137,6 +137,11 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
   const [actionError, setActionError] = useState('');
   const [creating, setCreating] = useState(false);
   const [killingDisplay, setKillingDisplay] = useState(null);
+  // VNC 비밀번호 설정 — 값은 컴포넌트 state 에만 두고 저장 후 즉시 비운다.
+  // 서버 응답에도 담기지 않는다(백엔드는 호스트의 ~/.vnc/passwd 에만 쓴다).
+  const [pwValue, setPwValue] = useState('');
+  const [pwSaving, setPwSaving] = useState(false);
+  const [pwError, setPwError] = useState('');
   // 해상도 선택 — presets 또는 custom.
   const [geometry, setGeometry] = useState('1280x800');
   const [useCustom, setUseCustom] = useState(false);
@@ -185,6 +190,32 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
 
   // ── 새 가상 데스크탑 만들기 ──────────────────────────────────────────────
   // overrideGeom: 주 액션(0-displays "create and connect")이 기본 해상도로 강제 호출할 때 사용.
+  const handleSetPassword = async () => {
+    setPwError('');
+    setPwSaving(true);
+    try {
+      const res = await fetch(`/api/hosts/${host?.id}/vnc/password`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pwValue }),
+        signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+          ? AbortSignal.timeout(20000)
+          : undefined,
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPwError(json?.detail || `${res.status}`);
+        return;
+      }
+      setPwValue('');       // 메모리에서 즉시 제거
+      await refresh();      // has_vnc_passwd 갱신 → 경고와 폼이 사라진다
+    } catch (err) {
+      setPwError(err?.message || String(err));
+    } finally {
+      setPwSaving(false);
+    }
+  };
+
   const handleCreate = async (overrideGeom) => {
     setActionError('');
     const override = typeof overrideGeom === 'string' ? overrideGeom : '';
@@ -634,7 +665,60 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
                     color: color.warning,
                     lineHeight: 1.4,
                   }}>
-                    {t?.('vncNoPassword') || 'New desktop will be created without a password. Anyone with shell access to this host can connect.'}
+                    <div>{t?.('vncNoPassword') || 'New desktop will be created without a password. Anyone with shell access to this host can connect.'}</div>
+                    {/* 경고로 끝내지 않고 그 자리에서 고칠 수 있게 한다. 설정하면
+                        백엔드가 ~/.vnc/passwd 유무로 분기하므로 이후 세션은 VncAuth 로
+                        뜨고 클라이언트가 입력을 받는다. */}
+                    <form
+                      onSubmit={(e) => { e.preventDefault(); handleSetPassword(); }}
+                      style={{ display: 'flex', gap: '6px', marginTop: '8px' }}
+                    >
+                      <input
+                        type="password"
+                        value={pwValue}
+                        onChange={(e) => setPwValue(e.target.value)}
+                        placeholder={t?.('vncPasswordPlaceholder') || '6–8 characters'}
+                        autoComplete="new-password"
+                        maxLength={8}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          padding: '4px 8px',
+                          background: color.surface0,
+                          border: `1px solid ${color.border}`,
+                          borderRadius: '4px',
+                          fontFamily: font.sans,
+                          fontSize: fontSize['11'],
+                          color: color.text,
+                          outline: 'none',
+                        }}
+                      />
+                      <button
+                        type="submit"
+                        disabled={pwSaving || pwValue.length < 6}
+                        style={{
+                          padding: '4px 10px',
+                          background: pwValue.length < 6 ? color.surface1 : color.accentSubtle,
+                          border: `1px solid ${pwValue.length < 6 ? color.border : color.accentBorder}`,
+                          borderRadius: '4px',
+                          fontFamily: font.sans,
+                          fontSize: fontSize['11'],
+                          fontWeight: fontWeight.medium,
+                          color: pwValue.length < 6 ? color.subtext : color.accent,
+                          cursor: pwValue.length < 6 ? 'default' : 'pointer',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {pwSaving
+                          ? (t?.('vncPasswordSaving') || 'Setting…')
+                          : (t?.('vncSetPassword') || 'Set password')}
+                      </button>
+                    </form>
+                    {pwError && (
+                      <div style={{ marginTop: '5px', fontSize: fontSize['11'], color: color.danger }}>
+                        {pwError}
+                      </div>
+                    )}
                   </div>
                 )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: useCustom ? '8px' : '10px' }}>
