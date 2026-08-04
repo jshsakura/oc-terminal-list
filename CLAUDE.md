@@ -311,7 +311,98 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
 
 ⚠️ Resize/fit is a real-device concern (mobile keyboard, visualViewport). The 67 Terminal tests are the only net; after any change here, confirm on an actual device that resizing the window and opening/closing the editor still refit cleanly.
 
-## Frontend derivation utils
+## Xvnc 원격 데스크톱 (2026-08)
+
+호스트 카드 → Remote Desktop → 디스플레이 선택 → pane 에 데스크탑이 뜬다. pane 크기를
+바꾸면 원격 해상도가 따라오고, 브라우저를 닫아도 호스트의 세션은 살아있다.
+
+**`Xvnc : GUI = tmux : 셸`.** 비유가 아니라 구조가 같다 — 데스크탑이 호스트의 Xvnc
+프로세스 안에서 돌고 뷰어는 붙었다 떨어졌다 할 뿐이다. x11vnc(실제 화면 미러링)를
+쓰지 않는 이유가 이것이다: 지속성이 데스크탑 세션에 묶이고, 해상도 변경도 등록된
+xrandr 모드로만 가능해 반쪽이다.
+
+전송은 **SSH direct-tcpip**. VNC 는 호스트 루프백에만 바인딩하고 기존 SSH 연결 안으로
+통과시키므로 호스트에 새 인바운드 포트를 열지 않는다. 이게 이 기능의 보안 경계다.
+
+| 모듈 | 담당 |
+|---|---|
+| `backend/vnc_discovery.py` | X11 소켓·리스닝 포트·프로세스·바이너리 경로·GPU 능력 파싱 |
+| `backend/routes/vnc.py` | 디스플레이 목록 / 세션 기동·종료 |
+| `backend/routes/vnc_ws.py` | WS ↔ RFB 바이트 펌프 |
+| `frontend/src/components/vnc/` | noVNC 클라이언트 (lazy chunk) |
+| `frontend/src/utils/vncResize.js` | 리사이즈 판정 + 250ms 디바운스, 생성 해상도 계산 |
+
+### 함정 (전부 실호스트에서 밟은 것들)
+
+**테스트가 전부 통과해도 아래는 안 잡힌다.** 실제로 붙어봐야 나온다.
+
+- **WS 서브프로토콜을 골라줘야 한다.** noVNC 는 `binary` 를 요구하는데, 서버가
+  `websocket.accept()` 를 인자 없이 부르면 RFC 6455 상 **브라우저가 연결을 실패
+  처리**한다. 서버에는 예외가 남지 않아 로그가 `connection open / closed` 로만 보인다.
+  클라이언트가 제시한 목록에 있을 때만 골라라 — 제시 안 한 걸 고르면 그것도 실패한다.
+- **VNC WS 로 제어 메시지를 보내지 마라.** RFB 는 순수 바이너리 스트림이다. 터미널 WS 의
+  `_push_ws_tickets` 를 재사용하면 JSON 텍스트 프레임이 섞여 들어가 noVNC 가 `RFB 003.008`
+  인사를 못 읽는다. 재연결은 핸드셰이크의 쿠키 폴백으로 충분하다.
+- **`ssh_pool` 을 쓰지 마라.** janitor 가 300s idle conn 을 닫는데 RFB 스트림은 `run()` 을
+  거치지 않아 `last_used` 가 갱신되지 않는다 — 잘 보다가 5분 뒤 끊긴다. 전용 conn 을 연다.
+- **`-localhost` 표기가 flavor 마다 다르다.** TigerVNC 는 `-localhost yes`, TurboVNC 는
+  인자 없는 불리언 `-localhost`. TurboVNC 에 `yes` 를 주면 Xvnc 로 새어들어가
+  `Unrecognized option: yes` 로 죽는다. **루프백 바인딩 자체는 어느 쪽이든 필수다.**
+- **`-SecurityTypes` 를 지정하지 않으면 세션 생성이 무한 대기한다.** `~/.vnc/passwd` 가
+  없으면 vncserver 가 `vncpasswd` 를 띄우고 입력을 기다린다. 원격에는 사람이 없다.
+  비밀번호 파일이 있으면 기본(VncAuth) 유지, 없으면 `-SecurityTypes None`. 그리고 원격
+  명령은 **stdin 을 `/dev/null` 로 막고 타임아웃을 걸어라.**
+- **디스플레이 판정을 X11 소켓만으로 하지 마라.** 데스크탑이 도는 기계면 `/tmp/.X11-unix/X0`
+  은 항상 있다. 5900번대 리스닝이나 `Xvnc`/`Xtigervnc` 프로세스가 있을 때만 목록에 넣는다.
+- **`ps` 는 자기 자신을 출력한다.** 디스커버리 명령줄에 `Xtigervnc`(후보 경로 루프)와
+  `:32`(`user:32`)가 한 줄에 들어 있어 "디스플레이 32번" 유령이 생겼다. 명령줄 문자열이
+  아무 데나 등장하는 것으로 잡지 마라 — basename 정확 일치 + 독립된 `:N` 인자여야 한다.
+- **`auth_method == 'tailscale'` 호스트는 asyncssh conn 이 없다.** `tailscale ssh` 로 SSH
+  채널을 열고 원격에서 `nc → ncat → bash /dev/tcp` 폴백으로 루프백에 파이프한다.
+  Tailscale IP 직결은 안 된다 — `-localhost` 때문에 그 주소엔 아무도 듣지 않는다.
+
+### 3D 가속
+
+Xvnc 는 소프트웨어 프레임버퍼라 GL 앱이 llvmpipe 로 떨어진다. GPU 로 올리려면 VirtualGL 이
+필요하고, 두 가지가 **둘 다** 있어야 한다:
+
+1. TurboVNC 의 **`-vgl`** 옵션. (TurboVNC 3.x 는 `~/.vnc/xstartup.turbovnc` 를 보지 않는다 —
+   시스템 스크립트를 쓰고 `-xstartup` 으로만 교체 가능하다. xstartup 을 건드리는 접근은
+   통하지 않는다.)
+2. **`VGL_DISPLAY=egl`**. 없으면 vglrun 이 기본 GLX 백엔드를 쓰는데 헤드리스 서버에는
+   3D X 서버가 없어 **세션이 통째로 죽는다.**
+
+**앱은 세션의 자식으로 실행돼야 GPU 를 쓴다.** 독/메뉴에서 띄우면 되고, SSH 로
+`DISPLAY=:1 앱` 하면 소프트웨어 렌더링이다(VirtualGL 의 `LD_PRELOAD` 를 상속하지 못한다).
+확인은 세션 안에서 `glxinfo | grep renderer`.
+
+전송의 천장은 남는다 — VNC 에는 비디오 코덱이 없어 움직이는 화면은 정지영상 연사다.
+NVENC 는 놀고 있다. 부드러운 3D 가 필요하면 그건 WebRTC(Selkies) 영역이다.
+
+### 프론트
+
+- **`resizeSession=true` 가 해상도 추적의 본체다.** `scaleViewport` 는 서버가
+  `SetDesktopSize` 를 거부할 때의 폴백일 뿐 — 그것만으로는 흐릿하게 확대된다.
+- **드래그 중 매 프레임 `SetDesktopSize` 를 보내면 서버가 프레임버퍼를 재할당하며 폭주한다.**
+  250ms 디바운스 필수. 생성 해상도도 pane 크기에서 계산한다(고정값이면 떴다가 리사이즈되는
+  왕복이 매번 생긴다). devicePixelRatio 는 곱하지 마라 — 원격 프레임버퍼만 커진다.
+- pane 은 **`mode: 'vnc'`** 를 쓴다. tab-state sanitize 가 비터미널 pane 을 보존하므로
+  새로고침 복원이 그대로 동작한다.
+- **pane 을 옮길 때 필드를 골라 담지 마라.** 원본을 통째로 옮기고 슬롯 고유값(`id`)만
+  덮어쓴다. 화이트리스트 방식은 새 속성이 생길 때마다 조용히 떨어뜨린다 —
+  `mode`/`display` 가 떨어져 VNC pane 이 터미널로 변한 적이 있다.
+- noVNC 는 **lazy import**. 수백 KB 라 시작 번들에 들어가면 안 된다.
+
+### 검증 방법
+
+**브라우저 없이 프로토콜까지 확인할 수 있다.** 토큰 생성 →
+`POST /api/ws-ticket {"path": "/ws/vnc/{host_id}"}` →
+`websockets.connect(url, subprotocols=['binary'])` → `ws.subprotocol` 과 첫 프레임
+(`RFB 003.008` 이어야 한다)을 확인. 위 서브프로토콜·스트림 오염 버그를 둘 다 이걸로 잡았다.
+
+⚠️ **실행 중인 앱에 브라우저(Playwright 등)로 붙지 마라.** 같은 계정이면 탭 복원이
+사용자가 쓰고 있던 tmux 세션을 가져간다. 브라우저 레이어 확인이 꼭 필요하면 사용자에게
+직접 열어보게 하라.
 
 ## Frontend derivation utils
 
