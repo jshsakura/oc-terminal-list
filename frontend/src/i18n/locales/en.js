@@ -874,6 +874,7 @@ export const en = {
     vncPassword: 'VNC Password',
     vncConnect: 'Connect',
     vncSecurityFailure: 'Authentication failed',
+    vncQuality: 'Quality',
     vncQualitySharp: 'Sharp',
     vncQualityBalanced: 'Balanced',
     vncQualityLight: 'Light',

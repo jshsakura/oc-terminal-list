@@ -7,7 +7,7 @@
  * 사용자는 상태 배지로 연결 상태를 보고 필요시 새로고침할 수 있다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Monitor } from 'lucide-react';
+import { Monitor, ChevronLeft, ChevronRight } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { issueWsTicket } from '../terminal/terminalHelpers';
 import createVncClient from './createVncClient';
@@ -284,6 +284,8 @@ const VncPane = ({
 
   // Task 4 — 화질 프리셋 변경 시 즉시 반영 (재연결 없음).
   // noVNC 는 qualityLevel/compressionLevel 속성 대입으로 인코딩 파라미터를 즉시 바꾼다.
+  // 화질 컨트롤 접기/펼치기 — 기본은 접힘. 화면을 가리지 않는 것이 기본값이어야 한다.
+  const [controlsOpen, setControlsOpen] = useState(false);
   const vncQuality = settings?.vncQuality || 'balanced';
   useEffect(() => {
     const c = clientRef.current;
@@ -440,33 +442,111 @@ const VncPane = ({
         </div>
       )}
 
-      {/* Task 4 — 화질/속도 프리셋 컨트롤 (우상단). 연결 중에 바꾸면 즉시 반영. */}
-      <select
-        value={vncQuality}
-        onChange={(e) => updateSettings?.({ vncQuality: e.target.value })}
-        style={{
-          position: 'absolute',
-          top: '8px',
-          right: '8px',
-          zIndex: 10,
-          padding: '3px 8px',
-          background: `color-mix(in srgb, ${color.surface1} 85%, transparent)`,
-          border: `1px solid ${color.border}`,
-          borderRadius: radius.md,
-          fontFamily: font.sans,
-          fontSize: fontSize['11'],
-          fontWeight: fontWeight.medium,
-          color: color.subtext,
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
-          cursor: 'pointer',
-          outline: 'none',
-        }}
-      >
-        <option value="sharp">{t?.('vncQualitySharp') || 'Sharp'}</option>
-        <option value="balanced">{t?.('vncQualityBalanced') || 'Balanced'}</option>
-        <option value="light">{t?.('vncQualityLight') || 'Light'}</option>
-      </select>
+      {/* 화질 프리셋 — 접이식. 원격 데스크톱은 화면 자체가 콘텐츠라 컨트롤을 상시 띄우면
+          데스크탑을 가린다. 평소엔 우측 가장자리에 얇은 손잡이만 두고, 눌러야 펼친다.
+          (pane … 메뉴에 넣을 수 없다 — VNC pane 은 TerminalHeader 를 렌더하지 않는다.
+          Pane.jsx 의 `!isVnc` 참고.) */}
+      {!controlsOpen && (
+        <button
+          type="button"
+          onClick={() => setControlsOpen(true)}
+          title={t?.('vncQuality') || 'Quality'}
+          style={{
+            position: 'absolute',
+            top: '50%',
+            right: 0,
+            transform: 'translateY(-50%)',
+            zIndex: 10,
+            width: '14px',
+            height: '44px',
+            padding: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: `color-mix(in srgb, ${color.surface1} 60%, ${color.base})`,
+            border: `1px solid ${color.border}`,
+            borderRight: 'none',
+            borderRadius: `${radius.md} 0 0 ${radius.md}`,
+            color: color.subtext,
+            opacity: 0.55,
+            cursor: 'pointer',
+            outline: 'none',
+          }}
+        >
+          <ChevronLeft size={11} strokeWidth={2} />
+        </button>
+      )}
+
+      {controlsOpen && (
+        <div
+          style={{
+            position: 'absolute',
+            top: '50%',
+            right: 0,
+            transform: 'translateY(-50%)',
+            zIndex: 10,
+            display: 'flex',
+            alignItems: 'stretch',
+            background: color.surface1,
+            border: `1px solid ${color.border}`,
+            borderRight: 'none',
+            borderRadius: `${radius.md} 0 0 ${radius.md}`,
+            overflow: 'hidden',
+          }}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {[
+              ['sharp', t?.('vncQualitySharp') || 'Sharp'],
+              ['balanced', t?.('vncQualityBalanced') || 'Balanced'],
+              ['light', t?.('vncQualityLight') || 'Light'],
+            ].map(([value, label]) => {
+              const isOn = vncQuality === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => { updateSettings?.({ vncQuality: value }); setControlsOpen(false); }}
+                  style={{
+                    padding: '5px 12px',
+                    background: isOn ? color.accentSubtle : 'transparent',
+                    border: 'none',
+                    fontFamily: font.sans,
+                    fontSize: fontSize['11'],
+                    fontWeight: isOn ? fontWeight.semibold : fontWeight.medium,
+                    color: isOn ? color.accent : color.subtext,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    outline: 'none',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            onClick={() => setControlsOpen(false)}
+            title={t?.('close') || 'Close'}
+            style={{
+              width: '14px',
+              padding: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'transparent',
+              border: 'none',
+              borderLeft: `1px solid ${color.border}`,
+              color: color.subtext,
+              cursor: 'pointer',
+              outline: 'none',
+            }}
+          >
+            <ChevronRight size={11} strokeWidth={2} />
+          </button>
+        </div>
+      )}
 
       {/* Task 3 — 비밀번호 입력 폼. credentialsrequired 이벤트 시 표시.
           비밀번호는 컴포넌트 state(메모리) 에만 존재 — 영속화하지 않는다. */}

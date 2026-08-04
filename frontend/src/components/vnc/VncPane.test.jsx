@@ -181,17 +181,37 @@ describe('VncPane', () => {
     expect(lastClientOpts.compressionLevel).toBe(0);
   });
 
-  it('화질 변경 시 updateSettings 가 불린다', async () => {
+  // 화질 컨트롤은 접혀 있는 것이 기본이다 — 원격 데스크톱은 화면 자체가 콘텐츠라
+  // 상시 노출되면 데스크탑을 가린다. 손잡이를 눌러야 펼쳐진다.
+  it('화질 컨트롤은 기본으로 접혀 있다', async () => {
+    render(<VncPane {...baseProps()} />);
+    const labels = [...document.querySelectorAll('button')].map((b) => b.textContent);
+    expect(labels).not.toContain('vncQualityLight');
+  });
+
+  it('손잡이를 눌러 펼친 뒤 프리셋을 고르면 updateSettings 가 불린다', async () => {
     const updateSettings = vi.fn();
     render(<VncPane {...baseProps({ updateSettings })} />);
-    const select = document.querySelector('select');
-    expect(select).toBeTruthy();
-    act(() => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value').set;
-      setter.call(select, 'light');
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+
+    const handle = [...document.querySelectorAll('button')].find((b) => b.title === 'vncQuality');
+    expect(handle).toBeTruthy();
+    act(() => { handle.click(); });
+
+    const lightBtn = [...document.querySelectorAll('button')].find((b) => b.textContent === 'vncQualityLight');
+    expect(lightBtn).toBeTruthy();
+    act(() => { lightBtn.click(); });
+
     expect(updateSettings).toHaveBeenCalledWith({ vncQuality: 'light' });
+  });
+
+  it('프리셋을 고르면 컨트롤이 다시 접힌다', async () => {
+    render(<VncPane {...baseProps()} />);
+    const handle = [...document.querySelectorAll('button')].find((b) => b.title === 'vncQuality');
+    act(() => { handle.click(); });
+    const sharpBtn = [...document.querySelectorAll('button')].find((b) => b.textContent === 'vncQualitySharp');
+    act(() => { sharpBtn.click(); });
+    const labels = [...document.querySelectorAll('button')].map((b) => b.textContent);
+    expect(labels).not.toContain('vncQualitySharp');
   });
 
   // ── 로딩 진행 표현 ──

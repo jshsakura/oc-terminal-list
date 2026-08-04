@@ -874,6 +874,7 @@ export const ko = {
     vncPassword: 'VNC 비밀번호',
     vncConnect: '연결',
     vncSecurityFailure: '인증 실패',
+    vncQuality: '화질',
     vncQualitySharp: '선명하게',
     vncQualityBalanced: '균형',
     vncQualityLight: '가볍게',
