@@ -456,24 +456,24 @@ const VncPane = ({
             top: '50%',
             right: 0,
             transform: 'translateY(-50%)',
-            zIndex: 10,
-            width: '14px',
-            height: '44px',
+            zIndex: 20,
+            width: '20px',
+            height: '60px',
             padding: 0,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            background: `color-mix(in srgb, ${color.surface1} 60%, ${color.base})`,
+            background: color.surface1,
             border: `1px solid ${color.border}`,
             borderRight: 'none',
             borderRadius: `${radius.md} 0 0 ${radius.md}`,
-            color: color.subtext,
-            opacity: 0.55,
+            boxShadow: `-2px 0 6px color-mix(in srgb, ${color.crust} 45%, transparent)`,
+            color: color.text,
             cursor: 'pointer',
             outline: 'none',
           }}
         >
-          <ChevronLeft size={11} strokeWidth={2} />
+          <ChevronLeft size={14} strokeWidth={2.2} />
         </button>
       )}
 
@@ -484,13 +484,14 @@ const VncPane = ({
             top: '50%',
             right: 0,
             transform: 'translateY(-50%)',
-            zIndex: 10,
+            zIndex: 20,
             display: 'flex',
             alignItems: 'stretch',
             background: color.surface1,
             border: `1px solid ${color.border}`,
             borderRight: 'none',
             borderRadius: `${radius.md} 0 0 ${radius.md}`,
+            boxShadow: `-2px 0 6px color-mix(in srgb, ${color.crust} 45%, transparent)`,
             overflow: 'hidden',
           }}
         >
