@@ -423,7 +423,33 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
             color: color.warning,
             fontSize: fontSize['12'],
           }}>
-            {t?.('vncNotInstalled') || 'VNC is not installed on this host.'}
+            <div>{t?.('vncNotInstalled') || 'VNC is not installed on this host.'}</div>
+            {/* 설치법 안내 — "없다" 로 끝내면 사용자가 다음에 뭘 해야 할지 모른다.
+                배포판을 감지해 실제 명령을 보여준다. */}
+            {state.data?.install_cmd && (
+              <div style={{
+                marginTop: '8px',
+                padding: '6px 8px',
+                background: `color-mix(in srgb, ${color.surface1} 70%, transparent)`,
+                border: `1px solid ${color.border}`,
+                borderRadius: '4px',
+                fontFamily: font.mono,
+                fontSize: fontSize['11'],
+                color: color.text,
+                userSelect: 'all',
+                wordBreak: 'break-all',
+              }}>
+                {state.data.install_cmd}
+              </div>
+            )}
+            {/* VNC 만 깔고 데스크탑이 없으면 세션이 뜨자마자 죽는다 — TigerVNC 는 세션
+                스크립트가 끝나면 서버를 같이 내린다. 실제로 겪은 실패라 미리 알린다. */}
+            {state.data?.install_cmd && state.data?.has_desktop === false && (
+              <div style={{ marginTop: '6px', fontSize: fontSize['11'], color: color.subtext }}>
+                {t?.('vncNeedsDesktop')
+                  || 'A desktop environment is also required — without one the session exits immediately.'}
+              </div>
+            )}
           </div>
         )}
 

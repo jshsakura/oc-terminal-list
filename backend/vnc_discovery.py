@@ -28,6 +28,7 @@ _PS_MARK = "__ITL_VNC_PS__"
 _WHICH_MARK = "__ITL_VNC_WHICH__"
 _GPU_MARK = "__ITL_VNC_GPU__"
 _PASSWD_MARK = "__ITL_VNC_PASSWD__"
+_ENV_MARK = "__ITL_VNC_ENV__"
 
 # 원격에서 한 번에 실행하는 디스커버리 명령. 각 subcommand 가 자신의 stderr 를
 # 삼키도록 2>/dev/null 를 달아뒀다 — runner 가 stdout/stderr 를 합쳐도 파서가
@@ -49,7 +50,13 @@ DISCOVERY_CMD = (
     f'echo "VGL:$(command -v vglrun 2>/dev/null || true)"; '
     f'nvidia-smi -L >/dev/null 2>&1 && echo "NSMI:yes" || echo "NSMI:no"; '
     f'echo "VGA:$(lspci 2>/dev/null | grep -i vga | head -1 || true)"; '
-    f"echo {_PASSWD_MARK}; test -f ~/.vnc/passwd && echo yes || echo no"
+    f"echo {_PASSWD_MARK}; test -f ~/.vnc/passwd && echo yes || echo no; "
+    # 미설치 호스트에 설치법을 안내하려면 배포판을 알아야 한다. 그리고 VNC 만
+    # 있고 데스크탑이 없으면 세션이 뜨자마자 죽는다(실제로 겪은 실패) — xsessions
+    # 유무도 같이 본다.
+    f"echo {_ENV_MARK}; "
+    f'echo "ID:$(. /etc/os-release 2>/dev/null && echo "$ID" || true)"; '
+    f'echo "XSESSIONS:$(ls -1 /usr/share/xsessions/ 2>/dev/null | head -1 || true)"'
 )
 
 # Xtigervnc(TigerVNC) 와 Xvnc(RealVNC/TigerVNC 구형) — 둘 다 가상 디스플레이 서버.
@@ -67,7 +74,7 @@ _GEOMETRY_RE = re.compile(r"-geometry\s+(\d+x\d+)", re.IGNORECASE)
 
 # 디스커버리 명령 자신을 배제하기 위한 마커 목록. ps 출력에 이 마커들이 포함된
 # 줄은 우리가 실행한 셸 명령 자신이므로 버린다.
-_ALL_MARKERS = (_X11_MARK, _SS_MARK, _PS_MARK, _WHICH_MARK, _GPU_MARK, _PASSWD_MARK)
+_ALL_MARKERS = (_X11_MARK, _SS_MARK, _PS_MARK, _WHICH_MARK, _GPU_MARK, _PASSWD_MARK, _ENV_MARK)
 
 # VNC 포트 범위 — display 0..99 → 5900..5999.
 _VNC_PORT_LO = 5900
@@ -262,7 +269,9 @@ def parse_has_vnc_passwd(text: str) -> bool:
 
 def split_sections(combined: str) -> dict[str, str]:
     """마커로 구분된 통합 출력을 섹션별로 분할. 순수 함수."""
-    sections: dict[str, str] = {"x11": "", "ss": "", "ps": "", "which": "", "gpu": "", "passwd": ""}
+    sections: dict[str, str] = {
+        "x11": "", "ss": "", "ps": "", "which": "", "gpu": "", "passwd": "", "env": "",
+    }
     marks = {
         _X11_MARK: "x11",
         _SS_MARK: "ss",
@@ -270,6 +279,7 @@ def split_sections(combined: str) -> dict[str, str]:
         _WHICH_MARK: "which",
         _GPU_MARK: "gpu",
         _PASSWD_MARK: "passwd",
+        _ENV_MARK: "env",
     }
     current: str | None = None
     for line in (combined or "").splitlines():
@@ -322,6 +332,49 @@ def build_displays(
     return out
 
 
+# 배포판 → VNC 서버 설치 명령. 미설치 호스트에 "어떻게 깔면 되는지" 를 알려주기 위한 것.
+# 패키지명은 배포판마다 다르다 — tigervnc-standalone-server(데비안 계열) vs tigervnc-server(RH 계열).
+_INSTALL_BY_DISTRO = {
+    "ubuntu": "sudo apt install tigervnc-standalone-server",
+    "debian": "sudo apt install tigervnc-standalone-server",
+    "raspbian": "sudo apt install tigervnc-standalone-server",
+    "linuxmint": "sudo apt install tigervnc-standalone-server",
+    "pop": "sudo apt install tigervnc-standalone-server",
+    "fedora": "sudo dnf install tigervnc-server",
+    "rhel": "sudo dnf install tigervnc-server",
+    "centos": "sudo dnf install tigervnc-server",
+    "rocky": "sudo dnf install tigervnc-server",
+    "almalinux": "sudo dnf install tigervnc-server",
+    "arch": "sudo pacman -S tigervnc",
+    "manjaro": "sudo pacman -S tigervnc",
+    "alpine": "sudo apk add tigervnc",
+    "opensuse-tumbleweed": "sudo zypper install tigervnc",
+    "opensuse-leap": "sudo zypper install tigervnc",
+}
+
+
+def parse_env(text: str) -> dict:
+    """ENV 섹션 → {distro, install_cmd, has_desktop}.
+
+    ``has_desktop`` 이 거짓이면 VNC 만 깔아도 세션이 뜨자마자 죽는다 — TigerVNC 는
+    세션 스크립트가 끝나면 서버를 같이 내리기 때문이다. 그래서 설치 안내에
+    데스크탑도 함께 언급해야 한다.
+    """
+    distro = ""
+    has_desktop = False
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if line.startswith("ID:"):
+            distro = line[3:].strip().strip('"')
+        elif line.startswith("XSESSIONS:"):
+            has_desktop = bool(line[10:].strip())
+    return {
+        "distro": distro or None,
+        "install_cmd": _INSTALL_BY_DISTRO.get(distro),
+        "has_desktop": has_desktop,
+    }
+
+
 def discover(combined_output: str) -> dict:
     """통합 원격 출력 → 디스커버리 응답 dict (순수).
 
@@ -339,6 +392,7 @@ def discover(combined_output: str) -> dict:
     flavor = detect_flavor(vncserver_path)
     gpu = parse_gpu(sections["gpu"])
     has_vnc_passwd = parse_has_vnc_passwd(sections["passwd"])
+    env = parse_env(sections.get("env", ""))
     return {
         "available": True,
         "installed": installed,
@@ -346,6 +400,9 @@ def discover(combined_output: str) -> dict:
         "flavor": flavor,
         "gpu": gpu,
         "has_vnc_passwd": has_vnc_passwd,
+        "distro": env["distro"],
+        "install_cmd": env["install_cmd"],
+        "has_desktop": env["has_desktop"],
         "displays": build_displays(x11, ports, procs),
     }
 
@@ -366,6 +423,9 @@ async def gather_discovery(run: Callable[[str], Awaitable[str]]) -> dict:
             "flavor": "",
             "gpu": {"nvidia": False, "virtualgl": False, "vendor": None, "renderer_hint": "software"},
             "has_vnc_passwd": False,
+            "distro": None,
+            "install_cmd": None,
+            "has_desktop": False,
             "displays": [],
             "error": str(e),
         }
