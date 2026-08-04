@@ -204,6 +204,77 @@ describe('VncPane', () => {
     expect(updateSettings).toHaveBeenCalledWith({ vncQuality: 'light' });
   });
 
+  // ── 모바일: 원격 해상도 보호 + 보기 모드 ──
+  // 폰 pane 크기로 SetDesktopSize 를 보내면 데스크탑 창이 잘리고 그 해상도가 세션에
+  // 남는다("화면이 다 잘림"의 근원). 폰에서는 원격 해상도를 아예 건드리지 않는다.
+
+  it('데스크탑에서는 pane 크기를 원격에 통보한다 (resizeSession=true)', async () => {
+    render(<VncPane {...baseProps()} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    expect(lastClientOpts.resizeSession).toBe(true);
+  });
+
+  it('폰에서는 원격 해상도를 건드리지 않는다 (resizeSession=false)', async () => {
+    render(<VncPane {...baseProps({ isMobile: true })} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    expect(lastClientOpts.resizeSession).toBe(false);
+  });
+
+  it('폰 기본 보기 모드는 fit — 데스크탑 전체가 보인다', async () => {
+    render(<VncPane {...baseProps({ isMobile: true })} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    expect(lastClientOpts.viewMode).toBe('fit');
+  });
+
+  it('settings.vncViewMode=pan 이면 pan 으로 연결한다 (폰)', async () => {
+    render(<VncPane {...baseProps({ isMobile: true, settings: { vncViewMode: 'pan' } })} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    expect(lastClientOpts.viewMode).toBe('pan');
+  });
+
+  it('데스크탑에서는 vncViewMode 설정을 무시한다 — pane 크기가 곧 원격 해상도', async () => {
+    render(<VncPane {...baseProps({ settings: { vncViewMode: 'pan' } })} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    expect(lastClientOpts.viewMode).toBe('fit');
+  });
+
+  it('보기 모드 버튼은 폰에서만 나온다', async () => {
+    const { unmount } = render(<VncPane {...baseProps()} />);
+    let handle = [...document.querySelectorAll('button')].find((b) => b.title === 'vncQuality');
+    act(() => { handle.click(); });
+    expect([...document.querySelectorAll('button')].map((b) => b.textContent))
+      .not.toContain('vncViewPan');
+    unmount();
+
+    render(<VncPane {...baseProps({ isMobile: true })} />);
+    handle = [...document.querySelectorAll('button')].find((b) => b.title === 'vncQuality');
+    act(() => { handle.click(); });
+    expect([...document.querySelectorAll('button')].map((b) => b.textContent))
+      .toContain('vncViewPan');
+  });
+
+  it('보기 모드를 고르면 updateSettings 로 영속화한다', async () => {
+    const updateSettings = vi.fn();
+    render(<VncPane {...baseProps({ isMobile: true, updateSettings })} />);
+    const handle = [...document.querySelectorAll('button')].find((b) => b.title === 'vncQuality');
+    act(() => { handle.click(); });
+    const panBtn = [...document.querySelectorAll('button')].find((b) => b.textContent === 'vncViewPan');
+    act(() => { panBtn.click(); });
+    expect(updateSettings).toHaveBeenCalledWith({ vncViewMode: 'pan' });
+  });
+
+  it('연결 중 보기 모드를 바꾸면 재연결 없이 rfb 플래그만 바뀐다', async () => {
+    const { rerender } = render(<VncPane {...baseProps({ isMobile: true })} />);
+    await waitFor(() => expect(createVncClientMock).toHaveBeenCalledTimes(1));
+    act(() => { lastClientOpts.onConnected(); });
+
+    rerender(<VncPane {...baseProps({ isMobile: true, settings: { vncViewMode: 'pan' } })} />);
+    expect(createVncClientMock).toHaveBeenCalledTimes(1);   // 재연결 없음
+    expect(fakeClient.rfb.scaleViewport).toBe(false);
+    expect(fakeClient.rfb.clipViewport).toBe(true);
+    expect(fakeClient.rfb.dragViewport).toBe(true);
+  });
+
   it('프리셋을 고르면 컨트롤이 다시 접힌다', async () => {
     render(<VncPane {...baseProps()} />);
     const handle = [...document.querySelectorAll('button')].find((b) => b.title === 'vncQuality');

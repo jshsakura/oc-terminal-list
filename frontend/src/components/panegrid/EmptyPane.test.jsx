@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import { VncDisplayPicker } from './EmptyPane';
+import EmptyPane, { VncDisplayPicker } from './EmptyPane';
+import { resetLocalVncProbe } from '../../hooks/useLocalVncAvailable';
 
 // authHeaders mock — 실제 토큰 로직 없이 헤더 객체만 반환
 vi.mock('../../utils/auth', () => ({
@@ -15,6 +16,8 @@ vi.mock('../../styles/tokens', () => ({
       border: '#3b4261', borderStrong: '#414868', text: '#c0caf5', subtext: '#565f89',
       muted: '#7f87b3', accent: '#7aa2f7', scrim: 'rgba(0,0,0,0.55)',
       success: '#9ece6a', warning: '#e0af68', danger: '#f7768e',
+      faint: '#3b4261', crust: '#0f0f14',
+      dotPalette: ['#7aa2f7', '#9ece6a', '#e0af68'],
     },
     font: { sans: 'sans-serif', mono: 'monospace' },
     fontSize: { '10': '10px', '11': '11px', '12': '12px', '13': '13px' },
@@ -24,10 +27,19 @@ vi.mock('../../styles/tokens', () => ({
   },
 }));
 
-// HomeDashboard mock — VncDisplayPicker 테스트에 불필요한 의존성 차단
+// HomeDashboard mock — VncDisplayPicker 테스트에 불필요한 의존성 차단.
+// 받은 props 는 기록해 둔다(EmptyPane 이 홈에 무엇을 넘기는지 검증용).
+let lastHomeProps = null;
 vi.mock('../HomeDashboard', () => ({
-  default: () => null,
+  default: (props) => { lastHomeProps = props; return null; },
   HostRow: () => null,
+}));
+
+// 뷰포트 판정 — 테스트마다 폰/데스크탑을 전환한다(jsdom 은 항상 데스크탑처럼 보인다).
+let isPhone = false;
+vi.mock('../../utils/tabModel', async (importOriginal) => ({
+  ...(await importOriginal()),
+  isPhoneViewport: () => isPhone,
 }));
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -63,6 +75,9 @@ const renderPicker = (overrides = {}) =>
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('VncDisplayPicker', () => {
+  beforeEach(() => {
+    isPhone = false;   // 기본은 데스크탑 — 폰 케이스만 테스트에서 켠다
+  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -507,6 +522,36 @@ describe('VncDisplayPicker', () => {
     });
   });
 
+  // 폰에서 만드는 데스크탑은 폰 크기를 따르지 않는다 — 그 해상도로 뜨면 창이 잘리고,
+  // 해상도가 세션에 남아 나중에 PC 로 봐도 잘린 채다.
+  it('phone viewport ignores paneSize and creates a desktop-sized geometry', async () => {
+    isPhone = true;
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ available: true, installed: true, display: 1, port: 5901 }),
+    });
+
+    render(
+      <VncDisplayPicker
+        host={HOST} t={(k) => k} onPick={vi.fn()} onClose={vi.fn()}
+        paneSize={{ width: 390, height: 720 }}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/vncCreateAndConnect/)).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText(/vncCreateAndConnect/));
+
+    await waitFor(() => {
+      const postCall = global.fetch.mock.calls.find(
+        ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
+      );
+      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1280x800' });
+    });
+  });
+
   it('falls back to viewport size when paneSize is null', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -566,5 +611,43 @@ describe('VncDisplayPicker', () => {
       expect(screen.getByText(/remoteDesktop/)).toBeTruthy();
       expect(screen.getByText(/test-host/)).toBeTruthy();
     });
+  });
+});
+
+// 빈 pane 의 홈은 App 홈과 같은 카드를 그린다. 로컬 원격 데스크톱 버튼 노출 여부
+// (showLocalVnc)를 여기서 빠뜨리면 "PC 홈에는 아이콘이 뜨는데 폰에서 빈 pane 으로
+// 들어가면 안 뜬다" 가 된다 — 실제로 그랬다.
+describe('EmptyPane — 홈에 넘기는 로컬 VNC 노출 여부', () => {
+  beforeEach(() => {
+    lastHomeProps = null;
+    resetLocalVncProbe();
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    resetLocalVncProbe();
+  });
+
+  const renderEmptyPane = () => render(
+    <EmptyPane hosts={[]} tab={{ id: 't1', panes: [] }} allTabs={[]} settings={{}} t={(k) => k} />,
+  );
+
+  it('로컬에 VNC 가 있으면 showLocalVnc=true 로 홈에 넘긴다', async () => {
+    mockFetchResponse({ available: true, installed: true, displays: [] });
+    renderEmptyPane();
+    await waitFor(() => expect(lastHomeProps?.showLocalVnc).toBe(true));
+  });
+
+  it('로컬에 VNC 가 없으면 노출하지 않는다 — 컨테이너 배포', async () => {
+    mockFetchResponse({ available: true, installed: false, displays: [] });
+    renderEmptyPane();
+    await waitFor(() => expect(lastHomeProps).toBeTruthy());
+    expect(lastHomeProps.showLocalVnc).toBe(false);
+  });
+
+  it('조회가 실패하면 노출하지 않는다 — 조용히 false', async () => {
+    mockFetchReject('boom');
+    renderEmptyPane();
+    await waitFor(() => expect(lastHomeProps).toBeTruthy());
+    expect(lastHomeProps.showLocalVnc).toBe(false);
   });
 });

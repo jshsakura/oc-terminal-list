@@ -1,3 +1,5 @@
+import { applyVncViewMode, VNC_VIEW_FIT } from '../../utils/vncResize';
+
 /**
  * noVNC RFB 인스턴스를 만들어 컨테이너에 붙인다.
  * createXtermInstance 와 같은 패턴 — 여기서는 *만들기만* 한다.
@@ -12,6 +14,9 @@
  * @param {string} opts.url - WS 터널 URL (티켓·디스플레이 쿼리 포함)
  * @param {number=} opts.qualityLevel - noVNC 화질 (0-9, 높을수록 선명). 기본 6.
  * @param {number=} opts.compressionLevel - noVNC 압축 (0-9, 높을수록 압축 강함). 기본 3.
+ * @param {boolean=} opts.resizeSession - 컨테이너 크기를 원격 해상도로 통보할지. 기본 true.
+ *   폰에서는 false — 폰 크기를 데스크탑에 강요하지 않는다(vncResize.js 주석 참고).
+ * @param {string=} opts.viewMode - 'fit'(맞춤) | 'pan'(원본+이동). 기본 'fit'.
  * @param {function=} opts.onConnected - RFB 'connect' 이벤트
  * @param {function=} opts.onDisconnected - RFB 'disconnect' 이벤트 (detail.clean)
  * @param {function=} opts.onCredentialsRequired - 인증 정보 요구
@@ -23,6 +28,8 @@ export default async function createVncClient({
   url,
   qualityLevel = 6,
   compressionLevel = 3,
+  resizeSession = true,
+  viewMode = VNC_VIEW_FIT,
   onConnected,
   onDisconnected,
   onCredentialsRequired,
@@ -36,13 +43,16 @@ export default async function createVncClient({
   // 'binary' 로 고정한다(noVNC 표준 설정).
   const rfb = new RFB(container, url, { wsProtocols: ['binary'] });
 
-  // scaleViewport=true: 원격 해상도를 컨테이너 크기에 맞춰 스케일(원본 해상도 유지).
+  // 보기 모드 — fit(scaleViewport) / pan(clipViewport+dragViewport). 순서 규칙은
+  // applyVncViewMode 가 안다("Scaling trumps clipping").
+  applyVncViewMode(rfb, viewMode);
+
   // resizeSession=true: 원격 framebuffer 해상도를 컨테이너 크기로 맞춘다(SetDesktopSize PDU).
   //   VncPane 의 ResizeObserver 가 분할 테두리 드래그 중에는 이 값을 false 로 토글해
   //   매 프레임마다 SetDesktopSize 가 날아가 Xvnc 가 흔들리는 것을 막고, 250ms 안정화 뒤
   //   다시 true 로 돌려 noVNC 가 _requestRemoteResize() 로 1회만 전송하게 한다.
-  rfb.scaleViewport = true;
-  rfb.resizeSession = true;
+  // 폰에서는 false — 데스크탑을 폰 크기로 줄이면 창이 잘리고 그 해상도가 세션에 남는다.
+  rfb.resizeSession = resizeSession;
 
   // 화질/압축 프리셋 — VncPane 이 settings.vncQuality 에서 매핑해 넘겨준다.
   // 연결 중에 바뀌면 VncPane 의 useEffect 가 rfb.qualityLevel/compressionLevel 을

@@ -6,7 +6,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { ArrowRightLeft, Copy, Cpu, Monitor, Plus, Power, Server, Terminal as TerminalIcon, X, Zap } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
-import { computeVncGeometry } from '../../utils/vncResize';
+import { computeCreateGeometry } from '../../utils/vncResize';
+import { isPhoneViewport } from '../../utils/tabModel';
+import useLocalVncAvailable from '../../hooks/useLocalVncAvailable';
 import HomeDashboard, { HostRow } from '../HomeDashboard';
 import HostIcon from '../../utils/hostIcons';
 
@@ -29,6 +31,8 @@ const EmptyPane = ({
 }) => {
   // VNC 디스플레이 픽커 — 어느 호스트의 픽커가 열려 있는지(host 객체) 추적.
   const [vncPickerHost, setVncPickerHost] = useState(null);
+  // 로컬 원격 데스크톱 버튼 노출 여부 — App 홈과 같은 훅(모듈 캐시)이라 조회는 한 번.
+  const localVncAvailable = useLocalVncAvailable();
   // pane 컨테이너 실측 — VNC 생성 시 초기 해상도를 pane 크기에 맞추기 위해.
   const paneContainerRef = useRef(null);
 
@@ -79,6 +83,8 @@ const EmptyPane = ({
         onOpenHostAtPath={onPickHostPath || null}
         // VNC 원격 데스크톱 — 호스트 카드의 ScreenShare 버튼 → 디스플레이 픽커 오픈.
         onOpenVnc={(host) => setVncPickerHost(host)}
+        // 홈과 동일하게 로컬 카드에도 원격 데스크톱 버튼을 준다(있을 때만).
+        showLocalVnc={localVncAvailable}
         onEditLocal={onEditLocal || null}
         onPickLocalPath={onPickLocalPath || null}
         // 빈 패널에서는 호스트 추가/편집 진입은 부모 콜백 사용. 없으면 EmptyRow 가 빈 핸들러로 동작.
@@ -148,11 +154,13 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
   const [customGeometry, setCustomGeometry] = useState('');
 
   // 주 액션용 동적 해상도 — pane 실측이 있으면 그것을, 없으면 뷰포트를 기준.
-  // paneSize 가 명시적으로 null 이면(측정 전/불가) computeVncGeometry 가 '1280x800' 폴백.
-  const dynamicGeometry = computeVncGeometry(
-    paneSize?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0),
-    paneSize?.height ?? (typeof window !== 'undefined' ? window.innerHeight : 0),
-  );
+  // paneSize 가 명시적으로 null 이면(측정 전/불가) '1280x800' 폴백.
+  // 폰에서는 실측을 쓰지 않는다 — 폰 크기로 만든 데스크탑은 창이 잘린 채 세션에 남는다.
+  const dynamicGeometry = computeCreateGeometry({
+    width: paneSize?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0),
+    height: paneSize?.height ?? (typeof window !== 'undefined' ? window.innerHeight : 0),
+    isPhone: isPhoneViewport(),
+  });
 
   // 디스플레이 목록 조회. host 가 바뀌면 useEffect 가 다시 부른다.
   const refresh = useCallback(async () => {

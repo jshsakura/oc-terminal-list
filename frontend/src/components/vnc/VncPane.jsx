@@ -7,11 +7,14 @@
  * 사용자는 상태 배지로 연결 상태를 보고 필요시 새로고침할 수 있다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Monitor, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Monitor, ChevronLeft, ChevronRight, Maximize2, Move } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { issueWsTicket } from '../terminal/terminalHelpers';
 import createVncClient from './createVncClient';
-import { computeVncResize, createResizeScheduler } from '../../utils/vncResize';
+import {
+  computeVncResize, createResizeScheduler,
+  applyVncViewMode, normalizeVncViewMode, VNC_VIEW_FIT, VNC_VIEW_PAN,
+} from '../../utils/vncResize';
 
 const { color, font, fontSize, fontWeight, radius } = tokens;
 
@@ -58,6 +61,7 @@ const STATUS_LABEL = {
 
 const VncPane = ({
   hostId, display, isActive, isFocused, settings, t, onReadyChange, updateSettings,
+  isMobile = false,
 }) => {
   const containerRef = useRef(null);
   const clientRef = useRef(null);
@@ -113,6 +117,16 @@ const VncPane = ({
   const lastSentRef = useRef(null);
   const resizeSchedulerRef = useRef(null);
 
+  /* 폰은 원격 해상도를 따라오게 하지 않는다.
+     pane 이 400px 남짓이라 그 크기로 SetDesktopSize 를 보내면 데스크탑의 창·패널이
+     화면 밖으로 잘리고, 그 해상도가 세션에 남아 나중에 PC 로 봐도 잘린 채다.
+     폰은 "보는 창" 이지 데스크탑 크기를 정하는 주체가 아니다 — 대신 보기 모드
+     (맞춤/이동)로 큰 화면을 다룬다. */
+  const followPaneSize = !isMobile;
+  const viewMode = isMobile ? normalizeVncViewMode(settings?.vncViewMode) : VNC_VIEW_FIT;
+  const viewModeRef = useRef(viewMode);
+  viewModeRef.current = viewMode;
+
   useEffect(() => {
     // isActive=false(다른 pane 이 포커스) 거나 docHidden(탭 숨김) 이면 연결 안 한다.
     // 정리 함수가 기존 연결을 끊으므로, 비활성/숨김 전환 시 자동으로 disconnect 된다.
@@ -167,6 +181,8 @@ const VncPane = ({
           url,
           qualityLevel: qPreset.qualityLevel,
           compressionLevel: qPreset.compressionLevel,
+          resizeSession: followPaneSize,
+          viewMode: viewModeRef.current,
           onConnected: () => {
             if (!cancelled) {
               setStatus('connected');
@@ -209,7 +225,8 @@ const VncPane = ({
         destroyClient = client.destroy;
 
         // 리사이즈 스케줄러 — 드래그 중 remote resize 차단, 250ms 안정 후 1회 SetDesktopSize.
-        scheduler = createResizeScheduler({
+        // 폰(followPaneSize=false)에서는 아예 만들지 않는다 — 보낼 일이 없다.
+        scheduler = !followPaneSize ? null : createResizeScheduler({
           onApply: () => {
             const c = clientRef.current;
             if (!c?.rfb || !containerRef.current) return;
@@ -233,6 +250,12 @@ const VncPane = ({
         ro = new ResizeObserver(() => {
           const c = clientRef.current;
           if (!c?.rfb) return;
+          if (!followPaneSize) {
+            // 폰 — 원격 해상도는 그대로 두고, 바뀐 컨테이너에 맞춰 스케일/클립만 다시 잡는다
+            // (회전·키보드·에디터 열기). 세터 대입이 noVNC 의 _updateScale/_updateClip 을 부른다.
+            applyVncViewMode(c.rfb, viewModeRef.current);
+            return;
+          }
           // 드래그 중 remote resize 즉시 차단. 시각적 스케일링(scaleViewport/_updateScale)은
           // _resizeSession 이 아닌 _scaleViewport 를 검사하므로 계속 동작한다.
           c.rfb.resizeSession = false;
@@ -260,7 +283,15 @@ const VncPane = ({
       resizeSchedulerRef.current = null;
     };
     // hostId·display·활성/가시성 만 재연결 트리거 — settings/t 는 ref 로 추적하므로 deps 에 넣지 않는다.
-  }, [hostId, display, validDisplay, isActive, docHidden]);
+    // followPaneSize 는 폰↔데스크탑 뷰포트 전환(사실상 거의 없음)에서만 바뀌고, 바뀌면
+    // 원격 해상도 정책 자체가 달라지므로 재연결이 맞다. 보기 모드는 아래 효과가 라이브 반영.
+  }, [hostId, display, validDisplay, isActive, docHidden, followPaneSize]);
+
+  // 보기 모드 라이브 반영 — 재연결 없이 noVNC 플래그만 바꾼다.
+  // status 를 deps 에 둬서 연결 직후(클라이언트 생성 뒤)에도 한 번 적용된다.
+  useEffect(() => {
+    applyVncViewMode(clientRef.current?.rfb, viewMode);
+  }, [viewMode, status]);
 
   // ready 상태 보고 — Terminal 의 onReadyChange={setTerminalReady} 와 대응.
   useEffect(() => {
@@ -496,6 +527,46 @@ const VncPane = ({
           }}
         >
           <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {/* 보기 모드 — 폰에서만. 데스크탑은 pane 크기가 곧 원격 해상도라 두 모드가
+                같은 그림이고, 폰은 데스크탑이 화면보다 커서 이 선택이 필요하다.
+                맞춤=통째로 축소, 이동=1:1 로 보고 손가락으로 끌어 이동. */}
+            {isMobile && (
+              <>
+                {[
+                  [VNC_VIEW_FIT, t?.('vncViewFit') || 'Fit', Maximize2],
+                  [VNC_VIEW_PAN, t?.('vncViewPan') || 'Actual · drag', Move],
+                ].map(([value, label, Icon]) => {
+                  const isOn = viewMode === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => { updateSettings?.({ vncViewMode: value }); setControlsOpen(false); }}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '5px 12px',
+                        background: isOn ? color.accentSubtle : 'transparent',
+                        border: 'none',
+                        fontFamily: font.sans,
+                        fontSize: fontSize['11'],
+                        fontWeight: isOn ? fontWeight.semibold : fontWeight.medium,
+                        color: isOn ? color.accent : color.subtext,
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        outline: 'none',
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <Icon size={11} strokeWidth={2} />
+                      {label}
+                    </button>
+                  );
+                })}
+                <div style={{ height: '1px', background: color.border, margin: '3px 0' }} />
+              </>
+            )}
             {[
               ['sharp', t?.('vncQualitySharp') || 'Sharp'],
               ['balanced', t?.('vncQualityBalanced') || 'Balanced'],

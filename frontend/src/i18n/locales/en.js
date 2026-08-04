@@ -882,6 +882,8 @@ export const en = {
     vncQualitySharp: 'Sharp',
     vncQualityBalanced: 'Balanced',
     vncQualityLight: 'Light',
+    vncViewFit: 'Fit to screen',
+    vncViewPan: 'Actual size · drag',
     vncStatus_connecting: 'Connecting…',
     vncStatus_connected: 'Connected',
     vncStatus_credentials: 'Password required',

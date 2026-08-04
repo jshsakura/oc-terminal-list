@@ -413,6 +413,33 @@ NVENC 는 놀고 있다. 부드러운 3D 가 필요하면 그건 WebRTC(Selkies)
   `mode`/`display` 가 떨어져 VNC pane 이 터미널로 변한 적이 있다.
 - noVNC 는 **lazy import**. 수백 KB 라 시작 번들에 들어가면 안 된다.
 
+### 폰은 데스크탑의 크기를 정하지 않는다 (2026-08-05)
+
+**폰에서는 `resizeSession=false`.** 폰 pane 은 400px 남짓이라 그 크기로 `SetDesktopSize`
+가 나가면 데스크탑의 창·패널이 화면 밖으로 잘린다. 게다가 그 해상도는 **세션에 남아**
+나중에 PC 로 봐도 잘린 채다. "모바일에서 VNC 화면이 다 잘린다" 의 근원이 이것이었다.
+생성 해상도도 같은 규칙 — 폰에서 만들면 실측 대신 `1280x800`(`computeCreateGeometry`).
+
+폰은 데스크탑보다 작으므로 **보기 모드**로 큰 화면을 다룬다(`settings.vncViewMode`,
+컨트롤 레일에서 전환, 폰에서만 노출):
+
+| 모드 | noVNC 플래그 | 쓰임 |
+|---|---|---|
+| `fit` (기본) | `scaleViewport` | 통째로 축소 — 전체 배치 보기 |
+| `pan` | `clipViewport` + `dragViewport` | 1:1 픽셀 + 끌어서 이동, 탭은 클릭 |
+
+- **적용 순서가 규칙이다.** noVNC `_updateClip` 은 "Scaling trumps clipping" 이라
+  `scaleViewport` 가 켜진 동안 들어온 `clipViewport=true` 를 **무시한다**. 항상 끄는 쪽을
+  먼저 대입할 것 — `applyVncViewMode` 가 그 순서를 갖고 있고 테스트가 순서까지 검증한다.
+- **중간 배율(핀치 줌)은 공개 API 로 안 된다.** `scaleViewport` 는 "맞춤" 뿐이고 임의 배율은
+  `rfb._display.scale`(비공개)이다. CSS `transform: scale()` 도 안 된다 — noVNC 는
+  `getBoundingClientRect` 로 포인터 좌표를 잡고 자기 내부 scale 로만 나누므로 클릭 위치가
+  배율만큼 어긋난다.
+- 폰에서는 pane 크기가 바뀌어도(회전·키보드) 원격에 통보하지 않고 **스케일/클립만 다시**
+  잡는다.
+- 이미 폰 크기로 줄어든 세션은 자동 복구되지 않는다 — 픽커에서 종료 후 다시 만들거나
+  PC 로 한 번 열면(=pane 크기로 리사이즈) 돌아온다.
+
 ### 로컬(이 서버 자신)도 대상이다
 
 `host_id` 로 **`local` 예약어**를 받는다(`routes/vnc.py` 의 `LOCAL_HOST_ID`). DB 에 없는
@@ -428,6 +455,12 @@ NVENC 는 놀고 있다. 부드러운 3D 가 필요하면 그건 WebRTC(Selkies)
 확인) 로컬 원격 데스크톱 버튼은 **홈 진입 시 한 번 조회해서 실제로 있을 때만** 그린다.
 없으면 버튼 자체가 안 뜬다. 원격 호스트는 SSH 를 타야 알 수 있어 매번 프로브할 수 없다
 (클릭 시 조회) — 로컬만 SSH 없이 한 번에 알 수 있어서 자동 감지가 가능하다.
+
+이 판정은 **`hooks/useLocalVncAvailable` 하나**가 갖는다(모듈 레벨 캐시 → 조회 1회).
+호스트 카드를 그리는 화면이 둘(App 홈 · 빈 pane 의 `EmptyPane` 홈)인데 App 쪽에만 값이
+있어서 **폰에서 빈 pane 으로 들어가면 로컬 원격 데스크톱 아이콘이 안 뜨는** 버그가 있었다
+(폰의 기본 동선이 빈 pane 홈이라 폰에서만 없는 것처럼 보였다). 홈을 그리는 곳이 늘어나면
+프로브를 복사하지 말고 이 훅을 써라.
 
 ### 미설치 호스트에는 설치법을 보여준다
 

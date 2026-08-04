@@ -882,6 +882,8 @@ export const ko = {
     vncQualitySharp: '선명하게',
     vncQualityBalanced: '균형',
     vncQualityLight: '가볍게',
+    vncViewFit: '화면 맞춤',
+    vncViewPan: '원본·끌어서 이동',
     vncStatus_connecting: '연결 중…',
     vncStatus_connected: '연결됨',
     vncStatus_credentials: '비밀번호 필요',

@@ -16,6 +16,7 @@ import useDeepLinkOpen from './hooks/useDeepLinkOpen';
 import useAgentStatus from './hooks/useAgentStatus';
 import { deriveTabAgentStatus } from './utils/tabAgentStatus';
 import useBlockStrayFileDrop from './hooks/useBlockStrayFileDrop';
+import useLocalVncAvailable from './hooks/useLocalVncAvailable';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
@@ -568,25 +569,10 @@ function App() {
   const [confirmModal, setConfirmModal] = useState({ isOpen: false, title: '', message: '', onConfirm: null });
   const [notification, setNotification] = useState({ isOpen: false, message: '' });
   const [vncPickerHost, setVncPickerHost] = useState(null);
-  /* 이 배포의 로컬 머신이 VNC 를 쓸 수 있는가 — 한 번만 조회해 캐시한다.
-     컨테이너 배포에서 local 은 컨테이너 자신이고 이미지에 VNC 가 없으므로 false 가 된다.
-     설치돼 있거나 이미 떠 있는 디스플레이가 있으면 true. 실패는 조용히 false —
-     이 조회 때문에 홈이 깨지면 안 된다. */
-  const [localVncAvailable, setLocalVncAvailable] = useState(false);
-  useEffect(() => {
-    if (!isAuthenticated) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/hosts/local/vnc/displays', { headers: authHeaders() });
-        if (!res.ok) return;
-        const json = await res.json();
-        if (cancelled) return;
-        setLocalVncAvailable(!!json?.installed || (json?.displays?.length ?? 0) > 0);
-      } catch { /* 조회 실패 = 노출 안 함 */ }
-    })();
-    return () => { cancelled = true; };
-  }, [isAuthenticated]);
+  /* 이 배포의 로컬 머신이 VNC 를 쓸 수 있는가 — 한 번만 조회해 캐시한다(훅이 모듈
+     레벨에 보관하므로 빈 pane 의 EmptyPane 홈도 같은 답을 본다). 컨테이너 배포에서
+     local 은 컨테이너 자신이고 이미지에 VNC 가 없으므로 false 가 된다. */
+  const localVncAvailable = useLocalVncAvailable(isAuthenticated);
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // SSH keyboard-interactive prompt 가 열려 있는지 — 모바일 단축키바 가림 처리.
   const [authPromptOpen, setAuthPromptOpen] = useState(false);

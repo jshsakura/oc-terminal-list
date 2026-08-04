@@ -122,6 +122,9 @@ const _GEO_MAX_W = 3840;
 const _GEO_MAX_H = 2160;
 const _GEO_FALLBACK = '1280x800';
 
+/** 폰에서 데스크탑을 만들 때 쓰는 해상도 — 폰 화면 크기를 데스크탑에 강요하지 않는다. */
+export const DESKTOP_DEFAULT_GEOMETRY = _GEO_FALLBACK;
+
 export const computeVncGeometry = (width, height) => {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
     return _GEO_FALLBACK;
@@ -134,4 +137,63 @@ export const computeVncGeometry = (width, height) => {
   const w = Math.min(_GEO_MAX_W, Math.max(_GEO_MIN_W, evenRound(width)));
   const h = Math.min(_GEO_MAX_H, Math.max(_GEO_MIN_H, evenRound(height)));
   return `${w}x${h}`;
+};
+
+/**
+ * 데스크탑 생성 해상도 — 폰이면 실측을 무시하고 데스크탑 기본값을 쓴다.
+ *
+ * 폰 pane 은 세로로 길고 400px 남짓이다. 그 크기로 Xvnc 를 띄우면 데스크탑의 창과
+ * 패널이 화면 밖으로 잘리고, 그 해상도는 세션에 그대로 남아 나중에 PC 로 봐도
+ * 잘린 채다. 폰은 "보는 창" 이지 데스크탑의 크기를 정하는 주체가 아니다.
+ *
+ * @param {object} opts
+ * @param {number|null|undefined} opts.width - pane/뷰포트 CSS 픽셀 폭.
+ * @param {number|null|undefined} opts.height - pane/뷰포트 CSS 픽셀 높이.
+ * @param {boolean} [opts.isPhone=false] - 폰 뷰포트 여부(utils/tabModel.isPhoneViewport).
+ * @returns {string} 'WxH'
+ */
+export const computeCreateGeometry = ({ width, height, isPhone = false } = {}) => (
+  isPhone ? DESKTOP_DEFAULT_GEOMETRY : computeVncGeometry(width, height)
+);
+
+/**
+ * 모바일 보기 모드 — 'fit'(화면 맞춤) | 'pan'(원본 크기 + 끌어서 이동).
+ *
+ * 폰에서는 원격 해상도를 pane 에 맞추지 않으므로(위 computeCreateGeometry 참고)
+ * 데스크탑이 화면보다 크다. 그 큰 화면을 어떻게 볼지가 이 모드다:
+ *   fit — 통째로 축소해 다 보이게. 전체 배치를 볼 때.
+ *   pan — 1:1 픽셀로 보고 손가락으로 끌어 이동. 실제로 작업할 때.
+ */
+export const VNC_VIEW_FIT = 'fit';
+export const VNC_VIEW_PAN = 'pan';
+
+export const normalizeVncViewMode = (mode) => (mode === VNC_VIEW_PAN ? VNC_VIEW_PAN : VNC_VIEW_FIT);
+
+/**
+ * 보기 모드 → noVNC 플래그 3종. 순수 함수 — 테스트가 DOM 없이 판정을 검증한다.
+ * pan 은 clipViewport 가 켜져야 dragViewport 가 의미를 갖는다(noVNC API 규칙).
+ */
+export const vncViewModeFlags = (mode) => (normalizeVncViewMode(mode) === VNC_VIEW_PAN
+  ? { scaleViewport: false, clipViewport: true, dragViewport: true }
+  : { scaleViewport: true, clipViewport: false, dragViewport: false });
+
+/**
+ * 플래그를 rfb 에 적용한다. **순서가 중요하다** — noVNC 의 _updateClip 은
+ * "Scaling trumps clipping" 이라 scaleViewport 가 켜져 있는 동안 들어온
+ * clipViewport=true 를 무시한다. 그래서 항상 끄는 쪽을 먼저 대입한다.
+ *
+ * @returns {object|null} 적용된 플래그(테스트/디버그용). rfb 가 없으면 null.
+ */
+export const applyVncViewMode = (rfb, mode) => {
+  if (!rfb) return null;
+  const flags = vncViewModeFlags(mode);
+  if (flags.scaleViewport) {
+    rfb.clipViewport = flags.clipViewport;   // 먼저 끈다
+    rfb.scaleViewport = true;
+  } else {
+    rfb.scaleViewport = false;               // 먼저 끈다
+    rfb.clipViewport = flags.clipViewport;
+  }
+  rfb.dragViewport = flags.dragViewport;
+  return flags;
 };

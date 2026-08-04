@@ -627,6 +627,7 @@ const Pane = ({
                 display={pane.display}
                 isActive={isActive}
                 isFocused={isFocused}
+                isMobile={isMobile}
                 settings={settings}
                 t={t}
                 onReadyChange={setTerminalReady}
