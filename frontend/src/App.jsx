@@ -991,6 +991,7 @@ function App() {
               tabs={tabsWithMeta}
               busyTabIds={busyTabIds}
               onJumpTab={(tabId) => setActiveTabId(tabId)}
+              onJumpPane={(tabId, paneId) => { setActiveTabId(tabId); focusPane(tabId, paneId); }}
               onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
               onTerminateHostSession={async (host, sessionName) => {
                 const res = await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {

@@ -25,16 +25,25 @@ async def resolve_host_with_secrets(host_id: str, username: str) -> tuple:
     return host, secrets
 
 
-async def run_remote_cmd(host: dict, secrets: dict, cmd: str, timeout: float = 10.0) -> str:
-    """원격 호스트에서 셸 명령을 실행하고 stdout 문자열을 반환. tailscale/SSH 자동 분기."""
+async def run_remote_cmd(host: dict, secrets: dict, cmd: str, timeout: float = 10.0,
+                         stdin_data: str | None = None) -> str:
+    """원격 호스트에서 셸 명령을 실행하고 stdout 문자열을 반환. tailscale/SSH 자동 분기.
+
+    `stdin_data` 는 **비밀을 넘기기 위한 통로**다. 명령 문자열은 원격 셸의 argv 가
+    되므로 거기에 넣은 것은 그 호스트의 `ps` 에 그대로 보인다 — 환경변수 대입
+    (`K=값 cmd`)도 마찬가지로 argv 의 일부라 소용없다. stdin 은 남지 않는다.
+    (VNC 비밀번호를 stdin 으로만 넘기는 것과 같은 규칙.)
+    """
     if host.get("auth_method") == "tailscale":
         target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
         proc = await asyncio.create_subprocess_exec(
             "tailscale", "ssh", target, cmd,
+            stdin=asyncio.subprocess.PIPE if stdin_data is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        payload = stdin_data.encode() if stdin_data is not None else None
+        stdout, _ = await asyncio.wait_for(proc.communicate(input=payload), timeout=timeout)
         return stdout.decode("utf-8", errors="replace")
     from host_manager import open_connection
     conn = await open_connection(
@@ -44,7 +53,10 @@ async def run_remote_cmd(host: dict, secrets: dict, cmd: str, timeout: float = 1
         password=secrets["password"],
     )
     try:
-        result = await asyncio.wait_for(conn.run(cmd, check=False), timeout=timeout)
+        run = conn.run(cmd, check=False) if stdin_data is None else conn.run(
+            cmd, check=False, input=stdin_data
+        )
+        result = await asyncio.wait_for(run, timeout=timeout)
         return (result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace"))
     finally:
         conn.close()

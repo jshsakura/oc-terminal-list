@@ -116,7 +116,9 @@ describe('Settings', () => {
       />
     );
 
-    fireEvent.click(screen.getByText(/Hosts/i));
+    // 탭 라벨 정확 일치 — 부분 일치(/Hosts/i)는 본문의 다른 설명 문구("…your hosts.")
+    // 까지 잡아 "여러 개 찾음" 으로 깨진다.
+    fireEvent.click(screen.getByText(/^Manage hosts$/i));
 
     const addBtn = screen.getByText(/Add host/i).closest('button');
     const localBtn = screen.getAllByText(/^This machine$/i)[0].closest('button');

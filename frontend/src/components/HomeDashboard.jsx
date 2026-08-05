@@ -8,6 +8,7 @@ import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import useHostReorder from '../hooks/useHostReorder';
 import DashboardCards from './DashboardCards';
+import LlmUsageCards from './LlmUsageCards';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -38,6 +39,8 @@ const HomeDashboard = ({
   tabs = [],
   busyTabIds = null,
   onJumpTab,
+  // LLM 사용량 카드에서 세션 → 살아있는 pane 으로 점프할 때. (tabId, paneId) => void
+  onJumpPane = null,
   onResumeHostSession,
   onTerminateHostSession,
   onConfirm,
@@ -187,6 +190,17 @@ const HomeDashboard = ({
           <Section icon={BarChart3} title={t?.('usageStats') || 'Usage · last 7 days'}>
             <DashboardCards hosts={hosts} settings={settings} days={7} t={t} />
           </Section>
+        )}
+
+        {/* 5) LLM 토큰·비용 — llm-watcher 연동이 켜져 있고 실제로 닿을 때만.
+            안 그러면 이 구획은 소제목까지 통째로 렌더되지 않는다. */}
+        {showUsageStats && (
+          <LlmUsageCards
+            hosts={hosts}
+            tabs={tabs}
+            onJumpPane={onJumpPane}
+            t={t}
+          />
         )}
       </div>
     </div>

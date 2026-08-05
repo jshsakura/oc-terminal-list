@@ -55,6 +55,39 @@ services:
       retries: 3
       start_period: 10s
 
+  # LLM 사용량 대시보드 — 옵션. 프로필로 감싸서 기본 `up` 에는 안 뜬다.
+  #
+  #   docker compose --profile usage up -d
+  #
+  # 켜면 app 이 compose 네트워크에서 `llm-watcher:34318` 을 자동으로 찾는다(설정 0).
+  # 그다음 설정 화면에서 "LLM usage" 를 켜야 대시보드에 구획이 생긴다 — 에이전트
+  # 기능은 옵트인이다.
+  #
+  # ⚠️ **호스트 포트를 열지 않는다.** compose 네트워크 안에서만 보인다. 이 서비스는
+  # 프로젝트명과 프롬프트 첫 줄을 보여주고 기본 인증이 없다. 굳이 밖에서 봐야 하면
+  # 포트를 여는 대신 LLMW_API_KEY 를 켜라.
+  llm-watcher:
+    image: ghcr.io/jshsakura/llm-watcher:latest
+    container_name: oc-terminal-list-llm-watcher
+    profiles: ["usage"]
+    restart: unless-stopped
+    environment:
+      # 비우면 인증 없음. compose 내부 네트워크 전용이라 기본은 이대로 둔다.
+      LLMW_API_KEY: "${LLMW_API_KEY:-}"
+    # 마운트한 로그의 소유자와 맞아야 읽는다. `id -u` 가 1000 이 아니면 .env 에서 조정.
+    user: "${WATCHER_UID:-1000}:${WATCHER_GID:-1000}"
+    volumes:
+      # 호스트의 에이전트 로그 — 전부 읽기 전용. 안 쓰는 에이전트 줄은 지워라
+      # (남기면 없는 경로가 root 소유 빈 디렉토리로 생긴다).
+      - ${HOME}/.claude:/home/watcher/.claude:ro
+      - ${HOME}/.codex:/home/watcher/.codex:ro
+      - ${HOME}/.local/share/opencode:/home/watcher/.local/share/opencode:ro
+      - oc-terminal-list-watcher-data:/app/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
   redis:
     image: redis:alpine
     container_name: oc-terminal-list-redis
@@ -72,3 +105,4 @@ services:
 
 volumes:
   oc-terminal-list-redis-data:
+  oc-terminal-list-watcher-data:

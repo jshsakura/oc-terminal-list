@@ -337,6 +337,7 @@ from routes.files_read import router as files_read_router  # noqa: E402
 from routes.files_write import router as files_write_router  # noqa: E402
 from routes.push import router as push_router  # noqa: E402
 from routes.itl import router as itl_router  # noqa: E402
+from routes.llm_usage import router as llm_usage_router  # noqa: E402
 
 for _router in (
     auth_router,          # 로그인 / OTP / 패스키
@@ -358,6 +359,7 @@ for _router in (
     files_write_router,   # 워크스페이스 파일 쓰기
     push_router,          # 웹 푸시 구독
     itl_router,           # 세션 간 명령 전달 (itl CLI)
+    llm_usage_router,     # LLM 토큰·비용 (호스트별 llm-watcher 집계)
 ):
     app.include_router(_router)
 

@@ -379,7 +379,7 @@ const RankSkeletonRow = () => (
 );
 
 /* ─── 공용 카드 셸 — 평평한 surface0 + 헤어라인 보더. 글로우/그라디언트/시인 없음. */
-const CardShell = ({ icon: Icon, title, children }) => (
+export const CardShell = ({ icon: Icon, title, children }) => (
   <div style={cardStyle}>
     <div style={cardHeadStyle}>
       {Icon && <Icon size={12} strokeWidth={2.2} color={color.subtext} />}
@@ -389,10 +389,10 @@ const CardShell = ({ icon: Icon, title, children }) => (
   </div>
 );
 
-const EmptyState = ({ message }) => (
+export const EmptyState = ({ message }) => (
   <div style={emptyStateStyle}>{message}</div>
 );
-const ErrorState = ({ message }) => (
+export const ErrorState = ({ message }) => (
   <div style={{ ...emptyStateStyle, color: color.danger }}>{message}</div>
 );
 
@@ -452,7 +452,7 @@ function durationPartsFull(seconds) {
 
 /* ─── keyframes — 로딩 스켈레톤 펄스뿐. transform 없는 순수 opacity 애니메이션.
  * prefers-reduced-motion: reduce 에서는 정적 opacity 로 대체. */
-const DASHBOARD_KEYFRAMES = `
+export const DASHBOARD_KEYFRAMES = `
   @keyframes dc-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 0.9; } }
   .dc-skel { animation: dc-pulse 1.6s ease-in-out infinite; }
   @media (prefers-reduced-motion: reduce) {
@@ -461,7 +461,7 @@ const DASHBOARD_KEYFRAMES = `
 `;
 
 /* ─── 스타일 ───────────────────────────────────────────────────────── */
-const gridStyle = {
+export const gridStyle = {
   display: 'grid',
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
   gap: '14px',
@@ -622,7 +622,7 @@ const statLabelStyle = {
 };
 
 /* Host ranking — 단일 세로 목록. 헤더(아이콘 · 이름 · 값) + 얇은 막대. */
-const rankListStyle = {
+export const rankListStyle = {
   display: 'flex',
   flexDirection: 'column',
   gap: '12px',
@@ -630,20 +630,20 @@ const rankListStyle = {
   padding: 0,
   listStyle: 'none',
 };
-const rankRowStyle = {
+export const rankRowStyle = {
   display: 'flex',
   flexDirection: 'column',
   gap: '5px',
   minWidth: 0,
 };
-const rankHeaderStyle = {
+export const rankHeaderStyle = {
   display: 'flex',
   alignItems: 'center',
   gap: '8px',
   minWidth: 0,
 };
 // HostList.jsx 의 hostIcon 배지와 동일한 톤 — surface0 배경 + 헤어라인 보더 + radius.xs.
-const rankIconStyle = {
+export const rankIconStyle = {
   flexShrink: 0,
   width: '18px',
   height: '18px',
@@ -655,7 +655,7 @@ const rankIconStyle = {
   borderRadius: radius.xs,
   boxSizing: 'border-box',
 };
-const rankNameStyle = {
+export const rankNameStyle = {
   flex: 1,
   fontSize: fontSize['12'],
   fontWeight: fontWeight.medium,
@@ -665,7 +665,7 @@ const rankNameStyle = {
   whiteSpace: 'nowrap',
   minWidth: 0,
 };
-const rankValueStyle = {
+export const rankValueStyle = {
   fontSize: '11px',
   fontFamily: font.mono,
   color: color.muted,
@@ -678,7 +678,7 @@ const rankSkelNameStyle = {
   borderRadius: radius.xs,
   background: `color-mix(in srgb, ${color.text} 14%, transparent)`,
 };
-const rankBarTrackStyle = {
+export const rankBarTrackStyle = {
   height: '6px',
   width: '100%',
   background: color.crust,
@@ -686,7 +686,7 @@ const rankBarTrackStyle = {
   borderRadius: radius.xs,
   overflow: 'hidden',
 };
-const rankBarFillStyle = {
+export const rankBarFillStyle = {
   height: '100%',
   borderRadius: radius.xs,
   transition: `width ${motion.normal}`,

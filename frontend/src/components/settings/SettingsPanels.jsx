@@ -12,6 +12,7 @@ import { styles, shortcutStyles } from './settingsStyles';
 import { Section, Divider, Field, Select, Toggle, FontSizeRow, ShortcutRow } from './SettingsFields';
 import PushNotificationToggle from './PushNotificationToggle';
 import TelegramSection from './TelegramSection';
+import LlmWatcherSection from './LlmWatcherSection';
 
 const { color, space } = tokens;
 
@@ -117,6 +118,12 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
       <PushNotificationToggle t={t} />
       {/* 버튼이 붙는 알림은 텔레그램이 맡는다 — 웹푸시 액션 버튼은 iOS 에서 안 뜬다. */}
       <TelegramSection t={t} />
+    </Section>
+
+    <Divider />
+
+    <Section title={t('llmUsageSection') || 'LLM usage'}>
+      <LlmWatcherSection t={t} />
     </Section>
 
     <Divider />
