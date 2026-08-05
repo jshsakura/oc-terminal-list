@@ -1,20 +1,28 @@
-"""여러 호스트의 watcher 응답을 한 덩어리로 합친다 — 순수 함수만.
+"""Fold collected sources into the one object the dashboard draws. Pure functions.
 
-I/O 가 없으므로 그대로 단위 테스트한다. 여기서 쓰는 입력은 **다른 서비스가 준 것**이라
-믿지 않는다: 숫자가 아닌 값, 빠진 키, 리스트 아닌 리스트를 전부 흘려보낸다.
+Input is a list of sources (this server + each host), each carrying what
+`collect.py` produced: `{rows, sessions, session_count, warnings}`. No I/O here,
+so it is unit-tested directly.
 
-합산의 함정 두 개:
+Nothing in that input is trusted — it crossed an SSH boundary. Non-numbers,
+missing keys and lists that aren't lists all flow through harmlessly.
 
-- **`agents`/`days` 는 더하면 안 된다.** 개수가 아니라 *서로 다른 것의 수*다. 두
-  호스트가 모두 claude 를 쓰면 더해서 2가 되지만 실제로는 1종이다. 합친 뒤 다시 센다.
-- **같은 이름은 호스트를 넘어 합친다.** 두 호스트의 `kicad` 는 한 줄로 모인다 —
-  "한 화면에서 본다" 가 목적이기 때문이다. 호스트별로 보고 싶으면 `by_host` 가 있다.
+Three traps:
+
+- **`agents`/`days` must not be summed.** They are counts of *distinct* things.
+  Two hosts running claude sum to 2 but are one agent. Merge first, then count.
+- **The same name merges across hosts.** `kicad` on two machines is one line —
+  seeing it in one place is the whole point. `by_host` is there for the split.
+- **Cost is decided per row.** Group first and multiply later and there is no
+  answer for a group mixing models. Each row is priced by its own model.
 """
 from __future__ import annotations
 
-# 토큰 계열 필드 — 전부 단순 합산 대상.
-TOKEN_FIELDS = ("tokens", "input", "output", "cache_read", "cache_creation")
-# 그룹 행(by_agent/by_model/by_project)이 들고 다니는 합산 필드.
+from .pricing import priced_cost
+
+# Token fields — plain sums.
+TOKEN_FIELDS = ("input", "output", "cache_read", "cache_creation")
+# What a group row (by_agent/by_model/by_project) carries.
 GROUP_FIELDS = ("tokens", "cost", "sessions")
 
 
@@ -23,110 +31,162 @@ def _num(x) -> float:
         v = float(x)
     except (TypeError, ValueError):
         return 0.0
-    return v if v == v else 0.0  # NaN 제거
+    return v if v == v else 0.0  # drop NaN
 
 
-def _rows(payload, key: str) -> list[dict]:
+def _tokens_of(row: dict) -> dict:
+    return {f: _num(row.get(f)) for f in TOKEN_FIELDS}
+
+
+def _list_of(payload, key: str) -> list[dict]:
     value = (payload or {}).get(key)
     return [r for r in value if isinstance(r, dict)] if isinstance(value, list) else []
 
 
-def _merge_named(sources: list[dict], key: str) -> list[dict]:
-    """`name` 기준으로 그룹 행을 합쳐 비용 내림차순으로 돌려준다."""
+def price_row(row: dict) -> dict:
+    """Attach cost and a token total to one row. A source-reported cost wins."""
+    tokens = _tokens_of(row)
+    given = row.get("cost")
+    return {
+        **row,
+        **tokens,
+        "tokens": sum(tokens.values()),
+        "cost": priced_cost(row.get("model"), tokens, given if given is not None else None),
+    }
+
+
+def _sessions_per(rows_by_key: dict, sessions: list[dict], key: str) -> None:
+    """Fill in per-group session counts from the session list (within its cap)."""
+    counted: dict[str, set] = {}
+    for session in sessions:
+        name = str(session.get(key) or "unknown")
+        sid = f"{session.get('host_id')}:{session.get('session_id')}"
+        counted.setdefault(name, set()).add(sid)
+    for name, ids in counted.items():
+        if name in rows_by_key:
+            rows_by_key[name]["sessions"] = float(len(ids))
+
+
+def _group(rows: list[dict], key: str) -> dict:
     acc: dict[str, dict] = {}
-    for payload in sources:
-        for row in _rows(payload, key):
-            name = str(row.get("name") or "unknown")
-            slot = acc.setdefault(name, {"name": name, **{f: 0.0 for f in GROUP_FIELDS}})
-            for field in GROUP_FIELDS:
-                slot[field] += _num(row.get(field))
+    for row in rows:
+        name = str(row.get(key) or "unknown")
+        slot = acc.setdefault(name, {"name": name, **{f: 0.0 for f in GROUP_FIELDS}})
+        slot["tokens"] += _num(row.get("tokens"))
+        slot["cost"] += _num(row.get("cost"))
+    return acc
+
+
+def _sorted_group(acc: dict) -> list[dict]:
     return sorted(acc.values(), key=lambda r: r["cost"], reverse=True)
 
 
-def _merge_days(sources: list[dict]) -> list[dict]:
+def _by_day(rows: list[dict]) -> list[dict]:
     acc: dict[str, dict] = {}
-    for payload in sources:
-        for row in _rows(payload, "by_day"):
-            day = str(row.get("day") or "")
-            if not day:
-                continue
-            slot = acc.setdefault(
-                day, {"day": day, "cost": 0.0, **{f: 0.0 for f in TOKEN_FIELDS}}
-            )
-            slot["cost"] += _num(row.get("cost"))
-            for field in TOKEN_FIELDS:
-                slot[field] += _num(row.get(field))
+    for row in rows:
+        day = str(row.get("day") or "")
+        if not day:
+            continue
+        slot = acc.setdefault(day, {"day": day, "cost": 0.0, "tokens": 0.0,
+                                    **{f: 0.0 for f in TOKEN_FIELDS}})
+        slot["cost"] += _num(row.get("cost"))
+        slot["tokens"] += _num(row.get("tokens"))
+        for field in TOKEN_FIELDS:
+            slot[field] += _num(row.get(field))
     return [acc[d] for d in sorted(acc)]
 
 
-def _host_row(source: dict) -> dict:
-    """소스 하나를 호스트 한 줄로 — 못 읽은 소스도 사유를 달고 남는다."""
-    totals = (source.get("summary") or {}).get("totals") or {}
+def _host_row(source: dict, rows: list[dict], session_count: float) -> dict:
+    """One source becomes one host row — failures stay, carrying their reason."""
     return {
         "source_id": source.get("source_id"),
         "name": source.get("label") or source.get("source_id"),
         "ok": bool(source.get("ok")),
         "error": source.get("error"),
         "fetched_at": source.get("fetched_at"),
-        "tokens": _num(totals.get("tokens")),
-        "cost": _num(totals.get("cost")),
-        "sessions": _num(totals.get("sessions")),
+        "tokens": sum(_num(r.get("tokens")) for r in rows),
+        "cost": sum(_num(r.get("cost")) for r in rows),
+        "sessions": session_count,
     }
 
 
 def merge_summaries(sources: list[dict]) -> dict:
-    """소스 목록 → 대시보드가 그대로 그릴 수 있는 한 덩어리.
+    """Sources to the single object the dashboard renders.
 
-    `sources` 의 각 항목은 `{source_id, label, ok, error, fetched_at, summary}`.
-    실패한 소스는 숫자에 0 으로 기여하되 `by_host` 에는 사유와 함께 남는다 —
-    "그 호스트는 왜 비었나" 를 화면에서 답할 수 있어야 한다.
+    Each item is `{source_id, label, ok, error, fetched_at, payload}`. A failed
+    source contributes 0 to every number but stays in `by_host` with its reason —
+    "why is that host empty?" has to be answerable on screen.
     """
-    ok_sources = [s for s in sources if s.get("ok")]
-    payloads = [s.get("summary") or {} for s in ok_sources]
+    all_rows: list[dict] = []
+    host_rows: list[dict] = []
+    total_sessions = 0.0
+    warnings: list[str] = []
 
-    by_agent = _merge_named(payloads, "by_agent")
-    by_model = _merge_named(payloads, "by_model")
-    by_project = _merge_named(payloads, "by_project")
-    by_day = _merge_days(payloads)
+    for source in sources:
+        payload = source.get("payload") or {}
+        rows = [price_row(r) for r in _list_of(payload, "rows")] if source.get("ok") else []
+        # session_count predates the list cap; fall back to the list length.
+        count = _num(payload.get("session_count")) if source.get("ok") else 0.0
+        if not count:
+            count = float(len(_list_of(payload, "sessions"))) if source.get("ok") else 0.0
+        all_rows.extend(rows)
+        total_sessions += count
+        host_rows.append(_host_row(source, rows, count))
+        for warn in (payload.get("warnings") or []):
+            warnings.append(f"{source.get('label') or source.get('source_id')}: {warn}")
 
-    totals = {"cost": 0.0, "sessions": 0.0, **{f: 0.0 for f in TOKEN_FIELDS}}
-    for payload in payloads:
-        row = (payload or {}).get("totals") or {}
+    sessions = merge_sessions(sources)
+    by_agent = _group(all_rows, "agent")
+    by_model = _group(all_rows, "model")
+    by_project = _group(all_rows, "project")
+    _sessions_per(by_agent, sessions, "agent")
+    _sessions_per(by_model, sessions, "model")
+    _sessions_per(by_project, sessions, "project")
+    by_day = _by_day(all_rows)
+
+    totals = {"cost": 0.0, "tokens": 0.0, **{f: 0.0 for f in TOKEN_FIELDS}}
+    for row in all_rows:
         totals["cost"] += _num(row.get("cost"))
-        totals["sessions"] += _num(row.get("sessions"))
+        totals["tokens"] += _num(row.get("tokens"))
         for field in TOKEN_FIELDS:
             totals[field] += _num(row.get(field))
-    # 개수는 합산이 아니라 재계산 — 두 호스트의 같은 에이전트는 1종이다.
+    totals["sessions"] = total_sessions
+    # Recounted, not summed — the same agent on two hosts is one agent.
     totals["agents"] = len(by_agent)
     totals["days"] = len(by_day)
 
+    ok_count = len([s for s in sources if s.get("ok")])
     return {
         "totals": totals,
         "by_day": by_day,
-        "by_agent": by_agent,
-        "by_model": by_model,
-        "by_project": by_project,
-        "by_host": [_host_row(s) for s in sources],
+        "by_agent": _sorted_group(by_agent),
+        "by_model": _sorted_group(by_model),
+        "by_project": _sorted_group(by_project),
+        "by_host": host_rows,
         "source_count": len(sources),
-        "ok_count": len(ok_sources),
+        "ok_count": ok_count,
+        "warnings": warnings,
     }
 
 
 def merge_sessions(sources: list[dict], limit: int = 50) -> list[dict]:
-    """호스트별 세션 목록을 최근 활동 순으로 섞는다.
+    """Interleave every host's sessions by recency.
 
-    `host_id`/`host_name` 을 붙여 돌려준다 — 프론트가 살아있는 pane 을 찾을 때
-    `(host_id, cwd)` 로 조인하기 때문에 호스트를 잃으면 안 된다.
+    `host_id`/`host_name` are attached because the frontend joins on
+    `(host_id, cwd)` to find the live pane — losing the host loses the jump.
     """
     merged: list[dict] = []
     for source in sources:
         if not source.get("ok"):
             continue
-        for row in source.get("sessions") or []:
-            if not isinstance(row, dict):
-                continue
+        for row in _list_of(source.get("payload"), "sessions"):
+            tokens = _tokens_of(row)
+            given = row.get("cost")
             merged.append({
                 **row,
+                "tokens": sum(tokens.values()),
+                "cost": priced_cost(row.get("model"), tokens,
+                                    given if given is not None else None),
                 "host_id": source.get("source_id"),
                 "host_name": source.get("label") or source.get("source_id"),
             })

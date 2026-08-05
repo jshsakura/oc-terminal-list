@@ -1,37 +1,25 @@
-"""소스를 찾고, 물어보고, 하루 캐시한다.
+"""이 서버와 등록된 호스트를 훑어 하루 캐시한다.
 
 **백그라운드 폴러가 없다.** 대시보드가 열릴 때만 움직이고 결과는 하루 산다. 서버가
 재시작해도 다시 긁지 않도록 캐시는 DB 에 남긴다. 사용자가 새로고침을 누르면 그때만
 강제 갱신한다.
 
-소스 탐지는 운용 형태를 가리지 않는다. 후보를 순서대로 찔러 **먼저 대답하는 놈이**
-이 서버의 watcher 다:
-
-  1. `LLM_WATCHER_URL`            명시 설정이 언제나 최우선
-  2. `http://llm-watcher:34318`   compose 로 동봉한 경우 (서비스명 DNS)
-  3. `http://127.0.0.1:34318`     호스트 systemd 운용 / host-network 컨테이너
-
-fleet 원격 호스트는 등록된 호스트 목록을 그대로 쓴다 — SSH 로 그쪽 루프백을 읽는다.
+수집 방식은 하나뿐이다 — `collect.py` 를 로컬에서는 import 로, 원격에서는 SSH stdin
+으로 실행한다(`runner.py`). 호스트에 설치할 것도, 띄워둘 것도 없다.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-import os
 import time
 from datetime import datetime, timezone
 
 from sqlite_storage import storage
 
 from .aggregate import merge_sessions, merge_summaries
-from .config import get_config as get_watcher_config
-from .client import (
-    WATCHER_PORT,
-    WatcherUnavailable,
-    fetch_direct,
-    fetch_via_ssh,
-)
+from .config import get_config as get_usage_config
+from .runner import CollectFailed, run_local, run_remote
 
 logger = logging.getLogger(__name__)
 
@@ -39,22 +27,16 @@ LOCAL_SOURCE_ID = "local"
 LOCAL_LABEL = "이 서버"
 
 # 캐시 수명 — 한 번 읽었으면 하루 산다. 아무 소스도 못 읽었을 때만 짧게 잡는데,
-# "아직 아무 데도 안 깔았다" 와 "잠깐 네트워크가 나갔다" 를 구분할 방법이 없기
-# 때문이다. 3시간이면 죽은 호스트를 하루 8번 찌르는 정도 — 하루 종일 재시도하지도,
-# 방금 깐 watcher 를 내일까지 못 보지도 않는 선.
+# "아직 아무 데도 안 쓴다" 와 "잠깐 네트워크가 나갔다" 를 구분할 방법이 없기
+# 때문이다. 3시간이면 죽은 호스트를 하루 8번 찌르는 정도.
 SUCCESS_TTL_SECONDS = 24 * 60 * 60
 FAILURE_TTL_SECONDS = 3 * 60 * 60
-# 소스 탐지 결과도 캐시한다(프로세스 메모리). 없다는 결론도 캐시해야 매 요청마다
-# 세 후보를 찌르지 않는다.
-_DISCOVERY_TTL_SECONDS = 10 * 60
 
 # 기간 선택지 — 경계에서 화이트리스트로 막는다. 0 은 전체.
 ALLOWED_DAYS = (0, 7, 30, 90)
 DEFAULT_DAYS = 30
-SESSIONS_PER_SOURCE = 40
-
-_discovery: dict = {"at": 0.0, "base_url": None}
-_discovery_lock = asyncio.Lock()
+# 한 번에 붙을 호스트 수 — fleet 이 커져도 SSH 를 한꺼번에 수십 개 열지 않는다.
+MAX_CONCURRENT_HOSTS = 6
 
 
 def _now_iso() -> str:
@@ -69,104 +51,46 @@ def normalize_days(days) -> int:
     return value if value in ALLOWED_DAYS else DEFAULT_DAYS
 
 
-def _candidate_urls(configured_url: str | None = None) -> list[str]:
-    """설정값 → compose 서비스명 → 루프백. 먼저 대답하는 놈이 이긴다."""
-    candidates = [(configured_url or "").strip().rstrip("/")]
-    candidates += [f"http://llm-watcher:{WATCHER_PORT}", f"http://127.0.0.1:{WATCHER_PORT}"]
-    seen: list[str] = []
-    for url in candidates:
-        if url and url not in seen:
-            seen.append(url)
-    return seen
+def _source(source_id: str, label: str, *, payload=None, error=None) -> dict:
+    return {
+        "source_id": source_id,
+        "label": label,
+        "ok": payload is not None,
+        "error": error,
+        "fetched_at": _now_iso(),
+        "payload": payload,
+    }
 
 
-async def discover_local_base_url(force: bool = False,
-                                  configured_url: str | None = None) -> str | None:
-    """이 서버에서 닿는 watcher 주소. 없으면 None (그게 정상적인 상태다)."""
-    now = time.time()
-    if not force and now - _discovery["at"] < _DISCOVERY_TTL_SECONDS:
-        return _discovery["base_url"]
-    async with _discovery_lock:
-        now = time.time()
-        if not force and now - _discovery["at"] < _DISCOVERY_TTL_SECONDS:
-            return _discovery["base_url"]
-        found = None
-        for url in _candidate_urls(configured_url):
-            try:
-                await fetch_direct(url, "/api/health")
-            except WatcherUnavailable:
-                continue
-            found = url
-            break
-        _discovery["base_url"] = found
-        _discovery["at"] = time.time()
-        return found
-
-
-def _query(path: str, days: int) -> str:
-    return path if days <= 0 else f"{path}?days={days}"
-
-
-def _sessions_query(days: int) -> str:
-    base = f"/api/sessions?limit={SESSIONS_PER_SOURCE}"
-    return base if days <= 0 else f"{base}&days={days}"
-
-
-async def _fetch_one(source_id: str, label: str, days: int, *,
-                     base_url: str | None = None, api_key: str | None = None,
-                     host: dict | None = None, secrets: dict | None = None) -> dict:
-    """소스 하나 — summary 와 sessions 를 읽어 공통 형태로 돌려준다."""
-    result = {"source_id": source_id, "label": label, "ok": False,
-              "error": None, "fetched_at": _now_iso(), "summary": None, "sessions": []}
+async def _collect_local(days: int) -> dict:
     try:
-        if base_url:
-            summary = await fetch_direct(base_url, _query("/api/summary", days), api_key=api_key)
-            sessions = await fetch_direct(base_url, _sessions_query(days), api_key=api_key)
-        else:
-            summary = await fetch_via_ssh(host, secrets, _query("/api/summary", days),
-                                          api_key=api_key)
-            sessions = await fetch_via_ssh(host, secrets, _sessions_query(days),
-                                           api_key=api_key)
-    except WatcherUnavailable as e:
-        result["error"] = str(e)
-        return result
-    except Exception as e:  # 소스 하나가 이상해도 나머지는 살린다
-        logger.warning("llm-watcher fetch failed (%s): %s", source_id, e)
-        result["error"] = f"조회 실패: {e}"
-        return result
-    result["ok"] = True
-    result["summary"] = summary
-    result["sessions"] = (sessions or {}).get("sessions") or []
-    return result
+        return _source(LOCAL_SOURCE_ID, LOCAL_LABEL, payload=await run_local(days))
+    except CollectFailed as e:
+        return _source(LOCAL_SOURCE_ID, LOCAL_LABEL, error=str(e))
 
 
-async def _fetch_host(host: dict, username: str, days: int,
-                      api_key: str | None = None) -> dict:
+async def _collect_host(host: dict, username: str, days: int, gate: asyncio.Semaphore) -> dict:
     from host_common import resolve_host_with_secrets
 
     label = host.get("name") or host.get("hostname") or host["id"]
     try:
-        resolved, secrets = await resolve_host_with_secrets(host["id"], username)
-    except Exception as e:
-        return {"source_id": host["id"], "label": label, "ok": False,
-                "error": f"호스트 자격증명 해석 실패: {e}", "fetched_at": _now_iso(),
-                "summary": None, "sessions": []}
-    return await _fetch_one(host["id"], label, days, host=resolved, secrets=secrets,
-                            api_key=api_key)
+        async with gate:
+            resolved, secrets = await resolve_host_with_secrets(host["id"], username)
+            payload = await run_remote(resolved, secrets, days)
+    except CollectFailed as e:
+        return _source(host["id"], label, error=str(e))
+    except Exception as e:  # 자격증명 해석 실패 등 — 소스 하나가 이상해도 나머지는 산다
+        logger.warning("llm usage collect failed (%s): %s", host.get("id"), e)
+        return _source(host["id"], label, error=f"조회 실패: {e}")
+    return _source(host["id"], label, payload=payload)
 
 
-async def collect_sources(username: str, days: int, config: dict) -> list[dict]:
-    """이 서버 + 등록된 호스트 전부를 동시에 조회한다."""
-    api_key = config.get("api_key") or None
-    tasks = []
-    base_url = await discover_local_base_url(configured_url=config.get("url"))
-    if base_url:
-        tasks.append(_fetch_one(LOCAL_SOURCE_ID, LOCAL_LABEL, days,
-                                base_url=base_url, api_key=api_key))
+async def collect_sources(username: str, days: int) -> list[dict]:
+    """이 서버 + 등록된 호스트 전부. 동시성은 MAX_CONCURRENT_HOSTS 로 묶는다."""
+    gate = asyncio.Semaphore(MAX_CONCURRENT_HOSTS)
+    tasks = [_collect_local(days)]
     for host in await storage.list_hosts(username):
-        tasks.append(_fetch_host(host, username, days, api_key=api_key))
-    if not tasks:
-        return []
+        tasks.append(_collect_host(host, username, days, gate))
     return list(await asyncio.gather(*tasks))
 
 
@@ -195,19 +119,19 @@ async def _read_cache(username: str, days: int) -> dict | None:
 
 
 def disabled_payload(days: int) -> dict:
-    """연동이 꺼져 있을 때의 응답 — 프론트는 `ok_count: 0` 을 보고 안 그린다."""
+    """연동이 꺼져 있을 때의 응답 — 프론트는 `enabled: false` 를 보고 안 그린다."""
     return {**merge_summaries([]), "sessions": [], "days": days,
             "fetched_at": _now_iso(), "cached": False, "enabled": False}
 
 
 async def get_usage(username: str, days: int = DEFAULT_DAYS,
                     force: bool = False) -> dict:
-    """대시보드가 그대로 쓰는 한 덩어리. 캐시가 살아있으면 네트워크를 안 탄다.
+    """대시보드가 그대로 쓰는 한 덩어리. 캐시가 살아있으면 아무 데도 안 붙는다.
 
-    **연동이 꺼져 있으면 여기서 끝난다** — 캐시도, HTTP 도, SSH 도 없다.
+    **꺼져 있으면 여기서 끝난다** — 캐시도, 파일 읽기도, SSH 도 없다.
     """
     days = normalize_days(days)
-    config = await get_watcher_config()
+    config = await get_usage_config()
     if not config["enabled"]:
         return disabled_payload(days)
 
@@ -216,7 +140,7 @@ async def get_usage(username: str, days: int = DEFAULT_DAYS,
         if cached and _cache_age_ok(cached):
             return {**cached, "cached": True}
 
-    sources = await collect_sources(username, days, config)
+    sources = await collect_sources(username, days)
     entry = {
         **merge_summaries(sources),
         "sessions": merge_sessions(sources),
@@ -230,4 +154,3 @@ async def get_usage(username: str, days: int = DEFAULT_DAYS,
     except Exception as e:  # 캐시 못 써도 응답은 나가야 한다
         logger.warning("llm usage cache write failed: %s", e)
     return entry
-

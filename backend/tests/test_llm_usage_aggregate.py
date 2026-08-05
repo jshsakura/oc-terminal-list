@@ -1,131 +1,171 @@
-"""여러 호스트의 watcher 응답 합산 — 더하면 안 되는 것을 안 더하는지가 핵심.
+"""Merging collected rows into what the dashboard draws.
 
-합산은 단순해 보이지만 두 군데서 조용히 틀린다: 개수 필드(`agents`/`days`)를
-그냥 더하는 것과, 실패한 호스트를 화면에서 지워버리는 것.
+Pure functions, tested directly. The traps this guards:
+
+  - counts that must be recomputed, not summed (two hosts running claude are
+    still one agent)
+  - cost decided per row by that row's model — a group can mix models
+  - a source that knows its own cost (opencode) beating the price table
+  - hosts that failed staying visible, with the reason
 """
 from llm_usage.aggregate import merge_sessions, merge_summaries
 
 
-def _source(source_id, *, ok=True, totals=None, by_agent=None, by_day=None,
-            by_model=None, by_project=None, sessions=None, error=None):
-    return {
-        "source_id": source_id,
-        "label": source_id,
-        "ok": ok,
-        "error": error,
-        "fetched_at": "2026-08-05T00:00:00+00:00",
-        "summary": None if not ok else {
-            "totals": totals or {},
-            "by_day": by_day or [],
-            "by_agent": by_agent or [],
-            "by_model": by_model or [],
-            "by_project": by_project or [],
-        },
-        "sessions": sessions or [],
-    }
+def row(day="2026-08-05", agent="claude", model="claude-opus-5", project="app",
+        input_=0, output=0, cache_read=0, cache_creation=0, cost=None):
+    return {"day": day, "agent": agent, "model": model, "project": project,
+            "input": input_, "output": output, "cache_read": cache_read,
+            "cache_creation": cache_creation, "cost": cost}
 
 
-def test_token_and_cost_totals_sum_across_hosts():
-    out = merge_summaries([
-        _source("a", totals={"tokens": 100, "cost": 1.5, "sessions": 2}),
-        _source("b", totals={"tokens": 250, "cost": 2.5, "sessions": 3}),
-    ])
-    assert out["totals"]["tokens"] == 350
-    assert out["totals"]["cost"] == 4.0
-    assert out["totals"]["sessions"] == 5
+def session(session_id="s1", agent="claude", model="claude-opus-5", project="app",
+            cwd="/home/u/app", title="t", last_activity="2026-08-05T10:00:00Z",
+            input_=0, output=0, cache_read=0, cache_creation=0, cost=None):
+    return {"session_id": session_id, "agent": agent, "model": model,
+            "project": project, "cwd": cwd, "title": title,
+            "last_activity": last_activity, "input": input_, "output": output,
+            "cache_read": cache_read, "cache_creation": cache_creation, "cost": cost}
 
 
-def test_agent_count_is_distinct_not_summed():
-    """두 호스트가 모두 claude 를 쓰면 2종이 아니라 1종이다."""
-    out = merge_summaries([
-        _source("a", totals={"agents": 1}, by_agent=[{"name": "claude", "tokens": 10, "cost": 1, "sessions": 1}]),
-        _source("b", totals={"agents": 1}, by_agent=[{"name": "claude", "tokens": 20, "cost": 2, "sessions": 1}]),
-    ])
-    assert out["totals"]["agents"] == 1
-    assert len(out["by_agent"]) == 1
-    assert out["by_agent"][0]["tokens"] == 30
-    assert out["by_agent"][0]["sessions"] == 2
+def source(source_id="local", label="this server", ok=True, error=None,
+           rows=None, sessions=None, session_count=None, warnings=None):
+    payload = None
+    if ok:
+        payload = {
+            "rows": rows if rows is not None else [],
+            "sessions": sessions if sessions is not None else [],
+            "session_count": len(sessions or []) if session_count is None else session_count,
+            "warnings": warnings or [],
+        }
+    return {"source_id": source_id, "label": label, "ok": ok, "error": error,
+            "fetched_at": "2026-08-05T10:00:00Z", "payload": payload}
 
 
-def test_day_count_is_distinct_not_summed():
-    same_day = [{"day": "2026-08-01", "tokens": 5, "cost": 0.5}]
-    out = merge_summaries([
-        _source("a", totals={"days": 1}, by_day=same_day),
-        _source("b", totals={"days": 1}, by_day=same_day),
-    ])
-    assert out["totals"]["days"] == 1
-    assert out["by_day"][0]["tokens"] == 10
-
-
-def test_days_are_sorted_ascending():
-    out = merge_summaries([
-        _source("a", by_day=[{"day": "2026-08-03", "tokens": 1}]),
-        _source("b", by_day=[{"day": "2026-08-01", "tokens": 1}]),
-    ])
-    assert [r["day"] for r in out["by_day"]] == ["2026-08-01", "2026-08-03"]
-
-
-def test_groups_are_sorted_by_cost_desc():
-    out = merge_summaries([
-        _source("a", by_project=[
-            {"name": "cheap", "tokens": 1, "cost": 1, "sessions": 1},
-            {"name": "pricey", "tokens": 1, "cost": 9, "sessions": 1},
-        ]),
-    ])
-    assert [r["name"] for r in out["by_project"]] == ["pricey", "cheap"]
-
-
-def test_failed_host_stays_visible_with_its_reason():
-    """숫자에 0 으로 기여하되 목록에서 사라지면 안 된다 — '왜 비었나' 를 답해야 한다."""
-    out = merge_summaries([
-        _source("ok-host", totals={"tokens": 10, "cost": 1}),
-        _source("dead-host", ok=False, error="SSH 실패"),
-    ])
-    assert out["totals"]["tokens"] == 10
-    assert out["ok_count"] == 1
-    assert out["source_count"] == 2
-    dead = [h for h in out["by_host"] if h["source_id"] == "dead-host"][0]
-    assert dead["ok"] is False
-    assert dead["error"] == "SSH 실패"
-    assert dead["tokens"] == 0
-
-
-def test_garbage_from_another_service_does_not_crash_the_merge():
-    """watcher 응답은 남이 준 데이터다 — 숫자 아닌 값이 와도 흘려보낸다."""
-    out = merge_summaries([
-        _source("a", totals={"tokens": "not-a-number", "cost": None},
-                by_agent=[{"name": "claude", "tokens": float("nan"), "cost": "x", "sessions": 1}],
-                by_day="이건 리스트가 아님"),
-    ])
-    assert out["totals"]["tokens"] == 0
-    assert out["by_agent"][0]["tokens"] == 0
-    assert out["by_day"] == []
-
-
-def test_no_sources_yields_an_empty_but_well_formed_payload():
+def test_empty_input_is_a_valid_empty_dashboard():
     out = merge_summaries([])
+
     assert out["ok_count"] == 0
-    assert out["totals"]["tokens"] == 0
+    assert out["source_count"] == 0
+    assert out["totals"]["cost"] == 0
     assert out["by_host"] == []
 
 
+def test_cost_comes_from_the_price_table_per_model():
+    # 1M output tokens of opus at $75/M.
+    out = merge_summaries([source(rows=[row(output=1_000_000)])])
+
+    assert round(out["totals"]["cost"], 2) == 75.0
+    assert out["totals"]["tokens"] == 1_000_000
+
+
+def test_each_row_is_priced_with_its_own_model():
+    out = merge_summaries([source(rows=[
+        row(model="claude-opus-5", output=1_000_000),      # $75
+        row(model="claude-haiku-4-5", output=1_000_000),   # $4
+    ])])
+
+    assert round(out["totals"]["cost"], 2) == 79.0
+
+
+def test_a_source_that_knows_its_own_cost_beats_the_table():
+    """opencode records cost itself; our table would only guess at glm pricing."""
+    out = merge_summaries([source(rows=[
+        row(agent="opencode", model="glm-5.2", output=1_000_000, cost=0.42),
+    ])])
+
+    assert out["totals"]["cost"] == 0.42
+
+
+def test_unknown_model_costs_nothing_but_still_counts_tokens():
+    out = merge_summaries([source(rows=[row(model="something-new-9", output=1_000_000)])])
+
+    assert out["totals"]["cost"] == 0
+    assert out["totals"]["tokens"] == 1_000_000
+
+
+def test_same_name_merges_across_hosts():
+    """Two hosts working on `app` are one project line — that is the point."""
+    out = merge_summaries([
+        source(source_id="a", rows=[row(project="app", output=1_000_000)]),
+        source(source_id="b", rows=[row(project="app", output=1_000_000)]),
+    ])
+
+    projects = {p["name"]: p for p in out["by_project"]}
+    assert list(projects) == ["app"]
+    assert round(projects["app"]["cost"], 2) == 150.0
+
+
+def test_agent_and_day_counts_are_recomputed_not_summed():
+    out = merge_summaries([
+        source(source_id="a", rows=[row(day="2026-08-05", agent="claude", output=10)]),
+        source(source_id="b", rows=[row(day="2026-08-05", agent="claude", output=10)]),
+    ])
+
+    assert out["totals"]["agents"] == 1   # not 2
+    assert out["totals"]["days"] == 1     # not 2
+
+
+def test_session_count_survives_the_list_cap():
+    """The per-host list is truncated; the count must not be."""
+    out = merge_summaries([source(sessions=[session()], session_count=137)])
+
+    assert out["totals"]["sessions"] == 137
+    assert out["by_host"][0]["sessions"] == 137
+
+
+def test_failed_host_stays_visible_with_its_reason():
+    out = merge_summaries([
+        source(source_id="a", rows=[row(output=1_000_000)]),
+        source(source_id="b", label="rpi", ok=False, error="SSH failed"),
+    ])
+
+    hosts = {h["source_id"]: h for h in out["by_host"]}
+    assert hosts["b"]["ok"] is False
+    assert hosts["b"]["error"] == "SSH failed"
+    assert hosts["b"]["cost"] == 0
+    assert out["ok_count"] == 1 and out["source_count"] == 2
+
+
+def test_warnings_are_labelled_with_the_host_they_came_from():
+    out = merge_summaries([source(label="rpi", warnings=["opencode: read failed"])])
+
+    assert out["warnings"] == ["rpi: opencode: read failed"]
+
+
+def test_garbage_from_a_remote_machine_does_not_crash_the_merge():
+    """Every payload here crossed an SSH boundary — never trust its shape."""
+    broken = {"source_id": "x", "label": "x", "ok": True, "error": None,
+              "fetched_at": "now",
+              "payload": {"rows": "not-a-list", "sessions": [None, 42, {"cost": "NaN"}]}}
+
+    out = merge_summaries([broken])
+
+    assert out["totals"]["cost"] == 0
+    assert out["by_host"][0]["ok"] is True
+    # The one dict in `sessions` survives; the None and the int are dropped.
+    assert len(merge_sessions([broken])) == 1
+
+
 def test_sessions_keep_their_host_so_pane_lookup_can_join_on_it():
-    out = merge_sessions([
-        _source("h1", sessions=[{"session_id": "s1", "cwd": "/a", "last_activity": "2026-08-01"}]),
-        _source("h2", sessions=[{"session_id": "s2", "cwd": "/b", "last_activity": "2026-08-03"}]),
-    ])
-    assert [s["session_id"] for s in out] == ["s2", "s1"]  # 최근 활동 순
-    assert out[0]["host_id"] == "h2"
+    merged = merge_sessions([source(source_id="rpi", label="rpi", sessions=[session()])])
+
+    assert merged[0]["host_id"] == "rpi"
+    assert merged[0]["host_name"] == "rpi"
 
 
-def test_sessions_from_failed_hosts_are_dropped():
-    out = merge_sessions([
-        _source("dead", ok=False, error="x", sessions=[{"session_id": "ghost"}]),
-    ])
-    assert out == []
+def test_sessions_are_priced_like_rows():
+    merged = merge_sessions([source(sessions=[session(output=1_000_000)])])
+
+    assert round(merged[0]["cost"], 2) == 75.0
+    assert merged[0]["tokens"] == 1_000_000
 
 
-def test_session_limit_is_applied_after_sorting():
-    rows = [{"session_id": f"s{i}", "last_activity": f"2026-08-{i:02d}"} for i in range(1, 6)]
-    out = merge_sessions([_source("h", sessions=rows)], limit=2)
-    assert [s["session_id"] for s in out] == ["s5", "s4"]
+def test_sessions_sort_by_recency_across_hosts_then_cap():
+    merged = merge_sessions([
+        source(source_id="a", sessions=[session(session_id="old",
+                                                last_activity="2026-08-01T00:00:00Z")]),
+        source(source_id="b", sessions=[session(session_id="new",
+                                                last_activity="2026-08-05T00:00:00Z")]),
+    ], limit=1)
+
+    assert [s["session_id"] for s in merged] == ["new"]
