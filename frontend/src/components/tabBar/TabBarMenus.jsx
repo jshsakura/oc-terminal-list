@@ -5,43 +5,20 @@ import {
   Settings as SettingsIcon, RefreshCw,
 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
-import { glassMenuItemHover, glassMenuStyle } from '../../styles/glass';
+import { glassMenuStyle } from '../../styles/glass';
+import { MenuItem } from './MenuItem';
+import VncMenuItems from '../vnc/VncMenuItems';
 
 const { color, font } = tokens;
 
-export const MenuItem = ({ onClick, children, danger, disabled = false, icon: Icon = null }) => (
-  <button
-    onClick={disabled ? undefined : (e) => { e.stopPropagation(); onClick?.(); }}
-    disabled={disabled}
-    style={{
-      width: '100%',
-      display: 'flex',
-      alignItems: 'center',
-      gap: '8px',
-      textAlign: 'left',
-      padding: '5px 8px',
-      background: 'transparent',
-      border: 'none',
-      borderRadius: '3px',
-      cursor: disabled ? 'default' : 'pointer',
-      color: disabled ? color.muted : (danger ? color.danger : color.text),
-      fontSize: '11.5px',
-      fontFamily: 'inherit',
-      transition: 'background 120ms',
-      lineHeight: 1.3,
-      opacity: disabled ? 0.5 : 1,
-    }}
-    onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = glassMenuItemHover(); }}
-    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
-  >
-    {Icon && <Icon size={12} strokeWidth={1.8} />}
-    {children}
-  </button>
-);
+// 기존 import 경로 유지 — 여러 메뉴가 여기서 MenuItem 을 가져다 쓴다.
+export { MenuItem };
 
 export const TabContextMenu = ({
   ctx, t, onClose, onCloseTab, onDuplicateTab, onRenameTab = null,
   paneCount = 1,
+  // VNC pane 이 활성일 때만 채워지는 슬롯 — 보기 모드/화질(VncMenuItems).
+  vncPaneId = null,
   canMoveLeft = false, canMoveRight = false, onMoveLeft = null, onMoveRight = null,
   canSplit = false, onSplit = null,
 }) => {
@@ -107,6 +84,13 @@ export const TabContextMenu = ({
         opacity: measured ? 1 : 0,
       }}
     >
+      {/* VNC pane — 이 pane 에는 TerminalHeader 가 없어서 보기/화질을 둘 데가 여기뿐이다. */}
+      {vncPaneId && (
+        <>
+          <VncMenuItems paneId={vncPaneId} onDone={onClose} t={t} />
+          <div style={{ height: '1px', background: color.border, margin: '4px 2px' }} />
+        </>
+      )}
       {/* 왼쪽/오른쪽 이동 제거 — 이제 탭 드래그로 재정렬 가능해 메뉴 항목 불필요. */}
       {onRenameTab && (
         <MenuItem onClick={onRenameTab} icon={Edit3}>

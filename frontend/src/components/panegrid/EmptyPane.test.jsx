@@ -35,13 +35,6 @@ vi.mock('../HomeDashboard', () => ({
   HostRow: () => null,
 }));
 
-// 뷰포트 판정 — 테스트마다 폰/데스크탑을 전환한다(jsdom 은 항상 데스크탑처럼 보인다).
-let isPhone = false;
-vi.mock('../../utils/tabModel', async (importOriginal) => ({
-  ...(await importOriginal()),
-  isPhoneViewport: () => isPhone,
-}));
-
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 const mockFetchResponse = (json) => {
@@ -75,9 +68,6 @@ const renderPicker = (overrides = {}) =>
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('VncDisplayPicker', () => {
-  beforeEach(() => {
-    isPhone = false;   // 기본은 데스크탑 — 폰 케이스만 테스트에서 켠다
-  });
   afterEach(() => {
     vi.restoreAllMocks();
   });
@@ -476,7 +466,7 @@ describe('VncDisplayPicker', () => {
     render(
       <VncDisplayPicker
         host={HOST} t={(k) => k} onPick={vi.fn()} onClose={vi.fn()}
-        paneSize={{ width: 1023, height: 767 }}
+        paneSize={{ width: 1921, height: 1081 }}
       />,
     );
 
@@ -491,11 +481,11 @@ describe('VncDisplayPicker', () => {
         ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
       );
       expect(postCall).toBeTruthy();
-      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1024x768' });
+      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1922x1082' });
     });
   });
 
-  it('primary action clamps tiny paneSize to lower bound', async () => {
+  it('primary action ignores a pane too small to be a desktop', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ available: true, installed: true, display: 1, port: 5901 }),
@@ -518,14 +508,13 @@ describe('VncDisplayPicker', () => {
       const postCall = global.fetch.mock.calls.find(
         ([url, opts]) => (opts?.method || 'GET').toUpperCase() === 'POST',
       );
-      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '640x480' });
+      expect(JSON.parse(postCall[1].body)).toEqual({ geometry: '1280x800' });
     });
   });
 
-  // 폰에서 만드는 데스크탑은 폰 크기를 따르지 않는다 — 그 해상도로 뜨면 창이 잘리고,
-  // 해상도가 세션에 남아 나중에 PC 로 봐도 잘린 채다.
-  it('phone viewport ignores paneSize and creates a desktop-sized geometry', async () => {
-    isPhone = true;
+  // A phone-sized pane never dictates the desktop resolution — landscape included,
+  // which is why the rule is measured size and not a user-agent check.
+  it('phone-sized pane creates a desktop-sized geometry', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ available: true, installed: true, display: 1, port: 5901 }),

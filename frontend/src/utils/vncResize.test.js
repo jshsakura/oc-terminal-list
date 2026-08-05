@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   computeVncResize, createResizeScheduler, computeVncGeometry,
-  computeCreateGeometry, DESKTOP_DEFAULT_GEOMETRY,
+  computeCreateGeometry, DESKTOP_DEFAULT_GEOMETRY, shouldFollowPaneSize,
   applyVncViewMode, vncViewModeFlags, normalizeVncViewMode, VNC_VIEW_FIT, VNC_VIEW_PAN,
 } from './vncResize';
 
@@ -197,24 +197,43 @@ describe('computeVncGeometry — 초기 해상도 계산', () => {
   });
 });
 
-// computeCreateGeometry: "폰이 데스크탑 해상도를 정하지 못하게" 하는 규칙.
-// 이게 틀리면 폰에서 만든 데스크탑이 폰 크기로 떠서 창이 잘리고, 그 해상도가
-// 세션에 남아 나중에 PC 로 봐도 잘린 채다.
-describe('computeCreateGeometry — 폰은 데스크탑 크기를 정하지 않는다', () => {
-  it('폰이면 실측을 무시하고 데스크탑 기본값을 쓴다', () => {
-    expect(computeCreateGeometry({ width: 390, height: 720, isPhone: true }))
-      .toBe(DESKTOP_DEFAULT_GEOMETRY);
-    // 가로 모드로 돌려도 마찬가지 — 폰이라는 사실이 판단 기준이다.
-    expect(computeCreateGeometry({ width: 844, height: 390, isPhone: true }))
-      .toBe(DESKTOP_DEFAULT_GEOMETRY);
+// computeCreateGeometry / shouldFollowPaneSize: "a window onto a desktop must not
+// resize the desktop". Get this wrong and a phone-sized pane shrinks the remote
+// framebuffer — windows fall off the screen, and the resolution sticks to the
+// session, so the same desktop is still cropped later on a PC.
+describe('shouldFollowPaneSize — who may set the remote resolution', () => {
+  it('a full-size pane may', () => {
+    expect(shouldFollowPaneSize(1920, 1080)).toBe(true);
+    expect(shouldFollowPaneSize(1024, 600)).toBe(true);   // boundary
   });
 
-  it('폰이 아니면 기존 실측 계산 그대로다', () => {
+  it('a phone-sized pane may not — portrait or landscape', () => {
+    expect(shouldFollowPaneSize(390, 720)).toBe(false);
+    // The landscape case is why this is size-based and not "is it a phone":
+    // 844px wide no longer reads as a phone, and that is exactly when someone
+    // turns the device sideways to look at a desktop.
+    expect(shouldFollowPaneSize(844, 390)).toBe(false);
+  });
+
+  it('an unmeasured pane may not — never shrink a desktop on a guess', () => {
+    expect(shouldFollowPaneSize(0, 0)).toBe(false);
+    expect(shouldFollowPaneSize(NaN, 1080)).toBe(false);
+    expect(shouldFollowPaneSize(undefined, undefined)).toBe(false);
+  });
+});
+
+describe('computeCreateGeometry — resolution for a new desktop', () => {
+  it('uses the measured pane when it is desktop-sized', () => {
     expect(computeCreateGeometry({ width: 1920, height: 1080 })).toBe('1920x1080');
-    expect(computeCreateGeometry({ width: 1600, height: 900, isPhone: false })).toBe('1600x900');
+    expect(computeCreateGeometry({ width: 1600, height: 900 })).toBe('1600x900');
   });
 
-  it('인자가 없어도 폴백으로 안전하게 동작한다', () => {
+  it('falls back to a real desktop size when the pane is too small', () => {
+    expect(computeCreateGeometry({ width: 390, height: 720 })).toBe(DESKTOP_DEFAULT_GEOMETRY);
+    expect(computeCreateGeometry({ width: 844, height: 390 })).toBe(DESKTOP_DEFAULT_GEOMETRY);
+  });
+
+  it('falls back safely with no arguments', () => {
     expect(computeCreateGeometry()).toBe('1280x800');
   });
 });

@@ -7,14 +7,18 @@
  * 사용자는 상태 배지로 연결 상태를 보고 필요시 새로고침할 수 있다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Monitor, ChevronLeft, ChevronRight, Maximize2, Move } from 'lucide-react';
+import { Monitor } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { issueWsTicket } from '../terminal/terminalHelpers';
 import createVncClient from './createVncClient';
 import {
-  computeVncResize, createResizeScheduler,
-  applyVncViewMode, normalizeVncViewMode, VNC_VIEW_FIT, VNC_VIEW_PAN,
+  computeVncResize, createResizeScheduler, shouldFollowPaneSize,
+  applyVncViewMode, normalizeVncViewMode, VNC_VIEW_FIT,
 } from '../../utils/vncResize';
+import {
+  VNC_CONTROL_EVENT, registerVncPane, unregisterVncPane,
+} from './vncControlBus';
+import VncSettingsModal from './VncSettingsModal';
 
 const { color, font, fontSize, fontWeight, radius } = tokens;
 
@@ -60,8 +64,8 @@ const STATUS_LABEL = {
 };
 
 const VncPane = ({
-  hostId, display, isActive, isFocused, settings, t, onReadyChange, updateSettings,
-  isMobile = false,
+  hostId, display, paneId = null, isActive, isFocused, settings, t,
+  onReadyChange, updateSettings,
 }) => {
   const containerRef = useRef(null);
   const clientRef = useRef(null);
@@ -112,20 +116,32 @@ const VncPane = ({
   const tRef = useRef(t);
   tRef.current = t;
 
-  // Phase 4 — 원격 해상도 자동 추적 상태. lastSentRef: 마지막으로 보낸 framebuffer
-  // 치수(중복 SetDesktopSize 방지). resizeSchedulerRef: 250ms 디바운스 스케줄러.
+  // Remote-resolution tracking. lastSentRef: last framebuffer size we sent (so we
+  // don't repeat a SetDesktopSize). resizeSchedulerRef: the 250ms debounce.
   const lastSentRef = useRef(null);
   const resizeSchedulerRef = useRef(null);
 
-  /* 폰은 원격 해상도를 따라오게 하지 않는다.
-     pane 이 400px 남짓이라 그 크기로 SetDesktopSize 를 보내면 데스크탑의 창·패널이
-     화면 밖으로 잘리고, 그 해상도가 세션에 남아 나중에 PC 로 봐도 잘린 채다.
-     폰은 "보는 창" 이지 데스크탑 크기를 정하는 주체가 아니다 — 대신 보기 모드
-     (맞춤/이동)로 큰 화면을 다룬다. */
-  const followPaneSize = !isMobile;
-  const viewMode = isMobile ? normalizeVncViewMode(settings?.vncViewMode) : VNC_VIEW_FIT;
+  /* May this pane drive the remote resolution? Decided by *measured size*, not by
+     "is this a phone": rotate a phone to landscape and it is 844px wide, which no
+     longer looks like a phone — and that is exactly when someone turns the device
+     to look at a desktop. A pane too small to be a desktop only ever looks. */
+  const canResizeRemote = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return false;
+    const rect = el.getBoundingClientRect();
+    return shouldFollowPaneSize(rect.width, rect.height);
+  }, []);
+
+  /* View mode lives in local state so a menu tap changes the picture on the same
+     frame. Settings still persist it (see applyViewMode), but the RFB must not
+     wait for that round trip — waiting is what made the old control rail feel
+     broken. Seeded from settings, and re-seeded when settings change elsewhere. */
+  const [viewMode, setViewMode] = useState(() => normalizeVncViewMode(settings?.vncViewMode));
   const viewModeRef = useRef(viewMode);
   viewModeRef.current = viewMode;
+  useEffect(() => {
+    setViewMode(normalizeVncViewMode(settings?.vncViewMode));
+  }, [settings?.vncViewMode]);
 
   useEffect(() => {
     // isActive=false(다른 pane 이 포커스) 거나 docHidden(탭 숨김) 이면 연결 안 한다.
@@ -181,7 +197,7 @@ const VncPane = ({
           url,
           qualityLevel: qPreset.qualityLevel,
           compressionLevel: qPreset.compressionLevel,
-          resizeSession: followPaneSize,
+          resizeSession: canResizeRemote(),
           viewMode: viewModeRef.current,
           onConnected: () => {
             if (!cancelled) {
@@ -224,12 +240,13 @@ const VncPane = ({
         clientRef.current = client;
         destroyClient = client.destroy;
 
-        // 리사이즈 스케줄러 — 드래그 중 remote resize 차단, 250ms 안정 후 1회 SetDesktopSize.
-        // 폰(followPaneSize=false)에서는 아예 만들지 않는다 — 보낼 일이 없다.
-        scheduler = !followPaneSize ? null : createResizeScheduler({
+        // Resize scheduler — block remote resizes while dragging, send one
+        // SetDesktopSize once the size has been stable for 250ms.
+        scheduler = createResizeScheduler({
           onApply: () => {
             const c = clientRef.current;
             if (!c?.rfb || !containerRef.current) return;
+            if (!canResizeRemote()) return;   // too small to define a desktop
             const rect = containerRef.current.getBoundingClientRect();
             const { resize } = computeVncResize({
               proposed: { width: rect.width, height: rect.height },
@@ -250,15 +267,17 @@ const VncPane = ({
         ro = new ResizeObserver(() => {
           const c = clientRef.current;
           if (!c?.rfb) return;
-          if (!followPaneSize) {
-            // 폰 — 원격 해상도는 그대로 두고, 바뀐 컨테이너에 맞춰 스케일/클립만 다시 잡는다
-            // (회전·키보드·에디터 열기). 세터 대입이 noVNC 의 _updateScale/_updateClip 을 부른다.
+          // Stop any remote resize immediately while the size is in motion.
+          // Visual scaling keeps working: noVNC checks _scaleViewport for that,
+          // not _resizeSession.
+          c.rfb.resizeSession = false;
+          if (!canResizeRemote()) {
+            // Small pane (phone, rotation, keyboard, editor open): leave the
+            // remote resolution alone and only recompute scale/clip. Assigning
+            // the setters is what triggers noVNC's _updateScale/_updateClip.
             applyVncViewMode(c.rfb, viewModeRef.current);
             return;
           }
-          // 드래그 중 remote resize 즉시 차단. 시각적 스케일링(scaleViewport/_updateScale)은
-          // _resizeSession 이 아닌 _scaleViewport 를 검사하므로 계속 동작한다.
-          c.rfb.resizeSession = false;
           scheduler.schedule();
         });
         if (containerRef.current) ro.observe(containerRef.current);
@@ -282,16 +301,69 @@ const VncPane = ({
       clientRef.current = null;
       resizeSchedulerRef.current = null;
     };
-    // hostId·display·활성/가시성 만 재연결 트리거 — settings/t 는 ref 로 추적하므로 deps 에 넣지 않는다.
-    // followPaneSize 는 폰↔데스크탑 뷰포트 전환(사실상 거의 없음)에서만 바뀌고, 바뀌면
-    // 원격 해상도 정책 자체가 달라지므로 재연결이 맞다. 보기 모드는 아래 효과가 라이브 반영.
-  }, [hostId, display, validDisplay, isActive, docHidden, followPaneSize]);
+    // Only host/display/active/visibility force a reconnect — settings and t are
+    // read through refs. View mode and the resize policy are applied live below.
+  }, [hostId, display, validDisplay, isActive, docHidden, canResizeRemote]);
 
-  // 보기 모드 라이브 반영 — 재연결 없이 noVNC 플래그만 바꾼다.
-  // status 를 deps 에 둬서 연결 직후(클라이언트 생성 뒤)에도 한 번 적용된다.
+  /* One path for "change a control": apply to the live RFB first, persist after.
+     The picture must never wait for the settings PUT. */
+  const applyViewMode = useCallback((next) => {
+    const mode = normalizeVncViewMode(next);
+    setViewMode(mode);
+    applyVncViewMode(clientRef.current?.rfb, mode);
+    updateSettings?.({ vncViewMode: mode });
+  }, [updateSettings]);
+
+  const applyQuality = useCallback((next) => {
+    const preset = VNC_QUALITY_PRESETS[next];
+    if (!preset) return;
+    if (clientRef.current?.rfb) {
+      clientRef.current.rfb.qualityLevel = preset.qualityLevel;
+      clientRef.current.rfb.compressionLevel = preset.compressionLevel;
+    }
+    updateSettings?.({ vncQuality: next });
+  }, [updateSettings]);
+
+  // View mode, applied live — no reconnect, just the noVNC flags.
+  // `status` is in the deps so it also runs right after the client is created.
   useEffect(() => {
     applyVncViewMode(clientRef.current?.rfb, viewMode);
   }, [viewMode, status]);
+
+  /* Controls live in the tab menus (see vncControlBus). Apply what they ask for
+     immediately, then persist — the picture must not wait for the settings PUT. */
+  const quality = settings?.vncQuality || 'balanced';
+  // Settings live in a modal opened from the tab menu — never on top of the desktop.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /* Remote framebuffer size, read when the modal opens. noVNC exposes no public
+     getter, so this reads the private field defensively — worst case the readout
+     is absent, which is why the modal treats it as optional. It answers the
+     question people actually have: "why is this desktop cut off?" */
+  const remoteSize = (() => {
+    if (!settingsOpen) return null;
+    const rfb = clientRef.current?.rfb;
+    const width = Number(rfb?._fbWidth) || 0;
+    const height = Number(rfb?._fbHeight) || 0;
+    return width && height ? { width, height } : null;
+  })();
+  useEffect(() => {
+    if (!paneId) return undefined;
+    registerVncPane(paneId, { viewMode, quality });
+    return () => unregisterVncPane(paneId);
+  }, [paneId, viewMode, quality]);
+
+  useEffect(() => {
+    if (!paneId) return undefined;
+    const onControl = (e) => {
+      const detail = e?.detail || {};
+      if (detail.paneId !== paneId) return;
+      if (detail.openSettings) setSettingsOpen(true);
+      if (detail.viewMode) applyViewMode(detail.viewMode);
+      if (detail.quality) applyQuality(detail.quality);
+    };
+    window.addEventListener(VNC_CONTROL_EVENT, onControl);
+    return () => window.removeEventListener(VNC_CONTROL_EVENT, onControl);
+  }, [paneId, applyViewMode, applyQuality]);
 
   // ready 상태 보고 — Terminal 의 onReadyChange={setTerminalReady} 와 대응.
   useEffect(() => {
@@ -313,18 +385,15 @@ const VncPane = ({
     }
   }, [passwordValue]);
 
-  // Task 4 — 화질 프리셋 변경 시 즉시 반영 (재연결 없음).
-  // noVNC 는 qualityLevel/compressionLevel 속성 대입으로 인코딩 파라미터를 즉시 바꾼다.
-  // 화질 컨트롤 접기/펼치기 — 기본은 접힘. 화면을 가리지 않는 것이 기본값이어야 한다.
-  const [controlsOpen, setControlsOpen] = useState(false);
-  const vncQuality = settings?.vncQuality || 'balanced';
+  // Quality changes apply without reconnecting — noVNC re-encodes on assignment.
+  // (Also covers a change made from another device via settings sync.)
   useEffect(() => {
     const c = clientRef.current;
     if (!c?.rfb) return;
-    const preset = VNC_QUALITY_PRESETS[vncQuality] || VNC_QUALITY_PRESETS.balanced;
+    const preset = VNC_QUALITY_PRESETS[quality] || VNC_QUALITY_PRESETS.balanced;
     c.rfb.qualityLevel = preset.qualityLevel;
     c.rfb.compressionLevel = preset.compressionLevel;
-  }, [vncQuality]);
+  }, [quality, status]);
 
   // display 누락/무효 — 에러 메시지.
   if (!hostId || !validDisplay) {
@@ -473,152 +542,19 @@ const VncPane = ({
         </div>
       )}
 
-      {/* 화질 프리셋 — 접이식. 원격 데스크톱은 화면 자체가 콘텐츠라 컨트롤을 상시 띄우면
-          데스크탑을 가린다. 평소엔 우측 가장자리에 얇은 손잡이만 두고, 눌러야 펼친다.
-          (pane … 메뉴에 넣을 수 없다 — VNC pane 은 TerminalHeader 를 렌더하지 않는다.
-          Pane.jsx 의 `!isVnc` 참고.) */}
-      {!controlsOpen && (
-        <button
-          type="button"
-          onClick={() => setControlsOpen(true)}
-          title={t?.('vncQuality') || 'Quality'}
-          style={{
-            position: 'absolute',
-            top: '50%',
-            right: 0,
-            transform: 'translateY(-50%)',
-            zIndex: 20,
-            width: '20px',
-            height: '60px',
-            padding: 0,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            background: color.surface1,
-            border: `1px solid ${color.border}`,
-            borderRight: 'none',
-            borderRadius: `${radius.md} 0 0 ${radius.md}`,
-            boxShadow: `-2px 0 6px color-mix(in srgb, ${color.crust} 45%, transparent)`,
-            color: color.text,
-            cursor: 'pointer',
-            outline: 'none',
-          }}
-        >
-          <ChevronLeft size={14} strokeWidth={2.2} />
-        </button>
-      )}
+      {/* Nothing is drawn over the desktop. Settings open from the tab menu
+          (vncControlBus) into this modal, which is the only chrome this pane has. */}
+      <VncSettingsModal
+        isOpen={settingsOpen}
+        remoteSize={remoteSize}
+        onClose={() => setSettingsOpen(false)}
+        viewMode={viewMode}
+        quality={quality}
+        onViewMode={applyViewMode}
+        onQuality={applyQuality}
+        t={t}
+      />
 
-      {controlsOpen && (
-        <div
-          style={{
-            position: 'absolute',
-            top: '50%',
-            right: 0,
-            transform: 'translateY(-50%)',
-            zIndex: 20,
-            display: 'flex',
-            alignItems: 'stretch',
-            background: color.surface1,
-            border: `1px solid ${color.border}`,
-            borderRight: 'none',
-            borderRadius: `${radius.md} 0 0 ${radius.md}`,
-            boxShadow: `-2px 0 6px color-mix(in srgb, ${color.crust} 45%, transparent)`,
-            overflow: 'hidden',
-          }}
-        >
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {/* 보기 모드 — 폰에서만. 데스크탑은 pane 크기가 곧 원격 해상도라 두 모드가
-                같은 그림이고, 폰은 데스크탑이 화면보다 커서 이 선택이 필요하다.
-                맞춤=통째로 축소, 이동=1:1 로 보고 손가락으로 끌어 이동. */}
-            {isMobile && (
-              <>
-                {[
-                  [VNC_VIEW_FIT, t?.('vncViewFit') || 'Fit', Maximize2],
-                  [VNC_VIEW_PAN, t?.('vncViewPan') || 'Actual · drag', Move],
-                ].map(([value, label, Icon]) => {
-                  const isOn = viewMode === value;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => { updateSettings?.({ vncViewMode: value }); setControlsOpen(false); }}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        padding: '5px 12px',
-                        background: isOn ? color.accentSubtle : 'transparent',
-                        border: 'none',
-                        fontFamily: font.sans,
-                        fontSize: fontSize['11'],
-                        fontWeight: isOn ? fontWeight.semibold : fontWeight.medium,
-                        color: isOn ? color.accent : color.subtext,
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        outline: 'none',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <Icon size={11} strokeWidth={2} />
-                      {label}
-                    </button>
-                  );
-                })}
-                <div style={{ height: '1px', background: color.border, margin: '3px 0' }} />
-              </>
-            )}
-            {[
-              ['sharp', t?.('vncQualitySharp') || 'Sharp'],
-              ['balanced', t?.('vncQualityBalanced') || 'Balanced'],
-              ['light', t?.('vncQualityLight') || 'Light'],
-            ].map(([value, label]) => {
-              const isOn = vncQuality === value;
-              return (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => { updateSettings?.({ vncQuality: value }); setControlsOpen(false); }}
-                  style={{
-                    padding: '5px 12px',
-                    background: isOn ? color.accentSubtle : 'transparent',
-                    border: 'none',
-                    fontFamily: font.sans,
-                    fontSize: fontSize['11'],
-                    fontWeight: isOn ? fontWeight.semibold : fontWeight.medium,
-                    color: isOn ? color.accent : color.subtext,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    outline: 'none',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={() => setControlsOpen(false)}
-            title={t?.('close') || 'Close'}
-            style={{
-              width: '14px',
-              padding: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'transparent',
-              border: 'none',
-              borderLeft: `1px solid ${color.border}`,
-              color: color.subtext,
-              cursor: 'pointer',
-              outline: 'none',
-            }}
-          >
-            <ChevronRight size={11} strokeWidth={2} />
-          </button>
-        </div>
-      )}
 
       {/* Task 3 — 비밀번호 입력 폼. credentialsrequired 이벤트 시 표시.
           비밀번호는 컴포넌트 state(메모리) 에만 존재 — 영속화하지 않는다. */}

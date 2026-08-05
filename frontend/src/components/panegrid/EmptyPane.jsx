@@ -7,7 +7,6 @@ import { ArrowRightLeft, Copy, Cpu, Monitor, Plus, Power, Server, Terminal as Te
 import { tokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
 import { computeCreateGeometry } from '../../utils/vncResize';
-import { isPhoneViewport } from '../../utils/tabModel';
 import useLocalVncAvailable from '../../hooks/useLocalVncAvailable';
 import HomeDashboard, { HostRow } from '../HomeDashboard';
 import HostIcon from '../../utils/hostIcons';
@@ -153,13 +152,12 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
   const [useCustom, setUseCustom] = useState(false);
   const [customGeometry, setCustomGeometry] = useState('');
 
-  // 주 액션용 동적 해상도 — pane 실측이 있으면 그것을, 없으면 뷰포트를 기준.
-  // paneSize 가 명시적으로 null 이면(측정 전/불가) '1280x800' 폴백.
-  // 폰에서는 실측을 쓰지 않는다 — 폰 크기로 만든 데스크탑은 창이 잘린 채 세션에 남는다.
+  // Resolution for the primary action — the measured pane, else the viewport.
+  // A pane too small to be a desktop falls back to a real desktop size: a desktop
+  // created at phone size keeps that resolution, cropped, for every later viewer.
   const dynamicGeometry = computeCreateGeometry({
     width: paneSize?.width ?? (typeof window !== 'undefined' ? window.innerWidth : 0),
     height: paneSize?.height ?? (typeof window !== 'undefined' ? window.innerHeight : 0),
-    isPhone: isPhoneViewport(),
   });
 
   // 디스플레이 목록 조회. host 가 바뀌면 useEffect 가 다시 부른다.

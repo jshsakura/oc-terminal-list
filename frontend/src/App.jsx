@@ -900,7 +900,8 @@ function App() {
         onOpenSettings={() => setIsSettingsOpen(true)}
         // 보낼 터미널이 실제로 있을 때만 노출 — 홈 화면/빈 탭에선 의미 없음.
         onOpenCommandInput={
-          activeTabId !== null && !!focusedPane && (focusedPane.sessionId || focusedPane.hostId)
+          activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
+            && (focusedPane.sessionId || focusedPane.hostId)
             ? () => setCommandInputOpen(true)
             : null
         }
@@ -1241,8 +1242,10 @@ function App() {
 
       {/* ── mobile toolbar ──
           빈 pane (picker 상태) 이면 키 보낼 곳이 없어서 어차피 동작 안 함 → 숨김.
+          VNC pane 도 마찬가지 — 터미널 세션이 없어 키를 받을 곳이 없다(누르면 영영 로딩).
           SSH 2FA 인증 prompt 열려 있을 때도 키보드와 같이 따라 올라와 모달 가리므로 숨김. */}
-      {isMobile && activeTabId !== null && !!focusedPane && (focusedPane.sessionId || focusedPane.hostId) && !authPromptOpen && (
+      {isMobile && activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
+        && (focusedPane.sessionId || focusedPane.hostId) && !authPromptOpen && (
         <LazyErrorBoundary><Suspense fallback={null}>
           <MobileToolbar
             onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}

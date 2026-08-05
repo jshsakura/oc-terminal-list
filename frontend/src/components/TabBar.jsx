@@ -305,6 +305,11 @@ const TabBar = ({
   (() => {
     const ctxTab = tabs.find((tt) => tt.id === contextMenu.tabId);
     const ctxPaneCount = ctxTab?.panes?.length || 1;
+    /* VNC pane 은 TerminalHeader 를 렌더하지 않으므로 보기/화질을 둘 데가 탭 메뉴뿐이다.
+       활성 pane 이 VNC 일 때만 그 pane id 를 넘긴다. */
+    const ctxActivePane = (ctxTab?.panes || []).find((pp) => pp.id === ctxTab?.activePaneId)
+      || (ctxTab?.panes || [])[0];
+    const ctxVncPaneId = ctxActivePane?.mode === 'vnc' ? ctxActivePane.id : null;
     const ctxIdx = tabs.findIndex((tt) => tt.id === contextMenu.tabId);
     const isCtxActive = contextMenu.tabId === activeTabId;
     return (
@@ -312,6 +317,7 @@ const TabBar = ({
         ctx={contextMenu}
         t={t}
         paneCount={ctxPaneCount}
+        vncPaneId={ctxVncPaneId}
         canMoveLeft={ctxIdx > 0 && !!onReorder}
         canMoveRight={ctxIdx >= 0 && ctxIdx < tabs.length - 1 && !!onReorder}
         canSplit={isCtxActive && canSplit && !!onSplit}

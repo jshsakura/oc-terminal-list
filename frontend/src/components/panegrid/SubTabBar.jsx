@@ -11,7 +11,8 @@ import HostIcon from '../../utils/hostIcons';
 import { derivePaneLabel } from '../../utils/paneLabel';
 import { numberTileStyle } from '../../styles/numberTile';
 import useTouchDragReorder from '../../hooks/useTouchDragReorder';
-import { MenuItem } from '../tabBar/TabBarMenus';
+import { MenuItem } from '../tabBar/MenuItem';
+import VncMenuItems from '../vnc/VncMenuItems';
 import { glassMenuStyle, glassPanelStyle } from '../../styles/glass';
 
 const { color, font, fontSize, fontWeight, radius } = tokens;
@@ -155,6 +156,13 @@ const SubTabBar = ({
             opacity: ctxMeasured ? 1 : 0,
           }}
         >
+          {/* VNC pane — 보기 모드/화질. pane 위에 레일을 띄우면 데스크탑을 가린다. */}
+          {panes.find((p) => p.id === ctxMenu.paneId)?.mode === 'vnc' && (
+            <>
+              <VncMenuItems paneId={ctxMenu.paneId} onDone={ctxCloseRef.current} t={t} />
+              <div style={{ height: '1px', background: subUi.border, margin: '4px 2px' }} />
+            </>
+          )}
           {onRenamePane && (
             <MenuItem
               icon={Edit3}

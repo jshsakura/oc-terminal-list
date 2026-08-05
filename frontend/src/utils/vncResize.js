@@ -139,21 +139,40 @@ export const computeVncGeometry = (width, height) => {
   return `${w}x${h}`;
 };
 
+/* A viewport smaller than this is a window onto a desktop, not a desktop.
+   Deliberately size-based rather than "is this a phone": a phone in landscape is
+   844px wide and stops looking like a phone to a UA/width check, which is
+   exactly when someone turns the device sideways to look at a desktop. */
+export const MIN_DESKTOP_WIDTH = 1024;
+export const MIN_DESKTOP_HEIGHT = 600;
+
 /**
- * 데스크탑 생성 해상도 — 폰이면 실측을 무시하고 데스크탑 기본값을 쓴다.
+ * May this pane dictate the remote desktop's resolution?
  *
- * 폰 pane 은 세로로 길고 400px 남짓이다. 그 크기로 Xvnc 를 띄우면 데스크탑의 창과
- * 패널이 화면 밖으로 잘리고, 그 해상도는 세션에 그대로 남아 나중에 PC 로 봐도
- * 잘린 채다. 폰은 "보는 창" 이지 데스크탑의 크기를 정하는 주체가 아니다.
+ * Only if it is big enough to *be* a desktop. A 400px pane pushing
+ * SetDesktopSize shrinks the remote desktop until its windows and panels fall
+ * off the screen — and that resolution stays in the session, so the same
+ * desktop is still cropped later on a PC. Small panes look; they don't resize.
+ */
+export const shouldFollowPaneSize = (width, height) => (
+  Number.isFinite(width) && Number.isFinite(height)
+  && width >= MIN_DESKTOP_WIDTH && height >= MIN_DESKTOP_HEIGHT
+);
+
+/**
+ * Resolution to create a desktop at — the measured pane, unless the pane is too
+ * small to be a desktop, in which case a normal desktop size (same rule as
+ * `shouldFollowPaneSize`).
  *
  * @param {object} opts
- * @param {number|null|undefined} opts.width - pane/뷰포트 CSS 픽셀 폭.
- * @param {number|null|undefined} opts.height - pane/뷰포트 CSS 픽셀 높이.
- * @param {boolean} [opts.isPhone=false] - 폰 뷰포트 여부(utils/tabModel.isPhoneViewport).
+ * @param {number|null|undefined} opts.width - pane/viewport CSS pixels.
+ * @param {number|null|undefined} opts.height - pane/viewport CSS pixels.
  * @returns {string} 'WxH'
  */
-export const computeCreateGeometry = ({ width, height, isPhone = false } = {}) => (
-  isPhone ? DESKTOP_DEFAULT_GEOMETRY : computeVncGeometry(width, height)
+export const computeCreateGeometry = ({ width, height } = {}) => (
+  shouldFollowPaneSize(width, height)
+    ? computeVncGeometry(width, height)
+    : DESKTOP_DEFAULT_GEOMETRY
 );
 
 /**
