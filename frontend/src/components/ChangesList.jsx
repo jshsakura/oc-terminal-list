@@ -3,7 +3,6 @@ import { createPortal } from 'react-dom';
 import { GitBranch, RefreshCw, ChevronRight, ChevronDown, Folder, FolderOpen, FileText, FilePlus, FileMinus, FileEdit, GitCommit, Upload, Loader2, Search, X, PenLine } from 'lucide-react';
 import useGitChanges from '../hooks/useGitChanges';
 import { tokens } from '../styles/tokens';
-import { glassMenuItemHover } from '../styles/glass';
 import SkeletonRow from './common/SkeletonRow';
 import { styles } from './changes/styles';
 import { authHeaders } from '../utils/auth';
@@ -68,10 +67,9 @@ const dirname = (path) => {
 const MenuItem = ({ icon: Icon, label, onClick }) => (
   <button
     type="button"
+    className="iterm-menu-item"
     onClick={onClick}
     style={styles.menuItem}
-    onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); e.currentTarget.style.color = color.text; }}
-    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
   >
     <Icon size={13} strokeWidth={1.8} />
     <span>{label}</span>
@@ -171,9 +169,8 @@ const ChangeFileRow = memo(function ChangeFileRow({ node, depth, hostId, onSelec
           },
         });
       }}
+      className="iterm-menu-item"
       style={{ ...styles.row, paddingLeft: 4 + depth * 14 }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
       <span style={styles.chevSlot} />
       <span style={{ ...styles.statusLetter, color: meta.tone, borderColor: `${meta.tone}55`, background: `${meta.tone}11` }}>
@@ -188,9 +185,8 @@ const ChangeDirRow = memo(function ChangeDirRow({ node, depth, isCollapsed, leaf
   return (
     <div
       onClick={() => onToggle(node.path)}
+      className="iterm-menu-item"
       style={{ ...styles.dirRow, paddingLeft: 4 + depth * 14 }}
-      onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
     >
       <span style={styles.chevSlot}>
         {isCollapsed ? <ChevronRight size={10} strokeWidth={2} /> : <ChevronDown size={10} strokeWidth={2} />}

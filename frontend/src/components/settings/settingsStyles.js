@@ -272,6 +272,16 @@ export const styles = {
     color: color.text,
     letterSpacing: '0.01em',
   },
+  collapseAside: {
+    marginLeft: 'auto',
+    paddingLeft: space['2'],
+    fontSize: fontSize['11'],
+    color: color.subtext,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    maxWidth: '50%',
+  },
   collapseBody: {
     display: 'flex',
     flexDirection: 'column',

@@ -4,7 +4,7 @@ import {
   Plus, Pencil, Trash2, Terminal, Download, Upload, Copy, Type,
 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
-import { glassDividerStyle, glassMenuItemHover } from '../../styles/glass';
+import { glassDividerStyle } from '../../styles/glass';
 import { styles } from './fileTreeStyles';
 import { iconForFile, fileIconColor, gitTone } from './fileTreeHelpers';
 
@@ -104,6 +104,7 @@ export const Row = memo(({ depth, isOpen, isFolder, isSelected, name, tone, gitS
 
 export const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
   <button
+    className={`iterm-menu-item${tone === 'danger' ? ' iterm-menu-item-danger' : ''}`}
     onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
     onPointerDown={(e) => e.stopPropagation()}
     onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClick(); }}
@@ -111,8 +112,6 @@ export const MenuItem = ({ icon: Icon, label, onClick, tone }) => (
       ...styles.menuItem,
       color: tone === 'danger' ? 'var(--ui-danger)' : 'var(--ui-text)',
     }}
-    onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(); }}
-    onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
   >
     <Icon size={12} strokeWidth={2} style={{ color: tone === 'danger' ? 'var(--ui-danger)' : 'var(--ui-subtext)' }} />
     <span>{label}</span>

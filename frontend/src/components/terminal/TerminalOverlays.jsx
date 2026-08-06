@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RefreshCw, KeyRound, Upload, Link as LinkIcon, FileText } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
-import { glassDividerStyle, glassMenuItemHover, glassMenuStyle } from '../../styles/glass';
+import { glassDividerStyle, glassMenuStyle } from '../../styles/glass';
 import { styles } from './terminalStyles';
 
 export const GlassOverlayCard = ({ themeUi, zIndex = 10040, children }) => (
@@ -274,8 +274,7 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
             cursor: 'pointer',
             textAlign: 'left',
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(themeUi); }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+          className="iterm-menu-item"
         >
           <item.icon size={13} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.7 }} />
           {item.label}

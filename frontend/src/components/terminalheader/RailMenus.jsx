@@ -8,7 +8,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
-import { glassMenuItemHover, glassMenuStyle } from '../../styles/glass';
+import { glassMenuStyle } from '../../styles/glass';
 import useCommandHistory from '../../hooks/useCommandHistory';
 import { removeCommand as removeHistoryCommand, clearCommandsFor as clearHistoryFor } from '../../utils/commandHistory';
 
@@ -124,8 +124,9 @@ const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = fal
         lineHeight: 1.3,
         opacity: disabled ? 0.5 : 1,
       }}
-      onMouseEnter={(e) => { if (!disabled && !display) e.currentTarget.style.background = glassMenuItemHover(ui); }}
-      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+      /* display(값만 보여주는 행)와 disabled 에는 호버가 없어야 하므로 클래스를 안 붙인다.
+         나머지는 앱 공용 규칙(main.jsx `.iterm-menu-item`)을 그대로 따른다. */
+      className={(!disabled && !display) ? 'iterm-menu-item' : undefined}
     >
       {Icon && <Icon size={13} strokeWidth={1.8} />}
       {children}
@@ -313,8 +314,7 @@ const CommandHistoryPopover = ({ anchor, terminalKey, ui, isMobile = false, onCl
                 color: ui.subtext, fontSize: fontSize['11'], cursor: 'pointer',
                 fontFamily: 'inherit', transition: 'background 120ms, color 120ms',
               }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = glassMenuItemHover(ui); e.currentTarget.style.color = ui.text; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = ui.subtext; }}
+              className="iterm-menu-item"
             >
               {t?.('cancel') || 'Cancel'}
             </button>

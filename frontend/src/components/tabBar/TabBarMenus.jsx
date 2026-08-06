@@ -171,6 +171,8 @@ export const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettin
   const item = (Icon, label, action) => (
     <button
       type="button"
+      /* 호버는 CSS 한 규칙(main.jsx `.iterm-menu-item`)이 담당한다. */
+      className="iterm-menu-item"
       onClick={action}
       style={{
         display: 'flex', alignItems: 'center', gap: '8px',
@@ -180,17 +182,6 @@ export const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettin
         background: 'transparent', border: 'none', borderRadius: '5px',
         cursor: 'pointer', color: color.text,
         fontSize: isMobile ? '13px' : '11.5px', fontFamily: font.sans,
-        transition: 'background 120ms, box-shadow 120ms',
-      }}
-      /* 호버는 "이 줄이 선택된다" 는 유일한 신호다 — 면만으로 애매하면 왼쪽 액센트 실마리가
-         어느 줄인지 확실히 잡아준다(유리 위에서 반투명 면은 뒤에 비치는 것과 섞인다). */
-      onMouseEnter={(e) => {
-        e.currentTarget.style.background = glassMenuItemHover();
-        e.currentTarget.style.boxShadow = `inset 2px 0 0 ${color.accent}`;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = 'transparent';
-        e.currentTarget.style.boxShadow = 'none';
       }}
     >
       <Icon size={iconSize} strokeWidth={1.8} />

@@ -21,7 +21,7 @@ export const ShortcutRow = ({ keys, desc }) => (
  * 쓰는 폼이 늘 펼쳐져 있으면 그만큼 자주 쓰는 항목이 아래로 밀린다.
  * 기본 구획은 그대로 — 접는 것이 늘면 그건 그것대로 클릭이 는다.
  */
-export const Section = ({ title, icon: Icon = null, children, collapsible = false, defaultOpen = false }) => {
+export const Section = ({ title, icon: Icon = null, aside = null, children, collapsible = false, defaultOpen = false }) => {
   const [open, setOpen] = useState(defaultOpen);
   if (!collapsible) {
     return (
@@ -60,6 +60,8 @@ export const Section = ({ title, icon: Icon = null, children, collapsible = fals
           </span>
         )}
         <span style={styles.collapseTitle}>{title}</span>
+        {/* 접힌 채로도 **지금 값**은 보여야 한다 — 열어봐야만 알 수 있으면 접은 값이 없다. */}
+        {aside && <span style={styles.collapseAside}>{aside}</span>}
       </button>
       {open && <div style={styles.collapseBody}>{children}</div>}
     </section>

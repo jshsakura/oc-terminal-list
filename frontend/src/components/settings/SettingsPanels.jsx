@@ -1,6 +1,6 @@
-import { LogOut, Server, ChevronRight, Plus, Key as KeyIcon, KeyRound, ShieldCheck, Fingerprint } from 'lucide-react';
+import { LogOut, Server, ChevronRight, Plus, Key as KeyIcon, KeyRound, ShieldCheck, Fingerprint, Palette } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
-import ThemePicker from '../common/ThemePicker';
+import ThemePicker, { THEME_LABELS } from '../common/ThemePicker';
 import HostIcon from '../../utils/hostIcons';
 import OtpSection from '../OtpSection';
 import PasskeySection from '../PasskeySection';
@@ -84,9 +84,16 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
     <Divider />
 
     <Section title={t('appearance') || 'Appearance'}>
-      <Field label={t('theme')}>
+      {/* 테마는 접어 둔다 — 40개가 넘는 격자가 늘 펼쳐져 있으면 그 아래 항목(언어·글꼴 크기)이
+          화면 밖으로 밀린다. 접힌 머리에 **지금 테마 이름**을 띄워 열지 않고도 알 수 있게 한다. */}
+      <Section
+        title={t('theme') || 'Theme'}
+        icon={Palette}
+        aside={THEME_LABELS[s.theme] || s.theme}
+        collapsible
+      >
         <ThemePicker value={s.theme} onChange={(v) => change('theme', v)} t={t} columns={2} />
-      </Field>
+      </Section>
       <Field label={t('language')}>
         <Select value={s.language} onChange={(v) => change('language', v)}>
           <option value="en">{t('languageEnglish')}</option>

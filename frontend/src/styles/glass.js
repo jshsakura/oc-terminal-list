@@ -33,14 +33,9 @@ export const glassPanelStyle = (theme = {}, overrides = {}) => ({
   ...overrides,
 });
 
-/* 메뉴 항목 호버.
- *
- * 유리 위에서는 반투명 하이라이트가 뒤에 비치는 것과 섞여 거의 안 보인다 — 78% surface1 은
- * 배경이 무엇이냐에 따라 있는 듯 없는 듯했다. 호버는 "지금 이 줄이 선택된다" 는 유일한
- * 신호라 애매하면 안 된다. 한 단 위 면(surface2)을 거의 불투명하게 깔고, 왼쪽에 액센트
- * 실마리를 더해 어느 줄인지 눈이 바로 잡게 한다. */
-export const glassMenuItemHover = (theme = {}) =>
-  `color-mix(in srgb, ${pick(theme, 'surface2', ui.surface2)} 92%, transparent)`;
+/* 메뉴 행 호버는 **CSS 한 규칙**이다 — `main.jsx` 의 `.iterm-menu-item`.
+   예전엔 메뉴마다 JS 로 인라인 background 를 바꿨는데, 같은 것을 여섯 군데가 각자 배선하니
+   한 곳을 고쳐도 나머지는 옛 모습으로 남았다(설정 서브메뉴에서 그게 드러났다). */
 
 export const glassDividerStyle = (theme = {}, overrides = {}) => ({
   height: '1px',

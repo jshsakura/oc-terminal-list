@@ -4,12 +4,14 @@
  * cycle here shows up as a silently undefined component.
  */
 import { tokens } from '../../styles/tokens';
-import { glassMenuItemHover } from '../../styles/glass';
 
 const { color } = tokens;
 
 export const MenuItem = ({ onClick, children, danger, disabled = false, icon: Icon = null, style = null }) => (
   <button
+    /* 호버는 CSS 한 규칙(main.jsx `.iterm-menu-item`)이 담당한다 — 메뉴마다 JS 로 배선하면
+       한 곳을 고쳐도 다른 메뉴는 그대로 남는다(설정 서브메뉴가 실제로 그랬다). */
+    className={`iterm-menu-item${danger ? ' iterm-menu-item-danger' : ''}`}
     onClick={disabled ? undefined : (e) => { e.stopPropagation(); onClick?.(); }}
     disabled={disabled}
     style={{
@@ -30,17 +32,6 @@ export const MenuItem = ({ onClick, children, danger, disabled = false, icon: Ic
       lineHeight: 1.3,
       opacity: disabled ? 0.5 : 1,
       ...style,
-    }}
-    /* 모든 메뉴가 같은 호버를 쓴다 — 면(surface2)에 왼쪽 액센트 실마리. 유리 위에서
-       반투명 면만으로는 뒤에 비치는 것과 섞여 "눌리는 줄" 이 애매해진다. */
-    onMouseEnter={(e) => {
-      if (disabled) return;
-      e.currentTarget.style.background = glassMenuItemHover();
-      e.currentTarget.style.boxShadow = `inset 2px 0 0 ${danger ? color.danger : color.accent}`;
-    }}
-    onMouseLeave={(e) => {
-      e.currentTarget.style.background = 'transparent';
-      e.currentTarget.style.boxShadow = 'none';
     }}
   >
     {Icon && <Icon size={12} strokeWidth={1.8} />}
