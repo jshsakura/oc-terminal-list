@@ -233,7 +233,11 @@ const StatStripCard = ({
           {/* 히어로 — 총 시간이 이 카드의 주인공. 크고 또렷한 mono 숫자를 카드 중앙에 당당하게,
               캡션은 작고 muted. 아래 얇은 진행바 하나가 유일한 accent 포인트. */}
           <div style={heroStyle}>
-            <span style={heroCaptionStyle}>{`${t?.('totalTime') || 'Total'} · ${windowDays}d`}</span>
+            {/* 카드 제목이 이미 "전체 사용 시간" 이다 — 여기서는 **기간**만 말한다.
+                "총 시간 · 7D" 는 같은 말을 반복하면서 7D 가 뭔지는 설명하지 않았다. */}
+            <span style={heroCaptionStyle}>
+              {(t?.('lastNDays') || 'last {n} days').replace('{n}', String(windowDays))}
+            </span>
             <HeroDuration seconds={totalSeconds} loading={loading} t={t} />
             <div style={heroBarTrackStyle}>
               <div style={heroBarFillStyle(loading ? 0 : totalPct)} />
@@ -549,7 +553,7 @@ const heroStyle = {
   padding: '8px 0 4px',
 };
 const heroCaptionStyle = {
-  fontSize: fontSize['11'],
+  fontSize: fontSize['10'],
   color: color.muted,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
@@ -578,7 +582,7 @@ const heroSegStyle = {
   flexShrink: 0,
 };
 const heroNumStyle = {
-  fontSize: 'clamp(26px, 7vw, 40px)',
+  fontSize: 'clamp(22px, 5vw, 30px)',
   fontWeight: fontWeight.semibold,
   color: color.text,
   letterSpacing: '-0.02em',
@@ -586,7 +590,7 @@ const heroNumStyle = {
 // 가장 큰 단위의 숫자에만 절제된 accent 포인트 하나.
 const heroNumAccentStyle = { ...heroNumStyle, color: color.accent };
 const heroUnitStyle = {
-  fontSize: 'clamp(11px, 2.4vw, 13px)',
+  fontSize: 'clamp(10px, 2vw, 12px)',
   fontWeight: fontWeight.medium,
   color: color.muted,
   letterSpacing: '0.01em',

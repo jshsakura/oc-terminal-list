@@ -115,3 +115,68 @@ describe('전송 후 정리', () => {
     expect(out).toEqual({});
   });
 });
+
+// 모바일 갤러리는 여러 장 선택이 기본 동작이다. 한 장만 받으면 사용자는 피커를
+// 다섯 번 열어야 하고, 대개는 "안 되는구나" 하고 그냥 참고 쓴다.
+describe('여러 장 한 번에', () => {
+  const makeChangeEvent = (files) => ({ target: { files, value: 'x' } });
+  const img = (name) => Object.assign(new Blob([name], { type: 'image/png' }), { name });
+
+  it('고른 순서대로 전부 올리고 경로를 순서대로 끼워넣는다', async () => {
+    const inserted = [];
+    const { result } = renderHook(() => useImageAttach((s) => inserted.push(s), null));
+    const order = [];
+    uploadImageAndGetPath.mockImplementation(async (blob) => {
+      order.push(await blob.text());
+      return { path: `/tmp/iterminallist-paste/${await blob.text()}.webp` };
+    });
+
+    await act(async () => {
+      await result.current.handleFileChange(makeChangeEvent([img('a'), img('b'), img('c')]));
+    });
+
+    expect(order).toEqual(['a', 'b', 'c']);          // 동시가 아니라 순차 — 순서가 보장된다
+    expect(inserted).toHaveLength(3);
+    expect(inserted[0]).toContain('a.webp');
+    expect(inserted[2]).toContain('c.webp');
+  });
+
+  it('이미지가 아닌 파일은 걸러낸다', async () => {
+    const { result } = renderHook(() => useImageAttach(vi.fn(), null));
+    const pdf = new Blob(['p'], { type: 'application/pdf' });
+    await act(async () => {
+      await result.current.handleFileChange(makeChangeEvent([img('a'), pdf]));
+    });
+    expect(uploadImageAndGetPath).toHaveBeenCalledTimes(1);
+  });
+
+  it('중간 한 장이 실패해도 나머지는 올라간다', async () => {
+    const inserted = [];
+    const { result } = renderHook(() => useImageAttach((s) => inserted.push(s), null));
+    uploadImageAndGetPath.mockImplementation(async (blob) => {
+      const name = await blob.text();
+      if (name === 'b') throw new Error('업로드 실패');
+      return { path: `/tmp/iterminallist-paste/${name}.webp` };
+    });
+
+    await act(async () => {
+      await result.current.handleFileChange(makeChangeEvent([img('a'), img('b'), img('c')]));
+    });
+
+    expect(inserted).toHaveLength(2);               // a, c 는 살아남는다
+    expect(inserted[1]).toContain('c.webp');
+    expect(result.current.uploadState).toBe('error');
+  });
+
+  it('클립보드에 이미지가 여럿이면 전부 받는다', async () => {
+    const { result } = renderHook(() => useImageAttach(vi.fn(), null));
+    const item = (b) => ({ kind: 'file', type: 'image/png', getAsFile: () => b });
+    await act(async () => {
+      await result.current.handlePaste({
+        clipboardData: { items: [item(img('a')), item(img('b'))] },
+        preventDefault: () => {},
+      });
+    });
+    expect(uploadImageAndGetPath).toHaveBeenCalledTimes(2);
+  });
+});

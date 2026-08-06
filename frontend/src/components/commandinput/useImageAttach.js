@@ -23,7 +23,12 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
   const fileInputRef = useRef(null);
   // null | 'uploading' | 'error'. 모바일은 hover title 이 없어 인라인 표시가 필요하다.
   const [uploadState, setUploadState] = useState(null);
+  // 여러 장을 한 번에 고른 경우의 진행 표시. `{ current, total }` — 1장이면 null.
+  const [uploadProgress, setUploadProgress] = useState(null);
   const errorTimerRef = useRef(0);
+  /* 업로드 중복 차단은 **ref** 로 한다. setState 는 같은 tick 안에서 반영되지 않아
+     여러 장을 순차 업로드할 때 state 기반 가드는 무용지물이다. */
+  const uploadingRef = useRef(false);
 
   /**
    * 이번 입력창에 끼워넣은 첨부들.
@@ -34,24 +39,49 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
 
   useEffect(() => () => window.clearTimeout(errorTimerRef.current), []);
 
-  const upload = async (blob) => {
-    if (uploadState === 'uploading') return; // 중복 업로드 차단
-    setUploadState('uploading');
-    try {
-      const data = await uploadImageAndGetPath(blob, hostId);
-      attachmentsRef.current = [
-        ...attachmentsRef.current,
-        { blob, pathByHost: { [hostId || '']: data.path } },
-      ];
-      insertAtCursor(`${data.path} `);
-      setUploadState(null);
-    } catch (err) {
-      console.error('image upload failed', err);
-      setUploadState('error');
-      window.clearTimeout(errorTimerRef.current);
-      errorTimerRef.current = window.setTimeout(() => setUploadState(null), ERROR_HOLD_MS);
-    }
+  const failUpload = (err) => {
+    console.error('image upload failed', err);
+    setUploadState('error');
+    window.clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = window.setTimeout(() => setUploadState(null), ERROR_HOLD_MS);
   };
+
+  /** 한 장 업로드 → 첨부 기록 + 커서 위치에 경로 삽입. 가드/상태는 호출자가 맡는다. */
+  const uploadOne = async (blob) => {
+    const data = await uploadImageAndGetPath(blob, hostId);
+    attachmentsRef.current = [
+      ...attachmentsRef.current,
+      { blob, pathByHost: { [hostId || '']: data.path } },
+    ];
+    insertAtCursor(`${data.path} `);
+  };
+
+  /**
+   * 여러 장을 **순차** 업로드한다. 동시에 쏘면 모바일 회선에서 서로를 굶기고,
+   * 경로가 고른 순서와 다르게 삽입돼 어떤 사진이 어느 경로인지 알 수 없게 된다.
+   * 한 장이 실패해도 나머지는 계속 올린다 — 5장 중 1장 때문에 전부 날리지 않는다.
+   */
+  const uploadMany = async (blobs) => {
+    if (!blobs.length || uploadingRef.current) return;
+    uploadingRef.current = true;
+    setUploadState('uploading');
+    setUploadProgress(blobs.length > 1 ? { current: 0, total: blobs.length } : null);
+    let lastError = null;
+    for (let i = 0; i < blobs.length; i += 1) {
+      if (blobs.length > 1) setUploadProgress({ current: i, total: blobs.length });
+      try {
+        await uploadOne(blobs[i]);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    uploadingRef.current = false;
+    setUploadProgress(null);
+    if (lastError) failUpload(lastError);
+    else setUploadState(null);
+  };
+
+  const upload = (blob) => uploadMany([blob]);
 
   /** 이 호스트에서 쓸 수 있는 경로 — 없으면 그 호스트로 올리고 캐시한다. */
   const pathForHost = async (attachment, targetHostId) => {
@@ -111,27 +141,29 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
   const openPicker = () => fileInputRef.current?.click();
 
   // 같은 파일을 다시 골라도 change 가 뜨도록 값부터 리셋.
+  // 모바일 갤러리는 여러 장 선택이 기본 동작이라 input 에 multiple 이 걸려 있다.
   const handleFileChange = (e) => {
-    const file = e.target.files?.[0];
+    const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
     e.target.value = '';
-    if (file && file.type.startsWith('image/')) upload(file);
+    if (files.length) uploadMany(files);
   };
 
   // 클립보드에 이미지가 있으면 가로채 업로드, 텍스트는 브라우저 기본 동작에 맡긴다.
+  // 여러 장이 담겨 있으면 전부 — 파일 탐색기에서 사진 여러 개를 복사해 오는 경우가 있다.
   const handlePaste = (e) => {
-    const imageItem = Array.from(e.clipboardData?.items || []).find(
-      (it) => it.kind === 'file' && it.type.startsWith('image/'),
-    );
-    if (!imageItem) return;
-    const blob = imageItem.getAsFile();
-    if (!blob) return;
+    const blobs = Array.from(e.clipboardData?.items || [])
+      .filter((it) => it.kind === 'file' && it.type.startsWith('image/'))
+      .map((it) => it.getAsFile())
+      .filter(Boolean);
+    if (!blobs.length) return;
     e.preventDefault();
-    upload(blob);
+    return uploadMany(blobs);
   };
 
   return {
     fileInputRef,
     uploadState,
+    uploadProgress,
     isUploading: uploadState === 'uploading',
     openPicker,
     handleFileChange,

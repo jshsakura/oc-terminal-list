@@ -281,6 +281,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             ref={image.fileInputRef}
             type="file"
             accept="image/*"
+            multiple
             onChange={image.handleFileChange}
             style={{ display: 'none' }}
             aria-hidden="true"
@@ -295,6 +296,12 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             title={t?.('attachImage') || '이미지 첨부'}
             style={styles.footerIconBtn}
           />
+          {/* 여러 장을 올리는 중에만 n/N — 한 장은 아이콘 회전만으로 충분하다. */}
+          {image.uploadProgress && (
+            <span style={styles.uploadCount}>
+              {image.uploadProgress.current + 1}/{image.uploadProgress.total}
+            </span>
+          )}
           <Button
             variant="ghost"
             size="icon"
@@ -478,6 +485,14 @@ const styles = {
   // 푸터 보조 아이콘 버튼(Paste/Attach/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
   // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.
   footerIconBtn: { width: '30px', height: '30px' },
+  // 다중 업로드 진행 카운터 — 첨부 버튼 옆에 붙는 작은 숫자.
+  uploadCount: {
+    fontSize: fontSize['11'],
+    fontFamily: font.mono,
+    color: color.muted,
+    marginLeft: '-2px',
+    fontVariantNumeric: 'tabular-nums',
+  },
   // 업로드 상태 전용 영역 — footer 아래 얇은 바. 버튼 줄을 어지럽히지 않게 분리.
   statusBar: {
     flexShrink: 0,

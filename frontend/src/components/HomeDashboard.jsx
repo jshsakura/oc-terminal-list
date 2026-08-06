@@ -9,7 +9,7 @@ import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import useHostReorder from '../hooks/useHostReorder';
 import DashboardCards from './DashboardCards';
-import LlmUsageCards from './LlmUsageCards';
+import LlmDashboard from './llm/LlmDashboard';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -17,6 +17,8 @@ const { color, font, fontSize, fontWeight, radius, space } = tokens;
 // 정렬 순서는 서버 hosts.sort_index 가 SSoT. useHostReorder 훅이 옵티미스틱 관리.
 
 // Termius 풍 가로 카드 — 폭이 넓어지면 한 줄에 여러개, 좁아지면 한 줄로 stack.
+/* 백엔드가 허용하는 창(0=전체)과 같은 목록 — 여기서만 늘리면 조용히 30일로 떨어진다. */
+const RANGES = [[7], [30], [90], [0]];
 const CARD_MIN_WIDTH = 260;
 const CARD_GAP = 8;
 const CONTENT_PADDING = 40; // 좌우 padding 합 (root padding ${space['5']}=20px*2)
@@ -62,6 +64,9 @@ const HomeDashboard = ({
   const [hoverId, setHoverId] = useState(null);
   // 'connections' | 'dashboard' — 홈에 오는 이유의 대부분은 연결이라 기본은 그쪽.
   const [view, setView] = useState('connections');
+  /* 기간은 **카드 위 한 줄**에 둔다 — 카드마다 따로 두면 "7일 카드 옆의 30일 카드" 가
+     되어 같은 화면에서 서로 다른 창을 비교하게 된다. 백엔드 화이트리스트와 같은 값. */
+  const [rangeDays, setRangeDays] = useState(7);
   // 서버 sort_index 가 SSoT. useHostReorder 가 옵티미스틱 reorder + persist + refresh 통합 처리.
   const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
 
@@ -125,20 +130,21 @@ const HomeDashboard = ({
         )}
 
         {view === 'dashboard' ? (
-          /* 통계는 한 판이다 — 세션 사용량 카드와 LLM 카드가 같은 그리드에 섞인다.
-             각자 소제목을 달고 따로 서면 "두 대시보드" 처럼 보인다. */
-          <div style={gridStyle}>
-            <DashboardCards hosts={hosts} settings={settings} days={7} bare t={t} />
-            <LlmUsageCards
+          /* 대시보드는 llm-watcher 화면을 그대로 들여온 것 — 범위 한 줄이 아래 전부를
+             좁히고, 타일 → 키스탯 → 일별 차트 → 분해 → 세션 순서다. 그 위에 이 앱만의
+             터미널 사용량 카드가 얹힌다(호스트별 시간). */
+          <>
+            <div style={gridStyle}>
+              <DashboardCards hosts={hosts} settings={settings} days={7} bare t={t} />
+            </div>
+            <LlmDashboard
               hosts={hosts}
               tabs={tabs}
               settings={settings}
               onJumpPane={onJumpPane}
-              bare
-              alwaysShow
               t={t}
             />
-          </div>
+          </>
         ) : (
         <>
         {/* 1) 호스트 카드 — 탭 열기가 핵심 흐름이므로 가장 위.
@@ -507,6 +513,22 @@ const styles = {
     display: 'flex',
     gap: '4px',
     flexShrink: 0,
+  },
+  rangeRow: {
+    display: 'inline-flex',
+    gap: '4px',
+    alignSelf: 'flex-start',
+  },
+  rangeBtn: {
+    padding: '4px 10px',
+    minHeight: '28px',
+    border: '1px solid',
+    borderRadius: radius.md,
+    fontSize: fontSize['11'],
+    fontWeight: fontWeight.medium,
+    fontFamily: font.mono,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
   viewSwitch: {
     display: 'inline-flex',
