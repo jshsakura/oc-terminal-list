@@ -1,4 +1,4 @@
-import { LogOut, Server, ChevronRight, Plus, Key as KeyIcon } from 'lucide-react';
+import { LogOut, Server, ChevronRight, Plus, Key as KeyIcon, KeyRound, ShieldCheck, Fingerprint } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import ThemePicker from '../common/ThemePicker';
 import HostIcon from '../../utils/hostIcons';
@@ -70,13 +70,13 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
         셋은 다 "계정 보안" 이라 한 묶음으로 세운다. 카드끼리는 구분선을 긋지 않는다 —
         면이 이미 경계이고, 거기에 선까지 그으면 테두리가 두 겹으로 보인다. */}
     <div style={styles.cardStack}>
-      <Section title={t('changePassword') || 'Change password'} collapsible>
+      <Section title={t('changePassword') || 'Change password'} icon={KeyRound} collapsible>
         <PasswordSection onLogout={onLogout} t={t} />
       </Section>
-      <Section title={t('twoFactorAuth') || 'Two-factor authentication'} collapsible>
+      <Section title={t('twoFactorAuth') || 'Two-factor authentication'} icon={ShieldCheck} collapsible>
         <OtpSection t={t} />
       </Section>
-      <Section title={t('passkeys') || 'Passkeys'} collapsible>
+      <Section title={t('passkeys') || 'Passkeys'} icon={Fingerprint} collapsible>
         <PasskeySection t={t} />
       </Section>
     </div>

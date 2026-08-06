@@ -251,6 +251,21 @@ export const styles = {
     font: 'inherit',
     transition: `background ${motion.fast}`,
   },
+  /* 제목 앞 아이콘 타일 — 카드가 셋 나란히 서면 글자를 읽기 전에 무엇인지 구분돼야 한다.
+     앱의 다른 아이콘 타일과 같은 문법(면 + 헤어라인 + 4px 라운드). */
+  collapseIcon: {
+    width: '22px',
+    height: '22px',
+    flexShrink: 0,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: '5px',
+    color: color.subtext,
+    background: `color-mix(in srgb, ${color.text} 7%, transparent)`,
+    border: `1px solid ${color.border}`,
+    boxSizing: 'border-box',
+  },
   collapseTitle: {
     fontSize: fontSize['12'],
     fontWeight: fontWeight.medium,
