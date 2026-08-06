@@ -168,12 +168,13 @@ export const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettin
   }, [anchor.x, anchor.y]);
 
   const iconSize = isMobile ? 15 : 12;
-  const item = (Icon, label, action) => (
+  const item = (Icon, label, action, title = undefined) => (
     <button
       type="button"
       /* 호버는 CSS 한 규칙(main.jsx `.iterm-menu-item`)이 담당한다. */
       className="iterm-menu-item"
       onClick={action}
+      title={title}
       style={{
         display: 'flex', alignItems: 'center', gap: '8px',
         width: '100%',
@@ -201,7 +202,12 @@ export const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettin
     }}>
       {item(SettingsIcon, t?.('settings') || 'Settings', onSettings)}
       {onEqualize && item(LayoutGrid, t?.('equalizePane') || 'Equalize panes', onEqualize)}
-      {onReload && item(RefreshCw, t?.('reloadTerminals') || 'Reload terminals', onReload)}
+      {onReload && item(
+        RefreshCw,
+        t?.('reloadTerminals') || 'Redraw this tab',
+        onReload,
+        t?.('reloadTerminalsHint') || "Repaints this tab's terminals; sessions and processes are untouched",
+      )}
     </div>
   );
 };
