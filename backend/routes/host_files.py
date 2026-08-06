@@ -1,38 +1,36 @@
-"""원격 호스트 SFTP 파일 API — 읽기 쪽 (cwd / 목록 / 읽기 / 다운로드).
-
-부수효과가 있는 쪽(쓰기·업로드·이동·복사·삭제·권한)은 `routes/host_files_write.py`.
-다운로드는 전부 **스트리밍**이다 — 200MB 파일 하나가 그대로 RSS 가 되지 않도록.
-"""
+"""원격 호스트 SFTP 파일 API — 디렉토리/읽기/다운로드/쓰기/생성/업로드/이동/삭제."""
 from __future__ import annotations
 
 import logging
 import os
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response, StreamingResponse
+from fastapi import (
+    APIRouter,
+    Depends,
+    File as FastAPIFile,
+    Form,
+    HTTPException,
+    Query,
+    UploadFile,
+)
+from fastapi.responses import Response
 
 import host_sftp
 from _deps import verify_auth_token
-from file_models import FilePathsRequest
-from host_common import resolve_host_with_secrets
+from file_models import FileCreateRequest, FileMoveRequest, HostFileWriteRequest
+from host_common import (
+    MAX_REMOTE_PATH_LEN,
+    MAX_UPLOAD_FILE_BYTES,
+    MAX_UPLOAD_FILES,
+    MAX_UPLOAD_TOTAL_BYTES,
+    resolve_host_with_secrets,
+)
 from host_manager import HostConnectError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/hosts/{host_id}", tags=["host-files"])
-
-
-def _fail(action: str, host_id: str, target, exc: Exception, message: str):
-    """SFTP 예외를 HTTP 로 변환. 연결 실패(502)와 그 외(500)를 구분한다."""
-    logger.warning("SFTP %s failed (%s, %s): %s", action, host_id, target, exc)
-    if isinstance(exc, HostConnectError):
-        return HTTPException(status_code=502, detail=str(exc))
-    return HTTPException(status_code=500, detail=message)
-
-
-def _attachment_headers(filename: str) -> dict:
-    return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
 
 
 @router.get("/cwd")
@@ -61,15 +59,18 @@ async def list_host_files(
         target = (host.get("start_path") or "").strip() or "."
     try:
         result = await host_sftp.list_directory(host, secrets, target)
+        return {
+            "items": result["items"],
+            "path": result["resolved"],
+            "resolved": result["resolved"],
+            "host_id": host_id,
+        }
+    except HostConnectError as e:
+        logger.warning("SFTP list failed (%s, %s): %s", host_id, target, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
-        raise _fail("list", host_id, target, e, "원격 디렉토리 조회 실패")
-    return {
-        "items": result["items"],
-        "path": result["resolved"],
-        "resolved": result["resolved"],
-        "fs": result.get("fs"),
-        "host_id": host_id,
-    }
+        logger.warning("SFTP list failed (%s, %s): %s", host_id, target, e)
+        raise HTTPException(status_code=500, detail="원격 디렉토리 조회 실패")
 
 
 @router.get("/files/read")
@@ -81,9 +82,13 @@ async def read_host_file(
     host, secrets = await resolve_host_with_secrets(host_id, username)
     try:
         content = await host_sftp.read_file(host, secrets, path)
+        return {"content": content, "path": path, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP read failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
-        raise _fail("read", host_id, path, e, "원격 파일 읽기 실패")
-    return {"content": content, "path": path, "host_id": host_id}
+        logger.warning("SFTP read failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=500, detail="원격 파일 읽기 실패")
 
 
 @router.get("/files/download")
@@ -94,43 +99,19 @@ async def download_host_file(
 ):
     host, secrets = await resolve_host_with_secrets(host_id, username)
     try:
-        filename, media_type, stream = await host_sftp.open_download(host, secrets, [path])
+        data, filename, media_type = await host_sftp.download_item(host, secrets, path)
+        quoted = quote(filename)
+        return Response(
+            content=data,
+            media_type=media_type,
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
+        )
+    except HostConnectError as e:
+        logger.warning("SFTP download failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=502, detail=str(e))
     except Exception as e:
-        raise _fail("download", host_id, path, e, "원격 다운로드 실패")
-    return StreamingResponse(stream, media_type=media_type, headers=_attachment_headers(filename))
-
-
-@router.post("/files/download-zip")
-async def download_host_zip(
-    host_id: str,
-    request: FilePathsRequest,
-    username: str = Depends(verify_auth_token),
-):
-    """여러 항목을 하나의 zip 으로. 파일 하나씩 압축해 흘려보내므로 RAM 을 잡지 않는다."""
-    host, secrets = await resolve_host_with_secrets(host_id, username)
-    paths = [p for p in request.paths if p and p.strip()]
-    if not paths:
-        raise HTTPException(status_code=400, detail="paths is required")
-    try:
-        filename, media_type, stream = await host_sftp.open_download(host, secrets, paths)
-    except Exception as e:
-        raise _fail("download-zip", host_id, paths[:3], e, "원격 다운로드 실패")
-    return StreamingResponse(stream, media_type=media_type, headers=_attachment_headers(filename))
-
-
-@router.post("/files/exists")
-async def host_paths_exist(
-    host_id: str,
-    request: FilePathsRequest,
-    username: str = Depends(verify_auth_token),
-):
-    """업로드 전 덮어쓰기 확인용 — 존재하는 경로만 알려준다."""
-    host, secrets = await resolve_host_with_secrets(host_id, username)
-    try:
-        existing = await host_sftp.path_exists(host, secrets, request.paths)
-    except Exception as e:
-        raise _fail("exists", host_id, request.paths[:3], e, "원격 경로 확인 실패")
-    return {"host_id": host_id, "existing": [p for p, yes in existing.items() if yes]}
+        logger.warning("SFTP download failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=500, detail="원격 다운로드 실패")
 
 
 @router.head("/files/download", include_in_schema=False)
@@ -141,8 +122,119 @@ async def head_host_file_download(
 ):
     await resolve_host_with_secrets(host_id, username)
     filename = os.path.basename(path.rstrip("/")) or "download"
+    quoted = quote(filename)
     return Response(
         status_code=200,
         media_type="application/octet-stream",
-        headers=_attachment_headers(filename),
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quoted}"},
     )
+
+
+@router.post("/files/write")
+async def write_host_file(
+    host_id: str,
+    request: HostFileWriteRequest,
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    try:
+        await host_sftp.write_file(host, secrets, request.path, request.content)
+        return {"status": "written", "path": request.path, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP write failed (%s, %s): %s", host_id, request.path, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.warning("SFTP write failed (%s, %s): %s", host_id, request.path, e)
+        raise HTTPException(status_code=500, detail="원격 파일 쓰기 실패")
+
+
+@router.post("/files/create")
+async def create_host_file(
+    host_id: str,
+    request: FileCreateRequest,
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    try:
+        await host_sftp.create_item(host, secrets, request.path, request.type)
+        return {"status": "created", "path": request.path, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP create failed (%s, %s): %s", host_id, request.path, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.warning("SFTP create failed (%s, %s): %s", host_id, request.path, e)
+        raise HTTPException(status_code=500, detail="원격 파일/폴더 생성 실패")
+
+
+@router.post("/files/upload")
+async def upload_host_files(
+    host_id: str,
+    files: list[UploadFile] = FastAPIFile(...),
+    dest: str = Form(""),
+    username: str = Depends(verify_auth_token),
+):
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(status_code=413, detail=f"파일이 너무 많습니다 (최대 {MAX_UPLOAD_FILES}개)")
+    if len(dest) > MAX_REMOTE_PATH_LEN:
+        raise HTTPException(status_code=400, detail="dest 경로가 너무 깁니다")
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    remote_dir = dest or "/"
+    results = []
+    total = 0
+    for f in files:
+        filename = os.path.basename(f.filename or "")
+        if not filename:
+            continue
+        content = await f.read()
+        if len(content) > MAX_UPLOAD_FILE_BYTES:
+            raise HTTPException(status_code=413, detail=f"파일 '{filename}' 가 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)")
+        total += len(content)
+        if total > MAX_UPLOAD_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail=f"업로드 합계가 너무 큽니다 (최대 {MAX_UPLOAD_TOTAL_BYTES} bytes)")
+        remote_path = f"{remote_dir.rstrip('/')}/{filename}"
+        try:
+            await host_sftp.write_file(host, secrets, remote_path, content)
+        except HostConnectError as e:
+            logger.warning("SFTP upload failed (%s, %s): %s", host_id, remote_path, e)
+            raise HTTPException(status_code=502, detail=str(e))
+        except Exception as e:
+            logger.warning("SFTP upload failed (%s, %s): %s", host_id, remote_path, e)
+            raise HTTPException(status_code=500, detail="원격 업로드 실패")
+        results.append({"name": filename, "path": remote_path, "size": len(content)})
+    return {"status": "uploaded", "host_id": host_id, "files": results}
+
+
+@router.post("/files/move")
+async def move_host_file(
+    host_id: str,
+    request: FileMoveRequest,
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    try:
+        await host_sftp.move_item(host, secrets, request.source, request.destination)
+        return {"status": "moved", "source": request.source, "destination": request.destination, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP move failed (%s, %s -> %s): %s", host_id, request.source, request.destination, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.warning("SFTP move failed (%s, %s -> %s): %s", host_id, request.source, request.destination, e)
+        raise HTTPException(status_code=500, detail="원격 파일/폴더 이동 실패")
+
+
+@router.delete("/files")
+async def delete_host_file(
+    host_id: str,
+    path: str = Query(...),
+    username: str = Depends(verify_auth_token),
+):
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    try:
+        await host_sftp.delete_item(host, secrets, path)
+        return {"status": "deleted", "path": path, "host_id": host_id}
+    except HostConnectError as e:
+        logger.warning("SFTP delete failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=502, detail=str(e))
+    except Exception as e:
+        logger.warning("SFTP delete failed (%s, %s): %s", host_id, path, e)
+        raise HTTPException(status_code=500, detail="원격 파일/폴더 삭제 실패")

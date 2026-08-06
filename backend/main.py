@@ -328,7 +328,6 @@ from routes.ssh_keys import router as ssh_keys_router  # noqa: E402
 from routes.hosts import router as hosts_router  # noqa: E402
 from routes.host_git import router as host_git_router  # noqa: E402
 from routes.host_files import router as host_files_router  # noqa: E402
-from routes.host_files_write import router as host_files_write_router  # noqa: E402
 from routes.host_ws import router as host_ws_router  # noqa: E402
 from routes.vnc import router as vnc_router  # noqa: E402
 from routes.vnc_ws import router as vnc_ws_router  # noqa: E402
@@ -350,8 +349,7 @@ for _router in (
     ssh_keys_router,      # SSH 개인키 보관
     hosts_router,         # 호스트 CRUD · 원격 tmux
     host_git_router,      # 원격 git
-    host_files_router,    # 원격 SFTP 파일 — 읽기
-    host_files_write_router,  # 원격 SFTP 파일 — 쓰기/전송
+    host_files_router,    # 원격 SFTP 파일
     host_ws_router,       # 원격 셸 WebSocket
     vnc_router,           # Xvnc 원격 데스크탑 디스커버리 / 세션
     vnc_ws_router,        # Xvnc RFB WebSocket 터널

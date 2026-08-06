@@ -179,21 +179,6 @@ def _make_kbdint_client(on_prompt):
     return _KbdIntClient
 
 
-def _describe_error(exc: Exception, options: dict) -> str:
-    """예외 메시지가 비어 있어도 사람이 읽을 수 있는 사유를 만든다.
-
-    asyncio.TimeoutError 는 str() 이 빈 문자열이라 그대로 쓰면 "연결 실패: " 로 끝난다 —
-    어디에 왜 못 붙었는지가 통째로 사라진다. 대상 주소와 예외 종류를 항상 붙인다.
-    """
-    target = f"{options.get('host')}:{options.get('port')}"
-    detail = str(exc).strip()
-    if detail:
-        return f"{target} — {detail}"
-    if isinstance(exc, TimeoutError):
-        return f"{target} 응답 없음 ({CONNECT_TIMEOUT}초 시간 초과)"
-    return f"{target} — {type(exc).__name__}"
-
-
 async def open_connection(
     host: dict,
     *,
@@ -239,9 +224,9 @@ async def open_connection(
         conn = await asyncssh.connect(**options)
         return conn
     except (asyncssh.PermissionDenied, asyncssh.misc.ChannelOpenError) as e:
-        raise HostConnectError(f"인증 실패: {_describe_error(e, options)}") from e
+        raise HostConnectError(f"인증 실패: {e}") from e
     except (TimeoutError, OSError) as e:
-        raise HostConnectError(f"연결 실패: {_describe_error(e, options)}") from e
+        raise HostConnectError(f"연결 실패: {e}") from e
 
 
 class HostBridge:
