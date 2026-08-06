@@ -4,6 +4,7 @@ import zipfile
 import pytest
 
 import host_sftp
+import sftp_tailscale
 from host_manager import HostConnectError
 
 
@@ -15,8 +16,8 @@ async def test_tailscale_download_marks_directory_as_zip(monkeypatch):
     async def fake_run_ts(target, cmd, timeout=15.0):
         return b"PK\x03\x04zip-bytes", b"__ITERM_TYPE__dir\n"
 
-    monkeypatch.setattr(host_sftp, "_tailscale_target", lambda host: "ubuntu@example")
-    monkeypatch.setattr(host_sftp, "_run_ts", fake_run_ts)
+    monkeypatch.setattr(sftp_tailscale, "target_for", lambda host: "ubuntu@example")
+    monkeypatch.setattr(sftp_tailscale, "run", fake_run_ts)
 
     data, filename, media_type = await host_sftp.download_item(
         {"id": "h1", "auth_method": "tailscale", "hostname": "example"},
@@ -34,8 +35,8 @@ async def test_tailscale_download_keeps_file_name(monkeypatch):
     async def fake_run_ts(target, cmd, timeout=15.0):
         return b"PK-not-a-folder", b"__ITERM_TYPE__file\n"
 
-    monkeypatch.setattr(host_sftp, "_tailscale_target", lambda host: "ubuntu@example")
-    monkeypatch.setattr(host_sftp, "_run_ts", fake_run_ts)
+    monkeypatch.setattr(sftp_tailscale, "target_for", lambda host: "ubuntu@example")
+    monkeypatch.setattr(sftp_tailscale, "run", fake_run_ts)
 
     data, filename, media_type = await host_sftp.download_item(
         {"id": "h1", "auth_method": "tailscale", "hostname": "example"},
@@ -53,8 +54,8 @@ async def test_tailscale_download_too_large_raises(monkeypatch):
     async def fake_run_ts(target, cmd, timeout=15.0):
         return b"", b"__TOO_LARGE__\n"
 
-    monkeypatch.setattr(host_sftp, "_tailscale_target", lambda host: "ubuntu@example")
-    monkeypatch.setattr(host_sftp, "_run_ts", fake_run_ts)
+    monkeypatch.setattr(sftp_tailscale, "target_for", lambda host: "ubuntu@example")
+    monkeypatch.setattr(sftp_tailscale, "run", fake_run_ts)
 
     with pytest.raises(HostConnectError) as exc:
         await host_sftp.download_item(
@@ -93,8 +94,16 @@ class _FakeEntry:
 
 
 class _FakeFile:
+    """asyncssh 파일 핸들 대역 — **커서와 EOF 를 반드시 흉내내야 한다.**
+
+    다운로드 경로는 `while True: read(CHUNK) ... if not data: break` 로 스트리밍한다.
+    인자를 무시하고 매번 전체 데이터를 돌려주면 EOF 가 영원히 오지 않아 호출부가
+    무한히 누적한다 — 테스트가 박스를 OOM 으로 죽인다(2026-08 실제 사고).
+    """
+
     def __init__(self, data: bytes):
         self._data = data
+        self._pos = 0
 
     async def __aenter__(self):
         return self
@@ -102,8 +111,11 @@ class _FakeFile:
     async def __aexit__(self, *args):
         return False
 
-    async def read(self, _n=None):
-        return self._data
+    async def read(self, n=None):
+        start = self._pos
+        end = len(self._data) if n is None else min(len(self._data), start + n)
+        self._pos = end
+        return self._data[start:end]
 
 
 class _FakeSftp:
@@ -251,14 +263,22 @@ async def test_sftp_download_rejects_oversized_file(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_sftp_download_rejects_oversized_directory(monkeypatch):
-    half = host_sftp.MAX_DOWNLOAD_BYTES // 2 + 1
+    """폴더는 **선언된 크기가 아니라 실제로 읽은 바이트**로 막힌다.
+
+    zip 은 흘려보내며 만들기 때문에 총량을 미리 알 수 없다 — `attrs.size` 는 원격이
+    주장하는 값일 뿐이라 믿지 않는다. 그래서 크기만 크게 적어둔 빈 파일로는 걸리지
+    않는다(그렇게 쓴 예전 버전이 통과하는 것처럼 보였을 뿐이다).
+
+    상한을 낮춰서 검증한다 — 200MB 를 진짜로 만들면 테스트가 박스를 먹는다.
+    """
+    monkeypatch.setattr(host_sftp, "MAX_DOWNLOAD_BYTES", 8)
     sftp = _FakeSftp({
         "/dir": (_FakeAttrs(is_dir=True), [
-            _FakeEntry("a", size=half),
-            _FakeEntry("b", size=half),
+            _FakeEntry("a", size=5),
+            _FakeEntry("b", size=5),
         ], None),
-        "/dir/a": (_FakeAttrs(size=half), None, b""),
-        "/dir/b": (_FakeAttrs(size=half), None, b""),
+        "/dir/a": (_FakeAttrs(size=5), None, b"AAAAA"),
+        "/dir/b": (_FakeAttrs(size=5), None, b"BBBBB"),
     })
 
     async def fake_open(host, secrets):
