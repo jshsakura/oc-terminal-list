@@ -27,7 +27,10 @@ export const HBars = ({ title, rows = [], limit = 8, colorOf, money, t }) => {
               <div
                 key={row.name}
                 style={rowStyle}
-                title={`${row.name} · ${formatTokens(row.tokens)} · ${money(row.cost)}`}
+                /* 토큰이 없는 계열(터미널 사용 시간)도 이 막대를 쓴다 — 없는 값을
+                   "0" 으로 적으면 그건 틀린 정보다. 있을 때만 붙인다. */
+                title={[row.name, row.tokens != null && formatTokens(row.tokens), money(row.cost)]
+                  .filter(Boolean).join(' · ')}
               >
                 <div style={nameStyle}>
                   {colorOf && <span style={{ ...dotStyle, background: accent }} />}
@@ -49,11 +52,13 @@ export const HBars = ({ title, rows = [], limit = 8, colorOf, money, t }) => {
 const cardStyle = {
   display: 'flex', flexDirection: 'column', gap: '8px',
   padding: '12px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
+  /* 보더가 6% 알파 하나뿐이면 카드가 배경에 녹아 "그냥 투명" 해 보인다.
+     대시보드 카드는 면으로 읽혀야 하므로 한 단계 진한 보더를 쓴다. */
+  border: `1px solid ${color.borderStrong}`, borderRadius: radius.md,
 };
 const titleStyle = {
-  margin: 0, fontSize: fontSize['11'], fontWeight: fontWeight.semibold,
-  color: color.subtext, fontFamily: font.sans, letterSpacing: '0.02em',
+  margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
+  color: color.text, fontFamily: font.sans, letterSpacing: '0.02em',
 };
 const listStyle = { display: 'flex', flexDirection: 'column', gap: '7px' };
 const rowStyle = {
@@ -61,8 +66,10 @@ const rowStyle = {
   alignItems: 'center', gap: '8px',
 };
 const nameStyle = { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 };
+/* 토큰에 없는 치수(10, 10.5)를 쓰면 `fontSize['10']` 은 undefined 가 되어 상속 크기로
+   렌더된다 — 의도한 크기가 아니라 아무 크기다. 스케일 안의 값만 쓴다. */
 const nameTextStyle = {
-  fontSize: fontSize['10.5'] || '10.5px', color: color.text, fontFamily: font.sans,
+  fontSize: fontSize['12'], color: color.text, fontFamily: font.sans,
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 const dotStyle = { width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0 };
@@ -71,7 +78,7 @@ const trackStyle = {
 };
 const fillStyle = { height: '100%', borderRadius: '3px' };
 const valueStyle = {
-  fontSize: fontSize['10'], color: color.subtext,
+  fontSize: fontSize['12'], color: color.text, fontWeight: fontWeight.medium,
   fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
 };
-const stateStyle = { padding: '10px', textAlign: 'center', color: color.subtext, fontSize: fontSize['11'] };
+const stateStyle = { padding: '10px', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] };

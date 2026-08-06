@@ -97,22 +97,24 @@ export const KeyStats = ({ totals, sessions, money, t }) => {
 
 const tilesStyle = {
   display: 'grid', gap: space['3'],
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
 };
 const tileStyle = {
-  display: 'flex', flexDirection: 'column', gap: '3px',
-  padding: '10px 12px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
+  display: 'flex', flexDirection: 'column', gap: '4px',
+  padding: space['3'], background: color.surface0,
+  border: `1px solid ${color.borderStrong}`, borderRadius: radius.md,
 };
-const tileKeyStyle = { fontSize: fontSize['10'], color: color.subtext, fontFamily: font.sans };
+const tileKeyStyle = { fontSize: fontSize['11'], color: color.subtext, fontFamily: font.sans };
 const tileValueStyle = {
-  fontSize: 'clamp(17px, 3vw, 21px)', fontWeight: fontWeight.semibold, color: color.text,
+  fontSize: 'clamp(20px, 4vw, 26px)', fontWeight: fontWeight.semibold, color: color.text,
   fontFamily: font.sans, letterSpacing: '-0.02em', lineHeight: 1.15,
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   fontVariantNumeric: 'tabular-nums',
 };
+/* 보조 줄은 조용해야 하지만 읽혀야 한다 — faint 는 surface0 위에서 대비가 2:1 도 안 된다.
+   "조용하다" 와 "안 보인다" 는 다르다. */
 const tileNoteStyle = {
-  fontSize: fontSize['10'], color: color.faint, fontFamily: font.sans,
+  fontSize: fontSize['11'], color: color.muted, fontFamily: font.sans,
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
 };
 const keyStatsStyle = {
@@ -122,10 +124,10 @@ const keyStatsStyle = {
 const keyStatStyle = {
   display: 'flex', flexDirection: 'column', gap: '2px',
   padding: '8px 10px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.sm,
+  border: `1px solid ${color.borderStrong}`, borderRadius: radius.sm,
 };
-const keyStatLabelStyle = { fontSize: fontSize['10'], color: color.subtext };
+const keyStatLabelStyle = { fontSize: fontSize['11'], color: color.subtext };
 const keyStatValueStyle = {
-  fontSize: fontSize['12'], fontWeight: fontWeight.semibold, color: color.text,
+  fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: color.text,
   fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
 };

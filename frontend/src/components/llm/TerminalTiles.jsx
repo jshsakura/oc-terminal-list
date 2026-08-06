@@ -40,28 +40,43 @@ const useTerminalUsage = (days) => {
   return data;
 };
 
+/**
+ * 집계 응답 → HBars 행.
+ *
+ * **필드 이름은 `by_target` 이다**(`backend/db/usage.py`). 한 번 `targets` 로 적었다가
+ * 호스트별 막대가 통째로 빈 카드가 됐다 — 화면은 "데이터 없음" 이라 말하고 에러는
+ * 아무 데도 안 난다. 그래서 이 매핑만 순수 함수로 빼서 테스트가 잡게 한다.
+ *
+ * 지워진 호스트는 뺀다 — 이름을 모르는 id 가 막대로 남으면 그건 통계가 아니라 잔해다.
+ */
+export const buildHostRows = (data, hosts = [], settings = {}, t) => {
+  const meta = new Map(hosts.map((h) => [h.id, h]));
+  return (data?.by_target || [])
+    .filter((row) => row.target_type === 'local' || meta.has(row.target_id))
+    .map((row) => {
+      const isLocal = row.target_type === 'local' || row.target_id === 'local';
+      const m = meta.get(row.target_id);
+      return {
+        name: isLocal
+          ? ((settings.localName || '').trim() || t?.('thisMachine') || 'This machine')
+          : (m?.name || row.target_id),
+        // HBars 는 cost 기준으로 정렬·막대를 그린다 — 여기서는 "초" 가 그 자리를 맡는다.
+        cost: Number(row.total_seconds) || 0,
+        accent: isLocal
+          ? color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length]
+          : color.dotPalette[(m?.color_index ?? 0) % color.dotPalette.length],
+      };
+    })
+    .sort((a, b) => b.cost - a.cost);
+};
+
 const TerminalTiles = ({ hosts = [], settings = {}, days = 7, t }) => {
   const data = useTerminalUsage(days || 90);
 
-  const hostRows = useMemo(() => {
-    const meta = new Map(hosts.map((h) => [h.id, h]));
-    return (data?.targets || [])
-      .map((row) => {
-        const isLocal = row.target_id === 'local' || row.target_type === 'local';
-        const m = meta.get(row.target_id);
-        return {
-          name: isLocal
-            ? ((settings.localName || '').trim() || t?.('thisMachine') || 'This machine')
-            : (m?.name || row.target_id),
-          // HBars 는 cost 기준으로 정렬·막대를 그린다 — 여기서는 "초" 가 그 자리를 맡는다.
-          cost: Number(row.total_seconds) || 0,
-          accent: isLocal
-            ? color.dotPalette[(settings.localColorIndex ?? 0) % color.dotPalette.length]
-            : color.dotPalette[(m?.color_index ?? 0) % color.dotPalette.length],
-        };
-      })
-      .sort((a, b) => b.cost - a.cost);
-  }, [data, hosts, settings, t]);
+  const hostRows = useMemo(
+    () => buildHostRows(data, hosts, settings, t),
+    [data, hosts, settings, t],
+  );
 
   if (!data) return null;
 

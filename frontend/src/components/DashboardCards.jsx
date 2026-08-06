@@ -558,7 +558,7 @@ const heroStyle = {
   padding: '8px 0 4px',
 };
 const heroCaptionStyle = {
-  fontSize: fontSize['10'],
+  fontSize: fontSize['11'],
   color: color.muted,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',

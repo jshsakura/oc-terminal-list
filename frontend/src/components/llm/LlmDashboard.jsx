@@ -471,16 +471,16 @@ const rangeBtnStyle = {
 const cardStyle = {
   display: 'flex', flexDirection: 'column', gap: '8px',
   padding: space['3'], background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
+  border: `1px solid ${color.borderStrong}`, borderRadius: radius.md,
 };
 const cardHeadStyle = { display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' };
-/* 카드 제목은 콘텐츠가 아니다 — 라벨 크기(11px)로, 색도 한 단계 죽인다.
-   제목이 값만큼 크면 카드마다 두 번씩 크게 말하는 셈이라 어디를 볼지 알 수 없다. */
+/* 제목은 카드가 무엇인지 말하는 유일한 줄이다 — 값보다 작게 두되 본문 색을 유지한다.
+   subtext + 11px 로 내렸더니 카드 이름부터 안 읽혔다. */
 const cardTitleStyle = {
-  margin: 0, fontSize: fontSize['11'], fontWeight: fontWeight.semibold,
-  color: color.subtext, fontFamily: font.sans, letterSpacing: '0.02em',
+  margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
+  color: color.text, fontFamily: font.sans, letterSpacing: '0.02em',
 };
-const cardHintStyle = { margin: '2px 0 0', fontSize: fontSize['10'], color: color.faint };
+const cardHintStyle = { margin: '2px 0 0', fontSize: fontSize['11'], color: color.subtext };
 const colsStyle = {
   display: 'grid', gap: space['3'],
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',
@@ -495,18 +495,18 @@ const chartWrapStyle = { position: 'relative', width: '100%' };
 const yTickStyle = {
   position: 'absolute', left: 0, transform: 'translateY(-50%)',
   paddingRight: '6px', textAlign: 'right',
-  fontSize: fontSize['10'], color: color.faint, fontFamily: font.sans,
+  fontSize: fontSize['11'], color: color.muted, fontFamily: font.sans,
   pointerEvents: 'none', whiteSpace: 'nowrap',
 };
 const xTickStyle = {
   position: 'absolute', bottom: 0, transform: 'translateX(-50%)',
-  fontSize: fontSize['10'], color: color.faint, fontFamily: font.sans,
+  fontSize: fontSize['11'], color: color.muted, fontFamily: font.sans,
   pointerEvents: 'none', whiteSpace: 'nowrap',
 };
 const legendStyle = { display: 'flex', flexWrap: 'wrap', gap: '4px 12px' };
 const legendItemStyle = {
   display: 'inline-flex', alignItems: 'center', gap: '5px',
-  fontSize: fontSize['10'], color: color.subtext,
+  fontSize: fontSize['11'], color: color.subtext,
 };
 const legendDotStyle = { width: '7px', height: '7px', borderRadius: '2px', flexShrink: 0 };
 const stateStyle = {
@@ -514,7 +514,7 @@ const stateStyle = {
   fontSize: fontSize['11'], fontFamily: font.sans,
 };
 const warnStyle = {
-  padding: '6px 10px', fontSize: fontSize['10'], color: color.warning,
+  padding: '6px 10px', fontSize: fontSize['11'], color: color.warning,
   background: `color-mix(in srgb, ${color.warning} 10%, transparent)`,
   border: `1px solid color-mix(in srgb, ${color.warning} 25%, transparent)`,
   borderRadius: radius.sm,
@@ -525,7 +525,7 @@ const segStyle = {
 };
 const segBtnStyle = {
   padding: '3px 10px', border: 'none', borderRadius: '4px',
-  fontSize: fontSize['10'], fontWeight: fontWeight.medium,
+  fontSize: fontSize['11'], fontWeight: fontWeight.medium,
   fontFamily: font.sans, cursor: 'pointer', whiteSpace: 'nowrap',
 };
 const tableStyle = {
