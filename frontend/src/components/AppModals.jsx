@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import LazyErrorBoundary from './LazyErrorBoundary';
 import { authHeaders } from '../utils/auth';
 import { tokens } from '../styles/tokens';
@@ -57,20 +57,6 @@ export default function AppModals({
 }) {
   // 커맨드 팔레트의 검색어는 이 묶음이 소유한다 — App 까지 올릴 이유가 없다.
   const [paletteQuery, setPaletteQuery] = useState('');
-
-  /* 설정 청크를 **미리 받아 둔다.** 모달은 전부 lazy 인데, 느린 연결(공유 터널·모바일)에서는
-     클릭 후 청크가 도착할 때까지 몇 초가 걸린다 — 그 사이 화면에는 아무 일도 안 일어나
-     "눌러도 안 뜬다" 로 보인다. 설정은 가장 자주 여는 모달이라 유휴 시간에 당겨 둔다.
-     (당겨두기가 실패해도 기존 경로 그대로 — 아래 fallback 이 받는다.) */
-  useEffect(() => {
-    const run = () => { import('./Settings').catch(() => { /* 다음 클릭 때 다시 시도된다 */ }); };
-    const idle = window.requestIdleCallback?.(run);
-    if (idle == null) {
-      const timer = setTimeout(run, 2000);
-      return () => clearTimeout(timer);
-    }
-    return () => window.cancelIdleCallback?.(idle);
-  }, []);
   const closeCommandPalette = () => { setIsCommandPaletteOpen(false); setPaletteQuery(''); };
   const paletteCommands = useMemo(() => [
     { id: 'new-tab', label: t('newSession') || 'New tab', action: handleAddTab },
@@ -81,8 +67,18 @@ export default function AppModals({
 
   return (
     /* fallback 이 null 이면 청크가 오는 동안 화면에 **아무것도** 안 뜬다 — 클릭이 먹었는지
-       알 수 없어 계속 누르게 된다. 모달 자리에 스크림+스피너를 먼저 띄운다. */
-    <LazyErrorBoundary><Suspense fallback={<ModalLoading />}>
+       알 수 없어 계속 누르게 된다. 모달 자리에 스크림+스피너를 먼저 띄운다.
+
+       `resetKey` 는 "지금 무엇이 열려 있나" 다. 모달들이 이 경계 하나를 공유하므로, 경계가
+       한 번 걸린 채 굳으면 그 세션에서는 아무 모달도 안 뜬다 — 열림 상태가 바뀔 때마다
+       경계를 풀어 **다음 클릭은 다시 시도**하게 한다. */
+    <LazyErrorBoundary
+      resetKey={[
+        isSettingsOpen, keyManagerOpen, hostEditorState?.isOpen,
+        !!confirmModal, !!notification, isCommandPaletteOpen, isFilePickerOpen,
+      ].join('|')}
+    >
+    <Suspense fallback={<ModalLoading />}>
       {isSettingsOpen && (
         <Settings
           isOpen={isSettingsOpen}
