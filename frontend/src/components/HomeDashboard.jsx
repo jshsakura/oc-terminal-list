@@ -3,6 +3,7 @@ import {
   Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
   Link2, BarChart3, ScreenShare,
 } from 'lucide-react';
+import { gridStyle } from './DashboardCards';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
@@ -59,6 +60,8 @@ const HomeDashboard = ({
   t,
 }) => {
   const [hoverId, setHoverId] = useState(null);
+  // 'connections' | 'dashboard' — 홈에 오는 이유의 대부분은 연결이라 기본은 그쪽.
+  const [view, setView] = useState('connections');
   // 서버 sort_index 가 SSoT. useHostReorder 가 옵티미스틱 reorder + persist + refresh 통합 처리.
   const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
 
@@ -91,6 +94,52 @@ const HomeDashboard = ({
       }}
     >
       <div style={styles.inner}>
+        {/* 연결 / 대시보드 — 홈이 하나의 긴 스크롤이면 정작 자주 쓰는 연결이 통계 아래로
+            밀린다. 둘은 목적이 다르다: 하나는 "어디에 붙지", 하나는 "얼마나 썼지".
+            기본은 연결 — 홈에 오는 이유의 대부분이다. */}
+        {showUsageStats && (
+          <div style={styles.viewSwitch}>
+            {[
+              ['connections', t?.('connections') || 'Connections', Link2],
+              ['dashboard', t?.('dashboard') || 'Dashboard', BarChart3],
+            ].map(([key, label, Icon]) => {
+              const isOn = view === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setView(key)}
+                  style={{
+                    ...styles.viewTab,
+                    color: isOn ? color.text : color.subtext,
+                    background: isOn ? color.surface1 : 'transparent',
+                    borderColor: isOn ? color.border : 'transparent',
+                  }}
+                >
+                  <Icon size={12} strokeWidth={2.2} />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {view === 'dashboard' ? (
+          /* 통계는 한 판이다 — 세션 사용량 카드와 LLM 카드가 같은 그리드에 섞인다.
+             각자 소제목을 달고 따로 서면 "두 대시보드" 처럼 보인다. */
+          <div style={gridStyle}>
+            <DashboardCards hosts={hosts} settings={settings} days={7} bare t={t} />
+            <LlmUsageCards
+              hosts={hosts}
+              tabs={tabs}
+              onJumpPane={onJumpPane}
+              bare
+              alwaysShow
+              t={t}
+            />
+          </div>
+        ) : (
+        <>
         {/* 1) Connections — 탭 열기가 핵심 흐름이므로 가장 위. */}
         <Section icon={Link2} title={t?.('connections') || 'Connections'}>
           <div style={{
@@ -185,22 +234,10 @@ const HomeDashboard = ({
           />
         )}
 
-        {/* 4) 사용 통계 — 양쪽 동일하게. */}
-        {showUsageStats && (
-          <Section icon={BarChart3} title={t?.('usageStats') || 'Usage · last 7 days'}>
-            <DashboardCards hosts={hosts} settings={settings} days={7} t={t} />
-          </Section>
-        )}
-
-        {/* 5) LLM 토큰·비용 — llm-watcher 연동이 켜져 있고 실제로 닿을 때만.
-            안 그러면 이 구획은 소제목까지 통째로 렌더되지 않는다. */}
-        {showUsageStats && (
-          <LlmUsageCards
-            hosts={hosts}
-            tabs={tabs}
-            onJumpPane={onJumpPane}
-            t={t}
-          />
+        {/* 통계는 대시보드 화면으로 옮겼다 — 연결 화면은 붙는 일에만 집중한다.
+            showUsageStats 가 꺼진 컨텍스트에서는 전환 탭 자체가 없어 여기가 전부다. */}
+        {showUsageStats ? null : null}
+        </>
         )}
       </div>
     </div>
@@ -463,6 +500,25 @@ const styles = {
     display: 'flex',
     gap: '4px',
     flexShrink: 0,
+  },
+  viewSwitch: {
+    display: 'inline-flex',
+    gap: '4px',
+    alignSelf: 'flex-start',
+  },
+  viewTab: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '5px 12px',
+    minHeight: '32px',
+    border: '1px solid transparent',
+    borderRadius: radius.md,
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    fontFamily: font.sans,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   },
 };
 

@@ -893,6 +893,10 @@ export const en = {
     vncQualityBalancedHint: 'Default',
     vncQualityLightHint: 'Strong compression for slow links',
     // ── LLM usage (llm-watcher integration) ──
+    dashboard: 'Dashboard',
+    llmCollecting: 'Collecting…',
+    llmHosts: 'hosts',
+    llmUsageOff: 'Turn on LLM usage in settings to see it here.',
     llmUsageSection: 'LLM usage',
     llmByHost: 'LLM by host',
     llmCost: 'Estimated cost',

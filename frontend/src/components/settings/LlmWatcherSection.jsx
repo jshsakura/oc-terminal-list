@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Toggle } from './SettingsFields';
 import { styles } from './settingsStyles';
 import { authHeaders } from '../../utils/auth';
+import { LLM_USAGE_CHANGED_EVENT } from '../../utils/llmUsageBus';
 
 /**
  * LLM 사용량 연동 — 에이전트 토큰·비용을 홈 대시보드에 띄운다.
@@ -21,6 +22,22 @@ const LlmWatcherSection = ({ t }) => {
   const [fromEnv, setFromEnv] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  /* A switch with no answer is just a switch. After turning it on we actually
+     read, and report what came back — how many hosts answered, and which did
+     not and why. That is the difference between "on" and "working". */
+  const [probe, setProbe] = useState(null);   // null | 'loading' | summary object
+
+  const probeUsage = useCallback(async (force = false) => {
+    setProbe('loading');
+    try {
+      const url = force ? '/api/llm-usage/refresh?days=30' : '/api/llm-usage/summary?days=30';
+      const res = await fetch(url, { method: force ? 'POST' : 'GET', headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setProbe(await res.json());
+    } catch (e) {
+      setProbe({ error: e?.message || 'failed' });
+    }
+  }, []);
 
   const apply = useCallback((d) => {
     if (!d) return;
@@ -54,13 +71,18 @@ const LlmWatcherSection = ({ t }) => {
         return;
       }
       apply(data);
+      // The home dashboard mounts once and never polls — tell it to re-read now,
+      // otherwise turning this on does nothing visible until a page reload.
+      try { window.dispatchEvent(new CustomEvent(LLM_USAGE_CHANGED_EVENT)); } catch { /* no window */ }
+      if (next) probeUsage(false);
+      else setProbe(null);
     } catch (e) {
       setNotice({ ok: false, text: e?.message || (t?.('saveFailed') || 'Save failed') });
       setEnabled(!next);
     } finally {
       setBusy(false);
     }
-  }, [apply, t]);
+  }, [apply, probeUsage, t]);
 
   return (
     <>
@@ -78,6 +100,8 @@ const LlmWatcherSection = ({ t }) => {
         </div>
       )}
 
+      {enabled && <ProbeResult probe={probe} onRecheck={() => probeUsage(true)} t={t} />}
+
       {notice && (
         <div style={{ ...styles.hint, color: notice.ok ? undefined : 'var(--ui-danger, #e5484d)' }}>
           {notice.text}
@@ -85,6 +109,50 @@ const LlmWatcherSection = ({ t }) => {
       )}
     </>
   );
+};
+
+/** What the last read found — the visible sign that the switch did something. */
+const ProbeResult = ({ probe, onRecheck, t }) => {
+  if (probe === 'loading') {
+    return <div style={styles.hint}>{t?.('llmCollecting') || 'Collecting…'}</div>;
+  }
+  if (!probe) return null;
+  if (probe.error) {
+    return <div style={{ ...styles.hint, color: 'var(--ui-danger, #e5484d)' }}>{probe.error}</div>;
+  }
+
+  const hosts = Array.isArray(probe.by_host) ? probe.by_host : [];
+  const failed = hosts.filter((h) => !h.ok);
+  const cost = Math.round(Number(probe.totals?.cost) || 0).toLocaleString();
+  const sessions = Math.round(Number(probe.totals?.sessions) || 0);
+
+  return (
+    <>
+      <div style={styles.hint}>
+        {`${probe.ok_count ?? 0}/${probe.source_count ?? 0} ${t?.('llmHosts') || 'hosts'}`}
+        {` · ${sessions} ${t?.('sessions') || 'sessions'} · $${cost} (${probe.days ?? 30}d)`}
+        {' · '}
+        <button type="button" onClick={onRecheck} style={linkBtnStyle}>
+          {t?.('refresh') || 'Refresh'}
+        </button>
+      </div>
+      {/* Failures are named. "5/7" without the two names is not actionable. */}
+      {failed.map((h) => (
+        <div key={h.source_id} style={{ ...styles.hint, color: 'var(--ui-warning, #e0af68)' }}>
+          {h.name}: {h.error}
+        </div>
+      ))}
+      {(probe.warnings || []).slice(0, 3).map((w) => (
+        <div key={w} style={styles.hint}>{w}</div>
+      ))}
+    </>
+  );
+};
+
+const linkBtnStyle = {
+  background: 'none', border: 'none', padding: 0,
+  color: 'var(--ui-accent, #7aa2f7)', cursor: 'pointer',
+  font: 'inherit', textDecoration: 'underline',
 };
 
 export default LlmWatcherSection;

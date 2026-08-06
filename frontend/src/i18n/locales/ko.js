@@ -893,6 +893,10 @@ export const ko = {
     vncQualityBalancedHint: '기본값',
     vncQualityLightHint: '느린 망에서 끊김 최소화',
     // ── LLM 사용량 (llm-watcher 연동) ──
+    dashboard: '대시보드',
+    llmCollecting: '수집 중…',
+    llmHosts: '호스트',
+    llmUsageOff: '설정에서 LLM 사용량을 켜면 여기에 표시됩니다.',
     llmUsageSection: 'LLM 사용량',
     llmByHost: '호스트별 LLM',
     llmCost: '예상 비용',

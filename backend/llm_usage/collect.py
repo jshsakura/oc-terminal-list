@@ -324,13 +324,23 @@ def _codex_file(acc: Accumulator, path: str, day_cut) -> None:
 # better than our table does, so the row carries that cost and the backend does
 # not re-price it.
 
-_OPENCODE_SQL = """
-SELECT id, title, directory, model, agent, cost,
-       tokens_input, tokens_output, tokens_cache_read, tokens_cache_write,
-       time_updated
-  FROM session
- WHERE time_updated IS NOT NULL
-"""
+# Columns we would like. opencode's schema moves between versions — two hosts in
+# the fleet had no `model` column at all — so the query is built from what the
+# table actually has. A missing column must cost us the field, not the host.
+_OPENCODE_WANTED = (
+    "id", "title", "directory", "model", "agent", "cost",
+    "tokens_input", "tokens_output", "tokens_cache_read", "tokens_cache_write",
+    "time_updated",
+)
+
+
+def _opencode_query(conn) -> tuple:
+    """(sql, columns) for whatever this opencode version stores."""
+    have = {row[1] for row in conn.execute("PRAGMA table_info(session)")}
+    columns = [c for c in _OPENCODE_WANTED if c in have]
+    if "id" not in columns or "time_updated" not in columns:
+        raise sqlite3.Error("session table lacks id/time_updated")
+    return f"SELECT {', '.join(columns)} FROM session WHERE time_updated IS NOT NULL", columns
 
 
 def _opencode_model(raw) -> str:
@@ -362,18 +372,24 @@ def _collect_opencode(acc: Accumulator, home: str, day_cut, ts_cut) -> None:
         acc.warnings.append(f"opencode: cannot open DB ({e})")
         return
     try:
-        rows = conn.execute(_OPENCODE_SQL).fetchall()
+        sql, columns = _opencode_query(conn)
+        rows = [dict(zip(columns, row)) for row in conn.execute(sql).fetchall()]
     except sqlite3.Error as e:
-        # Schema drift or an unreadable WAL — keep the other agents alive.
+        # Unreadable WAL or a table we don't recognise — keep the other agents alive.
         acc.warnings.append(f"opencode: read failed ({e})")
         return
     finally:
         conn.close()
 
     for row in rows:
-        (sid, title, directory, model, agent, cost,
-         t_in, t_out, t_cread, t_cwrite, updated_ms) = row
-        updated = _int(updated_ms) / 1000.0
+        sid = row.get("id")
+        title = row.get("title")
+        directory = row.get("directory")
+        model = row.get("model")
+        cost = row.get("cost")
+        t_in, t_out = row.get("tokens_input"), row.get("tokens_output")
+        t_cread, t_cwrite = row.get("tokens_cache_read"), row.get("tokens_cache_write")
+        updated = _int(row.get("time_updated")) / 1000.0
         if ts_cut and updated < ts_cut:
             continue
         day = datetime.fromtimestamp(updated, timezone.utc).date().isoformat()

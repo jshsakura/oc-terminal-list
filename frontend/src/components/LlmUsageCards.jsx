@@ -4,6 +4,7 @@ import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import { authHeaders } from '../utils/auth';
 import { attachPaneTargets } from '../utils/llmSessionPane';
+import { LLM_USAGE_CHANGED_EVENT } from '../utils/llmUsageBus';
 import {
   CardShell, EmptyState, ErrorState, gridStyle,
   rankListStyle, rankRowStyle, rankHeaderStyle, rankIconStyle,
@@ -94,9 +95,21 @@ const LlmUsageCards = ({
   tabs = [],
   onJumpPane,          // (tabId, paneId) => void
   days = DEFAULT_DAYS,
+  // bare: 부모가 이미 그리드·소제목을 갖고 있다. 카드만 내놓는다.
+  bare = false,
+  // 대시보드 화면에서는 꺼져 있어도 자리를 남긴다 — 왜 비었는지 말해줘야 한다.
+  alwaysShow = false,
   t,
 }) => {
   const { data, err, busy, refresh } = useLlmUsage(days);
+
+  // 설정에서 켜면 즉시 다시 읽는다. 홈은 마운트 때 한 번만 읽으므로(폴링 없음)
+  // 이 신호가 없으면 새로고침 전까지 아무 변화가 없다.
+  useEffect(() => {
+    const onChanged = () => refresh();
+    window.addEventListener(LLM_USAGE_CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(LLM_USAGE_CHANGED_EVENT, onChanged);
+  }, [refresh]);
 
   const hostMetaById = useMemo(() => {
     const map = new Map();
@@ -122,11 +135,39 @@ const LlmUsageCards = ({
     [data, tabs],
   );
 
-  // 연동을 안 켰거나 watcher 가 한 대도 없으면 **이 구획은 존재하지 않는다** —
-  // 소제목까지 통째로. 로딩 중에도 안 그려서 "떴다가 사라지는" 깜빡임을 만들지 않는다.
-  if (!data || !data.enabled || !data.ok_count) return null;
+  const totals = data?.totals || {};
+  const isOff = !data || !data.enabled || !data.ok_count;
 
-  const totals = data.totals || {};
+  // 홈의 연결 화면에서는 꺼져 있으면 **구획 자체가 없다**(소제목까지). 대시보드
+  // 화면에서는 자리를 비워두지 않고 왜 비었는지 한 줄로 말한다.
+  if (isOff && !alwaysShow) return null;
+  if (isOff) {
+    return (
+      <CardShell icon={Coins} title={t?.('llmUsageSection') || 'LLM usage'}>
+        <EmptyState message={data && !data.enabled
+          ? (t?.('llmUsageOff') || 'Turn on LLM usage in settings to see it here.')
+          : (t?.('noLlmUsage') || 'No usage collected yet.')} />
+      </CardShell>
+    );
+  }
+
+  const cards = (
+    <>
+      <OverviewCard
+        totals={totals}
+        days={data.days ?? days}
+        agents={data.by_agent || []}
+        err={err}
+        busy={busy}
+        onRefresh={refresh}
+        t={t}
+      />
+      <HostCostCard rows={hostRows} err={err} t={t} />
+      <RecentSessionsCard rows={sessionRows} onJumpPane={onJumpPane} t={t} />
+    </>
+  );
+
+  if (bare) return cards;
 
   return (
     <DashboardSection
@@ -144,24 +185,28 @@ const LlmUsageCards = ({
         </button>
       )}
     >
-      <div style={gridStyle}>
-        <OverviewCard
-          totals={totals}
-          days={data.days ?? days}
-          agents={data.by_agent || []}
-          err={err}
-          t={t}
-        />
-        <HostCostCard rows={hostRows} err={err} t={t} />
-        <RecentSessionsCard rows={sessionRows} onJumpPane={onJumpPane} t={t} />
-      </div>
+      <div style={gridStyle}>{cards}</div>
     </DashboardSection>
   );
 };
 
 /* ─── 카드 1: 개요 — 비용이 히어로, 나머지는 보조 ────────────────────── */
-const OverviewCard = ({ totals, days, agents, err, t }) => (
-  <CardShell icon={Coins} title={t?.('llmCost') || 'Estimated cost'}>
+const OverviewCard = ({ totals, days, agents, err, busy, onRefresh, t }) => (
+  <CardShell
+    icon={Coins}
+    title={t?.('llmCost') || 'Estimated cost'}
+    action={onRefresh ? (
+      <button
+        type="button"
+        onClick={onRefresh}
+        disabled={busy}
+        title={t?.('refresh') || 'Refresh'}
+        style={{ ...refreshBtnStyle, opacity: busy ? 0.4 : 1 }}
+      >
+        <RefreshCw size={12} strokeWidth={2} />
+      </button>
+    ) : null}
+  >
     {err ? <ErrorState message={err} /> : (
       <div style={overviewBodyStyle}>
         <div style={heroRowStyle}>

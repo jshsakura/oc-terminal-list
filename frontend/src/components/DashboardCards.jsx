@@ -85,7 +85,7 @@ function useCountUp(target, enabled) {
   return { value, running };
 }
 
-const DashboardCards = ({ hosts = [], settings = {}, days = 7, t }) => {
+const DashboardCards = ({ hosts = [], settings = {}, days = 7, bare = false, t }) => {
   const [data, setData] = useState(() => _summaryCache.get(days)?.data ?? null);
   const [loading, setLoading] = useState(() => !_summaryCache.get(days));
   const [err, setErr] = useState(null);
@@ -188,7 +188,10 @@ const DashboardCards = ({ hosts = [], settings = {}, days = 7, t }) => {
   }, [data, hostMetaById, localMeta]);
 
   return (
-    <div ref={containerRef} style={gridStyle}>
+    /* bare: 부모가 이미 그리드다. display:contents 로 이 래퍼를 레이아웃에서 지워
+       카드들이 부모 그리드의 직접 자식처럼 놓이게 한다 — LLM 카드와 한 판에 섞이려면
+       그리드가 하나여야 한다. ref 는 IntersectionObserver 가 써야 해서 남긴다. */
+    <div ref={containerRef} style={bare ? { display: 'contents' } : gridStyle}>
       {/* 스켈레톤 펄스 전용 — 두 카드가 공유하는 단일 <style> 블록. */}
       <style>{DASHBOARD_KEYFRAMES}</style>
       <StatStripCard
@@ -379,11 +382,14 @@ const RankSkeletonRow = () => (
 );
 
 /* ─── 공용 카드 셸 — 평평한 surface0 + 헤어라인 보더. 글로우/그라디언트/시인 없음. */
-export const CardShell = ({ icon: Icon, title, children }) => (
+export const CardShell = ({ icon: Icon, title, children, action = null }) => (
   <div style={cardStyle}>
     <div style={cardHeadStyle}>
       {Icon && <Icon size={12} strokeWidth={2.2} color={color.subtext} />}
       <span style={cardTitleStyle}>{title}</span>
+      {/* 카드 단위 액션(예: 다시 읽기) — 헤더 오른쪽 끝. 섹션 헤더가 없는
+          bare 모드에서도 카드마다 자기 동작을 갖게 한다. */}
+      {action && <span style={{ marginLeft: 'auto', display: 'flex' }}>{action}</span>}
     </div>
     <div style={cardBodyStyle}>{children}</div>
   </div>
