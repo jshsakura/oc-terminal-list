@@ -1,4 +1,5 @@
 import { tokens as designTokens } from '../../styles/tokens';
+import { glassSectionStyle } from '../../styles/glass';
 import { formatTokens } from './LlmDashboard';
 
 const { color, font, fontSize, fontWeight, radius } = designTokens;
@@ -48,8 +49,11 @@ export const HBars = ({ title, rows = [], limit = 8, colorOf, money, t }) => {
 
 const cardStyle = {
   display: 'flex', flexDirection: 'column', gap: '8px',
-  padding: '12px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
+  padding: '12px', borderRadius: radius.md,
+  border: '1px solid',
+  ...glassSectionStyle(),
+  backdropFilter: 'blur(var(--glass-blur-panel, 18px))',
+  WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 18px))',
 };
 const titleStyle = {
   margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,

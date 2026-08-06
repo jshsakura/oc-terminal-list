@@ -491,6 +491,9 @@ export const gridStyle = {
    인라인 스타일로는 미디어 쿼리를 쓸 수 없어 클래스로 준다. **좁은 화면에서는 span 을
    주지 않는다**: 1열 그리드에서 span 2 는 없는 열을 만들어 레이아웃을 깨뜨린다. */
 export const DASHBOARD_GRID_CSS = `
+@keyframes dc-spin { to { transform: rotate(360deg); } }
+.dc-spin { animation: dc-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+@media (prefers-reduced-motion: reduce) { .dc-spin { animation-duration: 2.4s; } }
 @media (min-width: 720px) {
   .dc-wide { grid-column: span 2; }
 }

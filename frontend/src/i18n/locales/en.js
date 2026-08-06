@@ -933,6 +933,7 @@ export const en = {
     llmByModel: 'By model',
     llmByProject: 'Top projects',
     sessionUnit: 'session',
+    llmHostUnreadable: 'could not be read',
     llmUsageSection: 'LLM usage',
     llmByHost: 'By host',
     llmCost: 'Estimated cost',

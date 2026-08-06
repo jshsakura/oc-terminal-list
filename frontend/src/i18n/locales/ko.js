@@ -933,6 +933,7 @@ export const ko = {
     llmByModel: '모델별',
     llmByProject: '프로젝트별',
     sessionUnit: '세션',
+    llmHostUnreadable: '읽지 못했습니다',
     llmUsageSection: 'LLM 사용량',
     llmByHost: '호스트별',
     llmCost: '예상 비용',

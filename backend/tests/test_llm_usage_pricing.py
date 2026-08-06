@@ -13,6 +13,21 @@ def test_prefix_matching_covers_variants():
     assert rate_for("gpt-5.6-sol") is not None
 
 
+def test_a_fetched_price_beats_the_built_in_guess():
+    """The built-in table is a family-level guess; a fetched entry is that model's
+    actual published price."""
+    from llm_usage.pricing import set_live_prices
+
+    try:
+        set_live_prices({"claude-opus-5": {"input": 1.0, "output": 2.0,
+                                           "cache_read": 0.1, "cache_creation": 0.2}})
+        assert rate_for("claude-opus-5")["output"] == 2.0
+        # A model the fetch did not cover still falls back to the family table.
+        assert rate_for("claude-sonnet-5")["output"] == 10.0
+    finally:
+        set_live_prices({})
+
+
 def test_longest_prefix_wins():
     """`gemini-2.5-flash` must not be priced as `gemini-2.5-pro`."""
     assert rate_for("gemini-2.5-flash")["output"] == 2.5
@@ -29,12 +44,14 @@ def test_case_is_ignored():
 
 
 def test_cost_is_per_million_tokens():
-    # opus: input $15, output $75, cache_read $1.5, cache_creation $18.75 per 1M
+    # opus-5 lists at $5 / $25 / $0.5 / $6.25 per 1M (LiteLLM, the source ccusage
+    # reads). The hand-written table once carried Opus-4 prices here and every
+    # number on screen was 3x too high — nobody questions a cost they are shown.
     cost = cost_for("claude-opus-5", {
         "input": 1_000_000, "output": 1_000_000,
         "cache_read": 1_000_000, "cache_creation": 1_000_000,
     })
-    assert round(cost, 2) == 15.0 + 75.0 + 1.5 + 18.75
+    assert round(cost, 2) == 5.0 + 25.0 + 0.5 + 6.25
 
 
 def test_missing_or_bogus_token_fields_count_as_zero():

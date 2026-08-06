@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { tokens as designTokens } from '../../styles/tokens';
+import { glassSectionStyle } from '../../styles/glass';
 import { authHeaders } from '../../utils/auth';
 import { attachPaneTargets } from '../../utils/llmSessionPane';
-import { LLM_USAGE_CHANGED_EVENT } from '../../utils/llmUsageBus';
-import { formatMoney, describeMoney, resolveCurrency } from '../../utils/money';
+import { LLM_USAGE_CHANGED_EVENT, emitLlmUsageBusy } from '../../utils/llmUsageBus';
+import { formatMoney, describeMoney, resolveCurrency, formatCount } from '../../utils/money';
 import { CHART_W, CHART_H, PAD_L, PAD_R, PAD_T, TOKEN_SERIES, buildChart, fillDayGaps, shortDay } from './llmChartGeometry';
 import { LlmTiles, KeyStats } from './LlmTiles.jsx';
 import { HBars } from './HBars.jsx';
@@ -82,6 +83,14 @@ function useUsage(days) {
 const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPane, t }) => {
   const { data, err, busy, refresh } = useUsage(days);
 
+  /* 수집 중임을 상단 갱신 버튼에 알린다(다른 컴포넌트라 이벤트로 건넨다).
+     끝날 때 못 읽은 호스트가 있으면 이름만 함께 넘긴다 — 화면에 상주하는 경고 대신
+     그때 한 번 알림으로 뜨고 사라진다. 매번 같은 문장이 서 있으면 그건 배경이다. */
+  useEffect(() => {
+    const failed = busy ? null : (data?.by_host || []).filter((h) => !h.ok).map((h) => h.name);
+    emitLlmUsageBusy(busy, failed);
+  }, [busy, data]);
+
   // Turning the switch on in settings must show up here without a reload.
   useEffect(() => {
     const onChanged = () => refresh();
@@ -89,6 +98,7 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
     return () => window.removeEventListener(LLM_USAGE_CHANGED_EVENT, onChanged);
   }, [refresh]);
 
+  setUsageLocale(settings.language);
   const currency = resolveCurrency(settings.currency, settings.language);
   const fx = data?.fx || null;
   const money = useCallback((usd) => formatMoney(usd, { currency, fx }), [currency, fx]);
@@ -126,16 +136,13 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
   if (!data && busy) return <LoadingCards t={t} />;
   if (!data || !data.enabled) return null;
   if (!(Number(totals.cost) > 0 || Number(totals.tokens) > 0)) return null;
-  const failed = (data.by_host || []).filter((h) => !h.ok);
 
   return (
     <div style={rootStyle}>
       {err && <div style={{ ...stateStyle, color: color.danger }}>{err}</div>}
-      {failed.length > 0 && (
-        <div style={warnStyle}>
-          {failed.map((h) => `${h.name}: ${h.error}`).join(' · ')}
-        </div>
-      )}
+      {/* 실패한 호스트를 화면에 뿌리지 않는다 — 매번 같은 문장이 상단에 서면 그건
+          경고가 아니라 배경이 된다. 아래 "호스트별" 줄에 n/a 로 남고(툴팁에 사유),
+          전체 진단은 설정 화면이 답한다. */}
 
       <LlmTiles totals={totals} money={money} moneyTitle={moneyTitle} t={t} />
       <KeyStats totals={totals} sessions={data.sessions || []} money={money} t={t} />
@@ -423,12 +430,13 @@ const Segmented = ({ value, onChange, options }) => (
   </div>
 );
 
+/* 토큰 수도 통화와 같은 규칙 — 읽는 사람이 말하는 단위로. "7.8B" 는 한국어 숫자가
+   아니다. 언어는 컴포넌트가 알고 있으므로 모듈 레벨 변수로 건네받는다(포맷터를
+   프롭으로 다 흘리면 카드마다 인자가 하나씩 늘어난다). */
+let _locale = 'en';
+export const setUsageLocale = (locale) => { _locale = locale || 'en'; };
 export function formatTokens(n) {
-  const v = Math.max(0, Number(n) || 0);
-  if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
-  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
-  return `${Math.round(v)}`;
+  return formatCount(n, _locale);
 }
 
 /* ─── styles — 앱의 카드 언어(평평한 면 + 헤어라인) 그대로. */
@@ -453,8 +461,9 @@ const iconBtnStyle = {
 };
 const filterRowStyle = {
   display: 'flex', flexWrap: 'wrap', gap: '4px',
-  padding: '8px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
+  padding: '8px', borderRadius: radius.md,
+  border: '1px solid',
+  ...glassSectionStyle(),
 };
 const rangeBtnStyle = {
   padding: '4px 12px', minHeight: '30px', border: '1px solid',
@@ -463,8 +472,11 @@ const rangeBtnStyle = {
 };
 const cardStyle = {
   display: 'flex', flexDirection: 'column', gap: '8px',
-  padding: space['3'], background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
+  padding: space['3'], borderRadius: radius.md,
+  border: '1px solid',
+  ...glassSectionStyle(),
+  backdropFilter: 'blur(var(--glass-blur-panel, 18px))',
+  WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 18px))',
 };
 const cardHeadStyle = { display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' };
 const cardTitleStyle = {

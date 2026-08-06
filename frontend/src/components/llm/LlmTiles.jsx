@@ -1,4 +1,5 @@
 import { tokens as designTokens } from '../../styles/tokens';
+import { glassSectionStyle } from '../../styles/glass';
 import { formatTokens } from './LlmDashboard';
 
 const { color, font, fontSize, fontWeight, radius, space } = designTokens;
@@ -97,8 +98,11 @@ const tilesStyle = {
 };
 const tileStyle = {
   display: 'flex', flexDirection: 'column', gap: '4px',
-  padding: space['3'], background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
+  padding: space['3'], borderRadius: radius.md,
+  border: '1px solid',
+  ...glassSectionStyle(),
+  backdropFilter: 'blur(var(--glass-blur-panel, 18px))',
+  WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 18px))',
 };
 const tileKeyStyle = { fontSize: fontSize['10'], color: color.subtext, fontFamily: font.sans };
 const tileValueStyle = {
@@ -117,8 +121,9 @@ const keyStatsStyle = {
 };
 const keyStatStyle = {
   display: 'flex', flexDirection: 'column', gap: '2px',
-  padding: '8px 10px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.sm,
+  padding: '8px 10px', borderRadius: radius.sm,
+  border: '1px solid',
+  ...glassSectionStyle(),
 };
 const keyStatLabelStyle = { fontSize: fontSize['10'], color: color.subtext };
 const keyStatValueStyle = {

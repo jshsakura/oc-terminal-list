@@ -27,6 +27,7 @@ from .aggregate import merge_sessions, merge_summaries
 from .config import get_config as get_usage_config
 from .fx import get_rates
 from .runner import CollectFailed, run_local, run_remote
+from .sync import load_prices
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,10 @@ LOCAL_LABEL = "이 서버"
 
 # One collection per source per day. Manual refresh ignores it.
 COLLECT_INTERVAL_SECONDS = 24 * 60 * 60
+# A source that failed is retried sooner than a day — but not on every collection.
+# A NAS with no agent logs, or a host that is simply off, would otherwise cost the
+# full SSH timeout every single time just to fail the same way again.
+FAILURE_RETRY_SECONDS = 6 * 60 * 60
 # Every collection reads this far back, so a skipped day is filled in by the next
 # run. Cheap: files older than the cutoff are never opened.
 COLLECT_WINDOW_DAYS = 90
@@ -68,16 +73,34 @@ def _since_day(days: int) -> str | None:
     return (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
 
 
-def _is_due(last_ok_at: str | None) -> bool:
-    if not last_ok_at:
-        return True
+def _age_seconds(stamp: str | None) -> float | None:
+    if not stamp:
+        return None
     try:
-        last = datetime.fromisoformat(last_ok_at)
+        when = datetime.fromisoformat(stamp)
     except (TypeError, ValueError):
-        return True
-    if last.tzinfo is None:
-        last = last.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - last).total_seconds() >= COLLECT_INTERVAL_SECONDS
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - when).total_seconds()
+
+
+def _is_due(info) -> bool:
+    """Should this source be collected now?
+
+    Succeeded recently → no; once a day is the point. **Failed recently → also no.**
+    A host that is off, or a NAS that will never run an agent, must not cost the
+    full SSH timeout on every collection just to fail identically again.
+    """
+    if info is None or isinstance(info, str):
+        info = {"last_ok_at": info}
+    ok_age = _age_seconds(info.get("last_ok_at"))
+    if ok_age is not None and ok_age < COLLECT_INTERVAL_SECONDS:
+        return False
+    try_age = _age_seconds(info.get("last_try_at"))
+    if ok_age is None and try_age is not None and try_age < FAILURE_RETRY_SECONDS:
+        return False
+    return True
 
 
 # ── collection ──────────────────────────────────────────────────────────────
@@ -122,10 +145,10 @@ async def collect_all(username: str, force: bool = False) -> dict:
     sources = await storage.get_llm_sources(username)
     gate = asyncio.Semaphore(MAX_CONCURRENT_HOSTS)
     tasks = []
-    if force or _is_due((sources.get(LOCAL_SOURCE_ID) or {}).get("last_ok_at")):
+    if force or _is_due(sources.get(LOCAL_SOURCE_ID)):
         tasks.append(_collect_local(username))
     for host in await storage.list_hosts(username):
-        if force or _is_due((sources.get(host["id"]) or {}).get("last_ok_at")):
+        if force or _is_due(sources.get(host["id"])):
             tasks.append(_collect_host(username, host, gate))
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
@@ -148,8 +171,8 @@ async def maybe_collect_in_background(username: str) -> None:
         hosts = await storage.list_hosts(username)
     except Exception:  # noqa: BLE001 — a stats read must never break a terminal
         return
-    due = _is_due((sources.get(LOCAL_SOURCE_ID) or {}).get("last_ok_at")) or any(
-        _is_due((sources.get(h["id"]) or {}).get("last_ok_at")) for h in hosts
+    due = _is_due(sources.get(LOCAL_SOURCE_ID)) or any(
+        _is_due(sources.get(h["id"])) for h in hosts
     )
     if not due:
         return
@@ -202,6 +225,9 @@ async def get_usage(username: str, days: int = DEFAULT_DAYS, force: bool = False
         # one collection a day and returns immediately; the numbers on screen come
         # from the DB either way.
         await maybe_collect_in_background(username)
+
+    # 단가는 손으로 기억하지 않는다 — 하루 한 번 받아온 표를 쓴다(실패하면 내장 표).
+    await load_prices()
 
     since = _since_day(days)
     rows = await storage.query_llm_daily(username, since)

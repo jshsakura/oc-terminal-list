@@ -63,3 +63,24 @@ export const describeMoney = (usd, { currency = 'USD', fx = null } = {}) => {
   }
   return exact;
 };
+
+/**
+ * Token counts in the units the reader speaks.
+ *
+ * "7.8B" is not a Korean number — 78억 is. Same rule as the currency: round to
+ * how people say it, because the digits past the first two are noise on an
+ * estimate anyway.
+ */
+export const formatCount = (n, locale) => {
+  const v = Math.max(0, Number(n) || 0);
+  const korean = String(locale || '').toLowerCase().startsWith('ko');
+  if (!korean) {
+    if (v >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+    if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+    if (v >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+    return `${Math.round(v)}`;
+  }
+  if (v >= 1e8) return `${(v / 1e8).toFixed(v >= 1e9 ? 0 : 1)}억`;
+  if (v >= 1e4) return `${Math.round(v / 1e4).toLocaleString()}만`;
+  return `${Math.round(v).toLocaleString()}`;
+};

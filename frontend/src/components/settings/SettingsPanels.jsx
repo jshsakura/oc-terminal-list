@@ -66,19 +66,20 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
 
     <Divider />
 
-    <Section title={t('changePassword') || 'Change password'}>
+    {/* 접어 둔다 — 일 년에 한 번 쓰는 폼이 늘 펼쳐져 자리를 먹고 있었다. */}
+    <Section title={t('changePassword') || 'Change password'} collapsible>
       <PasswordSection onLogout={onLogout} t={t} />
     </Section>
 
     <Divider />
 
-    <Section title={t('twoFactorAuth') || 'Two-factor authentication'}>
+    <Section title={t('twoFactorAuth') || 'Two-factor authentication'} collapsible>
       <OtpSection t={t} />
     </Section>
 
     <Divider />
 
-    <Section title={t('passkeys') || 'Passkeys'}>
+    <Section title={t('passkeys') || 'Passkeys'} collapsible>
       <PasskeySection t={t} />
     </Section>
 

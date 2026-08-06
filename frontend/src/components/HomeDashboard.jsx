@@ -10,7 +10,7 @@ import HomeSessions from './HomeSessions';
 import useHostReorder from '../hooks/useHostReorder';
 import DashboardCards from './DashboardCards';
 import LlmDashboard from './llm/LlmDashboard';
-import { LLM_USAGE_CHANGED_EVENT } from '../utils/llmUsageBus';
+import { LLM_USAGE_CHANGED_EVENT, LLM_USAGE_BUSY_EVENT } from '../utils/llmUsageBus';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -68,6 +68,28 @@ const HomeDashboard = ({
   /* 기간은 **카드 위 한 줄**에 둔다 — 카드마다 따로 두면 "7일 카드 옆의 30일 카드" 가
      되어 같은 화면에서 서로 다른 창을 비교하게 된다. 백엔드 화이트리스트와 같은 값. */
   const [rangeDays, setRangeDays] = useState(7);
+  /* 갱신 중 표시 — 실제로 도는 곳은 LlmDashboard 라 이벤트로 받는다. 눌렀는데
+     아무것도 안 움직이면 눌린 줄 모른다. */
+  const [refreshing, setRefreshing] = useState(false);
+  const refreshingRef = useRef(false);
+  useEffect(() => {
+    const onBusy = (e) => {
+      const busy = !!e?.detail?.busy;
+      const failed = e?.detail?.failed;
+      // 사용자가 직접 누른 갱신이 끝났을 때만 알린다. 백그라운드 수집까지 알리면
+      // 아무 것도 안 했는데 토스트가 뜬다.
+      if (refreshingRef.current && !busy && failed?.length) {
+        onNotify?.({
+          type: 'info',
+          message: `${failed.join(', ')} — ${t?.('llmHostUnreadable') || 'could not be read'}`,
+        });
+      }
+      refreshingRef.current = busy;
+      setRefreshing(busy);
+    };
+    window.addEventListener(LLM_USAGE_BUSY_EVENT, onBusy);
+    return () => window.removeEventListener(LLM_USAGE_BUSY_EVENT, onBusy);
+  }, [onNotify, t]);
   // 서버 sort_index 가 SSoT. useHostReorder 가 옵티미스틱 reorder + persist + refresh 통합 처리.
   const { orderedHosts, rowPropsFor } = useHostReorder(hosts, refreshHosts);
 
@@ -161,12 +183,19 @@ const HomeDashboard = ({
               <button
                 type="button"
                 title={t?.('refresh') || 'Refresh'}
+                disabled={refreshing}
                 onClick={() => {
+                  setRefreshing(true);   // 낙관적 — 이벤트가 돌아오기 전에도 즉시 반응한다
+                  refreshingRef.current = true;
                   try { window.dispatchEvent(new CustomEvent(LLM_USAGE_CHANGED_EVENT)); } catch { /* no window */ }
                 }}
-                style={styles.dashRefresh}
+                style={{ ...styles.dashRefresh, opacity: refreshing ? 0.6 : 1 }}
               >
-                <RefreshCw size={13} strokeWidth={2} />
+                <RefreshCw
+                  size={13}
+                  strokeWidth={2}
+                  className={refreshing ? 'dc-spin' : undefined}
+                />
               </button>
             </div>
 

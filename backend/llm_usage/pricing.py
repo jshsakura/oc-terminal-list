@@ -15,6 +15,11 @@ don't know the price" look identical on screen. When a source knows its own cost
 Prefix matching, because model names keep multiplying: `claude-opus-5`,
 `claude-opus-4-8`, dated variants. Exact matching would silently price every new
 model at zero.
+
+**The built-in table is the fallback, not the truth.** `sync.py` refreshes it from
+LiteLLM's published prices once a day — the same source ccusage reads. This table
+was hand-written once and was 3x too high (Opus-era prices on an Opus-5 model),
+which is exactly the failure mode a hand-maintained price list has.
 """
 from __future__ import annotations
 
@@ -23,11 +28,11 @@ MILLION = 1_000_000
 # (prefix, {input, output, cache_read, cache_creation}) — longest prefix wins.
 # Cache writes are typically 1.25x input, cache reads 0.1x.
 PRICES: dict[str, dict] = {
-    "claude-opus": {"input": 15.0, "output": 75.0, "cache_read": 1.5, "cache_creation": 18.75},
-    "claude-sonnet": {"input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_creation": 3.75},
-    "claude-haiku": {"input": 0.8, "output": 4.0, "cache_read": 0.08, "cache_creation": 1.0},
+    "claude-opus": {"input": 5.0, "output": 25.0, "cache_read": 0.5, "cache_creation": 6.25},
+    "claude-sonnet": {"input": 2.0, "output": 10.0, "cache_read": 0.2, "cache_creation": 2.5},
+    "claude-haiku": {"input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_creation": 1.25},
     "claude-3-5-haiku": {"input": 0.8, "output": 4.0, "cache_read": 0.08, "cache_creation": 1.0},
-    "claude-fable": {"input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_creation": 3.75},
+    "claude-fable": {"input": 2.0, "output": 10.0, "cache_read": 0.2, "cache_creation": 2.5},
     "gpt-5": {"input": 1.25, "output": 10.0, "cache_read": 0.125, "cache_creation": 0.0},
     "gpt-4.1": {"input": 2.0, "output": 8.0, "cache_read": 0.5, "cache_creation": 0.0},
     "gpt-4o": {"input": 2.5, "output": 10.0, "cache_read": 1.25, "cache_creation": 0.0},
@@ -40,15 +45,36 @@ PRICES: dict[str, dict] = {
     "qwen": {"input": 0.4, "output": 1.2, "cache_read": 0.04, "cache_creation": 0.0},
 }
 
-_ORDERED = sorted(PRICES.items(), key=lambda kv: len(kv[0]), reverse=True)
+# Live table, refreshed from LiteLLM (see sync.py). Empty until the first sync.
+_LIVE: dict[str, dict] = {}
+
+
+def set_live_prices(prices: dict) -> None:
+    """Install the fetched table. Exact model ids, already normalised."""
+    global _LIVE
+    _LIVE = prices or {}
+
+
+def _ordered(table: dict) -> list:
+    return sorted(table.items(), key=lambda kv: len(kv[0]), reverse=True)
 
 
 def rate_for(model: str | None) -> dict | None:
-    """Model name to a price row. None when we have no price for it."""
+    """Model name to a price row. None when we have no price for it.
+
+    Exact match on the live table first — that is a real published price for that
+    exact model. Only then the prefix fallback, which is a guess by family.
+    """
     name = (model or "").strip().lower()
     if not name:
         return None
-    for prefix, rate in _ORDERED:
+    live = _LIVE.get(name)
+    if live:
+        return live
+    for prefix, rate in _ordered(_LIVE):
+        if name.startswith(prefix):
+            return rate
+    for prefix, rate in _ordered(PRICES):
         if name.startswith(prefix):
             return rate
     return None

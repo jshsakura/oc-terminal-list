@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { styles, fszStyles, shortcutStyles } from './settingsStyles';
 
@@ -16,12 +16,57 @@ export const ShortcutRow = ({ keys, desc }) => (
   </div>
 );
 
-export const Section = ({ title, children }) => (
-  <section style={styles.section}>
-    <div style={styles.sectionTitle}>{title}</div>
-    <div style={styles.sectionBody}>{children}</div>
-  </section>
-);
+/**
+ * `collapsible` — 자주 안 쓰는 구획은 접어 둔다. 비밀번호 변경처럼 일 년에 한 번
+ * 쓰는 폼이 늘 펼쳐져 있으면 그만큼 자주 쓰는 항목이 아래로 밀린다.
+ * 기본 구획은 그대로 — 접는 것이 늘면 그건 그것대로 클릭이 는다.
+ */
+export const Section = ({ title, children, collapsible = false, defaultOpen = false }) => {
+  const [open, setOpen] = useState(defaultOpen);
+  if (!collapsible) {
+    return (
+      <section style={styles.section}>
+        <div style={styles.sectionTitle}>{title}</div>
+        <div style={styles.sectionBody}>{children}</div>
+      </section>
+    );
+  }
+  return (
+    <section style={styles.section}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          ...styles.sectionTitle,
+          display: 'flex',
+          alignItems: 'center',
+          gap: '6px',
+          width: '100%',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+          textAlign: 'left',
+          font: 'inherit',
+          minHeight: '32px',
+        }}
+        aria-expanded={open}
+      >
+        <ChevronRight
+          size={12}
+          strokeWidth={2.2}
+          style={{
+            flexShrink: 0,
+            transition: 'transform 140ms',
+            transform: open ? 'rotate(90deg)' : 'none',
+          }}
+        />
+        {title}
+      </button>
+      {open && <div style={styles.sectionBody}>{children}</div>}
+    </section>
+  );
+};
 
 export const Divider = () => <div style={styles.divider} />;
 

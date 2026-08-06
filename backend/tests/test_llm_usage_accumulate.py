@@ -93,9 +93,13 @@ async def test_source_status_records_success_and_failure(store):
     await store.mark_llm_source("u", "rpi", name="rpi", ok=False, error="SSH 실패")
     meta = await store.get_llm_sources("u")
     assert meta["rpi"]["last_error"] == "SSH 실패"
-    # A failed attempt does not count as collected — it must be retried.
-    assert _is_due(meta["rpi"]["last_ok_at"]) is True
+    # A host that just failed is not retried on the very next collection — an
+    # unreachable box would otherwise cost the full SSH timeout every time.
+    assert _is_due(meta["rpi"]) is False
+    # …but it is not written off either: with the attempt long past, it is due again.
+    assert _is_due({"last_ok_at": None, "last_try_at": "2020-01-01T00:00:00+00:00"}) is True
 
     await store.mark_llm_source("u", "rpi", name="rpi", ok=True, error=None)
     meta = await store.get_llm_sources("u")
-    assert _is_due(meta["rpi"]["last_ok_at"]) is False   # once a day is enough
+    assert _is_due(meta["rpi"]) is False   # once a day is enough
+    assert _is_due(None) is True           # never seen → collect
