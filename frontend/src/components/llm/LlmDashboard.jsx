@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { tokens as designTokens } from '../../styles/tokens';
-import { glassSectionStyle } from '../../styles/glass';
 import { authHeaders } from '../../utils/auth';
 import { attachPaneTargets } from '../../utils/llmSessionPane';
 import { LLM_USAGE_CHANGED_EVENT, emitLlmUsageBusy } from '../../utils/llmUsageBus';
@@ -461,9 +460,8 @@ const iconBtnStyle = {
 };
 const filterRowStyle = {
   display: 'flex', flexWrap: 'wrap', gap: '4px',
-  padding: '8px', borderRadius: radius.md,
-  border: '1px solid',
-  ...glassSectionStyle(),
+  padding: '8px', background: color.surface0,
+  border: `1px solid ${color.border}`, borderRadius: radius.md,
 };
 const rangeBtnStyle = {
   padding: '4px 12px', minHeight: '30px', border: '1px solid',
@@ -472,11 +470,8 @@ const rangeBtnStyle = {
 };
 const cardStyle = {
   display: 'flex', flexDirection: 'column', gap: '8px',
-  padding: space['3'], borderRadius: radius.md,
-  border: '1px solid',
-  ...glassSectionStyle(),
-  backdropFilter: 'blur(var(--glass-blur-panel, 18px))',
-  WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 18px))',
+  padding: space['3'], background: color.surface0,
+  border: `1px solid ${color.border}`, borderRadius: radius.md,
 };
 const cardHeadStyle = { display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' };
 const cardTitleStyle = {
