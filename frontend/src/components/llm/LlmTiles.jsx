@@ -1,3 +1,4 @@
+import { Wallet, Hash, MessagesSquare, DatabaseZap } from 'lucide-react';
 import { tokens as designTokens } from '../../styles/tokens';
 import { dashboardCardStyle } from '../../styles/dashboardCard';
 import { formatTokens } from './LlmDashboard';
@@ -26,6 +27,7 @@ export const LlmTiles = ({ totals, money, moneyTitle, t }) => {
 
   const tiles = [
     {
+      icon: Wallet,
       key: t?.('llmCost') || 'Estimated cost',
       value: money(cost),
       title: moneyTitle?.(cost),
@@ -33,18 +35,21 @@ export const LlmTiles = ({ totals, money, moneyTitle, t }) => {
         + ` · ${money(sessions > 0 ? cost / sessions : 0)}/${t?.('sessionUnit') || 'session'}`,
     },
     {
+      icon: Hash,
       key: t?.('llmTotalTokens') || 'Total tokens',
       value: formatTokens(tokenTotal),
       note: `${formatTokens(totals.output)} ${t?.('tokensOutput') || 'output'}`
         + ` · ${formatTokens(totals.input)} ${t?.('tokensInput') || 'input'}`,
     },
     {
+      icon: MessagesSquare,
       key: t?.('sessions') || 'Sessions',
       value: Math.round(sessions).toLocaleString(),
       note: `${Math.round(Number(totals.agents) || 0)} ${t?.('llmAgents') || 'agents'}`
         + ` · ${Math.round(days)} ${t?.('llmActiveDays') || 'active days'}`,
     },
     {
+      icon: DatabaseZap,
       key: t?.('llmCacheShare') || 'Cache share',
       value: `${cacheShare.toFixed(0)}%`,
       note: `${formatTokens(totals.cache_read)} ${t?.('llmRead') || 'read'}`
@@ -59,13 +64,23 @@ export const LlmTiles = ({ totals, money, moneyTitle, t }) => {
     터미널 사용량과 LLM 비용이 서로 다른 카드처럼 생기면 한 화면으로 안 읽힌다. */
 export const TileRow = ({ tiles }) => (
   <div style={tilesStyle}>
-    {tiles.map((tile) => (
-      <div key={tile.key} style={tileStyle}>
-        <div style={tileKeyStyle}>{tile.key}</div>
-        <div style={tileValueStyle} title={tile.title}>{tile.value}</div>
-        {tile.note && <div style={tileNoteStyle}>{tile.note}</div>}
-      </div>
-    ))}
+    {tiles.map((tile) => {
+      const Mark = tile.icon;
+      return (
+        <div key={tile.key} style={tileStyle}>
+          {/* 워터마크 — 무엇에 대한 숫자인지 한 눈에. 모서리 밖으로 흘려보내고 7% 로 눕혀
+              **읽는 것이 아니라 느끼는** 크기로 둔다. 또렷하게 그리면 값과 경쟁한다. */}
+          {Mark && (
+            <span aria-hidden="true" style={tileMarkStyle}>
+              <Mark size={64} strokeWidth={1.4} />
+            </span>
+          )}
+          <div style={tileKeyStyle}>{tile.key}</div>
+          <div style={tileValueStyle} title={tile.title}>{tile.value}</div>
+          {tile.note && <div style={tileNoteStyle}>{tile.note}</div>}
+        </div>
+      );
+    })}
   </div>
 );
 
@@ -102,7 +117,13 @@ const tilesStyle = {
 };
 const tileStyle = {
   display: 'flex', flexDirection: 'column', gap: '4px',
+  // 워터마크가 모서리 밖으로 나가되 카드 밖으로는 새지 않게.
+  position: 'relative', overflow: 'hidden',
   ...dashboardCardStyle(),
+};
+const tileMarkStyle = {
+  position: 'absolute', right: '-14px', bottom: '-16px',
+  color: color.text, opacity: 0.07, pointerEvents: 'none', display: 'flex',
 };
 const tileKeyStyle = { fontSize: fontSize['11'], color: color.subtext, fontFamily: font.sans };
 const tileValueStyle = {

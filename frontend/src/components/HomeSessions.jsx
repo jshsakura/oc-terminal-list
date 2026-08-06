@@ -411,18 +411,26 @@ const LoadingResumableCard = ({ t }) => (
   </div>
 );
 
-// 빈 상태 카드 — 이어할 수 있는 세션이 하나도 없을 때 자리를 채워서 허전함 방지.
+/* 빈 상태 카드 — 이어할 수 있는 세션이 하나도 없을 때 자리를 채워서 허전함 방지.
+ *
+ * 점선은 "아직 아무것도 없는 자리" 를 뜻한다. 다만 **또렷해야 한다**: 예전엔 헤어라인
+ * 색(border, 6% 알파)으로 2px 점선을 그어서 대시가 배경에 묻혀 끊긴 선인지 뭉갠 실선인지
+ * 알 수 없었다 — 그래서 묘해 보인다. 점선은 색을 세워야 점선으로 읽힌다.
+ *
+ * 색은 중립(text 22%)이다. 액센트 점선은 드래그 오버("여기에 떨궈라") 신호이므로
+ * 여기서 그 색까지 빌리면 없는 동작을 광고하게 된다 — 표기는 같아도 색이 다르다.
+ */
 const EmptyResumableCard = ({ t }) => (
   <div
     style={{
       ...S.card,
       cursor: 'default',
-      background: color.surface0,
+      background: `color-mix(in srgb, ${color.surface0} 45%, transparent)`,
       borderStyle: 'dashed',
       borderWidth: '2px',
-      borderColor: color.border,
+      borderColor: `color-mix(in srgb, ${color.text} 22%, transparent)`,
       justifyContent: 'center',
-      color: color.muted,
+      color: color.subtext,
       fontSize: fontSize['12'],
       fontWeight: fontWeight.medium,
       textAlign: 'center',

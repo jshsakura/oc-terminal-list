@@ -11,12 +11,15 @@ const { color, font, fontSize, fontWeight, radius } = designTokens;
  * carries identity (agent, host) and must stay stable as rows come and go —
  * never assigned by rank.
  */
-export const HBars = ({ title, rows = [], limit = 8, colorOf, money, t }) => {
+export const HBars = ({ title, icon: TitleIcon = null, rows = [], limit = 8, colorOf, money, t }) => {
   const top = rows.slice(0, limit);
   const max = Math.max(...top.map((r) => Number(r.cost) || 0), 1e-9);
   return (
     <section style={cardStyle}>
-      <h3 style={titleStyle}>{title}</h3>
+      <h3 style={titleStyle}>
+        {TitleIcon && <TitleIcon size={12} strokeWidth={2} style={{ color: color.subtext }} />}
+        {title}
+      </h3>
       {top.length === 0 ? (
         <div style={stateStyle}>{t?.('noLlmUsage') || 'No data.'}</div>
       ) : (
@@ -57,6 +60,7 @@ const cardStyle = {
 const titleStyle = {
   margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
   color: color.text, fontFamily: font.sans, letterSpacing: '0.02em',
+  display: 'flex', alignItems: 'center', gap: '6px',
 };
 const listStyle = { display: 'flex', flexDirection: 'column', gap: '7px' };
 const rowStyle = {

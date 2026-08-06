@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, TrendingUp, History, Bot, Server, Cpu, FolderGit2 } from 'lucide-react';
 import { tokens as designTokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
 import { dashboardCardStyle } from '../../styles/dashboardCard';
@@ -152,6 +152,7 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
 
       <div style={colsStyle}>
         <HBars
+          icon={Bot}
           title={t?.('llmByAgent') || 'By agent'}
           rows={data.by_agent || []}
           colorOf={agentAccent}
@@ -159,6 +160,7 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
           t={t}
         />
         <HBars
+          icon={Server}
           title={t?.('llmByHost') || 'By host'}
           rows={hostRows}
           colorOf={(name) => hostRows.find((h) => h.name === name)?.accent || color.accent}
@@ -167,8 +169,8 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
         />
       </div>
       <div style={colsStyle}>
-        <HBars title={t?.('llmByModel') || 'By model'} rows={data.by_model || []} money={money} t={t} />
-        <HBars title={t?.('llmByProject') || 'Top projects'} rows={data.by_project || []} limit={10} money={money} t={t} />
+        <HBars icon={Cpu} title={t?.('llmByModel') || 'By model'} rows={data.by_model || []} money={money} t={t} />
+        <HBars icon={FolderGit2} title={t?.('llmByProject') || 'Top projects'} rows={data.by_project || []} limit={10} money={money} t={t} />
       </div>
 
       <RecentSessions rows={sessionRows} onJumpPane={onJumpPane} money={money} t={t} />
@@ -238,7 +240,10 @@ const DailyChart = ({ rows, money, t }) => {
     <section style={cardStyle}>
       <div style={cardHeadStyle}>
         <div>
-          <h3 style={cardTitleStyle}>{t?.('llmDailySpend') || 'Daily spend'}</h3>
+          <h3 style={cardTitleStyle}>
+            <TrendingUp size={12} strokeWidth={2} style={{ color: color.subtext }} />
+            {t?.('llmDailySpend') || 'Daily spend'}
+          </h3>
           <p style={cardHintStyle}>{t?.('llmDailyHint') || 'Switch to tokens for the per-type breakdown.'}</p>
         </div>
         <span style={{ flex: 1 }} />
@@ -407,7 +412,10 @@ const DailyTable = ({ days, money, t }) => (
 
 const RecentSessions = ({ rows, onJumpPane, money, t }) => (
   <section style={cardStyle}>
-    <h3 style={cardTitleStyle}>{t?.('llmRecentSessions') || 'Recent agent sessions'}</h3>
+    <h3 style={cardTitleStyle}>
+      <History size={12} strokeWidth={2} style={{ color: color.subtext }} />
+      {t?.('llmRecentSessions') || 'Recent agent sessions'}
+    </h3>
     {rows.length === 0 ? (
       <div style={stateStyle}>{t?.('noLlmSessions') || 'No sessions in this window.'}</div>
     ) : (
@@ -510,6 +518,7 @@ const cardHeadStyle = { display: 'flex', alignItems: 'flex-start', gap: '8px', f
 const cardTitleStyle = {
   margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
   color: color.text, fontFamily: font.sans, letterSpacing: '0.02em',
+  display: 'flex', alignItems: 'center', gap: '6px',
 };
 const cardHintStyle = { margin: '2px 0 0', fontSize: fontSize['11'], color: color.subtext };
 const colsStyle = {

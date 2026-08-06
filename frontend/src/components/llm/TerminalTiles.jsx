@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Clock, Layers, Server, CalendarDays } from 'lucide-react';
 import { tokens as designTokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
 import { TileRow } from './LlmTiles.jsx';
@@ -89,16 +90,19 @@ const TerminalTiles = ({ hosts = [], settings = {}, days = 7, t }) => {
     {
       /* 맨 앞은 **하루 평균**이다. 합계는 기간을 바꾸면 따라 커지므로 그 자체로는 크고
          작음을 말해주지 않는다 — 하루 평균은 기간이 달라도 같은 척도로 읽힌다. */
+      icon: Clock,
       key: t?.('perDayAvg') || 'Per day',
       value: formatDuration(perDay, t),
       note: `${formatDuration(data.total_seconds, t)} ${t?.('inTotal') || 'total'}`,
     },
     {
+      icon: Layers,
       key: t?.('sessions') || 'Sessions',
       value: Math.round(data.session_count || 0).toLocaleString(),
       note: `${formatDuration(data.avg_session_seconds, t)} ${t?.('avgSession') || 'avg'}`,
     },
     {
+      icon: Server,
       key: t?.('activeHosts') || 'Active',
       value: `${data.active_targets || 0}/${hosts.length + 1}`,
       note: `${windowDays}${t?.('unitDay') || 'd'} ${t?.('window') || 'window'}`,
@@ -111,7 +115,10 @@ const TerminalTiles = ({ hosts = [], settings = {}, days = 7, t }) => {
       {/* 일별 리듬 — 숫자는 "얼마나" 만 말한다. 매일 조금씩인지 하루에 몰았는지는 모양이 말한다. */}
       {Array.isArray(data.by_day) && data.by_day.length > 1 && (
         <section style={dayCardStyle}>
-          <h3 style={dayTitleStyle}>{t?.('dailyUsage') || 'Daily usage'}</h3>
+          <h3 style={dayTitleStyle}>
+            <CalendarDays size={12} strokeWidth={2} style={{ color: color.subtext }} />
+            {t?.('dailyUsage') || 'Daily usage'}
+          </h3>
           <DayBars
             byDay={data.by_day}
             label={`${t?.('perDayAvg') || 'Per day'} ${formatDuration(perDay, t)}`}
@@ -121,6 +128,7 @@ const TerminalTiles = ({ hosts = [], settings = {}, days = 7, t }) => {
         </section>
       )}
       <HBars
+        icon={Server}
         title={t?.('byHost') || 'Time by host'}
         rows={hostRows}
         colorOf={(name) => hostRows.find((h) => h.name === name)?.accent || color.accent}
@@ -155,6 +163,7 @@ const dayCardStyle = {
 const dayTitleStyle = {
   margin: 0, fontSize: '12px', fontWeight: 600,
   color: color.text, letterSpacing: '0.02em',
+  display: 'flex', alignItems: 'center', gap: '6px',
 };
 
 export default TerminalTiles;
