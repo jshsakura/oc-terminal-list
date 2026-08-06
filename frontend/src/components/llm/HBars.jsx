@@ -4,14 +4,26 @@ import { formatTokens } from './LlmDashboard';
 
 const { color, font, fontSize, fontWeight, radius } = designTokens;
 
+/** 이름 → 팔레트 색. **순위가 아니라 이름으로** 정한다 — 순위로 칠하면 어제 3등이던 모델이
+    오늘 1등이 되며 색이 바뀌어, 색이 아무것도 뜻하지 않게 된다. */
+const hueFor = (name) => {
+  const s = String(name || '');
+  let h = 0;
+  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return color.dotPalette[h % color.dotPalette.length];
+};
+
 /**
  * Horizontal magnitude bars — llm-watcher's HBars.
  *
- * One series means one hue. `colorOf` exists only for dimensions where colour
- * carries identity (agent, host) and must stay stable as rows come and go —
- * never assigned by rank.
+ * `colorOf` 는 색이 곧 정체성인 축(에이전트·호스트)에서만 쓴다. `varied` 는 그런 정체성이
+ * 없지만 줄이 여러 개라 단색이면 덩어리로 보이는 축(모델·프로젝트)을 위한 것 — 이름 기반
+ * 해시라 순서가 바뀌어도 같은 모델은 같은 색이다.
+ *
+ * **행은 하나의 그리드를 공유한다.** 행마다 grid 를 따로 두면 `auto` 열이 그 행의 값 길이에
+ * 맞춰지고 `1fr` 이 남은 폭을 나눠, 막대 시작점이 줄마다 어긋난다(실제로 그랬다).
  */
-export const HBars = ({ title, icon: TitleIcon = null, rows = [], limit = 8, colorOf, money, t }) => {
+export const HBars = ({ title, icon: TitleIcon = null, rows = [], limit = 8, colorOf, varied = false, money, t }) => {
   const top = rows.slice(0, limit);
   const max = Math.max(...top.map((r) => Number(r.cost) || 0), 1e-9);
   return (
@@ -25,7 +37,8 @@ export const HBars = ({ title, icon: TitleIcon = null, rows = [], limit = 8, col
       ) : (
         <div style={listStyle}>
           {top.map((row) => {
-            const accent = colorOf ? colorOf(row.name) : color.accent;
+            const accent = colorOf ? colorOf(row.name) : (varied ? hueFor(row.name) : color.accent);
+            const showDot = !!colorOf || varied;
             const pct = Math.max(2, ((Number(row.cost) || 0) / max) * 100);
             return (
               <div
@@ -37,7 +50,7 @@ export const HBars = ({ title, icon: TitleIcon = null, rows = [], limit = 8, col
                   .filter(Boolean).join(' · ')}
               >
                 <div style={nameStyle}>
-                  {colorOf && <span style={{ ...dotStyle, background: accent }} />}
+                  {showDot && <span style={{ ...dotStyle, background: accent }} />}
                   <span style={nameTextStyle}>{row.name}</span>
                 </div>
                 <div style={trackStyle}>
@@ -63,8 +76,10 @@ const titleStyle = {
   display: 'flex', alignItems: 'center', gap: '6px',
 };
 const listStyle = { display: 'flex', flexDirection: 'column', gap: '7px' };
+/* 이름 34% · 막대 나머지 · 값 84px 고정. 값 열을 `auto` 로 두면 행마다 폭이 달라져 막대
+   시작점과 숫자 오른쪽이 둘 다 어긋난다 — 열 폭은 **모든 행이 같아야** 표로 읽힌다. */
 const rowStyle = {
-  display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 2fr auto',
+  display: 'grid', gridTemplateColumns: 'minmax(0, 34%) 1fr 84px',
   alignItems: 'center', gap: '8px',
 };
 const nameStyle = { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 };
@@ -82,5 +97,6 @@ const fillStyle = { height: '100%', borderRadius: '3px' };
 const valueStyle = {
   fontSize: fontSize['11'], color: color.text, fontWeight: fontWeight.medium,
   fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
+  textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis',
 };
 const stateStyle = { padding: '10px', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] };

@@ -170,8 +170,8 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
         />
       </div>
       <div style={colsStyle}>
-        <HBars icon={Cpu} title={t?.('llmByModel') || 'By model'} rows={data.by_model || []} money={money} t={t} />
-        <HBars icon={FolderGit2} title={t?.('llmByProject') || 'Top projects'} rows={data.by_project || []} limit={10} money={money} t={t} />
+        <HBars icon={Cpu} varied title={t?.('llmByModel') || 'By model'} rows={data.by_model || []} money={money} t={t} />
+        <HBars icon={FolderGit2} varied title={t?.('llmByProject') || 'Top projects'} rows={data.by_project || []} limit={10} money={money} t={t} />
       </div>
 
       <RecentSessions rows={sessionRows} onJumpPane={onJumpPane} money={money} t={t} />
