@@ -22,10 +22,12 @@ const DayLine = ({ byDay = [], format, t }) => {
     () => (byDay || []).map((d) => ({ day: d.day, cost: Number(d.seconds) || 0 })),
     [byDay],
   );
-  /* 색은 액센트가 아니라 `info` 다. 바로 아래 LLM 일별 지출이 액센트를 쓰므로 같은 색이면
-     한 화면의 두 그래프가 같은 값의 두 표현처럼 보인다. 두 색 모두 테마 CSS 변수라
-     테마를 갈아도 팔레트 안에서 움직인다 — 하드코딩된 색은 여기 없다. */
-  const chart = useMemo(() => buildChart(days, 'cost', [color.info]), [days]);
+  /* 색은 액센트가 아니라 `info`(=테마의 cyan/blue)다. 바로 아래 LLM 일별 지출이 액센트를
+     쓰므로 같은 색이면 한 화면의 두 그래프가 같은 값의 두 표현처럼 보인다.
+     선은 단색이 아니라 **테마 두 색을 가로로 흐르게** 칠한다(info → success). 둘 다
+     테마의 터미널 팔레트에서 나오므로(themeUI: cyan/green) 테마를 갈면 그래프의 색조가
+     통째로 따라 바뀐다 — 고정값은 여기 없다. */
+  const chart = useMemo(() => buildChart(days, 'cost', ['url(#day-usage-stroke)']), [days]);
   if (days.length < 2) return null;
 
   const plotW = CHART_W - PAD_L - PAD_R;
@@ -54,9 +56,16 @@ const DayLine = ({ byDay = [], format, t }) => {
         aria-label={t?.('dailyUsage') || 'Daily usage'}
       >
         <defs>
-          <linearGradient id="day-usage-fill" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color.info} stopOpacity="0.42" />
-            <stop offset="100%" stopColor={color.info} stopOpacity="0.02" />
+          {/* 선 — 가로로 테마 두 색이 흐른다. */}
+          <linearGradient id="day-usage-stroke" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor={color.info} />
+            <stop offset="100%" stopColor={color.success} />
+          </linearGradient>
+          {/* 면 — 같은 두 색을 아래로 흐리게. 위는 진하고 바닥에서 사라진다. */}
+          <linearGradient id="day-usage-fill" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor={color.info} stopOpacity="0.40" />
+            <stop offset="55%" stopColor={color.success} stopOpacity="0.20" />
+            <stop offset="100%" stopColor={color.success} stopOpacity="0.02" />
           </linearGradient>
         </defs>
 
@@ -80,8 +89,10 @@ const DayLine = ({ byDay = [], format, t }) => {
             <line x1={chart.xs[hover]} x2={chart.xs[hover]} y1={PAD_T} y2={chart.baseY}
               stroke={color.text} strokeWidth="1" opacity="0.45" vectorEffect="non-scaling-stroke" />
             {chart.bands.map((band) => (
+              /* 점은 그라디언트가 아니라 단색이다 — 3.5px 짜리 원에 가로 그라디언트를
+                 물리면 그 지점의 한 조각만 잘려 색이 어긋나 보인다. */
               <circle key={band.key} cx={chart.xs[hover]} cy={band.tops[hover]} r="3.5"
-                fill={band.accent} stroke={color.base} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+                fill={color.info} stroke={color.base} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
             ))}
           </g>
         )}

@@ -163,7 +163,6 @@ export const Tab = memo(({
       }}
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); } }}
     >
-      {startsGroup && <span aria-hidden="true" style={styles.tabGroupDivider} />}
       {/* 안쪽 = 실제로 보이는 칩 */}
       <div
         style={{

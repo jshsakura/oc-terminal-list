@@ -148,19 +148,11 @@ export const styles = {
     margin: '0 5px',
     background: 'var(--ui-border-strong)',
   },
-  /* 호스트가 바뀌는 자리에만 틈 + 헤어라인 — 같은 기계의 탭들은 붙어서 한 덩어리로 읽힌다.
-     그룹 상자를 따로 그리지 않는다(면 위에 면 금지). 틈과 선 하나면 충분하다. */
+  /* 호스트가 바뀌는 자리에만 **틈**. 같은 기계의 탭들은 붙어서 한 덩어리로 읽힌다.
+     선은 긋지 않는다 — 탭 사이사이 세로선이 서면 그게 곧 소음이고, 어차피 경계는 칩의
+     면이 이미 만든다. 틈 하나면 충분하다. */
   tabHitGroupStart: {
-    marginLeft: '9px',
-  },
-  tabGroupDivider: {
-    position: 'absolute',
-    left: '-5px',
-    top: '6px',
-    bottom: '6px',
-    width: '1px',
-    background: 'var(--ui-border-strong)',
-    pointerEvents: 'none',
+    marginLeft: '10px',
   },
   tabName: {
     flex: 1,
