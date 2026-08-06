@@ -15,6 +15,7 @@ import useWorkspaceTabs from './hooks/useWorkspaceTabs';
 import useDeepLinkOpen from './hooks/useDeepLinkOpen';
 import useAgentStatus from './hooks/useAgentStatus';
 import { deriveTabAgentStatus } from './utils/tabAgentStatus';
+import { deriveBusy, sameSet } from './utils/busyActivity';
 import useBlockStrayFileDrop from './hooks/useBlockStrayFileDrop';
 import useLocalVncAvailable from './hooks/useLocalVncAvailable';
 import themes from './styles/themes';
@@ -488,44 +489,51 @@ function App() {
   const tabsRef = useRef(tabs);
   useEffect(() => { tabsRef.current = tabs; }, [tabs]);
   useEffect(() => {
-    const activity = new Map(); // paneId -> ts (ms)
-    const onActivity = (e) => {
-      const paneId = e?.detail?.paneId;
-      if (paneId) activity.set(paneId, Date.now());
-    };
-    window.addEventListener('iterm:activity', onActivity);
+    let activity = new Map(); // paneId -> ts (ms)
+    let tick = null;
 
-    /* busy 유지 윈도우 — 마지막 출력 후 이만큼 동안은 busy 로 본다.
-       3500ms = 출력 burst 사이 짧은 휴지(컴파일 단계 사이, 명령 prompt 대기 등)에는 끄지 않고
-       유지 → 깜빡임 인지 줄임. 진짜 idle 이면 자연 fade. */
-    const BUSY_WINDOW_MS = 3500;
-    const tick = setInterval(() => {
+    const stop = () => {
+      if (!tick) return;
+      clearInterval(tick);
+      tick = null;
+    };
+
+    const run = () => {
       // 탭이 숨겨졌으면(밤새 백그라운드 등) 아무도 안 봄 — Set 생성·setState 다 건너뛰어
       // idle 백그라운드에서 불필요한 GC·렌더를 0 으로. 복귀하면 다음 tick 이 바로 갱신.
       if (document.hidden) return;
-      const now = Date.now();
-      const busyPaneIds = new Set();
-      for (const [pid, ts] of activity.entries()) {
-        if (now - ts < BUSY_WINDOW_MS) busyPaneIds.add(pid);
-        else activity.delete(pid);
-      }
-      setBusyPaneIds((prev) => {
-        if (prev.size === busyPaneIds.size && [...prev].every((x) => busyPaneIds.has(x))) return prev;
-        return busyPaneIds;
-      });
-      const next = new Set();
-      for (const tb of tabsRef.current) {
-        if (tb.panes?.some((p) => busyPaneIds.has(p.id))) next.add(tb.id);
-      }
-      setBusyTabIds((prev) => {
-        if (prev.size === next.size && [...prev].every((x) => next.has(x))) return prev;
-        return next;
-      });
-    }, 150);  /* 250ms → 150ms — busy 등장/소멸 인지를 1프레임 안으로 내림. */
+      const next = deriveBusy({ activity, tabs: tabsRef.current, now: Date.now() });
+      activity = next.activity;
+      setBusyPaneIds((prev) => (sameSet(prev, next.panes) ? prev : next.panes));
+      setBusyTabIds((prev) => (sameSet(prev, next.tabs) ? prev : next.tabs));
+      // 만료를 기다릴 것도, 꺼줄 것도 없다 → 타이머를 멈춘다. 다음 활동이 다시 켠다.
+      // (예전엔 이 틱이 영영 돌아서, 아무 출력이 없어도 초당 6.7회 Set 두 개를 만들고
+      //  탭×pane 을 순회했다.)
+      if (next.idle) stop();
+    };
+
+    /* 150ms — busy 등장/소멸 인지를 1프레임 안으로. 활동이 있는 동안에만 돈다. */
+    const start = () => {
+      if (tick || document.hidden) return;
+      tick = setInterval(run, 150);
+    };
+
+    const onActivity = (e) => {
+      const paneId = e?.detail?.paneId;
+      if (!paneId) return;
+      activity.set(paneId, Date.now());
+      start();
+    };
+    // 숨은 동안 쌓인 활동은 틱 없이 맵에만 남는다 — 돌아왔을 때 켜서 정리한다.
+    const onVisible = () => { if (!document.hidden && activity.size) start(); };
+
+    window.addEventListener('iterm:activity', onActivity);
+    document.addEventListener('visibilitychange', onVisible);
 
     return () => {
       window.removeEventListener('iterm:activity', onActivity);
-      clearInterval(tick);
+      document.removeEventListener('visibilitychange', onVisible);
+      stop();
     };
   }, []);
 

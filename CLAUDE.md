@@ -330,6 +330,34 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
   찍으면 비활성 pane 의 매 push 가 리딩엣지로 떨어져 `dropOldestIfOverCap`(버퍼 전체 순회)이
   청크마다 돈다.
 
+### 발열 원인을 지목하기 전에 소스를 읽어라
+
+읽지 않고 지목했다가 틀린 것들이다. 다시 밟지 말 것:
+
+- **`cursorBlink` 는 발열 원인이 아니다.** `CursorBlinkStateManager` 는 `BLINK_INTERVAL=600`
+  이라 **초당 1.67 프레임**이고, 생성자가 `isFocused` 일 때만 인터벌을 걸며 `handleBlur` 에서
+  `pause()` 한다 — **포커스 잃은 터미널은 아예 안 깜빡인다.** 분할 4개가 각자 블링크 루프를
+  돈다는 건 사실이 아니다. (DOM 렌더러 쪽은 CSS 애니메이션이라 메인스레드 비용도 없다.)
+- **`WEBGL_IDLE_RELEASE_MS`(3분)를 줄이는 건 손해다.** attach/detach 가 각각
+  `term.refresh(0, rows-1)` 전체 재페인트를 부른다 — 타이핑이 잠깐 멈출 때마다 churn 하면
+  아끼는 1.67fps 보다 더 쓴다. 이 값은 발열이 아니라 **밤샘 GPU 컨텍스트 누수**용이다.
+- **하트비트는 pane 마다 5초다.** `terminalConstants.js` 의 "ping 이 빨라지는 건 활성 pane
+  하나뿐" 이라는 주석은 **분할에서 틀리다** — 형제가 전부 `isActive=true` 라 4분할이면 5초마다
+  4번 나간다(`Terminal.jsx` 의 `setInterval(..., HEARTBEAT_INTERVAL_ACTIVE_MS)` 는 무조건
+  5초고, `isActive` 는 dead *임계*만 고른다). 다만 **고치지 마라**: 이득은 네트워크 몇 프레임인데
+  하트비트는 이 저장소에서 재연결이 가장 깨지기 쉬운 코드고 테스트가 타이밍을 안 잡는다.
+- `components/Sidebar.jsx`(751줄)는 **아무도 import 하지 않는 죽은 코드**다. 그 안의 10초
+  `/api/system/stats` 폴링은 돌지 않는다 — 성능 문제로 오해하지 말 것.
+
+### 항상 도는 타이머는 활동 중에만 돌게
+
+App.jsx 의 탭 busy 인디케이터 틱(150ms)이 **아무 출력이 없어도 영영** 돌면서 매번 Set 두 개를
+만들고 탭×pane 을 순회했다. 지금은 `iterm:activity` 가 타이머를 켜고, `deriveBusy` 가
+`idle`(만료를 기다릴 것도 켜둘 것도 없음)을 돌려주면 스스로 끈다.
+
+판정은 `utils/busyActivity.js` 에 있다 — App.jsx 에는 렌더 테스트가 없으므로 그 안에 남은
+로직은 테스트가 0 이다. **타이머·이벤트 배선만 App 에 남기고 파생은 밖으로.**
+
 ## Xvnc 원격 데스크톱 (2026-08)
 
 호스트 카드 → Remote Desktop → 디스플레이 선택 → pane 에 데스크탑이 뜬다. pane 크기를
