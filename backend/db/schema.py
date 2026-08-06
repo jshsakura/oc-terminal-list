@@ -179,6 +179,70 @@ class SchemaMixin:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_user_start ON usage_sessions(username, started_at)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_usage_target ON usage_sessions(username, target_type, target_id)")
 
+        # LLM 사용량 누적 — 수집기가 읽어온 하루치를 **우리 DB 에 쌓는다.**
+        #
+        # 원본(에이전트 로그)은 영원하지 않다: Claude Code 는 오래된 프로젝트 로그를
+        # 스스로 정리하고, 호스트를 폐기하면 그 이력은 통째로 사라진다. 매번 원본을
+        # 다시 읽는 방식은 "지금 남아 있는 것" 만 볼 수 있다.
+        #
+        # PK 가 (사용자, 소스, 날짜, 에이전트, 모델, 프로젝트) 인 이유: 같은 날을 다시
+        # 수집하면 그 날짜만 덮어써야 한다. INSERT 만 하면 하루에 두 번 갱신할 때마다
+        # 사용량이 두 배가 된다.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS llm_usage_daily (
+                username TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                day TEXT NOT NULL,
+                agent TEXT NOT NULL,
+                model TEXT NOT NULL,
+                project TEXT NOT NULL,
+                input INTEGER NOT NULL DEFAULT 0,
+                output INTEGER NOT NULL DEFAULT 0,
+                cache_read INTEGER NOT NULL DEFAULT 0,
+                cache_creation INTEGER NOT NULL DEFAULT 0,
+                cost REAL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (username, source_id, day, agent, model, project)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_daily_user_day ON llm_usage_daily(username, day)")
+
+        # 세션 목록 — "최근 에이전트 세션" 카드용. 세션 하나가 여러 날에 걸칠 수 있어
+        # 날짜가 아니라 세션 id 가 키다. 오래된 것은 정리한다(cleanup).
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS llm_usage_session (
+                username TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                agent TEXT,
+                model TEXT,
+                project TEXT,
+                cwd TEXT,
+                title TEXT,
+                last_activity TEXT,
+                input INTEGER NOT NULL DEFAULT 0,
+                output INTEGER NOT NULL DEFAULT 0,
+                cache_read INTEGER NOT NULL DEFAULT 0,
+                cache_creation INTEGER NOT NULL DEFAULT 0,
+                cost REAL,
+                PRIMARY KEY (username, source_id, session_id)
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_llm_sess_user_act ON llm_usage_session(username, last_activity DESC)")
+
+        # 소스별 마지막 수집 결과 — 하루 한 번 제한과 "그 호스트는 왜 비었나" 를 함께 답한다.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS llm_usage_source (
+                username TEXT NOT NULL,
+                source_id TEXT NOT NULL,
+                name TEXT,
+                last_ok_at TEXT,
+                last_try_at TEXT,
+                last_error TEXT,
+                PRIMARY KEY (username, source_id)
+            )
+        """)
+
         # 명령 히스토리 — 사용자/터미널별 명령 모음. 디바이스 간 공유 (서버 영속).
         # 같은 (username, terminal_key, text) 중복은 updated_at 만 갱신 → 최신으로 승격.
         # 30일 이상된 row 는 별도 cleanup 작업이 삭제 (storage 클래스 메서드).

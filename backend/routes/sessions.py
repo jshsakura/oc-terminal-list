@@ -16,6 +16,7 @@ from itl_env import build_itl_env
 from cache import cache, invalidate_session, key_local_clients
 from models import ResizeRequest, SessionCreateRequest, SessionNameRequest
 from rate_limit import check_rate_limit
+from llm_usage.service import maybe_collect_in_background
 from session_launch import (
     _assert_session_owner, _basename_or_none, _resolve_create_cwd, _resolve_shell,
 )
@@ -71,6 +72,11 @@ async def create_session(
         await storage.create_session(session_id, username, cwd=request.cwd or "")
     except Exception as e:
         logger.warning("session db record failed (%s): %s", session_id, e)
+
+    # 앱을 쓰는 이 순간이 LLM 사용량 수집 트리거다 — 폴러를 따로 두지 않는다.
+    # 하루에 한 번만 실제로 움직이고, 아니면 작은 테이블 한 번 읽고 바로 돌아온다.
+    # (대시보드를 안 열어도 쌓여야 한다: 에이전트 로그는 언젠가 정리된다.)
+    await maybe_collect_in_background(username)
 
     return {
         "session_id": session_id,

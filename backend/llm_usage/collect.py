@@ -417,8 +417,15 @@ _SOURCES = (
 )
 
 
-def collect(days: int = 30, home: str | None = None) -> dict:
-    """Walk all three agents. One broken source must not kill the rest."""
+def collect(days: int = 30, home: str | None = None, titles: bool = True) -> dict:
+    """Walk all three agents. One broken source must not kill the rest.
+
+    `titles=False` strips session titles from the result. A title is the user's
+    own prompt text ("fix the VNC crop on mobile"), and prompt text should not
+    leave the machine it was typed on — remote collection runs with titles off.
+    Numbers, model names and the project directory still come back; those are the
+    result, not the content.
+    """
     home = home or os.path.expanduser("~")
     day_cut, ts_cut = _cutoff(days)
     acc = Accumulator()
@@ -427,7 +434,11 @@ def collect(days: int = 30, home: str | None = None) -> dict:
             fn(acc, home, day_cut, ts_cut)
         except Exception as e:                      # noqa: BLE001 — see docstring
             acc.warnings.append(f"{name}: {type(e).__name__}: {e}")
-    return acc.payload(days)
+    payload = acc.payload(days)
+    if not titles:
+        for session in payload["sessions"]:
+            session["title"] = ""
+    return payload
 
 
 def main() -> int:
@@ -435,8 +446,10 @@ def main() -> int:
         days = int(sys.argv[1]) if len(sys.argv) > 1 else 30
     except ValueError:
         days = 30
+    # `notitle` — prompt text stays on the machine it was typed on.
+    titles = "notitle" not in sys.argv[2:]
     try:
-        payload = collect(days)
+        payload = collect(days, titles=titles)
     except Exception as e:                          # noqa: BLE001
         payload = {"ok": False, "error": f"{type(e).__name__}: {e}"}
     sys.stdout.write(OUTPUT_MARKER + "\n")

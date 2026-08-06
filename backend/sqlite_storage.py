@@ -28,6 +28,7 @@ from db import hosts
 from db import user_prefs
 from db import app_config
 from db import usage
+from db import llm_usage
 from db import command_history
 from db import passkeys
 from db import push_subscriptions
@@ -45,6 +46,7 @@ class SQLiteStorage(
     user_prefs.UserPrefsMixin,
     app_config.AppConfigMixin,
     usage.UsageMixin,
+    llm_usage.LlmUsageMixin,
     command_history.CommandHistoryMixin,
     passkeys.PasskeyMixin,
     snippets.SnippetMixin,

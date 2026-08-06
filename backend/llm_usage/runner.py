@@ -27,8 +27,8 @@ LOCAL_TIMEOUT_SECONDS = 30.0
 # python3 가 없는 옛 호스트를 위해 python 으로 한 번 더 시도한다. `exec` 인 이유:
 # 셸이 stdin 을 먼저 읽어버리면 스크립트가 사라진다 — 인터프리터가 그대로 물려받아야 한다.
 REMOTE_CMD = (
-    "if command -v python3 >/dev/null 2>&1; then exec python3 - {days};"
-    " else exec python - {days}; fi"
+    "if command -v python3 >/dev/null 2>&1; then exec python3 - {days} notitle;"
+    " else exec python - {days} notitle; fi"
 )
 
 
@@ -86,6 +86,9 @@ async def run_remote(host: dict, secrets: dict, days: int) -> dict:
     from host_common import run_remote_cmd  # 순환 import 회피 — 호출 시점에 로드
 
     label = host.get("name") or host.get("hostname") or host.get("id")
+    # `notitle`: the remote returns numbers, models and project names — never the
+    # prompt text a session was titled with. Aggregation happens over there; what
+    # crosses the wire is the result, not the logs.
     cmd = REMOTE_CMD.format(days=int(days))
     try:
         raw = await run_remote_cmd(host, secrets, cmd,

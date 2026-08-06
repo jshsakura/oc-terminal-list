@@ -1,19 +1,25 @@
-"""이 서버와 등록된 호스트를 훑어 하루 캐시한다.
+"""Collect once a day, read from our own DB.
 
-**백그라운드 폴러가 없다.** 대시보드가 열릴 때만 움직이고 결과는 하루 산다. 서버가
-재시작해도 다시 긁지 않도록 캐시는 DB 에 남긴다. 사용자가 새로고침을 누르면 그때만
-강제 갱신한다.
+**The dashboard never waits for SSH.** It reads `llm_usage_daily`, which is ours
+and instant. Collection is a separate, throttled act.
 
-수집 방식은 하나뿐이다 — `collect.py` 를 로컬에서는 import 로, 원격에서는 SSH stdin
-으로 실행한다(`runner.py`). 호스트에 설치할 것도, 띄워둘 것도 없다.
+Why store instead of re-reading the logs every time:
+
+- The agents' logs expire. Claude Code prunes old transcripts by itself, and a
+  retired host takes its history with it. What we collected once stays ours.
+- Re-walking hundreds of files for a 90-day window is slow enough to feel.
+
+**No poller.** Collection is triggered by the app being used — opening a terminal
+is enough (`maybe_collect_in_background`) — and each source is collected at most
+once a day. A missed day is not lost: every collection reads a wide window, so
+the next run backfills the gap. Only being away longer than the logs survive
+loses anything, and nothing can fix that from here.
 """
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlite_storage import storage
 
@@ -27,17 +33,21 @@ logger = logging.getLogger(__name__)
 LOCAL_SOURCE_ID = "local"
 LOCAL_LABEL = "이 서버"
 
-# 캐시 수명 — 한 번 읽었으면 하루 산다. 아무 소스도 못 읽었을 때만 짧게 잡는데,
-# "아직 아무 데도 안 쓴다" 와 "잠깐 네트워크가 나갔다" 를 구분할 방법이 없기
-# 때문이다. 3시간이면 죽은 호스트를 하루 8번 찌르는 정도.
-SUCCESS_TTL_SECONDS = 24 * 60 * 60
-FAILURE_TTL_SECONDS = 3 * 60 * 60
+# One collection per source per day. Manual refresh ignores it.
+COLLECT_INTERVAL_SECONDS = 24 * 60 * 60
+# Every collection reads this far back, so a skipped day is filled in by the next
+# run. Cheap: files older than the cutoff are never opened.
+COLLECT_WINDOW_DAYS = 90
 
-# 기간 선택지 — 경계에서 화이트리스트로 막는다. 0 은 전체.
 ALLOWED_DAYS = (0, 7, 30, 90)
-DEFAULT_DAYS = 30
-# 한 번에 붙을 호스트 수 — fleet 이 커져도 SSH 를 한꺼번에 수십 개 열지 않는다.
+DEFAULT_DAYS = 7
+# Fleets grow; don't open thirty SSH connections at once.
 MAX_CONCURRENT_HOSTS = 6
+SESSION_LIMIT = 50
+
+# One collection at a time per user — the trigger is app usage, and a burst of
+# tabs opening must not become a burst of SSH fan-outs.
+_running: set[str] = set()
 
 
 def _now_iso() -> str:
@@ -52,114 +62,174 @@ def normalize_days(days) -> int:
     return value if value in ALLOWED_DAYS else DEFAULT_DAYS
 
 
-def _source(source_id: str, label: str, *, payload=None, error=None) -> dict:
-    return {
-        "source_id": source_id,
-        "label": label,
-        "ok": payload is not None,
-        "error": error,
-        "fetched_at": _now_iso(),
-        "payload": payload,
-    }
+def _since_day(days: int) -> str | None:
+    if days <= 0:
+        return None
+    return (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
 
 
-async def _collect_local(days: int) -> dict:
+def _is_due(last_ok_at: str | None) -> bool:
+    if not last_ok_at:
+        return True
     try:
-        return _source(LOCAL_SOURCE_ID, LOCAL_LABEL, payload=await run_local(days))
+        last = datetime.fromisoformat(last_ok_at)
+    except (TypeError, ValueError):
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - last).total_seconds() >= COLLECT_INTERVAL_SECONDS
+
+
+# ── collection ──────────────────────────────────────────────────────────────
+
+async def _store(username: str, source_id: str, name: str, payload: dict) -> None:
+    await storage.upsert_llm_daily(username, source_id, payload.get("rows") or [])
+    await storage.upsert_llm_sessions(username, source_id, payload.get("sessions") or [])
+    await storage.mark_llm_source(username, source_id, name=name, ok=True, error=None)
+
+
+async def _collect_local(username: str) -> None:
+    try:
+        payload = await run_local(COLLECT_WINDOW_DAYS)
     except CollectFailed as e:
-        return _source(LOCAL_SOURCE_ID, LOCAL_LABEL, error=str(e))
+        await storage.mark_llm_source(username, LOCAL_SOURCE_ID, name=LOCAL_LABEL,
+                                      ok=False, error=str(e))
+        return
+    await _store(username, LOCAL_SOURCE_ID, LOCAL_LABEL, payload)
 
 
-async def _collect_host(host: dict, username: str, days: int, gate: asyncio.Semaphore) -> dict:
+async def _collect_host(username: str, host: dict, gate: asyncio.Semaphore) -> None:
     from host_common import resolve_host_with_secrets
 
-    label = host.get("name") or host.get("hostname") or host["id"]
+    name = host.get("name") or host.get("hostname") or host["id"]
     try:
         async with gate:
             resolved, secrets = await resolve_host_with_secrets(host["id"], username)
-            payload = await run_remote(resolved, secrets, days)
+            payload = await run_remote(resolved, secrets, COLLECT_WINDOW_DAYS)
     except CollectFailed as e:
-        return _source(host["id"], label, error=str(e))
-    except Exception as e:  # 자격증명 해석 실패 등 — 소스 하나가 이상해도 나머지는 산다
+        await storage.mark_llm_source(username, host["id"], name=name, ok=False, error=str(e))
+        return
+    except Exception as e:  # credential resolution and friends
         logger.warning("llm usage collect failed (%s): %s", host.get("id"), e)
-        return _source(host["id"], label, error=f"조회 실패: {e}")
-    return _source(host["id"], label, payload=payload)
+        await storage.mark_llm_source(username, host["id"], name=name, ok=False,
+                                      error=f"조회 실패: {e}")
+        return
+    await _store(username, host["id"], name, payload)
 
 
-async def collect_sources(username: str, days: int) -> list[dict]:
-    """이 서버 + 등록된 호스트 전부. 동시성은 MAX_CONCURRENT_HOSTS 로 묶는다."""
+async def collect_all(username: str, force: bool = False) -> dict:
+    """Collect from every source that is due (or from all of them, when forced)."""
+    sources = await storage.get_llm_sources(username)
     gate = asyncio.Semaphore(MAX_CONCURRENT_HOSTS)
-    tasks = [_collect_local(days)]
+    tasks = []
+    if force or _is_due((sources.get(LOCAL_SOURCE_ID) or {}).get("last_ok_at")):
+        tasks.append(_collect_local(username))
     for host in await storage.list_hosts(username):
-        tasks.append(_collect_host(host, username, days, gate))
-    return list(await asyncio.gather(*tasks))
+        if force or _is_due((sources.get(host["id"]) or {}).get("last_ok_at")):
+            tasks.append(_collect_host(username, host, gate))
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+    return {"collected": len(tasks)}
 
 
-# Bump when the stored shape changes. Without this a schema change is invisible
-# for a day: the old entry stays valid, and the new fields simply are not there
-# (the daily chart drew grey bars because cached rows had no per-host split).
-CACHE_VERSION = 2
+async def maybe_collect_in_background(username: str) -> None:
+    """Fire-and-forget, called when the app is used — opening a terminal is enough.
 
-
-def _cache_key(username: str, days: int) -> str:
-    return f"llm_usage_cache:v{CACHE_VERSION}:{username}:{days}"
-
-
-def _cache_age_ok(entry: dict) -> bool:
-    try:
-        fetched = datetime.fromisoformat(entry["fetched_at"]).timestamp()
-    except (KeyError, TypeError, ValueError):
-        return False
-    ttl = SUCCESS_TTL_SECONDS if entry.get("ok_count") else FAILURE_TTL_SECONDS
-    return (time.time() - fetched) < ttl
-
-
-async def _read_cache(username: str, days: int) -> dict | None:
-    raw = await storage.get_config(_cache_key(username, days))
-    if not raw:
-        return None
-    try:
-        entry = json.loads(raw)
-    except (TypeError, ValueError):
-        return None
-    return entry if isinstance(entry, dict) else None
-
-
-def disabled_payload(days: int) -> dict:
-    """What "off" looks like — the frontend sees `enabled: false` and draws nothing."""
-    return {**merge_summaries([]), "sessions": [], "days": days,
-            "fetched_at": _now_iso(), "cached": False, "enabled": False, "fx": {}}
-
-
-async def get_usage(username: str, days: int = DEFAULT_DAYS,
-                    force: bool = False) -> dict:
-    """대시보드가 그대로 쓰는 한 덩어리. 캐시가 살아있으면 아무 데도 안 붙는다.
-
-    **꺼져 있으면 여기서 끝난다** — 캐시도, 파일 읽기도, SSH 도 없다.
+    Cheap when there is nothing to do: it reads one small table and returns, so it
+    can sit on a hot path. Never raises into its caller.
     """
+    if not username or username in _running:
+        return
+    try:
+        config = await get_usage_config()
+        if not config.get("enabled"):
+            return
+        sources = await storage.get_llm_sources(username)
+        hosts = await storage.list_hosts(username)
+    except Exception:  # noqa: BLE001 — a stats read must never break a terminal
+        return
+    due = _is_due((sources.get(LOCAL_SOURCE_ID) or {}).get("last_ok_at")) or any(
+        _is_due((sources.get(h["id"]) or {}).get("last_ok_at")) for h in hosts
+    )
+    if not due:
+        return
+
+    async def _run():
+        _running.add(username)
+        try:
+            await collect_all(username)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("background llm collect failed: %s", e)
+        finally:
+            _running.discard(username)
+
+    asyncio.create_task(_run())
+
+
+# ── read ────────────────────────────────────────────────────────────────────
+
+def _as_source(rows: list, sessions: list, meta: dict, source_id: str,
+               session_count: int = 0) -> dict:
+    info = meta.get(source_id) or {}
+    return {
+        "source_id": source_id,
+        "label": info.get("name") or source_id,
+        "ok": bool(info.get("last_ok_at")),
+        "error": info.get("last_error"),
+        "fetched_at": info.get("last_ok_at") or info.get("last_try_at"),
+        "payload": {
+            "rows": rows,
+            "sessions": sessions,
+            "session_count": session_count or len(sessions),
+            "warnings": [],
+        },
+    }
+
+
+async def get_usage(username: str, days: int = DEFAULT_DAYS, force: bool = False) -> dict:
+    """What the dashboard draws. Reads the DB; only `force` touches the network."""
     days = normalize_days(days)
     config = await get_usage_config()
     if not config["enabled"]:
-        return disabled_payload(days)
+        return {**merge_summaries([]), "sessions": [], "days": days,
+                "fetched_at": _now_iso(), "enabled": False, "fx": {}}
 
-    if not force:
-        cached = await _read_cache(username, days)
-        if cached and _cache_age_ok(cached):
-            # FX is attached at response time, not stored: a day-old summary should
-            # still be shown at today's rate.
-            return {**cached, "cached": True, "fx": await get_rates()}
+    if force:
+        # The only path that waits for the network — a person pressed refresh.
+        await collect_all(username, force=True)
+    else:
+        # Opening the dashboard also counts as using the app. Schedules at most
+        # one collection a day and returns immediately; the numbers on screen come
+        # from the DB either way.
+        await maybe_collect_in_background(username)
 
-    sources = await collect_sources(username, days)
-    entry = {
+    since = _since_day(days)
+    rows = await storage.query_llm_daily(username, since)
+    sessions = await storage.query_llm_sessions(username, since, SESSION_LIMIT)
+    counts = await storage.count_llm_sessions(username, since)
+    meta = await storage.get_llm_sources(username)
+
+    grouped_rows: dict[str, list] = {}
+    for row in rows:
+        grouped_rows.setdefault(row["source_id"], []).append(row)
+    grouped_sessions: dict[str, list] = {}
+    for session in sessions:
+        grouped_sessions.setdefault(session["source_id"], []).append(session)
+
+    # A source we have ever heard of stays listed even with nothing this window —
+    # "that host is quiet" and "that host is broken" must not look the same.
+    ids = set(grouped_rows) | set(grouped_sessions) | set(meta)
+    sources = [
+        _as_source(grouped_rows.get(sid, []), grouped_sessions.get(sid, []), meta, sid,
+                   counts.get(sid, 0))
+        for sid in sorted(ids)
+    ]
+
+    return {
         **merge_summaries(sources),
-        "sessions": merge_sessions(sources),
+        "sessions": merge_sessions(sources, SESSION_LIMIT),
         "days": days,
         "fetched_at": _now_iso(),
-        "cached": False,
         "enabled": True,
+        "fx": await get_rates(),
     }
-    try:
-        await storage.set_config(_cache_key(username, days), json.dumps(entry))
-    except Exception as e:  # a cache we cannot write must not cost us the response
-        logger.warning("llm usage cache write failed: %s", e)
-    return {**entry, "fx": await get_rates()}
