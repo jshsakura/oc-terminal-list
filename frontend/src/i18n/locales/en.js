@@ -593,7 +593,7 @@ export const en = {
     close: 'Close',
     switchToTab: 'Switch to tab',
     copyTabTarget: 'Copy server + tmux session',
-    copyPaneTarget: 'Copy server + tmux session + path',
+    copyPaneTarget: 'Copy tmux session (with attach command)',
     showPaneName: 'Show pane name',
     hidePaneName: 'Show address only',
     closeTab: 'Close tab',
