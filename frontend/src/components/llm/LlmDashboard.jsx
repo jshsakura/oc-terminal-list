@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react';
 import { tokens as designTokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
 import { dashboardCardStyle } from '../../styles/dashboardCard';
+import { segmentedTrackStyle, segmentedItemStyle, segmentedHoverBackground } from '../../styles/segmented';
 import { attachPaneTargets } from '../../utils/llmSessionPane';
 import { LLM_USAGE_CHANGED_EVENT, emitLlmUsageBusy } from '../../utils/llmUsageBus';
 import { formatMoney, describeMoney, resolveCurrency, formatCount } from '../../utils/money';
@@ -222,6 +223,16 @@ const DailyChart = ({ rows, money, t }) => {
     setHover(Math.max(0, Math.min(days.length - 1, i)));
   };
   const shown = hover == null ? null : days[hover];
+  /* 값은 **커서 옆**에 띄운다. 차트 위 왼쪽 구석에 적으면 눈이 그래프와 구석을 왕복해야
+     하고, 그 줄은 호버하지 않는 동안 빈칸으로 남아 카드에 구멍이 뚫린 것처럼 보인다.
+     터치에는 호버가 없어 손가락이 값을 가리므로, 폰에서는 지금처럼 위에 적는다. */
+  const pointerTooltip = !isTouchPointer();
+  const tooltipLeftPct = hover != null && chart.xs[hover] != null
+    ? (chart.xs[hover] / CHART_W) * 100
+    : null;
+  const tooltipTopPct = hover != null && chart.bands.length
+    ? (Math.min(...chart.bands.map((b) => b.tops[hover] ?? CHART_H)) / CHART_H) * 100
+    : null;
 
   return (
     <section style={cardStyle}>
@@ -249,16 +260,18 @@ const DailyChart = ({ rows, money, t }) => {
         <DailyTable days={days} money={money} t={t} />
       ) : (
         <>
-          <div style={chartReadoutStyle}>
-            {shown && (
-              <>
-                <span style={{ color: color.subtext }}>{shortDay(shown.day)}</span>
-                <strong style={{ color: color.text }}>
-                  {metric === 'tokens' ? formatTokens(shown.tokens) : money(shown.cost)}
-                </strong>
-              </>
-            )}
-          </div>
+          {!pointerTooltip && (
+            <div style={chartReadoutStyle}>
+              {shown && (
+                <>
+                  <span style={{ color: color.subtext }}>{shortDay(shown.day)}</span>
+                  <strong style={{ color: color.text }}>
+                    {metric === 'tokens' ? formatTokens(shown.tokens) : money(shown.cost)}
+                  </strong>
+                </>
+              )}
+            </div>
+          )}
           <div style={chartWrapStyle}>
           <svg
             viewBox={`0 0 ${CHART_W} ${CHART_H}`}
@@ -328,6 +341,25 @@ const DailyChart = ({ rows, money, t }) => {
               {shortDay(label.day)}
             </span>
           ))}
+
+          {/* 커서 옆 툴팁 — 값이 있는 지점 바로 위에 뜬다. 가장자리에서는 좌우로 밀지 않고
+              **꼬리만 옮긴다**(translate 비율 보정): 툴팁이 튀어나가지 않으면서 어느 점을
+              가리키는지는 그대로 유지된다. 포인터 이벤트는 통과시켜 호버가 끊기지 않게. */}
+          {pointerTooltip && shown && tooltipLeftPct != null && (
+            <div
+              style={{
+                ...chartTooltipStyle,
+                left: `${Math.max(4, Math.min(96, tooltipLeftPct))}%`,
+                top: `${Math.max(0, (tooltipTopPct ?? 0))}%`,
+                transform: `translate(${tooltipLeftPct < 12 ? '0' : tooltipLeftPct > 88 ? '-100%' : '-50%'}, calc(-100% - 10px))`,
+              }}
+            >
+              <span style={{ color: color.subtext }}>{shortDay(shown.day)}</span>
+              <strong style={{ color: color.text, fontVariantNumeric: 'tabular-nums' }}>
+                {metric === 'tokens' ? formatTokens(shown.tokens) : money(shown.cost)}
+              </strong>
+            </div>
+          )}
           </div>
 
           {metric === 'tokens' && (
@@ -407,8 +439,10 @@ const RecentSessions = ({ rows, onJumpPane, money, t }) => (
   </section>
 );
 
+/* 홈의 터미널/대시보드·기간 스위치와 **같은 모양**을 쓴다 — 성격이 같은 컨트롤이
+   화면마다 달라 보이면 그건 다른 컨트롤로 읽힌다(styles/segmented.js). */
 const Segmented = ({ value, onChange, options }) => (
-  <div style={segStyle} role="group">
+  <div style={segmentedTrackStyle({ radius: '8px' })} role="group">
     {options.map(([key, label]) => {
       const isOn = value === key;
       return (
@@ -417,11 +451,9 @@ const Segmented = ({ value, onChange, options }) => (
           type="button"
           aria-pressed={isOn}
           onClick={() => onChange(key)}
-          style={{
-            ...segBtnStyle,
-            color: isOn ? color.text : color.subtext,
-            background: isOn ? color.surface2 : 'transparent',
-          }}
+          style={segmentedItemStyle({ active: isOn, compact: true })}
+          onMouseEnter={(e) => { if (!isOn) e.currentTarget.style.background = segmentedHoverBackground; }}
+          onMouseLeave={(e) => { if (!isOn) e.currentTarget.style.background = 'transparent'; }}
         >
           {label}
         </button>
@@ -490,6 +522,29 @@ const chartReadoutStyle = {
   minHeight: '16px', fontSize: fontSize['11'], fontFamily: font.sans,
 };
 const chartWrapStyle = { position: 'relative', width: '100%' };
+/* 호버가 없는 입력(터치)에서는 커서 툴팁이 손가락 밑에 깔린다 — 그때는 상단 readout 을 쓴다. */
+const isTouchPointer = () => {
+  if (typeof window === 'undefined' || !window.matchMedia) return false;
+  return window.matchMedia('(hover: none)').matches;
+};
+const chartTooltipStyle = {
+  position: 'absolute',
+  display: 'inline-flex',
+  alignItems: 'baseline',
+  gap: '6px',
+  padding: '4px 8px',
+  whiteSpace: 'nowrap',
+  fontSize: fontSize['11'],
+  fontFamily: font.sans,
+  borderRadius: radius.sm,
+  background: `color-mix(in srgb, ${color.surface1} 92%, transparent)`,
+  border: `1px solid ${color.borderStrong}`,
+  boxShadow: `0 4px 14px color-mix(in srgb, ${color.crust} 60%, transparent)`,
+  backdropFilter: 'blur(var(--glass-blur-card, 12px))',
+  WebkitBackdropFilter: 'blur(var(--glass-blur-card, 12px))',
+  pointerEvents: 'none',
+  zIndex: 3,
+};
 /* 눈금 라벨은 그림 위에 얹는 HTML 이다 — 늘어나는 것은 그래프뿐이고 글자는 아니다. */
 const yTickStyle = {
   position: 'absolute', left: 0, transform: 'translateY(-50%)',
@@ -517,15 +572,6 @@ const warnStyle = {
   background: `color-mix(in srgb, ${color.warning} 10%, transparent)`,
   border: `1px solid color-mix(in srgb, ${color.warning} 25%, transparent)`,
   borderRadius: radius.sm,
-};
-const segStyle = {
-  display: 'inline-flex', padding: '2px', gap: '2px',
-  background: color.crust, border: `1px solid ${color.border}`, borderRadius: radius.sm,
-};
-const segBtnStyle = {
-  padding: '3px 10px', border: 'none', borderRadius: '4px',
-  fontSize: fontSize['11'], fontWeight: fontWeight.medium,
-  fontFamily: font.sans, cursor: 'pointer', whiteSpace: 'nowrap',
 };
 const tableStyle = {
   width: '100%', borderCollapse: 'collapse',

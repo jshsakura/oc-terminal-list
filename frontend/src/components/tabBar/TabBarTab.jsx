@@ -89,9 +89,13 @@ export const Tab = memo(({
   // 트랙(움푹한 스트립) 안에서 **활성만 떠오른다**. 비활성은 트랙 면 그대로 두고,
   // 호버에서만 살짝 밝아진다 — 눌린 자리/떠 있는 자리가 형태로 구분되므로 비활성까지
   // 칠하면 트랙이 다시 빈틈없는 덩어리가 된다.
-  const tabBase = isActive ? 'var(--ui-surface1)' : 'transparent';
-  // 타일 색 계산의 기준 면 — 투명 위에서 color-mix 를 하면 타일이 비쳐 색이 섞인다.
-  const tileBase = isActive ? 'var(--ui-surface1)' : 'color-mix(in srgb, #000 22%, var(--ui-crust))';
+  const tabBase = isActive
+    ? 'var(--ui-surface2)'
+    : 'color-mix(in srgb, var(--ui-surface0) 55%, var(--ui-crust))';
+  /* 타일과 링은 **언제나 불투명한 면** 위에서 섞는다. 알파 위에 알파를 섞으면 숫자 타일이
+     비쳐 뒤가 올라오고, `0 0 0 1.5px transparent` 링은 아예 안 그려져 겹친 스택 타일이
+     서로 붙어 보인다. 지금은 칩 배경이 곧 그 면이다. */
+  const tileBase = tabBase;
   // 스택 타일은 전부 완전 불투명이어야 한다 — 알파 배경/테두리나 opacity 를 쓰면
   // 겹친 아래 타일이 비쳐 색이 섞여 보인다. 톤 조절은 전부 opaque color-mix 로.
   const tileBackground = (tint) =>
@@ -117,8 +121,8 @@ export const Tab = memo(({
     border: tileBorder(tint),
     borderRadius: '4px',
     color: glyphColor(tint),
-    /* 탭 자신의 바탕색 ring 으로 이웃 타일과 분리 — "겹쳐 있음"이 읽히게.
-       칩 모델에선 비활성 탭 바탕이 바(crust), 활성이 surface0 이라 tabBase 를 따라간다. */
+    /* 칩 아래에 실제로 깔린 면(tileBase)으로 ring 을 그려 이웃 타일과 분리 — "겹쳐 있음"이
+       읽히게. 투명으로 그리면 ring 이 없는 것과 같아 타일들이 한 덩어리로 뭉친다. */
     boxShadow: `0 0 0 1.5px ${tileBase}`,
     zIndex: stackedCount - i, // 앞 타일이 위, 뒤로 갈수록 아래로 깔림
   });
@@ -166,7 +170,7 @@ export const Tab = memo(({
           ...styles.tab,
           ...(isMobile ? styles.tabMobile : null),
           background: isDragOver
-            ? `color-mix(in srgb, ${color.accent} 14%, ${tabBase})`
+            ? `color-mix(in srgb, ${color.accent} 14%, ${tileBase})`
             : tabBase,
           color: isActive ? color.text : color.muted,
           // 굵기는 고정 — 활성 표시는 면과 형태가 한다. 굵기가 바뀌면 탭을 옮길 때마다
@@ -184,7 +188,7 @@ export const Tab = memo(({
           if (isMobile) return;
           // hover 는 활성(surface0)까지 가지 않는다 — 절반만 올려 "누를 수 있음"만 알린다.
           if (!isActive) {
-            e.currentTarget.style.background = `color-mix(in srgb, ${color.text} 5%, transparent)`;
+            e.currentTarget.style.background = 'var(--ui-surface0)';
             e.currentTarget.style.color = color.subtext;
           }
         }}
@@ -206,7 +210,7 @@ export const Tab = memo(({
               ...numberTileStyle({
                 size: tileSize,
                 fontSize: isMobile ? '9px' : '10px',
-                base: tabBase,
+                base: tileBase,
                 dim: !isActive,
               }),
               color: isActive ? color.subtext : color.muted,
@@ -245,7 +249,7 @@ export const Tab = memo(({
               // 되돌린 실패다.
               color: (isVnc && isActive) ? dotColor : glyphColor(dotColor),
               /* 스택일 때 뒤 타일과 분리되는 ring. 단일 타일이면 없음(기존 모양 유지). */
-              boxShadow: secondaries.length ? `0 0 0 1.5px ${tabBase}` : 'none',
+              boxShadow: secondaries.length ? `0 0 0 1.5px ${tileBase}` : 'none',
               zIndex: stackedCount + 1,
             }}
           >
@@ -281,8 +285,9 @@ export const Tab = memo(({
                   fontWeight: fontWeight.semibold,
                   fontFamily: font.mono,
                   lineHeight: 1,
-                  /* 탭 바탕색 outline 으로 타일과 분리해 어디서든 또렷이. */
-                  boxShadow: `0 0 0 1px ${tabBase}`,
+                  /* 탭 바탕색 outline 으로 타일과 분리해 어디서든 또렷이.
+                     투명이면 outline 이 사라져 마크가 타일에 눌어붙는다 — tileBase 를 쓴다. */
+                  boxShadow: `0 0 0 1px ${tileBase}`,
                   pointerEvents: 'none',
                   zIndex: stackedCount + 2,
                 }}
@@ -348,8 +353,13 @@ export const Tab = memo(({
           <span style={styles.tabName} title={tab.name}>{tab.name}</span>
         )}
 
-        {/* More 버튼 — 활성 탭에서만 노출, close 확인 중에는 숨김.
-            폭이 균일 고정(tabHit.flex)이라 이 버튼이 나타나도 탭 크기는 안 변한다. */}
+        {/* More 버튼 — 활성 탭에서만 **보인다**. 다만 자리는 비활성 탭도 잡아둔다:
+            탭 바깥 폭은 고정이지만 버튼이 없으면 그만큼 라벨이 넓어져, 탭을 고르는 순간
+            이름이 17px 만큼 줄며 잘린다. 그 미세한 덜컥임이 "탭 이동 때 너비가 흔들린다" 의
+            정체였다. 자리를 항상 잡아두면 라벨 폭이 선택 여부와 무관하게 같다. */}
+        {!isActive && !isPendingClose && (
+          <span aria-hidden="true" style={{ ...styles.miniBtn, visibility: 'hidden' }} />
+        )}
         {isActive && !isPendingClose && (
           <button
             data-more="true"

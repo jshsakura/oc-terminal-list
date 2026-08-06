@@ -58,3 +58,24 @@ describe('buildHostRows', () => {
     expect(buildHostRows({ targets: [{ target_id: 'h1', total_seconds: 1 }] }, hosts, {}, null)).toEqual([]);
   });
 });
+
+describe('buildDayBars', () => {
+  it('scales heights against the busiest day and marks empty days', async () => {
+    const { buildDayBars } = await import('./DayBars.jsx');
+    const bars = buildDayBars([
+      { day: '2026-08-01', seconds: 0 },
+      { day: '2026-08-02', seconds: 3600 },
+      { day: '2026-08-03', seconds: 1800 },
+    ]);
+    expect(bars[0].isEmpty).toBe(true);
+    expect(bars[1].height).toBeGreaterThan(bars[2].height);
+    // 쉰 날도 바닥선은 남는다 — 0px 이면 그 날이 화면에서 사라진다.
+    expect(bars[0].height).toBeGreaterThan(0);
+  });
+
+  it('does not divide by zero when nothing was used', async () => {
+    const { buildDayBars } = await import('./DayBars.jsx');
+    const bars = buildDayBars([{ day: '2026-08-01', seconds: 0 }, { day: '2026-08-02', seconds: 0 }]);
+    expect(bars.every((b) => b.height > 0 && b.isEmpty)).toBe(true);
+  });
+});

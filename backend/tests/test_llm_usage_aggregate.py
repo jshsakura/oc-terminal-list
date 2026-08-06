@@ -51,20 +51,21 @@ def test_empty_input_is_a_valid_empty_dashboard():
 
 
 def test_cost_comes_from_the_price_table_per_model():
-    # 1M output tokens of opus at $75/M.
+    # 1M output tokens of opus at $25/M (표는 `llm_usage/pricing.py` 하나뿐이다 —
+    # 여기 숫자를 손으로 기억해 두면 표를 고칠 때 테스트만 옛 단가로 남는다).
     out = merge_summaries([source(rows=[row(output=1_000_000)])])
 
-    assert round(out["totals"]["cost"], 2) == 75.0
+    assert round(out["totals"]["cost"], 2) == 25.0
     assert out["totals"]["tokens"] == 1_000_000
 
 
 def test_each_row_is_priced_with_its_own_model():
     out = merge_summaries([source(rows=[
-        row(model="claude-opus-5", output=1_000_000),      # $75
-        row(model="claude-haiku-4-5", output=1_000_000),   # $4
+        row(model="claude-opus-5", output=1_000_000),      # $25
+        row(model="claude-haiku-4-5", output=1_000_000),   # $5
     ])])
 
-    assert round(out["totals"]["cost"], 2) == 79.0
+    assert round(out["totals"]["cost"], 2) == 30.0
 
 
 def test_a_source_that_knows_its_own_cost_beats_the_table():
@@ -92,7 +93,7 @@ def test_same_name_merges_across_hosts():
 
     projects = {p["name"]: p for p in out["by_project"]}
     assert list(projects) == ["app"]
-    assert round(projects["app"]["cost"], 2) == 150.0
+    assert round(projects["app"]["cost"], 2) == 50.0
 
 
 def test_agent_and_day_counts_are_recomputed_not_summed():
@@ -156,7 +157,7 @@ def test_sessions_keep_their_host_so_pane_lookup_can_join_on_it():
 def test_sessions_are_priced_like_rows():
     merged = merge_sessions([source(sessions=[session(output=1_000_000)])])
 
-    assert round(merged[0]["cost"], 2) == 75.0
+    assert round(merged[0]["cost"], 2) == 25.0
     assert merged[0]["tokens"] == 1_000_000
 
 

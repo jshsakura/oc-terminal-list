@@ -13,7 +13,8 @@ import LlmDashboard from './llm/LlmDashboard';
 import TerminalTiles from './llm/TerminalTiles';
 import { LLM_USAGE_CHANGED_EVENT, LLM_USAGE_BUSY_EVENT } from '../utils/llmUsageBus';
 import { themes, defaultTheme } from '../styles/themes';
-import { canvasTexture, canvasWash, CANVAS_TEXTURE_OPACITY } from '../styles/textures';
+import { canvasTexture, canvasWash } from '../styles/textures';
+import { segmentedTrackStyle, segmentedItemStyle, segmentedHoverBackground } from '../styles/segmented';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -116,11 +117,15 @@ const HomeDashboard = ({
     return () => ro.disconnect();
   }, []);
 
-  /* 홈은 "화면" 이다 — 위에서 빛이 드는 워시 위에 카드(유리)가 놓이고, 주사선이 그
-     **위를** 덮는다. 질감을 거부하는 테마('flat', e-ink)에서는 둘 다 주지 않는다. */
-  const screen = useMemo(() => {
+  /* 홈은 "화면" 이다 — 위에서 빛이 드는 워시 위에 주사선이 깔리고, 그 위에 카드가 놓인다.
+     **주사선은 화면의 것이지 카드의 것이 아니다.** 카드 위로 선을 인쇄하듯 덮으면 숫자
+     위에 무늬가 얹혀 어수선하다 — 카드는 유리라서 뒤의 선을 흐리게 통과시키고, 그 흐릿함이
+     "유리 너머" 를 만든다. 질감을 거부하는 테마('flat', e-ink)에서는 둘 다 주지 않는다. */
+  const backdrop = useMemo(() => {
     const theme = themes[settings.theme] || themes[defaultTheme];
-    return { wash: canvasWash(theme), lines: canvasTexture(theme) };
+    const wash = canvasWash(theme);
+    const lines = canvasTexture(theme);
+    return [lines, wash].filter(Boolean).join(', ') || null;
   }, [settings.theme]);
 
   return (
@@ -128,16 +133,10 @@ const HomeDashboard = ({
       ref={rootRef}
       style={{
         ...styles.root,
-        ...(screen.wash ? { backgroundImage: screen.wash } : null),
+        ...(backdrop ? { backgroundImage: backdrop } : null),
         ...(embedded ? { height: 'auto', overflow: 'visible' } : null),
       }}
     >
-      {/* 주사선 오버레이. 카드 **위로도** 지나가야 화면으로 읽힌다 — 뒤에만 깔면 카드
-          사이 여백에만 줄이 보여 그냥 줄무늬다. 클릭은 통과시킨다(pointerEvents:none).
-          스크롤 컨테이너의 padding box 가 포함 블록이라 스크롤 전 구간을 덮는다. */}
-      {screen.lines && (
-        <div aria-hidden="true" style={{ ...styles.scanlines, background: screen.lines }} />
-      )}
       <div style={styles.inner}>
         {/* 연결 / 대시보드 — 홈이 하나의 긴 스크롤이면 정작 자주 쓰는 연결이 통계 아래로
             밀린다. 둘은 목적이 다르다: 하나는 "어디에 붙지", 하나는 "얼마나 썼지".
@@ -154,11 +153,12 @@ const HomeDashboard = ({
                   key={key}
                   type="button"
                   onClick={() => setView(key)}
-                  style={{
-                    ...styles.viewTab,
-                    color: isOn ? color.text : color.subtext,
-                    background: isOn ? color.surface1 : 'transparent',
-                    borderColor: isOn ? color.border : 'transparent',
+                  style={segmentedItemStyle({ active: isOn })}
+                  onMouseEnter={(e) => {
+                    if (!isOn) e.currentTarget.style.background = segmentedHoverBackground;
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isOn) e.currentTarget.style.background = 'transparent';
                   }}
                 >
                   <Icon size={12} strokeWidth={2.2} />
@@ -182,11 +182,12 @@ const HomeDashboard = ({
                       key={value}
                       type="button"
                       onClick={() => setRangeDays(value)}
-                      style={{
-                        ...styles.rangeBtn,
-                        color: isOn ? color.text : color.subtext,
-                        background: isOn ? color.surface1 : 'transparent',
-                        borderColor: isOn ? color.borderStrong : color.border,
+                      style={segmentedItemStyle({ active: isOn, compact: true })}
+                      onMouseEnter={(e) => {
+                        if (!isOn) e.currentTarget.style.background = segmentedHoverBackground;
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isOn) e.currentTarget.style.background = 'transparent';
                       }}
                     >
                       {value === 0
@@ -494,21 +495,14 @@ const styles = {
     width: '100%',
     height: '100%',
     background: color.base,
-    // 주사선 오버레이의 포함 블록 — 이게 없으면 오버레이가 화면 전체로 새어나간다.
     position: 'relative',
     overflow: 'auto',
+    /* 스크롤바 자리를 늘 비워둔다. 연결 화면(짧음)과 대시보드(김)를 오갈 때 스크롤바가
+       생겼다 사라지며 가운데 칼럼이 그 폭만큼 좌우로 덜컥인다 — 탭을 옮길 때도 같다. */
+    scrollbarGutter: 'stable',
     fontFamily: font.sans,
     padding: `${space['4']} ${space['5']}`,
     boxSizing: 'border-box',
-  },
-  /* 화면 유리막 — z-index 를 명시해야 콘텐츠 안의 positioned 요소(호스트 카드 hover 등)
-     보다 확실히 위에 놓인다. DOM 순서에만 기대면 조용히 아래로 내려간다. */
-  scanlines: {
-    position: 'absolute',
-    inset: 0,
-    zIndex: 2,
-    pointerEvents: 'none',
-    opacity: CANVAS_TEXTURE_OPACITY,
   },
   inner: {
     width: '100%',
@@ -628,41 +622,9 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
   },
-  rangeRow: {
-    display: 'inline-flex',
-    gap: '4px',
-    alignSelf: 'flex-start',
-  },
-  rangeBtn: {
-    padding: '4px 10px',
-    minHeight: '28px',
-    border: '1px solid',
-    borderRadius: radius.md,
-    fontSize: fontSize['11'],
-    fontWeight: fontWeight.medium,
-    fontFamily: font.mono,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
-  viewSwitch: {
-    display: 'inline-flex',
-    gap: '4px',
-    alignSelf: 'flex-start',
-  },
-  viewTab: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '5px 12px',
-    minHeight: '32px',
-    border: '1px solid transparent',
-    borderRadius: radius.md,
-    fontSize: fontSize['12'],
-    fontWeight: fontWeight.medium,
-    fontFamily: font.sans,
-    cursor: 'pointer',
-    whiteSpace: 'nowrap',
-  },
+  /* 둘 다 세그먼트 스위치 — 모양은 styles/segmented.js 한 곳에서 나온다. */
+  rangeRow: segmentedTrackStyle(),
+  viewSwitch: segmentedTrackStyle(),
 };
 
 export default HomeDashboard;

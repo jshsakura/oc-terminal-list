@@ -32,9 +32,9 @@ export const styles = {
     display: 'flex',
     alignItems: 'stretch',
     height: '100%',
-    /* 트랙(tabList)이 안쪽 여백을 갖는다 — 여기서 또 패딩을 주면 칩이 두 번 밀린다.
-       히트 영역은 트랙 안쪽 높이를 꽉 채워 터치 타깃을 유지한다. */
-    padding: '0',
+    /* 위아래 5px — 칩에 면이 생기니 3px 로는 바 위아래에 거의 붙어 보였다.
+       바깥(히트)은 바 높이를 그대로 채우고 안쪽 칩만 얇다(§15). */
+    padding: '5px 0',
     boxSizing: 'border-box',
     minWidth: '46px',
     maxWidth: '168px',
@@ -93,21 +93,14 @@ export const styles = {
     margin: '5px 7px 0 0',
     borderRadius: '3px',
   },
-  /* 탭 스트립 = **세그먼트 스위치의 트랙**.
-     칩을 바 위에 그냥 얹던 시절엔 "칩이 있다/없다" 뿐이라 활성 표시가 면 밝기 한 단계에
-     의존했다. 스트립을 한 단 움푹 파고 그 안에서 활성만 떠오르게 하면 눌린 자리와 떠 있는
-     자리가 형태로 구분된다 — 세그먼티드 컨트롤의 관례 그대로.
-     (비활성 칩을 투명으로 두는 것은 예전에 한 번 실패했지만, 그때는 트랙이 없어 경계가
-      통째로 사라졌던 것이다. 지금은 트랙 자체가 경계를 갖는다.) */
+  /* 탭바는 **크롬**이다 — 콘텐츠를 담는 컨트롤이 아니라 창틀이다. 스트립을 움푹한 트랙으로
+     파봤더니 탭이 없는 오른쪽까지 홈이 파여 창틀 한가운데 웬 컨트롤이 박힌 꼴이 됐다.
+     세그먼트 트랙은 홈의 터미널/대시보드·기간 스위치처럼 **선택지가 유한한 컨트롤**의
+     언어다(`styles/segmented.js`). 여기서는 칩만 얹는다.
+     간격은 그룹 경계에서만 준다(같은 호스트 탭끼리는 붙는다) — tabHitGroupStart. */
   tabList: {
     display: 'flex',
     alignItems: 'stretch',
-    background: 'color-mix(in srgb, #000 22%, var(--ui-crust))',
-    borderRadius: '8px',
-    padding: '2px',
-    margin: '2px 0',
-    boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.35)',
-    // 간격은 그룹 경계에서만 준다(같은 호스트 탭끼리는 붙는다) — tabHitGroupStart.
     gap: '0',
     overflowX: 'auto',
     overflowY: 'hidden',

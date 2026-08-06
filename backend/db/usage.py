@@ -5,7 +5,7 @@ SQLiteStorage 에 믹스인으로 합류한다 — 호출부는 그대로 `stora
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 import asyncio
 
 
@@ -93,6 +93,7 @@ class UsageMixin:
             "window_days": 7,
             "total_seconds": int, "session_count": int, "active_targets": int,
             "by_target": [{ target_type, target_id, total_seconds, session_count, last_used }, ...],
+            "by_day": [{ day: "YYYY-MM-DD", seconds: int }, ...],   # 빈 날 포함, 오름차순
             "by_type": { "local": int_seconds, "host": int_seconds },
             "avg_session_seconds": int,
           }
@@ -125,6 +126,9 @@ class UsageMixin:
         session_count = 0
         by_type: dict[str, int] = {"local": 0, "host": 0}
         by_target_acc: dict[tuple[str, str], dict] = {}
+        # 날짜별 합 — 대시보드 상단의 일별 막대. 시작일 기준으로 센다(자정을 넘긴 세션도
+        # 시작한 날의 것으로 본다). 하루를 쪼개 배분하면 "하루 평균" 과 합이 안 맞는다.
+        by_day_acc: dict[str, int] = {}
 
         for r in rows:
             try:
@@ -165,6 +169,9 @@ class UsageMixin:
             )
             slot["total_seconds"] += dur
             slot["session_count"] += 1
+            day_key = (r["started_at"] or "")[:10]
+            if day_key:
+                by_day_acc[day_key] = by_day_acc.get(day_key, 0) + dur
             if (slot["last_used"] or "") < (r["started_at"] or ""):
                 slot["last_used"] = r["started_at"]
 
@@ -174,6 +181,13 @@ class UsageMixin:
             reverse=True,
         )
         avg = int(total_seconds / session_count) if session_count else 0
+        # 빈 날도 0 으로 채워 보낸다 — 막대가 없는 날은 "안 썼다" 이지 "모른다" 가 아니다.
+        # 채우지 않으면 프론트가 간격을 균등하게 그려 며칠을 쉬었는지 사라진다.
+        today = datetime.utcfromtimestamp(now_ts).date()
+        by_day = []
+        for offset in range(window - 1, -1, -1):
+            day = (today - timedelta(days=offset)).isoformat()
+            by_day.append({"day": day, "seconds": int(by_day_acc.get(day, 0))})
         return {
             "window_days": window,
             "total_seconds": total_seconds,
@@ -181,6 +195,7 @@ class UsageMixin:
             "active_targets": len(by_target_acc),
             "by_target": by_target,
             "by_type": by_type,
+            "by_day": by_day,
             "avg_session_seconds": avg,
         }
 
