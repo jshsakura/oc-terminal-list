@@ -95,8 +95,14 @@ async def collect_sources(username: str, days: int) -> list[dict]:
     return list(await asyncio.gather(*tasks))
 
 
+# Bump when the stored shape changes. Without this a schema change is invisible
+# for a day: the old entry stays valid, and the new fields simply are not there
+# (the daily chart drew grey bars because cached rows had no per-host split).
+CACHE_VERSION = 2
+
+
 def _cache_key(username: str, days: int) -> str:
-    return f"llm_usage_cache:{username}:{days}"
+    return f"llm_usage_cache:v{CACHE_VERSION}:{username}:{days}"
 
 
 def _cache_age_ok(entry: dict) -> bool:

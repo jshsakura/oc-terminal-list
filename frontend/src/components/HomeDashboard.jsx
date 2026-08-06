@@ -1,7 +1,7 @@
 import { useState, memo, useRef, useEffect } from 'react';
 import {
   Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
-  Link2, BarChart3, ScreenShare,
+  Link2, BarChart3, ScreenShare, RefreshCw,
 } from 'lucide-react';
 import { gridStyle } from './DashboardCards';
 import { tokens } from '../styles/tokens';
@@ -10,6 +10,7 @@ import HomeSessions from './HomeSessions';
 import useHostReorder from '../hooks/useHostReorder';
 import DashboardCards from './DashboardCards';
 import LlmDashboard from './llm/LlmDashboard';
+import { LLM_USAGE_CHANGED_EVENT } from '../utils/llmUsageBus';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -130,17 +131,54 @@ const HomeDashboard = ({
         )}
 
         {view === 'dashboard' ? (
-          /* 대시보드는 llm-watcher 화면을 그대로 들여온 것 — 범위 한 줄이 아래 전부를
-             좁히고, 타일 → 키스탯 → 일별 차트 → 분해 → 세션 순서다. 그 위에 이 앱만의
-             터미널 사용량 카드가 얹힌다(호스트별 시간). */
+          /* 대시보드 = 터미널 사용량(항상) + LLM(쓸 때만). 위의 범위 한 줄이 둘 다
+             좁힌다 — 카드마다 기간을 두면 한 화면에서 7일과 30일을 비교하게 된다. */
           <>
-            <div style={gridStyle}>
-              <DashboardCards hosts={hosts} settings={settings} days={7} bare t={t} />
+            <div style={styles.dashHead}>
+              <div style={styles.rangeRow}>
+                {RANGES.map(([value]) => {
+                  const isOn = rangeDays === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setRangeDays(value)}
+                      style={{
+                        ...styles.rangeBtn,
+                        color: isOn ? color.text : color.subtext,
+                        background: isOn ? color.surface1 : 'transparent',
+                        borderColor: isOn ? color.borderStrong : color.border,
+                      }}
+                    >
+                      {value === 0
+                        ? (t?.('rangeAll') || 'All')
+                        : (t?.('rangeNDays') || '{n}d').replace('{n}', String(value))}
+                    </button>
+                  );
+                })}
+              </div>
+              <span style={{ flex: 1 }} />
+              <button
+                type="button"
+                title={t?.('refresh') || 'Refresh'}
+                onClick={() => {
+                  try { window.dispatchEvent(new CustomEvent(LLM_USAGE_CHANGED_EVENT)); } catch { /* no window */ }
+                }}
+                style={styles.dashRefresh}
+              >
+                <RefreshCw size={13} strokeWidth={2} />
+              </button>
             </div>
+
+            <div style={gridStyle}>
+              <DashboardCards hosts={hosts} settings={settings} days={rangeDays || 90} bare t={t} />
+            </div>
+
             <LlmDashboard
               hosts={hosts}
               tabs={tabs}
               settings={settings}
+              days={rangeDays}
               onJumpPane={onJumpPane}
               t={t}
             />
@@ -513,6 +551,24 @@ const styles = {
     display: 'flex',
     gap: '4px',
     flexShrink: 0,
+  },
+  dashHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    padding: '6px 8px',
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.md,
+  },
+  dashRefresh: {
+    background: 'transparent',
+    border: 'none',
+    color: color.subtext,
+    cursor: 'pointer',
+    padding: '4px',
+    display: 'flex',
+    alignItems: 'center',
   },
   rangeRow: {
     display: 'inline-flex',

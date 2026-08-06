@@ -75,8 +75,11 @@ function useUsage(days) {
   return { data, err, busy, refresh: () => load(true) };
 }
 
-const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, onJumpPane, t }) => {
-  const [days, setDays] = useState(7);
+/**
+ * `days` 는 밖에서 온다 — 대시보드 상단의 범위 한 줄이 터미널 카드와 이 카드들을
+ * **함께** 좁힌다. 여기에 또 범위를 두면 한 화면에 서로 다른 창이 생긴다.
+ */
+const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPane, t }) => {
   const { data, err, busy, refresh } = useUsage(days);
 
   // Turning the switch on in settings must show up here without a reload.
@@ -116,56 +119,17 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, onJumpPane, t }) =
     [data, tabs],
   );
 
-  if (!data) return null;
-  if (!data.enabled) {
-    return <div style={stateStyle}>{t?.('llmUsageOff') || 'Turn on LLM usage in settings to see it here.'}</div>;
-  }
-
-  const totals = data.totals || {};
+  const totals = data?.totals || {};
+  /* 켜져 있고 **실제로 쓴 게 있을 때만** 카드를 낸다. 켰는데 아직 아무것도 없으면
+     빈 카드가 다섯 장 서는 것보다 없는 편이 낫다 — 왜 비었는지는 설정 화면이 답한다.
+     (로딩 중에는 직전 데이터를 계속 보여준다. 깜빡임이 곧 체감 지연이다.) */
+  if (!data && busy) return <LoadingCards t={t} />;
+  if (!data || !data.enabled) return null;
+  if (!(Number(totals.cost) > 0 || Number(totals.tokens) > 0)) return null;
   const failed = (data.by_host || []).filter((h) => !h.ok);
 
   return (
     <div style={rootStyle}>
-      {/* 한 줄 요약 — 지금 무엇을 보고 있는지가 제목보다 먼저다. */}
-      <div style={headRowStyle}>
-        <div style={headSummaryStyle}>
-          {summaryLine({ data, totals, money, t })}
-        </div>
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={busy}
-          title={t?.('refresh') || 'Refresh'}
-          style={{ ...iconBtnStyle, opacity: busy ? 0.4 : 1 }}
-        >
-          <RefreshCw size={13} strokeWidth={2} />
-        </button>
-      </div>
-
-      {/* 필터 한 줄 — 아래 전부를 한 번에 좁힌다. 카드마다 따로 두지 않는다. */}
-      <div style={filterRowStyle}>
-        {RANGES.map((value) => {
-          const isOn = days === value;
-          return (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setDays(value)}
-              style={{
-                ...rangeBtnStyle,
-                color: isOn ? color.text : color.subtext,
-                background: isOn ? color.surface1 : 'transparent',
-                borderColor: isOn ? color.borderStrong : color.border,
-              }}
-            >
-              {value === 0
-                ? (t?.('rangeAll') || 'All')
-                : (t?.('rangeNDays') || '{n}d').replace('{n}', String(value))}
-            </button>
-          );
-        })}
-      </div>
-
       {err && <div style={{ ...stateStyle, color: color.danger }}>{err}</div>}
       {failed.length > 0 && (
         <div style={warnStyle}>
@@ -203,6 +167,18 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, onJumpPane, t }) =
     </div>
   );
 };
+
+/* 첫 수집은 호스트마다 SSH 를 타므로 몇 초가 걸린다. 그동안 빈 화면을 두면 "멈췄나"
+   로 읽히고, 그게 곧 체감 지연이다. 카드 자리를 미리 세워 둔다. */
+const LoadingCards = ({ t }) => (
+  <div style={rootStyle}>
+    <div style={{ ...stateStyle, textAlign: 'left' }}>{t?.('llmCollecting') || 'Collecting…'}</div>
+    <div style={tilesSkeletonStyle}>
+      {[0, 1, 2, 3].map((i) => <div key={i} className="dc-skel" style={skeletonTileStyle} />)}
+    </div>
+    <div className="dc-skel" style={skeletonChartStyle} />
+  </div>
+);
 
 /** "전체 기간 · 07-06 - 08-06 · 85 세션 · 860만원" — 원판의 첫 줄. */
 function summaryLine({ data, totals, money, t }) {
@@ -457,6 +433,18 @@ export function formatTokens(n) {
 
 /* ─── styles — 앱의 카드 언어(평평한 면 + 헤어라인) 그대로. */
 const rootStyle = { display: 'flex', flexDirection: 'column', gap: space['3'] };
+const tilesSkeletonStyle = {
+  display: 'grid', gap: space['3'],
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
+};
+const skeletonTileStyle = {
+  height: '84px', background: color.surface0,
+  border: `1px solid ${color.border}`, borderRadius: radius.md,
+};
+const skeletonChartStyle = {
+  height: '200px', background: color.surface0,
+  border: `1px solid ${color.border}`, borderRadius: radius.md,
+};
 const headRowStyle = { display: 'flex', alignItems: 'center', gap: space['2'] };
 const headSummaryStyle = { fontSize: fontSize['11'], color: color.subtext, fontFamily: font.sans };
 const iconBtnStyle = {

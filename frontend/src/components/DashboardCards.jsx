@@ -249,10 +249,12 @@ const StatStripCard = ({
               <span style={statValueStyle}>{loading ? '—' : String(sessionCount)}</span>
               <span style={statLabelStyle}>{t?.('sessions') || 'Sessions'}</span>
             </StatCell>
+            {/* 도넛을 뺐다 — 4/7 은 숫자 그대로가 더 빨리 읽히고, 대시보드에 링·게이지가
+                여럿 서면 그게 곧 소음이다. 비율은 위의 진행바 하나로 충분하다. */}
             <StatCell divider>
-              <RadialGauge pct={loading ? 0 : activePct}>
-                <span style={statRingValueStyle}>{loading ? '—' : `${activeTargets}/${totalKnownTargets}`}</span>
-              </RadialGauge>
+              <span style={statValueStyle}>
+                {loading ? '—' : `${activeTargets}/${totalKnownTargets}`}
+              </span>
               <span style={statLabelStyle}>{t?.('activeHosts') || 'Active'}</span>
             </StatCell>
             <StatCell divider>

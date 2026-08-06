@@ -18,9 +18,10 @@ from . import collect as collector
 
 logger = logging.getLogger(__name__)
 
-# 원격 실행 상한. 로그가 많은 호스트는 파일을 수백 개 훑는다(여기서 0.5s 수준).
-# 죽은 호스트를 오래 붙들지 않으면서, 느린 디스크에 여유는 주는 선.
-REMOTE_TIMEOUT_SECONDS = 45.0
+# Cap on a remote run. A busy host walks a few hundred files (~0.5s here), so this
+# is mostly about how long a *dead* host may hold up the dashboard — every host is
+# collected concurrently, so the slowest one is the wait the user actually feels.
+REMOTE_TIMEOUT_SECONDS = 25.0
 LOCAL_TIMEOUT_SECONDS = 30.0
 
 # python3 가 없는 옛 호스트를 위해 python 으로 한 번 더 시도한다. `exec` 인 이유:
@@ -36,11 +37,11 @@ class CollectFailed(RuntimeError):
 
 
 def script_source() -> str:
-    """원격으로 보낼 수집기 본문. 파일 하나여야 하는 이유가 이 한 줄이다."""
+    """The collector body we ship. This one line is why it must stay a single file."""
     return Path(__file__).with_name("collect.py").read_text(encoding="utf-8")
 
 
-def parse_output(raw: str, label: str) -> dict:
+def parse_output(raw: str, label: str = "") -> dict:
     """원격 stdout 에서 결과 JSON 을 꺼낸다.
 
     **마커 뒤부터 읽는다.** SSH stdout 에는 MOTD·셸 잡담이 섞이는데, 첫 `{` 부터
@@ -52,20 +53,19 @@ def parse_output(raw: str, label: str) -> dict:
     if index < 0:
         hint = text.strip().splitlines()[-1][:120] if text.strip() else ""
         raise CollectFailed(
-            f"{label}: 수집기를 실행하지 못했습니다 (python3 없음?)"
-            + (f" — {hint}" if hint else "")
+            "수집기를 실행하지 못했습니다 (python3 없음?)" + (f" — {hint}" if hint else "")
         )
     body = text[index + len(marker):].strip()
     if not body:
-        raise CollectFailed(f"{label}: 결과가 비어 있습니다")
+        raise CollectFailed("결과가 비어 있습니다")
     try:
         payload = json.loads(body)
     except ValueError as e:
-        raise CollectFailed(f"{label}: JSON 파싱 실패 ({e})") from e
+        raise CollectFailed(f"JSON 파싱 실패 ({e})") from e
     if not isinstance(payload, dict):
-        raise CollectFailed(f"{label}: 예상과 다른 응답 형식")
+        raise CollectFailed("예상과 다른 응답 형식")
     if not payload.get("ok"):
-        raise CollectFailed(f"{label}: {payload.get('error') or '수집 실패'}")
+        raise CollectFailed(str(payload.get('error') or '수집 실패'))
     return payload
 
 
@@ -92,7 +92,7 @@ async def run_remote(host: dict, secrets: dict, days: int) -> dict:
                                    timeout=REMOTE_TIMEOUT_SECONDS,
                                    stdin_data=script_source())
     except asyncio.TimeoutError as e:
-        raise CollectFailed(f"{label}: 응답 없음 ({REMOTE_TIMEOUT_SECONDS}s)") from e
+        raise CollectFailed(f"응답 없음 ({REMOTE_TIMEOUT_SECONDS}s)") from e
     except Exception as e:  # asyncssh/tailscale 계열 예외가 다양하다
-        raise CollectFailed(f"{label}: SSH 실패 ({e})") from e
+        raise CollectFailed(f"SSH 실패 ({e})") from e
     return parse_output(raw, label)
