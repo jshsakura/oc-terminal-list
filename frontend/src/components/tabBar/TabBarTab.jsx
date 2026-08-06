@@ -20,9 +20,6 @@ const HOST_TILE_MAX_VISIBLE_MOBILE = 3;
 
 export const Tab = memo(({
   tab, index, isFirst = false, isActive, isBusy = false, isDragging = false, isDragOver = false,
-  /* 앞 탭과 호스트가 다른가 — 같은 기계의 탭들은 붙여 한 덩어리로 읽히게 하고,
-     기계가 바뀌는 자리에만 틈과 헤어라인을 둔다. */
-  startsGroup = false,
   isMobile = false,
   touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
   isPendingClose = false,
@@ -147,7 +144,6 @@ export const Tab = memo(({
         ...(isMobile ? styles.tabHitMobile : null),
         flex: isMobile ? styles.tabHitMobile.flex : styles.tabHit.flex,
         maxWidth: isMobile ? styles.tabHitMobile.maxWidth : styles.tabHit.maxWidth,
-        ...(startsGroup ? styles.tabHitGroupStart : null),
         opacity: isDragging ? 0.4 : 1,
         cursor: isMobile ? 'pointer' : 'grab',
         zIndex: isDragOver ? 2 : (isActive ? 1 : 0),

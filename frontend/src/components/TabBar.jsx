@@ -221,9 +221,6 @@ const TabBar = ({
             tab={tab}
             index={idx + 1}
             isFirst={idx === 0}
-            /* 호스트가 바뀌는 자리에서만 그룹이 시작된다. 로컬 탭은 hostId 가 없으므로
-               한 덩어리로 묶인다(그것도 "이 기계" 라는 한 그룹이다). */
-            startsGroup={idx > 0 && (tabs[idx - 1].hostId || 'local') !== (tab.hostId || 'local')}
             isActive={tab.id === activeTabId}
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
             isDragging={activeDraggingId === tab.id}

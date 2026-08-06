@@ -97,11 +97,14 @@ export const styles = {
      파봤더니 탭이 없는 오른쪽까지 홈이 파여 창틀 한가운데 웬 컨트롤이 박힌 꼴이 됐다.
      세그먼트 트랙은 홈의 터미널/대시보드·기간 스위치처럼 **선택지가 유한한 컨트롤**의
      언어다(`styles/segmented.js`). 여기서는 칩만 얹는다.
-     간격은 그룹 경계에서만 준다(같은 호스트 탭끼리는 붙는다) — tabHitGroupStart. */
+
+     간격은 **모든 탭에 균일하게** 준다. 호스트별로 붙이고 떼어 그룹을 만들어봤지만, 붙은
+     칩들은 이음매가 구분선처럼 보이고 그룹 사이만 벌어져 리듬이 깨졌다 — 탭 줄은 규칙적인
+     리듬이 먼저다. */
   tabList: {
     display: 'flex',
     alignItems: 'stretch',
-    gap: '0',
+    gap: '6px',
     overflowX: 'auto',
     overflowY: 'hidden',
     flex: '1 1 auto',
@@ -113,7 +116,7 @@ export const styles = {
     msOverflowStyle: 'none',           // IE/Edge legacy
   },
   tabListMobile: {
-    gap: '0',
+    gap: '6px',
     flex: '1 1 auto',
     paddingTop: '0',
     paddingBottom: '0',
@@ -147,12 +150,6 @@ export const styles = {
     flexShrink: 0,
     margin: '0 5px',
     background: 'var(--ui-border-strong)',
-  },
-  /* 호스트가 바뀌는 자리에만 **틈**. 같은 기계의 탭들은 붙어서 한 덩어리로 읽힌다.
-     선은 긋지 않는다 — 탭 사이사이 세로선이 서면 그게 곧 소음이고, 어차피 경계는 칩의
-     면이 이미 만든다. 틈 하나면 충분하다. */
-  tabHitGroupStart: {
-    marginLeft: '10px',
   },
   tabName: {
     flex: 1,
