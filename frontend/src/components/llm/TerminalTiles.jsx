@@ -4,7 +4,7 @@ import { tokens as designTokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
 import { TileRow } from './LlmTiles.jsx';
 import { HBars } from './HBars.jsx';
-import DayBars from './DayBars.jsx';
+import DayLine from './DayLine.jsx';
 import { dashboardCardStyle } from '../../styles/dashboardCard';
 
 const { color } = designTokens;
@@ -112,16 +112,16 @@ const TerminalTiles = ({ hosts = [], settings = {}, days = 7, t }) => {
   return (
     <>
       <TileRow tiles={tiles} />
-      {/* 일별 리듬 — 숫자는 "얼마나" 만 말한다. 매일 조금씩인지 하루에 몰았는지는 모양이 말한다. */}
+      {/* 일별 리듬 — 숫자는 "얼마나" 만 말한다. 매일 조금씩인지 하루에 몰았는지는 흐름이
+          말하고, 흐름은 라인의 일이다(아래 LLM 지출 그래프와 같은 문법·다른 색). */}
       {Array.isArray(data.by_day) && data.by_day.length > 1 && (
         <section style={dayCardStyle}>
           <h3 style={dayTitleStyle}>
             <CalendarDays size={12} strokeWidth={2} style={{ color: color.subtext }} />
             {t?.('dailyUsage') || 'Daily usage'}
           </h3>
-          <DayBars
+          <DayLine
             byDay={data.by_day}
-            label={`${t?.('perDayAvg') || 'Per day'} ${formatDuration(perDay, t)}`}
             format={(seconds) => formatDuration(seconds, t)}
             t={t}
           />

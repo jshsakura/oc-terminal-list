@@ -218,6 +218,54 @@ export const styles = {
     color: color.muted,
     textAlign: 'center',
   },
+  // 카드 묶음 — 성격이 같은 카드들은 붙여 세우고 사이에 선을 긋지 않는다.
+  cardStack: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['2'],
+  },
+  /* 접히는 구획 = 카드. 글자만 떠 있으면 누를 수 있는지, 어디까지가 한 덩어리인지 모른다. */
+  collapseCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    background: color.surface0,
+    border: `1px solid ${color.border}`,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    transition: `border-color ${motion.fast}`,
+  },
+  collapseCardOpen: {
+    borderColor: color.borderStrong,
+  },
+  collapseHead: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    width: '100%',
+    minHeight: '42px',
+    padding: `0 ${space['3']}`,
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    textAlign: 'left',
+    font: 'inherit',
+    transition: `background ${motion.fast}`,
+  },
+  collapseTitle: {
+    fontSize: fontSize['12'],
+    fontWeight: fontWeight.medium,
+    color: color.text,
+    letterSpacing: '0.01em',
+  },
+  collapseBody: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: space['2'],
+    padding: `${space['1']} ${space['3']} ${space['3']}`,
+    // 머리와 본문 사이 헤어라인 — 같은 카드 안이라도 누르는 곳과 읽는 곳은 다르다.
+    borderTop: `1px solid ${color.border}`,
+    paddingTop: space['3'],
+  },
   divider: {
     height: '1px',
     background: color.border,

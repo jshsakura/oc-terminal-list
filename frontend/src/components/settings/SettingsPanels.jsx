@@ -66,22 +66,20 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
 
     <Divider />
 
-    {/* 접어 둔다 — 일 년에 한 번 쓰는 폼이 늘 펼쳐져 자리를 먹고 있었다. */}
-    <Section title={t('changePassword') || 'Change password'} collapsible>
-      <PasswordSection onLogout={onLogout} t={t} />
-    </Section>
-
-    <Divider />
-
-    <Section title={t('twoFactorAuth') || 'Two-factor authentication'} collapsible>
-      <OtpSection t={t} />
-    </Section>
-
-    <Divider />
-
-    <Section title={t('passkeys') || 'Passkeys'} collapsible>
-      <PasskeySection t={t} />
-    </Section>
+    {/* 접어 둔다 — 일 년에 한 번 쓰는 폼이 늘 펼쳐져 자리를 먹고 있었다.
+        셋은 다 "계정 보안" 이라 한 묶음으로 세운다. 카드끼리는 구분선을 긋지 않는다 —
+        면이 이미 경계이고, 거기에 선까지 그으면 테두리가 두 겹으로 보인다. */}
+    <div style={styles.cardStack}>
+      <Section title={t('changePassword') || 'Change password'} collapsible>
+        <PasswordSection onLogout={onLogout} t={t} />
+      </Section>
+      <Section title={t('twoFactorAuth') || 'Two-factor authentication'} collapsible>
+        <OtpSection t={t} />
+      </Section>
+      <Section title={t('passkeys') || 'Passkeys'} collapsible>
+        <PasskeySection t={t} />
+      </Section>
+    </div>
 
     <Divider />
 

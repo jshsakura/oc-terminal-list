@@ -31,39 +31,32 @@ export const Section = ({ title, children, collapsible = false, defaultOpen = fa
       </section>
     );
   }
+  /* 접힌 구획은 **카드**다. 예전엔 글자와 꺾쇠만 허공에 떠 있어서 접힌 것인지 그냥 라벨인지
+     구분이 안 됐다(누를 수 있다는 신호가 어디에도 없었다). 면을 하나 깔면 "여기가 하나의
+     덩어리이고 누르면 열린다" 가 형태로 드러난다 — 펼치면 같은 면이 본문까지 감싼다. */
   return (
-    <section style={styles.section}>
+    <section style={{ ...styles.collapseCard, ...(open ? styles.collapseCardOpen : null) }}>
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        style={{
-          ...styles.sectionTitle,
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          width: '100%',
-          background: 'none',
-          border: 'none',
-          padding: 0,
-          cursor: 'pointer',
-          textAlign: 'left',
-          font: 'inherit',
-          minHeight: '32px',
-        }}
+        style={styles.collapseHead}
         aria-expanded={open}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--ui-surface1)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
       >
         <ChevronRight
-          size={12}
+          size={13}
           strokeWidth={2.2}
           style={{
             flexShrink: 0,
+            color: color.subtext,
             transition: 'transform 140ms',
             transform: open ? 'rotate(90deg)' : 'none',
           }}
         />
-        {title}
+        <span style={styles.collapseTitle}>{title}</span>
       </button>
-      {open && <div style={styles.sectionBody}>{children}</div>}
+      {open && <div style={styles.collapseBody}>{children}</div>}
     </section>
   );
 };
