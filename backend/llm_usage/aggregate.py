@@ -82,17 +82,27 @@ def _sorted_group(acc: dict) -> list[dict]:
 
 
 def _by_day(rows: list[dict]) -> list[dict]:
+    """Per-day totals, plus the per-host split that the daily chart stacks.
+
+    `hosts` is a {source_id: cost} map rather than a list: the chart colours each
+    segment by host, and a host's colour must follow the host — not its rank on
+    that particular day.
+    """
     acc: dict[str, dict] = {}
     for row in rows:
         day = str(row.get("day") or "")
         if not day:
             continue
         slot = acc.setdefault(day, {"day": day, "cost": 0.0, "tokens": 0.0,
-                                    **{f: 0.0 for f in TOKEN_FIELDS}})
-        slot["cost"] += _num(row.get("cost"))
+                                    "hosts": {}, **{f: 0.0 for f in TOKEN_FIELDS}})
+        cost = _num(row.get("cost"))
+        slot["cost"] += cost
         slot["tokens"] += _num(row.get("tokens"))
         for field in TOKEN_FIELDS:
             slot[field] += _num(row.get(field))
+        host = row.get("source_id")
+        if host:
+            slot["hosts"][host] = slot["hosts"].get(host, 0.0) + cost
     return [acc[d] for d in sorted(acc)]
 
 
@@ -124,7 +134,9 @@ def merge_summaries(sources: list[dict]) -> dict:
 
     for source in sources:
         payload = source.get("payload") or {}
-        rows = [price_row(r) for r in _list_of(payload, "rows")] if source.get("ok") else []
+        # Tag each row with the host it came from — the daily chart stacks by host.
+        rows = ([{**price_row(r), "source_id": source.get("source_id")}
+                 for r in _list_of(payload, "rows")] if source.get("ok") else [])
         # session_count predates the list cap; fall back to the list length.
         count = _num(payload.get("session_count")) if source.get("ok") else 0.0
         if not count:

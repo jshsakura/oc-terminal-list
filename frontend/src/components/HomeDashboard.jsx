@@ -100,7 +100,7 @@ const HomeDashboard = ({
         {showUsageStats && (
           <div style={styles.viewSwitch}>
             {[
-              ['connections', t?.('connections') || 'Connections', Link2],
+              ['connections', t?.('terminals') || 'Terminals', Link2],
               ['dashboard', t?.('dashboard') || 'Dashboard', BarChart3],
             ].map(([key, label, Icon]) => {
               const isOn = view === key;
@@ -132,6 +132,7 @@ const HomeDashboard = ({
             <LlmUsageCards
               hosts={hosts}
               tabs={tabs}
+              settings={settings}
               onJumpPane={onJumpPane}
               bare
               alwaysShow
@@ -140,8 +141,11 @@ const HomeDashboard = ({
           </div>
         ) : (
         <>
-        {/* 1) Connections — 탭 열기가 핵심 흐름이므로 가장 위. */}
-        <Section icon={Link2} title={t?.('connections') || 'Connections'}>
+        {/* 1) 호스트 카드 — 탭 열기가 핵심 흐름이므로 가장 위.
+            소제목은 달지 않는다: 위의 전환 탭이 이미 "연결" 이라고 말했고, 같은 말을
+            두 줄 연속으로 하면 크롬만 늘어난다. 전환 탭이 없는 컨텍스트
+            (showUsageStats=false, 예전 임베드 모드)에서만 소제목을 단다. */}
+        <Section icon={Link2} title={showUsageStats ? null : (t?.('connections') || 'Connections')}>
           <div style={{
             display: 'grid',
             gap: `${CARD_GAP}px`,
@@ -246,10 +250,13 @@ const HomeDashboard = ({
 
 const Section = ({ icon: Icon, title, children }) => (
   <div style={styles.section}>
-    <div style={styles.sectionHead}>
-      {Icon && <Icon size={12} strokeWidth={2.2} style={{ color: color.subtext, flexShrink: 0 }} />}
-      <span style={styles.title}>{title}</span>
-    </div>
+    {/* title 이 없으면 머리도 없다 — 빈 제목 줄이 남으면 그게 더 눈에 띈다. */}
+    {title && (
+      <div style={styles.sectionHead}>
+        {Icon && <Icon size={12} strokeWidth={2.2} style={{ color: color.subtext, flexShrink: 0 }} />}
+        <span style={styles.title}>{title}</span>
+      </div>
+    )}
     <div>{children}</div>
   </div>
 );

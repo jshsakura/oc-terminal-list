@@ -192,8 +192,8 @@ const DashboardCards = ({ hosts = [], settings = {}, days = 7, bare = false, t }
        카드들이 부모 그리드의 직접 자식처럼 놓이게 한다 — LLM 카드와 한 판에 섞이려면
        그리드가 하나여야 한다. ref 는 IntersectionObserver 가 써야 해서 남긴다. */
     <div ref={containerRef} style={bare ? { display: 'contents' } : gridStyle}>
-      {/* 스켈레톤 펄스 전용 — 두 카드가 공유하는 단일 <style> 블록. */}
-      <style>{DASHBOARD_KEYFRAMES}</style>
+      {/* 스켈레톤 펄스 + 카드 폭 규칙 — 이 그리드를 쓰는 모두가 공유하는 <style>. */}
+      <style>{DASHBOARD_KEYFRAMES}{DASHBOARD_GRID_CSS}</style>
       <StatStripCard
         loading={loading}
         err={err}
@@ -234,7 +234,7 @@ const StatStripCard = ({
               캡션은 작고 muted. 아래 얇은 진행바 하나가 유일한 accent 포인트. */}
           <div style={heroStyle}>
             <span style={heroCaptionStyle}>{`${t?.('totalTime') || 'Total'} · ${windowDays}d`}</span>
-            <HeroDuration seconds={totalSeconds} loading={loading} />
+            <HeroDuration seconds={totalSeconds} loading={loading} t={t} />
             <div style={heroBarTrackStyle}>
               <div style={heroBarFillStyle(loading ? 0 : totalPct)} />
             </div>
@@ -252,7 +252,7 @@ const StatStripCard = ({
               <span style={statLabelStyle}>{t?.('activeHosts') || 'Active'}</span>
             </StatCell>
             <StatCell divider>
-              <span style={statValueStyle}>{loading ? '—' : formatDuration(avgSeconds)}</span>
+              <span style={statValueStyle}>{loading ? '—' : formatDuration(avgSeconds, t)}</span>
               <span style={statLabelStyle}>{t?.('avgSession') || 'Avg'}</span>
             </StatCell>
           </div>
@@ -265,7 +265,7 @@ const StatStripCard = ({
 /* 히어로 총 시간 — 한 문자열이 아니라 숫자/단위 세그먼트로 렌더.
  * 숫자는 크고 볼드, 단위(d/h/m/s)는 작게 muted, baseline 정렬.
  * 첫(가장 큰) 단위의 숫자에만 절제된 accent 포인트 하나. */
-const HeroDuration = ({ seconds, loading }) => {
+const HeroDuration = ({ seconds, loading, t }) => {
   // 데이터 로드(=!loading) 되면 0→seconds 카운트업. 도중엔 초까지 흐르고, 끝나면 coarse 로 정착.
   const { value, running } = useCountUp(seconds, !loading);
   if (loading) return <span className="dc-skel" style={heroValueStyle}>—</span>;
@@ -275,7 +275,7 @@ const HeroDuration = ({ seconds, loading }) => {
       {parts.map((p, i) => (
         <span key={p.unit} style={heroSegStyle}>
           <span style={i === 0 ? heroNumAccentStyle : heroNumStyle}>{p.value}</span>
-          <span style={heroUnitStyle}>{p.unit}</span>
+          <span style={heroUnitStyle}>{durationUnitLabel(p.unit, t)}</span>
         </span>
       ))}
     </span>
@@ -382,8 +382,8 @@ const RankSkeletonRow = () => (
 );
 
 /* ─── 공용 카드 셸 — 평평한 surface0 + 헤어라인 보더. 글로우/그라디언트/시인 없음. */
-export const CardShell = ({ icon: Icon, title, children, action = null }) => (
-  <div style={cardStyle}>
+export const CardShell = ({ icon: Icon, title, children, action = null, wide = false }) => (
+  <div style={cardStyle} className={wide ? 'dc-wide' : undefined}>
     <div style={cardHeadStyle}>
       {Icon && <Icon size={12} strokeWidth={2.2} color={color.subtext} />}
       <span style={cardTitleStyle}>{title}</span>
@@ -406,21 +406,29 @@ export const ErrorState = ({ message }) => (
  * 게이지/막대 셀이 좁아서 항상 짧은 영문 약어(d/h/m/s) 사용 — 한글 '1일 18시간' 류 오버플로 방지.
  * (TerminalHeader 의 uptime 은 별도 — 거기는 가로 여유가 있어 i18n 유지.)
  */
-function formatDuration(seconds) {
+function formatDuration(seconds, t) {
+  const u = (unit) => durationUnitLabel(unit, t);
   const s = Math.max(0, Math.floor(seconds || 0));
-  if (s < 60) return `${s}s`;
+  if (s < 60) return `${s}${u('s')}`;
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
+  if (m < 60) return `${m}${u('m')}`;
   const h = Math.floor(m / 60);
   const remM = m % 60;
-  if (h < 24) return remM ? `${h}h ${remM}m` : `${h}h`;
+  if (h < 24) return remM ? `${h}${u('h')} ${remM}${u('m')}` : `${h}${u('h')}`;
   const d = Math.floor(h / 24);
   const remH = h % 24;
-  return remH ? `${d}d ${remH}h` : `${d}d`;
+  return remH ? `${d}${u('d')} ${remH}${u('h')}` : `${d}${u('d')}`;
 }
 
 /* 히어로 렌더용 — formatDuration 과 같은 규칙이되 [{value, unit}] 세그먼트로 반환.
  * (숫자 대 / 단위 소 대비를 주려면 문자열이 아니라 조각이 필요해서 별도 함수.) */
+/* 단위 라벨 — 숫자만 번역 없이 두면 한국어 화면에서 "28 d" 가 된다.
+   ko 는 일/시간/분/초, en 은 d/h/m/s. */
+function durationUnitLabel(unit, t) {
+  const key = { d: 'unitDay', h: 'unitHour', m: 'unitMinute', s: 'unitSecond' }[unit];
+  return (key && t?.(key)) || unit;
+}
+
 function durationParts(seconds) {
   const s = Math.max(0, Math.floor(seconds || 0));
   if (s < 60) return [{ value: s, unit: 's' }];
@@ -472,6 +480,15 @@ export const gridStyle = {
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 300px), 1fr))',
   gap: '14px',
 };
+
+/* 카드마다 필요한 폭이 다르다 — 시계열 막대는 넓어야 읽히고, 숫자 카드는 좁아도 된다.
+   인라인 스타일로는 미디어 쿼리를 쓸 수 없어 클래스로 준다. **좁은 화면에서는 span 을
+   주지 않는다**: 1열 그리드에서 span 2 는 없는 열을 만들어 레이아웃을 깨뜨린다. */
+export const DASHBOARD_GRID_CSS = `
+@media (min-width: 720px) {
+  .dc-wide { grid-column: span 2; }
+}
+`;
 
 /* 카드 — HostList/Sidebar 의 row 와 동일한 톤: 평평한 surface0 + 1px 헤어라인 보더 + radius.md.
  * 그림자/글로우/그라디언트 없음 — 앱 전역 카드 관례 그대로. */
@@ -542,18 +559,26 @@ const heroValueStyle = {
   display: 'inline-flex',
   alignItems: 'baseline',
   justifyContent: 'center',
-  gap: '10px',
+  gap: '8px',
   fontFamily: font.mono,
   lineHeight: 1,
   textAlign: 'center',
+  /* 한 줄이 아니면 고장 난 것처럼 보인다. 좁은 카드에서 "28 / 일 / 14 / 시간" 으로
+     네 줄이 되던 자리 — 세그먼트도, 그 안의 숫자·단위도 절대 접히지 않는다. */
+  flexWrap: 'nowrap',
+  whiteSpace: 'nowrap',
+  maxWidth: '100%',
 };
 const heroSegStyle = {
   display: 'inline-flex',
   alignItems: 'baseline',
   gap: '2px',
+  flexWrap: 'nowrap',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
 };
 const heroNumStyle = {
-  fontSize: 'clamp(30px, 8vw, 44px)',
+  fontSize: 'clamp(26px, 7vw, 40px)',
   fontWeight: fontWeight.semibold,
   color: color.text,
   letterSpacing: '-0.02em',
@@ -561,7 +586,7 @@ const heroNumStyle = {
 // 가장 큰 단위의 숫자에만 절제된 accent 포인트 하나.
 const heroNumAccentStyle = { ...heroNumStyle, color: color.accent };
 const heroUnitStyle = {
-  fontSize: 'clamp(13px, 3vw, 15px)',
+  fontSize: 'clamp(11px, 2.4vw, 13px)',
   fontWeight: fontWeight.medium,
   color: color.muted,
   letterSpacing: '0.01em',

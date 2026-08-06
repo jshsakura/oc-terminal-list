@@ -124,6 +124,14 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
 
     <Section title={t('llmUsageSection') || 'LLM usage'}>
       <LlmWatcherSection t={t} />
+      {/* 통화 — 자동은 언어를 따른다(한국어 → 원). 환율은 서버가 하루 한 번 받아 캐시. */}
+      <Field label={t('currency') || 'Currency'}>
+        <Select value={s.currency || 'auto'} onChange={(v) => change('currency', v)}>
+          <option value="auto">{t('currencyAuto') || 'Auto (follows language)'}</option>
+          <option value="usd">USD ($)</option>
+          <option value="krw">KRW (₩)</option>
+        </Select>
+      </Field>
     </Section>
 
     <Divider />

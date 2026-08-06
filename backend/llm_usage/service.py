@@ -19,6 +19,7 @@ from sqlite_storage import storage
 
 from .aggregate import merge_sessions, merge_summaries
 from .config import get_config as get_usage_config
+from .fx import get_rates
 from .runner import CollectFailed, run_local, run_remote
 
 logger = logging.getLogger(__name__)
@@ -119,9 +120,9 @@ async def _read_cache(username: str, days: int) -> dict | None:
 
 
 def disabled_payload(days: int) -> dict:
-    """연동이 꺼져 있을 때의 응답 — 프론트는 `enabled: false` 를 보고 안 그린다."""
+    """What "off" looks like — the frontend sees `enabled: false` and draws nothing."""
     return {**merge_summaries([]), "sessions": [], "days": days,
-            "fetched_at": _now_iso(), "cached": False, "enabled": False}
+            "fetched_at": _now_iso(), "cached": False, "enabled": False, "fx": {}}
 
 
 async def get_usage(username: str, days: int = DEFAULT_DAYS,
@@ -138,7 +139,9 @@ async def get_usage(username: str, days: int = DEFAULT_DAYS,
     if not force:
         cached = await _read_cache(username, days)
         if cached and _cache_age_ok(cached):
-            return {**cached, "cached": True}
+            # FX is attached at response time, not stored: a day-old summary should
+            # still be shown at today's rate.
+            return {**cached, "cached": True, "fx": await get_rates()}
 
     sources = await collect_sources(username, days)
     entry = {
@@ -151,6 +154,6 @@ async def get_usage(username: str, days: int = DEFAULT_DAYS,
     }
     try:
         await storage.set_config(_cache_key(username, days), json.dumps(entry))
-    except Exception as e:  # 캐시 못 써도 응답은 나가야 한다
+    except Exception as e:  # a cache we cannot write must not cost us the response
         logger.warning("llm usage cache write failed: %s", e)
-    return entry
+    return {**entry, "fx": await get_rates()}
