@@ -123,13 +123,54 @@ describe('Terminal 재연결 타이머', () => {
   });
 
   describe('하트비트', () => {
-    it('5초마다 ping 을 보낸다', async () => {
+    const pingCount = (ws) => ws.jsonSent().filter((m) => m.type === 'ping').length;
+
+    it('보고 있는 pane 은 5초마다 ping 을 보낸다', async () => {
       renderTerminal();
       const ws = await openSocket();
 
       await tick(11000);
 
-      expect(ws.jsonSent().filter((m) => m.type === 'ping').length).toBeGreaterThanOrEqual(2);
+      expect(pingCount(ws)).toBeGreaterThanOrEqual(2);
+    });
+
+    /* 분할 그리드에서는 형제 pane 이 전부 isActive=true 이고 isFocused 만 1개다. isActive 로만
+       판정하던 시절엔 형제들이 보고 있는 pane 과 똑같이 5초마다 ping 했다(30초에 6번, 실측).
+       4분할이면 그게 4배다. 건강한 keepalive 는 기본 15초로 되돌린다. */
+    it('보이지만 포커스는 아닌 분할 형제는 15초마다 ping 한다', async () => {
+      renderTerminal({ isActive: true, isFocused: false });
+      const ws = await openSocket();
+
+      await tick(30000);
+
+      expect(pingCount(ws)).toBe(2);   // 15s, 30s — 예전엔 6번
+    });
+
+    /* 솎는 것은 **건강할 때의 keepalive 뿐**이다. 임계를 넘긴 뒤의 escalation ping 까지 솎으면
+       감지가 느려진다 — 이 변경이 건드리면 안 되는 선이다. */
+    it('임계를 넘기면 포커스와 무관하게 매 틱 확인한다', async () => {
+      renderTerminal({ isActive: true, isFocused: false });
+      const ws = await openSocket();
+      ws.silent = true;   // half-open: OPEN 인데 서버가 답을 끊었다
+
+      // 포커스 아닌 pane 의 dead 임계는 35s. 그 뒤로는 5s 틱마다 물어봐야 한다.
+      await tick(36000);
+      const atThreshold = pingCount(ws);
+      await tick(5000);
+
+      expect(pingCount(ws)).toBe(atThreshold + 1);
+    });
+
+    it('포커스 아닌 pane 도 끝내 답이 없으면 죽은 소켓으로 보고 끊는다', async () => {
+      renderTerminal({ isActive: true, isFocused: false });
+      const ws = await openSocket();
+      ws.silent = true;
+
+      /* 5s 틱 위에서: t=40 임계 초과 → 의심 시작, t=45 마지막 기회(6s 미만이라 한 번 더),
+         t=50 에도 무응답 → close. 여유를 두고 52s 까지 흘린다. */
+      await tick(52000);
+
+      expect(ws.closed).toBe(true);
     });
 
     /* half-open 소켓 — OPEN 인 채로 아무 응답이 없는 상태. 모바일 네트워크 전환에서 흔하다.

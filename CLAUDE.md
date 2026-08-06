@@ -341,13 +341,26 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
 - **`WEBGL_IDLE_RELEASE_MS`(3분)를 줄이는 건 손해다.** attach/detach 가 각각
   `term.refresh(0, rows-1)` 전체 재페인트를 부른다 — 타이핑이 잠깐 멈출 때마다 churn 하면
   아끼는 1.67fps 보다 더 쓴다. 이 값은 발열이 아니라 **밤샘 GPU 컨텍스트 누수**용이다.
-- **하트비트는 pane 마다 5초다.** `terminalConstants.js` 의 "ping 이 빨라지는 건 활성 pane
-  하나뿐" 이라는 주석은 **분할에서 틀리다** — 형제가 전부 `isActive=true` 라 4분할이면 5초마다
-  4번 나간다(`Terminal.jsx` 의 `setInterval(..., HEARTBEAT_INTERVAL_ACTIVE_MS)` 는 무조건
-  5초고, `isActive` 는 dead *임계*만 고른다). 다만 **고치지 마라**: 이득은 네트워크 몇 프레임인데
-  하트비트는 이 저장소에서 재연결이 가장 깨지기 쉬운 코드고 테스트가 타이밍을 안 잡는다.
 - `components/Sidebar.jsx`(751줄)는 **아무도 import 하지 않는 죽은 코드**다. 그 안의 10초
   `/api/system/stats` 폴링은 돌지 않는다 — 성능 문제로 오해하지 말 것.
+
+### 하트비트의 watched 판정 (2026-08-07)
+
+`isActive` 만 보던 시절, 분할 형제가 보고 있는 pane 과 똑같이 **5초마다** ping 했다(가짜
+타이머로 실측: 30초에 6번). 형제는 전부 `isActive=true` 라 4분할이면 그게 4배다. 지금은
+`watched = isActive && isFocused` 로 판정해 keepalive 를 기본 15초로 되돌린다.
+
+**솎는 것은 건강할 때의 keepalive 뿐이다.** 임계를 넘긴 뒤의 escalation ping 은 포커스와
+무관하게 5초 틱마다 그대로 나간다 — 감지 속도를 건드리지 않는 것이 이 변경의 조건이었고,
+테스트가 그 선을 지킨다(`Terminal.reconnect.test.jsx` 의 "임계를 넘기면 포커스와 무관하게 매
+틱 확인한다").
+
+타이머 자체는 여전히 5초 하나다. **주기를 바꾸는 대신 틱을 세어 솎는 이유**: interval 주기를
+포커스에 따라 갈아끼우려면 소켓 수명주기 안의 `setInterval` 을 재생성해야 하는데, 그 자리가
+이 저장소에서 재연결이 가장 조용히 깨지는 코드다(위 "what can and cannot move").
+
+임계도 함께 따라간다(watched 12s / 그 외 35s). **둘은 반드시 같이 움직여야 한다** — ping 만
+15초로 늦추고 임계를 12초로 두면 멀쩡한 소켓이 매번 죽는다.
 
 ### 항상 도는 타이머는 활동 중에만 돌게
 

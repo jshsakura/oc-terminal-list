@@ -35,6 +35,14 @@ export const HEARTBEAT_DEAD_MS = 35000;
 // probe 가 따로 책임).
 export const HEARTBEAT_INTERVAL_ACTIVE_MS = 5000;
 export const HEARTBEAT_DEAD_ACTIVE_MS = 12000;
+/* 위 "활성 pane 하나뿐" 은 **분할에서 성립하지 않는다** — 분할 그리드에서는 형제 pane 이
+   전부 isActive=true 이고 isFocused 만 1개다(Terminal.jsx 의 그 주석). 타이머는 5s 하나로
+   두되, 포커스 안 된 pane 의 **건강한 keepalive** 는 이 배수만큼 솎아 기본 15s 로 되돌린다
+   (5s × 3 = HEARTBEAT_INTERVAL_MS). 임계를 넘긴 뒤의 escalation ping 은 솎지 않는다 —
+   감지 속도는 건드리지 않는다는 게 이 변경의 조건이다. */
+export const HEARTBEAT_UNWATCHED_PING_EVERY_TICKS = Math.round(
+  HEARTBEAT_INTERVAL_MS / HEARTBEAT_INTERVAL_ACTIVE_MS,
+);
 /* 임계를 넘겨도 곧장 끊지 않는다 — ping 을 한 번 더 쏘고 이만큼 더 기다린다.
    공유 터널이 잠깐 막혀 pong 두 번이 늦은 것뿐이면 멀쩡한 소켓이다. 그걸 죽이면
    재연결 + tmux 리플레이로 수십 초를 잃는다("가만히 보고 있는데 갑자기 재연결 중"). */

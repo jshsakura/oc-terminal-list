@@ -17,6 +17,7 @@ import {
   RECOVERY_GRACE_MS, RECOVERY_POLL_MS, TAKEOVER_CONFIRM_MS, TAKEOVER_CONFIRM_POLL_MS,
   MAX_RECONNECT_ATTEMPTS, RECONNECT_MAX_WALL_MS, AUTO_CLOSE_MS, LOAD_STUCK_MS,
   HEARTBEAT_INTERVAL_MS, HEARTBEAT_DEAD_MS, HEARTBEAT_INTERVAL_ACTIVE_MS, HEARTBEAT_DEAD_ACTIVE_MS,
+  HEARTBEAT_UNWATCHED_PING_EVERY_TICKS,
   HEARTBEAT_LAST_CHANCE_MS,
   RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_THROTTLE_MS,
   WS_TICKET_USE_MARGIN_MS, HEALTHY_RECV_MS, NOTICE_SHOW_DELAY_MS,
@@ -900,6 +901,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         lastRecvRef.current = Date.now();
         if (heartbeatTimerRef.current) clearInterval(heartbeatTimerRef.current);
         // 각 interval 은 자기 id 만 정리 — 재연결로 새 interval 이 떠도 stale tick 이 그걸 끄지 않게.
+        let hbTicks = 0;
         const hbId = setInterval(() => {
           if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) {
             clearInterval(hbId);
@@ -910,15 +912,22 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           // 인증 prompt 중에는 사용자가 응답 중이라 끊지 않는다.
           if (document.hidden || authPromptRef.current) return;
           if (socket.readyState !== WebSocket.OPEN) return;
-          // 여기 도달 = 가시 탭. 보고 있는 활성 pane 은 짧은 dead 임계로 빠르게 감지하고,
-          // 같은 탭의 비활성 pane 은 기본(긴) 임계를 백스톱으로 둔다(복귀 시 resume probe 가 책임).
-          const deadMs = isActiveRef.current ? HEARTBEAT_DEAD_ACTIVE_MS : HEARTBEAT_DEAD_MS;
+          hbTicks += 1;
+          /* 여기 도달 = 가시 탭. **보고 있는(watched) pane** 은 짧은 임계로 빠르게 감지하고,
+             나머지는 기본(긴) 임계를 백스톱으로 둔다(복귀 시 resume probe 가 책임).
+             watched 판정에 isFocused 가 들어가는 게 핵심이다 — isActive 만 보면 분할 형제가
+             전부 true 라, 4분할이 5초마다 4번 ping 하면서 dead 임계까지 12s 를 쓴다. */
+          const watched = isActiveRef.current && isFocusedRef.current;
+          const deadMs = watched ? HEARTBEAT_DEAD_ACTIVE_MS : HEARTBEAT_DEAD_MS;
           const silentMs = Date.now() - lastRecvRef.current;
 
           // 응답이 돌아왔다 — 의심을 거둔다.
           if (silentMs <= deadMs) {
             heartbeatSuspectSinceRef.current = 0;
-            try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+            // 건강할 때의 keepalive 만 솎는다. 아래 escalation 은 그대로 5s 마다 나간다.
+            if (watched || hbTicks % HEARTBEAT_UNWATCHED_PING_EVERY_TICKS === 0) {
+              try { socket.send(JSON.stringify({ type: 'ping' })); } catch { /* noop */ }
+            }
             return;
           }
 
