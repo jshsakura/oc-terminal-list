@@ -311,6 +311,25 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
 
 ⚠️ Resize/fit is a real-device concern (mobile keyboard, visualViewport). The 67 Terminal tests are the only net; after any change here, confirm on an actual device that resizing the window and opening/closing the editor still refit cleanly.
 
+## 렌더 상한 — 출력 싱크가 곧 fps다 (2026-08-07)
+
+`createOutputSink.js` 의 코얼레싱 창이 그 pane 의 렌더 주기다. WS 바이트가 여기서 묶여
+`term.write` 로 가고, 그 write 하나가 xterm 파싱 + WebGL 드로우 한 프레임이다. **"터미널이
+버벅인다 / 기기가 뜨겁다" 는 거의 항상 이 상수 이야기다.**
+
+- **리딩엣지 + 코얼레싱.** 창이 비었으면 타이머 없이 그 자리에서 쓰고, 지속 출력 중에는
+  창 주기로만 쓴다. 예전의 트레일링 16ms 배치는 정확히 반대였다 — 조용하다 온 한 글자도
+  16ms 늦고, 출력이 이어지는 동안은 **초당 60회** 파싱+GPU 드로우가 돌았다. 사람이 기다리는
+  건 앞의 첫 바이트뿐이고 지속 출력의 중간 프레임은 읽지도 못한다.
+- **분할 그리드에서는 형제 pane 이 전부 `isActive=true`다** (`Terminal.jsx` 의 그 주석).
+  그래서 이 창은 pane 수만큼 곱해진다 — 4분할 동시 출력이면 옛 값으로 초당 240 프레임이었다.
+  `isFocused` 를 따로 받아 보고 있는 pane 만 33ms(~30fps), 나머지 보이는 형제는 50ms(~20fps).
+- 배치 주기를 올릴 때 **에코 지연 걱정은 리딩엣지가 이미 막았다.** 창을 늘려도 조용하다
+  들어온 첫 바이트는 항상 즉시 그려진다. 늘어나는 건 지속 출력 중의 병합 폭뿐이다.
+- `flush()` 는 **실제로 쓰지 않는 경로(비활성 버퍼링)에서도 `lastFlushAt` 를 찍는다.** 안
+  찍으면 비활성 pane 의 매 push 가 리딩엣지로 떨어져 `dropOldestIfOverCap`(버퍼 전체 순회)이
+  청크마다 돈다.
+
 ## Xvnc 원격 데스크톱 (2026-08)
 
 호스트 카드 → Remote Desktop → 디스플레이 선택 → pane 에 데스크탑이 뜬다. pane 크기를

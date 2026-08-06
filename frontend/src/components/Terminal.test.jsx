@@ -136,7 +136,7 @@ describe('Terminal', () => {
 
       await act(async () => {
         ws.serverSendBytes('hello world');
-        // flushBufferedOutput 은 활성 pane 에서 16ms 배치.
+        // 출력 싱크는 리딩엣지라 조용하다 온 첫 바이트는 즉시 쓰인다 (createOutputSink).
         await new Promise((r) => setTimeout(r, 40));
       });
 

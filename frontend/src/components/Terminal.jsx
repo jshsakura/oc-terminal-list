@@ -456,6 +456,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // isActive 를 ref 로도 들고 다님 — handleResize 같은 long-lived 콜백에서 stale closure 피하기.
   const isActiveRef = useRef(isActive);
   useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+  // 분할 그리드에서는 형제 pane 이 전부 isActive=true 다. 출력 싱크가 "보고 있는 pane" 만
+  // 빠르게 그리려면 포커스 여부가 따로 필요하다 (createOutputSink 의 코얼레싱 창).
+  const isFocusedRef = useRef(isFocused);
+  useEffect(() => { isFocusedRef.current = isFocused; }, [isFocused]);
 
   const [authPrompt, setAuthPrompt] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
@@ -597,6 +601,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     const output = createOutputSink({
       term,
       isActive: () => isActiveRef.current,
+      isFocused: () => isFocusedRef.current,
       onServerOutput: () => predictiveEchoRef.current?.onServerOutput(),
       onNewData: () => handleNewDataRef.current(),
       onContent: () => {
