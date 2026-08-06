@@ -7,6 +7,17 @@ import { numberTileStyle } from '../../styles/numberTile';
 
 const { color, font, fontWeight } = tokens;
 
+/* 칩의 윤곽 — **면이 경계를 만들고 선은 거들기만 한다.** 16%/8% → 10%/7% → 6%/4% 로 두 번
+   내려온 값이다. 선이 보이기 시작하면 탭마다 테두리를 두른 꼴이라 촌스러워진다.
+   호버만 한 단 세워(8%) "손이 얹혀 있다" 를 면과 함께 말한다. */
+const ring = (pct) => `inset 0 0 0 1px color-mix(in srgb, ${color.text} ${pct}%, transparent)`;
+const IDLE_RING = ring(4);
+const HOVER_RING = ring(8);
+const ACTIVE_SHADOW = `${ring(6)},`
+  + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 8%, transparent),`
+  + ' 0 1px 3px rgba(0, 0, 0, 0.3)';
+const DRAG_OVER_RING = (accent) => `inset 0 0 0 2px ${accent}`;
+
 // 혼합 호스트 타일 스택 — 모든 타일 동일 크기, 절반씩 겹치는 아바타 스택.
 // 모바일/데스크탑 둘 다 같은 겹침 스택이되, 모바일은 탭 폭이 좁아(128~190px)
 // 타일/겹침 폭을 줄이고 개수를 캡핑(+N 칩)해 탭 밖으로 삐져나가지 않게 한다.
@@ -178,25 +189,27 @@ export const Tab = memo(({
              면 차이만으로도 탭이 구분되므로, 선은 그 위에 얹는 아주 옅은 윤곽이면 충분하다.
              16%/8% → 10%/7% → 지금 6%/4%. 선이 보이기 시작하면 탭마다 테두리를 두른 꼴이
              되어 촌스러워진다 — 여기서 더 올리지 말 것. */
-          boxShadow: isDragOver
-            ? `inset 0 0 0 2px ${color.accent}`
-            : (isActive
-              ? `inset 0 0 0 1px color-mix(in srgb, ${color.text} 6%, transparent),`
-                + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 8%, transparent),`
-                + ` 0 1px 3px rgba(0, 0, 0, 0.3)`
-              : `inset 0 0 0 1px color-mix(in srgb, ${color.text} 4%, transparent)`),
+          boxShadow: isDragOver ? DRAG_OVER_RING(color.accent) : (isActive ? ACTIVE_SHADOW : IDLE_RING),
         }}
         onMouseEnter={(e) => {
           if (isMobile) return;
           // hover 는 활성(surface0)까지 가지 않는다 — 절반만 올려 "누를 수 있음"만 알린다.
           if (!isActive) {
-            e.currentTarget.style.background = 'var(--ui-surface0)';
+            /* 비활성 칩이 이미 surface0 이라 예전 호버(=surface0)는 아무것도 안 바꿨다 —
+               글씨만 밝아져 "눌리는 중" 인지 알 수 없었다. 면을 한 단 올리고(surface1)
+               윤곽도 한 단 세워 손이 얹힌 칩이 분명해지게 한다. */
+            e.currentTarget.style.background = 'var(--ui-surface1)';
+            e.currentTarget.style.boxShadow = HOVER_RING;
             e.currentTarget.style.color = color.subtext;
           }
         }}
         onMouseLeave={(e) => {
           if (isMobile) return;
-          if (!isActive) { e.currentTarget.style.background = tabBase; e.currentTarget.style.color = color.muted; }
+          if (!isActive) {
+            e.currentTarget.style.background = tabBase;
+            e.currentTarget.style.boxShadow = IDLE_RING;
+            e.currentTarget.style.color = color.muted;
+          }
         }}
       >
         {/* Ctrl+N 번호 — 아이콘 타일과 같은 네모에 담는다. 맨 숫자로 두면 sans 라벨 옆에서
