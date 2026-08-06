@@ -35,7 +35,9 @@ export const vignette = (alpha = 0.2) => `radial-gradient(ellipse at center, tra
  * 이유로 한 번 밝은 잉크를 썼는데, 그건 "뒤에 깔던" 시절의 보정이었다 — 위에 덮는
  * 순간 검정 선이 명암 파동을 만들어 어두운 테마·밝은 테마 모두에서 성립한다.
  */
-const CANVAS_LINE = 'rgba(0, 0, 0, 0.06)';
+/* 0.06 * opacity .5 = 실효 0.03 이 레퍼런스 값인데, 우리 홈은 카드가 화면을 많이
+   덮어 선이 지나는 면적이 작다 — 한 단계 올려야 같은 정도로 읽힌다. */
+const CANVAS_LINE = 'rgba(0, 0, 0, 0.11)';
 const CANVAS_PERIOD = 3;        // 1px 선 + 2px 간격
 /** 오버레이 자체의 불투명도 — 선을 더 옅게 만들되 주기는 유지한다. */
 export const CANVAS_TEXTURE_OPACITY = 0.5;

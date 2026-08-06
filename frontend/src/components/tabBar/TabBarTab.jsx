@@ -20,6 +20,9 @@ const HOST_TILE_MAX_VISIBLE_MOBILE = 3;
 
 export const Tab = memo(({
   tab, index, isFirst = false, isActive, isBusy = false, isDragging = false, isDragOver = false,
+  /* 앞 탭과 호스트가 다른가 — 같은 기계의 탭들은 붙여 한 덩어리로 읽히게 하고,
+     기계가 바뀌는 자리에만 틈과 헤어라인을 둔다. */
+  startsGroup = false,
   isMobile = false,
   touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
   isPendingClose = false,
@@ -83,15 +86,18 @@ export const Tab = memo(({
   // 모든 칩이 바보다 밝게 떠 있고, 그중 활성이 한 단계 더 밝은 구조라야 보더 없이 읽힌다.
   // 활성은 확실히 띄우고(surface2 +20%), 비활성은 바(crust +6%) 바로 위에 살짝만 얹는다
   // (+8.2%). 비활성까지 또렷하면 탭 줄 전체가 무거워진다 — 면은 "있다" 정도만.
-  const tabBase = isActive
-    ? 'var(--ui-surface2)'
-    : 'color-mix(in srgb, var(--ui-surface0) 55%, var(--ui-crust))';
+  // 트랙(움푹한 스트립) 안에서 **활성만 떠오른다**. 비활성은 트랙 면 그대로 두고,
+  // 호버에서만 살짝 밝아진다 — 눌린 자리/떠 있는 자리가 형태로 구분되므로 비활성까지
+  // 칠하면 트랙이 다시 빈틈없는 덩어리가 된다.
+  const tabBase = isActive ? 'var(--ui-surface1)' : 'transparent';
+  // 타일 색 계산의 기준 면 — 투명 위에서 color-mix 를 하면 타일이 비쳐 색이 섞인다.
+  const tileBase = isActive ? 'var(--ui-surface1)' : 'color-mix(in srgb, #000 22%, var(--ui-crust))';
   // 스택 타일은 전부 완전 불투명이어야 한다 — 알파 배경/테두리나 opacity 를 쓰면
   // 겹친 아래 타일이 비쳐 색이 섞여 보인다. 톤 조절은 전부 opaque color-mix 로.
   const tileBackground = (tint) =>
-    `color-mix(in srgb, ${tint} ${isActive ? 22 : 10}%, ${tabBase})`;
+    `color-mix(in srgb, ${tint} ${isActive ? 22 : 10}%, ${tileBase})`;
   const tileBorder = (tint) =>
-    `1px solid color-mix(in srgb, ${tint} ${isActive ? 47 : 15}%, ${tabBase})`;
+    `1px solid color-mix(in srgb, ${tint} ${isActive ? 47 : 15}%, ${tileBase})`;
   // 비활성 글리프는 호스트 색을 그대로 쓰지 않는다 — 색이 원본이면 비활성 탭이 활성보다
   // 화려해지는 역전이 난다(활성 타일 글리프는 중립 text 색이므로). 색상(hue)만 남기고
   // muted 쪽으로 눕혀 "무슨 호스트인지"는 유지하되 시선은 안 끌게.
@@ -113,7 +119,7 @@ export const Tab = memo(({
     color: glyphColor(tint),
     /* 탭 자신의 바탕색 ring 으로 이웃 타일과 분리 — "겹쳐 있음"이 읽히게.
        칩 모델에선 비활성 탭 바탕이 바(crust), 활성이 surface0 이라 tabBase 를 따라간다. */
-    boxShadow: `0 0 0 1.5px ${tabBase}`,
+    boxShadow: `0 0 0 1.5px ${tileBase}`,
     zIndex: stackedCount - i, // 앞 타일이 위, 뒤로 갈수록 아래로 깔림
   });
 
@@ -137,6 +143,7 @@ export const Tab = memo(({
         ...(isMobile ? styles.tabHitMobile : null),
         flex: isMobile ? styles.tabHitMobile.flex : styles.tabHit.flex,
         maxWidth: isMobile ? styles.tabHitMobile.maxWidth : styles.tabHit.maxWidth,
+        ...(startsGroup ? styles.tabHitGroupStart : null),
         opacity: isDragging ? 0.4 : 1,
         cursor: isMobile ? 'pointer' : 'grab',
         zIndex: isDragOver ? 2 : (isActive ? 1 : 0),
@@ -152,6 +159,7 @@ export const Tab = memo(({
       }}
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); } }}
     >
+      {startsGroup && <span aria-hidden="true" style={styles.tabGroupDivider} />}
       {/* 안쪽 = 실제로 보이는 칩 */}
       <div
         style={{
@@ -161,18 +169,22 @@ export const Tab = memo(({
             ? `color-mix(in srgb, ${color.accent} 14%, ${tabBase})`
             : tabBase,
           color: isActive ? color.text : color.muted,
-          // 굵기는 고정 — 활성 표시는 면과 글자색이 한다. 굵기가 바뀌면 탭을 옮길 때마다
+          // 굵기는 고정 — 활성 표시는 면과 형태가 한다. 굵기가 바뀌면 탭을 옮길 때마다
           // 라벨 폭이 미세하게 흔들린다.
           fontWeight: fontWeight.medium,
+          /* 활성은 트랙 위로 **떠오른다** — 그림자(아래)와 1px 하이라이트(위)가 두께를
+             만든다. 이게 없으면 색만 다른 사각형이라 세그먼트 스위치로 안 읽힌다. */
           boxShadow: isDragOver
             ? `inset 0 0 0 2px ${color.accent}`
-            : 'none',
+            : (isActive
+              ? `0 1px 3px rgba(0, 0, 0, 0.45), inset 0 1px 0 color-mix(in srgb, ${color.text} 10%, transparent)`
+              : 'none'),
         }}
         onMouseEnter={(e) => {
           if (isMobile) return;
           // hover 는 활성(surface0)까지 가지 않는다 — 절반만 올려 "누를 수 있음"만 알린다.
           if (!isActive) {
-            e.currentTarget.style.background = 'var(--ui-surface0)';
+            e.currentTarget.style.background = `color-mix(in srgb, ${color.text} 5%, transparent)`;
             e.currentTarget.style.color = color.subtext;
           }
         }}

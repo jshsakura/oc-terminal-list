@@ -907,7 +907,10 @@ function App() {
         }
         // 터미널이 붙기 전엔 눌러봐야 보낼 곳이 없다 — 로딩 중엔 액션 버튼을 흐리게 잠근다.
         actionsDisabled={activeTabId !== null && !readyByTabId[activeTabId]}
-        onReloadTerminals={() => setTerminalReloadSignal((s) => s + 1)}
+        // 새로고침할 터미널이 있을 때만 — 홈에서는 되돌릴 화면 자체가 없다.
+        onReloadTerminals={
+          activeTabId !== null ? () => setTerminalReloadSignal((s) => s + 1) : null
+        }
         // 분할이 2개 이상일 때만 의미 있음 — 단일 pane 에선 숨긴다.
         onEqualizePanes={
           !isMobile && (activeTab?.panes?.length || 0) > 1

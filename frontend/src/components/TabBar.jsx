@@ -48,10 +48,14 @@ const TabBar = ({
   const settingsBtnRef = useRef(null);
   const settingsMenuClosedAtRef = useRef(0);
 
+  /* 설정 외에 실제로 할 게 있는가. 홈에는 새로고침할 터미널도, 균등 분할할 pane 도 없어
+     메뉴가 "시스템 설정" 한 줄짜리가 된다 — 한 줄 메뉴는 클릭을 한 번 더 받을 뿐이다. */
+  const hasSubMenuActions = !!onReloadTerminals || !!onEqualizePanes;
+
   const handleSettingsClick = useCallback(() => {
     // 모바일: 서브메뉴(Reload/Equalize) 거치지 않고 설정 화면을 바로 연다 — 좁은 화면에서
     // 팝업 위치/터치가 어긋나 "눌러도 안 나오는" 느낌을 없앤다.
-    if (isMobile) { onOpenSettings?.(); return; }
+    if (isMobile || !hasSubMenuActions) { onOpenSettings?.(); return; }
     if (settingsMenu) {
       setSettingsMenu(null);
       settingsMenuClosedAtRef.current = Date.now();
@@ -62,7 +66,7 @@ const TabBar = ({
       const rect = settingsBtnRef.current.getBoundingClientRect();
       setSettingsMenu({ x: rect.right, y: rect.bottom + 4 });
     }
-  }, [settingsMenu, isMobile, onOpenSettings]);
+  }, [settingsMenu, isMobile, hasSubMenuActions, onOpenSettings]);
 
   // 모바일 터치 드래그 — TabBar scroll 컨테이너에 ref 를 걸고 훅에 넘김 (드래그 모드 시 가로 스크롤 락).
   const tabListRef = useRef(null);
@@ -217,6 +221,9 @@ const TabBar = ({
             tab={tab}
             index={idx + 1}
             isFirst={idx === 0}
+            /* 호스트가 바뀌는 자리에서만 그룹이 시작된다. 로컬 탭은 hostId 가 없으므로
+               한 덩어리로 묶인다(그것도 "이 기계" 라는 한 그룹이다). */
+            startsGroup={idx > 0 && (tabs[idx - 1].hostId || 'local') !== (tab.hostId || 'local')}
             isActive={tab.id === activeTabId}
             isBusy={!!busyTabIds && busyTabIds.has(tab.id)}
             isDragging={activeDraggingId === tab.id}

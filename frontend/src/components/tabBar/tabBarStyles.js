@@ -32,8 +32,9 @@ export const styles = {
     display: 'flex',
     alignItems: 'stretch',
     height: '100%',
-    /* 위아래 5px — 칩에 면이 생기니 3px 로는 바 위아래에 거의 붙어 보였다. */
-    padding: '5px 0',
+    /* 트랙(tabList)이 안쪽 여백을 갖는다 — 여기서 또 패딩을 주면 칩이 두 번 밀린다.
+       히트 영역은 트랙 안쪽 높이를 꽉 채워 터치 타깃을 유지한다. */
+    padding: '0',
     boxSizing: 'border-box',
     minWidth: '46px',
     maxWidth: '168px',
@@ -92,12 +93,22 @@ export const styles = {
     margin: '5px 7px 0 0',
     borderRadius: '3px',
   },
+  /* 탭 스트립 = **세그먼트 스위치의 트랙**.
+     칩을 바 위에 그냥 얹던 시절엔 "칩이 있다/없다" 뿐이라 활성 표시가 면 밝기 한 단계에
+     의존했다. 스트립을 한 단 움푹 파고 그 안에서 활성만 떠오르게 하면 눌린 자리와 떠 있는
+     자리가 형태로 구분된다 — 세그먼티드 컨트롤의 관례 그대로.
+     (비활성 칩을 투명으로 두는 것은 예전에 한 번 실패했지만, 그때는 트랙이 없어 경계가
+      통째로 사라졌던 것이다. 지금은 트랙 자체가 경계를 갖는다.) */
   tabList: {
     display: 'flex',
     alignItems: 'stretch',
-    // 칩 사이 간격 — 그어진 구분선 대신 빈 틈(=바 면)이 경계를 만든다.
-    // 2px 은 면이 붙은 칩끼리 다닥다닥 붙어 보였고, 4px 도 아직 빡빡했다.
-    gap: '6px',
+    background: 'color-mix(in srgb, #000 22%, var(--ui-crust))',
+    borderRadius: '8px',
+    padding: '2px',
+    margin: '2px 0',
+    boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.35)',
+    // 간격은 그룹 경계에서만 준다(같은 호스트 탭끼리는 붙는다) — tabHitGroupStart.
+    gap: '0',
     overflowX: 'auto',
     overflowY: 'hidden',
     flex: '1 1 auto',
@@ -109,7 +120,7 @@ export const styles = {
     msOverflowStyle: 'none',           // IE/Edge legacy
   },
   tabListMobile: {
-    gap: '6px',
+    gap: '0',
     flex: '1 1 auto',
     paddingTop: '0',
     paddingBottom: '0',
@@ -143,6 +154,20 @@ export const styles = {
     flexShrink: 0,
     margin: '0 5px',
     background: 'var(--ui-border-strong)',
+  },
+  /* 호스트가 바뀌는 자리에만 틈 + 헤어라인 — 같은 기계의 탭들은 붙어서 한 덩어리로 읽힌다.
+     그룹 상자를 따로 그리지 않는다(면 위에 면 금지). 틈과 선 하나면 충분하다. */
+  tabHitGroupStart: {
+    marginLeft: '9px',
+  },
+  tabGroupDivider: {
+    position: 'absolute',
+    left: '-5px',
+    top: '6px',
+    bottom: '6px',
+    width: '1px',
+    background: 'var(--ui-border-strong)',
+    pointerEvents: 'none',
   },
   tabName: {
     flex: 1,

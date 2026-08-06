@@ -1577,6 +1577,29 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     outputRef.current?.flush();
   }, [isActive]);
 
+  /* 탭 복귀 직후 **전체 재페인트**.
+   *
+   * 비활성 동안 WebGL 컨텍스트를 반납했다가 돌아올 때 다시 붙이면 캔버스가 새로
+   * 만들어져 비어 있는데, xterm 은 "바뀐 행" 만 다시 그린다 — 그래서 아래 몇 줄만 찍히고
+   * 위쪽이 검게 남는다(스크롤을 올렸다 내리면 전체 재페인트가 돌아 정상으로 보이던 그것).
+   *
+   * 컨트롤러도 attach 직후 refresh 를 부르지만 그건 **부착 시점**이다. 탭 전환은
+   * visibility 토글이라 레이아웃이 변하지 않아 ResizeObserver 가 짖지 않고, 아무도 그
+   * 뒤를 봐주지 않는다. 그래서 레이아웃이 확정된 다음 프레임에 한 번 더 그린다.
+   */
+  useEffect(() => {
+    if (!isActive) return undefined;
+    let inner = 0;
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => {
+        const term = xtermRef.current;
+        if (!term) return;
+        try { term.refresh(0, Math.max(0, (term.rows || 1) - 1)); } catch { /* dispose 됨 */ }
+      });
+    });
+    return () => { cancelAnimationFrame(outer); if (inner) cancelAnimationFrame(inner); };
+  }, [isActive]);
+
   // WebGL 컨텍스트 수명 = 활성 탭에 한정. 비활성 탭은 유예 후 컨텍스트 반납해서
   // pane 이 많아도(여러 탭 × 분할) 브라우저 WebGL 컨텍스트 한도(~16)를 넘지 않게 한다.
   // 이걸 안 하면 컨텍스트 고갈로 렌더러 OOM → 브라우저 탭 전체 크래시.

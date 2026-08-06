@@ -99,6 +99,27 @@ describe('재연결 회복력', () => {
     }, 20000);
   });
 
+  describe('탭 복귀 재페인트', () => {
+    /* 탭을 갔다 오면 위쪽이 검게 비고 아래 몇 줄만 찍히던 증상. WebGL 을 반납했다가 다시
+       붙이면 캔버스가 새로 비는데 xterm 은 바뀐 행만 그린다. 탭 전환은 visibility 토글이라
+       ResizeObserver 도 안 짖어서 아무도 전체 재페인트를 시키지 않았다(스크롤하면 풀렸다). */
+    it('비활성 → 활성 전환 후 전체 재페인트를 한 번 돌린다', async () => {
+      const props = { sessionId: 's1', settings: testSettings(), isFocused: true, isMobile: false };
+      const { rerender } = render(<TerminalComponent {...props} isActive />);
+      await openSocket();
+
+      await act(async () => { rerender(<TerminalComponent {...props} isActive={false} />); });
+      const term = harness.term;
+      term.refresh.mockClear();
+
+      await act(async () => { rerender(<TerminalComponent {...props} isActive />); });
+      // 레이아웃 확정 뒤(rAF 2프레임) 그린다.
+      await act(async () => { await vi.advanceTimersByTimeAsync(50); });
+
+      expect(term.refresh).toHaveBeenCalledWith(0, term.rows - 1);
+    }, 20000);
+  });
+
   describe('하트비트 오탐 방어', () => {
     /* 공유 터널이 잠깐 막혀 pong 이 두 번 늦으면 12s 임계에 걸린다. 그때 소켓을 곧장
        죽이면 멀쩡한 연결이 끊기고 복구에 수십 초가 든다 — 죽이기 전에 한 번 더 물어본다. */
