@@ -52,8 +52,8 @@ const cardStyle = {
   border: `1px solid ${color.border}`, borderRadius: radius.md,
 };
 const titleStyle = {
-  margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
-  color: color.text, fontFamily: font.sans,
+  margin: 0, fontSize: fontSize['11'], fontWeight: fontWeight.semibold,
+  color: color.subtext, fontFamily: font.sans, letterSpacing: '0.02em',
 };
 const listStyle = { display: 'flex', flexDirection: 'column', gap: '7px' };
 const rowStyle = {
@@ -62,7 +62,7 @@ const rowStyle = {
 };
 const nameStyle = { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 };
 const nameTextStyle = {
-  fontSize: fontSize['11'], color: color.text, fontFamily: font.sans,
+  fontSize: fontSize['10.5'] || '10.5px', color: color.text, fontFamily: font.sans,
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 const dotStyle = { width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0 };

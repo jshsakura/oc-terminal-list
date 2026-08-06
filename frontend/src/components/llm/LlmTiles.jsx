@@ -51,18 +51,22 @@ export const LlmTiles = ({ totals, money, moneyTitle, t }) => {
     },
   ];
 
-  return (
-    <div style={tilesStyle}>
-      {tiles.map((tile) => (
-        <div key={tile.key} style={tileStyle}>
-          <div style={tileKeyStyle}>{tile.key}</div>
-          <div style={tileValueStyle} title={tile.title}>{tile.value}</div>
-          <div style={tileNoteStyle}>{tile.note}</div>
-        </div>
-      ))}
-    </div>
-  );
+  return <TileRow tiles={tiles} />;
 };
+
+/** 타일 한 줄 — 대시보드의 모든 숫자가 같은 모양을 쓰도록 여기 하나만 둔다.
+    터미널 사용량과 LLM 비용이 서로 다른 카드처럼 생기면 한 화면으로 안 읽힌다. */
+export const TileRow = ({ tiles }) => (
+  <div style={tilesStyle}>
+    {tiles.map((tile) => (
+      <div key={tile.key} style={tileStyle}>
+        <div style={tileKeyStyle}>{tile.key}</div>
+        <div style={tileValueStyle} title={tile.title}>{tile.value}</div>
+        {tile.note && <div style={tileNoteStyle}>{tile.note}</div>}
+      </div>
+    ))}
+  </div>
+);
 
 /** Derived efficiency numbers — all computable from what we already fetched. */
 export const KeyStats = ({ totals, sessions, money, t }) => {
@@ -93,16 +97,16 @@ export const KeyStats = ({ totals, sessions, money, t }) => {
 
 const tilesStyle = {
   display: 'grid', gap: space['3'],
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 170px), 1fr))',
 };
 const tileStyle = {
-  display: 'flex', flexDirection: 'column', gap: '4px',
-  padding: space['3'], background: color.surface0,
+  display: 'flex', flexDirection: 'column', gap: '3px',
+  padding: '10px 12px', background: color.surface0,
   border: `1px solid ${color.border}`, borderRadius: radius.md,
 };
 const tileKeyStyle = { fontSize: fontSize['10'], color: color.subtext, fontFamily: font.sans };
 const tileValueStyle = {
-  fontSize: 'clamp(20px, 4vw, 26px)', fontWeight: fontWeight.semibold, color: color.text,
+  fontSize: 'clamp(17px, 3vw, 21px)', fontWeight: fontWeight.semibold, color: color.text,
   fontFamily: font.sans, letterSpacing: '-0.02em', lineHeight: 1.15,
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   fontVariantNumeric: 'tabular-nums',
@@ -122,6 +126,6 @@ const keyStatStyle = {
 };
 const keyStatLabelStyle = { fontSize: fontSize['10'], color: color.subtext };
 const keyStatValueStyle = {
-  fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: color.text,
+  fontSize: fontSize['12'], fontWeight: fontWeight.semibold, color: color.text,
   fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
 };

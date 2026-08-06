@@ -474,11 +474,13 @@ const cardStyle = {
   border: `1px solid ${color.border}`, borderRadius: radius.md,
 };
 const cardHeadStyle = { display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' };
+/* 카드 제목은 콘텐츠가 아니다 — 라벨 크기(11px)로, 색도 한 단계 죽인다.
+   제목이 값만큼 크면 카드마다 두 번씩 크게 말하는 셈이라 어디를 볼지 알 수 없다. */
 const cardTitleStyle = {
-  margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
-  color: color.text, fontFamily: font.sans,
+  margin: 0, fontSize: fontSize['11'], fontWeight: fontWeight.semibold,
+  color: color.subtext, fontFamily: font.sans, letterSpacing: '0.02em',
 };
-const cardHintStyle = { margin: '2px 0 0', fontSize: fontSize['10'], color: color.subtext };
+const cardHintStyle = { margin: '2px 0 0', fontSize: fontSize['10'], color: color.faint };
 const colsStyle = {
   display: 'grid', gap: space['3'],
   gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))',

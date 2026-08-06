@@ -10,6 +10,7 @@ import HomeSessions from './HomeSessions';
 import useHostReorder from '../hooks/useHostReorder';
 import DashboardCards from './DashboardCards';
 import LlmDashboard from './llm/LlmDashboard';
+import TerminalTiles from './llm/TerminalTiles';
 import { LLM_USAGE_CHANGED_EVENT, LLM_USAGE_BUSY_EVENT } from '../utils/llmUsageBus';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
@@ -199,9 +200,8 @@ const HomeDashboard = ({
               </button>
             </div>
 
-            <div style={gridStyle}>
-              <DashboardCards hosts={hosts} settings={settings} days={rangeDays || 90} bare t={t} />
-            </div>
+            {/* 터미널 사용량도 LLM 숫자와 같은 타일·같은 막대 — 한 대시보드다. */}
+            <TerminalTiles hosts={hosts} settings={settings} days={rangeDays} t={t} />
 
             <LlmDashboard
               hosts={hosts}
@@ -485,7 +485,10 @@ const styles = {
   },
   inner: {
     width: '100%',
-    maxWidth: '960px',
+    /* 폭을 조이지 않는다. 960px 은 호스트 카드가 고정 폭이던 시절의 보정이었고,
+       지금 카드들은 그리드에서 스스로 늘고 준다 — 넓은 화면에서 가운데 좁은 기둥으로
+       서면 그건 여백이 아니라 낭비다. 대신 좌우 여백만 준다. */
+    maxWidth: '1600px',
     margin: '0 auto',
     display: 'flex',
     flexDirection: 'column',
