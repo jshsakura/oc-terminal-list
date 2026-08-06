@@ -174,16 +174,17 @@ export const Tab = memo(({
           fontWeight: fontWeight.medium,
           /* 활성은 트랙 위로 **떠오른다** — 그림자(아래)와 1px 하이라이트(위)가 두께를
              만든다. 이게 없으면 색만 다른 사각형이라 세그먼트 스위치로 안 읽힌다. */
-          /* 1px 헤어라인을 **안쪽 그림자로** 두른다(레이아웃을 건드리지 않는다). 면 차이가
-             테마에 따라 사라져도 윤곽은 남는다 — §15 의 "상자 보더 없음" 은 지키되 경계는
-             또렷하게. 활성은 한 단 진한 선 + 아래 그림자로 확실히 떠오른다. */
+          /* 윤곽의 세기는 두 번 헛짚고 잡은 값이다. 없으면(원래) 어디까지가 한 탭인지 안
+             보이고, 16%/8% 로 세우면 탭마다 테두리가 도드라져 촌스럽다. **보이되 선으로
+             읽히지는 않는** 지점이 7%(비활성)/10%(활성)다 — 경계의 본체는 어디까지나 면
+             차이(비활성 surface0 vs 바 crust)이고 이 선은 그것을 또렷하게 만들 뿐이다. */
           boxShadow: isDragOver
             ? `inset 0 0 0 2px ${color.accent}`
             : (isActive
-              ? `inset 0 0 0 1px color-mix(in srgb, ${color.text} 16%, transparent),`
-                + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 12%, transparent),`
-                + ` 0 1px 3px rgba(0, 0, 0, 0.45)`
-              : `inset 0 0 0 1px color-mix(in srgb, ${color.text} 8%, transparent)`),
+              ? `inset 0 0 0 1px color-mix(in srgb, ${color.text} 10%, transparent),`
+                + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 10%, transparent),`
+                + ` 0 1px 3px rgba(0, 0, 0, 0.35)`
+              : `inset 0 0 0 1px color-mix(in srgb, ${color.text} 7%, transparent)`),
         }}
         onMouseEnter={(e) => {
           if (isMobile) return;
