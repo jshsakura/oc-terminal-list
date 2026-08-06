@@ -8,15 +8,16 @@ import { numberTileStyle } from '../../styles/numberTile';
 const { color, font, fontWeight } = tokens;
 
 /* Chip outline — **the surface makes the boundary; the line only helps.** Walked down
-   twice: 16%/8% → 10%/7% → 6%/4%. Once the line becomes visible as a line, every tab
-   looks framed and cheap. Only hover steps up (8%) so the surface and the outline
-   together say "your pointer is on this one". */
+   three times: 16%/8% → 10%/7% → 6%/4% → 4%/2%. Once the line reads as a line, every tab
+   looks framed and cheap; the boundary that carries the weight is the surface step
+   (inactive surface0 vs. the bar's crust). Hover is the one place it steps up (7%), because
+   there it has to say "your pointer is on this one" together with the surface. */
 const ring = (pct) => `inset 0 0 0 1px color-mix(in srgb, ${color.text} ${pct}%, transparent)`;
-const IDLE_RING = ring(4);
-const HOVER_RING = ring(8);
-const ACTIVE_SHADOW = `${ring(6)},`
-  + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 8%, transparent),`
-  + ' 0 1px 3px rgba(0, 0, 0, 0.3)';
+const IDLE_RING = ring(2);
+const HOVER_RING = ring(7);
+const ACTIVE_SHADOW = `${ring(4)},`
+  + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 7%, transparent),`
+  + ' 0 1px 3px rgba(0, 0, 0, 0.28)';
 const DRAG_OVER_RING = (accent) => `inset 0 0 0 2px ${accent}`;
 
 // 혼합 호스트 타일 스택 — 모든 타일 동일 크기, 절반씩 겹치는 아바타 스택.
