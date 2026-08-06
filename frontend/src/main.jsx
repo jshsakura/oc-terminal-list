@@ -28,23 +28,20 @@ glassBlurStyle.textContent = `
     :root { --glass-blur-menu: 6px; --glass-blur-panel: 6px; --glass-blur-overlay: 2px; --glass-blur-card: 5px; }
   }
 
-  /* 메뉴 행 호버 — **CSS 로 한다.**
-     JS onMouseEnter 로 인라인 background 를 바꾸는 방식은 메뉴마다 따로 배선돼 있어
-     어떤 메뉴는 먹고 어떤 메뉴는 안 먹었다(실제로 설정 서브메뉴에서 안 보였다). 규칙을
-     한 줄로 두면 클래스만 붙은 곳은 전부 같이 동작한다.
+  /* 메뉴 행 호버 — 앱 전체가 이 규칙 하나를 쓴다(클래스만 붙이면 된다).
      인라인 background:transparent 가 기본값이라 !important 가 필요하다.
 
-     색은 **액센트를 섞어 불투명하게** 만든다. 반투명 하이라이트는 유리 메뉴 뒤에 비치는
-     것과 섞여 테마에 따라 사라진다 — 호버는 "지금 이 줄이 눌린다" 는 유일한 신호다. */
-  .iterm-menu-item { transition: background 120ms, box-shadow 120ms, color 120ms; }
+     **면 하나로 끝낸다.** 왼쪽 액센트 막대를 덧대봤지만 줄마다 색 조각이 튀어나와
+     메뉴가 시끄러워졌다 — 호버는 "이 줄" 을 말하면 되고, 그건 면이 이미 한다.
+     대신 면은 불투명이어야 한다: 반투명 하이라이트는 유리 메뉴 뒤에 비치는 것과 섞여
+     테마에 따라 통째로 사라진다. */
+  .iterm-menu-item { transition: background 120ms, color 120ms; }
   .iterm-menu-item:hover:not(:disabled) {
     background: color-mix(in srgb, var(--ui-accent, #89b4fa) 20%, var(--ui-surface2, #393949)) !important;
-    box-shadow: inset 2px 0 0 var(--ui-accent, #89b4fa);
     color: var(--ui-text, #e4e6f1);
   }
   .iterm-menu-item-danger:hover:not(:disabled) {
     background: color-mix(in srgb, var(--ui-danger, #f38ba8) 22%, var(--ui-surface2, #393949)) !important;
-    box-shadow: inset 2px 0 0 var(--ui-danger, #f38ba8);
     color: var(--ui-danger, #f38ba8);
   }
 `;
