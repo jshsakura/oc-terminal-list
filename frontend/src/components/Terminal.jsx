@@ -1577,15 +1577,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     outputRef.current?.flush();
   }, [isActive]);
 
-  /* 탭 복귀 직후 **전체 재페인트**.
+  /* **Full repaint right after a tab becomes active.**
    *
-   * 비활성 동안 WebGL 컨텍스트를 반납했다가 돌아올 때 다시 붙이면 캔버스가 새로
-   * 만들어져 비어 있는데, xterm 은 "바뀐 행" 만 다시 그린다 — 그래서 아래 몇 줄만 찍히고
-   * 위쪽이 검게 남는다(스크롤을 올렸다 내리면 전체 재페인트가 돌아 정상으로 보이던 그것).
+   * While inactive the WebGL context is released; re-attaching on return creates a fresh,
+   * empty canvas, but xterm only redraws "changed rows" — so a few lines land at the bottom
+   * and the top stays black (scrolling up and down forced a full repaint and "fixed" it).
    *
-   * 컨트롤러도 attach 직후 refresh 를 부르지만 그건 **부착 시점**이다. 탭 전환은
-   * visibility 토글이라 레이아웃이 변하지 않아 ResizeObserver 가 짖지 않고, 아무도 그
-   * 뒤를 봐주지 않는다. 그래서 레이아웃이 확정된 다음 프레임에 한 번 더 그린다.
+   * The controller does refresh right after attach, but that is **attach time**. A tab switch
+   * is a visibility toggle: the layout does not change, so no ResizeObserver fires and nobody
+   * looks again. Hence one more paint on the frame after layout settles.
    */
   useEffect(() => {
     if (!isActive) return undefined;

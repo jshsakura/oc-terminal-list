@@ -12,7 +12,7 @@ const ConfirmModal = lazy(() => import('./ConfirmModal'));
 const NotificationModal = lazy(() => import('./NotificationModal'));
 const CommandPalette = lazy(() => import('./CommandPalette'));
 
-/** 모달이 오는 동안의 자리 — 스크림 + 작은 스피너. 청크가 도착하면 곧바로 교체된다. */
+/** Placeholder while a modal loads — scrim plus a small spinner, replaced on arrival. */
 const ModalLoading = () => (
   <div
     style={{
@@ -66,12 +66,12 @@ export default function AppModals({
   ], [t, handleAddTab, setIsSettingsOpen, openTerminalSearch, openFilePicker]);
 
   return (
-    /* fallback 이 null 이면 청크가 오는 동안 화면에 **아무것도** 안 뜬다 — 클릭이 먹었는지
-       알 수 없어 계속 누르게 된다. 모달 자리에 스크림+스피너를 먼저 띄운다.
+    /* With a null fallback, **nothing** appears while the chunk loads — you cannot tell
+       whether the click registered, so you keep clicking. Show the scrim and spinner first.
 
-       `resetKey` 는 "지금 무엇이 열려 있나" 다. 모달들이 이 경계 하나를 공유하므로, 경계가
-       한 번 걸린 채 굳으면 그 세션에서는 아무 모달도 안 뜬다 — 열림 상태가 바뀔 때마다
-       경계를 풀어 **다음 클릭은 다시 시도**하게 한다. */
+       `resetKey` is "what is open right now". Every modal shares this one boundary, so a
+       boundary stuck in its error state means no modal opens for the rest of the session —
+       clearing it whenever the open set changes makes **the next click try again**. */
     <LazyErrorBoundary
       resetKey={[
         isSettingsOpen, keyManagerOpen, hostEditorState?.isOpen,

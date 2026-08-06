@@ -32,7 +32,7 @@ const MAX_COLUMNS = 3;
 
 const HomeDashboard = ({
   hosts = [],
-  // 호스트 목록을 아직 못 받았나 — 첫 조회 동안 카드 자리를 스켈레톤으로 채운다.
+  // Host list not in yet — fill the card slots with skeletons during the first fetch.
   hostsLoading = false,
   localCard,
   settings = {},
@@ -77,8 +77,9 @@ const HomeDashboard = ({
   const [rangeDays, setRangeDays] = useState(7);
   /* 갱신 중 표시 — 실제로 도는 곳은 LlmDashboard 라 이벤트로 받는다. 눌렀는데
      아무것도 안 움직이면 눌린 줄 모른다. */
-  /* 통계는 홈이 가져온다 — 아래 카드만 알고 있으면 머리(기간 스위치)는 늘 완성된 채 서고
-     아래만 비어 화면이 반쯤 그려진 것처럼 보인다. 로딩은 한 덩어리여야 한다. */
+  /* The home fetches the stats — if only the cards below knew, the head (the range switch)
+     would stand finished above an empty body and the page would look half-drawn. Loading
+     has to be one piece. */
   const { data: usage, loading: usageLoading } = useTerminalUsage(rangeDays || 90);
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
@@ -123,10 +124,11 @@ const HomeDashboard = ({
     return () => ro.disconnect();
   }, []);
 
-  /* 홈은 "화면" 이다 — 위에서 빛이 드는 워시 위에 주사선이 깔리고, 그 위에 카드가 놓인다.
-     **주사선은 화면의 것이지 카드의 것이 아니다.** 카드 위로 선을 인쇄하듯 덮으면 숫자
-     위에 무늬가 얹혀 어수선하다 — 카드는 유리라서 뒤의 선을 흐리게 통과시키고, 그 흐릿함이
-     "유리 너머" 를 만든다. 질감을 거부하는 테마('flat', e-ink)에서는 둘 다 주지 않는다. */
+  /* The home is a "screen": a wash lit from the top, scanlines over it, cards on top of
+     those. **The lines belong to the screen, not to the cards.** Printed across a card they
+     put a pattern on the numbers; the cards are glass instead, so the lines pass through
+     blurred and that blur is what reads as "behind the glass". Themes that refuse texture
+     ('flat', e-ink) get neither. */
   const backdrop = useMemo(() => {
     const theme = themes[settings.theme] || themes[defaultTheme];
     const wash = canvasWash(theme);
@@ -180,9 +182,9 @@ const HomeDashboard = ({
              좁힌다 — 카드마다 기간을 두면 한 화면에서 7일과 30일을 비교하게 된다. */
           <>
             <div style={styles.dashHead}>
-              {/* 첫 조회 중에는 기간 스위치도 스켈레톤이다. 값이 없는 화면 위에서 기간만
-                  또렷하면 그건 "고를 수 있다" 가 아니라 "여기만 로딩이 끝났다" 로 읽힌다.
-                  (캐시가 있으면 첫 렌더부터 값이 있어 이 자리는 지나간다.) */}
+              {/* During the first fetch the range switch is a skeleton too. Sharp above an
+                  empty screen it reads as "this part finished loading", not "you may choose".
+                  (With a warm cache the first render already has data and this never shows.) */}
               {usageLoading && !usage ? <RangeSkeleton /> : (
               <div style={styles.rangeRow}>
                 {RANGES.map(([value]) => {
@@ -286,8 +288,8 @@ const HomeDashboard = ({
               />
             )}
 
-            {/* 첫 조회 중 — 카드가 들어올 자리를 같은 크기로 잡아둔다. 빈 화면에서 카드가
-                툭 떨어지면 목록이 늦게 온 게 아니라 방금 만들어진 것처럼 보인다. */}
+            {/* First fetch — hold the slots at the real size. Cards dropping into an empty
+                screen look freshly created rather than late. */}
             {hostsLoading && orderedHosts.length === 0 && (
               [0, 1, 2].map((i) => <HostRowSkeleton key={`skel-${i}`} />)
             )}
@@ -369,7 +371,7 @@ const Section = ({ icon: Icon, title, children }) => (
   </div>
 );
 
-/** 호스트 카드가 들어올 자리 — 진짜 카드와 같은 높이·같은 배치(아이콘·이름·부제). */
+/** Slot for a host card — same height and layout as the real one (icon, name, subtitle). */
 const HostRowSkeleton = () => (
   <div style={{ ...styles.row, cursor: 'default' }} aria-busy="true">
     <SkeletonRow width="40px" height="40px" borderRadius={radius.md} style={{ flexShrink: 0 }} />
@@ -526,8 +528,9 @@ const styles = {
     background: color.base,
     position: 'relative',
     overflow: 'auto',
-    /* 스크롤바 자리를 늘 비워둔다. 연결 화면(짧음)과 대시보드(김)를 오갈 때 스크롤바가
-       생겼다 사라지며 가운데 칼럼이 그 폭만큼 좌우로 덜컥인다 — 탭을 옮길 때도 같다. */
+    /* Always reserve the scrollbar gutter. Moving between the connections view (short) and
+       the dashboard (long), the scrollbar appears and disappears and the centre column jolts
+       sideways by its width — the same happens when switching tabs. */
     scrollbarGutter: 'stable',
     fontFamily: font.sans,
     padding: `${space['4']} ${space['5']}`,

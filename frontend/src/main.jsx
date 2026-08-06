@@ -28,15 +28,16 @@ glassBlurStyle.textContent = `
     :root { --glass-blur-menu: 6px; --glass-blur-panel: 6px; --glass-blur-overlay: 2px; --glass-blur-card: 5px; }
   }
 
-  /* 메뉴 행 호버 — 앱 전체가 이 규칙 하나를 쓴다(클래스만 붙이면 된다).
-     인라인 background:transparent 가 기본값이라 !important 가 필요하다.
+  /* Menu row hover - the whole app uses this one rule; a row just needs the class.
+     The rule needs !important because the inline default is background: transparent.
 
-     **면 하나로 끝낸다.** 왼쪽 액센트 막대를 덧대봤지만 줄마다 색 조각이 튀어나와
-     메뉴가 시끄러워졌다 — 호버는 "이 줄" 을 말하면 되고, 그건 면이 이미 한다.
-     대신 면은 불투명이어야 한다: 반투명 하이라이트는 유리 메뉴 뒤에 비치는 것과 섞여
-     테마에 따라 통째로 사라진다. */
-  /* 스켈레톤 펄스와 스피너 — **전역**이다. 예전엔 DashboardCards 가 렌더될 때만 주입돼,
-     그 컴포넌트를 화면에서 뺀 순간 새로고침 아이콘이 조용히 안 돌게 됐다. */
+     **One surface is enough.** A left accent bar was tried and every row grew a colour
+     chip, which made menus noisy — hover only has to say "this row", and the surface
+     already does. The surface must be opaque though: a translucent highlight blends
+     with whatever shows through the glass menu and disappears on some themes. */
+  /* Skeleton pulse and spinner — **global**. These used to be injected only while
+     DashboardCards rendered, so the refresh icon silently stopped spinning the moment
+     that component left the screen. */
   @keyframes iterm-skel-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.7; } }
   @keyframes dc-spin { to { transform: rotate(360deg); } }
   .dc-spin { animation: dc-spin 0.9s linear infinite; transform-origin: 50% 50%; }

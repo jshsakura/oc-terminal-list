@@ -181,8 +181,8 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
 
 /* 첫 수집은 호스트마다 SSH 를 타므로 몇 초가 걸린다. 그동안 빈 화면을 두면 "멈췄나"
    로 읽히고, 그게 곧 체감 지연이다. 카드 자리를 미리 세워 둔다. */
-/* 로딩 자리는 대시보드 위쪽(터미널 사용량)과 **같은 조각**을 쓴다 — 한 화면에서 두 종류의
-   스켈레톤이 서로 다른 모양·다른 펄스로 뛰면 그게 로딩이 아니라 고장으로 보인다. */
+/* The loading placeholder uses the **same pieces** as the terminal usage block above it —
+   two skeletons pulsing in different shapes on one screen look like a fault, not loading. */
 const LoadingCards = ({ t }) => (
   <div style={rootStyle} aria-busy="true">
     <div style={{ ...stateStyle, textAlign: 'left' }}>{t?.('llmCollecting') || 'Collecting…'}</div>
@@ -230,9 +230,10 @@ const DailyChart = ({ rows, money, t }) => {
     setHover(Math.max(0, Math.min(days.length - 1, i)));
   };
   const shown = hover == null ? null : days[hover];
-  /* 값은 **커서 옆**에 띄운다. 차트 위 왼쪽 구석에 적으면 눈이 그래프와 구석을 왕복해야
-     하고, 그 줄은 호버하지 않는 동안 빈칸으로 남아 카드에 구멍이 뚫린 것처럼 보인다.
-     터치에는 호버가 없어 손가락이 값을 가리므로, 폰에서는 지금처럼 위에 적는다. */
+  /* The value goes **next to the cursor**. Printed in the top-left corner, the eye has to
+     travel between the graph and the corner, and while nothing is hovered that line sits
+     empty like a hole in the card. Touch has no hover and a finger would cover the tooltip,
+     so on phones it stays above. */
   const pointerTooltip = !isTouchPointer();
   const tooltipLeftPct = hover != null && chart.xs[hover] != null
     ? (chart.xs[hover] / CHART_W) * 100
@@ -352,9 +353,10 @@ const DailyChart = ({ rows, money, t }) => {
             </span>
           ))}
 
-          {/* 커서 옆 툴팁 — 값이 있는 지점 바로 위에 뜬다. 가장자리에서는 좌우로 밀지 않고
-              **꼬리만 옮긴다**(translate 비율 보정): 툴팁이 튀어나가지 않으면서 어느 점을
-              가리키는지는 그대로 유지된다. 포인터 이벤트는 통과시켜 호버가 끊기지 않게. */}
+          {/* Cursor tooltip — sits just above the point. Near the edges it is not pushed
+              sideways; only its anchor moves (the translate ratio), so it stays inside the card
+              while still pointing at the right sample. Pointer events pass through so hover
+              never breaks. */}
           {pointerTooltip && shown && tooltipLeftPct != null && (
             <div
               style={{
@@ -452,8 +454,8 @@ const RecentSessions = ({ rows, onJumpPane, money, t }) => (
   </section>
 );
 
-/* 홈의 터미널/대시보드·기간 스위치와 **같은 모양**을 쓴다 — 성격이 같은 컨트롤이
-   화면마다 달라 보이면 그건 다른 컨트롤로 읽힌다(styles/segmented.js). */
+/* Same shape as the home's Terminals/Dashboard and range switches — a control of the same
+   kind that looks different on each screen reads as a different control (styles/segmented.js). */
 const Segmented = ({ value, onChange, options }) => (
   <div style={segmentedTrackStyle({ radius: '8px' })} role="group">
     {options.map(([key, label]) => {
@@ -506,8 +508,9 @@ const cardStyle = {
   ...dashboardCardStyle(),
 };
 const cardHeadStyle = { display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' };
-/* 제목은 카드가 무엇인지 말하는 유일한 줄이다 — 값보다 작게 두되 본문 색을 유지한다.
-   subtext + 11px 로 내렸더니 카드 이름부터 안 읽혔다. */
+/* The title is the only line that says what a card is — smaller than the value, but in the
+   body colour. Dropped to subtext + 11px, the card's own name became the first thing you
+   could not read. */
 const cardTitleStyle = {
   margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
   color: color.text, fontFamily: font.sans, letterSpacing: '0.02em',
@@ -524,7 +527,8 @@ const chartReadoutStyle = {
   minHeight: '16px', fontSize: fontSize['11'], fontFamily: font.sans,
 };
 const chartWrapStyle = { position: 'relative', width: '100%' };
-/* 호버가 없는 입력(터치)에서는 커서 툴팁이 손가락 밑에 깔린다 — 그때는 상단 readout 을 쓴다. */
+/* With hover-less input (touch) the cursor tooltip ends up under the finger — those devices
+   keep the readout above the chart. */
 const isTouchPointer = () => {
   if (typeof window === 'undefined' || !window.matchMedia) return false;
   return window.matchMedia('(hover: none)').matches;

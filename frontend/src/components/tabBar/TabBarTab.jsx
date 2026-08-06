@@ -7,9 +7,10 @@ import { numberTileStyle } from '../../styles/numberTile';
 
 const { color, font, fontWeight } = tokens;
 
-/* 칩의 윤곽 — **면이 경계를 만들고 선은 거들기만 한다.** 16%/8% → 10%/7% → 6%/4% 로 두 번
-   내려온 값이다. 선이 보이기 시작하면 탭마다 테두리를 두른 꼴이라 촌스러워진다.
-   호버만 한 단 세워(8%) "손이 얹혀 있다" 를 면과 함께 말한다. */
+/* Chip outline — **the surface makes the boundary; the line only helps.** Walked down
+   twice: 16%/8% → 10%/7% → 6%/4%. Once the line becomes visible as a line, every tab
+   looks framed and cheap. Only hover steps up (8%) so the surface and the outline
+   together say "your pointer is on this one". */
 const ring = (pct) => `inset 0 0 0 1px color-mix(in srgb, ${color.text} ${pct}%, transparent)`;
 const IDLE_RING = ring(4);
 const HOVER_RING = ring(8);
@@ -94,16 +95,18 @@ export const Tab = memo(({
   // 모든 칩이 바보다 밝게 떠 있고, 그중 활성이 한 단계 더 밝은 구조라야 보더 없이 읽힌다.
   // 활성은 확실히 띄우고(surface2 +20%), 비활성은 바(crust +6%) 바로 위에 살짝만 얹는다
   // (+8.2%). 비활성까지 또렷하면 탭 줄 전체가 무거워진다 — 면은 "있다" 정도만.
-  // 트랙(움푹한 스트립) 안에서 **활성만 떠오른다**. 비활성은 트랙 면 그대로 두고,
-  // 호버에서만 살짝 밝아진다 — 눌린 자리/떠 있는 자리가 형태로 구분되므로 비활성까지
-  // 칠하면 트랙이 다시 빈틈없는 덩어리가 된다.
-  /* 칩의 경계는 면 차이가 만든다 — 그런데 비활성 칩을 crust 쪽으로 절반이나 눕혀 두니
-     테마에 따라 바와 거의 같은 색이 되어 "어디부터 어디까지가 한 탭인지" 가 흐릿했다.
-     비활성도 surface0 전부(바보다 확실히 위)로 올리고, 활성은 surface2 그대로 둔다. */
+  // Inside the recessed track **only the active chip rises**. Inactive keeps the track's
+  // surface and brightens on hover only — pressed vs. raised is already a shape
+  // difference, and painting the inactive ones turns the track back into a solid slab.
+  /* The chip boundary comes from the surface step. Laying the inactive chip halfway
+     toward crust made it nearly the bar's own colour on some themes, so where one tab
+     ended was unclear. Inactive now sits on full surface0 (clearly above the bar);
+     active stays on surface2. */
   const tabBase = isActive ? 'var(--ui-surface2)' : 'var(--ui-surface0)';
-  /* 타일과 링은 **언제나 불투명한 면** 위에서 섞는다. 알파 위에 알파를 섞으면 숫자 타일이
-     비쳐 뒤가 올라오고, `0 0 0 1.5px transparent` 링은 아예 안 그려져 겹친 스택 타일이
-     서로 붙어 보인다. 지금은 칩 배경이 곧 그 면이다. */
+  /* Tiles and rings always mix against an **opaque** surface. Alpha over alpha lets the
+     background bleed through the number tile, and a `0 0 0 1.5px transparent` ring is not
+     drawn at all, so stacked tiles merge into one blob. Here the chip background is that
+     surface. */
   const tileBase = tabBase;
   // 스택 타일은 전부 완전 불투명이어야 한다 — 알파 배경/테두리나 opacity 를 쓰면
   // 겹친 아래 타일이 비쳐 색이 섞여 보인다. 톤 조절은 전부 opaque color-mix 로.
@@ -130,8 +133,9 @@ export const Tab = memo(({
     border: tileBorder(tint),
     borderRadius: '4px',
     color: glyphColor(tint),
-    /* 칩 아래에 실제로 깔린 면(tileBase)으로 ring 을 그려 이웃 타일과 분리 — "겹쳐 있음"이
-       읽히게. 투명으로 그리면 ring 이 없는 것과 같아 타일들이 한 덩어리로 뭉친다. */
+    /* Ring drawn in the surface actually beneath the chip (tileBase) so neighbouring tiles
+       separate and read as stacked. Drawn transparent, the ring is not there at all and the
+       tiles merge. */
     boxShadow: `0 0 0 1.5px ${tileBase}`,
     zIndex: stackedCount - i, // 앞 타일이 위, 뒤로 갈수록 아래로 깔림
   });
@@ -180,11 +184,11 @@ export const Tab = memo(({
             ? `color-mix(in srgb, ${color.accent} 14%, ${tileBase})`
             : tabBase,
           color: isActive ? color.text : color.muted,
-          // 굵기는 고정 — 활성 표시는 면과 형태가 한다. 굵기가 바뀌면 탭을 옮길 때마다
-          // 라벨 폭이 미세하게 흔들린다.
+          // Weight is fixed — the surface and the shape mark the active tab. Changing weight
+          // makes the label width wobble every time you switch tabs.
           fontWeight: fontWeight.medium,
-          /* 활성은 트랙 위로 **떠오른다** — 그림자(아래)와 1px 하이라이트(위)가 두께를
-             만든다. 이게 없으면 색만 다른 사각형이라 세그먼트 스위치로 안 읽힌다. */
+          /* The active chip **rises** — a drop shadow below and a 1px highlight above give
+             it thickness. Without them it is just a differently coloured rectangle. */
           /* 경계는 **면이 만들고 선은 거들기만 한다.** 비활성 칩을 surface0 전부로 올린 뒤로는
              면 차이만으로도 탭이 구분되므로, 선은 그 위에 얹는 아주 옅은 윤곽이면 충분하다.
              16%/8% → 10%/7% → 지금 6%/4%. 선이 보이기 시작하면 탭마다 테두리를 두른 꼴이
@@ -195,9 +199,9 @@ export const Tab = memo(({
           if (isMobile) return;
           // hover 는 활성(surface0)까지 가지 않는다 — 절반만 올려 "누를 수 있음"만 알린다.
           if (!isActive) {
-            /* 비활성 칩이 이미 surface0 이라 예전 호버(=surface0)는 아무것도 안 바꿨다 —
-               글씨만 밝아져 "눌리는 중" 인지 알 수 없었다. 면을 한 단 올리고(surface1)
-               윤곽도 한 단 세워 손이 얹힌 칩이 분명해지게 한다. */
+            /* The inactive chip is already surface0, so the old hover (also surface0) changed
+               nothing — only the text brightened, which did not read as "this is the one".
+               Step the surface up (surface1) and the outline with it. */
             e.currentTarget.style.background = 'var(--ui-surface1)';
             e.currentTarget.style.boxShadow = HOVER_RING;
             e.currentTarget.style.color = color.subtext;
@@ -368,10 +372,11 @@ export const Tab = memo(({
           <span style={styles.tabName} title={tab.name}>{tab.name}</span>
         )}
 
-        {/* More 버튼 — 활성 탭에서만 **보인다**. 다만 자리는 비활성 탭도 잡아둔다:
-            탭 바깥 폭은 고정이지만 버튼이 없으면 그만큼 라벨이 넓어져, 탭을 고르는 순간
-            이름이 17px 만큼 줄며 잘린다. 그 미세한 덜컥임이 "탭 이동 때 너비가 흔들린다" 의
-            정체였다. 자리를 항상 잡아두면 라벨 폭이 선택 여부와 무관하게 같다. */}
+        {/* The More button is **visible** only on the active tab, but every tab reserves its
+            slot: the outer tab width is fixed, yet without the button the label grows into
+            that space, so selecting a tab shrinks its name by 17px and clips it. That small
+            jolt was the "tab widths wobble when switching" report. Reserving the slot keeps
+            the label width identical either way. */}
         {!isActive && !isPendingClose && (
           <span aria-hidden="true" style={{ ...styles.miniBtn, visibility: 'hidden' }} />
         )}

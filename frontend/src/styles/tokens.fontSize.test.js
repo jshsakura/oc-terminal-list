@@ -5,12 +5,13 @@ import { fileURLToPath } from 'node:url';
 import { tokens } from './tokens';
 
 /**
- * 스케일에 없는 치수를 쓰면 조용히 커진다.
+ * A size that is not in the scale silently gets BIGGER.
  *
- * `fontSize['10.5']` 처럼 없는 키는 undefined 를 내고, undefined 인 fontSize 는 무시되어
- * **상속 크기(글로벌 CSS 가 없으므로 브라우저 기본 16px)** 로 렌더된다. 작게 만들려던
- * 라벨이 화면에서 가장 큰 글씨가 되는데 에러는 어디에도 안 난다 — 실제로 대시보드
- * 보조 라벨 전부가 그 상태였다. 그래서 소스 스캔으로 막는다.
+ * A missing key like `fontSize['10.5']` yields undefined, and an undefined fontSize is
+ * ignored — the element renders at the **inherited size** (the browser default of 16px,
+ * since there is no global CSS). A label meant to be small becomes the largest text on
+ * screen and nothing errors. Every secondary label on the dashboard was in that state,
+ * so a source scan guards it.
  */
 const SRC = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const KEY_RE = /fontSize\[['"]([^'"]+)['"]\]/g;
@@ -18,7 +19,7 @@ const KEY_RE = /fontSize\[['"]([^'"]+)['"]\]/g;
 const walk = (dir) => readdirSync(dir).flatMap((entry) => {
   const full = join(dir, entry);
   if (statSync(full).isDirectory()) return walk(full);
-  // 테스트 파일 자신은 예시 문자열을 품고 있으므로 스캔 대상이 아니다.
+  // Test files carry example strings, so they are not scanned.
   return /\.jsx?$/.test(entry) && !/\.test\.jsx?$/.test(entry) ? [full] : [];
 });
 

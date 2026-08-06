@@ -9,8 +9,8 @@ const { color } = tokens;
 
 export const MenuItem = ({ onClick, children, danger, disabled = false, icon: Icon = null, style = null }) => (
   <button
-    /* 호버는 CSS 한 규칙(main.jsx `.iterm-menu-item`)이 담당한다 — 메뉴마다 JS 로 배선하면
-       한 곳을 고쳐도 다른 메뉴는 그대로 남는다(설정 서브메뉴가 실제로 그랬다). */
+    /* Hover is one CSS rule (main.jsx `.iterm-menu-item`) — wiring it per menu in JS
+       means fixing one place leaves the others behind (the settings submenu was one). */
     className={`iterm-menu-item${danger ? ' iterm-menu-item-danger' : ''}`}
     onClick={disabled ? undefined : (e) => { e.stopPropagation(); onClick?.(); }}
     disabled={disabled}

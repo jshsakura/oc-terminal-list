@@ -60,16 +60,16 @@ export const LlmTiles = ({ totals, money, moneyTitle, t }) => {
   return <TileRow tiles={tiles} />;
 };
 
-/** 타일 한 줄 — 대시보드의 모든 숫자가 같은 모양을 쓰도록 여기 하나만 둔다.
-    터미널 사용량과 LLM 비용이 서로 다른 카드처럼 생기면 한 화면으로 안 읽힌다. */
+/** One row of tiles — kept in one place so every number on the dashboard shares a shape.
+    If terminal usage and LLM cost look like different cards, they do not read as one screen. */
 export const TileRow = ({ tiles }) => (
   <div style={tilesStyle}>
     {tiles.map((tile) => {
       const Mark = tile.icon;
       return (
         <div key={tile.key} style={tileStyle}>
-          {/* 워터마크 — 무엇에 대한 숫자인지 한 눈에. 모서리 밖으로 흘려보내고 7% 로 눕혀
-              **읽는 것이 아니라 느끼는** 크기로 둔다. 또렷하게 그리면 값과 경쟁한다. */}
+          {/* Watermark — what the number is about, at a glance. Bled past the corner and laid
+              down to 7% so it is **felt, not read**. Drawn sharply it competes with the value. */}
           {Mark && (
             <span aria-hidden="true" style={tileMarkStyle}>
               <Mark size={64} strokeWidth={1.4} />
@@ -117,7 +117,7 @@ const tilesStyle = {
 };
 const tileStyle = {
   display: 'flex', flexDirection: 'column', gap: '4px',
-  // 워터마크가 모서리 밖으로 나가되 카드 밖으로는 새지 않게.
+  // Let the watermark run past the corner without leaking outside the card.
   position: 'relative', overflow: 'hidden',
   ...dashboardCardStyle(),
 };
@@ -132,8 +132,8 @@ const tileValueStyle = {
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
   fontVariantNumeric: 'tabular-nums',
 };
-/* 보조 줄은 조용해야 하지만 읽혀야 한다 — faint 는 surface0 위에서 대비가 2:1 도 안 된다.
-   "조용하다" 와 "안 보인다" 는 다르다. */
+/* The secondary line should be quiet but still legible — `faint` does not even reach 2:1
+   contrast on surface0. "Quiet" and "invisible" are not the same thing. */
 const tileNoteStyle = {
   fontSize: fontSize['10'], color: color.muted, fontFamily: font.sans,
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
@@ -146,8 +146,8 @@ const keyStatStyle = {
   display: 'flex', flexDirection: 'column', gap: '2px',
   ...dashboardCardStyle({ padding: '8px 10px', corner: radius.sm }),
 };
-/* 라벨은 값보다 조용해야 한다 — "백만 토큰당" 같은 긴 한국어 라벨이 값만큼 크면
-   숫자가 아니라 설명이 먼저 읽힌다. micro label(10px). */
+/* Labels stay quieter than values — a long label at the value's size gets read before the
+   number it describes. Micro label (10px). */
 const keyStatLabelStyle = { fontSize: fontSize['10'], color: color.subtext };
 const keyStatValueStyle = {
   fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: color.text,

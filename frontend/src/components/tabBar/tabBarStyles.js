@@ -32,8 +32,8 @@ export const styles = {
     display: 'flex',
     alignItems: 'stretch',
     height: '100%',
-    /* 위아래 5px — 칩에 면이 생기니 3px 로는 바 위아래에 거의 붙어 보였다.
-       바깥(히트)은 바 높이를 그대로 채우고 안쪽 칩만 얇다(§15). */
+    /* 5px top/bottom — once the chip has a surface, 3px made it look glued to the bar's
+       edges. The outer hit area fills the bar height; only the inner chip is short (§15). */
     padding: '5px 0',
     boxSizing: 'border-box',
     minWidth: '46px',
@@ -93,14 +93,16 @@ export const styles = {
     margin: '5px 7px 0 0',
     borderRadius: '3px',
   },
-  /* 탭바는 **크롬**이다 — 콘텐츠를 담는 컨트롤이 아니라 창틀이다. 스트립을 움푹한 트랙으로
-     파봤더니 탭이 없는 오른쪽까지 홈이 파여 창틀 한가운데 웬 컨트롤이 박힌 꼴이 됐다.
-     세그먼트 트랙은 홈의 터미널/대시보드·기간 스위치처럼 **선택지가 유한한 컨트롤**의
-     언어다(`styles/segmented.js`). 여기서는 칩만 얹는다.
+  /* The tab bar is **chrome** — a window frame, not a control. Carving the strip into a
+     recessed track grooved the empty space to the right as well, which looked like a
+     control embedded in the frame. The segmented track belongs to controls with a finite
+     set of options (`styles/segmented.js`), like the home's Terminals/Dashboard and range
+     switches. Here we only lay chips on the bar.
 
-     간격은 **모든 탭에 균일하게** 준다. 호스트별로 붙이고 떼어 그룹을 만들어봤지만, 붙은
-     칩들은 이음매가 구분선처럼 보이고 그룹 사이만 벌어져 리듬이 깨졌다 — 탭 줄은 규칙적인
-     리듬이 먼저다. */
+     Spacing is **uniform across all tabs**. Grouping by host (touching within a host, a gap
+     between hosts) was tried: touching chips showed their seam as a divider, and only the
+     group boundaries widened, which broke the rhythm. A tab row needs a regular rhythm
+     first. */
   tabList: {
     display: 'flex',
     alignItems: 'stretch',

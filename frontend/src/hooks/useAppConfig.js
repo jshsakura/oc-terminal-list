@@ -1,26 +1,43 @@
 import { useEffect, useState } from 'react';
 
 /**
- * 서버 측 feature flag — 부팅 직후 1회 fetch.
+ * Public server config — fetched **once for the whole app** right after boot.
  *
- *  - local_disabled: true 면 "이 머신" (로컬 터미널) 비활성. 컨테이너 배포 모드용.
+ *  - local_disabled: true hides "this machine" (the local terminal). Container mode.
+ *  - tmux_socket: the socket local sessions live on. The copy handle needs it to build
+ *    a working attach command.
  *
- * 실패 시 안전한 기본값(전부 비활성 안 됨) 으로 폴백 — 호스트 설치본에서는 어차피 true 가 아님.
+ * Cached at module level: calling this hook per pane would fire one request per pane.
+ * On failure it falls back to safe defaults and retries on the next mount.
  */
+const FALLBACK = { local_disabled: false, tmux_socket: '' };
+let cached = null;
+let inflight = null;
+
+const fetchConfig = () => {
+  if (cached) return Promise.resolve(cached);
+  if (inflight) return inflight;
+  inflight = fetch('/api/config')
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    })
+    .then((data) => {
+      cached = { ...FALLBACK, ...data };
+      return cached;
+    })
+    .catch(() => FALLBACK)          // not cached — the next mount tries again
+    .finally(() => { inflight = null; });
+  return inflight;
+};
+
 const useAppConfig = () => {
-  const [config, setConfig] = useState({ local_disabled: false, loaded: false });
+  const [config, setConfig] = useState(() => (cached ? { ...cached, loaded: true } : { ...FALLBACK, loaded: false }));
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/config');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (!cancelled) setConfig({ ...data, loaded: true });
-      } catch {
-        if (!cancelled) setConfig({ local_disabled: false, loaded: true });
-      }
-    })();
+    fetchConfig().then((data) => {
+      if (!cancelled) setConfig({ ...data, loaded: true });
+    });
     return () => { cancelled = true; };
   }, []);
   return config;

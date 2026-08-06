@@ -3,18 +3,22 @@ import { tokens } from './tokens';
 const { color, font, fontSize, fontWeight, motion } = tokens;
 
 /**
- * 세그먼트 스위치 — 선택지가 유한하고 **한 번에 하나만** 켜지는 컨트롤의 공통 언어.
+ * Segmented switch — the shared language for controls with a finite set of options
+ * where exactly **one** is on at a time.
  *
- * 홈의 터미널/대시보드, 기간(7일·30일·90일·전체), 차트의 비용/토큰·차트/표가 모두 같은
- * 모양을 쓴다. 각자 보더 있는 버튼을 나열하면 같은 성격의 컨트롤이 화면마다 달라 보이고,
- * 무엇보다 "여러 개 중 하나" 라는 사실이 형태로 드러나지 않는다.
+ * The home's Terminals/Dashboard toggle, the range picker (7/30/90/all) and the chart's
+ * cost/tokens and chart/table switches all use this. Rendered as rows of bordered
+ * buttons instead, the same kind of control looks different on every screen — and worse,
+ * "one of several" never becomes visible in the shape.
  *
- * 모양의 규칙 두 가지:
- *  1. **트랙은 움푹하다.** 한 단 어두운 면 + inset 그림자 — 눌린 자리.
- *  2. **선택된 것만 떠오른다.** 밝은 면 + 아래 그림자 + 위 1px 하이라이트.
- * 색만 바꾸면 그냥 색이 다른 버튼이고, 형태가 바뀌어야 스위치로 읽힌다.
+ * Two rules of the form:
+ *  1. **The track is recessed.** One step darker + an inset shadow — the pressed place.
+ *  2. **Only the selected item rises.** Lighter face, drop shadow, 1px top highlight.
+ * Change only the colour and it is just a differently coloured button; the shape has to
+ * change for it to read as a switch.
  *
- * (탭바에는 쓰지 않는다 — 거긴 창틀이지 컨트롤이 아니고, 탭이 없는 자리까지 홈이 파인다.)
+ * (Not used in the tab bar — that is window chrome, not a control, and the track would
+ * carve a groove across the space where no tabs are.)
  */
 export const segmentedTrackStyle = ({ radius: corner = '9px' } = {}) => ({
   display: 'inline-flex',
@@ -31,9 +35,9 @@ export const segmentedTrackStyle = ({ radius: corner = '9px' } = {}) => ({
 });
 
 /**
- * 트랙 안의 한 칸.
- * @param active  선택 여부
- * @param compact 좁은 칸(기간 칩처럼 글자만 들어가는 경우)
+ * One slot inside the track.
+ * @param active  whether it is selected
+ * @param compact narrow slot (range chips and similar, text only)
  */
 export const segmentedItemStyle = ({ active = false, compact = false } = {}) => ({
   display: 'inline-flex',
@@ -52,12 +56,13 @@ export const segmentedItemStyle = ({ active = false, compact = false } = {}) => 
   transition: `background ${motion.fast}, color ${motion.fast}`,
   background: active ? 'var(--ui-surface1)' : 'transparent',
   color: active ? color.text : color.subtext,
-  /* 선택된 칸만 두께를 갖는다 — 아래 그림자로 떠오르고 위 1px 하이라이트가 모서리를 켠다. */
+  /* Only the selected slot has thickness — a drop shadow lifts it and a 1px top
+     highlight lights its edge. */
   boxShadow: active
     ? `0 1px 3px color-mix(in srgb, ${color.crust} 65%, transparent),`
       + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 10%, transparent)`
     : 'none',
 });
 
-/** 비선택 칸의 호버 — 트랙 위에서 살짝만 밝아진다(선택 상태와 헷갈리지 않게). */
+/** Hover for an unselected slot — brightens slightly, never enough to read as selected. */
 export const segmentedHoverBackground = `color-mix(in srgb, ${color.text} 7%, transparent)`;

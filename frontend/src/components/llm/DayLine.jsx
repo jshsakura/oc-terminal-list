@@ -5,28 +5,28 @@ import { CHART_W, CHART_H, PAD_L, PAD_R, PAD_T, buildChart, shortDay } from './l
 const { color, font, fontSize, radius } = designTokens;
 
 /**
- * 일별 사용 시간 — 라인(면적) 그래프.
+ * Daily terminal time — an area/line chart.
  *
- * 처음엔 막대로 그렸는데, 바로 아래 LLM 일별 지출이 라인이라 같은 화면에 다른 문법의
- * 그래프가 둘 있는 꼴이었다. 게다가 "매일 얼마나" 는 개별 값의 비교가 아니라 **흐름**이다 —
- * 라인이 그 질문에 맞는 형태다.
+ * It started as bars, but the LLM spend chart right below it is a line, so one screen
+ * carried two chart grammars. And "how much each day" is not a comparison of individual
+ * values, it is a **trend** — a line is the shape that answers it.
  *
- * 기하 계산은 `llmChartGeometry` 를 그대로 쓴다(단조 3차 보간·nice ticks·갭 채우기). 축
- * 라벨만 시간 단위로 포맷한다 — 여기 y 는 돈이 아니라 초다.
+ * The geometry is `llmChartGeometry` unchanged (monotone cubic, nice ticks, gap filling).
+ * Only the axis labels differ: y here is seconds, not money.
  */
 const DayLine = ({ byDay = [], format, t }) => {
   const [hover, setHover] = useState(null);
 
-  // 기하 계산은 `cost` 필드를 본다 — 초를 그 자리에 넣는다(축 포맷만 다르다).
+  // The geometry reads a `cost` field — seconds go in that slot (only formatting differs).
   const days = useMemo(
     () => (byDay || []).map((d) => ({ day: d.day, cost: Number(d.seconds) || 0 })),
     [byDay],
   );
-  /* 색은 액센트가 아니라 `info`(=테마의 cyan/blue)다. 바로 아래 LLM 일별 지출이 액센트를
-     쓰므로 같은 색이면 한 화면의 두 그래프가 같은 값의 두 표현처럼 보인다.
-     선은 단색이 아니라 **테마 두 색을 가로로 흐르게** 칠한다(info → success). 둘 다
-     테마의 터미널 팔레트에서 나오므로(themeUI: cyan/green) 테마를 갈면 그래프의 색조가
-     통째로 따라 바뀐다 — 고정값은 여기 없다. */
+  /* The colour is `info` (the theme's cyan/blue), not the accent: the LLM spend chart
+     below uses the accent, and two charts in the same colour read as two views of the
+     same number. The stroke is not flat either — it sweeps across **two theme colours**
+     (info → success). Both come from the theme's terminal palette (themeUI: cyan/green),
+     so switching themes moves the whole chart's hue. Nothing here is hardcoded. */
   const chart = useMemo(() => buildChart(days, 'cost', ['url(#day-usage-stroke)']), [days]);
   if (days.length < 2) return null;
 
@@ -56,12 +56,12 @@ const DayLine = ({ byDay = [], format, t }) => {
         aria-label={t?.('dailyUsage') || 'Daily usage'}
       >
         <defs>
-          {/* 선 — 가로로 테마 두 색이 흐른다. */}
+          {/* Stroke — two theme colours sweeping horizontally. */}
           <linearGradient id="day-usage-stroke" x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%" stopColor={color.info} />
             <stop offset="100%" stopColor={color.success} />
           </linearGradient>
-          {/* 면 — 같은 두 색을 아래로 흐리게. 위는 진하고 바닥에서 사라진다. */}
+          {/* Fill — the same two colours fading downward; strong on top, gone at the base. */}
           <linearGradient id="day-usage-fill" x1="0" y1="0" x2="1" y2="1">
             <stop offset="0%" stopColor={color.info} stopOpacity="0.40" />
             <stop offset="55%" stopColor={color.success} stopOpacity="0.20" />
@@ -89,8 +89,8 @@ const DayLine = ({ byDay = [], format, t }) => {
             <line x1={chart.xs[hover]} x2={chart.xs[hover]} y1={PAD_T} y2={chart.baseY}
               stroke={color.text} strokeWidth="1" opacity="0.45" vectorEffect="non-scaling-stroke" />
             {chart.bands.map((band) => (
-              /* 점은 그라디언트가 아니라 단색이다 — 3.5px 짜리 원에 가로 그라디언트를
-                 물리면 그 지점의 한 조각만 잘려 색이 어긋나 보인다. */
+              /* The dot is flat, not gradient — a horizontal gradient on a 3.5px circle
+                 slices one sliver of the ramp and the colour looks wrong. */
               <circle key={band.key} cx={chart.xs[hover]} cy={band.tops[hover]} r="3.5"
                 fill={color.info} stroke={color.base} strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
             ))}
@@ -98,7 +98,7 @@ const DayLine = ({ byDay = [], format, t }) => {
         )}
       </svg>
 
-      {/* 축 라벨은 HTML — SVG text 는 preserveAspectRatio=none 에서 가로로 눌린다. */}
+      {/* Axis labels are HTML — SVG text gets squashed under preserveAspectRatio=none. */}
       {chart.ticks.map((tick) => (
         <span
           key={tick.value}

@@ -392,8 +392,9 @@ const ResumableCard = ({ host, session, onResume, onTerminate, t }) => {
   );
 };
 
-/* 로딩 카드 — 스피너 대신 **스켈레톤**이다. 같은 화면의 대시보드가 스켈레톤으로 기다리는데
-   여기만 원이 돌면 두 곳이 서로 다른 일을 하는 것처럼 보인다. 모양은 진짜 카드 그대로. */
+/* Loading card — a **skeleton**, not a spinner. The dashboard on the same screen waits
+   with skeletons; a spinning circle here would look like a different kind of work.
+   The shape mirrors the real card. */
 const LoadingResumableCard = () => (
   <div style={{ ...S.card, cursor: 'default' }} aria-busy="true">
     <SkeletonRow width="40px" height="40px" borderRadius={radius.md} style={{ flexShrink: 0 }} />
@@ -404,14 +405,17 @@ const LoadingResumableCard = () => (
   </div>
 );
 
-/* 빈 상태 카드 — 이어할 수 있는 세션이 하나도 없을 때 자리를 채워서 허전함 방지.
+/* Empty-state card — holds the slot when there is nothing to resume, so the row does
+ * not look bare.
  *
- * 점선은 "아직 아무것도 없는 자리" 를 뜻한다. 다만 **또렷해야 한다**: 예전엔 헤어라인
- * 색(border, 6% 알파)으로 2px 점선을 그어서 대시가 배경에 묻혀 끊긴 선인지 뭉갠 실선인지
- * 알 수 없었다 — 그래서 묘해 보인다. 점선은 색을 세워야 점선으로 읽힌다.
+ * A dashed border means "a slot with nothing in it yet". It has to be **legible**
+ * though: drawn in the hairline colour (border, 6% alpha) at 2px, the dashes sank into
+ * the background and you could not tell a broken line from a smudged solid one — which
+ * is what made it look odd. Dashes only read as dashes when the colour stands up.
  *
- * 색은 중립(text 22%)이다. 액센트 점선은 드래그 오버("여기에 떨궈라") 신호이므로
- * 여기서 그 색까지 빌리면 없는 동작을 광고하게 된다 — 표기는 같아도 색이 다르다.
+ * The colour is neutral (text 22%). An accent dashed border is the drag-over signal
+ * ("drop it here"), so borrowing that colour would advertise an action that does not
+ * exist — same notation, different colour.
  */
 const EmptyResumableCard = ({ t }) => (
   <div

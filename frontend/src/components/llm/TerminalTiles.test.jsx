@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { buildHostRows } from './TerminalTiles.jsx';
 
 /**
- * 호스트별 막대가 통째로 사라졌던 자리 — 응답 필드는 `by_target` 이다.
- * 이름을 틀리면 빈 배열이 되고 화면은 "데이터 없음" 이라고만 말한다(에러 없음).
+ * Where the per-host bars vanished entirely — the response field is `by_target`.
+ * Get the name wrong and you get an empty array: the screen just says "no data",
+ * and nothing errors.
  */
 describe('buildHostRows', () => {
   const hosts = [
@@ -54,7 +55,7 @@ describe('buildHostRows', () => {
   it('returns [] when the payload is missing or empty', () => {
     expect(buildHostRows(null, hosts, {}, null)).toEqual([]);
     expect(buildHostRows({}, hosts, {}, null)).toEqual([]);
-    // 옛 오타 필드는 더 이상 읽지 않는다 — 읽히면 그게 회귀다.
+    // The old typo field must not be read any more — reading it would be the regression.
     expect(buildHostRows({ targets: [{ target_id: 'h1', total_seconds: 1 }] }, hosts, {}, null)).toEqual([]);
   });
 });

@@ -31,9 +31,10 @@ export const Section = ({ title, icon: Icon = null, aside = null, children, coll
       </section>
     );
   }
-  /* 접힌 구획은 **카드**다. 예전엔 글자와 꺾쇠만 허공에 떠 있어서 접힌 것인지 그냥 라벨인지
-     구분이 안 됐다(누를 수 있다는 신호가 어디에도 없었다). 면을 하나 깔면 "여기가 하나의
-     덩어리이고 누르면 열린다" 가 형태로 드러난다 — 펼치면 같은 면이 본문까지 감싼다. */
+  /* A collapsed section is a **card**. Before, only a label and a chevron floated in
+     space, so you could not tell a collapsed section from a plain label — nothing said
+     it was clickable. One surface makes "this is a unit and it opens" visible in the
+     shape; expanded, the same surface wraps the body too. */
   return (
     <section style={{ ...styles.collapseCard, ...(open ? styles.collapseCardOpen : null) }}>
       <button
@@ -60,7 +61,8 @@ export const Section = ({ title, icon: Icon = null, aside = null, children, coll
           </span>
         )}
         <span style={styles.collapseTitle}>{title}</span>
-        {/* 접힌 채로도 **지금 값**은 보여야 한다 — 열어봐야만 알 수 있으면 접은 값이 없다. */}
+        {/* The **current value** has to be visible while collapsed — a fold you must open
+            to learn anything has no value. */}
         {aside && <span style={styles.collapseAside}>{aside}</span>}
       </button>
       {open && <div style={styles.collapseBody}>{children}</div>}

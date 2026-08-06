@@ -4,8 +4,8 @@ import { formatTokens } from './LlmDashboard';
 
 const { color, font, fontSize, fontWeight, radius } = designTokens;
 
-/** 이름 → 팔레트 색. **순위가 아니라 이름으로** 정한다 — 순위로 칠하면 어제 3등이던 모델이
-    오늘 1등이 되며 색이 바뀌어, 색이 아무것도 뜻하지 않게 된다. */
+/** Name → palette colour, decided **by name, never by rank**. Colour by rank and the model
+    that was third yesterday changes colour when it becomes first, so colour means nothing. */
 const hueFor = (name) => {
   const s = String(name || '');
   let h = 0;
@@ -16,12 +16,13 @@ const hueFor = (name) => {
 /**
  * Horizontal magnitude bars — llm-watcher's HBars.
  *
- * `colorOf` 는 색이 곧 정체성인 축(에이전트·호스트)에서만 쓴다. `varied` 는 그런 정체성이
- * 없지만 줄이 여러 개라 단색이면 덩어리로 보이는 축(모델·프로젝트)을 위한 것 — 이름 기반
- * 해시라 순서가 바뀌어도 같은 모델은 같은 색이다.
+ * `colorOf` is for axes where colour *is* identity (agent, host). `varied` is for axes
+ * without that identity but with enough rows that one hue reads as a single blob (model,
+ * project) — a name hash, so the same model keeps its colour when the order changes.
  *
- * **행은 하나의 그리드를 공유한다.** 행마다 grid 를 따로 두면 `auto` 열이 그 행의 값 길이에
- * 맞춰지고 `1fr` 이 남은 폭을 나눠, 막대 시작점이 줄마다 어긋난다(실제로 그랬다).
+ * **All rows share one grid.** Give each row its own grid and the `auto` column sizes to
+ * that row's value while `1fr` splits what is left, so the bars start at different x
+ * positions (which is exactly what happened).
  */
 export const HBars = ({ title, icon: TitleIcon = null, rows = [], limit = 8, colorOf, varied = false, money, t }) => {
   const top = rows.slice(0, limit);
@@ -44,8 +45,8 @@ export const HBars = ({ title, icon: TitleIcon = null, rows = [], limit = 8, col
               <div
                 key={row.name}
                 style={rowStyle}
-                /* 토큰이 없는 계열(터미널 사용 시간)도 이 막대를 쓴다 — 없는 값을
-                   "0" 으로 적으면 그건 틀린 정보다. 있을 때만 붙인다. */
+                /* Series without tokens (terminal time) use these bars too — writing "0" for
+                   a value that does not exist is simply wrong. Only include it when present. */
                 title={[row.name, row.tokens != null && formatTokens(row.tokens), money(row.cost)]
                   .filter(Boolean).join(' · ')}
               >
@@ -76,15 +77,16 @@ const titleStyle = {
   display: 'flex', alignItems: 'center', gap: '6px',
 };
 const listStyle = { display: 'flex', flexDirection: 'column', gap: '7px' };
-/* 이름 34% · 막대 나머지 · 값 84px 고정. 값 열을 `auto` 로 두면 행마다 폭이 달라져 막대
-   시작점과 숫자 오른쪽이 둘 다 어긋난다 — 열 폭은 **모든 행이 같아야** 표로 읽힌다. */
+/* Name 34% · bar the rest · value fixed at 84px. Left as `auto`, the value column differs
+   per row and both the bar start and the right edge of the numbers drift — column widths
+   have to be **identical across rows** for this to read as a table. */
 const rowStyle = {
   display: 'grid', gridTemplateColumns: 'minmax(0, 34%) 1fr 84px',
   alignItems: 'center', gap: '8px',
 };
 const nameStyle = { display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 };
-/* 토큰에 없는 치수(10, 10.5)를 쓰면 `fontSize['10']` 은 undefined 가 되어 상속 크기로
-   렌더된다 — 의도한 크기가 아니라 아무 크기다. 스케일 안의 값만 쓴다. */
+/* Sizes outside the token scale (10, 10.5) make `fontSize['10']` undefined, which renders
+   at the inherited size — not the size you meant, just some size. Use scale values only. */
 const nameTextStyle = {
   fontSize: fontSize['11'], color: color.text, fontFamily: font.sans,
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',

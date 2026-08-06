@@ -66,9 +66,10 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
 
     <Divider />
 
-    {/* 접어 둔다 — 일 년에 한 번 쓰는 폼이 늘 펼쳐져 자리를 먹고 있었다.
-        셋은 다 "계정 보안" 이라 한 묶음으로 세운다. 카드끼리는 구분선을 긋지 않는다 —
-        면이 이미 경계이고, 거기에 선까지 그으면 테두리가 두 겹으로 보인다. */}
+    {/* Folded away — a form used once a year sat permanently expanded, eating space.
+        All three are account security, so they stand as one group. No dividers between
+        the cards: the surface is already the boundary, and a line on top of it reads as
+        a double border. */}
     <div style={styles.cardStack}>
       <Section title={t('changePassword') || 'Change password'} icon={KeyRound} collapsible>
         <PasswordSection onLogout={onLogout} t={t} />
@@ -84,8 +85,9 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
     <Divider />
 
     <Section title={t('appearance') || 'Appearance'}>
-      {/* 테마는 접어 둔다 — 40개가 넘는 격자가 늘 펼쳐져 있으면 그 아래 항목(언어·글꼴 크기)이
-          화면 밖으로 밀린다. 접힌 머리에 **지금 테마 이름**을 띄워 열지 않고도 알 수 있게 한다. */}
+      {/* Themes fold away — a grid of 40+ swatches permanently open pushes language and
+          font size off screen. The collapsed head carries the **current theme name** so
+          you can tell without opening it. */}
       <Section
         title={t('theme') || 'Theme'}
         icon={Palette}

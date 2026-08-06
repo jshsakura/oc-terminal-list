@@ -171,7 +171,7 @@ export const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettin
   const item = (Icon, label, action, title = undefined) => (
     <button
       type="button"
-      /* 호버는 CSS 한 규칙(main.jsx `.iterm-menu-item`)이 담당한다. */
+      /* Hover is one CSS rule (main.jsx `.iterm-menu-item`). */
       className="iterm-menu-item"
       onClick={action}
       title={title}

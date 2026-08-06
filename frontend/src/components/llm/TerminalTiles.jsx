@@ -9,23 +9,23 @@ import { dashboardCardStyle } from '../../styles/dashboardCard';
 const { color } = designTokens;
 
 /**
- * 터미널 사용 시간 — LLM 숫자와 **같은 타일·같은 막대**로 그린다.
+ * Terminal time — drawn with the **same tiles and bars** as the LLM numbers.
  *
- * 예전엔 이 통계가 자기만의 카드 모양(히어로 시간 + 진행바 + 도넛)을 갖고 있어서
- * 바로 아래 LLM 타일과 한 화면으로 읽히지 않았다. 대시보드는 한 덩어리여야 하고,
- * 그러려면 숫자가 모두 같은 모양을 써야 한다.
+ * This block used to have its own card shape (hero duration + progress bar + donut), so it
+ * never read as one screen with the LLM tiles right below. A dashboard has to be one piece,
+ * and that means every number shares a shape.
  *
- * 기간은 위에서 내려온다(`days`) — 카드마다 기간이 다르면 비교가 안 된다.
+ * The range comes from above (`days`) — different ranges per card cannot be compared.
  */
 
 /**
- * 집계 응답 → HBars 행.
+ * Summary response → HBars rows.
  *
- * **필드 이름은 `by_target` 이다**(`backend/db/usage.py`). 한 번 `targets` 로 적었다가
- * 호스트별 막대가 통째로 빈 카드가 됐다 — 화면은 "데이터 없음" 이라 말하고 에러는
- * 아무 데도 안 난다. 그래서 이 매핑만 순수 함수로 빼서 테스트가 잡게 한다.
+ * **The field is `by_target`** (`backend/db/usage.py`). Written once as `targets`, the
+ * per-host bars became an empty card — the screen says "no data" and nothing errors.
+ * Hence this mapping lives as a pure function that tests can hold.
  *
- * 지워진 호스트는 뺀다 — 이름을 모르는 id 가 막대로 남으면 그건 통계가 아니라 잔해다.
+ * Deleted hosts are dropped: an id with no name left as a bar is debris, not a statistic.
  */
 export const buildHostRows = (data, hosts = [], settings = {}, t) => {
   const meta = new Map(hosts.map((h) => [h.id, h]));
@@ -48,8 +48,8 @@ export const buildHostRows = (data, hosts = [], settings = {}, t) => {
     .sort((a, b) => b.cost - a.cost);
 };
 
-/** 데이터는 위(홈)가 가져온다 — 머리(기간 스위치)까지 한 몸으로 스켈레톤을 그리려면
-    로딩 여부를 홈이 알아야 한다(`hooks/useTerminalUsage`). */
+/** The home fetches the data — drawing the head (range switch) as one skeleton with the
+    cards requires the home to know the loading state (`hooks/useTerminalUsage`). */
 const TerminalTiles = ({ hosts = [], settings = {}, data = null, t }) => {
 
   const hostRows = useMemo(
@@ -64,8 +64,9 @@ const TerminalTiles = ({ hosts = [], settings = {}, data = null, t }) => {
 
   const tiles = [
     {
-      /* 맨 앞은 **하루 평균**이다. 합계는 기간을 바꾸면 따라 커지므로 그 자체로는 크고
-         작음을 말해주지 않는다 — 하루 평균은 기간이 달라도 같은 척도로 읽힌다. */
+      /* First comes the **daily average**. A total grows with the range, so on its own it
+         says nothing about big or small; a daily average reads on the same scale whatever
+         range you pick. */
       icon: Clock,
       key: t?.('perDayAvg') || 'Per day',
       value: formatDuration(perDay, t),
@@ -88,8 +89,9 @@ const TerminalTiles = ({ hosts = [], settings = {}, data = null, t }) => {
   return (
     <>
       <TileRow tiles={tiles} />
-      {/* 일별 리듬 — 숫자는 "얼마나" 만 말한다. 매일 조금씩인지 하루에 몰았는지는 흐름이
-          말하고, 흐름은 라인의 일이다(아래 LLM 지출 그래프와 같은 문법·다른 색). */}
+      {/* Daily rhythm — numbers only say "how much". Whether it was a little every day or
+          all in one sitting is a trend, and trends are a line's job (same grammar as the LLM
+          spend chart below, different colour). */}
       {Array.isArray(data.by_day) && data.by_day.length > 1 && (
         <section style={dayCardStyle}>
           <h3 style={dayTitleStyle}>
@@ -115,7 +117,7 @@ const TerminalTiles = ({ hosts = [], settings = {}, data = null, t }) => {
   );
 };
 
-/** 초 → "28일 9시간". 단위는 로케일에서 온다 — d/h 는 한국어 화면의 숫자가 아니다. */
+/** Seconds → "28d 9h". Units come from the locale — d/h is not how a Korean screen counts. */
 function formatDuration(seconds, t) {
   const u = (key, fallback) => t?.(key) || fallback;
   const s = Math.max(0, Math.floor(Number(seconds) || 0));

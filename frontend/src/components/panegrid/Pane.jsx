@@ -12,6 +12,7 @@ import LocalFolderPicker from '../LocalFolderPicker';
 import RemoteFolderPicker from '../RemoteFolderPicker';
 import BroadcastBadge from './BroadcastBadge';
 import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
+import useAppConfig from '../../hooks/useAppConfig';
 import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
 import PaneAddressLabel from './PaneAddressLabel';
@@ -310,17 +311,23 @@ const Pane = ({
     ? paneCwdRel
     : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null);
 
-  // pane 우상단 번호 클릭 → 이 pane 의 **LLM 친화 핸들**을 클립보드로 복사(+토스트).
-  // "저 터미널(2.3) 봐줘" 처럼 LLM 에게 지목할 때 붙여넣는다. 웹 도메인은 빼고(LLM 에겐
-  // 무용지물) itl 주소 · tmux 세션 · 경로만. 원격은 어느 머신인지 SSH 주소를 함께.
+  /* Clicking the pane number (top-right) copies this pane's **LLM-friendly handle** (+toast).
+     The reader is an LLM in another terminal, so it carries only what is **runnable there**:
+     the tmux session name, the command that attaches to it, and the working directory. The
+     pane number (2.2) means something only inside this app and shifts when a pane closes. */
+  // Local tmux socket name — module-cached, so many panes still make one request.
+  const { tmux_socket: tmuxSocket } = useAppConfig();
+
   const handleCopyPaneTarget = useCallback(() => {
     const tmuxSession = isLocal ? (pane.sessionId || '') : (pane.tmuxSessionName || '');
     const cwd = paneCwdAbs || pane.cwd || '';
     const target = formatSessionTarget({
-      address: paneAddress || '',
       server: isLocal ? '' : (buildSshAddr(remoteHost) || pane.hostId || ''),
       tmuxSession,
       cwd,
+      // Local sessions live on the app's own socket — the name alone cannot be attached to.
+      socket: isLocal ? (tmuxSocket || '') : '',
+      remote: !isLocal,
     });
     if (!target) return;
     const done = () => onNotify?.(`${t?.('copied') || 'Copied'}: ${target}`);
@@ -329,7 +336,7 @@ const Pane = ({
     } else {
       done(); // 비보안 컨텍스트 — 최소한 무엇을 복사하려 했는지 보여준다.
     }
-  }, [paneAddress, isLocal, remoteHost, pane, paneCwdAbs, onNotify, t]);
+  }, [isLocal, remoteHost, pane, paneCwdAbs, tmuxSocket, onNotify, t]);
 
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭/pane 이름 갱신에 활용.
   // 원격은 workspace 상대경로가 없으므로 절대경로(paneCwdAbs)도 함께 보내 basename 으로 쓰게 한다.

@@ -48,8 +48,9 @@ const TabBar = ({
   const settingsBtnRef = useRef(null);
   const settingsMenuClosedAtRef = useRef(0);
 
-  /* 설정 외에 실제로 할 게 있는가. 홈에는 새로고침할 터미널도, 균등 분할할 pane 도 없어
-     메뉴가 "시스템 설정" 한 줄짜리가 된다 — 한 줄 메뉴는 클릭을 한 번 더 받을 뿐이다. */
+  /* Is there anything to do besides opening settings? On the home there is no terminal to
+     reload and no pane to equalize, so the menu would be a single "System settings" row —
+     a one-row menu just costs an extra click. */
   const hasSubMenuActions = !!onReloadTerminals || !!onEqualizePanes;
 
   const handleSettingsClick = useCallback(() => {
@@ -248,10 +249,10 @@ const TabBar = ({
 
       <div style={styles.railDivider} />
 
-      {/* right action group — 빠른 입력 + Broadcast + Settings menu.
-          **한 동작은 한 자리에만 둔다.** 패널 균등 분할은 설정 메뉴 안에 있으므로 레일에
-          같은 버튼을 또 두지 않는다 — 둘 다 있으면 어느 쪽이 진짜인지 매번 고민하게 되고,
-          자주 쓰지도 않는 동작이 상시 노출로 레일 폭만 먹는다. */}
+      {/* Right action group — quick input, broadcast, settings menu.
+          **One action lives in one place.** Equalize panes is in the settings menu, so the rail
+          does not repeat it: with both, you wonder each time which one is real, and a rarely
+          used action permanently eats rail width. */}
       <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
         {!isMobile && onOpenCommandInput && (
           <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

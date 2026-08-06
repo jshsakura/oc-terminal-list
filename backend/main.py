@@ -306,7 +306,15 @@ async def health_check():
 # 컨테이너 배포에서도 "이 머신" 은 그대로 컨테이너 셸로 동작 (샌드박스).
 @app.get("/api/config")
 async def app_config():
-    return {}
+    """부팅 직후 프론트가 1회 읽는 공개 설정.
+
+    `tmux_socket` 은 비밀이 아니다 — 이 서버의 세션이 **어느 소켓에 있는지**이고,
+    그걸 모르면 복사한 세션 이름으로 붙을 수가 없다(`tmux attach -t X` 는 기본 소켓을
+    본다). 붙는 것은 여전히 그 머신의 셸 권한이 있어야 하는 일이다.
+    """
+    from tmux_manager import TMUX_SOCKET_NAME
+
+    return {"tmux_socket": TMUX_SOCKET_NAME}
 
 
 # ---------------------- 라우터 등록 ----------------------

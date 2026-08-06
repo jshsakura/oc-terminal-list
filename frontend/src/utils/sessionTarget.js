@@ -1,13 +1,18 @@
 /**
- * pane 을 가리키는 **LLM 친화 핸들** 한 줄 — pane 우상단 번호 클릭 시 클립보드로 복사.
- * "저 터미널(2.3) 봐줘" 처럼 LLM 에게 특정 pane 을 지목할 때 붙여넣는다.
+ * An **LLM-friendly handle** for a pane — copied to the clipboard when the pane number
+ * (top-right) is clicked. It is what you paste when you say "look at this terminal".
  *
- * 웹 도메인(사람이 브라우저로 접속하는 주소)은 **넣지 않는다** — LLM 에겐 무용지물이다.
- * 대신 LLM 이 바로 쓰는 것만: itl 주소(`itl send 2.3`) · tmux 세션명 · 작업 경로(cwd).
- * 원격 pane 은 어느 머신인지 SSH 주소(user@host)를 함께 넣는다(도메인과 다름).
+ * What goes in, and what does not:
+ *  - **No web domain.** That is the address a human opens in a browser; useless to an LLM.
+ *  - **No pane number (2.2) either.** It only means something inside this app, and it
+ *    shifts when a pane closes — to whoever receives the paste (an LLM in another
+ *    terminal) it points at nothing.
+ *  - Instead: **the command that actually attaches**. A session name alone is not enough
+ *    here, because our sessions live on a private socket (`tmux -L <socket>`); a plain
+ *    `tmux attach -t X` looks at the default socket and ends in "session not found".
  */
 
-/** SSH 접속 주소 문자열 — user@host[:port]. 22번 포트는 생략(관례). */
+/** SSH address string — user@host[:port]. Port 22 is omitted, by convention. */
 export function buildSshAddr(host) {
   if (!host) return '';
   const user = (host.ssh_user || '').trim();
@@ -17,13 +22,40 @@ export function buildSshAddr(host) {
   return `${user ? `${user}@` : ''}${name}${port}`;
 }
 
-/** "<itl주소>  <ssh주소>  tmux:<세션>  <cwd>" 한 줄. 있는 조각만 이어 붙인다.
- *  address(itl 주소)를 맨 앞에 둔다 — LLM 이 `itl send <address>` 로 바로 쓰는 핸들. */
-export function formatSessionTarget({ address = '', server = '', tmuxSession = '', cwd = '' } = {}) {
+/** `tmux -L sock attach -t name` — without a socket, `-L` is dropped (default socket). */
+export function buildAttachCmd(tmuxSession, socket = '') {
+  if (!tmuxSession) return '';
+  const sock = String(socket || '').trim();
+  return `tmux${sock ? ` -L ${sock}` : ''} attach -t ${tmuxSession}`;
+}
+
+/**
+ * The single line that gets copied.
+ *
+ * It is phrased as a sentence because **the first word has to say what this is**,
+ * whether a human or a model reads it. The old form (`2.3  tmux:abc  /w`) only meant
+ * something to someone who already knew our conventions.
+ *
+ *   local:  tmux session 'abc' — attach: tmux -L iterminallist-app attach -t abc  (cwd: /w)
+ *   remote: tmux session 'mobile-xx' on pi@10.0.0.5 — attach: ssh pi@10.0.0.5 -t "tmux attach -t mobile-xx"  (cwd: /home/pi)
+ *
+ * A remote session belongs to **that** machine's tmux, so our socket name is left off —
+ * over there it lives on the default socket.
+ */
+export function formatSessionTarget({
+  server = '', tmuxSession = '', cwd = '', socket = '', remote = false,
+} = {}) {
   const parts = [];
-  if (address) parts.push(address);
-  if (server) parts.push(server);
-  if (tmuxSession) parts.push(`tmux:${tmuxSession}`);
-  if (cwd) parts.push(cwd);
+  if (tmuxSession) {
+    const attach = buildAttachCmd(tmuxSession, remote ? '' : socket);
+    parts.push(
+      remote && server
+        ? `tmux session '${tmuxSession}' on ${server} — attach: ssh ${server} -t "${attach}"`
+        : `tmux session '${tmuxSession}' — attach: ${attach}`,
+    );
+  } else if (server) {
+    parts.push(`host ${server}`);
+  }
+  if (cwd) parts.push(`(cwd: ${cwd})`);
   return parts.join('  ');
 }

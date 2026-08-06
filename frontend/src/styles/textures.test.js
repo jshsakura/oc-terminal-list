@@ -18,7 +18,8 @@ describe('vignette', () => {
 
 describe('canvasTexture', () => {
   it('lays nothing on a theme that declares itself flat', () => {
-    // e-ink 계열은 질감의 **부재**가 정체성이다 — 주사선을 그으면 그 테마가 아니게 된다.
+    // For the e-ink family the ABSENCE of texture is the identity — scanlines would
+    // make it a different theme.
     expect(canvasTexture({ texture: 'flat' })).toBeNull();
   });
 
@@ -28,7 +29,7 @@ describe('canvasTexture', () => {
   });
 
   it('draws 1px on, 2px off — the reference cadence', () => {
-    // game-and-what theme.css 의 `0 1px, transparent 1px 3px` 와 같은 주기.
+    // Same cadence as game-and-what theme.css: `0 1px, transparent 1px 3px`.
     expect(canvasTexture({})).toContain('transparent 3px');
   });
 });

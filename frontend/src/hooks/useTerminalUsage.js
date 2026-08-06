@@ -2,14 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { authHeaders } from '../utils/auth';
 
 /**
- * 터미널 사용 통계(`/api/usage/summary`).
+ * Terminal usage stats (`/api/usage/summary`).
  *
- * 타일 컴포넌트 안에 있던 것을 끌어올렸다 — **누가 로딩 중인지 홈이 알아야** 머리(기간
- * 스위치)까지 한 몸으로 스켈레톤을 그릴 수 있다. 아래에서만 알고 있으면 위는 늘 완성된 채
- * 서 있고 아래만 비어 화면이 반쯤 그려진 것처럼 보인다.
+ * Lifted out of the tile component: **the home has to know who is loading** so the
+ * head (the range switch) can render as one skeleton with the cards below it. When
+ * only the bottom half knows, the top stands there finished and the page looks
+ * half-drawn.
  *
- * 모듈 레벨 캐시(60초) — 홈과 빈 pane 홈이 동시에 마운트돼도 요청은 하나다. 캐시가 있으면
- * 첫 렌더부터 값이 있으므로 스켈레톤이 깜빡이지 않는다.
+ * Module-level cache (60s) — the home and the empty-pane home can mount at once and
+ * still make a single request. With a warm cache the first render already has data,
+ * so the skeleton never flashes.
  *
  * @returns {{ data: object|null, loading: boolean }}
  */
@@ -40,7 +42,7 @@ export default function useTerminalUsage(days) {
         _cache.set(days, { data: d, ts: Date.now() });
         if (alive.current) setData(d);
       })
-      .catch(() => { /* 통계가 없다고 홈이 깨지면 안 된다 */ })
+      .catch(() => { /* missing stats must never break the home */ })
       .finally(() => { if (alive.current) setLoading(false); });
   }, [days]);
 

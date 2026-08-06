@@ -19,7 +19,7 @@ const SCANLINE_ALPHA = 0.10;  // 주사선 검정 농도 (0.26 이었을 때 글
 const SCANLINE_PERIOD = 4;    // 몇 px 마다 1px 선을 그을지 (3 → 4, 덮는 면적 33%→25%)
 const VIGNETTE_ALPHA = 0.20;  // 가장자리 어둠 (0.34 → 완화)
 
-// pane 오버레이는 글자 *위*라 어둡게 깎는다 — 배경 캔버스와 잉크가 반대다.
+// The pane overlay sits *over* text, so it darkens — the opposite ink from the canvas.
 const SCANLINE = scanlines({ line: `rgba(0, 0, 0, ${SCANLINE_ALPHA})`, period: SCANLINE_PERIOD });
 
 const VIGNETTE = vignette(VIGNETTE_ALPHA);
