@@ -1,3 +1,5 @@
+import { scanlines, vignette } from '../styles/textures';
+
 /**
  * TerminalTexture — 테마 `texture` 필드에 따른 pane 질감 오버레이.
  *
@@ -12,20 +14,15 @@
  *   accent  : glow 비네트 색조에 쓸 강조색 (테마 accent)
  */
 // 질감은 글자 *위에* 깔린다(zIndex 3). 세게 주면 CRT 느낌은 사는데 본문 가독성이 무너진다.
-// 아래 세 값이 전부 — 여기만 만지면 강도가 조절된다.
+// 아래 세 값이 전부 — 여기만 만지면 강도가 조절된다. (공식 자체는 styles/textures.js)
 const SCANLINE_ALPHA = 0.10;  // 주사선 검정 농도 (0.26 이었을 때 글자가 뭉갰다)
 const SCANLINE_PERIOD = 4;    // 몇 px 마다 1px 선을 그을지 (3 → 4, 덮는 면적 33%→25%)
 const VIGNETTE_ALPHA = 0.20;  // 가장자리 어둠 (0.34 → 완화)
 
-const SCANLINE = `repeating-linear-gradient(
-  to bottom,
-  rgba(0, 0, 0, ${SCANLINE_ALPHA}) 0px,
-  rgba(0, 0, 0, ${SCANLINE_ALPHA}) 1px,
-  transparent 1px,
-  transparent ${SCANLINE_PERIOD}px
-)`;
+// pane 오버레이는 글자 *위*라 어둡게 깎는다 — 배경 캔버스와 잉크가 반대다.
+const SCANLINE = scanlines({ line: `rgba(0, 0, 0, ${SCANLINE_ALPHA})`, period: SCANLINE_PERIOD });
 
-const VIGNETTE = `radial-gradient(ellipse at center, transparent 66%, rgba(0,0,0,${VIGNETTE_ALPHA}) 100%)`;
+const VIGNETTE = vignette(VIGNETTE_ALPHA);
 
 const baseStyle = {
   position: 'absolute',

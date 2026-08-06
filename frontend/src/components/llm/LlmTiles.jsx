@@ -1,4 +1,5 @@
 import { tokens as designTokens } from '../../styles/tokens';
+import { dashboardCardStyle } from '../../styles/dashboardCard';
 import { formatTokens } from './LlmDashboard';
 
 const { color, font, fontSize, fontWeight, radius, space } = designTokens;
@@ -101,8 +102,7 @@ const tilesStyle = {
 };
 const tileStyle = {
   display: 'flex', flexDirection: 'column', gap: '4px',
-  padding: space['3'], background: color.surface0,
-  border: `1px solid ${color.borderStrong}`, borderRadius: radius.md,
+  ...dashboardCardStyle(),
 };
 const tileKeyStyle = { fontSize: fontSize['11'], color: color.subtext, fontFamily: font.sans };
 const tileValueStyle = {
@@ -114,7 +114,7 @@ const tileValueStyle = {
 /* 보조 줄은 조용해야 하지만 읽혀야 한다 — faint 는 surface0 위에서 대비가 2:1 도 안 된다.
    "조용하다" 와 "안 보인다" 는 다르다. */
 const tileNoteStyle = {
-  fontSize: fontSize['11'], color: color.muted, fontFamily: font.sans,
+  fontSize: fontSize['10'], color: color.muted, fontFamily: font.sans,
   whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
 };
 const keyStatsStyle = {
@@ -123,10 +123,11 @@ const keyStatsStyle = {
 };
 const keyStatStyle = {
   display: 'flex', flexDirection: 'column', gap: '2px',
-  padding: '8px 10px', background: color.surface0,
-  border: `1px solid ${color.borderStrong}`, borderRadius: radius.sm,
+  ...dashboardCardStyle({ padding: '8px 10px', corner: radius.sm }),
 };
-const keyStatLabelStyle = { fontSize: fontSize['11'], color: color.subtext };
+/* 라벨은 값보다 조용해야 한다 — "백만 토큰당" 같은 긴 한국어 라벨이 값만큼 크면
+   숫자가 아니라 설명이 먼저 읽힌다. micro label(10px). */
+const keyStatLabelStyle = { fontSize: fontSize['10'], color: color.subtext };
 const keyStatValueStyle = {
   fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: color.text,
   fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',

@@ -23,9 +23,9 @@ document.addEventListener('contextmenu', (event) => {
 // 값을 작은 수치로 덮어써 jank 를 줄인다. 데스크탑은 그대로 풀 블러.
 const glassBlurStyle = document.createElement('style');
 glassBlurStyle.textContent = `
-  :root { --glass-blur-menu: 20px; --glass-blur-panel: 18px; --glass-blur-overlay: 5px; }
+  :root { --glass-blur-menu: 20px; --glass-blur-panel: 18px; --glass-blur-overlay: 5px; --glass-blur-card: 12px; }
   @media (max-width: 768px), (hover: none) and (pointer: coarse) {
-    :root { --glass-blur-menu: 6px; --glass-blur-panel: 6px; --glass-blur-overlay: 2px; }
+    :root { --glass-blur-menu: 6px; --glass-blur-panel: 6px; --glass-blur-overlay: 2px; --glass-blur-card: 5px; }
   }
 `;
 document.head.appendChild(glassBlurStyle);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { tokens as designTokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
+import { dashboardCardStyle } from '../../styles/dashboardCard';
 import { attachPaneTargets } from '../../utils/llmSessionPane';
 import { LLM_USAGE_CHANGED_EVENT, emitLlmUsageBusy } from '../../utils/llmUsageBus';
 import { formatMoney, describeMoney, resolveCurrency, formatCount } from '../../utils/money';
@@ -460,8 +461,7 @@ const iconBtnStyle = {
 };
 const filterRowStyle = {
   display: 'flex', flexWrap: 'wrap', gap: '4px',
-  padding: '8px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
+  ...dashboardCardStyle({ padding: '8px' }),
 };
 const rangeBtnStyle = {
   padding: '4px 12px', minHeight: '30px', border: '1px solid',
@@ -470,8 +470,7 @@ const rangeBtnStyle = {
 };
 const cardStyle = {
   display: 'flex', flexDirection: 'column', gap: '8px',
-  padding: space['3'], background: color.surface0,
-  border: `1px solid ${color.borderStrong}`, borderRadius: radius.md,
+  ...dashboardCardStyle(),
 };
 const cardHeadStyle = { display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' };
 /* 제목은 카드가 무엇인지 말하는 유일한 줄이다 — 값보다 작게 두되 본문 색을 유지한다.
@@ -495,18 +494,18 @@ const chartWrapStyle = { position: 'relative', width: '100%' };
 const yTickStyle = {
   position: 'absolute', left: 0, transform: 'translateY(-50%)',
   paddingRight: '6px', textAlign: 'right',
-  fontSize: fontSize['11'], color: color.muted, fontFamily: font.sans,
+  fontSize: fontSize['10'], color: color.muted, fontFamily: font.sans,
   pointerEvents: 'none', whiteSpace: 'nowrap',
 };
 const xTickStyle = {
   position: 'absolute', bottom: 0, transform: 'translateX(-50%)',
-  fontSize: fontSize['11'], color: color.muted, fontFamily: font.sans,
+  fontSize: fontSize['10'], color: color.muted, fontFamily: font.sans,
   pointerEvents: 'none', whiteSpace: 'nowrap',
 };
 const legendStyle = { display: 'flex', flexWrap: 'wrap', gap: '4px 12px' };
 const legendItemStyle = {
   display: 'inline-flex', alignItems: 'center', gap: '5px',
-  fontSize: fontSize['11'], color: color.subtext,
+  fontSize: fontSize['10'], color: color.subtext,
 };
 const legendDotStyle = { width: '7px', height: '7px', borderRadius: '2px', flexShrink: 0 };
 const stateStyle = {

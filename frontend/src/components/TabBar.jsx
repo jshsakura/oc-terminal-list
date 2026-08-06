@@ -1,6 +1,6 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Terminal as TerminalIcon, Settings as SettingsIcon, Keyboard, LayoutGrid, Radio } from 'lucide-react';
+import { Terminal as TerminalIcon, Settings as SettingsIcon, Keyboard, Radio } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RailIconBtn from './common/RailIconBtn';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
@@ -244,19 +244,11 @@ const TabBar = ({
 
       <div style={styles.railDivider} />
 
-      {/* right action group — 자동 맞춤 + 빠른 입력 + Broadcast + Settings menu */}
+      {/* right action group — 빠른 입력 + Broadcast + Settings menu.
+          **한 동작은 한 자리에만 둔다.** 패널 균등 분할은 설정 메뉴 안에 있으므로 레일에
+          같은 버튼을 또 두지 않는다 — 둘 다 있으면 어느 쪽이 진짜인지 매번 고민하게 되고,
+          자주 쓰지도 않는 동작이 상시 노출로 레일 폭만 먹는다. */}
       <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
-        {!isMobile && onEqualizePanes && (
-          <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <RailIconBtn
-              icon={LayoutGrid}
-              onClick={onEqualizePanes}
-              disabled={actionsDisabled}
-              title={t?.('equalizePane') || 'Equalize panes'}
-              compact
-            />
-          </div>
-        )}
         {!isMobile && onOpenCommandInput && (
           <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <RailIconBtn

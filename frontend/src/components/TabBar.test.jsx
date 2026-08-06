@@ -263,8 +263,13 @@ describe('TabBar', () => {
 
     it('locks the rail actions while the focused terminal is still connecting', () => {
       renderActions({ actionsDisabled: true });
-      expect(screen.getByTitle('Equalize panes')).toBeDisabled();
       expect(screen.getByTitle('Quick Input')).toBeDisabled();
+    });
+
+    it('keeps Equalize panes in the settings menu only — never twice on screen', () => {
+      // 한 동작은 한 자리에만. 레일에도 두면 어느 쪽이 진짜인지 매번 고민하게 된다.
+      renderActions();
+      expect(screen.queryByTitle('Equalize panes')).not.toBeInTheDocument();
     });
 
     it('keeps Broadcast clickable while it is on, even when actions are locked', () => {
@@ -285,7 +290,6 @@ describe('TabBar', () => {
 
     it('enables every rail action once the terminal is ready', () => {
       renderActions({ actionsDisabled: false });
-      expect(screen.getByTitle('Equalize panes')).not.toBeDisabled();
       expect(screen.getByTitle('Quick Input')).not.toBeDisabled();
       expect(screen.getByTitle('Broadcast')).not.toBeDisabled();
     });
@@ -293,7 +297,6 @@ describe('TabBar', () => {
     it('hides the desktop-only actions on mobile', () => {
       renderActions({ isMobile: true });
 
-      expect(screen.queryByTitle('Equalize panes')).not.toBeInTheDocument();
       expect(screen.queryByTitle('Quick Input')).not.toBeInTheDocument();
       expect(screen.queryByTitle('Broadcast')).not.toBeInTheDocument();
     });

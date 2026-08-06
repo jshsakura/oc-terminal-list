@@ -1,4 +1,4 @@
-import { useState, memo, useRef, useEffect } from 'react';
+import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import {
   Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
   Link2, BarChart3, ScreenShare, RefreshCw,
@@ -12,6 +12,9 @@ import DashboardCards from './DashboardCards';
 import LlmDashboard from './llm/LlmDashboard';
 import TerminalTiles from './llm/TerminalTiles';
 import { LLM_USAGE_CHANGED_EVENT, LLM_USAGE_BUSY_EVENT } from '../utils/llmUsageBus';
+import { themes, defaultTheme } from '../styles/themes';
+import { isLight } from '../styles/themeUI';
+import { canvasTexture } from '../styles/textures';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -114,11 +117,19 @@ const HomeDashboard = ({
     return () => ro.disconnect();
   }, []);
 
+  /* 홈 캔버스의 질감 — 카드(유리)가 뭉갤 대상이 여기 있어야 유리가 유리로 보인다.
+     테마를 따라간다: 밝은 테마는 더 옅게, 질감을 거부하는 테마('flat')는 아예 안 깐다. */
+  const backdrop = useMemo(() => {
+    const theme = themes[settings.theme] || themes[defaultTheme];
+    return canvasTexture(theme, { light: isLight(theme?.background) });
+  }, [settings.theme]);
+
   return (
     <div
       ref={rootRef}
       style={{
         ...styles.root,
+        ...(backdrop ? { backgroundImage: backdrop } : null),
         ...(embedded ? { height: 'auto', overflow: 'visible' } : null),
       }}
     >

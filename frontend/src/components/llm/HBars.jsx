@@ -1,4 +1,5 @@
 import { tokens as designTokens } from '../../styles/tokens';
+import { dashboardCardStyle } from '../../styles/dashboardCard';
 import { formatTokens } from './LlmDashboard';
 
 const { color, font, fontSize, fontWeight, radius } = designTokens;
@@ -51,10 +52,7 @@ export const HBars = ({ title, rows = [], limit = 8, colorOf, money, t }) => {
 
 const cardStyle = {
   display: 'flex', flexDirection: 'column', gap: '8px',
-  padding: '12px', background: color.surface0,
-  /* 보더가 6% 알파 하나뿐이면 카드가 배경에 녹아 "그냥 투명" 해 보인다.
-     대시보드 카드는 면으로 읽혀야 하므로 한 단계 진한 보더를 쓴다. */
-  border: `1px solid ${color.borderStrong}`, borderRadius: radius.md,
+  ...dashboardCardStyle({ padding: '12px' }),
 };
 const titleStyle = {
   margin: 0, fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
@@ -69,7 +67,7 @@ const nameStyle = { display: 'flex', alignItems: 'center', gap: '6px', minWidth:
 /* 토큰에 없는 치수(10, 10.5)를 쓰면 `fontSize['10']` 은 undefined 가 되어 상속 크기로
    렌더된다 — 의도한 크기가 아니라 아무 크기다. 스케일 안의 값만 쓴다. */
 const nameTextStyle = {
-  fontSize: fontSize['12'], color: color.text, fontFamily: font.sans,
+  fontSize: fontSize['11'], color: color.text, fontFamily: font.sans,
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 const dotStyle = { width: '7px', height: '7px', borderRadius: '50%', flexShrink: 0 };
@@ -78,7 +76,7 @@ const trackStyle = {
 };
 const fillStyle = { height: '100%', borderRadius: '3px' };
 const valueStyle = {
-  fontSize: fontSize['12'], color: color.text, fontWeight: fontWeight.medium,
+  fontSize: fontSize['11'], color: color.text, fontWeight: fontWeight.medium,
   fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap',
 };
 const stateStyle = { padding: '10px', textAlign: 'center', color: color.subtext, fontSize: fontSize['12'] };
