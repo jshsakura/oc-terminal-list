@@ -13,8 +13,7 @@ import LlmDashboard from './llm/LlmDashboard';
 import TerminalTiles from './llm/TerminalTiles';
 import { LLM_USAGE_CHANGED_EVENT, LLM_USAGE_BUSY_EVENT } from '../utils/llmUsageBus';
 import { themes, defaultTheme } from '../styles/themes';
-import { isLight } from '../styles/themeUI';
-import { canvasTexture } from '../styles/textures';
+import { canvasTexture, canvasWash, CANVAS_TEXTURE_OPACITY } from '../styles/textures';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -117,11 +116,11 @@ const HomeDashboard = ({
     return () => ro.disconnect();
   }, []);
 
-  /* 홈 캔버스의 질감 — 카드(유리)가 뭉갤 대상이 여기 있어야 유리가 유리로 보인다.
-     테마를 따라간다: 밝은 테마는 더 옅게, 질감을 거부하는 테마('flat')는 아예 안 깐다. */
-  const backdrop = useMemo(() => {
+  /* 홈은 "화면" 이다 — 위에서 빛이 드는 워시 위에 카드(유리)가 놓이고, 주사선이 그
+     **위를** 덮는다. 질감을 거부하는 테마('flat', e-ink)에서는 둘 다 주지 않는다. */
+  const screen = useMemo(() => {
     const theme = themes[settings.theme] || themes[defaultTheme];
-    return canvasTexture(theme, { light: isLight(theme?.background) });
+    return { wash: canvasWash(theme), lines: canvasTexture(theme) };
   }, [settings.theme]);
 
   return (
@@ -129,10 +128,16 @@ const HomeDashboard = ({
       ref={rootRef}
       style={{
         ...styles.root,
-        ...(backdrop ? { backgroundImage: backdrop } : null),
+        ...(screen.wash ? { backgroundImage: screen.wash } : null),
         ...(embedded ? { height: 'auto', overflow: 'visible' } : null),
       }}
     >
+      {/* 주사선 오버레이. 카드 **위로도** 지나가야 화면으로 읽힌다 — 뒤에만 깔면 카드
+          사이 여백에만 줄이 보여 그냥 줄무늬다. 클릭은 통과시킨다(pointerEvents:none).
+          스크롤 컨테이너의 padding box 가 포함 블록이라 스크롤 전 구간을 덮는다. */}
+      {screen.lines && (
+        <div aria-hidden="true" style={{ ...styles.scanlines, background: screen.lines }} />
+      )}
       <div style={styles.inner}>
         {/* 연결 / 대시보드 — 홈이 하나의 긴 스크롤이면 정작 자주 쓰는 연결이 통계 아래로
             밀린다. 둘은 목적이 다르다: 하나는 "어디에 붙지", 하나는 "얼마나 썼지".
@@ -489,10 +494,21 @@ const styles = {
     width: '100%',
     height: '100%',
     background: color.base,
+    // 주사선 오버레이의 포함 블록 — 이게 없으면 오버레이가 화면 전체로 새어나간다.
+    position: 'relative',
     overflow: 'auto',
     fontFamily: font.sans,
     padding: `${space['4']} ${space['5']}`,
     boxSizing: 'border-box',
+  },
+  /* 화면 유리막 — z-index 를 명시해야 콘텐츠 안의 positioned 요소(호스트 카드 hover 등)
+     보다 확실히 위에 놓인다. DOM 순서에만 기대면 조용히 아래로 내려간다. */
+  scanlines: {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 2,
+    pointerEvents: 'none',
+    opacity: CANVAS_TEXTURE_OPACITY,
   },
   inner: {
     width: '100%',

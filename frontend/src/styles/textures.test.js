@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { scanlines, vignette, canvasTexture } from './textures';
+import { scanlines, vignette, canvasTexture, canvasWash } from './textures';
 
 describe('scanlines', () => {
   it('draws a 1px line every period px', () => {
@@ -27,15 +27,18 @@ describe('canvasTexture', () => {
     expect(canvasTexture(undefined)).toContain('repeating-linear-gradient');
   });
 
-  it('inks the lines with the theme text colour, not black', () => {
-    // 검정 선은 어두운 테마에서 배경과 3 RGB 차이라 보이지 않는다(실측). 글자색이어야
-    // 어두운 테마엔 밝은 선, 밝은 테마엔 어두운 선이 되어 한 공식으로 양쪽이 성립한다.
-    expect(canvasTexture({})).toContain('var(--ui-text');
+  it('draws 1px on, 2px off — the reference cadence', () => {
+    // game-and-what theme.css 의 `0 1px, transparent 1px 3px` 와 같은 주기.
+    expect(canvasTexture({})).toContain('transparent 3px');
+  });
+});
+
+describe('canvasWash', () => {
+  it('lights the canvas from the top instead of a flat fill', () => {
+    expect(canvasWash({})).toContain('circle at 50% 0%');
   });
 
-  it('goes fainter on light themes', () => {
-    const alphaOf = (css) => Number(/([\d.]+)%/.exec(css)[1]);
-    expect(alphaOf(canvasTexture({}, { light: true })))
-      .toBeLessThan(alphaOf(canvasTexture({}, { light: false })));
+  it('stays flat on a theme that declares itself flat', () => {
+    expect(canvasWash({ texture: 'flat' })).toBeNull();
   });
 });
