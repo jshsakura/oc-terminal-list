@@ -571,6 +571,29 @@ LLM API 는 여전히 아무 데서도 부르지 않는다(아키텍처 규칙 �
 파일도 안 읽고 SSH 도 안 건다.** 폴러가 없어 대시보드를 열 때만 움직이고, 새로고침을
 눌러야 캐시를 무시하고 다시 훑는다.
 
+## 대시보드 표면 — 주사선과 유리는 한 세트 (2026-08-06)
+
+홈 캔버스에 주사선(`styles/textures.js` `canvasTexture`)을 깔고 그 위에 유리 카드
+(`styles/dashboardCard.js`)를 얹는다. **하나만 떼면 둘 다 의미를 잃는다** — 평평한 배경
+위의 유리는 뭉갤 것이 없어 "그냥 투명" 해 보이고(한 번 되돌린 적 있다), 유리 없는 주사선은
+그냥 배경 무늬다.
+
+- 주사선 잉크는 **테마 글자색**(`var(--ui-text)`)이다. 검정은 어두운 테마에서 배경과 3 RGB
+  차이라 안 보이고 밝은 테마에선 지저분하다. 글자색이면 다크=밝은 선, 라이트=어두운 선.
+- `texture: 'flat'` 테마(e-ink)에는 깔지 않는다 — 질감의 **부재**가 그 테마의 정체성이다.
+- 카드 그림자·하이라이트에 흰검을 박지 않는다. crust/text 에서 뽑아야 라이트 테마에서도
+  성립한다. blur 는 `--glass-blur-card`(모바일에서 작게 override — backdrop-filter 는 비싸다).
+- 카드 면의 정의는 `dashboardCard.js` **하나뿐**이다. 타일·막대·차트가 각자 그리면 농도가
+  어긋난다.
+
+**`tokens.fontSize` 에 없는 키를 쓰면 글씨가 커진다.** `fontSize['10.5']` 같은 키는
+undefined 를 내고, undefined 인 fontSize 는 무시되어 **상속 크기(글로벌 CSS 가 없으므로
+브라우저 기본 16px)** 로 렌더된다 — 작게 하려던 보조 라벨이 화면에서 가장 큰 글씨가 되는데
+에러는 어디에도 안 난다. `styles/tokens.fontSize.test.js` 가 소스를 스캔해 막는다.
+
+**한 동작은 한 자리에만 둔다.** 탭바 레일과 설정 메뉴에 같은 항목(패널 균등 분할)이 둘 다
+있으면 어느 쪽이 진짜인지 매번 고민하게 되고, 자주 안 쓰는 동작이 레일 폭을 상시로 먹는다.
+
 ## Frontend derivation utils
 
 Pure derivations that used to live inline in `App.jsx` are extracted to `utils/` with their own tests, because **App.jsx has no render test** — logic left inside it is untested. `tabsWithMeta` (per-tab name/icon/color/persistence, following the active pane's identity) is now `tabModel.deriveTabMeta`; extension→Monaco language is `fileTypes.monacoLanguageForFile`. When thinning App, move the pure part out and test it there rather than trusting the whole component to be exercised.
