@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo } from 'react';
 import { Clock, Layers, Server, CalendarDays } from 'lucide-react';
 import { tokens as designTokens } from '../../styles/tokens';
-import { authHeaders } from '../../utils/auth';
 import { TileRow } from './LlmTiles.jsx';
 import { HBars } from './HBars.jsx';
 import DayLine from './DayLine.jsx';
@@ -18,30 +17,6 @@ const { color } = designTokens;
  *
  * 기간은 위에서 내려온다(`days`) — 카드마다 기간이 다르면 비교가 안 된다.
  */
-const _cache = new Map();
-const CACHE_TTL_MS = 60 * 1000;
-
-const useTerminalUsage = (days) => {
-  const [data, setData] = useState(() => _cache.get(days)?.data || null);
-  const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
-
-  const load = useCallback(() => {
-    const cached = _cache.get(days);
-    if (cached && Date.now() - cached.ts < CACHE_TTL_MS) { setData(cached.data); return; }
-    fetch(`/api/usage/summary?days=${days}`, { headers: authHeaders() })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => {
-        if (!d) return;
-        _cache.set(days, { data: d, ts: Date.now() });
-        if (alive.current) setData(d);
-      })
-      .catch(() => { /* 통계가 없다고 홈이 깨지면 안 된다 */ });
-  }, [days]);
-
-  useEffect(() => { load(); }, [load]);
-  return data;
-};
 
 /**
  * 집계 응답 → HBars 행.
@@ -73,8 +48,9 @@ export const buildHostRows = (data, hosts = [], settings = {}, t) => {
     .sort((a, b) => b.cost - a.cost);
 };
 
-const TerminalTiles = ({ hosts = [], settings = {}, days = 7, t }) => {
-  const data = useTerminalUsage(days || 90);
+/** 데이터는 위(홈)가 가져온다 — 머리(기간 스위치)까지 한 몸으로 스켈레톤을 그리려면
+    로딩 여부를 홈이 알아야 한다(`hooks/useTerminalUsage`). */
+const TerminalTiles = ({ hosts = [], settings = {}, data = null, t }) => {
 
   const hostRows = useMemo(
     () => buildHostRows(data, hosts, settings, t),

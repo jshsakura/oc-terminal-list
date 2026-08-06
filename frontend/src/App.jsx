@@ -81,7 +81,7 @@ function App() {
   // 초기 1회 — focusedPane 이 아직 안 정의된 첫 렌더에 글로벌 테마 즉시 적용 (FOUC 방지).
   // 활성 pane 의 themeOverride 가 잡히면 아래쪽 effect 가 덮어씀.
   useEffect(() => { applyThemeVars(currentTheme); }, [currentTheme]);
-  const { hosts, refresh: refreshHosts, createHost, updateHost, deleteHost } = useHosts(isAuthenticated);
+  const { hosts, loading: hostsLoading, refresh: refreshHosts, createHost, updateHost, deleteHost } = useHosts(isAuthenticated);
   const { keys: sshKeys, createKey, updateKey, deleteKey } = useSshKeys(isAuthenticated);
 
   // ── tabs ──────────────────────────────────────────────────────────────────
@@ -962,6 +962,7 @@ function App() {
             <HomeDashboard
               isVisible={activeTabId === null}
               hosts={hosts}
+              hostsLoading={hostsLoading}
               settings={settings}
               localCard={{
                 name: (settings.localName || '').trim() || (t('thisMachine') || 'This machine'),

@@ -10,6 +10,7 @@ import { formatMoney, describeMoney, resolveCurrency, formatCount } from '../../
 import { CHART_W, CHART_H, PAD_L, PAD_R, PAD_T, TOKEN_SERIES, buildChart, fillDayGaps, shortDay } from './llmChartGeometry';
 import { LlmTiles, KeyStats } from './LlmTiles.jsx';
 import { HBars } from './HBars.jsx';
+import { TileRowSkeleton, ChartCardSkeleton, BarsCardSkeleton } from './DashboardSkeleton.jsx';
 
 const { color, font, fontSize, fontWeight, radius, space } = designTokens;
 
@@ -180,13 +181,17 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
 
 /* 첫 수집은 호스트마다 SSH 를 타므로 몇 초가 걸린다. 그동안 빈 화면을 두면 "멈췄나"
    로 읽히고, 그게 곧 체감 지연이다. 카드 자리를 미리 세워 둔다. */
+/* 로딩 자리는 대시보드 위쪽(터미널 사용량)과 **같은 조각**을 쓴다 — 한 화면에서 두 종류의
+   스켈레톤이 서로 다른 모양·다른 펄스로 뛰면 그게 로딩이 아니라 고장으로 보인다. */
 const LoadingCards = ({ t }) => (
-  <div style={rootStyle}>
+  <div style={rootStyle} aria-busy="true">
     <div style={{ ...stateStyle, textAlign: 'left' }}>{t?.('llmCollecting') || 'Collecting…'}</div>
-    <div style={tilesSkeletonStyle}>
-      {[0, 1, 2, 3].map((i) => <div key={i} className="dc-skel" style={skeletonTileStyle} />)}
+    <TileRowSkeleton count={4} />
+    <ChartCardSkeleton />
+    <div style={colsStyle}>
+      <BarsCardSkeleton />
+      <BarsCardSkeleton />
     </div>
-    <div className="dc-skel" style={skeletonChartStyle} />
   </div>
 );
 
@@ -481,18 +486,6 @@ export function formatTokens(n) {
 
 /* ─── styles — 앱의 카드 언어(평평한 면 + 헤어라인) 그대로. */
 const rootStyle = { display: 'flex', flexDirection: 'column', gap: space['3'] };
-const tilesSkeletonStyle = {
-  display: 'grid', gap: space['3'],
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))',
-};
-const skeletonTileStyle = {
-  height: '84px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
-};
-const skeletonChartStyle = {
-  height: '200px', background: color.surface0,
-  border: `1px solid ${color.border}`, borderRadius: radius.md,
-};
 const headRowStyle = { display: 'flex', alignItems: 'center', gap: space['2'] };
 const headSummaryStyle = { fontSize: fontSize['11'], color: color.subtext, fontFamily: font.sans };
 const iconBtnStyle = {

@@ -35,6 +35,16 @@ glassBlurStyle.textContent = `
      메뉴가 시끄러워졌다 — 호버는 "이 줄" 을 말하면 되고, 그건 면이 이미 한다.
      대신 면은 불투명이어야 한다: 반투명 하이라이트는 유리 메뉴 뒤에 비치는 것과 섞여
      테마에 따라 통째로 사라진다. */
+  /* 스켈레톤 펄스와 스피너 — **전역**이다. 예전엔 DashboardCards 가 렌더될 때만 주입돼,
+     그 컴포넌트를 화면에서 뺀 순간 새로고침 아이콘이 조용히 안 돌게 됐다. */
+  @keyframes iterm-skel-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.7; } }
+  @keyframes dc-spin { to { transform: rotate(360deg); } }
+  .dc-spin { animation: dc-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+  @media (prefers-reduced-motion: reduce) {
+    .dc-spin { animation-duration: 2.4s; }
+    [aria-busy="true"] * { animation: none !important; opacity: 0.55; }
+  }
+
   .iterm-menu-item { transition: background 120ms, color 120ms; }
   .iterm-menu-item:hover:not(:disabled) {
     background: color-mix(in srgb, var(--ui-accent, #89b4fa) 20%, var(--ui-surface2, #393949)) !important;

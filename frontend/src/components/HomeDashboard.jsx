@@ -3,14 +3,15 @@ import {
   Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
   Link2, BarChart3, ScreenShare, RefreshCw,
 } from 'lucide-react';
-import { gridStyle } from './DashboardCards';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import useHostReorder from '../hooks/useHostReorder';
-import DashboardCards from './DashboardCards';
 import LlmDashboard from './llm/LlmDashboard';
 import TerminalTiles from './llm/TerminalTiles';
+import DashboardSkeleton, { RangeSkeleton } from './llm/DashboardSkeleton';
+import useTerminalUsage from '../hooks/useTerminalUsage';
+import SkeletonRow from './common/SkeletonRow';
 import { LLM_USAGE_CHANGED_EVENT, LLM_USAGE_BUSY_EVENT } from '../utils/llmUsageBus';
 import { themes, defaultTheme } from '../styles/themes';
 import { canvasTexture, canvasWash } from '../styles/textures';
@@ -31,6 +32,8 @@ const MAX_COLUMNS = 3;
 
 const HomeDashboard = ({
   hosts = [],
+  // 호스트 목록을 아직 못 받았나 — 첫 조회 동안 카드 자리를 스켈레톤으로 채운다.
+  hostsLoading = false,
   localCard,
   settings = {},
   onOpenHost,
@@ -74,6 +77,9 @@ const HomeDashboard = ({
   const [rangeDays, setRangeDays] = useState(7);
   /* 갱신 중 표시 — 실제로 도는 곳은 LlmDashboard 라 이벤트로 받는다. 눌렀는데
      아무것도 안 움직이면 눌린 줄 모른다. */
+  /* 통계는 홈이 가져온다 — 아래 카드만 알고 있으면 머리(기간 스위치)는 늘 완성된 채 서고
+     아래만 비어 화면이 반쯤 그려진 것처럼 보인다. 로딩은 한 덩어리여야 한다. */
+  const { data: usage, loading: usageLoading } = useTerminalUsage(rangeDays || 90);
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   useEffect(() => {
@@ -174,6 +180,10 @@ const HomeDashboard = ({
              좁힌다 — 카드마다 기간을 두면 한 화면에서 7일과 30일을 비교하게 된다. */
           <>
             <div style={styles.dashHead}>
+              {/* 첫 조회 중에는 기간 스위치도 스켈레톤이다. 값이 없는 화면 위에서 기간만
+                  또렷하면 그건 "고를 수 있다" 가 아니라 "여기만 로딩이 끝났다" 로 읽힌다.
+                  (캐시가 있으면 첫 렌더부터 값이 있어 이 자리는 지나간다.) */}
+              {usageLoading && !usage ? <RangeSkeleton /> : (
               <div style={styles.rangeRow}>
                 {RANGES.map(([value]) => {
                   const isOn = rangeDays === value;
@@ -197,6 +207,7 @@ const HomeDashboard = ({
                   );
                 })}
               </div>
+              )}
               <span style={{ flex: 1 }} />
               <button
                 type="button"
@@ -218,7 +229,9 @@ const HomeDashboard = ({
             </div>
 
             {/* 터미널 사용량도 LLM 숫자와 같은 타일·같은 막대 — 한 대시보드다. */}
-            <TerminalTiles hosts={hosts} settings={settings} days={rangeDays} t={t} />
+            {usage
+              ? <TerminalTiles hosts={hosts} settings={settings} data={usage} t={t} />
+              : <DashboardSkeleton />}
 
             <LlmDashboard
               hosts={hosts}
@@ -273,6 +286,11 @@ const HomeDashboard = ({
               />
             )}
 
+            {/* 첫 조회 중 — 카드가 들어올 자리를 같은 크기로 잡아둔다. 빈 화면에서 카드가
+                툭 떨어지면 목록이 늦게 온 게 아니라 방금 만들어진 것처럼 보인다. */}
+            {hostsLoading && orderedHosts.length === 0 && (
+              [0, 1, 2].map((i) => <HostRowSkeleton key={`skel-${i}`} />)
+            )}
             {orderedHosts.map((host) => {
               const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
               return (
@@ -348,6 +366,17 @@ const Section = ({ icon: Icon, title, children }) => (
       </div>
     )}
     <div>{children}</div>
+  </div>
+);
+
+/** 호스트 카드가 들어올 자리 — 진짜 카드와 같은 높이·같은 배치(아이콘·이름·부제). */
+const HostRowSkeleton = () => (
+  <div style={{ ...styles.row, cursor: 'default' }} aria-busy="true">
+    <SkeletonRow width="40px" height="40px" borderRadius={radius.md} style={{ flexShrink: 0 }} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minWidth: 0 }}>
+      <SkeletonRow width="52%" height="11px" />
+      <SkeletonRow width="72%" height="9px" />
+    </div>
   </div>
 );
 

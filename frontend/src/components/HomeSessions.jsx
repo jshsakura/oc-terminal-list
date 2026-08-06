@@ -7,6 +7,7 @@ import {
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import { authHeaders } from '../utils/auth';
+import SkeletonRow from './common/SkeletonRow';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -239,7 +240,7 @@ const HomeSessions = ({
           </div>
           <div style={S.grid}>
             {anyLoading && (
-              <LoadingResumableCard t={t} />
+              <LoadingResumableCard />
             )}
             {!anyLoading && showEmptyResumable && (
               <EmptyResumableCard t={t} />
@@ -391,23 +392,15 @@ const ResumableCard = ({ host, session, onResume, onTerminate, t }) => {
   );
 };
 
-const LoadingResumableCard = ({ t }) => (
-  <div
-    style={{
-      ...S.card,
-      cursor: 'default',
-      background: color.surface0,
-      borderColor: color.border,
-      justifyContent: 'center',
-      color: color.muted,
-      fontSize: fontSize['12'],
-      fontWeight: fontWeight.medium,
-      textAlign: 'center',
-    }}
-    aria-busy
-  >
-    <Loader2 size={14} strokeWidth={2.4} style={{ animation: 'home-spin 0.9s linear infinite' }} />
-    <span>{t?.('loadingSessions') || 'Scanning hosts...'}</span>
+/* 로딩 카드 — 스피너 대신 **스켈레톤**이다. 같은 화면의 대시보드가 스켈레톤으로 기다리는데
+   여기만 원이 돌면 두 곳이 서로 다른 일을 하는 것처럼 보인다. 모양은 진짜 카드 그대로. */
+const LoadingResumableCard = () => (
+  <div style={{ ...S.card, cursor: 'default' }} aria-busy="true">
+    <SkeletonRow width="40px" height="40px" borderRadius={radius.md} style={{ flexShrink: 0 }} />
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', flex: 1, minWidth: 0 }}>
+      <SkeletonRow width="46%" height="11px" />
+      <SkeletonRow width="64%" height="9px" />
+    </div>
   </div>
 );
 

@@ -86,9 +86,10 @@ export const Tab = memo(({
   // 트랙(움푹한 스트립) 안에서 **활성만 떠오른다**. 비활성은 트랙 면 그대로 두고,
   // 호버에서만 살짝 밝아진다 — 눌린 자리/떠 있는 자리가 형태로 구분되므로 비활성까지
   // 칠하면 트랙이 다시 빈틈없는 덩어리가 된다.
-  const tabBase = isActive
-    ? 'var(--ui-surface2)'
-    : 'color-mix(in srgb, var(--ui-surface0) 55%, var(--ui-crust))';
+  /* 칩의 경계는 면 차이가 만든다 — 그런데 비활성 칩을 crust 쪽으로 절반이나 눕혀 두니
+     테마에 따라 바와 거의 같은 색이 되어 "어디부터 어디까지가 한 탭인지" 가 흐릿했다.
+     비활성도 surface0 전부(바보다 확실히 위)로 올리고, 활성은 surface2 그대로 둔다. */
+  const tabBase = isActive ? 'var(--ui-surface2)' : 'var(--ui-surface0)';
   /* 타일과 링은 **언제나 불투명한 면** 위에서 섞는다. 알파 위에 알파를 섞으면 숫자 타일이
      비쳐 뒤가 올라오고, `0 0 0 1.5px transparent` 링은 아예 안 그려져 겹친 스택 타일이
      서로 붙어 보인다. 지금은 칩 배경이 곧 그 면이다. */
@@ -173,11 +174,16 @@ export const Tab = memo(({
           fontWeight: fontWeight.medium,
           /* 활성은 트랙 위로 **떠오른다** — 그림자(아래)와 1px 하이라이트(위)가 두께를
              만든다. 이게 없으면 색만 다른 사각형이라 세그먼트 스위치로 안 읽힌다. */
+          /* 1px 헤어라인을 **안쪽 그림자로** 두른다(레이아웃을 건드리지 않는다). 면 차이가
+             테마에 따라 사라져도 윤곽은 남는다 — §15 의 "상자 보더 없음" 은 지키되 경계는
+             또렷하게. 활성은 한 단 진한 선 + 아래 그림자로 확실히 떠오른다. */
           boxShadow: isDragOver
             ? `inset 0 0 0 2px ${color.accent}`
             : (isActive
-              ? `0 1px 3px rgba(0, 0, 0, 0.45), inset 0 1px 0 color-mix(in srgb, ${color.text} 10%, transparent)`
-              : 'none'),
+              ? `inset 0 0 0 1px color-mix(in srgb, ${color.text} 16%, transparent),`
+                + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 12%, transparent),`
+                + ` 0 1px 3px rgba(0, 0, 0, 0.45)`
+              : `inset 0 0 0 1px color-mix(in srgb, ${color.text} 8%, transparent)`),
         }}
         onMouseEnter={(e) => {
           if (isMobile) return;

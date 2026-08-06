@@ -2,23 +2,6 @@ import { tokens } from '../../styles/tokens';
 
 const { color, radius } = tokens;
 
-const skelKeyframes = `@keyframes skel-pulse {
-  0%, 100% { opacity: 0.35; }
-  50% { opacity: 0.7; }
-}`;
-
-let injected = false;
-const ensureStyle = () => {
-  if (typeof document === 'undefined' || injected) return;
-  if (!document.getElementById('skel-pulse-style')) {
-    const el = document.createElement('style');
-    el.id = 'skel-pulse-style';
-    el.textContent = skelKeyframes;
-    document.head.appendChild(el);
-    injected = true;
-  }
-};
-
 const SkeletonRow = ({
   width = '60%',
   height = '12px',
@@ -26,7 +9,6 @@ const SkeletonRow = ({
   style,
   ...rest
 }) => {
-  ensureStyle();
   return (
     <div
       aria-busy="true"
@@ -36,7 +18,7 @@ const SkeletonRow = ({
         height,
         borderRadius: borderRadius || radius.xs,
         background: color.surface2,
-        animation: 'skel-pulse 1.4s ease-in-out infinite',
+        animation: 'iterm-skel-pulse 1.4s ease-in-out infinite',
         ...style,
       }}
       {...rest}
