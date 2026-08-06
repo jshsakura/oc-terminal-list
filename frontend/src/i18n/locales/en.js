@@ -598,7 +598,7 @@ export const en = {
     hidePaneName: 'Show address only',
     closeTab: 'Close tab',
     confirmCloseTab: 'Close this tab? All sessions in it will end.',
-    reloadTerminals: 'Redraw this tab',
+    reloadTerminals: "Reload this tab's terminals",
     reloadTerminalsHint: 'Repaints this tab\'s terminals; sessions and processes are untouched',
     equalizePane: 'Equalize panes',
     equalizePaneConfirm: 'This resets every split in the current tab to equal size. Your manual sizing will be lost.',

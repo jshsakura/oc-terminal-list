@@ -174,17 +174,17 @@ export const Tab = memo(({
           fontWeight: fontWeight.medium,
           /* 활성은 트랙 위로 **떠오른다** — 그림자(아래)와 1px 하이라이트(위)가 두께를
              만든다. 이게 없으면 색만 다른 사각형이라 세그먼트 스위치로 안 읽힌다. */
-          /* 윤곽의 세기는 두 번 헛짚고 잡은 값이다. 없으면(원래) 어디까지가 한 탭인지 안
-             보이고, 16%/8% 로 세우면 탭마다 테두리가 도드라져 촌스럽다. **보이되 선으로
-             읽히지는 않는** 지점이 7%(비활성)/10%(활성)다 — 경계의 본체는 어디까지나 면
-             차이(비활성 surface0 vs 바 crust)이고 이 선은 그것을 또렷하게 만들 뿐이다. */
+          /* 경계는 **면이 만들고 선은 거들기만 한다.** 비활성 칩을 surface0 전부로 올린 뒤로는
+             면 차이만으로도 탭이 구분되므로, 선은 그 위에 얹는 아주 옅은 윤곽이면 충분하다.
+             16%/8% → 10%/7% → 지금 6%/4%. 선이 보이기 시작하면 탭마다 테두리를 두른 꼴이
+             되어 촌스러워진다 — 여기서 더 올리지 말 것. */
           boxShadow: isDragOver
             ? `inset 0 0 0 2px ${color.accent}`
             : (isActive
-              ? `inset 0 0 0 1px color-mix(in srgb, ${color.text} 10%, transparent),`
-                + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 10%, transparent),`
-                + ` 0 1px 3px rgba(0, 0, 0, 0.35)`
-              : `inset 0 0 0 1px color-mix(in srgb, ${color.text} 7%, transparent)`),
+              ? `inset 0 0 0 1px color-mix(in srgb, ${color.text} 6%, transparent),`
+                + ` inset 0 1px 0 color-mix(in srgb, ${color.text} 8%, transparent),`
+                + ` 0 1px 3px rgba(0, 0, 0, 0.3)`
+              : `inset 0 0 0 1px color-mix(in srgb, ${color.text} 4%, transparent)`),
         }}
         onMouseEnter={(e) => {
           if (isMobile) return;

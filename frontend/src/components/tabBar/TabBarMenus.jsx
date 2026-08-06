@@ -204,7 +204,7 @@ export const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettin
       {onEqualize && item(LayoutGrid, t?.('equalizePane') || 'Equalize panes', onEqualize)}
       {onReload && item(
         RefreshCw,
-        t?.('reloadTerminals') || 'Redraw this tab',
+        t?.('reloadTerminals') || "Reload this tab's terminals",
         onReload,
         t?.('reloadTerminalsHint') || "Repaints this tab's terminals; sessions and processes are untouched",
       )}
