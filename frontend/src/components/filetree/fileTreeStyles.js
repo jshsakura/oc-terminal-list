@@ -55,6 +55,32 @@ export const styles = {
     border: `1px solid ${color.border}`,
     borderRadius: radius.xs,
   },
+  /* The path row is a button so it reads as clickable; it keeps the row's own padding so
+     switching to the input does not shift the text by a pixel. */
+  pathButton: {
+    flex: 1,
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    background: 'transparent',
+    border: 'none',
+    padding: 0,
+    margin: 0,
+    cursor: 'text',
+    textAlign: 'left',
+    font: 'inherit',
+  },
+  pathInput: {
+    flex: 1,
+    minWidth: 0,
+    background: 'transparent',
+    border: 'none',
+    outline: 'none',
+    padding: 0,
+    color: color.text,
+    fontSize: fontSize['11'],
+    fontFamily: font.mono,
+  },
   branchName: {
     fontSize: fontSize['11'],
     fontFamily: font.mono,

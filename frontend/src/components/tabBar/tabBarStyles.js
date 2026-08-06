@@ -119,6 +119,8 @@ export const styles = {
   },
   tabListMobile: {
     gap: '6px',
+    // Breathing room so a scrolled chip never sits flush against the action group.
+    paddingRight: '4px',
     flex: '1 1 auto',
     paddingTop: '0',
     paddingBottom: '0',

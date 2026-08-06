@@ -199,9 +199,11 @@ const TabBar = ({
         <TerminalIcon size={13} strokeWidth={2} />
       </button>
 
-      {/* 탭 스트립의 양 끝 경계 — 좌우 대칭이어야 한다. 한쪽에만 있으면 그게 더 눈에 걸린다.
-          바 높이를 다 긋는 실선 대신 가운데 정렬된 짧은 rule 로. */}
-      <div style={styles.railDivider} />
+      {/* Rules at both ends of the tab strip — they have to be symmetric; one alone draws more
+          attention than two. A short centred rule, not a full-height line.
+          Dropped on narrow screens: with tabs scrolled, a half-visible chip ends up touching
+          the rule and the two read as one broken edge. The gap alone separates them there. */}
+      {!isMobile && <div style={styles.railDivider} />}
 
       <div
         ref={tabListRef}
@@ -247,7 +249,7 @@ const TabBar = ({
         ))}
       </div>
 
-      <div style={styles.railDivider} />
+      {!isMobile && <div style={styles.railDivider} />}
 
       {/* Right action group — quick input, broadcast, settings menu.
           **One action lives in one place.** Equalize panes is in the settings menu, so the rail

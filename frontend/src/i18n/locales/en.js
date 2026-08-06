@@ -705,6 +705,7 @@ export const en = {
     needTwoSessionsForSplit: 'Create at least two sessions to split terminal view.',
     noCommandsFound: 'No commands found',
     noFilesFound: 'No files found',
+    goToPath: 'Go to path',
     searchFiles: 'Search files...',
     searchingFiles: 'Searching files...',
     findInTerminal: 'Find in Terminal',

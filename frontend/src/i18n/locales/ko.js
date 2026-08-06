@@ -705,6 +705,7 @@ export const ko = {
     needTwoSessionsForSplit: '분할 보기를 사용하려면 최소 2개의 세션이 필요합니다.',
     noCommandsFound: '명령을 찾을 수 없습니다',
     noFilesFound: '파일을 찾을 수 없습니다',
+    goToPath: '경로로 이동',
     searchFiles: '파일 검색...',
     searchingFiles: '파일 검색 중...',
     findInTerminal: '터미널 검색',

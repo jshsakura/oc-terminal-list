@@ -86,6 +86,10 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [rootPathForwardStack, setRootPathForwardStack] = useState([]);
   const [resolvedRoot, setResolvedRoot] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  /* The path row doubles as an address bar: click it, type a path, press Enter. Reading a
+     path and typing one are the same act here — a separate "go to folder" dialog would be
+     one more thing to find. */
+  const [pathDraft, setPathDraft] = useState(null);   // null = display mode
 
   const renameInputRef = useRef(null);
   const createInputRef = useRef(null);
@@ -705,6 +709,23 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     setRootPath(nextRoot);
     setRootPathForwardStack(rest);
   };
+  /* Jump to a typed path. Local mode is workspace-relative, so a leading '/' is stripped —
+     typing an absolute-looking path is natural and would otherwise resolve outside the
+     workspace and come back empty. '~' means the pane's own starting point. */
+  const goToPath = (raw) => {
+    const trimmed = String(raw || '').trim();
+    if (!trimmed) return;
+    if (trimmed === '~') { goHomeRoot(); return; }
+    const next = isHostMode
+      ? stripHostPathPrefix(trimmed)
+      : trimmed.replace(/^\/+/, '').replace(/\/+$/, '');
+    const currentRoot = normalizedResolvedRoot || normalizedRootPath || rootPath || '';
+    if (next === currentRoot) return;
+    setRootPath(next);
+    setRootPathForwardStack((prev) => (currentRoot
+      ? [currentRoot, ...prev.filter((p) => p !== currentRoot)].slice(0, 8)
+      : prev));
+  };
   const goHomeRoot = () => {
     setRootPath(normalizedInitialPath);
     setRootPathForwardStack([]);
@@ -757,8 +778,35 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             <HeadAction icon={RefreshCw} title={t('refresh')} onClick={refreshAll} />
           </div>
         </div>
-        <div style={styles.pathRow} title={rootDisplay}>
-          <span style={styles.branchName}>{rootDisplay}</span>
+        <div style={styles.pathRow} title={pathDraft === null ? rootDisplay : undefined}>
+          {pathDraft === null ? (
+            <button
+              type="button"
+              style={styles.pathButton}
+              onClick={() => setPathDraft(rootDisplay)}
+              title={t('goToPath') || 'Go to path'}
+            >
+              <span style={styles.branchName}>{rootDisplay}</span>
+            </button>
+          ) : (
+            <input
+              autoFocus
+              value={pathDraft}
+              onChange={(e) => setPathDraft(e.target.value)}
+              onBlur={() => setPathDraft(null)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { setPathDraft(null); return; }
+                if (e.key !== 'Enter') return;
+                goToPath(pathDraft);
+                setPathDraft(null);
+              }}
+              spellCheck={false}
+              autoCapitalize="off"
+              autoCorrect="off"
+              style={styles.pathInput}
+              aria-label={t('goToPath') || 'Go to path'}
+            />
+          )}
         </div>
       </div>
 
