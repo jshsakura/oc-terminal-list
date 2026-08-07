@@ -344,6 +344,35 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
 - `components/Sidebar.jsx`(751줄)는 **아무도 import 하지 않는 죽은 코드**다. 그 안의 10초
   `/api/system/stats` 폴링은 돌지 않는다 — 성능 문제로 오해하지 말 것.
 
+### `isActive` 는 "보고 있는 pane" 이 아니다 (2026-08-07)
+
+**분할 그리드에서는 형제 pane 이 전부 `isActive=true` 이고 `isFocused` 만 1개다**
+(`Terminal.jsx` 의 그 주석, `PaneGrid` 는 `isFocused={pane.id === tab.activePaneId}`).
+`isActive` 로 "하나만 하는 일" 을 게이트하면 조용히 pane 수만큼 곱해진다. 같은 뿌리로
+**세 군데**가 틀려 있었다 — 출력 렌더(60fps×4), 하트비트 ping(5s×4), `/api/health`
+프로브(3s×4). 새로 게이트를 달 때 이 질문을 먼저 하라: *분할이면 몇 개가 실행되는가?*
+
+⚠️ `tab.activePaneId` 는 **보장되지 않는다**(`App.jsx` 에 `|| panes[0]` 폴백이 있다).
+그러니 **정확히 하나여야 하는 일을 `isFocused` 에만 기대지 마라** — 아무도 focused 가
+아니면 아무도 안 한다. 프로브가 모듈 레벨 리스를 쓰는 이유가 이것이다.
+
+### outage 프로브 — 리스 + 사다리
+
+`/api/health` 프로브는 **막혀서 생긴 장애를 더 밀어붙이던** 쪽이었다. 이 앱의 장애는 대개
+공유 터널 포화인데(memory `project_cloudflare_tunnel_layer`), pane 마다 3초로 두드렸다.
+실측된 5분 30초 장애 하나에 4분할 기준 400회가 넘는다.
+
+`components/terminal/outageProbe.js` 가 둘을 갖는다:
+- **리스** — 페이지당 한 pane 만 프로브한다. `isFocused` 가 아니라 모듈 레벨 클레임이라
+  activePaneId 가 비어도 성립한다. **15초 무갱신이면 다른 pane 이 뺏어온다** — 명시적
+  해제에만 기대면, 리스를 쥔 채 정리된 pane 하나가 페이지 전체의 복귀 감지를 죽인다.
+  그래서 프로브 타이머를 clear 하는 **모든** 자리에서 해제도 같이 한다.
+- **사다리** — 0~30s 는 3초, ~2분은 10초, 그 뒤 30초. 3초 해상도는 초반에만 값어치가 있다.
+
+리스를 빼면 통합 테스트가 30초 창에서 24회를 관측한다(리스 있으면 ≤12). 순수 테스트 9개는
+사다리·리스 인계를, 통합 1개는 pane 간 조율을 덮는다 — 통합에서 사다리를 재려 하지 마라,
+프로브 시작 자체가 백오프 라운드에 달려 있어 타이밍이 깨지기 쉽다.
+
 ### 하트비트의 watched 판정 (2026-08-07)
 
 `isActive` 만 보던 시절, 분할 형제가 보고 있는 pane 과 똑같이 **5초마다** ping 했다(가짜

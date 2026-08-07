@@ -22,6 +22,7 @@ vi.mock('./terminal/terminalHelpers', async (importOriginal) => ({
 
 import TerminalComponent from './Terminal';
 import { harness, FakeWebSocket, testSettings } from '../test/xtermHarness';
+import { _resetProbeLease } from './terminal/outageProbe';
 
 /**
  * 장기 장애(outage) — 터널이 죽었거나 서버가 내려간 상태.
@@ -69,6 +70,7 @@ describe('Terminal 장기 장애', () => {
 
   beforeEach(() => {
     harness.reset();
+    _resetProbeLease();
     vi.useFakeTimers();
     // 백오프에 지터(Math.random)가 섞여 있다 — 고정해야 타이밍이 재현 가능하다.
     vi.spyOn(Math, 'random').mockReturnValue(0);
@@ -152,6 +154,40 @@ describe('Terminal 장기 장애', () => {
 
     // 백오프(30s)만 있었다면 이 창 안에 새 소켓이 생길 수 없다 → 프로브가 앞당긴 것.
     expect(harness.sockets.length).toBeGreaterThan(before);
+  }, 30000);
+
+
+  /* 프로브 게이트가 isActive 였던 시절, **분할 형제는 전부 isActive=true** 라 pane 수만큼
+     곱해서 두드렸다. 이 앱의 장애는 대개 공유 터널 포화라 — 막혀서 생긴 장애를 프로브가
+     더 밀어붙였다. 이제 페이지당 한 pane 만 두드린다(outageProbe.js 의 리스).
+     사다리(간격 확대)는 순수 테스트가 덮는다 — 여기서 검증할 수 없는 건 pane 간 조율뿐이다. */
+  it('분할 형제가 넷이어도 /api/health 를 두드리는 pane 은 하나뿐이다', async () => {
+    render(
+      <>
+        <TerminalComponent sessionId="p1" paneId="p1" settings={settings} isActive isFocused />
+        <TerminalComponent sessionId="p2" paneId="p2" settings={settings} isActive isFocused={false} />
+        <TerminalComponent sessionId="p3" paneId="p3" settings={settings} isActive isFocused={false} />
+        <TerminalComponent sessionId="p4" paneId="p4" settings={settings} isActive isFocused={false} />
+      </>,
+    );
+    // 네 pane 을 **모두** 장애로 몰아넣는다 — harness.socket 은 마지막 하나만 가리킨다.
+    await tick(20);
+    for (const ws of [...harness.sockets]) {
+      await act(async () => { ws.serverOpen(); });
+      await act(async () => { ws.serverClose(); });
+    }
+    // 프로브는 백오프 대기가 OUTAGE_PROBE_MIN_DELAY_MS(4s) 를 넘어야 켜진다 — 라운드가
+    // 오를 때까지 흘린다(기존 down→up 테스트와 같은 이유로 오래 걸린다).
+    await tick(400000);
+
+    const countHealth = () => global.fetch.mock.calls
+      .filter((c) => String(c[0]).includes('/api/health')).length;
+    const before = countHealth();
+    await tick(30000);
+    const during = countHealth() - before;
+
+    expect(during).toBeGreaterThan(0);          // 그래도 복귀 감지는 살아있어야 한다
+    expect(during).toBeLessThanOrEqual(12);     // pane 4개가 각자 3s 로 두드리면 40회였다
   }, 30000);
 
   /* 첫 프로브부터 성공이면 서버는 원래 살아있는데 WS 쪽만 실패 중인 것 —

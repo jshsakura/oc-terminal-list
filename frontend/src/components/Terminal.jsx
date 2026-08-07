@@ -34,6 +34,7 @@ import { TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './te
 import { CopiedToast, FileDropOverlay, ImagePasteToast, ReconnectPill, TerminalSkeleton, TmuxFallbackBanner } from './terminal/TerminalChrome';
 import { ConnectionTroubleCard, ShellClosingCard, ShellEndedCard, TakeoverCard } from './terminal/TerminalStatusCards';
 import attachTerminalFileDrop from './terminal/attachTerminalFileDrop';
+import { probeSpacingMs, claimProbeLease, releaseProbeLease } from './terminal/outageProbe';
 import attachTerminalInteractions from './terminal/attachTerminalInteractions';
 import createInputQueue, { isLatencySensitiveInput, WS_BUFFER_HIGH_WATER } from './terminal/createInputQueue';
 import createOutputSink from './terminal/createOutputSink';
@@ -251,6 +252,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     if (outageProbeTimerRef.current) {
       clearInterval(outageProbeTimerRef.current);
       outageProbeTimerRef.current = null;
+      releaseProbeLease(probeKeyRef.current);
     }
     endedRef.current = true;
     evictedRef.current = false;
@@ -407,10 +409,24 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       // 살아있는데 WS 쪽만 실패 중인 것 — 조기 재연결해 봐야 3s 주기 hammering 만 되므로
       // 프로브를 접고 라운드 백오프에 맡긴다.
       let sawServerDown = false;
+      let lastProbeAt = 0;
+      const probeKey = probeKeyRef.current;
       const probeId = setInterval(() => {
-        if (document.hidden || !isActiveRef.current) return;
-        if (!reconnectTimeoutRef.current) return; // 대기 중인 재연결이 없으면 프로브 무의미
-        if (endedRef.current || evictedRef.current) return;
+        const now = Date.now();
+        // 프로브할 수 없는 상태면 리스를 놓아준다 — 쥔 채로 쉬면 페이지 전체가 복귀를 못 본다.
+        if (document.hidden || !isActiveRef.current
+            || !reconnectTimeoutRef.current   // 대기 중인 재연결이 없으면 프로브 무의미
+            || endedRef.current || evictedRef.current) {
+          releaseProbeLease(probeKey);
+          return;
+        }
+        // 페이지당 한 pane 만 두드린다. 분할 형제는 전부 isActive=true 라, 이게 없으면
+        // pane 수만큼 곱해진다 — 터널 포화로 생긴 장애를 프로브가 더 밀어붙이게 된다.
+        if (!claimProbeLease(probeKey, now)) return;
+        // 장애가 길어질수록 성기게. 3초 해상도는 초반에만 값어치가 있다.
+        const outageMs = reconnectingSinceRef.current ? now - reconnectingSinceRef.current : 0;
+        if (now - lastProbeAt < probeSpacingMs(outageMs)) return;
+        lastProbeAt = now;
         fetch('/api/health', {
           signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
             ? AbortSignal.timeout(OUTAGE_PROBE_TIMEOUT_MS)
@@ -421,6 +437,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           if (!res.ok) { sawServerDown = true; return; }
           clearInterval(probeId);
           outageProbeTimerRef.current = null;
+          releaseProbeLease(probeKey);
           if (!sawServerDown) return; // 서버는 계속 살아있었음 — 백오프 유지
           if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
@@ -461,6 +478,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 빠르게 그리려면 포커스 여부가 따로 필요하다 (createOutputSink 의 코얼레싱 창).
   const isFocusedRef = useRef(isFocused);
   useEffect(() => { isFocusedRef.current = isFocused; }, [isFocused]);
+  // outage 프로브 리스 키 — ref 라 markEnded/cleanup 의 deps 를 건드리지 않는다.
+  const probeKeyRef = useRef(paneId || sessionId);
+  probeKeyRef.current = paneId || sessionId;
 
   const [authPrompt, setAuthPrompt] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
@@ -742,6 +762,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (outageProbeTimerRef.current) {
         clearInterval(outageProbeTimerRef.current);
         outageProbeTimerRef.current = null;
+        releaseProbeLease(probeKeyRef.current);
       }
       // [저부하 가드] 이미 살아있거나(OPEN) 연결 중(CONNECTING)인 소켓이 있으면
       // 그대로 둔다 — 멀쩡한 소켓을 닫고 새로 여는 핸드셰이크 폭주가 공유 Cloudflare
@@ -1420,6 +1441,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (outageProbeTimerRef.current) {
         clearInterval(outageProbeTimerRef.current);
         outageProbeTimerRef.current = null;
+        releaseProbeLease(probeKeyRef.current);
       }
       if (stableReconnectTimerRef.current) {
         clearTimeout(stableReconnectTimerRef.current);
