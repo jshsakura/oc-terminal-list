@@ -44,7 +44,7 @@ const Pane = ({
   isBroadcastExcluded = false,
   onToggleBroadcastExclude = null,
   onReadyChange = null,  // (paneId, ready) → 터미널 접속 완료 여부를 PaneGrid 로 보고
-  registerPaneActions = null,  // (paneId, {restart, copyTarget}) → PaneGrid calls these from menus
+  registerPaneActions = null,  // (paneId, {restart}) → PaneGrid calls these from menus
   onRestartPane = null,        // (paneId) → 확인창을 거쳐 재시작. PaneGrid 가 구현.
   activeFilePath = null,
   registerTerminal = null,
@@ -372,9 +372,9 @@ const Pane = ({
 
   useEffect(() => {
     if (!registerPaneActions || !pane?.id) return undefined;
-    registerPaneActions(pane.id, { restart: restartSession, copyTarget: handleCopyPaneTarget });
+    registerPaneActions(pane.id, { restart: restartSession });
     return () => registerPaneActions(pane.id, null);
-  }, [registerPaneActions, pane?.id, restartSession, handleCopyPaneTarget]);
+  }, [registerPaneActions, pane?.id, restartSession]);
 
   return (
     <div

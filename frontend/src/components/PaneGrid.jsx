@@ -171,13 +171,6 @@ const PaneGrid = ({
     else delete paneActionsRef.current[paneId];
   }, []);
 
-  /* Copying the session handle is reachable from the pane's address badge — but that badge
-     only exists when a tab is split. On a phone one pane per sub-tab is the norm, so there
-     was no way to copy it at all; the sub-tab menu is where a pane's own actions live there. */
-  const handleCopyPaneTarget = useCallback((paneId) => {
-    paneActionsRef.current[paneId]?.copyTarget?.();
-  }, []);
-
   // tmux 를 죽이면 그 안에서 돌던 프로세스도 함께 끝난다 — 되돌릴 수 없으니 한 번 확인받는다.
   const handleRestartPane = useCallback((paneId) => {
     const run = async () => {
@@ -372,7 +365,6 @@ const PaneGrid = ({
           onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}
           onRenamePane={onRenamePane ? (paneId) => onRenamePane(tab.id, paneId) : null}
           onRestartPane={handleRestartPane}
-          onCopyPaneTarget={handleCopyPaneTarget}
           onSplitPane={onSplitPane ? (paneId, dir) => onSplitPane(tab.id, paneId, dir) : null}
           isMobile={isMobile}
           t={t}
