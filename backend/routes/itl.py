@@ -39,6 +39,9 @@ class SendRequest(BaseModel):
     submit: bool = False
     # 보내는 쪽 세션. `itl send 3` 처럼 탭을 생략한 주소의 기준점이 된다.
     from_session: str | None = Field(default=None, max_length=128)
+    # Set only by the MCP server. CLI never sends it, hence default False.
+    # Drops targets whose sessionId or tmuxSession equals from_session.
+    exclude_self: bool = False
 
 
 async def _targets_for(username: str) -> list[dict]:
@@ -172,6 +175,10 @@ async def itl_send(request: SendRequest, username: str = Depends(verify_itl_toke
     delivered, skipped = [], []
     for target in matched:
         session_id = target.get("sessionId")
+        if request.exclude_self and request.from_session and (
+            session_id == request.from_session or target.get("tmuxSession") == request.from_session
+        ):
+            continue
         if not session_id:
             skipped.append({"addr": target["addr"], "reason": "remote-unsupported"})
             continue
