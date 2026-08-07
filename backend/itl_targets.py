@@ -15,6 +15,12 @@ import re
 # 그룹 주소 — 상태/명령으로 여러 pane 을 한 번에 가리킨다.
 GROUP_ALL = "all"
 STATUS_GROUPS = {"working", "idle", "permission"}
+# Caller-anchored groups — only meaningful with a from_session anchor.
+CALLER_GROUPS = {"here", "siblings"}
+
+# INT tokens (tab/pane indices). @WORD is detected by '@' prefix only —
+# tab names are user strings, never regex-validated (spec §4.6 principle).
+_INT_RE = re.compile(r"^\d+$")
 
 
 def build_targets(tabs: list, status_map: dict | None = None) -> list[dict]:
@@ -66,71 +72,184 @@ def _tab_of(targets: list[dict], session_key: str | None) -> int | None:
     return None
 
 
-def _pick_tab(targets: list[dict], tab_index: int, pane_index: int | None) -> list[dict]:
-    in_tab = [t for t in targets if t["tabIndex"] == tab_index]
-    if pane_index is None:
-        return in_tab
-    return [t for t in in_tab if t["paneIndex"] == pane_index]
-
-
-def _by_name(targets: list[dict], name: str, pane_index: int | None) -> list[dict]:
+def _by_name(targets: list[dict], name: str) -> list[dict]:
+    """Case-insensitive tab-name lookup → active pane (or first if none active)."""
     lowered = name.strip().lower()
     in_tab = [t for t in targets if t["tabName"].strip().lower() == lowered]
     if not in_tab:
         return []
-    if pane_index is not None:
-        return [t for t in in_tab if t["paneIndex"] == pane_index]
-    # 탭 이름만 주면 그 탭의 활성 pane — 없으면 첫 번째.
     active = [t for t in in_tab if t["isActivePane"]]
     return active or in_tab[:1]
 
 
-def resolve(targets: list[dict], expr: str, from_session: str | None = None) -> list[dict]:
-    """주소 문자열 → 대상 목록. 못 찾으면 빈 목록.
+def _split_addr(raw: str) -> tuple[str, str | None, str | None]:
+    """Split a raw address at the LAST '.' or ':' separator.
 
-    받는 형태:
-      `3`          현재 탭(from_session 이 속한 탭)의 3번
-      `1.3` `1:3`  1번 탭의 3번
-      `@이름`       그 탭의 활성 pane
-      `@이름.2`     그 탭의 2번
-      `@all`       전부
-      `@working` `@idle` `@permission`   상태로
-      `@claude` `@codex` …               돌고 있는 명령으로
+    The tail must be an INT or start with '@' to qualify as a panesel;
+    otherwise the whole string is the tab_part. Tab names may themselves
+    contain separators (e.g. 'api.v2'), so the cut happens at the LAST
+    separator and a non-qualifying tail means the whole thing is a tab
+    name. Head and tail are stripped so tolerant forms like '1 . 3' parse.
+    """
+    pos = max(raw.rfind("."), raw.rfind(":"))
+    if pos < 0:
+        return raw.strip(), None, None
+    head = raw[:pos].strip()
+    tail = raw[pos + 1:].strip()
+    if not head or not (_INT_RE.match(tail) or tail.startswith("@")):
+        return raw.strip(), None, None
+    return head, raw[pos], tail
+
+
+def _bare_pane(targets: list[dict], pane_num: int, from_session: str | None) -> list[dict]:
+    """Bare `N` → pane N of the caller's tab. Empty when there is no anchor.
+
+    Without a known caller tab we refuse rather than reinterpret `N` as a
+    global number — better to miss than to silently hit the wrong terminal.
+    """
+    idx = _tab_of(targets, from_session)
+    if idx is None:
+        return []
+    return [t for t in targets if t["tabIndex"] == idx and t["paneIndex"] == pane_num]
+
+
+def _filter_by_word(targets: list[dict], word: str, from_session: str | None) -> list[dict]:
+    """Filter a target list by a @WORD selector (panesel scope).
+
+    Order per spec §4.3: reserved groups first, then running command. Tab
+    names are NOT consulted here — that is tabsel scope, not panesel.
+    """
+    key = word.strip().lower()
+    if key == GROUP_ALL:
+        return list(targets)
+    if key in CALLER_GROUPS:
+        idx = _tab_of(targets, from_session)
+        if idx is None:
+            return []
+        scoped = [t for t in targets if t["tabIndex"] == idx]
+        if key == "siblings":
+            scoped = [t for t in scoped
+                      if from_session not in (t["sessionId"], t["tmuxSession"])]
+        return scoped
+    if key in STATUS_GROUPS:
+        return [t for t in targets if t["status"] == key]
+    # Anything else is treated as a running command (@claude, @node, ...).
+    return [t for t in targets if t["command"].strip().lower() == key]
+
+
+def _select_tab(targets: list[dict], sel: str, from_session: str | None) -> list[dict]:
+    """Resolve the tab selector (left of SEP) to a tab-scoped target list.
+
+    sel is INT (tab number) or @WORD. @WORD here is tab-name only — status
+    groups are NOT consulted in tabsel position (spec §4.3). The caller-
+    anchored words @here/@siblings refer to the caller's whole tab.
+    """
+    if _INT_RE.match(sel):
+        idx = int(sel)
+        return [t for t in targets if t["tabIndex"] == idx]
+    if not sel.startswith("@"):
+        return []
+    name = sel[1:].strip()
+    if not name:
+        return []
+    lowered = name.lower()
+    # User-given tab name ALWAYS wins — every pane of that tab, no exceptions.
+    named = [t for t in targets if t["tabName"].strip().lower() == lowered]
+    if named:
+        return named
+    if lowered in CALLER_GROUPS:
+        idx = _tab_of(targets, from_session)
+        if idx is None:
+            return []
+        return [t for t in targets if t["tabIndex"] == idx]
+    # Status groups, @all, and commands are not valid tabsels — empty.
+    return []
+
+
+def _select_pane(scoped: list[dict], sel: str, from_session: str | None) -> list[dict]:
+    """Pick panes from an already tab-scoped list.
+
+    sel is INT (pane index within the scoped tab) or @WORD (filter). Any
+    other shape is treated as no match.
+    """
+    if _INT_RE.match(sel):
+        n = int(sel)
+        return [t for t in scoped if t["paneIndex"] == n]
+    if sel.startswith("@"):
+        return _filter_by_word(scoped, sel[1:], from_session)
+    return []
+
+
+def resolve(targets: list[dict], expr: str | None, from_session: str | None = None) -> list[dict]:
+    """Address string → target list. Returns empty list when nothing matches.
+
+    Accepted shapes (spec §4.1):
+      `3`                pane N of the caller's tab (needs from_session)
+      `1.3` `1:3`        tab 1, pane 3
+      `@name`            named tab → its active pane
+      `@name.2`          named tab → pane 2
+      `@all`             every target
+      `@working` `@idle` `@permission`   status groups (global)
+      `@here` `@siblings`                caller's tab panes (needs from_session)
+      `@claude` `@codex` …               running-command group (global)
+      `2.@claude`        tab 2, panes running claude
+      `@here.@claude`    caller's tab, panes running claude
     """
     if not expr:
         return []
     raw = expr.strip()
+    tab_part, sep, pane_part = _split_addr(raw)
 
-    if raw.startswith("@"):
-        body = raw[1:]
-        group, _, pane_part = body.partition(".")
-        pane_index = int(pane_part) if pane_part.isdigit() else None
-        key = group.strip().lower()
-        # 규칙 하나: **사용자가 지은 탭 이름이 항상 내장 예약어를 이긴다.** 예외 없음.
-        # 탭을 "working" 이라 이름 붙였는데 @working 이 딴 데로 가면 그게 함정이다.
-        named = _by_name(targets, group, pane_index)
+    if sep is None:
+        # Single-token form: bare INT, or @NAME (tab-name priority), or @WORD.
+        if _INT_RE.match(tab_part):
+            return _bare_pane(targets, int(tab_part), from_session)
+        if not tab_part.startswith("@"):
+            return []
+        word = tab_part[1:].strip()
+        if not word:
+            return []
+        # User-given tab name wins over every reserved word — no exceptions.
+        named = _by_name(targets, word)
         if named:
             return named
-        if key == GROUP_ALL:
-            return list(targets)
-        if key in STATUS_GROUPS:
-            return [t for t in targets if t["status"] == key]
-        # 남은 건 돌고 있는 명령 (@claude, @node …)
-        return [t for t in targets if t["command"].lower() == key]
+        return _filter_by_word(targets, word, from_session)
 
-    match = re.fullmatch(r"(\d+)\s*[.:]\s*(\d+)", raw)
-    if match:
-        return _pick_tab(targets, int(match.group(1)), int(match.group(2)))
+    # Two-token form: tabsel SEP panesel. sep is non-None here, so pane_part
+    # is also non-None — guard once for the type checker and for safety.
+    if pane_part is None:
+        return []
+    scoped = _select_tab(targets, tab_part, from_session)
+    if not scoped:
+        return []
+    return _select_pane(scoped, pane_part, from_session)
 
-    if raw.isdigit():
-        tab_index = _tab_of(targets, from_session)
-        if tab_index is None:
-            # 기준 탭을 모르면 전역 번호로 해석하지 않는다 — 조용히 엉뚱한 곳으로
-            # 보내느니 못 찾았다고 하는 편이 낫다.
+
+def filter_targets(
+    targets: list[dict],
+    *,
+    scope: str = "all",
+    from_session: str | None = None,
+    status: str | None = None,
+    command: str | None = None,
+) -> list[dict]:
+    """Pure filter for the GET /api/itl/targets listing.
+
+    Applies scope (all|same_tab), status group, and command filters in order
+    so the route handler stays thin. `same_tab` without from_session yields
+    an empty list — the route is responsible for raising 422 in that case.
+    """
+    if scope == "same_tab":
+        idx = _tab_of(targets, from_session)
+        if idx is None:
             return []
-        return _pick_tab(targets, tab_index, int(raw))
-
-    return []
+        targets = [t for t in targets if t["tabIndex"] == idx]
+    if status:
+        targets = [t for t in targets if t["status"] == status]
+    if command:
+        cmd = command.strip().lower()
+        targets = [t for t in targets if t["command"].strip().lower() == cmd]
+    return list(targets)
 
 
 def format_table(targets: list[dict], from_session: str | None = None) -> str:

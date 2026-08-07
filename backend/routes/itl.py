@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from _deps import verify_itl_token
 from agent_status_service import agent_status_watcher
-from itl_targets import build_targets, format_table, resolve
+from itl_targets import build_targets, filter_targets, format_table, resolve
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
 
@@ -45,10 +45,25 @@ async def _targets_for(username: str) -> list[dict]:
 async def itl_targets(
     from_session: str | None = Query(None),
     fmt: str = Query("json", pattern="^(json|table)$"),
+    scope: str = Query("all", pattern="^(all|same_tab)$"),
+    status: str | None = Query(None, pattern="^(working|idle|permission)$"),
+    command: str | None = Query(None, max_length=64),
     username: str = Depends(verify_itl_token),
 ):
-    """열려 있는 터미널 목록. `fmt=table` 은 CLI 가 그대로 출력한다."""
+    """열려 있는 터미널 목록. `fmt=table` 은 CLI 가 그대로 출력한다.
+
+    `scope=same_tab` 은 호출자가 속한 탭으로 좁힌다 — from_session 이 없으면
+    좁힐 기준이 없으므로 422 로 명확히 알린다.
+    """
+    if scope == "same_tab" and not from_session:
+        raise HTTPException(
+            status_code=422,
+            detail='same_tab은 from_session이 필요합니다. scope="all"로 다시 시도하세요.',
+        )
     targets = await _targets_for(username)
+    targets = filter_targets(
+        targets, scope=scope, from_session=from_session, status=status, command=command
+    )
     if fmt == "table":
         return {"table": format_table(targets, from_session)}
     return {"targets": targets}

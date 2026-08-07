@@ -183,6 +183,12 @@ group    := "@" WORD                # 전역 또는 호출자 기준 그룹
 | `@siblings` (from_session=None) | `[]` | 기준점 없음 |
 | `2.@nope` | `[]` | 없는 명령 |
 | `@working.@claude` | `[]` | tabsel 위치의 상태 그룹은 탭 이름이 아니므로 매치 없음 |
+| `1 . 2` | `1.2` | **신규** — 구분자 앞뒤 공백 허용 (head/tail strip) |
+| `@api.v2` † | `3.1` | **신규** — 점 든 탭 이름, 단일 토큰 → 활성 pane |
+| `@api.v2.1` † | `3.1` | **신규** — 점 든 탭 이름 + pane 인덱스 (rsplit 필요) |
+
+† `api.v2` 행은 확장 픽스처(`TABS` + `api.v2` 탭 1개, pane 2개)로 검증한다.
+기본 `TABS` 에 넣으면 `@all` 4개 카운트·`test_unknown_address` 등 기존 케이스가 깨지기 때문이다.
 
 **하위호환 필수** — 기존 `test_itl_targets.py` 의 모든 케이스가 손대지 않고 통과해야 한다.
 
@@ -203,9 +209,14 @@ def resolve(targets, expr, from_session=None):
     ...
 ```
 
-- `_split_addr` 는 `@name.2` 의 `.` 과 `@name` 안의 `.` 을 구분해야 한다. **첫 `.` 또는 `:` 에서
-  자르되, 뒤쪽이 `INT` 이거나 `@WORD` 일 때만 두 부분 주소로 본다.** 그렇지 않으면 통째로
-  탭 이름으로 본다 (탭 이름에 점이 들어갈 수 있다: `api.v2`).
+- `_split_addr` 는 `@name.2` 의 `.` 과 `@name` 안의 `.` 을 구분해야 한다. **마지막 `.`
+  또는 `:` (rsplit)에서 자르되, 뒤쪽이 `INT` 이거나 `@`-접두일 때만 두 부분 주소로 본다.**
+  그렇지 않으면 통째로 탭 이름으로 본다 (탭 이름에 점이 들어갈 수 있다: `api.v2`).
+  rsplit 이어야 `@api.v2.1` 이 head=`@api.v2`, tail=`1` 로 갈라져 점 든 탭 이름에도 pane
+  지정이 된다. head/tail 은 `strip()` 하여 `1 . 2` 같은 공백-관대 입력도 파싱한다.
+- **탭 이름은 정규식으로 검증하지 않는다.** 사용자가 지은 문자열이기 때문이다. 정규식은
+  `INT` (`^\d+$`) 에만 쓰고, `@WORD` 는 `@` 접두 사실만으로 판별한 뒤 `_by_name` 으로
+  보낸다. 점·공백이 들어간 탭 이름도 자연스럽게 해소된다.
 - `_select_tab(targets, sel, from_session)` → 그 탭의 target 부분집합
 - `_select_pane(scoped, sel, all_targets, from_session)` → 최종 목록
 
