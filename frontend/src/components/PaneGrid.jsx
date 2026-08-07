@@ -373,7 +373,7 @@ const PaneGrid = ({
             display:none 대신 visibility:hidden 사용: 레이아웃 흐름에 남아 컨테이너 크기가
             항상 확정되므로 xterm.js fit 이 처음부터 정확하고 탭 전환 시 squish 없음. */}
         <div style={{ flex: 1, position: 'relative', minHeight: 0 }}>
-          {panes.map((pane) => {
+          {panes.map((pane, idx) => {
             const isThisActive = pane.id === activePane.id;
             return (
               <div
@@ -392,6 +392,10 @@ const PaneGrid = ({
               >
                 <Pane
                   pane={pane}
+                  /* Must be passed here too. Without it every pane on a phone fell back to
+                     index 0 and claimed address `N.1` — and the same index names screen
+                     dumps, so every sub-tab wrote the same filename. */
+                  paneIndex={idx}
                   tab={tab}
                   hosts={hosts}
                   isMobile={isMobile}
