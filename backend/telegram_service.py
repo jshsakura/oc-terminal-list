@@ -135,14 +135,8 @@ async def notify_agent_done(session_id: str, command: str, title: str,
     described = described or {}
     # 발췌는 호출부에서 한 번 뽑아 넘겨준다(지문 계산과 공유). 없으면 여기서 뽑는다.
     if excerpt is None:
-        try:
-            _rc, pane_text, _err = await tmux_manager._run(
-                "capture-pane", "-p", "-t", f"={session_id}:", check=False,
-            )
-            excerpt = extract_excerpt(pane_text)
-        except Exception as e:
-            logger.debug("발췌 실패 (%s): %s", session_id, e)
-            excerpt = ""
+        pane_text = await tmux_manager.capture_pane(session_id)
+        excerpt = extract_excerpt(pane_text)
 
     body = build_done_message(
         label=label, command=command, title=title,

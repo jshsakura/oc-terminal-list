@@ -7,13 +7,16 @@ pane 안에서 도는 에이전트가 다른 pane 에게 프롬프트를 넣을 
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from _deps import verify_itl_token
 from agent_status_service import agent_status_watcher
 from itl_targets import build_targets, filter_targets, format_table, resolve
+from pane_excerpt import extract_excerpt
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
 
@@ -24,6 +27,8 @@ router = APIRouter(prefix="/api/itl", tags=["itl"])
 # 한 번에 보낼 수 있는 대상 수 상한 — @all 오타 하나로 전 터미널에 명령이 박히는 걸 막는다.
 MAX_FANOUT = 20
 MAX_TEXT_CHARS = 8000
+MAX_READ_LINES = 200
+MAX_READ_CHARS = 20_000
 
 
 class SendRequest(BaseModel):
@@ -39,6 +44,29 @@ class SendRequest(BaseModel):
 async def _targets_for(username: str) -> list[dict]:
     state = await storage.get_tab_state(username) or {}
     return build_targets(state.get("tabs") or [], agent_status_watcher.snapshot())
+
+
+def _read_enabled() -> bool:
+    """ITL_READ_ENABLED env switch (default on). Reading widens the surface of a
+    leaked ITL_TOKEN from send-only to send+read ≈ interactive shell, so a
+    deployment that wants the narrower surface can set ``ITL_READ_ENABLED=0``."""
+    return os.getenv("ITL_READ_ENABLED", "1") != "0"
+
+
+def _tail(text: str, lines: int) -> str:
+    """raw mode — last ``lines`` lines of the capture, preserving order."""
+    if not text or lines <= 0:
+        return ""
+    all_lines = text.splitlines()
+    return "\n".join(all_lines[-lines:]) if len(all_lines) > lines else text
+
+
+def _truncate_for_response(text: str) -> str:
+    """Enforce MAX_READ_CHARS. Over → keep the tail and prefix a cut marker."""
+    if len(text) <= MAX_READ_CHARS:
+        return text
+    prefix = "…(잘림)\n"
+    return prefix + text[-(MAX_READ_CHARS - len(prefix)):]
 
 
 @router.get("/targets")
@@ -78,6 +106,50 @@ async def itl_resolve(
     """주소가 어디로 가는지 미리 본다 — 보내기 전에 확인용(dry-run)."""
     targets = await _targets_for(username)
     return {"matched": resolve(targets, to, from_session)}
+
+
+@router.get("/read")
+async def itl_read(
+    to: str = Query(..., min_length=1, max_length=200),
+    from_session: str | None = Query(None),
+    lines: int = Query(40, ge=1, le=MAX_READ_LINES),
+    mode: str = Query("excerpt", pattern="^(excerpt|raw)$"),
+    username: str = Depends(verify_itl_token),
+):
+    """터미널 화면을 읽는다. ``excerpt`` 는 UI 장식을 걷어낸 발췌, ``raw`` 는 그대로.
+
+    읽기가 생기면 유출된 ITL_TOKEN 은 보내기+읽기 = 사실상 대화형 셸이 된다.
+    ``ITL_READ_ENABLED=0`` 으로 끌 수 있다(기본 1).
+    """
+    if not _read_enabled():
+        raise HTTPException(status_code=403, detail="읽기가 비활성화돼 있습니다")
+
+    targets = await _targets_for(username)
+    matched = resolve(targets, to, from_session)
+    if not matched:
+        raise HTTPException(status_code=404, detail=f"'{to}'에 해당하는 터미널이 없습니다")
+    if len(matched) > 1:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "detail": f"대상이 {len(matched)}개 입니다. 주소를 좁혀주세요.",
+                "matched": [t["addr"] for t in matched],
+            },
+        )
+
+    target = matched[0]
+    session_id = target.get("sessionId")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="remote-unsupported")
+    if not await tmux_manager.session_exists(session_id):
+        raise HTTPException(status_code=404, detail="session-gone")
+
+    pane_text = await tmux_manager.capture_pane(session_id, lines)
+    text = extract_excerpt(pane_text) if mode == "excerpt" else _tail(pane_text, lines)
+    text = _truncate_for_response(text)
+
+    logger.info("itl read: to=%s mode=%s len=%d", to, mode, len(text))
+    return {"addr": target["addr"], "sessionId": session_id, "mode": mode, "text": text}
 
 
 @router.post("/send")

@@ -325,6 +325,28 @@ class TmuxManager:
             return
         await self._run("send-keys", "-t", f"={session_id}:", key, check=False)
 
+    async def capture_pane(self, session_id: str, lines: int | None = None) -> str:
+        """`capture-pane -p` output for the active pane of the session.
+
+        ``lines`` limits scrollback (``-S -N``); ``None`` captures the visible
+        screen only — the shape the notification/telegram callers already use.
+        Failures are swallowed and returned as an empty string so callers can
+        treat the result uniformly without try/except noise.
+
+        ⚠️  Pane target must be ``=name:`` — ``=name`` alone gives
+        "can't find pane" (it's a session-target form).
+        """
+        args = ["capture-pane", "-p"]
+        if lines is not None and lines > 0:
+            args += ["-S", f"-{lines}"]
+        args += ["-t", f"={session_id}:"]
+        try:
+            _rc, pane_text, _err = await self._run(*args, check=False)
+        except Exception as e:
+            logger.debug("capture_pane failed (%s): %s", session_id, e)
+            return ""
+        return pane_text
+
     async def list_panes_raw(self, pane_format: str) -> str:
         """`list-panes -a -F <format>` 원시 출력.
 

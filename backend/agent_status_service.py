@@ -61,14 +61,8 @@ async def _list_agent_panes() -> str:
 
 async def _capture_excerpt(session_id: str) -> str:
     """화면 마지막 몇 줄. LLM 없이 capture-pane 출력에서 UI 장식만 걷어낸다."""
-    try:
-        _rc, pane_text, _err = await tmux_manager._run(
-            "capture-pane", "-p", "-t", f"={session_id}:", check=False,
-        )
-        return extract_excerpt(pane_text)
-    except Exception as e:
-        logger.debug("발췌 실패 (%s): %s", session_id, e)
-        return ""
+    pane_text = await tmux_manager.capture_pane(session_id)
+    return extract_excerpt(pane_text)
 
 
 async def _notify_completions(changes: list[dict]) -> None:
