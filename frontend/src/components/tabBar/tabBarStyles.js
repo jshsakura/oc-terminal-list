@@ -85,12 +85,15 @@ export const styles = {
     transition: 'background 150ms',
     padding: 0,
     borderRadius: '3px',
-    margin: '5px 7px 0 0',
+    /* No right margin — the rule that follows owns the gap on both of its sides, so the
+       icon→rule→tab rhythm matches the 6px gap between tabs instead of doubling up. */
+    margin: '5px 0 0 0',
   },
   brandBtnMobile: {
     width: '24px',
     height: '24px',
-    margin: '5px 7px 0 0',
+    // Mobile drops the rule, so the button carries the gap itself — same 6px as the tab gap.
+    margin: '5px 6px 0 0',
     borderRadius: '3px',
   },
   /* The tab bar is **chrome** — a window frame, not a control. Carving the strip into a
@@ -152,7 +155,9 @@ export const styles = {
     height: '16px',
     alignSelf: 'center',
     flexShrink: 0,
-    margin: '0 5px',
+    /* 6px = tabList 의 탭 사이 gap. rule 을 사이에 둔 간격이 탭 리듬과 같아진다 —
+       예전엔 brandBtn 의 우측 마진(7px)까지 겹쳐 아이콘과 첫 탭이 18px 떨어져 있었다. */
+    margin: '0 6px',
     background: 'var(--ui-border-strong)',
   },
   tabName: {
