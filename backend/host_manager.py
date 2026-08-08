@@ -103,7 +103,8 @@ def _build_remote_command(
     if not use_tmux:
         if not create_session:
             return (
-                "printf '\\r\\n\\033[33m[session not found] this host does not keep a tmux shell to reconnect\\033[0m\\r\\n'; "
+                "printf '\\r\\n\\033[33m[session not found] this host does not keep "
+                "a tmux shell to reconnect\\033[0m\\r\\n'; "
                 f"exit {TMUX_SESSION_GONE_EXIT}"
             )
         if start_path:
@@ -123,7 +124,8 @@ def _build_remote_command(
         if create_session
         else (
             f"tmux has-session -t {safe} 2>/dev/null || "
-            f"{{ printf '\\r\\n\\033[33m[session not found] refresh could not find {tmux_session}\\033[0m\\r\\n'; exit {TMUX_SESSION_GONE_EXIT}; }}; "
+            f"{{ printf '\\r\\n\\033[33m[session not found] refresh could not find "
+            f"{tmux_session}\\033[0m\\r\\n'; exit {TMUX_SESSION_GONE_EXIT}; }}; "
         )
     )
     # 핵심: new-session 단계에서 stty size 로 PTY 차원 그대로 주입 → 80x24 기본 아래 시작 후
@@ -148,11 +150,13 @@ def _build_remote_command(
         f"tmux set-option -t {safe} set-titles on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} set-titles-string '#{{pane_title}}' >/dev/null 2>&1; "
         f"tmux set-option -ag -t {safe} terminal-overrides ',*256col*:Tc' >/dev/null 2>&1; "
-        f"tmux bind-key -T root PageUp if-shell -F '#{{alternate_on}}' 'send-keys PageUp' 'copy-mode -eu' >/dev/null 2>&1; "
+        f"tmux bind-key -T root PageUp if-shell -F '#{{alternate_on}}' "
+        f"'send-keys PageUp' 'copy-mode -eu' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageDown if-shell -F '#{{alternate_on}}' 'send-keys PageDown' '' >/dev/null 2>&1; "
         # 휠도 PageUp 과 동일 분기: alt-screen 앱이면 휠을 앱에 전달(send -M), 일반 셸이면
         # copy-mode 진입+scroll. (로컬과 동일 — claude 등 풀스크린 앱 안에서 휠 스크롤 보장)
-        f"tmux bind-key -T root WheelUpPane if-shell -F '#{{alternate_on}}' 'send-keys -M' 'copy-mode -e; send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "
+        f"tmux bind-key -T root WheelUpPane if-shell -F '#{{alternate_on}}' "
+        f"'send-keys -M' 'copy-mode -e; send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "
         f"tmux bind-key -T root WheelDownPane if-shell -F '#{{alternate_on}}' 'send-keys -M' '' >/dev/null 2>&1; "
         f"tmux bind-key -T copy-mode WheelUpPane send-keys -X -N 5 scroll-up >/dev/null 2>&1; "
         f"tmux bind-key -T copy-mode WheelDownPane send-keys -X -N 5 scroll-down >/dev/null 2>&1; "
@@ -408,7 +412,7 @@ class HostBridge:
                 try:
                     async with self._send_lock:
                         await asyncio.wait_for(self.websocket.send_bytes(chunk), timeout=5.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     logger.info("ws send timeout (host bridge) — closing")
                     break
                 except Exception as e:

@@ -27,11 +27,6 @@ const variantStyle = {
     color: color.crust,
     border: '1px solid transparent',
   },
-  warning: {
-    background: 'transparent',
-    color: color.warning,
-    border: `1px solid ${color.border}`,
-  },
 };
 
 // Variants that paint a surface — hover dims them instead of touching the border.

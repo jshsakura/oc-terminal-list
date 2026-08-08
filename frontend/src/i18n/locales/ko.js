@@ -573,7 +573,6 @@ export const ko = {
     more: '더 보기',
     close: '닫기',
     switchToTab: '이 탭으로 전환',
-    copyTabTarget: '접속주소 + tmux 세션 복사',
     copyPaneTarget: 'tmux 세션 복사 (붙는 명령 포함)',
     showPaneName: '패널 이름 펼치기',
     hidePaneName: '주소만 보기',

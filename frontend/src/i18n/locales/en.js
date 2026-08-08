@@ -576,7 +576,6 @@ export const en = {
     more: 'More',
     close: 'Close',
     switchToTab: 'Switch to tab',
-    copyTabTarget: 'Copy server + tmux session',
     copyPaneTarget: 'Copy tmux session (with attach command)',
     showPaneName: 'Show pane name',
     hidePaneName: 'Show address only',
