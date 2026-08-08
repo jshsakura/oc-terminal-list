@@ -253,6 +253,31 @@ Traps:
 - Remote panes are addressable but **not yet sendable** (needs an SSH round trip); `send` reports them as `skipped: remote-unsupported` rather than silently dropping.
 - Status groups only cover local sessions — the backend watcher cannot see remote tmux (see the agent-status section).
 
+### MCP for AI agents
+
+The same surface is exposed to agents over the Model Context Protocol (`backend/cli/itl_mcp.py`, stdlib only — `backend/cli/itl-mcp` is a one-line `exec` wrapper). An agent in one pane gets seven tools — `terminal_list` / `terminal_whoami` / `terminal_resolve` / `terminal_send` / `terminal_read` / `terminal_wait` / `terminal_key` — that drive its siblings by the address grammar above. Every tool auto-attaches `ITL_SESSION` as `from_session`, so address resolution, self-exclusion (`exclude_self`), and the fan-out limit (`MAX_FANOUT=20`) work the same way as the CLI.
+
+The address grammar gains two caller-tab anchors that only resolve when `ITL_SESSION` is set; without one they return empty rather than guessing globally (same refusal as bare `3`):
+
+| Form | Means |
+|---|---|
+| `@here` | every pane in the caller's tab, **including self** |
+| `@siblings` | every pane in the caller's tab, **excluding self** |
+| `2.@claude` / `@backend.@working` | tab qualifier + group/command word — same resolution order as the bare form |
+
+Register with the agent (env is inherited from the pane — never put `ITL_TOKEN` in the config):
+
+```bash
+claude mcp add itl -- python3 <repo>/backend/cli/itl_mcp.py
+```
+
+Reading is gated by `ITL_READ_ENABLED` (default `1`). A leaked `ITL_TOKEN` with read+send is, in effect, an interactive shell — stronger than send alone. The reason this is still acceptable: to read `ITL_TOKEN` at all you must run `tmux show-environment`, which already means **the caller can execute commands as that user on that machine** — at that point typing into the pane directly is easier. The same argument the Xvnc password paragraph makes: a file's weakness does not enlarge the exposure surface.
+
+Traps (MCP-specific):
+- **stdout is JSON-RPC only.** A single stray `print()` makes the client treat the server as dead. All logs go to stderr, and only when `ITL_MCP_DEBUG=1`.
+- **Never respond to a notification.** Messages without `id` (e.g. `notifications/initialized`) get `return None` at the top of the dispatcher — answering them is a protocol violation.
+- **`send_keys -l "C-c"` types the literal `C-c`.** Special keys go through `tmux_manager.send_key`, which lets tmux interpret the key name. The Telegram stop button hit the same trap.
+
 ## Terminal paste destination (the rule)
 
 **Pasted files land in `/tmp/iterminallist-paste/` on the machine the pane lives on.** Local pane → this server's `/tmp`; remote pane → that host's `/tmp`, over SFTP.
