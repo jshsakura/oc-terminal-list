@@ -131,7 +131,8 @@ def tool_terminal_whoami(args):  # noqa: ARG001 — schema is empty, args unused
     me = next((t for t in targets if _is_self(t)), None)
     if not me:
         raise ToolError("이 터미널의 주소를 찾지 못했습니다 (ITL_SESSION 미설정이거나 탭 상태가 아직 저장되지 않음).")
-    siblings = sum(1 for t in targets if t.get("tabIndex") == me.get("tabIndex"))
+    # Siblings exclude self — must match @siblings (§4.2/§5.3) so the model sees consistent counts.
+    siblings = sum(1 for t in targets if t.get("tabIndex") == me.get("tabIndex") and not _is_self(t))
     return json.dumps({
         "addr": me.get("addr"), "tabIndex": me.get("tabIndex"), "paneIndex": me.get("paneIndex"),
         "tabName": me.get("tabName"), "cwd": me.get("cwd"), "command": me.get("command"),

@@ -220,6 +220,25 @@ def test_terminal_key_fanout_blocked_without_confirm(mcp, monkeypatch):
     assert fake.posts == []
 
 
+# --- terminal_whoami behavior ---------------------------------------------
+def test_terminal_whoami_sibling_count_excludes_self(mcp, monkeypatch):
+    """siblingCount must match @siblings — both exclude the caller (§4.2/§5.3)."""
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    fake = FakeApi()
+    me = _target("1.1", "s-me")
+    sibling = _target("1.2", "s-sib")
+    other_tab = _target("2.1", "s-other")
+    other_tab["tabIndex"] = 2
+    fake.responses[("GET", "/api/itl/targets")] = {"targets": [me, sibling, other_tab]}
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_whoami", {}))
+    payload = json.loads(resp["result"]["content"][0]["text"])
+    assert payload["addr"] == "1.1"
+    # Buggy count (includes self) would be 2; fixed count (excludes self) is 1.
+    assert payload["siblingCount"] == 1
+
+
 # --- terminal_wait behavior ------------------------------------------------
 def test_terminal_wait_immediate_satisfy_polls_once(mcp, monkeypatch):
     server, tools = mcp
