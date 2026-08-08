@@ -57,6 +57,9 @@ DESC_WAIT = (
     "지정한 터미널이 작업을 마칠 때까지 기다린다. 다른 터미널에 일을 시킨 뒤 결과를 확인하기 전에 부른다. "
     "최대 timeout_sec까지만 기다리고, 시간이 다 되면 마지막 상태를 알려준다."
 )
+DESC_KEY = (
+    "다른 터미널에 특수 키를 보낸다. 폭주하는 작업을 멈출 때 C-c를 쓴다."
+)
 
 TOOLS = [
     {
@@ -157,6 +160,19 @@ TOOLS = [
                     ),
                 },
                 "timeout_sec": {"type": "integer", "default": 120, "minimum": 5, "maximum": 600},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "terminal_key",
+        "description": DESC_KEY,
+        "inputSchema": {
+            "type": "object",
+            "required": ["to", "key"],
+            "properties": {
+                "to": {"type": "string"},
+                "key": {"type": "string", "enum": ["C-c", "Escape", "Enter", "q"]},
             },
             "additionalProperties": False,
         },

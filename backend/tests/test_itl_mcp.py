@@ -100,7 +100,7 @@ def test_tools_list_schema_well_formed(mcp):
     tools = resp["result"]["tools"]
     names = {t["name"] for t in tools}
     assert names == {"terminal_list", "terminal_whoami", "terminal_resolve",
-                     "terminal_send", "terminal_read", "terminal_wait"}
+                     "terminal_send", "terminal_read", "terminal_wait", "terminal_key"}
     for t in tools:
         assert isinstance(t["description"], str) and t["description"]
         schema = t["inputSchema"]
@@ -186,6 +186,40 @@ def test_terminal_send_fanout_allowed_with_confirm(mcp, monkeypatch):
     assert len(fake.posts) == 1
 
 
+# --- terminal_key behavior (mirrors terminal_send; §5.3 / §6.3) ------------
+def test_terminal_key_happy_path(mcp, monkeypatch):
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/resolve")] = {"matched": [_target("1.1", "s-other")]}
+    fake.responses[("POST", "/api/itl/key")] = {
+        "delivered": [{"addr": "1.1", "sessionId": "s-other"}],
+        "skipped": [],
+    }
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_key", {"to": "1.1", "key": "C-c"}))
+    assert resp["result"]["isError"] is False
+    assert "key → 1.1 (C-c)" in resp["result"]["content"][0]["text"]
+    # Must POST to /key (not /send), body carries the key as-is.
+    assert len(fake.posts) == 1
+    method, path, _params, body = fake.posts[0]
+    assert (method, path) == ("POST", "/api/itl/key")
+    assert body["key"] == "C-c"
+
+
+def test_terminal_key_fanout_blocked_without_confirm(mcp, monkeypatch):
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    fake = FakeApi()
+    matched = [_target(f"1.{i}", f"s{i}") for i in range(1, 7)]
+    fake.responses[("GET", "/api/itl/resolve")] = {"matched": matched}
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_key", {"to": "@all", "key": "q"}))
+    # isError:false — this is guidance, not failure (mirrors terminal_send guard).
+    assert resp["result"]["isError"] is False
+    assert fake.posts == []
+
+
 # --- terminal_wait behavior ------------------------------------------------
 def test_terminal_wait_immediate_satisfy_polls_once(mcp, monkeypatch):
     server, tools = mcp
@@ -268,10 +302,26 @@ def test_missing_token_returns_verbatim_text(mcp, monkeypatch):
         "ITL_TOKEN이 없습니다. 이 도구는 Terminal List가 만든 터미널 안에서만 동작합니다."
 
 
+def test_429_returns_verbatim_rate_limit_sentence(mcp, monkeypatch):
+    """Backend rate-limit (§6.4) surfaces as a model-recoverable sentence,
+    not a protocol error. Verbatim text per team lead."""
+    server, tools = mcp
+    monkeypatch.setattr(tools, "TOKEN", "ok")
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    _patch_urlopen(monkeypatch, urllib.error.HTTPError(
+        "u", 429, "Too Many Requests", hdrs=email.message.Message(), fp=io.BytesIO(b"{}"),
+    ))
+    resp = server.handle(_call("terminal_send", {"to": "1.1", "text": "hi"}))
+    assert resp["result"]["isError"] is True
+    assert resp["result"]["content"][0]["text"] == \
+        "보내기가 너무 잦습니다(분당 30회). 루프에 빠진 게 아닌지 확인하세요."
+
+
 # --- T10: every response, when JSON-encoded, has no literal newline --------
 @pytest.mark.parametrize("scenario", [
     "initialize", "ping", "tools/list", "unknown_method", "unknown_tool",
     "terminal_resolve_multi_line", "terminal_send_blocked_guide",
+    "terminal_key_blocked_guide",
 ])
 def test_response_has_no_literal_newline(scenario, mcp, monkeypatch):
     """Line-delimited framing means json.dumps output must not contain a
@@ -305,6 +355,10 @@ def test_response_has_no_literal_newline(scenario, mcp, monkeypatch):
         matched = [_target(f"1.{i}", f"s{i}") for i in range(1, 7)]
         fake.responses[("GET", "/api/itl/resolve")] = {"matched": matched}
         resp = server.handle(_call("terminal_send", {"to": "@all", "text": "x"}))
+    elif scenario == "terminal_key_blocked_guide":
+        matched = [_target(f"1.{i}", f"s{i}") for i in range(1, 7)]
+        fake.responses[("GET", "/api/itl/resolve")] = {"matched": matched}
+        resp = server.handle(_call("terminal_key", {"to": "@all", "key": "q"}))
 
     assert resp is not None
     encoded = json.dumps(resp, ensure_ascii=False)

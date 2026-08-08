@@ -17,6 +17,7 @@ from _deps import verify_itl_token
 from agent_status_service import agent_status_watcher
 from itl_targets import build_targets, filter_targets, format_table, resolve
 from pane_excerpt import extract_excerpt
+from rate_limit import check_rate_limit
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
 
@@ -30,17 +31,35 @@ MAX_TEXT_CHARS = 8000
 MAX_READ_LINES = 200
 MAX_READ_CHARS = 20_000
 
+# Agent-to-agent loops (A→B→A) can amplify fan-out. Self-exclusion (§D6) blocks
+# 1-hop loops but not 2-hop ones, so we cap writes per source session. Reads are
+# exempt: terminal_wait polls /targets every 2s, which is normal model behavior.
+RATE_LIMIT_MAX = 30
+RATE_LIMIT_WINDOW = 60
+
+# §6.3: `send_key` uses tmux key names (C-c, Escape, ...) which are interpreted
+# by tmux — never `send_keys -l`, which would type "C-c" literally (telegram
+# abort button trap). Whitelist keeps the surface tiny.
+ALLOWED_KEYS = {"C-c", "Escape", "Enter", "q"}
+
 
 class SendRequest(BaseModel):
     to: str = Field(..., min_length=1, max_length=200)
     text: str = Field(..., min_length=1, max_length=MAX_TEXT_CHARS)
-    # 기본은 엔터 없음. 사람이 보고 치는 편이 안전하다 — 대화형 앱 한가운데 엔터가
+    # 기본은 엔터 없음. 사람이 보고 치는 편이 안전하다 — 대화형 앱 한가운데에 엔터가
     # 들어가면 의도치 않은 실행이 된다(터미널 파일 드롭과 같은 원칙).
     submit: bool = False
     # 보내는 쪽 세션. `itl send 3` 처럼 탭을 생략한 주소의 기준점이 된다.
     from_session: str | None = Field(default=None, max_length=128)
     # Set only by the MCP server. CLI never sends it, hence default False.
     # Drops targets whose sessionId or tmuxSession equals from_session.
+    exclude_self: bool = False
+
+
+class KeyRequest(BaseModel):
+    to: str = Field(..., min_length=1, max_length=200)
+    key: str = Field(..., min_length=1, max_length=16)
+    from_session: str | None = Field(default=None, max_length=128)
     exclude_self: bool = False
 
 
@@ -164,6 +183,10 @@ async def itl_send(request: SendRequest, username: str = Depends(verify_itl_toke
     원격 pane 은 아직 지원하지 않는다 — 원격 tmux 로 보내려면 SSH 왕복이 필요하고,
     그건 별도 경로다. 지금은 명확히 거절해서 조용히 안 가는 일이 없게 한다.
     """
+    check_rate_limit(
+        f"itl:send:{request.from_session or username}",
+        max_attempts=RATE_LIMIT_MAX, window_seconds=RATE_LIMIT_WINDOW,
+    )
     targets = await _targets_for(username)
     matched = resolve(targets, request.to, request.from_session)
     if not matched:
@@ -191,4 +214,51 @@ async def itl_send(request: SendRequest, username: str = Depends(verify_itl_toke
         delivered.append({"addr": target["addr"], "sessionId": session_id})
 
     logger.info("itl send: to=%s delivered=%d skipped=%d", request.to, len(delivered), len(skipped))
+    return {"delivered": delivered, "skipped": skipped}
+
+
+@router.post("/key")
+async def itl_key(request: KeyRequest, username: str = Depends(verify_itl_token)):
+    """해소된 대상 전부에 특수 키를 보낸다.
+
+    `tmux_manager.send_key` 를 쓴다 — `send_keys -l` 은 "C-c" 라는 글자를
+    그대로 타이핑한다 (telegram 중단 버튼 함정). 화이트리스트 밖은 400.
+    """
+    if request.key not in ALLOWED_KEYS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"지원하지 않는 키: {request.key}. 허용: {', '.join(sorted(ALLOWED_KEYS))}",
+        )
+    check_rate_limit(
+        f"itl:key:{request.from_session or username}",
+        max_attempts=RATE_LIMIT_MAX, window_seconds=RATE_LIMIT_WINDOW,
+    )
+    targets = await _targets_for(username)
+    matched = resolve(targets, request.to, request.from_session)
+    if not matched:
+        raise HTTPException(status_code=404, detail=f"'{request.to}' 에 해당하는 터미널이 없습니다")
+    if len(matched) > MAX_FANOUT:
+        raise HTTPException(
+            status_code=400,
+            detail=f"대상이 너무 많습니다 ({len(matched)} > {MAX_FANOUT}). 주소를 좁혀주세요.",
+        )
+
+    delivered, skipped = [], []
+    for target in matched:
+        session_id = target.get("sessionId")
+        if request.exclude_self and request.from_session and (
+            session_id == request.from_session or target.get("tmuxSession") == request.from_session
+        ):
+            continue
+        if not session_id:
+            skipped.append({"addr": target["addr"], "reason": "remote-unsupported"})
+            continue
+        if not await tmux_manager.session_exists(session_id):
+            skipped.append({"addr": target["addr"], "reason": "session-gone"})
+            continue
+        await tmux_manager.send_key(session_id, request.key)
+        delivered.append({"addr": target["addr"], "sessionId": session_id})
+
+    logger.info("itl key: to=%s key=%s delivered=%d skipped=%d",
+                request.to, request.key, len(delivered), len(skipped))
     return {"delivered": delivered, "skipped": skipped}

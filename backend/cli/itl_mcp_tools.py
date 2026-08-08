@@ -62,6 +62,9 @@ def _api(method, path, params=None, body=None):
     except urllib.error.HTTPError as e:
         if e.code == 401:
             raise ToolError("인증이 만료됐습니다. 사용자에게 이 터미널을 새로 열어달라고 요청하세요.") from e
+        if e.code == 429:
+            # Backend rate-limit on /send or /key (§6.4). Verbatim sentence per team lead.
+            raise ToolError("보내기가 너무 잦습니다(분당 30회). 루프에 빠진 게 아닌지 확인하세요.") from e
         detail = ""
         try:
             detail = json.loads(e.read().decode()).get("detail", "")
@@ -186,6 +189,38 @@ def tool_terminal_send(args):
     return "\n".join(lines)
 
 
+def tool_terminal_key(args):
+    to = args["to"]
+    key = args["key"]
+    include_self = bool(args.get("include_self", False))
+    confirm = bool(args.get("confirm_fanout", False))
+    # Same 6-step flow as terminal_send (§5.3) — only the payload differs.
+    matched = _resolve_targets(to)
+    if not matched:
+        raise ToolError(f"'{to}'에 해당하는 터미널이 없습니다. terminal_list로 주소를 확인하세요.")
+    if not include_self:
+        matched = [t for t in matched if not _is_self(t)]
+    if not matched:
+        raise ToolError(f"'{to}'에 해당하는 터미널이 없습니다. terminal_list로 주소를 확인하세요.")
+    if len(matched) > FANOUT_CONFIRM_THRESHOLD and not confirm:
+        addrs = ", ".join(t.get("addr", "?") for t in matched)
+        return (f"대상이 {len(matched)}개입니다 (상한 {FANOUT_CONFIRM_THRESHOLD}). "
+                f"주소를 좁히거나 confirm_fanout=true로 다시 부르세요.\n대상: {addrs}")
+    result = _api("POST", "/api/itl/key", body={
+        "to": to, "key": key, "from_session": SESSION,
+        "exclude_self": not include_self,
+    })
+    delivered = result.get("delivered", []) or []
+    skipped = result.get("skipped", []) or []
+    lines = [f"key → {d.get('addr')} ({key})" for d in delivered]
+    reason_map = {"remote-unsupported": "원격 pane 은 아직 지원 안 함", "session-gone": "세션이 사라짐"}
+    for s in skipped:
+        lines.append(f"skip   {s.get('addr')} ({reason_map.get(s.get('reason'), s.get('reason', '?'))})")
+    if not delivered:
+        raise ToolError("보냈으나 전달된 터미널이 없습니다. " + " | ".join(lines))
+    return "\n".join(lines)
+
+
 def tool_terminal_read(args):
     to = args["to"]
     lines_arg = int(args.get("lines", 40))
@@ -250,4 +285,5 @@ HANDLERS = {
     "terminal_send": tool_terminal_send,
     "terminal_read": tool_terminal_read,
     "terminal_wait": tool_terminal_wait,
+    "terminal_key": tool_terminal_key,
 }
