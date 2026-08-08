@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Awaitable, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -176,21 +177,29 @@ async def itl_read(
     return {"addr": target["addr"], "sessionId": session_id, "mode": mode, "text": text}
 
 
-@router.post("/send")
-async def itl_send(request: SendRequest, username: str = Depends(verify_itl_token)):
-    """해소된 대상 전부에 문자열을 입력한다.
+async def _fanout_deliver(
+    to: str,
+    from_session: str | None,
+    username: str,
+    *,
+    bucket: str,
+    deliver: Callable[[str], Awaitable[None]],
+    exclude_self: bool = False,
+) -> dict:
+    """Resolve ``to`` against the caller's tabs and run ``deliver(session_id)``
+    on every matched, reachable pane.
 
-    원격 pane 은 아직 지원하지 않는다 — 원격 tmux 로 보내려면 SSH 왕복이 필요하고,
-    그건 별도 경로다. 지금은 명확히 거절해서 조용히 안 가는 일이 없게 한다.
+    Single source of truth for the rules /send and /key share: rate-limit check
+    on ``bucket``, 404 on no match, MAX_FANOUT 400, ``exclude_self`` filter,
+    remote-unsupported / session-gone skip bookkeeping, delivered/skipped shape.
+    The two routes differ only in ``bucket`` (rate-limit key), ``deliver`` (the
+    tmux call), and the whitelist (/key-only, kept in the route).
     """
-    check_rate_limit(
-        f"itl:send:{request.from_session or username}",
-        max_attempts=RATE_LIMIT_MAX, window_seconds=RATE_LIMIT_WINDOW,
-    )
+    check_rate_limit(bucket, max_attempts=RATE_LIMIT_MAX, window_seconds=RATE_LIMIT_WINDOW)
     targets = await _targets_for(username)
-    matched = resolve(targets, request.to, request.from_session)
+    matched = resolve(targets, to, from_session)
     if not matched:
-        raise HTTPException(status_code=404, detail=f"'{request.to}' 에 해당하는 터미널이 없습니다")
+        raise HTTPException(status_code=404, detail=f"'{to}' 에 해당하는 터미널이 없습니다")
     if len(matched) > MAX_FANOUT:
         raise HTTPException(
             status_code=400,
@@ -200,8 +209,8 @@ async def itl_send(request: SendRequest, username: str = Depends(verify_itl_toke
     delivered, skipped = [], []
     for target in matched:
         session_id = target.get("sessionId")
-        if request.exclude_self and request.from_session and (
-            session_id == request.from_session or target.get("tmuxSession") == request.from_session
+        if exclude_self and from_session and (
+            session_id == from_session or target.get("tmuxSession") == from_session
         ):
             continue
         if not session_id:
@@ -210,11 +219,30 @@ async def itl_send(request: SendRequest, username: str = Depends(verify_itl_toke
         if not await tmux_manager.session_exists(session_id):
             skipped.append({"addr": target["addr"], "reason": "session-gone"})
             continue
-        await tmux_manager.send_keys(session_id, request.text, submit=request.submit)
+        await deliver(session_id)
         delivered.append({"addr": target["addr"], "sessionId": session_id})
 
-    logger.info("itl send: to=%s delivered=%d skipped=%d", request.to, len(delivered), len(skipped))
+    logger.info("itl fanout: bucket=%s to=%s delivered=%d skipped=%d",
+                bucket, to, len(delivered), len(skipped))
     return {"delivered": delivered, "skipped": skipped}
+
+
+@router.post("/send")
+async def itl_send(request: SendRequest, username: str = Depends(verify_itl_token)):
+    """해소된 대상 전부에 문자열을 입력한다.
+
+    원격 pane 은 아직 지원하지 않는다 — 원격 tmux 로 보내려면 SSH 왕복이 필요하고,
+    그건 별도 경로다. 지금은 명확히 거절해서 조용히 안 가는 일이 없게 한다.
+    """
+
+    async def deliver(sid: str) -> None:
+        await tmux_manager.send_keys(sid, request.text, submit=request.submit)
+
+    return await _fanout_deliver(
+        request.to, request.from_session, username,
+        bucket=f"itl:send:{request.from_session or username}",
+        deliver=deliver, exclude_self=request.exclude_self,
+    )
 
 
 @router.post("/key")
@@ -229,36 +257,12 @@ async def itl_key(request: KeyRequest, username: str = Depends(verify_itl_token)
             status_code=400,
             detail=f"지원하지 않는 키: {request.key}. 허용: {', '.join(sorted(ALLOWED_KEYS))}",
         )
-    check_rate_limit(
-        f"itl:key:{request.from_session or username}",
-        max_attempts=RATE_LIMIT_MAX, window_seconds=RATE_LIMIT_WINDOW,
+
+    async def deliver(sid: str) -> None:
+        await tmux_manager.send_key(sid, request.key)
+
+    return await _fanout_deliver(
+        request.to, request.from_session, username,
+        bucket=f"itl:key:{request.from_session or username}",
+        deliver=deliver, exclude_self=request.exclude_self,
     )
-    targets = await _targets_for(username)
-    matched = resolve(targets, request.to, request.from_session)
-    if not matched:
-        raise HTTPException(status_code=404, detail=f"'{request.to}' 에 해당하는 터미널이 없습니다")
-    if len(matched) > MAX_FANOUT:
-        raise HTTPException(
-            status_code=400,
-            detail=f"대상이 너무 많습니다 ({len(matched)} > {MAX_FANOUT}). 주소를 좁혀주세요.",
-        )
-
-    delivered, skipped = [], []
-    for target in matched:
-        session_id = target.get("sessionId")
-        if request.exclude_self and request.from_session and (
-            session_id == request.from_session or target.get("tmuxSession") == request.from_session
-        ):
-            continue
-        if not session_id:
-            skipped.append({"addr": target["addr"], "reason": "remote-unsupported"})
-            continue
-        if not await tmux_manager.session_exists(session_id):
-            skipped.append({"addr": target["addr"], "reason": "session-gone"})
-            continue
-        await tmux_manager.send_key(session_id, request.key)
-        delivered.append({"addr": target["addr"], "sessionId": session_id})
-
-    logger.info("itl key: to=%s key=%s delivered=%d skipped=%d",
-                request.to, request.key, len(delivered), len(skipped))
-    return {"delivered": delivered, "skipped": skipped}
