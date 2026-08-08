@@ -310,9 +310,10 @@ backend/tests/test_itl_mcp.py
 ```
 
 - 구현: `GET /api/itl/targets?from_session=&fmt=table` → 표를 그대로 텍스트로.
-  `scope`/`status`/`command`/`include_self` 는 **MCP 서버에서 필터링**한 뒤
-  `fmt=json` 결과를 자체 표로 그리는 게 아니라 → **백엔드에 필터를 넘긴다**(§6.1 참고:
-  `/targets` 에 `scope`·`status`·`command` 쿼리 추가).
+  **모든 필터(`scope`/`status`/`command`/`include_self`)는 백엔드에 넘긴다**(§6.1 참고:
+  `/targets` 에 `scope`·`status`·`command`·`exclude_self` 쿼리).
+  `include_self=false` 는 백엔드 `exclude_self=true` 로 치환해서 보낸다.
+  MCP 서버가 표 문자열을 자르지 않는다 — `format_table` 의 마커/열 순서가 바뀌어도 깨지지 않는다.
 - `scope="same_tab"` 이고 `ITL_SESSION` 이 없으면: `isError:true`,
   `"내 터미널의 위치를 알 수 없습니다(ITL_SESSION 없음). scope=\"all\"로 다시 시도하세요."`
 - 결과가 0행이면 표 대신 `"열려 있는 터미널이 없습니다."`
@@ -466,13 +467,16 @@ async def itl_targets(
     scope: str = Query("all", pattern="^(all|same_tab)$"),
     status: str | None = Query(None, pattern="^(working|idle|permission)$"),
     command: str | None = Query(None, max_length=64),
+    exclude_self: bool = Query(False),
     username: str = Depends(verify_itl_token),
 ): ...
 ```
 
-- 필터는 **순수 함수로 분리**한다: `itl_targets.filter_targets(targets, *, scope, from_session, status, command)`.
+- 필터는 **순수 함수로 분리**한다: `itl_targets.filter_targets(targets, *, scope, from_session, status, command, exclude_self)`。
   라우트에 조건문을 쌓지 말 것 — 테스트가 붙는 자리다.
-- `scope="same_tab"` + `from_session` 없음 → **422** (`"same_tab은 from_session이 필요합니다"`).
+- `exclude_self=true` + `from_session` → 호출자 자신(`sessionId` 또는 `tmuxSession` 이 `from_session` 과 일치)을
+  결과에서 뺀다. MCP 서버가 `include_self` 를 이 인자로 치환해 넘긴다. CLI 는 보내지 않으므로 기본값 그대로.
+- `scope="same_tab"` + `from_session` 없음 → **422** (`"same_tab은 from_session이 필요합니다"`)。
   조용히 전역을 돌려주면 모델이 "형제만 봤다"고 착각한다.
 - 기존 호출자(`itl` CLI)는 인자를 안 보내므로 기본값으로 동작이 그대로다.
 

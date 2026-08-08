@@ -79,6 +79,7 @@ async def itl_targets(
     scope: str = Query("all", pattern="^(all|same_tab)$"),
     status: str | None = Query(None, pattern="^(working|idle|permission)$"),
     command: str | None = Query(None, max_length=64),
+    exclude_self: bool = Query(False),
     username: str = Depends(verify_itl_token),
 ):
     """열려 있는 터미널 목록. `fmt=table` 은 CLI 가 그대로 출력한다.
@@ -93,7 +94,8 @@ async def itl_targets(
         )
     targets = await _targets_for(username)
     targets = filter_targets(
-        targets, scope=scope, from_session=from_session, status=status, command=command
+        targets, scope=scope, from_session=from_session,
+        status=status, command=command, exclude_self=exclude_self,
     )
     if fmt == "table":
         return {"table": format_table(targets, from_session)}

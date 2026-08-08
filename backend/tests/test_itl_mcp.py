@@ -8,12 +8,12 @@ _api on the freshly-loaded tools module doesn't leak between tests.
 We call `handle()` directly — no real HTTP, no stdin. The broken-JSON case
 exercises the main() loop with a stubbed stdin.
 """
+import email.message
 import importlib.util
 import io
 import json
 import sys
 import urllib.error
-import email.message
 from pathlib import Path
 
 import pytest
@@ -309,3 +309,29 @@ def test_response_has_no_literal_newline(scenario, mcp, monkeypatch):
     assert resp is not None
     encoded = json.dumps(resp, ensure_ascii=False)
     assert "\n" not in encoded, f"literal newline leaked into JSON for {scenario!r}"
+
+
+def test_terminal_list_alone_exclude_self_returns_empty_sentence(mcp, monkeypatch):
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    monkeypatch.setattr(tools, "TOKEN", "ok")
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/targets")] = {"table": "열려 있는 터미널이 없습니다."}
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_list", {"include_self": False}))
+    text = resp["result"]["content"][0]["text"]
+    assert text == "열려 있는 터미널이 없습니다."
+    sent_params = fake.calls[0][2]
+    assert sent_params["exclude_self"] is True
+
+
+def test_terminal_list_include_self_passes_exclude_self_false(mcp, monkeypatch):
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    monkeypatch.setattr(tools, "TOKEN", "ok")
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/targets")] = {"table": "ADDR TAB ..."}
+    monkeypatch.setattr(tools, "_api", fake)
+    server.handle(_call("terminal_list", {"include_self": True}))
+    sent_params = fake.calls[0][2]
+    assert sent_params["exclude_self"] is False

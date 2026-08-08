@@ -86,23 +86,6 @@ def _resolve_targets(to):
     return data.get("matched", []) or []
 
 
-def _strip_self_row(table):
-    """Remove the caller row (marked with `>`) from a fmt=table response.
-
-    format_table prefixes the caller's addr column with `>`. Used only when the
-    caller asked for include_self=False — backend has no include_self param, so
-    we filter the rendered text. If nothing remains beyond the header, we hand
-    back the empty-state sentence.
-    """
-    if not table:
-        return "열려 있는 터미널이 없습니다."
-    kept = [ln for ln in table.split("\n") if not ln.lstrip().startswith(">")]
-    data_rows = [ln for ln in kept if ln.strip() and not ln.startswith("ADDR")]
-    if not data_rows:
-        return "열려 있는 터미널이 없습니다."
-    return "\n".join(kept)
-
-
 def _wait_satisfied(status, until):
     """Per-target condition for terminal_wait. Blank status counts as idle."""
     if until == "idle":
@@ -131,10 +114,12 @@ def tool_terminal_list(args):
     include_self = bool(args.get("include_self", True))
     if scope == "same_tab" and not SESSION:
         raise ToolError('내 터미널의 위치를 알 수 없습니다(ITL_SESSION 없음). scope="all"로 다시 시도하세요.')
-    params = {"from_session": SESSION, "fmt": "table", "scope": scope, "status": status, "command": command}
+    params = {
+        "from_session": SESSION, "fmt": "table",
+        "scope": scope, "status": status, "command": command,
+        "exclude_self": not include_self,
+    }
     table = _api("GET", "/api/itl/targets", params).get("table", "")
-    if not include_self:
-        table = _strip_self_row(table)
     return table or "열려 있는 터미널이 없습니다."
 
 

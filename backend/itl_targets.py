@@ -232,18 +232,24 @@ def filter_targets(
     from_session: str | None = None,
     status: str | None = None,
     command: str | None = None,
+    exclude_self: bool = False,
 ) -> list[dict]:
     """Pure filter for the GET /api/itl/targets listing.
 
-    Applies scope (all|same_tab), status group, and command filters in order
-    so the route handler stays thin. `same_tab` without from_session yields
-    an empty list — the route is responsible for raising 422 in that case.
+    Applies scope (all|same_tab), self-exclusion, status group, and command
+    filters in order so the route handler stays thin. `same_tab` without
+    from_session yields an empty list — the route is responsible for raising
+    422 in that case. `exclude_self` drops targets matching from_session by
+    sessionId or tmuxSession.
     """
     if scope == "same_tab":
         idx = _tab_of(targets, from_session)
         if idx is None:
             return []
         targets = [t for t in targets if t["tabIndex"] == idx]
+    if exclude_self and from_session:
+        targets = [t for t in targets
+                   if from_session not in (t["sessionId"], t["tmuxSession"])]
     if status:
         targets = [t for t in targets if t["status"] == status]
     if command:

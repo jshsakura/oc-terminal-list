@@ -230,3 +230,18 @@ def test_filter_targets_combination(targets):
         status="idle", command="codex",
     )
     assert got == []
+
+
+def test_filter_targets_exclude_self_drops_caller_by_session_id(targets):
+    got = filter_targets(targets, from_session="s1", exclude_self=True)
+    assert {t["addr"] for t in got} == {"1.2", "2.1", "2.2"}
+
+
+def test_filter_targets_exclude_self_drops_caller_by_tmux_session(targets):
+    got = filter_targets(targets, from_session="mobile-aaa", exclude_self=True)
+    assert {t["addr"] for t in got} == {"1.1", "1.2", "2.2"}
+
+
+def test_filter_targets_exclude_self_without_session_is_noop(targets):
+    got = filter_targets(targets, exclude_self=True)
+    assert {t["addr"] for t in got} == {"1.1", "1.2", "2.1", "2.2"}
