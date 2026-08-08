@@ -18,10 +18,14 @@ const variantStyle = {
     color: color.subtext,
     border: `1px solid ${color.border}`,
   },
+  // Filled, same weight as `primary` — it is the dialog's main action, just a
+  // destructive one. Outlined-on-neutral-border read *weaker* than the
+  // `secondary` cancel button sitting next to it, which inverts the hierarchy
+  // and makes the button look unpainted.
   danger: {
-    background: 'transparent',
-    color: color.danger,
-    border: `1px solid ${color.border}`,
+    background: color.danger,
+    color: color.crust,
+    border: '1px solid transparent',
   },
   warning: {
     background: 'transparent',
@@ -29,6 +33,9 @@ const variantStyle = {
     border: `1px solid ${color.border}`,
   },
 };
+
+// Variants that paint a surface — hover dims them instead of touching the border.
+const FILLED_VARIANTS = new Set(['primary', 'danger']);
 
 const sizeStyle = {
   small:  { height: '24px', fontSize: fontSize['11'], padding: `0 10px` },
@@ -83,7 +90,9 @@ const Button = ({
       title={title}
       onMouseEnter={(e) => {
         if (disabled) return;
-        if (variant === 'primary') {
+        // Filled variants dim; outlined ones have no fill to dim, so they
+        // strengthen their border instead.
+        if (FILLED_VARIANTS.has(variant)) {
           e.currentTarget.style.opacity = '0.92';
         } else if (variant === 'ghost') {
           e.currentTarget.style.background = color.surface0;
