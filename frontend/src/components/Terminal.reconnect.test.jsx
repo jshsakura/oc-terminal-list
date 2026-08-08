@@ -309,4 +309,56 @@ describe('Terminal 재연결 타이머', () => {
       expect(harness.sockets.length).toBe(before);
     });
   });
+  /* 호스트 재부팅으로 원격 tmux 세션이 통째로 사라진 경우. 서버가 session-gone 을 보내면
+     그 소켓이 닫힐 때 create=0 refresh 재시도가 아니라 새 세션 생성으로 전환해야 한다. */
+  describe('세션 소멸(session-gone)', () => {
+    it('신호 직후 끊기면 새 세션 생성으로 재연결한다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const ws = await openSocket();
+
+      await act(async () => { ws.serverSend(JSON.stringify({ type: 'session-gone' })); });
+      await act(async () => { ws.serverClose(); });
+      await tick(1000);
+
+      expect(harness.sockets.length).toBeGreaterThan(1);
+      expect(harness.socket.url).not.toContain('create=0');
+    });
+
+    /* 회귀: 신호와 close 사이 간격은 우리가 정하는 값이 아니다. 백엔드가 죽은 소켓을 늦게
+       닫으면 close 는 클라이언트 하트비트가 알아채는 수십 초 뒤에 온다. 이걸 15s 신선도
+       창으로 재던 시절엔 그 사이 신호가 만료돼 전부 create=0 으로 되돌아갔고, 호스트 재부팅
+       뒤 "[session not found]" 가 영원히 반복됐다(실측: 50s 간격으로 무한). 판정은 시각이
+       아니라 신호를 보낸 **소켓**에 묶여야 한다. */
+    it('close 가 한참 뒤에 와도(60s) 새 세션 생성으로 재연결한다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const ws = await openSocket();
+
+      await act(async () => { ws.serverSend(JSON.stringify({ type: 'session-gone' })); });
+      await tick(60_000);
+      await act(async () => { ws.serverClose(); });
+      await tick(1000);
+
+      const last = harness.socket;
+      expect(last.url).not.toContain('create=0');
+    });
+
+    /* 신호는 그 소켓에만 유효하다 — 다음 소켓의 평범한 끊김까지 새 세션 생성으로 만들면
+       살아 있는 셸을 두고 빈 셸을 여는 사고가 된다. */
+    it('다른 소켓의 끊김에는 번지지 않는다 (create=0 유지)', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const first = await openSocket();
+
+      await act(async () => { first.serverSend(JSON.stringify({ type: 'session-gone' })); });
+      await act(async () => { first.serverClose(); });
+      await tick(1000);
+
+      const second = harness.socket;
+      await act(async () => { second.serverOpen(); });
+      await act(async () => { second.serverClose(); });
+      // 두 번째 시도는 백오프(2s + 지터)를 탄다 — 1s 만 흘리면 소켓이 아직 안 생긴다.
+      await tick(5000);
+
+      expect(harness.socket.url).toContain('create=0');
+    });
+  });
 });

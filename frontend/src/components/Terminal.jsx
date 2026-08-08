@@ -24,7 +24,7 @@ import {
   WEBGL_DETACH_GRACE_MS, WEBGL_IDLE_RELEASE_MS, CONNECT_OPEN_TIMEOUT_MS, RECONNECT_STABLE_RESET_MS,
   RECONNECT_WATCHDOG_POLL_MS, RECONNECT_ESCALATE_MS,
   STALE_CONNECTING_RESUME_MS, OUTAGE_PROBE_INTERVAL_MS, OUTAGE_PROBE_TIMEOUT_MS,
-  OUTAGE_PROBE_MIN_DELAY_MS, SESSION_GONE_SIGNAL_MS, SESSION_GONE_LOOP_GUARD_MS,
+  OUTAGE_PROBE_MIN_DELAY_MS, SESSION_GONE_LOOP_GUARD_MS,
 } from './terminal/terminalConstants';
 import {
   sleep, looksLikeRecoverableBulkInput,
@@ -159,9 +159,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
      `[detached (from session ...)]` 토큰을 감지해 evictedRef 를 세움. WS close 시 이 ref 가
      true 면 자동 재접속 로직을 모두 skip — 사용자가 직접 "내가 가져오기" 버튼을 눌러야만 재attach. */
   const evictedRef = useRef(false);
-  /* 서버 "session-gone"(원격 exit 42 — 재접속 대상 tmux 세션이 원격에 없음) 수신 시각.
-     직후의 close 를 "세션 소멸"로 식별해 refresh 재시도 대신 새 세션 생성으로 전환. */
-  const sessionGoneAtRef = useRef(0);
+  /* 서버 "session-gone"(원격 exit 42 — 재접속 대상 tmux 세션이 원격에 없음)을 알려온 **소켓**.
+     그 소켓의 close 를 "세션 소멸"로 식별해 refresh 재시도 대신 새 세션 생성으로 전환한다.
+     시각(신선도 창)이 아니라 소켓으로 묶는 이유: 신호와 close 사이 간격은 우리가 정하는 값이
+     아니다. 원격 셸이 죽어도 백엔드가 소켓을 바로 닫지 못하면 close 는 하트비트가 죽은 소켓을
+     알아채는 ~50s 뒤에 온다. 15s 창으로 재던 시절엔 그 사이 신호가 만료돼 전부 create=0 으로
+     되돌아갔고, 호스트 재부팅 뒤 "[session not found]" 가 영원히 반복됐다. 소켓에 묶으면
+     오래된 신호가 다음 소켓으로 새지 않으면서도 창이 필요 없다. */
+  const sessionGoneSocketRef = useRef(null);
   /* 세션 소멸 → 새 세션 생성으로 전환한 시각. 생성 직후 또 소멸이면 루프 방지(ended 전환). */
   const sessionGoneCreateAtRef = useRef(0);
   const endedRef = useRef(false);
@@ -1076,9 +1081,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             return;
           }
           if (msg && msg.type === 'session-gone') {
-            /* 원격에 재접속 대상 tmux 세션이 없음(호스트 재부팅 등) — 직후 close 에서
+            /* 원격에 재접속 대상 tmux 세션이 없음(호스트 재부팅 등) — 이 소켓이 닫힐 때
                refresh 재시도 대신 새 세션 생성으로 전환한다. 터미널로 흘리지 않는다. */
-            sessionGoneAtRef.current = Date.now();
+            sessionGoneSocketRef.current = socket;
             return;
           }
         } catch { /* JSON 아님, 일반 출력으로 통과 */ }
@@ -1145,8 +1150,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       // 등으로 원격 tmux 세션이 통째로 사라졌다. create=0 refresh 재시도는 전부 같은 결과라
       // "[session not found]" 스팸만 반복되므로, 즉시 새 세션 생성(create=1)으로 전환하고
       // 화면(터미널 스크롤백 + 재연결 pill)에 "새 세션 시작"임을 뚜렷이 알린다.
-      if (sessionGoneAtRef.current && Date.now() - sessionGoneAtRef.current < SESSION_GONE_SIGNAL_MS) {
-        sessionGoneAtRef.current = 0;
+      if (sessionGoneSocketRef.current === socket) {
+        sessionGoneSocketRef.current = null;
         const goneNotice = t('sessionGoneNewStart')
           || 'Previous remote session is gone (host restarted?) — starting a fresh session.';
         if (Date.now() - sessionGoneCreateAtRef.current < SESSION_GONE_LOOP_GUARD_MS) {

@@ -91,10 +91,11 @@ export const RECONNECT_WATCHDOG_POLL_MS = 4000;
 // 워치독이 교착을 풀 때, 이 시간 넘게 못 붙었으면 create=true 로 올려 (세션이 사라졌어도)
 // 재생성까지 시도한다. 페이지 새로고침은 절대 안 한다 — 끊김은 인페이지로만, mosh 처럼 무한 복구.
 export const RECONNECT_ESCALATE_MS = 16000;
-// 서버가 "재접속 대상 tmux 세션이 원격에 없음"(session-gone, 원격 exit 42)을 알린 직후의
-// close 를 세션 소멸로 식별하는 신선도 창. 이 안의 close 는 create=0 refresh 재시도
-// ("[session not found]" 스팸) 대신 곧장 새 세션 생성으로 전환하고 화면에 알린다.
-export const SESSION_GONE_SIGNAL_MS = 15000;
+// (제거됨) SESSION_GONE_SIGNAL_MS — session-gone 을 시각으로 재던 신선도 창.
+// 신호와 close 사이 간격은 우리가 정하는 값이 아니라(백엔드가 죽은 소켓을 늦게 닫으면
+// close 는 하트비트가 알아채는 ~50s 뒤에 온다) 창을 넘겨 만료됐고, 그때마다 create=0 으로
+// 되돌아가 호스트 재부팅 뒤 "[session not found]" 가 영원히 반복됐다. 지금은 신호를 보낸
+// **소켓**에 묶는다(Terminal.jsx sessionGoneSocketRef) — 창이 필요 없다.
 // 새로 만든 세션이 이 시간 안에 또 소멸하면(원격이 세션을 유지 못 하는 상태) 생성 루프를
 // 끊고 ended 오버레이로 넘긴다 — 수동 재시작 탈출구.
 export const SESSION_GONE_LOOP_GUARD_MS = 30000;

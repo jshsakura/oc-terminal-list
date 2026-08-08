@@ -36,6 +36,9 @@ REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "10000"))
 # 재시도(스팸) 대신 새 세션 생성(create=1)으로 전환하고 "새 세션 시작"을 화면에 알린다.
 TMUX_SESSION_GONE_EXIT = 42
 CONNECT_TIMEOUT = 15  # 초
+# 브리지 정리 시 SSH conn.wait_closed() 를 기다리는 상한(초). 끊긴 망에서는 이 대기가
+# 영영 안 끝나 브리지 태스크가 남는다.
+CONN_CLOSE_TIMEOUT_SEC = 5
 # RPi5 등 wifi/배터리 호스트의 idle drop 빠르게 감지 — 15s × 4 = 1분 안에 끊긴 것 검출.
 KEEPALIVE_INTERVAL = 15
 KEEPALIVE_COUNT_MAX = 4
@@ -482,19 +485,45 @@ class HostBridge:
 
         out_task = asyncio.create_task(self._stdout_pump())
         in_task = asyncio.create_task(self._input_pump())
+        exit_task = asyncio.create_task(self._watch_exit())
         try:
             await self._closed.wait()
         finally:
-            for t in (out_task, in_task):
+            for t in (out_task, in_task, exit_task):
                 if not t.done():
                     t.cancel()
-            for t in (out_task, in_task):
+            for t in (out_task, in_task, exit_task):
                 try:
                     await t
                 except (asyncio.CancelledError, Exception):
                     pass
             await self._notify_if_session_gone()
+            # 소켓은 SSH 정리를 기다리지 않고 지금 닫는다. teardown 이 늦어지면(끊긴 망에서
+            # conn.wait_closed 가 오래 붙잡힌다) 죽은 소켓이 그대로 남고, 클라이언트는 그걸
+            # 하트비트로만 알아채므로 방금 보낸 session-gone 과 close 사이가 수십 초 벌어진다.
+            try:
+                if self.websocket.client_state.name == "CONNECTED":
+                    await self.websocket.close(code=1000, reason="remote shell exited")
+            except Exception:
+                pass
             await self._teardown()
+
+    async def _watch_exit(self) -> None:
+        """원격 셸이 끝나면 즉시 브리지를 끝낸다.
+
+        stdout EOF 만 믿으면 안 된다 — PTY 가 붙은 채널에서는 명령이 이미 exit 한 뒤에도
+        read 가 그대로 앉아 있을 수 있고, 그러면 소켓은 클라이언트 하트비트가 죽은 걸
+        알아챌 때까지(약 50초) 살아 있는 것처럼 보인다. 호스트 재부팅 뒤 tmux 세션이
+        사라진 경우가 정확히 그랬다: exit 42 는 곧바로 났는데 close 는 50초 뒤에 와서,
+        그 사이 프론트의 session-gone 판정이 흐려지고 create=0 재시도만 반복됐다.
+        """
+        try:
+            if self.process is not None:
+                await self.process.wait_closed()
+        except Exception:
+            pass
+        finally:
+            self._closed.set()
 
     async def _notify_if_session_gone(self) -> None:
         """원격 명령이 exit 42(= 재접속 대상 tmux 세션 없음)로 끝났으면 프론트에 알린다.
@@ -519,7 +548,10 @@ class HostBridge:
         try:
             if self.conn is not None:
                 self.conn.close()
-                await self.conn.wait_closed()
+                # 끊긴 망에서는 wait_closed 가 무한히 붙잡힐 수 있다. 여기서 막히면 이
+                # 브리지의 태스크가 통째로 남으니 기다림에 상한을 둔다 — close() 는 이미
+                # 호출했으므로 정리는 백그라운드에서 마저 진행된다.
+                await asyncio.wait_for(self.conn.wait_closed(), timeout=CONN_CLOSE_TIMEOUT_SEC)
         except Exception:
             pass
 
