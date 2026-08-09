@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { useState } from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import CommandInput from './CommandInput';
 
@@ -282,42 +283,48 @@ describe('CommandInput image attach', () => {
     vi.mocked(uploadImageAndGetPath).mockReset();
   });
 
+  /* 입력값을 **진짜 상태**로 들고 렌더한다. vi.fn() 목으로 두면 삽입이 누적되지 않아
+     "두 번째 이미지가 첫 번째를 덮는다" 류의 버그가 테스트에 안 잡힌다 — 실제로 그렇게
+     놓쳤던 버그다. 검증도 목 호출인자가 아니라 화면의 textarea 값으로 한다. */
   const renderWith = (props = {}) => {
     const setCommand = vi.fn();
-    const utils = render(
-      <CommandInput
-        isOpen={true}
-        onClose={vi.fn()}
-        onSend={vi.fn()}
-        command={props.command ?? ''}
-        setCommand={setCommand}
-        t={t}
-      />
-    );
+    const Harness = () => {
+      const [command, setState] = useState(props.command ?? '');
+      return (
+        <CommandInput
+          isOpen={true}
+          onClose={vi.fn()}
+          onSend={vi.fn()}
+          command={command}
+          setCommand={(next) => { setCommand(next); setState(next); }}
+          t={t}
+        />
+      );
+    };
+    const utils = render(<Harness />);
     const fileInput = utils.container.querySelector('input[type="file"]');
-    return { ...utils, setCommand, fileInput };
+    const field = () => screen.getByPlaceholderText(t('commandInputHint'));
+    return { ...utils, setCommand, fileInput, field };
   };
 
   const imageFile = () => new File(['x'], 'shot.png', { type: 'image/png' });
 
   it('uploads an attached image and inserts the returned path into the field', async () => {
     vi.mocked(uploadImageAndGetPath).mockResolvedValue({ path: '/ws/.pasted/p.webp' });
-    const { fileInput, setCommand } = renderWith({ command: '' });
+    const { fileInput, field } = renderWith({ command: '' });
 
     await act(async () => {
       fireEvent.change(fileInput, { target: { files: [imageFile()] } });
     });
 
     await waitFor(() => expect(uploadImageAndGetPath).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(setCommand).toHaveBeenCalledWith(expect.stringContaining('/ws/.pasted/p.webp '))
-    );
+    await waitFor(() => expect(field().value).toContain('/ws/.pasted/p.webp '));
   });
 
   it('inserts the path on clipboard image paste (text paste left to default)', async () => {
     vi.mocked(uploadImageAndGetPath).mockResolvedValue({ path: '/ws/.pasted/clip.webp' });
-    const { setCommand } = renderWith({ command: '' });
-    const textarea = screen.getByPlaceholderText(t('commandInputHint'));
+    const { field } = renderWith({ command: '' });
+    const textarea = field();
 
     await act(async () => {
       fireEvent.paste(textarea, {
@@ -328,9 +335,7 @@ describe('CommandInput image attach', () => {
     });
 
     await waitFor(() => expect(uploadImageAndGetPath).toHaveBeenCalledTimes(1));
-    await waitFor(() =>
-      expect(setCommand).toHaveBeenCalledWith(expect.stringContaining('/ws/.pasted/clip.webp '))
-    );
+    await waitFor(() => expect(field().value).toContain('/ws/.pasted/clip.webp '));
   });
 
   it('shows a failure label and does not insert a path when upload fails', async () => {
@@ -343,6 +348,49 @@ describe('CommandInput image attach', () => {
 
     await waitFor(() => expect(screen.getByText('Upload failed')).toBeTruthy());
     expect(setCommand).not.toHaveBeenCalled();
+  });
+
+  /* 회귀: 여러 장을 고르면 업로드가 순차로 끝나며 삽입이 N 번 일어난다. 삽입이 렌더 시점의
+     값을 기준으로 계산되면 매번 같은 옛 문자열 위에 써서 앞의 경로를 덮어버린다 —
+     5장을 올려도 마지막 하나만 남았다. 함수형 업데이트로만 누적된다. */
+  it('여러 장을 올리면 경로가 모두 남는다 (앞의 것을 덮지 않는다)', async () => {
+    vi.mocked(uploadImageAndGetPath)
+      .mockResolvedValueOnce({ path: '/ws/.pasted/a.webp' })
+      .mockResolvedValueOnce({ path: '/ws/.pasted/b.webp' })
+      .mockResolvedValueOnce({ path: '/ws/.pasted/c.webp' });
+    const { fileInput, field } = renderWith({ command: '' });
+
+    await act(async () => {
+      fireEvent.change(fileInput, {
+        target: { files: [imageFile(), imageFile(), imageFile()] },
+      });
+    });
+
+    await waitFor(() => expect(uploadImageAndGetPath).toHaveBeenCalledTimes(3));
+    await waitFor(() => {
+      const v = field().value;
+      expect(v).toContain('/ws/.pasted/a.webp');
+      expect(v).toContain('/ws/.pasted/b.webp');
+      expect(v).toContain('/ws/.pasted/c.webp');
+    });
+  });
+
+  it('이미 쓰던 텍스트 뒤에 이어 붙는다', async () => {
+    vi.mocked(uploadImageAndGetPath)
+      .mockResolvedValueOnce({ path: '/ws/.pasted/a.webp' })
+      .mockResolvedValueOnce({ path: '/ws/.pasted/b.webp' });
+    const { fileInput, field } = renderWith({ command: '이거 봐 ' });
+
+    await act(async () => {
+      fireEvent.change(fileInput, { target: { files: [imageFile(), imageFile()] } });
+    });
+
+    await waitFor(() => {
+      const v = field().value;
+      expect(v).toContain('이거 봐 ');
+      expect(v).toContain('/ws/.pasted/a.webp');
+      expect(v).toContain('/ws/.pasted/b.webp');
+    });
   });
 
   it('ignores non-image file selections', async () => {

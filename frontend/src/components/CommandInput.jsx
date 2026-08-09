@@ -40,12 +40,21 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
 
   // 현재 커서 위치(선택 영역이 있으면 대체)에 텍스트를 끼워넣고 caret 을 삽입 끝으로 옮긴다.
   // 이력 삽입·이미지 경로 삽입 공용.
+  // ⚠️ **함수형 업데이트여야 한다.** 이미지 여러 장을 고르면 업로드가 순차로 끝나며 이 함수가
+  // N 번 불리는데, 렌더 시점의 `command` 를 기준으로 잘라 붙이면 매 삽입이 같은 옛 문자열
+  // 위에서 계산돼 **앞의 경로를 덮는다** — 5장을 올려도 마지막 하나만 남았다.
+  // caret 위치는 DOM(textareaRef)에서 읽는다: 직전 삽입 후 rAF 가 caret 을 옮겨놨으므로
+  // 실제 커서는 최신이고, 낡은 건 상태값뿐이다.
   const insertAtCursor = (text) => {
     const ta = textareaRef.current;
-    const start = ta?.selectionStart ?? command.length;
-    const end = ta?.selectionEnd ?? command.length;
-    const caret = start + text.length;
-    setCommand(command.slice(0, start) + text + command.slice(end));
+    const start = ta ? ta.selectionStart : null;
+    const end = ta ? ta.selectionEnd : null;
+    const caret = (start ?? 0) + text.length;
+    setCommand((prev) => {
+      const from = start ?? prev.length;
+      const to = end ?? prev.length;
+      return prev.slice(0, from) + text + prev.slice(to);
+    });
     requestAnimationFrame(() => {
       const el = textareaRef.current;
       if (!el) return;
