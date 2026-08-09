@@ -146,6 +146,27 @@ Related behavior, same file:
 - The active-tab validator does nothing while `tabs` is empty. Boot order is: validator effect runs before restore, so clearing there would erase the remembered tab before the restore can match it.
 - `localDirtyRef` (the "a save is pending, don't let SSE overwrite" latch) is released in the effect cleanup. It used to stick `true` when a pending save was cancelled — on mount that happens every time, and a stuck latch silently disables live sync until the next local change.
 
+## 원격 세션 소멸 — 인과는 시간 창이 아니라 소켓에 묶는다 (2026-08-09)
+
+호스트가 재부팅되면 원격 tmux 세션이 통째로 사라진다. 그때 `create=0` 재시도는 전부 같은
+`exit 42` 로 끝나므로, 백엔드가 `{"type":"session-gone"}` 을 보내고 프론트가 **새 세션
+생성(create=1)** 으로 전환한다. 그 전환이 안 걸려 `[session not found]` 가 **50초 간격으로
+무한 반복**되던 버그가 있었다. 두 겹이었고, 둘 다 다시 밟기 쉽다:
+
+- **원격 셸이 죽어도 WS 가 안 닫혔다.** `_stdout_pump` 의 `stdout.read()` EOF 만 믿었는데,
+  **PTY 가 붙은 채널에서는 명령이 이미 exit 한 뒤에도 read 가 그대로 앉아 있을 수 있다.**
+  결국 소켓이 죽은 걸 알아채는 건 클라이언트 하트비트(15s ping + 35s 임계 = **50s**)뿐이었다.
+  지금은 `_watch_exit` 가 `process.wait_closed()` 를 기다렸다 브리지를 끝내고, 소켓은 SSH
+  정리를 **기다리지 않고 먼저** 닫는다(`conn.wait_closed()` 에도 5s 상한 — 끊긴 망에서 무한히
+  붙잡힌다). `TailscaleHostBridge` 는 `isalive()` 20ms 폴링이라 이 병이 없다.
+- **판정을 15초 신선도 창으로 쟀다.** 신호와 close 사이 간격은 우리가 정하는 값이 아니다 —
+  위처럼 50초가 걸리면 창이 만료돼 평범한 끊김으로 처리되고 다시 `create=0` 이 된다.
+  지금은 신호를 보낸 **소켓**에 묶는다(`sessionGoneSocketRef`). 오래된 신호가 다음 소켓으로
+  새지 않으면서 창이 필요 없다.
+
+**일반화해서 기억할 것: 두 이벤트의 인과를 시간 창으로 재지 마라. 같은 객체에 묶어라.**
+`Terminal.reconnect.test.jsx` 의 "close 가 한참 뒤에 와도(60s)" 케이스가 이 선을 지킨다.
+
 ## Reload vs Restart (pane `…` menu)
 
 Two different things — don't conflate them:
