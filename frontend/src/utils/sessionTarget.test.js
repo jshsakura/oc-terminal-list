@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSshAddr, formatSessionTarget } from './sessionTarget';
+import { buildSshAddr, formatServerAddr, formatSessionTarget } from './sessionTarget';
 
 describe('buildSshAddr', () => {
   it('user@host, 22 포트는 생략', () => {
@@ -57,5 +57,42 @@ describe('formatSessionTarget', () => {
   it('아무것도 없으면 빈 문자열', () => {
     expect(formatSessionTarget({})).toBe('');
     expect(formatSessionTarget()).toBe('');
+  });
+});
+
+describe('formatServerAddr — 로컬 세션이 어느 기계인지', () => {
+  it('테일스케일이면 IP 에 tailscale 을 명시한다', () => {
+    expect(formatServerAddr({ hostname: 'a1-ubuntu', ip: '100.109.62.68', ipKind: 'tailscale' }))
+      .toBe('a1-ubuntu 100.109.62.68 (tailscale)');
+  });
+
+  /* 두 주소는 바꿔 쓸 수 없다 — tailnet 주소는 어디서든, LAN 주소는 같은 망에서만 닿는다.
+     받는 쪽이 그 차이를 모르면 안 되는 곳에서 붙게 된다. */
+  it('LAN 이면 lan 으로 구분한다', () => {
+    expect(formatServerAddr({ hostname: 'a1-ubuntu', ip: '192.168.0.5', ipKind: 'lan' }))
+      .toBe('a1-ubuntu 192.168.0.5 (lan)');
+  });
+
+  it('아는 것만 넣는다 — IP 를 못 구해도 호스트명은 남긴다', () => {
+    expect(formatServerAddr({ hostname: 'a1-ubuntu' })).toBe('a1-ubuntu');
+    expect(formatServerAddr({ ip: '10.0.0.2' })).toBe('10.0.0.2');
+    expect(formatServerAddr({})).toBe('');
+    expect(formatServerAddr()).toBe('');
+  });
+});
+
+describe('로컬 세션 핸들에 기계 주소', () => {
+  it('주소를 붙이되 ssh 로 감싸지는 않는다 (로그인 유저를 모른다)', () => {
+    const out = formatSessionTarget({
+      server: 'a1-ubuntu 100.109.62.68 (tailscale)',
+      tmuxSession: 'abc', socket: 'iterminallist-app', cwd: '/w',
+    });
+    expect(out).toBe("tmux session 'abc' on a1-ubuntu 100.109.62.68 (tailscale) — attach: tmux -L iterminallist-app attach -t abc  (cwd: /w)");
+    expect(out).not.toContain('ssh ');
+  });
+
+  it('주소를 못 구하면 예전처럼 주소 없이 낸다', () => {
+    expect(formatSessionTarget({ tmuxSession: 'abc', socket: 'sock' }))
+      .toBe("tmux session 'abc' — attach: tmux -L sock attach -t abc");
   });
 });

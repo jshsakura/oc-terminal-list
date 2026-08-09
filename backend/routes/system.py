@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from _deps import verify_auth_token
 from pydantic import BaseModel
+from server_identity import get_server_identity
 from sqlite_storage import storage
 from system_monitor import system_monitor
 
@@ -49,6 +50,16 @@ async def _get_system_stats_cached() -> dict:
 @router.get("/api/system/stats")
 async def get_system_stats(username: str = Depends(verify_auth_token)):
     return await _get_system_stats_cached()
+
+
+@router.get("/api/system/self")
+async def get_self_identity(username: str = Depends(verify_auth_token)):
+    """이 서버가 실제로 도는 곳의 주소. pane 세션 핸들에 실린다.
+
+    브라우저의 location.hostname 으로는 못 구한다 — 터널 뒤에서는 SSH 가 없는 웹 도메인이고
+    루프백 배포에서는 그냥 localhost 라, 다른 기기에 붙여넣으면 엉뚱한 기계를 가리킨다.
+    """
+    return await get_server_identity()
 
 
 class ProcessKillRequest(BaseModel):
