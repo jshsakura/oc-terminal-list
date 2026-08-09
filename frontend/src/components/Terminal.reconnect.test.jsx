@@ -361,4 +361,64 @@ describe('Terminal 재연결 타이머', () => {
       expect(harness.socket.url).toContain('create=0');
     });
   });
+  /* 호스트가 꺼져 있으면 WS 핸드셰이크는 성공하고 그 뒤 SSH 가 타임아웃(15s)으로 실패한다.
+     "열렸다" 를 연결 성공으로 치면 백오프가 매번 0 으로 돌아가 15초 주기로 영원히 재시도하며
+     같은 빨간 줄을 쌓는다(실측: 로그에 15~16초 간격 무한). */
+  describe('원격 도달 불가(connect-failed)', () => {
+    const failOnce = async (ws, detail = '연결 실패: 10.0.0.9:22 응답 없음 (15초 시간 초과)') => {
+      await act(async () => { ws.serverSend(JSON.stringify({ type: 'connect-failed', detail })); });
+      await act(async () => { ws.serverClose(); });
+    };
+
+    it('재시도 간격이 라운드마다 늘어난다 (짧은 버스트로 되돌아가지 않는다)', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const first = await openSocket();
+      await failOnce(first);
+
+      // 1라운드 = 4s. 그 전에는 새 소켓이 생기지 않아야 한다.
+      await tick(3000);
+      expect(harness.sockets.length).toBe(1);
+      await tick(2000);
+      expect(harness.sockets.length).toBe(2);
+
+      // 2라운드 = 8s — 4초에는 아직.
+      const second = harness.socket;
+      await act(async () => { second.serverOpen(); });
+      await failOnce(second);
+      await tick(5000);
+      expect(harness.sockets.length).toBe(2);
+      await tick(5000);
+      expect(harness.sockets.length).toBe(3);
+    });
+
+    it('같은 사유는 터미널에 한 번만 쓴다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const first = await openSocket();
+      await failOnce(first);
+      await tick(5000);
+
+      const second = harness.socket;
+      await act(async () => { second.serverOpen(); });
+      await failOnce(second);
+      await tick(9000);
+
+      const hits = harness.term.text.split('10.0.0.9:22').length - 1;
+      expect(hits).toBe(1);
+    });
+
+    it('사유가 바뀌면 그건 새 정보라 다시 쓴다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const first = await openSocket();
+      await failOnce(first, '연결 실패: 응답 없음');
+      await tick(5000);
+
+      const second = harness.socket;
+      await act(async () => { second.serverOpen(); });
+      await failOnce(second, '연결 실패: 인증 거부');
+      await tick(1000);
+
+      expect(harness.term.text).toContain('응답 없음');
+      expect(harness.term.text).toContain('인증 거부');
+    });
+  });
 });

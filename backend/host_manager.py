@@ -473,7 +473,12 @@ class HostBridge:
             await self._connect()
         except HostConnectError as e:
             try:
-                await self.websocket.send_text(f"\r\n\x1b[31m[연결 실패] {e}\x1b[0m\r\n")
+                # 컨트롤 메시지로 알린다 — 터미널에 직접 찍으면 재연결마다 같은 빨간 줄이
+                # 쌓인다(호스트가 꺼져 있으면 SSH 타임아웃 주기로 영원히). 프론트가 같은
+                # 사유면 한 번만 쓰고, 이 신호를 받은 소켓의 close 는 짧은 재시도 버스트가
+                # 아니라 긴 백오프 사다리로 보낸다.
+                await self.send_control(json.dumps(
+                    {"type": "connect-failed", "detail": str(e)}, ensure_ascii=False))
                 await self.websocket.close(code=1011, reason=str(e))
             except Exception:
                 pass
@@ -796,7 +801,12 @@ class TailscaleHostBridge:
             self._spawn()
         except HostConnectError as e:
             try:
-                await self.websocket.send_text(f"\r\n\x1b[31m[연결 실패] {e}\x1b[0m\r\n")
+                # 컨트롤 메시지로 알린다 — 터미널에 직접 찍으면 재연결마다 같은 빨간 줄이
+                # 쌓인다(호스트가 꺼져 있으면 SSH 타임아웃 주기로 영원히). 프론트가 같은
+                # 사유면 한 번만 쓰고, 이 신호를 받은 소켓의 close 는 짧은 재시도 버스트가
+                # 아니라 긴 백오프 사다리로 보낸다.
+                await self.send_control(json.dumps(
+                    {"type": "connect-failed", "detail": str(e)}, ensure_ascii=False))
                 await self.websocket.close(code=1011, reason=str(e))
             except Exception:
                 pass

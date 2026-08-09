@@ -55,6 +55,8 @@ export const en = {
     reconnectTimedOut: 'Connection is taking too long. Please try again.',
     networkReconnect: 'Network connection changed. Reconnecting...',
     sessionGoneNewStart: 'Previous remote session is gone (host restarted?) — starting a fresh session.',
+    connectFailed: 'Connection failed',
+    hostUnreachableRetrying: 'Host is not responding. Backing off and retrying…',
     sameDeviceNetworkReconnect: 'Same device detected after a network change. Reconnecting...',
     reconnectingPill: 'Reconnecting…',
     restartShell: 'Restart shell',

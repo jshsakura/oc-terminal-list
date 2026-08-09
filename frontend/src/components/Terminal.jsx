@@ -169,6 +169,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const sessionGoneSocketRef = useRef(null);
   /* 세션 소멸 → 새 세션 생성으로 전환한 시각. 생성 직후 또 소멸이면 루프 방지(ended 전환). */
   const sessionGoneCreateAtRef = useRef(0);
+  /* 백엔드가 원격 SSH 에 못 붙었다고 알려온 **소켓**과 그 사유.
+     WS 핸드셰이크는 성공하고 그 뒤 SSH 가 실패하는 모양이라, 이 신호가 없으면 프론트는
+     "열렸다" 를 연결 성공으로 쳐서 백오프를 매번 0 으로 되돌린다 — 호스트가 꺼져 있으면
+     SSH 타임아웃(15s) 주기로 영원히 재시도하며 같은 빨간 줄을 쌓는다. */
+  const connectFailedSocketRef = useRef(null);
+  /* 마지막으로 터미널에 쓴 연결 실패 사유. 같으면 다시 쓰지 않는다 — 사유가 바뀌면
+     (타임아웃 → 인증 거부) 그건 새 정보라 쓴다. */
+  const lastConnectFailDetailRef = useRef('');
   const endedRef = useRef(false);
   const hasContentRef = useRef(false);
   /* useEffect 내부의 connect()/runPreflight() 를 takeover 버튼/자동 재attach 폴링/탭 활성 변경에서
@@ -905,7 +913,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         reconnectingSinceRef.current = 0;
         ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
         setIsReady(true);
-        outageRoundRef.current = 0; // 연결 성공 — 백오프 라운드 리셋
         // 재연결 성공 — 오버레이 해제
         if (reconnectingRef.current) {
           reconnectingRef.current = false;
@@ -914,10 +921,17 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           evictedRef.current = false;
           setEvicted(false);
         }
+        // 백오프 리셋은 **핸드셰이크가 아니라 쓸 만한 연결**이 기준이다. 예전엔 outageRound 를
+        // onopen 에서 0 으로 돌렸는데, 호스트 pane 은 WS 가 열린 뒤에 SSH 가 실패할 수 있어
+        // (연결 불가 호스트) 사다리가 매번 리셋됐다 — 백오프가 사실상 없었다. attempts 와
+        // 같은 자리에서, 같은 조건으로 되돌린다.
         stableReconnectTimerRef.current = setTimeout(() => {
           stableReconnectTimerRef.current = null;
           if (cancelled || wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
-          if (socket.readyState === WebSocket.OPEN) reconnectAttemptsRef.current = 0;
+          if (socket.readyState !== WebSocket.OPEN) return;
+          reconnectAttemptsRef.current = 0;
+          outageRoundRef.current = 0;
+          lastConnectFailDetailRef.current = '';   // 다음 장애는 새 사유로 다시 알린다
         }, RECONNECT_STABLE_RESET_MS);
 
         // 재연결로 다시 열렸을 때, 끊겨있는 동안 큐에 쌓인 입력을 즉시 흘려보낸다.
@@ -1080,6 +1094,20 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setTmuxFallback(true);
             return;
           }
+          if (msg && msg.type === 'connect-failed') {
+            /* 원격 SSH 실패. 같은 사유는 한 번만 쓴다 — 호스트가 꺼져 있으면 이 신호가
+               타임아웃 주기로 계속 오는데, 매번 찍으면 스크롤백이 빨간 줄로 뒤덮인다.
+               "재연결 중" pill 이 이미 진행 상황을 말하고 있다. */
+            const detail = String(msg.detail || '');
+            connectFailedSocketRef.current = socket;
+            if (detail !== lastConnectFailDetailRef.current) {
+              lastConnectFailDetailRef.current = detail;
+              try {
+                term.write(`\r\n\x1b[31m[${t('connectFailed') || 'Connection failed'}] ${detail}\x1b[0m\r\n`);
+              } catch { /* noop */ }
+            }
+            return;
+          }
           if (msg && msg.type === 'session-gone') {
             /* 원격에 재접속 대상 tmux 세션이 없음(호스트 재부팅 등) — 이 소켓이 닫힐 때
                refresh 재시도 대신 새 세션 생성으로 전환한다. 터미널로 흘리지 않는다. */
@@ -1144,6 +1172,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (evictedRef.current) {
         /* takeover 당함 — 자동 재접속 금지. 사용자가 "내가 가져오기" 버튼으로만 재attach. */
         setEvicted(true);
+        return;
+      }
+      // [원격 도달 불가] 이 소켓이 connect-failed 를 알려왔다 — WS 는 열렸지만 그 뒤 SSH 가
+      // 실패했으므로 **연결 성공이 아니다**. 짧은 재시도 버스트(150~300ms)는 의미가 없다:
+      // TCP 단에서 15초를 기다린 끝에 실패한 호스트가 300ms 뒤에 살아날 리 없고, 그렇게
+      // 되돌아온 시도가 또 15초를 태우며 같은 줄을 쌓는다. 곧장 긴 백오프 사다리로 보낸다
+      // (4→8→16→30s, /api/health 프로브가 복귀를 조기 감지하는 것도 그대로 붙는다).
+      if (connectFailedSocketRef.current === socket) {
+        connectFailedSocketRef.current = null;
+        keepReconnectingPill(t('hostUnreachableRetrying') || 'Host is not responding. Retrying...');
         return;
       }
       // [세션 소멸] 서버가 session-gone(원격 exit 42) 을 보낸 직후의 close — 호스트 재부팅
