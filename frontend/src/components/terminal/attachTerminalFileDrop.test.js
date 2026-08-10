@@ -207,4 +207,68 @@ describe('attachTerminalFileDrop', () => {
     expect(event.defaultPrevented).toBe(false);
     expect(uploadFileAndGetPath).not.toHaveBeenCalled();
   });
+
+  /* 파일 탐색기에서 폴더/파일을 끌어와 셸에 떨구면 **업로드 없이** 경로만 들어간다 —
+     이미 그 기계에 있는 파일이다. 엔터는 여전히 치지 않는다(드롭이 곧 실행이면 사고). */
+  describe('탐색기에서 끌어온 경로', () => {
+    const treeDrag = (path) => ({
+      types: ['application/x-filetree-path'],
+      dropEffect: '',
+      getData: (mime) => (mime === 'application/x-filetree-path' ? path : ''),
+    });
+
+    const attachWithCwd = (cwd) => {
+      handle.detach();
+      handle = attachTerminalFileDrop({
+        term, container, logger, setDropActive, setImagePasteState,
+        getPaneCwd: () => cwd,
+      });
+    };
+
+    it('로컬 pane — 워크스페이스 상대 경로를 절대로 바꿔 넣고 업로드는 안 한다', () => {
+      attachWithCwd({ isLocal: true, cwdAbs: '/w/nb/proj', cwdRel: 'proj' });
+
+      fire(container, 'drop', treeDrag('proj/backend'));
+
+      expect(term.paste).toHaveBeenCalledWith('/w/nb/proj/backend ');
+      expect(uploadFileAndGetPath).not.toHaveBeenCalled();
+      expect(term.focus).toHaveBeenCalled();
+    });
+
+    it('원격 pane — 트리 경로가 이미 절대라 그대로', () => {
+      attachWithCwd({ isLocal: false, cwdAbs: '/home/pi', cwdRel: '' });
+
+      fire(container, 'drop', treeDrag('/home/pi/app'));
+
+      expect(term.paste).toHaveBeenCalledWith('/home/pi/app ');
+    });
+
+    it('공백 든 경로는 셸 인자로 쪼개지지 않게 감싼다', () => {
+      attachWithCwd({ isLocal: true, cwdAbs: '/w/nb', cwdRel: '' });
+
+      fire(container, 'drop', treeDrag('my docs/a.txt'));
+
+      expect(term.paste).toHaveBeenCalledWith("'/w/nb/my docs/a.txt' ");
+    });
+
+    /* 셸이 워크스페이스 밖으로 cd 했으면 루트를 역산할 수 없다. 상대 경로를 그대로
+       넣으면 조용히 딴 데를 가리키므로 아무것도 넣지 않고 실패를 알린다. */
+    it('절대 경로를 못 만들면 넣지 않고 실패를 알린다', () => {
+      attachWithCwd({ isLocal: true, cwdAbs: '/tmp/other', cwdRel: 'proj' });
+
+      fire(container, 'drop', treeDrag('proj/backend'));
+
+      expect(term.paste).not.toHaveBeenCalled();
+      expect(setImagePasteState).toHaveBeenCalledWith('error');
+    });
+
+    it('dragover 에서 preventDefault — 안 하면 drop 이 오지 않는다', () => {
+      attachWithCwd({ isLocal: true, cwdAbs: '/w/nb', cwdRel: '' });
+
+      const e = fire(container, 'dragover', treeDrag('a'));
+
+      expect(e.defaultPrevented).toBe(true);
+      expect(setDropActive).toHaveBeenCalledWith(true);
+    });
+  });
 });

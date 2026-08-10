@@ -1,4 +1,5 @@
-import { isFileDrag } from '../../utils/fileDrag';
+import { isFileDrag, TREE_PATH_MIME } from '../../utils/fileDrag';
+import { shellPathForTreeDrop } from '../../utils/droppedTreePath';
 import { uploadFileAndGetPath } from './terminalHelpers';
 
 /**
@@ -51,6 +52,9 @@ const attachTerminalFileDrop = ({
   hostId = null,
   setDropActive,
   setImagePasteState,
+  // 파일 탐색기에서 끌어온 경로를 셸용으로 바꿀 때 쓴다. 트리가 내는 경로가 로컬은
+  // 워크스페이스 상대, 원격은 절대라 pane 의 cwd 두 표현이 있어야 절대로 환산된다.
+  getPaneCwd = () => ({ isLocal: true, cwdAbs: '', cwdRel: '' }),
 }) => {
   const timers = new Set();
   const later = (fn, ms) => {
@@ -86,7 +90,33 @@ const attachTerminalFileDrop = ({
     flashToast(failed ? 'error' : 'done', failed ? TOAST_ERROR_MS : TOAST_DONE_MS);
   };
 
+  /** 우리 파일 탐색기에서 끌어온 드래그인지 — OS 파일 드롭과 처리가 다르다(업로드 없음). */
+  const isTreeDrag = (dataTransfer) => Array.from(dataTransfer?.types || []).includes(TREE_PATH_MIME);
+
+  /** 탐색기에서 온 경로를 그대로 넣는다. 이미 그 기계에 있는 파일이라 올릴 게 없다. */
+  const insertTreePath = (dataTransfer) => {
+    const raw = dataTransfer.getData(TREE_PATH_MIME);
+    const { isLocal, cwdAbs, cwdRel } = getPaneCwd() || {};
+    const path = shellPathForTreeDrop({ treePath: raw, isLocal, cwdAbs, cwdRel });
+    if (!path) {
+      // 워크스페이스 루트를 못 구한 경우 — 상대 경로를 그대로 넣으면 셸 cwd 에 따라 딴 데를
+      // 가리킨다. 조용히 틀리느니 실패로 알린다.
+      logger.warn?.('tree drop: could not resolve an absolute path', raw);
+      flashToast('error', TOAST_ERROR_MS);
+      return;
+    }
+    term.focus();
+    term.paste(`${quotePathForShell(path)} `);   // 뒤 공백 — 이어서 타이핑할 수 있게
+  };
+
   const handleDragOver = (e) => {
+    if (isTreeDrag(e.dataTransfer)) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = 'copy';
+      setDropActive(true);
+      return;
+    }
     if (!isFileDrag(e.dataTransfer)) return;
     // preventDefault 를 빠뜨리면 브라우저가 드롭한 파일을 그냥 열어버린다(=페이지 이탈).
     e.preventDefault();
@@ -96,13 +126,20 @@ const attachTerminalFileDrop = ({
   };
 
   const handleDragLeave = (e) => {
-    if (!isFileDrag(e.dataTransfer)) return;
+    if (!isFileDrag(e.dataTransfer) && !isTreeDrag(e.dataTransfer)) return;
     // 자식 위를 지날 때마다 dragleave 가 터진다 — 컨테이너를 진짜 벗어났을 때만 끈다.
     if (e.relatedTarget && container.contains(e.relatedTarget)) return;
     setDropActive(false);
   };
 
   const handleDrop = (e) => {
+    if (isTreeDrag(e.dataTransfer)) {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropActive(false);
+      insertTreePath(e.dataTransfer);
+      return;
+    }
     if (!isFileDrag(e.dataTransfer)) return;
     e.preventDefault();
     e.stopPropagation();

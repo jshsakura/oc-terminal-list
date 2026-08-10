@@ -75,7 +75,7 @@ const createLogger = (sessionId) => ({
   error: (msg, err) => console.error(`[Terminal:${sessionId}] ${msg}`, err),
 });
 
-const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
+const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneCwdInfo = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
   const { t } = useTranslation(settings.language);
   const logger = useMemo(() => createLogger(sessionId), [sessionId]);
   const terminalClientIdRef = useRef(getTerminalClientId());
@@ -177,6 +177,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   /* 마지막으로 터미널에 쓴 연결 실패 사유. 같으면 다시 쓰지 않는다 — 사유가 바뀌면
      (타임아웃 → 인증 거부) 그건 새 정보라 쓴다. */
   const lastConnectFailDetailRef = useRef('');
+  /* 탐색기에서 끌어온 경로를 셸용으로 환산할 때 읽는 pane cwd. 소켓 수명주기 effect 는
+     cwd 가 바뀌어도 재실행되지 않으므로 값을 캡처하면 `cd` 이후 옛 위치를 기준으로
+     경로를 만든다 — ref 로 항상 최신을 본다. */
+  const paneCwdInfoRef = useRef(null);
+  paneCwdInfoRef.current = paneCwdInfo || { isLocal: !hostId, cwdAbs: '', cwdRel: '' };
   const endedRef = useRef(false);
   const hasContentRef = useRef(false);
   /* useEffect 내부의 connect()/runPreflight() 를 takeover 버튼/자동 재attach 폴링/탭 활성 변경에서
@@ -696,6 +701,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       hostId,
       setDropActive,
       setImagePasteState,
+      // ref 를 통해 읽는다 — 이 effect 는 cwd 가 바뀌어도 재실행되지 않으므로 값을 캡처하면
+      // `cd` 한 뒤 옛 위치를 기준으로 경로를 만든다.
+      getPaneCwd: () => paneCwdInfoRef.current,
     });
 
     // ⚠️  WS 연결 전에 fit() 동기 호출 — xterm.js 의 cols/rows 와 백엔드/tmux 에

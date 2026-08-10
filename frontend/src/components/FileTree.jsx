@@ -11,7 +11,7 @@ import useFileUpload from '../hooks/useFileUpload';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
 import { authHeaders } from '../utils/auth';
-import { isFileDrag } from '../utils/fileDrag';
+import { isFileDrag, TREE_PATH_MIME } from '../utils/fileDrag';
 import { ROW_HEIGHT, VIRTUALIZE_AFTER, VIRTUAL_OVERSCAN } from './filetree/fileTreeConstants';
 import { styles } from './filetree/fileTreeStyles';
 import { gitTone, computeParent, dropFolderForRow, isRowInDropTarget, planMove, stripHostPathPrefix } from './filetree/fileTreeHelpers';
@@ -20,8 +20,9 @@ import ContentSearch from './filetree/ContentSearch';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
-// 트리 내부 드래그(=이동) 식별용 MIME. 외부 파일 드롭(=업로드, 'Files' 타입)과 구분한다.
-const DND_MIME = 'application/x-filetree-path';
+// 트리 내부 드래그 식별용 MIME. 외부 파일 드롭(=업로드, 'Files' 타입)과 구분한다.
+// 터미널도 이 값을 보고 "탐색기에서 끌어온 경로" 를 받으므로 상수를 공유한다.
+const DND_MIME = TREE_PATH_MIME;
 
 // 클립보드 복사 — navigator.clipboard(비보안 컨텍스트/구형 대비 execCommand 폴백).
 const copyToClipboard = (text) => {

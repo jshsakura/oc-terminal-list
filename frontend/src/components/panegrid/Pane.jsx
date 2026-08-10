@@ -713,6 +713,9 @@ const Pane = ({
                 // 재시작 직후 mount 에서만 살아있는 cwd 로 새 세션을 연다.
                 // 세션이 이미 있으면 백엔드가 cwd 쿼리를 무시하므로 남아 있어도 무해하다.
                 cwd={restartCwd ?? pane.cwd ?? cwd}
+                /* 탐색기에서 끌어온 경로를 셸용 절대 경로로 환산하는 데 쓴다.
+                   트리 경로가 로컬은 워크스페이스 상대, 원격은 절대라 두 표현이 다 필요하다. */
+                paneCwdInfo={{ isLocal, cwdAbs: paneCwdAbs || '', cwdRel: paneCwdRel || '' }}
                 settings={paneSettings}
                 /* isActive = 탭 활성 여부 (split grid 의 모든 pane 이 동시에 보이므로 visible).
                    isFocused = 같은 탭 내 어느 pane 이 키보드 포커스 받을지 (분할 시 1개만 true).
