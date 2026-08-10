@@ -360,10 +360,15 @@ const Pane = ({
   // 이 mount 에 한해 restartCwd 로 덮어쓴다.
   const [restartCwd, setRestartCwd] = useState(null);
   const restartingRef = useRef(false);
+  /* 재시작 중임을 Terminal 에 알리는 표식. **kill 보다 먼저** 세워야 한다 — 세션이 죽는
+     순간 열려 있던 소켓이 끊기고, 그 진단이 "셸이 exit 했다"(= pane 자동 닫기)와 똑같은
+     모양이기 때문이다. 표식이 없으면 우리가 일부러 죽인 세션을 두고 pane 을 닫아버린다. */
+  const [restartAt, setRestartAt] = useState(0);
   const restartSession = useCallback(async () => {
     if (isEmpty) return { ok: false, error: 'empty pane' };
     if (restartingRef.current) return { ok: false, error: 'already restarting' };
     restartingRef.current = true;
+    setRestartAt(Date.now());
     const nextCwd = restartCwdFor({ isLocal, paneCwdRel, paneCwdAbs });
     const result = await killPaneSession({
       isLocal,
@@ -716,6 +721,8 @@ const Pane = ({
                 /* 탐색기에서 끌어온 경로를 셸용 절대 경로로 환산하는 데 쓴다.
                    트리 경로가 로컬은 워크스페이스 상대, 원격은 절대라 두 표현이 다 필요하다. */
                 paneCwdInfo={{ isLocal, cwdAbs: paneCwdAbs || '', cwdRel: paneCwdRel || '' }}
+                /* 방금 우리가 죽인 세션을 "셸이 끝났다" 로 오진해 pane 을 닫지 않게. */
+                restartAt={restartAt}
                 settings={paneSettings}
                 /* isActive = 탭 활성 여부 (split grid 의 모든 pane 이 동시에 보이므로 visible).
                    isFocused = 같은 탭 내 어느 pane 이 키보드 포커스 받을지 (분할 시 1개만 true).

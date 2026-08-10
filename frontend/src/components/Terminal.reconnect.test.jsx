@@ -421,4 +421,54 @@ describe('Terminal 재연결 타이머', () => {
       expect(harness.term.text).toContain('인증 거부');
     });
   });
+  /* "세션 재시작" 은 tmux 를 **일부러** 죽이고 재접속이 새로 만들기를 기다리는 흐름이다.
+     그런데 그 죽음은 화면상 "셸이 exit 했다" 와 구별되지 않아서, 자동 닫기 경로가 그대로
+     pane 을 닫아버렸다 — 눌러도 아무 일 없어 보이고 새로고침해야 돌아왔다(실측: kill 후
+     그 세션으로 가는 WS 가 로그에 한 번도 안 나오고 탭 상태에서도 사라졌다). */
+  describe('세션 재시작 — 우리가 죽인 건 exit 가 아니다', () => {
+    const sessionGone = { ok: true, status: 200, json: async () => ({ exists: false, attached: false }) };
+
+    it('재시작 직후 세션이 없어도 pane 을 닫지 않고 새로 만들어 붙는다', async () => {
+      global.fetch = vi.fn(async () => sessionGone);
+      const onClosePane = vi.fn();
+      renderTerminal({ onClosePane, restartAt: Date.now() });
+      const ws = await openSocket();
+
+      await act(async () => { ws.serverClose(); });
+      await tick(20000);   // 진단 grace + 자동 닫기 타이머를 모두 지나 보낸다
+
+      expect(onClosePane).not.toHaveBeenCalled();
+      expect(harness.sockets.length).toBeGreaterThan(1);
+      // 죽은 세션에 다시 붙어봐야 소용없다 — 재접속 중 최소 한 번은 생성(create=1)이어야 한다.
+      // (그 뒤로도 계속 실패하면 평소의 create=0 재시도로 돌아가는 건 정상이다.)
+      const retries = harness.sockets.slice(1).map((w) => w.url);
+      expect(retries.some((u) => !u.includes('create=0'))).toBe(true);
+    });
+
+    /* 재시작이 아닌 진짜 exit 는 그대로 닫혀야 한다. 이 예외가 넓어지면 셸을 끝내도
+       pane 이 안 닫히는 반대 사고가 난다. */
+    it('재시작이 아니면 예전처럼 pane 을 닫는다', async () => {
+      global.fetch = vi.fn(async () => sessionGone);
+      const onClosePane = vi.fn();
+      renderTerminal({ onClosePane });
+      const ws = await openSocket();
+
+      await act(async () => { ws.serverClose(); });
+      await tick(20000);
+
+      expect(onClosePane).toHaveBeenCalled();
+    });
+
+    it('재시작 표식이 오래되면(창 초과) 다시 닫는다', async () => {
+      global.fetch = vi.fn(async () => sessionGone);
+      const onClosePane = vi.fn();
+      renderTerminal({ onClosePane, restartAt: Date.now() - 60_000 });
+      const ws = await openSocket();
+
+      await act(async () => { ws.serverClose(); });
+      await tick(20000);
+
+      expect(onClosePane).toHaveBeenCalled();
+    });
+  });
 });

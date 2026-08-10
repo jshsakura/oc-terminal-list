@@ -24,7 +24,7 @@ import {
   WEBGL_DETACH_GRACE_MS, WEBGL_IDLE_RELEASE_MS, CONNECT_OPEN_TIMEOUT_MS, RECONNECT_STABLE_RESET_MS,
   RECONNECT_WATCHDOG_POLL_MS, RECONNECT_ESCALATE_MS,
   STALE_CONNECTING_RESUME_MS, OUTAGE_PROBE_INTERVAL_MS, OUTAGE_PROBE_TIMEOUT_MS,
-  OUTAGE_PROBE_MIN_DELAY_MS, SESSION_GONE_LOOP_GUARD_MS,
+  OUTAGE_PROBE_MIN_DELAY_MS, SESSION_GONE_LOOP_GUARD_MS, RESTART_GRACE_MS,
 } from './terminal/terminalConstants';
 import {
   sleep, looksLikeRecoverableBulkInput,
@@ -75,7 +75,7 @@ const createLogger = (sessionId) => ({
   error: (msg, err) => console.error(`[Terminal:${sessionId}] ${msg}`, err),
 });
 
-const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneCwdInfo = null, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
+const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneCwdInfo = null, restartAt = 0, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
   const { t } = useTranslation(settings.language);
   const logger = useMemo(() => createLogger(sessionId), [sessionId]);
   const terminalClientIdRef = useRef(getTerminalClientId());
@@ -180,6 +180,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   /* 탐색기에서 끌어온 경로를 셸용으로 환산할 때 읽는 pane cwd. 소켓 수명주기 effect 는
      cwd 가 바뀌어도 재실행되지 않으므로 값을 캡처하면 `cd` 이후 옛 위치를 기준으로
      경로를 만든다 — ref 로 항상 최신을 본다. */
+  /* 사용자가 "세션 재시작" 을 눌러 우리가 **일부러** 죽인 시각. 그 직후의 "세션 없음" 은
+     셸이 exit 한 것과 화면상 구별되지 않지만 의미가 정반대다 — 하나는 pane 을 닫아야 하고
+     하나는 새로 띄워야 한다. 이 값이 최근이면 자동 닫기를 건너뛴다. */
+  const restartAtRef = useRef(0);
+  restartAtRef.current = restartAt;
+
   const paneCwdInfoRef = useRef(null);
   paneCwdInfoRef.current = paneCwdInfo || { isLocal: !hostId, cwdAbs: '', cwdRel: '' };
   const endedRef = useRef(false);
@@ -1338,6 +1344,21 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             // grace window 내내 세션이 없었음 → exit 등으로 셸이 깨끗이 종료된 것.
             // 재연결/오버레이 대신 짧은 취소 카운트다운 후 pane 을 자동으로 닫는다.
             if (isStaleSocket()) return;
+            // ⚠️ 단, 방금 우리가 죽인 경우는 예외다. "세션 재시작" 은 tmux 를 일부러 죽이고
+            // 재접속이 create=1 로 새로 만들기를 기다리는 흐름이라, 여기서 pane 을 닫으면
+            // 재시작이 곧 pane 삭제가 된다(실제로 그랬다 — 눌러도 아무 일 없어 보이고
+            // 새로고침해야 돌아왔다). 죽인 주체가 우리면 닫지 말고 새로 만들어 붙는다.
+            if (Date.now() - restartAtRef.current < RESTART_GRACE_MS) {
+              cancelAutoClose();
+              // 예약돼 있던 create=0 재시도를 먼저 걷어낸다 — 남겨두면 그게 먼저 깨어나
+              // 죽은 세션에 다시 붙으려 하고, 우리가 만든 create=1 연결을 밀어낸다.
+              cancelPendingReconnect();
+              // **지금 살아있는 소켓**을 넘겨야 한다. 여기 도달할 무렵이면 빠른 재시도 버스트가
+              // 이미 create=0 소켓을 하나 띄워놨을 수 있는데, 옛 소켓을 넘기면 connect() 의
+              // "이미 연결 중이면 no-op" 가드에 걸려 우리 create=1 이 조용히 버려진다.
+              forceReconnect(wsRef.current || socket, { create: true });
+              return;
+            }
             cancelPendingReconnect(); // 자동 닫기 카운트다운 중 병행 재연결이 끼어들지 않게
             beginAutoClose();
             return;

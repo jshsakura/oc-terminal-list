@@ -99,6 +99,10 @@ export const RECONNECT_ESCALATE_MS = 16000;
 // 새로 만든 세션이 이 시간 안에 또 소멸하면(원격이 세션을 유지 못 하는 상태) 생성 루프를
 // 끊고 ended 오버레이로 넘긴다 — 수동 재시작 탈출구.
 export const SESSION_GONE_LOOP_GUARD_MS = 30000;
+// "세션 재시작" 으로 우리가 tmux 를 죽인 뒤, 그 죽음을 "셸이 exit 했다" 로 오진하지 않는 창.
+// 이 안에서 세션이 없다고 나오면 pane 을 닫는 대신 create=1 로 새로 만들어 붙는다.
+// kill 왕복(원격이면 SSH 포함) + 재접속까지 넉넉히 덮되, 진짜 exit 를 오래 가리지 않을 길이.
+export const RESTART_GRACE_MS = 15000;
 // 장기 outage 라운드(keepReconnectingPill)의 백오프 대기(4→8→16→30s) 중 서버 복귀를
 // 즉시 감지하는 저부하 프로브. 활성·가시 pane 하나만 /api/health 를 이 주기로 두드리고,
 // 성공하면 예약된 백오프를 기다리지 않고 바로 재연결한다 — 서버가 돌아왔는데 데스크탑
