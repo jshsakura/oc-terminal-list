@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlite_storage import storage
 
@@ -44,6 +44,11 @@ FAILURE_RETRY_SECONDS = 6 * 60 * 60
 # run. Cheap: files older than the cutoff are never opened.
 COLLECT_WINDOW_DAYS = 90
 
+# 호스트를 지워도 그 사용량은 이만큼 남는다. 지난달 비용이 삭제 한 번으로 증발하면
+# 되돌릴 방법이 없다 — 대신 화면에 "삭제됨(N일 후 정리)" 로 계속 보인다.
+# 지금 지우고 싶으면 대시보드의 삭제 버튼이 즉시 purge 한다.
+RETIRED_RETENTION_DAYS = 30
+
 ALLOWED_DAYS = (0, 7, 30, 90)
 DEFAULT_DAYS = 7
 # Fleets grow; don't open thirty SSH connections at once.
@@ -56,7 +61,7 @@ _running: set[str] = set()
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def normalize_days(days) -> int:
@@ -70,7 +75,7 @@ def normalize_days(days) -> int:
 def _since_day(days: int) -> str | None:
     if days <= 0:
         return None
-    return (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
+    return (datetime.now(UTC) - timedelta(days=days)).date().isoformat()
 
 
 def _age_seconds(stamp: str | None) -> float | None:
@@ -81,8 +86,8 @@ def _age_seconds(stamp: str | None) -> float | None:
     except (TypeError, ValueError):
         return None
     if when.tzinfo is None:
-        when = when.replace(tzinfo=timezone.utc)
-    return (datetime.now(timezone.utc) - when).total_seconds()
+        when = when.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - when).total_seconds()
 
 
 def _is_due(info) -> bool:
@@ -191,15 +196,33 @@ async def maybe_collect_in_background(username: str) -> None:
 
 # ── read ────────────────────────────────────────────────────────────────────
 
+def _retired_days_left(retired_at: str | None) -> int | None:
+    """보관 만료까지 남은 일수. 은퇴하지 않았으면 None, 이미 지났으면 0."""
+    if not retired_at:
+        return None
+    try:
+        at = datetime.fromisoformat(retired_at)
+    except ValueError:
+        return 0
+    if at.tzinfo is None:
+        at = at.replace(tzinfo=UTC)
+    gone = (datetime.now(UTC) - at).days
+    return max(0, RETIRED_RETENTION_DAYS - gone)
+
+
 def _as_source(rows: list, sessions: list, meta: dict, source_id: str,
                session_count: int = 0) -> dict:
     info = meta.get(source_id) or {}
+    retired_at = info.get("retired_at")
     return {
         "source_id": source_id,
         "label": info.get("name") or source_id,
         "ok": bool(info.get("last_ok_at")),
         "error": info.get("last_error"),
         "fetched_at": info.get("last_ok_at") or info.get("last_try_at"),
+        # 호스트 목록에서 빠진 소스. 화면은 이걸 보고 "삭제됨 · N일 후 정리" 를 단다.
+        "retired_at": retired_at,
+        "retired_days_left": _retired_days_left(retired_at),
         "payload": {
             "rows": rows,
             "sessions": sessions,
@@ -228,6 +251,9 @@ async def get_usage(username: str, days: int = DEFAULT_DAYS, force: bool = False
 
     # 단가는 손으로 기억하지 않는다 — 하루 한 번 받아온 표를 쓴다(실패하면 내장 표).
     await load_prices()
+
+    # 보관 기간이 끝난 은퇴 소스를 여기서 치운다 — 폴러 없이, 화면을 열 때 한 번.
+    await purge_expired_sources(username)
 
     since = _since_day(days)
     rows = await storage.query_llm_daily(username, since)
@@ -259,3 +285,25 @@ async def get_usage(username: str, days: int = DEFAULT_DAYS, force: bool = False
         "enabled": True,
         "fx": await get_rates(),
     }
+
+
+async def purge_expired_sources(username: str) -> list[str]:
+    """보관 기간이 지난 은퇴 소스를 지운다. 지운 id 목록을 돌려준다.
+
+    **폴러를 두지 않는다**(이 모듈의 규칙). 대시보드를 열 때 한 번 도는데, 작은 표
+    한 번 훑는 비용이라 눈에 띄지 않는다. 앱을 안 쓰면 정리도 안 되지만 그건 문제가
+    아니다 — 아무도 안 보는 데이터가 하루 더 남을 뿐이다.
+    """
+    cutoff = (datetime.now(UTC) - timedelta(days=RETIRED_RETENTION_DAYS)).isoformat()
+    expired = await storage.list_expired_llm_sources(username, cutoff)
+    for source_id in expired:
+        removed = await storage.purge_llm_source(username, source_id)
+        logger.info("llm usage: purged retired source %s %s", source_id, removed)
+    return expired
+
+
+async def purge_source(username: str, source_id: str) -> dict:
+    """사용자가 지금 지우겠다고 누른 경우. 보관 기간을 기다리지 않는다."""
+    removed = await storage.purge_llm_source(username, source_id)
+    logger.info("llm usage: purged source %s by request %s", source_id, removed)
+    return removed

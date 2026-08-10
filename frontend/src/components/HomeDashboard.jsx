@@ -241,6 +241,8 @@ const HomeDashboard = ({
               settings={settings}
               days={rangeDays}
               onJumpPane={onJumpPane}
+              onConfirm={onConfirm}
+              onNotify={onNotify}
               t={t}
             />
           </>

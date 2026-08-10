@@ -198,7 +198,7 @@ class LlmUsageMixin:
             conn = self._get_connection()
             try:
                 cur = conn.execute(
-                    "SELECT source_id, name, last_ok_at, last_try_at, last_error"
+                    "SELECT source_id, name, last_ok_at, last_try_at, last_error, retired_at"
                     " FROM llm_usage_source WHERE username = ?",
                     (username,),
                 )
@@ -226,12 +226,82 @@ class LlmUsageMixin:
                         name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE name END,
                         last_ok_at = CASE WHEN ? THEN excluded.last_ok_at ELSE last_ok_at END,
                         last_try_at = excluded.last_try_at,
-                        last_error = excluded.last_error
+                        last_error = excluded.last_error,
+                        -- 수집에 성공했다는 건 그 소스가 살아 돌아왔다는 뜻이다.
+                        -- 은퇴 표시를 남겨두면 보관 기간이 지나 조용히 지워진다.
+                        retired_at = CASE WHEN ? THEN NULL ELSE retired_at END
                     """,
-                    (username, source_id, name, stamp if ok else None, stamp, error, 1 if ok else 0),
+                    (username, source_id, name, stamp if ok else None, stamp, error,
+                     1 if ok else 0, 1 if ok else 0),
                 )
                 conn.commit()
             finally:
                 self._release_connection(conn)
 
         await asyncio.to_thread(_write)
+
+    async def retire_llm_source(self, username: str, source_id: str) -> None:
+        """호스트가 삭제됐다고 표시만 한다 — 데이터는 보관 기간 동안 남는다.
+
+        소스 행이 없으면 만들지 않는다. 수집된 적 없는 호스트를 지우면서 유령을
+        새로 만들 이유가 없다.
+        """
+        stamp = _now()
+
+        def _write():
+            conn = self._get_connection()
+            try:
+                conn.execute(
+                    "UPDATE llm_usage_source SET retired_at = ?"
+                    " WHERE username = ? AND source_id = ? AND retired_at IS NULL",
+                    (stamp, username, source_id),
+                )
+                conn.commit()
+            finally:
+                self._release_connection(conn)
+
+        await asyncio.to_thread(_write)
+
+    async def purge_llm_source(self, username: str, source_id: str) -> dict:
+        """소스와 그 데이터를 실제로 지운다. 되돌릴 수 없다.
+
+        세 테이블을 **한 트랜잭션**에서 지운다 — 중간에 끊기면 어느 표에는 있고 어느
+        표에는 없는 상태가 되고, 그건 화면에서 유령보다 더 헷갈린다.
+        """
+        def _write():
+            conn = self._get_connection()
+            try:
+                daily = conn.execute(
+                    "DELETE FROM llm_usage_daily WHERE username = ? AND source_id = ?",
+                    (username, source_id)).rowcount
+                sessions = conn.execute(
+                    "DELETE FROM llm_usage_session WHERE username = ? AND source_id = ?",
+                    (username, source_id)).rowcount
+                usage = conn.execute(
+                    "DELETE FROM usage_sessions WHERE username = ? AND target_id = ?",
+                    (username, source_id)).rowcount
+                conn.execute(
+                    "DELETE FROM llm_usage_source WHERE username = ? AND source_id = ?",
+                    (username, source_id))
+                conn.commit()
+                return {"daily": daily, "sessions": sessions, "usage_sessions": usage}
+            finally:
+                self._release_connection(conn)
+
+        return await asyncio.to_thread(_write)
+
+    async def list_expired_llm_sources(self, username: str, cutoff: str) -> list:
+        """`retired_at` 이 cutoff 보다 오래된 소스 id. 보관 기간이 끝난 것들."""
+        def _read():
+            conn = self._get_connection()
+            try:
+                cur = conn.execute(
+                    "SELECT source_id FROM llm_usage_source"
+                    " WHERE username = ? AND retired_at IS NOT NULL AND retired_at < ?",
+                    (username, cutoff),
+                )
+                return [r[0] for r in cur.fetchall()]
+            finally:
+                self._release_connection(conn)
+
+        return await asyncio.to_thread(_read)

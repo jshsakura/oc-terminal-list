@@ -242,6 +242,13 @@ class SchemaMixin:
                 PRIMARY KEY (username, source_id)
             )
         """)
+        # 마이그레이션: 호스트가 삭제된 시각. 여기 값이 있으면 "은퇴한 소스" 다 —
+        # 데이터는 보관 기간 동안 남겨두고, 지나면 자동으로 지운다. 호스트를 지웠다고
+        # 지난달 비용까지 즉시 증발하면 그건 되돌릴 수 없는 손실이다.
+        try:
+            cursor.execute("ALTER TABLE llm_usage_source ADD COLUMN retired_at TEXT")
+        except sqlite3.OperationalError:
+            pass
 
         # 명령 히스토리 — 사용자/터미널별 명령 모음. 디바이스 간 공유 (서버 영속).
         # 같은 (username, terminal_key, text) 중복은 updated_at 만 갱신 → 최신으로 승격.

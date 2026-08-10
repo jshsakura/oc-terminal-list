@@ -10,6 +10,7 @@ import { formatMoney, describeMoney, resolveCurrency, formatCount } from '../../
 import { CHART_W, CHART_H, PAD_L, PAD_R, PAD_T, TOKEN_SERIES, buildChart, fillDayGaps, shortDay } from './llmChartGeometry';
 import { LlmTiles, KeyStats } from './LlmTiles.jsx';
 import { HBars } from './HBars.jsx';
+import RetiredSources from './RetiredSources.jsx';
 import { TileRowSkeleton, ChartCardSkeleton, BarsCardSkeleton } from './DashboardSkeleton.jsx';
 
 const { color, font, fontSize, fontWeight, radius, space } = designTokens;
@@ -75,15 +76,28 @@ function useUsage(days) {
   }, [days]);
 
   useEffect(() => { load(false); }, [load]);
-  return { data, err, busy, refresh: () => load(true) };
+
+  /* 은퇴 소스 즉시 삭제. 되돌릴 수 없으므로 호출부가 먼저 확인을 받는다.
+     지운 뒤에는 캐시를 통째로 버린다 — 기간 탭마다 따로 캐시되어 있어서 지금 보는
+     기간만 새로 받으면 다른 탭에는 지워진 호스트가 그대로 남는다. */
+  const deleteSource = useCallback(async (sourceId) => {
+    const res = await fetch(`/api/llm-usage/source/${encodeURIComponent(sourceId)}`, {
+      method: 'DELETE', headers: authHeaders(),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    _cache.clear();
+    await load(false);
+  }, [load]);
+
+  return { data, err, busy, refresh: () => load(true), deleteSource };
 }
 
 /**
  * `days` 는 밖에서 온다 — 대시보드 상단의 범위 한 줄이 터미널 카드와 이 카드들을
  * **함께** 좁힌다. 여기에 또 범위를 두면 한 화면에 서로 다른 창이 생긴다.
  */
-const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPane, t }) => {
-  const { data, err, busy, refresh } = useUsage(days);
+const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPane, onConfirm, onNotify, t }) => {
+  const { data, err, busy, refresh, deleteSource } = useUsage(days);
 
   /* 수집 중임을 상단 갱신 버튼에 알린다(다른 컴포넌트라 이벤트로 건넨다).
      끝날 때 못 읽은 호스트가 있으면 이름만 함께 넘긴다 — 화면에 상주하는 경고 대신
@@ -125,6 +139,30 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
       })
       .sort((a, b) => (b.cost || 0) - (a.cost || 0));
   }, [data, hosts]);
+
+  /* 호스트 목록에서 빠진 소스 — 막대 차트가 아니라 아래 별도 줄로 낸다. 차트는 "누가 얼마나
+     썼나" 를 말하는 자리고, 이건 "이거 언제 지워지나" 라 성격이 다르다. */
+  const retiredRows = useMemo(
+    () => (data?.by_host || []).filter((h) => h.retired_at),
+    [data],
+  );
+
+  /* 되돌릴 수 없는 삭제라 반드시 확인을 받는다. onConfirm 이 없는 호출부(테스트/임베드)
+     에서는 조용히 지우지 않고 아무것도 하지 않는다 — 확인 없는 파괴가 기본이 되면 안 된다. */
+  const handleDeleteRetired = useCallback((row) => {
+    if (!onConfirm) return;
+    onConfirm({
+      title: t?.('llmRetiredDeleteNow') || 'Delete usage data now',
+      message: (t?.('llmRetiredDeleteConfirm')
+        || '{name}의 사용량 기록을 지웁니다. 되돌릴 수 없습니다.').replace('{name}', row.name),
+      danger: true,
+      onConfirm: () => {
+        deleteSource(row.source_id)
+          .then(() => onNotify?.((t?.('llmRetiredDeleted') || '{name} 사용량을 지웠습니다.').replace('{name}', row.name)))
+          .catch((e) => onNotify?.(`${t?.('deleteFailed') || 'Delete failed'}: ${e.message}`));
+      },
+    });
+  }, [onConfirm, onNotify, deleteSource, t]);
 
   const sessionRows = useMemo(
     () => attachPaneTargets(data?.sessions || [], tabs).slice(0, SESSION_ROWS),
@@ -173,6 +211,8 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
         <HBars icon={Cpu} varied title={t?.('llmByModel') || 'By model'} rows={data.by_model || []} money={money} t={t} />
         <HBars icon={FolderGit2} varied title={t?.('llmByProject') || 'Top projects'} rows={data.by_project || []} limit={10} money={money} t={t} />
       </div>
+
+      <RetiredSources rows={retiredRows} onDelete={handleDeleteRetired} t={t} />
 
       <RecentSessions rows={sessionRows} onJumpPane={onJumpPane} money={money} t={t} />
     </div>

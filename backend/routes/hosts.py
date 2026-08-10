@@ -403,6 +403,10 @@ async def delete_host(host_id: str, username: str = Depends(verify_auth_token)):
     ok = await storage.delete_host(host_id, username)
     if not ok:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+    # 사용량은 같이 지우지 않는다 — 지난달 비용이 삭제 한 번으로 증발하면 되돌릴 수 없다.
+    # 은퇴 표시만 남기고 보관 기간(llm_usage.service.RETIRED_RETENTION_DAYS) 뒤 자동 정리,
+    # 그 전에 지우고 싶으면 대시보드의 삭제 버튼이 즉시 처리한다.
+    await storage.retire_llm_source(username, host_id)
     return {"id": host_id, "status": "deleted"}
 
 

@@ -114,6 +114,10 @@ def _host_row(source: dict, rows: list[dict], session_count: float) -> dict:
         "ok": bool(source.get("ok")),
         "error": source.get("error"),
         "fetched_at": source.get("fetched_at"),
+        # 호스트 목록에서 빠진 소스 — 화면이 "삭제됨 · N일 후 정리" 를 달고 즉시 삭제
+        # 버튼을 내주는 근거다. 값이 없으면 살아 있는 호스트다.
+        "retired_at": source.get("retired_at"),
+        "retired_days_left": source.get("retired_days_left"),
         "tokens": sum(_num(r.get("tokens")) for r in rows),
         "cost": sum(_num(r.get("cost")) for r in rows),
         "sessions": session_count,
