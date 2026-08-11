@@ -55,6 +55,7 @@ import LazyErrorBoundary from './components/LazyErrorBoundary';
 import LoadingScreen from './components/layout/LoadingScreen';
 import ScreenDumpModal from './components/ScreenDumpModal';
 import AppModals from './components/AppModals';
+import { copyToClipboard } from './utils/clipboard';
 
 const Terminal        = lazy(() => import('./components/Terminal'));
 const FileEditor      = lazy(() => import('./components/FileEditor'));
@@ -1265,22 +1266,22 @@ function App() {
             onAction={(type) => {
               const session = window.terminalSessions?.[terminalKey];
               if (!session) return;
+              // 결과를 반드시 말한다. 예전엔 navigator.clipboard 를 그냥 불러서, 없는
+              // 컨텍스트(비보안 오리진·인앱 웹뷰)에서는 예외만 나고 화면은 조용했다.
+              const copyAndTell = (text) => copyToClipboard(text).then((ok) => {
+                setNotification({
+                  isOpen: true,
+                  message: ok ? t('copied') : (t('clipboardError') || 'Copy failed'),
+                  type: ok ? 'success' : 'error',
+                });
+              });
               if (type === 'copy') {
                 const sel = session.getSelection?.();
-                if (sel) {
-                  navigator.clipboard.writeText(sel).then(() => {
-                    setNotification({ isOpen: true, message: t('copied'), type: 'success' });
-                  });
-                } else {
-                  setNotification({ isOpen: true, message: t('noSelection') || 'No text selected', type: 'info' });
-                }
+                if (sel) copyAndTell(sel);
+                else setNotification({ isOpen: true, message: t('noSelection') || 'No text selected', type: 'info' });
               } else if (type === 'copyAll') {
                 const text = session.getBufferText?.() || '';
-                if (text) {
-                  navigator.clipboard.writeText(text).then(() => {
-                    setNotification({ isOpen: true, message: t('copied'), type: 'success' });
-                  });
-                }
+                if (text) copyAndTell(text);
               }
             }}
             language={settings.language}

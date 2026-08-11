@@ -704,6 +704,7 @@ export const ko = {
 
     // 오류
     clipboardError: '권한이 거부되었습니다',
+    clipboardManualHint: '길게 눌러 복사하세요',
     networkError: '서버에 연결할 수 없습니다',
 
     // 인증

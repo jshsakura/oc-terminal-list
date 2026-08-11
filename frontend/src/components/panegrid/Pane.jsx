@@ -19,6 +19,7 @@ import EmptyPane from './EmptyPane';
 import PaneAddressLabel from './PaneAddressLabel';
 import { derivePaneLabel, isEmptyPane } from '../../utils/paneLabel';
 import { buildSshAddr, formatServerAddr, formatSessionTarget } from '../../utils/sessionTarget';
+import { copyToClipboard } from '../../utils/clipboard';
 
 const Terminal = lazy(() => import('../Terminal'));
 const VncPane = lazy(() => import('../vnc/VncPane'));
@@ -339,12 +340,9 @@ const Pane = ({
       remote: !isLocal,
     });
     if (!target) return;
-    const done = () => onNotify?.(`${t?.('copied') || 'Copied'}: ${target}`);
-    if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(target).then(done).catch(() => onNotify?.(t?.('clipboardError') || 'Copy failed'));
-    } else {
-      done(); // 비보안 컨텍스트 — 최소한 무엇을 복사하려 했는지 보여준다.
-    }
+    copyToClipboard(target).then((ok) => onNotify?.(ok
+      ? `${t?.('copied') || 'Copied'}: ${target}`
+      : (t?.('clipboardError') || 'Copy failed')));
   }, [isLocal, remoteHost, pane, paneCwdAbs, tmuxSocket, serverIdentity, onNotify, t]);
 
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭/pane 이름 갱신에 활용.

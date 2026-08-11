@@ -17,6 +17,7 @@ import { formatBytes, formatRate, formatUptime } from './info/infoFormat';
 import { InfoSection, InfoRow, MemoryStackBar, StatBar } from './info/InfoParts';
 import ProcessList from './info/ProcessList';
 import { infoStyles } from './info/infoStyles';
+import { copyToClipboard } from '../../utils/clipboard';
 
 const { color, font, fontSize, fontWeight, space } = tokens;
 
@@ -30,13 +31,11 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
   const infoTheme = themes[activeThemeId] || themes.catppuccin;
   const infoUi = buildThemeUI(infoTheme);
   const [copiedKey, setCopiedKey] = useState(null);
-  const handleCopy = (key, value) => {
+  const handleCopy = async (key, value) => {
     if (!value) return;
-    try {
-      navigator.clipboard.writeText(value);
-      setCopiedKey(key);
-      setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1100);
-    } catch { /* ignore */ }
+    if (!await copyToClipboard(value)) return; // 실패했는데 체크를 띄우면 거짓말이 된다
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey((k) => (k === key ? null : k)), 1100);
   };
 
   const host = info?.host || null;

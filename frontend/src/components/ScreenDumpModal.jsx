@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
-import { Copy, FileText } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Check, Copy, FileText } from 'lucide-react';
 import Button from './common/Button';
 import GlassModal from './common/GlassModal';
+import { copyToClipboard } from '../utils/clipboard';
 import { tokens } from '../styles/tokens';
 
 const { color, font, fontSize, radius, space } = tokens;
@@ -12,6 +13,8 @@ const { color, font, fontSize, radius, space } = tokens;
  */
 const ScreenDumpModal = ({ text, onClose, t }) => {
   const taRef = useRef(null);
+  // 'idle' | 'copied' | 'failed' — 눌렀는데 아무 표시가 없으면 안 된 것과 구별되지 않는다.
+  const [copyState, setCopyState] = useState('idle');
 
   useEffect(() => {
     if (!text) return undefined;
@@ -25,12 +28,14 @@ const ScreenDumpModal = ({ text, onClose, t }) => {
   if (!text) return null;
 
   const handleCopyAll = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      taRef.current?.select();
-      try { document.execCommand('copy'); } catch { /* noop */ }
+    const ok = await copyToClipboard(text);
+    setCopyState(ok ? 'copied' : 'failed');
+    if (!ok) {
+      // 마지막 수단: 전체를 선택해 둔다 — iOS 는 여기서 길게 눌러 "복사" 를 쓸 수 있다.
+      taRef.current?.focus();
+      taRef.current?.setSelectionRange?.(0, (text || '').length);
     }
+    setTimeout(() => setCopyState('idle'), 1600);
   };
 
   return (
@@ -48,8 +53,16 @@ const ScreenDumpModal = ({ text, onClose, t }) => {
       footer={(
         <>
           <div style={{ flex: 1 }} />
-          <Button variant="primary" onClick={handleCopyAll} icon={Copy}>
-            {t?.('copyAll') || 'Copy all'}
+          <Button
+            variant="primary"
+            onClick={handleCopyAll}
+            icon={copyState === 'copied' ? Check : Copy}
+          >
+            {copyState === 'copied'
+              ? (t?.('copied') || 'Copied')
+              : copyState === 'failed'
+                ? (t?.('clipboardManualHint') || 'Select & long-press to copy')
+                : (t?.('copyAll') || 'Copy all')}
           </Button>
         </>
       )}

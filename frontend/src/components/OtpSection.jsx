@@ -5,6 +5,7 @@ import Button from './common/Button';
 import SkeletonRow from './common/SkeletonRow';
 import { tokens } from '../styles/tokens';
 import { authHeaders } from '../utils/auth';
+import { copyToClipboard } from '../utils/clipboard';
 
 const { color, fontSize, fontWeight, radius, space, font } = tokens;
 
@@ -255,11 +256,9 @@ const OtpSection = ({ t }) => {
 const SetupPanel = ({ data, code, setCode, onCancel, onConfirm, submitting, error, t }) => {
   const [copied, setCopied] = useState(false);
   const copy = async (text) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1200);
-    } catch { /* clipboard denied */ }
+    if (!await copyToClipboard(text)) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1200);
   };
   const codeReady = /^\d{6}$/.test(code.trim());
   return (
@@ -325,11 +324,9 @@ const BackupCodesPanel = ({ codes, onDone, t }) => {
   const [copied, setCopied] = useState(false);
   const text = codes.join('\n');
   const copyAll = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* */ }
+    if (!await copyToClipboard(text)) return;
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
   return (
     <div style={styles.card}>

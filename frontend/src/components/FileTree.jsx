@@ -17,6 +17,7 @@ import { styles } from './filetree/fileTreeStyles';
 import { gitTone, computeParent, dropFolderForRow, isRowInDropTarget, planMove, stripHostPathPrefix } from './filetree/fileTreeHelpers';
 import { Row, ContextMenu, HeadAction } from './filetree/FileTreeParts';
 import ContentSearch from './filetree/ContentSearch';
+import { copyToClipboard } from '../utils/clipboard';
 
 const { color, font, fontSize, fontWeight } = tokens;
 
@@ -24,24 +25,6 @@ const { color, font, fontSize, fontWeight } = tokens;
 // 터미널도 이 값을 보고 "탐색기에서 끌어온 경로" 를 받으므로 상수를 공유한다.
 const DND_MIME = TREE_PATH_MIME;
 
-// 클립보드 복사 — navigator.clipboard(비보안 컨텍스트/구형 대비 execCommand 폴백).
-const copyToClipboard = (text) => {
-  if (!text) return;
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).catch(() => {});
-    return;
-  }
-  try {
-    const ta = document.createElement('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand('copy');
-    document.body.removeChild(ta);
-  } catch { /* noop */ }
-};
 
 // 파일 크기/수정일 표시용 포맷터.
 const formatFileSize = (bytes) => {

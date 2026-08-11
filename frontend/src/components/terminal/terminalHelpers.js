@@ -3,6 +3,7 @@
  * 컴포넌트 상태에 의존하지 않는 함수만(테스트·재사용 용이). 로직 변경 없이 Terminal.jsx 에서 추출.
  */
 import { authHeaders } from '../../utils/auth';
+import { copyToClipboard } from '../../utils/clipboard';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -122,25 +123,8 @@ export const uploadFileAndGetPath = async (file, hostId = null) => {
   return data;
 };
 
-const execCommandCopy = (text) => {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;opacity:0;pointer-events:none';
-  document.body.appendChild(ta);
-  ta.focus();
-  ta.select();
-  try { document.execCommand('copy'); } catch { /* noop */ }
-  document.body.removeChild(ta);
-};
-
-// clipboard.writeText 가 없거나 비-HTTPS 컨텍스트에서 실패할 경우 textarea 폴백.
-export const copyTextToClipboard = (text) => {
-  if (navigator.clipboard && window.isSecureContext) {
-    return navigator.clipboard.writeText(text).catch(() => execCommandCopy(text));
-  }
-  execCommandCopy(text);
-  return Promise.resolve();
-};
+// 구현은 utils/clipboard 하나뿐이다 — 이 이름은 터미널 쪽 호출부 호환용 별칭.
+export const copyTextToClipboard = (text) => copyToClipboard(text);
 
 export const issueWsTicket = async (path) => {
   try {

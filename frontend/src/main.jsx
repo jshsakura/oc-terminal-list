@@ -46,6 +46,25 @@ glassBlurStyle.textContent = `
     [aria-busy="true"] * { animation: none !important; opacity: 0.55; }
   }
 
+  /* Pressed feedback — **global**, because "did my tap register?" is asked of every
+     control, not of a chosen few. Closing a tab has to open a confirm dialog, mount
+     modal code and unmount an xterm; a tap with no acknowledgement reads as a dead app
+     during that gap.
+
+     Only transform/filter, so it stays on the compositor — no layout, no repaint, and
+     nothing that could add to the very latency it is covering for. Draggable items are
+     excluded: tab chips carry their own drag transform and would jump when pressed. */
+  button, .iterm-pressable { transition: transform 130ms ease, filter 130ms ease; -webkit-tap-highlight-color: transparent; }
+  button:not(:disabled):not([draggable="true"]):active,
+  .iterm-pressable:not([aria-disabled="true"]):active {
+    transform: scale(0.96);
+    filter: brightness(1.18);
+    transition-duration: 30ms;   /* down fast, back slow — that is what "click" feels like */
+  }
+  @media (prefers-reduced-motion: reduce) {
+    button:not(:disabled):active, .iterm-pressable:active { transform: none; }
+  }
+
   .iterm-menu-item { transition: background 120ms, color 120ms; }
   .iterm-menu-item:hover:not(:disabled) {
     background: color-mix(in srgb, var(--ui-accent, #89b4fa) 20%, var(--ui-surface2, #393949)) !important;
@@ -57,6 +76,10 @@ glassBlurStyle.textContent = `
   }
 `;
 document.head.appendChild(glassBlurStyle);
+
+// iOS Safari applies `:active` only on elements the page shows touch interest in.
+// Without this one empty listener the pressed state above simply never appears on iPhone.
+document.addEventListener('touchstart', () => {}, { passive: true });
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -75,6 +98,16 @@ if (!isPhoneViewport()) {
   } else {
     setTimeout(warmEditor, 3000)
   }
+}
+
+// 확인 모달은 **모든 기기에서** 미리 받는다(1KB 도 안 된다). 탭 닫기·세션 종료 같은 흔한
+// 동작이 전부 이걸 거치는데, 첫 호출 때 청크를 받느라 눌러도 한참 아무 일이 없어 보였다.
+// 모바일에서 특히 티가 났다 — 에디터 warm-up 은 폰에서 건너뛰지만 이건 그러면 안 되는 이유.
+const warmConfirm = () => { import('./components/ConfirmModal').catch(() => {}) }
+if ('requestIdleCallback' in window) {
+  requestIdleCallback(warmConfirm, { timeout: 3000 })
+} else {
+  setTimeout(warmConfirm, 1500)
 }
 
 // Service Worker — 정적 자원 app shell 캐싱으로 모바일 콜드 로드 최소화.

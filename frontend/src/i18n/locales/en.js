@@ -704,6 +704,7 @@ export const en = {
 
     // Errors
     clipboardError: 'Permission denied',
+    clipboardManualHint: 'Long-press to copy',
     networkError: 'Server unreachable',
 
     // Authentication
