@@ -33,6 +33,7 @@
     "react-arborist": "^3.4.3",
     "react-dom": "^18.2.0",
     "react-markdown": "^10.1.0",
+    "read-excel-file": "^9.3.10",
     "remark-gfm": "^4.0.1"
   },
   "devDependencies": {

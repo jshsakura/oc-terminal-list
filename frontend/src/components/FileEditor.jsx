@@ -2,7 +2,7 @@
  * FileEditor 컴포넌트
  * Monaco Editor를 사용한 VSCode 수준의 멀티 탭 편집 환경 제공
  */
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { setupMonaco } from '../setupMonaco';
 import { Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut, AlignLeft } from 'lucide-react';
@@ -18,7 +18,10 @@ import ConfirmModal from './ConfirmModal';
 import useTranslation from '../hooks/useTranslation';
 import { glassPanelStyle, glassSectionStyle } from '../styles/glass';
 import { authHeaders } from '../utils/auth';
-import { isImageFile, isPdfFile, isVideoFile, isAudioFile } from '../utils/fileTypes';
+import { isImageFile, isPdfFile, isVideoFile, isAudioFile, isSheetFile, isDelimitedFile, isRemoteInlinePreviewFile } from '../utils/fileTypes';
+import DataTable from './fileEditor/DataTable';
+import { loadWorkbook, WorkbookTooLargeError } from './fileEditor/loadWorkbook';
+import { detectDelimiter, parseDelimited } from '../utils/delimitedTable';
 import { DIFF_VIEW_STATE_KEY, readDiffViewState, parseFileKey } from './fileEditor/fileEditorHelpers';
 import { styles } from './fileEditor/fileEditorStyles';
 import { canFormatLanguage } from '../utils/formatSupport';
@@ -39,6 +42,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const [rawPreviewUrl, setRawPreviewUrl] = useState(null);
   // 원격 미리보기는 호스트가 꺼져 있을 수 있다 — 깨진 이미지 아이콘 대신 이유를 적는다.
   const [rawPreviewError, setRawPreviewError] = useState(false);
+  // 스프레드시트(.xlsx) 표: { loading, sheets, errorCode }
+  const [sheetState, setSheetState] = useState({ loading: false, sheets: null, errorCode: null });
   // diff 모드: { [path]: { original: string, exists: boolean, loading: boolean, error: string|null } }
   const [diffStates, setDiffStates] = useState({});
   // 변경 파일은 자동으로 diff 모드로 열되, 사용자 토글로 일반 편집 ↔ diff 전환 가능
@@ -163,14 +168,19 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const isPdf = isPdfFile(previewName);
   const isVideo = isVideoFile(previewName);
   const isAudio = isAudioFile(previewName);
-  // 바이너리 미리보기: 텍스트 에디터로 로드하지 않고 raw 엔드포인트로 직접 렌더.
-  // 원격 파일도 같은 방식이다 — 경로만 호스트 라우트로 갈린다.
-  const isBinaryPreview = isImage || isPdf || isVideo || isAudio;
+  const isSheet = isSheetFile(previewName);          // xlsx — 바이너리라 표로만 본다
+  const isDelimited = isDelimitedFile(previewName);  // csv/tsv — 편집 + 표 토글
+  // 원격은 백엔드가 인라인 렌더를 미디어로 제한한다(svg 제외). 거부될 것을 그리려 하지 말고
+  // 텍스트로 열어준다 — 원격 svg 는 Monaco 에서 xml 로 보이는 편이 낫다.
+  const canInlineHere = !activeFileHostId || isRemoteInlinePreviewFile(previewName);
+  const isInlineMedia = (isImage || isPdf || isVideo || isAudio) && canInlineHere;
+  // 텍스트 에디터로 읽지 않는 것들 — 미디어(raw 로 직접 렌더) + 스프레드시트(표로 파싱).
+  const isBinaryPreview = isInlineMedia || isSheet;
   const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');
   const isHtml = (activeFilePath || activeFile)?.endsWith('.html');
   // HTML 은 로컬만. 원격 파일을 same-origin 문서로 띄우면 그대로 XSS 이므로 백엔드의
   // raw 라우트도 미디어 타입만 통과시킨다 (routes/host_files.inline_media_type).
-  const rawPreviewPath = (isBinaryPreview || (isPreviewMode && isHtml && !activeFileHostId))
+  const rawPreviewPath = (isInlineMedia || (isPreviewMode && isHtml && !activeFileHostId))
     ? (activeFilePath || activeFile)
     : null;
   const rawPreviewHostId = rawPreviewPath ? activeFileHostId : null;
@@ -199,6 +209,36 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   useEffect(() => {
     setIsPreviewMode(false);
   }, [activeFile]);
+
+  // 스프레드시트는 파서를 lazy import 하므로 로딩 상태가 실재한다(청크 + 파싱).
+  // 실패 사유는 **코드**로 담는다 — t() 를 여기서 부르면 매 렌더 새 함수라 이펙트가 재실행된다.
+  useEffect(() => {
+    if (!isSheet || !activeFilePath) {
+      setSheetState({ loading: false, sheets: null, errorCode: null });
+      return undefined;
+    }
+    let cancelled = false;
+    setSheetState({ loading: true, sheets: null, errorCode: null });
+    loadWorkbook(activeFilePath, activeFileHostId)
+      .then((sheets) => {
+        if (!cancelled) setSheetState({ loading: false, sheets, errorCode: null });
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        const errorCode = e instanceof WorkbookTooLargeError ? 'tooLarge' : 'failed';
+        setSheetState({ loading: false, sheets: null, errorCode });
+      });
+    return () => { cancelled = true; };
+  }, [isSheet, activeFilePath, activeFileHostId]);
+
+  // csv/tsv 는 이미 텍스트로 들어와 있다 — 표는 그 내용에서 바로 파생한다(추가 요청 없음).
+  const delimitedSheets = useMemo(() => {
+    if (!isDelimited || !isPreviewMode) return null;
+    const { rows, truncated } = parseDelimited(content || '', {
+      delimiter: detectDelimiter(previewName, content || ''),
+    });
+    return [{ name: '', rows, truncated }];
+  }, [isDelimited, isPreviewMode, previewName, content]);
 
   useEffect(() => {
     try {
@@ -405,7 +445,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               <span>{isDiffView ? (t('edit') || 'Edit') : (t('viewDiff') || 'Diff')}</span>
             </Button>
           )}
-          {(isMarkdown || isHtml) && (
+          {(isMarkdown || isHtml || isDelimited) && (
             <Button
               variant="ghost"
               size="small"
@@ -497,7 +537,32 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             <AlertCircle size={32} style={{ marginBottom: '12px' }} />
             <span>{t('previewLoadFailed')}</span>
           </div>
-        ) : isImage ? (
+        ) : isSheet ? (
+          sheetState.loading ? (
+            <div style={styles.message}>
+              <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
+            </div>
+          ) : sheetState.errorCode ? (
+            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
+              <AlertCircle size={32} style={{ marginBottom: '12px' }} />
+              <span>{sheetState.errorCode === 'tooLarge' ? t('previewTooLarge') : t('previewLoadFailed')}</span>
+            </div>
+          ) : (
+            <DataTable
+              sheets={sheetState.sheets || []}
+              theme={theme}
+              truncatedLabel={t('previewRowsTruncated')}
+              emptyLabel={t('diffEmpty')}
+            />
+          )
+        ) : (isDelimited && isPreviewMode) ? (
+          <DataTable
+            sheets={delimitedSheets || []}
+            theme={theme}
+            truncatedLabel={t('previewRowsTruncated')}
+            emptyLabel={t('diffEmpty')}
+          />
+        ) : (isImage && canInlineHere) ? (
           <div style={{
             height: '100%',
             display: 'flex',
@@ -526,7 +591,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
             )}
           </div>
-        ) : isPdf ? (
+        ) : (isPdf && canInlineHere) ? (
           rawPreviewUrl ? (
             <iframe
               src={rawPreviewUrl}
@@ -538,7 +603,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
             </div>
           )
-        ) : isVideo ? (
+        ) : (isVideo && canInlineHere) ? (
           <div style={{
             height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,
@@ -555,7 +620,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
             )}
           </div>
-        ) : isAudio ? (
+        ) : (isAudio && canInlineHere) ? (
           <div style={{
             height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
             background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,

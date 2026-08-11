@@ -1,6 +1,7 @@
 import { Component } from 'react';
 import { AlertTriangle, RotateCcw } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import { claimChunkReload } from '../utils/chunkReload';
 
 const { color, font, fontSize, radius, space } = tokens;
 
@@ -18,6 +19,11 @@ class PaneErrorBoundary extends Component {
     if (localStorage.getItem('debug_terminal') === '1') {
       console.error('[PaneErrorBoundary]', error, info);
     }
+    // A pane's lazy chunk (Terminal, xterm, noVNC) can 404 after a deploy, or come back
+    // as a stale copy from the service-worker cache. That is not a pane bug and Retry
+    // cannot fix it — only a reload can, so this boundary self-heals like the lazy one.
+    if (typeof window === 'undefined') return;
+    if (claimChunkReload(error)) window.location.reload();
   }
 
   render() {

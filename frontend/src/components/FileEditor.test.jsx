@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import FileEditor from './FileEditor';
 import themes from '../styles/themes';
 
@@ -91,6 +91,30 @@ describe('FileEditor', () => {
 
     const src = container.querySelector('img')?.getAttribute('src');
     expect(src).toContain('/api/files/raw?path=assets%2Fcand-1.png');
+  });
+
+  it('renders a CSV as a table when preview is toggled on', async () => {
+    global.fetch = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ content: 'name,qty\n"Kim, J",2' }),
+    }));
+
+    render(
+      <FileEditor
+        activeFile="data/orders.csv"
+        openFiles={['data/orders.csv']}
+        onFileSelect={vi.fn()}
+        onClose={vi.fn()}
+        theme={themes.catppuccin}
+      />
+    );
+
+    // t() is mocked to echo keys, so the toggle button reads 'preview'.
+    fireEvent.click(await screen.findByText('preview'));
+
+    // The quoted comma stays inside one cell — that is the parser doing its job.
+    expect(await screen.findByText('Kim, J')).toBeTruthy();
+    expect(screen.getByText('qty')).toBeTruthy();
   });
 
   it('previews a remote image through that host raw endpoint', () => {

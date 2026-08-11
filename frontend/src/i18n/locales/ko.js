@@ -494,6 +494,8 @@ export const ko = {
     activityLoading: '불러오는 중…',
     failedToLoadFile: '파일 불러오기 실패',
     previewLoadFailed: '미리보기를 불러오지 못했습니다',
+    previewTooLarge: '파일이 너무 커서 미리볼 수 없습니다',
+    previewRowsTruncated: '앞부분만 표시합니다',
     remoteHtmlPreviewUnsupported: '원격 HTML 미리보기는 지원하지 않습니다',
     failedToSaveFile: '파일 저장 실패',
     failedToDeleteKey: '키 삭제 실패',

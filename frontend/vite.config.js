@@ -105,6 +105,12 @@ export default defineConfig({
             // noVNC(@novnc/novnc) 는 VNC pane 최초 접속 시점에만 동적 import 된다 —
             // eager vendor 청크에 섞이면 수백 KB 가 시작 로드에 얹힌다. 전용 청크로 떼어 지연 로드 유지.
             if (id.includes('@novnc/novnc')) return 'novnc';
+            // 같은 이유로 xlsx 리더(+ 그 압축/XML 의존)도 전용 청크. 스프레드시트를 연
+            // 사람만 받으면 되고, eager vendor 에 섞이면 전원이 시작 로드에서 받는다.
+            if (id.includes('read-excel-file') || id.includes('unzipper-esm')
+              || id.includes('/fflate/') || id.includes('/saxen/') || id.includes('/worker-f/')) {
+              return 'xlsx-reader';
+            }
             return 'vendor';
           }
         },

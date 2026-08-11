@@ -10,6 +10,9 @@ export const IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'gif', 'svg', 'ico', 'webp', 'b
 export const VIDEO_EXTS = ['mp4', 'webm', 'ogv', 'mov', 'm4v'];
 export const AUDIO_EXTS = ['mp3', 'wav', 'ogg', 'oga', 'm4a', 'flac', 'aac'];
 export const PDF_EXTS = ['pdf'];
+// 표로 보여주는 것들. xlsx 리더는 OOXML 전용이라 옛 바이너리 .xls 는 뺀다(열면 깨진다).
+export const SHEET_EXTS = ['xlsx', 'xlsm'];
+export const DELIMITED_EXTS = ['csv', 'tsv'];
 
 // 확장자만 소문자로. 점 없는 파일(README)·dotfile(.gitignore)은 '' 반환.
 export const extOf = (name) => {
@@ -31,6 +34,18 @@ export const isPdfFile = (name) => inList(PDF_EXTS, name);
 // FileEditor 가 텍스트가 아닌 미리보기(이미지/PDF/동영상/오디오)로 띄우는 모든 타입.
 export const isMediaPreviewFile = (name) =>
   isImageFile(name) || isVideoFile(name) || isAudioFile(name) || isPdfFile(name);
+
+export const isSheetFile = (name) => inList(SHEET_EXTS, name);       // 바이너리 → 표
+export const isDelimitedFile = (name) => inList(DELIMITED_EXTS, name); // 텍스트 → 표
+
+/**
+ * 원격 파일을 브라우저가 **인라인으로 렌더해도 되는가**.
+ * 백엔드 `routes/host_files.inline_media_type` 의 거울이다 — 둘이 어긋나면 프론트는
+ * 미리보기를 그리려 하고 서버는 415 를 주는 조합이 된다. svg 는 확장자만 이미지이고
+ * 실제로는 스크립트를 담을 수 있어 양쪽 모두에서 빠진다(원격 svg 는 텍스트로 연다).
+ */
+export const isRemoteInlinePreviewFile = (name) =>
+  isMediaPreviewFile(name) && extOf(name) !== 'svg';
 
 // 확장자 → Monaco 언어 id. FileEditor 가 문법 강조/포맷 판단에 쓴다.
 // 여기 없으면 'plaintext'. extOf 를 재사용하므로 `.env.local` 같은 다중 점도 안전.

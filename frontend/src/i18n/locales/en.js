@@ -497,6 +497,8 @@ export const en = {
     activityLoading: 'Loading…',
     failedToLoadFile: 'Failed to load file',
     previewLoadFailed: 'Preview could not be loaded',
+    previewTooLarge: 'File is too large to preview',
+    previewRowsTruncated: 'Showing the first rows only',
     remoteHtmlPreviewUnsupported: 'Remote HTML preview is not supported',
     failedToSaveFile: 'Failed to save file',
     failedToDeleteKey: 'Failed to delete key',

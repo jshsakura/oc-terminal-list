@@ -7,9 +7,10 @@ export const EDITOR_STATE_KEY = 'iterm:editor-state:v1';
 // 에디터/미리보기에서 열 수 없는(또는 브라우저 네이티브 재생 불가) 확장자.
 // pdf·동영상(mp4/webm/mov/...)·오디오(mp3/wav/flac/...)는 FileEditor 가 미리보기로 처리하므로 제외.
 // avi/mkv 는 브라우저 <video> 가 재생 못 하므로 계속 차단.
+// xlsx/xlsm 도 표 미리보기가 생겨 제외 — 다만 **옛 바이너리 .xls 는 리더가 못 읽으므로** 남긴다.
 const EDITOR_UNSUPPORTED_EXTENSIONS = new Set([
   'zip', '7z', 'rar', 'tar', 'gz', 'tgz', 'bz2', 'xz', 'lz', 'lzma',
-  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx',
+  'doc', 'docx', 'xls', 'ppt', 'pptx',
   'exe', 'dll', 'so', 'dylib', 'bin', 'dat', 'class', 'jar', 'war',
   'avi', 'mkv',
   'ttf', 'otf', 'woff', 'woff2',
