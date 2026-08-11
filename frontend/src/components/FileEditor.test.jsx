@@ -92,7 +92,8 @@ describe('FileEditor', () => {
       />
     );
 
-    fireEvent.click(screen.getByText(/closeAllFiles 3/));
+    // 레일 버튼은 아이콘 + 개수 배지 — 라벨은 title 에 있다(상단 탭바와 같은 어휘).
+    fireEvent.click(screen.getByTitle('closeAllFiles (3)'));
     expect(onCloseAll).toHaveBeenCalledTimes(1);
   });
 
@@ -107,7 +108,7 @@ describe('FileEditor', () => {
         theme={themes.catppuccin}
       />
     );
-    expect(screen.queryByText(/closeAllFiles/)).toBeNull();
+    expect(screen.queryByTitle(/closeAllFiles/)).toBeNull();
   });
 
   it('previews a local image through the workspace raw endpoint', () => {

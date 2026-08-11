@@ -1,21 +1,30 @@
-import { X, XCircle } from 'lucide-react';
+import { ListX, X } from 'lucide-react';
+import RailIconBtn from '../common/RailIconBtn';
 import { parseFileKey, getFileIcon } from './fileEditorHelpers';
 
 export const FileEditorTabs = ({
   openFiles, activeFile, fileStates, theme, editorSection,
   onFileSelect, onCloseClick, onCloseAllClick = null, t = null,
 }) => (
+      /* 상단 탭바와 같은 구조: 탭은 안에서 스크롤되고, 액션은 오른쪽 끝 레일에 고정된다.
+         (탭 스트립 안에 sticky 로 얹으면 탭들 사이에 낀 것처럼 보인다.) */
       <div style={{
         display: 'flex',
         alignItems: 'stretch',
         height: '32px',
         minHeight: '32px',
         maxHeight: '32px',
+        background: editorSection.background,
+        borderBottom: `1px solid ${editorSection.borderColor}`,
+      }}>
+      <div style={{
+        display: 'flex',
+        alignItems: 'stretch',
+        flex: 1,
+        minWidth: 0,
         overflowX: 'auto',
         scrollbarWidth: 'none',
         msOverflowStyle: 'none',
-        background: editorSection.background,
-        borderBottom: `1px solid ${editorSection.borderColor}`,
         gap: 0,
       }}>
         {openFiles.map((path) => {
@@ -49,10 +58,12 @@ export const FileEditorTabs = ({
                 borderTop: isActive ? `2px solid ${dotColor}` : `1px solid ${editorSection.borderColor}`,
                 borderBottom: `1px solid ${isActive ? activeBg : inactiveBg}`,
                 borderRadius: 0,
-                minWidth: '80px',
+                /* 탭은 **줄어들지 않는다** — 늘어나면 스트립이 가로로 스크롤된다.
+                   `flex: 1 1 auto` 이던 시절엔 폰에서 5개가 80px 로 짜부라져 파일명이
+                   "c." 로 잘렸다. 탭바가 넘치는 건 정상이고, 못 읽는 게 사고다. */
+                minWidth: '124px',
                 maxWidth: '180px',
-                flexShrink: 0,
-                flex: '1 1 auto',
+                flex: '0 0 auto',
                 marginLeft: '-1px',
                 boxSizing: 'border-box',
                 userSelect: 'none',
@@ -141,35 +152,24 @@ export const FileEditorTabs = ({
             </div>
           );
         })}
-        {/* 탭이 쌓이면(사진 여러 장) 하나씩 X 를 누르는 것 말고 한 번에 정리할 길이 필요하다.
-            스트립은 가로 스크롤되므로 sticky 로 오른쪽 끝에 붙여 항상 닿게 둔다. */}
-        {onCloseAllClick && openFiles.length > 1 && (
-          <button
+      </div>
+
+      {/* 우측 레일 — 탭이 몇 개든 자리를 지킨다. 개수는 배지로(상단 탭바와 같은 어휘). */}
+      {onCloseAllClick && openFiles.length > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, paddingRight: '2px' }}>
+          <div style={{
+            width: '1px', height: '16px', alignSelf: 'center', flexShrink: 0,
+            margin: '0 4px', background: editorSection.borderColor,
+          }} />
+          <RailIconBtn
+            icon={ListX}
+            compact
             onClick={onCloseAllClick}
-            title={t?.('closeAllFiles') || 'Close all'}
-            style={{
-              position: 'sticky',
-              right: 0,
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '4px',
-              flexShrink: 0,
-              padding: '0 10px',
-              height: '100%',
-              background: editorSection.background,
-              border: `1px solid ${editorSection.borderColor}`,
-              borderTop: 'none',
-              borderRight: 'none',
-              color: theme.ui.textSecondary,
-              fontSize: '11px',
-              fontFamily: theme.ui.fontFamily,
-              whiteSpace: 'nowrap',
-              cursor: 'pointer',
-            }}
-          >
-            <XCircle size={12} strokeWidth={2} />
-            <span>{`${t?.('closeAllFiles') || 'Close all'} ${openFiles.length}`}</span>
-          </button>
-        )}
+            badge={openFiles.length}
+            title={`${t?.('closeAllFiles') || 'Close all'} (${openFiles.length})`}
+            ui={theme.ui}
+          />
+        </div>
+      )}
       </div>
 );
