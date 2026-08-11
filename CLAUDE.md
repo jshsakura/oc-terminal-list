@@ -111,6 +111,26 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 - Session REST endpoints (`/api/sessions/{id}/...`) enforce ownership via `_assert_session_owner` (same check as the WS route).
 - `GET /api/hosts/{id}/files/raw?path=` — inline preview stream for **remote** files (the editor's `<img>`/`<video>`/pdf `<iframe>` bites it directly, so cookie auth is the primary path). Same bytes as `/files/download`; the difference is the browser *renders* them, and that difference is the whole rule: only media that is safe to render inline passes (`inline_media_type`), plus `nosniff`. **SVG and HTML are refused on purpose** — a remote host's file rendered as a same-origin document is XSS, so remote HTML preview stays unsupported in `FileEditor.jsx` while images/video/audio/pdf work exactly like local ones. A directory whose name ends in `.png` comes back from `open_download` as a zip; it is refused **and the stream is closed**, or the SFTP context leaks.
 
+## 에디터 미리보기 — 무엇이 열리고 무엇이 안 열리나 (2026-08-11)
+
+| 종류 | 어떻게 | 원격도 |
+|---|---|---|
+| 이미지·동영상·오디오·PDF | raw 엔드포인트로 브라우저가 직접 렌더 | O |
+| xlsx·xlsm | 바이트를 받아 프론트에서 파싱 → 표(시트 탭) | O |
+| csv·tsv | 이미 텍스트로 들어와 있으므로 내용에서 표를 파생(추가 요청 0) | O |
+| html | 로컬만 — 원격 문서를 same-origin 으로 띄우면 XSS | X |
+| svg | 로컬만 이미지, 원격은 텍스트(Monaco xml) — 위와 같은 이유 | 텍스트 |
+| .xls·doc·ppt | **계속 차단**. 리더가 OOXML 전용이라 열어봐야 깨진다 | — |
+
+- **xlsx 리더는 lazy chunk 다**(`xlsx-reader`, 16KB gz). eager `vendor` 에 섞이면 전원이
+  시작 로드에서 받는다 — vite `manualChunks` 에 prettier·noVNC 와 같은 이유로 따로 뺐다.
+- 바이트는 `/files/raw` 가 아니라 **download 라우트**로 받는다. raw 는 *인라인 렌더* 경로라
+  미디어만 통과시키는 게 규칙이고, 여기선 우리 파서가 읽을 바이트만 필요하다.
+- 파싱은 메인 스레드다 → **크기 상한(12MB)** 을 두고 넘으면 거절한다. 미리보기는
+  데이터 파이프라인이 아니다.
+- 프론트의 `isRemoteInlinePreviewFile` 은 백엔드 `inline_media_type` 의 **거울**이다.
+  어긋나면 프론트는 그리려 하고 서버는 415 를 주는 조합이 된다.
+
 ## WS reconnect auth — ticket first, same-origin cookie fallback (2026-07-24)
 
 **The root cause of "all panes stuck on 다시 연결 중 until a refresh":** WS reconnect needed a `/api/ws-ticket` HTTP fetch to get a ticket, and that fetch reuses the browser's **shared HTTP/2 connection** — the one that wedges on mobile network switches / the Cloudflare single tunnel. When it wedges, no ticket → no reconnect → only a page reload (fresh connection pool) recovers. The pre-pushed ticket (`_push_ws_tickets`, 10s interval / 30s TTL) bypasses this, but only if a valid stash exists — it doesn't on first connect, after >30s disconnect (phone locked), or once burned by a failed attempt.
@@ -336,6 +356,26 @@ Traps (MCP-specific):
 - **stdout is JSON-RPC only.** A single stray `print()` makes the client treat the server as dead. All logs go to stderr, and only when `ITL_MCP_DEBUG=1`.
 - **Never respond to a notification.** Messages without `id` (e.g. `notifications/initialized`) get `return None` at the top of the dispatcher — answering them is a protocol violation.
 - **`send_keys -l "C-c"` types the literal `C-c`.** Special keys go through `tmux_manager.send_key`, which lets tmux interpret the key name. The Telegram stop button hit the same trap.
+
+## iOS 주소창 밑 진행바 = 페이지가 소유한 "끝나지 않는 요청" (2026-08-11)
+
+사파리에서 주소창 아래 파란 진행바가 10%쯤에서 멈춘 채 남고, **간헐적으로 다시 뜬다**.
+브라우저 UI 라 우리 CSS 로는 못 건드린다. 원인은 EventSource — 응답이 끝나지 않는 HTTP
+요청이라 사파리가 "아직 로딩 중인 서브리소스" 로 센다.
+
+- **`load` 이후로 미루는 회피는 첫 연결만 덮는다.** 터널이 SSE 를 끊을 때마다 새 스트림이
+  열리고 그때마다 바가 돌아온다 — "간헐적" 의 정체가 이것이다. 타이밍으로는 못 고친다.
+- 그래서 **스트림을 워커가 든다**(`workers/sseWorker.js` + `utils/eventStream.js`).
+  워커의 요청은 문서 로드 진행에 포함되지 않는다.
+- ⚠️ **워커로 넘기는 것은 스트림뿐이다.** 티켓 발급·백오프·단일 연결 불변식은 메인
+  스레드에 남는다 — [[project_sse_reconnect_storm]] 이력이 있는 로직이고, 스레드 경계로
+  쪼개면 그게 **둘**이 된다(그게 정확히 그때 터진 사고다).
+- 폴백은 조용히: Worker 없음 / 워커 안 EventSource 없음(사파리 16.4 이전) / 생성 차단이면
+  예전처럼 페이지에서 연다. 한 번 실패하면 그 세션 동안 재시도하지 않는다.
+  **진행바는 미관 문제지 동기화보다 우선일 수 없다.**
+
+같은 함정의 일반형: **화면에 보이는 브라우저 UI 이상 증상을 CSS 문제로 보지 마라.**
+대개는 우리가 연 연결·요청의 수명이 원인이다.
 
 ## 클립보드 · 팝업 닫기 — 모바일에서 조용히 죽던 두 규칙 (2026-08-11)
 
