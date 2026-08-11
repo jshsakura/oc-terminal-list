@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import mimetypes
 import os
 from urllib.parse import quote
 
@@ -33,6 +34,23 @@ def _fail(action: str, host_id: str, target, exc: Exception, message: str):
 
 def _attachment_headers(filename: str) -> dict:
     return {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"}
+
+
+# Media the browser may render in-place. Anything else (html, svg, text…) would run
+# in this app's origin, so raw preview refuses it — a remote host's file is not our code.
+_INLINE_PREFIXES = ("image/", "video/", "audio/")
+_INLINE_TYPES = frozenset({"application/pdf"})
+
+
+def inline_media_type(filename: str) -> str | None:
+    """Guessed media type when it is safe to render inline, else None. SVG is excluded
+    on purpose: it is an image by extension but a script host in a browser."""
+    guessed, _ = mimetypes.guess_type(filename)
+    if not guessed or guessed == "image/svg+xml":
+        return None
+    if guessed.startswith(_INLINE_PREFIXES) or guessed in _INLINE_TYPES:
+        return guessed
+    return None
 
 
 @router.get("/cwd")
@@ -98,6 +116,39 @@ async def download_host_file(
     except Exception as e:
         raise _fail("download", host_id, path, e, "원격 다운로드 실패")
     return StreamingResponse(stream, media_type=media_type, headers=_attachment_headers(filename))
+
+
+@router.get("/files/raw")
+async def raw_host_file(
+    host_id: str,
+    path: str = Query(..., description="원격 파일 경로 (절대 권장)"),
+    username: str = Depends(verify_auth_token),
+):
+    """미리보기용 인라인 스트림 — 에디터의 `<img>`/`<video>` 가 직접 문다.
+
+    다운로드와 다른 점은 브라우저가 **렌더한다**는 것뿐이지만 그 차이가 전부다:
+    원격 호스트의 파일이 same-origin 문서로 실행되면 그대로 XSS 이므로,
+    렌더해도 안전한 미디어 타입만 통과시키고 nosniff 로 스니핑도 막는다.
+    인증은 쿠키가 주 경로다(`<img>` 는 헤더를 못 싣는다) — CSRF 는 SameSite=Strict.
+    """
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    media_type = inline_media_type(os.path.basename(path.rstrip("/")))
+    if not media_type:
+        raise HTTPException(status_code=415, detail="인라인 미리보기를 지원하지 않는 형식입니다")
+    try:
+        _filename, download_type, stream = await host_sftp.open_download(host, secrets, [path])
+    except Exception as e:
+        raise _fail("raw", host_id, path, e, "원격 파일 읽기 실패")
+    if download_type == "application/zip":
+        # 확장자만 미디어인 디렉터리 — open_download 가 zip 으로 묶어 내보냈다. 스트림을
+        # 닫아 SFTP 컨텍스트를 돌려준다(그냥 버리면 연결이 열린 채 남는다).
+        await stream.aclose()
+        raise HTTPException(status_code=415, detail="디렉터리는 미리볼 수 없습니다")
+    return StreamingResponse(
+        stream,
+        media_type=media_type,
+        headers={"X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"},
+    )
 
 
 @router.post("/files/download-zip")

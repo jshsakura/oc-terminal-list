@@ -76,4 +76,35 @@ describe('FileEditor', () => {
 
     expect(screen.getByText('app.js')).toBeTruthy();
   });
+
+  // 미리보기는 로컬/원격이 같은 그림을 그린다 — 갈리는 것은 raw 엔드포인트 경로뿐이다.
+  it('previews a local image through the workspace raw endpoint', () => {
+    const { container } = render(
+      <FileEditor
+        activeFile="assets/cand-1.png"
+        openFiles={['assets/cand-1.png']}
+        onFileSelect={vi.fn()}
+        onClose={vi.fn()}
+        theme={themes.catppuccin}
+      />
+    );
+
+    const src = container.querySelector('img')?.getAttribute('src');
+    expect(src).toContain('/api/files/raw?path=assets%2Fcand-1.png');
+  });
+
+  it('previews a remote image through that host raw endpoint', () => {
+    const { container } = render(
+      <FileEditor
+        activeFile="remote:h1:/home/u/cand-1.png"
+        openFiles={['remote:h1:/home/u/cand-1.png']}
+        onFileSelect={vi.fn()}
+        onClose={vi.fn()}
+        theme={themes.catppuccin}
+      />
+    );
+
+    const src = container.querySelector('img')?.getAttribute('src');
+    expect(src).toContain('/api/hosts/h1/files/raw?path=%2Fhome%2Fu%2Fcand-1.png');
+  });
 });

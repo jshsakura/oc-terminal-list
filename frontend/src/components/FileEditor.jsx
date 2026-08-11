@@ -37,6 +37,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const [externalChange, setExternalChange] = useState({ isOpen: false, path: null, newContent: '' });
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [rawPreviewUrl, setRawPreviewUrl] = useState(null);
+  // 원격 미리보기는 호스트가 꺼져 있을 수 있다 — 깨진 이미지 아이콘 대신 이유를 적는다.
+  const [rawPreviewError, setRawPreviewError] = useState(false);
   // diff 모드: { [path]: { original: string, exists: boolean, loading: boolean, error: string|null } }
   const [diffStates, setDiffStates] = useState({});
   // 변경 파일은 자동으로 diff 모드로 열되, 사용자 토글로 일반 편집 ↔ diff 전환 가능
@@ -161,13 +163,17 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const isPdf = isPdfFile(previewName);
   const isVideo = isVideoFile(previewName);
   const isAudio = isAudioFile(previewName);
-  // 바이너리 미리보기: 텍스트 에디터로 로드하지 않고 raw 티켓으로 직접 렌더 (로컬 호스트 전용)
+  // 바이너리 미리보기: 텍스트 에디터로 로드하지 않고 raw 엔드포인트로 직접 렌더.
+  // 원격 파일도 같은 방식이다 — 경로만 호스트 라우트로 갈린다.
   const isBinaryPreview = isImage || isPdf || isVideo || isAudio;
   const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');
   const isHtml = (activeFilePath || activeFile)?.endsWith('.html');
-  const rawPreviewPath = !activeFileHostId && (isBinaryPreview || (isPreviewMode && isHtml))
+  // HTML 은 로컬만. 원격 파일을 same-origin 문서로 띄우면 그대로 XSS 이므로 백엔드의
+  // raw 라우트도 미디어 타입만 통과시킨다 (routes/host_files.inline_media_type).
+  const rawPreviewPath = (isBinaryPreview || (isPreviewMode && isHtml && !activeFileHostId))
     ? (activeFilePath || activeFile)
     : null;
+  const rawPreviewHostId = rawPreviewPath ? activeFileHostId : null;
 
   // Poll for external changes every 5 seconds (only for text files)
   useEffect(() => {
@@ -201,6 +207,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   }, [diffViewByPath]);
 
   useEffect(() => {
+    // 대상이 바뀌면 실패 표시부터 내린다 — 안 내리면 다음 파일이 남은 에러 화면을 물려받는다.
+    setRawPreviewError(false);
     if (!rawPreviewPath) {
       setRawPreviewUrl(null);
       return;
@@ -209,8 +217,11 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
     // POST 없이 ?path= 로 바로 로드한다. 그 POST 는 재연결마다 wedge 되는 공유 HTTP/2 풀을
     // 재사용하던 취약점이었다(서버가 쿠키로 폴백 인증, 경로는 validate_path 로 워크스페이스
     // 밖을 차단). _t 로 캐시를 우회해 편집 후에도 최신 원본을 보여준다.
-    setRawPreviewUrl(`/api/files/raw?path=${encodeURIComponent(rawPreviewPath)}&_t=${Date.now()}`);
-  }, [rawPreviewPath]);
+    const base = rawPreviewHostId
+      ? `/api/hosts/${encodeURIComponent(rawPreviewHostId)}/files/raw`
+      : '/api/files/raw';
+    setRawPreviewUrl(`${base}?path=${encodeURIComponent(rawPreviewPath)}&_t=${Date.now()}`);
+  }, [rawPreviewPath, rawPreviewHostId]);
 
   // 활성 파일이 바뀌면 HEAD 원본을 lazy load. 변경분이 있으면 diff 모드로 자동 진입.
   useEffect(() => {
@@ -481,12 +492,12 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             <span style={{ marginBottom: '16px' }}>{error}</span>
             <Button theme={theme} onClick={() => loadFile(activeFile)} variant="secondary">{t('reset')}</Button>
           </div>
+        ) : rawPreviewError ? (
+          <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
+            <AlertCircle size={32} style={{ marginBottom: '12px' }} />
+            <span>{t('previewLoadFailed')}</span>
+          </div>
         ) : isImage ? (
-          activeFileHostId ? (
-            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
-              <span>Remote image preview is not supported.</span>
-            </div>
-          ) : (
           <div style={{
             height: '100%',
             display: 'flex',
@@ -500,6 +511,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               <img
                 src={rawPreviewUrl}
                 alt={activeFilePath || activeFile}
+                onError={() => setRawPreviewError(true)}
                 style={{
                   maxWidth: '100%',
                   maxHeight: '100%',
@@ -514,13 +526,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
               <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
             )}
           </div>
-          )
         ) : isPdf ? (
-          activeFileHostId ? (
-            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
-              <span>Remote PDF preview is not supported.</span>
-            </div>
-          ) : rawPreviewUrl ? (
+          rawPreviewUrl ? (
             <iframe
               src={rawPreviewUrl}
               style={{ width: '100%', height: '100%', border: 'none', backgroundColor: '#fff' }}
@@ -532,45 +539,39 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
             </div>
           )
         ) : isVideo ? (
-          activeFileHostId ? (
-            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
-              <span>Remote video preview is not supported.</span>
-            </div>
-          ) : (
-            <div style={{
-              height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,
-              padding: '20px'
-            }}>
-              {rawPreviewUrl ? (
-                <video
-                  src={rawPreviewUrl}
-                  controls
-                  style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}
-                />
-              ) : (
-                <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
-              )}
-            </div>
-          )
+          <div style={{
+            height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,
+            padding: '20px'
+          }}>
+            {rawPreviewUrl ? (
+              <video
+                src={rawPreviewUrl}
+                controls
+                onError={() => setRawPreviewError(true)}
+                style={{ maxWidth: '100%', maxHeight: '100%', boxShadow: '0 10px 30px rgba(0,0,0,0.5)' }}
+              />
+            ) : (
+              <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
+            )}
+          </div>
         ) : isAudio ? (
-          activeFileHostId ? (
-            <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
-              <span>Remote audio preview is not supported.</span>
-            </div>
-          ) : (
-            <div style={{
-              height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,
-              padding: '20px'
-            }}>
-              {rawPreviewUrl ? (
-                <audio src={rawPreviewUrl} controls style={{ width: '80%', maxWidth: '480px' }} />
-              ) : (
-                <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
-              )}
-            </div>
-          )
+          <div style={{
+            height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`,
+            padding: '20px'
+          }}>
+            {rawPreviewUrl ? (
+              <audio
+                src={rawPreviewUrl}
+                controls
+                onError={() => setRawPreviewError(true)}
+                style={{ width: '80%', maxWidth: '480px' }}
+              />
+            ) : (
+              <Loader2 size={28} className="spin" color={theme.ui.textSecondary} />
+            )}
+          </div>
         ) : isPreviewMode ? (
           isMarkdown ? (
             <div style={{
@@ -613,7 +614,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
           ) : (
             activeFileHostId ? (
               <div style={{ ...styles.message, color: theme.ui.textSecondary }}>
-                <span>Remote HTML preview is not supported.</span>
+                <span>{t('remoteHtmlPreviewUnsupported')}</span>
               </div>
             ) : rawPreviewUrl ? (
               <iframe

@@ -109,6 +109,7 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 - `POST /api/terminal/paste-file` / `paste-image` — upload a file for the terminal, returns the path to insert. Takes an optional `host_id` form field; see the rule below.
 - `GET /api/files/grep?q=` — ripgrep workspace content search (file explorer content-search toggle).
 - Session REST endpoints (`/api/sessions/{id}/...`) enforce ownership via `_assert_session_owner` (same check as the WS route).
+- `GET /api/hosts/{id}/files/raw?path=` — inline preview stream for **remote** files (the editor's `<img>`/`<video>`/pdf `<iframe>` bites it directly, so cookie auth is the primary path). Same bytes as `/files/download`; the difference is the browser *renders* them, and that difference is the whole rule: only media that is safe to render inline passes (`inline_media_type`), plus `nosniff`. **SVG and HTML are refused on purpose** — a remote host's file rendered as a same-origin document is XSS, so remote HTML preview stays unsupported in `FileEditor.jsx` while images/video/audio/pdf work exactly like local ones. A directory whose name ends in `.png` comes back from `open_download` as a zip; it is refused **and the stream is closed**, or the SFTP context leaks.
 
 ## WS reconnect auth — ticket first, same-origin cookie fallback (2026-07-24)
 

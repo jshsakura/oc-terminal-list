@@ -493,6 +493,8 @@ export const ko = {
     diffEmpty: '(diff 없음 — 바이너리이거나 새 untracked 파일)',
     activityLoading: '불러오는 중…',
     failedToLoadFile: '파일 불러오기 실패',
+    previewLoadFailed: '미리보기를 불러오지 못했습니다',
+    remoteHtmlPreviewUnsupported: '원격 HTML 미리보기는 지원하지 않습니다',
     failedToSaveFile: '파일 저장 실패',
     failedToDeleteKey: '키 삭제 실패',
     failedToAddKey: '키 추가 실패',

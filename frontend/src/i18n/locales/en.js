@@ -496,6 +496,8 @@ export const en = {
     diffEmpty: '(no diff — file may be binary or new untracked)',
     activityLoading: 'Loading…',
     failedToLoadFile: 'Failed to load file',
+    previewLoadFailed: 'Preview could not be loaded',
+    remoteHtmlPreviewUnsupported: 'Remote HTML preview is not supported',
     failedToSaveFile: 'Failed to save file',
     failedToDeleteKey: 'Failed to delete key',
     failedToAddKey: 'Failed to add key',
