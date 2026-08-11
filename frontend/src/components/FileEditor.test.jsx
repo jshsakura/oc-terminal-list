@@ -97,18 +97,21 @@ describe('FileEditor', () => {
     expect(onCloseAll).toHaveBeenCalledTimes(1);
   });
 
-  it('does not offer close-all for a single file', () => {
+  it('keeps the close-all rail in place for a single file too', () => {
+    // 개수에 따라 나타났다 사라지면 그 자리를 믿을 수 없다 — 한 개일 때가 정리하려던 순간이다.
+    const onCloseAll = vi.fn();
     render(
       <FileEditor
         activeFile="a/1.png"
         openFiles={['a/1.png']}
         onFileSelect={vi.fn()}
         onClose={vi.fn()}
-        onCloseAll={vi.fn()}
+        onCloseAll={onCloseAll}
         theme={themes.catppuccin}
       />
     );
-    expect(screen.queryByTitle(/closeAllFiles/)).toBeNull();
+    fireEvent.click(screen.getByTitle('closeAllFiles (1)'));
+    expect(onCloseAll).toHaveBeenCalledTimes(1);
   });
 
   it('previews a local image through the workspace raw endpoint', () => {

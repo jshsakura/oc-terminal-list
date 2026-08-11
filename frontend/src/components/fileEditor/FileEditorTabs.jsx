@@ -1,4 +1,4 @@
-import { ListX, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import RailIconBtn from '../common/RailIconBtn';
 import { parseFileKey, getFileIcon } from './fileEditorHelpers';
 
@@ -154,20 +154,23 @@ export const FileEditorTabs = ({
         })}
       </div>
 
-      {/* 우측 레일 — 탭이 몇 개든 자리를 지킨다. 개수는 배지로(상단 탭바와 같은 어휘). */}
-      {onCloseAllClick && openFiles.length > 1 && (
+      {/* 우측 레일 — 탭이 하나든 열이든 **항상** 같은 자리에 있다. 개수에 따라 나타났다
+          사라지면 그 자리를 믿을 수 없게 되고, 한 개일 때야말로 정리하려던 순간이다.
+          글리프는 탭의 닫기와 같은 X — 목록 아이콘은 햄버거 메뉴로 읽힌다.
+          색은 `ui` 를 넘기지 않아 앱 크롬 팔레트(--ui-subtext)를 그대로 쓴다: FileEditor 가
+          받는 `theme.ui` 는 크롬 팔레트가 아니라 테마 원본이라 넘기면 색이 어긋난다. */}
+      {onCloseAllClick && openFiles.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, paddingRight: '2px' }}>
           <div style={{
             width: '1px', height: '16px', alignSelf: 'center', flexShrink: 0,
             margin: '0 4px', background: editorSection.borderColor,
           }} />
           <RailIconBtn
-            icon={ListX}
+            icon={X}
             compact
             onClick={onCloseAllClick}
-            badge={openFiles.length}
+            badge={openFiles.length > 1 ? openFiles.length : null}
             title={`${t?.('closeAllFiles') || 'Close all'} (${openFiles.length})`}
-            ui={theme.ui}
           />
         </div>
       )}
