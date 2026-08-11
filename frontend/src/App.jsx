@@ -592,7 +592,9 @@ function App() {
   }, []);
 
   // File editor
-  const { openFiles, activeFile, handleFileOpen, handleFileClose } = useEditorTabs({
+  const {
+    openFiles, activeFile, handleFileOpen, handleFileClose, handleFileCloseAll,
+  } = useEditorTabs({
     t, setNotification, activeTabId,
     liveTabIds: tabs.map((tb) => tb.id),
     pruneEnabled: !isRestoringWorkspace,
@@ -1064,6 +1066,7 @@ function App() {
                         openFiles={openFiles}
                         onFileSelect={handleFileOpen}
                         onClose={handleFileClose}
+                        onCloseAll={handleFileCloseAll}
                         theme={currentTheme}
                         language={settings.language}
                         onResizeStart={onEditorResizeStart}

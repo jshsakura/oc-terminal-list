@@ -1,7 +1,10 @@
-import { X } from 'lucide-react';
+import { X, XCircle } from 'lucide-react';
 import { parseFileKey, getFileIcon } from './fileEditorHelpers';
 
-export const FileEditorTabs = ({ openFiles, activeFile, fileStates, theme, editorSection, onFileSelect, onCloseClick }) => (
+export const FileEditorTabs = ({
+  openFiles, activeFile, fileStates, theme, editorSection,
+  onFileSelect, onCloseClick, onCloseAllClick = null, t = null,
+}) => (
       <div style={{
         display: 'flex',
         alignItems: 'stretch',
@@ -113,12 +116,15 @@ export const FileEditorTabs = ({ openFiles, activeFile, fileStates, theme, edito
                 onClick={(e) => { e.stopPropagation(); onCloseClick(path); }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.opacity = '1'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.opacity = isActive ? '0.65' : '0.45'; }}
+                title={t?.('close') || 'Close'}
                 style={{
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: '14px',
-                  height: '14px',
+                  /* 22px — 손가락으로 누를 수 있는 최소치. 아이콘은 그대로 작게 두고
+                     버튼만 키운다(탭 높이 32px 안에 들어간다). */
+                  width: '22px',
+                  height: '22px',
                   flexShrink: 0,
                   background: 'transparent',
                   border: 'none',
@@ -130,10 +136,40 @@ export const FileEditorTabs = ({ openFiles, activeFile, fileStates, theme, edito
                   transition: 'opacity 120ms, background 120ms',
                 }}
               >
-                <X size={9} strokeWidth={2} />
+                <X size={11} strokeWidth={2} />
               </button>
             </div>
           );
         })}
+        {/* 탭이 쌓이면(사진 여러 장) 하나씩 X 를 누르는 것 말고 한 번에 정리할 길이 필요하다.
+            스트립은 가로 스크롤되므로 sticky 로 오른쪽 끝에 붙여 항상 닿게 둔다. */}
+        {onCloseAllClick && openFiles.length > 1 && (
+          <button
+            onClick={onCloseAllClick}
+            title={t?.('closeAllFiles') || 'Close all'}
+            style={{
+              position: 'sticky',
+              right: 0,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              flexShrink: 0,
+              padding: '0 10px',
+              height: '100%',
+              background: editorSection.background,
+              border: `1px solid ${editorSection.borderColor}`,
+              borderTop: 'none',
+              borderRight: 'none',
+              color: theme.ui.textSecondary,
+              fontSize: '11px',
+              fontFamily: theme.ui.fontFamily,
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+            }}
+          >
+            <XCircle size={12} strokeWidth={2} />
+            <span>{`${t?.('closeAllFiles') || 'Close all'} ${openFiles.length}`}</span>
+          </button>
+        )}
       </div>
 );

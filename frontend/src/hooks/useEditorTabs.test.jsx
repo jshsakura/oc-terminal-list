@@ -43,3 +43,28 @@ describe('useEditorTabs per-tab scoping', () => {
     expect(result.current.activeFile).toBe('/work/a.txt');
   });
 });
+
+describe('useEditorTabs bulk close', () => {
+  beforeEach(() => localStorage.clear());
+
+  const setup = () => renderHook(
+    () => useEditorTabs({ t: noopT, setNotification: noopNotify, activeTabId: 'A' }),
+  );
+
+  it('close-all empties this tab only', () => {
+    const { result } = setup();
+    act(() => result.current.handleFileOpen('/w/1.png'));
+    act(() => result.current.handleFileOpen('/w/2.png'));
+    act(() => result.current.handleFileCloseAll());
+
+    expect(result.current.openFiles).toEqual([]);
+    expect(result.current.activeFile).toBeNull();
+  });
+
+  it('close-all on an empty tab is a no-op, not a crash', () => {
+    const { result } = setup();
+    act(() => result.current.handleFileCloseAll());
+    expect(result.current.openFiles).toEqual([]);
+  });
+});
+

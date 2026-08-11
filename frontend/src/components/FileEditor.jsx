@@ -29,7 +29,10 @@ import { monacoLanguageForFile } from '../utils/fileTypes';
 import { FileEditorTabs } from './fileEditor/FileEditorTabs';
 
 
-const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, language = 'en', onResizeStart }) => {
+// confirmClose.path 자리에 들어가는 "전체" 표식 — 경로와 절대 겹치지 않는 값.
+const CLOSE_ALL = Symbol('close-all');
+
+const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll = null, theme, language = 'en', onResizeStart }) => {
   const { t } = useTranslation(language);
   const [fileStates, setFileStates] = useState({}); // { path: { content, hasChanges, lastSavedContent } }
   const [loading, setLoading] = useState(false);
@@ -365,6 +368,11 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
   const confirmCloseFile = () => {
     const path = confirmClose.path;
     setConfirmClose({ isOpen: false, path: null });
+    if (path === CLOSE_ALL) {
+      setFileStates({});
+      onCloseAll?.();
+      return;
+    }
     // Remove state for this file
     setFileStates(prev => {
       const newState = { ...prev };
@@ -372,6 +380,16 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
       return newState;
     });
     onClose(path);
+  };
+
+  /* 모두 닫기 — 저장 안 된 파일이 하나라도 있으면 같은 확인창을 한 번만 띄운다.
+     파일마다 물으면 사진 열댓 장 정리하다가 확인창만 열댓 번 누르게 된다. */
+  const handleCloseAllClick = () => {
+    if (!onCloseAll) return;
+    const dirty = (openFiles || []).some((p) => fileStates[p]?.hasChanges);
+    if (dirty) { setConfirmClose({ isOpen: true, path: CLOSE_ALL }); return; }
+    setFileStates({});
+    onCloseAll();
   };
 
   const handleReload = () => {
@@ -417,6 +435,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, theme, langu
         editorSection={editorSection}
         onFileSelect={onFileSelect}
         onCloseClick={handleCloseClick}
+        onCloseAllClick={onCloseAll ? handleCloseAllClick : null}
+        t={t}
       />
 
       {/* 액션바 (저장, 새로고침 등) */}

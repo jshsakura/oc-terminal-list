@@ -78,6 +78,38 @@ describe('FileEditor', () => {
   });
 
   // 미리보기는 로컬/원격이 같은 그림을 그린다 — 갈리는 것은 raw 엔드포인트 경로뿐이다.
+  it('offers one control to close every open file', () => {
+    // 사진 여러 장을 열어보면 탭이 금세 쌓인다 — 하나씩 X 를 누르는 것 말고 길이 있어야 한다.
+    const onCloseAll = vi.fn();
+    render(
+      <FileEditor
+        activeFile="a/1.png"
+        openFiles={['a/1.png', 'a/2.png', 'a/3.png']}
+        onFileSelect={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={onCloseAll}
+        theme={themes.catppuccin}
+      />
+    );
+
+    fireEvent.click(screen.getByText(/closeAllFiles 3/));
+    expect(onCloseAll).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer close-all for a single file', () => {
+    render(
+      <FileEditor
+        activeFile="a/1.png"
+        openFiles={['a/1.png']}
+        onFileSelect={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        theme={themes.catppuccin}
+      />
+    );
+    expect(screen.queryByText(/closeAllFiles/)).toBeNull();
+  });
+
   it('previews a local image through the workspace raw endpoint', () => {
     const { container } = render(
       <FileEditor

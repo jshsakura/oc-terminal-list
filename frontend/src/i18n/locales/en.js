@@ -366,6 +366,7 @@ export const en = {
     remove: 'Remove',
     unsavedChanges: 'Unsaved Changes',
     unsavedChangesMessage: 'File has unsaved changes. Discard and close?',
+    closeAllFiles: 'Close all',
     externalChangeDetected: 'External Change Detected',
     externalChangeMessage: 'This file was modified outside. Reload from disk?',
     reload: 'Reload',

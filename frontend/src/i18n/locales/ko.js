@@ -363,6 +363,7 @@ export const ko = {
     remove: '제거',
     unsavedChanges: '저장되지 않은 변경사항',
     unsavedChangesMessage: '변경사항이 저장되지 않았습니다. 무시하고 닫으시겠습니까?',
+    closeAllFiles: '모두 닫기',
     externalChangeDetected: '외부 변경 감지됨',
     externalChangeMessage: '파일이 외부에서 수정되었습니다. 다시 불러오시겠습니까?',
     reload: '다시 불러오기',
