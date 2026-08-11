@@ -3,6 +3,7 @@ import { migrateTab, makLocalTab } from '../utils/tabModel';
 import { areTabsEquivalent, tabsFingerprint, pickFallbackTabId } from '../utils/tabStateSync';
 import { authHeaders } from '../utils/auth';
 import { applyAgentStatusChanges, hydrateAgentStatus } from '../utils/agentStatusStore';
+import { openEventStream } from '../utils/eventStream';
 
 /**
  * 어느 탭에도 안 붙어 있는 살아있는 세션을 앞쪽 탭으로 되살린다.
@@ -269,42 +270,42 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
         const { ticket } = await res.json();
         if (cancelled) { connecting = false; return; }
 
-        const source = new EventSource(`/api/tab-state/events?ticket=${encodeURIComponent(ticket)}`);
+        // 스트림 자체는 워커가 든다 — iOS 진행바가 이걸 "로딩 중인 리소스" 로 세지 않게.
+        // 티켓/백오프/단일연결 불변식은 여기 그대로다(위 CRITICAL 주석).
+        const source = openEventStream(`/api/tab-state/events?ticket=${encodeURIComponent(ticket)}`, {
+          onOpen: () => {
+            openedAt = Date.now();
+            // SSE 는 변경분만 흘린다 — 연결(재연결)마다 전체 스냅샷을 한 번 받는다.
+            fetch('/api/agent-status', { headers: authHeaders() })
+              .then((r) => (r.ok ? r.json() : null))
+              .then((d) => { if (!cancelled && d) hydrateAgentStatus(d.sessions); })
+              .catch(() => { /* 상태 점이 조금 늦게 뜰 뿐 — 다음 변경에 채워진다 */ });
+          },
+          onMessage: (raw) => {
+            if (cancelled) return;
+            try {
+              const payload = JSON.parse(raw);
+              // 같은 스트림에 여러 타입이 흐른다 — 새 스트림을 열면 단일 연결
+              // 불변식이 깨져 재연결 폭주가 재발한다(위 CRITICAL 주석 참고).
+              if (payload.type === 'agentStatus') {
+                applyAgentStatusChanges(payload.changes);
+                return;
+              }
+              applyIfChanged(payload.updatedAt);
+            } catch { /* noop */ }
+          },
+          onError: () => {
+            if (es !== source) return;   // 이미 교체/정리된 연결의 늦은 onerror 무시
+            const lived = openedAt ? Date.now() - openedAt : 0;
+            source.close();
+            es = null;
+            openedAt = 0;
+            if (lived > STABLE_MS) reconnectDelay = 2000;   // 안정 연결이었으면만 리셋
+            if (!cancelled) scheduleReconnect();
+          },
+        });
         es = source;
         connecting = false;
-
-        source.onopen = () => {
-          openedAt = Date.now();
-          // SSE 는 변경분만 흘린다 — 연결(재연결)마다 전체 스냅샷을 한 번 받는다.
-          fetch('/api/agent-status', { headers: authHeaders() })
-            .then((r) => (r.ok ? r.json() : null))
-            .then((d) => { if (!cancelled && d) hydrateAgentStatus(d.sessions); })
-            .catch(() => { /* 상태 점이 조금 늦게 뜰 뿐 — 다음 변경에 채워진다 */ });
-        };
-
-        source.onmessage = (e) => {
-          if (cancelled) return;
-          try {
-            const payload = JSON.parse(e.data);
-            // 같은 스트림에 여러 타입이 흐른다 — 새 EventSource 를 열면 단일 연결
-            // 불변식이 깨져 재연결 폭주가 재발한다(위 CRITICAL 주석 참고).
-            if (payload.type === 'agentStatus') {
-              applyAgentStatusChanges(payload.changes);
-              return;
-            }
-            applyIfChanged(payload.updatedAt);
-          } catch { /* noop */ }
-        };
-
-        source.onerror = () => {
-          if (es !== source) return;   // 이미 교체/정리된 연결의 늦은 onerror 무시
-          const lived = openedAt ? Date.now() - openedAt : 0;
-          source.close();
-          es = null;
-          openedAt = 0;
-          if (lived > STABLE_MS) reconnectDelay = 2000;   // 안정 연결이었으면만 리셋
-          if (!cancelled) scheduleReconnect();
-        };
       } catch {
         connecting = false;
         if (!cancelled) scheduleReconnect();
