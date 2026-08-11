@@ -337,6 +337,35 @@ Traps (MCP-specific):
 - **Never respond to a notification.** Messages without `id` (e.g. `notifications/initialized`) get `return None` at the top of the dispatcher — answering them is a protocol violation.
 - **`send_keys -l "C-c"` types the literal `C-c`.** Special keys go through `tmux_manager.send_key`, which lets tmux interpret the key name. The Telegram stop button hit the same trap.
 
+## 클립보드 · 팝업 닫기 — 모바일에서 조용히 죽던 두 규칙 (2026-08-11)
+
+**클립보드 구현은 `utils/clipboard.js` 하나다.** 아이폰에서 "복사 눌러도 안 붙는다" 의 원인:
+
+- `navigator.clipboard` 는 **비보안 오리진에서 아예 없다**(plain-http LAN 주소). 인앱
+  웹뷰(텔레그램의 그 "열기" 버튼)에서는 있어도 reject 될 수 있다. 폴백 없이 부르면
+  예외만 나고 화면은 아무 말도 안 한다 — 실제로 모바일 툴바 복사가 그 상태였다.
+- **iOS 는 `textarea.select()` 를 무시한다.** `Range` + `setSelectionRange` 로 잡아야 하고,
+  대상 요소가 **화면 밖(`top:-9999px`)이거나 완전 투명이면 복사 자체를 거부한다.**
+  1×1 px, `opacity:0.01`, 뷰포트 안 — 이게 실제로 통과하는 조합이다.
+- 결과를 **boolean 으로 돌려준다.** 실패했는데 "복사됨" 체크를 띄우면 거짓말이고, 사용자는
+  붙여넣기를 시도한 뒤에야 안다. 전부 실패하면 텍스트를 선택해 두고 "길게 눌러 복사" 를 띄운다.
+
+**팝업 바깥 닫기는 `hooks/useDismissOnOutside` 하나다 — `pointerdown` 을 캡처 단계에서 듣는다.**
+`mousedown`/`touchstart` 는 document 까지 못 오는 길이 둘이나 있다: 터미널 오버레이가
+`touchstart` 를 `preventDefault` 하면 합성 mousedown 이 통째로 사라지고, React 핸들러의
+`stopPropagation()` 은 네이티브 이벤트까지 멈춘다. `pointerdown` 은 touchstart 와 별개
+이벤트이고 document 캡처는 그 무엇보다 먼저 돌아, 어떤 컴포넌트도 실수로 메뉴를 못 닫게
+만들 수 없다.
+
+⚠️ **토글 버튼(`…`)은 스스로 닫아야 한다.** 바깥 감지는 그 버튼을 `ignoreSelector` 로
+일부러 무시한다(안 그러면 눌러서 닫자마자 click 이 다시 연다). 그래서 핸들러가 열기만 하면
+그 버튼으로는 **영영 못 닫는다** — 실제로 폰에서 그랬다. 열려 있으면 닫는 토글로 쓸 것.
+
+**누른 표시는 전역 CSS 한 줄이다**(`main.jsx`). transform/filter 만 건드려 합성 단계에서
+끝난다. iOS 는 페이지에 터치 리스너가 없으면 `:active` 를 **아예 적용하지 않으므로** 빈
+`touchstart` 리스너를 하나 단다. 그리고 확인 모달은 idle 에 미리 받는다 — 탭 닫기처럼 흔한
+동작이 첫 호출 때 청크를 기다리느라 "눌러도 한참 아무 일이 없어" 보였다.
+
 ## Terminal paste destination (the rule)
 
 **Pasted files land in `/tmp/iterminallist-paste/` on the machine the pane lives on.** Local pane → this server's `/tmp`; remote pane → that host's `/tmp`, over SFTP.
