@@ -928,6 +928,7 @@ export const ko = {
     llmByHost: '호스트별',
     llmRetiredTitle: '삭제된 호스트',
     llmRetiredDaysLeft: '{n}일 후 정리',
+    llmRetiredMonthsLeft: '약 {n}개월 후 정리',
     llmRetiredExpiring: '곧 정리됨',
     llmRetiredDeleteNow: '사용량 기록 지금 삭제',
     llmRetiredDeleteConfirm: '{name}의 사용량 기록을 지웁니다. 되돌릴 수 없습니다.',

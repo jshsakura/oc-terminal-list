@@ -928,6 +928,7 @@ export const en = {
     llmByHost: 'By host',
     llmRetiredTitle: 'Removed hosts',
     llmRetiredDaysLeft: 'purged in {n}d',
+    llmRetiredMonthsLeft: 'purged in ~{n}mo',
     llmRetiredExpiring: 'purging soon',
     llmRetiredDeleteNow: 'Delete usage data now',
     llmRetiredDeleteConfirm: 'Deletes the usage history for {name}. This cannot be undone.',

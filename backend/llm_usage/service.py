@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from datetime import UTC, datetime, timedelta
 
 from sqlite_storage import storage
@@ -44,12 +45,20 @@ FAILURE_RETRY_SECONDS = 6 * 60 * 60
 # run. Cheap: files older than the cutoff are never opened.
 COLLECT_WINDOW_DAYS = 90
 
-# 호스트를 지워도 그 사용량은 이만큼 남는다. 지난달 비용이 삭제 한 번으로 증발하면
-# 되돌릴 방법이 없다 — 대신 화면에 "삭제됨(N일 후 정리)" 로 계속 보인다.
-# 지금 지우고 싶으면 대시보드의 삭제 버튼이 즉시 purge 한다.
-RETIRED_RETENTION_DAYS = 30
-
 ALLOWED_DAYS = (0, 7, 30, 90)
+
+# 호스트를 지워도 그 사용량은 이만큼 남는다. 지난 비용이 삭제 한 번으로 증발하면 되돌릴
+# 방법이 없다 — 대신 화면에 "삭제됨(N일 후 정리)" 로 계속 보이고, 기다리기 싫으면
+# 대시보드의 삭제 버튼이 즉시 purge 한다.
+#
+# **화면이 보여줄 수 있는 가장 긴 창보다 짧으면 안 된다.** 대시보드는 90일과 "전체" 를
+# 제공하는데 보관이 30일이던 시절엔, 그 창을 열어도 지워진 호스트 몫이 이미 사라져 있었다.
+# 합계가 조용히 줄어드는 것만큼 나쁜 건 없다. 그래서 아래 하한으로 강제한다.
+_RETENTION_FLOOR_DAYS = max(ALLOWED_DAYS)
+RETIRED_RETENTION_DAYS = max(
+    _RETENTION_FLOOR_DAYS,
+    int(os.getenv("LLM_USAGE_RETENTION_DAYS", "365")),
+)
 DEFAULT_DAYS = 7
 # Fleets grow; don't open thirty SSH connections at once.
 MAX_CONCURRENT_HOSTS = 6

@@ -3,6 +3,17 @@ import { tokens } from '../../styles/tokens';
 
 const { color, fontSize, fontWeight } = tokens;
 
+/** 남은 보관 기간을 사람이 읽는 단위로. 보관이 1년이라 "364일 후 정리" 는 눈금이 너무 잘다 —
+ *  숫자가 커질수록 정밀도는 쓸모없어지고 읽는 품만 든다. 한 달 안쪽만 일 단위로 센다. */
+export const retentionNote = (daysLeft, t) => {
+  if (!(daysLeft > 0)) return t?.('llmRetiredExpiring') || '곧 정리됨';
+  if (daysLeft <= 30) {
+    return (t?.('llmRetiredDaysLeft') || '{n}일 후 정리').replace('{n}', daysLeft);
+  }
+  const months = Math.round(daysLeft / 30);
+  return (t?.('llmRetiredMonthsLeft') || '약 {n}개월 후 정리').replace('{n}', months);
+};
+
 /**
  * 호스트 목록에서 빠졌지만 사용량은 남아 있는 소스들.
  *
@@ -20,11 +31,7 @@ const RetiredSources = ({ rows = [], onDelete, t }) => {
       {rows.map((row) => (
         <div key={row.source_id} style={styles.row}>
           <span style={styles.name} title={row.name}>{row.name}</span>
-          <span style={styles.note}>
-            {row.retired_days_left > 0
-              ? (t?.('llmRetiredDaysLeft') || '{n}일 후 정리').replace('{n}', row.retired_days_left)
-              : (t?.('llmRetiredExpiring') || '곧 정리됨')}
-          </span>
+          <span style={styles.note}>{retentionNote(row.retired_days_left, t)}</span>
           <button
             type="button"
             style={styles.btn}
