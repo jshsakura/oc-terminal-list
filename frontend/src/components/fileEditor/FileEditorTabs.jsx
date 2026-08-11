@@ -160,7 +160,7 @@ export const FileEditorTabs = ({
           색은 `ui` 를 넘기지 않아 앱 크롬 팔레트(--ui-subtext)를 그대로 쓴다: FileEditor 가
           받는 `theme.ui` 는 크롬 팔레트가 아니라 테마 원본이라 넘기면 색이 어긋난다. */}
       {onCloseAllClick && openFiles.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, paddingRight: '2px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, paddingRight: '6px' }}>
           <div style={{
             width: '1px', height: '16px', alignSelf: 'center', flexShrink: 0,
             margin: '0 4px', background: editorSection.borderColor,

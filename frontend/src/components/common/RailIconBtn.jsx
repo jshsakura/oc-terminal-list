@@ -37,11 +37,17 @@ const RailIconBtn = ({
     : (active || isAccent) ? palette.accent
     : palette.subtext;
   const hoverColor = isDanger ? '#fff' : palette.text;
-  // 모든 톤 동일 — idle 은 transparent, 호버에만 배경. (이전엔 danger 만 idle bg+border 가
-  // 있어서 혼자 큰 버튼처럼 보이는 사고. 시각 무게는 icon color 만으로 충분히 전달.)
+  // 모든 톤 동일 — idle 은 transparent 배경 + **연한 테두리**, 호버에 배경이 찬다.
+  // 테두리는 미리 그린다: 터치 기기에는 hover 가 없어서, 호버에만 보이는 어포던스는
+  // 폰에서 영영 안 보인다("이게 버튼인가?"). 무게는 여전히 아이콘 색이 담당하고
+  // 테두리는 border-subtle 한 겹뿐이다 — 예전에 danger 만 idle 배경까지 깔아서 혼자
+  // 큰 버튼처럼 보이던 사고와는 다르다(그건 톤마다 달랐던 게 문제였다).
   // isAccent: 아이콘 색만 accent 로 — 배경 없음 (눈 아이콘 포커스 표시 등)
   const idleInnerBg = (active && !isAccent) ? palette.surface1 : 'transparent';
   const hoverInnerBg = isDanger ? palette.danger : palette.surface0;
+  const idleBorder = active && !isAccent
+    ? `1px solid ${palette['accent-border'] || palette.border}`
+    : `1px solid ${palette['border-subtle'] || palette.border}`;
 
   return (
     <button
@@ -75,6 +81,7 @@ const RailIconBtn = ({
           ...S.inner,
           ...(compact ? S.innerCompact : null),
           background: idleInnerBg,
+          border: idleBorder,
         }}
       >
         {Icon ? <Icon size={compact ? 13 : 15} strokeWidth={1.8} /> : children}
@@ -108,6 +115,7 @@ const S = {
   },
   inner: {
     position: 'relative',
+    boxSizing: 'border-box',
     width: '24px',
     height: '24px',
     display: 'inline-flex',
