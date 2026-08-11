@@ -66,10 +66,16 @@ async def llm_usage_delete_source(source_id: str, username: str = Depends(verify
     """
     if not is_safe_id(source_id) and source_id != "local":
         raise HTTPException(status_code=400, detail="잘못된 소스 id 입니다")
-    if source_id != "local" and await storage.get_host(source_id, username):
+    # **은퇴한 소스만 지울 수 있다.** 이 버튼은 "호스트 목록에서 빠진 것" 을 치우는 용도다.
+    # 살아 있는 소스를 지워봐야 다음 수집이 다시 채우니 눌러도 아무 일 없어 보이고, 무엇보다
+    # `local`(이 서버) 은 은퇴할 일이 없는데 이 검사가 없으면 URL 하나로 전체 기록이 날아간다.
+    source = (await storage.get_llm_sources(username)).get(source_id)
+    if not source:
+        raise HTTPException(status_code=404, detail="그런 사용량 소스가 없습니다")
+    if not source.get("retired_at"):
         raise HTTPException(
             status_code=409,
-            detail="아직 등록된 호스트입니다. 호스트를 먼저 삭제하세요.",
+            detail="아직 쓰이는 소스입니다. 호스트를 먼저 삭제하세요.",
         )
     removed = await purge_source(username, source_id)
     return {"source_id": source_id, "removed": removed}

@@ -119,3 +119,15 @@ def test_days_left_counts_down_and_floors_at_zero():
 def test_days_left_treats_garbage_as_expired():
     """읽을 수 없는 값 때문에 영원히 안 지워지는 행이 생기면 안 된다."""
     assert _retired_days_left("nonsense") == 0
+
+
+@pytest.mark.asyncio
+async def test_only_retired_sources_may_be_purged(store):
+    """살아 있는 소스는 API 로 못 지운다 — 특히 `local` 은 은퇴할 일이 없어서, 이 검사가
+    없으면 URL 하나로 이 서버의 전체 기록이 날아간다."""
+    await _seed(store)
+    sources = await store.get_llm_sources(USER)
+    assert sources[SRC]["retired_at"] is None, "라우트가 이 값으로 막는다"
+
+    await store.retire_llm_source(USER, SRC)
+    assert (await store.get_llm_sources(USER))[SRC]["retired_at"]

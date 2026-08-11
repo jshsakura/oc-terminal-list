@@ -211,16 +211,20 @@ describe('attachTerminalFileDrop', () => {
   /* 파일 탐색기에서 폴더/파일을 끌어와 셸에 떨구면 **업로드 없이** 경로만 들어간다 —
      이미 그 기계에 있는 파일이다. 엔터는 여전히 치지 않는다(드롭이 곧 실행이면 사고). */
   describe('탐색기에서 끌어온 경로', () => {
-    const treeDrag = (path) => ({
+    const treeDrag = (path, sourceHost = '') => ({
       types: ['application/x-filetree-path'],
       dropEffect: '',
-      getData: (mime) => (mime === 'application/x-filetree-path' ? path : ''),
+      getData: (mime) => {
+        if (mime === 'application/x-filetree-path') return path;
+        if (mime === 'application/x-filetree-host') return sourceHost;
+        return '';
+      },
     });
 
-    const attachWithCwd = (cwd) => {
+    const attachWithCwd = (cwd, hostId = null) => {
       handle.detach();
       handle = attachTerminalFileDrop({
-        term, container, logger, setDropActive, setImagePasteState,
+        term, container, logger, setDropActive, setImagePasteState, hostId,
         getPaneCwd: () => cwd,
       });
     };
@@ -236,9 +240,9 @@ describe('attachTerminalFileDrop', () => {
     });
 
     it('원격 pane — 트리 경로가 이미 절대라 그대로', () => {
-      attachWithCwd({ isLocal: false, cwdAbs: '/home/pi', cwdRel: '' });
+      attachWithCwd({ isLocal: false, cwdAbs: '/home/pi', cwdRel: '' }, 'h1');
 
-      fire(container, 'drop', treeDrag('/home/pi/app'));
+      fire(container, 'drop', treeDrag('/home/pi/app', 'h1'));
 
       expect(term.paste).toHaveBeenCalledWith('/home/pi/app ');
     });
@@ -260,6 +264,33 @@ describe('attachTerminalFileDrop', () => {
 
       expect(term.paste).not.toHaveBeenCalled();
       expect(setImagePasteState).toHaveBeenCalledWith('error');
+    });
+
+    /* 분할 화면에서는 A pane 의 탐색기에서 B pane 으로 끌 수 있다. 두 pane 의 호스트가
+       다르면 그 경로는 저쪽에서 아무것도 가리키지 않는다 — 조용히 넣으면 안 된다. */
+    it('다른 호스트의 pane 에 떨구면 넣지 않는다', () => {
+      attachWithCwd({ isLocal: false, cwdAbs: '/home/pi', cwdRel: '' }, 'h1');
+
+      fire(container, 'drop', treeDrag('proj/backend', ''));   // 로컬 트리 → 원격 pane
+
+      expect(term.paste).not.toHaveBeenCalled();
+      expect(setImagePasteState).toHaveBeenCalledWith('error');
+    });
+
+    it('원격 → 로컬 pane 도 마찬가지로 거절한다', () => {
+      attachWithCwd({ isLocal: true, cwdAbs: '/w/nb', cwdRel: '' }, null);
+
+      fire(container, 'drop', treeDrag('/home/pi/app', 'h1'));
+
+      expect(term.paste).not.toHaveBeenCalled();
+    });
+
+    it('같은 원격 호스트끼리는 통과한다', () => {
+      attachWithCwd({ isLocal: false, cwdAbs: '/home/pi', cwdRel: '' }, 'h1');
+
+      fire(container, 'drop', treeDrag('/home/pi/logs', 'h1'));
+
+      expect(term.paste).toHaveBeenCalledWith('/home/pi/logs ');
     });
 
     it('dragover 에서 preventDefault — 안 하면 drop 이 오지 않는다', () => {

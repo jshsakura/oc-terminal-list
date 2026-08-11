@@ -7,6 +7,11 @@
 /** 파일 탐색기 내부 드래그의 MIME — 트리 이동과 터미널 경로 삽입이 같은 값을 봐야 한다. */
 export const TREE_PATH_MIME = 'application/x-filetree-path';
 
+/** 그 경로가 **어느 기계의 것인지**. 로컬은 ''. 경로만으로는 알 수 없어 따로 싣는다 —
+ *  분할 화면에서는 A pane 의 탐색기에서 B pane 으로 끌 수 있고, 두 pane 의 호스트가
+ *  다르면 그 경로는 저쪽에서 아무것도 가리키지 않는다. */
+export const TREE_HOST_MIME = 'application/x-filetree-host';
+
 export const isFileDrag = (dataTransfer) => Array.from(dataTransfer?.types || []).includes('Files');
 
 export default isFileDrag;
