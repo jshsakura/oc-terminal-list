@@ -71,6 +71,24 @@ describe('TabBar', () => {
     expect(screen.queryByText(/Close \(end\)/i)).toBeNull();
   });
 
+  it("closes the tab menu when the same '…' is pressed again", () => {
+    // 폰에서 '…' 로 연 메뉴를 그 버튼으로 못 닫던 회귀. 바깥 누름 감지는 이 버튼을
+    // 일부러 무시하므로(안 그러면 닫자마자 다시 열린다) 토글은 버튼이 직접 해야 한다.
+    const tabs = [{ id: 'local:1', type: 'local', sessionId: '1', name: 'zsh' }];
+    render(
+      <TabBar
+        tabs={tabs} activeTabId="local:1"
+        onSelect={vi.fn()} onClose={vi.fn()} onCloseImmediate={vi.fn()} onHome={vi.fn()}
+        onOpenSettings={vi.fn()} isMobile
+      />
+    );
+    const more = document.querySelector('[data-more="true"]');
+    fireEvent.click(more);
+    expect(screen.getByText(/Close tab/i)).toBeInTheDocument();
+    fireEvent.click(more);
+    expect(screen.queryByText(/Close tab/i)).toBeNull();
+  });
+
   it('renders tabs and selects on click', () => {
     const tabs = [
       { id: 'local:1', type: 'local', sessionId: '1', name: 'zsh' },

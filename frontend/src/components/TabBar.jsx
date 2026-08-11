@@ -120,9 +120,13 @@ const TabBar = ({
     e.preventDefault();
     setContextMenu({ tabId, x: e.clientX, y: e.clientY });
   });
+  /* 토글이어야 한다. 바깥 누름 감지가 '…' 버튼을 일부러 무시하므로(안 그러면 눌러 닫고
+     곧바로 다시 열린다), 여기서 닫지 않으면 그 버튼으로는 영영 닫을 수 없다. */
   const handleMore = useEvent((tabId, e) => {
     const rect = e.currentTarget.getBoundingClientRect();
-    setContextMenu({ tabId, x: rect.left, y: rect.bottom + 4 });
+    setContextMenu((prev) => (prev?.tabId === tabId
+      ? null
+      : { tabId, x: rect.left, y: rect.bottom + 4 }));
   });
   const handleDragStart = useEvent((tabId, e) => {
     setDraggingTabId(tabId);

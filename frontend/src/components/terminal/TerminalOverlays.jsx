@@ -11,6 +11,7 @@ import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RefreshCw, KeyRound, U
 import { tokens } from '../../styles/tokens';
 import { glassDividerStyle, glassMenuStyle } from '../../styles/glass';
 import { styles } from './terminalStyles';
+import { useDismissOnOutside } from '../../hooks/useDismissOnOutside';
 
 export const GlassOverlayCard = ({ themeUi, zIndex = 10040, children }) => (
   <div style={{
@@ -181,26 +182,9 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
-  useEffect(() => {
-    const handleClick = (e) => {
-      if (e.button === 2) return;
-      if (ref.current && !ref.current.contains(e.target)) onCloseRef.current();
-    };
-    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
-    const id = setTimeout(() => {
-      // touchstart 도 함께 — 모바일에서 터미널이 touchstart 를 preventDefault 하면 합성 mousedown 이
-      // 억제돼 바깥 탭으로 안 닫히던 문제 우회. (롱프레스로 열리는 컨텍스트 메뉴라 모바일이 주 사용처)
-      document.addEventListener('mousedown', handleClick);
-      document.addEventListener('touchstart', handleClick);
-      document.addEventListener('keydown', handleKey);
-    }, 0);
-    return () => {
-      clearTimeout(id);
-      document.removeEventListener('mousedown', handleClick);
-      document.removeEventListener('touchstart', handleClick);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, []);
+  // 롱프레스로 여는 메뉴라 모바일이 주 사용처 — pointerdown 캡처가 아니면 터미널 위 탭이
+  // 이 리스너에 닿지 않아 메뉴가 안 닫혔다. 우클릭 press 는 이 메뉴를 여는 동작이라 제외.
+  useDismissOnOutside(ref, onClose, { ignoreRightButton: true });
 
   useEffect(() => {
     setMeasured(false);

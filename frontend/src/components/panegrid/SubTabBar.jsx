@@ -14,6 +14,7 @@ import useTouchDragReorder from '../../hooks/useTouchDragReorder';
 import { MenuItem } from '../tabBar/MenuItem';
 import VncMenuItems from '../vnc/VncMenuItems';
 import { glassMenuStyle, glassPanelStyle } from '../../styles/glass';
+import { useDismissOnOutside } from '../../hooks/useDismissOnOutside';
 
 const { color, font, fontSize, fontWeight, radius } = tokens;
 
@@ -79,21 +80,10 @@ const SubTabBar = ({
     return () => cancelAnimationFrame(raf);
   }, [activePaneId, panes.length]);
 
-  useEffect(() => {
-    if (!ctxMenu) return;
-    const handle = (e) => {
-      if (ctxRef.current && !ctxRef.current.contains(e.target) && !e.target?.closest?.('[data-pane-more="true"]')) {
-        ctxCloseRef.current();
-      }
-    };
-    const handleKey = (e) => { if (e.key === 'Escape') ctxCloseRef.current(); };
-    const id = setTimeout(() => {
-      document.addEventListener('mousedown', handle);
-      document.addEventListener('touchstart', handle);
-      document.addEventListener('keydown', handleKey);
-    }, 0);
-    return () => { clearTimeout(id); document.removeEventListener('mousedown', handle); document.removeEventListener('touchstart', handle); document.removeEventListener('keydown', handleKey); };
-  }, [!!ctxMenu]);
+  useDismissOnOutside(ctxRef, () => ctxCloseRef.current(), {
+    enabled: !!ctxMenu,
+    ignoreSelector: '[data-pane-more="true"]',
+  });
 
   // 메뉴 엘리먼트를 잰 뒤 뷰포트 안으로 밀어넣는다. measured 가 false 인 동안 opacity:0
   // 으로 렌더해 자리를 잡고, 위치가 확정되면 보여준다 (한 프레임 점멸 방지 — AGENTS.md #1).
@@ -388,7 +378,10 @@ const SubTabBar = ({
                     onClick={(e) => {
                       e.stopPropagation();
                       const r = e.currentTarget.getBoundingClientRect();
-                      setCtxMenu({ paneId: pane.id, x: r.right, y: r.bottom + 4 });
+                      // 메인탭 '…' 과 같은 이유로 토글 — 바깥 누름 감지가 이 버튼을 무시한다.
+                      setCtxMenu((prev) => (prev?.paneId === pane.id
+                        ? null
+                        : { paneId: pane.id, x: r.right, y: r.bottom + 4 }));
                     }}
                     onTouchStart={(e) => e.stopPropagation()}
                     onTouchEnd={(e) => e.stopPropagation()}

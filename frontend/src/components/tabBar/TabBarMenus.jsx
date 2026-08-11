@@ -8,6 +8,7 @@ import { tokens } from '../../styles/tokens';
 import { glassMenuStyle } from '../../styles/glass';
 import { MenuItem } from './MenuItem';
 import VncMenuItems from '../vnc/VncMenuItems';
+import { useDismissOnOutside } from '../../hooks/useDismissOnOutside';
 
 const { color, font } = tokens;
 
@@ -26,27 +27,8 @@ export const TabContextMenu = ({
   const [pos, setPos] = useState({ x: ctx.x, y: ctx.y });
   const [measured, setMeasured] = useState(false);
 
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const handle = (e) => {
-      if (e.target?.closest?.('[data-more="true"]')) return;
-      if (!ref.current?.contains(e.target)) onCloseRef.current();
-    };
-    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
-    const id = setTimeout(() => {
-      document.addEventListener('mousedown', handle);
-      document.addEventListener('touchstart', handle);
-      document.addEventListener('keydown', handleKey);
-    }, 0);
-    return () => {
-      clearTimeout(id);
-      document.removeEventListener('mousedown', handle);
-      document.removeEventListener('touchstart', handle);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, []);
+  // 바깥 누름/ESC 로 닫기. '…' 버튼은 스스로 토글하므로 제외한다.
+  useDismissOnOutside(ref, onClose, { ignoreSelector: '[data-more="true"]' });
 
   useEffect(() => {
     if (ref.current) {
@@ -134,24 +116,7 @@ export const SettingsSubMenu = ({ anchor, t, isMobile = false, onClose, onSettin
   const ref = useRef(null);
   const [pos, setPos] = useState({ x: anchor.x, y: anchor.y });
   const [measured, setMeasured] = useState(false);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-
-  useEffect(() => {
-    const handle = (e) => { if (ref.current && !ref.current.contains(e.target)) onCloseRef.current(); };
-    const handleKey = (e) => { if (e.key === 'Escape') onCloseRef.current(); };
-    const id = setTimeout(() => {
-      document.addEventListener('mousedown', handle);
-      document.addEventListener('touchstart', handle);
-      document.addEventListener('keydown', handleKey);
-    }, 0);
-    return () => {
-      clearTimeout(id);
-      document.removeEventListener('mousedown', handle);
-      document.removeEventListener('touchstart', handle);
-      document.removeEventListener('keydown', handleKey);
-    };
-  }, []);
+  useDismissOnOutside(ref, onClose);
 
   useEffect(() => {
     if (ref.current) {
