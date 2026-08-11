@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildSshAddr, formatServerAddr, formatSessionTarget } from './sessionTarget';
+import { buildSshAddr, formatServerAddr, formatSessionTarget, formatSessionTargetLabel } from './sessionTarget';
 
 describe('buildSshAddr', () => {
   it('user@host, 22 포트는 생략', () => {
@@ -94,5 +94,20 @@ describe('로컬 세션 핸들에 기계 주소', () => {
   it('주소를 못 구하면 예전처럼 주소 없이 낸다', () => {
     expect(formatSessionTarget({ tmuxSession: 'abc', socket: 'sock' }))
       .toBe("tmux session 'abc' — attach: tmux -L sock attach -t abc");
+  });
+});
+
+describe('formatSessionTargetLabel', () => {
+  it('is just the session name — the toast says what was copied, not the command', () => {
+    expect(formatSessionTargetLabel({ server: 'pi@10.0.0.5', tmuxSession: 'mobile-8db1f9a' }))
+      .toBe('mobile-8db1f9a');
+  });
+
+  it('falls back to the address when there is no session', () => {
+    expect(formatSessionTargetLabel({ server: 'pi@10.0.0.5' })).toBe('pi@10.0.0.5');
+  });
+
+  it('is empty when there is nothing to name', () => {
+    expect(formatSessionTargetLabel({})).toBe('');
   });
 });

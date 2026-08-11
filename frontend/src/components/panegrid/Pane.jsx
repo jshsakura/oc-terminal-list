@@ -18,7 +18,7 @@ import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
 import PaneAddressLabel from './PaneAddressLabel';
 import { derivePaneLabel, isEmptyPane } from '../../utils/paneLabel';
-import { buildSshAddr, formatServerAddr, formatSessionTarget } from '../../utils/sessionTarget';
+import { buildSshAddr, formatServerAddr, formatSessionTarget, formatSessionTargetLabel } from '../../utils/sessionTarget';
 import { copyToClipboard } from '../../utils/clipboard';
 
 const Terminal = lazy(() => import('../Terminal'));
@@ -325,14 +325,15 @@ const Pane = ({
   const handleCopyPaneTarget = useCallback(() => {
     const tmuxSession = isLocal ? (pane.sessionId || '') : (pane.tmuxSessionName || '');
     const cwd = paneCwdAbs || pane.cwd || '';
+    const addr = isLocal
+      ? formatServerAddr({
+        hostname: serverIdentity.hostname,
+        ip: serverIdentity.ip,
+        ipKind: serverIdentity.ip_kind,
+      })
+      : (buildSshAddr(remoteHost) || pane.hostId || '');
     const target = formatSessionTarget({
-      server: isLocal
-        ? formatServerAddr({
-          hostname: serverIdentity.hostname,
-          ip: serverIdentity.ip,
-          ipKind: serverIdentity.ip_kind,
-        })
-        : (buildSshAddr(remoteHost) || pane.hostId || ''),
+      server: addr,
       tmuxSession,
       cwd,
       // Local sessions live on the app's own socket — the name alone cannot be attached to.
@@ -340,8 +341,11 @@ const Pane = ({
       remote: !isLocal,
     });
     if (!target) return;
+    // 클립보드에는 붙여넣어 바로 쓸 수 있는 긴 핸들이 그대로 들어간다. 토스트는 **무엇을**
+    // 복사했는지만 한 줄로 — 같은 문자열을 다시 띄우면 폰 화면 절반이 글자로 덮인다.
+    const label = formatSessionTargetLabel({ server: addr, tmuxSession });
     copyToClipboard(target).then((ok) => onNotify?.(ok
-      ? `${t?.('copied') || 'Copied'}: ${target}`
+      ? `${t?.('copied') || 'Copied'}${label ? ` · ${label}` : ''}`
       : (t?.('clipboardError') || 'Copy failed')));
   }, [isLocal, remoteHost, pane, paneCwdAbs, tmuxSocket, serverIdentity, onNotify, t]);
 

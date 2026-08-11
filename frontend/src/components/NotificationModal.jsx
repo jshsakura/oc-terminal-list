@@ -76,10 +76,18 @@ const styles = {
   },
   message: {
     flex: 1,
+    minWidth: 0,
     fontSize: fontSize['13'],
     fontWeight: fontWeight.regular,
     color: color.text,
     lineHeight: 1.4,
+    /* 두 줄 상한. 토스트는 확인용이지 읽을거리가 아니다 — 긴 경로/명령이 들어오면
+       폰에서 화면 절반을 덮어버린다. 넘치면 자르고, 자를 수 없는 긴 토큰은 줄바꿈한다. */
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+    overflowWrap: 'anywhere',
   },
   closeBtn: {
     width: '20px',

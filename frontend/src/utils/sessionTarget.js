@@ -79,3 +79,16 @@ export function formatSessionTarget({
   if (cwd) parts.push(`(cwd: ${cwd})`);
   return parts.join('  ');
 }
+
+
+/**
+ * The **toast** version — one line, no command.
+ *
+ * The clipboard payload above is deliberately long (it has to be runnable somewhere
+ * else), but a toast that repeats it fills half a phone screen with a wall of text
+ * nobody reads. The confirmation only has to say *which* session was copied.
+ */
+export function formatSessionTargetLabel({ server = '', tmuxSession = '' } = {}) {
+  if (tmuxSession) return tmuxSession;
+  return server || '';
+}

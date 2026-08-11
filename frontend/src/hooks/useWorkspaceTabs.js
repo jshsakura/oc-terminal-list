@@ -315,7 +315,17 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
     // 로드 중에 열면 iOS 사파리가 이걸 "아직 안 끝난 페이지 리소스"로 보고 주소창 밑
     // 진행바를 10%쯤에서 영영 멈춘 채 남겨둔다(새로고침해야 사라지던 그 바).
     // load 이후에 열면 진행 계산에 안 들어간다.
-    const startSse = () => { if (!cancelled) connect(); };
+    // load 직후 같은 턴에 열면 사파리가 아직 그 로드의 일부로 셈한다(SPA 는 보통 load 가
+    // 이미 끝난 뒤 마운트되므로 이 분기로 들어온다) — 한 박자 떼어 확실히 분리한다.
+    let sseStartTimer = null;
+    const startSse = () => {
+      if (cancelled) return;
+      if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(() => { if (!cancelled) connect(); }, { timeout: 1500 });
+        return;
+      }
+      sseStartTimer = setTimeout(() => { if (!cancelled) connect(); }, 400);
+    };
     if (document.readyState === 'complete') startSse();
     else window.addEventListener('load', startSse, { once: true });
 
@@ -331,6 +341,7 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
       es?.close();
       es = null;
       if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+      if (sseStartTimer) { clearTimeout(sseStartTimer); sseStartTimer = null; }
       window.removeEventListener('load', startSse);
       document.removeEventListener('visibilitychange', onVisible);
       window.removeEventListener('focus', onVisible);
