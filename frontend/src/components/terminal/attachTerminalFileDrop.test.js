@@ -8,7 +8,7 @@ import attachTerminalFileDrop, {
   collectDroppedFiles,
   quotePathForShell,
 } from './attachTerminalFileDrop';
-import { isFileDrag } from '../../utils/fileDrag';
+import { isFileDrag, setTreeDragPayload } from '../../utils/fileDrag';
 import { uploadFileAndGetPath } from './terminalHelpers';
 
 /* PC 파일 드롭 → 업로드 → 경로 삽입.
@@ -291,6 +291,24 @@ describe('attachTerminalFileDrop', () => {
       fire(container, 'drop', treeDrag('/home/pi/logs', 'h1'));
 
       expect(term.paste).toHaveBeenCalledWith('/home/pi/logs ');
+    });
+
+    /* 페이로드는 한 쌍으로만 다룬다 — 새 드래그 소스가 경로만 싣고 호스트를 빠뜨리면
+       받는 쪽이 조용히 거절하거나(로컬 기본값) 더 나쁘게 통과시킨다. */
+    it('setTreeDragPayload 가 경로와 호스트를 함께 싣는다', () => {
+      const written = {};
+      setTreeDragPayload({ setData: (k, v) => { written[k] = v; } },
+        { path: '/home/pi/app', hostId: 'h1' });
+      expect(written).toEqual({
+        'application/x-filetree-path': '/home/pi/app',
+        'application/x-filetree-host': 'h1',
+      });
+    });
+
+    it('로컬은 호스트를 빈 문자열로 싣는다 (undefined 로 새지 않게)', () => {
+      const written = {};
+      setTreeDragPayload({ setData: (k, v) => { written[k] = v; } }, { path: 'a/b' });
+      expect(written['application/x-filetree-host']).toBe('');
     });
 
     it('dragover 에서 preventDefault — 안 하면 drop 이 오지 않는다', () => {

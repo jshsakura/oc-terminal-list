@@ -11,7 +11,7 @@ import useFileUpload from '../hooks/useFileUpload';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
 import { authHeaders } from '../utils/auth';
-import { isFileDrag, TREE_HOST_MIME, TREE_PATH_MIME } from '../utils/fileDrag';
+import { isFileDrag, setTreeDragPayload, TREE_PATH_MIME } from '../utils/fileDrag';
 import { ROW_HEIGHT, VIRTUALIZE_AFTER, VIRTUAL_OVERSCAN } from './filetree/fileTreeConstants';
 import { styles } from './filetree/fileTreeStyles';
 import { gitTone, computeParent, dropFolderForRow, isRowInDropTarget, planMove, stripHostPathPrefix } from './filetree/fileTreeHelpers';
@@ -357,9 +357,9 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   };
   const handleRowDragStart = (e, row) => {
     if (!row.path) return;
-    e.dataTransfer.setData(DND_MIME, row.path);
-    // 터미널로 끌었을 때 "저쪽 기계 경로인지" 판정할 근거. 트리 내부 이동은 안 읽는다.
-    e.dataTransfer.setData(TREE_HOST_MIME, hostId || '');
+    // 경로 + 출처 호스트를 한 번에. 호스트는 터미널 드롭이 "저쪽 기계 경로인지" 판정할
+    // 근거이고, 트리 내부 이동은 경로만 읽는다.
+    setTreeDragPayload(e.dataTransfer, { path: row.path, hostId });
     e.dataTransfer.effectAllowed = 'move';
   };
   const handleRowDragOver = (e, row) => {

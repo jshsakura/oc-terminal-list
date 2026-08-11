@@ -1,4 +1,4 @@
-import { isFileDrag, TREE_HOST_MIME, TREE_PATH_MIME } from '../../utils/fileDrag';
+import { isFileDrag, readTreeDragPayload, TREE_PATH_MIME } from '../../utils/fileDrag';
 import { shellPathForTreeDrop } from '../../utils/droppedTreePath';
 import { uploadFileAndGetPath } from './terminalHelpers';
 
@@ -95,11 +95,10 @@ const attachTerminalFileDrop = ({
 
   /** 탐색기에서 온 경로를 그대로 넣는다. 이미 그 기계에 있는 파일이라 올릴 게 없다. */
   const insertTreePath = (dataTransfer) => {
-    const raw = dataTransfer.getData(TREE_PATH_MIME);
+    const { path: raw, hostId: sourceHost } = readTreeDragPayload(dataTransfer);
     /* 출처와 목적지가 다른 기계면 그 경로는 여기서 아무것도 가리키지 않는다. 분할 화면에서
        A pane 의 탐색기에서 B pane 으로 끄는 건 실제로 되는 동작이라, 막지 않으면 조용히
        엉뚱한 경로가 들어간다. 값을 못 읽으면(옛 클라이언트) 로컬로 보고 판정 — fail closed. */
-    const sourceHost = dataTransfer.getData(TREE_HOST_MIME) || '';
     if (sourceHost !== (hostId || '')) {
       logger.warn?.('tree drop: cross-host drop refused', sourceHost, '->', hostId || '');
       flashToast('error', TOAST_ERROR_MS);

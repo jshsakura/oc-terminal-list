@@ -362,8 +362,15 @@ const Pane = ({
   const restartingRef = useRef(false);
   /* 재시작 중임을 Terminal 에 알리는 표식. **kill 보다 먼저** 세워야 한다 — 세션이 죽는
      순간 열려 있던 소켓이 끊기고, 그 진단이 "셸이 exit 했다"(= pane 자동 닫기)와 똑같은
-     모양이기 때문이다. 표식이 없으면 우리가 일부러 죽인 세션을 두고 pane 을 닫아버린다. */
+     모양이기 때문이다. 표식이 없으면 우리가 일부러 죽인 세션을 두고 pane 을 닫아버린다.
+
+     **푸는 것은 시계가 아니라 성공이다.** 새 셸이 실제로 붙으면(terminalReady) 즉시 내린다.
+     Terminal 쪽 시간 창은 "영영 안 붙는 경우" 를 위한 안전망일 뿐, 주 메커니즘이 아니다 —
+     인과를 시간으로 재지 말라는 규칙(CLAUDE.md "원격 세션 소멸") 을 여기서도 지킨다. */
   const [restartAt, setRestartAt] = useState(0);
+  useEffect(() => {
+    if (restartAt && terminalReady) setRestartAt(0);
+  }, [restartAt, terminalReady]);
   const restartSession = useCallback(async () => {
     if (isEmpty) return { ok: false, error: 'empty pane' };
     if (restartingRef.current) return { ok: false, error: 'already restarting' };

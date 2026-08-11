@@ -12,6 +12,25 @@ export const TREE_PATH_MIME = 'application/x-filetree-path';
  *  다르면 그 경로는 저쪽에서 아무것도 가리키지 않는다. */
 export const TREE_HOST_MIME = 'application/x-filetree-host';
 
+/**
+ * 탐색기 드래그의 페이로드는 **항상 이 쌍으로 읽고 쓴다.**
+ *
+ * 경로와 호스트가 두 개의 MIME 로 나뉘어 있어서, 각자 setData 하게 두면 새 드래그 소스를
+ * 만들 때 경로만 싣기 쉽다. 그러면 받는 쪽은 출처를 로컬로 보고(fail-closed 기본값) 조용히
+ * 거절하거나, 더 나쁘게는 통과시킨다. 둘이 갈라질 수 없게 여기서 함께 다룬다.
+ */
+export const setTreeDragPayload = (dataTransfer, { path, hostId = null } = {}) => {
+  dataTransfer.setData(TREE_PATH_MIME, path);
+  dataTransfer.setData(TREE_HOST_MIME, hostId || '');
+};
+
+/** `{path, hostId}` — hostId 는 로컬이면 ''. dragover 단계에서는 브라우저가 값을 숨기므로
+ *  drop 에서만 의미가 있다(존재 여부 판정은 `types` 를 보는 isTreeDrag 가 한다). */
+export const readTreeDragPayload = (dataTransfer) => ({
+  path: dataTransfer.getData(TREE_PATH_MIME) || '',
+  hostId: dataTransfer.getData(TREE_HOST_MIME) || '',
+});
+
 export const isFileDrag = (dataTransfer) => Array.from(dataTransfer?.types || []).includes('Files');
 
 export default isFileDrag;
