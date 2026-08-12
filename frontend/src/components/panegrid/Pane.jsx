@@ -305,11 +305,13 @@ const Pane = ({
   const hiddenCwdDeferMs = HIDDEN_CWD_DEFER_MS;
   /* A shell that has not attached yet reports no cwd. The moment it attaches is
      an event, not something to poll for — this rising edge is what lets the cwd
-     retry ladder be finite. Only counts up, so it never collides with refreshNonce. */
+     retry ladder be finite. Only counts up, so it never collides with refreshNonce.
+     Guarded on *not having* a cwd: attaches are staggered by the WS gate, so
+     refetching on every ready edge put one request per pane back on the wire
+     (measured: 6 batch calls spread across the boot) to re-learn a path we
+     already had. A restored session's cwd is set at creation and does not change
+     when a viewer attaches. */
   const [cwdReadyTick, setCwdReadyTick] = useState(0);
-  useEffect(() => {
-    if (terminalReady) setCwdReadyTick((n) => n + 1);
-  }, [terminalReady]);
   // pane CWD 추적 — tmux #{pane_current_path} 를 마운트/명시적 새로고침 때만 조회한다.
   const { workspaceRelative: paneCwdRel, absolutePath: paneCwdAbs, refresh: refreshPaneCwd } = useActiveTerminalCwd({
     sessionId: isLocal ? (pane.sessionId || null) : null,
@@ -319,6 +321,9 @@ const Pane = ({
     refreshSignal: `${refreshNonce}:${cwdReadyTick}`,
     deferMs: isActive ? 0 : hiddenCwdDeferMs,
   });
+  useEffect(() => {
+    if (terminalReady && !paneCwdAbs) setCwdReadyTick((n) => n + 1);
+  }, [terminalReady, paneCwdAbs]);
   // Git context path for sidebar Files/Git tabs:
   //   local: workspace-relative path ('' = root, null = outside workspace)
   //   host:  null — remote git uses separate API, not local git endpoint
