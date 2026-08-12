@@ -260,6 +260,50 @@ describe('Terminal 재연결 타이머', () => {
       expect(harness.sockets.length).toBeGreaterThan(before);
     });
 
+    /* 붙는다는 건 그 tmux 세션의 창을 내 화면 크기로 만든다는 뜻이다(tmux 기본
+       window-size latest). 폰이 48컬럼으로 붙으면 같은 세션을 보던 PC 가 그 폭으로 짤리고,
+       좁게 리랩된 스크롤백은 폰이 떨어져도 안 돌아온다. 그래서 아직 보지 않은 pane 은
+       아예 붙지 않는다 — 어차피 60초 뒤 grace-close 로 버릴 연결이었다. */
+    it('모바일에서 안 보이는 pane 은 처음부터 붙지 않는다', async () => {
+      const props = { sessionId: 's1', settings, isFocused: true, isMobile: true };
+      render(<TerminalComponent {...props} isActive={false} />);
+      await tick(20);
+
+      expect(harness.sockets.length).toBe(0);
+    });
+
+    it('처음 보이게 되는 순간 붙는다', async () => {
+      const props = { sessionId: 's1', settings, isFocused: true, isMobile: true };
+      const { rerender } = render(<TerminalComponent {...props} isActive={false} />);
+      await tick(20);
+      expect(harness.sockets.length).toBe(0);
+
+      await act(async () => { rerender(<TerminalComponent {...props} isActive />); });
+      await tick(500);
+
+      expect(harness.sockets.length).toBe(1);
+    });
+
+    it('안 붙은 pane 에 "연결 실패" 카드를 띄우지 않는다', async () => {
+      // 붙으려 하지도 않는 pane 에 멈춤 카드는 거짓이고, 그게 떠 있으면 나중에 그
+      // 서브탭을 여는 순간 카드가 먼저 보인다.
+      const props = { sessionId: 's1', settings, isFocused: true, isMobile: true };
+      render(<TerminalComponent {...props} isActive={false} />);
+      await tick(30000);   // LOAD_STUCK_MS(8s) 를 한참 지나서
+
+      expect(screen.queryByText(/연결|Connection/)).toBeNull();
+    });
+
+    it('데스크탑에서는 안 보이는 pane 도 그대로 붙는다', async () => {
+      // 데스크탑은 창을 좁히는 문제도, OS 가 탭을 죽이는 문제도 없다. 끊어봐야 탭을
+      // 오갈 때마다 재연결 + tmux 리플레이만 생긴다.
+      const props = { sessionId: 's1', settings, isFocused: true, isMobile: false };
+      render(<TerminalComponent {...props} isActive={false} />);
+      await tick(20);
+
+      expect(harness.sockets.length).toBe(1);
+    });
+
     it('60초 전에 돌아오면 소켓을 그대로 둔다 (재연결 비용 0)', async () => {
       const props = { sessionId: 's1', settings, isFocused: true, isMobile: true };
       const { rerender } = render(<TerminalComponent {...props} isActive />);

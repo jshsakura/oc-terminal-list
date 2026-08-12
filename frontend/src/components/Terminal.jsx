@@ -206,6 +206,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const autoCloseTimerRef = useRef(null);
   // 로딩이 오래 걸려 멈춘 것으로 보일 때 true — 스켈레톤 위에 수동 닫기 버튼 노출.
   const [loadStuck, setLoadStuck] = useState(false);
+  /* 모바일에서 아직 한 번도 보지 않은 pane — 일부러 소켓을 안 열어둔 상태.
+     "연결이 안 된다" 가 아니라 "아직 안 붙었다" 라, 실패 UI 를 띄우면 안 된다. */
+  const [dormant, setDormant] = useState(false);
   // 연결 실패 원인이 "이 기기(클라이언트) 오프라인"인지 "서버/네트워크 경로"인지 구분해
   // 상태 오버레이 문구/선택지를 그 상황에 맞게만 준다.
   const [isOffline, setIsOffline] = useState(typeof navigator !== 'undefined' && navigator.onLine === false);
@@ -546,16 +549,19 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     }
   }, []);
 
-  // 로딩 멈춤 감지 — 콘텐츠가 안 들어오고 다른 오버레이도 없는 상태가 LOAD_STUCK_MS 넘게
-  // 지속되면 수동 닫기 버튼을 노출한다. 콘텐츠/연결 회복 시 즉시 해제.
+  /* 로딩 멈춤 감지 — 콘텐츠가 안 들어오고 다른 오버레이도 없는 상태가 LOAD_STUCK_MS 넘게
+     지속되면 수동 닫기 버튼을 노출한다. 콘텐츠/연결 회복 시 즉시 해제.
+     dormant(모바일에서 아직 안 본 pane — 일부러 안 붙였다)는 제외한다. 붙으려 하지도 않는
+     pane 에 "멈췄다" 는 거짓이고, 그 타이머가 백그라운드에서 8초 뒤 켜져 있으면 나중에
+     그 서브탭을 여는 순간 카드가 **먼저** 떠 있다. */
   useEffect(() => {
-    if (hasContent || ended || evicted || closing) {
+    if (hasContent || ended || evicted || closing || dormant) {
       setLoadStuck(false);
       return;
     }
     const timer = setTimeout(() => setLoadStuck(true), LOAD_STUCK_MS);
     return () => clearTimeout(timer);
-  }, [hasContent, ended, evicted, closing, reconnecting]);
+  }, [hasContent, ended, evicted, closing, reconnecting, dormant]);
 
   // 온·오프라인 반영 — 상태 오버레이가 "이 기기 오프라인 vs 서버 문제"를 실시간으로 구분.
   useEffect(() => {
@@ -785,6 +791,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     const connect = async (options = {}) => {
       if (cancelled) return;
+      // 붙기 시작하면 더 이상 dormant 가 아니다 — 이제부터는 진짜 연결 UI 를 써야 한다.
+      setDormant(false);
       // outage 프로브는 connect 진입 시점에 정리 — 어떤 경로로든 재연결이 시작(또는 이미
       // 연결 존재)하면 더 두드릴 필요가 없다.
       if (outageProbeTimerRef.current) {
@@ -1416,8 +1424,23 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
        탭 전환/pane 이동으로 인한 unmount→remount 직후 구 WS 가 tmux 에서 아직 등록된
        채로 남아 attached=true 를 반환해 false eviction 오버레이가 뜨는 문제가 있었음.
        진짜 eviction 은 데이터 스트림 내 [detached (from session...)] 토큰으로 감지하므로
-       mount preflight 없이도 충분히 보호됨. */
-    if (!cancelled) connect();
+       mount preflight 없이도 충분히 보호됨.
+
+       **단, 모바일에서 안 보이는 pane 은 붙지 않는다.** 붙는다는 건 그 tmux 세션의 창을
+       내 화면 크기로 만든다는 뜻이다(tmux 기본 `window-size latest`). 폰이 48컬럼으로
+       붙으면 같은 세션을 보고 있는 PC 화면이 그 폭으로 짤리고, **한 번 좁은 폭으로
+       리랩된 스크롤백은 폰이 떨어져도 되돌아오지 않는다.** 그래서 폰에서 앱을 열면
+       열지도 않은 탭들까지 전부 그 피해를 봤다.
+       그리고 어차피 60초 뒤 INACTIVE_PANE_GRACE_MS 가 이 소켓들을 닫는다 — 버릴 연결을
+       위해 남의 화면을 부수고 있었던 셈이다. 보이게 되는 순간 armOrCancel 이 붙인다
+       (wasClosedForInactivity 경로 그대로). */
+    const skipInitialConnect = isMobileRef.current && !isActiveRef.current;
+    setDormant(skipInitialConnect);
+    if (skipInitialConnect) {
+      wasClosedForInactivityRef.current = true;
+    } else if (!cancelled) {
+      connect();
+    }
 
     // 4. 사용자 입력 처리 — connect() 가 여러 번 호출돼도 (takeover/auto-resume) 항상 최신 ws 를 잡게 ref 사용.
     // 대용량 paste 는 절대 동기 while 루프로 WebSocket.send() 를 몰아넣지 않는다.
