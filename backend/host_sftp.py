@@ -650,6 +650,64 @@ async def get_tmux_cwd(host: dict, secrets: dict, session: str | None = None) ->
     return await _get_tmux_cwd_ssh(host, secrets, cmd)
 
 
+_TMUX_CWDS_CMD = (
+    "TMUX_BIN=$(command -v tmux 2>/dev/null); "
+    "[ -n \"$TMUX_BIN\" ] || [ ! -x /usr/bin/tmux ] || TMUX_BIN=/usr/bin/tmux; "
+    "[ -n \"$TMUX_BIN\" ] || [ ! -x /usr/local/bin/tmux ] || TMUX_BIN=/usr/local/bin/tmux; "
+    "[ -n \"$TMUX_BIN\" ] || exit 0; "
+    "$TMUX_BIN list-panes -a -F '#{session_name}\t#{pane_active}\t#{pane_current_path}' 2>/dev/null"
+)
+
+
+def parse_tmux_cwds(text: str) -> dict[str, str]:
+    """`session<TAB>active<TAB>path` lines -> {session: path}, active pane winning.
+
+    Pure so the parsing is testable without a host. A session with no active pane
+    (possible while it is being set up) keeps the first path seen rather than
+    dropping out of the map entirely.
+    """
+    out: dict[str, str] = {}
+    active: set[str] = set()
+    for line in (text or "").splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        session, is_active, path = parts[0], parts[1].strip(), parts[2].strip()
+        if not session or not path:
+            continue
+        if is_active == "1":
+            out[session] = path
+            active.add(session)
+        elif session not in out:
+            out[session] = path
+    return out
+
+
+async def get_tmux_cwds(host: dict, secrets: dict) -> dict[str, str]:
+    """Every remote tmux session's cwd in **one** round trip.
+
+    A restored workspace can hold a dozen panes on one host, and asking per pane
+    meant a dozen SSH exec channels (and a dozen HTTP requests through the
+    tunnel) inside the boot window. The data is identical — `list-panes -a`
+    already reports every session.
+    """
+    if _is_tailscale(host):
+        try:
+            stdout, _ = await _ts.run(_ts.target_for(host), _TMUX_CWDS_CMD, timeout=8.0)
+            return parse_tmux_cwds(stdout.decode(errors="replace"))
+        except Exception as e:
+            logger.debug("get_tmux_cwds tailscale failed (%s): %s", host.get("id"), e)
+            return {}
+    try:
+        conn = await _get_or_open(host, secrets)
+        result = await conn.run(_TMUX_CWDS_CMD, check=False)
+        return parse_tmux_cwds(result.stdout or "")
+    except Exception as e:
+        logger.debug("get_tmux_cwds ssh failed (%s): %s", host.get("id"), e)
+        _drop(host["id"])
+        return {}
+
+
 async def _get_tmux_cwd_tailscale(host: dict, cmd: str) -> str | None:
     try:
         stdout, _ = await _ts.run(_ts.target_for(host), cmd, timeout=6.0)

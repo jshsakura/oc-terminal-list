@@ -67,6 +67,23 @@ async def get_host_cwd(
     return {"host_id": host_id, "cwd": cwd}
 
 
+@router.get("/cwd/batch")
+async def get_host_cwds(
+    host_id: str,
+    username: str = Depends(verify_auth_token),
+):
+    """Every remote tmux session's cwd in one round trip.
+
+    Boot restores every pane at once, and asking per pane meant one SSH exec (and
+    one tunnelled HTTP request) per pane. Registered before nothing that could
+    shadow it — `/cwd` is a literal, so the two never compete.
+    """
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    if not host.get("use_remote_tmux"):
+        return {"host_id": host_id, "cwds": {}}
+    return {"host_id": host_id, "cwds": await host_sftp.get_tmux_cwds(host, secrets)}
+
+
 @router.get("/files")
 async def list_host_files(
     host_id: str,

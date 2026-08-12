@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authHeaders } from '../utils/auth';
+import { createHostCwdBatcher } from '../utils/hostCwdBatch';
+
+const fetchHostCwds = async (hostId) => {
+  const res = await fetch(`/api/hosts/${hostId}/cwd/batch`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return data?.cwds || {};
+};
+
+const { request: requestHostCwd } = createHostCwdBatcher({ fetchHostCwds });
 
 /**
  * 터미널 세션의 현재 작업 디렉토리(cwd).
@@ -56,8 +66,17 @@ const useActiveTerminalCwd = ({
 
   const fetchRemote = useCallback(async (id, session) => {
     try {
-      const qs = session ? `?session=${encodeURIComponent(session)}` : '';
-      const res = await fetch(`/api/hosts/${id}/cwd${qs}`, { headers: authHeaders() });
+      /* Panes on one host share a single request (utils/hostCwdBatch) — see the
+         note there. Without a session name there is nothing to look up in the
+         per-session map, so that case keeps the single-shot endpoint. */
+      if (session) {
+        const cwd = await requestHostCwd(id, session);
+        if (cwd == null) return null;
+        setAbsolutePath(cwd);
+        setWorkspaceRelative(null);
+        return { cwd };
+      }
+      const res = await fetch(`/api/hosts/${id}/cwd`, { headers: authHeaders() });
       if (!res.ok) return null;
       const data = await res.json();
       setAbsolutePath(data.cwd || null);
