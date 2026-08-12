@@ -312,13 +312,20 @@ const Pane = ({
      already had. A restored session's cwd is set at creation and does not change
      when a viewer attaches. */
   const [cwdReadyTick, setCwdReadyTick] = useState(0);
+  /* Becoming visible is worth a fresh cwd (it may have changed while you were
+     away); becoming hidden is not. Counting only the rising edge keeps the
+     leaving side of a tab switch free. */
+  const [cwdVisibleTick, setCwdVisibleTick] = useState(0);
+  useEffect(() => {
+    if (isActive) setCwdVisibleTick((n) => n + 1);
+  }, [isActive]);
   // pane CWD 추적 — tmux #{pane_current_path} 를 마운트/명시적 새로고침 때만 조회한다.
   const { workspaceRelative: paneCwdRel, absolutePath: paneCwdAbs, refresh: refreshPaneCwd } = useActiveTerminalCwd({
     sessionId: isLocal ? (pane.sessionId || null) : null,
     hostId: !isLocal && remoteHost ? (pane.hostId || null) : null,
     tmuxSession: remoteTmuxSession,
     isLocal,
-    refreshSignal: `${refreshNonce}:${cwdReadyTick}`,
+    refreshSignal: `${refreshNonce}:${cwdReadyTick}:${cwdVisibleTick}`,
     deferMs: isActive ? 0 : hiddenCwdDeferMs,
   });
   useEffect(() => {

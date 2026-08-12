@@ -63,17 +63,42 @@ describe('useActiveTerminalCwd', () => {
     expect(global.fetch).toHaveBeenCalledTimes(1);
   });
 
-  it('deferMs 가 있으면 첫 조회를 미루고, 0 이 되면 즉시 조회한다', async () => {
+  it('deferMs 가 있으면 첫 조회를 미룬다', async () => {
     global.fetch = vi.fn(async () => batchOf({ s1: { cwd: '/x', in_workspace: false } }));
-    const { rerender } = renderHook(
-      ({ d }) => useActiveTerminalCwd({ sessionId: 's1', isLocal: true, deferMs: d }),
-      { initialProps: { d: 2000 } },
-    );
+    renderHook(() => useActiveTerminalCwd({ sessionId: 's1', isLocal: true, deferMs: 2000 }));
+
     await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
     expect(global.fetch).not.toHaveBeenCalled();
 
-    rerender({ d: 0 });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000 + BATCH_WINDOW_MS); });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('deferMs 만 바뀌는 것으로는 다시 조회하지 않는다 — 탭을 떠나는 쪽은 공짜여야 한다', async () => {
+    global.fetch = vi.fn(async () => batchOf({ s1: { cwd: '/x', in_workspace: false } }));
+    const { rerender } = renderHook(
+      ({ d }) => useActiveTerminalCwd({ sessionId: 's1', isLocal: true, deferMs: d }),
+      { initialProps: { d: 0 } },
+    );
     await act(async () => { await vi.advanceTimersByTimeAsync(BATCH_WINDOW_MS); });
     expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    rerender({ d: 1500 });   // pane 이 안 보이게 됨
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('다시 보이게 되면(refreshSignal) 미루지 않고 바로 조회한다', async () => {
+    global.fetch = vi.fn(async () => batchOf({ s1: { cwd: '/x', in_workspace: false } }));
+    const { rerender } = renderHook(
+      ({ d, sig }) => useActiveTerminalCwd({ sessionId: 's1', isLocal: true, deferMs: d, refreshSignal: sig }),
+      { initialProps: { d: 1500, sig: 'v0' } },
+    );
+    await act(async () => { await vi.advanceTimersByTimeAsync(1500 + BATCH_WINDOW_MS); });
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    rerender({ d: 0, sig: 'v1' });   // 다시 보임
+    await act(async () => { await vi.advanceTimersByTimeAsync(BATCH_WINDOW_MS); });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 });

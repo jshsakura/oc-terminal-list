@@ -50,6 +50,13 @@ const useActiveTerminalCwd = ({
 }) => {
   const [workspaceRelative, setWorkspaceRelative] = useState('');
   const [absolutePath, setAbsolutePath] = useState(null);
+  /* deferMs is read through a ref on purpose: it flips whenever the pane's
+     visibility does, and as an effect dependency that meant *leaving* a tab
+     re-fetched too — a pane nobody is looking at, re-learning its cwd 1.5s after
+     you navigated away. Becoming visible is a refreshSignal bump instead, so only
+     the direction that matters triggers work. */
+  const deferMsRef = useRef(deferMs);
+  deferMsRef.current = deferMs;
   const tickRef = useRef(null);
   const retryRef = useRef(null);
   const retryAttemptRef = useRef(0);
@@ -149,7 +156,8 @@ const useActiveTerminalCwd = ({
     clearRetry();
     retryAttemptRef.current = 0;
     let deferTimer = null;
-    if (deferMs > 0) deferTimer = setTimeout(refresh, deferMs);
+    const defer = deferMsRef.current;
+    if (defer > 0) deferTimer = setTimeout(refresh, defer);
     else refresh();
     if (intervalMs > 0) {
       tickRef.current = setInterval(refresh, intervalMs);
@@ -160,7 +168,7 @@ const useActiveTerminalCwd = ({
       tickRef.current = null;
       clearRetry();
     };
-  }, [refresh, intervalMs, refreshSignal, clearRetry, deferMs]);
+  }, [refresh, intervalMs, refreshSignal, clearRetry]);
 
   return { workspaceRelative, absolutePath, refresh };
 };
