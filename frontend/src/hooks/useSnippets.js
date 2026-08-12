@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { authHeaders } from '../utils/auth';
 
 /**
- * 스니펫 목록 — **앱 전체가 하나를 공유한다.**
+ * Snippet list — **the whole app shares one.**
  *
- * PaneGrid 는 탭마다 하나씩 마운트되고 모든 탭이 항상 마운트 상태다. 인스턴스마다
- * fetch 를 하던 시절엔 부팅 1초 안에 GET /api/snippets 가 탭 수만큼(실측 14회) 나갔다 —
- * 전부 같은 전역 목록을 받으려고. 스토어를 모듈 레벨로 올려 요청 1회로 만든다.
+ * PaneGrid mounts once per tab and every tab stays mounted, so back when each
+ * instance fetched for itself, boot fired GET /api/snippets as many times as
+ * there were tabs (measured: 14 inside one second) to receive the same global
+ * list each time. Lifting the store to module level makes it one request.
  */
 
 const STALE_MS = 60_000;
@@ -17,7 +18,7 @@ const subscribers = new Set();
 
 const notify = () => {
   subscribers.forEach((fn) => {
-    try { fn(state.list); } catch { /* 구독자 하나가 나머지를 막지 않게 */ }
+    try { fn(state.list); } catch { /* one bad subscriber must not stop the rest */ }
   });
 };
 
@@ -35,14 +36,14 @@ const load = (force = false) => {
       const res = await fetch('/api/snippets', { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setList(await res.json());
-    } catch { /* 무시 — 이전 목록 유지. ts 를 안 찍으므로 다음 마운트가 다시 시도한다 */ }
+    } catch { /* ignore — keep the old list. No ts stamp, so the next mount retries */ }
     finally { inflight = null; }
     return state.list;
   })();
   return inflight;
 };
 
-/** 테스트용 — 모듈 캐시 초기화. */
+/** Test helper — clears the module cache. */
 export const _resetSnippetsStore = () => {
   state.list = [];
   state.ts = 0;

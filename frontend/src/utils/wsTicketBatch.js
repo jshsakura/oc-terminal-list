@@ -1,20 +1,22 @@
 /**
- * WS 티켓 마이크로 배처.
+ * WS ticket micro-batcher.
  *
- * 부팅/복원은 pane 을 전부 한꺼번에 연다. pane 마다 POST /api/ws-ticket 을 하면
- * 1초 안에 요청이 pane 수만큼(실측 14회) 몰리고, 전부 같은 공유 HTTP/2 연결에 줄을 선다 —
- * 모바일 네트워크 전환 때 wedge 되는 바로 그 연결이다. 짧은 창(30ms) 동안 모아
- * POST /api/ws-tickets 한 번으로 받는다.
+ * Boot and workspace restore open every pane at once. One POST /api/ws-ticket
+ * per pane meant a burst as wide as the pane count (measured: 14 inside one
+ * second), all queued on the shared HTTP/2 connection — the very connection that
+ * wedges on mobile network switches. Collect for a short window and issue one
+ * POST /api/ws-tickets instead.
  *
- * 창을 짧게 두는 이유: 혼자 재연결하는 경우엔 이 창이 그대로 지연이 된다. 30ms 는
- * 왕복(보통 100ms+) 대비 무시할 수 있으면서 동시 오픈을 모으기엔 충분하다.
+ * The window is deliberately short: a lone reconnect pays it as latency. 30ms is
+ * negligible next to a round trip (100ms+) yet wide enough to catch a mass open.
  *
- * 결과는 **위치로** 매칭한다. 같은 호스트의 원격 pane 들은 ws 경로가 모두 같은데
- * 티켓은 단일 사용이라, 경로로 매칭하면 첫 pane 만 붙고 나머지가 조용히 실패한다.
+ * Results are matched **positionally**. Remote panes on the same host all share
+ * one ws path and tickets are single use, so keying results by path would hand
+ * them one ticket and every pane after the first would silently fail to attach.
  */
 
 export const WS_TICKET_BATCH_WINDOW_MS = 30;
-// 서버의 MAX_BATCH_PATHS 와 맞춘다 — 넘치면 나눠 보낸다.
+// Mirrors the server's MAX_BATCH_PATHS — anything over splits into another request.
 export const WS_TICKET_BATCH_MAX = 32;
 
 const FAILED = { ticket: null, authExpired: false };
@@ -22,7 +24,7 @@ const EXPIRED = { ticket: null, authExpired: true };
 
 /**
  * @param postBatch (paths[]) => Promise<{ ok, status, tickets }>
- *   tickets: 요청과 같은 순서의 배열. 항목은 {ticket, expires_at} 또는 null.
+ *   tickets: array aligned with the request; each item is {ticket, expires_at} or null.
  */
 export const createWsTicketBatcher = ({ postBatch, windowMs = WS_TICKET_BATCH_WINDOW_MS, maxBatch = WS_TICKET_BATCH_MAX } = {}) => {
   let pending = [];

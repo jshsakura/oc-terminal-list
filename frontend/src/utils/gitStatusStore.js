@@ -1,23 +1,23 @@
 /**
  * Shared git-status poller — one timer and one in-flight request per repo key,
- * no matter how many components ask for it.
+ * however many components ask for it.
  *
  * Why this exists: TerminalHeader mounts one poller per pane and every tab's
  * PaneGrid stays mounted, so N panes meant N independent timers hitting
  * /api/git/status on their own offsets. Measured on this deployment it was 80%
- * of all HTTP traffic (380 of 470 requests in 40 minutes) — every one of them
- * riding the shared Cloudflare tunnel that WS reconnects also depend on.
+ * of all HTTP traffic (380 of 470 requests in 40 minutes), every one riding the
+ * shared Cloudflare tunnel that WS reconnects also depend on.
  *
- * A short result cache did not help: it only dedupes requests that land inside
- * the TTL, and independent timers drift apart within seconds. Subscribers must
- * share the *timer*, not just the result.
+ * A short result cache did not fix it: a cache only merges requests that land
+ * inside its TTL, and independent timers drift apart within seconds. What has to
+ * be shared is the *timer*, not the result.
  */
 import { authHeaders } from './auth';
 
-// A subscriber joining within this window of the last fetch reuses the result
-// instead of firing its own request (tab switches, remounts, split siblings).
+// A subscriber joining this soon after the last fetch reuses the result instead
+// of firing its own (tab switches, remounts, split siblings on one repo).
 export const GIT_STATUS_FRESH_MS = 2000;
-// Idle entries kept for instant delivery on remount before the cache is pruned.
+// Idle entries kept around for instant delivery on remount, before pruning.
 const MAX_IDLE_ENTRIES = 24;
 
 export const gitStatusKey = (hostId, path) => (hostId ? `h:${hostId}:${path || ''}` : `l:${path || ''}`);
@@ -39,8 +39,8 @@ const defaultFetcher = async (hostId, path) => {
 const EMPTY_STATE = { data: null, error: null, ts: 0 };
 
 /**
- * Factory so tests get an isolated store (module singleton below is the app's).
- * `isHidden` is injected for the same reason.
+ * Factory so tests get an isolated store (the module singleton below is the
+ * app's). `isHidden` is injected for the same reason.
  */
 export const createGitStatusStore = ({
   fetcher = defaultFetcher,
@@ -51,7 +51,7 @@ export const createGitStatusStore = ({
 
   const notify = (entry) => {
     entry.subs.forEach((sub) => {
-      try { sub.onData(entry.state); } catch { /* a bad subscriber must not stop the others */ }
+      try { sub.onData(entry.state); } catch { /* one bad subscriber must not stop the rest */ }
     });
   };
 
@@ -62,7 +62,7 @@ export const createGitStatusStore = ({
         const data = await fetcher(entry.hostId, entry.path);
         entry.state = { data, error: null, ts: now() };
       } catch (e) {
-        // Keep the last good data — a transient failure should not blank the list.
+        // Keep the last good data — a transient failure must not blank the list.
         entry.state = { data: entry.state.data, error: e?.message || 'git status failed', ts: now() };
       } finally {
         entry.inflight = null;
@@ -78,7 +78,7 @@ export const createGitStatusStore = ({
     entry.periodMs = 0;
   };
 
-  /** Timer period = the shortest interval any live subscriber asked for. */
+  /** Period = the shortest interval any live subscriber asked for. */
   const retime = (entry) => {
     if (!entry.subs.size) { stopTimer(entry); return; }
     let period = Infinity;
@@ -131,7 +131,7 @@ export const createGitStatusStore = ({
     entry.subs.add(sub);
     bindVisibility();
 
-    // Deliver what we already have so a remount does not flash empty.
+    // Hand over what we already have so a remount does not flash an empty list.
     if (entry.state.ts) onData(entry.state);
     retime(entry);
     if (!entry.state.ts || now() - entry.state.ts > GIT_STATUS_FRESH_MS) {

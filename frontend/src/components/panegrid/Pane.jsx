@@ -294,8 +294,8 @@ const Pane = ({
       })())
     : null;
 
-  /* 안 보이는 pane 의 첫 cwd 조회를 미룰 시간. pane 마다 다른 값이라 다 같이 몰리지 않는다.
-     한 번 뽑고 고정 — 매 렌더 새 값이면 effect 가 계속 다시 돈다. */
+  /* How long an off-screen pane defers its first cwd lookup. Per-pane so they
+     do not land together. Drawn once — a fresh value per render would re-run the effect. */
   const hiddenCwdDeferMs = useMemo(() => 1200 + Math.floor(Math.random() * 2000), []);
   // pane CWD 추적 — tmux #{pane_current_path} 를 마운트/명시적 새로고침 때만 조회한다.
   const { workspaceRelative: paneCwdRel, absolutePath: paneCwdAbs, refresh: refreshPaneCwd } = useActiveTerminalCwd({

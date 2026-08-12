@@ -870,11 +870,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clientId: terminalClientIdRef.current,
       });
 
-      /* [핸드셰이크 게이트] 복원된 워크스페이스는 pane 을 전부 동시에 연다. 그 순간
-         핸드셰이크가 pane 수만큼 공유 터널로 나가고 서버는 tmux attach 리플레이를 한꺼번에
-         쏟는다. 몇 개씩 나눠 붙인다 — 보이는 pane 이 먼저, 그리고 상한 안에서만 기다린다
-         (게이트가 재연결을 막는 새 교착이 되면 안 된다). 슬롯은 소켓이 열리든 닫히든
-         clearOpenTimer 에서 반납한다. */
+      /* [handshake gate] A restored workspace opens every pane at once: as many
+         handshakes as panes into the shared tunnel, and the server replays that
+         many tmux attaches at the same moment. Attach a few at a time — visible
+         panes first, and only ever wait up to the cap (this gate must not become
+         a new way for reconnection to deadlock). The slot is returned from
+         clearOpenTimer, whether the socket opens or closes. */
       connectInFlightRef.current = true;
       const releaseSlot = await acquireWsConnectSlot({ priority: isActiveRef.current });
       connectInFlightRef.current = false;
@@ -913,8 +914,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         // 재연결 pill 을 유지해 워치독이 계속 복구를 시도하게(mosh 식 인페이지 무한 복구).
         keepReconnectingPill(t('networkReconnect') || 'Network connection changed. Reconnecting...');
       }, CONNECT_OPEN_TIMEOUT_MS);
-      /* 게이트 슬롯 반납도 여기서 한다 — onopen/onclose 가 둘 다 부르는 유일한 자리다
-         (열림 타임아웃도 소켓을 닫으므로 결국 onclose 를 지난다). release 는 멱등. */
+      /* The gate slot is released here too — the one place both onopen and
+         onclose pass through (the open timeout closes the socket, so it ends up
+         in onclose as well). release is idempotent. */
       const clearOpenTimer = () => {
         if (openTimer) { clearTimeout(openTimer); openTimer = null; }
         releaseSlot();

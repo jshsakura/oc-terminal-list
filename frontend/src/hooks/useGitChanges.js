@@ -3,20 +3,20 @@ import { authHeaders } from '../utils/auth';
 import { subscribeGitStatus, refreshGitStatus, peekGitStatus } from '../utils/gitStatusStore';
 
 /**
- * Git 변경 사항 훅.
+ * Git changes hook.
  *
- * hostId 가 제공되면 원격 호스트 API (/api/hosts/{hostId}/git/status) 를,
- * 없으면 로컬 API (/api/git/status) 를 호출.
+ * With hostId it reads the remote host API (/api/hosts/{hostId}/git/status),
+ * otherwise the local one (/api/git/status).
  *
- * 폴링 자체는 **utils/gitStatusStore** 가 소유한다 — 같은 repo 를 보는 pane 이
- * 몇 개든 타이머 하나·요청 하나. 이 훅은 구독과 React 상태 변환만 한다.
- * (예전엔 인스턴스마다 setInterval 을 들어서, 안 보이는 탭의 pane 까지 각자
- *  자기 오프셋으로 폴링했다.)
+ * The polling itself belongs to **utils/gitStatusStore** — one timer and one
+ * request per repo no matter how many panes watch it. This hook only subscribes
+ * and maps the result into React state. (It used to own a setInterval per
+ * instance, so panes in background tabs each polled on their own offset.)
  *
- * 깜빡임 방지 전략:
- * - 스토어에 캐시가 있으면 구독 즉시 그 값을 받아 빈 목록이 스치지 않는다
- * - 실패해도 직전 데이터는 유지하고 error 만 채운다
- * - 첫 로딩에만 skeleton(loading) — 이후 갱신은 조용히
+ * Anti-flicker rules:
+ * - a cached value is delivered on subscribe, so no empty list flashes
+ * - a failed refresh keeps the previous data and only fills in `error`
+ * - the skeleton (`loading`) shows on first load only; later refreshes are quiet
  */
 
 const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId = null } = {}) => {
@@ -27,8 +27,9 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId =
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // refresh 는 안정된 정체성이어야 한다 — 호출부(TerminalHeader 의 패널 effect)가
-  // 이걸 의존성으로 쓰므로, path 가 바뀔 때마다 새 함수를 주면 그 effect 가 덩달아 돈다.
+  // `refresh` must keep a stable identity: callers (TerminalHeader's panel
+  // effect) list it as a dependency, so a new function on every path change
+  // would re-run their effects too.
   const targetRef = useRef({ hostId, path });
   targetRef.current = { hostId, path };
 

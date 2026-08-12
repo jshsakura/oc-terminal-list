@@ -33,9 +33,9 @@ const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
 const TerminalHeader = ({
   isFocused = false, // pane 포커스 여부 — 사이드바 하단 눈 아이콘 (Eye/EyeOff) 으로 표시.
-  /* 이 pane 이 화면에 보이는가(= 활성 탭). 안 보이는 pane 의 git 폴링을 끄는 데 쓴다 —
-     모든 탭의 PaneGrid 가 항상 마운트라, 이 게이트가 없으면 안 보이는 탭들이 각자
-     계속 /api/git/status 를 두드린다(이 배포에서 전체 HTTP 의 80%였다). */
+  /* Is this pane on screen (i.e. its tab is active)? Gates git polling: every
+     tab's PaneGrid stays mounted, so without this the invisible tabs each keep
+     hammering /api/git/status — 80% of all HTTP on this deployment. */
   isPaneVisible = true,
   showFocusEye = false, // legacy hint; focus eye now keeps a stable slot for every live terminal.
   activeTabType,    // 'local' | 'host' | null
