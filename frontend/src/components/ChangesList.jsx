@@ -219,10 +219,12 @@ const ChangesList = ({ gitContextPath = '', sharedGitChanges = null, hostId = nu
   const effectivePath = gitContextPath;
 
   const canUseSharedGitChanges = !!sharedGitChanges && (gitContextPath != null || !!hostId);
+  /* 폴백 경로 전용(보통은 헤더의 인스턴스를 공유한다). 열린 git 패널의 기본 주기와 맞춘다 —
+     공유 스토어가 최솟값을 채택하므로 여기만 낮으면 같은 repo 전체가 그 주기가 된다. */
   const localGitChanges = useGitChanges({
     enabled: !canUseSharedGitChanges,
     path: effectivePath,
-    intervalMs: 1500,
+    intervalMs: 4000,
   });
   const { items, branch, repo, error, refresh, loading } = canUseSharedGitChanges
     ? sharedGitChanges

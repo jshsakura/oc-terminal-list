@@ -109,6 +109,62 @@ describe('gitStatusStore', () => {
     expect(last.data.items).toEqual([{ path: 'x' }]);
   });
 
+  describe('touch — 출력이 멎으면 갱신', () => {
+    it('출력이 이어지는 동안은 안 쏘고, 멎은 뒤에 한 번 쏜다', async () => {
+      store.subscribe({ path: 'repo', intervalMs: 100000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(21000); // 스로틀 창을 넘긴다
+      fetcher.mockClear();
+
+      // 2초 간격으로 계속 두드림 = 계속 출력 중
+      for (let i = 0; i < 5; i += 1) {
+        store.touch({ path: 'repo' });
+        await vi.advanceTimersByTimeAsync(2000);
+      }
+      expect(fetcher).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(2500); // 멎었다
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    it('직전 조회가 최근이면 건너뛴다 (스로틀)', async () => {
+      store.subscribe({ path: 'repo', intervalMs: 100000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(0);
+      fetcher.mockClear();
+
+      store.touch({ path: 'repo' });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(fetcher).not.toHaveBeenCalled(); // 방금 받아왔으니 조용
+
+      await vi.advanceTimersByTimeAsync(20000);
+      store.touch({ path: 'repo' });
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    });
+
+    it('아무도 안 보고 있으면 아무것도 안 한다', async () => {
+      const un = store.subscribe({ path: 'repo', intervalMs: 100000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(21000);
+      un();
+      fetcher.mockClear();
+
+      store.touch({ path: 'repo' });
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+
+    it('숨겨진 페이지에서는 안 쏜다', async () => {
+      store.subscribe({ path: 'repo', intervalMs: 100000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(21000);
+      fetcher.mockClear();
+
+      hidden = true;
+      store.touch({ path: 'repo' });
+      await vi.advanceTimersByTimeAsync(10000);
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+  });
+
   it('refresh 는 진행 중인 요청과 합쳐진다', async () => {
     let resolve;
     store.dispose();

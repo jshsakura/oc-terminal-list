@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authHeaders } from '../utils/auth';
-import { subscribeGitStatus, refreshGitStatus, peekGitStatus } from '../utils/gitStatusStore';
+import { subscribeGitStatus, refreshGitStatus, touchGitStatus, peekGitStatus } from '../utils/gitStatusStore';
 
 /**
  * Git changes hook.
@@ -19,7 +19,7 @@ import { subscribeGitStatus, refreshGitStatus, peekGitStatus } from '../utils/gi
  * - the skeleton (`loading`) shows on first load only; later refreshes are quiet
  */
 
-const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId = null } = {}) => {
+const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId = null, activityPaneId = null } = {}) => {
   const [items, setItems] = useState([]);
   const [branch, setBranch] = useState(null);
   const [repo, setRepo] = useState(null);
@@ -55,6 +55,20 @@ const useGitChanges = ({ enabled = false, intervalMs = 4000, path = '', hostId =
       },
     });
   }, [enabled, hostId, path, intervalMs]);
+
+  /* The clock is only a floor. What actually changes a repo is the terminal
+     writing to it, so this pane's output drives the refresh — the badge updates
+     a couple of seconds after a command finishes instead of on the next tick,
+     and idle panes cost nothing. */
+  useEffect(() => {
+    if (!enabled || !activityPaneId) return undefined;
+    const onActivity = (e) => {
+      if (e.detail?.paneId !== activityPaneId) return;
+      touchGitStatus(targetRef.current);
+    };
+    window.addEventListener('iterm:activity', onActivity);
+    return () => window.removeEventListener('iterm:activity', onActivity);
+  }, [enabled, activityPaneId]);
 
   const refresh = useCallback(() => refreshGitStatus(targetRef.current), []);
 

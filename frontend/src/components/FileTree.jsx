@@ -97,10 +97,13 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const effectiveGitPath = gitContextPath || treeFocus;
 
   const canUseSharedGitChanges = !!sharedGitChanges && !!gitContextPath && effectiveGitPath === gitContextPath;
+  /* 이건 트리의 변경 점(dot)만 칠한다 — 1.5s 는 사람이 구분 못 하는 신선도에 분당 40회를
+     썼다. 공유 스토어는 **가장 짧은 간격**을 채택하므로, 여기 한 곳이 낮으면 같은 repo 를
+     보는 모든 구독자가 그 주기로 끌려간다. */
   const localGitChanges = useGitChanges({
     enabled: !isHostMode && !canUseSharedGitChanges,
     path: effectiveGitPath,
-    intervalMs: effectiveGitPath ? 1500 : 8000,
+    intervalMs: effectiveGitPath ? 8000 : 15000,
   });
   const { items: gitItems, branch: gitBranch, repo: gitRepo, repos: gitRepos } = canUseSharedGitChanges
     ? sharedGitChanges

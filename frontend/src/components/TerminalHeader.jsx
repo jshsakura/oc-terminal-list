@@ -260,17 +260,21 @@ const TerminalHeader = ({
   // host:  원격 호스트 SSH git API (hostId + remoteCwd)
   const isRemote = !!activeHostId;
   const gitPanelOpen = activePanel === 'git';
-  // 리모트: 패널 열릴 때만 30s 폴링, 닫히면 폴링 중단 (SSH 연결 비용)
-  // 로컬: 패널 열림 4s / 닫힘 15s (로컬 API는 저렴)
+  /* 리모트: 패널 열릴 때만 30s 폴링, 닫히면 폴링 중단 (SSH 연결 비용)
+     로컬: 패널 열림 4s / 닫힘 60s.
+     닫힌 패널이 먹이는 건 레일 아이콘의 배지 숫자 하나뿐이라 시계는 바닥값이면 된다 —
+     신선도는 activityPaneId(그 pane 의 출력이 멎으면 갱신)가 책임진다. 예전의 15s 는
+     보이는 repo 마다 분당 4회였고, 그게 이 배포에서 전체 HTTP 의 대부분이었다. */
   const gitEnabled = isPaneVisible && (isRemote
     ? gitPanelOpen
     : (gitContextPath != null || !!activeHostId));
-  const gitIntervalMs = isRemote ? 30000 : (gitPanelOpen ? 4000 : 15000);
+  const gitIntervalMs = isRemote ? 30000 : (gitPanelOpen ? 4000 : 60000);
   const gitChanges = useGitChanges({
     enabled: gitEnabled,
     path: activeHostId ? (paneCwd || '') : (gitContextPath || ''),
     hostId: activeHostId || null,
     intervalMs: gitIntervalMs,
+    activityPaneId: paneInfo?.paneId || null,
   });
   const { items: gitItems, refresh: refreshGitChanges } = gitChanges;
   const gitCount = (gitContextPath != null || !!activeHostId) ? (gitItems || []).length : 0;

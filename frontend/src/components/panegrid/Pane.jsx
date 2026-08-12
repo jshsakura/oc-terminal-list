@@ -297,13 +297,20 @@ const Pane = ({
   /* How long an off-screen pane defers its first cwd lookup. Per-pane so they
      do not land together. Drawn once — a fresh value per render would re-run the effect. */
   const hiddenCwdDeferMs = useMemo(() => 1200 + Math.floor(Math.random() * 2000), []);
+  /* A shell that has not attached yet reports no cwd. The moment it attaches is
+     an event, not something to poll for — this rising edge is what lets the cwd
+     retry ladder be finite. Only counts up, so it never collides with refreshNonce. */
+  const [cwdReadyTick, setCwdReadyTick] = useState(0);
+  useEffect(() => {
+    if (terminalReady) setCwdReadyTick((n) => n + 1);
+  }, [terminalReady]);
   // pane CWD 추적 — tmux #{pane_current_path} 를 마운트/명시적 새로고침 때만 조회한다.
   const { workspaceRelative: paneCwdRel, absolutePath: paneCwdAbs, refresh: refreshPaneCwd } = useActiveTerminalCwd({
     sessionId: isLocal ? (pane.sessionId || null) : null,
     hostId: !isLocal && remoteHost ? (pane.hostId || null) : null,
     tmuxSession: remoteTmuxSession,
     isLocal,
-    refreshSignal: refreshNonce,
+    refreshSignal: `${refreshNonce}:${cwdReadyTick}`,
     deferMs: isActive ? 0 : hiddenCwdDeferMs,
   });
   // Git context path for sidebar Files/Git tabs:

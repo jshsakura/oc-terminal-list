@@ -20,6 +20,15 @@ export const GIT_STATUS_FRESH_MS = 2000;
 // Idle entries kept around for instant delivery on remount, before pruning.
 const MAX_IDLE_ENTRIES = 24;
 
+/* Activity-driven refresh. A repo only changes when something writes to it, and
+ * in this app that means the terminal ran something. So `touch()` refreshes when
+ * the output *stops* — a build that finishes updates the badge ~2.5s later
+ * instead of on the next clock tick, while an agent streaming for minutes keeps
+ * pushing the timer out and costs nothing. The min gap keeps a chatty pane from
+ * turning every pause into a request. */
+export const GIT_ACTIVITY_SETTLE_MS = 2500;
+export const GIT_ACTIVITY_MIN_GAP_MS = 20000;
+
 export const gitStatusKey = (hostId, path) => (hostId ? `h:${hostId}:${path || ''}` : `l:${path || ''}`);
 
 export const gitStatusUrl = (hostId, path) => {
@@ -75,6 +84,7 @@ export const createGitStatusStore = ({
 
   const stopTimer = (entry) => {
     if (entry.timer) { clearInterval(entry.timer); entry.timer = null; }
+    if (entry.settleTimer) { clearTimeout(entry.settleTimer); entry.settleTimer = null; }
     entry.periodMs = 0;
   };
 
@@ -115,10 +125,30 @@ export const createGitStatusStore = ({
   const ensure = (key, hostId, path) => {
     let entry = entries.get(key);
     if (!entry) {
-      entry = { key, hostId, path, subs: new Set(), state: EMPTY_STATE, inflight: null, timer: null, periodMs: 0 };
+      entry = {
+        key, hostId, path, subs: new Set(), state: EMPTY_STATE,
+        inflight: null, timer: null, settleTimer: null, periodMs: 0,
+      };
       entries.set(key, entry);
     }
     return entry;
+  };
+
+  /**
+   * "Something happened in this repo's terminal." Refreshes once the noise stops
+   * (debounce), and only if the last fetch is old enough (throttle). Nobody
+   * watching → nothing to do; the next subscriber fetches anyway.
+   */
+  const touch = ({ hostId = null, path = '' } = {}) => {
+    const entry = entries.get(gitStatusKey(hostId, path));
+    if (!entry || !entry.subs.size) return;
+    if (entry.settleTimer) clearTimeout(entry.settleTimer);
+    entry.settleTimer = setTimeout(() => {
+      entry.settleTimer = null;
+      if (!entry.subs.size || isHidden()) return;
+      if (now() - entry.state.ts < GIT_ACTIVITY_MIN_GAP_MS) return;
+      runFetch(entry);
+    }, GIT_ACTIVITY_SETTLE_MS);
   };
 
   /**
@@ -161,12 +191,13 @@ export const createGitStatusStore = ({
     }
   };
 
-  return { subscribe, refresh, peek, dispose, _entries: entries };
+  return { subscribe, refresh, touch, peek, dispose, _entries: entries };
 };
 
 const store = createGitStatusStore();
 
 export const subscribeGitStatus = store.subscribe;
 export const refreshGitStatus = store.refresh;
+export const touchGitStatus = store.touch;
 export const peekGitStatus = store.peek;
 export default store;
