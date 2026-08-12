@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["sessions"])
 
+# A page cannot hold this many panes; the cap only bounds a crafted request.
+MAX_CWD_BATCH = 64
+
 
 @router.get("/api/sessions", response_model=list[dict])
 async def list_sessions(username: str = Depends(verify_auth_token)):
@@ -159,25 +162,58 @@ async def get_session_activity(session_id: str, username: str = Depends(verify_a
     return {"session_id": session_id, "items": items}
 
 
-@router.get("/api/sessions/{session_id}/cwd")
-async def get_session_cwd(session_id: str, username: str = Depends(verify_auth_token)):
-    """활성 pane 의 현재 작업 디렉토리. 워크스페이스 내부면 상대 경로도 같이 반환."""
-    await _assert_session_owner(session_id, username)
-    cwd = await tmux_manager.get_pane_cwd(session_id)
+def _workspace_view(cwd: str | None) -> dict:
+    """cwd -> the workspace-relative fields the client reads. Shared by the
+    single and batch routes so the two can never drift."""
     if not cwd:
-        return {"session_id": session_id, "cwd": None, "workspace_relative": None, "in_workspace": False}
+        return {"cwd": None, "workspace_relative": None, "in_workspace": False}
     workspace_abs = os.path.abspath(WORKSPACE_ROOT)
     in_workspace = cwd == workspace_abs or cwd.startswith(workspace_abs + os.sep)
     workspace_relative = None
     if in_workspace:
         rel = os.path.relpath(cwd, workspace_abs).replace("\\", "/")
         workspace_relative = "" if rel == "." else rel
-    return {
-        "session_id": session_id,
-        "cwd": cwd,
-        "workspace_relative": workspace_relative,
-        "in_workspace": in_workspace,
-    }
+    return {"cwd": cwd, "workspace_relative": workspace_relative, "in_workspace": in_workspace}
+
+
+# Registered before the /{session_id}/cwd route below. The paths cannot collide
+# ("batch" != "cwd" in the last segment), but keep them adjacent so the ordering
+# rule in CLAUDE.md is obvious to the next reader.
+@router.get("/api/sessions/cwd/batch")
+async def get_session_cwds(
+    ids: str = Query("", description="쉼표로 구분한 세션 id. 비우면 빈 응답."),
+    username: str = Depends(verify_auth_token),
+):
+    """Every requested session's cwd from **one** `list-panes -a`.
+
+    Boot restores every pane at once and each asked for itself: one HTTP request
+    plus two tmux subprocesses (`session_exists` + `display-message`) per pane.
+    tmux already reports all of them in a single call.
+    """
+    wanted = [s for s in (ids or "").split(",") if s]
+    if not wanted:
+        return {"cwds": {}}
+    if len(wanted) > MAX_CWD_BATCH:
+        raise HTTPException(status_code=400, detail=f"한 번에 {MAX_CWD_BATCH}개까지만 조회합니다")
+
+    all_cwds = await tmux_manager.get_all_pane_cwds()
+    out = {}
+    for session_id in wanted:
+        if session_id not in all_cwds:
+            continue
+        # Same ownership rule as the single route — a batch must not become a way
+        # to read other users' sessions.
+        await _assert_session_owner(session_id, username)
+        out[session_id] = _workspace_view(all_cwds[session_id])
+    return {"cwds": out}
+
+
+@router.get("/api/sessions/{session_id}/cwd")
+async def get_session_cwd(session_id: str, username: str = Depends(verify_auth_token)):
+    """활성 pane 의 현재 작업 디렉토리. 워크스페이스 내부면 상대 경로도 같이 반환."""
+    await _assert_session_owner(session_id, username)
+    cwd = await tmux_manager.get_pane_cwd(session_id)
+    return {"session_id": session_id, **_workspace_view(cwd)}
 
 
 @router.patch("/api/sessions/{session_id}/name")

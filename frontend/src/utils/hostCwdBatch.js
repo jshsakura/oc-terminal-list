@@ -13,8 +13,13 @@
 
 export const HOST_CWD_BATCH_WINDOW_MS = 60;
 
-export const createHostCwdBatcher = ({ fetchHostCwds, windowMs = HOST_CWD_BATCH_WINDOW_MS } = {}) => {
-  // hostId -> { timer, waiters: [{ session, resolve }] }
+/**
+ * @param fetchCwds (key) => Promise<Record<string, any>> — key is the host id, or
+ *   '' for the local machine (one tmux server, one batch).
+ */
+export const createHostCwdBatcher = ({ fetchHostCwds, fetchCwds, windowMs = HOST_CWD_BATCH_WINDOW_MS } = {}) => {
+  const load = fetchCwds || fetchHostCwds;
+  // key -> { timer, waiters: [{ session, resolve }] }
   const pendingByHost = new Map();
 
   const flush = async (hostId) => {
@@ -25,7 +30,7 @@ export const createHostCwdBatcher = ({ fetchHostCwds, windowMs = HOST_CWD_BATCH_
 
     let cwds = null;
     try {
-      cwds = await fetchHostCwds(hostId);
+      cwds = await load(hostId, pending.waiters.map((w) => w.session));
     } catch {
       cwds = null;
     }

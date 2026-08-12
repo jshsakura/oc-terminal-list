@@ -47,3 +47,31 @@ def test_empty_input():
 def test_paths_with_spaces_survive():
     text = "mobile\t1\t/home/me/my project"
     assert parse_tmux_cwds(text) == {"mobile": "/home/me/my project"}
+
+
+# --- local side: same shape, one `list-panes -a` on this box ---
+
+async def test_local_batch_prefers_active_pane(monkeypatch):
+    from tmux_manager import tmux_manager
+
+    lines = "\n".join([
+        "sess-a\t0\t/home/me/one",
+        "sess-a\t1\t/home/me/two",
+        "sess-b\t1\t/srv",
+    ])
+
+    async def fake_run(*args, **kwargs):
+        return 0, lines, ""
+
+    monkeypatch.setattr(tmux_manager, "_run", fake_run)
+    assert await tmux_manager.get_all_pane_cwds() == {"sess-a": "/home/me/two", "sess-b": "/srv"}
+
+
+async def test_local_batch_returns_empty_when_tmux_fails(monkeypatch):
+    from tmux_manager import tmux_manager
+
+    async def fake_run(*args, **kwargs):
+        return 1, "", "no server"
+
+    monkeypatch.setattr(tmux_manager, "_run", fake_run)
+    assert await tmux_manager.get_all_pane_cwds() == {}

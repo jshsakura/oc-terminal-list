@@ -9,7 +9,16 @@ const fetchHostCwds = async (hostId) => {
   return data?.cwds || {};
 };
 
-const { request: requestHostCwd } = createHostCwdBatcher({ fetchHostCwds });
+const fetchLocalCwds = async (_key, sessionIds) => {
+  const ids = sessionIds.filter(Boolean).join(',');
+  const res = await fetch(`/api/sessions/cwd/batch?ids=${encodeURIComponent(ids)}`, { headers: authHeaders() });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = await res.json();
+  return data?.cwds || {};
+};
+
+const { request: requestHostCwd } = createHostCwdBatcher({ fetchCwds: fetchHostCwds });
+const { request: requestLocalCwd } = createHostCwdBatcher({ fetchCwds: fetchLocalCwds });
 
 /**
  * 터미널 세션의 현재 작업 디렉토리(cwd).
@@ -51,9 +60,10 @@ const useActiveTerminalCwd = ({
 
   const fetchLocal = useCallback(async (id) => {
     try {
-      const res = await fetch(`/api/sessions/${id}/cwd`, { headers: authHeaders() });
-      if (!res.ok) return null;
-      const data = await res.json();
+      // Local panes share one request too — see utils/hostCwdBatch. '' is the
+      // key for "this machine": one tmux server, one batch.
+      const data = await requestLocalCwd('', id);
+      if (!data) return null;
       if (data.in_workspace) {
         setWorkspaceRelative(data.workspace_relative || '');
       } else {

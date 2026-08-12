@@ -2,7 +2,7 @@
  * 단일 pane — (Terminal / 빈 화면 EmptyPane) + 자체 TerminalHeader 오버레이 + 폴더 픽커.
  * 분할 그리드의 잎 노드. PaneGrid.jsx 에서 로직 변경 없이 추출.
  */
-import { Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Suspense, lazy, useState, useEffect, useRef, useCallback } from 'react';
 import { Plus, ArrowRightLeft, LayoutPanelLeft } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
@@ -24,6 +24,9 @@ import { copyToClipboard } from '../../utils/clipboard';
 const Terminal = lazy(() => import('../Terminal'));
 const VncPane = lazy(() => import('../vnc/VncPane'));
 const { color, font, fontSize, fontWeight, space } = tokens;
+
+// Off-screen panes yield the boot window, then all ask at once (one batch).
+const HIDDEN_CWD_DEFER_MS = 1500;
 
 const Pane = ({
   pane, paneIndex = 0, hasBottomBorder = false, tab, hosts, allTabs = [], isMobile = false, isFocused, isMultiple, onFocus, onClose, onActivate,
@@ -294,9 +297,12 @@ const Pane = ({
       })())
     : null;
 
-  /* How long an off-screen pane defers its first cwd lookup. Per-pane so they
-     do not land together. Drawn once — a fresh value per render would re-run the effect. */
-  const hiddenCwdDeferMs = useMemo(() => 1200 + Math.floor(Math.random() * 2000), []);
+  /* How long an off-screen pane defers its first cwd lookup — deliberately the
+     *same* value for every pane. It used to be a per-pane random jitter, to keep
+     the lookups from landing together; now that they are batched per host,
+     landing together is exactly what we want. The jitter measured 7 batch
+     requests where 1 would do. */
+  const hiddenCwdDeferMs = HIDDEN_CWD_DEFER_MS;
   /* A shell that has not attached yet reports no cwd. The moment it attaches is
      an event, not something to poll for — this rising edge is what lets the cwd
      retry ladder be finite. Only counts up, so it never collides with refreshNonce. */

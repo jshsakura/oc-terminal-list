@@ -392,6 +392,36 @@ class TmuxManager:
             self._record_cwd(session_id, cwd)
         return cwd
 
+    async def get_all_pane_cwds(self) -> dict[str, str]:
+        """Every live session's cwd from one `list-panes -a`.
+
+        The per-session path costs two subprocesses (`session_exists` +
+        `display-message`); a restored workspace multiplied that by pane count
+        inside the boot window. Records the same cwd history as the single call
+        so the activity timeline does not depend on which route was used.
+        """
+        rc, out, _ = await self._run(
+            "list-panes", "-a", "-F", "#{session_name}\t#{pane_active}\t#{pane_current_path}",
+            check=False,
+        )
+        if rc != 0:
+            return {}
+        cwds: dict[str, str] = {}
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            session, is_active, cwd = parts[0], parts[1].strip(), parts[2].strip()
+            if not session or not cwd:
+                continue
+            # Active pane wins; otherwise keep the first one seen so a session
+            # without an active pane still reports something.
+            if is_active == "1" or session not in cwds:
+                cwds[session] = cwd
+        for session, cwd in cwds.items():
+            self._record_cwd(session, cwd)
+        return cwds
+
     def _record_cwd(self, session_id: str, cwd: str) -> None:
         history = self._cwd_history.setdefault(session_id, deque(maxlen=50))
         if history and history[-1][1] == cwd:
