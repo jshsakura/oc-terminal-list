@@ -2,7 +2,7 @@
  * 단일 pane — (Terminal / 빈 화면 EmptyPane) + 자체 TerminalHeader 오버레이 + 폴더 픽커.
  * 분할 그리드의 잎 노드. PaneGrid.jsx 에서 로직 변경 없이 추출.
  */
-import { Suspense, lazy, useState, useEffect, useRef, useCallback } from 'react';
+import { Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Plus, ArrowRightLeft, LayoutPanelLeft } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
@@ -294,6 +294,9 @@ const Pane = ({
       })())
     : null;
 
+  /* 안 보이는 pane 의 첫 cwd 조회를 미룰 시간. pane 마다 다른 값이라 다 같이 몰리지 않는다.
+     한 번 뽑고 고정 — 매 렌더 새 값이면 effect 가 계속 다시 돈다. */
+  const hiddenCwdDeferMs = useMemo(() => 1200 + Math.floor(Math.random() * 2000), []);
   // pane CWD 추적 — tmux #{pane_current_path} 를 마운트/명시적 새로고침 때만 조회한다.
   const { workspaceRelative: paneCwdRel, absolutePath: paneCwdAbs, refresh: refreshPaneCwd } = useActiveTerminalCwd({
     sessionId: isLocal ? (pane.sessionId || null) : null,
@@ -301,6 +304,7 @@ const Pane = ({
     tmuxSession: remoteTmuxSession,
     isLocal,
     refreshSignal: refreshNonce,
+    deferMs: isActive ? 0 : hiddenCwdDeferMs,
   });
   // Git context path for sidebar Files/Git tabs:
   //   local: workspace-relative path ('' = root, null = outside workspace)
@@ -554,6 +558,7 @@ const Pane = ({
             오버레이+탭모달 이중 확인을 없앤다. 멀티 pane 만 인라인 오버레이로 해당 pane 세션 kill. */}
         <TerminalHeader
           isFocused={isFocused}
+          isPaneVisible={isActive}
           showFocusEye={isMultiple}
           activeTabType={pane.hostId ? 'host' : 'local'}
           activeHostId={pane.hostId || null}

@@ -7,6 +7,11 @@ import { authHeaders } from '../utils/auth';
  * 로컬/리모트: 마운트·세션 변경·명시적 refresh 때만 fetch.
  * tmux 의 #{pane_current_path} 는 즉시 조회 가능하므로 주기 폴링하지 않는다.
  *
+ * deferMs: 첫 조회를 이만큼 미룬다. 안 보이는 pane 용이다 — 복원된 워크스페이스는 pane 을
+ * 전부 동시에 마운트하므로, 이 조회들(원격은 pane 마다 SSH 왕복이다)이 WS 핸드셰이크·티켓과
+ * 같은 순간에 몰린다. 최종 상태는 같고 순서만 양보한다. 0 이 되면(= 그 pane 이 보이게 되면)
+ * effect 가 다시 돌아 즉시 조회한다.
+ *
  * 반환:
  *  - workspaceRelative: 워크스페이스 기준 상대 경로 (로컬만). null = 외부 또는 알 수 없음
  *  - absolutePath: tmux 가 보고한 절대 경로
@@ -18,6 +23,7 @@ const useActiveTerminalCwd = ({
   isLocal = true,
   intervalMs = 0,
   refreshSignal = 0,
+  deferMs = 0,
 }) => {
   const [workspaceRelative, setWorkspaceRelative] = useState('');
   const [absolutePath, setAbsolutePath] = useState(null);
@@ -104,16 +110,19 @@ const useActiveTerminalCwd = ({
     if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
     clearRetry();
     retryAttemptRef.current = 0;
-    refresh();
+    let deferTimer = null;
+    if (deferMs > 0) deferTimer = setTimeout(refresh, deferMs);
+    else refresh();
     if (intervalMs > 0) {
       tickRef.current = setInterval(refresh, intervalMs);
     }
     return () => {
+      if (deferTimer) clearTimeout(deferTimer);
       if (tickRef.current) clearInterval(tickRef.current);
       tickRef.current = null;
       clearRetry();
     };
-  }, [refresh, intervalMs, refreshSignal, clearRetry]);
+  }, [refresh, intervalMs, refreshSignal, clearRetry, deferMs]);
 
   return { workspaceRelative, absolutePath, refresh };
 };

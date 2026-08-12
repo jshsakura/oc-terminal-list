@@ -33,6 +33,10 @@ const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
 const TerminalHeader = ({
   isFocused = false, // pane 포커스 여부 — 사이드바 하단 눈 아이콘 (Eye/EyeOff) 으로 표시.
+  /* 이 pane 이 화면에 보이는가(= 활성 탭). 안 보이는 pane 의 git 폴링을 끄는 데 쓴다 —
+     모든 탭의 PaneGrid 가 항상 마운트라, 이 게이트가 없으면 안 보이는 탭들이 각자
+     계속 /api/git/status 를 두드린다(이 배포에서 전체 HTTP 의 80%였다). */
+  isPaneVisible = true,
   showFocusEye = false, // legacy hint; focus eye now keeps a stable slot for every live terminal.
   activeTabType,    // 'local' | 'host' | null
   activeHostId = null,
@@ -258,9 +262,9 @@ const TerminalHeader = ({
   const gitPanelOpen = activePanel === 'git';
   // 리모트: 패널 열릴 때만 30s 폴링, 닫히면 폴링 중단 (SSH 연결 비용)
   // 로컬: 패널 열림 4s / 닫힘 15s (로컬 API는 저렴)
-  const gitEnabled = isRemote
+  const gitEnabled = isPaneVisible && (isRemote
     ? gitPanelOpen
-    : (gitContextPath != null || !!activeHostId);
+    : (gitContextPath != null || !!activeHostId));
   const gitIntervalMs = isRemote ? 30000 : (gitPanelOpen ? 4000 : 15000);
   const gitChanges = useGitChanges({
     enabled: gitEnabled,

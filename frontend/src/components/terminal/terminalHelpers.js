@@ -4,6 +4,7 @@
  */
 import { authHeaders } from '../../utils/auth';
 import { copyToClipboard } from '../../utils/clipboard';
+import { createWsTicketBatcher } from '../../utils/wsTicketBatch';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -126,24 +127,32 @@ export const uploadFileAndGetPath = async (file, hostId = null) => {
 // 구현은 utils/clipboard 하나뿐이다 — 이 이름은 터미널 쪽 호출부 호환용 별칭.
 export const copyTextToClipboard = (text) => copyToClipboard(text);
 
+const TICKET_TIMEOUT_MS = 7000;
+
+const postTicketBatch = async (paths) => {
+  const res = await fetch('/api/ws-tickets', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify({ paths }),
+    signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
+      ? AbortSignal.timeout(TICKET_TIMEOUT_MS)
+      : undefined,
+  });
+  if (!res.ok) return { ok: false, status: res.status, tickets: null };
+  const data = await res.json().catch(() => null);
+  return { ok: true, status: res.status, tickets: data?.tickets || null };
+};
+
+const ticketBatcher = createWsTicketBatcher({ postBatch: postTicketBatch });
+
+/**
+ * 한 pane 의 티켓을 얻는다 — 실제 HTTP 는 배처가 30ms 창으로 모아 한 번만 나간다.
+ * 반환 계약은 예전 그대로: { ticket, authExpired }.
+ */
 export const issueWsTicket = async (path) => {
-  try {
-    const res = await fetch('/api/ws-ticket', {
-      method: 'POST',
-      headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ path }),
-      signal: typeof AbortSignal !== 'undefined' && AbortSignal.timeout
-        ? AbortSignal.timeout(7000)
-        : undefined,
-    });
-    if (res.status === 401 || res.status === 403) {
-      window.dispatchEvent(new CustomEvent('auth:session-expired'));
-      return { ticket: null, authExpired: true };
-    }
-    if (!res.ok) return { ticket: null, authExpired: false };
-    const data = await res.json();
-    return { ticket: data?.ticket || null, authExpired: false };
-  } catch {
-    return { ticket: null, authExpired: false };
+  const result = await ticketBatcher.request(path);
+  if (result.authExpired) {
+    window.dispatchEvent(new CustomEvent('auth:session-expired'));
   }
+  return result;
 };

@@ -20,11 +20,18 @@ logger = logging.getLogger(__name__)
 
 # ---------------------- WebSocket ticket ----------------------
 
-# 30s — 재연결용 사전 발급 티켓이 끊김~재접속 사이 유효하도록 약간 길게(단일 사용).
-WS_TICKET_TTL_SECONDS = 30
+# 45s — 재연결용 사전 발급 티켓이 끊김~재접속 사이 유효하도록 약간 길게(단일 사용).
+WS_TICKET_TTL_SECONDS = 45
 # 연결된 WS 위로 다음 재연결용 티켓을 미리 밀어주는 주기. 클라가 stash 해 두면 재연결 때
 # HTTP fetch 없이 바로 WebSocket 을 연다(= Jupyter 처럼 fresh TCP, wedge 된 연결 풀 우회).
-WS_TICKET_PUSH_INTERVAL_SECONDS = 10
+#
+# **주기와 TTL 은 같이 움직인다.** 지켜야 할 불변식은 "아무 순간에 끊겨도 stash 된 티켓의
+# 잔여 시간이 클라의 사용 마진(WS_TICKET_USE_MARGIN_MS=3s)보다 넉넉하다" 이고, 최악의 잔여는
+# TTL - PUSH_INTERVAL 이다(= 지금 25s). 예전 10s/30s 는 이 값이 20s 로 필요 이상이었고,
+# 대신 소켓 하나당 분당 6프레임을 썼다 — pane 이 14개면 84프레임이다. 절반으로 줄이면서
+# 보장은 그대로 둔다. 주기만 늘리고 TTL 을 그대로 두는 변경은 금지 — 그 순간 재연결이
+# 티켓 없이(=HTTP 폴백으로) 떨어진다.
+WS_TICKET_PUSH_INTERVAL_SECONDS = 20
 _ws_tickets: dict[str, dict] = {}
 FILE_TICKET_TTL_SECONDS = 30
 _file_tickets: dict[str, dict] = {}

@@ -12,6 +12,7 @@ import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 import { isTerminalAutoResponse } from '../utils/terminalInput';
 import { pushLocalCommand as pushLocalCommandHistory } from '../utils/commandHistory';
 import { getNetworkSummary, getTerminalClientId } from '../utils/clientIdentity';
+import { acquireWsConnectSlot } from '../utils/wsConnectGate';
 import {
   _textDecoder, _textEncoder,
   RECOVERY_GRACE_MS, RECOVERY_POLL_MS, TAKEOVER_CONFIRM_MS, TAKEOVER_CONFIRM_POLL_MS,
@@ -869,6 +870,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         clientId: terminalClientIdRef.current,
       });
 
+      /* [핸드셰이크 게이트] 복원된 워크스페이스는 pane 을 전부 동시에 연다. 그 순간
+         핸드셰이크가 pane 수만큼 공유 터널로 나가고 서버는 tmux attach 리플레이를 한꺼번에
+         쏟는다. 몇 개씩 나눠 붙인다 — 보이는 pane 이 먼저, 그리고 상한 안에서만 기다린다
+         (게이트가 재연결을 막는 새 교착이 되면 안 된다). 슬롯은 소켓이 열리든 닫히든
+         clearOpenTimer 에서 반납한다. */
+      connectInFlightRef.current = true;
+      const releaseSlot = await acquireWsConnectSlot({ priority: isActiveRef.current });
+      connectInFlightRef.current = false;
+      if (cancelled) { releaseSlot(); return; }
+
       // 새 소켓을 만들기 전, 이전 소켓이 남아있으면 핸들러를 떼고 닫는다.
       // 재연결 폭주 시 옛 소켓이 OPEN 으로 남아 버퍼·핸들러를 누적하는 누수를 차단.
       const prevSocket = wsRef.current;
@@ -902,7 +913,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         // 재연결 pill 을 유지해 워치독이 계속 복구를 시도하게(mosh 식 인페이지 무한 복구).
         keepReconnectingPill(t('networkReconnect') || 'Network connection changed. Reconnecting...');
       }, CONNECT_OPEN_TIMEOUT_MS);
-      const clearOpenTimer = () => { if (openTimer) { clearTimeout(openTimer); openTimer = null; } };
+      /* 게이트 슬롯 반납도 여기서 한다 — onopen/onclose 가 둘 다 부르는 유일한 자리다
+         (열림 타임아웃도 소켓을 닫으므로 결국 onclose 를 지난다). release 는 멱등. */
+      const clearOpenTimer = () => {
+        if (openTimer) { clearTimeout(openTimer); openTimer = null; }
+        releaseSlot();
+      };
 
       socket.onopen = () => {
         clearOpenTimer();
