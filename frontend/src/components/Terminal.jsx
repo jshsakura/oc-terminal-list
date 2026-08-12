@@ -1428,11 +1428,13 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
        **단, 모바일에서 안 보이는 pane 은 붙지 않는다.** 붙는다는 건 그 tmux 세션의 창을
        내 화면 크기로 만든다는 뜻이다(tmux 기본 `window-size latest`). 폰이 48컬럼으로
-       붙으면 같은 세션을 보고 있는 PC 화면이 그 폭으로 짤리고, **한 번 좁은 폭으로
-       리랩된 스크롤백은 폰이 떨어져도 되돌아오지 않는다.** 그래서 폰에서 앱을 열면
-       열지도 않은 탭들까지 전부 그 피해를 봤다.
+       붙으면 같은 세션을 보고 있는 PC 화면이 그 폭으로 짜부라진다 — 그것도 **탭마다
+       세션이 따로라, 폰이 붙은 세션 수만큼 따로** (전파가 아니라 개별 사고다).
+       크기 자체는 폰이 떨어지면 돌아오고 스크롤백도 tmux 가 되리플로우한다. 하지만
+       **좁은 동안 찍힌 출력은 그 폭으로 굳는다** — 에이전트가 그린 박스·표는 진짜 줄이라
+       넓혀도 안 합쳐진다.
        그리고 어차피 60초 뒤 INACTIVE_PANE_GRACE_MS 가 이 소켓들을 닫는다 — 버릴 연결을
-       위해 남의 화면을 부수고 있었던 셈이다. 보이게 되는 순간 armOrCancel 이 붙인다
+       위해 남의 화면을 짜부라뜨리고 있었던 셈이다. 보이게 되는 순간 armOrCancel 이 붙인다
        (wasClosedForInactivity 경로 그대로). */
     const skipInitialConnect = isMobileRef.current && !isActiveRef.current;
     setDormant(skipInitialConnect);

@@ -261,8 +261,8 @@ describe('Terminal 재연결 타이머', () => {
     });
 
     /* 붙는다는 건 그 tmux 세션의 창을 내 화면 크기로 만든다는 뜻이다(tmux 기본
-       window-size latest). 폰이 48컬럼으로 붙으면 같은 세션을 보던 PC 가 그 폭으로 짤리고,
-       좁게 리랩된 스크롤백은 폰이 떨어져도 안 돌아온다. 그래서 아직 보지 않은 pane 은
+       window-size latest). 폰이 48컬럼으로 붙으면 같은 세션을 보던 PC 가 그 폭으로
+       짜부라지고, 그 동안 찍힌 출력은 그 폭으로 굳는다. 그래서 아직 보지 않은 pane 은
        아예 붙지 않는다 — 어차피 60초 뒤 grace-close 로 버릴 연결이었다. */
     it('모바일에서 안 보이는 pane 은 처음부터 붙지 않는다', async () => {
       const props = { sessionId: 's1', settings, isFocused: true, isMobile: true };
