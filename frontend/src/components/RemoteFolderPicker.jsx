@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home } from 'lucide-react';
+import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home, Eye, EyeOff } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
 import { authHeaders } from '../utils/auth';
+import { splitHiddenEntries, readShowHidden, writeShowHidden } from '../utils/hiddenEntries';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -49,6 +50,12 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  /* 점 폴더는 기본으로 감춘다 — 홈 디렉토리는 특히 심하다(.ssh/.cache/.local/.npm…).
+     LocalFolderPicker 와 같은 저장소를 쓰므로 토글 하나가 둘 다에 적용된다. */
+  const [showHidden, setShowHidden] = useState(readShowHidden);
+  const toggleHidden = useCallback(() => {
+    setShowHidden((prev) => { writeShowHidden(!prev); return !prev; });
+  }, []);
 
   const load = useCallback(async (target) => {
     if (!host) return;
@@ -89,6 +96,7 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
 
   if (!isOpen || !host) return null;
 
+  const { shown, hiddenCount } = splitHiddenEntries(items, showHidden);
   const goUp = () => load(parentOf(path));
   const goHome = () => load('');
   const enter = (folder) => load(folder.path);
@@ -124,6 +132,22 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
           <HoverBtn type="button" onClick={goUp} disabled={!path || path === '/'} baseStyle={{ ...styles.toolBtn, opacity: !path || path === '/' ? 0.4 : 1 }} hoverStyle={styles.toolBtnHover} title={t?.('folderUp') || 'Up'}>
             <ArrowUp size={13} strokeWidth={1.8} />
           </HoverBtn>
+          <HoverBtn
+            type="button"
+            onClick={toggleHidden}
+            aria-pressed={showHidden}
+            baseStyle={{
+              ...styles.toolBtn,
+              ...(showHidden ? styles.toolBtnOn : null),
+              ...(hiddenCount === 0 && !showHidden ? { opacity: 0.45 } : null),
+            }}
+            hoverStyle={styles.toolBtnHover}
+            title={showHidden
+              ? (t?.('hideHidden') || 'Hide dot folders')
+              : `${t?.('showHidden') || 'Show hidden folders'}${hiddenCount ? ` (${hiddenCount})` : ''}`}
+          >
+            {showHidden ? <Eye size={13} strokeWidth={1.8} /> : <EyeOff size={13} strokeWidth={1.8} />}
+          </HoverBtn>
           <div style={styles.crumb} title={path || '~'}>
             {path || '~'}
           </div>
@@ -142,10 +166,14 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
             </div>
           )}
           {error && !loading && <div style={{ ...styles.notice, color: color.danger }}>{error}</div>}
-          {!loading && !error && items.length === 0 && (
-            <div style={styles.notice}>{t?.('emptyFolder') || 'No subfolders here.'}</div>
+          {!loading && !error && shown.length === 0 && (
+            <div style={styles.notice}>
+              {hiddenCount > 0
+                ? (t?.('onlyHiddenHere') || 'Only hidden folders here.')
+                : (t?.('emptyFolder') || 'No subfolders here.')}
+            </div>
           )}
-          {!loading && !error && items.map((it) => (
+          {!loading && !error && shown.map((it) => (
             <button
               key={it.path}
               type="button"
@@ -267,6 +295,12 @@ const styles = {
     cursor: 'pointer',
     color: color.subtext,
     padding: 0,
+  },
+  /* 켜진 토글 — 지금 목록이 "전부 보기" 상태라는 걸 버튼 하나로 말한다. */
+  toolBtnOn: {
+    background: color.surface1,
+    borderColor: color.accent,
+    color: color.accent,
   },
   toolBtnHover: {
     background: color.surface1,
