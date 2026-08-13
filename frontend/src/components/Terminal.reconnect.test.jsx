@@ -239,6 +239,49 @@ describe('Terminal 재연결 타이머', () => {
     });
   });
 
+  describe('중복 connect 금지', () => {
+    /* connect() 는 소켓을 만들기 전에 await 를 지난다(티켓 발급, 핸드셰이크 게이트).
+       그 창 동안 wsRef 는 비어 있어서, "이미 OPEN/CONNECTING 이면 no-op" 가드만으로는
+       두 번째 호출이 통과한다 — handleResume(focus/online/visibilitychange)이 바로 그
+       호출자다(`!ws` 면 곧장 connect 를 부른다).
+       결과는 같은 pane 에 소켓 둘: 뒤엣놈이 앞엣놈을 닫고, 그 close 가 또 재연결을
+       예약해 "다시 연결 중" 이 영원히 안 끝난다. 실측 로그에서 같은 tmux 세션이 1초 안에
+       두 번 attach 되고 그때마다 앞 소켓이 즉시 닫혔다. */
+    it('소켓을 만드는 중에 focus 가 들어와도 소켓은 하나다', async () => {
+      renderTerminal();
+      // 아직 티켓 await 중 — wsRef 가 비어 있는 바로 그 창.
+      expect(harness.sockets.length).toBe(0);
+
+      await act(async () => { window.dispatchEvent(new Event('focus')); });
+      await tick(50);
+
+      expect(harness.sockets.length).toBe(1);
+    });
+
+    it('복귀 신호가 연달아 와도 소켓은 하나다', async () => {
+      renderTerminal();
+      await act(async () => {
+        window.dispatchEvent(new Event('focus'));
+        window.dispatchEvent(new Event('online'));
+        window.dispatchEvent(new Event('pageshow'));
+      });
+      await tick(50);
+
+      expect(harness.sockets.length).toBe(1);
+    });
+
+    it('붙은 뒤의 복귀 신호는 멀쩡한 소켓을 갈아치우지 않는다', async () => {
+      renderTerminal();
+      const ws = await openSocket();
+
+      await act(async () => { window.dispatchEvent(new Event('focus')); });
+      await tick(50);
+
+      expect(ws.closed).toBe(false);
+      expect(harness.sockets.length).toBe(1);
+    });
+  });
+
   describe('비활성 pane grace-close (모바일)', () => {
     /* 모바일은 안 보이는 pane 이 소켓·하트비트·티켓을 계속 돌리면 OS 가 탭을 통째로 죽인다.
        60초 뒤 조용히 닫고, 활성 복귀 시 다시 붙는다 — tmux 가 세션을 들고 있어 손실은 없다.

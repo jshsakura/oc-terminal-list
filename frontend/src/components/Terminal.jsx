@@ -807,7 +807,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
         return;
       }
-      // ticket 발급 await 창 동안 워치독/중복 호출이 또 connect 를 띄우지 않게 표시.
+      /* **소켓을 만드는 중인 것도 "이미 연결 중" 이다.** connect() 는 소켓을 만들기 전에
+         await 를 두 번 지난다(티켓 발급, 핸드셰이크 게이트). 그 창 동안 wsRef 는 아직
+         비어 있어서, 위 가드만으로는 두 번째 호출이 그대로 통과해 **같은 pane 에 소켓이
+         둘** 생긴다. 뒤엣놈이 prevSocket 을 닫고, 그 close 가 또 재연결을 예약하고… 로
+         영원히 "다시 연결 중" 이 된다(실측: 같은 tmux 세션이 1초 안에 두 번 attach 되고
+         그때마다 앞 소켓이 즉시 닫혔다). 원래도 티켓 RTT 만큼은 열려 있던 창인데,
+         게이트 대기가 붙으면서 상시 재현이 됐다. 창을 좁히지 말고 닫는다. */
+      if (connectInFlightRef.current) return;
+      // ticket 발급/게이트 대기 창 동안 워치독·중복 호출이 또 connect 를 띄우지 않게 표시.
       connectInFlightRef.current = true;
       const createIfMissing = options.create !== false;
       const autoRecover = options.autoRecover !== false;
@@ -888,6 +896,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       const releaseSlot = await acquireWsConnectSlot({ priority: isActiveRef.current });
       connectInFlightRef.current = false;
       if (cancelled) { releaseSlot(); return; }
+      /* 대기하는 사이 다른 경로가 이미 붙여놨다면 여기서 멈춘다 — 위 in-flight 가드를
+         타지 않는 호출자가 생겨도 소켓이 둘이 되지 않게 하는 두 번째 그물. */
+      const establishedWhileWaiting = wsRef.current;
+      if (establishedWhileWaiting
+        && (establishedWhileWaiting.readyState === WebSocket.OPEN
+          || establishedWhileWaiting.readyState === WebSocket.CONNECTING)) {
+        releaseSlot();
+        return;
+      }
 
       // 새 소켓을 만들기 전, 이전 소켓이 남아있으면 핸들러를 떼고 닫는다.
       // 재연결 폭주 시 옛 소켓이 OPEN 으로 남아 버퍼·핸들러를 누적하는 누수를 차단.
@@ -1531,6 +1548,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     return () => {
       disposeFit();
       cancelled = true;
+      /* connect() 의 await 창 표시는 절대 남기지 않는다. 이게 true 로 굳으면 connect 가
+         영구 no-op 이 되어 그 pane 은 새로고침 말곤 못 붙는다 — 지금 고치는 버그보다
+         나쁘다. 정상 경로는 await 직후 스스로 내리지만, 여기서 한 번 더 못박는다. */
+      connectInFlightRef.current = false;
       intentionalCloseRef.current = true;
       contentReadyRef.current = false;
       onReadyChangeRef.current?.(false);
@@ -1906,7 +1927,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           clearTimeout(reconnectTimeoutRef.current);
           reconnectTimeoutRef.current = null;
         }
-        // connect 가드(이미 OPEN/CONNECTING이면 no-op)가 중복 호출을 비용 없이 막는다.
+        /* connect 가드가 중복 호출을 막는다 — 단, 그 가드는 wsRef 만 보는 게 아니라
+           **in-flight 표시까지** 봐야 한다. 여기서 `!ws` 는 "아직 소켓을 만드는 중" 일 때도
+           참이라(티켓 발급·게이트 대기), wsRef 만 보던 시절엔 이 줄이 같은 pane 에 두 번째
+           소켓을 만들어 무한 "다시 연결 중" 을 일으켰다. connect() 상단 주석 참고. */
         connectRef.current?.({ create: false });
         return;
       }

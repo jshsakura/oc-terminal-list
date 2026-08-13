@@ -674,6 +674,35 @@ pane 하나가 분당 2회(원격이면 SSH 왕복 2회)를 영구히 태우고,
   그 타이머가 백그라운드에서 켜져 있으면 나중에 그 서브탭을 여는 순간 카드가 **먼저**
   떠 있다(`LOAD_STUCK_MS` 는 8초라 반드시 그렇게 된다).
 
+### 소켓을 "만드는 중" 인 것도 연결 중이다 (2026-08-12)
+
+`connect()` 는 소켓을 만들기 전에 **await 를 두 번** 지난다(티켓 발급, 핸드셰이크 게이트).
+그 창 동안 `wsRef.current` 는 **비어 있다.** 그래서 상단의 "이미 OPEN/CONNECTING 이면
+no-op" 가드만으로는 두 번째 호출이 그대로 통과해 **같은 pane 에 소켓이 둘** 생긴다.
+
+호출자는 `handleResume` 이다 — focus/online/pageshow/visibilitychange 에서 `!ws` 면 곧장
+`connect()` 를 부른다(폰과 PC 를 오가면 focus 가 계속 터진다). 결과:
+
+```
+10:36:49  /ws/host/…mobile-985593b6ad75…create=0  [accepted] → open → closed  ←
+10:36:50  /ws/host/…mobile-985593b6ad75…create=0  [accepted] → open
+```
+
+뒤엣놈이 `prevSocket` 을 닫고, 그 close 가 또 재연결을 예약하고… **영원히 "다시 연결 중"**.
+새로고침 말곤 탈출구가 없었다.
+
+- `connect()` 상단에서 **`connectInFlightRef` 도 함께 본다**(그물 1).
+- 게이트 대기 뒤 `wsRef` 를 **다시 확인**한다 — in-flight 표시를 안 거치는 호출자가
+  생겨도 소켓이 둘이 되지 않게(그물 2).
+- effect cleanup 에서 in-flight 표시를 **반드시 내린다.** 이게 true 로 굳으면 connect 가
+  영구 no-op 이 되어 원래 버그보다 나쁘다.
+
+⚠️ 이 창은 원래도 티켓 RTT 만큼 열려 있었다(오래된 잠재 버그). 게이트 대기가 붙으면서
+상시 재현이 됐을 뿐이다. **await 를 하나 더 넣는 변경은 언제나 이 질문을 동반해야 한다:
+"그 사이에 같은 일을 또 시작할 수 있는 길이 있나?"**
+`Terminal.reconnect.test.jsx` 의 "중복 connect 금지" 3개가 이 선을 지킨다(두 그물을 다
+빼면 `expected 2 to be 1` 로 떨어진다).
+
 ⚠️ **두 클라이언트가 같은 tmux 창을 동시에 보면서 서로 다른 크기를 갖는 방법은 없다.**
 tmux 의 불변식이다. 그러니 이 문제의 해법은 "크기를 협상" 이 아니라 **"안 볼 세션에는 안
 붙는다"** 뿐이다. 폰과 PC 가 같은 탭을 동시에 열면 그 세션 하나는 여전히 좁아진다.
