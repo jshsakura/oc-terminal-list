@@ -23,9 +23,16 @@ PASTE_DIR_NAME = "iterminallist-paste"
 
 # 로컬 temp 루트 — 컨테이너/특수 배포에서 옮길 수 있게 env 로 열어둔다.
 DEFAULT_LOCAL_TMP = os.getenv("TMPDIR") or "/tmp"
-# 원격은 항상 /tmp. 원격 셸의 TMPDIR 을 물어보려면 SSH 왕복이 하나 더 붙는데,
-# 붙여넣기 지연을 늘릴 만큼의 가치는 없다(POSIX 에서 /tmp 는 사실상 보장된다).
+# 원격은 /tmp 를 먼저 시도한다. 원격 셸의 TMPDIR 을 물어보려면 SSH 왕복이 하나 더
+# 붙는데, 붙여넣기 지연을 늘릴 만큼의 가치는 없다.
 REMOTE_TMP = "/tmp"
+
+# 홈 아래 폴백 폴더명. **"/tmp 는 어느 POSIX 호스트에서나 쓸 수 있다" 는 전제가
+# 실제로 깨진다** — 이 배포의 한 호스트는 SFTP 로 /tmp 에 쓰면 SSH_FX_FAILURE(4) 가
+# 나는데 같은 계정의 셸로는 touch 가 된다(sshd 쪽 네임스페이스/정책 차이). 그때는
+# 붙여넣기가 통째로 실패했다. 홈은 그 호스트에서도 항상 쓸 수 있었다.
+# 점으로 시작해 홈을 어지럽히지 않는다.
+REMOTE_HOME_PASTE_DIR_NAME = f".{PASTE_DIR_NAME}"
 
 
 def local_paste_dir() -> Path:
@@ -34,6 +41,12 @@ def local_paste_dir() -> Path:
 
 def remote_paste_dir() -> str:
     return f"{REMOTE_TMP}/{PASTE_DIR_NAME}"
+
+
+def remote_home_paste_dir(home: str) -> str:
+    """홈 폴백 경로. home 은 SFTP realpath('.') 로 얻은 절대 경로다 —
+    터미널에 꽂을 경로는 pane 의 cwd 와 무관하게 열려야 하므로 절대여야 한다."""
+    return f"{(home or '').rstrip('/')}/{REMOTE_HOME_PASTE_DIR_NAME}"
 
 
 def safe_basename(raw: str | None, fallback: str = "file") -> str:

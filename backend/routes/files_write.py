@@ -21,7 +21,9 @@ from host_common import (
 )
 from host_manager import HostConnectError
 import host_sftp
-from paste_targets import local_paste_dir, remote_paste_dir, safe_basename, stamped_name
+from paste_targets import (
+    local_paste_dir, remote_home_paste_dir, remote_paste_dir, safe_basename, stamped_name,
+)
 from file_models import FileCreateRequest, FileMoveRequest, FileWriteRequest
 
 logger = logging.getLogger(__name__)
@@ -174,30 +176,65 @@ async def _save_local_paste(file: UploadFile, filename: str) -> dict:
     return {"status": "uploaded", "path": str(target), "size": size, "scope": "local"}
 
 
+# host_id -> 그 호스트에서 실제로 써지는 붙여넣기 폴더. 한 번 알아내면 계속 쓴다.
+# ⚠️ 캐시가 없으면 /tmp 가 막힌 호스트는 **붙여넣을 때마다** 실패 한 번을 먼저 낸다.
+_paste_dir_by_host: dict[str, str] = {}
+
+
+async def _remote_paste_dirs(host_id: str, host: dict, secrets: dict):
+    """시도할 폴더를 **게으르게** 내놓는다. 캐시된 게 있으면 그것 하나뿐.
+
+    `/tmp` 를 먼저 두는 이유는 그대로다(재부팅 때 비워져 정리가 필요 없다). 다만
+    **"POSIX 면 /tmp 는 쓸 수 있다" 는 전제가 실제로 깨진다** — 이 배포의 한 호스트는
+    SFTP 로 /tmp 에 쓰면 SSH_FX_FAILURE(4) 가 나는데 같은 계정 셸로는 touch 가 된다.
+    그때 붙여넣기가 통째로 죽는 것보다 홈에 두는 편이 낫다.
+
+    홈 조회는 **/tmp 가 실패한 뒤에만** 한다 — 멀쩡한 호스트가 붙여넣기마다 SSH 왕복을
+    하나 더 태울 이유가 없다(테스트가 이 선을 지킨다).
+    """
+    cached = _paste_dir_by_host.get(host_id)
+    if cached:
+        yield cached
+        return
+    yield remote_paste_dir()
+    home = await host_sftp.remote_home(host, secrets)
+    if home:
+        yield remote_home_paste_dir(home)
+
+
 async def _save_remote_paste(host_id: str, username: str, file: UploadFile, filename: str) -> dict:
-    """원격 호스트의 temp 폴더로 SFTP 업로드."""
+    """원격 호스트의 temp 폴더로 SFTP 업로드. /tmp 가 막힌 호스트는 홈으로 떨어진다."""
     content = await file.read(MAX_UPLOAD_FILE_BYTES + 1)
     if len(content) > MAX_UPLOAD_FILE_BYTES:
         raise HTTPException(status_code=413, detail=f"파일이 너무 큽니다 (최대 {MAX_UPLOAD_FILE_BYTES} bytes)")
 
     host, secrets = await resolve_host_with_secrets(host_id, username)
-    remote_dir = remote_paste_dir()
-    remote_path = f"{remote_dir}/{filename}"
-    try:
-        # 폴더가 이미 있으면 실패하는 구현이 있어 무시하고 진행한다 — 실제 판정은 write 가 한다.
+    last_error: Exception | None = None
+    async for remote_dir in _remote_paste_dirs(host_id, host, secrets):
+        remote_path = f"{remote_dir}/{filename}"
         try:
-            await host_sftp.create_item(host, secrets, remote_dir, "directory")
-        except Exception:
-            pass
-        await host_sftp.write_file(host, secrets, remote_path, content)
-    except HostConnectError as e:
-        logger.warning("paste SFTP failed (%s, %s): %s", host_id, remote_path, e)
-        raise HTTPException(status_code=502, detail=f"원격 호스트에 올리지 못했습니다: {e}")
-    except Exception as e:
-        logger.warning("paste SFTP failed (%s, %s): %s", host_id, remote_path, e)
-        raise HTTPException(status_code=500, detail="원격 업로드 실패")
-    return {"status": "uploaded", "path": remote_path, "size": len(content),
-            "scope": "host", "host_id": host_id}
+            # 폴더가 이미 있으면 실패하는 구현이 있어 무시하고 진행한다 — 실제 판정은 write 가 한다.
+            try:
+                await host_sftp.create_item(host, secrets, remote_dir, "directory")
+            except Exception:
+                pass
+            await host_sftp.write_file(host, secrets, remote_path, content)
+        except Exception as e:
+            last_error = e
+            logger.warning("paste SFTP failed (%s, %s): %s", host_id, remote_path, e)
+            # 캐시된 폴더가 이제 와서 막혔다면 캐시를 버리고 다음 붙여넣기에 다시 찾게 한다.
+            if _paste_dir_by_host.get(host_id) == remote_dir:
+                _paste_dir_by_host.pop(host_id, None)
+            continue
+        if _paste_dir_by_host.get(host_id) != remote_dir:
+            logger.info("paste dir for %s -> %s", host_id, remote_dir)
+        _paste_dir_by_host[host_id] = remote_dir
+        return {"status": "uploaded", "path": remote_path, "size": len(content),
+                "scope": "host", "host_id": host_id}
+
+    if isinstance(last_error, HostConnectError):
+        raise HTTPException(status_code=502, detail=f"원격 호스트에 올리지 못했습니다: {last_error}")
+    raise HTTPException(status_code=500, detail="원격 업로드 실패")
 
 
 @router.post("/api/terminal/paste-image")

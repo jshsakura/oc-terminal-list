@@ -43,7 +43,7 @@ __all__ = [
     "download_item", "download_items", "open_download",
     "write_file", "upload_stream", "make_dirs", "path_exists",
     "create_item", "move_item", "copy_item", "delete_item", "chmod_item",
-    "get_tmux_cwd",
+    "get_tmux_cwd", "get_tmux_cwds", "remote_home",
 ]
 
 # 풀 함수는 **모듈 전역 이름**으로 들고 있는다 — 이 이름을 통해서만 호출해야
@@ -483,6 +483,29 @@ async def path_exists(host: dict, secrets: dict, paths: list[str]) -> dict[str, 
 
 
 # ─── 생성 / 이동 / 복사 / 삭제 / 권한 ─────────────────────────────────────────
+
+async def remote_home(host: dict, secrets: dict) -> str | None:
+    """The SSH user's home, as the SFTP server resolves it.
+
+    Needed because a path handed to the terminal must be absolute — the pane's
+    cwd is arbitrary, so a relative "it works from home" path would not open.
+    Tailscale hosts do not go through asyncssh; they ask the shell instead.
+    """
+    if _is_tailscale(host):
+        try:
+            stdout, _ = await _ts.run(_ts.target_for(host), "printf %s \"$HOME\"", timeout=6.0)
+            return stdout.decode(errors="replace").strip() or None
+        except Exception as e:
+            logger.debug("remote_home tailscale failed (%s): %s", host.get("id"), e)
+            return None
+    try:
+        conn = await _get_or_open(host, secrets)
+        async with conn.start_sftp_client() as sftp:
+            return await sftp.realpath(".")
+    except (asyncssh.Error, OSError) as e:
+        logger.debug("remote_home failed (%s): %s", host.get("id"), e)
+        return None
+
 
 async def create_item(host: dict, secrets: dict, path: str, kind: str) -> None:
     """원격 파일/폴더 생성."""
