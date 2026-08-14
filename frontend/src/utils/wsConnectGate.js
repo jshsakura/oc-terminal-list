@@ -63,7 +63,11 @@ export const createWsConnectGate = ({
    */
   const acquire = ({ priority = false } = {}) => new Promise((resolve) => {
     const entry = { priority, resolve, settled: false, timer: null };
-    if (active < maxConcurrent) { grant(entry); return; }
+    /* A pane you are looking at never queues. The cap exists to keep *background*
+       panes from bursting the shared tunnel; a visible pane made to wait is just
+       a person staring at a spinner. Reality caps this anyway — a tab holds at
+       most 4 panes, so the visible burst is 4, not 14. */
+    if (priority || active < maxConcurrent) { grant(entry); return; }
     entry.timer = setTimeout(() => {
       // Waited long enough: leave the queue and proceed. `active` still goes up
       // so the release call stays balanced.

@@ -28,17 +28,24 @@ describe('wsConnectGate', () => {
     expect(granted).toEqual([1]);
   });
 
-  it('보이는 pane(priority) 이 대기열을 앞지른다', async () => {
+  it('보이는 pane(priority) 은 아예 줄을 서지 않는다', async () => {
+    // 상한은 **안 보이는** pane 이 터널을 몰아치는 걸 막으려는 것이다. 보고 있는 pane 을
+    // 기다리게 하면 그건 그냥 사람이 스피너를 보는 시간이다(탭당 최대 4개라 폭도 작다).
     const gate = createWsConnectGate({ maxConcurrent: 1, maxWaitMs: 10000 });
-    const rel0 = await gate.acquire();
-    const order = [];
-    gate.acquire().then(() => order.push('background'));
-    gate.acquire({ priority: true }).then(() => order.push('visible'));
+    await gate.acquire();
+    let visible = false;
+    gate.acquire({ priority: true }).then(() => { visible = true; });
     await vi.advanceTimersByTimeAsync(0);
+    expect(visible).toBe(true);
+  });
 
-    rel0();
+  it('안 보이는 pane 은 여전히 상한을 지킨다', async () => {
+    const gate = createWsConnectGate({ maxConcurrent: 1, maxWaitMs: 10000 });
+    await gate.acquire();
+    let background = false;
+    gate.acquire().then(() => { background = true; });
     await vi.advanceTimersByTimeAsync(0);
-    expect(order).toEqual(['visible']);
+    expect(background).toBe(false);
   });
 
   it('아무도 슬롯을 안 놓아도 상한 시간 뒤에는 그냥 진행한다 (교착 금지)', async () => {

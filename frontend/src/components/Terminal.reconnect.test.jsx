@@ -282,6 +282,29 @@ describe('Terminal 재연결 타이머', () => {
     });
   });
 
+  describe('첫 연결 중에는 "다시 연결 중" 을 띄우지 않는다', () => {
+    /* pill 은 **한 번이라도 붙어본 적이 있어야** 참인 말이다. 부팅 때 pane 여럿이
+       핸드셰이크 게이트에서 차례를 기다리고(원격은 WS 가 열린 뒤 SSH 를 더 기다린다)
+       그 시간이 2초 지연을 넘기면, 정상 부팅인데 화면 넷이 전부 "다시 연결 중" 이 된다 —
+       "느린 건지 고장난 건지" 를 구분 못 하게 만드는 게 정확히 그 화면이다.
+       아직 안 붙은 pane 은 스켈레톤이 이미 "불러오는 중" 을 말한다. */
+    const pill = () => screen.queryByText(/다시 연결|Reconnect/i);
+
+    it('붙기 전에는 오래 걸려도 pill 이 없다', async () => {
+      renderTerminal();
+      await tick(30000);   // NOTICE_SHOW_DELAY_MS(2s) 를 한참 넘겨서
+      expect(pill()).toBeNull();
+    });
+
+    it('한 번 붙었다가 끊기면 그때는 뜬다', async () => {
+      renderTerminal();
+      const ws = await openSocket();
+      await act(async () => { ws.serverClose(); });
+      await tick(5000);
+      expect(pill()).not.toBeNull();
+    });
+  });
+
   describe('비활성 pane grace-close (모바일)', () => {
     /* 모바일은 안 보이는 pane 이 소켓·하트비트·티켓을 계속 돌리면 OS 가 탭을 통째로 죽인다.
        60초 뒤 조용히 닫고, 활성 복귀 시 다시 붙는다 — tmux 가 세션을 들고 있어 손실은 없다.

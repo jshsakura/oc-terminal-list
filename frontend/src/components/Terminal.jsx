@@ -338,8 +338,17 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
   // 배너 페이드아웃 마운트 유지 — 복구되어 배너가 사라질 때 즉시 언마운트하지 않고
   // 페이드아웃이 끝난 뒤 제거해, 깜빡임 없이 부드럽게 빠진다.
+  /* 이 pane 이 이번 마운트에서 한 번이라도 소켓을 열어본 적이 있는가. 재연결 UI 의
+     전제 조건이다 — 위 bannerShown 주석 참고. */
+  const [hasEverConnected, setHasEverConnected] = useState(false);
   const [bannerMounted, setBannerMounted] = useState(false);
-  const bannerShown = !!connectionNotice && noticeVisible && !ended && !evicted && !closing;
+  /* "다시 연결 중" 은 **한 번이라도 붙어본 적이 있어야** 참인 말이다. 첫 연결 중에 띄우면
+     거짓말이고, 실제로 부팅 때 그렇게 보였다 — pane 여럿이 게이트에서 차례를 기다리는
+     동안(그리고 원격 pane 은 WS 가 열린 뒤 SSH 를 더 기다린다) 2초 지연을 넘겨 pill 이
+     떴다. "느린 건지 고장난 건지" 를 구분 못 하게 만드는 게 정확히 이 화면이다.
+     아직 안 붙어본 pane 은 스켈레톤이 이미 "불러오는 중" 을 말하고 있다. */
+  const bannerShown = hasEverConnected
+    && !!connectionNotice && noticeVisible && !ended && !evicted && !closing;
   useEffect(() => {
     if (bannerShown) {
       setBannerMounted(true);
@@ -617,6 +626,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     setIsReady(false);
     setHasContent(false);
+    setHasEverConnected(false);
     contentReadyRef.current = false;
     hasContentRef.current = false;
     evictedRef.current = false;
@@ -966,6 +976,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           stableReconnectTimerRef.current = null;
         }
         setConnectionNotice('');
+        setHasEverConnected(true);
         // OPEN 성공 — 벽시계 데드라인 리셋. 다음 끊김은 새 재연결 사이클로 친다.
         reconnectingSinceRef.current = 0;
         ignoreDetachUntil = Date.now() + 1500; // tmux 버퍼 리플레이 윈도우
