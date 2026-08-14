@@ -353,7 +353,6 @@ const Pane = ({
 
   const handleCopyPaneTarget = useCallback(() => {
     const tmuxSession = isLocal ? (pane.sessionId || '') : (pane.tmuxSessionName || '');
-    const cwd = paneCwdAbs || pane.cwd || '';
     const addr = isLocal
       ? formatServerAddr({
         hostname: serverIdentity.hostname,
@@ -364,7 +363,6 @@ const Pane = ({
     const target = formatSessionTarget({
       server: addr,
       tmuxSession,
-      cwd,
       // Local sessions live on the app's own socket — the name alone cannot be attached to.
       socket: isLocal ? (tmuxSocket || '') : '',
       remote: !isLocal,
@@ -376,7 +374,7 @@ const Pane = ({
     copyToClipboard(target).then((ok) => onNotify?.(ok
       ? `${t?.('copied') || 'Copied'}${label ? ` · ${label}` : ''}`
       : (t?.('clipboardError') || 'Copy failed')));
-  }, [isLocal, remoteHost, pane, paneCwdAbs, tmuxSocket, serverIdentity, onNotify, t]);
+  }, [isLocal, remoteHost, pane, tmuxSocket, serverIdentity, onNotify, t]);
 
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭/pane 이름 갱신에 활용.
   // 원격은 workspace 상대경로가 없으므로 절대경로(paneCwdAbs)도 함께 보내 basename 으로 쓰게 한다.
