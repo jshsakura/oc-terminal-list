@@ -362,6 +362,9 @@ const Pane = ({
       : (buildSshAddr(remoteHost) || pane.hostId || '');
     const target = formatSessionTarget({
       server: addr,
+      // The record, not just the address — the ssh line needs `-p <port>` and, for a
+      // tailscale host, `tailscale ssh` (which is how this app itself gets in).
+      host: isLocal ? null : remoteHost,
       tmuxSession,
       // Local sessions live on the app's own socket — the name alone cannot be attached to.
       socket: isLocal ? (tmuxSocket || '') : '',

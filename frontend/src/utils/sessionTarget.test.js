@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildSshAddr, buildAttachCmd, buildSendCmd,
+  buildSshAddr, buildSshCmd, buildAttachCmd, buildSendCmd,
   formatServerAddr, formatSessionTarget, formatSessionTargetLabel,
 } from './sessionTarget';
 
@@ -20,6 +20,40 @@ describe('buildSshAddr', () => {
   it('빈/없음은 빈 문자열', () => {
     expect(buildSshAddr(null)).toBe('');
     expect(buildSshAddr({ ssh_user: 'x' })).toBe('');
+  });
+});
+
+/* 주소는 보여주는 것이고, ssh 는 실행되는 것이다 — 둘을 같은 문자열로 쓰면 깨진다. */
+describe('buildSshCmd — 그 호스트로 실제로 들어가는 줄', () => {
+  it('비표준 포트는 -p 로 간다 (user@host:2222 는 ssh 문법 오류다)', () => {
+    const host = { ssh_user: 'pi', hostname: 'box.local', port: 2222 };
+    expect(buildSshCmd(host)).toBe('ssh -p 2222 pi@box.local');
+    expect(buildSshCmd(host)).not.toContain(':2222');
+  });
+
+  it('22 포트는 아무것도 붙이지 않는다', () => {
+    expect(buildSshCmd({ ssh_user: 'pi', hostname: '10.0.0.5', port: 22 })).toBe('ssh pi@10.0.0.5');
+  });
+
+  it('tty 를 요구하면 -t 를 붙인다 (attach 는 터미널이 필요하고 send-keys 는 아니다)', () => {
+    expect(buildSshCmd({ ssh_user: 'pi', hostname: 'nas' }, { tty: true })).toBe('ssh -t pi@nas');
+  });
+
+  /* tailscale 호스트는 우리 ssh 자격증명이 없다 — host_manager 가 `tailscale ssh` 로 띄운다.
+     plain ssh 줄을 주면 받는 쪽이 열쇠 없는 문을 두드리게 된다. */
+  it('tailscale 인증 호스트는 tailscale ssh 다', () => {
+    expect(buildSshCmd({ ssh_user: 'ubuntu', hostname: 'a1', auth_method: 'tailscale' }, { tty: true }))
+      .toBe('tailscale ssh -t ubuntu@a1');
+  });
+
+  it('tailscale 에는 -p 가 의미 없다 — 붙이지 않는다', () => {
+    expect(buildSshCmd({ ssh_user: 'ubuntu', hostname: 'a1', auth_method: 'tailscale', port: 2222 }))
+      .toBe('tailscale ssh ubuntu@a1');
+  });
+
+  it('호스트가 없거나 이름이 없으면 빈 문자열', () => {
+    expect(buildSshCmd(null)).toBe('');
+    expect(buildSshCmd({ ssh_user: 'x' })).toBe('');
   });
 });
 
@@ -86,11 +120,12 @@ describe('formatSessionTarget', () => {
     // 원격 세션은 그 머신의 tmux 다 — 우리 소켓 이름을 붙이면 없는 소켓을 가리킨다.
     const out = formatSessionTarget({
       server: 'pi@10.0.0.5', tmuxSession: 'mobile-xx',
+      host: { ssh_user: 'pi', hostname: '10.0.0.5', port: 22 },
       socket: 'iterminallist-app', remote: true,
     });
     expect(out).toBe("tmux session 'mobile-xx' on pi@10.0.0.5"
       + ' — reach it with tmux over ssh only (it is a terminal, not an agent channel).'
-      + ' attach: ssh pi@10.0.0.5 -t "tmux attach -t \'=mobile-xx\'"'
+      + ' attach: ssh -t pi@10.0.0.5 "tmux attach -t \'=mobile-xx\'"'
       + ' · send: ssh pi@10.0.0.5 "tmux send-keys -t \'=mobile-xx:\' -l \'TEXT\';'
       + ' tmux send-keys -t \'=mobile-xx:\' Enter"');
     expect(out).not.toContain('iterminallist-app');
@@ -108,8 +143,42 @@ describe('formatSessionTarget', () => {
     expect(formatSessionTarget({ address: '2.3', tmuxSession: 'abc' })).not.toContain('2.3');
   });
 
+  /* 다른 호스트가 섞이는 자리들 — 포트·tailscale·tmux 미사용. 전부 명령이 달라진다. */
+  it('원격 비표준 포트는 -p 로 나간다', () => {
+    const out = formatSessionTarget({
+      server: 'pi@box.local:2222', tmuxSession: 'mobile',
+      host: { ssh_user: 'pi', hostname: 'box.local', port: 2222 }, remote: true,
+    });
+    expect(out).toContain('attach: ssh -p 2222 -t pi@box.local "tmux attach');
+    expect(out).toContain('send: ssh -p 2222 pi@box.local "tmux send-keys');
+    // 주소 표기(user@host:2222)가 명령으로 새어 나가면 그대로 문법 오류다.
+    expect(out).not.toContain('ssh -p 2222 -t pi@box.local:2222');
+    expect(out).not.toContain('ssh pi@box.local:2222');
+  });
+
+  it('tailscale 호스트는 tailscale ssh 로 나간다', () => {
+    const out = formatSessionTarget({
+      server: 'ubuntu@a1', tmuxSession: 'mobile',
+      host: { ssh_user: 'ubuntu', hostname: 'a1', auth_method: 'tailscale' }, remote: true,
+    });
+    expect(out).toContain('attach: tailscale ssh -t ubuntu@a1 "tmux attach');
+    expect(out).toContain('send: tailscale ssh ubuntu@a1 "tmux send-keys');
+  });
+
+  it('호스트 레코드가 없으면 주소로 폴백한다(옛 동작)', () => {
+    expect(formatSessionTarget({ server: 'pi@10.0.0.5', tmuxSession: 'm', remote: true }))
+      .toContain('attach: ssh -t pi@10.0.0.5 "tmux attach');
+  });
+
   it('세션이 없으면 호스트라도 말한다', () => {
     expect(formatSessionTarget({ server: 'ubuntu@nas' })).toBe('host ubuntu@nas');
+  });
+
+  /* use_remote_tmux 가 꺼진 호스트에는 붙을 세션이 없다 — 그러면 들어가는 줄이라도 준다. */
+  it('tmux 를 안 쓰는 호스트는 ssh 줄을 준다', () => {
+    expect(formatSessionTarget({
+      server: 'ubuntu@nas', host: { ssh_user: 'ubuntu', hostname: 'nas', port: 2222 },
+    })).toBe('host ubuntu@nas — no tmux session here; ssh in: ssh -p 2222 -t ubuntu@nas');
   });
 
   it('아무것도 없으면 빈 문자열', () => {

@@ -25,7 +25,12 @@
  *    (`/api/system/self`), never from `location.hostname`, which is the *web* address.
  */
 
-/** SSH address string — user@host[:port]. Port 22 is omitted, by convention. */
+/**
+ * SSH address string — user@host[:port]. Port 22 is omitted, by convention.
+ *
+ * This is the **display** form. It is not a command: `ssh user@host:2222` is a syntax
+ * error, the port has to arrive as `-p`. See `buildSshCmd`.
+ */
 export function buildSshAddr(host) {
   if (!host) return '';
   const user = (host.ssh_user || '').trim();
@@ -33,6 +38,33 @@ export function buildSshAddr(host) {
   if (!name) return '';
   const port = host.port && Number(host.port) !== 22 ? `:${host.port}` : '';
   return `${user ? `${user}@` : ''}${name}${port}`;
+}
+
+/**
+ * How *this app* reaches that host, spelled as a command the receiver can run.
+ *
+ * Two things the display address cannot carry:
+ *  - **The port belongs in `-p`**, not glued to the hostname with a colon.
+ *  - **A `tailscale` host has no ssh credentials of ours.** `host_manager` spawns
+ *    `tailscale ssh -t user@host` for those (the backend's tailnet identity is the auth),
+ *    so handing out a plain `ssh` line points at a door the receiver has no key to.
+ *    `tailscale ssh` always goes over the tailnet's port 22 — `-p` has no meaning there.
+ *
+ * `tty` adds `-t`: attaching needs a terminal, `send-keys` does not.
+ */
+export function buildSshCmd(host, { tty = false } = {}) {
+  if (!host) return '';
+  const user = (host.ssh_user || '').trim();
+  const name = (host.hostname || host.name || '').trim();
+  if (!name) return '';
+  const dest = `${user ? `${user}@` : ''}${name}`;
+  const flags = [];
+  if (host.auth_method !== 'tailscale' && host.port && Number(host.port) !== 22) {
+    flags.push(`-p ${Number(host.port)}`);
+  }
+  if (tty) flags.push('-t');
+  const prog = host.auth_method === 'tailscale' ? 'tailscale ssh' : 'ssh';
+  return [prog, ...flags, dest].join(' ');
 }
 
 /** `tmux -L sock` prefix — without a socket, `-L` is dropped (default socket). */
@@ -101,9 +133,14 @@ const REACH_LOCAL = 'reach it with tmux only (it is a terminal, not an agent cha
 const REACH_REMOTE = 'reach it with tmux over ssh only (it is a terminal, not an agent channel)';
 
 export function formatSessionTarget({
-  server = '', tmuxSession = '', socket = '', remote = false,
+  server = '', tmuxSession = '', socket = '', remote = false, host = null,
 } = {}) {
-  if (!tmuxSession) return server ? `host ${server}` : '';
+  // No tmux on this host (`use_remote_tmux` off) — then the way in is the ssh line itself.
+  if (!tmuxSession) {
+    if (!server) return '';
+    const ssh = buildSshCmd(host, { tty: true });
+    return ssh ? `host ${server} — no tmux session here; ssh in: ${ssh}` : `host ${server}`;
+  }
 
   const where = server ? ` on ${server}` : '';
   // A remote session lives on that box's default socket — ours would point at nothing.
@@ -112,9 +149,13 @@ export function formatSessionTarget({
 
   if (remote && server) {
     // Inner commands are single-quoted throughout, so wrapping them in "…" is safe.
+    // The ssh line comes from the host record, not from the display address — the port
+    // has to be `-p`, and a tailscale host is reached with `tailscale ssh`.
+    const sshTty = buildSshCmd(host, { tty: true }) || `ssh -t ${server}`;
+    const sshPlain = buildSshCmd(host) || `ssh ${server}`;
     return `tmux session '${tmuxSession}'${where} — ${REACH_REMOTE}.`
-      + ` attach: ssh ${server} -t "${attach}"`
-      + ` · send: ssh ${server} "${send}"`;
+      + ` attach: ${sshTty} "${attach}"`
+      + ` · send: ${sshPlain} "${send}"`;
   }
   // The address is informational for a local session — the attach command runs on that
   // box, so it must not be wrapped in ssh here (we do not know a login user).
