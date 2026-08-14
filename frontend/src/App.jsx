@@ -24,6 +24,7 @@ import { applyThemeVars } from './styles/themeUI';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
 import { authHeaders } from './utils/auth';
+import { apiFetch } from './utils/apiFetch';
 import { resolveWorkspacePath } from './utils/terminalFileLinks';
 import { loadDraft, saveDraft } from './utils/quickInputDraft';
 import {
@@ -618,12 +619,20 @@ function App() {
       });
       // 워크스페이스 밖이거나 홈 경로면 못 연다 — 조용히 무시(엉뚱한 파일 열지 않음).
       if (rel == null) return;
-      handleFileOpen(rel);
+      /* 있는지 먼저 확인하고 연다. 낙관적으로 열면 **없는 경로로 빈 편집기 탭**이 남는데,
+         그건 사용자가 직접 닫아야 하고 이름도 경로 조각이라 뭘 잘못 눌렀는지도 모른다
+         (실제 증상). 클릭은 드문 사용자 동작이라 왕복 하나는 싸다. */
+      apiFetch(`/api/files/read?path=${encodeURIComponent(rel)}`, { headers: authHeaders() })
+        .then((r) => {
+          if (r.ok) { handleFileOpen(rel); return; }
+          setNotification({ isOpen: true, message: `${t('fileNotFound') || 'File not found'}: ${link.path}` });
+        })
+        .catch(() => { /* 네트워크 실패 — 잘못된 경로라고 단정하지 않는다(조용히 무시) */ });
       // TODO: link.line 으로 해당 줄 이동 — handleFileOpen 이 line 인자를 받게 확장 필요.
     };
     window.addEventListener('iterm:open-file', onOpenFile);
     return () => window.removeEventListener('iterm:open-file', onOpenFile);
-  }, [handleFileOpen]);
+  }, [handleFileOpen, t]);
 
   const { editorHeight, isResizingEditor, onEditorResizeStart } = useEditorResize();
   const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);

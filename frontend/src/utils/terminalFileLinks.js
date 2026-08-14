@@ -67,6 +67,53 @@ export const findFileLinks = (lineText) => {
   return links;
 };
 
+/* 접힌 줄을 되살릴 때 훑는 최대 행 수. 폭 52 기준 8행이면 400자가 넘는다 —
+   그보다 긴 경로는 실재하지 않고, 상한이 없으면 병적인 출력에서 버퍼를 통째로 훑는다. */
+export const MAX_WRAPPED_ROWS = 8;
+
+/**
+ * 화면 폭에서 접힌 줄을 **논리적인 한 줄로** 되살린다.
+ *
+ * xterm 버퍼는 접힌 줄을 행마다 따로 담고(이어지는 행은 `isWrapped=true`), 링크
+ * 프로바이더는 행 단위로 불린다. 그래서 한 행만 보면 긴 경로가 중간에서 잘린 **조각**이
+ * 매치된다 — 실제로 `/tmp/…/game-a` + `nd-watch-retro-go-sd/…/scratchp` 로 접힌 경로에서
+ * 뒷조각만 잡혀, 있지도 않은 경로로 빈 편집기 탭이 열렸다.
+ *
+ * 이어붙일 때 각 행은 **자르지 않고**(translateToString(false)) 정확히 cols 폭으로 둔다 —
+ * 중간 행의 공백을 트림하면 오프셋이 밀려 밑줄이 엉뚱한 칸에 그려진다.
+ *
+ * @returns {{ text: string, startRow: number }} startRow 는 0-based 버퍼 행.
+ */
+export const readLogicalLine = (buffer, bufferLineNumber, cols) => {
+  const index = bufferLineNumber - 1;
+  if (!buffer || index < 0) return { text: '', startRow: index };
+
+  let startRow = index;
+  let back = 0;
+  while (startRow > 0 && back < MAX_WRAPPED_ROWS && buffer.getLine(startRow)?.isWrapped) {
+    startRow -= 1;
+    back += 1;
+  }
+
+  const parts = [];
+  for (let row = startRow; row < startRow + MAX_WRAPPED_ROWS; row += 1) {
+    const line = buffer.getLine(row);
+    if (!line) break;
+    if (row > startRow && !line.isWrapped) break;
+    parts.push(line.translateToString(false));
+  }
+  return { text: parts.join(''), startRow };
+};
+
+/**
+ * 논리 줄 안의 오프셋 → xterm 셀 좌표(1-based). 접힌 행은 정확히 cols 폭이므로
+ * 나눗셈으로 떨어진다.
+ */
+export const offsetToCell = (offset, startRow, cols) => ({
+  x: (offset % cols) + 1,
+  y: startRow + 1 + Math.floor(offset / cols),
+});
+
 /**
  * 클릭한 경로를 워크스페이스 상대 경로로 정규화한다.
  *

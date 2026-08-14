@@ -2,7 +2,7 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { findFileLinks } from '../../utils/terminalFileLinks';
+import { findFileLinks, offsetToCell, readLogicalLine } from '../../utils/terminalFileLinks';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { ImageAddon } from '@xterm/addon-image';
 import { normalizeTerminalFontFamily } from '../../utils/terminalFonts';
@@ -81,16 +81,18 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
   if (onFileLinkClick && term.registerLinkProvider) {
     term.registerLinkProvider({
       provideLinks(bufferLineNumber, callback) {
-        const line = term.buffer.active.getLine(bufferLineNumber - 1);
-        if (!line) { callback(undefined); return; }
-        const text = line.translateToString(true);
+        /* 접힌 줄을 통째로 되살려서 찾는다. 행 하나만 보면 긴 경로가 중간에서 잘린
+           조각이 매치돼, 있지도 않은 경로로 빈 편집기 탭이 열린다(실제 증상). */
+        const { text, startRow } = readLogicalLine(term.buffer.active, bufferLineNumber, term.cols);
+        if (!text) { callback(undefined); return; }
         const found = findFileLinks(text);
         if (!found.length) { callback(undefined); return; }
         callback(found.map((fl) => ({
           // xterm range 는 1-based, end.x 는 포함 경계(inclusive) 라 +1 안 한다.
+          // 접힌 링크는 start.y != end.y 가 되고 xterm 이 알아서 두 줄에 걸쳐 긋는다.
           range: {
-            start: { x: fl.start + 1, y: bufferLineNumber },
-            end: { x: fl.end, y: bufferLineNumber },
+            start: offsetToCell(fl.start, startRow, term.cols),
+            end: offsetToCell(fl.end - 1, startRow, term.cols),
           },
           text: fl.path,
           activate() { onFileLinkClick(fl); },
