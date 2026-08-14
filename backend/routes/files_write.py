@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import time
 import os
 import shutil
 from pathlib import Path
@@ -176,9 +177,26 @@ async def _save_local_paste(file: UploadFile, filename: str) -> dict:
     return {"status": "uploaded", "path": str(target), "size": size, "scope": "local"}
 
 
-# host_id -> 그 호스트에서 실제로 써지는 붙여넣기 폴더. 한 번 알아내면 계속 쓴다.
-# ⚠️ 캐시가 없으면 /tmp 가 막힌 호스트는 **붙여넣을 때마다** 실패 한 번을 먼저 낸다.
-_paste_dir_by_host: dict[str, str] = {}
+# host_id -> (그 호스트에서 실제로 써지는 붙여넣기 폴더, 알아낸 시각).
+# ⚠️ 캐시가 없으면 /tmp 를 못 쓰는 호스트는 **붙여넣을 때마다** 실패 한 번을 먼저 낸다.
+#
+# ⚠️ 그런데 **영구 캐시도 틀리다.** 실측된 원인은 "그 호스트의 정책" 이 아니라
+# **/tmp(tmpfs)가 가득 찼던 것**이었다 — 50G/62G 에서 쓰기가 ENOSPC 로 실패하다가
+# 몇 분 뒤 8G 로 내려가자 그대로 됐다. 일시적인 상태를 영구 결론으로 굳히면, 회복된
+# 뒤에도 붙여넣기가 계속 홈에 쌓인다(/tmp 와 달리 재부팅에도 안 지워지는 자리다).
+_PASTE_DIR_TTL_SECONDS = 30 * 60
+_paste_dir_by_host: dict[str, tuple[str, float]] = {}
+
+
+def _cached_paste_dir(host_id: str) -> str | None:
+    entry = _paste_dir_by_host.get(host_id)
+    if not entry:
+        return None
+    path, found_at = entry
+    if time.time() - found_at > _PASTE_DIR_TTL_SECONDS:
+        _paste_dir_by_host.pop(host_id, None)
+        return None
+    return path
 
 
 async def _remote_paste_dirs(host_id: str, host: dict, secrets: dict):
@@ -192,7 +210,7 @@ async def _remote_paste_dirs(host_id: str, host: dict, secrets: dict):
     홈 조회는 **/tmp 가 실패한 뒤에만** 한다 — 멀쩡한 호스트가 붙여넣기마다 SSH 왕복을
     하나 더 태울 이유가 없다(테스트가 이 선을 지킨다).
     """
-    cached = _paste_dir_by_host.get(host_id)
+    cached = _cached_paste_dir(host_id)
     if cached:
         yield cached
         return
@@ -223,12 +241,12 @@ async def _save_remote_paste(host_id: str, username: str, file: UploadFile, file
             last_error = e
             logger.warning("paste SFTP failed (%s, %s): %s", host_id, remote_path, e)
             # 캐시된 폴더가 이제 와서 막혔다면 캐시를 버리고 다음 붙여넣기에 다시 찾게 한다.
-            if _paste_dir_by_host.get(host_id) == remote_dir:
+            if _cached_paste_dir(host_id) == remote_dir:
                 _paste_dir_by_host.pop(host_id, None)
             continue
-        if _paste_dir_by_host.get(host_id) != remote_dir:
+        if _cached_paste_dir(host_id) != remote_dir:
             logger.info("paste dir for %s -> %s", host_id, remote_dir)
-        _paste_dir_by_host[host_id] = remote_dir
+        _paste_dir_by_host[host_id] = (remote_dir, time.time())
         return {"status": "uploaded", "path": remote_path, "size": len(content),
                 "scope": "host", "host_id": host_id}
 

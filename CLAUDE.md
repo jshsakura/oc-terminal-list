@@ -430,6 +430,33 @@ Traps (MCP-specific):
 `touchstart` 리스너를 하나 단다. 그리고 확인 모달은 idle 에 미리 받는다 — 탭 닫기처럼 흔한
 동작이 첫 호출 때 청크를 기다리느라 "눌러도 한참 아무 일이 없어" 보였다.
 
+## 원격 /tmp 은 "항상 쓸 수 있다" 가 아니다 — tmpfs 는 찰 수 있다 (2026-08-14)
+
+한 호스트에서 이미지 붙여넣기가 `SFTP upload failed: Failure` 로 죽고, **같은 호스트에
+붙어 있던 다른 에이전트 세션은 Bash 도구가 통째로 죽었다**(`echo ok` 가 exit 1, stdout
+자체가 안 옴, `date > 파일` 은 파일만 만들어지고 내용이 비어 있음).
+
+**원인 하나가 둘을 다 설명한다: 그 호스트의 `/tmp` 이 tmpfs 인데 가득 찼다.**
+
+| 시각 | /tmp | 셸로 `date > /tmp/x` |
+|---|---|---|
+| 12:37 | 50G / 62G (81%), 스왑 8G/8G | **생성 실패** |
+| 12:38 | 8G / 62G (13%) | exit=0 |
+
+- **`touch` 는 되는데 쓰기만 실패한다** — 파일 생성은 inode 만 필요하고 쓰기는 데이터
+  페이지가 필요하다. "파일은 생겼는데 비어 있다" 가 이 상태의 지문이다.
+- **`df` 의 Avail 을 믿지 마라.** tmpfs 의 Avail 은 마운트 크기 한도지 실제 가용
+  메모리가 아니다. RAM+스왑이 마르면 13G "여유" 로 보여도 쓰기가 ENOSPC 다.
+- 에이전트 툴 레이어가 죽은 이유도 같다 — 명령 출력을 `/tmp` 임시 파일로 받아 읽는다.
+- 그때 범인은 4일째 떠 있던 ComfyUI(RSS 39GB)였다. 스왑은 100%.
+
+**진단 순서:** 원격 쓰기가 이상하면 `df -h /tmp` 와 `free -h` 를 **같이** 본다. tmpfs 면
+`du` 합계와 `df` 사용량이 크게 어긋나는지도(= 삭제됐는데 열려 있는 파일) 확인한다.
+
+⚠️ **일시적인 실패를 영구 결론으로 굳히지 마라.** `routes/files_write.py` 의 붙여넣기
+폴더 캐시에 TTL(30분)이 있는 이유가 이것이다 — /tmp 가 회복되면 다시 /tmp 로 돌아가야
+한다. 홈 폴백(`~/.iterminallist-paste`)은 재부팅에도 안 지워지는 자리다.
+
 ## Terminal paste destination (the rule)
 
 **Pasted files land in `/tmp/iterminallist-paste/` on the machine the pane lives on.** Local pane → this server's `/tmp`; remote pane → that host's `/tmp`, over SFTP.

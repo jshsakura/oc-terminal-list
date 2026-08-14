@@ -1,11 +1,18 @@
 """원격 붙여넣기 — /tmp 가 막힌 호스트는 홈으로 떨어진다.
 
-실측 배경: 이 배포의 한 호스트는 **SFTP 로 /tmp 에 쓰면 SSH_FX_FAILURE(4)** 가 나는데
-같은 계정의 셸로는 `touch /tmp/...` 가 된다(sshd 쪽 네임스페이스/정책 차이). 다른
-호스트들은 /tmp 가 멀쩡했다. 그래서 "POSIX 면 /tmp 는 쓸 수 있다" 를 전제로 두면
-그 호스트에서는 붙여넣기가 통째로 죽는다.
+실측 배경: 한 호스트에서 SFTP 로 /tmp 에 쓰면 SSH_FX_FAILURE(4) 가 났다. 원인은
+그 호스트의 정책이 아니라 **/tmp(tmpfs)가 가득 찼던 것**이다 — 62G 중 50G 사용에
+스왑까지 100% 인 동안 쓰기가 ENOSPC 였고, 몇 분 뒤 8G 로 내려가자 그대로 됐다
+(0바이트 `touch` 는 그 와중에도 됐다 — 파일 생성은 inode 만, 쓰기는 데이터 페이지가
+필요하다). 같은 시각 다른 호스트들은 /tmp 가 멀쩡했다.
+
+그러니 규칙은 둘이다: **"POSIX 면 /tmp 는 쓸 수 있다" 를 전제하지 말 것**(그러면
+붙여넣기가 통째로 죽는다), 그리고 **그 실패를 영구 결론으로 굳히지도 말 것**(회복되면
+/tmp 로 돌아가야 한다 — 홈은 재부팅에도 안 지워지는 자리다).
 """
 from __future__ import annotations
+
+import time
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -88,7 +95,7 @@ async def test_working_dir_is_remembered_so_the_failure_is_paid_once():
 
 
 async def test_cache_is_dropped_when_the_remembered_dir_stops_working():
-    fw._paste_dir_by_host["h1"] = remote_home_paste_dir("/home/me")
+    fw._paste_dir_by_host["h1"] = (remote_home_paste_dir("/home/me"), time.time())
 
     p1, p2, p3, p4 = _patches(fw.HostConnectError("gone"))
     with p1, p2, p3, p4:
@@ -112,3 +119,17 @@ async def test_home_unknown_leaves_tmp_as_the_only_candidate():
         with pytest.raises(HTTPException):
             await _paste()
     assert write.await_count == 1
+
+
+async def test_cache_expires_so_a_full_tmp_is_not_a_life_sentence():
+    """실측: /tmp 가 막힌 이유는 그 호스트의 정책이 아니라 **tmpfs 가 가득 찼던 것**이었고,
+    몇 분 뒤 스스로 풀렸다. 일시적인 상태를 영구 결론으로 굳히면, 회복된 뒤에도 붙여넣기가
+    계속 홈에 쌓인다 — /tmp 와 달리 재부팅에도 안 지워지는 자리다."""
+    stale = time.time() - fw._PASTE_DIR_TTL_SECONDS - 1
+    fw._paste_dir_by_host["h1"] = (remote_home_paste_dir("/home/me"), stale)
+
+    p1, p2, p3, p4 = _patches(None)
+    with p1, p2, p3, p4:
+        out = await _paste()
+    # 만료됐으니 /tmp 를 다시 시도했고, 이제 되니까 /tmp 로 돌아간다.
+    assert out["path"] == f"{remote_paste_dir()}/shot.png"
