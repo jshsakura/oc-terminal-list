@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { authHeaders } from '../utils/auth';
+import { apiFetch } from '../utils/apiFetch';
 import { createHostCwdBatcher } from '../utils/hostCwdBatch';
 
 const fetchHostCwds = async (hostId) => {
-  const res = await fetch(`/api/hosts/${hostId}/cwd/batch`, { headers: authHeaders() });
+  const res = await apiFetch(`/api/hosts/${hostId}/cwd/batch`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   return data?.cwds || {};
@@ -11,7 +12,7 @@ const fetchHostCwds = async (hostId) => {
 
 const fetchLocalCwds = async (_key, sessionIds) => {
   const ids = sessionIds.filter(Boolean).join(',');
-  const res = await fetch(`/api/sessions/cwd/batch?ids=${encodeURIComponent(ids)}`, { headers: authHeaders() });
+  const res = await apiFetch(`/api/sessions/cwd/batch?ids=${encodeURIComponent(ids)}`, { headers: authHeaders() });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const data = await res.json();
   return data?.cwds || {};
@@ -93,7 +94,7 @@ const useActiveTerminalCwd = ({
         setWorkspaceRelative(null);
         return { cwd };
       }
-      const res = await fetch(`/api/hosts/${id}/cwd`, { headers: authHeaders() });
+      const res = await apiFetch(`/api/hosts/${id}/cwd`, { headers: authHeaders() });
       if (!res.ok) return null;
       const data = await res.json();
       setAbsolutePath(data.cwd || null);

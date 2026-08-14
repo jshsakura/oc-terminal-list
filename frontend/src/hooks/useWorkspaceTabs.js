@@ -4,6 +4,7 @@ import { areTabsEquivalent, tabsFingerprint, pickFallbackTabId } from '../utils/
 import { authHeaders } from '../utils/auth';
 import { applyAgentStatusChanges, hydrateAgentStatus } from '../utils/agentStatusStore';
 import { openEventStream } from '../utils/eventStream';
+import { apiFetch } from '../utils/apiFetch';
 
 /**
  * 어느 탭에도 안 붙어 있는 살아있는 세션을 앞쪽 탭으로 되살린다.
@@ -86,7 +87,7 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
     let aliveSessions = [];
     if (syncActive) {
       try {
-        const r = await fetch('/api/sessions');
+        const r = await apiFetch('/api/sessions');
         if (r.ok) aliveSessions = (await r.json()).filter((s) => s.alive);
       } catch { /* noop */ }
     }
@@ -136,7 +137,7 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
 
     const finish = async () => {
       try {
-        const r = await fetch('/api/tab-state');
+        const r = await apiFetch('/api/tab-state');
         const serverState = r.ok ? await r.json() : null;
         if (!cancelled) await applyServerTabState(serverState, { syncActive: true });
       } catch {
@@ -179,7 +180,7 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
     if (_saveTabTimer.current) clearTimeout(_saveTabTimer.current);
     _saveTabTimer.current = setTimeout(async () => {
       try {
-        const res = await fetch('/api/tab-state', {
+        const res = await apiFetch('/api/tab-state', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -240,7 +241,7 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
       if (!updatedAt || updatedAt === lastAppliedTabVersionRef.current) return;
       if (localDirtyRef.current) return;
       try {
-        const r2 = await fetch('/api/tab-state', { headers: authHeaders() });
+        const r2 = await apiFetch('/api/tab-state', { headers: authHeaders() });
         if (!r2.ok || cancelled || localDirtyRef.current) return;
         const serverState = await r2.json();
         if (cancelled || localDirtyRef.current) return;
@@ -265,7 +266,11 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
         // SSE 폭주(리퀘스트 수백)가 재발. 이 경로는 [[project_sse_reconnect_storm]] 이력이
         // 있어 known-good(티켓 방식)을 유지한다. 백엔드는 쿠키 폴백을 그대로 받지만
         // 프론트는 티켓으로 연결한다.
-        const res = await fetch('/api/sse-ticket', { method: 'POST', headers: authHeaders() });
+        /* 이 요청만은 **페이지가 소유한다**(스트림은 워커가 들어도). 여기서 매달리면
+           iOS 진행바가 20% 에 붙은 채 남고 새로고침 말곤 안 없어진다. 게다가 이 경로는
+           재연결 사다리를 타므로, 실패는 이미 다룰 줄 아는 상태다 — 매달리는 것만이
+           다룰 수 없는 상태다. */
+        const res = await apiFetch('/api/sse-ticket', { method: 'POST', headers: authHeaders(), timeoutMs: 8000 });
         if (!res.ok || cancelled) { connecting = false; if (!cancelled) scheduleReconnect(); return; }
         const { ticket } = await res.json();
         if (cancelled) { connecting = false; return; }
@@ -276,7 +281,7 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
           onOpen: () => {
             openedAt = Date.now();
             // SSE 는 변경분만 흘린다 — 연결(재연결)마다 전체 스냅샷을 한 번 받는다.
-            fetch('/api/agent-status', { headers: authHeaders() })
+            apiFetch('/api/agent-status', { headers: authHeaders() })
               .then((r) => (r.ok ? r.json() : null))
               .then((d) => { if (!cancelled && d) hydrateAgentStatus(d.sessions); })
               .catch(() => { /* 상태 점이 조금 늦게 뜰 뿐 — 다음 변경에 채워진다 */ });

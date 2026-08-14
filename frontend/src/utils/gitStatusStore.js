@@ -13,6 +13,7 @@
  * be shared is the *timer*, not the result.
  */
 import { authHeaders } from './auth';
+import { apiFetch } from './apiFetch';
 
 // A subscriber joining this soon after the last fetch reuses the result instead
 // of firing its own (tab switches, remounts, split siblings on one repo).
@@ -37,7 +38,7 @@ export const gitStatusUrl = (hostId, path) => {
 };
 
 const defaultFetcher = async (hostId, path) => {
-  const res = await fetch(gitStatusUrl(hostId, path), { headers: authHeaders() });
+  const res = await apiFetch(gitStatusUrl(hostId, path), { headers: authHeaders() });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.detail || `HTTP ${res.status}`);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { authHeaders } from '../utils/auth';
+import { apiFetch } from '../utils/apiFetch';
 
 /**
  * Snippet list — **the whole app shares one.**
@@ -33,7 +34,7 @@ const load = (force = false) => {
   if (!force && state.ts && Date.now() - state.ts < STALE_MS) return Promise.resolve(state.list);
   inflight = (async () => {
     try {
-      const res = await fetch('/api/snippets', { headers: authHeaders() });
+      const res = await apiFetch('/api/snippets', { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setList(await res.json());
     } catch { /* ignore — keep the old list. No ts stamp, so the next mount retries */ }
