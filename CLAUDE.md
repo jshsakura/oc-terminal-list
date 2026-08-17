@@ -327,10 +327,94 @@ Addresses (`itl list` prints the table that documents them):
 
 Traps:
 - `send-keys -t` takes a **pane** target. `=name` works for session targets but fails here with "can't find pane" — use `=name:` to keep exact matching while resolving to the session's current window.
+- `send-keys` needs `--` before the text, or a message starting with `-` dies as `unknown flag -x`
+  — and `check=False` swallows it, so it simply never arrives.
 - `--submit` is off by default. Text lands on the prompt and a human presses Enter; a stray Enter inside vim/claude executes something nobody asked for (same rule as terminal file drop).
 - `ITL_TOKEN` is readable via `tmux show-environment`, so it is a **scoped** JWT (`scope: "itl"`). `verify_auth_token` rejects any token carrying a scope claim — a leaked ITL_TOKEN cannot read files or host secrets.
-- Remote panes are addressable but **not yet sendable** (needs an SSH round trip); `send` reports them as `skipped: remote-unsupported` rather than silently dropping.
-- Status groups only cover local sessions — the backend watcher cannot see remote tmux (see the agent-status section).
+- **Remote panes are sendable** (2026-08-15). The backend does the SSH round trip with that
+  host's stored credentials (`backend/itl_remote.py`), so the *caller* needs no key for that box —
+  which is the whole point: a handle pasted to an agent elsewhere works without its own access.
+  A dead remote session is `skipped: session-gone`, an unreachable host `host-unreachable`;
+  neither is ever counted as delivered, and one dead host never fails the whole fan-out.
+- ⚠️ **Quote every remote argument yourself.** `shlex.quote` leaves `=mobile-abc` bare (POSIX-safe),
+  and a **zsh** login shell eats that as equals-expansion (`=foo` → path of `foo`) — the target
+  arrives mangled and `has-session` quietly says no. Measured on a real host; `itl_remote._sq`
+  always quotes. The local path is argv (no shell), which is why it never showed this.
+- **A session ID is an address.** `resolve` matches it *before* splitting, so a session named
+  `mobile.2` is not read as "tab mobile, pane 2". Numbers shift when a pane closes; an id does
+  not — that is what a copied handle carries.
+
+### 원격을 반쪽으로 두면 받은 쪽이 헤맨다 (2026-08-17)
+
+원격이 "보낼 수는 있다" 까지만 되어 있으면, 그 위에 올라탄 흐름(핸드오프 → 기다림 → 답장)이
+전부 조용히 거짓말을 한다. 넷을 한 세트로 고쳤다 — 하나만 되돌리면 나머지가 다시 거짓이 된다.
+
+| 무엇 | 규칙 |
+|---|---|
+| 배달 | **확인된 것만 delivered.** 원격 명령 끝에 `&& echo ITL_SENT`, 표식 없으면 `send-failed` |
+| 왕복 | **호스트당 연결 하나**(`itl_remote.RemoteChannel`), 호스트끼리는 병렬, `HOST_DEADLINE=20s` |
+| 상태 | 원격은 **기본이 "모름"**(`statusUnknown`, 표에서 `?`). 물어볼 때만 호스트당 SSH 한 번 |
+| 답장 | 받는 쪽에 `itl` 이 있을 때만 답장 명령을 적어 준다(probe 가 PATH/파일을 같이 본다) |
+
+- ⚠️ **`conn.run(check=False)` 는 exit code 를 안 본다.** 그래서 tmux 가 거절해도 예외가 없고,
+  표식 없이는 "SSH 명령이 돌았다" 와 "입력이 들어갔다" 를 구별할 수 없다. `;` 대신 `&&` 로
+  잇는 이유도 같다 — 본문이 실패했는데 Enter 만 들어가면 프롬프트에 있던 것이 실행된다.
+- ⚠️ **`run_remote_cmd` 는 호출마다 SSH 를 새로 연다**(풀 없음). 존재확인·pane 정보·전송을
+  따로 부르면 대상 하나에 핸드셰이크가 3번이고, 팬아웃이면 그만큼 곱해져 호출자 타임아웃
+  (CLI·MCP = 30s)을 넘긴다. 그러면 **배달은 됐는데 실패로 읽혀 재시도가 중복 전송**이 된다.
+  백엔드 상한(20s)이 호출자 상한(30s)보다 작아야 하는 이유가 이것이다 — 둘은 같이 움직인다.
+- ⚠️ **"모름" 을 "일 안 함" 으로 세지 마라.** 원격 pane 은 워처가 볼 수 없어 status 가 비어
+  있고, `not_working` 판정은 빈 상태를 만족으로 읽는다 → `terminal_wait` 가 **0 초에 "완료"**
+  를 돌려줬다. 원격에 일을 넘긴 에이전트가 결과 없이 다음 단계로 갔다. 지금은 원격이 섞이면
+  `remote_status=1` 로 물어보고(폴 간격도 5s), 못 물어본 것은 만족으로 세지 않는다.
+- 원격 **읽기**도 된다(`itl read` / `terminal_read`) — 보낸 뒤 화면을 못 보면 핸드오프는 눈
+  감고 하는 일이 된다. 세션이 없으면 404 `session-gone`, 호스트에 못 닿으면 502 로 갈린다.
+- skip 사유 목록은 **세 곳이 함께 움직인다**: `routes/itl.py` 의 `REASON_*`, `cli/itl` 과
+  `cli/itl_mcp_tools.py` 의 `SKIP_REASONS`, 프론트 `RailMenus.pushSkipLabel`. 한쪽만 늘리면
+  사용자 화면에 슬러그(`send-failed`)가 그대로 나온다.
+- **여러 줄 방어는 경계에 있다**(`routes/itl.py collapse_lines`). CLI 에도 같은 함수가 있지만
+  (`_single_line`) MCP·프론트는 CLI 를 지나지 않는다. `send-keys -l` 에서 개행은 Enter 라,
+  안 합치면 대화형 TUI 가 조각난 명령 N 개를 받는다. 두 구현은 테스트가 대조한다.
+- 🔐 **원격 tmux env 의 ITL_TOKEN 은 사용자 전체 범위다.** 그 호스트에 same-user 셸이 있는
+  사람은 그것으로 **다른 호스트의 pane 까지** 입력할 수 있다(배달은 백엔드의 자격증명으로
+  일어나므로). 예전 근거("토큰을 읽으려면 이미 그 기계의 셸이 있다")는 그 기계 안에서만
+  성립했다 — 지금은 기계 경계를 넘는다. tailnet 한정·itl 스코프가 반경을 좁히지만, 호스트
+  단위 스코프나 더 짧은 TTL 은 아직 없다. 새 호스트를 추가할 때 이 사실을 기억할 것.
+
+### 원격 env 주입은 attach **뒤에**, 세션은 만들지 않는다 (2026-08-17)
+
+`ensure_remote_itl_env` 는 예전에 attach **앞에서** 돌면서 세션이 없으면 직접 만들었다.
+둘 다 틀렸다:
+
+- **세션 생성은 브리지의 일이다.** 우리가 먼저 `tmux new-session -d` 를 하면 브리지의
+  `has-session ||` 절이 통과해 조심스러운 생성이 통째로 건너뛰어진다 —
+  `set-option -g history-limit` 을 new-session 과 한 tmux 호출로 묶는 부분(콜드 스타트 첫
+  pane 이 2000 에 고정된다, [[project_tmux_history_limit]])과 클라이언트 PTY 차원 상속
+  (`conn.run` 은 PTY 가 없어 80x24 로 시작)을 둘 다 잃는다.
+- **attach 앞에서 SSH 왕복을 하면 재연결마다 그 값을 물고, 부팅 때는 pane 수만큼 겹친다** —
+  이 저장소가 줄여 온 바로 그 동시성이다. 지금은 `asyncio.create_task` 로 attach 뒤에 돌고,
+  `(host, session)` 별 TTL(15분) 캐시가 재연결 폭풍에서 왕복을 0 으로 만든다.
+- 그래서 respawn 도 안 한다(돌고 있는 에이전트를 죽인다). 이미 뜬 pane 은 env 를 늦게 받지만
+  CLI·MCP 가 `tmux show-environment` 로 스스로 회복한다 — **회복 코드는 두 파일 모두에**
+  있어야 한다. 한쪽만 있으면 "터미널에선 되는데 MCP 도구는 안 된다" 가 된다.
+
+### UI 픽커의 "이 세션으로 전송" 도 백엔드를 지난다 (2026-08-17)
+
+`RailMenus` 의 compose 행은 예전에 `window.terminalSessions[key]` 로 직접 밀어넣었다. 그
+경로는 **대상 pane 이 지금 이 브라우저에 붙어 있어야만** 동작한다: 모바일에서 아직 안 본
+pane 은 아예 안 붙고(`skipInitialConnect`), 안 보이는 pane 의 소켓은 60초 뒤 닫히고
+(`INACTIVE_PANE_GRACE_MS`), 닫힌 소켓에 넣은 입력은 큐에서 4초 뒤 버려진다
+(`STALE_INPUT_MS`). 그런데 UI 는 **무조건 초록 플래시**를 띄웠다 — 사라진 명령을 아무도 몰랐다.
+
+- 지금은 `POST /api/itl/send` 를 쓴다(쿠키 인증이 그대로 통한다). 붙어 있지 않아도 도달하고,
+  무엇보다 `delivered/skipped` 로 **도달 여부를 알려준다**. 실패면 빨간 테두리 + 사유 한 줄,
+  입력은 지우지 않는다(다시 시도할 것이므로).
+- 주소는 **신원**을 쓴다(`paneSessions.sessionKey` = 로컬 sessionId / 원격 tmuxSessionName).
+  픽커의 `key` 는 원격이면 프론트 pane id 라 서버가 모르는 값이다.
+- `timeoutMs` 는 30초다 — 원격 배달은 백엔드의 SSH 왕복을 포함하므로 apiFetch 기본 15초로는
+  성공한 전송이 실패로 보인다.
+- `origin: false` — 사람이 특정 터미널을 골라 친 명령이다. `[from …]` 꼬리표는 에이전트끼리
+  헤매지 않게 하는 장치이고 여기서는 노이즈다.
 
 ### MCP for AI agents
 
@@ -351,6 +435,8 @@ claude mcp add itl -- python3 <repo>/backend/cli/itl_mcp.py
 ```
 
 Reading is gated by `ITL_READ_ENABLED` (default `1`). A leaked `ITL_TOKEN` with read+send is, in effect, an interactive shell — stronger than send alone. The reason this is still acceptable: to read `ITL_TOKEN` at all you must run `tmux show-environment`, which already means **the caller can execute commands as that user on that machine** — at that point typing into the pane directly is easier. The same argument the Xvnc password paragraph makes: a file's weakness does not enlarge the exposure surface.
+
+⚠️ That argument is bounded to *that machine*, and remote sending crosses the boundary — see the 🔐 note in the traps above. A token read on the weakest host drives panes on every host, because delivery uses the backend's stored credentials, not the caller's.
 
 Traps (MCP-specific):
 - **stdout is JSON-RPC only.** A single stray `print()` makes the client treat the server as dead. All logs go to stderr, and only when `ITL_MCP_DEBUG=1`.

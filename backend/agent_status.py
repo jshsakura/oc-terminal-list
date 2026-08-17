@@ -116,3 +116,23 @@ def is_spinner_only_change(before: str | None, after: str | None) -> bool:
     if before == after:
         return True
     return display_title(before) == display_title(after)
+
+
+# ---------------------- 프롬프트 상자냐, 셸이냐 ----------------------
+
+def is_agent_pane(command: str | None = None, title: str | None = None) -> bool:
+    """이 pane 이 **에이전트 입력창**인가 (아니면 그냥 셸인가).
+
+    출처 꼬리표(`[from …]`)를 붙여도 되는지가 여기 달려 있다. 에이전트 프롬프트에서는
+    그냥 문장의 일부지만, **셸에서는 그 줄이 통째로 깨진 명령어**가 된다
+    (`[from: command not found`). 그래서 확신이 없으면 붙이지 않는다.
+
+    두 증거를 본다:
+      - 돌고 있는 명령 이름 (`#{pane_current_command}`) 이 아는 에이전트인가.
+      - pane 타이틀이 에이전트 상태로 읽히는가 (`detect_status` 는 평범한 셸 타이틀에
+        대해 None 을 준다 — "모르겠다" 가 아니라 "에이전트가 아니다").
+    """
+    name = (command or "").strip()
+    if name and _AGENT_NAME_RE.search(name):
+        return True
+    return detect_status(title) is not None

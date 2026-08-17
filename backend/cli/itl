@@ -8,8 +8,10 @@ pane 안에서 도는 에이전트(또는 사람)가 다른 pane 에 프롬프�
   ITL_API      백엔드 주소            (예: http://127.0.0.1:38822)
   ITL_TOKEN    이 세션의 인증 토큰
   ITL_SESSION  이 pane 의 세션 ID     — `itl send 3` 처럼 탭 생략 주소의 기준점
+빠진 값은 tmux 세션 환경에서 스스로 회복한다(주입 전에 켜진 구 pane 용).
 
 주소 체계는 `itl list` 가 그대로 보여준다:
+  <세션 ID> 그 터미널 자체 — 번호와 달리 밀리지 않아 복사해 넘길 수 있다
   3        현재 탭의 3번        1.3      1번 탭의 3번
   @이름     그 탭의 활성 pane     @이름.2   그 탭의 2번
   @working @idle @permission   상태로
@@ -19,15 +21,53 @@ pane 안에서 도는 에이전트(또는 사람)가 다른 pane 에 프롬프�
 import argparse
 import json
 import os
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 
-API = os.environ.get("ITL_API", "http://127.0.0.1:38822").rstrip("/")
-TOKEN = os.environ.get("ITL_TOKEN", "")
-SESSION = os.environ.get("ITL_SESSION", "")
-TIMEOUT = 15
+
+def _from_tmux_env(name):
+    """env 주입 이전에 켜진 구 pane 프로세스는 ITL_* 이 비어 있다.
+
+    tmux 세션 환경(앱이 주입해 뒀다)에서 회복한다 — 같은 사용자만 읽을 수
+    있는 곳이고, 셸 안에서 `tmux show-environment` 로 직접 보는 것과 같다.
+    """
+    if not os.environ.get("TMUX"):
+        return ""
+    try:
+        out = subprocess.run(
+            ["tmux", "show-environment", name],
+            capture_output=True, text=True, timeout=3,
+        ).stdout
+    except Exception:
+        return ""
+    for line in out.splitlines():
+        if line.startswith(name + "="):
+            return line.split("=", 1)[1]
+    return ""
+
+
+API = (os.environ.get("ITL_API", "").rstrip("/")
+       or _from_tmux_env("ITL_API").rstrip("/")
+       or "http://127.0.0.1:38822")
+TOKEN = os.environ.get("ITL_TOKEN", "") or _from_tmux_env("ITL_TOKEN")
+SESSION = os.environ.get("ITL_SESSION", "") or _from_tmux_env("ITL_SESSION")
+# 백엔드가 원격 호스트로 SSH 를 거는 시간까지 기다려야 한다. 여기가 짧으면 배달은
+# 되는데 우리는 실패로 읽고, 에이전트가 재시도해 **같은 말이 두 번** 들어간다.
+# 백엔드의 호스트 단위 상한(itl_remote.HOST_DEADLINE=20s)보다 넉넉해야 한다.
+TIMEOUT = 30
+
+# skip 사유 → 사람말. 백엔드(routes/itl.py 의 REASON_*)와 같이 움직여야 한다 —
+# 빠뜨리면 슬러그가 그대로 화면에 나온다.
+SKIP_REASONS = {
+    "remote-unsupported": "보낼 곳을 모르는 pane",
+    "session-gone": "세션이 사라짐",
+    "host-unreachable": "그 호스트에 못 닿음",
+    "send-failed": "tmux 가 전달을 확인하지 않음",
+    "deadline": "시간 안에 끝내지 못함",
+}
 
 
 def _die(message, code=1):
@@ -61,13 +101,16 @@ def _request(method, path, params=None, body=None):
 
 
 def cmd_list(args):
+    # `--remote` 는 원격 pane 의 상태까지 물어본다(호스트당 SSH 한 번). 기본은 끈다 —
+    # 목록은 값싸야 하고, 원격 상태는 STATE 칸의 `?` 가 "모른다" 로 정직하게 말해 준다.
+    params = {"from_session": SESSION}
+    if args.remote:
+        params["remote_status"] = "true"
     if args.json:
-        print(json.dumps(_request("GET", "/api/itl/targets",
-                                  {"from_session": SESSION})["targets"],
+        print(json.dumps(_request("GET", "/api/itl/targets", params)["targets"],
                          ensure_ascii=False, indent=1))
         return
-    print(_request("GET", "/api/itl/targets",
-                   {"from_session": SESSION, "fmt": "table"})["table"])
+    print(_request("GET", "/api/itl/targets", dict(params, fmt="table"))["table"])
 
 
 def cmd_who(args):
@@ -85,24 +128,52 @@ def cmd_resolve(args):
     if not matched:
         _die(f"'{args.to}' 에 해당하는 터미널이 없습니다. `itl list` 로 주소를 확인하세요.")
     for t in matched:
-        print(f"{t['addr']}  {t['tabName']} #{t['paneIndex']}  {t['command'] or '-'}  {t['status'] or '-'}")
+        state = "?" if t.get("statusUnknown") else (t.get("status") or "-")
+        print(f"{t['addr']}  {t['tabName']} #{t['paneIndex']}  {t['command'] or '-'}  {state}")
+
+
+def _single_line(text: str) -> str:
+    """tmux send-keys -l 은 개행을 Enter 로 친다 — 여러 줄이면 줄마다 제출돼
+    대화형 TUI 가 조각난 명령 N 개를 받는다. 한 덩어리로 합친다."""
+    flat = text.replace("\r\n", "\n").replace("\r", "\n")
+    return " · ".join(part.strip() for part in flat.split("\n") if part.strip())
 
 
 def cmd_send(args):
     text = args.text if args.text is not None else sys.stdin.read()
     if not text.strip():
         _die("보낼 내용이 비어 있습니다.")
+    if "\n" in text or "\r" in text:
+        collapsed = _single_line(text)
+        if collapsed != text:
+            print("여러 줄을 한 줄로 합쳐 전송합니다 (개행은 받는 쪽에서 엔터로 실행돼 "
+                  "조각나는 것을 막음).", file=sys.stderr)
+            text = collapsed
+    if len(text) > 8000:
+        _die("내용이 너무 깁니다(8000자 제한 초과). 요약해서 보내세요.")
     result = _request("POST", "/api/itl/send", body={
         "to": args.to, "text": text, "submit": args.submit, "from_session": SESSION,
+        "origin": not args.no_from,
     })
     for d in result["delivered"]:
         print(f"sent → {d['addr']}")
     for s in result["skipped"]:
-        reason = {"remote-unsupported": "원격 pane 은 아직 지원 안 함",
-                  "session-gone": "세션이 사라짐"}.get(s["reason"], s["reason"])
-        print(f"skip   {s['addr']} ({reason})", file=sys.stderr)
+        print(f"skip   {s['addr']} ({SKIP_REASONS.get(s['reason'], s['reason'])})",
+              file=sys.stderr)
     if not result["delivered"]:
         sys.exit(1)
+
+
+def cmd_read(args):
+    """상대 화면을 본다 — 시킨 일이 어떻게 됐는지 확인할 길이 없으면 눈 감고 보내는 셈이다.
+
+    원격 pane 도 읽는다(백엔드가 그 호스트로 SSH 를 건다).
+    """
+    data = _request("GET", "/api/itl/read", {
+        "to": args.to, "from_session": SESSION, "lines": args.lines,
+        "mode": "raw" if args.raw else "excerpt",
+    })
+    print(data.get("text") or "(화면이 비어 있습니다)")
 
 
 def main():
@@ -114,6 +185,9 @@ def main():
 
     p_list = sub.add_parser("list", help="열려 있는 터미널과 그 주소")
     p_list.add_argument("--json", action="store_true")
+    p_list.add_argument("-r", "--remote", action="store_true",
+                        help="원격 pane 의 상태까지 조회한다(호스트당 SSH 한 번). "
+                             "STATE 의 `?` 는 물어보지 않았다는 뜻이다")
     p_list.set_defaults(func=cmd_list)
 
     sub.add_parser("who", help="이 터미널의 주소").set_defaults(func=cmd_who)
@@ -125,10 +199,20 @@ def main():
     p_send = sub.add_parser("send", help="다른 터미널에 입력 (기본은 엔터 없음)")
     p_send.add_argument("to")
     p_send.add_argument("text", nargs="?", help="생략하면 표준입력에서 읽는다")
+    p_send.add_argument("--no-from", action="store_true",
+                        help="출처 꼬리표(`[from …]`)를 붙이지 않는다. 기본은 붙인다 — "
+                             "받는 쪽이 어디서 온 말인지 알아야 답할 수 있다")
     p_send.add_argument("--submit", action="store_true",
                         help="엔터까지 친다. 기본은 안 친다 — 대화형 앱 한가운데 "
                              "엔터가 들어가면 의도치 않게 실행된다")
     p_send.set_defaults(func=cmd_send)
+
+    p_read = sub.add_parser("read", help="그 터미널의 화면을 읽는다 (원격도 됨)")
+    p_read.add_argument("to")
+    p_read.add_argument("-n", "--lines", type=int, default=40, help="마지막 몇 줄 (기본 40)")
+    p_read.add_argument("--raw", action="store_true",
+                        help="입력상자·상태줄까지 그대로. 기본은 장식을 걷어낸 발췌")
+    p_read.set_defaults(func=cmd_read)
 
     args = parser.parse_args()
     if not TOKEN:

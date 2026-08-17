@@ -106,6 +106,28 @@ class TmuxManager:
         rc, _, _ = await self._run("has-session", "-t", f"={session_id}", check=False)
         return rc == 0
 
+    # `#{}` 두 개를 한 번에 — 존재 확인과 "무엇이 돌고 있나" 를 따로 물으면 그 사이에
+    # 세션이 죽을 수 있고, 호출도 두 배가 된다.
+    PANE_INFO_FORMAT = "#{pane_current_command}\t#{pane_title}"
+
+    async def pane_info(self, session_id: str) -> tuple[str, str] | None:
+        """(돌고 있는 명령, pane 타이틀). 알 수 없으면 None.
+
+        출처 꼬리표를 붙여도 되는지(= 에이전트 입력창인지)를 이 값으로 판정한다.
+
+        ⚠️ **존재 확인용으로 쓰지 마라.** tmux 3.4 는 없는 타깃에도 rc=0 에 빈 값을
+        돌려준다(실측). 생사는 `session_exists`(has-session) 가 판정한다.
+        """
+        rc, out, _ = await self._run(
+            "display-message", "-p", "-t", f"={session_id}:", self.PANE_INFO_FORMAT,
+            check=False,
+        )
+        if rc != 0:
+            return None
+        command, _, title = (out or "").strip().partition("\t")
+        command, title = command.strip(), title.strip()
+        return (command, title) if (command or title) else None
+
     async def create_session(
         self,
         session_id: str,
@@ -311,7 +333,10 @@ class TmuxManager:
         # (세션 타겟에서는 되는 문법이라 헷갈린다). `=name:` 로 써야 정확 매칭을 유지하면서
         # "그 세션의 현재 윈도우"로 해소된다.
         target = f"={session_id}:"
-        await self._run("send-keys", "-t", target, "-l", text, check=False)
+        # `--` ends flag parsing. Without it a message that starts with a dash dies as
+        # `command send-keys: unknown flag -x` — and `check=False` swallows it, so the
+        # text simply never arrives.
+        await self._run("send-keys", "-t", target, "-l", "--", text, check=False)
         if submit:
             await self._run("send-keys", "-t", target, "Enter", check=False)
 

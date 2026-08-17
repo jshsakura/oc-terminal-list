@@ -184,4 +184,59 @@ describe('HostEditor', () => {
     const inputs = screen.getAllByRole('textbox');
     expect(inputs.length).toBeGreaterThanOrEqual(2);
   });
+
+  it('loads itl status when the session tab opens', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ installed: true, pane_path: true, setup_command: 'mkdir -p ~/.local/bin' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <HostEditor
+        isOpen={true}
+        host={sampleHost}
+        sshKeys={sampleKeys}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+        onKillTmuxServer={vi.fn()}
+        t={mockT}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /session/i }));
+    await waitFor(() => expect(screen.getByText(/Ready — usable/)).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledWith('/api/hosts/h1/itl-status', expect.objectContaining({ headers: expect.anything() }));
+    expect(screen.queryByRole('button', { name: /^Install$/ })).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
+  it('offers install + copy when itl is missing, install posts to the setup route', async () => {
+    const fetchMock = vi.fn((url) => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve(String(url).includes('/itl-setup')
+        ? { installed: true, pane_path: true, setup_command: 'mkdir -p ~/.local/bin' }
+        : { installed: false, pane_path: false, setup_command: 'mkdir -p ~/.local/bin' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <HostEditor
+        isOpen={true}
+        host={sampleHost}
+        sshKeys={sampleKeys}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+        onKillTmuxServer={vi.fn()}
+        t={mockT}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /session/i }));
+    await waitFor(() => expect(screen.getByText(/Not installed/)).toBeInTheDocument());
+    expect(screen.getByRole('button', { name: /Copy setup command/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /^Install$/ }));
+    await waitFor(() => expect(screen.getByText(/Ready — usable/)).toBeInTheDocument());
+    const setupCall = fetchMock.mock.calls.find(([u]) => String(u).includes('/itl-setup'));
+    expect(setupCall[1].method).toBe('POST');
+    vi.unstubAllGlobals();
+  });
 });

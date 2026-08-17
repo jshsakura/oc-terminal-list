@@ -398,6 +398,40 @@ async def list_host_tmux_sessions(
     return payload
 
 
+@router.get("/api/hosts/{host_id}/itl-status")
+async def get_host_itl_status(host_id: str, username: str = Depends(verify_auth_token)):
+    """원격 호스트의 itl CLI 설치 상태 + 수동 셋업 명령(비밀 미포함).
+
+    - installed: ~/.local/bin/itl 파일 존재
+    - pane_path: login shell(tmux pane 과 동일한 시작 방식)에서 itl 이 PATH 에 잡히는지
+    """
+    from host_common import resolve_host_with_secrets
+    from itl_remote_setup import remote_itl_status
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    try:
+        return await remote_itl_status(host, secrets)
+    except Exception as e:
+        logger.warning("itl-status failed (%s): %s", host_id, e)
+        raise HTTPException(status_code=500, detail="itl 상태 조회에 실패했습니다")
+
+
+@router.post("/api/hosts/{host_id}/itl-setup")
+async def setup_host_itl(host_id: str, username: str = Depends(verify_auth_token)):
+    """원격 호스트 ~/.local/bin/itl 영구 설치(멱등) + ~/.profile PATH 정리.
+
+    CLI 본문은 배포 저장소의 backend/cli/itl 을 요청 시 읽어 stdin 으로 흘려보낸다
+    — 사용자 입력이 원격 셸에 들어가는 경로가 없고, 비밀도 디스크에 안 남는다.
+    """
+    from host_common import resolve_host_with_secrets
+    from itl_remote_setup import install_remote_itl
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    try:
+        return await install_remote_itl(host, secrets)
+    except Exception as e:
+        logger.warning("itl-setup failed (%s): %s", host_id, e)
+        raise HTTPException(status_code=500, detail="itl 설치에 실패했습니다")
+
+
 @router.delete("/api/hosts/{host_id}")
 async def delete_host(host_id: str, username: str = Depends(verify_auth_token)):
     ok = await storage.delete_host(host_id, username)

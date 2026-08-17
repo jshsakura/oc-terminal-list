@@ -2,7 +2,7 @@
  * 단일 pane — (Terminal / 빈 화면 EmptyPane) + 자체 TerminalHeader 오버레이 + 폴더 픽커.
  * 분할 그리드의 잎 노드. PaneGrid.jsx 에서 로직 변경 없이 추출.
  */
-import { Suspense, lazy, useState, useEffect, useRef, useCallback } from 'react';
+import { Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Plus, ArrowRightLeft, LayoutPanelLeft } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
@@ -18,7 +18,9 @@ import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
 import PaneAddressLabel from './PaneAddressLabel';
 import { derivePaneLabel, isEmptyPane } from '../../utils/paneLabel';
+import { collectOtherPaneSessions } from '../../utils/paneSessions';
 import { buildSshAddr, formatServerAddr, formatSessionTarget, formatSessionTargetLabel } from '../../utils/sessionTarget';
+import { getAgentStatusSnapshot } from '../../utils/agentStatusStore';
 import { copyToClipboard } from '../../utils/clipboard';
 
 const Terminal = lazy(() => import('../Terminal'));
@@ -87,6 +89,19 @@ const Pane = ({
   const toggleAddressExpanded = useCallback(
     () => updateSettings?.({ paneAddressExpanded: !isAddressExpanded }),
     [updateSettings, isAddressExpanded],
+  );
+
+  /* Eye 히스토리 popover 의 세션 픽커에 실릴 "다른 살아있는 세션" 목록.
+     여기(allTabs/hosts/settings/t 가 있는 곳)에서 계산해 TerminalHeader 로 넘긴다.
+     O(panes) 순회라 상시 memo 로도 부담 없다. */
+  const currentTerminalKey = pane.sessionId || pane.id;
+  const sessionTargets = useMemo(
+    () => collectOtherPaneSessions(allTabs, {
+      excludePaneId: pane.id,
+      excludeKey: currentTerminalKey,
+      hosts, settings, t,
+    }),
+    [allTabs, pane.id, currentTerminalKey, hosts, settings, t],
   );
 
   // Global reload signal from settings menu → bump refreshNonce to remount terminal
@@ -365,6 +380,15 @@ const Pane = ({
       // The record, not just the address — the ssh line needs `-p <port>` and, for a
       // tailscale host, `tailscale ssh` (which is how this app itself gets in).
       host: isLocal ? null : remoteHost,
+      // How to run the CLI on this box — the backend knows whether it is on PATH.
+      itlCmd: serverIdentity.itl_cmd || '',
+      // Where the work is and what is doing it. A receiver on another machine cannot
+      // infer either, and without them it starts in its own checkout and finds nothing.
+      cwd: paneCwdAbs || pane.cwd || '',
+      agent: (() => {
+        const st = getAgentStatusSnapshot()[tmuxSession] || {};
+        return [st.command, st.title].filter(Boolean).join(' ');
+      })(),
       tmuxSession,
       // Local sessions live on the app's own socket — the name alone cannot be attached to.
       socket: isLocal ? (tmuxSocket || '') : '',
@@ -377,7 +401,7 @@ const Pane = ({
     copyToClipboard(target).then((ok) => onNotify?.(ok
       ? `${t?.('copied') || 'Copied'}${label ? ` · ${label}` : ''}`
       : (t?.('clipboardError') || 'Copy failed')));
-  }, [isLocal, remoteHost, pane, tmuxSocket, serverIdentity, onNotify, t]);
+  }, [isLocal, remoteHost, pane, paneCwdAbs, tmuxSocket, serverIdentity, onNotify, t]);
 
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭/pane 이름 갱신에 활용.
   // 원격은 workspace 상대경로가 없으므로 절대경로(paneCwdAbs)도 함께 보내 basename 으로 쓰게 한다.
@@ -643,6 +667,7 @@ const Pane = ({
           onExtractPane={onExtractPane}
           isBusy={isPaneBusy}
           sessionStatus={terminalStatus}
+          sessionTargets={sessionTargets}
           onSplitPane={onSplitPane}
           onEqualizePane={onEqualizePane}
           activeFilePath={activeFilePath}

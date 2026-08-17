@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { X, Trash2, Network, FolderOpen, Globe, Terminal as TerminalIcon, Palette, AlertTriangle } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { X, Trash2, Network, FolderOpen, Globe, Terminal as TerminalIcon, Palette, AlertTriangle, Copy, Check } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import SkeletonRow from './common/SkeletonRow';
@@ -7,6 +7,7 @@ import IconPickerPopup from './IconPickerPopup';
 import ThemePicker from './common/ThemePicker';
 import RemoteFolderPicker from './RemoteFolderPicker';
 import { authHeaders } from '../utils/auth';
+import { copyToClipboard } from '../utils/clipboard';
 import { heStyles, styles } from './hostEditor/hostEditorStyles';
 import { Section, Divider, Row, Field, Input, Select, SegmentedControl, Toggle } from './hostEditor/HostEditorFields';
 import { IconButton, ColorPicker, TailscalePicker } from './hostEditor/HostEditorPickers';
@@ -50,6 +51,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   const [heTab, setHeTab] = useState('connection');
   const [tmuxWarning, setTmuxWarning] = useState('');
   const [tmuxChecking, setTmuxChecking] = useState(false);
+  const [itl, setItl] = useState({ loaded: false, loading: false, installing: false, installed: null, panePath: null, setupCommand: '', error: null, copied: false });
+  const itlCopyTimerRef = useRef(null);
 
   useEffect(() => {
     setConfirmingDelete(false);
@@ -67,6 +70,32 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     }
     setError('');
   }, [host, isOpen]);
+
+  // itl 상태는 호스트가 바뀌면 다시 조회한다(편집 대상 전환).
+  useEffect(() => {
+    setItl({ loaded: false, loading: false, installing: false, installed: null, panePath: null, setupCommand: '', error: null, copied: false });
+  }, [host?.id]);
+
+  // 세션 탭에 처음 들어올 때 1회만 원격 상태를 묻는다 — 모달을 열 때마다 SSH 를 치지 않게.
+  useEffect(() => {
+    if (!isOpen || heTab !== 'session' || !host?.id || !draft.use_remote_tmux) return;
+    if (itl.loaded || itl.loading) return;
+    let cancelled = false;
+    setItl((s) => ({ ...s, loading: true }));
+    (async () => {
+      try {
+        const res = await fetch(`/api/hosts/${host.id}/itl-status`, { headers: authHeaders() });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (!cancelled) setItl((s) => ({ ...s, loaded: true, loading: false, installed: !!data.installed, panePath: !!data.pane_path, setupCommand: data.setup_command || '' }));
+      } catch (e) {
+        if (!cancelled) setItl((s) => ({ ...s, loaded: true, loading: false, error: e.message || 'failed' }));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, heTab, host?.id, draft.use_remote_tmux]);
+
+  useEffect(() => () => { if (itlCopyTimerRef.current) clearTimeout(itlCopyTimerRef.current); }, []);
 
   if (!isOpen) return null;
 
@@ -145,6 +174,28 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     } finally {
       setSessions((s) => ({ ...s, killing: null }));
     }
+  };
+
+  const installItl = async () => {
+    if (!host?.id) return;
+    setItl((s) => ({ ...s, installing: true, error: null }));
+    try {
+      const res = await fetch(`/api/hosts/${host.id}/itl-setup`, { method: 'POST', headers: authHeaders() });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      setItl((s) => ({ ...s, installing: false, installed: !!data.installed, panePath: !!data.pane_path, setupCommand: data.setup_command || s.setupCommand }));
+    } catch (e) {
+      setItl((s) => ({ ...s, installing: false, error: e.message || 'failed' }));
+    }
+  };
+
+  const copyItlSetup = async () => {
+    if (!itl.setupCommand) return;
+    const ok = await copyToClipboard(itl.setupCommand);
+    if (!ok) return;
+    setItl((s) => ({ ...s, copied: true }));
+    if (itlCopyTimerRef.current) clearTimeout(itlCopyTimerRef.current);
+    itlCopyTimerRef.current = setTimeout(() => setItl((s) => ({ ...s, copied: false })), 1200);
   };
 
   // useIp=true 면 100.x.x.x 테일넷 IP, false 면 MagicDNS 호스트명을 hostname 필드에 채움.
@@ -497,6 +548,56 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                         </div>
                       </div>
                     )}
+                  </div>
+                </Section>
+              )}
+              {host && draft.use_remote_tmux && (
+                <Section title={t('itlSection') || '터미널 간 명령 전달 (itl)'}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: space['2'] }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: space['2'], flexWrap: 'wrap' }}>
+                      {itl.loading && (
+                        <span style={{ fontSize: fontSize['11'], color: color.muted }}>{t('loading') || 'Loading…'}</span>
+                      )}
+                      {itl.loaded && itl.error && (
+                        <span style={{ fontSize: fontSize['11'], color: color.danger }}>
+                          {(t('itlLoadError') || '상태 조회 실패')} ({itl.error})
+                        </span>
+                      )}
+                      {itl.loaded && !itl.error && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: fontSize['11'] }}>
+                          <span style={{
+                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+                            background: itl.installed ? (itl.panePath ? color.success : 'var(--ui-warning, #f9e2af)') : color.muted,
+                          }} />
+                          <span style={{ color: color.subtext }}>
+                            {itl.installed
+                              ? (itl.panePath
+                                  ? (t('itlStatusReady') || '준비 완료 — 새 원격 터미널에서 바로 사용 가능')
+                                  : (t('itlStatusNeedRelogin') || '설치됨 — 새 셸부터 PATH 활성화'))
+                              : (t('itlNotInstalled') || '미설치 — 이 호스트 터미널에서 발신 불가')}
+                          </span>
+                        </span>
+                      )}
+                      {itl.loaded && !itl.error && !itl.installed && (
+                        <>
+                          <Button variant="ghost" type="button" disabled={itl.installing} onClick={installItl}>
+                            {itl.installing ? (t('itlInstalling') || '설치 중…') : (t('itlInstall') || '설치')}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            type="button"
+                            disabled={!itl.setupCommand}
+                            onClick={copyItlSetup}
+                            icon={itl.copied ? Check : Copy}
+                          >
+                            {itl.copied ? (t('itlCopied') || '복사됨') : (t('itlCopySetup') || '셋업 명령 복사')}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                    <div style={{ fontSize: fontSize['11'], color: color.muted, lineHeight: 1.5 }}>
+                      {t('itlHint') || '앱이 만드는 원격 터미널에 자격이 자동 주입됩니다. 설치되는 것은 비밀 없는 CLI 스크립트 하나뿐.'}
+                    </div>
                   </div>
                 </Section>
               )}

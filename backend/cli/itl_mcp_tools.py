@@ -10,20 +10,58 @@ All logs go to stderr; stdout is reserved for JSON-RPC by the caller.
 """
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-API = os.environ.get("ITL_API", "http://127.0.0.1:38822").rstrip("/")
-TOKEN = os.environ.get("ITL_TOKEN", "")
-SESSION = os.environ.get("ITL_SESSION", "")
+
+def _from_tmux_env(name):
+    """env 주입 이전에 켜진 pane 에서 뜬 MCP 서버는 ITL_* 이 비어 있다.
+
+    tmux 세션 환경(앱이 심어 뒀다)에서 회복한다 — `cli/itl` 과 **같은 규칙**이다.
+    한쪽만 회복하면 "CLI 는 되는데 MCP 도구는 안 된다" 가 되어 에이전트가 헤맨다.
+    """
+    if not os.environ.get("TMUX"):
+        return ""
+    try:
+        out = subprocess.run(
+            ["tmux", "show-environment", name],
+            capture_output=True, text=True, timeout=3,
+        ).stdout
+    except Exception:
+        return ""
+    for line in out.splitlines():
+        if line.startswith(name + "="):
+            return line.split("=", 1)[1]
+    return ""
+
+
+API = (os.environ.get("ITL_API", "").rstrip("/")
+       or _from_tmux_env("ITL_API").rstrip("/")
+       or "http://127.0.0.1:38822")
+TOKEN = os.environ.get("ITL_TOKEN", "") or _from_tmux_env("ITL_TOKEN")
+SESSION = os.environ.get("ITL_SESSION", "") or _from_tmux_env("ITL_SESSION")
 
 FANOUT_CONFIRM_THRESHOLD = 5
 MAX_TEXT_CHARS = 8000
 POLL_SEC = 2.0
-HTTP_TIMEOUT = 15
+# 원격 상태 조회는 호스트당 SSH 왕복이다 — 2초마다 두드릴 일이 아니다.
+REMOTE_POLL_SEC = 5.0
+# 원격 배달은 백엔드가 SSH 를 거는 시간까지 포함한다(itl_remote.HOST_DEADLINE=20s).
+# 여기가 짧으면 배달은 됐는데 실패로 읽고, 모델이 재시도해 같은 말이 두 번 들어간다.
+HTTP_TIMEOUT = 30
+
+# skip 사유 → 사람말. 백엔드(routes/itl.py 의 REASON_*)와 CLI 의 표와 함께 움직인다.
+SKIP_REASONS = {
+    "remote-unsupported": "보낼 곳을 모르는 pane",
+    "session-gone": "세션이 사라짐",
+    "host-unreachable": "그 호스트에 못 닿음",
+    "send-failed": "tmux 가 전달을 확인하지 않음",
+    "deadline": "시간 안에 끝내지 못함",
+}
 
 
 class ToolError(Exception):
@@ -83,9 +121,16 @@ def _is_self(target):
     return target.get("sessionId") == SESSION or target.get("tmuxSession") == SESSION
 
 
-def _resolve_targets(to):
-    """Resolve `to` against the backend. Raises ToolError on backend failure."""
-    data = _api("GET", "/api/itl/resolve", {"to": to, "from_session": SESSION})
+def _resolve_targets(to, remote_status=False):
+    """Resolve `to` against the backend. Raises ToolError on backend failure.
+
+    `remote_status=True` 는 원격 pane 의 상태까지 채워 달라고 요청한다(호스트당 SSH 왕복
+    한 번) — 기다림에만 쓴다.
+    """
+    params = {"to": to, "from_session": SESSION}
+    if remote_status:
+        params["remote_status"] = "true"
+    data = _api("GET", "/api/itl/resolve", params)
     return data.get("matched", []) or []
 
 
@@ -99,13 +144,31 @@ def _wait_satisfied(status, until):
     return status != "working"
 
 
+def _wait_reached(target, until):
+    """조건을 만족했나 — **모르는 것은 만족이 아니다.**
+
+    원격 pane 의 상태는 백엔드 워처가 볼 수 없어 비어 있고(`statusUnknown`), 빈 상태를
+    "일 안 함" 으로 세면 `terminal_wait` 가 0 초에 "완료" 를 돌려준다. 실제로 그랬다 —
+    원격에 일을 넘긴 뒤 기다린 에이전트가 즉시 "끝났다" 는 답을 받고 다음으로 넘어갔다.
+    """
+    if target.get("statusUnknown"):
+        return False
+    return _wait_satisfied(target.get("status"), until)
+
+
+def _wait_state(target):
+    if target.get("statusUnknown"):
+        return "unknown"
+    return target.get("status")
+
+
 def _format_wait_targets(expected, gone, by_addr):
     out = []
     for addr in sorted(expected):
         if addr in gone or addr not in by_addr:
             out.append({"addr": addr, "status": "gone"})
         else:
-            out.append({"addr": addr, "status": by_addr[addr].get("status")})
+            out.append({"addr": addr, "status": _wait_state(by_addr[addr])})
     return out
 
 
@@ -148,7 +211,8 @@ def tool_terminal_resolve(args):
     rows = []
     for t in matched:
         addr = t.get("addr")
-        row = f"{addr}  {t.get('tabName')} #{t.get('paneIndex')}  {t.get('command') or '-'}  {t.get('status') or '-'}"
+        state = "?" if t.get("statusUnknown") else (t.get("status") or "-")
+        row = f"{addr}  {t.get('tabName')} #{t.get('paneIndex')}  {t.get('command') or '-'}  {state}"
         rows.append(row)
     return "\n".join(rows)
 
@@ -182,9 +246,8 @@ def tool_terminal_send(args):
     delivered = result.get("delivered", []) or []
     skipped = result.get("skipped", []) or []
     lines = [f"sent → {d.get('addr')}" for d in delivered]
-    reason_map = {"remote-unsupported": "원격 pane 은 아직 지원 안 함", "session-gone": "세션이 사라짐"}
     for s in skipped:
-        lines.append(f"skip   {s.get('addr')} ({reason_map.get(s.get('reason'), s.get('reason', '?'))})")
+        lines.append(f"skip   {s.get('addr')} ({SKIP_REASONS.get(s.get('reason'), s.get('reason', '?'))})")
     if not delivered:
         raise ToolError("보냈으나 전달된 터미널이 없습니다. " + " | ".join(lines))
     return "\n".join(lines)
@@ -214,9 +277,8 @@ def tool_terminal_key(args):
     delivered = result.get("delivered", []) or []
     skipped = result.get("skipped", []) or []
     lines = [f"key → {d.get('addr')} ({key})" for d in delivered]
-    reason_map = {"remote-unsupported": "원격 pane 은 아직 지원 안 함", "session-gone": "세션이 사라짐"}
     for s in skipped:
-        lines.append(f"skip   {s.get('addr')} ({reason_map.get(s.get('reason'), s.get('reason', '?'))})")
+        lines.append(f"skip   {s.get('addr')} ({SKIP_REASONS.get(s.get('reason'), s.get('reason', '?'))})")
     if not delivered:
         raise ToolError("보냈으나 전달된 터미널이 없습니다. " + " | ".join(lines))
     return "\n".join(lines)
@@ -232,9 +294,7 @@ def tool_terminal_read(args):
     if len(matched) > 1:
         addrs = ", ".join(t.get("addr", "?") for t in matched)
         raise ToolError(f"'{to}'는 {len(matched)}개로 해소됩니다: {addrs}. 하나만 지정하세요.")
-    target = matched[0]
-    if not target.get("sessionId"):
-        raise ToolError(f"{target.get('addr')}는 원격 호스트의 터미널이라 아직 읽을 수 없습니다.")
+    # 원격 pane 도 읽는다 — 백엔드가 그 호스트로 SSH 를 걸어 캡처한다(itl_remote).
     data = _api("GET", "/api/itl/read", {
         "to": to, "from_session": SESSION, "lines": lines_arg, "mode": mode,
     })
@@ -250,17 +310,21 @@ def tool_terminal_wait(args):
     initial = _resolve_targets(to)
     if not initial:
         raise ToolError(f"'{to}'에 해당하는 터미널이 없습니다. terminal_list로 주소를 확인하세요.")
+    # 원격이 하나라도 섞였으면 상태를 물어봐야 알 수 있고, 그 조회는 호스트당 SSH 왕복이라
+    # 폴 간격도 늘린다. 로컬만이면 예전과 똑같이 2초 폴이다.
+    has_remote = any(not t.get("sessionId") for t in initial)
+    poll_sec = REMOTE_POLL_SEC if has_remote else POLL_SEC
     expected = {t.get("addr") for t in initial}
     gone = set()
     while True:
-        matched = _resolve_targets(to)
+        matched = _resolve_targets(to, remote_status=has_remote)
         by_addr = {t.get("addr"): t for t in matched}
         # Disappeared targets satisfy the condition (session-gone). Track once.
         for addr in list(expected):
             if addr not in by_addr:
                 gone.add(addr)
         remaining = expected - gone
-        all_ok = all(_wait_satisfied(by_addr[a].get("status"), until) for a in remaining if a in by_addr)
+        all_ok = all(_wait_reached(by_addr[a], until) for a in remaining if a in by_addr)
         if all_ok:
             elapsed = int(time.monotonic() - start)
             payload = {"reached": True, "elapsed_sec": elapsed,
@@ -270,13 +334,21 @@ def tool_terminal_wait(args):
             elapsed = int(time.monotonic() - start)
             payload = {"reached": False, "elapsed_sec": elapsed,
                        "targets": _format_wait_targets(expected, gone, by_addr)}
-            working = sorted(
+            pending = sorted(
                 a for a in remaining
-                if a in by_addr and not _wait_satisfied(by_addr[a].get("status"), until)
+                if a in by_addr and not _wait_reached(by_addr[a], until)
             )
-            note = f"\n아직 working 중입니다: {', '.join(working)}" if working else ""
+            unknown = sorted(a for a in pending if by_addr[a].get("statusUnknown"))
+            still = [a for a in pending if a not in unknown]
+            notes = []
+            if still:
+                notes.append(f"아직 working 중입니다: {', '.join(still)}")
+            if unknown:
+                # 모른다고 말해야 모델이 다른 방법(terminal_read)으로 확인한다.
+                notes.append(f"상태를 확인할 수 없었습니다(호스트 응답 없음): {', '.join(unknown)}")
+            note = ("\n" + "\n".join(notes)) if notes else ""
             return json.dumps(payload, ensure_ascii=False) + note
-        time.sleep(POLL_SEC)
+        time.sleep(poll_sec)
 
 
 HANDLERS = {

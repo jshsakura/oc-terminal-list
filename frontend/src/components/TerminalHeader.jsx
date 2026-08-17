@@ -79,6 +79,8 @@ const TerminalHeader = ({
   isBusy = false,
   /* 터미널 세션 상태 — { evicted, ended, isReady, hasContent }. */
   sessionStatus = null,
+  /* 세션 간 명령 픽커 대상 — Pane 이 collectOtherPaneSessions 로 계산한 다른 세션 목록. */
+  sessionTargets = [],
   isMobile = false,
   filePanelOpen = false,
   onFilePanelToggle = null,
@@ -581,6 +583,7 @@ const TerminalHeader = ({
         <CommandHistoryPopover
           anchor={historyMenu}
           terminalKey={terminalKey}
+          sessions={sessionTargets}
           ui={panelUi}
           isMobile={isMobile}
           onClose={closeHistoryMenu}

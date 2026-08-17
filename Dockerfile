@@ -44,6 +44,13 @@ RUN pip install --no-cache-dir -r backend/requirements.txt \
 COPY backend/ ./backend/
 COPY run.py ./run.py
 
+# `itl` 을 PATH 에 올린다 — pane 안의 에이전트가 형제 터미널을 부를 때 쓰는 이름이고,
+# 복사되는 pane 핸들도 이 이름으로 찍힌다(server_identity._itl_cmd 가 PATH 를 본다).
+# 절대경로로도 돌지만, 컨테이너마다 다른 긴 경로가 핸들에 실리는 것보다 낫다.
+RUN chmod +x backend/cli/itl backend/cli/itl-mcp \
+    && ln -sf /app/backend/cli/itl /usr/local/bin/itl \
+    && ln -sf /app/backend/cli/itl-mcp /usr/local/bin/itl-mcp
+
 # Stage 1 결과
 COPY --from=frontend-build /build/backend/static ./backend/static/
 

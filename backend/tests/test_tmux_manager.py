@@ -76,7 +76,23 @@ async def test_send_keys_uses_pane_target_syntax(tmux_manager):
         return (0, "", "")
     with patch.object(tmux_manager, '_run', side_effect=fake_run):
         await tmux_manager.send_keys("sess-1", "hello")
-    assert calls == [("send-keys", "-t", "=sess-1:", "-l", "hello")]
+    assert calls == [("send-keys", "-t", "=sess-1:", "-l", "--", "hello")]
+
+
+@pytest.mark.asyncio
+async def test_send_keys_ends_flag_parsing(tmux_manager):
+    """`--` 가 없으면 대시로 시작하는 메시지가 `unknown flag` 로 죽는다.
+
+    실측: `send-keys -t X -l '-x oops'` → "command send-keys: unknown flag -x".
+    `check=False` 라 예외도 안 나고, 그 메시지만 조용히 사라진다.
+    """
+    calls = []
+    async def fake_run(*args, **kwargs):
+        calls.append(args)
+        return (0, "", "")
+    with patch.object(tmux_manager, '_run', side_effect=fake_run):
+        await tmux_manager.send_keys("sess-1", "-x oops")
+    assert calls == [("send-keys", "-t", "=sess-1:", "-l", "--", "-x oops")]
 
 
 @pytest.mark.asyncio

@@ -139,6 +139,26 @@ describe('formatSessionTarget — 줄 자체가 명령이다', () => {
     expect(out).not.toContain('box.local:2222');
   });
 
+  /* 실제로 밟은 것: `ssh -t jshsakura@100.115.177.3` 가 Permission denied 로 막혔고,
+     받는 쪽이 자기 ~/.ssh/config 를 뒤져 별칭 `ubuntu-lab` 을 찾아서야 들어갔다.
+     그 이름은 우리 호스트 레코드에 이미 있다 — 알려주면 첫 시도에 끝난다. */
+  it('호스트 이름을 같이 알려준다 — 받는 쪽 ssh 별칭이 그 이름인 경우가 많다', () => {
+    const out = formatSessionTarget({
+      server: 'jshsakura@100.115.177.3', tmuxSession: 'mobile-1ea43f8888f1', remote: true,
+      host: { name: 'ubuntu-lab', ssh_user: 'jshsakura', hostname: '100.115.177.3' },
+    });
+    expect(out).toContain('ssh -t jshsakura@100.115.177.3 "tmux attach');
+    expect(out).toContain('host "ubuntu-lab"');
+  });
+
+  it('이름이 이미 명령에 들어 있으면 중복해서 말하지 않는다', () => {
+    const out = formatSessionTarget({
+      server: 'pi@nas', tmuxSession: 'mobile', remote: true,
+      host: { name: 'nas', ssh_user: 'pi', hostname: 'nas' },
+    });
+    expect(out).not.toContain('host "nas"');
+  });
+
   it('tailscale 호스트는 tailscale ssh 로 나간다', () => {
     expect(formatSessionTarget({
       server: 'ubuntu@a1', tmuxSession: 'mobile',
@@ -175,6 +195,62 @@ describe('formatSessionTarget — 줄 자체가 명령이다', () => {
     });
     expect(out.length).toBeLessThan(180);
     expect(out.split('\n')).toHaveLength(1);
+  });
+});
+
+/* 받는 에이전트에게 남은 두 개의 실패를 없앤 형태 — 실제로 둘 다 밟았다:
+   ① 그 호스트의 열쇠가 없어 ssh 가 거절당한다 ② 죽은 세션 이름을 받은 에이전트가
+   `tmux ls` 에서 그럴싸한 다른 세션을 골라 거기에 명령을 박는다. */
+describe('itl 형태 — 자격증명도, 엉뚱한 세션도 없다', () => {
+  const ITL = 'python3 /srv/app/backend/cli/itl';
+
+  /* 주석은 받는 쪽이 **일을 시작하는 데** 필요한 것만 — 어느 기계, 어느 트리, 뭐가 돌고 있나.
+     실제로 이게 없어서 받은 에이전트가 자기 체크아웃에서 시작했다가 아무것도 못 찾고 멈췄다. */
+  it('로컬 — 기계·경로·돌고 있는 것을 싣는다', () => {
+    expect(formatSessionTarget({
+      server: 'a1-ubuntu', tmuxSession: 'abc', socket: 'sock', itlCmd: ITL,
+      cwd: '/home/ubuntu/work/retro-go', agent: 'claude ◐ Cx4 포팅',
+    })).toBe(`${ITL} send abc 'TEXT' --submit`
+      + '  # a1-ubuntu · /home/ubuntu/work/retro-go · claude ◐ Cx4 포팅');
+  });
+
+  it('엔터까지 친다 — 넘긴 일이 프롬프트에 얹힌 채 안 돌면 전달 실패와 같다', () => {
+    expect(formatSessionTarget({ tmuxSession: 'abc', itlCmd: ITL })).toContain("'TEXT' --submit");
+  });
+
+  it('원격도 같은 한 줄이다 — 호스트 이름은 등록명으로 말한다', () => {
+    const out = formatSessionTarget({
+      server: 'jshsakura@100.115.177.3', tmuxSession: 'mobile-1ea43f8888f1', remote: true,
+      host: { name: 'ubuntu-lab', ssh_user: 'jshsakura', hostname: '100.115.177.3' },
+      itlCmd: ITL, cwd: '/home/jshsakura/workspace/retro-go',
+    });
+    expect(out).toBe(`${ITL} send mobile-1ea43f8888f1 'TEXT' --submit`
+      + '  # ubuntu-lab · /home/jshsakura/workspace/retro-go');
+    // ssh 줄은 일부러 빼 둔다 — 받는 쪽을 자격증명 삽질로 보낸 게 그것이다.
+    expect(out).not.toContain('ssh ');
+  });
+
+  it('긴 경로는 뒤를, 긴 제목은 앞을 남긴다 — 줄바꿈되면 아무도 안 읽는다', () => {
+    const out = formatSessionTarget({
+      server: 'a1', tmuxSession: 'abc', itlCmd: ITL,
+      cwd: '/very/deep/path/that/keeps/going/and/going/until/nobody/reads/it/project',
+      agent: `claude ${'가'.repeat(80)}`,
+    });
+    expect(out).toContain('· …');
+    expect(out).toContain('/nobody/reads/it/project ·');
+    expect(out).toContain('claude 가');
+    expect(out.length).toBeLessThan(200);
+  });
+
+  it('주소는 세션 ID 다 — pane 을 닫아도 밀리지 않는다', () => {
+    const out = formatSessionTarget({ tmuxSession: 'abc', socket: 'sock', itlCmd: ITL });
+    expect(out).toContain('send abc');
+    expect(out).not.toMatch(/send \d+\.\d+/);
+  });
+
+  it('itl 이 없으면 예전 tmux 줄로 돌아간다 — 없는 명령을 알려주지 않는다', () => {
+    expect(formatSessionTarget({ tmuxSession: 'abc', socket: 'sock', itlCmd: '' }))
+      .toBe("tmux -L sock attach -t '=abc:'  # type: send-keys -l 'TEXT' then Enter");
   });
 });
 

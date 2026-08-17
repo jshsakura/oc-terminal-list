@@ -275,6 +275,83 @@ def test_terminal_wait_timeout_is_not_error(mcp, monkeypatch):
     assert "아직 working 중입니다" in text
 
 
+# --- terminal_wait on a REMOTE pane ---------------------------------------
+# 원격 pane 의 상태는 백엔드 워처가 볼 수 없다. 그 빈 상태를 "일 안 함" 으로 세면
+# 기다림이 0 초에 "완료" 를 돌려주고, 일을 넘긴 에이전트는 아무 결과도 없는 채로
+# 다음 단계로 넘어간다. 원격이 sendable 이 되면서 생긴 새 실패 모드다.
+def _remote_target(addr="3.1", tmux_session="mobile-a1", **extra):
+    t = {
+        "addr": addr, "tabIndex": 3, "paneIndex": 1,
+        "sessionId": None, "tmuxSession": tmux_session,
+        "command": "", "status": None, "statusUnknown": True,
+    }
+    t.update(extra)
+    return t
+
+
+def test_terminal_wait_does_not_claim_done_for_unknown_remote_status(mcp, monkeypatch):
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    times = iter([0.0, 0.0, 100.0, 100.0, 100.0, 100.0])
+    monkeypatch.setattr(tools.time, "monotonic", lambda: next(times))
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/resolve")] = {"matched": [_remote_target()]}
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_wait", {"to": "3.1", "timeout_sec": 5}))
+    text = resp["result"]["content"][0]["text"]
+    payload = json.loads(text.split("\n", 1)[0])
+    assert payload["reached"] is False
+    assert payload["targets"] == [{"addr": "3.1", "status": "unknown"}]
+    assert "상태를 확인할 수 없었습니다" in text
+
+
+def test_terminal_wait_asks_the_host_when_a_target_is_remote(mcp, monkeypatch):
+    """원격이 섞였으면 상태를 물어봐야 알 수 있다 — 그 조회를 요청했는지 잠근다."""
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/resolve")] = {
+        "matched": [_remote_target(status="idle", statusUnknown=False)],
+    }
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_wait", {"to": "3.1", "timeout_sec": 5}))
+    payload = json.loads(resp["result"]["content"][0]["text"])
+    assert payload["reached"] is True
+    polls = [c for c in fake.calls if c[0] == "GET"]
+    assert polls[0][2].get("remote_status") is None          # 첫 조회(대상 파악)는 값싸게
+    assert polls[1][2]["remote_status"] == "true"            # 그 뒤 폴은 물어본다
+
+
+def test_terminal_wait_local_only_keeps_the_cheap_poll(mcp, monkeypatch):
+    """로컬만이면 예전과 똑같아야 한다 — 공짜 조회에 SSH 를 얹지 않는다."""
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/resolve")] = {"matched": [_target("2.1", "s-other")]}
+    monkeypatch.setattr(tools, "_api", fake)
+    server.handle(_call("terminal_wait", {"to": "2.1", "timeout_sec": 5}))
+    assert all(c[2].get("remote_status") is None for c in fake.calls if c[0] == "GET")
+
+
+def test_terminal_read_accepts_a_remote_pane(mcp, monkeypatch):
+    """원격 읽기는 이제 지원된다 — 백엔드가 SSH 로 캡처한다."""
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/resolve")] = {"matched": [_remote_target()]}
+    fake.responses[("GET", "/api/itl/read")] = {"text": "remote screen"}
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_read", {"to": "3.1"}))
+    assert resp["result"]["isError"] is False
+    assert resp["result"]["content"][0]["text"] == "remote screen"
+
+
+def test_mcp_selfheals_env_from_tmux_like_the_cli(mcp):
+    """CLI 만 회복하면 "터미널에선 되는데 도구는 안 된다" 가 된다."""
+    _server, tools = mcp
+    assert callable(tools._from_tmux_env)
+
+
 # --- §5.2 verbatim error text on transport failures ------------------------
 # We patch urllib.request.urlopen (NOT _api) so the real _api wrapper runs and
 # converts the raw HTTP/URL errors into ToolError with verbatim text. Patching

@@ -44,6 +44,11 @@ def build_targets(tabs: list, status_map: dict | None = None) -> list[dict]:
             key = session_id or tmux_session
             state = status_map.get(key) or {}
             targets.append({
+                # 원격 pane 의 상태는 **모르는 것이 기본**이다. 백엔드 워처는 그 호스트의
+                # tmux 를 볼 수 없다(CLAUDE.md 상태감지 절). 빈 상태를 "유휴" 로 읽으면
+                # 기다림이 0 초에 거짓 완료로 끝난다 — 그래서 모른다고 적어 둔다.
+                # routes/itl.py `_fill_remote_status` 가 실제로 물어보면 이 값을 내린다.
+                "statusUnknown": not session_id and not state,
                 "addr": f"{tab_index}.{pane_index}",
                 "tabIndex": tab_index,
                 "paneIndex": pane_index,
@@ -180,10 +185,25 @@ def _select_pane(scoped: list[dict], sel: str, from_session: str | None) -> list
     return []
 
 
+def _by_identity(targets: list[dict], raw: str) -> list[dict]:
+    """Exact `sessionId` / `tmuxSession` match — the address that never moves.
+
+    Numbers are what humans say, ids are identity (see the module docstring), so a
+    handle meant to survive being copied elsewhere carries the id. This is checked
+    **before** the address is split, because a remote session is free to be named
+    `mobile.2` — splitting first would read that as "tab mobile, pane 2".
+    """
+    key = raw.strip()
+    if not key:
+        return []
+    return [t for t in targets if key in (t["sessionId"], t["tmuxSession"])]
+
+
 def resolve(targets: list[dict], expr: str | None, from_session: str | None = None) -> list[dict]:
     """Address string → target list. Returns empty list when nothing matches.
 
     Accepted shapes (spec §4.1):
+      `<session-id>`     that exact terminal, wherever it moved to
       `3`                pane N of the caller's tab (needs from_session)
       `1.3` `1:3`        tab 1, pane 3
       `@name`            named tab → its active pane
@@ -198,6 +218,13 @@ def resolve(targets: list[dict], expr: str | None, from_session: str | None = No
     if not expr:
         return []
     raw = expr.strip()
+
+    # Identity first — before any splitting, so a session literally named `mobile.2`
+    # is not read as "tab mobile, pane 2".
+    by_id = _by_identity(targets, raw)
+    if by_id:
+        return by_id
+
     tab_part, sep, pane_part = _split_addr(raw)
 
     if sep is None:
@@ -258,6 +285,17 @@ def filter_targets(
     return list(targets)
 
 
+def _state_cell(target: dict) -> str:
+    """STATE 칸. `?` 는 **물어보지 못했다**는 뜻이고 `-` 는 일하고 있지 않다는 뜻이다.
+
+    원격 pane 은 백엔드 워처가 볼 수 없어 기본적으로 상태가 비어 있다. 그 빈칸을 `-`
+    로 적으면 "확인했고 유휴다" 로 읽혀 기다림·판단이 거짓 위에 선다.
+    """
+    if target.get("statusUnknown"):
+        return "?"
+    return target.get("status") or "-"
+
+
 def format_table(targets: list[dict], from_session: str | None = None) -> str:
     """`itl list` 출력. 이 표 자체가 주소 체계의 사용설명서다."""
     if not targets:
@@ -268,7 +306,7 @@ def format_table(targets: list[dict], from_session: str | None = None) -> str:
         rows.append((
             here, t["addr"], t["tabName"][:18],
             (t["hostId"] or "local")[:8], t["command"][:10],
-            t["status"] or "-", (t["title"] or "")[:34],
+            _state_cell(t), (t["title"] or "")[:34],
         ))
     widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
     return "\n".join("  ".join(c.ljust(widths[i]) for i, c in enumerate(r)).rstrip() for r in rows)

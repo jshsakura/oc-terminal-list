@@ -18,6 +18,16 @@ from _deps import verify_itl_token
 from routes.itl import MAX_READ_CHARS, MAX_READ_LINES, _tail, _truncate_for_response, itl_read
 
 
+class _FakeChannel:
+    """`async with await open_channel(...)` 모양만 맞춘다 — 실제 SSH 는 없다."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return None
+
+
 def _target(addr: str = "1.1", session_id: str | None = "s1", remote: bool = False) -> dict:
     """Minimal target dict as produced by itl_targets.build_targets / resolve."""
     return {
@@ -74,7 +84,8 @@ async def test_read_excerpt_normal():
          patch.object(itl_route.tmux_manager, "capture_pane", AsyncMock(return_value="raw pane text")), \
          patch.object(itl_route, "extract_excerpt", return_value="excerpted"):
         result = await itl_read(to="1.1", lines=40, mode="excerpt", username="u")
-    assert result == {"addr": "1.1", "sessionId": "s1", "mode": "excerpt", "text": "excerpted"}
+    assert result == {"addr": "1.1", "sessionId": "s1", "hostId": None,
+                      "mode": "excerpt", "text": "excerpted"}
 
 
 @pytest.mark.asyncio
@@ -87,7 +98,8 @@ async def test_read_raw_mode():
          patch.object(itl_route.tmux_manager, "session_exists", AsyncMock(return_value=True)), \
          patch.object(itl_route.tmux_manager, "capture_pane", AsyncMock(return_value=long_text)):
         result = await itl_read(to="1.1", lines=2, mode="raw", username="u")
-    assert result == {"addr": "1.1", "sessionId": "s1", "mode": "raw", "text": "d\ne"}
+    assert result == {"addr": "1.1", "sessionId": "s1", "hostId": None,
+                      "mode": "raw", "text": "d\ne"}
 
 
 @pytest.mark.asyncio
@@ -118,15 +130,52 @@ async def test_read_multi_match_returns_400_with_matched():
 
 
 @pytest.mark.asyncio
-async def test_read_remote_unsupported_returns_400():
-    """원격 pane — target has no sessionId → 400 remote-unsupported."""
+async def test_read_remote_goes_through_ssh():
+    """원격 pane 도 읽는다 — 백엔드가 그 호스트로 SSH 를 걸어 캡처한다.
+
+    보낸 뒤 "뭐 하고 있나" 를 볼 수 없으면 핸드오프는 눈 감고 하는 일이 된다.
+    """
     target = _target(addr="3.1", session_id=None, remote=True)
+    target["hostId"], target["tmuxSession"] = "h1", "mobile-a1"
     with patch.object(itl_route, "_targets_for", AsyncMock(return_value=[target])), \
-         patch.object(itl_route, "resolve", return_value=[target]):
+         patch.object(itl_route, "resolve", return_value=[target]), \
+         patch.object(itl_route.itl_remote, "open_channel", AsyncMock(return_value=_FakeChannel())), \
+         patch.object(itl_route.itl_remote, "probe",
+                      AsyncMock(return_value=("claude", "working", "itl"))), \
+         patch.object(itl_route.itl_remote, "capture_pane",
+                      AsyncMock(return_value="remote screen")):
+        result = await itl_read(to="3.1", lines=10, mode="raw", username="u")
+    assert result["text"] == "remote screen"
+    assert result["hostId"] == "h1"
+
+
+@pytest.mark.asyncio
+async def test_read_remote_session_gone_is_404():
+    """죽은 원격 세션을 빈 화면으로 돌려주면 "조용하다" 로 읽힌다 — 사라졌다고 말해야 한다."""
+    target = _target(addr="3.1", session_id=None, remote=True)
+    target["hostId"], target["tmuxSession"] = "h1", "mobile-a1"
+    with patch.object(itl_route, "_targets_for", AsyncMock(return_value=[target])), \
+         patch.object(itl_route, "resolve", return_value=[target]), \
+         patch.object(itl_route.itl_remote, "open_channel", AsyncMock(return_value=_FakeChannel())), \
+         patch.object(itl_route.itl_remote, "probe", AsyncMock(return_value=None)):
         with pytest.raises(HTTPException) as exc:
             await itl_read(to="3.1", username="u")
-    assert exc.value.status_code == 400
-    assert exc.value.detail == "remote-unsupported"
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "session-gone"
+
+
+@pytest.mark.asyncio
+async def test_read_remote_unreachable_host_is_502():
+    """못 닿은 것과 화면이 빈 것은 다르다."""
+    target = _target(addr="3.1", session_id=None, remote=True)
+    target["hostId"], target["tmuxSession"] = "h1", "mobile-a1"
+    with patch.object(itl_route, "_targets_for", AsyncMock(return_value=[target])), \
+         patch.object(itl_route, "resolve", return_value=[target]), \
+         patch.object(itl_route.itl_remote, "open_channel",
+                      AsyncMock(side_effect=OSError("host down"))):
+        with pytest.raises(HTTPException) as exc:
+            await itl_read(to="3.1", username="u")
+    assert exc.value.status_code == 502
 
 
 @pytest.mark.asyncio

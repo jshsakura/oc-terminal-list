@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
  * Module-level cache, same reason as `useAppConfig` / `useLocalVncAvailable`: every
  * pane mounts this, and one request per pane is one request too many.
  */
-const FALLBACK = { hostname: '', ip: '', ip_kind: '' };
+const FALLBACK = { hostname: '', ip: '', ip_kind: '', itl_cmd: '' };
 let cached = null;
 let inflight = null;
 
