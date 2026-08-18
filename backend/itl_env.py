@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import os
+from pathlib import Path
 
 from _deps import ITL_TOKEN_SCOPE, get_auth_manager
 
@@ -16,6 +17,17 @@ logger = logging.getLogger(__name__)
 # CLI 는 같은 머신에서 도니 루프백으로 붙는다. 컨테이너/리버스프록시 구성에서
 # 포트가 다르면 ITL_API_BASE 로 덮어쓴다.
 DEFAULT_API_BASE = f"http://127.0.0.1:{os.getenv('APP_PORT', '38822')}"
+
+# The CLI ships with the backend, so it is already on this machine — it was just never
+# on anyone's PATH, which made the app's one distinguishing feature usable only by people
+# who had read the source and knew to type `python3 …/backend/cli/itl`.
+#
+# ⚠️ PATH cannot be delivered here. Measured on tmux 3.4: a pane inherits `-e FOO=bar`
+# from the session environment but **not PATH** — not from `new-session -e`, not from
+# `set-environment`, not from `set-environment -g`. Only the environment of the tmux
+# **server process** decides what a pane can find. So PATH is handled where the server is
+# spawned (tmux_manager._tmux_env) and this module stays about identity.
+CLI_DIR = Path(__file__).resolve().with_name("cli")
 
 
 async def build_itl_env(username: str, session_id: str) -> dict[str, str]:

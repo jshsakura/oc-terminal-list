@@ -29,16 +29,23 @@ _ITL_INJECT_DELAYS = (1.5, 4.0, 10.0)
 
 async def _inject_itl_env(host: dict, secrets: dict, tmux_session: str,
                           username: str, host_id: str) -> None:
-    """원격 세션에 ITL_* 를 심는다 — 세션이 뜨기를 잠깐 기다렸다가, 성공하면 그만.
+    """원격 세션에 ITL_* 를 심고, 그 호스트에 itl 이 없으면 깔아 둔다.
 
     이미 심어 둔 세션이면 `ensure_remote_itl_env` 가 SSH 없이 바로 True 를 준다
     (itl_remote_setup 의 TTL 창) — 그래서 재연결 폭풍이 왕복을 늘리지 않는다.
+
+    Env and binary are two halves of one feature: a pane that knows its own address but
+    has no `itl` to run cannot act on it, and that was the state of every host whose
+    owner had not found the install button. `ensure_remote_itl_cli` carries its own,
+    longer TTL keyed by the CLI hash, so this costs one round trip on the first attach
+    to a host and nothing afterwards.
     """
-    from itl_remote_setup import ensure_remote_itl_env
+    from itl_remote_setup import ensure_remote_itl_cli, ensure_remote_itl_env
     for delay in _ITL_INJECT_DELAYS:
         await asyncio.sleep(delay)
         try:
             if await ensure_remote_itl_env(host, secrets, tmux_session, username):
+                await ensure_remote_itl_cli(host, secrets)
                 return
         except asyncio.CancelledError:
             raise

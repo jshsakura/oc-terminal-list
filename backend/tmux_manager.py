@@ -17,6 +17,7 @@ import shutil
 import time
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +56,28 @@ class TmuxManager:
         return [TMUX_BIN, "-L", self.socket_name]
 
     def _tmux_env(self) -> dict[str, str]:
+        """Environment for the tmux binary we invoke — and, on the first call, for the
+        server it starts.
+
+        The CLI directory is prepended here rather than injected into the session
+        environment because **that is the only place tmux honours PATH**. Measured on
+        3.4: a pane started by the server inherits `-e FOO=bar` but keeps the server's
+        PATH, whether the value was set with `new-session -e`, `set-environment`, or
+        `set-environment -g`. Putting it here means `itl` is simply on PATH in every pane
+        this app opens, with nothing installed anywhere and nothing to uninstall.
+
+        Caveat worth knowing: a tmux server that is already running keeps the PATH it
+        started with (sessions outlive the backend by design), so an existing server
+        picks this up only when it restarts.
+        """
         env = os.environ.copy()
         env.pop("TMUX", None)
         env.pop("TMUX_PANE", None)
+        cli_dir = str(Path(__file__).resolve().with_name("cli"))
+        if os.path.exists(os.path.join(cli_dir, "itl")):
+            current = env.get("PATH", "")
+            if f"{cli_dir}:" not in f"{current}:":
+                env["PATH"] = f"{cli_dir}:{current}" if current else cli_dir
         return env
 
     async def _run(self, *args: str, check: bool = True, capture: bool = True) -> tuple[int, str, str]:
@@ -127,6 +147,23 @@ class TmuxManager:
         command, _, title = (out or "").strip().partition("\t")
         command, title = command.strip(), title.strip()
         return (command, title) if (command or title) else None
+
+    async def refresh_session_env(self, session_id: str, env: dict[str, str] | None) -> None:
+        """Push env onto a session that already exists.
+
+        `create_session` is a no-op when the session is there, so a session restored
+        from before a backend restart — the common case on this box — would never learn
+        about ITL_* or the CLI on PATH. Panes already running keep their old copy (we do
+        not respawn a live agent); the CLI recovers those itself via
+        `tmux show-environment`, and every pane opened afterwards inherits it.
+        """
+        if not env:
+            return
+        for key, value in env.items():
+            try:
+                await self._run("set-environment", "-t", session_id, key, value, check=False)
+            except Exception as e:  # never block an attach over this
+                logger.debug("set-environment failed (%s=%s): %s", session_id, key, e)
 
     async def create_session(
         self,

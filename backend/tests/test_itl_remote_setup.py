@@ -211,8 +211,8 @@ async def test_install_streams_repo_cli_via_stdin():
 
     async def fake_run(host, secrets, cmd, timeout=10, stdin_data=None):
         calls.append({"cmd": cmd, "stdin": stdin_data})
-        if "INSTALL_OK" in cmd:
-            return "INSTALL_OK"
+        if "ITL_CLI_INSTALLED" in cmd:
+            return "ITL_CLI_INSTALLED"
         return "FILE=1\nPANE=1"
 
     orig_run = sut.run_remote_cmd
@@ -222,13 +222,88 @@ async def test_install_streams_repo_cli_via_stdin():
     finally:
         sut.run_remote_cmd = orig_run
     assert result["installed"] is True and result["pane_path"] is True
-    install_call = next(c for c in calls if "INSTALL_OK" in c["cmd"])
+    install_call = next(c for c in calls if "ITL_CLI_INSTALLED" in c["cmd"])
     # 설치 본문 = 저장소 CLI 원문이 stdin 통로로 흘러간다(argv 미노출).
     assert "터미널끼리 명령을 주고받는다" in install_call["stdin"]
-    assert 'cat > "$HOME/.local/bin/itl"' in install_call["cmd"]
+    # 임시 이름으로 받아 rename — 전송이 끊겨도 반쪽짜리 itl 이 남지 않는다.
+    assert 'cat > "$HOME/.local/bin/.itl.incoming"' in install_call["cmd"]
+    assert 'mv "$HOME/.local/bin/.itl.incoming" "$HOME/.local/bin/itl"' in install_call["cmd"]
     assert "chmod 700" in install_call["cmd"]
     assert ".bashrc" in install_call["cmd"]
     assert "sudo" not in install_call["cmd"]
+
+
+async def test_auto_install_writes_only_its_own_file():
+    """자동 설치는 사용자의 rc 파일을 건드리지 않는다.
+
+    버튼을 누르는 것과 앱이 알아서 하는 것의 경계다. 세션 PATH 는 어차피 주입되므로
+    이 앱이 연 pane 에서는 그냥 되고, 사용자가 직접 연 셸까지 바꾸는 것은 사용자가
+    명시적으로 고를 때만 한다.
+    """
+    calls: list = []
+
+    async def fake_run(host, secrets, cmd, timeout=10, stdin_data=None):
+        calls.append(cmd)
+        return "ITL_CLI_INSTALLED"
+
+    orig_run = sut.run_remote_cmd
+    sut.run_remote_cmd = fake_run
+    try:
+        sut.forget_installed("box")
+        ok = await sut.ensure_remote_itl_cli({"id": "box"}, {})
+    finally:
+        sut.run_remote_cmd = orig_run
+        sut.forget_installed("box")
+
+    assert ok is True
+    assert len(calls) == 1
+    assert ".bashrc" not in calls[0]
+    assert ".profile" not in calls[0]
+    assert sut.PROFILE_MARKER not in calls[0]
+
+
+async def test_auto_install_is_skipped_once_the_host_is_current():
+    """두 번째 attach 는 SSH 를 아예 열지 않는다 — 재연결 경로에 왕복을 얹지 않는다."""
+    calls: list = []
+
+    async def fake_run(host, secrets, cmd, timeout=10, stdin_data=None):
+        calls.append(cmd)
+        return "ITL_CLI_CURRENT"
+
+    orig_run = sut.run_remote_cmd
+    sut.run_remote_cmd = fake_run
+    try:
+        sut.forget_installed("box")
+        assert await sut.ensure_remote_itl_cli({"id": "box"}, {}) is True
+        assert await sut.ensure_remote_itl_cli({"id": "box"}, {}) is True
+    finally:
+        sut.run_remote_cmd = orig_run
+        sut.forget_installed("box")
+    assert len(calls) == 1
+
+
+async def test_auto_install_failure_is_never_fatal():
+    """윈도우 호스트·잠긴 셸·꽉 찬 디스크 — 터미널은 열려야 하고, 예외는 나가지 않는다."""
+    async def fake_run(host, secrets, cmd, timeout=10, stdin_data=None):
+        raise RuntimeError("no sh on this host")
+
+    orig_run = sut.run_remote_cmd
+    sut.run_remote_cmd = fake_run
+    try:
+        sut.forget_installed("winbox")
+        assert await sut.ensure_remote_itl_cli({"id": "winbox"}, {}) is False
+    finally:
+        sut.run_remote_cmd = orig_run
+        sut.forget_installed("winbox")
+
+
+def test_install_command_is_a_no_op_when_the_version_matches():
+    """같은 해시면 덮어쓰지 않는다 — 버전 표식이 재설치 폭풍을 막는다."""
+    cmd = sut.build_install_cmd("abc123", with_rc=False)
+    assert '"$HOME/.local/bin/.itl.version"' in cmd
+    assert "ITL_CLI_CURRENT" in cmd and "ITL_CLI_INSTALLED" in cmd
+    # 항상 stdin 을 읽는다 — 검사 후 설치로 나누면 왕복이 둘이 된다.
+    assert cmd.index("cat > ") < cmd.index("ITL_CLI_CURRENT")
 
 
 def test_cli_single_line_collapse():

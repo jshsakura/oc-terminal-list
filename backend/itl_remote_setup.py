@@ -19,6 +19,7 @@ same-user 에게 상시 노출되는 것과 동등 이하 수준이고(itl_env �
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import shlex
@@ -58,6 +59,100 @@ def _cli_source() -> str:
     """배포 저장소의 backend/cli/itl 원문 — 설치·수동 명령 모두 이 하나가 진실."""
     path = Path(__file__).resolve().with_name("cli") / "itl"
     return path.read_text(encoding="utf-8")
+
+
+def _cli_hash() -> str:
+    """Fingerprint of the CLI we would install, used as the remote version marker."""
+    return hashlib.sha256(_cli_source().encode("utf-8")).hexdigest()[:16]
+
+
+AUTO_INSTALL_ENABLED = os.getenv("ITL_AUTO_INSTALL", "1").strip() not in ("0", "false", "no")
+
+# Re-checking the remote copy on every attach would put an SSH round trip on the
+# reconnect path — the one place this repo keeps having to take work *out* of. The hash
+# is part of the key, so a new CLI version reinstalls on the next attach regardless.
+CLI_TTL_SECONDS = 6 * 60 * 60
+_cli_seen: dict[tuple[str, str], float] = {}
+
+
+def forget_installed(host_id: str) -> None:
+    """Drop the install memo for a host (tests, and after a manual reinstall)."""
+    for key in [k for k in _cli_seen if k[0] == str(host_id)]:
+        _cli_seen.pop(key, None)
+
+
+def build_install_cmd(version: str, *, with_rc: bool) -> str:
+    """Write ~/.local/bin/itl from stdin, but only when it is missing or stale.
+
+    Always reading stdin keeps this to one round trip instead of check-then-install —
+    and the body lands on a temp name first, so a connection dropped mid-transfer cannot
+    leave a half-written `itl` that runs and fails in confusing ways.
+
+    `with_rc` is what separates the two paths on purpose: the automatic install writes
+    **only** its own file, while editing the user's ~/.profile and ~/.bashrc stays behind
+    the button they press themselves. Panes opened by this app get the directory from the
+    session PATH either way, so the rc lines only matter for shells the user starts.
+    """
+    bin_dir = '"$HOME/.local/bin"'
+    tmp = '"$HOME/.local/bin/.itl.incoming"'
+    target = '"$HOME/.local/bin/itl"'
+    marker = '"$HOME/.local/bin/.itl.version"'
+    ver = shlex.quote(version)
+    rc = f"{_rc_path_snippet()}; " if with_rc else ""
+    return "\n".join([
+        f"mkdir -p {bin_dir} || {{ echo ITL_CLI_FAIL; exit 0; }}",
+        f"cat > {tmp} || {{ echo ITL_CLI_FAIL; exit 0; }}",
+        f'if [ "$(cat {marker} 2>/dev/null)" = {ver} ] && [ -x {target} ]; then',
+        f"  rm -f {tmp}; {rc}echo ITL_CLI_CURRENT",
+        "else",
+        f"  mv {tmp} {target} && chmod 700 {target} && printf '%s\\n' {ver} > {marker} && "
+        f"{rc}echo ITL_CLI_INSTALLED || echo ITL_CLI_FAIL",
+        "fi",
+    ])
+
+
+async def ensure_remote_itl_cli(host: dict, secrets: dict) -> bool:
+    """Make sure this host has a current `itl`, without anyone asking for it.
+
+    The feature this app is built around is one agent handing work to another across
+    machines. Until now the remote half only worked if someone had found the button in
+    the host editor and pressed it — so on a fresh host the handoff silently degraded to
+    "no reply command available". Installing costs one SSH round trip on the first
+    attach and nothing afterwards.
+    """
+    if not AUTO_INSTALL_ENABLED:
+        return False
+    try:
+        version = _cli_hash()
+    except Exception as e:
+        logger.warning("itl CLI 소스를 읽지 못했습니다: %s", e)
+        return False
+
+    key = (str(host.get("id") or host.get("hostname") or ""), version)
+    now = time.monotonic()
+    seen = _cli_seen.get(key)
+    if seen is not None and (now - seen) < CLI_TTL_SECONDS:
+        return True
+
+    try:
+        out = await run_remote_cmd(
+            host, secrets, build_install_cmd(version, with_rc=False),
+            timeout=20, stdin_data=_cli_source(),
+        )
+    except Exception as e:
+        # A Windows host, a locked-down shell, a full disk — all land here. The terminal
+        # still works; only the cross-machine handoff is unavailable, and the host editor
+        # reports that as its status.
+        logger.info("itl 원격 자동 설치 건너뜀 (%s): %s", key[0], e)
+        return False
+
+    if "ITL_CLI_CURRENT" in (out or "") or "ITL_CLI_INSTALLED" in (out or ""):
+        if len(_cli_seen) >= _INJECT_CACHE_MAX:
+            _cli_seen.pop(min(_cli_seen, key=lambda k: _cli_seen[k]), None)
+        _cli_seen[key] = now
+        return True
+    logger.info("itl 원격 자동 설치 실패 (%s): %s", key[0], (out or "").strip()[:120])
+    return False
 
 
 # 같은 (호스트, 세션) 에 다시 심지 않는 창. 토큰은 30일짜리라 매 재연결마다 심을 이유가
@@ -215,18 +310,19 @@ async def remote_itl_status(host: dict, secrets: dict) -> dict:
 
 
 async def install_remote_itl(host: dict, secrets: dict) -> dict:
-    """~/.local/bin/itl 로 영구 설치 + rc PATH(멱등). 본문은 stdin 으로."""
+    """~/.local/bin/itl 로 영구 설치 + rc PATH(멱등). 본문은 stdin 으로.
+
+    Shares one command builder with the automatic path so the two cannot drift; the only
+    difference is `with_rc`, which is the whole point of pressing the button — it also
+    puts the directory on the PATH of shells the user opens themselves.
+    """
     content = _cli_source()
     if not content.strip():
         raise RuntimeError("backend/cli/itl 소스를 읽을 수 없습니다")
-    cmd = (
-        'mkdir -p "$HOME/.local/bin" && '
-        'cat > "$HOME/.local/bin/itl" && '
-        'chmod 700 "$HOME/.local/bin/itl" && '
-        f"{_rc_path_snippet()}; "
-        'echo INSTALL_OK'
-    )
-    out = await run_remote_cmd(host, secrets, cmd, timeout=15, stdin_data=content)
-    if "INSTALL_OK" not in (out or ""):
+    cmd = build_install_cmd(_cli_hash(), with_rc=True)
+    out = await run_remote_cmd(host, secrets, cmd, timeout=20, stdin_data=content)
+    if not ("ITL_CLI_INSTALLED" in (out or "") or "ITL_CLI_CURRENT" in (out or "")):
         raise RuntimeError("원격 설치가 완료되지 않았습니다")
+    # The manual install just proved the host is current; let the automatic path skip it.
+    forget_installed(str(host.get("id") or host.get("hostname") or ""))
     return await remote_itl_status(host, secrets)
