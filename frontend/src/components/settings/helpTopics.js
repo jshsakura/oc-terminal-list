@@ -1,19 +1,33 @@
 /**
- * 도움말 패널의 내용 — "이 버튼이 뭘 하는 건가" 에 대한 답을 한곳에 모은 곳.
+ * The contents of the help panel — the answers to "what does this button do".
  *
- * 왜 데이터로 두는가: 문구가 컴포넌트 JSX 안에 흩어지면 (1) 한 언어만 고치고 지나가기
- * 쉽고 (2) 무엇을 설명하고 무엇을 빠뜨렸는지 한눈에 안 보인다. 여기 있으면 테스트가
- * **양쪽 로케일에 다 있는지**를 기계적으로 검사할 수 있다(helpTopics.test.js).
+ * Why keep it as data: copy scattered through JSX (1) gets fixed in one language and
+ * left broken in the other, and (2) hides what is explained and what is missing. Here a
+ * test can walk it and check **both locales mechanically** (helpTopics.test.js).
  *
- * 문구 규칙:
- *  - 한 항목 = 이름 + **한 줄 설명**. 두 문장을 넘기면 아무도 안 읽는다.
- *  - 기능 이름이 아니라 **그걸로 뭘 할 수 있는지**를 쓴다("핸들" ✗ / "끌어서 옮기고,
- *    누르면 주소가 복사돼요" ○).
- *  - 실제로 헷갈렸던 것만 넣는다(새로고침 vs 재시작, 붙여넣기가 어디로 가는지 등).
- *    전부 나열하면 목록이 길어져 정작 답이 필요한 항목이 묻힌다.
+ * Copy rules:
+ *  - One entry = a name + **one or two sentences**. Longer and nobody reads it.
+ *  - Say what you can DO with it, not what it is called ("handle" ✗ / "drag to move it,
+ *    click to copy the address" ○).
+ *  - Plain declarative voice (합니다체 in Korean) — the register the rest of the app uses.
+ *
+ * Order is an argument. The first section is what this app does that others cannot:
+ * relaying a command from one machine's agent to another's, over sessions that outlive
+ * the browser. Filed fifth, behind "tabs and panes", the reader never learns why they
+ * would pick this over any other web terminal — so it leads, and itl follows the basics
+ * rather than trailing the feature list.
  */
 
 export const HELP_TOPICS = [
+  {
+    id: 'core',
+    titleKey: 'helpSecCore',
+    entries: [
+      { termKey: 'helpCoreRelayTerm', descKey: 'helpCoreRelayDesc' },
+      { termKey: 'helpCoreTmuxTerm', descKey: 'helpCoreTmuxDesc' },
+      { termKey: 'helpCoreFleetTerm', descKey: 'helpCoreFleetDesc' },
+    ],
+  },
   {
     id: 'basics',
     titleKey: 'helpSecBasics',
@@ -22,6 +36,22 @@ export const HELP_TOPICS = [
       { termKey: 'helpPersistTerm', descKey: 'helpPersistDesc' },
       { termKey: 'helpCloseTerm', descKey: 'helpCloseDesc' },
       { termKey: 'helpMultiDeviceTerm', descKey: 'helpMultiDeviceDesc' },
+      { termKey: 'helpHomeTerm', descKey: 'helpHomeDesc' },
+      { termKey: 'helpTabNameTerm', descKey: 'helpTabNameDesc' },
+    ],
+  },
+  {
+    id: 'itl',
+    titleKey: 'helpSecItl',
+    entries: [
+      { termKey: 'helpItlWhatTerm', descKey: 'helpItlWhatDesc' },
+      { termKey: 'helpItlHandoffTerm', descKey: 'helpItlHandoffDesc' },
+      { termKey: 'helpItlAddrTerm', descKey: 'helpItlAddrDesc' },
+      { termKey: 'helpItlRemoteTerm', descKey: 'helpItlRemoteDesc' },
+      { termKey: 'helpItlNoKeyTerm', descKey: 'helpItlNoKeyDesc' },
+      { termKey: 'helpItlReadTerm', descKey: 'helpItlReadDesc' },
+      { termKey: 'helpItlWaitTerm', descKey: 'helpItlWaitDesc' },
+      { termKey: 'helpItlMcpTerm', descKey: 'helpItlMcpDesc' },
     ],
   },
   {
@@ -34,6 +64,7 @@ export const HELP_TOPICS = [
       { termKey: 'helpRailSplitTerm', descKey: 'helpRailSplitDesc' },
       { termKey: 'helpRailHandleTerm', descKey: 'helpRailHandleDesc' },
       { termKey: 'helpReloadRestartTerm', descKey: 'helpReloadRestartDesc' },
+      { termKey: 'helpPaneSearchTerm', descKey: 'helpPaneSearchDesc' },
     ],
   },
   {
@@ -52,16 +83,7 @@ export const HELP_TOPICS = [
       { termKey: 'helpPasteTerm', descKey: 'helpPasteDesc' },
       { termKey: 'helpEditorTerm', descKey: 'helpEditorDesc' },
       { termKey: 'helpFileLinkTerm', descKey: 'helpFileLinkDesc' },
-    ],
-  },
-  {
-    id: 'itl',
-    titleKey: 'helpSecItl',
-    entries: [
-      { termKey: 'helpItlWhatTerm', descKey: 'helpItlWhatDesc' },
-      { termKey: 'helpItlAddrTerm', descKey: 'helpItlAddrDesc' },
-      { termKey: 'helpItlRemoteTerm', descKey: 'helpItlRemoteDesc' },
-      { termKey: 'helpItlReadTerm', descKey: 'helpItlReadDesc' },
+      { termKey: 'helpFileSearchTerm', descKey: 'helpFileSearchDesc' },
     ],
   },
   {
@@ -71,6 +93,17 @@ export const HELP_TOPICS = [
       { termKey: 'helpPushTerm', descKey: 'helpPushDesc' },
       { termKey: 'helpTelegramTerm', descKey: 'helpTelegramDesc' },
       { termKey: 'helpStatusDotTerm', descKey: 'helpStatusDotDesc' },
+      { termKey: 'helpNotifyOpenTerm', descKey: 'helpNotifyOpenDesc' },
+    ],
+  },
+  {
+    id: 'handy',
+    titleKey: 'helpSecHandy',
+    entries: [
+      { termKey: 'helpPaletteTerm', descKey: 'helpPaletteDesc' },
+      { termKey: 'helpQuickOpenTerm', descKey: 'helpQuickOpenDesc' },
+      { termKey: 'helpSnippetTerm', descKey: 'helpSnippetDesc' },
+      { termKey: 'helpPredictiveTerm', descKey: 'helpPredictiveDesc' },
     ],
   },
   {
@@ -79,6 +112,15 @@ export const HELP_TOPICS = [
     entries: [
       { termKey: 'helpMobileKeysTerm', descKey: 'helpMobileKeysDesc' },
       { termKey: 'helpQuickInputTerm', descKey: 'helpQuickInputDesc' },
+      { termKey: 'helpVncTouchTerm', descKey: 'helpVncTouchDesc' },
+    ],
+  },
+  {
+    id: 'security',
+    titleKey: 'helpSecSecurity',
+    entries: [
+      { termKey: 'helpAuthTerm', descKey: 'helpAuthDesc' },
+      { termKey: 'helpSecretsTerm', descKey: 'helpSecretsDesc' },
     ],
   },
   {
@@ -91,7 +133,7 @@ export const HELP_TOPICS = [
   },
 ];
 
-/** 이 파일이 참조하는 모든 번역 키 — 로케일 검사용(테스트가 이걸 돈다). */
+/** Every translation key this file references — the locale check walks this. */
 export const helpTranslationKeys = () => HELP_TOPICS.flatMap((section) => [
   section.titleKey,
   ...section.entries.flatMap((entry) => [entry.termKey, entry.descKey]),

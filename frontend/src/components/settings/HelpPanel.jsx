@@ -53,27 +53,35 @@ const HelpPanel = ({ t }) => {
 
       {sections.length === 0 ? (
         <div style={settingsStyles.empty}>{t?.('helpNoMatch') || 'Nothing matched.'}</div>
-      ) : sections.map((section, index) => (
-        <Section
-          /* 검색 모드에 들어가고 나올 때만 remount — Section 의 open 은 내부 state 라
-             defaultOpen 이 바뀌어도 이미 마운트된 것은 안 열린다. 매 글자마다 remount
-             하면 입력 중 목록이 깜빡이므로 "검색 중인가" 여부만 key 에 싣는다. */
-          key={`${section.id}-${searching ? 'q' : ''}`}
-          title={section.title}
-          collapsible
-          // 검색 중에는 전부 펼친다 — 찾은 결과가 접힌 채로 있으면 못 찾은 것과 같다.
-          defaultOpen={index === 0 || searching}
-        >
-          <div style={S.list}>
-            {section.entries.map((entry) => (
-              <div key={entry.key} style={S.item}>
-                <div style={S.term}>{entry.term}</div>
-                <div style={S.desc}>{entry.desc}</div>
+      ) : (
+        /* Collapsible Sections are cards, and cards need the stack's gap. Rendered bare,
+           eleven of them stand edge to edge and every seam shows two 1px borders — it
+           reads as a broken grid under the search box, not as a list. */
+        <div style={settingsStyles.cardStack}>
+          {sections.map((section, index) => (
+            <Section
+              /* Remount only when entering or leaving search — Section keeps `open` in
+                 its own state, so a changed defaultOpen does not reopen a mounted one.
+                 Remounting per keystroke would flicker the list while typing, so only
+                 "are we searching" rides the key. */
+              key={`${section.id}-${searching ? 'q' : ''}`}
+              title={section.title}
+              collapsible
+              // Everything opens while searching — a hit that stays folded is a miss.
+              defaultOpen={index === 0 || searching}
+            >
+              <div style={S.list}>
+                {section.entries.map((entry) => (
+                  <div key={entry.key} style={S.item}>
+                    <div style={S.term}>{entry.term}</div>
+                    <div style={S.desc}>{entry.desc}</div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </Section>
-      ))}
+            </Section>
+          ))}
+        </div>
+      )}
     </>
   );
 };

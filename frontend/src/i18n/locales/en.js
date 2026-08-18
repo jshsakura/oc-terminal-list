@@ -110,11 +110,21 @@ export const en = {
     uptimeSecondUnit: 's',
     infoShortcuts: 'Shortcuts',
 
-    // ── Help (Settings → Help) ──────────────────────────────────────────────
+    // ── Help (Settings → Help) ──────────────────────────────────
     // Rule: a name plus one line — what you can DO with it, not what it is called.
+    // The differentiator leads: anyone can draw a terminal in a browser, but handing a
+    // *command* from one machine's agent to another's is the thing only this app does.
     help: 'Help',
     helpSearchPlaceholder: 'Search help',
     helpNoMatch: 'Nothing matched.',
+
+    helpSecCore: 'What makes this different',
+    helpCoreRelayTerm: 'Agents hand work to each other',
+    helpCoreRelayDesc: 'An agent on one server types straight into a terminal on another. It passes a command, not an API key, so it works no matter which tool is running on the other end.',
+    helpCoreTmuxTerm: 'Every session runs on tmux',
+    helpCoreTmuxDesc: 'Close the browser, lock the phone, redeploy the app — the work is still there. Sessions are always opened inside tmux, and everything else here is built on top of that.',
+    helpCoreFleetTerm: 'A whole fleet on one screen',
+    helpCoreFleetDesc: 'Home server, cloud box and Raspberry Pi, one tab each, all in the same window. No separate SSH session and tmux attach for every machine.',
 
     helpSecBasics: 'The basics',
     helpTabPaneTerm: 'Tabs and panes',
@@ -125,6 +135,10 @@ export const en = {
     helpCloseDesc: 'The X on a tab or pane also kills whatever was running inside. Stepping away for a bit? Just leave the browser instead of closing it.',
     helpMultiDeviceTerm: 'Same layout on desktop and phone',
     helpMultiDeviceDesc: 'Your tabs are saved to your account, so a tab opened on the desktop shows up on the phone too. Both can watch the same terminal at once.',
+    helpHomeTerm: 'The home screen',
+    helpHomeDesc: 'An empty tab shows home: your saved servers and the sessions you can resume, as cards. Click one and the terminal opens right there.',
+    helpTabNameTerm: 'Renaming a tab',
+    helpTabNameDesc: 'Rename from the tab menu or right-click. The name doubles as an itl address (@name), so short names pay off on tabs you talk to often.',
 
     helpSecPane: 'Pane tools (the strip on the right)',
     helpRailHistoryTerm: 'Eye icon — command history',
@@ -139,12 +153,14 @@ export const en = {
     helpRailHandleDesc: 'Drag it to move or split the pane. Click it to copy that terminal\'s address, ready to hand to a teammate — or to an agent in another terminal.',
     helpReloadRestartTerm: 'Reload vs restart session',
     helpReloadRestartDesc: 'Reload just redraws the screen; everything keeps running. Restart kills the shell and opens a fresh one — use it when a newly installed command is not found yet, since it ends whatever was running.',
+    helpPaneSearchTerm: 'Search inside a terminal',
+    helpPaneSearchDesc: 'Ctrl+Shift+F searches the output of the terminal you are looking at — for finding the error line again in a long log.',
 
     helpSecHosts: 'Connecting to other servers',
     helpHostAddTerm: 'Saving a host',
     helpHostAddDesc: 'Save a server you reach over SSH and it opens straight from a tab. Keys and passwords are stored encrypted and never shown again.',
     helpHostTmuxTerm: 'Remote sessions survive too',
-    helpHostTmuxDesc: 'With remote tmux on, work on that server can be detached and picked up later. It appears under "Resume" on the home screen.',
+    helpHostTmuxDesc: 'With remote tmux on, work on that server can be detached and picked up later. It appears under "Resumable sessions" on the home screen.',
     helpVncTerm: 'Remote desktop',
     helpVncDesc: 'If the server has a desktop, open it right inside a pane. It travels through the SSH connection, so no new port is opened on that machine.',
 
@@ -155,8 +171,10 @@ export const en = {
     helpEditorDesc: 'Click a file in the list to open the editor. Images, PDFs and spreadsheets preview inline, and files on remote servers open the same way.',
     helpFileLinkTerm: 'Clickable paths in output',
     helpFileLinkDesc: 'A path printed in the terminal, like src/app.js:12, opens that file in the editor when you click it.',
+    helpFileSearchTerm: 'Search file contents',
+    helpFileSearchDesc: 'Search in the file list matches what is inside the files, not just their names — for when you do not know which file holds the string.',
 
-    helpSecItl: 'Terminals talking to each other (itl)',
+    helpSecItl: 'itl — handing work between terminals',
     helpItlWhatTerm: 'What itl is',
     helpItlWhatDesc: 'A way to type into another terminal from this one. People use it, but mostly it is how an agent hands work to the terminal next door.',
     helpItlAddrTerm: 'How addresses work',
@@ -165,6 +183,14 @@ export const en = {
     helpItlRemoteDesc: 'You can send to terminals on remote servers too. The app makes the connection, so the sender needs no key for that machine.',
     helpItlReadTerm: 'Reading their screen',
     helpItlReadDesc: 'itl read 1.3 shows what that terminal is doing right now — for checking on work you handed off.',
+    helpItlHandoffTerm: 'Agent handoff',
+    helpItlHandoffDesc: 'Say "ask @backend to run the tests" and the line lands in that agent\'s terminal as it is. Check the result later with itl read; nothing has to pass through you.',
+    helpItlNoKeyTerm: 'No keys are handed out',
+    helpItlNoKeyDesc: 'Remote delivery uses the credentials the app already holds. The sending agent gets no SSH key for that machine, and no API token of any kind.',
+    helpItlMcpTerm: 'Also an MCP tool',
+    helpItlMcpDesc: 'Attach itl to an agent as an MCP server and it calls list, send, read and wait directly — nobody has to relay commands by hand.',
+    helpItlWaitTerm: 'Waiting for it to finish',
+    helpItlWaitDesc: 'An agent can wait for the work it handed off before moving on. Remote panes are polled for real status, so unfinished work is never counted as done.',
 
     helpSecNotify: 'Notifications',
     helpPushTerm: 'A ping when work finishes',
@@ -173,12 +199,32 @@ export const en = {
     helpTelegramDesc: 'Tap "continue" or "stop" straight from the lock screen. Add a bot token in settings to turn it on.',
     helpStatusDotTerm: 'The dot on a tab',
     helpStatusDotDesc: 'It means the agent in that tab is working, or waiting for you to approve something. Nothing is shown when it is simply idle.',
+    helpNotifyOpenTerm: 'Straight to the pane',
+    helpNotifyOpenDesc: 'Every notification names the terminal it came from, and its open button takes you to that exact pane.',
+
+    helpSecHandy: 'Everyday shortcuts',
+    helpPaletteTerm: 'Command palette (Ctrl+Shift+P)',
+    helpPaletteDesc: 'Find a feature by name instead of hunting through menus. Start here when you do not know where something lives.',
+    helpQuickOpenTerm: 'Quick open files (Ctrl+P)',
+    helpQuickOpenDesc: 'Type part of a filename to open it, with no folder to expand on the way.',
+    helpSnippetTerm: 'Snippets (Ctrl+Shift+S)',
+    helpSnippetDesc: 'Keep the commands you run all the time and pick one to send, on any server, without remembering it again.',
+    helpPredictiveTerm: 'Predictive typing',
+    helpPredictiveDesc: 'Characters appear as you type instead of waiting for the round trip. It changes how a slow link feels, and switches itself off at password prompts.',
 
     helpSecMobile: 'On a phone',
     helpMobileKeysTerm: 'The key bar at the bottom',
     helpMobileKeysDesc: 'Keys a phone keyboard lacks — Esc, Tab, arrows. Swap them for the ones you use in Settings → Mobile.',
     helpQuickInputTerm: 'Quick input',
     helpQuickInputDesc: 'Compose a long command comfortably and send it in one go. You can also pick several terminals and send the same line to all of them.',
+    helpVncTouchTerm: 'Remote desktop by touch',
+    helpVncTouchDesc: 'Two fingers on the screen zoom and pan; the touchpad below moves the mouse pointer, so you can hit a window button even on a small screen.',
+
+    helpSecSecurity: 'Account and security',
+    helpAuthTerm: 'Two-factor and passkeys',
+    helpAuthDesc: 'Turn them on under Settings → Account. This app reaches your servers\' shells directly, which makes the front door the thing worth locking.',
+    helpSecretsTerm: 'Where credentials live',
+    helpSecretsDesc: 'SSH keys and passwords are stored encrypted on the server and never shown again. Nothing is kept in the browser.',
 
     helpSecUsage: 'Anything else',
     helpUsageTerm: 'LLM usage',
