@@ -81,7 +81,15 @@ const RailSubMenu = ({ anchor, ui, isMobile = false, onClose, t, children }) => 
   );
 };
 
-const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = false, display = false, ui }) => {
+/**
+ * 메뉴 한 줄. `hint` 를 주면 라벨 **아래에 작은 설명 줄**이 붙는다.
+ *
+ * 왜 호버 title 이 아닌가: 이 앱은 폰에서 많이 쓰이고 터치 기기에는 hover 가 없어
+ * `title` 이 영영 안 뜬다. 그리고 헷갈림이 실제로 사고를 내는 자리가 이 메뉴다
+ * (새로고침 vs 세션 재시작 — 하나는 화면만 다시 그리고, 하나는 돌던 것을 다 죽인다).
+ * 그래서 **정말 헷갈리는 항목에만** 붙인다. 전부 붙이면 메뉴가 문단이 된다.
+ */
+const MenuBtn = ({ icon: Icon, onClick, children, hint = null, danger = false, disabled = false, display = false, ui }) => {
   const fg = danger ? (ui?.danger || color.danger) : (ui?.text || color.text);
   // Stop propagation on all pointer events so the portal's outside-click listener
   // cannot swallow or duplicate the interaction. This is critical for the "Close terminal"
@@ -98,7 +106,7 @@ const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = fal
       style={{
         width: '100%',
         display: 'flex',
-        alignItems: 'center',
+        alignItems: hint ? 'flex-start' : 'center',
         gap: '8px',
         textAlign: 'left',
         minHeight: '30px',
@@ -118,8 +126,20 @@ const MenuBtn = ({ icon: Icon, onClick, children, danger = false, disabled = fal
          나머지는 앱 공용 규칙(main.jsx `.iterm-menu-item`)을 그대로 따른다. */
       className={(!disabled && !display) ? 'iterm-menu-item' : undefined}
     >
-      {Icon && <Icon size={13} strokeWidth={1.8} />}
-      {children}
+      {Icon && (
+        <Icon size={13} strokeWidth={1.8} style={{ flexShrink: 0, marginTop: hint ? '2px' : 0 }} />
+      )}
+      {hint ? (
+        <span style={{ display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0 }}>
+          <span>{children}</span>
+          <span style={{
+            fontSize: '10px',
+            lineHeight: 1.4,
+            color: ui?.subtext || color.subtext,
+            whiteSpace: 'normal',
+          }}>{hint}</span>
+        </span>
+      ) : children}
     </button>
   );
 };

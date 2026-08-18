@@ -18,7 +18,7 @@ const TABS = [
   { id: 'mobile',  icon: Smartphone,        labelKey: 'mobile',      fallback: 'Mobile' },
   { id: 'hosts',   icon: Server,            labelKey: 'manageHosts', fallback: 'Hosts' },
   { id: 'keys',    icon: KeyIcon,           labelKey: 'sshKeys',     fallback: 'SSH Keys' },
-  { id: 'info',    icon: HelpCircle,        labelKey: 'infoShortcuts', fallback: 'Shortcuts' },
+  { id: 'info',    icon: HelpCircle,        labelKey: 'help',        fallback: 'Help' },
 ];
 
 const SETTINGS_TABS = new Set(['general', 'mobile']);

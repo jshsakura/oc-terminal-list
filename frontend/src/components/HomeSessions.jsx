@@ -434,7 +434,11 @@ const EmptyResumableCard = ({ t }) => (
     }}
   >
     <Anchor size={14} strokeWidth={2} style={{ opacity: 0.6 }} />
-    <span>{t?.('noResumableSessions') || 'No resumable sessions'}</span>
+    <span>{t?.('noResumableSessions') || 'Nothing to resume'}</span>
+    {/* 빈 목록은 그 자체로 아무 말도 하지 않는다 — 여기에 무엇이 나타나는지 한 줄 덧댄다. */}
+    <span style={{ fontSize: fontSize['10'], color: color.faint, fontWeight: fontWeight.regular }}>
+      {t?.('noResumableSessionsHint') || 'Work you left running on a server shows up here'}
+    </span>
   </div>
 );
 

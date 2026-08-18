@@ -13,6 +13,7 @@ import { Section, Divider, Field, Select, Toggle, FontSizeRow, ShortcutRow } fro
 import PushNotificationToggle from './PushNotificationToggle';
 import TelegramSection from './TelegramSection';
 import LlmWatcherSection from './LlmWatcherSection';
+import HelpPanel from './HelpPanel';
 
 const { color, space } = tokens;
 
@@ -352,33 +353,39 @@ export const KeysPanel = ({ keys, onAdd, onEdit, t }) => (
 );
 
 export const InfoPanel = ({ t }) => (
-  <Section title={t('infoShortcuts') || 'Shortcuts'}>
-    <div style={shortcutStyles.group}>
-      <ShortcutRow keys={[t('drag') || 'Drag']} desc={t('shortcutSelect') || 'Select text (auto-copy)'} />
-      <ShortcutRow keys={[t('doubleClick') || 'Double-click']} desc={t('shortcutSelectWord') || 'Select word'} />
-      <ShortcutRow keys={[t('tripleClick') || 'Triple-click']} desc={t('shortcutSelectLine') || 'Select line'} />
-      <ShortcutRow keys={[t('rightClick') || 'Right-click']} desc={t('shortcutContextMenu') || 'Context menu'} />
-      <ShortcutRow keys={[t('wheel') || 'Wheel']} desc={t('shortcutScroll') || 'Scroll terminal history'} />
-    </div>
+  <>
+    {/* 기능 설명이 먼저다 — 단축키는 이미 쓸 줄 아는 사람을 위한 것이고,
+        "이게 뭐 하는 버튼인가" 가 처음 오는 사람의 질문이다. */}
+    <HelpPanel t={t} />
     <Divider />
-    <div style={shortcutStyles.group}>
-      <ShortcutRow keys={['Ctrl', 'V']} desc={t('shortcutPaste') || 'Paste (bracketed)'} />
-      <ShortcutRow keys={['Ctrl', 'Shift', 'C']} desc={t('shortcutCopy') || 'Copy selection'} />
-      <ShortcutRow keys={['Ctrl', 'C']} desc={t('shortcutSigint') || 'Interrupt (SIGINT)'} />
-      <ShortcutRow keys={['Ctrl', 'Shift', 'F']} desc={t('shortcutSearch') || 'Find in terminal'} />
-      <ShortcutRow keys={['F12']} desc={t('shortcutDevtools') || 'Open DevTools'} />
-    </div>
-    <Divider />
-    <div style={shortcutStyles.group}>
-      <ShortcutRow keys={['Ctrl', 'Shift', 'P']} desc={t('shortcutCommandPalette') || 'Command palette'} />
-      <ShortcutRow keys={['Ctrl', 'Shift', 'Enter']} desc={t('shortcutQuickInput') || 'Quick Input'} />
-      <ShortcutRow keys={['Ctrl', 'Shift', 'S']} desc={t('shortcutSnippets') || 'Snippet palette'} />
-      <ShortcutRow keys={['Ctrl', 'T']} desc={t('shortcutNewTab') || 'New tab'} />
-      <ShortcutRow keys={['Ctrl', 'W']} desc={t('shortcutCloseTab') || 'Close tab'} />
-      <ShortcutRow keys={['Ctrl', '\\']} desc={t('shortcutSplitRight') || 'Split right'} />
-      <ShortcutRow keys={['Ctrl', 'Shift', '\\']} desc={t('shortcutSplitDown') || 'Split down'} />
-      <ShortcutRow keys={['Ctrl', 'P']} desc={t('shortcutQuickOpen') || 'Quick open files'} />
-      <ShortcutRow keys={['Ctrl', 'S']} desc={t('shortcutSave') || 'Save file'} />
-    </div>
-  </Section>
+    <Section title={t('infoShortcuts') || 'Shortcuts'}>
+      <div style={shortcutStyles.group}>
+        <ShortcutRow keys={[t('drag') || 'Drag']} desc={t('shortcutSelect') || 'Select text (auto-copy)'} />
+        <ShortcutRow keys={[t('doubleClick') || 'Double-click']} desc={t('shortcutSelectWord') || 'Select word'} />
+        <ShortcutRow keys={[t('tripleClick') || 'Triple-click']} desc={t('shortcutSelectLine') || 'Select line'} />
+        <ShortcutRow keys={[t('rightClick') || 'Right-click']} desc={t('shortcutContextMenu') || 'Context menu'} />
+        <ShortcutRow keys={[t('wheel') || 'Wheel']} desc={t('shortcutScroll') || 'Scroll terminal history'} />
+      </div>
+      <Divider />
+      <div style={shortcutStyles.group}>
+        <ShortcutRow keys={['Ctrl', 'V']} desc={t('shortcutPaste') || 'Paste (bracketed)'} />
+        <ShortcutRow keys={['Ctrl', 'Shift', 'C']} desc={t('shortcutCopy') || 'Copy selection'} />
+        <ShortcutRow keys={['Ctrl', 'C']} desc={t('shortcutSigint') || 'Interrupt (SIGINT)'} />
+        <ShortcutRow keys={['Ctrl', 'Shift', 'F']} desc={t('shortcutSearch') || 'Find in terminal'} />
+        <ShortcutRow keys={['F12']} desc={t('shortcutDevtools') || 'Open DevTools'} />
+      </div>
+      <Divider />
+      <div style={shortcutStyles.group}>
+        <ShortcutRow keys={['Ctrl', 'Shift', 'P']} desc={t('shortcutCommandPalette') || 'Command palette'} />
+        <ShortcutRow keys={['Ctrl', 'Shift', 'Enter']} desc={t('shortcutQuickInput') || 'Quick Input'} />
+        <ShortcutRow keys={['Ctrl', 'Shift', 'S']} desc={t('shortcutSnippets') || 'Snippet palette'} />
+        <ShortcutRow keys={['Ctrl', 'T']} desc={t('shortcutNewTab') || 'New tab'} />
+        <ShortcutRow keys={['Ctrl', 'W']} desc={t('shortcutCloseTab') || 'Close tab'} />
+        <ShortcutRow keys={['Ctrl', '\\']} desc={t('shortcutSplitRight') || 'Split right'} />
+        <ShortcutRow keys={['Ctrl', 'Shift', '\\']} desc={t('shortcutSplitDown') || 'Split down'} />
+        <ShortcutRow keys={['Ctrl', 'P']} desc={t('shortcutQuickOpen') || 'Quick open files'} />
+        <ShortcutRow keys={['Ctrl', 'S']} desc={t('shortcutSave') || 'Save file'} />
+      </div>
+    </Section>
+  </>
 );

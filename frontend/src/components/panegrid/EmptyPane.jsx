@@ -14,6 +14,15 @@ import HostIcon from '../../utils/hostIcons';
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
 // 호스트 카드 subtitle 한 줄 truncate + block — 멀티라인 안에서 각 라인 ellipsis 적용용.
+/* 안내 한 줄 — 카드보다 조용하게. 이 문장이 카드만큼 눈에 띄면 매번 읽히고,
+   매번 읽히는 안내는 곧 잡음이 된다. */
+const introStyle = {
+  fontSize: fontSize['11'],
+  lineHeight: 1.5,
+  color: color.subtext,
+  padding: `0 0 ${space['2']}`,
+};
+
 const SUB_LINE = {
   display: 'block',
   overflow: 'hidden',
@@ -50,19 +59,35 @@ const EmptyPane = ({
     startPath: settings.localStartPath || '',
   };
 
+  /* 이 화면이 무엇인지 한 줄로 말한다.
+     빈 패널은 홈 대시보드와 **똑같이 생겼다** — 처음 온 사람에게는 "왜 갑자기 홈이 떴지"
+     로 읽히고, 카드를 누르면 이 자리에 열린다는 사실이 어디에도 없었다. 카드 위에 한 줄,
+     그게 이 화면의 사용설명서다. */
+  const introSlot = (
+    <div style={introStyle}>
+      {t?.('emptyPaneIntro')
+        || 'This pane is empty — pick something below to open here, or mirror another tab.'}
+    </div>
+  );
+
   // 다른 탭 흡수 섹션 — HomeDashboard 의 extraTopSlot 으로 넘김.
-  const openTabsSlot = otherTabs.length > 0 ? (
-    <Section icon={ArrowRightLeft} title={t?.('mirrorOpenTab') || 'Open tabs'}>
-      <OpenTabPicker
-        tabs={otherTabs}
-        hosts={hosts}
-        t={t}
-        onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
-        emptySlotCount={(tab?.panes || []).filter((p) => !p.sessionId && !p.hostId).length}
-        embedded
-      />
-    </Section>
-  ) : null;
+  const openTabsSlot = (
+    <>
+      {introSlot}
+      {otherTabs.length > 0 && (
+        <Section icon={ArrowRightLeft} title={t?.('mirrorOpenTab') || 'Open tabs'}>
+          <OpenTabPicker
+            tabs={otherTabs}
+            hosts={hosts}
+            t={t}
+            onPick={(tabId) => onActivate?.({ type: 'tab', sourceTabId: tabId })}
+            emptySlotCount={(tab?.panes || []).filter((p) => !p.sessionId && !p.hostId).length}
+            embedded
+          />
+        </Section>
+      )}
+    </>
+  );
 
   return (
     <div ref={paneContainerRef} onClick={(e) => e.stopPropagation()} style={{ width: '100%', height: '100%', overflow: 'auto' }}>

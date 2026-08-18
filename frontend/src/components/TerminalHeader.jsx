@@ -563,14 +563,24 @@ const TerminalHeader = ({
             </>
           )}
           {onRefreshTerminal && !disabled && (
-            <MenuBtn icon={RefreshCw} onClick={() => { closeRailMenu(); onRefreshTerminal(); }} ui={panelUi}>
+            <MenuBtn
+              icon={RefreshCw}
+              onClick={() => { closeRailMenu(); onRefreshTerminal(); }}
+              hint={t?.('refreshTerminalHint') || 'Redraws the screen. Nothing running is affected.'}
+              ui={panelUi}
+            >
               {t?.('refreshTerminal') || 'Reload terminal'}
             </MenuBtn>
           )}
           {/* 새로고침은 살아있는 tmux 에 다시 붙을 뿐이라 셸 환경이 그대로다.
               재시작은 셸을 새로 띄운다 — 방금 설치한 명령이 PATH 에 안 잡힐 때 쓴다. */}
           {onRestartSession && !disabled && (
-            <MenuBtn icon={RotateCw} onClick={() => { closeRailMenu(); onRestartSession(); }} ui={panelUi}>
+            <MenuBtn
+              icon={RotateCw}
+              onClick={() => { closeRailMenu(); onRestartSession(); }}
+              hint={t?.('restartSessionHint') || 'Opens a fresh shell. Everything running here ends.'}
+              ui={panelUi}
+            >
               {t?.('restartSession') || 'Restart session'}
             </MenuBtn>
           )}

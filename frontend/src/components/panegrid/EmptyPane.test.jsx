@@ -67,6 +67,18 @@ const renderPicker = (overrides = {}) =>
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
+import { render as rtlRender } from '@testing-library/react';
+
+describe('EmptyPane 안내 문구', () => {
+  it('다른 탭이 없어도 이 화면이 무엇인지 한 줄 알려준다', () => {
+    lastHomeProps = null;
+    rtlRender(<EmptyPane tab={{ id: 't1', panes: [] }} allTabs={[]} hosts={[]} settings={{}} t={(k) => k} />);
+    // 안내는 홈 대시보드의 extraTopSlot 으로 넘어간다(대시보드 자체는 목이라 렌더되지 않는다).
+    const slot = rtlRender(<div>{lastHomeProps.extraTopSlot}</div>);
+    expect(slot.getByText('emptyPaneIntro')).toBeTruthy();
+  });
+});
+
 describe('VncDisplayPicker', () => {
   afterEach(() => {
     vi.restoreAllMocks();
