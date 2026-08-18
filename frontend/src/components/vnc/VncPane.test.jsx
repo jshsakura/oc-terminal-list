@@ -381,6 +381,71 @@ describe('VncPane', () => {
       expect(phase).toBeTruthy();
     });
   });
+  /* ── 모바일 조작 바 ─────────────────────────────────────────────────────────
+     폰에서 VNC 는 절대 좌표 탭이라 조작이 사실상 불가능했다. 여기서 잠그는 것은 셋:
+     (1) 데스크탑만 한 pane 에는 안 나온다, (2) 작은 pane + 연결됨이면 나온다,
+     (3) **확대가 원격 해상도를 건드리지 않는다** — 남의 화면을 바꾸는 사고라 제일 중요하다. */
+  describe('VncPane 모바일 조작 바', () => {
+    let fireResize;
+
+    beforeEach(() => {
+      // 기본 스텁 RO 는 콜백을 부르지 않는다 — 크기 변화를 실제로 흘려보내는 것으로 갈아끼운다.
+      const callbacks = [];
+      fireResize = () => callbacks.forEach((cb) => act(() => cb()));
+      global.ResizeObserver = class {
+        constructor(cb) { callbacks.push(cb); }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      };
+    });
+
+    it('데스크탑만 한 pane 에는 나오지 않는다 — 마우스가 있는 사람에게는 방해다', async () => {
+      sizeContainer(1600, 900);
+      render(<VncPane {...baseProps()} />);
+      await waitFor(() => expect(createVncClientMock).toHaveBeenCalled());
+      fireResize();
+      expect(screen.queryByRole('application')).toBeNull();
+    });
+
+    it('작은 pane 이고 연결됐으면 나온다', async () => {
+      sizeContainer(390, 700);
+      render(<VncPane {...baseProps()} />);
+      await waitFor(() => expect(createVncClientMock).toHaveBeenCalled());
+      act(() => { lastClientOpts.onConnected(); });
+      fireResize();
+      await waitFor(() => expect(screen.getByRole('application')).toBeTruthy());
+    });
+
+    it('확대는 화면 상자를 배율만큼 키운다 — CSS transform 이면 누르는 곳이 어긋난다', async () => {
+      sizeContainer(390, 700);
+      render(<VncPane {...baseProps()} />);
+      await waitFor(() => expect(createVncClientMock).toHaveBeenCalled());
+      act(() => { lastClientOpts.onConnected(); });
+      fireResize();
+      await waitFor(() => expect(screen.getByRole('application')).toBeTruthy());
+
+      expect(screen.getByTestId('vnc-screen').style.width).toBe('100%');
+      act(() => { screen.getByTitle('vncZoomIn').click(); });
+      // 첫 단계는 1.5배 — 390 * 1.5
+      expect(screen.getByTestId('vnc-screen').style.width).toBe('585px');
+    });
+
+    it('확대해도 원격 해상도는 통보하지 않는다 — 폰 배율이 남의 데스크탑을 바꾸면 안 된다', async () => {
+      sizeContainer(390, 700);
+      render(<VncPane {...baseProps()} />);
+      await waitFor(() => expect(createVncClientMock).toHaveBeenCalled());
+      act(() => { lastClientOpts.onConnected(); });
+      fireResize();
+      await waitFor(() => expect(screen.getByRole('application')).toBeTruthy());
+
+      fakeClient.rfb.resizeSession = false;
+      act(() => { screen.getByTitle('vncZoomIn').click(); });
+      fireResize();                       // 컨테이너가 커졌다 → RO 가 돈다
+      // 확대된 컨테이너(585×1050)는 "데스크탑만 하다" 로 보이지만, 판정 기준은 래퍼(390×700)다.
+      expect(fakeClient.rfb.resizeSession).toBe(false);
+    });
+  });
 });
 
 // act 를 인라인으로 쓰기 위한 헬퍼 import (react testing-library act).

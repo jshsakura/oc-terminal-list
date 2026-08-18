@@ -7,14 +7,17 @@
  * 사용자는 상태 배지로 연결 상태를 보고 필요시 새로고침할 수 있다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Monitor } from 'lucide-react';
+import { Monitor, MousePointer2 } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { issueWsTicket } from '../terminal/terminalHelpers';
 import createVncClient from './createVncClient';
+import VncTouchpad from './VncTouchpad';
+import useVncViewerGestures from './useVncViewerGestures';
 import {
   computeVncResize, createResizeScheduler, shouldFollowPaneSize,
   applyVncViewMode, normalizeVncViewMode, VNC_VIEW_FIT,
 } from '../../utils/vncResize';
+import { clampZoom, nextZoom } from '../../utils/vncPointer';
 import {
   VNC_CONTROL_EVENT, registerVncPane, unregisterVncPane,
 } from './vncControlBus';
@@ -68,6 +71,8 @@ const VncPane = ({
   onReadyChange, updateSettings,
 }) => {
   const containerRef = useRef(null);
+  // 스크롤을 갖는 바깥 래퍼 — 확대했을 때 화면을 미는 자리이자, **진짜 pane 크기**의 기준.
+  const viewportRef = useRef(null);
   const clientRef = useRef(null);
   const [status, setStatus] = useState('connecting');
   const [errorMsg, setErrorMsg] = useState('');
@@ -126,7 +131,10 @@ const VncPane = ({
      longer looks like a phone — and that is exactly when someone turns the device
      to look at a desktop. A pane too small to be a desktop only ever looks. */
   const canResizeRemote = useCallback(() => {
-    const el = containerRef.current;
+    /* ⚠️ 컨테이너가 아니라 **래퍼**를 잰다. 확대하면 컨테이너를 배율만큼 키우는데
+       (그게 noVNC 의 autoscale 을 태우는 방법이다), 그걸 pane 크기로 읽으면 손가락으로
+       확대한 것이 원격 해상도 변경으로 나간다 — 남의 화면을 바꾸는 사고다. */
+    const el = viewportRef.current || containerRef.current;
     if (!el) return false;
     const rect = el.getBoundingClientRect();
     return shouldFollowPaneSize(rect.width, rect.height);
@@ -142,6 +150,35 @@ const VncPane = ({
   useEffect(() => {
     setViewMode(normalizeVncViewMode(settings?.vncViewMode));
   }, [settings?.vncViewMode]);
+
+  /* ── 모바일 조작(터치패드 + 확대) ─────────────────────────────────────────
+     보이는 기준은 "폰인가" 가 아니라 **pane 이 데스크탑을 담을 만한가** 다 —
+     canResizeRemote 와 같은 잣대(shouldFollowPaneSize)를 쓴다. 그보다 작은 pane 은
+     어차피 원격 해상도를 건드리지 않는 '보기만 하는' 창이고, 손가락으로 절대 좌표를
+     찍기엔 배율이 너무 작다. 폰을 가로로 돌려도(844px) 이 판정은 그대로 유효하다. */
+  const [paneSize, setPaneSize] = useState({ width: 0, height: 0 });
+  const [zoom, setZoom] = useState(1);
+  const zoomRef = useRef(1);
+  zoomRef.current = zoom;
+  const [padOpen, setPadOpen] = useState(true);
+  const smallPane = paneSize.width > 0 && !shouldFollowPaneSize(paneSize.width, paneSize.height);
+  const showTouchpad = smallPane && status === 'connected';
+
+  // 래퍼 실측 — 확대 시 컨테이너를 배율만큼 키우려면 원래 크기를 알아야 한다.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => {
+      const rect = el.getBoundingClientRect();
+      setPaneSize((prev) => (
+        Math.abs(prev.width - rect.width) < 1 && Math.abs(prev.height - rect.height) < 1
+          ? prev                        // 소수점 흔들림으로 리렌더하지 않는다
+          : { width: rect.width, height: rect.height }
+      ));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     // isActive=false(다른 pane 이 포커스) 거나 docHidden(탭 숨김) 이면 연결 안 한다.
@@ -247,7 +284,7 @@ const VncPane = ({
             const c = clientRef.current;
             if (!c?.rfb || !containerRef.current) return;
             if (!canResizeRemote()) return;   // too small to define a desktop
-            const rect = containerRef.current.getBoundingClientRect();
+            const rect = (viewportRef.current || containerRef.current).getBoundingClientRect();
             const { resize } = computeVncResize({
               proposed: { width: rect.width, height: rect.height },
               connected: true,
@@ -313,6 +350,32 @@ const VncPane = ({
     applyVncViewMode(clientRef.current?.rfb, mode);
     updateSettings?.({ vncViewMode: mode });
   }, [updateSettings]);
+
+  /* 확대는 **컨테이너를 키워** 한다. noVNC 는 자기 화면 요소(우리가 넘긴 컨테이너)를
+     ResizeObserver 로 보다가 scaleViewport 면 그 크기에 맞춰 autoscale 한다 — 즉 컨테이너를
+     배율만큼 키우면 캔버스가 그만큼 커지고, **좌표계도 같이 커진다.**
+     CSS transform 으로 확대하면 안 되는 이유가 이것이다: noVNC 는 getBoundingClientRect 로
+     좌표를 읽고 자기 내부 배율로만 나누므로, 겉만 키우면 누르는 곳이 어긋난다.
+     그리고 확대는 맞춤(fit) 보기에서만 성립한다 — pan 은 이미 1:1 이다. */
+  const applyZoom = useCallback((value) => {
+    const next = clampZoom(value);
+    setZoom(next);
+    if (next > 1 && viewModeRef.current !== VNC_VIEW_FIT) {
+      applyViewMode(VNC_VIEW_FIT);
+    }
+  }, [applyViewMode]);
+
+  /* 화면 위 두 손가락 = 뷰어 조작(핀치 확대 · 밀어서 이동).
+     noVNC 는 핀치를 원격에 Ctrl+휠로 넘길 뿐이라 화면 자체는 안 커진다 — 그래서 캔버스에
+     닿기 전에 가로챈다. 작은 pane(모바일)에서만 켠다: 마우스가 있는 화면에서 두 손가락
+     터치를 가로챌 이유가 없다. */
+  useVncViewerGestures({
+    viewportRef,
+    getCanvas: useCallback(() => containerRef.current?.querySelector('canvas') || null, []),
+    getZoom: useCallback(() => zoomRef.current, []),
+    onZoom: applyZoom,
+    enabled: smallPane && status === 'connected',
+  });
 
   const applyQuality = useCallback((next) => {
     const preset = VNC_QUALITY_PRESETS[next];
@@ -440,6 +503,8 @@ const VncPane = ({
     );
   }
 
+  const zoomed = zoom > 1 && paneSize.width > 0;
+
   return (
     <div style={{
       position: 'relative',
@@ -447,18 +512,40 @@ const VncPane = ({
       height: '100%',
       background: color.base,
       overflow: 'hidden',
+      // 터치패드가 붙으면 화면과 조작을 위아래로 나눈다. 폰은 세로로 길고 데스크탑은
+      // 16:9 라, 맞춤 보기에서 아래쪽은 어차피 비어 있던 자리다.
+      display: 'flex',
+      flexDirection: 'column',
     }}>
-      {/* RFB 캔버스가 붙는 컨테이너 — scaleViewport=true 가 이 영역에 맞춰 스케일.
-          첫 프레임 도착 시 opacity transition 으로 부드럽게 나타난다 (갑작스런 팝 방지). */}
+      {/* 화면 영역 = 스크롤 래퍼. 확대했을 때 여기를 밀어서 본다(네이티브 스크롤).
+          래퍼가 곧 **진짜 pane 크기**이며, 원격 해상도 판정도 이 크기로 한다. */}
       <div
-        ref={containerRef}
+        ref={viewportRef}
         style={{
-          width: '100%',
-          height: '100%',
-          opacity: frameVisible ? 1 : 0,
-          transition: 'opacity 250ms ease-out',
+          position: 'relative',
+          flex: 1,
+          minHeight: 0,
+          overflow: zoomed ? 'auto' : 'hidden',
+          WebkitOverflowScrolling: 'touch',
+          // 확대 중에는 브라우저 기본 제스처를 끈다 — 이동은 두 손가락으로 우리가 민다.
+          touchAction: zoomed ? 'none' : 'auto',
         }}
-      />
+      >
+        {/* RFB 캔버스가 붙는 컨테이너 — scaleViewport=true 가 **이 영역**에 맞춰 스케일한다.
+            그래서 확대는 이 상자를 배율만큼 키우는 것으로 끝난다(CSS transform 금지 —
+            겉만 키우면 noVNC 가 읽는 좌표가 어긋난다).
+            첫 프레임 도착 시 opacity transition 으로 부드럽게 나타난다. */}
+        <div
+          ref={containerRef}
+          data-testid="vnc-screen"
+          style={{
+            width: zoomed ? `${Math.round(paneSize.width * zoom)}px` : '100%',
+            height: zoomed ? `${Math.round(paneSize.height * zoom)}px` : '100%',
+            opacity: frameVisible ? 1 : 0,
+            transition: 'opacity 250ms ease-out',
+          }}
+        />
+      </div>
 
       {/* 연결 진행 오버레이 — 매 연결(첫 연결·재부착 포함) 마다 표시.
           회색 빈 화면 대신 단계 표시 + 펄스 바 로 "무슨 일이 일어나는지" 보여준다.
@@ -656,6 +743,44 @@ const VncPane = ({
           {errorMsg}
         </div>
       )}
+
+      {/* 모바일 조작 바 — 화면 아래. 접어두면 손잡이만 남는다(원격 데스크톱은 화면 자체가
+          콘텐츠라, 상시로 자리를 먹는 컨트롤을 두지 않는다는 이 pane 의 규칙 그대로). */}
+      {showTouchpad && (padOpen ? (
+        <VncTouchpad
+          getContainer={() => containerRef.current}
+          zoom={zoom}
+          canZoom
+          onZoomStep={(dir) => applyZoom(nextZoom(zoom, dir))}
+          onZoomSet={applyZoom}
+          onZoomReset={() => applyZoom(1)}
+          onCollapse={() => setPadOpen(false)}
+          t={t}
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setPadOpen(true)}
+          style={{
+            flexShrink: 0,
+            height: '26px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '6px',
+            background: color.surface0,
+            border: 'none',
+            borderTop: `1px solid ${color.border}`,
+            color: color.subtext,
+            fontFamily: font.sans,
+            fontSize: fontSize['10'],
+            cursor: 'pointer',
+          }}
+        >
+          <MousePointer2 size={12} strokeWidth={1.8} />
+          {t?.('vncShowTouchpad') || 'Touchpad'}
+        </button>
+      ))}
 
       {/* connecting 펄스 애니메이션 키프레임 — 인라인 <style> 로 스코프 누수 없이 주입. */}
       <style>{`
