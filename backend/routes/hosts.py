@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["hosts"])
 
+# tmux 세션 목록 캐시 TTL(초). 성공과 실패를 따로 두는 이유는 `_fetch_host_tmux_sessions`
+# 의 주석 참고 — 실패를 캐시하지 않으면 꺼진 호스트 하나가 홈 화면을 열 때마다
+# SSH connect timeout(15초) 만큼 통째로 붙잡는다.
+HOST_TMUX_CACHE_TTL_SEC = 60
+HOST_TMUX_ERROR_TTL_SEC = 30
+
 
 @router.get("/api/hosts")
 async def list_hosts(username: str = Depends(verify_auth_token)):
@@ -337,7 +343,14 @@ async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, ref
     except Exception as e:
         # 자세한 사유는 로그에만 — 응답에는 generic 메시지로 누출 방지.
         logger.warning("list-tmux-sessions failed (%s): %s", host_id, e)
-        return {"id": host_id, "sessions": [], "error": "원격 tmux 세션 조회 실패"}
+        # 실패도 캐시한다(성공보다 짧게). 안 하면 꺼진 호스트가 조회 때마다 SSH
+        # connect timeout(15초)을 새로 태우고, batch 는 gather 라 그 15초가 홈 화면
+        # 전체의 대기 시간이 된다 — 실측으로 죽은 RPi 한 대가 "이어할 수 있는 세션"
+        # 구획을 매번 15초씩 붙잡고 있었다. 호스트가 살아 돌아왔을 때의 대기는
+        # `refresh=true`(새로고침 버튼)가 캐시를 무시하므로 사용자가 직접 푼다.
+        payload = {"id": host_id, "sessions": [], "error": "원격 tmux 세션 조회 실패"}
+        await cache.set(cache_key, payload, ttl_seconds=HOST_TMUX_ERROR_TTL_SEC)
+        return payload
 
     sessions = []
     for line in output.strip().splitlines():
@@ -349,7 +362,7 @@ async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, ref
                 "attached": parts[2] != "0",
             })
     payload = {"id": host_id, "sessions": sessions}
-    await cache.set(cache_key, payload, ttl_seconds=60)
+    await cache.set(cache_key, payload, ttl_seconds=HOST_TMUX_CACHE_TTL_SEC)
     return payload
 
 

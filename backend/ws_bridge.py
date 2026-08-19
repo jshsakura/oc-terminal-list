@@ -40,6 +40,11 @@ class TmuxClientBridge:
         self.process: ptyprocess.PtyProcess | None = None
         self.decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
+        # "이 소켓에는 더 이상 쓸 수 없다" — `_closed` 와 **일부러 구분한다**.
+        # `_closed` 는 PTY EOF(셸이 exit)로도 서는데, 그때는 소켓이 멀쩡하므로
+        # 마지막 출력을 끝까지 흘려보내야 한다. 반대로 소켓이 죽은 뒤의 send 는
+        # 무조건 막아야 한다. 하나로 합치면 둘 중 하나가 반드시 깨진다.
+        self._ws_gone = asyncio.Event()
         # 출력 펌프(send_bytes)와 pong 응답(send_text)이 서로 다른 task 에서
         # 동시에 send 하지 않도록 직렬화.
         self._send_lock = asyncio.Lock()
@@ -72,11 +77,14 @@ class TmuxClientBridge:
 
     async def send_control(self, text: str) -> None:
         """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
+        if self._ws_gone.is_set():
+            return
         try:
             async with self._send_lock:
                 await self.websocket.send_text(text)
         except Exception as e:
             logger.debug("control send failed (%s): %s", self.session_id, e)
+            self._ws_gone.set()
 
     def resize(self, cols: int, rows: int) -> None:
         if not self.process:
@@ -144,6 +152,18 @@ class TmuxClientBridge:
 
         def on_readable() -> None:
             nonlocal pending_bytes
+            # 소켓이 죽은 뒤에는 읽지도, flush task 를 만들지도 않는다.
+            #
+            # 이게 없으면 이렇게 된다(실측 로그 그대로): send 하나가 실패해
+            # `_closed` 가 서지만, 이 루프는 `_closed` 를 0.5초 주기로만 보므로
+            # remove_reader 까지 최대 500ms 가 남는다. 그 사이 tmux attach 는 계속
+            # 출력을 뱉고, 실패한 flush task 는 이미 done() 이라 청크마다 **새 task**
+            # 가 생겨 죽은 소켓에 계속 send 한다 →
+            # "Unexpected ASGI message 'websocket.send', after sending
+            # 'websocket.close'." 가 100ms 간격으로 쌓인다.
+            if self._ws_gone.is_set():
+                self._closed.set()
+                return
             try:
                 data = process.read()
             except OSError as e:
@@ -169,6 +189,12 @@ class TmuxClientBridge:
         async def _flush() -> None:
             nonlocal pending_bytes
             while pending:
+                # 배치 사이마다 다시 본다 — 이 루프는 send 마다 await 로 양보하므로
+                # 그 틈에 소켓이 죽을 수 있다.
+                if self._ws_gone.is_set():
+                    pending.clear()
+                    pending_bytes = 0
+                    return
                 buf: list[bytes] = []
                 size = 0
                 while pending and size < READ_CHUNK_FLUSH_BYTES:
@@ -176,12 +202,13 @@ class TmuxClientBridge:
                     buf.append(chunk)
                     size += len(chunk)
                     pending_bytes = max(0, pending_bytes - len(chunk))
-                
+
                 try:
                     async with self._send_lock:
                         await self.websocket.send_bytes(b"".join(buf))
                 except Exception as e:
                     logger.info("ws send failed, closing bridge (%s): %s", self.session_id, e)
+                    self._ws_gone.set()
                     self._closed.set()
                     return
                 await asyncio.sleep(0)
@@ -198,17 +225,33 @@ class TmuxClientBridge:
                 if not process.isalive():
                     self._closed.set()
                     break
-                await asyncio.sleep(0.5)
+                # sleep(0.5) 가 아니라 이벤트를 기다린다 — 0.5s 는 PTY liveness 를
+                # 확인하는 주기일 뿐이고, `_closed` 가 서면 즉시 빠져나와야 죽은
+                # 소켓에 쓰는 창이 좁아진다.
+                try:
+                    await asyncio.wait_for(self._closed.wait(), timeout=0.5)
+                except TimeoutError:
+                    pass
         finally:
             try:
                 loop.remove_reader(process.fd)
             except Exception:
                 pass
+            # 남은 출력을 흘려보낸다(셸이 exit 하며 마지막으로 찍은 것). 소켓이 이미
+            # 죽었으면 `_flush` 가 스스로 버리고 즉시 돌아온다.
+            #
+            # ⚠️ `except Exception` 으로는 부족하다. CancelledError 는 BaseException
+            # 이라 안 잡히는데, 이 finally 는 run() 이 이 task 를 cancel 해서 도는
+            # 자리다 — 여기서 CancelledError 가 새면 **flush task 가 고아로 남아**
+            # 소켓이 닫힌 뒤에 send 한다. 그래서 무슨 일이 있어도 회수한다.
             if flush_task:
                 try:
                     await flush_task
-                except Exception:
+                except BaseException:
                     pass
+                finally:
+                    if not flush_task.done():
+                        flush_task.cancel()
 
     async def _writer_loop(self) -> None:
         """WebSocket → PTY 입력 펌프. 제어 메시지는 JSON으로 인식."""
@@ -238,12 +281,15 @@ class TmuxClientBridge:
                                     await self.websocket.send_text('{"type":"pong"}')
                             except Exception as e:
                                 logger.debug("pong send failed (%s): %s", self.session_id, e)
+                                self._ws_gone.set()
                             continue
                 await self.write_input(data)
         except WebSocketDisconnect:
             logger.info("ws disconnected: %s", self.session_id)
+            self._ws_gone.set()
         except Exception as e:
             logger.warning("ws receive error (%s): %s", self.session_id, e)
+            self._ws_gone.set()
         finally:
             self._closed.set()
 
@@ -253,6 +299,7 @@ class TmuxClientBridge:
             self._spawn()
         except Exception as e:
             logger.error("tmux attach spawn failed (%s): %s", self.session_id, e)
+            self._ws_gone.set()
             try:
                 await self.websocket.close(code=1011, reason="세션 연결에 실패했습니다.")
             except Exception:
@@ -272,6 +319,11 @@ class TmuxClientBridge:
                     await t
                 except (asyncio.CancelledError, Exception):
                     pass
+            # 펌프를 다 거둔 뒤에야 세운다 — 그 전에 세우면 reader 의 마지막 drain
+            # (셸이 exit 하며 찍은 출력)이 통째로 버려진다. 여기서부터는 라우트가
+            # 곧 반환하고 starlette 이 close 를 보내므로, 뒤늦게 살아있는 어떤
+            # task 도(예: 티켓 푸셔) 이 소켓에 쓰면 안 된다.
+            self._ws_gone.set()
             self._terminate_pty()
 
     def _terminate_pty(self) -> None:

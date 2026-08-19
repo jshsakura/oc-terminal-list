@@ -13,6 +13,9 @@ import asyncssh
 from host_manager import HostConnectError, open_connection
 
 CONNECTION_IDLE_TTL = 300  # 5분
+# 종료 시 풀 전체를 닫고 기다리는 상한(초). systemd TimeoutStopSec(15s) 안에서
+# uvicorn graceful(5s) 뒤에 남는 몫을 넘지 않아야 한다.
+POOL_CLOSE_TIMEOUT_SEC = 3
 MAX_FILE_BYTES = 10 * 1024 * 1024  # 10MB 읽기 상한
 MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024  # 원격 폴더 zip 안전 상한
 MAX_DOWNLOAD_FILES = 10000
@@ -91,12 +94,35 @@ def validate_remote_path(path: str) -> str:
 
 
 async def close_pool() -> None:
-    """앱 종료 시 모든 풀 연결 정리."""
+    """앱 종료 시 모든 풀 연결 정리.
+
+    ⚠️ `wait_closed()` 에 상한이 **반드시** 있어야 한다. 끊긴 망(꺼진 호스트·죽은
+    터널)에서는 무한히 붙잡히는데, 이 함수는 lifespan 종료에서 불리므로 여기서
+    막히면 uvicorn 의 timeout_graceful_shutdown 이 이미 지난 뒤다 — 즉 아무도 안
+    구해주고 systemd 가 SIGKILL 한다. host_manager 의 CONN_CLOSE_TIMEOUT_SEC 이
+    같은 이유로 존재한다.
+
+    상한은 연결마다가 아니라 **전체**에 건다. 호스트 N 개가 전부 죽어 있으면
+    직렬 대기가 N 배로 늘어나므로, 동시에 닫고 한 번만 기다린다.
+    """
     async with _pool_lock:
-        for _host_id, (conn, _) in list(_pool.items()):
-            try:
-                conn.close()
-                await conn.wait_closed()
-            except Exception:
-                pass
+        entries = list(_pool.values())
         _pool.clear()
+
+    waiters = []
+    for conn, _ in entries:
+        try:
+            conn.close()
+            waiters.append(conn.wait_closed())
+        except Exception:
+            pass
+    if not waiters:
+        return
+    try:
+        await asyncio.wait_for(
+            asyncio.gather(*waiters, return_exceptions=True),
+            timeout=POOL_CLOSE_TIMEOUT_SEC,
+        )
+    except Exception:
+        # TimeoutError 포함. close() 는 이미 걸었고 프로세스가 곧 죽으므로 회수는 OS 가 한다.
+        pass

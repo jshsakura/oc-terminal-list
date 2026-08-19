@@ -145,7 +145,13 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 - **SSE** (`/api/tab-state/events`, `useWorkspaceTabs.js`): the client now opens `new EventSource('/api/tab-state/events')` with **no** `/api/sse-ticket` POST — EventSource carries the same-origin cookie automatically. The endpoint takes ticket-or-cookie. This also removes the ticket POST that fed the SSE-reconnect storm.
 - **Raw file** (`/api/files/raw`, `FileEditor.jsx`): the `<img>` preview loads `?path=…` directly (cookie) with **no** `/api/files/raw-ticket` POST. The endpoint's non-ticket branch now accepts the cookie (`verify_auth_token(authorization, auth_cookie)`); `validate_path` still scopes the path to the workspace.
 - CSRF for these two is the app-wide convention — the cookie's `SameSite=Strict` — not a per-endpoint Origin check (a same-origin `<img>`/EventSource GET often sends no `Origin`, so requiring one would break it). The WS handshake keeps its stricter Origin check because browsers always send `Origin` there.
-- Ticket endpoints stay for backward-compat with cached clients; new clients don't call them.
+- ⚠️ **SSE 는 그 뒤 티켓 방식으로 되돌아왔다** (`useWorkspaceTabs.js` 의 NOTE 참고 —
+  쿠키 폴백으로 바꾸자마자 SSE 폭주가 재발했다). 백엔드는 여전히 ticket-or-cookie 를
+  받지만 프론트는 티켓으로 연결한다. 실측(7일)에서도 `POST /api/sse-ticket` 306회 ≒
+  SSE 연결 304회로 1:1 이다. 즉 **이 문단의 "새 클라이언트는 티켓을 안 부른다" 는
+  raw-file 에만 해당한다.**
+- Ticket endpoints stay for backward-compat with cached clients; the raw-file client
+  doesn't call them.
 
 ## Tab/session close model (as of 2026-07)
 
@@ -243,6 +249,58 @@ Restart only *kills*; recreation is done by the reconnect (the WS route creates 
 Never hand-manage it. If `sw.js`'s bytes don't change on deploy, the browser never detects a service-worker update, `activate` never re-runs, and the old cache lives forever — holding hashed chunks that the next build deletes (`emptyOutDir: true`). The page then self-reloads via `LazyErrorBoundary` when a lazy chunk 404s.
 
 The plugin must run **before** `precompressAssets`, or only the `.br`/`.gz` copies keep the stale bytes.
+
+## 종료·실패에는 상한이 있어야 한다 (2026-08-20)
+
+로그 감사에서 나온 셋. 뿌리가 하나다 — **끝나지 않는 대기를 그대로 뒀다.**
+
+### 재시작 23회 중 13회가 SIGKILL 이었다
+
+`stop-sigterm timed out → SIGKILL` 이 반복되고 있었고, 그때마다 uvicorn 로그가
+`Waiting for connections to close` 에서 멈춰 있었다(횟수까지 정확히 일치). 원인은
+`shutdown()` 이 각 연결에 거는 `transport.close()` 가 **write buffer 를 먼저 비우는**
+graceful close 라는 것 — 멈춘 피어(모바일 전환·포화된 터널)에 물린 터미널 WS 하나가
+그 버퍼를 붙잡으면 `connection_lost` 가 영영 안 온다. 실측에서 걸린 태스크는 매번 1개였다.
+
+- `uvicorn.run(timeout_graceful_shutdown=5)`. 실측: 15s+SIGKILL → **6s + 정상 종료**.
+- SIGKILL 이면 lifespan 의 `finally` 가 통째로 날아간다(SQLite close, SSH/SFTP 풀).
+  `main.py` 의 "강제 종료로 detach hook 이 못 돈 orphan usage row 정리" 는 그 상태를
+  시작 때 청소로 덮고 있던 흔적이다.
+- ⚠️ **`sftp_pool.close_pool` 의 `await conn.wait_closed()` 에는 상한이 없었다.** 이건
+  lifespan **안**이라 uvicorn 의 graceful 상한이 이미 지난 뒤에 돈다 — 여기서 막히면
+  아무도 안 구해준다. 상한은 연결마다가 아니라 **전체에 한 번**(죽은 호스트 N 대면 N 배).
+- 두 상한은 같이 움직인다: `graceful(5s) + POOL_CLOSE_TIMEOUT_SEC(3s) < TimeoutStopSec(15s)`.
+  `tests/test_shutdown_is_bounded.py` 가 이 부등식을 잠근다.
+
+### 실패를 캐시하지 않으면 죽은 호스트가 화면을 붙잡는다
+
+`_fetch_host_tmux_sessions` 는 성공만 60초 캐시했다. 꺼진 호스트 하나가 조회 때마다
+SSH connect timeout(15초)을 새로 태우고, batch 는 `gather` 라 그 15초가 **응답 전체**의
+대기였다 — 홈의 "이어할 수 있는 세션" 이 열 때마다 15초씩 멈춰 있었다.
+실측: 15.10s → 0.01s → 0.01s, `refresh=true` 는 15s(살아 돌아온 호스트용 탈출구).
+
+**일반화: 느린 실패는 캐시하지 않으면 매번 같은 값을 다시 산다.** 실패 TTL 은 성공보다
+짧게(살아 돌아왔을 때의 지연) — 이 둘이 상수 한 쌍이다.
+
+### `_closed` 와 "소켓이 죽었다" 는 다른 사건이다
+
+`ws_bridge` 가 소켓이 닫힌 뒤에도 계속 send 해 `Unexpected ASGI message 'websocket.send',
+after sending 'websocket.close'` 를 매일 7건씩 쌓고 있었다(닫히는 순간의 pane 출력이
+조용히 유실된다).
+
+`on_readable` 이 `_closed` 를 전혀 안 봤다. send 하나가 실패해 `_closed` 가 서도 reader
+루프는 그걸 **0.5초 주기로만** 확인하므로 remove_reader 까지 창이 남고, 실패한 flush task
+는 이미 `done()` 이라 "돌고 있으면 안 만든다" 가드가 통과돼 **청크마다 새 task** 가
+죽은 소켓에 send 했다(로그의 100ms 간격이 이것).
+
+- 그래서 `_ws_gone` 이 `_closed` 와 **따로** 있다. `_closed` 는 PTY EOF(셸 exit)로도
+  서는데 그때 소켓은 멀쩡하므로 **마지막 출력은 끝까지 가야 한다.** 하나로 합치면
+  둘 중 하나가 반드시 깨진다 — 테스트가 양쪽을 다 잠근다.
+- reader 루프는 `sleep(0.5)` 대신 `wait_for(_closed.wait(), 0.5)` 로 즉시 빠져나온다.
+- ⚠️ reader 의 finally 에서 flush task 를 거둘 때 **`except Exception` 으로는 부족하다** —
+  `CancelledError` 는 `BaseException` 이라 안 잡히고, 그게 새면 flush task 가 고아로 남아
+  소켓이 닫힌 뒤에 send 한다. 이 finally 는 run() 이 cancel 해서 도는 자리다.
+- `_ws_gone` 은 펌프를 **다 거둔 뒤에** 세운다. 그 전에 세우면 마지막 drain 이 버려진다.
 
 ## Backend module layout
 

@@ -474,4 +474,14 @@ if __name__ == "__main__":
         ws_ping_timeout=20.0,
         # permessage-deflate 압축 — ANSI/반복 공백이 많은 터미널 출력에서 50-70% 절감.
         ws_per_message_deflate=True,
+        # 종료 상한 — 없으면 uvicorn 이 "Waiting for connections to close" 에서
+        # **무한히** 기다린다. shutdown() 은 각 연결에 transport.close() 를 걸지만
+        # asyncio transport 의 close 는 write buffer 를 먼저 비우므로, 멈춘 피어
+        # (모바일 네트워크 전환·포화된 공유 터널)에 물린 터미널 WS 하나가 그 버퍼를
+        # 영영 붙잡으면 connection_lost 가 오지 않는다. 그러면 systemd 의
+        # TimeoutStopSec(15s) 가 만료돼 SIGKILL 이 오고 lifespan 의 정리
+        # (SQLite close·SSH/SFTP 풀 정리)가 통째로 건너뛰어진다 — 실측으로 최근
+        # 재시작 23회 중 13회가 이 경로였다. 5초면 살아있는 클라가 닫기에 충분하고,
+        # 남은 10초는 lifespan 정리 몫이다.
+        timeout_graceful_shutdown=5,
     )
