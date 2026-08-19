@@ -366,11 +366,19 @@ async def batch_host_tmux_sessions(
     all_hosts = await storage.list_hosts(username)
     if ids.strip():
         wanted = {s.strip() for s in ids.split(",") if s.strip()}
-        hosts = [h for h in all_hosts if h.get("id") in wanted]
+        picked = [h for h in all_hosts if h.get("id") in wanted]
     else:
-        hosts = [h for h in all_hosts if h.get("use_remote_tmux")]
-    if not hosts:
+        picked = [h for h in all_hosts if h.get("use_remote_tmux")]
+    if not picked:
         return {"items": []}
+
+    # `list_hosts` deliberately omits `password_enc` — it is the row that goes out to the
+    # browser. Connecting needs the full record, so re-read the ones we are about to dial.
+    # Without this every password-auth host failed here with "비밀번호 인증인데 비밀번호가
+    # 없음" while its terminal connected fine, because the single-host route reads
+    # `get_host`. The home screen simply never listed resumable sessions for those hosts.
+    full = await asyncio.gather(*[storage.get_host(h["id"], username) for h in picked])
+    hosts = [f or h for f, h in zip(full, picked)]
 
     tasks = [
         _fetch_host_tmux_sessions(h, h["id"], username, refresh) for h in hosts

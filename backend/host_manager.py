@@ -869,6 +869,16 @@ def resolve_host_secrets(host: dict, key_record: dict | None) -> dict:
         private_key = decrypt_str(key_record.get("private_key_enc"))
         passphrase = decrypt_str(key_record.get("passphrase_enc"))
     elif auth_method == "password":
+        # A row that never carried the column is a **different failure** from a host with
+        # no password saved, and telling them apart is the whole point of this guard:
+        # `storage.list_hosts` omits `password_enc` (that row is served to the browser),
+        # so passing one here silently produced "no password" on hosts that have one.
+        # Cost us a home screen that never listed resumable sessions for password hosts.
+        if "password_enc" not in host:
+            raise HostConnectError(
+                "호스트 레코드에 password_enc 가 없습니다 — 목록용 행(list_hosts)을 "
+                "접속에 쓰고 있습니다. get_host 로 다시 읽으세요."
+            )
         password = decrypt_str(host.get("password_enc"))
     # 'tailscale' 은 secret 불필요 (tailscale auth 가 알아서 함)
 
