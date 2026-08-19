@@ -56,9 +56,22 @@ def sanitize_reason(raw: str | None) -> str:
     return "other"
 
 
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+_MAX_NAME_LEN = 22
+
+
 def _short(value: str | None) -> str:
-    """id 는 앞 8자만 — 로그 폭이 좁아야 여러 줄을 눈으로 대조할 수 있다."""
-    return (value or "-")[:8]
+    """로그 폭은 좁아야 여러 줄을 눈으로 대조할 수 있다. 단 **구별은 잃으면 안 된다.**
+
+    UUID 는 앞 8자로 충분하다(랜덤이라 그 안에서 갈린다). tmux 세션명은 다르다 —
+    `mobile-2b4a0a2ee6f8` 과 `mobile-239e7229610c` 는 앞 8자가 **둘 다** `mobile-2` 라
+    서로 다른 pane 이 로그에서 같은 것으로 보인다. 짧게 만들려다 읽을 수 없게 만드는
+    전형적인 실수라, 이름 꼴은 통째로 둔다.
+    """
+    v = value or "-"
+    if _UUID_RE.match(v):
+        return v[:8]
+    return v[:_MAX_NAME_LEN]
 
 
 def _secs(ms: float | None) -> str:

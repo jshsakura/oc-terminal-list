@@ -61,19 +61,35 @@ def test_the_vocabulary_matches_what_the_client_sends():
 def test_attach_line_carries_the_reason_and_previous_lifetime(caplog):
     with caplog.at_level(logging.INFO, logger="ws_observe"):
         log_attach(
-            kind="local", session="3b77b742-f232-497a", user="jshsakura",
-            client_id="eed35ded-2e58", reason="heartbeat", prev_ms=13200,
+            kind="local", session="3b77b742-f232-497a-8346-3a27fd09894b", user="jshsakura",
+            client_id="eed35ded-2e58-4cee-adda-49cb0fe164b2", reason="heartbeat", prev_ms=13200,
             cols=73, rows=34,
         )
     line = caplog.text
     assert "reason=heartbeat" in line
     assert "prev=13.2s" in line, "직전 소켓 수명이 없으면 요동과 단발 끊김을 구별 못 한다"
-    assert "session=3b77b742" in line and "3b77b742-f232" not in line, "id 는 8자로 줄인다"
+    assert "session=3b77b742" in line and "3b77b742-f232" not in line, "UUID 는 8자로 줄인다"
+
+
+@pytest.mark.parametrize("a,b", [
+    ("mobile-2b4a0a2ee6f8", "mobile-239e7229610c"),   # 앞 8자가 둘 다 "mobile-2"
+    ("mobile-8f025992a5c4", "mobile-8f0259920000"),
+])
+def test_two_different_tmux_sessions_never_look_the_same(caplog, a, b):
+    """짧게 줄이려다 구별을 잃으면 로그가 거짓말을 한다 — 서로 다른 pane 이 같아 보인다."""
+    from ws_observe import _short
+    assert _short(a) != _short(b)
+
+
+def test_uuids_are_still_trimmed():
+    """UUID 는 랜덤이라 앞 8자로 갈린다 — 폭을 낭비할 이유가 없다."""
+    from ws_observe import _short
+    assert _short("3b77b742-f232-497a-8346-3a27fd09894b") == "3b77b742"
 
 
 def test_detach_line_reports_how_long_the_socket_lived(caplog):
     with caplog.at_level(logging.INFO, logger="ws_observe"):
-        log_detach(kind="local", session="abcdef12-x", client_id="cccccccc-x",
+        log_detach(kind="local", session="mobile-abcdef12", client_id="cccccccc-x",
                    opened_at=time.monotonic() - 2.5)
     assert "lived=2.5s" in caplog.text
 
