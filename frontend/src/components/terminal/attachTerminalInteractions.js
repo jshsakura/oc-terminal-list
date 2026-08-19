@@ -16,6 +16,27 @@ import { getLinkAtClient } from '../../utils/terminalLinkAt';
  */
 
 // SGR 마우스 리포트 버튼 코드 — 휠 위/아래.
+
+/**
+ * Keys that switch or drive the OS input method (한/영, 한자, かな, and the `Process`
+ * key browsers report mid-composition).
+ *
+ * These must reach the IME, not the terminal. xterm's key handler consumes the event —
+ * and on Windows a consumed keydown means the Hangul key does not toggle, which is the
+ * "한영 버튼이 잘 안 눌린다" symptom: it works sometimes (when focus happens to be
+ * elsewhere) and not others. We return false so xterm ignores it **without**
+ * preventDefault, the same trick the Ctrl+V path uses to let the browser do its job.
+ */
+export const isImeModeKey = (e) => {
+  const key = e?.key;
+  const code = e?.code;
+  return key === 'HangulMode' || key === 'Hangul' || key === 'HanjaMode' || key === 'Hanja'
+    || key === 'KanaMode' || key === 'Convert' || key === 'NonConvert' || key === 'Process'
+    || code === 'Lang1' || code === 'Lang2'
+    // Legacy numeric codes some Windows keyboards still report (21=Hangul, 25=Hanja).
+    || e?.keyCode === 21 || e?.keyCode === 25;
+};
+
 const SGR_WHEEL_UP = 64;
 const SGR_WHEEL_DOWN = 65;
 // 한 이벤트로 보낼 최대 휠 리포트 수 — 트랙패드 관성 스크롤이 tmux 를 익사시키지 않게.
@@ -171,6 +192,8 @@ const attachTerminalInteractions = ({
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
     if (e.key === 'F12') return false; // DevTools 는 브라우저에 양보
+    // 한/영·한자 같은 입력기 전환 키는 IME 가 받아야 한다 (preventDefault 하지 않는다).
+    if (isImeModeKey(e)) return false;
     /* Ctrl+V / Cmd+V — false 를 돌려 xterm 처리는 막되 preventDefault 는 하지 않는다.
        그러면 브라우저가 paste 이벤트를 발화하고 handlePaste 가 권한 없이 읽는다. */
     if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 'v' || e.key === 'V')) return false;
@@ -215,18 +238,45 @@ const attachTerminalInteractions = ({
      드래그 중 mousemove 마다 onSelectionChange 가 터진다. 멎은 뒤 한 번만 쓴다. */
   let selectionTimer = null;
   let copyFlashTimer = null;
+  let lastCopied = '';
+
+  /**
+   * ⚠️ **The clipboard write has to happen inside the user's gesture.**
+   *
+   * This used to fire from a settle timer, which means no transient activation by the
+   * time it ran. Chrome usually lets that through (it grants clipboard-write to the
+   * focused tab), but Firefox refuses it outright, and Chrome itself refuses when the
+   * document is not focused — and the `execCommand` fallback needs a gesture too. So on
+   * some machines selecting text simply never copied, while the UI flashed "copied"
+   * every time because the old code ignored the return value.
+   *
+   * Now the copy runs from mouseup/keyup — still within the gesture that made the
+   * selection — and the flash is shown **only if it actually landed**.
+   */
+  const copySelection = async () => {
+    const selection = term.getSelection();
+    // 모바일은 자동 복사가 선택 핸들 조작을 방해하므로 PC 에서만.
+    if (!selection || isMobile()) return;
+    if (selection === lastCopied) return;          // 같은 선택을 두 번 쓰지 않는다
+    const ok = await copyTextToClipboard(selection);
+    if (!ok) {
+      // 거짓 성공을 띄우지 않는다. 선택은 그대로 두므로 사용자가 Ctrl+C 로 이어갈 수 있다.
+      logger.error('selection copy was refused by the browser');
+      return;
+    }
+    lastCopied = selection;
+    setCopyFlash(true);
+    if (copyFlashTimer) clearTimeout(copyFlashTimer);
+    copyFlashTimer = setTimeout(() => setCopyFlash(false), COPY_FLASH_MS);
+  };
+
   term.onSelectionChange(() => {
+    if (!term.getSelection()) lastCopied = '';
     if (selectionTimer) clearTimeout(selectionTimer);
-    selectionTimer = setTimeout(() => {
-      const selection = term.getSelection();
-      // 모바일은 자동 복사가 선택 핸들 조작을 방해하므로 PC 에서만.
-      if (!selection || isMobile()) return;
-      copyTextToClipboard(selection).then(() => {
-        setCopyFlash(true);
-        if (copyFlashTimer) clearTimeout(copyFlashTimer);
-        copyFlashTimer = setTimeout(() => setCopyFlash(false), COPY_FLASH_MS);
-      });
-    }, SELECTION_SETTLE_MS);
+    /* The timer stays as a backstop for selections no gesture of ours sees (xterm's own
+       double/triple-click paths, programmatic selects). It runs late and may be refused;
+       the gesture path above is the one that normally wins. */
+    selectionTimer = setTimeout(copySelection, SELECTION_SETTLE_MS);
   });
 
   /* ── 자연스러운 마우스 선택 ─────────────────────────────────────────────
@@ -276,6 +326,14 @@ const attachTerminalInteractions = ({
       e.stopPropagation();
     }
     naturalSelection = null;
+  };
+
+  /* Any mouse-up over the terminal ends a selection gesture — including xterm's own
+     drag, which we do not route through `naturalSelection`. This is the moment the
+     clipboard is still allowed to be written to. */
+  const handleSelectionGestureEnd = () => {
+    if (selectionTimer) clearTimeout(selectionTimer);
+    copySelection();
   };
 
   /* ── 모바일 터치 ────────────────────────────────────────────────────────
@@ -341,6 +399,9 @@ const attachTerminalInteractions = ({
   container.addEventListener('touchend', handleTouchEnd, { passive: true });
   document.addEventListener('mousemove', handleNaturalMouseMove, true);
   document.addEventListener('mouseup', handleNaturalMouseUp, true);
+  // Bubble phase, after xterm has finished updating its selection.
+  document.addEventListener('mouseup', handleSelectionGestureEnd);
+  document.addEventListener('keyup', handleSelectionGestureEnd);
 
   if (overlay) {
     overlay.addEventListener('contextmenu', blockContextMenu);
@@ -360,6 +421,8 @@ const attachTerminalInteractions = ({
       container.removeEventListener('touchend', handleTouchEnd);
       document.removeEventListener('mousemove', handleNaturalMouseMove, true);
       document.removeEventListener('mouseup', handleNaturalMouseUp, true);
+      document.removeEventListener('mouseup', handleSelectionGestureEnd);
+      document.removeEventListener('keyup', handleSelectionGestureEnd);
 
       if (overlay) {
         overlay.removeEventListener('contextmenu', blockContextMenu);

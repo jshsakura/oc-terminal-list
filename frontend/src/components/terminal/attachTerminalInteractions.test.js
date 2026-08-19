@@ -8,7 +8,7 @@ vi.mock('./terminalHelpers', async (importOriginal) => ({
   // 것이 이 파일이 지켜야 할 계약이고, 목으로 덮으면 그 계약이 사라진다.
 }));
 
-import attachTerminalInteractions from './attachTerminalInteractions';
+import attachTerminalInteractions, { isImeModeKey } from './attachTerminalInteractions';
 import { copyTextToClipboard, uploadImageAndGetPath } from './terminalHelpers';
 
 /* 휠/터치 라우팅은 실기기 회귀가 가장 잦은 곳이다(마우스로는 재현이 안 된다).
@@ -331,6 +331,59 @@ describe('attachTerminalInteractions', () => {
       mount();
       expect(term.handlers.key(keyEvent({ key: 'c', ctrlKey: true, shiftKey: true }))).toBe(true);
       expect(copyTextToClipboard).not.toHaveBeenCalled();
+    });
+
+    /* 실측 증상: 어떤 기계에서는 드래그로 선택해도 클립보드에 안 들어가는데 화면에는
+       "복사됨" 이 뜬다. 원인은 복사가 **제스처 밖**(선택이 멎은 뒤 타이머)에서 돌던 것 —
+       파이어폭스는 그 자리에서 거절하고, 크롬도 문서가 포커스를 잃으면 거절한다. */
+    it('선택은 마우스를 떼는 그 순간에 복사한다 — 타이머를 기다리지 않는다', async () => {
+      term.getSelection = vi.fn(() => 'dragged');
+      mount();
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await Promise.resolve();
+      expect(copyTextToClipboard).toHaveBeenCalledWith('dragged');
+    });
+
+    it('브라우저가 거절하면 "복사됨" 을 띄우지 않는다', async () => {
+      vi.mocked(copyTextToClipboard).mockResolvedValueOnce(false);
+      term.getSelection = vi.fn(() => 'refused');
+      mount();
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(setCopyFlash).not.toHaveBeenCalledWith(true);
+    });
+
+    it('같은 선택을 두 번 복사하지 않는다', async () => {
+      term.getSelection = vi.fn(() => 'same');
+      mount();
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+      document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      await Promise.resolve();
+      expect(copyTextToClipboard).toHaveBeenCalledTimes(1);
+    });
+
+    /* 윈도우에서 "한영 버튼이 잘 안 눌린다" 의 정체: xterm 이 keydown 을 삼키면 IME 가
+       전환 신호를 못 받는다. 우리가 false 를 돌려주되 preventDefault 는 하지 않아야
+       브라우저/OS 가 제 일을 한다(Ctrl+V 와 같은 수법). */
+    it('한/영·한자 키는 터미널이 삼키지 않는다', () => {
+      mount();
+      for (const ev of [
+        { key: 'HangulMode' }, { key: 'Hangul' }, { key: 'HanjaMode' },
+        { key: 'Process' }, { key: 'Unidentified', code: 'Lang1' }, { key: 'Unidentified', keyCode: 21 },
+      ]) {
+        const e = keyEvent(ev);
+        expect(term.handlers.key(e), JSON.stringify(ev)).toBe(false);
+        expect(e.preventDefault, JSON.stringify(ev)).not.toHaveBeenCalled();
+      }
+    });
+
+    it('평범한 글자는 그대로 터미널로 간다 — 판정이 너무 넓으면 입력이 죽는다', () => {
+      expect(isImeModeKey({ key: 'a' })).toBe(false);
+      expect(isImeModeKey({ key: 'Enter' })).toBe(false);
+      expect(isImeModeKey({ key: '가' })).toBe(false);
     });
 
     it('keydown 이 아닌 이벤트는 건드리지 않는다', () => {
