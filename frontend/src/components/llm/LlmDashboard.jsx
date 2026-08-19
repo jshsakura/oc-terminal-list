@@ -3,7 +3,7 @@ import { RefreshCw, TrendingUp, History, Bot, Server, Cpu, FolderGit2 } from 'lu
 import { tokens as designTokens } from '../../styles/tokens';
 import { authHeaders } from '../../utils/auth';
 import { dashboardCardStyle } from '../../styles/dashboardCard';
-import { segmentedTrackStyle, segmentedItemStyle, segmentedHoverBackground } from '../../styles/segmented';
+import { segmentedTrackStyle, segmentedItemStyle, applySegmentedHover } from '../../styles/segmented';
 import { attachPaneTargets } from '../../utils/llmSessionPane';
 import { LLM_USAGE_CHANGED_EVENT, emitLlmUsageBusy } from '../../utils/llmUsageBus';
 import { formatMoney, describeMoney, resolveCurrency, formatCount } from '../../utils/money';
@@ -507,8 +507,8 @@ const Segmented = ({ value, onChange, options }) => (
           aria-pressed={isOn}
           onClick={() => onChange(key)}
           style={segmentedItemStyle({ active: isOn, compact: true })}
-          onMouseEnter={(e) => { if (!isOn) e.currentTarget.style.background = segmentedHoverBackground; }}
-          onMouseLeave={(e) => { if (!isOn) e.currentTarget.style.background = 'transparent'; }}
+          onMouseEnter={(e) => { if (!isOn) applySegmentedHover(e.currentTarget, true); }}
+          onMouseLeave={(e) => { if (!isOn) applySegmentedHover(e.currentTarget, false); }}
         >
           {label}
         </button>

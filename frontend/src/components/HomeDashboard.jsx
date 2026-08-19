@@ -18,7 +18,7 @@ import SkeletonRow from './common/SkeletonRow';
 import { LLM_USAGE_CHANGED_EVENT, LLM_USAGE_BUSY_EVENT } from '../utils/llmUsageBus';
 import { themes, defaultTheme } from '../styles/themes';
 import { canvasTexture, canvasWash } from '../styles/textures';
-import { segmentedTrackStyle, segmentedItemStyle, segmentedHoverBackground } from '../styles/segmented';
+import { segmentedTrackStyle, segmentedItemStyle, applySegmentedHover } from '../styles/segmented';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -183,10 +183,10 @@ const HomeDashboard = ({
                   onClick={() => setView(key)}
                   style={segmentedItemStyle({ active: isOn })}
                   onMouseEnter={(e) => {
-                    if (!isOn) e.currentTarget.style.background = segmentedHoverBackground;
+                    if (!isOn) applySegmentedHover(e.currentTarget, true);
                   }}
                   onMouseLeave={(e) => {
-                    if (!isOn) e.currentTarget.style.background = 'transparent';
+                    if (!isOn) applySegmentedHover(e.currentTarget, false);
                   }}
                 >
                   <Icon size={12} strokeWidth={2.2} />
@@ -228,10 +228,10 @@ const HomeDashboard = ({
                       onClick={() => setRangeDays(value)}
                       style={segmentedItemStyle({ active: isOn, compact: true })}
                       onMouseEnter={(e) => {
-                        if (!isOn) e.currentTarget.style.background = segmentedHoverBackground;
+                        if (!isOn) applySegmentedHover(e.currentTarget, true);
                       }}
                       onMouseLeave={(e) => {
-                        if (!isOn) e.currentTarget.style.background = 'transparent';
+                        if (!isOn) applySegmentedHover(e.currentTarget, false);
                       }}
                     >
                       {value === 0

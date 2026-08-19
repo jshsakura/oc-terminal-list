@@ -24,8 +24,12 @@ export const segmentedTrackStyle = ({ radius: corner = '9px' } = {}) => ({
   display: 'inline-flex',
   alignItems: 'stretch',
   alignSelf: 'flex-start',
-  gap: '2px',
-  padding: '2px',
+  /* Three slots made the old 2px gap and 2px inset read as one crowded strip — on hover
+     the lit slot sat flush against its neighbours with no visible track between them.
+     The groove has to stay visible on every side of the slot for this to look like a
+     switch rather than three buttons pushed together. */
+  gap: '3px',
+  padding: '3px',
   borderRadius: corner,
   background: 'color-mix(in srgb, #000 20%, var(--ui-crust))',
   border: `1px solid ${color.border}`,
@@ -44,10 +48,12 @@ export const segmentedItemStyle = ({ active = false, compact = false } = {}) => 
   alignItems: 'center',
   justifyContent: 'center',
   gap: '6px',
-  padding: compact ? '0 11px' : '0 13px',
+  padding: compact ? '0 12px' : '0 15px',
   minHeight: compact ? '26px' : '30px',
   border: 'none',
-  borderRadius: '7px',
+  /* Concentric with the track: outer 9px minus the 3px inset. A slot rounded more than
+     its groove leaves a sliver of track showing at each corner. */
+  borderRadius: '6px',
   fontSize: compact ? fontSize['11'] : fontSize['12'],
   fontWeight: fontWeight.medium,
   fontFamily: compact ? font.mono : font.sans,
@@ -64,5 +70,23 @@ export const segmentedItemStyle = ({ active = false, compact = false } = {}) => 
     : 'none',
 });
 
-/** Hover for an unselected slot — brightens slightly, never enough to read as selected. */
-export const segmentedHoverBackground = `color-mix(in srgb, ${color.text} 7%, transparent)`;
+/** Hover ground for an unselected slot. Kept faint on purpose — see below. */
+export const segmentedHoverBackground = `color-mix(in srgb, ${color.text} 4%, transparent)`;
+
+/**
+ * Apply (or clear) the hover look on an **unselected** slot.
+ *
+ * Why a function and not just a colour: hover used to paint a slot face heavy enough to
+ * read as a second selected item, which only became obvious once the switch had three
+ * slots sitting side by side. What separates hover from selected now is that hover
+ * brightens the **label** and barely tints the ground, while selected owns the face and
+ * the thickness (surface1 + drop shadow + top highlight). Two properties have to move
+ * together for that to hold, so they move in one place.
+ *
+ * Call sites must guard on `active` themselves — the selected slot never hovers.
+ */
+export const applySegmentedHover = (element, hovered) => {
+  if (!element) return;
+  element.style.background = hovered ? segmentedHoverBackground : 'transparent';
+  element.style.color = hovered ? color.text : color.subtext;
+};
