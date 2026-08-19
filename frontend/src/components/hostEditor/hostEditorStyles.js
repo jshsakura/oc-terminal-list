@@ -112,7 +112,12 @@ export const styles = {
     outline: 'none',
     transition: `border-color ${motion.fast}, background ${motion.fast}`,
   },
-  hint: { fontSize: fontSize['11'], color: color.muted, marginTop: space['0.5'] },
+  // Korean offers no spaces to wrap on, so without keep-all a hint breaks mid-word
+  // ("실행 중" / "인 작업은") and reads as a typo.
+  hint: {
+    fontSize: fontSize['11'], color: color.muted, marginTop: space['0.5'],
+    lineHeight: 1.5, wordBreak: 'keep-all', overflowWrap: 'anywhere',
+  },
   error: {
     fontSize: fontSize['12'],
     color: color.danger,

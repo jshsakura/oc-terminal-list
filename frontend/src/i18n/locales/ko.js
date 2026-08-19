@@ -541,6 +541,19 @@ export const ko = {
     reconnect: '재연결',
     createAdminAccount: '관리자 계정 만들기',
     refresh: '새로고침',
+
+    // ── 호스트·SSH 키 화면의 설명 줄 ─────────────────────────────────────────
+    // 이 화면은 "무엇을 적는 칸인가" 보다 "적으면 무슨 일이 일어나는가" 가 궁금한 자리다.
+    hostNameFieldHint: '목록에 보이는 이름입니다. 탭 이름의 기본값이 되고, itl 주소(@이름)로도 쓰입니다.',
+    hostnameFieldHint: 'IP 또는 도메인을 넣습니다. Tailscale 을 쓴다면 오른쪽 버튼으로 피어에서 골라도 됩니다.',
+    portFieldHint: '기본값은 22 입니다. 서버에서 바꾼 적이 없다면 그대로 두세요.',
+    sshUserFieldHint: '그 서버에 로그인할 계정입니다. 여기서 여는 터미널은 모두 이 계정의 권한으로 실행됩니다.',
+    authMethodHint: '키와 비밀번호는 이 서버에 암호화해 보관하며, 저장한 뒤에는 화면에 다시 표시하지 않습니다. Tailscale 은 tailnet 인증을 그대로 쓰므로 이 앱에 자격을 맡기지 않습니다.',
+    sshKeyPickHint: 'SSH 키 관리에 등록해 둔 개인 키 중에서 고릅니다.',
+    keyNameFieldHint: '이 키를 알아볼 이름입니다. 호스트를 만들 때 이 이름으로 고르게 됩니다.',
+    passphraseAddHint: '키에 암호가 걸려 있을 때만 입력합니다. 키와 함께 암호화해 보관합니다.',
+    publicKeyFieldHint: '없어도 접속에는 지장이 없습니다. 목록에서 어떤 키인지 알아보기 쉬워집니다.',
+    sshKeyManagerNote: '개인 키는 이 서버에만 암호화해 보관합니다. 원격 호스트로 키가 전달되는 일은 없습니다 — 접속은 언제나 이 서버가 대신 맺습니다.',
     windowsUnsupported: '이 호스트는 Windows 로 보입니다 — 세션 유지(tmux)·파일 붙여넣기·itl 이 모두 POSIX 셸을 전제로 합니다. WSL 안의 SSH 서버로 등록하면 그대로 동작합니다.',
     windowsUnsupportedShort: 'Windows 호스트 — 지원하지 않음',
 

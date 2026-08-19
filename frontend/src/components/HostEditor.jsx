@@ -288,11 +288,11 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
           {heTab === 'connection' && (
             <>
               <Section title={t('connection') || 'Connection'}>
-                <Field label={t('hostName') || 'Display name'}>
+                <Field label={t('hostName') || 'Display name'} hint={t('hostNameFieldHint') || 'The name you will see in the list. It seeds the tab name, and doubles as an itl address (@name).'}>
                   <Input value={draft.name} onChange={(v) => set('name', v)} placeholder="prod-web-01" autoFocus />
                 </Field>
                 <Row>
-                  <Field label={t('hostnameLabel') || 'Hostname / IP'} flex={2}>
+                  <Field label={t('hostnameLabel') || 'Hostname / IP'} flex={2} hint={t('hostnameFieldHint') || 'An IP or a domain.'}>
                     <div style={{ position: 'relative', display: 'flex', gap: '4px' }}>
                       <Input value={draft.hostname} onChange={(v) => set('hostname', v)} placeholder="example.com" />
                       <button
@@ -325,7 +325,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                       )}
                     </div>
                   </Field>
-                  <Field label={t('port') || 'Port'} flex={1}>
+                  <Field label={t('port') || 'Port'} flex={1} hint={t('portFieldHint') || 'Defaults to 22.'}>
                     <Input
                       type="number"
                       value={draft.port}
@@ -334,7 +334,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                     />
                   </Field>
                 </Row>
-                <Field label={t('sshUser') || 'SSH user'}>
+                <Field label={t('sshUser') || 'SSH user'} hint={t('sshUserFieldHint') || 'The account you log in as.'}>
                   <Input value={draft.ssh_user} onChange={(v) => set('ssh_user', v)} placeholder="root" />
                 </Field>
               </Section>
@@ -349,8 +349,13 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                   ]}
                   onChange={(v) => set('auth_method', v)}
                 />
+                {/* The real question on this screen is not which radio to press but
+                    where the secret ends up. Say it once, under the choice. */}
+                <div style={{ fontSize: fontSize['11'], color: color.muted, lineHeight: 1.5, marginTop: space['1'], wordBreak: 'keep-all', overflowWrap: 'anywhere' }}>
+                  {t('authMethodHint') || 'Keys and passwords are stored encrypted on this server and never shown again after saving.'}
+                </div>
                 {draft.auth_method === 'key' && (
-                  <Field label={t('sshKey') || 'SSH key'}>
+                  <Field label={t('sshKey') || 'SSH key'} hint={t('sshKeyPickHint') || 'Pick one of the private keys you saved under SSH keys.'}>
                     <Select value={draft.key_id || ''} onChange={(v) => set('key_id', v || null)}>
                       <option value="">— {t('chooseKey') || 'Choose a key'} —</option>
                       {sshKeys.map((k) => (

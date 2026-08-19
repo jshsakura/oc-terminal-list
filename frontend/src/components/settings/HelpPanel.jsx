@@ -4,6 +4,7 @@ import { tokens } from '../../styles/tokens';
 import { styles as settingsStyles } from './settingsStyles';
 import { Section } from './SettingsFields';
 import { HELP_TOPICS } from './helpTopics';
+import { sentenceLines, KEEP_WORDS_TOGETHER } from '../../utils/sentenceLines';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
@@ -74,7 +75,11 @@ const HelpPanel = ({ t }) => {
                 {section.entries.map((entry) => (
                   <div key={entry.key} style={S.item}>
                     <div style={S.term}>{entry.term}</div>
-                    <div style={S.desc}>{entry.desc}</div>
+                    {/* A sentence per line. Korean offers no spaces to wrap on, so left
+                        to the browser these break mid-word and read as typos. */}
+                    {sentenceLines(entry.desc).map((line) => (
+                      <div key={line} style={S.desc}>{line}</div>
+                    ))}
                   </div>
                 ))}
               </div>
@@ -127,6 +132,7 @@ const S = {
     fontSize: fontSize['11'],
     lineHeight: 1.55,
     color: color.subtext,
+    ...KEEP_WORDS_TOGETHER,
   },
 };
 

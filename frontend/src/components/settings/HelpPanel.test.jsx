@@ -3,6 +3,11 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import HelpPanel from './HelpPanel';
 import { HELP_TOPICS } from './helpTopics';
 import { ko } from '../../i18n/locales/ko';
+import { sentenceLines } from '../../utils/sentenceLines';
+
+// 설명은 **문장마다 한 줄**로 그려진다(한국어가 단어 중간에서 잘리지 않게).
+// 그래서 조회는 첫 문장으로 한다 — 통째로 찾으면 여러 요소에 걸쳐 있어 못 찾는다.
+const firstLine = (text) => sentenceLines(text)[0];
 
 // 실제 한국어 사전을 그대로 쓴다 — 문구가 빠지면 여기서 키 이름이 화면에 나온다.
 const t = (key) => ko[key] || key;
@@ -12,7 +17,7 @@ describe('HelpPanel', () => {
     render(<HelpPanel t={t} />);
     expect(screen.getByText(ko.helpSecCore)).toBeTruthy();
     expect(screen.getByText(ko.helpCoreRelayTerm)).toBeTruthy();
-    expect(screen.getByText(ko.helpCoreRelayDesc)).toBeTruthy();
+    expect(screen.getByText(firstLine(ko.helpCoreRelayDesc))).toBeTruthy();
   });
 
   /* The order is the pitch: what only this app can do comes before "tabs and panes".
@@ -25,7 +30,7 @@ describe('HelpPanel', () => {
       .toBeLessThan(HELP_TOPICS.findIndex((s) => s.id === 'pane'));
     // 접힌 섹션은 제목만 보인다 — 첫 섹션만 펼쳐 두는 규칙이 지켜지는지.
     expect(screen.getByText(ko.helpSecBasics)).toBeTruthy();
-    expect(screen.queryByText(ko.helpTabPaneDesc)).toBeNull();
+    expect(screen.queryByText(firstLine(ko.helpTabPaneDesc))).toBeNull();
   });
 
   it('검색은 설명 본문까지 훑는다 — 사람은 기능 이름을 모르는 채로 찾는다', () => {
@@ -42,7 +47,7 @@ describe('HelpPanel', () => {
     fireEvent.change(screen.getByPlaceholderText(ko.helpSearchPlaceholder), {
       target: { value: '붙여넣' },
     });
-    expect(screen.getByText(ko.helpPasteDesc)).toBeTruthy();
+    expect(screen.getByText(firstLine(ko.helpPasteDesc))).toBeTruthy();
   });
 
   it('아무것도 안 맞으면 그렇다고 말한다', () => {

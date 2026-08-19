@@ -131,7 +131,16 @@ const SshKeyManager = ({ isOpen, keys, onAdd, onUpdate, onDelete, onClose, t }) 
 
           {(mode === 'add' || mode === 'edit') && (
             <div style={styles.form}>
-              <Field label={t('hostName') || 'Display name'}>
+              {/* Where the key lives, and where it does not go. That second half is the
+                  same promise the cross-machine handoff rests on: a remote host never
+                  receives a credential, because this server makes the connection. */}
+              <div style={styles.note}>
+                {t('sshKeyManagerNote') || 'Private keys stay encrypted on this server. They are never sent to a remote host — this server always makes the connection for you.'}
+              </div>
+              <Field
+                label={t('hostName') || 'Display name'}
+                hint={t('keyNameFieldHint') || 'How you will recognise this key — it is the name you pick from when creating a host.'}
+              >
                 <Input value={draft.name} onChange={(v) => setDraft({ ...draft, name: v })} placeholder="my-laptop-ed25519" autoFocus />
               </Field>
               <Field
@@ -153,7 +162,9 @@ const SshKeyManager = ({ isOpen, keys, onAdd, onUpdate, onDelete, onClose, t }) 
               </Field>
               <Field
                 label={t('passphraseOptional') || 'Passphrase (if any)'}
-                hint={mode === 'edit' ? (t('passphraseEditHint') || 'Leave empty to keep current. Check the box to clear it.') : undefined}
+                hint={mode === 'edit'
+                  ? (t('passphraseEditHint') || 'Leave empty to keep current. Check the box to clear it.')
+                  : (t('passphraseAddHint') || 'Only if the key is passphrase-protected. Stored encrypted alongside the key.')}
               >
                 <Input
                   type="password"
@@ -168,7 +179,10 @@ const SshKeyManager = ({ isOpen, keys, onAdd, onUpdate, onDelete, onClose, t }) 
                   </label>
                 )}
               </Field>
-              <Field label={t('publicKeyOptional') || 'Public key (optional, helps identify)'}>
+              <Field
+                label={t('publicKeyOptional') || 'Public key (optional, helps identify)'}
+                hint={t('publicKeyFieldHint') || 'Not needed to connect. It just makes the key easier to recognise in the list.'}
+              >
                 <textarea
                   value={draft.publicKey}
                   onChange={(e) => setDraft({ ...draft, publicKey: e.target.value })}
@@ -289,6 +303,14 @@ const styles = {
     transition: `background ${motion.fast}, color ${motion.fast}`,
   },
   form: { display: 'flex', flexDirection: 'column', gap: space['3'] },
+  /* The one line that frames the whole form — it sits on a surface so it reads as a
+     statement about the screen, not as a hint belonging to the first field. */
+  note: {
+    fontSize: fontSize['11'], color: color.subtext, lineHeight: 1.55,
+    padding: space['2'], borderRadius: radius.sm,
+    background: color.surface0, border: `1px solid ${color.border}`,
+    wordBreak: 'keep-all', overflowWrap: 'anywhere',
+  },
   field: { display: 'flex', flexDirection: 'column', gap: space['1'] },
   label: { fontSize: fontSize['12'], color: color.subtext, fontWeight: fontWeight.medium },
   input: {
@@ -306,7 +328,7 @@ const styles = {
     fontSize: fontSize['12'], fontFamily: font.mono, outline: 'none',
     resize: 'vertical',
   },
-  hint: { fontSize: fontSize['11'], color: color.muted, marginTop: space['0.5'] },
+  hint: { fontSize: fontSize['11'], color: color.muted, marginTop: space['0.5'], lineHeight: 1.5, wordBreak: 'keep-all', overflowWrap: 'anywhere' },
   error: {
     fontSize: fontSize['12'], color: color.danger,
     background: 'rgba(243, 139, 168, 0.08)',

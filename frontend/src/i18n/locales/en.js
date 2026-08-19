@@ -538,6 +538,19 @@ export const en = {
     reconnect: 'Reconnect',
     createAdminAccount: 'Create your admin account',
     refresh: 'Refresh',
+
+    // ── Explanatory lines on the host and SSH-key screens ───────────────────
+    // Here the question is not "what goes in this box" but "what happens if I fill it in".
+    hostNameFieldHint: 'The name you will see in the list. It seeds the tab name, and doubles as an itl address (@name).',
+    hostnameFieldHint: 'An IP or a domain. On Tailscale you can pick a peer with the button on the right instead.',
+    portFieldHint: 'Defaults to 22. Leave it alone unless you changed it on the server.',
+    sshUserFieldHint: 'The account you log in as. Every terminal you open here runs with that account\'s permissions.',
+    authMethodHint: 'Keys and passwords are stored encrypted on this server and never shown again after saving. Tailscale uses your tailnet identity instead, so no credential is handed to this app.',
+    sshKeyPickHint: 'Pick one of the private keys you saved under SSH keys.',
+    keyNameFieldHint: 'How you will recognise this key — it is the name you pick from when creating a host.',
+    passphraseAddHint: 'Only if the key is passphrase-protected. Stored encrypted alongside the key.',
+    publicKeyFieldHint: 'Not needed to connect. It just makes the key easier to recognise in the list.',
+    sshKeyManagerNote: 'Private keys stay encrypted on this server. They are never sent to a remote host — this server always makes the connection for you.',
     windowsUnsupported: 'This host looks like Windows — persistent sessions, file paste and itl all assume a POSIX shell. Registering the SSH server inside WSL works as usual.',
     windowsUnsupportedShort: 'Windows host — not supported',
 

@@ -18,6 +18,7 @@ import { fetchPaneCwdHints } from '../../utils/paneSessions';
 import { apiFetch } from '../../utils/apiFetch';
 import { authHeaders } from '../../utils/auth';
 import { useDismissOnOutside } from '../../hooks/useDismissOnOutside';
+import { sentenceLines, KEEP_WORDS_TOGETHER } from '../../utils/sentenceLines';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 
@@ -132,12 +133,22 @@ const MenuBtn = ({ icon: Icon, onClick, children, hint = null, danger = false, d
       {hint ? (
         <span style={{ display: 'flex', flexDirection: 'column', gap: '1px', minWidth: 0 }}>
           <span>{children}</span>
-          <span style={{
-            fontSize: '10px',
-            lineHeight: 1.4,
-            color: ui?.subtext || color.subtext,
-            whiteSpace: 'normal',
-          }}>{hint}</span>
+          {/* One line per sentence. Korean has no spaces to wrap on, so a hint left to
+              the browser snaps mid-word ("실행 중" / "인 작업은") — the sentence is the
+              break the reader already expects, and keep-all covers what still wraps. */}
+          {sentenceLines(hint).map((line) => (
+            <span
+              key={line}
+              style={{
+                fontSize: '10px',
+                lineHeight: 1.4,
+                color: ui?.subtext || color.subtext,
+                ...KEEP_WORDS_TOGETHER,
+              }}
+            >
+              {line}
+            </span>
+          ))}
         </span>
       ) : children}
     </button>

@@ -54,7 +54,7 @@ const S = {
     color: color.subtext, background: `color-mix(in srgb, ${color.text} 7%, transparent)`,
     border: `1px solid ${color.border}`, boxSizing: 'border-box',
   },
-  text: { fontSize: fontSize['11'], lineHeight: 1.55, color: color.subtext },
+  text: { fontSize: fontSize['11'], lineHeight: 1.55, color: color.subtext, wordBreak: 'keep-all', overflowWrap: 'anywhere' },
 };
 
 export default memo(FirstRunGuide);

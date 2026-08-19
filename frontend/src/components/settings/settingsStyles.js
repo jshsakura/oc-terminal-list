@@ -336,6 +336,9 @@ export const styles = {
     fontSize: fontSize['11'],
     color: color.muted,
     marginTop: space['0.5'],
+    // Korean has no spaces to wrap on — without this a hint breaks mid-word.
+    wordBreak: 'keep-all',
+    overflowWrap: 'anywhere',
   },
   slider: {
     width: '100%',
