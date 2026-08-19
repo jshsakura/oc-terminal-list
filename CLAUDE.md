@@ -483,6 +483,12 @@ pane 은 아예 안 붙고(`skipInitialConnect`), 안 보이는 pane 의 소켓�
   갈린다(원격 itl 설치와 같은 이유).
 - `/proc` 이 없는 호스트(macOS·BSD)는 machine 이 **None** 이다. 0% 로 그리면 측정한 것처럼
   보인다 — 못 닿은 호스트도 마찬가지로 수치를 아예 안 그린다.
+- **세션별 메모리**는 pane 의 pid 가 아니라 **그 아래 프로세스 트리 전체**의 RSS 합이다
+  (pane pid 는 셸이고, 무거운 것은 그 셸이 띄운 에이전트·빌드다). 트리를 셸에서 도는 대신
+  `ps -eo pid=,ppid=,rss=` 한 장을 받아 **백엔드가 합친다**(`itl_remote.sum_tree_rss`) —
+  로컬도 같은 함수를 쓰므로 두 경로가 숫자의 의미를 두고 어긋날 수 없다. RSS 는 공유
+  페이지를 겹쳐 세므로 "어느 세션이 무거운가" 에 답하는 값이지 "지우면 얼마가 도나" 가
+  아니다(PSS 는 대개 root 가 필요하다). `ps` 가 없으면 **0 이 아니라 없음**이다.
 - ⚠️ `system_monitor` 와 `tmux_manager` 는 **싱글턴을 export** 한다. 모듈을 import 해서
   `system_monitor.get_stats` 를 부르면 AttributeError 가 나고, 이 라우트는 그것을 "수치를 못
   구했다" 로 삼킨다 — 화면에 로컬 수치만 통째로 비어 나오고 에러는 어디에도 없다.

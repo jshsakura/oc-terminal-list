@@ -30,6 +30,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+async def _local_rss() -> dict[str, int]:
+    """Per-session resident memory for this machine, the same way remote hosts report it.
+
+    One `ps` for the whole table plus tmux's pane pids — the arithmetic is shared with the
+    remote path (`itl_remote.sum_tree_rss`) so the two can never disagree about what the
+    number means.
+    """
+    try:
+        rc, out, _ = await tmux_manager._run(
+            "list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}", check=False,
+        )
+        if rc != 0 or not out:
+            return {}
+        proc = await asyncio.create_subprocess_exec(
+            "ps", "-eo", "pid=,ppid=,rss=",
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+        return itl_remote.sum_tree_rss(
+            stdout.decode("utf-8", errors="replace"), itl_remote.parse_pane_pids(out),
+        )
+    except Exception as e:
+        logger.info("local per-session memory unavailable: %s", e)
+        return {}
+
+
 def _local_machine(stats: dict, pane_count: int) -> dict:
     """This server's own figures, in the same shape a remote host reports."""
     return {
@@ -86,6 +112,7 @@ def apply_snapshot(target: dict, snapshot: dict) -> dict:
         "title": display_title(title),
         "status": detect_status(title),
         "startedAt": started,
+        "memBytes": (snapshot.get("rss") or {}).get(name),
     }
 
 
@@ -98,6 +125,7 @@ async def get_fleet(username: str = Depends(verify_auth_token)):
         local_started = {s.name: s.created for s in await tmux_manager.list_sessions()}
     except Exception as e:
         logger.info("local session times unavailable: %s", e)
+    local_rss = await _local_rss()
 
     host_ids = sorted({t["hostId"] for t in targets if not t.get("sessionId") and t.get("hostId")})
     snapshots = dict(zip(
@@ -109,7 +137,11 @@ async def get_fleet(username: str = Depends(verify_auth_token)):
     filled: list[dict] = []
     for target in targets:
         if target.get("sessionId"):
-            filled.append({**target, "startedAt": local_started.get(target["sessionId"])})
+            filled.append({
+                **target,
+                "startedAt": local_started.get(target["sessionId"]),
+                "memBytes": local_rss.get(target["sessionId"]),
+            })
             continue
         if not target.get("hostId"):
             filled.append(target)

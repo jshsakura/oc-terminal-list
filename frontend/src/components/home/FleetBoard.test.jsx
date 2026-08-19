@@ -93,6 +93,31 @@ describe('FleetBoard', () => {
     expect(screen.getByText(ko.fleetStale)).toBeTruthy();
   });
 
+  /* 이 화면은 첫 조회가 **호스트당 SSH 한 번**이라 몇 초가 걸린다. 그동안 빈 페이지를
+     두면 "아무것도 안 돌고 있다" 로 읽히는데, 그건 이 화면이 곧 할 말의 정반대다. */
+  it('첫 조회 동안에는 뼈대를 세운다 — 빈 화면은 거짓말을 한다', () => {
+    const { container } = render(<FleetBoard targets={[]} machines={[]} loading t={t} />);
+    expect(container.querySelector('[aria-busy="true"]')).toBeTruthy();
+    expect(screen.queryByText(ko.fleetEmpty)).toBeNull();
+  });
+
+  it('갱신 중에는 뼈대로 되돌아가지 않는다 — 읽고 있는 화면을 비우면 안 된다', () => {
+    render(<FleetBoard targets={[target({ title: '읽는 중' })]} loading t={t} />);
+    expect(screen.getByText('읽는 중')).toBeTruthy();
+  });
+
+  it('정말로 아무것도 없을 때만 빈 상태를 말한다', () => {
+    render(<FleetBoard targets={[]} machines={[]} loading={false} t={t} />);
+    expect(screen.getByText(ko.fleetEmpty)).toBeTruthy();
+  });
+
+  it('세션이 쥔 메모리를 보여주고, 못 쟀으면 아무 말도 안 한다', () => {
+    const { rerender } = render(<FleetBoard targets={[target({ memBytes: 1.5 * 1024 ** 3 })]} t={t} />);
+    expect(screen.getByText('1.5G')).toBeTruthy();
+    rerender(<FleetBoard targets={[target({ memBytes: null })]} t={t} />);
+    expect(screen.queryByText(/^0[GM]$/)).toBeNull();
+  });
+
   it('빈 상태도 말을 한다', () => {
     render(<FleetBoard targets={[]} t={t} />);
     expect(screen.getByText(ko.fleetEmpty)).toBeTruthy();

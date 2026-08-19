@@ -83,3 +83,28 @@ def test_the_route_holds_the_singletons_not_the_modules():
     from routes import fleet
     assert callable(getattr(fleet.system_monitor, "get_stats", None))
     assert callable(getattr(fleet.tmux_manager, "list_sessions", None))
+
+
+def test_session_memory_sums_the_whole_tree():
+    """pane 의 pid 는 셸이다. 재는 값어치가 있는 것은 그 셸이 띄운 것들이다."""
+    from itl_remote import parse_pane_pids, sum_tree_rss
+    ps = "1 0 1000\n100 1 2000\n200 100 500000\n300 200 250000\n900 1 999999\n"
+    pane_pids = parse_pane_pids("s1\t100\ns2\t900")
+    totals = sum_tree_rss(ps, pane_pids)
+    assert totals["s1"] == (2000 + 500000 + 250000) * 1024   # 셸 + 자식 + 손자
+    assert totals["s2"] == 999999 * 1024
+    # 남의 트리가 섞이지 않는다.
+    assert totals["s1"] != totals["s2"]
+
+
+def test_a_cyclic_process_table_cannot_hang_us():
+    """망가진 표(ppid 가 서로를 가리킴)에 걸려 무한 루프에 빠지면 안 된다."""
+    from itl_remote import sum_tree_rss
+    ps = "10 11 100\n11 10 100\n"
+    assert sum_tree_rss(ps, {"s1": [10]})["s1"] == 200 * 1024
+
+
+def test_no_ps_output_reports_nothing_rather_than_zero():
+    """`ps` 가 없는 호스트는 '0바이트' 가 아니라 '모름' 이다 — 화면이 칸을 비운다."""
+    from itl_remote import sum_tree_rss
+    assert sum_tree_rss("", {"s1": [1]}) == {}

@@ -164,6 +164,7 @@ _LIST_FORMAT = "#{session_name}\t#{pane_current_command}\t#{pane_title}"
 # asking for uptime separately would double the cost of drawing the board.
 SNAPSHOT_MARK = "ITL_SECTION"
 _SESSION_FORMAT = "#{session_name}\t#{session_created}"
+_PANE_PID_FORMAT = "#{session_name}\t#{pane_pid}"
 
 
 def build_list_status_cmd() -> str:
@@ -185,6 +186,13 @@ def build_snapshot_cmd() -> str:
         "cat /proc/uptime 2>/dev/null",
         "grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo 2>/dev/null",
         "nproc 2>/dev/null | sed 's/^/CPUS /'",
+        f"echo {_sq(SNAPSHOT_MARK)}",
+        f"tmux list-panes -a -F {_sq(_PANE_PID_FORMAT)} 2>/dev/null",
+        f"echo {_sq(SNAPSHOT_MARK)}",
+        # The whole process table, summed **here** rather than there. Walking a process
+        # tree in POSIX shell is a loop of forks per pane; `ps` is one page of text that
+        # every unix has, and the arithmetic is free on this side.
+        "ps -eo pid=,ppid=,rss= 2>/dev/null",
     ])
 
 
@@ -208,11 +216,68 @@ def parse_snapshot(out: str | None) -> dict:
         if name.strip() and epoch.strip().isdigit():
             started[name.strip()] = int(epoch.strip())
 
+    pane_pids = parse_pane_pids(parts[3]) if len(parts) > 3 else {}
+    rss = sum_tree_rss(parts[4], pane_pids) if len(parts) > 4 else {}
+
     return {
         "sessions": parse_list_status(panes),
         "started": started,
         "machine": parse_machine(machine),
+        "rss": rss,
     }
+
+
+def parse_pane_pids(text: str | None) -> dict[str, list[int]]:
+    """`session_name → [pane pid, …]`. A session can hold several panes."""
+    result: dict[str, list[int]] = {}
+    for line in (text or "").splitlines():
+        name, _, pid = line.partition("\t")
+        name, pid = name.strip(), pid.strip()
+        if name and pid.isdigit():
+            result.setdefault(name, []).append(int(pid))
+    return result
+
+
+def sum_tree_rss(ps_text: str | None, pane_pids: dict[str, list[int]]) -> dict[str, int]:
+    """Resident memory of everything running under each session, in bytes.
+
+    The pane's own pid is a shell; the thing worth measuring is what it started (an agent,
+    a build, a dev server), so this walks children rather than reading one process.
+
+    RSS double-counts shared pages, so a tree's total reads high — it answers "which
+    session is the heavy one", not "how much would I get back". That is the question this
+    list is for, and the alternative (PSS) needs root on most kernels.
+    """
+    children: dict[int, list[int]] = {}
+    rss: dict[int, int] = {}
+    for line in (ps_text or "").splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        pid, ppid, kb = parts[0], parts[1], parts[2]
+        if not (pid.isdigit() and ppid.isdigit() and kb.isdigit()):
+            continue
+        rss[int(pid)] = int(kb) * 1024
+        children.setdefault(int(ppid), []).append(int(pid))
+
+    if not rss:
+        return {}
+
+    totals: dict[str, int] = {}
+    for name, pids in pane_pids.items():
+        seen: set[int] = set()
+        stack = list(pids)
+        total = 0
+        while stack:
+            pid = stack.pop()
+            if pid in seen:
+                continue          # a malformed table must not spin forever
+            seen.add(pid)
+            total += rss.get(pid, 0)
+            stack.extend(children.get(pid, ()))
+        if total:
+            totals[name] = total
+    return totals
 
 
 def parse_machine(text: str | None) -> dict | None:
