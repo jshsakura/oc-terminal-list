@@ -10,7 +10,7 @@ describe('fleetStore', () => {
   afterEach(() => vi.useRealTimers());
 
   const make = (targets = [{ address: '1.1' }]) => {
-    const fetcher = vi.fn().mockResolvedValue(targets);
+    const fetcher = vi.fn().mockResolvedValue({ targets, machines: [] });
     return { fetcher, store: createFleetStore({ fetcher, isHidden: () => false, pollMs: 1000 }) };
   };
 
@@ -28,7 +28,7 @@ describe('fleetStore', () => {
   });
 
   it('아무도 안 보면 아예 나가지 않는다', async () => {
-    const fetcher = vi.fn().mockResolvedValue([]);
+    const fetcher = vi.fn().mockResolvedValue({ targets: [], machines: [] });
     const store = createFleetStore({ fetcher, isHidden: () => true, pollMs: 1000 });
     const off = store.subscribe(() => {});
     await vi.advanceTimersByTimeAsync(5000);
@@ -50,7 +50,7 @@ describe('fleetStore', () => {
 
   it('실패해도 직전 그림을 지우지 않는다 — 빈 판은 "전부 멈췄다" 로 읽힌다', async () => {
     const fetcher = vi.fn()
-      .mockResolvedValueOnce([{ address: '1.1' }])
+      .mockResolvedValueOnce({ targets: [{ address: '1.1' }], machines: [] })
       .mockRejectedValueOnce(new Error('boom'));
     const store = createFleetStore({ fetcher, isHidden: () => false, pollMs: 1000 });
     const seen = [];
@@ -64,7 +64,7 @@ describe('fleetStore', () => {
 
   it('동시에 여러 번 불러도 한 번만 나간다', async () => {
     let resolve;
-    const fetcher = vi.fn(() => new Promise((r) => { resolve = () => r([]); }));
+    const fetcher = vi.fn(() => new Promise((r) => { resolve = () => r({ targets: [], machines: [] }); }));
     const store = createFleetStore({ fetcher, isHidden: () => false, pollMs: 1000 });
     store.refresh(); store.refresh(); store.refresh();
     expect(fetcher).toHaveBeenCalledTimes(1);

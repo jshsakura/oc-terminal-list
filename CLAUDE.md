@@ -471,6 +471,23 @@ pane 은 아예 안 붙고(`skipInitialConnect`), 안 보이는 pane 의 소켓�
 **일반화: 비밀이 빠진 행을 접속 경로에 넘기면, 그 실패는 "자격이 없다" 처럼 보인다.**
 새 엔드포인트가 호스트에 붙는다면 그 행이 어디서 왔는지부터 확인할 것.
 
+### 실행 중 보드 — 한 화면, 호스트당 왕복 하나 (2026-08-19)
+
+`GET /api/fleet`(`routes/fleet.py`)가 **한 번의 SSH 방문**으로 pane 상태 + 각 세션이 언제
+시작됐는지 + 그 기계의 램·가동시간을 같이 걷어온다(`itl_remote.build_snapshot_cmd`).
+화면 하나에 SSH 를 세 번 걸면 호스트 수만큼 곱해진다 — 이 저장소가 계속 줄여 온 쪽이다.
+
+- 출력은 마커(`ITL_SECTION`)로 세 구획이다. ⚠️ `parse_list_status` 는 마커에서 **멈춰야**
+  한다. 안 그러면 `MemTotal:` 줄이 세션 이름으로 들어온다.
+- 압축·인코딩·추출은 **원격 python3** 가 한다. `base64 -d` 는 macOS 에서 `-D` 고 tar 플래그도
+  갈린다(원격 itl 설치와 같은 이유).
+- `/proc` 이 없는 호스트(macOS·BSD)는 machine 이 **None** 이다. 0% 로 그리면 측정한 것처럼
+  보인다 — 못 닿은 호스트도 마찬가지로 수치를 아예 안 그린다.
+- ⚠️ `system_monitor` 와 `tmux_manager` 는 **싱글턴을 export** 한다. 모듈을 import 해서
+  `system_monitor.get_stats` 를 부르면 AttributeError 가 나고, 이 라우트는 그것을 "수치를 못
+  구했다" 로 삼킨다 — 화면에 로컬 수치만 통째로 비어 나오고 에러는 어디에도 없다.
+  실제로 그렇게 한 번 배포됐다. `test_fleet_snapshot.py` 가 그 이름들을 잡는다.
+
 ### 상태판 — 모른다고 적는 것이 기능이다 (2026-08-19)
 
 홈의 "지금 돌고 있는 것"(`components/home/FleetBoard.jsx` + `utils/fleetStore.js`)은

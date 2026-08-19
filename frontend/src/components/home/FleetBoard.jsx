@@ -1,6 +1,7 @@
 import { memo } from 'react';
-import { RefreshCw, Server, Monitor, CircleHelp } from 'lucide-react';
+import { RefreshCw, CircleHelp } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
+import MachineCard from './MachineCard';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -40,6 +41,51 @@ export const sortForBoard = (targets) => [...targets].sort((a, b) => {
   return a.paneIndex - b.paneIndex;
 });
 
+
+/** 상태별 색 — 화면 여러 곳이 같은 판정을 쓰도록 한 곳에 둔다. */
+export const stateColor = (state) => {
+  if (state === 'permission') return color.warning || color.text;
+  if (state === 'working') return color.success || color.accent;
+  return color.faint;
+};
+
+const stateLabel = (state, label) => {
+  if (state === 'unknown') return label('fleetUnknown', 'unknown');
+  if (state === 'gone') return label('fleetGone', 'gone');
+  return label(STATUS_STYLE[state]?.key, STATUS_STYLE[state]?.fallback || state);
+};
+
+/** 상태 타일의 바탕 — 일하는 중일 때만 색을 띤다. 전부 칠하면 아무것도 안 도드라진다. */
+const toneTile = (state) => {
+  if (state === 'working' || state === 'permission') {
+    const tone = stateColor(state);
+    return { background: `color-mix(in srgb, ${tone} 14%, transparent)`, borderColor: `color-mix(in srgb, ${tone} 28%, transparent)` };
+  }
+  return {};
+};
+
+/**
+ * "3일째" / "5시간" — 세션이 언제 시작됐는지. 며칠 돌고 있는 작업인지가 목록에서 가장
+ * 먼저 눈에 들어와야 하는 정보 중 하나다.
+ */
+export const formatAge = (startedAt, t) => {
+  if (!startedAt) return null;
+  const seconds = Math.floor(Date.now() / 1000) - Number(startedAt);
+  if (!Number.isFinite(seconds) || seconds < 60) return null;
+  const days = Math.floor(seconds / 86400);
+  if (days >= 1) return `${days}${t?.('unitDay') || 'd'}`;
+  const hours = Math.floor(seconds / 3600);
+  if (hours >= 1) return `${hours}${t?.('unitHour') || 'h'}`;
+  return `${Math.floor(seconds / 60)}${t?.('unitMinute') || 'm'}`;
+};
+
+/** 경로는 꼬리만 — 목록에서 의미를 나르는 것은 마지막 두 칸이다. */
+export const shortPath = (cwd) => {
+  const parts = String(cwd || '').split('/').filter(Boolean);
+  if (parts.length === 0) return '';
+  return parts.slice(-2).join('/');
+};
+
 const Dot = ({ state }) => {
   if (state === 'unknown' || state === 'gone') {
     return <CircleHelp size={11} strokeWidth={2.2} style={{ color: color.faint, flexShrink: 0 }} />;
@@ -59,6 +105,7 @@ const Dot = ({ state }) => {
 
 const FleetBoard = ({
   targets = [],
+  machines = [],
   hosts = [],
   loading = false,
   error = null,
@@ -72,10 +119,26 @@ const FleetBoard = ({
 
   return (
     <div style={S.wrap}>
-      {/* No title: this board owns its own tab, and the tab label already names it.
-          Printing the name again above the first row was the first thing anyone
-          noticed about the screen. */}
+      {/* Machines first. "What is running" is the list below; "can that box take it" is
+          the question you ask right after, and both ride the same round trip. */}
+      {machines.length > 0 && (
+        <div style={S.machines}>
+          {machines.map((machine) => (
+            <MachineCard
+              key={machine.id}
+              machine={machine}
+              isLocal={machine.id === 'local'}
+              name={machine.id === 'local' ? label('thisMachine', 'This machine') : hostName(machine.id)}
+              t={t}
+            />
+          ))}
+        </div>
+      )}
+
       <div style={S.head}>
+        {/* The bare number read as a stray digit above the list — it needs to say what it
+            counts. The tab label names the screen; this names the list. */}
+        <span style={S.countLabel}>{label('fleetPanes', 'panes')}</span>
         <span style={S.count}>{rows.length}</span>
         {onRefresh && (
           <button
@@ -97,32 +160,35 @@ const FleetBoard = ({
           {rows.map((target) => {
             const state = statusOf(target);
             const remote = target.kind === 'host';
+            const age = formatAge(target.startedAt, t);
             return (
               <button
                 type="button"
                 key={`${target.tabIndex}.${target.paneIndex}`}
                 style={S.row}
                 onClick={() => onOpen?.(target)}
-                className="iterm-menu-item"
+                onMouseEnter={(e) => { e.currentTarget.style.background = S.rowHover; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
               >
-                <Dot state={state} />
+                <span style={{ ...S.stateTile, ...toneTile(state) }}><Dot state={state} /></span>
+
                 <span style={S.addr}>{target.addr}</span>
-                <span style={S.machine}>
-                  {remote ? <Server size={10} strokeWidth={2} /> : <Monitor size={10} strokeWidth={2} />}
-                  <span style={S.machineName}>{remote ? hostName(target.hostId) : label('thisMachine', 'local')}</span>
-                </span>
-                <span style={S.what}>
+
+                <span style={S.main}>
                   {/* The pane title is what an agent writes about its own work, so it
                       beats the process name when both exist. */}
-                  {target.title || target.command || target.tabName || '—'}
+                  <span style={S.title}>{target.title || target.command || target.tabName || '—'}</span>
+                  <span style={S.sub}>
+                    <span style={S.machineName}>
+                      {remote ? hostName(target.hostId) : label('thisMachine', 'local')}
+                    </span>
+                    {target.cwd && <span style={S.path}>{shortPath(target.cwd)}</span>}
+                    {target.command && target.title && <span style={S.cmd}>{target.command}</span>}
+                  </span>
                 </span>
-                <span style={{ ...S.state, color: state === 'permission' ? (color.warning || color.text) : color.faint }}>
-                  {state === 'unknown'
-                    ? label('fleetUnknown', 'unknown')
-                    : state === 'gone'
-                      ? label('fleetGone', 'gone')
-                      : label(STATUS_STYLE[state]?.key, STATUS_STYLE[state]?.fallback || state)}
-                </span>
+
+                {age && <span style={S.age}>{age}</span>}
+                <span style={{ ...S.state, color: stateColor(state) }}>{stateLabel(state, label)}</span>
               </button>
             );
           })}
@@ -136,11 +202,17 @@ const FleetBoard = ({
 };
 
 const S = {
-  wrap: { display: 'flex', flexDirection: 'column', gap: space['2'] },
+  wrap: { display: 'flex', flexDirection: 'column', gap: space['3'] },
+  /* Machines wrap into a responsive row — one card per box, never a fixed column count,
+     because a fleet is two machines for one person and eight for another. */
+  machines: {
+    display: 'grid',
+    gap: space['2'],
+    gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))',
+  },
   head: { display: 'flex', alignItems: 'center', gap: space['2'] },
-  title: {
-    fontSize: fontSize['11'], fontWeight: fontWeight.medium, color: color.muted,
-    letterSpacing: '0.04em', textTransform: 'uppercase',
+  countLabel: {
+    fontSize: fontSize['11'], color: color.muted, letterSpacing: '0.04em', textTransform: 'uppercase',
   },
   count: { fontSize: fontSize['11'], color: color.faint, fontFamily: font.mono },
   refresh: {
@@ -149,27 +221,49 @@ const S = {
     background: 'transparent', border: 'none', borderRadius: radius.sm,
     color: color.subtext, cursor: 'pointer',
   },
-  // `dc-spin` is the app-wide keyframe (main.jsx). `iterm-spin` lives inside
-  // InfoPanel's local <style> and is not defined when this renders.
+  // `dc-spin` is the app-wide keyframe (main.jsx).
   spinning: { animation: 'dc-spin 900ms linear infinite' },
-  list: { display: 'flex', flexDirection: 'column', gap: '2px' },
+  list: { display: 'flex', flexDirection: 'column', gap: '1px' },
+  /* A row is a **line**, not a card: a dozen bordered boxes stacked is a wall, and this
+     list is read by scanning down one column of titles. The tile on the left and the
+     hover ground give it enough shape without carving each row out of the page. */
   row: {
-    display: 'flex', alignItems: 'center', gap: '8px',
-    width: '100%', minHeight: '30px', padding: '4px 8px',
-    background: 'transparent', border: 'none', borderRadius: radius.sm,
+    display: 'flex', alignItems: 'center', gap: '10px',
+    width: '100%', minHeight: '44px', padding: '6px 10px',
+    background: 'transparent', border: 'none', borderRadius: radius.md,
     color: color.text, textAlign: 'left', cursor: 'pointer', font: 'inherit',
+    transition: 'background 120ms',
   },
-  addr: { fontFamily: font.mono, fontSize: fontSize['11'], color: color.subtext, flexShrink: 0, minWidth: '26px' },
-  machine: { display: 'inline-flex', alignItems: 'center', gap: '3px', color: color.faint, flexShrink: 0 },
-  machineName: {
-    fontSize: fontSize['11'], maxWidth: '84px',
+  rowHover: `color-mix(in srgb, ${color.text} 5%, transparent)`,
+  stateTile: {
+    width: '24px', height: '24px', flexShrink: 0,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    borderRadius: '6px', boxSizing: 'border-box',
+    background: `color-mix(in srgb, ${color.text} 6%, transparent)`,
+    border: `1px solid ${color.border}`,
+  },
+  addr: {
+    fontFamily: font.mono, fontSize: '10.5px', color: color.subtext, flexShrink: 0,
+    minWidth: '30px', padding: '2px 5px', borderRadius: '4px', textAlign: 'center',
+    background: `color-mix(in srgb, ${color.text} 5%, transparent)`,
+  },
+  main: { flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '1px' },
+  title: {
+    fontSize: fontSize['12'], color: color.text, fontWeight: fontWeight.medium,
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
-  what: {
-    flex: 1, minWidth: 0, fontSize: fontSize['11'], color: color.text,
+  sub: {
+    display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0,
+    fontSize: '10px', color: color.faint,
+  },
+  machineName: { flexShrink: 0, maxWidth: '96px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  path: {
+    fontFamily: font.mono, minWidth: 0,
     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   },
-  state: { fontSize: '10px', flexShrink: 0, whiteSpace: 'nowrap' },
+  cmd: { fontFamily: font.mono, flexShrink: 0, opacity: 0.75 },
+  age: { fontFamily: font.mono, fontSize: '10px', color: color.faint, flexShrink: 0 },
+  state: { fontSize: '10px', flexShrink: 0, whiteSpace: 'nowrap', minWidth: '38px', textAlign: 'right' },
   empty: { fontSize: fontSize['11'], color: color.faint, padding: `${space['2']} 0` },
   error: { fontSize: '10px', color: color.faint },
 };

@@ -202,6 +202,7 @@ const HomeDashboard = ({
              it twice was the first thing anyone noticed about this screen. */
           <FleetBoard
             targets={fleet.targets}
+            machines={fleet.machines}
             hosts={hosts}
             loading={fleet.loading}
             error={fleet.error}

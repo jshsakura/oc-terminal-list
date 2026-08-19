@@ -159,8 +159,102 @@ def parse_probe(out: str | None) -> PaneProbe | None:
 _LIST_FORMAT = "#{session_name}\t#{pane_current_command}\t#{pane_title}"
 
 
+# Sections of one round trip, separated by a marker line. A host visit is the expensive
+# unit here (an SSH connection), so everything this screen needs travels together —
+# asking for uptime separately would double the cost of drawing the board.
+SNAPSHOT_MARK = "ITL_SECTION"
+_SESSION_FORMAT = "#{session_name}\t#{session_created}"
+
+
 def build_list_status_cmd() -> str:
     return f"tmux list-panes -a -F {_sq(_LIST_FORMAT)} 2>/dev/null"
+
+
+def build_snapshot_cmd() -> str:
+    """Pane status + when each session started + how the machine itself is doing.
+
+    Everything after the tmux part is best-effort: a host without /proc (macOS, BSD)
+    simply reports nothing there, and the board draws the pane rows without machine
+    figures rather than showing zeroes that look like real measurements.
+    """
+    return "; ".join([
+        f"tmux list-panes -a -F {_sq(_LIST_FORMAT)} 2>/dev/null",
+        f"echo {_sq(SNAPSHOT_MARK)}",
+        f"tmux list-sessions -F {_sq(_SESSION_FORMAT)} 2>/dev/null",
+        f"echo {_sq(SNAPSHOT_MARK)}",
+        "cat /proc/uptime 2>/dev/null",
+        "grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo 2>/dev/null",
+        "nproc 2>/dev/null | sed 's/^/CPUS /'",
+    ])
+
+
+def parse_snapshot(out: str | None) -> dict:
+    """The three sections above → `{sessions, started, machine}`.
+
+    `machine` is None when the host told us nothing about itself — that is different from
+    a machine reporting 0% and has to stay different all the way to the screen.
+    """
+    text = out or ""
+    parts = text.split(f"\n{SNAPSHOT_MARK}\n")
+    if len(parts) < 3:
+        # Marker missing (older host command, or the shell died mid-way) — treat the whole
+        # output as the pane listing rather than losing it.
+        return {"sessions": parse_list_status(text), "started": {}, "machine": None}
+    panes, sessions, machine = parts[0], parts[1], parts[2]
+
+    started: dict[str, int] = {}
+    for line in sessions.splitlines():
+        name, _, epoch = line.partition("\t")
+        if name.strip() and epoch.strip().isdigit():
+            started[name.strip()] = int(epoch.strip())
+
+    return {
+        "sessions": parse_list_status(panes),
+        "started": started,
+        "machine": parse_machine(machine),
+    }
+
+
+def parse_machine(text: str | None) -> dict | None:
+    """`/proc/uptime` + a few `/proc/meminfo` lines → the figures the board draws."""
+    uptime: float | None = None
+    mem: dict[str, int] = {}
+    cpus: int | None = None
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("CPUS "):
+            value = line[5:].strip()
+            cpus = int(value) if value.isdigit() else None
+            continue
+        if ":" in line:
+            key, _, rest = line.partition(":")
+            value = rest.strip().split()
+            if value and value[0].isdigit():
+                mem[key.strip()] = int(value[0]) * 1024      # kB → bytes
+            continue
+        first = line.split()[0]
+        try:
+            uptime = float(first)
+        except ValueError:
+            continue
+
+    total = mem.get("MemTotal")
+    available = mem.get("MemAvailable")
+    if uptime is None and total is None:
+        return None
+    machine: dict = {"uptime_seconds": uptime, "cpus": cpus}
+    if total:
+        machine["mem_total"] = total
+        if available is not None:
+            machine["mem_used"] = max(0, total - available)
+    swap_total, swap_free = mem.get("SwapTotal"), mem.get("SwapFree")
+    if swap_total:
+        machine["swap_total"] = swap_total
+        if swap_free is not None:
+            machine["swap_used"] = max(0, swap_total - swap_free)
+    return machine
 
 
 def parse_list_status(out: str | None) -> dict[str, tuple[str, str]]:
@@ -171,6 +265,8 @@ def parse_list_status(out: str | None) -> dict[str, tuple[str, str]]:
     """
     result: dict[str, tuple[str, str]] = {}
     for line in (out or "").splitlines():
+        if line.strip() == SNAPSHOT_MARK:
+            break              # everything after belongs to the other sections
         parts = line.rstrip("\n").split("\t")
         if len(parts) < 2 or not parts[0].strip():
             continue
@@ -272,6 +368,25 @@ def build_capture_cmd(tmux_session: str, lines: int) -> str:
 async def capture_pane(channel: RemoteChannel, tmux_session: str, lines: int) -> str:
     """원격 pane 화면. 읽기가 원격에서 막혀 있으면 "보냈는데 뭐 하고 있나" 를 볼 길이 없다."""
     return await channel.run(build_capture_cmd(tmux_session, lines))
+
+
+async def host_snapshot(host_id: str, username: str) -> dict:
+    """Everything the fleet board needs from one host, in one SSH round trip.
+
+    Unreachable is reported as `reachable: False` rather than as an empty machine — a box
+    we could not ask is not a box with no work on it, and the board has to be able to say
+    which it is (the same rule that keeps a remote pane's status "unknown" instead of
+    "idle").
+    """
+    try:
+        async with await asyncio.wait_for(
+            open_channel(host_id, username), timeout=REMOTE_CONNECT_TIMEOUT
+        ) as channel:
+            parsed = parse_snapshot(await channel.run(build_snapshot_cmd()))
+            return {**parsed, "reachable": True}
+    except Exception as e:
+        logger.info("host snapshot failed (host=%s): %s", host_id, e)
+        return {"sessions": {}, "started": {}, "machine": None, "reachable": False}
 
 
 async def list_pane_status(host_id: str, username: str) -> dict[str, tuple[str, str]]:

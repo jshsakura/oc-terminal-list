@@ -561,6 +561,9 @@ export const ko = {
     // 원격 pane 의 상태는 백엔드 워처가 볼 수 없어 물어봐야 안다. 못 물어본 것은
     // '유휴' 가 아니라 '모름' 이다 — 둘을 같게 적으면 화면이 조용히 거짓말을 한다.
     fleetTitle: '지금 돌고 있는 것',
+    fleetPanes: '패널',
+    fleetUptime: '가동',
+    fleetUnreachable: '못 닿음',
     processesTab: '실행 중',
     guideTitle: '처음이라면',
     guideStep1: '아래에서 서버를 등록합니다. 키와 비밀번호는 암호화해 보관하고 화면에 다시 보여주지 않습니다.',

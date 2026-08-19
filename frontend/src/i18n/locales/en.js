@@ -559,6 +559,9 @@ export const en = {
     // for. A host we could not reach is **unknown**, never idle — writing those the same
     // way is how a board starts lying quietly.
     fleetTitle: 'Running now',
+    fleetPanes: 'panes',
+    fleetUptime: 'up',
+    fleetUnreachable: 'unreachable',
     processesTab: 'Running',
     guideTitle: 'Getting started',
     guideStep1: 'Add a server below. Keys and passwords are stored encrypted and never shown again.',

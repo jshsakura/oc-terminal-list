@@ -24,13 +24,18 @@ export const FLEET_FRESH_MS = 5000;
 // Remote status costs SSH, so give it more room than the app's 15s default.
 export const FLEET_TIMEOUT_MS = 25000;
 
-export const FLEET_URL = '/api/itl/targets?remote_status=1';
+// One sweep for the whole screen: pane statuses, when each session started, and each
+// machine's own figures — all from a single SSH visit per host (routes/fleet.py).
+export const FLEET_URL = '/api/fleet';
 
 const defaultFetcher = async () => {
   const res = await apiFetch(FLEET_URL, { headers: authHeaders(), timeoutMs: FLEET_TIMEOUT_MS });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = await res.json();
-  return Array.isArray(body?.targets) ? body.targets : [];
+  return {
+    targets: Array.isArray(body?.targets) ? body.targets : [],
+    machines: Array.isArray(body?.machines) ? body.machines : [],
+  };
 };
 
 /** Factory so tests get an isolated store; the module singleton below is the app's. */
@@ -41,7 +46,7 @@ export const createFleetStore = ({
   pollMs = FLEET_POLL_MS,
 } = {}) => {
   const subscribers = new Set();
-  let state = { targets: [], error: null, loading: false, ts: 0 };
+  let state = { targets: [], machines: [], error: null, loading: false, ts: 0 };
   let timer = null;
   let inFlight = null;
 
@@ -61,8 +66,8 @@ export const createFleetStore = ({
     set({ loading: true });
     inFlight = (async () => {
       try {
-        const targets = await fetcher();
-        set({ targets, error: null, loading: false, ts: now() });
+        const { targets, machines } = await fetcher();
+        set({ targets, machines, error: null, loading: false, ts: now() });
       } catch (e) {
         // Keep the last good picture. A blank board on one failed poll reads as
         // "everything stopped", which is worse than a slightly stale one.
