@@ -124,6 +124,8 @@ export const ko = {
     // over sessions that outlive the browser. Bury that at section five and the reader
     // never learns why they would pick this.
     helpSecCore: '이 앱이 다른 점',
+    helpFleetTerm: '지금 돌고 있는 것 (홈)',
+    helpFleetDesc: '모든 기계의 터미널이 지금 무엇을 하는지 홈에서 한눈에 봅니다. 손이 필요한 것이 맨 위로 오고, 줄을 누르면 그 화면으로 갑니다.',
     helpCoreRelayTerm: '에이전트끼리 명령을 넘깁니다',
     helpCoreRelayDesc: '한 서버의 에이전트가 다른 서버의 터미널에 명령을 직접 넣습니다. API 키를 나눠 주는 것이 아니라 명령 한 줄을 전달하는 방식이라, 상대가 어떤 도구를 쓰든 그대로 통합니다.',
     helpCoreTmuxTerm: '모든 세션이 tmux 위에서 돕니다',
@@ -539,6 +541,25 @@ export const ko = {
     reconnect: '재연결',
     createAdminAccount: '관리자 계정 만들기',
     refresh: '새로고침',
+    windowsUnsupported: '이 호스트는 Windows 로 보입니다 — 세션 유지(tmux)·파일 붙여넣기·itl 이 모두 POSIX 셸을 전제로 합니다. WSL 안의 SSH 서버로 등록하면 그대로 동작합니다.',
+    windowsUnsupportedShort: 'Windows 호스트 — 지원하지 않음',
+
+    // ── 상태판(홈: 지금 무엇이 돌고 있나) ───────────────────────────────────
+    // 원격 pane 의 상태는 백엔드 워처가 볼 수 없어 물어봐야 안다. 못 물어본 것은
+    // '유휴' 가 아니라 '모름' 이다 — 둘을 같게 적으면 화면이 조용히 거짓말을 한다.
+    fleetTitle: '지금 돌고 있는 것',
+    guideTitle: '처음이라면',
+    guideStep1: '아래에서 서버를 등록합니다. 키와 비밀번호는 암호화해 보관하고 화면에 다시 보여주지 않습니다.',
+    guideStep2: '카드를 누르면 그 서버에서 터미널이 열립니다. 창을 닫아도 작업은 계속 실행됩니다.',
+    guideStep3: '옆 터미널로 일을 넘길 수 있습니다 — itl list 로 주소를 보고 itl send 1.2 "…" 로 보냅니다. 따로 설치할 것은 없습니다.',
+    fleetEmpty: '아직 열린 터미널이 없습니다.',
+    fleetWorking: '작업 중',
+    fleetPermission: '확인 대기',
+    fleetIdle: '대기',
+    fleetUnknown: '모름',
+    fleetGone: '사라짐',
+    fleetStale: '방금은 갱신하지 못했습니다 — 마지막으로 확인된 상태입니다.',
+
     retry: '다시 시도',
     loading: '불러오는 중…',
     folderEmpty: '비어있는 폴더',

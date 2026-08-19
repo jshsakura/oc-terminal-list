@@ -45,7 +45,12 @@ async def _inject_itl_env(host: dict, secrets: dict, tmux_session: str,
         await asyncio.sleep(delay)
         try:
             if await ensure_remote_itl_env(host, secrets, tmux_session, username):
-                await ensure_remote_itl_cli(host, secrets)
+                # Order matters: register the MCP server only after the files it points
+                # at are actually there, or an agent starting up on that host finds an
+                # entry that cannot run and logs a failure the user has to decode.
+                if await ensure_remote_itl_cli(host, secrets):
+                    from agent_mcp import ensure_remote_agent_mcp
+                    await ensure_remote_agent_mcp(host, secrets)
                 return
         except asyncio.CancelledError:
             raise

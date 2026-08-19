@@ -223,12 +223,15 @@ async def test_install_streams_repo_cli_via_stdin():
         sut.run_remote_cmd = orig_run
     assert result["installed"] is True and result["pane_path"] is True
     install_call = next(c for c in calls if "ITL_CLI_INSTALLED" in c["cmd"])
-    # 설치 본문 = 저장소 CLI 원문이 stdin 통로로 흘러간다(argv 미노출).
+    # 설치 본문 = 저장소 원문이 stdin 통로로 흘러간다(argv 미노출).
     assert "터미널끼리 명령을 주고받는다" in install_call["stdin"]
-    # 임시 이름으로 받아 rename — 전송이 끊겨도 반쪽짜리 itl 이 남지 않는다.
-    assert 'cat > "$HOME/.local/bin/.itl.incoming"' in install_call["cmd"]
-    assert 'mv "$HOME/.local/bin/.itl.incoming" "$HOME/.local/bin/itl"' in install_call["cmd"]
-    assert "chmod 700" in install_call["cmd"]
+    # CLI 만이 아니라 MCP 서버까지 한 벌로 간다 — 반쪽만 있는 호스트는 pane 에서
+    # 진단할 수 없는 방식으로 실패한다.
+    import json as _json
+    assert set(_json.loads(install_call["stdin"])) == set(sut.BUNDLE_FILES)
+    # 임시 이름으로 쓰고 rename — 전송이 끊겨도 반쪽짜리 파일이 남지 않는다.
+    assert "os.replace(tmp" in install_call["cmd"]
+    assert "0o700" in install_call["cmd"]
     assert ".bashrc" in install_call["cmd"]
     assert "sudo" not in install_call["cmd"]
 
@@ -300,10 +303,24 @@ async def test_auto_install_failure_is_never_fatal():
 def test_install_command_is_a_no_op_when_the_version_matches():
     """같은 해시면 덮어쓰지 않는다 — 버전 표식이 재설치 폭풍을 막는다."""
     cmd = sut.build_install_cmd("abc123", with_rc=False)
-    assert '"$HOME/.local/bin/.itl.version"' in cmd
+    assert ".itl.version" in cmd
     assert "ITL_CLI_CURRENT" in cmd and "ITL_CLI_INSTALLED" in cmd
     # 항상 stdin 을 읽는다 — 검사 후 설치로 나누면 왕복이 둘이 된다.
-    assert cmd.index("cat > ") < cmd.index("ITL_CLI_CURRENT")
+    assert cmd.index("sys.stdin.read()") < cmd.index("ITL_CLI_CURRENT")
+
+
+def test_version_covers_the_whole_bundle():
+    """MCP 도구만 바뀌어도 호스트가 갱신돼야 한다 — 진입점만 해시하면 안 잡힌다."""
+    import itl_remote_setup as m
+    real = m._bundle_sources
+    m._bundle_sources = lambda: {"itl": "a", "itl_mcp.py": "b", "itl_mcp_tools.py": "c"}
+    try:
+        before = m._cli_hash()
+        m._bundle_sources = lambda: {"itl": "a", "itl_mcp.py": "b", "itl_mcp_tools.py": "CHANGED"}
+        after = m._cli_hash()
+    finally:
+        m._bundle_sources = real
+    assert before != after
 
 
 def test_cli_single_line_collapse():

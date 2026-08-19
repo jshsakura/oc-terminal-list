@@ -416,6 +416,68 @@ pane 은 아예 안 붙고(`skipInitialConnect`), 안 보이는 pane 의 소켓�
 - `origin: false` — 사람이 특정 터미널을 골라 친 명령이다. `[from …]` 꼬리표는 에이전트끼리
   헤매지 않게 하는 장치이고 여기서는 노이즈다.
 
+### 설치 없이 되게 — PATH 는 tmux **서버** 환경에만 있다 (2026-08-19)
+
+`itl` 은 백엔드와 함께 배포되므로 이미 그 기계에 있는데, **아무의 PATH 에도 없었다.**
+저장소 경로를 아는 사람만 `python3 …/backend/cli/itl` 로 쓸 수 있었고, 원격은 호스트
+편집기의 설치 버튼을 찾아 누른 사람만 됐다 — 이 앱의 차별점이 "읽어 본 사람 전용" 이었다.
+
+⚠️ **실측(tmux 3.4): pane 은 세션 환경의 PATH 를 물려받지 않는다.** `-e FOO=bar` 는
+들어가는데 `-e PATH=` 는 안 들어간다. `set-environment` 도, `set-environment -g` 도
+마찬가지다. pane 이 무엇을 찾을 수 있는지는 **tmux 서버 프로세스의 환경**만 정한다.
+
+- 그래서 PATH 는 `tmux_manager._tmux_env()` 에 있다(서버를 띄우는 자리). 설치되는 파일이
+  하나도 없고 앱을 지우면 같이 사라진다. **이미 떠 있는 tmux 서버는 자기가 시작한 PATH 를
+  유지하므로**(세션이 백엔드보다 오래 사는 설계) 서버 재시작 때 적용된다.
+- `itl_remote_setup` 의 세션 PATH 줄도 같은 이유로 **원격 pane 에는 효과가 없다.** 원격에서
+  실제로 동작하게 하는 것은 설치된 파일 + rc 줄이다. 이 사실을 모르고 그 줄을 근거로
+  "PATH 는 해결됐다" 고 읽지 말 것.
+- 복원된 로컬 세션(백엔드 재시작을 넘긴 것)은 `create_session` 을 지나지 않아 ITL_* 가 영영
+  비어 있었다 → attach 때 `refresh_session_env` 가 다시 심는다.
+
+**원격 자동 설치**(`ensure_remote_itl_cli`): 첫 attach 에 CLI+MCP 한 벌을 올린다.
+해시가 버전 표식이라 같은 판이면 덮어쓰지 않고(TTL 6h), 임시 이름으로 쓰고 rename 하므로
+전송이 끊겨도 반쪽짜리 파일이 남지 않는다. **압축·인코딩은 원격 python3 가 한다** —
+`base64 -d` 는 macOS 에서 `-D` 고 tar 플래그도 갈린다. `ITL_AUTO_INSTALL=0` 으로 끈다.
+⚠️ **자동 경로는 사용자의 rc 파일을 건드리지 않는다.** 그건 버튼을 누르는 사람이 고르는
+일이다(`build_install_cmd(with_rc=)` 가 그 경계 하나다).
+
+**에이전트 MCP 자동 등록**(`backend/agent_mcp.py`): `~/.claude.json` 의 user scope 에
+`itl` 항목을 넣는다. 로컬은 lifespan 에서 1회, 원격은 CLI 설치가 성공한 **뒤에**(가리키는
+파일이 없는 항목을 심으면 에이전트가 시작하다 실패한다). 규칙 둘:
+- **강제하지 않는다** — `ITL_AUTO_MCP=0`, 그리고 **사람이 손으로 쓴 항목은 건드리지 않는다**
+  (래퍼나 다른 인터프리터를 일부러 쓴 것일 수 있다). 우리가 쓴 낡은 경로만 고친다.
+- **망가뜨리지 않는다** — 그 파일에는 온보딩 플래그·프로젝트별 기록이 같이 있다. 파싱 →
+  복사 → temp 쓰기 → `os.replace`. 못 읽는 파일은 **새로 짓지 않고 그냥 둔다**(설정이 없다
+  = 그 기계에서 에이전트를 쓴 적이 없다는 뜻이고, 우리가 지어 주면 그 에이전트의 온보딩이
+  가장 먼저 덮어쓴다).
+
+### 상태판 — 모른다고 적는 것이 기능이다 (2026-08-19)
+
+홈의 "지금 돌고 있는 것"(`components/home/FleetBoard.jsx` + `utils/fleetStore.js`)은
+`GET /api/itl/targets?remote_status=1` 하나를 그린다.
+
+- **원격 pane 상태는 백엔드 워처가 못 본다**(그 호스트의 tmux 다). 그래서 이 조회는
+  **호스트당 SSH 한 번**이고, 그 값이 이 화면의 주기를 정한다: 30초, 그리고 홈이 실제로
+  보일 때만. 타이머는 **스토어가 하나만** 갖는다(홈은 대시보드와 빈 pane 두 곳에서 그려진다
+  — [[project_request_multiplication]] 과 같은 병).
+- ⚠️ **못 물어본 호스트는 `?` 다. 유휴가 아니다.** 둘을 같게 그리면 화면이 조용히
+  거짓말을 한다(같은 실수가 예전에 `terminal_wait` 를 0 초에 "완료" 로 만들었다).
+- 실패해도 직전 그림을 지우지 않는다 — 빈 판은 "전부 멈췄다" 로 읽힌다.
+
+### 윈도우 호스트 — 지원하지 않는다, 그리고 그렇게 말한다 (2026-08-19)
+
+이 앱이 원격에 하는 일은 전부 POSIX 셸 전제다(tmux, `/tmp` 붙여넣기, `~/.local/bin`).
+윈도우 호스트는 **한 주에 걸쳐 서로 무관해 보이는 세 개의 버그**로 사용자를 만났다 —
+tmux 토글 거부, 붙여넣기 증발, 핸드오프 조용한 부재.
+
+`backend/remote_platform.py` 가 `uname -s 2>&1` **한 번**으로 판정한다(cmd.exe·PowerShell
+은 "is not recognized" 계열 문구를 뱉는다 — 그 실패 문구가 곧 근거다). `tmux-check` 와
+`itl-status` 가 `platform` 을 함께 돌려주고, 호스트 편집기가 "Windows 호스트 — 지원하지
+않음 + WSL 로 등록하면 그대로 동작" 을 한 번에 말한다.
+⚠️ **침묵은 `unknown` 이지 `windows` 가 아니다.** 잠긴 셸에 경고를 붙이면 멀쩡한 호스트를
+겁준다.
+
 ### MCP for AI agents
 
 The same surface is exposed to agents over the Model Context Protocol (`backend/cli/itl_mcp.py`, stdlib only — `backend/cli/itl-mcp` is a one-line `exec` wrapper). An agent in one pane gets seven tools — `terminal_list` / `terminal_whoami` / `terminal_resolve` / `terminal_send` / `terminal_read` / `terminal_wait` / `terminal_key` — that drive its siblings by the address grammar above. Every tool auto-attaches `ITL_SESSION` as `from_session`, so address resolution, self-exclusion (`exclude_self`), and the fan-out limit (`MAX_FANOUT=20`) work the same way as the CLI.

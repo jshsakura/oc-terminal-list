@@ -26,6 +26,7 @@ export const HELP_TOPICS = [
       { termKey: 'helpCoreRelayTerm', descKey: 'helpCoreRelayDesc' },
       { termKey: 'helpCoreTmuxTerm', descKey: 'helpCoreTmuxDesc' },
       { termKey: 'helpCoreFleetTerm', descKey: 'helpCoreFleetDesc' },
+      { termKey: 'helpFleetTerm', descKey: 'helpFleetDesc' },
     ],
   },
   {

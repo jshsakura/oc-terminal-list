@@ -119,6 +119,8 @@ export const en = {
     helpNoMatch: 'Nothing matched.',
 
     helpSecCore: 'What makes this different',
+    helpFleetTerm: 'Running now (home)',
+    helpFleetDesc: 'One board on the home screen showing what every terminal on every machine is doing. Anything waiting for you sorts to the top, and a row takes you straight there.',
     helpCoreRelayTerm: 'Agents hand work to each other',
     helpCoreRelayDesc: 'An agent on one server types straight into a terminal on another. It passes a command, not an API key, so it works no matter which tool is running on the other end.',
     helpCoreTmuxTerm: 'Every session runs on tmux',
@@ -536,6 +538,26 @@ export const en = {
     reconnect: 'Reconnect',
     createAdminAccount: 'Create your admin account',
     refresh: 'Refresh',
+    windowsUnsupported: 'This host looks like Windows — persistent sessions, file paste and itl all assume a POSIX shell. Registering the SSH server inside WSL works as usual.',
+    windowsUnsupportedShort: 'Windows host — not supported',
+
+    // ── Fleet board (home: what is running right now) ───────────────────────
+    // A remote pane's status is invisible to the backend watcher, so it has to be asked
+    // for. A host we could not reach is **unknown**, never idle — writing those the same
+    // way is how a board starts lying quietly.
+    fleetTitle: 'Running now',
+    guideTitle: 'Getting started',
+    guideStep1: 'Add a server below. Keys and passwords are stored encrypted and never shown again.',
+    guideStep2: 'Click it to open a terminal there. It keeps running after you close the window.',
+    guideStep3: 'Hand work to another terminal: itl list shows the addresses, itl send 1.2 "…" delivers. Nothing to install.',
+    fleetEmpty: 'No terminals open yet.',
+    fleetWorking: 'Working',
+    fleetPermission: 'Waiting for you',
+    fleetIdle: 'Idle',
+    fleetUnknown: 'unknown',
+    fleetGone: 'gone',
+    fleetStale: 'Could not refresh just now — showing the last known state.',
+
     retry: 'Retry',
     loading: 'Loading…',
     folderEmpty: 'Empty folder',

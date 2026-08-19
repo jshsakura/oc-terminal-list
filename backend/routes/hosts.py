@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from _deps import verify_auth_token
+from remote_platform import PLATFORM_PROBE, classify_platform
 from cache import cache, invalidate_host, key_host_tmux_clients, key_host_tmux_sessions
 from host_manager import resolve_host_secrets
 from vault import encrypt_str
@@ -250,7 +251,11 @@ async def check_host_tmux(
     if not host:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
 
-    cmd = "command -v tmux 2>/dev/null && echo YES || echo NO"
+    # One probe answers both questions. `uname -s` runs first because a host that cannot
+    # run it is not a POSIX host at all, and that is the more useful thing to report:
+    # every remote feature here (tmux sessions, /tmp pastes, the itl CLI) assumes a POSIX
+    # shell, and a Windows host used to fail one confusing symptom at a time.
+    cmd = f"{PLATFORM_PROBE}; command -v tmux 2>/dev/null && echo YES || echo NO"
     try:
         if host.get("auth_method") == "tailscale":
             target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
@@ -284,7 +289,10 @@ async def check_host_tmux(
         return {"host_id": host_id, "available": False, "error": str(e)}
 
     available = "YES" in (output or "").strip()
-    return {"host_id": host_id, "available": available}
+    platform = classify_platform(output)
+    # A host we could not classify keeps the old contract exactly — `platform` is extra
+    # information, never a new way for this endpoint to say no.
+    return {"host_id": host_id, "available": available, "platform": platform}
 
 
 async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, refresh: bool) -> dict:

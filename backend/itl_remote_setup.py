@@ -61,9 +61,71 @@ def _cli_source() -> str:
     return path.read_text(encoding="utf-8")
 
 
+# What a host needs to take part: the CLI a human (or an agent) types, and the MCP server
+# that lets an agent call the same thing as tools. They ship together because a host with
+# only half of them fails in a way nobody can diagnose from the pane.
+BUNDLE_FILES = ("itl", "itl_mcp.py", "itl_mcp_tools.py")
+EXECUTABLE_FILES = ("itl",)
+
+
+def _bundle_sources() -> dict[str, str]:
+    cli_dir = Path(__file__).resolve().with_name("cli")
+    return {name: (cli_dir / name).read_text(encoding="utf-8") for name in BUNDLE_FILES}
+
+
 def _cli_hash() -> str:
-    """Fingerprint of the CLI we would install, used as the remote version marker."""
-    return hashlib.sha256(_cli_source().encode("utf-8")).hexdigest()[:16]
+    """Fingerprint of everything we would install, used as the remote version marker.
+
+    Covers the whole bundle: change the MCP tools alone and the host still refreshes,
+    which is the bug you get from hashing only the entry point.
+    """
+    digest = hashlib.sha256()
+    for name, body in sorted(_bundle_sources().items()):
+        digest.update(name.encode("utf-8"))
+        digest.update(body.encode("utf-8"))
+    return digest.hexdigest()[:16]
+
+
+# Extraction runs in the remote interpreter rather than the remote shell, because the
+# shell utilities differ where it matters: `base64 -d` is `-D` on macOS, and tar flags
+# vary. python3 is already this app's assumption for remote work (llm_usage pushes its
+# collector the same way), and it gives us one behaviour everywhere.
+_REMOTE_UNPACK = """
+import json, os, sys
+version = sys.argv[1]
+d = os.path.expanduser("~/.local/bin")
+marker = os.path.join(d, ".itl.version")
+try:
+    os.makedirs(d, exist_ok=True)
+except Exception as e:
+    print("ITL_CLI_FAIL"); raise SystemExit
+payload = sys.stdin.read()
+try:
+    current = open(marker, encoding="utf-8").read().strip()
+except Exception:
+    current = ""
+if current == version and os.access(os.path.join(d, "itl"), os.X_OK):
+    print("ITL_CLI_CURRENT"); raise SystemExit
+try:
+    files = json.loads(payload)
+except Exception:
+    print("ITL_CLI_FAIL"); raise SystemExit
+try:
+    for name, body in files.items():
+        # Written beside the target and renamed: a connection dropped mid-write cannot
+        # leave a half-file that runs and fails in a way nobody can read.
+        tmp = os.path.join(d, "." + name + ".incoming")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(body)
+        if name == "itl":
+            os.chmod(tmp, 0o700)
+        os.replace(tmp, os.path.join(d, name))
+    with open(marker, "w", encoding="utf-8") as f:
+        f.write(version)
+except Exception:
+    print("ITL_CLI_FAIL"); raise SystemExit
+print("ITL_CLI_INSTALLED")
+"""
 
 
 AUTO_INSTALL_ENABLED = os.getenv("ITL_AUTO_INSTALL", "1").strip() not in ("0", "false", "no")
@@ -82,33 +144,25 @@ def forget_installed(host_id: str) -> None:
 
 
 def build_install_cmd(version: str, *, with_rc: bool) -> str:
-    """Write ~/.local/bin/itl from stdin, but only when it is missing or stale.
+    """Install the bundle from stdin, but only when it is missing or stale.
 
-    Always reading stdin keeps this to one round trip instead of check-then-install —
-    and the body lands on a temp name first, so a connection dropped mid-transfer cannot
-    leave a half-written `itl` that runs and fails in confusing ways.
+    Always reading stdin keeps this to one round trip instead of check-then-install.
 
     `with_rc` is what separates the two paths on purpose: the automatic install writes
-    **only** its own file, while editing the user's ~/.profile and ~/.bashrc stays behind
-    the button they press themselves. Panes opened by this app get the directory from the
-    session PATH either way, so the rc lines only matter for shells the user starts.
+    **only** its own files, while editing the user's ~/.profile and ~/.bashrc stays behind
+    the button they press themselves.
     """
-    bin_dir = '"$HOME/.local/bin"'
-    tmp = '"$HOME/.local/bin/.itl.incoming"'
-    target = '"$HOME/.local/bin/itl"'
-    marker = '"$HOME/.local/bin/.itl.version"'
-    ver = shlex.quote(version)
-    rc = f"{_rc_path_snippet()}; " if with_rc else ""
-    return "\n".join([
-        f"mkdir -p {bin_dir} || {{ echo ITL_CLI_FAIL; exit 0; }}",
-        f"cat > {tmp} || {{ echo ITL_CLI_FAIL; exit 0; }}",
-        f'if [ "$(cat {marker} 2>/dev/null)" = {ver} ] && [ -x {target} ]; then',
-        f"  rm -f {tmp}; {rc}echo ITL_CLI_CURRENT",
-        "else",
-        f"  mv {tmp} {target} && chmod 700 {target} && printf '%s\\n' {ver} > {marker} && "
-        f"{rc}echo ITL_CLI_INSTALLED || echo ITL_CLI_FAIL",
-        "fi",
-    ])
+    cmd = f"python3 -c {shlex.quote(_REMOTE_UNPACK)} {shlex.quote(version)}"
+    if with_rc:
+        cmd = f"{cmd}; {_rc_path_snippet()}"
+    return cmd
+
+
+def install_payload() -> str:
+    """The bundle as JSON — plain text, so it rides the same stdin channel as everything
+    else and needs no base64/tar utilities on the far side."""
+    import json as _json
+    return _json.dumps(_bundle_sources(), ensure_ascii=False)
 
 
 async def ensure_remote_itl_cli(host: dict, secrets: dict) -> bool:
@@ -137,7 +191,7 @@ async def ensure_remote_itl_cli(host: dict, secrets: dict) -> bool:
     try:
         out = await run_remote_cmd(
             host, secrets, build_install_cmd(version, with_rc=False),
-            timeout=20, stdin_data=_cli_source(),
+            timeout=20, stdin_data=install_payload(),
         )
     except Exception as e:
         # A Windows host, a locked-down shell, a full disk — all land here. The terminal
@@ -291,11 +345,17 @@ def build_manual_setup_command() -> str:
 
 
 async def remote_itl_status(host: dict, secrets: dict) -> dict:
-    """설치 여부 + pane 셸이 itl 을 PATH 에서 잡는지 + 수동 셋업 명령.
+    """설치 여부 + pane 셸이 itl 을 PATH 에서 잡는지 + 어떤 플랫폼인지 + 수동 셋업 명령.
 
     PANE 검사는 bash -ic(비로그인 대화형 — 실제 pane 과 같은 조건)로 한다.
+
+    플랫폼을 여기 얹는 이유: 호스트 편집기를 열 때 이미 도는 왕복이라 공짜다. 따로 물으면
+    편집기를 열 때마다 SSH 가 하나 더 늘고, 그건 이 저장소가 계속 줄여 온 쪽이다.
+    Windows 호스트는 이 명령 자체가 실패하는데, 그 실패 문구가 곧 판정 근거다.
     """
+    from remote_platform import PLATFORM_PROBE, classify_platform
     cmd = (
+        f"{PLATFORM_PROBE}; "
         '[ -f "$HOME/.local/bin/itl" ] && echo FILE=1 || echo FILE=0; '
         "bash -ic 'command -v itl >/dev/null 2>&1' 2>/dev/null && echo PANE=1 || echo PANE=0"
     )
@@ -305,6 +365,7 @@ async def remote_itl_status(host: dict, secrets: dict) -> dict:
     return {
         "installed": installed,
         "pane_path": pane_path,
+        "platform": classify_platform(out),
         "setup_command": build_manual_setup_command(),
     }
 
@@ -320,7 +381,7 @@ async def install_remote_itl(host: dict, secrets: dict) -> dict:
     if not content.strip():
         raise RuntimeError("backend/cli/itl 소스를 읽을 수 없습니다")
     cmd = build_install_cmd(_cli_hash(), with_rc=True)
-    out = await run_remote_cmd(host, secrets, cmd, timeout=20, stdin_data=content)
+    out = await run_remote_cmd(host, secrets, cmd, timeout=20, stdin_data=install_payload())
     if not ("ITL_CLI_INSTALLED" in (out or "") or "ITL_CLI_CURRENT" in (out or "")):
         raise RuntimeError("원격 설치가 완료되지 않았습니다")
     # The manual install just proved the host is current; let the automatic path skip it.

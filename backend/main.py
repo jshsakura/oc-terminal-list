@@ -116,6 +116,14 @@ async def lifespan(_app: FastAPI):
         # (tmux 세션은 백엔드보다 오래 산다 — KillMode=process).
         await tmux_manager._run("set-option", "-g", "set-titles", "on", check=False)
         await tmux_manager._run("set-option", "-g", "set-titles-string", "#{pane_title}", check=False)
+    # 이 기계의 에이전트가 옆 터미널을 부릴 수 있게 itl MCP 를 등록해 둔다.
+    # 설정 파일이 없거나(그 기계에서 에이전트를 쓴 적이 없다) 사람이 손으로 쓴 항목이
+    # 있으면 아무것도 하지 않는다 — ITL_AUTO_MCP=0 으로 끈다.
+    try:
+        from agent_mcp import ensure_local_agent_mcp
+        ensure_local_agent_mcp()
+    except Exception as e:
+        logger.warning("itl MCP 자동 등록 실패: %s", e)
     # 서버 강제 종료로 detach hook 이 못 돈 orphan usage row 정리
     try:
         closed = await storage.close_orphan_usage_sessions()

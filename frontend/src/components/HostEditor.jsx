@@ -87,7 +87,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
         const res = await fetch(`/api/hosts/${host.id}/itl-status`, { headers: authHeaders() });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        if (!cancelled) setItl((s) => ({ ...s, loaded: true, loading: false, installed: !!data.installed, panePath: !!data.pane_path, setupCommand: data.setup_command || '' }));
+        if (!cancelled) setItl((s) => ({ ...s, loaded: true, loading: false, installed: !!data.installed, panePath: !!data.pane_path, platform: data.platform || 'unknown', setupCommand: data.setup_command || '' }));
       } catch (e) {
         if (!cancelled) setItl((s) => ({ ...s, loaded: true, loading: false, error: e.message || 'failed' }));
       }
@@ -120,6 +120,10 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
         const data = await res.json();
         if (data.available) {
           set('use_remote_tmux', true);
+        } else if (data.platform === 'windows') {
+          /* "tmux not found" is true but useless here — nothing else on this host will
+             work either, and the fix is a different kind of host, not a package. */
+          setTmuxWarning(t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and itl all assume a POSIX shell.');
         } else {
           setTmuxWarning(t('tmuxNotAvailable') || 'tmux not found on this host — sessions will not persist.');
         }
@@ -570,15 +574,17 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                             background: itl.installed ? (itl.panePath ? color.success : 'var(--ui-warning, #f9e2af)') : color.muted,
                           }} />
                           <span style={{ color: color.subtext }}>
-                            {itl.installed
-                              ? (itl.panePath
-                                  ? (t('itlStatusReady') || '준비 완료 — 새 원격 터미널에서 바로 사용 가능')
-                                  : (t('itlStatusNeedRelogin') || '설치됨 — 새 셸부터 PATH 활성화'))
-                              : (t('itlNotInstalled') || '미설치 — 이 호스트 터미널에서 발신 불가')}
+                            {itl.platform === 'windows'
+                              ? (t('windowsUnsupportedShort') || 'Windows host — not supported')
+                              : itl.installed
+                                ? (itl.panePath
+                                    ? (t('itlStatusReady') || '준비 완료 — 새 원격 터미널에서 바로 사용 가능')
+                                    : (t('itlStatusNeedRelogin') || '설치됨 — 새 셸부터 PATH 활성화'))
+                                : (t('itlNotInstalled') || '미설치 — 이 호스트 터미널에서 발신 불가')}
                           </span>
                         </span>
                       )}
-                      {itl.loaded && !itl.error && !itl.installed && (
+                      {itl.loaded && !itl.error && !itl.installed && itl.platform !== 'windows' && (
                         <>
                           <Button variant="ghost" type="button" disabled={itl.installing} onClick={installItl}>
                             {itl.installing ? (t('itlInstalling') || '설치 중…') : (t('itlInstall') || '설치')}
@@ -595,6 +601,13 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                         </>
                       )}
                     </div>
+                    {itl.platform === 'windows' && (
+                      /* Told once, plainly, with the way out — the alternative is the
+                         user meeting this as three unrelated bugs over a week. */
+                      <div style={{ fontSize: fontSize['11'], color: 'var(--ui-warning, #f9e2af)', lineHeight: 1.5 }}>
+                        {t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and itl all assume a POSIX shell. Registering the SSH server inside WSL works as usual.'}
+                      </div>
+                    )}
                     <div style={{ fontSize: fontSize['11'], color: color.muted, lineHeight: 1.5 }}>
                       {t('itlHint') || '앱이 만드는 원격 터미널에 자격이 자동 주입됩니다. 설치되는 것은 비밀 없는 CLI 스크립트 하나뿐.'}
                     </div>

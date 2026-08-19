@@ -210,6 +210,36 @@ describe('HostEditor', () => {
     vi.unstubAllGlobals();
   });
 
+  /* A Windows host used to meet the user as three unrelated bugs across a week: the
+     tmux toggle refusing, pastes vanishing, the handoff silently unavailable. Saying it
+     once, with the way out, is the whole feature. */
+  it('names Windows instead of offering an install that cannot work', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({
+        installed: false, pane_path: false, platform: 'windows', setup_command: 'mkdir -p ~/.local/bin',
+      }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    render(
+      <HostEditor
+        isOpen={true}
+        host={sampleHost}
+        sshKeys={sampleKeys}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        onDelete={vi.fn()}
+        onKillTmuxServer={vi.fn()}
+        t={mockT}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: /session/i }));
+    await waitFor(() => expect(screen.getByText(/Windows host — not supported/)).toBeInTheDocument());
+    expect(screen.getByText(/assume a POSIX shell/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Install$/ })).not.toBeInTheDocument();
+    vi.unstubAllGlobals();
+  });
+
   it('offers install + copy when itl is missing, install posts to the setup route', async () => {
     const fetchMock = vi.fn((url) => Promise.resolve({
       ok: true,

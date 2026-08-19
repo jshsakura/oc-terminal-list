@@ -1,11 +1,14 @@
 import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import {
   Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
-  Link2, BarChart3, ScreenShare, RefreshCw,
+  Link2, BarChart3, ScreenShare, RefreshCw, Activity,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
+import FleetBoard from './home/FleetBoard';
+import FirstRunGuide from './home/FirstRunGuide';
+import useFleet from '../hooks/useFleet';
 import useHostReorder from '../hooks/useHostReorder';
 import LlmDashboard from './llm/LlmDashboard';
 import TerminalTiles from './llm/TerminalTiles';
@@ -81,6 +84,18 @@ const HomeDashboard = ({
      would stand finished above an empty body and the page would look half-drawn. Loading
      has to be one piece. */
   const { data: usage, loading: usageLoading } = useTerminalUsage(rangeDays || 90);
+  /* Only polls while the home is the thing on screen — every refresh is one SSH round
+     trip per remote host, so a board nobody is looking at would keep every machine busy
+     for nothing. The connections view is the only place it is drawn. */
+  const fleet = useFleet(isVisible && view === 'connections');
+  /* The board addresses panes the way `itl list` does (tab.pane, 1-based); jumping needs
+     the real ids, and this component is the one holding the tab list. */
+  const handleFleetOpen = (target) => {
+    const tab = tabs[(target?.tabIndex || 0) - 1];
+    if (!tab) return;
+    if (target.paneId && onJumpPane) onJumpPane(tab.id, target.paneId);
+    else onJumpTab?.(tab.id);
+  };
   const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
   useEffect(() => {
@@ -330,10 +345,32 @@ const HomeDashboard = ({
           </div>
         </Section>
 
-        {/* 2) (EmptyPane 모드 전용) 다른 탭 흡수. 부모가 노드 통째로 넘김. */}
+        {/* 2) 지금 무엇이 돌고 있나 — 기계를 가로질러 한 판에. 이 앱의 작업은 여러
+               기계에 흩어져 있는데, pane 을 열기 전에는 그것을 볼 방법이 없었다. */}
+        {/* Only while there is nothing yet — it vanishes the moment a host exists, so it
+            never becomes clutter for someone who already knows the app. */}
+        {hosts.length === 0 && !hostsLoading && (
+          <Section>
+            <FirstRunGuide t={t} />
+          </Section>
+        )}
+
+        <Section icon={Activity} title={t?.('fleetTitle') || 'Running now'}>
+          <FleetBoard
+            targets={fleet.targets}
+            hosts={hosts}
+            loading={fleet.loading}
+            error={fleet.error}
+            onRefresh={fleet.refresh}
+            onOpen={handleFleetOpen}
+            t={t}
+          />
+        </Section>
+
+        {/* 3) (EmptyPane 모드 전용) 다른 탭 흡수. 부모가 노드 통째로 넘김. */}
         {extraTopSlot}
 
-        {/* 3) Open / Resumable 세션 — HomeSessions 가 자체 Open / Resumable 그룹 헤더를 렌더. */}
+        {/* 4) Open / Resumable 세션 — HomeSessions 가 자체 Open / Resumable 그룹 헤더를 렌더. */}
         {(tabs.length > 0 || hosts.some((h) => h.use_remote_tmux)) && (
           <HomeSessions
             tabs={tabs}
