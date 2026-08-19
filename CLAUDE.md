@@ -302,6 +302,47 @@ after sending 'websocket.close'` 를 매일 7건씩 쌓고 있었다(닫히는 �
   소켓이 닫힌 뒤에 send 한다. 이 finally 는 run() 이 cancel 해서 도는 자리다.
 - `_ws_gone` 은 펌프를 **다 거둔 뒤에** 세운다. 그 전에 세우면 마지막 drain 이 버려진다.
 
+## 로그는 "재접속했다" 가 아니라 "왜" 를 남긴다 (2026-08-20)
+
+이 저장소의 버그는 거의 다 재연결에 있는데(memory `project_ws_reconnect_watchdog`,
+`project_duplicate_connect_await_window`, `project_ws_ticket_wedge_cookie_fallback`),
+로그에는 `WS attach: session=…` 한 줄뿐이라 사후 진단이 늘 추측이었다. **서버는 소켓이
+다시 열린 것만 본다 — 무엇을 보고 다시 열었는지는 클라이언트만 안다.**
+
+- 클라이언트가 `reason` / `prev_ms` 를 **핸드셰이크 쿼리에 얹어** 보낸다. 새 엔드포인트도
+  새 왕복도 없다(이 저장소가 계속 줄여 온 쪽이라 그게 조건이었다).
+- `backend/ws_observe.py` 가 그것을 `WS attach/detach` 두 줄로 옮긴다. `prev=` 가 짧으면
+  요동, 길면 단발 끊김 — **원인이 다르므로 로그에서 구별되어야 한다.**
+- ⚠️ **명시적 사유가 close 코드를 이긴다**(`reasonLockedRef`). 하트비트·워치독은 소켓을
+  **스스로** 닫으므로 onclose 는 말끔한 `close-1000` 을 보고하는데, 그러면 "의심만으로
+  멀쩡한 소켓을 죽였다" 는 사실이 묻힌다 — 그게 여기서 가장 재고 싶은 값이다.
+- 낱말은 고정 어휘다. 프론트가 서버가 모르는 값을 보내면 전부 `other` 로 접혀 **에러 없이
+  조용히 쓸모없어진다.** `tests/test_ws_observe.py` 가 Terminal.jsx 를 읽어 대조한다.
+- 🔐 그 값은 클라이언트가 준 것이다. 인증·라우팅에 절대 쓰지 않고, 화이트리스트로 접어
+  로그 injection(개행으로 가짜 줄 만들기)을 막는다.
+
+**읽는 법**
+
+| 보이는 것 | 뜻 |
+|---|---|
+| `reason=heartbeat prev=13s` 가 여러 pane 에 동시에 | 하트비트 오탐 또는 공유 터널 정체 |
+| `reason=close-1006 prev=수백초` | 전송단에서 끊겼다 — cloudflared 로그와 시각 대조 |
+| `reason=initial` 이 한꺼번에 | 부팅/복원 버스트지 끊김이 아니다 |
+| `lived=` 가 60초 근처 반복 | `INACTIVE_PANE_GRACE_MS` 로 우리가 닫은 것(정상) |
+
+### 그 줄이 보이려면 소음을 솎아야 한다
+
+실측(7일): 앱 로그 34,478 줄 중 **17,663 줄이 access 로그 `200 OK`** 였고 `GET
+/api/git/status` 하나가 4,851 줄이었다. `access_log_filter.py` 가 폴링의 **성공만**
+솎는다. 규칙 둘, 둘 다 안전 방향이다:
+
+- **2xx/3xx 가 아니면 무조건 남긴다** — 폴링 엔드포인트의 404·500 이야말로 가장 보고 싶은 줄.
+- **경로 화이트리스트로만 솎는다.** 새 엔드포인트가 조용해지는 건 사고다.
+- WS 핸드셰이크 줄은 절대 안 솎는다(attach/detach 와 짝을 이룬다). `ACCESS_LOG_QUIET=0` 로 끈다.
+
+⚠️ **낡은 클라이언트는 `reason=unset` 으로 찍힌다.** 브라우저가 새 번들을 받아야 사유가
+붙는다 — 배포 직후 `unset` 이 섞이는 것은 정상이다.
+
 ## Backend module layout
 
 `main.py` owns only the app object, middleware, lifespan, and router registration. Endpoints live in `routes/*.py`; shared state lives in focused top-level modules. **Add new endpoints to a `routes/` module, never back into `main.py`.**

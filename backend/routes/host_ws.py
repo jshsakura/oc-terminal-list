@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
@@ -17,6 +18,7 @@ from sqlite_storage import storage
 from tickets import _push_ws_tickets
 from ws_auth import authenticate_ws
 from ws_clients import _register_ws_client, _unregister_ws_client
+from ws_observe import log_attach, log_detach
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +74,8 @@ async def host_websocket(
     tmux_suffix: str | None = Query(None, description="새 호스트 탭마다 base session 분리용 suffix. 영문/숫자/하이픈만, 32자 이내."),
     tmux_session_name: str | None = Query(None, description="명시적 tmux 세션명 override (기존 영속 세션 Resume). 주어지면 base/suffix/pane 계산 무시."),
     create: bool = Query(True, description="false면 없는 원격 tmux 세션을 새로 만들지 않고 연결만 시도"),
+    reason: str | None = Query(None, description="클라이언트가 이 연결을 연 사유(관측 전용, ws_observe 참고)"),
+    prev_ms: int | None = Query(None, description="직전 소켓이 살아있던 시간(ms). 요동과 단발 끊김을 구별한다."),
 ):
     if not is_safe_id(host_id):
         await websocket.close(code=1008, reason="유효하지 않은 호스트 ID")
@@ -167,6 +171,11 @@ async def host_websocket(
             tmux_session_name=safe_session_name,
             create_session=create,
         )
+    opened_at = time.monotonic()
+    log_attach(
+        kind=f"host/{host_id[:8]}", session=target_tmux_session, user=username,
+        client_id=client_id, reason=reason, prev_ms=prev_ms, cols=cols, rows=rows,
+    )
     usage_event_id = None
     client_token = _register_ws_client("host", f"{host_id}:{target_tmux_session}", client_id, websocket)
     try:
@@ -205,5 +214,7 @@ async def host_websocket(
         # 연결 종료 시 client 수가 바뀌었을 수 있음 — invalidate.
         await invalidate_host(host_id)
         _unregister_ws_client("host", f"{host_id}:{target_tmux_session}", client_token)
+        log_detach(kind=f"host/{host_id[:8]}", session=target_tmux_session,
+                   client_id=client_id, opened_at=opened_at)
 
 

@@ -145,6 +145,23 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const enqueueInputRef = useRef(null);
   const probeLivenessRef = useRef(null);
   const reconnectAttemptsRef = useRef(0);
+  /* Observability only (see backend/ws_observe.py). The server can see that a socket
+     reopened but never why; the client is the only place that knows. These two ride the
+     handshake query string — no extra request, and nothing here affects behaviour. */
+  const connectReasonRef = useRef('initial');
+  const socketOpenedAtRef = useRef(0);
+  const prevSocketLivedMsRef = useRef(null);
+  /* A trigger site knows more than the close code does. Heartbeat and watchdog close the
+     socket *themselves*, so onclose would report a tidy `close-1000` and bury the fact that
+     we killed a socket we merely suspected was dead — which is the single thing worth
+     measuring here. So an explicit reason locks, and onclose only fills in the blank. */
+  const reasonLockedRef = useRef(false);
+  // Set the reason for the *next* connect(). The vocabulary is fixed — anything the server
+  // does not recognise folds to `other`, so keep this in sync with ws_observe.KNOWN_REASONS.
+  const markConnectReason = useCallback((why) => {
+    connectReasonRef.current = why;
+    reasonLockedRef.current = true;
+  }, []);
   // 연속 재연결을 시작한 시각(ms). 0 이면 현재 재연결 중 아님. OPEN 성공 시 0 으로 리셋.
   // resume 이벤트가 attempts 를 리셋해도 이 값은 유지돼 벽시계 데드라인이 살아있게 한다.
   const reconnectingSinceRef = useRef(0);
@@ -400,6 +417,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       // 무한 복구하고, 끊김은 구석 pill 로만 차분히 알린다. 16s 넘게 못 붙었으면 create=true 로
       // (세션이 사라졌어도) 재생성까지 시도한다.
       const stuckMs = Date.now() - stuckSince;
+      markConnectReason('watchdog');
       forceReconnect(ws, { create: stuckMs > RECONNECT_ESCALATE_MS });
     }, RECONNECT_WATCHDOG_POLL_MS);
     return () => clearInterval(id);
@@ -895,7 +913,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         tmuxSessionName,
         createIfMissing,
         clientId: terminalClientIdRef.current,
+        reason: connectReasonRef.current,
+        prevMs: prevSocketLivedMsRef.current,
       });
+      /* Consume it. A reason describes one reconnect; leaving it set would relabel every
+         later connect with a stale cause, which is worse than no label at all. */
+      connectReasonRef.current = 'resume';
+      reasonLockedRef.current = false;
+      prevSocketLivedMsRef.current = null;
 
       /* [handshake gate] A restored workspace opens every pane at once: as many
          handshakes as panes into the shared tunnel, and the server replays that
@@ -961,6 +986,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       socket.onopen = () => {
         clearOpenTimer();
         if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
+        socketOpenedAtRef.current = Date.now();
         logger.info(`WebSocket 연결 성공: ${sessionId}`);
         if (lastDownRef.current) {
           const { at, planned } = lastDownRef.current;
@@ -1056,6 +1082,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           // 마지막 기회에도 답이 없다 — 진짜 죽은 소켓. 끊어서 재연결 경로를 태운다.
           heartbeatSuspectSinceRef.current = 0;
           heartbeatKilledRef.current = true;
+          markConnectReason('heartbeat');
           try { socket.close(); } catch { /* noop */ }
         }, HEARTBEAT_INTERVAL_ACTIVE_MS);
         heartbeatTimerRef.current = hbId;
@@ -1212,6 +1239,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       }
       if (wsGeneration !== wsGenerationRef.current || wsRef.current !== socket) return;
 
+      /* How long this socket lived, for the next handshake. Seconds means flapping;
+         minutes means one clean outage — the two have different causes and the log has to
+         tell them apart. The close code fills the blank only when no trigger site claimed
+         the reason first — see reasonLockedRef. */
+      if (socketOpenedAtRef.current) {
+        prevSocketLivedMsRef.current = Date.now() - socketOpenedAtRef.current;
+        socketOpenedAtRef.current = 0;
+      }
+      if (!reasonLockedRef.current) connectReasonRef.current = `close-${event?.code ?? 0}`;
+
       const planned = intentionalCloseRef.current || wasClosedForInactivityRef.current;
       recordDisconnect({
         sessionId,
@@ -1275,6 +1312,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         // 소진된 버스트 카운터와 무관한 새 국면이므로 리셋 후 곧장 생성 재연결.
         reconnectAttemptsRef.current = 0;
         reconnectingSinceRef.current = 0;
+        markConnectReason('session-gone');
         scheduleReconnect(true, goneNotice);
         return;
       }
@@ -1411,6 +1449,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
               // **지금 살아있는 소켓**을 넘겨야 한다. 여기 도달할 무렵이면 빠른 재시도 버스트가
               // 이미 create=0 소켓을 하나 띄워놨을 수 있는데, 옛 소켓을 넘기면 connect() 의
               // "이미 연결 중이면 no-op" 가드에 걸려 우리 create=1 이 조용히 버려진다.
+              markConnectReason('restart');
               forceReconnect(wsRef.current || socket, { create: true });
               return;
             }
@@ -1929,6 +1968,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           || !ws
           || ws.readyState === WebSocket.CLOSED
           || ws.readyState === WebSocket.CLOSING) {
+        markConnectReason(wasClosedForInactivityRef.current ? 'visible' : 'resume');
         wasClosedForInactivityRef.current = false;
         intentionalCloseRef.current = false;
         // 백오프를 base 로 리셋하고(포커스/online 복귀는 즉시 빠른 재시도), 대기 중인 단일
@@ -1954,6 +1994,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (ws.readyState === WebSocket.CONNECTING) {
         if (Date.now() - (wsConnectingSinceRef.current || 0) > STALE_CONNECTING_RESUME_MS) {
           logger.warn(`복귀 신호 시점에 stale CONNECTING(${reason}) — 좀비 소켓 교체: ${sessionId}`);
+          markConnectReason('resume');
           forceReconnect(ws, { notice: t('networkReconnect') || 'Network connection changed. Reconnecting...' });
         }
         return;
@@ -1985,6 +2026,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         logger.warn(`복귀 후 WS 생존 확인 실패(${reason}) — 재연결: ${sessionId}`);
         // onclose 를 기다리지 않고 즉시 좀비를 떼고 재연결한다 — 모바일은 close() 해도
         // onclose 가 영영 안 와 워치독(4s 폴링)까지 기다리던 지연을 없앤다.
+        markConnectReason('net-change');
         forceReconnect(ws, { notice: t('sameDeviceNetworkReconnect') || 'Network changed on this device. Reconnecting...' });
       }, RESUME_PROBE_TIMEOUT_MS);
     };

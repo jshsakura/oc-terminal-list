@@ -29,6 +29,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.datastructures import Headers
 from starlette.types import Receive, Scope, Send
 
+import access_log_filter
 from _deps import (
     WORKSPACE_ROOT,
     set_auth_manager,
@@ -50,6 +51,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 # asyncssh 는 접속/채널/인증 과정을 INFO 로 대량 출력 — WARNING 이상만 표시
 logging.getLogger("asyncssh").setLevel(logging.WARNING)
+# 폴링의 성공 응답을 솎아 WS attach/detach·경고가 보이게 한다(access_log_filter 참고).
+access_log_filter.install()
 
 
 

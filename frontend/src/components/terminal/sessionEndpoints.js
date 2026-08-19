@@ -30,6 +30,8 @@ export const buildWsUrl = ({
   tmuxSessionName = null,
   createIfMissing = true,
   clientId,
+  reason = null,
+  prevMs = null,
 }) => {
   const params = new URLSearchParams();
   // 티켓이 없으면(발급 실패 — wedge 된 HTTP 풀) 파라미터를 생략한다. 서버가 same-origin
@@ -49,6 +51,12 @@ export const buildWsUrl = ({
   if (cwd) params.set('cwd', cwd);
   if (!createIfMissing) params.set('create', '0');
   params.set('client_id', clientId);
+  // Observability only (backend/ws_observe.py): why this socket is being opened, and how
+  // long the previous one lived. The server logs it and nothing else — it never affects
+  // auth or routing. Without it the log can only say a socket reopened, never why, which
+  // is exactly the question every reconnect bug in this repo has needed answered.
+  if (reason) params.set('reason', reason);
+  if (prevMs != null && prevMs >= 0) params.set('prev_ms', String(Math.round(prevMs)));
 
   const path = hostId ? `/ws/host/${hostId}` : `/ws/${sessionId}`;
   return `${origin}${path}?${params.toString()}`;

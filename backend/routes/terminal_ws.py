@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
@@ -22,6 +23,7 @@ from tmux_manager import tmux_manager
 from ws_auth import authenticate_ws
 from ws_bridge import TmuxClientBridge
 from ws_clients import _register_ws_client, _unregister_ws_client
+from ws_observe import log_attach, log_detach
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +41,8 @@ async def terminal_websocket(
     cwd: str | None = Query(None),
     shell: str | None = Query(None),
     create: bool = Query(True, description="false면 없는 tmux 세션을 새로 만들지 않고 연결만 시도"),
+    reason: str | None = Query(None, description="클라이언트가 이 연결을 연 사유(관측 전용, ws_observe 참고)"),
+    prev_ms: int | None = Query(None, description="직전 소켓이 살아있던 시간(ms). 요동과 단발 끊김을 구별한다."),
 ):
     if not is_safe_id(session_id):
         await websocket.close(code=1008, reason="유효하지 않은 세션 ID")
@@ -64,7 +68,11 @@ async def terminal_websocket(
         return
 
     await websocket.accept()
-    logger.info("WS attach: session=%s user=%s", session_id, username)
+    opened_at = time.monotonic()
+    log_attach(
+        kind="local", session=session_id, user=username, client_id=client_id,
+        reason=reason, prev_ms=prev_ms, cols=cols, rows=rows,
+    )
 
     # 세션이 없으면 생성 (백엔드 재시작 후 첫 연결 또는 새 세션 직접 WS 진입)
     if not await tmux_manager.session_exists(session_id):
@@ -164,5 +172,6 @@ async def terminal_websocket(
                 logger.warning("usage end record failed (local %s): %s", session_id, e)
         await invalidate_session(session_id)
         _unregister_ws_client("local", session_id, client_token)
+        log_detach(kind="local", session=session_id, client_id=client_id, opened_at=opened_at)
 
 
