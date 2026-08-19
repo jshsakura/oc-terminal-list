@@ -87,7 +87,15 @@ const HomeDashboard = ({
   /* Only polls while the home is the thing on screen — every refresh is one SSH round
      trip per remote host, so a board nobody is looking at would keep every machine busy
      for nothing. The connections view is the only place it is drawn. */
-  const fleet = useFleet(isVisible && view === 'connections');
+  /* Its own tab, not a block on the connections screen. With a dozen panes open the
+     board is longer than everything above it, and the thing people come home for is
+     "where do I connect" — that must not scroll away. */
+  const views = [
+    ['connections', t?.('terminals') || 'Terminals', Link2],
+    ['fleet', t?.('processesTab') || 'Running', Activity],
+    ...(showUsageStats ? [['dashboard', t?.('dashboard') || 'Dashboard', BarChart3]] : []),
+  ];
+  const fleet = useFleet(isVisible && view === 'fleet');
   /* The board addresses panes the way `itl list` does (tab.pane, 1-based); jumping needs
      the real ids, and this component is the one holding the tab list. */
   const handleFleetOpen = (target) => {
@@ -164,12 +172,9 @@ const HomeDashboard = ({
         {/* 연결 / 대시보드 — 홈이 하나의 긴 스크롤이면 정작 자주 쓰는 연결이 통계 아래로
             밀린다. 둘은 목적이 다르다: 하나는 "어디에 붙지", 하나는 "얼마나 썼지".
             기본은 연결 — 홈에 오는 이유의 대부분이다. */}
-        {showUsageStats && (
+        {views.length > 1 && (
           <div style={styles.viewSwitch}>
-            {[
-              ['connections', t?.('terminals') || 'Terminals', Link2],
-              ['dashboard', t?.('dashboard') || 'Dashboard', BarChart3],
-            ].map(([key, label, Icon]) => {
+            {views.map(([key, label, Icon]) => {
               const isOn = view === key;
               return (
                 <button
@@ -192,7 +197,19 @@ const HomeDashboard = ({
           </div>
         )}
 
-        {view === 'dashboard' ? (
+        {view === 'fleet' ? (
+          /* No section heading here — the tab above already carries the name, and saying
+             it twice was the first thing anyone noticed about this screen. */
+          <FleetBoard
+            targets={fleet.targets}
+            hosts={hosts}
+            loading={fleet.loading}
+            error={fleet.error}
+            onRefresh={fleet.refresh}
+            onOpen={handleFleetOpen}
+            t={t}
+          />
+        ) : view === 'dashboard' ? (
           /* 대시보드 = 터미널 사용량(항상) + LLM(쓸 때만). 위의 범위 한 줄이 둘 다
              좁힌다 — 카드마다 기간을 두면 한 화면에서 7일과 30일을 비교하게 된다. */
           <>
@@ -355,22 +372,10 @@ const HomeDashboard = ({
           </Section>
         )}
 
-        <Section icon={Activity} title={t?.('fleetTitle') || 'Running now'}>
-          <FleetBoard
-            targets={fleet.targets}
-            hosts={hosts}
-            loading={fleet.loading}
-            error={fleet.error}
-            onRefresh={fleet.refresh}
-            onOpen={handleFleetOpen}
-            t={t}
-          />
-        </Section>
-
-        {/* 3) (EmptyPane 모드 전용) 다른 탭 흡수. 부모가 노드 통째로 넘김. */}
+        {/* 2) (EmptyPane 모드 전용) 다른 탭 흡수. 부모가 노드 통째로 넘김. */}
         {extraTopSlot}
 
-        {/* 4) Open / Resumable 세션 — HomeSessions 가 자체 Open / Resumable 그룹 헤더를 렌더. */}
+        {/* 3) Open / Resumable 세션 — HomeSessions 가 자체 Open / Resumable 그룹 헤더를 렌더. */}
         {(tabs.length > 0 || hosts.some((h) => h.use_remote_tmux)) && (
           <HomeSessions
             tabs={tabs}

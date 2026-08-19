@@ -124,8 +124,8 @@ export const ko = {
     // over sessions that outlive the browser. Bury that at section five and the reader
     // never learns why they would pick this.
     helpSecCore: '이 앱이 다른 점',
-    helpFleetTerm: '지금 돌고 있는 것 (홈)',
-    helpFleetDesc: '모든 기계의 터미널이 지금 무엇을 하는지 홈에서 한눈에 봅니다. 손이 필요한 것이 맨 위로 오고, 줄을 누르면 그 화면으로 갑니다.',
+    helpFleetTerm: '실행 중 탭',
+    helpFleetDesc: '홈의 "실행 중" 탭에서 모든 기계의 터미널이 지금 무엇을 하는지 한눈에 봅니다. 손이 필요한 것이 맨 위로 오고, 줄을 누르면 그 화면으로 갑니다.',
     helpCoreRelayTerm: '에이전트끼리 명령을 넘깁니다',
     helpCoreRelayDesc: '한 서버의 에이전트가 다른 서버의 터미널에 명령을 직접 넣습니다. API 키를 나눠 주는 것이 아니라 명령 한 줄을 전달하는 방식이라, 상대가 어떤 도구를 쓰든 그대로 통합니다.',
     helpCoreTmuxTerm: '모든 세션이 tmux 위에서 돕니다',
@@ -561,6 +561,7 @@ export const ko = {
     // 원격 pane 의 상태는 백엔드 워처가 볼 수 없어 물어봐야 안다. 못 물어본 것은
     // '유휴' 가 아니라 '모름' 이다 — 둘을 같게 적으면 화면이 조용히 거짓말을 한다.
     fleetTitle: '지금 돌고 있는 것',
+    processesTab: '실행 중',
     guideTitle: '처음이라면',
     guideStep1: '아래에서 서버를 등록합니다. 키와 비밀번호는 암호화해 보관하고 화면에 다시 보여주지 않습니다.',
     guideStep2: '카드를 누르면 그 서버에서 터미널이 열립니다. 창을 닫아도 작업은 계속 실행됩니다.',

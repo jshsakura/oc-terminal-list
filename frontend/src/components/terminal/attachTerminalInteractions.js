@@ -5,7 +5,7 @@ import {
   shouldRouteWheelToPty,
   shouldClearSelectionOnScroll,
 } from '../../utils/terminalMouseSelection';
-import { copyTextToClipboard, uploadImageAndGetPath } from './terminalHelpers';
+import { copyTextToClipboard, uploadImageAndGetPath, pasteWhenConnected } from './terminalHelpers';
 import { getLinkAtClient } from '../../utils/terminalLinkAt';
 
 /**
@@ -119,7 +119,15 @@ const attachTerminalInteractions = ({
     setImagePasteState('uploading');
     try {
       const data = await uploadImageAndGetPath(blob, hostId);
-      term.paste(`${data.path} `); // 뒤 공백 — 이어서 타이핑할 수 있게
+      // ⚠️ 200 을 받은 것과 경로가 셸에 도착한 것은 다른 사건이다. 재연결 중이면 입력 큐가
+      // 4초 뒤 그 항목을 버리므로(STALE_INPUT_MS), 넣을 수 있을 때까지 잠깐 기다린다.
+      const inserted = await pasteWhenConnected(term, `${data.path} `, getSocket); // 뒤 공백 — 이어서 타이핑할 수 있게
+      if (!inserted) {
+        logger.error('image paste: upload ok but terminal was not connected');
+        setImagePasteState('error');
+        later(() => setImagePasteState(null), IMAGE_TOAST_ERROR_MS);
+        return;
+      }
       setImagePasteState('done');
       later(() => setImagePasteState(null), IMAGE_TOAST_DONE_MS);
     } catch (err) {

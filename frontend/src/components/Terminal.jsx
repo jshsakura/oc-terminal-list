@@ -724,6 +724,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       hostId,
       setDropActive,
       setImagePasteState,
+      getSocket: () => wsRef.current,
       // ref 를 통해 읽는다 — 이 effect 는 cwd 가 바뀌어도 재실행되지 않으므로 값을 캡처하면
       // `cd` 한 뒤 옛 위치를 기준으로 경로를 만든다.
       getPaneCwd: () => paneCwdInfoRef.current,

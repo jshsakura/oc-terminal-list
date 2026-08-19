@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook } from '@testing-library/react';
 
-vi.mock('../components/terminal/terminalHelpers', () => ({
+vi.mock('../components/terminal/terminalHelpers', async (importOriginal) => ({
+  ...(await importOriginal()),
   uploadFileAndGetPath: vi.fn(async (file) => ({ path: `/ws/.pasted/${file.name}` })),
 }));
 

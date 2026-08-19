@@ -72,8 +72,10 @@ const FleetBoard = ({
 
   return (
     <div style={S.wrap}>
+      {/* No title: this board owns its own tab, and the tab label already names it.
+          Printing the name again above the first row was the first thing anyone
+          noticed about the screen. */}
       <div style={S.head}>
-        <span style={S.title}>{label('fleetTitle', 'Running now')}</span>
         <span style={S.count}>{rows.length}</span>
         {onRefresh && (
           <button

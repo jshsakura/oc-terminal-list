@@ -1,8 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('./terminalHelpers', () => ({
+vi.mock('./terminalHelpers', async (importOriginal) => ({
+  ...(await importOriginal()),
   copyTextToClipboard: vi.fn(async () => true),
   uploadImageAndGetPath: vi.fn(async () => ({ path: '/ws/.pasted/a.webp' })),
+  // pasteWhenConnected 는 **진짜를 쓴다** — 업로드 성공과 삽입 성공이 다른 사건이라는
+  // 것이 이 파일이 지켜야 할 계약이고, 목으로 덮으면 그 계약이 사라진다.
 }));
 
 import attachTerminalInteractions from './attachTerminalInteractions';

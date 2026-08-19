@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('./terminalHelpers', () => ({
+vi.mock('./terminalHelpers', async (importOriginal) => ({
+  ...(await importOriginal()),
   uploadFileAndGetPath: vi.fn(async (file) => ({ path: `/ws/.pasted/${file.name}` })),
 }));
 
@@ -133,6 +134,44 @@ describe('attachTerminalFileDrop', () => {
 
       expect(term.paste).toHaveBeenCalledWith('/ws/.pasted/a.png ');
       expect(term.paste.mock.calls[0][0]).not.toContain('\r');
+      expect(setImagePasteState).toHaveBeenCalledWith('done');
+    });
+
+    /* 실측된 버그: 업로드는 200 인데 경로가 터미널에 안 들어갔다. term.paste 는 입력 큐를
+       지나고, 그 큐는 소켓이 닫힌 동안 쌓인 입력을 4초 뒤 버린다(STALE_INPUT_MS). 그런데
+       화면에는 초록 "완료" 가 떴고, 서버 로그에는 실패가 하나도 안 남았다 — 업로드는 정말로
+       성공했으니까. 그래서 이 케이스가 유일한 그물이다. */
+    it('소켓이 닫혀 있으면 넣지 못했다고 말한다 — 업로드 200 은 도착이 아니다', async () => {
+      handle.detach();
+      handle = attachTerminalFileDrop({
+        term, container, logger, setDropActive, setImagePasteState,
+        getSocket: () => ({ readyState: 3 }),   // CLOSED
+      });
+      fire(container, 'drop', makeDataTransfer({ entries: [{ file: makeFile('a.png') }] }));
+      await flush();
+      await vi.advanceTimersByTimeAsync(3200);  // 대기 창을 넘긴다
+      await flush();
+
+      expect(term.paste).not.toHaveBeenCalled();
+      expect(setImagePasteState).toHaveBeenCalledWith('error');
+      expect(setImagePasteState).not.toHaveBeenCalledWith('done');
+    });
+
+    it('재연결이 끝나면 그때 넣는다 — 조금 기다릴 뿐 잃지 않는다', async () => {
+      let ws = { readyState: 3 };
+      handle.detach();
+      handle = attachTerminalFileDrop({
+        term, container, logger, setDropActive, setImagePasteState,
+        getSocket: () => ws,
+      });
+      fire(container, 'drop', makeDataTransfer({ entries: [{ file: makeFile('a.png') }] }));
+      await flush();
+      expect(term.paste).not.toHaveBeenCalled();
+
+      ws = { readyState: 1 };                   // OPEN
+      await vi.advanceTimersByTimeAsync(200);
+      await flush();
+      expect(term.paste).toHaveBeenCalledWith('/ws/.pasted/a.png ');
       expect(setImagePasteState).toHaveBeenCalledWith('done');
     });
 

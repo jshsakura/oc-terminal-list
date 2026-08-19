@@ -156,3 +156,43 @@ export const issueWsTicket = async (path) => {
   }
   return result;
 };
+
+
+/* ── 업로드한 경로를 실제로 넣기 ────────────────────────────────────────────────
+ *
+ * 업로드가 200 을 받아도 경로가 터미널에 안 들어가는 일이 있었다. `term.paste()` 는
+ * 입력 큐를 지나는데, 그 큐는 **소켓이 닫혀 있는 동안 쌓인 입력을 4초 뒤 버린다**
+ * (STALE_INPUT_MS — 몇 분 전 입력이 나중에 프롬프트로 쏟아지는 걸 막는 규칙이라 옳다).
+ * 그런데 재연결은 흔히 그보다 오래 걸리고, 그동안 화면에는 초록 "완료" 가 떴다.
+ * 서버 로그에는 실패가 하나도 안 남는다 — 업로드는 정말로 성공했으니까.
+ *
+ * 그래서 **붙여넣기 전에 소켓이 열릴 때까지 잠깐 기다린다.** 큐의 나이 규칙은 그대로 둔다
+ * (그건 키 입력을 위한 것이다). 끝내 안 열리면 조용히 성공한 척하지 않고 그렇게 말한다.
+ */
+export const PASTE_CONNECT_WAIT_MS = 3000;
+const PASTE_POLL_MS = 100;
+
+const socketOpen = (getSocket) => {
+  const ws = getSocket?.();
+  return !!ws && ws.readyState === 1; // WebSocket.OPEN
+};
+
+/**
+ * 소켓이 열려 있으면 즉시, 아니면 최대 `waitMs` 까지 기다렸다가 붙여넣는다.
+ * @returns {Promise<boolean>} 실제로 넣었는지. false 면 호출부가 사용자에게 알려야 한다.
+ */
+export const pasteWhenConnected = async (term, text, getSocket, { waitMs = PASTE_CONNECT_WAIT_MS } = {}) => {
+  if (!term || !text) return false;
+  // getSocket 이 없는 호출부는 예전처럼 그냥 넣는다 — 판정할 근거가 없다.
+  if (typeof getSocket !== 'function') {
+    term.paste(text);
+    return true;
+  }
+  const deadline = Date.now() + waitMs;
+  while (!socketOpen(getSocket)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, PASTE_POLL_MS));
+  }
+  term.paste(text);
+  return true;
+};

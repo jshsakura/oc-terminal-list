@@ -1,6 +1,6 @@
 import { isFileDrag, readTreeDragPayload, TREE_PATH_MIME } from '../../utils/fileDrag';
 import { shellPathForTreeDrop } from '../../utils/droppedTreePath';
-import { uploadFileAndGetPath } from './terminalHelpers';
+import { uploadFileAndGetPath, pasteWhenConnected } from './terminalHelpers';
 
 /**
  * PC 에서 터미널로 파일 드래그&드롭 → 업로드 → 저장 경로 삽입.
@@ -55,6 +55,8 @@ const attachTerminalFileDrop = ({
   // 파일 탐색기에서 끌어온 경로를 셸용으로 바꿀 때 쓴다. 트리가 내는 경로가 로컬은
   // 워크스페이스 상대, 원격은 절대라 pane 의 cwd 두 표현이 있어야 절대로 환산된다.
   getPaneCwd = () => ({ isLocal: true, cwdAbs: '', cwdRel: '' }),
+  // 소켓을 알아야 "업로드는 됐는데 경로가 안 들어갔다" 를 구별할 수 있다.
+  getSocket = null,
 }) => {
   const timers = new Set();
   const later = (fn, ms) => {
@@ -86,8 +88,14 @@ const attachTerminalFileDrop = ({
     }
     uploading = false;
     // 일부만 실패해도 올라간 것들의 경로는 넣어준다 — 다시 드롭할 때 중복 업로드를 줄인다.
-    if (paths.length) term.paste(`${paths.join(' ')} `); // 뒤 공백 — 이어서 타이핑할 수 있게
-    flashToast(failed ? 'error' : 'done', failed ? TOAST_ERROR_MS : TOAST_DONE_MS);
+    // ⚠️ 업로드 성공(200)과 경로가 셸에 도착한 것은 다른 사건이다. 재연결 중이면 입력 큐가
+    // 4초 뒤 그 항목을 버리므로, 여기서 기다렸다 넣고 못 넣으면 실패로 표시한다.
+    let inserted = true;
+    if (paths.length) {
+      inserted = await pasteWhenConnected(term, `${paths.join(' ')} `, getSocket); // 뒤 공백 — 이어서 타이핑할 수 있게
+      if (!inserted) logger.error('file drop: upload ok but terminal was not connected');
+    }
+    flashToast((failed || !inserted) ? 'error' : 'done', (failed || !inserted) ? TOAST_ERROR_MS : TOAST_DONE_MS);
   };
 
   /** 우리 파일 탐색기에서 끌어온 드래그인지 — OS 파일 드롭과 처리가 다르다(업로드 없음). */
