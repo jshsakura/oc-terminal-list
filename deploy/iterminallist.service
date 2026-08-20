@@ -1,3 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# 그대로 복사하면 동작하지 않는다. 아래 네 줄은 **당신의 기계 값으로 바꿀 것**:
+#
+#   User= / Group=          이 앱을 돌릴 계정 (그 계정의 셸/키를 그대로 쓴다)
+#   EnvironmentFile=        저장소의 .env 절대경로
+#   WorkingDirectory=       <repo>/backend
+#   ExecStart=              <repo>/.venv/bin/python main.py
+#
+# 아래 한 줄로 한 번에 바꿀 수 있다(<repo> 와 계정만 채우면 된다):
+#
+#   sed -e "s#/home/ubuntu/app/jupyterLab/notebooks/iTerminaLlist#<repo>#g" \
+#       -e "s#^User=.*#User=<you>#" -e "s#^Group=.*#Group=<you>#" \
+#       deploy/iterminallist.service | sudo tee /etc/systemd/system/iterminallist.service
+#
+# 설치 뒤: sudo systemctl daemon-reload && sudo systemctl enable --now iterminallist
+# ─────────────────────────────────────────────────────────────────────────────
 [Unit]
 Description=iTerminaLlist Backend (FastAPI/uvicorn)
 Documentation=https://github.com/jshsakura/iTerminaLlist

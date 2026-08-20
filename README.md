@@ -451,6 +451,43 @@ sudo systemctl start iterminallist.service
 journalctl -u iterminallist.service -f
 ```
 
+### Updating
+
+**Docker / GHCR**
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+**Host-native systemd**
+
+There is no update script in this repository. Run the three steps in this order:
+
+```bash
+git pull
+
+# 1. Frontend — only when frontend/ changed
+cd frontend && npm ci && npm run build && cd ..
+
+# 2. Python dependencies — only when backend/requirements.txt changed
+.venv/bin/pip install -r backend/requirements.txt
+
+# 3. Restart — only when backend/ or the unit file changed
+sudo systemctl restart iterminallist.service
+```
+
+**Order matters: build the frontend before restarting.** The backend serves
+`backend/static` as-is, so restarting first just reloads the old bundle.
+
+> Your `tmux` sessions survive the restart (`KillMode=process` in the unit file).
+> Open browser tabs reconnect on their own; they may show "reconnecting" for a few seconds.
+
+⚠️ A frontend rebuild deletes the previous hash-named chunks (`emptyOutDir: true`).
+A browser tab that was already open is running the old bundle and will reload itself when
+it needs a chunk that no longer exists. If people are actively using the app, batch your
+updates instead of deploying repeatedly.
+
 ### Docker commands
 
 ```bash

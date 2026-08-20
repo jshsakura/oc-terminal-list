@@ -56,28 +56,35 @@ Host auto-register (off by default, opt-in — see `backend/bootstrap.py`):
 - Idempotent — same-name host not re-created on subsequent boots.
 - Caveat: re-running on every container restart can fight with tab-state restore (a renamed/deleted bootstrap host can be re-created with the default name), so prefer manual UI registration unless you understand the trade-off.
 
-## Deploy (host systemd — legacy / dev box)
+## Deploy (host systemd)
 
-**Standard update flow — always use this:**
+⚠️ **`deploy/local-deploy.sh` 는 저장소에 없다.** `.gitignore` 에 있는 메인테이너 기계
+전용 스크립트라, **클론한 사람에게는 존재하지 않는 명령**이다. 아래 두 갈래를 구분할 것 —
+예전에는 이 절이 그 스크립트만 가리켜서, 클론한 사람의 에이전트가 없는 파일을 실행하려다
+막혔다.
+
+### 누구에게나 통하는 방법 (클론한 저장소의 표준)
 
 ```bash
 git pull
-./deploy/local-deploy.sh
+cd frontend && npm ci && npm run build && cd ..   # 프론트가 바뀌었으면
+sudo systemctl restart iterminallist.service      # 백엔드/의존성이 바뀌었으면
 ```
 
-`--auto` is the default: builds frontend, restarts the systemd service only if backend/deploy files changed.
+**순서가 규칙이다: 프론트 빌드가 재시작보다 먼저.** 백엔드가 `backend/static` 을 그대로
+서빙하므로, 재시작을 먼저 하면 낡은 번들을 그대로 다시 들고 뜬다.
 
-Other modes when needed:
+⚠️ 프론트를 다시 빌드하면 **해시가 붙은 옛 청크가 지워진다**(`emptyOutDir: true`). 그때
+열려 있던 브라우저 탭은 낡은 번들이라 필요한 순간에 404 를 맞고 자가 새로고침한다 —
+[[feedback_batch_deploys_while_user_works]]. 사용자가 쓰는 중이라면 배포를 모아서 한 번에.
 
-```bash
-./deploy/local-deploy.sh --frontend-only  # frontend code changed only, no restart
-./deploy/local-deploy.sh --restart        # force restart (backend code changed)
-./deploy/local-deploy.sh --status         # check service status
-```
+### 이 dev 박스에서만
 
-**Never run `systemctl restart` directly** — always go through `local-deploy.sh` so the frontend is rebuilt first.
+메인테이너 기계에는 위 절차를 감싼 `deploy/local-deploy.sh` 가 있다(`--auto` 가 기본:
+프론트를 빌드하고, backend/deploy 파일이 바뀌었을 때만 재시작). 그 기계에서는 그걸 쓴다 —
+`--frontend-only` / `--restart` / `--status`. **다른 기계에서는 위의 표준 절차를 쓸 것.**
 
-Service name: `iterminallist` (defined in `deploy/iterminallist.service`).
+Service name: `iterminallist` (defined in `deploy/iterminallist.service` — 이건 배포된다).
 
 Logs: `journalctl -u iterminallist.service -f`
 

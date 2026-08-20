@@ -452,6 +452,42 @@ sudo systemctl start iterminallist.service
 journalctl -u iterminallist.service -f
 ```
 
+### 업데이트
+
+**Docker / GHCR**
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+**호스트 네이티브 systemd**
+
+이 저장소에는 업데이트 스크립트가 없습니다. 아래 세 단계를 **이 순서대로** 실행하세요.
+
+```bash
+git pull
+
+# 1. 프론트엔드 — frontend/ 가 바뀌었을 때만
+cd frontend && npm ci && npm run build && cd ..
+
+# 2. 파이썬 의존성 — backend/requirements.txt 가 바뀌었을 때만
+.venv/bin/pip install -r backend/requirements.txt
+
+# 3. 재시작 — backend/ 또는 유닛 파일이 바뀌었을 때만
+sudo systemctl restart iterminallist.service
+```
+
+**순서가 규칙입니다: 프론트 빌드가 재시작보다 먼저.** 백엔드가 `backend/static` 을 그대로
+서빙하므로, 재시작을 먼저 하면 낡은 번들을 그대로 다시 들고 뜹니다.
+
+> `tmux` 세션은 재시작을 넘어 살아남습니다(유닛 파일의 `KillMode=process`).
+> 열려 있던 브라우저 탭은 스스로 재연결하며, 몇 초간 "다시 연결 중" 이 보일 수 있습니다.
+
+⚠️ 프론트를 다시 빌드하면 해시가 붙은 옛 청크가 지워집니다(`emptyOutDir: true`).
+그때 열려 있던 탭은 낡은 번들이라, 없는 청크가 필요해지는 순간 스스로 새로고침합니다.
+사용자가 쓰는 중이라면 배포를 여러 번 하지 말고 모아서 한 번에 하세요.
+
 ### Docker 명령어
 
 ```bash
