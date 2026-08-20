@@ -87,3 +87,31 @@ def test_a_malformed_record_is_left_alone():
         msg="something else entirely", args=None, exc_info=None,
     )
     assert FILTER.filter(rec) is True
+
+
+def test_the_filter_still_reports_that_traffic_flowed(caplog, monkeypatch):
+    """솎되 침묵하지 않는다 — 이 줄이 없어서 실제 진단에 실패한 적이 있다.
+
+    "그 3분간 이 브라우저의 HTTP 가 살아 있었나" 를 나중에 물을 수 있어야 한다.
+    요약이 **끊기는 것**이 곧 "클라이언트의 HTTP 가 멈췄다" 는 증거가 된다.
+    """
+    f = QuietPollingAccessFilter()
+    monkeypatch.setattr(f, "_window_started", -1e9)      # 창이 이미 만료된 상태로
+    with caplog.at_level(logging.INFO, logger="access_log_filter"):
+        assert f.filter(_access("/api/git/status?path=x", 200)) is False
+    assert "폴링 성공" in caplog.text
+
+
+def test_the_summary_does_not_fire_on_every_line(caplog):
+    """요약이 매 줄 나오면 솎는 의미가 없다."""
+    f = QuietPollingAccessFilter()
+    with caplog.at_level(logging.INFO, logger="access_log_filter"):
+        for _ in range(50):
+            f.filter(_access("/api/git/status?path=x", 200))
+    assert "폴링 성공" not in caplog.text
+
+
+def test_the_summary_never_re_enters_the_filter():
+    """uvicorn.access 로 요약을 쓰면 자기 필터를 다시 지나 재귀한다."""
+    import access_log_filter as mod
+    assert mod._summary_logger.name != "uvicorn.access"

@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import time
 
 # 초당~분당으로 도는 폴링 엔드포인트들. 값을 만들지 않고 상태만 확인하는 것들이다.
 _QUIET_PATHS = (
@@ -45,8 +46,46 @@ _QUIET_RE = re.compile(r"^/api/hosts/[^/]+/(cwd/batch|tmux-clients|files\?|git/s
 # uvicorn access 포맷: '%s - "%s %s HTTP/%s" %d %s' → args = (addr, method, path, ver, code, phrase)
 _STATUS_IDX, _PATH_IDX = 4, 2
 
+# 솎은 양을 주기적으로 한 줄 남긴다.
+SUMMARY_INTERVAL_SEC = 60.0
+# 요약은 **다른 로거**로 나간다 — uvicorn.access 로 쓰면 이 필터를 다시 지나 재귀한다.
+_summary_logger = logging.getLogger("access_log_filter")
+
 
 class QuietPollingAccessFilter(logging.Filter):
+    """⚠️ **솎되, 침묵하지는 않는다.**
+
+    처음 판에는 요약이 없었다. 그 결과 "이 브라우저의 HTTP 경로가 살아 있었나" 를 나중에
+    확인할 방법이 사라졌고, 실제로 업로드 실패를 진단할 때 **필요한 증거가 없어서**
+    공유 HTTP/2 풀이 막힌 것인지 단정하지 못했다(그게 이 배포의 단골 고장인데도).
+
+    그래서 주기마다 한 줄을 남긴다. 트래픽이 흐르고 있었다는 사실 자체가 신호다 —
+    이 줄이 **끊기는 것**이 곧 "클라이언트의 HTTP 가 멈췄다" 는 증거가 된다.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._suppressed = 0
+        self._clients: set[str] = set()
+        self._window_started = time.monotonic()
+
+    def _note(self, record: logging.LogRecord) -> None:
+        self._suppressed += 1
+        args = record.args
+        if isinstance(args, tuple) and args and isinstance(args[0], str):
+            self._clients.add(args[0].rsplit(":", 1)[0])
+        now = time.monotonic()
+        elapsed = now - self._window_started
+        if elapsed < SUMMARY_INTERVAL_SEC:
+            return
+        _summary_logger.info(
+            "access: 폴링 성공 %d건 생략 (%.0fs, 클라이언트 %d)",
+            self._suppressed, elapsed, len(self._clients),
+        )
+        self._suppressed = 0
+        self._clients.clear()
+        self._window_started = now
+
     def filter(self, record: logging.LogRecord) -> bool:
         args = record.args
         if not isinstance(args, tuple) or len(args) <= _STATUS_IDX:
@@ -59,6 +98,7 @@ class QuietPollingAccessFilter(logging.Filter):
             return True
         path = raw_path.split("?", 1)[0]
         if path.startswith(_QUIET_PATHS) or _QUIET_RE.match(raw_path):
+            self._note(record)
             return False
         return True
 
