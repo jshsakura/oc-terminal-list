@@ -271,6 +271,13 @@ graceful close 라는 것 — 멈춘 피어(모바일 전환·포화된 터널)�
   아무도 안 구해준다. 상한은 연결마다가 아니라 **전체에 한 번**(죽은 호스트 N 대면 N 배).
 - 두 상한은 같이 움직인다: `graceful(5s) + POOL_CLOSE_TIMEOUT_SEC(3s) < TimeoutStopSec(15s)`.
   `tests/test_shutdown_is_bounded.py` 가 이 부등식을 잠근다.
+- ⚠️ **배포마다 `ERROR: Exception in ASGI application` 이 한 번 찍힌다 — 정상이다.**
+  끝까지 남는 그 "1 running task" 는 SSE 스트림(`/api/tab-state/events`)이고, 응답이
+  끝나지 않는 요청이라 상한에 걸려 취소된다. 그 `CancelledError` 가 starlette 의
+  streaming 미들웨어를 지나 ASGI 층에 보고되는 것뿐이다(마지막 줄이
+  `Task cancelled, timeout graceful shutdown exceeded` 인지 보면 구별된다).
+  **예전엔 안 보였던 이유는 그 시점에 프로세스가 이미 SIGKILL 당했기 때문**이지,
+  안 일어나던 일이 아니다. 숨기지 않는다 — ASGI 예외를 통째로 삼키면 진짜 오류가 묻힌다.
 
 ### 실패를 캐시하지 않으면 죽은 호스트가 화면을 붙잡는다
 
