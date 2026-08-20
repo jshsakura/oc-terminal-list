@@ -34,7 +34,9 @@ SERVER_VERSION = "1.0.0"
 # --- tool schemas (§5.3 — descriptions VERBATIM, do not edit) --------------
 DESC_LIST = (
     "열려 있는 터미널(pane)과 그 주소를 표로 본다. 기본은 내가 속한 탭의 형제 터미널만 보여준다. "
-    '다른 탭까지 보려면 scope="all". 각 행의 ADDR 값이 다른 도구의 to 인자로 그대로 들어간다.'
+    '다른 탭까지 보려면 scope="all". 각 행의 ADDR 값이 다른 도구의 to 인자로 그대로 들어간다. '
+    "STATE 칸의 '?'는 '유휴'가 아니라 '모름'이다 — 원격 터미널은 물어봐야 알 수 있고 "
+    "(remote_status), 안 물어본 상태다. '?'를 '안 돌고 있다'로 읽지 말 것."
 )
 DESC_WHOAMI = (
     "이 터미널 자신의 주소(탭 번호.pane 번호)와 탭 이름, 형제 터미널 수를 알려준다. "
@@ -75,6 +77,15 @@ TOOLS = [
                 "command": {"type": "string", "description": "이 명령이 돌고 있는 터미널만 (claude, glm, codex ...)."},
                 "include_self": {"type": "boolean", "default": True,
                                  "description": "내 터미널도 목록에 포함할지. 목록은 기본 포함(> 표시가 붙는다)."},
+                "remote_status": {
+                    "type": "boolean",
+                    "description": (
+                        "원격 터미널의 상태까지 물어볼지 (호스트당 SSH 한 번). 생략하면 "
+                        "status 필터가 있을 때만 자동으로 켜진다 — 안 물어보면 원격은 "
+                        "STATE 가 '?' 라 어떤 상태 필터에도 안 걸려 통째로 빠진다. "
+                        "값싼 목록만 원하면 false."
+                    ),
+                },
             },
             "additionalProperties": False,
         },
@@ -90,8 +101,17 @@ TOOLS = [
         "inputSchema": {
             "type": "object",
             "required": ["to"],
-            "properties": {"to": {"type": "string",
-                                  "description": "주소. 예: 3 | 1.3 | @프론트 | @siblings | 2.@glm | @working | @all"}},
+            "properties": {
+                "to": {"type": "string",
+                       "description": "주소. 예: 3 | 1.3 | @프론트 | @siblings | 2.@glm | @working | @all"},
+                "remote_status": {
+                    "type": "boolean",
+                    "description": (
+                        "원격 터미널의 상태까지 물어볼지 (호스트당 SSH 한 번). 생략하면 "
+                        "주소가 @working/@idle/@permission 일 때만 자동으로 켜진다."
+                    ),
+                },
+            },
             "additionalProperties": False,
         },
     },

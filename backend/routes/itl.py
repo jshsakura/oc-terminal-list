@@ -25,7 +25,13 @@ from _deps import verify_itl_token
 from agent_status import detect_status, display_title, is_agent_pane
 from agent_status_service import agent_status_watcher
 from itl_origin import build_reply_cmd, find_sender, format_origin
-from itl_targets import build_targets, filter_targets, format_table, resolve
+from itl_targets import (
+    build_targets,
+    filter_targets,
+    format_table,
+    references_status_group,
+    resolve,
+)
 from pane_excerpt import extract_excerpt
 from rate_limit import check_rate_limit
 from server_identity import get_server_identity
@@ -226,8 +232,20 @@ async def itl_resolve(
 
     `remote_status=1` 은 맞은 pane 이 원격일 때 그 상태까지 채운다(호스트당 SSH 한 번).
     기다림(`terminal_wait`)이 이걸 쓴다 — 상태를 모르는 채로 기다리면 즉시 끝나버린다.
+
+    ⚠️ **채우기가 매칭보다 먼저여야 하는 경우가 있다.** `@working` 처럼 주소가 상태로
+    대상을 고르면, 상태가 빈 원격 pane 은 어떤 그룹에도 안 맞아 **통째로 조용히 빠진다** —
+    `remote_status=1` 을 줘도 그랬다(채우기가 매칭 뒤였으므로). `/targets` 는 이미
+    "채우기가 필터보다 먼저" 인데 여기만 반대였다.
+
+    그 외 주소(번호·이름·명령)는 매칭에 상태가 필요 없으므로 **맞은 것만** 채운다 —
+    `terminal_wait` 가 원격 pane 하나를 5초마다 폴링하는데, 그걸 전체 호스트 SSH 로
+    바꾸면 폴링 비용이 호스트 수만큼 곱해진다.
     """
     targets = await _targets_for(username)
+    if remote_status and references_status_group(to):
+        targets = await _fill_remote_status(targets, username)
+        return {"matched": resolve(targets, to, from_session)}
     matched = resolve(targets, to, from_session)
     if remote_status and matched:
         matched = await _fill_remote_status(matched, username)

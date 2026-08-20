@@ -121,6 +121,25 @@ def _is_self(target):
     return target.get("sessionId") == SESSION or target.get("tmuxSession") == SESSION
 
 
+_STATUS_GROUPS = ("working", "idle", "permission")
+
+
+def _references_status_group(to):
+    """주소가 pane 의 **상태**로 대상을 고르는가? (`@working` `@idle` `@permission`)
+
+    백엔드 `itl_targets.references_status_group` 의 거울이다. 여기서 판정하는 이유는
+    이 값이 "원격 상태를 물어봐야 답이 맞는가" 를 결정하기 때문이다 — 안 물어보면
+    상태가 빈 원격 pane 이 통째로 빠져서, 호출자는 "원격은 안 돌고 있다" 는 **틀린 답**을
+    받는다. 불완전한 답이 아니라 틀린 답이다.
+    """
+    if not to:
+        return False
+    raw = str(to).strip()
+    pos = max(raw.rfind("."), raw.rfind(":"))
+    parts = [raw] if pos < 0 else [raw[:pos].strip(), raw[pos + 1:].strip()]
+    return any(p.startswith("@") and p[1:].strip().lower() in _STATUS_GROUPS for p in parts)
+
+
 def _resolve_targets(to, remote_status=False):
     """Resolve `to` against the backend. Raises ToolError on backend failure.
 
@@ -180,11 +199,24 @@ def tool_terminal_list(args):
     include_self = bool(args.get("include_self", True))
     if scope == "same_tab" and not SESSION:
         raise ToolError('내 터미널의 위치를 알 수 없습니다(ITL_SESSION 없음). scope="all"로 다시 시도하세요.')
+    # 원격 pane 의 상태는 워처가 못 봐서 기본이 비어 있다(`?`). 물어보려면 호스트당 SSH 한
+    # 번이라 목록 조회의 기본은 끈 채로 둔다 — 그게 값싸고, `?` 가 "모른다" 로 정직하다.
+    #
+    # ⚠️ 단 **status 필터를 걸면 이야기가 다르다.** 거른 목록은 상태에 대한 단언인데,
+    # 물어보지도 않은 pane 에 대해 단언할 수는 없다. 안 물어보면 원격이 전부 조용히
+    # 빠져서 "원격은 안 돌고 있다" 는 틀린 답이 된다. 그래서 필터가 있으면 기본을 켠다.
+    # 명시로 준 값이 항상 이긴다(비용을 알고 끄고 싶을 수 있다).
+    remote_status = args.get("remote_status")
+    if remote_status is None:
+        remote_status = status is not None
+    remote_status = bool(remote_status)
     params = {
         "from_session": SESSION, "fmt": "table",
         "scope": scope, "status": status, "command": command,
         "exclude_self": not include_self,
     }
+    if remote_status:
+        params["remote_status"] = "true"
     table = _api("GET", "/api/itl/targets", params).get("table", "")
     return table or "열려 있는 터미널이 없습니다."
 
@@ -205,7 +237,11 @@ def tool_terminal_whoami(args):  # noqa: ARG001 — schema is empty, args unused
 
 def tool_terminal_resolve(args):
     to = args["to"]
-    matched = _resolve_targets(to)
+    # `@working` 같은 상태 주소는 상태를 모르면 답할 수 없다 — tool_terminal_list 의 주석 참고.
+    remote_status = args.get("remote_status")
+    if remote_status is None:
+        remote_status = _references_status_group(to)
+    matched = _resolve_targets(to, remote_status=bool(remote_status))
     if not matched:
         raise ToolError(f"'{to}'에 해당하는 터미널이 없습니다. terminal_list로 주소를 확인하세요.")
     rows = []
@@ -307,7 +343,10 @@ def tool_terminal_wait(args):
     timeout_sec = int(args.get("timeout_sec", 120))
     start = time.monotonic()
     deadline = start + timeout_sec
-    initial = _resolve_targets(to)
+    # 상태 주소(`@working` 등)는 첫 해석부터 원격 상태를 물어봐야 한다. 안 그러면 원격이
+    # 아예 안 잡혀 has_remote 가 False 가 되고, "원격에 넘긴 일" 을 기다리는 호출이
+    # 로컬만 보고 즉시 끝난다 — 이 파일이 이미 한 번 밟은 사고와 같은 뿌리다.
+    initial = _resolve_targets(to, remote_status=_references_status_group(to))
     if not initial:
         raise ToolError(f"'{to}'에 해당하는 터미널이 없습니다. terminal_list로 주소를 확인하세요.")
     # 원격이 하나라도 섞였으면 상태를 물어봐야 알 수 있고, 그 조회는 호스트당 SSH 왕복이라
@@ -317,7 +356,7 @@ def tool_terminal_wait(args):
     expected = {t.get("addr") for t in initial}
     gone = set()
     while True:
-        matched = _resolve_targets(to, remote_status=has_remote)
+        matched = _resolve_targets(to, remote_status=has_remote or _references_status_group(to))
         by_addr = {t.get("addr"): t for t in matched}
         # Disappeared targets satisfy the condition (session-gone). Track once.
         for addr in list(expected):

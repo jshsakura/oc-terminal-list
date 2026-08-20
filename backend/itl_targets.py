@@ -142,6 +142,27 @@ def _filter_by_word(targets: list[dict], word: str, from_session: str | None) ->
     return [t for t in targets if t["command"].strip().lower() == key]
 
 
+def references_status_group(expr: str | None) -> bool:
+    """이 주소가 pane 의 **상태**로 대상을 고르는가? (`@working` `@idle` `@permission`)
+
+    상태로 고르는 주소는 상태를 모르면 답할 수 없다. 그런데 원격 pane 의 status 는
+    워처가 못 보므로 기본이 비어 있고(`statusUnknown`), 비어 있는 값은 어떤 그룹에도
+    안 맞는다 — 그래서 `@working` 이 **원격을 통째로 조용히 빼먹었다.** 호출자가
+    "원격은 안 돌고 있다" 로 읽으면 그건 틀린 답이지 불완전한 답이 아니다.
+
+    이걸 grammar 쪽에 두는 이유: 무엇이 상태 그룹인지는 `resolve` 만 안다. 라우트가
+    문자열을 다시 뜯으면 두 곳이 어긋난다.
+    """
+    if not expr:
+        return False
+    raw = expr.strip()
+    tab_part, sep, pane_part = _split_addr(raw)
+    for part in (tab_part, pane_part) if sep else (tab_part,):
+        if part and part.startswith("@") and part[1:].strip().lower() in STATUS_GROUPS:
+            return True
+    return False
+
+
 def _select_tab(targets: list[dict], sel: str, from_session: str | None) -> list[dict]:
     """Resolve the tab selector (left of SEP) to a tab-scoped target list.
 
