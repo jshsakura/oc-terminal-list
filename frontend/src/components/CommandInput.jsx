@@ -380,6 +380,12 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             {image.uploadState === 'error' && (
               <span style={{ color: `var(--ui-danger, ${color.danger})` }}>{t?.('imageUploadFailed') || '업로드 실패'}</span>
             )}
+            {/* 요청이 서버에 닿지도 못한 경우 — 파일이나 호스트 문제가 아니라 연결이다. */}
+            {image.uploadState === 'blocked' && (
+              <span style={{ color: `var(--ui-danger, ${color.danger})` }}>
+                {t?.('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
+              </span>
+            )}
           </div>
         )}
       </div>

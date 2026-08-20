@@ -44,6 +44,7 @@ export const ko = {
     imagePasteUploading: '업로드 중…',
     imagePasteDone: '경로 입력됨',
     imagePasteError: '업로드 실패',
+    imagePasteBlocked: '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요',
     fileDropHint: '놓으면 업로드 후 경로가 입력됩니다',
     fileDropFolderUnsupported: '폴더는 보낼 수 없습니다',
     shellEndedDesc: '기존 셸에 다시 연결할 수 있습니다.',

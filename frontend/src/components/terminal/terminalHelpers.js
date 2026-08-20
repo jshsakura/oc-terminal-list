@@ -64,9 +64,72 @@ export const compressPastedImage = async (blob) => {
   }
 };
 
+/**
+ * 클라이언트에서만 아는 실패를 **살아있는 WebSocket 으로** 서버에 알린다.
+ *
+ * HTTP 로 보내면 안 된다 — 알려야 할 상황이 바로 그 HTTP 가 막힌 때다. 실제로
+ * 2026-08-20 의 업로드 실패는 서버·터널 어디에도 흔적이 없어(요청이 나가질 못했다)
+ * 원인을 추정으로만 좁혀야 했다. WS 는 매번 새 TCP 라 그때도 살아 있었다.
+ *
+ * 실패해도 조용히 넘어간다 — 이건 **관측**이지 기능이 아니다.
+ */
+export const reportClientError = (getSocket, { scope, kind, detail = '' }) => {
+  try {
+    const ws = getSocket?.();
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({
+      type: 'client-error',
+      scope: String(scope || '').slice(0, 32),
+      kind: String(kind || '').slice(0, 32),
+      detail: String(detail || '').slice(0, 200),
+    }));
+  } catch { /* 관측이 기능을 망가뜨리면 안 된다 */ }
+};
+
+/**
+ * 업로드 실패의 **종류**. 호출부가 사용자에게 무엇을 말할지, 재시도할지를 이걸로 정한다.
+ *
+ *  - `blocked` : 요청이 서버에 **도착조차 못 했다.** 이 배포의 단골 고장 — 공유 HTTP/2
+ *                연결이 막히면 평범한 fetch 는 죽는데 WebSocket 은 매번 새 TCP 라 멀쩡히
+ *                살아 있다. 그래서 "터미널은 되는데 업로드만 안 되는" 조합이 나오고,
+ *                새로고침(=새 연결 풀)하면 즉시 낫는다.
+ *  - `offline` : 브라우저가 오프라인이라고 말한다. 기다리면 된다.
+ *  - `server`  : 서버가 답은 했는데 거절했다(용량·형식·원격 /tmp 등). detail 이 있다.
+ */
+export class UploadError extends Error {
+  constructor(kind, message, detail = '') {
+    super(message);
+    this.name = 'UploadError';
+    this.kind = kind;
+    this.detail = detail;
+  }
+}
+
+const HEALTH_PROBE_MS = 3000;
+
+/**
+ * HTTP 경로가 살아 있나? 업로드가 네트워크 단에서 죽었을 때만 부른다.
+ *
+ * 이 한 번의 값싼 왕복이 **40초를 아낀다**: 예전에는 실패하면 곧장 같은 fetch 를 다시
+ * 쏘았는데, 막힌 것은 연결 자체라 두 번째도 똑같이 20초를 태우고 죽었다. 프로브가
+ * 실패하면 재시도해봐야 소용없다는 뜻이므로 즉시 정직하게 실패한다.
+ */
+const isHttpPathAlive = async () => {
+  try {
+    const res = await fetch('/api/health', {
+      method: 'GET',
+      cache: 'no-store',
+      signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+        ? AbortSignal.timeout(HEALTH_PROBE_MS) : undefined,
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+};
+
 // 붙여넣기/첨부 이미지를 서버에 업로드. timeout 으로 무한 대기 차단(대기중 터미널은 공유 HTTP 연결이
 // wedge 돼 fetch 가 영영 매달리던 게 "업로드 중" 무한 회전의 원인 — 새로고침하면 됐던 이유).
-// timeout/네트워크 오류 시 한 번은 새 연결로 재시도(=새로고침 효과).
 const postPasteImage = async (sendBlob, hostId, attempt = 0) => {
   const fd = new FormData();
   const ext = (sendBlob.type.split('/')[1] || 'png').replace('+xml', '');
@@ -82,19 +145,27 @@ const postPasteImage = async (sendBlob, hostId, attempt = 0) => {
       signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(20000) : undefined,
     });
   } catch (err) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new UploadError('offline', 'offline');
+    }
+    // 값싼 프로브로 "이 fetch 만 실패했나 / HTTP 경로 자체가 막혔나" 를 가른다.
+    if (!(await isHttpPathAlive())) {
+      throw new UploadError('blocked', 'http path is wedged', String(err?.name || err));
+    }
     if (attempt < 1) return postPasteImage(sendBlob, hostId, attempt + 1);
-    throw err;
+    throw new UploadError('server', String(err?.message || err));
   }
 };
 
-// 이미지 blob → 압축 → 업로드 → 저장 경로 메타({ path, size, scope }). 실패 시 throw.
+// 이미지 blob → 압축 → 업로드 → 저장 경로 메타({ path, size, scope }). 실패 시 UploadError.
 // PTY 는 텍스트만 전달하므로 이미지 자체는 못 보냄 → 경로로 우회.
 // 데스크톱(Terminal 클립보드 붙여넣기)·모바일(빠른입력창 첨부/붙여넣기) 공용.
 export const uploadImageAndGetPath = async (blob, hostId = null) => {
   const sendBlob = await compressPastedImage(blob);
   const res = await postPasteImage(sendBlob, hostId);
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.detail || `${res.status}`);
+  // 서버가 답을 했다 = 도착은 했다. 거절 사유는 그대로 올린다(원격 /tmp 가 찼다 같은 것).
+  if (!res.ok) throw new UploadError('server', data?.detail || `${res.status}`, `${res.status}`);
   return data;
 };
 
@@ -112,15 +183,21 @@ const postPasteFile = async (file, hostId, attempt = 0) => {
       signal: (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? AbortSignal.timeout(60000) : undefined,
     });
   } catch (err) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      throw new UploadError('offline', 'offline');
+    }
+    if (!(await isHttpPathAlive())) {
+      throw new UploadError('blocked', 'http path is wedged', String(err?.name || err));
+    }
     if (attempt < 1) return postPasteFile(file, hostId, attempt + 1);
-    throw err;
+    throw new UploadError('server', String(err?.message || err));
   }
 };
 
 export const uploadFileAndGetPath = async (file, hostId = null) => {
   const res = await postPasteFile(file, hostId);
   const data = await res.json().catch(() => null);
-  if (!res.ok) throw new Error(data?.detail || `${res.status}`);
+  if (!res.ok) throw new UploadError('server', data?.detail || `${res.status}`, `${res.status}`);
   return data;
 };
 

@@ -22,6 +22,7 @@ import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
 
 from vault import decrypt_str
+from ws_observe import log_client_error
 
 logger = logging.getLogger(__name__)
 
@@ -452,6 +453,17 @@ class HostBridge:
                         except Exception as e:
                             logger.debug("pong send failed (%s): %s", self.host.get("id"), e)
                         continue
+                    # 브라우저에서만 아는 실패 보고. HTTP 가 막혀도 이 소켓은 살아 있어
+                    # 여기가 유일한 통로다. PTY 로 절대 흘리지 않는다 — 원격 셸에
+                    # 타이핑되면 그게 더 큰 사고다(원격 pane 이 실제 실패 사례였다).
+                    if isinstance(msg, dict) and msg.get("type") == "client-error":
+                        log_client_error(
+                            session=getattr(self, "tmux_session", "") or str(self.host.get("id")),
+                            client_id=getattr(self, "client_id", None),
+                            scope=msg.get("scope"), kind=msg.get("kind"),
+                            detail=msg.get("detail"),
+                        )
+                        continue
                 raw = data.encode("utf-8", errors="replace") if isinstance(data, str) else data
                 off = 0
                 while off < len(raw):
@@ -760,6 +772,17 @@ class TailscaleHostBridge:
                                 await self.websocket.send_text('{"type":"pong"}')
                         except Exception as e:
                             logger.debug("pong send failed (%s): %s", self.host.get("id"), e)
+                        continue
+                    # 브라우저에서만 아는 실패 보고. HTTP 가 막혀도 이 소켓은 살아 있어
+                    # 여기가 유일한 통로다. PTY 로 절대 흘리지 않는다 — 원격 셸에
+                    # 타이핑되면 그게 더 큰 사고다(원격 pane 이 실제 실패 사례였다).
+                    if isinstance(msg, dict) and msg.get("type") == "client-error":
+                        log_client_error(
+                            session=getattr(self, "tmux_session", "") or str(self.host.get("id")),
+                            client_id=getattr(self, "client_id", None),
+                            scope=msg.get("scope"), kind=msg.get("kind"),
+                            detail=msg.get("detail"),
+                        )
                         continue
                 try:
                     raw = data.encode("utf-8") if isinstance(data, str) else data

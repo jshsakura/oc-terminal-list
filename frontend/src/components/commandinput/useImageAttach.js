@@ -39,9 +39,12 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
 
   useEffect(() => () => window.clearTimeout(errorTimerRef.current), []);
 
+  /* `blocked`(요청이 서버에 닿지도 못함)는 다른 사건이라 다르게 말해야 한다 — 사용자가
+     파일이나 호스트를 의심하게 두면 안 된다. 실제로 필요한 건 새로고침 하나다.
+     (terminal 붙여넣기 경로는 uploadWithRetry 로 blob 을 붙잡고 재시도까지 한다.) */
   const failUpload = (err) => {
     console.error('image upload failed', err);
-    setUploadState('error');
+    setUploadState(err?.kind === 'blocked' ? 'blocked' : 'error');
     window.clearTimeout(errorTimerRef.current);
     errorTimerRef.current = window.setTimeout(() => setUploadState(null), ERROR_HOLD_MS);
   };

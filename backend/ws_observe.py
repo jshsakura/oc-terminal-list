@@ -123,3 +123,41 @@ def log_detach(
         kind, _short(session), _short(client_id), lived,
         f" {reason}" if reason else "",
     )
+
+
+# 클라이언트가 보고할 수 있는 실패 범위/종류. 밖의 값은 `other` 로 접는다.
+CLIENT_ERROR_SCOPES = frozenset({"paste-image", "paste-file", "file-drop", "attach-image"})
+CLIENT_ERROR_KINDS = frozenset({"blocked", "offline", "server", "error"})
+_MAX_DETAIL_LEN = 120
+
+
+def _fold(value: str | None, allowed: frozenset[str]) -> str:
+    v = (value or "").strip()
+    return v if v in allowed else "other"
+
+
+def _clean_detail(raw: str | None) -> str:
+    """개행·제어문자를 걷어낸다 — 클라이언트 문자열이 가짜 로그 줄을 만들지 못하게."""
+    if not raw:
+        return ""
+    flat = "".join(c if c.isprintable() else " " for c in str(raw))
+    return " ".join(flat.split())[:_MAX_DETAIL_LEN]
+
+
+def log_client_error(*, session: str, client_id: str | None, scope: str | None,
+                     kind: str | None, detail: str | None) -> None:
+    """브라우저에서만 아는 실패 — **살아있는 WS 로** 올라온다.
+
+    HTTP 로 받으면 안 되는 이유가 이 로그의 존재 이유다: 알려야 할 상황이 바로 그 HTTP 가
+    막힌 때다. 실제로 업로드 실패 한 건이 서버·터널 어디에도 흔적이 없어(요청이 나가질
+    못했다) 원인을 추정으로만 좁혀야 했다. WS 는 매번 새 TCP 라 그때도 살아 있었다.
+
+    ⚠️ 전부 클라이언트가 준 값이다. 인증·동작에 쓰지 않고 로그로만 나가며,
+    화이트리스트 + 제어문자 제거로 로그 injection 을 막는다.
+    """
+    logger.warning(
+        "client error session=%s client=%s scope=%s kind=%s detail=%s",
+        _short(session), _short(client_id),
+        _fold(scope, CLIENT_ERROR_SCOPES), _fold(kind, CLIENT_ERROR_KINDS),
+        _clean_detail(detail) or "-",
+    )

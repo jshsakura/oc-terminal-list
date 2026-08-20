@@ -44,6 +44,7 @@ export const en = {
     imagePasteUploading: 'Uploading…',
     imagePasteDone: 'Path inserted',
     imagePasteError: 'Upload failed',
+    imagePasteBlocked: 'Connection is blocked — reload the page and try again',
     fileDropHint: 'Drop to upload — the path gets typed in',
     fileDropFolderUnsupported: 'Folders can’t be sent',
     shellEndedDesc: 'Reconnect to the existing shell.',

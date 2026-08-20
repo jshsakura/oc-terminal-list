@@ -121,11 +121,16 @@ export const FileDropOverlay = ({ themeUi, t }) => (
   </div>
 );
 
-/** 이미지/파일 붙여넣기 업로드 상태 — 'uploading' | 'done' | 'error' | 'folder'. */
+/** 이미지/파일 붙여넣기 업로드 상태 — 'uploading' | 'done' | 'error' | 'blocked' | 'folder'.
+ *
+ * `blocked` 는 **요청이 서버에 닿지도 못한** 경우다(공유 HTTP/2 연결이 막힘). 원인이
+ * 다르면 할 일도 다르다 — 그냥 "실패" 라고 하면 사용자는 파일이나 호스트를 의심하는데,
+ * 실제로 필요한 건 새로고침 하나다. 그래서 문구를 나눈다. */
 export const ImagePasteToast = ({ state, themeUi, t }) => {
   if (!state) return null;
+  const isBad = state === 'error' || state === 'folder' || state === 'blocked';
   return (
-    <CornerToast themeUi={themeUi} tone={state === 'error' || state === 'folder' ? 'error' : 'default'}>
+    <CornerToast themeUi={themeUi} tone={isBad ? 'error' : 'default'}>
       {state === 'uploading' && (
         <>
           <Loader2 size={11} strokeWidth={2} style={{ color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
@@ -142,6 +147,12 @@ export const ImagePasteToast = ({ state, themeUi, t }) => {
         <>
           <AlertTriangle size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
           {t('imagePasteError') || '이미지 업로드 실패'}
+        </>
+      )}
+      {state === 'blocked' && (
+        <>
+          <AlertTriangle size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
+          {t('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
         </>
       )}
       {state === 'folder' && (

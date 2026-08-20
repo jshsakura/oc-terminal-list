@@ -18,6 +18,8 @@ from collections import deque
 import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
 
+from ws_observe import log_client_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,9 +33,12 @@ MAX_PENDING_ITEMS = 8192
 class TmuxClientBridge:
     """단일 WebSocket과 tmux attach PTY 한 쌍의 라이프사이클."""
 
-    def __init__(self, websocket: WebSocket, session_id: str, attach_argv: list[str], cols: int, rows: int):
+    def __init__(self, websocket: WebSocket, session_id: str, attach_argv: list[str], cols: int, rows: int,
+                 client_id: str | None = None):
         self.websocket = websocket
         self.session_id = session_id
+        # 로그 상관용으로만 쓴다(WS attach/detach 와 같은 값이라 줄을 이어 읽을 수 있다).
+        self.client_id = client_id
         self.attach_argv = attach_argv
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)
@@ -273,6 +278,16 @@ class TmuxClientBridge:
                                 self.resize(int(msg.get("cols", self.cols)), int(msg.get("rows", self.rows)))
                             except Exception as e:
                                 logger.debug("resize control ignored (%s): %s", self.session_id, e)
+                            continue
+                        # 브라우저에서만 아는 실패 보고. HTTP 가 막혀도 이 소켓은 살아
+                        # 있으므로 여기가 유일한 통로다(ws_observe.log_client_error 참고).
+                        # PTY 로 절대 흘리지 않는다 — 셸에 타이핑되면 그게 더 큰 사고다.
+                        if mtype == "client-error":
+                            log_client_error(
+                                session=self.session_id, client_id=self.client_id,
+                                scope=msg.get("scope"), kind=msg.get("kind"),
+                                detail=msg.get("detail"),
+                            )
                             continue
                         # 클라이언트 하트비트 — half-open 소켓 감지용. PTY 로 흘리지 않고 pong 응답.
                         if mtype == "ping":

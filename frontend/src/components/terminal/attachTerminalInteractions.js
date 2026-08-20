@@ -5,7 +5,8 @@ import {
   shouldRouteWheelToPty,
   shouldClearSelectionOnScroll,
 } from '../../utils/terminalMouseSelection';
-import { copyTextToClipboard, uploadImageAndGetPath, pasteWhenConnected } from './terminalHelpers';
+import { copyTextToClipboard, uploadImageAndGetPath, pasteWhenConnected, reportClientError } from './terminalHelpers';
+import { uploadWithRetry } from './uploadRetry';
 import { getLinkAtClient } from '../../utils/terminalLinkAt';
 
 /**
@@ -136,26 +137,37 @@ const attachTerminalInteractions = ({
      ClipboardEvent.clipboardData 를 쓰므로 clipboard-read 권한이 필요 없다.
      capture 단계에서 xterm 자체 핸들러보다 먼저 잡아 중복 전송을 막는다.
      PTY 는 텍스트만 나르므로 이미지는 서버에 올리고 그 *경로* 를 대신 입력한다. */
+  /* 업로드가 막히면 **blob 을 붙잡고 다시 시도한다.** 예전에는 그 순간 이미지를 버려서
+     사용자가 다시 복사해 오는 수밖에 없었다 — 정작 원인은 공유 HTTP/2 연결이 막힌 것뿐이고
+     WebSocket 은 그동안에도 멀쩡히 살아 있다. 그래서 실패를 그 살아있는 WS 로 서버에
+     알린다(reportClientError) — HTTP 가 막힌 상황이라 다른 길이 없다. */
   const uploadPastedImage = async (blob) => {
-    setImagePasteState('uploading');
-    try {
-      const data = await uploadImageAndGetPath(blob, hostId);
-      // ⚠️ 200 을 받은 것과 경로가 셸에 도착한 것은 다른 사건이다. 재연결 중이면 입력 큐가
-      // 4초 뒤 그 항목을 버리므로(STALE_INPUT_MS), 넣을 수 있을 때까지 잠깐 기다린다.
-      const inserted = await pasteWhenConnected(term, `${data.path} `, getSocket); // 뒤 공백 — 이어서 타이핑할 수 있게
-      if (!inserted) {
-        logger.error('image paste: upload ok but terminal was not connected');
-        setImagePasteState('error');
+    const data = await uploadWithRetry({
+      attempt: () => uploadImageAndGetPath(blob, hostId),
+      onState: (state, err) => {
+        if (state === 'done') return;                 // 경로 삽입까지 끝난 뒤에 표시한다
+        if (state === 'uploading' || state === 'retrying') {
+          setImagePasteState('uploading');
+          return;
+        }
+        logger.error(`image paste upload ${state}`, err);
+        reportClientError(getSocket, { scope: 'paste-image', kind: err?.kind || state, detail: err?.detail });
+        setImagePasteState(state === 'blocked' ? 'blocked' : 'error');
         later(() => setImagePasteState(null), IMAGE_TOAST_ERROR_MS);
-        return;
-      }
-      setImagePasteState('done');
-      later(() => setImagePasteState(null), IMAGE_TOAST_DONE_MS);
-    } catch (err) {
-      logger.error('image paste upload failed', err);
+      },
+    });
+    if (!data) return;
+    // ⚠️ 200 을 받은 것과 경로가 셸에 도착한 것은 다른 사건이다. 재연결 중이면 입력 큐가
+    // 4초 뒤 그 항목을 버리므로(STALE_INPUT_MS), 넣을 수 있을 때까지 잠깐 기다린다.
+    const inserted = await pasteWhenConnected(term, `${data.path} `, getSocket); // 뒤 공백 — 이어서 타이핑할 수 있게
+    if (!inserted) {
+      logger.error('image paste: upload ok but terminal was not connected');
       setImagePasteState('error');
       later(() => setImagePasteState(null), IMAGE_TOAST_ERROR_MS);
+      return;
     }
+    setImagePasteState('done');
+    later(() => setImagePasteState(null), IMAGE_TOAST_DONE_MS);
   };
 
   const handlePaste = (e) => {

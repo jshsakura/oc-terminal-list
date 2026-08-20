@@ -145,6 +145,7 @@ async def terminal_websocket(
         attach_argv=tmux_manager.attach_argv(session_id),
         cols=cols,
         rows=rows,
+        client_id=client_id,
     )
     usage_event_id = None
     client_token = _register_ws_client("local", session_id, client_id, websocket)
