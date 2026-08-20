@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections.abc import Awaitable, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -44,6 +45,13 @@ router = APIRouter(prefix="/api/itl", tags=["itl"])
 
 # 한 번에 보낼 수 있는 대상 수 상한 — @all 오타 하나로 전 터미널에 명령이 박히는 걸 막는다.
 MAX_FANOUT = 20
+# 상태 주소(`@working`)는 매칭 전에 상태를 알아야 해서 한 호스트에 두 단계(상태 조회 →
+# 배달)가 돈다. 두 단계가 각자 HOST_DEADLINE(20s)을 쓰면 합이 호출자 상한(CLI·MCP = 30s)을
+# 넘겨 **배달됐는데 실패로 읽히고 재시도가 중복 전송**이 된다. 그래서 예산은 하나를 나눠
+# 쓴다: 상태 조회에 쓴 시간을 배달 몫에서 뺀다.
+STATUS_PHASE_BUDGET = itl_remote.HOST_DEADLINE / 2
+# 다만 배달 몫이 0 이 되면 안 된다 — 상태 조회가 예산을 다 먹어도 배달은 시도해 본다.
+MIN_DELIVER_DEADLINE = 5.0
 MAX_TEXT_CHARS = 8000
 MAX_READ_LINES = 200
 MAX_READ_CHARS = 20_000
@@ -157,8 +165,16 @@ async def _fill_remote_status(targets: list[dict], username: str) -> list[dict]:
     fetched = await asyncio.gather(*[
         itl_remote.list_pane_status(host_id, username) for host_id in host_ids
     ])
-    by_host = dict(zip(host_ids, fetched, strict=True))
+    return _apply_status_tables(targets, dict(zip(host_ids, fetched, strict=True)))
 
+
+def _apply_status_tables(targets: list[dict], by_host: dict[str, dict]) -> list[dict]:
+    """호스트별 상태 표를 target 목록에 얹는다 — 채우기 경로들의 **단일 판정**.
+
+    이 함수가 따로 있는 이유: 상태를 채우는 길이 둘이다(자기 연결을 여는
+    `_fill_remote_status`, 팬아웃의 공유 채널을 쓰는 `_fill_status_over`). 판정이
+    갈리면 한쪽만 "모름" 을 "일 안 함" 으로 접어 상태 주소가 다시 거짓말을 시작한다.
+    """
     filled: list[dict] = []
     for target in targets:
         if target.get("sessionId") or not target.get("hostId"):
@@ -347,17 +363,93 @@ def _is_self(target: dict, from_session: str | None) -> bool:
     return bool(from_session) and from_session in (target.get("sessionId"), target.get("tmuxSession"))
 
 
+class _HostChannels:
+    """호스트당 SSH 연결을 **한 번만** 열고 팬아웃이 끝날 때까지 재사용한다.
+
+    `@working` 같은 상태 주소는 매칭 전에 상태를 알아야 하는데(안 그러면 원격이 통째로
+    빠진다), 상태 조회와 배달이 각자 연결을 열면 **호스트당 왕복이 두 번**이 된다.
+    그러면 이 저장소가 이미 적어 둔 함정을 그대로 밟는다 — 백엔드 상한(20s)이 호출자
+    상한(30s)을 넘겨 **배달됐는데 실패로 읽히고 재시도가 중복 전송**이 된다.
+
+    실패는 기억한다. 못 연 호스트를 매번 다시 열려고 하면 죽은 호스트 하나가 마감시한을
+    통째로 먹는다.
+    """
+
+    def __init__(self, username: str) -> None:
+        self._username = username
+        self._open: dict[str, itl_remote.RemoteChannel] = {}
+        self._failed: set[str] = set()
+
+    async def get(self, host_id: str) -> itl_remote.RemoteChannel | None:
+        if host_id in self._open:
+            return self._open[host_id]
+        if host_id in self._failed:
+            return None
+        try:
+            channel = await asyncio.wait_for(
+                itl_remote.open_channel(host_id, self._username),
+                timeout=itl_remote.REMOTE_CONNECT_TIMEOUT,
+            )
+        except Exception as e:
+            logger.info("itl channel open failed (host=%s): %s", host_id, e)
+            self._failed.add(host_id)
+            return None
+        self._open[host_id] = channel
+        return channel
+
+    async def aclose(self) -> None:
+        channels, self._open = list(self._open.values()), {}
+        # 하나가 못 닫혀도 나머지는 닫는다 — 열어 둔 SSH 가 남으면 그게 다음 사고다.
+        await asyncio.gather(*[c.close() for c in channels], return_exceptions=True)
+
+
+async def _fill_status_over(channels: _HostChannels, targets: list[dict]) -> list[dict]:
+    """`_fill_remote_status` 와 **같은 판정**, 다만 이미 열린 채널 위에서 돈다.
+
+    ⚠️ 두 함수는 "못 물어본 것은 `statusUnknown`" 규칙을 반드시 같이 지켜야 한다.
+    한쪽만 빈 상태를 "일 안 함" 으로 접으면 상태 주소가 다시 거짓말을 시작한다.
+    """
+    host_ids = sorted({
+        t["hostId"] for t in targets if not t.get("sessionId") and t.get("hostId")
+    })
+    if not host_ids:
+        return targets
+
+    async def one(host_id: str) -> dict[str, tuple[str, str]]:
+        channel = await channels.get(host_id)
+        if channel is None:
+            return {}
+        try:
+            return itl_remote.parse_list_status(
+                await channel.run(itl_remote.build_list_status_cmd())
+            )
+        except Exception as e:
+            logger.info("itl remote status over shared channel failed (host=%s): %s", host_id, e)
+            return {}
+
+    fetched = await asyncio.gather(*[one(h) for h in host_ids])
+    return _apply_status_tables(targets, dict(zip(host_ids, fetched, strict=True)))
+
+
 async def _deliver_to_host(
     host_id: str,
     targets: list[dict],
     username: str,
     deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]],
     outcome: dict[str, dict],
+    *,
+    channels: _HostChannels | None = None,
+    deadline: float = itl_remote.HOST_DEADLINE,
 ) -> None:
     """한 호스트의 대상 전부 — **연결 하나**로. 예외는 여기서 흡수한다.
 
     호스트 하나가 죽었다고 팬아웃 전체가 실패하면 안 되고, 그렇다고 배달 못 한 것을
     delivered 로 세도 안 된다. 그래서 모든 갈래가 outcome 에 사유를 남긴다.
+
+    `channels` 가 오면 그 호스트 채널을 **이미 열려 있는 것으로 재사용**한다(상태 주소
+    경로). `deadline` 은 그때 상태 조회에 쓴 시간을 뺀 나머지다 — 두 단계를 각자
+    HOST_DEADLINE 으로 두면 합이 호출자 상한(30s)을 넘어, 배달됐는데 실패로 읽히고
+    재시도가 중복 전송이 된다.
     """
     def mark_rest(reason: str) -> None:
         for target in targets:
@@ -365,8 +457,9 @@ async def _deliver_to_host(
 
     try:
         await asyncio.wait_for(
-            _deliver_to_host_inner(host_id, targets, username, deliver_remote, outcome),
-            timeout=itl_remote.HOST_DEADLINE,
+            _deliver_to_host_inner(host_id, targets, username, deliver_remote, outcome,
+                                   channels=channels),
+            timeout=max(deadline, MIN_DELIVER_DEADLINE),
         )
     except TimeoutError:
         logger.warning("itl remote fanout deadline (host=%s, %d targets)", host_id, len(targets))
@@ -382,30 +475,49 @@ async def _deliver_to_host_inner(
     username: str,
     deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]],
     outcome: dict[str, dict],
+    *,
+    channels: _HostChannels | None = None,
 ) -> None:
+    if channels is not None:
+        channel = await channels.get(host_id)
+        if channel is None:
+            raise ConnectionError(f"채널을 열지 못했습니다: {host_id}")
+        await _deliver_over(channel, host_id, targets, deliver_remote, outcome)
+        return
     async with await itl_remote.open_channel(host_id, username) as channel:
-        for target in targets:
-            addr, tmux_session = target["addr"], target["tmuxSession"]
-            try:
-                found = await itl_remote.probe(channel, tmux_session)
-            except Exception as e:
-                logger.warning("itl remote probe failed (%s/%s): %s", host_id, tmux_session, e)
-                outcome[addr] = _skip(target, REASON_UNREACHABLE)
-                continue
-            if found is None:
-                outcome[addr] = _skip(target, REASON_GONE)
-                continue
-            try:
-                await deliver_remote(channel, tmux_session, found)
-            except itl_remote.RemoteSendError as e:
-                logger.warning("itl remote send unconfirmed (%s/%s): %s", host_id, tmux_session, e)
-                outcome[addr] = _skip(target, REASON_SEND_FAILED)
-            except Exception as e:
-                logger.warning("itl remote deliver failed (%s/%s): %s", host_id, tmux_session, e)
-                outcome[addr] = _skip(target, REASON_UNREACHABLE)
-            else:
-                outcome[addr] = {"delivered": {"addr": addr, "hostId": host_id,
-                                               "tmuxSession": tmux_session}}
+        await _deliver_over(channel, host_id, targets, deliver_remote, outcome)
+
+
+async def _deliver_over(
+    channel: itl_remote.RemoteChannel,
+    host_id: str,
+    targets: list[dict],
+    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]],
+    outcome: dict[str, dict],
+) -> None:
+    """열려 있는 채널 하나로 그 호스트의 대상 전부에 배달한다."""
+    for target in targets:
+        addr, tmux_session = target["addr"], target["tmuxSession"]
+        try:
+            found = await itl_remote.probe(channel, tmux_session)
+        except Exception as e:
+            logger.warning("itl remote probe failed (%s/%s): %s", host_id, tmux_session, e)
+            outcome[addr] = _skip(target, REASON_UNREACHABLE)
+            continue
+        if found is None:
+            outcome[addr] = _skip(target, REASON_GONE)
+            continue
+        try:
+            await deliver_remote(channel, tmux_session, found)
+        except itl_remote.RemoteSendError as e:
+            logger.warning("itl remote send unconfirmed (%s/%s): %s", host_id, tmux_session, e)
+            outcome[addr] = _skip(target, REASON_SEND_FAILED)
+        except Exception as e:
+            logger.warning("itl remote deliver failed (%s/%s): %s", host_id, tmux_session, e)
+            outcome[addr] = _skip(target, REASON_UNREACHABLE)
+        else:
+            outcome[addr] = {"delivered": {"addr": addr, "hostId": host_id,
+                                           "tmuxSession": tmux_session}}
 
 
 async def _fanout_deliver(
@@ -431,6 +543,53 @@ async def _fanout_deliver(
     """
     check_rate_limit(bucket, max_attempts=RATE_LIMIT_MAX, window_seconds=RATE_LIMIT_WINDOW)
     targets = await _targets_for(username)
+
+    # `@working` 처럼 주소가 **상태로** 대상을 고르면 매칭 전에 상태를 채워야 한다.
+    # 원격 pane 의 status 는 워처가 못 봐서 비어 있고, 빈 값은 어떤 상태 그룹에도 안 맞아
+    # **원격이 통째로 조용히 빠진다** — 호출자는 그걸 "원격은 안 돌고 있다" 로 읽는다.
+    #
+    # 채널은 그때 열어 **배달까지 재사용**한다. 따로 열면 호스트당 왕복이 두 번이 되고,
+    # 그러면 시간 예산이 호출자 상한을 넘겨 중복 전송을 부른다(STATUS_PHASE_BUDGET 주석).
+    channels: _HostChannels | None = None
+    status_elapsed = 0.0
+    if deliver_remote is not None and references_status_group(to):
+        channels = _HostChannels(username)
+        started = time.monotonic()
+        try:
+            targets = await asyncio.wait_for(
+                _fill_status_over(channels, targets), timeout=STATUS_PHASE_BUDGET,
+            )
+        except TimeoutError:
+            # 못 물어본 것은 그대로 "모름" 이라 상태 그룹에 안 걸린다 — 조용히 틀린 답을
+            # 주는 대신 대상에서 빠지는 쪽이 맞다.
+            logger.warning("itl status phase deadline (to=%s)", to)
+        status_elapsed = time.monotonic() - started
+
+    try:
+        return await _fanout_after_resolve(
+            targets, to, from_session, username,
+            bucket=bucket, deliver_local=deliver_local, deliver_remote=deliver_remote,
+            exclude_self=exclude_self, channels=channels, status_elapsed=status_elapsed,
+        )
+    finally:
+        if channels is not None:
+            await channels.aclose()
+
+
+async def _fanout_after_resolve(
+    targets: list[dict],
+    to: str,
+    from_session: str | None,
+    username: str,
+    *,
+    bucket: str,
+    deliver_local: Callable[[str], Awaitable[None]],
+    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]] | None,
+    exclude_self: bool,
+    channels: _HostChannels | None,
+    status_elapsed: float,
+) -> dict:
+    """해소부터 배달까지 — 상태 채우기가 끝난 뒤의 나머지 전부."""
     matched = resolve(targets, to, from_session)
     if not matched:
         raise HTTPException(status_code=404, detail=f"'{to}' 에 해당하는 터미널이 없습니다")
@@ -465,8 +624,10 @@ async def _fanout_deliver(
         outcome[target["addr"]] = {"delivered": {"addr": target["addr"], "sessionId": session_id}}
 
     if remote_by_host and deliver_remote:
+        remaining = itl_remote.HOST_DEADLINE - status_elapsed
         await asyncio.gather(*[
-            _deliver_to_host(host_id, host_targets, username, deliver_remote, outcome)
+            _deliver_to_host(host_id, host_targets, username, deliver_remote, outcome,
+                             channels=channels, deadline=remaining)
             for host_id, host_targets in remote_by_host.items()
         ])
 
