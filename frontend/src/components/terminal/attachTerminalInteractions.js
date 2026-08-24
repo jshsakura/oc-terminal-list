@@ -166,7 +166,8 @@ const attachTerminalInteractions = ({
       later(() => setImagePasteState(null), IMAGE_TOAST_ERROR_MS);
       return;
     }
-    setImagePasteState('done');
+    // The estimate rides on the toast: cost is only actionable at the moment of pasting.
+    setImagePasteState(data.tokens ? { kind: 'done', tokens: data.tokens } : 'done');
     later(() => setImagePasteState(null), IMAGE_TOAST_DONE_MS);
   };
 

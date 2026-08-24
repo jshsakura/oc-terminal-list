@@ -473,6 +473,7 @@ export const en = {
     cameraError: 'Could not start the camera.',
     cameraUnsupported: 'This browser/context has no camera access (HTTPS required).',
     imageUploading: 'Uploading image…',
+    imageAttached: 'Image attached',
     imageUploadFailed: 'Upload failed',
     voiceInput: 'Voice input',
     voiceInputStart: 'Start voice input',

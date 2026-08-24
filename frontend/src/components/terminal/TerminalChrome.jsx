@@ -128,34 +128,44 @@ export const FileDropOverlay = ({ themeUi, t }) => (
  * 실제로 필요한 건 새로고침 하나다. 그래서 문구를 나눈다. */
 export const ImagePasteToast = ({ state, themeUi, t }) => {
   if (!state) return null;
-  const isBad = state === 'error' || state === 'folder' || state === 'blocked';
+  // A caller may pass a bare kind or `{ kind, tokens }` — the estimate is optional detail,
+  // never a second toast.
+  const kind = typeof state === 'string' ? state : state?.kind;
+  const tokens = typeof state === 'object' ? state?.tokens : null;
+  if (!kind) return null;
+  const isBad = kind === 'error' || kind === 'folder' || kind === 'blocked';
   return (
     <CornerToast themeUi={themeUi} tone={isBad ? 'error' : 'default'}>
-      {state === 'uploading' && (
+      {kind === 'uploading' && (
         <>
           <Loader2 size={11} strokeWidth={2} style={{ color: themeUi.accent, animation: 'tl-spin 0.8s linear infinite' }} />
           {t('imagePasteUploading') || '이미지 업로드 중...'}
         </>
       )}
-      {state === 'done' && (
+      {kind === 'done' && (
         <>
           <ArrowDownToLine size={11} strokeWidth={2} style={{ color: themeUi.accent }} />
           {t('imagePasteDone') || '이미지 경로 입력됨'}
+          {tokens ? (
+            <span style={{ opacity: 0.62, fontVariantNumeric: 'tabular-nums' }}>
+              {`≈${tokens.toLocaleString()} tok`}
+            </span>
+          ) : null}
         </>
       )}
-      {state === 'error' && (
+      {kind === 'error' && (
         <>
           <AlertTriangle size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
           {t('imagePasteError') || '이미지 업로드 실패'}
         </>
       )}
-      {state === 'blocked' && (
+      {kind === 'blocked' && (
         <>
           <AlertTriangle size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
           {t('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
         </>
       )}
-      {state === 'folder' && (
+      {kind === 'folder' && (
         <>
           <FolderX size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
           {t('fileDropFolderUnsupported') || '폴더는 보낼 수 없습니다'}

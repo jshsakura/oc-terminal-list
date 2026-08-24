@@ -368,6 +368,15 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           </Button>
         </footer>
 
+        {/* 첨부의 예상 토큰 — 보낼 대상이 읽을 때 드는 값이다. 지금 지우면 안 든다. */}
+        {!image.uploadState && image.attachedTokens > 0 && (
+          <div style={styles.statusBar}>
+            <span style={{ opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
+              {`${t?.('imageAttached') || '이미지 첨부'} · ≈${image.attachedTokens.toLocaleString()} tok`}
+            </span>
+          </div>
+        )}
+
         {/* 업로드 상태 — footer 버튼 줄을 어지럽히지 않게 모달 하단 전용 영역에 표시. */}
         {image.uploadState && (
           <div style={styles.statusBar}>

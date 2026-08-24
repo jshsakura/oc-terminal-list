@@ -59,7 +59,9 @@ describe('업로드 실패 분류', () => {
       if (uploads === 1) return Promise.reject(new TypeError('one-off'));
       return Promise.resolve({ ok: true, json: async () => ({ path: '/tmp/x.webp' }) });
     });
-    await expect(uploadImageAndGetPath(blob(), null)).resolves.toEqual({ path: '/tmp/x.webp' });
+    // tokens 는 예상 청구량 — 디코드가 안 되면 0 이 아니라 null(모름) 이다.
+    await expect(uploadImageAndGetPath(blob(), null))
+      .resolves.toEqual({ path: '/tmp/x.webp', tokens: null });
     expect(uploads).toBe(2);
   });
 

@@ -475,6 +475,7 @@ export const ko = {
     cameraError: '카메라를 시작할 수 없습니다.',
     cameraUnsupported: '이 브라우저/환경에서는 카메라를 쓸 수 없습니다(HTTPS 필요).',
     imageUploading: '이미지 업로드 중…',
+    imageAttached: '이미지 첨부',
     imageUploadFailed: '업로드 실패',
     voiceInput: '음성 입력',
     voiceInputStart: '음성 입력 시작',

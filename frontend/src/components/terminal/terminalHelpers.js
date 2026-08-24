@@ -5,6 +5,9 @@
 import { authHeaders } from '../../utils/auth';
 import { copyToClipboard } from '../../utils/clipboard';
 import { createWsTicketBatcher } from '../../utils/wsTicketBatch';
+import {
+  estimateImageTokens, fitWithin, findContentBox, scaleBoxToSource,
+} from '../../utils/pasteImageOptimize';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -33,34 +36,76 @@ export const looksLikeRecoverableBulkInput = (data) => {
   return looksLikeBulkCommand(cleaned);
 };
 
-// 붙여넣은 이미지를 업로드 전에 다운스케일/재인코딩. 스크린샷 PNG 는 수 MB 라 공유 터널로
-// 그대로 올리면 느려서 "업로드 중" 이 한참 돈다. 긴 변 2048px 로 줄이고 WebP(q0.85)로 재인코딩하면
-// 보통 수백 KB 로 떨어져 즉시 올라간다. 작은 이미지·재인코딩 불가 포맷(gif/svg)·실패 시 원본 그대로.
-const MAX_PASTE_IMAGE_DIM = 2048;
-const PASTE_IMAGE_COMPRESS_OVER_BYTES = 768 * 1024;
+/**
+ * Shrink a pasted image before it is uploaded — for tokens first, bytes second.
+ *
+ * Bytes were the original reason (a multi-MB screenshot crawls through the shared tunnel and
+ * the "uploading" toast spins). Tokens are the bigger one, and they follow a different rule:
+ * the API bills pixels, not bytes, after its own resize to 1568 / 1.15M pixels. So the old
+ * 2048px cap saved zero tokens — measured, a 664KB PNG and an 8KB PNG both cost 1,533.
+ * 1024 is where saving starts, and a retina capture is 2x oversampled, so it lands near 1:1.
+ *
+ * Cropping runs first because it is free of that trade-off: dropping a uniform border removes
+ * pixels without shrinking a single glyph the model has to read.
+ *
+ * Returns `{ blob, width, height, tokens }` — `tokens` is null when the image could not be
+ * decoded (gif/svg, no createImageBitmap), which is honest: unknown, not zero.
+ */
+const MAX_PASTE_IMAGE_DIM = 1024;
+const RECOMPRESS_OVER_BYTES = 768 * 1024;
+const CROP_PROBE_EDGE = 64;
+
+// Border detection runs on a thumbnail: a 4K paste would otherwise allocate 33MB of ImageData
+// on a phone to answer a question that survives downsampling.
+const probeContentBox = (bmp) => {
+  try {
+    const probe = fitWithin(bmp.width, bmp.height, CROP_PROBE_EDGE);
+    const canvas = document.createElement('canvas');
+    canvas.width = probe.width;
+    canvas.height = probe.height;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.drawImage(bmp, 0, 0, probe.width, probe.height);
+    const box = findContentBox(ctx.getImageData(0, 0, probe.width, probe.height));
+    if (!box) return null;
+    return scaleBoxToSource(box, probe.width, probe.height, bmp.width, bmp.height);
+  } catch {
+    return null;   // tainted canvas, OOM, anything — cropping is an optimization, not a feature
+  }
+};
+
 export const compressPastedImage = async (blob) => {
   try {
-    if (!/^image\/(png|jpe?g|webp|bmp)$/.test(blob.type || '')) return blob;
-    if (typeof createImageBitmap !== 'function') return blob;
+    if (!/^image\/(png|jpe?g|webp|bmp)$/.test(blob.type || '')) return { blob, tokens: null };
+    if (typeof createImageBitmap !== 'function') return { blob, tokens: null };
     const bmp = await createImageBitmap(blob);
-    const longest = Math.max(bmp.width, bmp.height);
-    const scale = Math.min(1, MAX_PASTE_IMAGE_DIM / longest);
-    if (scale === 1 && blob.size < PASTE_IMAGE_COMPRESS_OVER_BYTES) { bmp.close?.(); return blob; }
-    const w = Math.max(1, Math.round(bmp.width * scale));
-    const h = Math.max(1, Math.round(bmp.height * scale));
+    const crop = probeContentBox(bmp) || { x: 0, y: 0, width: bmp.width, height: bmp.height };
+    const target = fitWithin(crop.width, crop.height, MAX_PASTE_IMAGE_DIM);
+    const cropped = crop.width !== bmp.width || crop.height !== bmp.height;
+    const tokens = estimateImageTokens(target.width, target.height);
+    // Nothing to gain: already small in both pixels and bytes.
+    if (!cropped && target.scale === 1 && blob.size < RECOMPRESS_OVER_BYTES) {
+      bmp.close?.();
+      return { blob, width: bmp.width, height: bmp.height, tokens };
+    }
     const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
+    canvas.width = target.width;
+    canvas.height = target.height;
     const ctx = canvas.getContext('2d');
-    if (!ctx) { bmp.close?.(); return blob; }
-    ctx.drawImage(bmp, 0, 0, w, h);
+    if (!ctx) { bmp.close?.(); return { blob, tokens }; }
+    ctx.drawImage(bmp, crop.x, crop.y, crop.width, crop.height, 0, 0, target.width, target.height);
     bmp.close?.();
     const out = await new Promise((resolve) => {
       try { canvas.toBlob(resolve, 'image/webp', 0.85); } catch { resolve(null); }
     });
-    if (!out || out.size >= blob.size) return blob; // 외려 커지면 원본
-    return out;
+    // A bigger file for the same pixels is a loss — but only when the pixels really are the
+    // same. After a crop or a downscale the token win stands regardless of byte size.
+    if (!out || (out.size >= blob.size && !cropped && target.scale === 1)) {
+      return { blob, tokens };
+    }
+    return { blob: out, width: target.width, height: target.height, tokens };
   } catch {
-    return blob;
+    return { blob, tokens: null };
   }
 };
 
@@ -161,12 +206,13 @@ const postPasteImage = async (sendBlob, hostId, attempt = 0) => {
 // PTY 는 텍스트만 전달하므로 이미지 자체는 못 보냄 → 경로로 우회.
 // 데스크톱(Terminal 클립보드 붙여넣기)·모바일(빠른입력창 첨부/붙여넣기) 공용.
 export const uploadImageAndGetPath = async (blob, hostId = null) => {
-  const sendBlob = await compressPastedImage(blob);
+  const { blob: sendBlob, tokens } = await compressPastedImage(blob);
   const res = await postPasteImage(sendBlob, hostId);
   const data = await res.json().catch(() => null);
   // 서버가 답을 했다 = 도착은 했다. 거절 사유는 그대로 올린다(원격 /tmp 가 찼다 같은 것).
   if (!res.ok) throw new UploadError('server', data?.detail || `${res.status}`, `${res.status}`);
-  return data;
+  // The estimate rides along so the toast can show what this paste will cost.
+  return { ...data, tokens };
 };
 
 // 임의 파일(사진 포함) 업로드 → 저장 경로 메타({ path, size, scope }). 압축 없음.

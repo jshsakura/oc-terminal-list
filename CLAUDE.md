@@ -851,6 +851,40 @@ Filenames are `<timestamp>-<random>-<safe-basename>`. **The timestamp alone is n
 
 **Broadcasting an attachment to panes on different hosts uploads to each host.** One path cannot be valid on two machines, but the send already fans out per pane, so the path is swapped per pane too (`useImageAttach.resolveTextForTargets`). The image goes up once when pasted (to the focused pane's host, so the user sees a real path) and again per additional host at send time, cached so a host is never hit twice. If one host's upload fails, only that pane keeps the unusable path — the rest still send. When there is no attachment the send stays **fully synchronous**; adding an `await` to the common path costs perceptible latency.
 
+## 붙여넣은 이미지의 토큰 — 바이트가 아니라 픽셀이다 (2026-08-24)
+
+이 앱은 이미지를 pane 이 사는 기계의 `/tmp` 에 올리고 **경로만** 넣는다. 그 경로를
+에이전트가 읽는 순간 비용이 생기고, 그 비용의 규칙은 파일 크기와 무관하다:
+
+- API 는 **긴 변 1568 / 총 1.15M 픽셀**로 먼저 줄인 뒤 `w*h/750` 으로 청구한다.
+  실측(이 저장소 트랜스크립트): **664KB PNG 와 8KB PNG 가 똑같이 1,533 tok**.
+- 그래서 WebP 재인코딩은 **업로드 시간만** 아낀다(그건 그대로 가치 있다 — wedge 대응).
+  그리고 긴 변 2048 → 1568 로 낮춰도 **절감은 0** 이다. 위 상한이 이미 걸리기 때문.
+  실제로 줄이려면 **1.15M 픽셀 아래**로 내려가야 한다.
+- ⚠️ **한 번 들어간 이미지는 그 세션이 끝날 때까지 매 요청에 다시 실린다.** 실측 38개
+  세션에서 최초 242K 토큰이 **129M(533배)** 으로 재청구됐다(최악: 이미지 13장 → 요청
+  1,386회 → 16.9M). **붙일 때 아낀 1토큰이 수백 배로 돌아온다** — 이 절의 근거 전부가 이것.
+
+지금 동작(`components/terminal/terminalHelpers.js` + `utils/pasteImageOptimize.js`):
+
+| 순서 | 무엇 | 왜 |
+|---|---|---|
+| 1 | 단색 여백 자동 크롭 | 축소와 달리 **글자 크기를 안 줄이면서** 픽셀만 뺀다 |
+| 2 | 긴 변 **1024** 상한 | 레티나(2배) 캡처는 여기서 사실상 1:1 — 1999×1500 이 1,533 → 1,049 tok |
+| 3 | WebP q0.85 재인코딩 | 바이트(업로드 시간)용 |
+| 4 | 예상 토큰 표시 | 토스트와 빠른입력 하단에 `≈1,049 tok` — 비용은 **붙이는 순간에만** 조정 가능하다 |
+
+- **크롭 판정은 썸네일(긴 변 64px)에서 한다.** 4K 붙여넣기를 원본 해상도로
+  `getImageData` 하면 폰에서 33MB 를 잡는다. 되돌릴 때 여유 2px 을 준다.
+- 모서리 색이 서로 다르거나 잘라낸 뒤가 원본의 5% 미만이면 **크롭을 포기**한다 —
+  판정이 틀렸을 가능성이 높은 쪽에 건다.
+- ⚠️ **예전 `blob.size < 768KB` 게이트가 가장 흔한 케이스를 통째로 빠뜨렸다.** 치수 상한은
+  파일 크기와 무관하게 항상 적용해야 한다(재인코딩만 크기를 기준으로 판단한다).
+- 디코드 못 하는 포맷(gif/svg)·`createImageBitmap` 없음 → `tokens` 는 **0 이 아니라 null**.
+  0 으로 채우면 "안 든다" 와 구별되지 않는다(이 저장소의 "모른다고 적는 것이 기능" 규칙).
+- 절감의 **상한은 잔존**이다: 이미지 한 장은 그 세션 내내 실려 나가므로, 이미지 작업이
+  끝나면 `/clear`·`/compact` 로 컨텍스트를 비우는 것이 어떤 리사이즈보다 크게 아낀다.
+
 ## Telegram notifications (buttons that work on iOS)
 
 Web push delivers notifications, but **`showNotification` action buttons are not rendered on iOS** — on an iPhone the "계속" button simply does not appear. So Telegram carries the notifications that need buttons; web push stays for plain ones.

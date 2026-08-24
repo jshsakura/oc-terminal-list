@@ -36,6 +36,11 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
    * 두 번 올리지 않도록 호스트별 경로를 캐시한다. 로컬은 키가 '' 다.
    */
   const attachmentsRef = useRef([]);
+  /* What the attached images will cost when an agent reads them. Kept as state (the list
+     itself is a ref) because the number is only useful while it is on screen, next to the
+     send button — cost is actionable before sending, not after. */
+  const [attachedTokens, setAttachedTokens] = useState(0);
+  const sumTokens = () => attachmentsRef.current.reduce((n, a) => n + (a.tokens || 0), 0);
 
   useEffect(() => () => window.clearTimeout(errorTimerRef.current), []);
 
@@ -54,8 +59,9 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
     const data = await uploadImageAndGetPath(blob, hostId);
     attachmentsRef.current = [
       ...attachmentsRef.current,
-      { blob, pathByHost: { [hostId || '']: data.path } },
+      { blob, tokens: data.tokens || 0, pathByHost: { [hostId || '']: data.path } },
     ];
+    setAttachedTokens(sumTokens());
     insertAtCursor(`${data.path} `);
   };
 
@@ -139,7 +145,7 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
   const hasAttachments = () => attachmentsRef.current.length > 0;
 
   /** 전송이 끝나면 첨부 기록을 비운다 — 다음 명령에 옛 경로가 딸려가지 않게. */
-  const clearAttachments = () => { attachmentsRef.current = []; };
+  const clearAttachments = () => { attachmentsRef.current = []; setAttachedTokens(0); };
 
   const openPicker = () => fileInputRef.current?.click();
 
@@ -167,6 +173,7 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
     fileInputRef,
     uploadState,
     uploadProgress,
+    attachedTokens,
     isUploading: uploadState === 'uploading',
     openPicker,
     handleFileChange,
