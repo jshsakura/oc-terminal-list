@@ -8,6 +8,7 @@ import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
 import { authHeaders } from '../utils/auth';
 import SkeletonRow from './common/SkeletonRow';
+import useDeadSessions from '../hooks/useDeadSessions';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 
@@ -44,6 +45,9 @@ const HomeSessions = ({
     [hosts],
   );
   const [tmuxByHost, setTmuxByHost] = useState({});
+  // Rows left behind by closed tabs. Shown only when there are some — an always-visible
+  // "0 to clean" line is chrome, not information.
+  const dead = useDeadSessions(isVisible);
 
   const fetchHostSessions = useCallback(async (host) => {
     // 단건 재조회 — kill 후 즉시 reflect 등 특정 호스트만 다시 가져올 때 사용.
@@ -202,6 +206,35 @@ const HomeSessions = ({
         @keyframes home-busy-blink { 0%,100%{opacity:.5} 50%{opacity:1} }
         .home-iconbox-busy-dot { animation: home-busy-blink 1.1s ease-in-out infinite; }
       `}</style>
+
+      {/* 정리할 수 있는 기록 — 닫힌 탭이 남긴 세션 행. 있을 때만 나온다. */}
+      {dead.count > 0 && (
+        <button
+          type="button"
+          disabled={dead.pruning}
+          onClick={() => onConfirm?.({
+            title: t?.('pruneSessionsTitle') || '오래된 세션 기록 정리',
+            message: (t?.('pruneSessionsMessage')
+              || '이미 종료된 tmux 세션의 기록 {n}개를 지웁니다. 실행 중인 세션과 터미널에는 영향이 없습니다.')
+              .replace('{n}', dead.count),
+            onConfirm: async () => {
+              try {
+                const removed = await dead.prune();
+                onNotify?.((t?.('pruneSessionsDone') || '세션 기록 {n}개를 정리했습니다.')
+                  .replace('{n}', removed));
+              } catch (err) {
+                onNotify?.(err?.message || String(err));
+              }
+            },
+          })}
+          style={S.pruneRow}
+        >
+          <Trash2 size={11} strokeWidth={2.2} style={{ color: color.subtext, flexShrink: 0 }} />
+          <span>
+            {(t?.('pruneSessionsHint') || '종료된 세션 기록 {n}개 · 정리').replace('{n}', dead.count)}
+          </span>
+        </button>
+      )}
 
       {/* Open 그룹 — 현재 열려있는 탭 */}
       {openTabs.length > 0 && (
@@ -592,6 +625,22 @@ const S = {
     color: color.subtext,
     textTransform: 'uppercase',
     letterSpacing: '0.08em',
+  },
+  /* 정리 줄 — 섹션이 아니라 한 줄짜리 버튼이다. 자주 하는 일이 아니므로 카드 자리를
+     차지하면 안 되고, 그렇다고 메뉴 깊이 넣으면 아무도 못 찾는다. */
+  pruneRow: {
+    display: 'inline-flex',
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    gap: '6px',
+    padding: '4px 9px',
+    borderRadius: radius.sm,
+    border: `1px solid ${color.border}`,
+    background: 'transparent',
+    color: color.subtext,
+    fontFamily: font.ui,
+    fontSize: fontSize['11'],
+    cursor: 'pointer',
   },
   headHint: {
     display: 'inline-flex',

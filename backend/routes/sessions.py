@@ -41,6 +41,30 @@ async def list_sessions(username: str = Depends(verify_auth_token)):
     return [{**s, "alive": s["id"] in live} for s in db_sessions]
 
 
+@router.post("/api/sessions/prune")
+async def prune_sessions(username: str = Depends(verify_auth_token)):
+    """Drop DB rows for tmux sessions that no longer exist.
+
+    ⚠️ Registered **before** `/api/sessions/{session_id}` on purpose: FastAPI takes the first
+    route that matches, so behind the parameterised one this literal path would be read as a
+    session named "prune" and quietly create a session instead of pruning.
+
+    ⚠️ An empty tmux list is not proof that every session died — it is also what a stopped
+    tmux server looks like. Deleting on that reading would wipe every row the moment the
+    server blipped (the same mistake that once unwrapped split tabs), so it refuses instead.
+    """
+    if not await tmux_manager.server_alive():
+        raise HTTPException(status_code=409, detail="tmux 서버가 응답하지 않아 정리를 건너뜁니다")
+    live = {s.name for s in await tmux_manager.list_sessions()}
+    if not live:
+        raise HTTPException(status_code=409, detail="살아있는 tmux 세션이 하나도 없어 정리를 건너뜁니다")
+    dead = [s["id"] for s in await storage.get_user_sessions(username) if s["id"] not in live]
+    for session_id in dead:
+        await storage.delete_session(session_id)
+    logger.info("pruned %d dead session rows for %s", len(dead), username)
+    return {"removed": len(dead)}
+
+
 @router.post("/api/sessions/{session_id}")
 async def create_session(
     session_id: str,

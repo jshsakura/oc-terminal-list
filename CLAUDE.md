@@ -431,283 +431,32 @@ Fires on the watcher's `working → not-working` transition (`completed: true`),
 
 ## Terminal-to-terminal messaging (`itl`)
 
-An agent running inside one pane can drive another pane. `backend/cli/itl` is a single stdlib-only Python file; sessions learn their identity from env injected at `tmux new-session -e` time (`ITL_API` / `ITL_TOKEN` / `ITL_SESSION`, built in `itl_env.py`, wired into **both** creation paths — REST and WS attach).
+한 pane 의 에이전트가 옆 pane(다른 기계 포함)을 부린다. **이 앱만의 주력 가치다.**
+`backend/cli/itl` (stdlib only) + MCP(`cli/itl_mcp.py`) + `routes/itl.py`.
+전문 — 주소 문법 표, 원격 배달, 자동 설치, MCP 도구 7종, 밟은 함정 전부: **[docs/notes/itl.md](docs/notes/itl.md)**
 
-Addresses (`itl list` prints the table that documents them):
+깨면 조용히 거짓말이 시작되는 것들만 여기 남긴다:
 
-| Form | Means |
-|---|---|
-| `3` | pane 3 of the caller's tab (needs `ITL_SESSION`; refuses rather than guessing globally) |
-| `1.3` / `1:3` | tab 1, pane 3 |
-| `@name` / `@name.2` | tab by name — its active pane, or pane 2 |
-| `@working` `@idle` `@permission` | by agent status |
-| `@claude` `@node` … | by running command |
-| `@all` | everything (capped at `MAX_FANOUT`) |
-
-**Numbers are what humans say; session IDs are identity.** Closing a pane shifts every later number, so an address is resolved to a session at call time and nothing downstream reuses the number. A **user-given tab name always beats a built-in group** — no exceptions, so naming a tab "working" can't turn `@working` into a trap.
-
-Traps:
-- `send-keys -t` takes a **pane** target. `=name` works for session targets but fails here with "can't find pane" — use `=name:` to keep exact matching while resolving to the session's current window.
-- `send-keys` needs `--` before the text, or a message starting with `-` dies as `unknown flag -x`
-  — and `check=False` swallows it, so it simply never arrives.
-- `--submit` is off by default. Text lands on the prompt and a human presses Enter; a stray Enter inside vim/claude executes something nobody asked for (same rule as terminal file drop).
-- `ITL_TOKEN` is readable via `tmux show-environment`, so it is a **scoped** JWT (`scope: "itl"`). `verify_auth_token` rejects any token carrying a scope claim — a leaked ITL_TOKEN cannot read files or host secrets.
-- **Remote panes are sendable** (2026-08-15). The backend does the SSH round trip with that
-  host's stored credentials (`backend/itl_remote.py`), so the *caller* needs no key for that box —
-  which is the whole point: a handle pasted to an agent elsewhere works without its own access.
-  A dead remote session is `skipped: session-gone`, an unreachable host `host-unreachable`;
-  neither is ever counted as delivered, and one dead host never fails the whole fan-out.
-- ⚠️ **Quote every remote argument yourself.** `shlex.quote` leaves `=mobile-abc` bare (POSIX-safe),
-  and a **zsh** login shell eats that as equals-expansion (`=foo` → path of `foo`) — the target
-  arrives mangled and `has-session` quietly says no. Measured on a real host; `itl_remote._sq`
-  always quotes. The local path is argv (no shell), which is why it never showed this.
-- **A session ID is an address.** `resolve` matches it *before* splitting, so a session named
-  `mobile.2` is not read as "tab mobile, pane 2". Numbers shift when a pane closes; an id does
-  not — that is what a copied handle carries.
-
-### 원격을 반쪽으로 두면 받은 쪽이 헤맨다 (2026-08-17)
-
-원격이 "보낼 수는 있다" 까지만 되어 있으면, 그 위에 올라탄 흐름(핸드오프 → 기다림 → 답장)이
-전부 조용히 거짓말을 한다. 넷을 한 세트로 고쳤다 — 하나만 되돌리면 나머지가 다시 거짓이 된다.
-
-| 무엇 | 규칙 |
-|---|---|
-| 배달 | **확인된 것만 delivered.** 원격 명령 끝에 `&& echo ITL_SENT`, 표식 없으면 `send-failed` |
-| 왕복 | **호스트당 연결 하나**(`itl_remote.RemoteChannel`), 호스트끼리는 병렬, `HOST_DEADLINE=20s` |
-| 상태 | 원격은 **기본이 "모름"**(`statusUnknown`, 표에서 `?`). 물어볼 때만 호스트당 SSH 한 번 |
-| 답장 | 받는 쪽에 `itl` 이 있을 때만 답장 명령을 적어 준다(probe 가 PATH/파일을 같이 본다) |
-
-- ⚠️ **`conn.run(check=False)` 는 exit code 를 안 본다.** 그래서 tmux 가 거절해도 예외가 없고,
-  표식 없이는 "SSH 명령이 돌았다" 와 "입력이 들어갔다" 를 구별할 수 없다. `;` 대신 `&&` 로
-  잇는 이유도 같다 — 본문이 실패했는데 Enter 만 들어가면 프롬프트에 있던 것이 실행된다.
-- ⚠️ **`run_remote_cmd` 는 호출마다 SSH 를 새로 연다**(풀 없음). 존재확인·pane 정보·전송을
-  따로 부르면 대상 하나에 핸드셰이크가 3번이고, 팬아웃이면 그만큼 곱해져 호출자 타임아웃
-  (CLI·MCP = 30s)을 넘긴다. 그러면 **배달은 됐는데 실패로 읽혀 재시도가 중복 전송**이 된다.
-  백엔드 상한(20s)이 호출자 상한(30s)보다 작아야 하는 이유가 이것이다 — 둘은 같이 움직인다.
-- ⚠️ **"모름" 을 "일 안 함" 으로 세지 마라.** 원격 pane 은 워처가 볼 수 없어 status 가 비어
-  있고, `not_working` 판정은 빈 상태를 만족으로 읽는다 → `terminal_wait` 가 **0 초에 "완료"**
-  를 돌려줬다. 원격에 일을 넘긴 에이전트가 결과 없이 다음 단계로 갔다. 지금은 원격이 섞이면
-  `remote_status=1` 로 물어보고(폴 간격도 5s), 못 물어본 것은 만족으로 세지 않는다.
-- 원격 **읽기**도 된다(`itl read` / `terminal_read`) — 보낸 뒤 화면을 못 보면 핸드오프는 눈
-  감고 하는 일이 된다. 세션이 없으면 404 `session-gone`, 호스트에 못 닿으면 502 로 갈린다.
-- skip 사유 목록은 **세 곳이 함께 움직인다**: `routes/itl.py` 의 `REASON_*`, `cli/itl` 과
-  `cli/itl_mcp_tools.py` 의 `SKIP_REASONS`, 프론트 `RailMenus.pushSkipLabel`. 한쪽만 늘리면
-  사용자 화면에 슬러그(`send-failed`)가 그대로 나온다.
-- **여러 줄 방어는 경계에 있다**(`routes/itl.py collapse_lines`). CLI 에도 같은 함수가 있지만
-  (`_single_line`) MCP·프론트는 CLI 를 지나지 않는다. `send-keys -l` 에서 개행은 Enter 라,
-  안 합치면 대화형 TUI 가 조각난 명령 N 개를 받는다. 두 구현은 테스트가 대조한다.
-- 🔐 **원격 tmux env 의 ITL_TOKEN 은 사용자 전체 범위다.** 그 호스트에 same-user 셸이 있는
-  사람은 그것으로 **다른 호스트의 pane 까지** 입력할 수 있다(배달은 백엔드의 자격증명으로
-  일어나므로). 예전 근거("토큰을 읽으려면 이미 그 기계의 셸이 있다")는 그 기계 안에서만
-  성립했다 — 지금은 기계 경계를 넘는다. tailnet 한정·itl 스코프가 반경을 좁히지만, 호스트
-  단위 스코프나 더 짧은 TTL 은 아직 없다. 새 호스트를 추가할 때 이 사실을 기억할 것.
-
-### 상태로 고르는 주소는 상태를 먼저 채워야 한다 (2026-08-20)
-
-`@working` `@idle` `@permission` 은 `t["status"] == key` 로 고른다. 그런데 **원격 pane 의
-status 는 워처가 못 봐서 기본이 비어 있고**, 빈 값은 어떤 그룹에도 안 맞는다 → 원격이
-**통째로 조용히 빠졌다.** 호출자는 그걸 "원격은 안 돌고 있다" 로 읽는다 —
-불완전한 답이 아니라 **틀린 답**이다(이 문서가 이미 적어 둔 "모름을 일 안 함으로 세지
-마라" 의 세 번째 재발).
-
-한 뿌리로 세 군데가 틀려 있었다:
-
-- `/api/itl/resolve` 는 `remote_status=1` 을 줘도 **채우기가 매칭 뒤**라 소용이 없었다.
-  `/api/itl/targets` 는 이미 "채우기가 필터보다 먼저" 인데 여기만 반대였다. 지금은 주소가
-  상태 그룹을 가리킬 때만 **매칭 전에** 채운다 — 그 외에는 맞은 것만 채운다(원격 pane
-  하나를 5초마다 폴링하는 `terminal_wait` 를 전체 호스트 SSH 로 바꾸면 안 된다).
-- **MCP `terminal_list`·`terminal_resolve` 스키마에 `remote_status` 가 아예 없었다.**
-  CLI 에는 `--remote` 가 있었는데 MCP 에만 없어서, MCP 로 목록을 부르는 에이전트는 원격을
-  **영원히 `?` 로만** 보고 `status=working` 필터에서 전부 잃었다. ⚠️ 이 저장소가 이미 적어
-  둔 "세 곳이 함께 움직인다"(`routes/itl.py` · `cli/itl` · `cli/itl_mcp_tools.py`) 규칙이
-  깨진 자리다 — skip 사유뿐 아니라 **모든 조회 인자가** 그 규칙을 따른다.
-- `terminal_wait` 의 첫 해석도 같아서 `@working` 을 기다리면 원격이 안 잡히고
-  `has_remote=False` 가 되어 로컬만 보고 즉시 끝났다.
-
-**기본값 규칙: 답을 바꾸는 인자는 자동으로 켠다.** `terminal_list` 는 `status` 필터가 있을
-때, `terminal_resolve`/`wait` 는 주소가 상태 그룹일 때 `remote_status` 를 스스로 켠다 —
-거른 목록은 상태에 대한 **단언**인데 묻지도 않은 pane 을 두고 단언할 수는 없다. 명시로 준
-값은 항상 이긴다(비용을 알고 끌 수 있어야 한다).
-
-**보내는 쪽도 같이 고쳤다 — 단, 왕복은 호스트당 한 번을 지킨다.** `/send` `/key` 도 상태
-주소면 매칭 전에 상태를 채우는데, 그 조회와 배달이 **각자 SSH 를 열면 호스트당 왕복이
-두 번**이 되고 두 단계가 각자 `HOST_DEADLINE`(20s)을 쓰면 합이 호출자 상한(30s)을 넘는다 →
-**배달됐는데 실패로 읽혀 재시도가 중복 전송**(이 문서가 위에 적어 둔 바로 그 사고).
-
-- `_HostChannels` 가 호스트당 채널을 한 번 열어 **상태 조회부터 배달까지 재사용**한다.
-  실패한 호스트는 기억한다 — 매번 다시 열면 죽은 호스트 하나가 마감시한을 다 먹는다.
-- **예산은 하나를 나눠 쓴다**: 상태 조회는 `STATUS_PHASE_BUDGET`(=HOST_DEADLINE/2), 배달은
-  거기서 **쓴 만큼 뺀 나머지**(바닥 `MIN_DELIVER_DEADLINE`). 총합은 예전과 같다.
-- 상태 그룹이 아닌 주소(번호·이름·명령)는 상태 조회를 **아예 안 건다** — 매칭에 필요 없다.
-- ⚠️ 채우는 길이 둘이 됐다(자기 연결 `_fill_remote_status` / 공유 채널 `_fill_status_over`).
-  판정은 `_apply_status_tables` **하나**를 쓴다 — 갈리면 한쪽만 "모름" 을 "일 안 함" 으로
-  접어 상태 주소가 다시 거짓말을 시작한다. 테스트가 두 함수 모두 그걸 쓰는지 검사한다.
-
-### 원격 env 주입은 attach **뒤에**, 세션은 만들지 않는다 (2026-08-17)
-
-`ensure_remote_itl_env` 는 예전에 attach **앞에서** 돌면서 세션이 없으면 직접 만들었다.
-둘 다 틀렸다:
-
-- **세션 생성은 브리지의 일이다.** 우리가 먼저 `tmux new-session -d` 를 하면 브리지의
-  `has-session ||` 절이 통과해 조심스러운 생성이 통째로 건너뛰어진다 —
-  `set-option -g history-limit` 을 new-session 과 한 tmux 호출로 묶는 부분(콜드 스타트 첫
-  pane 이 2000 에 고정된다, [[project_tmux_history_limit]])과 클라이언트 PTY 차원 상속
-  (`conn.run` 은 PTY 가 없어 80x24 로 시작)을 둘 다 잃는다.
-- **attach 앞에서 SSH 왕복을 하면 재연결마다 그 값을 물고, 부팅 때는 pane 수만큼 겹친다** —
-  이 저장소가 줄여 온 바로 그 동시성이다. 지금은 `asyncio.create_task` 로 attach 뒤에 돌고,
-  `(host, session)` 별 TTL(15분) 캐시가 재연결 폭풍에서 왕복을 0 으로 만든다.
-- 그래서 respawn 도 안 한다(돌고 있는 에이전트를 죽인다). 이미 뜬 pane 은 env 를 늦게 받지만
-  CLI·MCP 가 `tmux show-environment` 로 스스로 회복한다 — **회복 코드는 두 파일 모두에**
-  있어야 한다. 한쪽만 있으면 "터미널에선 되는데 MCP 도구는 안 된다" 가 된다.
-
-### UI 픽커의 "이 세션으로 전송" 도 백엔드를 지난다 (2026-08-17)
-
-`RailMenus` 의 compose 행은 예전에 `window.terminalSessions[key]` 로 직접 밀어넣었다. 그
-경로는 **대상 pane 이 지금 이 브라우저에 붙어 있어야만** 동작한다: 모바일에서 아직 안 본
-pane 은 아예 안 붙고(`skipInitialConnect`), 안 보이는 pane 의 소켓은 60초 뒤 닫히고
-(`INACTIVE_PANE_GRACE_MS`), 닫힌 소켓에 넣은 입력은 큐에서 4초 뒤 버려진다
-(`STALE_INPUT_MS`). 그런데 UI 는 **무조건 초록 플래시**를 띄웠다 — 사라진 명령을 아무도 몰랐다.
-
-- 지금은 `POST /api/itl/send` 를 쓴다(쿠키 인증이 그대로 통한다). 붙어 있지 않아도 도달하고,
-  무엇보다 `delivered/skipped` 로 **도달 여부를 알려준다**. 실패면 빨간 테두리 + 사유 한 줄,
-  입력은 지우지 않는다(다시 시도할 것이므로).
-- 주소는 **신원**을 쓴다(`paneSessions.sessionKey` = 로컬 sessionId / 원격 tmuxSessionName).
-  픽커의 `key` 는 원격이면 프론트 pane id 라 서버가 모르는 값이다.
-- `timeoutMs` 는 30초다 — 원격 배달은 백엔드의 SSH 왕복을 포함하므로 apiFetch 기본 15초로는
-  성공한 전송이 실패로 보인다.
-- `origin: false` — 사람이 특정 터미널을 골라 친 명령이다. `[from …]` 꼬리표는 에이전트끼리
-  헤매지 않게 하는 장치이고 여기서는 노이즈다.
-
-### 설치 없이 되게 — PATH 는 tmux **서버** 환경에만 있다 (2026-08-19)
-
-`itl` 은 백엔드와 함께 배포되므로 이미 그 기계에 있는데, **아무의 PATH 에도 없었다.**
-저장소 경로를 아는 사람만 `python3 …/backend/cli/itl` 로 쓸 수 있었고, 원격은 호스트
-편집기의 설치 버튼을 찾아 누른 사람만 됐다 — 이 앱의 차별점이 "읽어 본 사람 전용" 이었다.
-
-⚠️ **실측(tmux 3.4): pane 은 세션 환경의 PATH 를 물려받지 않는다.** `-e FOO=bar` 는
-들어가는데 `-e PATH=` 는 안 들어간다. `set-environment` 도, `set-environment -g` 도
-마찬가지다. pane 이 무엇을 찾을 수 있는지는 **tmux 서버 프로세스의 환경**만 정한다.
-
-- 그래서 PATH 는 `tmux_manager._tmux_env()` 에 있다(서버를 띄우는 자리). 설치되는 파일이
-  하나도 없고 앱을 지우면 같이 사라진다. **이미 떠 있는 tmux 서버는 자기가 시작한 PATH 를
-  유지하므로**(세션이 백엔드보다 오래 사는 설계) 서버 재시작 때 적용된다.
-- `itl_remote_setup` 의 세션 PATH 줄도 같은 이유로 **원격 pane 에는 효과가 없다.** 원격에서
-  실제로 동작하게 하는 것은 설치된 파일 + rc 줄이다. 이 사실을 모르고 그 줄을 근거로
-  "PATH 는 해결됐다" 고 읽지 말 것.
-- 복원된 로컬 세션(백엔드 재시작을 넘긴 것)은 `create_session` 을 지나지 않아 ITL_* 가 영영
-  비어 있었다 → attach 때 `refresh_session_env` 가 다시 심는다.
-
-**원격 자동 설치**(`ensure_remote_itl_cli`): 첫 attach 에 CLI+MCP 한 벌을 올린다.
-해시가 버전 표식이라 같은 판이면 덮어쓰지 않고(TTL 6h), 임시 이름으로 쓰고 rename 하므로
-전송이 끊겨도 반쪽짜리 파일이 남지 않는다. **압축·인코딩은 원격 python3 가 한다** —
-`base64 -d` 는 macOS 에서 `-D` 고 tar 플래그도 갈린다. `ITL_AUTO_INSTALL=0` 으로 끈다.
-⚠️ **자동 경로는 사용자의 rc 파일을 건드리지 않는다.** 그건 버튼을 누르는 사람이 고르는
-일이다(`build_install_cmd(with_rc=)` 가 그 경계 하나다).
-
-**에이전트 MCP 자동 등록**(`backend/agent_mcp.py`): `~/.claude.json` 의 user scope 에
-`itl` 항목을 넣는다. 로컬은 lifespan 에서 1회, 원격은 CLI 설치가 성공한 **뒤에**(가리키는
-파일이 없는 항목을 심으면 에이전트가 시작하다 실패한다). 규칙 둘:
-- **강제하지 않는다** — `ITL_AUTO_MCP=0`, 그리고 **사람이 손으로 쓴 항목은 건드리지 않는다**
-  (래퍼나 다른 인터프리터를 일부러 쓴 것일 수 있다). 우리가 쓴 낡은 경로만 고친다.
-- **망가뜨리지 않는다** — 그 파일에는 온보딩 플래그·프로젝트별 기록이 같이 있다. 파싱 →
-  복사 → temp 쓰기 → `os.replace`. 못 읽는 파일은 **새로 짓지 않고 그냥 둔다**(설정이 없다
-  = 그 기계에서 에이전트를 쓴 적이 없다는 뜻이고, 우리가 지어 주면 그 에이전트의 온보딩이
-  가장 먼저 덮어쓴다).
-
-### 목록용 행과 접속용 행은 다르다 (2026-08-19)
-
-`storage.list_hosts` 는 **`password_enc` 를 SELECT 하지 않는다** — 그 행은 브라우저로
-나가므로 옳은 설계다. 그런데 `GET /api/hosts/tmux-sessions/batch` 가 그 행을 그대로
-`resolve_host_secrets` 에 넘기고 있었다. 결과: password 인증 호스트가 전부
-`비밀번호 인증인데 비밀번호가 없음` 으로 실패하고, **홈의 "이어할 수 있는 세션" 이 그
-호스트들에서 영영 비어 있었다.**
-
-진단이 어려웠던 이유: **한 경로에서만 실패한다.** 터미널·VNC·단일 조회는 전부
-`get_host` 를 쓰므로 멀쩡히 붙는다("접속은 되는데 세션 목록만 안 나온다" 가 이 병의 지문).
-
-- 배치는 고를 때만 목록을 쓰고, **다이얼할 호스트는 `get_host` 로 다시 읽는다.**
-- `resolve_host_secrets` 는 이제 **컬럼이 아예 없는 행을 거부한다**(값이 비어 있는 것과
-  구별한다 — 후자는 정말로 비밀번호를 저장하지 않은 호스트다).
-  `tests/test_host_secrets_shape.py` 가 그 구분을 잠근다.
-
-**일반화: 비밀이 빠진 행을 접속 경로에 넘기면, 그 실패는 "자격이 없다" 처럼 보인다.**
-새 엔드포인트가 호스트에 붙는다면 그 행이 어디서 왔는지부터 확인할 것.
-
-### 실행 중 보드 — 한 화면, 호스트당 왕복 하나 (2026-08-19)
-
-`GET /api/fleet`(`routes/fleet.py`)가 **한 번의 SSH 방문**으로 pane 상태 + 각 세션이 언제
-시작됐는지 + 그 기계의 램·가동시간을 같이 걷어온다(`itl_remote.build_snapshot_cmd`).
-화면 하나에 SSH 를 세 번 걸면 호스트 수만큼 곱해진다 — 이 저장소가 계속 줄여 온 쪽이다.
-
-- 출력은 마커(`ITL_SECTION`)로 세 구획이다. ⚠️ `parse_list_status` 는 마커에서 **멈춰야**
-  한다. 안 그러면 `MemTotal:` 줄이 세션 이름으로 들어온다.
-- 압축·인코딩·추출은 **원격 python3** 가 한다. `base64 -d` 는 macOS 에서 `-D` 고 tar 플래그도
-  갈린다(원격 itl 설치와 같은 이유).
-- `/proc` 이 없는 호스트(macOS·BSD)는 machine 이 **None** 이다. 0% 로 그리면 측정한 것처럼
-  보인다 — 못 닿은 호스트도 마찬가지로 수치를 아예 안 그린다.
-- **세션별 메모리**는 pane 의 pid 가 아니라 **그 아래 프로세스 트리 전체**의 RSS 합이다
-  (pane pid 는 셸이고, 무거운 것은 그 셸이 띄운 에이전트·빌드다). 트리를 셸에서 도는 대신
-  `ps -eo pid=,ppid=,rss=` 한 장을 받아 **백엔드가 합친다**(`itl_remote.sum_tree_rss`) —
-  로컬도 같은 함수를 쓰므로 두 경로가 숫자의 의미를 두고 어긋날 수 없다. RSS 는 공유
-  페이지를 겹쳐 세므로 "어느 세션이 무거운가" 에 답하는 값이지 "지우면 얼마가 도나" 가
-  아니다(PSS 는 대개 root 가 필요하다). `ps` 가 없으면 **0 이 아니라 없음**이다.
-- ⚠️ `system_monitor` 와 `tmux_manager` 는 **싱글턴을 export** 한다. 모듈을 import 해서
-  `system_monitor.get_stats` 를 부르면 AttributeError 가 나고, 이 라우트는 그것을 "수치를 못
-  구했다" 로 삼킨다 — 화면에 로컬 수치만 통째로 비어 나오고 에러는 어디에도 없다.
-  실제로 그렇게 한 번 배포됐다. `test_fleet_snapshot.py` 가 그 이름들을 잡는다.
-
-### 상태판 — 모른다고 적는 것이 기능이다 (2026-08-19)
-
-홈의 "지금 돌고 있는 것"(`components/home/FleetBoard.jsx` + `utils/fleetStore.js`)은
-`GET /api/itl/targets?remote_status=1` 하나를 그린다.
-
-- **원격 pane 상태는 백엔드 워처가 못 본다**(그 호스트의 tmux 다). 그래서 이 조회는
-  **호스트당 SSH 한 번**이고, 그 값이 이 화면의 주기를 정한다: 30초, 그리고 홈이 실제로
-  보일 때만. 타이머는 **스토어가 하나만** 갖는다(홈은 대시보드와 빈 pane 두 곳에서 그려진다
-  — [[project_request_multiplication]] 과 같은 병).
-- ⚠️ **못 물어본 호스트는 `?` 다. 유휴가 아니다.** 둘을 같게 그리면 화면이 조용히
-  거짓말을 한다(같은 실수가 예전에 `terminal_wait` 를 0 초에 "완료" 로 만들었다).
-- 실패해도 직전 그림을 지우지 않는다 — 빈 판은 "전부 멈췄다" 로 읽힌다.
-
-### 윈도우 호스트 — 지원하지 않는다, 그리고 그렇게 말한다 (2026-08-19)
-
-이 앱이 원격에 하는 일은 전부 POSIX 셸 전제다(tmux, `/tmp` 붙여넣기, `~/.local/bin`).
-윈도우 호스트는 **한 주에 걸쳐 서로 무관해 보이는 세 개의 버그**로 사용자를 만났다 —
-tmux 토글 거부, 붙여넣기 증발, 핸드오프 조용한 부재.
-
-`backend/remote_platform.py` 가 `uname -s 2>&1` **한 번**으로 판정한다(cmd.exe·PowerShell
-은 "is not recognized" 계열 문구를 뱉는다 — 그 실패 문구가 곧 근거다). `tmux-check` 와
-`itl-status` 가 `platform` 을 함께 돌려주고, 호스트 편집기가 "Windows 호스트 — 지원하지
-않음 + WSL 로 등록하면 그대로 동작" 을 한 번에 말한다.
-⚠️ **침묵은 `unknown` 이지 `windows` 가 아니다.** 잠긴 셸에 경고를 붙이면 멀쩡한 호스트를
-겁준다.
-
-### MCP for AI agents
-
-The same surface is exposed to agents over the Model Context Protocol (`backend/cli/itl_mcp.py`, stdlib only — `backend/cli/itl-mcp` is a one-line `exec` wrapper). An agent in one pane gets seven tools — `terminal_list` / `terminal_whoami` / `terminal_resolve` / `terminal_send` / `terminal_read` / `terminal_wait` / `terminal_key` — that drive its siblings by the address grammar above. Every tool auto-attaches `ITL_SESSION` as `from_session`, so address resolution, self-exclusion (`exclude_self`), and the fan-out limit (`MAX_FANOUT=20`) work the same way as the CLI.
-
-The address grammar gains two caller-tab anchors that only resolve when `ITL_SESSION` is set; without one they return empty rather than guessing globally (same refusal as bare `3`):
-
-| Form | Means |
-|---|---|
-| `@here` | every pane in the caller's tab, **including self** |
-| `@siblings` | every pane in the caller's tab, **excluding self** |
-| `2.@claude` / `@backend.@working` | tab qualifier + group/command word — same resolution order as the bare form |
-
-Register with the agent (env is inherited from the pane — never put `ITL_TOKEN` in the config):
-
-```bash
-claude mcp add itl -- python3 <repo>/backend/cli/itl_mcp.py
-```
-
-Reading is gated by `ITL_READ_ENABLED` (default `1`). A leaked `ITL_TOKEN` with read+send is, in effect, an interactive shell — stronger than send alone. The reason this is still acceptable: to read `ITL_TOKEN` at all you must run `tmux show-environment`, which already means **the caller can execute commands as that user on that machine** — at that point typing into the pane directly is easier. The same argument the Xvnc password paragraph makes: a file's weakness does not enlarge the exposure surface.
-
-⚠️ That argument is bounded to *that machine*, and remote sending crosses the boundary — see the 🔐 note in the traps above. A token read on the weakest host drives panes on every host, because delivery uses the backend's stored credentials, not the caller's.
-
-Traps (MCP-specific):
-- **stdout is JSON-RPC only.** A single stray `print()` makes the client treat the server as dead. All logs go to stderr, and only when `ITL_MCP_DEBUG=1`.
-- **Never respond to a notification.** Messages without `id` (e.g. `notifications/initialized`) get `return None` at the top of the dispatcher — answering them is a protocol violation.
-- **`send_keys -l "C-c"` types the literal `C-c`.** Special keys go through `tmux_manager.send_key`, which lets tmux interpret the key name. The Telegram stop button hit the same trap.
+- **주소는 사람이 말하는 번호, 신원은 세션 ID.** pane 이 닫히면 번호가 밀리므로 호출
+  시점에 세션으로 풀고 그 뒤로는 번호를 재사용하지 않는다. 사용자가 붙인 탭 이름은
+  언제나 내장 그룹(`@working` 등)을 이긴다.
+- **확인된 것만 delivered.** 원격은 `&& echo ITL_SENT` 표식이 없으면 `send-failed`.
+  `conn.run(check=False)` 는 exit code 를 안 보므로 표식 없이는 "SSH 가 돌았다" 와
+  "입력이 들어갔다" 를 구별할 수 없다.
+- ⚠️ **"모름" 을 "일 안 함" 으로 세지 마라.** 원격 pane 의 status 는 워처가 못 봐서 비어
+  있다. 빈 값을 만족으로 읽어 `terminal_wait` 가 0초에 "완료" 를 준 사고가 세 번 났다.
+  상태 그룹 주소는 **매칭 전에** 상태를 채운다(`remote_status`).
+- **답을 바꾸는 인자는 자동으로 켠다** — 거른 목록은 상태에 대한 단언이다.
+- **세 곳이 함께 움직인다**: `routes/itl.py` · `cli/itl` · `cli/itl_mcp_tools.py`.
+  skip 사유든 조회 인자든 한쪽만 늘리면 사용자 화면에 슬러그가 그대로 나온다.
+- **호스트당 왕복 하나.** `_HostChannels` 가 상태 조회부터 배달까지 채널을 재사용하고,
+  예산(`HOST_DEADLINE` 20s)을 나눠 쓴다. 백엔드 상한 < 호출자 상한(30s) 이어야 한다 —
+  넘으면 **배달됐는데 실패로 읽혀 재시도가 중복 전송**된다.
+- `--submit` 은 기본 off (vim/claude 안의 stray Enter 방지). `send-keys` 는 `--` 필요.
+- 🔐 원격 tmux env 의 `ITL_TOKEN` 은 **사용자 전체 범위**다. 그 호스트에 셸이 있는 사람은
+  그것으로 **다른 호스트의 pane 까지** 입력할 수 있다(배달이 백엔드 자격증명으로 일어나므로).
+  새 호스트를 추가할 때 이 사실을 기억할 것.
+- **stdout 은 JSON-RPC 전용**(MCP). `print()` 하나가 서버를 죽은 것으로 만든다.
 
 ## iOS 주소창 밑 진행바 = 페이지가 소유한 "끝나지 않는 요청" (2026-08-11)
 
@@ -885,6 +634,59 @@ Filenames are `<timestamp>-<random>-<safe-basename>`. **The timestamp alone is n
 - 절감의 **상한은 잔존**이다: 이미지 한 장은 그 세션 내내 실려 나가므로, 이미지 작업이
   끝나면 `/clear`·`/compact` 로 컨텍스트를 비우는 것이 어떤 리사이즈보다 크게 아낀다.
 
+## 토큰이 새는 곳은 도구 출력이 아니라 요청의 무게다 (2026-08-24)
+
+7일 실측(요청 11,685회): 컨텍스트 재청구 **4.26G tok**, 그중 캐시 읽기 98.3%.
+그런데 **도구 결과 총합은 1.3M tok(0.03%)** 이었다. 즉 출력을 줄이는 최적화는 값이 없고,
+비용은 전부 "매 요청에 다시 실리는 무게" 다. 그 무게는 세션 길이를 그대로 따라간다:
+
+| 요청 구간 | 평균 컨텍스트 |
+|---|---|
+| 1–50 | 91K |
+| 201–500 | 317K |
+| 501–1000 | 519K |
+| 1000+ | **597K (6.5배)** |
+
+상위 3개 세션이 7일 총액의 51% 였다. **따라서 가장 큰 절감은 "작업이 끝났으면 /clear"**
+이고, 그걸 판단하려면 지금 요청 하나가 얼마인지 알아야 하는데 그 값은 세션 밖에서만 보였다.
+
+- `~/.claude/hooks/context-weight.sh` (Stop 훅)가 임계(300K/500K/700K)를 넘을 때
+  **한 번씩만** 알린다. 막지 않는다 — 끊을지는 사람이 정한다. 같은 임계로 두 번 말하면
+  다음부터 안 읽힌다. 플릿 4대 공유.
+- ⚠️ 셸에서 `case "${last:-0}" in` 은 **기본값을 검사에만 쓰고 변수는 빈 채로 둔다.**
+  다음 줄의 정수 비교가 깨져 훅이 통째로 조용해진다(테스트가 이걸 잡았다).
+
+### 이 저장소의 CLAUDE.md 자체가 고정 세금이다
+
+이 문서는 **모든 요청에 동행한다.** 한때 46K tok 이었고, 그래서 이 저장소의 세션 시작
+컨텍스트가 95~109K 로 다른 저장소(57~70K)보다 무거웠다. 2026-08-24 에 25K 로 줄였다 —
+**버린 게 아니라 `docs/notes/` 로 옮기고 규칙만 남겼다**(itl · vnc · render-budget).
+
+**새 사건을 적을 때의 규칙: 규칙과 함정은 여기, 서사는 `docs/notes/`.** 여기 남길 문장의
+기준은 "이걸 모르면 되돌릴 수 있는가" 다. 왜 그렇게 됐는지의 이야기는 링크 한 홉 뒤에 둔다.
+
+### 하루 한 번 요약은 서비스가 보낸다 (크론 아님)
+
+`backend/usage_report.py` — 사용량 + 누수 신호(차단된 폴링, 죽은 세션)를 텔레그램으로.
+크론이 아니라 이 프로세스가 보내는 이유: 수집기·세션 표·텔레그램 자격증명을 **이미 셋 다
+들고 있다.** 크론 줄은 한 기계에만 살고 앱과 따로 논다.
+
+- **할 말이 없으면 아무것도 안 보낸다.** 매일 "0" 이 오면 그 채널은 안 읽히게 된다.
+- ⚠️ **`parse_mode` 를 절대 쓰지 마라** — 본문에 경로·명령 조각이 그대로 들어간다.
+- ⚠️ **"모른다" 를 "0" 으로 접지 않는다.** tmux 서버가 죽었을 때의 빈 목록을 "죽은 세션
+  0개" 로 읽으면 화면이 조용히 거짓말한다. `_dead_session_count` 는 그때 `None` 이다.
+- `USAGE_REPORT_ENABLED` / `USAGE_REPORT_HOUR` env 가 DB 설정을 이긴다(텔레그램과 같은 규칙).
+
+### 죽은 세션 기록 정리
+
+`POST /api/sessions/prune` — tmux 에 없는 `sessions` 행을 지운다(이 박스는 48행 중 45행이
+죽어 있었고, 지우는 코드가 아예 없었다).
+
+- ⚠️ **라우트 등록 순서가 곧 매칭 우선순위다.** `{session_id}` 뒤에 두면 "prune 이라는
+  세션" 으로 읽혀 **정리 대신 세션을 만든다.** 반드시 앞에.
+- ⚠️ **빈 tmux 목록은 "전부 죽었다" 가 아니라 "판정 불가" 다**(tmux 서버가 멈춘 모습과
+  같다). 그 상태에서 지우면 전 행이 날아간다 — 409 로 거절한다.
+
 ## Telegram notifications (buttons that work on iOS)
 
 Web push delivers notifications, but **`showNotification` action buttons are not rendered on iOS** — on an iPhone the "계속" button simply does not appear. So Telegram carries the notifications that need buttons; web push stays for plain ones.
@@ -931,520 +733,57 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
 
 ⚠️ Resize/fit is a real-device concern (mobile keyboard, visualViewport). The 67 Terminal tests are the only net; after any change here, confirm on an actual device that resizing the window and opening/closing the editor still refit cleanly.
 
-## 렌더 상한 — 출력 싱크가 곧 fps다 (2026-08-07)
+## 렌더 상한 · 요청 곱셈 — 이 저장소의 성능은 거의 다 "몇 개가 도는가" 다
 
-`createOutputSink.js` 의 코얼레싱 창이 그 pane 의 렌더 주기다. WS 바이트가 여기서 묶여
-`term.write` 로 가고, 그 write 하나가 xterm 파싱 + WebGL 드로우 한 프레임이다. **"터미널이
-버벅인다 / 기기가 뜨겁다" 는 거의 항상 이 상수 이야기다.**
+전문 — 발열 오진 이력, 하트비트 실측, 부팅 버스트, 배지 갱신, 중복 소켓:
+**[docs/notes/render-budget.md](docs/notes/render-budget.md)**
 
-- **리딩엣지 + 코얼레싱.** 창이 비었으면 타이머 없이 그 자리에서 쓰고, 지속 출력 중에는
-  창 주기로만 쓴다. 예전의 트레일링 16ms 배치는 정확히 반대였다 — 조용하다 온 한 글자도
-  16ms 늦고, 출력이 이어지는 동안은 **초당 60회** 파싱+GPU 드로우가 돌았다. 사람이 기다리는
-  건 앞의 첫 바이트뿐이고 지속 출력의 중간 프레임은 읽지도 못한다.
-- **분할 그리드에서는 형제 pane 이 전부 `isActive=true`다** (`Terminal.jsx` 의 그 주석).
-  그래서 이 창은 pane 수만큼 곱해진다 — 4분할 동시 출력이면 옛 값으로 초당 240 프레임이었다.
-  `isFocused` 를 따로 받아 보고 있는 pane 만 33ms(~30fps), 나머지 보이는 형제는 50ms(~20fps).
-- 배치 주기를 올릴 때 **에코 지연 걱정은 리딩엣지가 이미 막았다.** 창을 늘려도 조용하다
-  들어온 첫 바이트는 항상 즉시 그려진다. 늘어나는 건 지속 출력 중의 병합 폭뿐이다.
-- `flush()` 는 **실제로 쓰지 않는 경로(비활성 버퍼링)에서도 `lastFlushAt` 를 찍는다.** 안
-  찍으면 비활성 pane 의 매 push 가 리딩엣지로 떨어져 `dropOldestIfOverCap`(버퍼 전체 순회)이
-  청크마다 돈다.
-
-### 발열 원인을 지목하기 전에 소스를 읽어라
-
-읽지 않고 지목했다가 틀린 것들이다. 다시 밟지 말 것:
-
-- **`cursorBlink` 는 발열 원인이 아니다.** `CursorBlinkStateManager` 는 `BLINK_INTERVAL=600`
-  이라 **초당 1.67 프레임**이고, 생성자가 `isFocused` 일 때만 인터벌을 걸며 `handleBlur` 에서
-  `pause()` 한다 — **포커스 잃은 터미널은 아예 안 깜빡인다.** 분할 4개가 각자 블링크 루프를
-  돈다는 건 사실이 아니다. (DOM 렌더러 쪽은 CSS 애니메이션이라 메인스레드 비용도 없다.)
-- **`WEBGL_IDLE_RELEASE_MS`(3분)를 줄이는 건 손해다.** attach/detach 가 각각
-  `term.refresh(0, rows-1)` 전체 재페인트를 부른다 — 타이핑이 잠깐 멈출 때마다 churn 하면
-  아끼는 1.67fps 보다 더 쓴다. 이 값은 발열이 아니라 **밤샘 GPU 컨텍스트 누수**용이다.
-- `components/Sidebar.jsx`(751줄)는 **아무도 import 하지 않는 죽은 코드**다. 그 안의 10초
-  `/api/system/stats` 폴링은 돌지 않는다 — 성능 문제로 오해하지 말 것.
-
-### `isActive` 는 "보고 있는 pane" 이 아니다 (2026-08-07)
-
-**분할 그리드에서는 형제 pane 이 전부 `isActive=true` 이고 `isFocused` 만 1개다**
-(`Terminal.jsx` 의 그 주석, `PaneGrid` 는 `isFocused={pane.id === tab.activePaneId}`).
-`isActive` 로 "하나만 하는 일" 을 게이트하면 조용히 pane 수만큼 곱해진다. 같은 뿌리로
-**세 군데**가 틀려 있었다 — 출력 렌더(60fps×4), 하트비트 ping(5s×4), `/api/health`
-프로브(3s×4). 새로 게이트를 달 때 이 질문을 먼저 하라: *분할이면 몇 개가 실행되는가?*
-
-⚠️ `tab.activePaneId` 는 **보장되지 않는다**(`App.jsx` 에 `|| panes[0]` 폴백이 있다).
-그러니 **정확히 하나여야 하는 일을 `isFocused` 에만 기대지 마라** — 아무도 focused 가
-아니면 아무도 안 한다. 프로브가 모듈 레벨 리스를 쓰는 이유가 이것이다.
-
-### outage 프로브 — 리스 + 사다리
-
-`/api/health` 프로브는 **막혀서 생긴 장애를 더 밀어붙이던** 쪽이었다. 이 앱의 장애는 대개
-공유 터널 포화인데(memory `project_cloudflare_tunnel_layer`), pane 마다 3초로 두드렸다.
-실측된 5분 30초 장애 하나에 4분할 기준 400회가 넘는다.
-
-`components/terminal/outageProbe.js` 가 둘을 갖는다:
-- **리스** — 페이지당 한 pane 만 프로브한다. `isFocused` 가 아니라 모듈 레벨 클레임이라
-  activePaneId 가 비어도 성립한다. **15초 무갱신이면 다른 pane 이 뺏어온다** — 명시적
-  해제에만 기대면, 리스를 쥔 채 정리된 pane 하나가 페이지 전체의 복귀 감지를 죽인다.
-  그래서 프로브 타이머를 clear 하는 **모든** 자리에서 해제도 같이 한다.
-- **사다리** — 0~30s 는 3초, ~2분은 10초, 그 뒤 30초. 3초 해상도는 초반에만 값어치가 있다.
-
-리스를 빼면 통합 테스트가 30초 창에서 24회를 관측한다(리스 있으면 ≤12). 순수 테스트 9개는
-사다리·리스 인계를, 통합 1개는 pane 간 조율을 덮는다 — 통합에서 사다리를 재려 하지 마라,
-프로브 시작 자체가 백오프 라운드에 달려 있어 타이밍이 깨지기 쉽다.
-
-### 하트비트의 watched 판정 (2026-08-07)
-
-`isActive` 만 보던 시절, 분할 형제가 보고 있는 pane 과 똑같이 **5초마다** ping 했다(가짜
-타이머로 실측: 30초에 6번). 형제는 전부 `isActive=true` 라 4분할이면 그게 4배다. 지금은
-`watched = isActive && isFocused` 로 판정해 keepalive 를 기본 15초로 되돌린다.
-
-**솎는 것은 건강할 때의 keepalive 뿐이다.** 임계를 넘긴 뒤의 escalation ping 은 포커스와
-무관하게 5초 틱마다 그대로 나간다 — 감지 속도를 건드리지 않는 것이 이 변경의 조건이었고,
-테스트가 그 선을 지킨다(`Terminal.reconnect.test.jsx` 의 "임계를 넘기면 포커스와 무관하게 매
-틱 확인한다").
-
-타이머 자체는 여전히 5초 하나다. **주기를 바꾸는 대신 틱을 세어 솎는 이유**: interval 주기를
-포커스에 따라 갈아끼우려면 소켓 수명주기 안의 `setInterval` 을 재생성해야 하는데, 그 자리가
-이 저장소에서 재연결이 가장 조용히 깨지는 코드다(위 "what can and cannot move").
-
-임계도 함께 따라간다(watched 12s / 그 외 35s). **둘은 반드시 같이 움직여야 한다** — ping 만
-15초로 늦추고 임계를 12초로 두면 멀쩡한 소켓이 매번 죽는다.
-
-### 항상 도는 타이머는 활동 중에만 돌게
-
-App.jsx 의 탭 busy 인디케이터 틱(150ms)이 **아무 출력이 없어도 영영** 돌면서 매번 Set 두 개를
-만들고 탭×pane 을 순회했다. 지금은 `iterm:activity` 가 타이머를 켜고, `deriveBusy` 가
-`idle`(만료를 기다릴 것도 켜둘 것도 없음)을 돌려주면 스스로 끈다.
-
-판정은 `utils/busyActivity.js` 에 있다 — App.jsx 에는 렌더 테스트가 없으므로 그 안에 남은
-로직은 테스트가 0 이다. **타이머·이벤트 배선만 App 에 남기고 파생은 밖으로.**
-
-### 컴포넌트 수만큼 곱해지는 요청 — 캐시가 아니라 타이머를 공유해야 한다 (2026-08-12)
-
-모든 탭의 `PaneGrid` 가 **항상 마운트**된다(스크롤백·WS 보존). 그래서 pane/탭 단위 훅 안의
-fetch 는 조용히 pane 수·탭 수만큼 곱해진다. 실측(40분): 전체 HTTP 470건 중 **380건이
-`/api/git/status`** 였고, 안 보이는 탭들이 각자 자기 오프셋으로 두드린 것이었다.
-
-- **짧은 결과 캐시는 이 문제를 못 고친다.** 캐시는 창 안에 겹친 요청만 합치는데, 독립
-  타이머들은 몇 초 만에 서로 어긋난다. 공유해야 하는 건 결과가 아니라 **타이머**다.
-  → `utils/gitStatusStore.js`: (host, path) 키마다 타이머 1개·in-flight 1개, 구독자는
-  결과만 나눠 받는다. 주기는 **가장 짧은 간격을 요구한 구독자**가 정한다.
-- **안 보이면 안 돈다.** `TerminalHeader` 는 `isPaneVisible`(= 그 pane 의 `isActive`)일
-  때만 구독한다. git 배지는 그 pane 의 레일 안에만 그려지므로 안 보이는 동안의 값은
-  아무도 못 본다. 다시 보이면 캐시를 즉시 받고 곧바로 갱신한다.
-- 같은 병이 `useSnippets` 에도 있었다 — 탭마다 하나씩, 부팅 때 `GET /api/snippets` 가
-  14번. 모듈 레벨 스토어로 1회.
-
-**새 훅에 fetch 를 넣기 전에 물어라: 이게 pane 마다/탭마다 마운트되나?** 답이 예면
-스토어를 밖에 두고 훅은 구독만 하게 한다.
-
-### 부팅 버스트 — 최종 상태가 같으면 순서는 양보해도 된다 (2026-08-12)
-
-복원된 워크스페이스(pane 14개)의 부팅 1초 구간 실측: `POST /api/ws-ticket` 14회,
-`GET /api/snippets` 14회, cwd 조회 15회(원격 9개는 각각 SSH 왕복), 그리고 WS 핸드셰이크
-14개 + tmux attach 리플레이 14개. 전부 **공유 HTTP/2 연결과 단일 Cloudflare 터널** 위로
-동시에 나간다 — 이 저장소가 wedge 를 반복해 밟은 바로 그 자원이다(memory
-`project_cloudflare_tunnel_layer`, `project_ws_ticket_wedge_cookie_fallback`).
-
-- **티켓은 배치로 받는다.** `utils/wsTicketBatch.js` 가 30ms 창으로 모아
-  `POST /api/ws-tickets`(`routes/ws_tickets.py`) 한 번. ⚠️ **결과는 위치로 매칭한다** —
-  같은 호스트의 원격 pane 은 ws 경로가 전부 같은데 티켓은 단일 사용이라, 경로로 키를
-  잡으면 첫 pane 만 붙고 나머지가 조용히 실패한다. 인증 모델은 그대로다(같은 발급 함수·
-  같은 TTL·같은 경로 바인딩). 실패하면 예전처럼 쿠키 폴백이 이어받는다.
-- **핸드셰이크는 몇 개씩 나눠 연다.** `utils/wsConnectGate.js` — 동시 3개, 보이는 pane
-  우선. ⚠️ **무한 대기 금지**: 슬롯을 못 받아도 `WS_GATE_MAX_WAIT_MS`(2.5s) 뒤엔 그냥
-  진행하고, 호출부가 반납을 잊어도 백스톱이 12s 뒤 되돌린다. 게이트가 재연결을 막는
-  새 교착이 되면 이 저장소가 고쳐 온 모든 버그보다 나쁘다. 반납 자리는
-  `clearOpenTimer` 하나다 — onopen/onclose 가 둘 다 지나는 유일한 지점.
-- **안 보이는 pane 의 cwd 조회는 미룬다**(`useActiveTerminalCwd` 의 `deferMs`, pane 마다
-  다른 지터). 보이게 되는 순간 0 이 되어 effect 가 다시 돌며 즉시 조회한다.
-
-**일반화: 부팅에서 줄일 것은 총량이 아니라 동시성이다.** 어차피 다 할 일이면, 보이는
-것부터 하고 나머지는 몇 십 ms 씩 비켜 세운다.
-
-**pane 마다 묻던 것은 대개 호스트당 한 번으로 묶인다.** 원격 cwd 가 그랬다 — pane 아홉이면
-HTTP 아홉 + 원격 SSH exec 아홉이었는데, `tmux list-panes -a` 는 원래 모든 세션의 경로를
-한 번에 준다(`host_sftp.get_tmux_cwds`, `GET /api/hosts/{id}/cwd/batch`, 실측 12세션 49ms).
-`utils/hostCwdBatch` 는 **요청 합치기지 캐시가 아니다** — 배치 한 번 길이만큼만 결과를
-나누고 곧바로 버린다. 여기에 TTL 을 붙이는 순간 cwd 가 뒤처지기 시작한다.
-
-### 배지는 시계로 갱신하지 마라 — 바뀌는 사건에 붙여라 (2026-08-12)
-
-폴러를 합치고도 git 호출이 분당 13회였다. 보이는 pane 넷이 각기 다른 repo 라 키가 5개였고,
-**닫힌 패널의 15s 시계**가 repo 마다 분당 4회를 태우고 있었다. 그 시계가 먹이는 건 레일
-아이콘의 배지 숫자 하나다.
-
-repo 는 시간이 흘러서 바뀌지 않는다 — **터미널이 뭔가 써야** 바뀐다. 그래서
-`gitStatusStore.touch()` 를 그 pane 의 `iterm:activity` 에 걸고, **출력이 멎으면**(2.5s
-디바운스) 갱신한다. 직전 조회가 20s 안이면 건너뛴다.
-
-- 스트리밍 중인 에이전트는 타이머를 계속 밀어내 **0회**. 빌드가 끝난 순간은 다음 틱이
-  아니라 2.5s 뒤 반영 — **더 조용하면서 더 신선하다.**
-- 그래서 닫힌 패널의 시계는 바닥값(60s)이면 된다.
-- ⚠️ 공유 스토어는 **가장 짧은 간격**을 채택한다. FileTree 가 변경 점 칠하려고 1.5s 를
-  요구하면 같은 repo 를 보는 **전원**이 1.5s 로 끌려간다. 한 곳만 낮춰도 전체가 낮아진다.
-
-### 재시도 사다리에는 끝이 있어야 한다 (2026-08-12)
-
-`useActiveTerminalCwd` 의 백오프가 30s 에서 캡만 걸고 **영원히** 돌았다. cwd 를 끝내 못 주는
-pane 하나가 분당 2회(원격이면 SSH 왕복 2회)를 영구히 태우고, 원격 pane 이 아홉이면 그대로
-곱해진다. 지금은 5회(2·4·8·16·30s)로 끊는다.
-
-**끊을 수 있는 이유는 대체할 사건이 있기 때문이다** — 세션이 실제로 붙는 순간
-(`terminalReady` 상승 에지)을 `refreshSignal` 로 넘긴다. 사다리를 자를 때는 반드시 그 짝을
-같이 놓아라. 사건 없이 자르면 그건 그냥 기능이 안 되는 것이다.
-
-### 사건은 방향이 있다 — 상승 에지만 세라 (2026-08-12)
-
-위 두 규칙을 적용하고도 실측에서 새는 곳이 두 군데 더 있었고, **둘 다 "값이 바뀌었다" 를
-사건으로 쓴 탓**이었다. 조건이 아니라 **방향**을 봐야 한다.
-
-- **`terminalReady` 상승 에지마다 cwd 재조회** → 게이트가 attach 를 일부러 흩어놓으므로
-  요청이 pane 수만큼 흩어져 나갔다(실측 6회). 이미 아는 경로를 다시 배우는 값이다.
-  복원된 세션의 cwd 는 생성 시점에 정해지고 뷰어가 붙는다고 안 바뀐다 →
-  **cwd 가 없을 때만** 재조회.
-- **`deferMs`(= 가시성)를 effect 의존성으로** → pane 이 **안 보이게 될 때도** effect 가
-  돌아, 아무도 안 보는 pane 이 1.5초 뒤 자기 cwd 를 다시 배웠다. 탭 전환 한 번에 양쪽이
-  다 움직였다(실측 40초마다 3~4회). 지금은 deferMs 를 ref 로 읽고, **"보이게 됨" 상승
-  에지만** `refreshSignal` 에 싣는다. 떠나는 쪽은 아무 일도 안 한다.
-
-### 붙는 것은 공짜가 아니다 — attach 는 남의 화면 크기를 바꾼다 (2026-08-12)
-
-**tmux 는 `window-size latest` 가 기본이라, 한 세션에 붙은 마지막 클라이언트가 그 창의
-크기를 정한다.** 폰이 48컬럼으로 붙으면 같은 세션을 보고 있던 PC 화면이 그 폭으로 짤린다.
-
-그런데 부팅은 **모든 탭·모든 pane** 에 붙었다 — 폰에서 앱을 열면 열지도 않은 탭의 세션까지
-전부 폰 폭이 됐다. 그리고 그 소켓들은 어차피 60초 뒤 `INACTIVE_PANE_GRACE_MS` 로 닫힌다.
-**버릴 연결을 위해 남의 화면을 짜부라뜨리고 있었다.**
-
-**범위와 회복은 실측으로 확인했다(tmux 3.4, 이 서버 옵션 그대로):**
-
-| 질문 | 답 |
-|---|---|
-| 서버 단위인가? | **아니다. 세션 단위다.** A 에 작은 클라이언트를 붙여도 B 는 200x50 그대로 |
-| "다른 탭까지" 는 전파인가? | 아니다 — 앱이 그 탭들에 **직접 다 붙어서**다. 탭 1개 = 세션 1개 |
-| 폰이 떨어지면 돌아오나? | **돌아온다.** 48x19 → (폰 detach) → 200x49 |
-| 리랩된 스크롤백은? | **돌아온다.** tmux 가 wrapped 플래그로 양방향 리플로우한다(150자 1줄 → 48컬럼 2줄 → 200컬럼 다시 1줄) |
-| 영구히 남는 것은? | **좁은 동안 새로 찍힌 출력**. 에이전트가 48컬럼 기준으로 그린 박스·표는 진짜 줄이라 넓혀도 안 합쳐진다 |
-
-⚠️ 그러니 이 수정을 "영구 손상 방지" 로 기억하지 마라(한때 그렇게 적었다가 틀렸다).
-실제 값어치는 **폰을 켜 둔 동안 PC 탭 전부가 짜부라져 있는 것**을 없애고, 그 창에서 찍히는
-출력이 좁게 굳는 걸 막고, 부팅 attach 를 14개에서 1개로 줄이는 것이다.
-
-- 지금은 **모바일에서 아직 보지 않은 pane 은 아예 붙지 않는다**(`Terminal.jsx` 의
-  `skipInitialConnect`). 보이게 되는 순간 기존 `armOrCancel` 의
-  `wasClosedForInactivity` 경로가 붙인다 — 새 경로를 만들지 않았다.
-- 데스크탑은 그대로 붙는다. 창을 좁히는 문제도, OS 가 탭을 죽이는 문제도 없고, 끊으면
-  탭을 오갈 때마다 재연결 + tmux 리플레이만 생긴다.
-- **`dormant` 상태를 같이 둔다.** 안 붙은 pane 에 "로딩 멈춤" 카드를 띄우면 거짓이고,
-  그 타이머가 백그라운드에서 켜져 있으면 나중에 그 서브탭을 여는 순간 카드가 **먼저**
-  떠 있다(`LOAD_STUCK_MS` 는 8초라 반드시 그렇게 된다).
-
-### 소켓을 "만드는 중" 인 것도 연결 중이다 (2026-08-12)
-
-`connect()` 는 소켓을 만들기 전에 **await 를 두 번** 지난다(티켓 발급, 핸드셰이크 게이트).
-그 창 동안 `wsRef.current` 는 **비어 있다.** 그래서 상단의 "이미 OPEN/CONNECTING 이면
-no-op" 가드만으로는 두 번째 호출이 그대로 통과해 **같은 pane 에 소켓이 둘** 생긴다.
-
-호출자는 `handleResume` 이다 — focus/online/pageshow/visibilitychange 에서 `!ws` 면 곧장
-`connect()` 를 부른다(폰과 PC 를 오가면 focus 가 계속 터진다). 결과:
-
-```
-10:36:49  /ws/host/…mobile-985593b6ad75…create=0  [accepted] → open → closed  ←
-10:36:50  /ws/host/…mobile-985593b6ad75…create=0  [accepted] → open
-```
-
-뒤엣놈이 `prevSocket` 을 닫고, 그 close 가 또 재연결을 예약하고… **영원히 "다시 연결 중"**.
-새로고침 말곤 탈출구가 없었다.
-
-- `connect()` 상단에서 **`connectInFlightRef` 도 함께 본다**(그물 1).
-- 게이트 대기 뒤 `wsRef` 를 **다시 확인**한다 — in-flight 표시를 안 거치는 호출자가
-  생겨도 소켓이 둘이 되지 않게(그물 2).
-- effect cleanup 에서 in-flight 표시를 **반드시 내린다.** 이게 true 로 굳으면 connect 가
-  영구 no-op 이 되어 원래 버그보다 나쁘다.
-
-⚠️ 이 창은 원래도 티켓 RTT 만큼 열려 있었다(오래된 잠재 버그). 게이트 대기가 붙으면서
-상시 재현이 됐을 뿐이다. **await 를 하나 더 넣는 변경은 언제나 이 질문을 동반해야 한다:
-"그 사이에 같은 일을 또 시작할 수 있는 길이 있나?"**
-`Terminal.reconnect.test.jsx` 의 "중복 connect 금지" 3개가 이 선을 지킨다(두 그물을 다
-빼면 `expected 2 to be 1` 로 떨어진다).
-
-⚠️ **두 클라이언트가 같은 tmux 창을 동시에 보면서 서로 다른 크기를 갖는 방법은 없다.**
-tmux 의 불변식이다. 그러니 이 문제의 해법은 "크기를 협상" 이 아니라 **"안 볼 세션에는 안
-붙는다"** 뿐이다. 폰과 PC 가 같은 탭을 동시에 열면 그 세션 하나는 여전히 좁아진다.
-
-### 최적화끼리 부딪힐 수 있다 — 흩기 vs 모으기 (2026-08-12)
-
-안 보이는 pane 의 첫 cwd 조회에 **pane 마다 다른 랜덤 지연**을 줬다(버스트를 흩으려고).
-그 뒤 요청을 호스트당 하나로 **모으는** 배처를 넣었더니, 흩어진 요청들이 60ms 배치 창에
-같이 못 들어와 배치가 7개로 쪼개졌다. 지금은 전부 같은 값(1500ms)으로 **같이 비켰다가 같이
-묻는다.**
-
-**규칙: 배처 뒤에 지터를 두지 마라.** 모으는 층이 생기면 그 위의 흩기는 손해로 바뀐다.
+- ⚠️ **`isActive` 는 "보고 있는 pane" 이 아니다.** 분할 그리드에서는 형제가 전부
+  `isActive=true` 이고 `isFocused` 만 1개다. 새 게이트를 달 때 **"분할이면 몇 개가
+  실행되는가"** 를 먼저 물어라 — 이 하나로 출력 렌더·하트비트·health 프로브 세 군데가
+  동시에 틀려 있었다. `tab.activePaneId` 는 보장되지 않으므로(`|| panes[0]` 폴백)
+  정확히 하나여야 하는 일은 `isFocused` 가 아니라 모듈 레벨 리스로 정한다.
+- **출력 싱크의 코얼레싱 창이 곧 fps 다**(`createOutputSink.js`). 리딩엣지라 조용하다
+  들어온 첫 바이트는 항상 즉시 그려지고, 창을 늘려도 늘어나는 건 지속 출력의 병합 폭뿐이다.
+- **모든 탭의 `PaneGrid` 가 상시 마운트된다** → pane 단위 fetch 는 조용히 곱해진다.
+  실측에서 `/api/git/status` 하나가 전체 HTTP 의 80% 였다. **캐시가 아니라 타이머를 공유**
+  하고(`gitStatusStore`), 안 보이면 구독하지 않는다.
+- **배지는 시계가 아니라 사건에 붙인다.** repo 는 시간이 흘러서 바뀌지 않는다 —
+  터미널이 뭔가 써야 바뀐다.
+- **부팅에서 줄일 것은 총량이 아니라 동시성이다**(티켓 배치 · 핸드셰이크 게이트 3개).
+  ⚠️ 게이트가 새 교착이 되면 안 된다 — 슬롯을 못 받아도 2.5s 뒤엔 진행한다.
+- ⚠️ **`connect()` 의 await 창에서는 `wsRef` 가 비어 OPEN/CONNECTING 가드가 안 걸린다.**
+  중복 소켓이 서로를 죽여 영원히 "다시 연결 중" 이 된다. **await 를 추가하는 변경은 항상
+  "그 사이 같은 일을 또 시작할 길이 있나" 를 동반해야 한다.**
+- ⚠️ **폰이 붙으면 PC 화면이 짜부라진다** — tmux `window-size latest`. 그래서 모바일은
+  아직 보지 않은 pane 에 **아예 붙지 않는다**(`skipInitialConnect`).
 
 ## Xvnc 원격 데스크톱 (2026-08)
 
-호스트 카드 → Remote Desktop → 디스플레이 선택 → pane 에 데스크탑이 뜬다. pane 크기를
-바꾸면 원격 해상도가 따라오고, 브라우저를 닫아도 호스트의 세션은 살아있다.
-
-**`Xvnc : GUI = tmux : 셸`.** 비유가 아니라 구조가 같다 — 데스크탑이 호스트의 Xvnc
-프로세스 안에서 돌고 뷰어는 붙었다 떨어졌다 할 뿐이다. x11vnc(실제 화면 미러링)를
-쓰지 않는 이유가 이것이다: 지속성이 데스크탑 세션에 묶이고, 해상도 변경도 등록된
-xrandr 모드로만 가능해 반쪽이다.
-
-전송은 **SSH direct-tcpip**. VNC 는 호스트 루프백에만 바인딩하고 기존 SSH 연결 안으로
-통과시키므로 호스트에 새 인바운드 포트를 열지 않는다. 이게 이 기능의 보안 경계다.
-
-### 보안 모델 — 무엇이 무엇을 막는가
-
-관문은 세 겹이고, **VNC 포트 자체는 네트워크에서 도달 불가**하다:
-
-```
-앱 로그인(JWT) → WS 인증(티켓/쿠키) → SSH(저장된 자격증명) → 그 호스트의 127.0.0.1
-```
-
-- `-localhost` 는 **고정 문자열**이다. 어떤 flavor 든 어떤 경로로든 뺄 수 없다. 빼면
-  VNC 가 인터넷에 그대로 노출된다. `ss` 로 확인하면 `127.0.0.1:5901` 이지 `0.0.0.0` 이
-  아니어야 한다. LAN·인터넷은 물론 **Tailscale 에서도 그 포트에 못 닿는다.**
-- **VNC 비밀번호가 막는 것은 딱 하나 — 그 호스트에 이미 셸 계정을 가진 사람**이다.
-  그 외에는 원래 들어올 수 없다.
-- `~/.vnc/passwd` 는 고정 키 DES 난독화라 **암호학적으로 약하다**(0600 이어도 읽으면
-  되돌릴 수 있다). 다만 그 파일을 읽으려면 이미 그 유저의 셸이 있어야 하고, 셸이 있으면
-  루프백 포트에 그냥 붙을 수 있다 — 파일의 약함이 노출을 넓히지는 않는다. **비밀번호는
-  같은 호스트 다른 유저에 대한 과속방지턱이지 진짜 경계가 아니다.**
-- 따라서 **실제로 조여야 할 곳은 앱의 현관**이다. 앱이 뚫리면 VNC 도 같이 뚫리고,
-  현관이 안전하면 VNC 는 이미 안전하다.
+호스트 카드 → Remote Desktop. **`Xvnc : GUI = tmux : 셸`** — 데스크탑이 호스트의 Xvnc
+안에서 돌고 뷰어만 붙었다 떨어진다. 전송은 **SSH direct-tcpip** 라 호스트에 새 인바운드
+포트를 열지 않는다. 이게 이 기능의 보안 경계다.
+전문 — flavor 별 함정, 3D 가속, 모바일 터치패드, 검증 방법: **[docs/notes/vnc.md](docs/notes/vnc.md)**
 
 | 모듈 | 담당 |
 |---|---|
-| `backend/vnc_discovery.py` | X11 소켓·리스닝 포트·프로세스·바이너리 경로·GPU 능력 파싱 |
-| `backend/routes/vnc.py` | 디스플레이 목록 / 세션 기동·종료 / 비밀번호 설정 |
-| `backend/routes/vnc_ws.py` | WS ↔ RFB 바이트 펌프 |
-| `frontend/src/components/vnc/` | noVNC 클라이언트 (lazy chunk) |
-| `frontend/src/utils/vncResize.js` | 리사이즈 판정 + 250ms 디바운스, 생성 해상도 계산 |
+| `backend/vnc_discovery.py` · `routes/vnc.py` · `routes/vnc_ws.py` | 탐색 · 세션 · 바이트 펌프 |
+| `frontend/src/components/vnc/` · `utils/vncResize.js` | noVNC(lazy chunk) · 리사이즈 판정 |
 
-### 함정 (전부 실호스트에서 밟은 것들)
+되돌리면 즉시 깨지는 것들:
 
-**테스트가 전부 통과해도 아래는 안 잡힌다.** 실제로 붙어봐야 나온다.
-
-- **WS 서브프로토콜을 골라줘야 한다.** noVNC 는 `binary` 를 요구하는데, 서버가
-  `websocket.accept()` 를 인자 없이 부르면 RFC 6455 상 **브라우저가 연결을 실패
-  처리**한다. 서버에는 예외가 남지 않아 로그가 `connection open / closed` 로만 보인다.
-  클라이언트가 제시한 목록에 있을 때만 골라라 — 제시 안 한 걸 고르면 그것도 실패한다.
-- **VNC WS 로 제어 메시지를 보내지 마라.** RFB 는 순수 바이너리 스트림이다. 터미널 WS 의
-  `_push_ws_tickets` 를 재사용하면 JSON 텍스트 프레임이 섞여 들어가 noVNC 가 `RFB 003.008`
-  인사를 못 읽는다. 재연결은 핸드셰이크의 쿠키 폴백으로 충분하다.
-- **`ssh_pool` 을 쓰지 마라.** janitor 가 300s idle conn 을 닫는데 RFB 스트림은 `run()` 을
-  거치지 않아 `last_used` 가 갱신되지 않는다 — 잘 보다가 5분 뒤 끊긴다. 전용 conn 을 연다.
-- **`-localhost` 표기가 flavor 마다 다르다.** TigerVNC 는 `-localhost yes`, TurboVNC 는
-  인자 없는 불리언 `-localhost`. TurboVNC 에 `yes` 를 주면 Xvnc 로 새어들어가
-  `Unrecognized option: yes` 로 죽는다. **루프백 바인딩 자체는 어느 쪽이든 필수다.**
-- **`-SecurityTypes` 를 지정하지 않으면 세션 생성이 무한 대기한다.** `~/.vnc/passwd` 가
-  없으면 vncserver 가 `vncpasswd` 를 띄우고 입력을 기다린다. 원격에는 사람이 없다.
-  비밀번호 파일이 있으면 기본(VncAuth) 유지, 없으면 `-SecurityTypes None`. 그리고 원격
-  명령은 **stdin 을 `/dev/null` 로 막고 타임아웃을 걸어라.**
-- **디스플레이 판정을 X11 소켓만으로 하지 마라.** 데스크탑이 도는 기계면 `/tmp/.X11-unix/X0`
-  은 항상 있다. 5900번대 리스닝이나 `Xvnc`/`Xtigervnc` 프로세스가 있을 때만 목록에 넣는다.
-- **`ps` 는 자기 자신을 출력한다.** 디스커버리 명령줄에 `Xtigervnc`(후보 경로 루프)와
-  `:32`(`user:32`)가 한 줄에 들어 있어 "디스플레이 32번" 유령이 생겼다. 명령줄 문자열이
-  아무 데나 등장하는 것으로 잡지 마라 — basename 정확 일치 + 독립된 `:N` 인자여야 한다.
-- **`auth_method == 'tailscale'` 호스트는 asyncssh conn 이 없다.** `tailscale ssh` 로 SSH
-  채널을 열고 원격에서 `nc → ncat → bash /dev/tcp` 폴백으로 루프백에 파이프한다.
-  Tailscale IP 직결은 안 된다 — `-localhost` 때문에 그 주소엔 아무도 듣지 않는다.
-
-### 3D 가속
-
-Xvnc 는 소프트웨어 프레임버퍼라 GL 앱이 llvmpipe 로 떨어진다. GPU 로 올리려면 VirtualGL 이
-필요하고, 두 가지가 **둘 다** 있어야 한다:
-
-1. TurboVNC 의 **`-vgl`** 옵션. (TurboVNC 3.x 는 `~/.vnc/xstartup.turbovnc` 를 보지 않는다 —
-   시스템 스크립트를 쓰고 `-xstartup` 으로만 교체 가능하다. xstartup 을 건드리는 접근은
-   통하지 않는다.)
-2. **`VGL_DISPLAY=egl`**. 없으면 vglrun 이 기본 GLX 백엔드를 쓰는데 헤드리스 서버에는
-   3D X 서버가 없어 **세션이 통째로 죽는다.**
-
-**앱은 세션의 자식으로 실행돼야 GPU 를 쓴다.** 독/메뉴에서 띄우면 되고, SSH 로
-`DISPLAY=:1 앱` 하면 소프트웨어 렌더링이다(VirtualGL 의 `LD_PRELOAD` 를 상속하지 못한다).
-확인은 세션 안에서 `glxinfo | grep renderer`.
-
-전송의 천장은 남는다 — VNC 에는 비디오 코덱이 없어 움직이는 화면은 정지영상 연사다.
-NVENC 는 놀고 있다. 부드러운 3D 가 필요하면 그건 WebRTC(Selkies) 영역이다.
-
-### 프론트
-
-- **`resizeSession=true` 가 해상도 추적의 본체다.** `scaleViewport` 는 서버가
-  `SetDesktopSize` 를 거부할 때의 폴백일 뿐 — 그것만으로는 흐릿하게 확대된다.
-- **드래그 중 매 프레임 `SetDesktopSize` 를 보내면 서버가 프레임버퍼를 재할당하며 폭주한다.**
-  250ms 디바운스 필수. 생성 해상도도 pane 크기에서 계산한다(고정값이면 떴다가 리사이즈되는
-  왕복이 매번 생긴다). devicePixelRatio 는 곱하지 마라 — 원격 프레임버퍼만 커진다.
-- pane 은 **`mode: 'vnc'`** 를 쓴다. tab-state sanitize 가 비터미널 pane 을 보존하므로
-  새로고침 복원이 그대로 동작한다.
-- **pane 을 옮길 때 필드를 골라 담지 마라.** 원본을 통째로 옮기고 슬롯 고유값(`id`)만
-  덮어쓴다. 화이트리스트 방식은 새 속성이 생길 때마다 조용히 떨어뜨린다 —
-  `mode`/`display` 가 떨어져 VNC pane 이 터미널로 변한 적이 있다.
-- noVNC 는 **lazy import**. 수백 KB 라 시작 번들에 들어가면 안 된다.
-
-### 작은 pane 은 데스크탑의 크기를 정하지 않는다 (2026-08-06)
-
-**원격 해상도를 따라갈지는 pane 실측 크기로 판정한다**(`shouldFollowPaneSize`,
-1024x600 미만이면 통보 안 함). 처음엔 `isPhoneViewport()` 로 판정했는데 **폰을
-가로로 돌리면 844px 라 "폰이 아님" 이 된다** — 데스크탑을 보려고 돌리는 바로 그
-순간이다. 그래서 pane 크기가 `SetDesktopSize` 로 나가 데스크탑이 폰 크기로 줄고
-창·패널이 잘렸다. 그 해상도는 **세션에 남아** 나중에 PC 로 봐도 잘린 채다.
-"모바일에서 VNC 화면이 다 잘린다" 의 근원이 이것이었다.
-
-- 측정 전(0x0)도 통보하지 않는다 — 모르는 값으로 데스크탑을 줄이면 안 된다.
-- 생성 해상도도 같은 규칙(`computeCreateGeometry`) — 작은 pane 에서 만들면 실측
-  대신 `1280x800`.
-- **이미 줄어든 세션은 클라이언트가 못 되돌린다**(창 배치가 원격에서 이미 잘렸다).
-  설정 모달이 현재 해상도를 보여주고, 데스크탑 크기 미만이면 종료 후 재생성을 안내한다.
-
-보기 모드(`settings.vncViewMode`)로 큰 화면을 다룬다:
-
-| 모드 | noVNC 플래그 | 쓰임 |
-|---|---|---|
-| `fit` (기본) | `scaleViewport` | 통째로 축소 — 전체 배치 보기 |
-| `pan` | `clipViewport` + `dragViewport` | 1:1 픽셀 + 끌어서 이동, 탭은 클릭 |
-
-- **적용 순서가 규칙이다.** noVNC `_updateClip` 은 "Scaling trumps clipping" 이라
-  `scaleViewport` 가 켜진 동안 들어온 `clipViewport=true` 를 **무시한다**. 항상 끄는 쪽을
-  먼저 대입할 것 — `applyVncViewMode` 가 그 순서를 갖고 있고 테스트가 순서까지 검증한다.
-- **중간 배율(핀치 줌)은 공개 API 로 안 된다.** `scaleViewport` 는 "맞춤" 뿐이고 임의 배율은
-  `rfb._display.scale`(비공개)이다. CSS `transform: scale()` 도 안 된다 — noVNC 는
-  `getBoundingClientRect` 로 포인터 좌표를 잡고 자기 내부 scale 로만 나누므로 클릭 위치가
-  배율만큼 어긋난다.
-
-### 컨트롤은 화면에 없다 — 탭 메뉴 → 설정 모달
-
-원격 데스크톱은 **화면 자체가 콘텐츠**다. pane 위의 컨트롤 레일은 데스크탑을 가렸고
-폰에서 누르기도 나빴다. 지금은 pane 위에 아무것도 없다:
-
-```
-탭(서브탭) 메뉴 "VNC 설정" → emitVncControl(paneId, {openSettings}) → VncPane 이 모달을 연다
-```
-
-- pane `…` 메뉴에 넣을 수 없다 — **VNC pane 은 `TerminalHeader` 를 렌더하지 않는다**
-  (`Pane.jsx` 의 `!isVnc`). 그래서 메뉴는 탭바/서브탭바 쪽이고, 멀리 떨어진 pane 까지는
-  `vncControlBus` 의 window CustomEvent 로 닿는다(`iterm:open-file` 과 같은 패턴).
-- **선택 즉시 살아있는 RFB 에 적용하고 저장은 그 뒤에 한다.** 예전엔 설정 PUT(600ms
-  디바운스)이 돌아와야 화면이 바뀌어서 "반응이 느리다/안 먹는다" 로 보였다.
-- VNC pane 에서는 **모바일 하단 키바와 빠른 입력을 띄우지 않는다** — 터미널 세션이 없어
-  키를 받을 곳이 없다(누르면 영영 로딩).
-- `MenuItem` 은 별도 파일이다. `VncMenuItems` 가 그것을 쓰고 `TabBarMenus` 가
-  `VncMenuItems` 를 쓰므로, 한 파일에 두면 순환 import 로 조용히 undefined 컴포넌트가 된다.
-
-### 로컬(이 서버 자신)도 대상이다
-
-`host_id` 로 **`local` 예약어**를 받는다(`routes/vnc.py` 의 `LOCAL_HOST_ID`). DB 에 없는
-가상 호스트이고 소유권 검사도 하지 않는다 — 로그인한 사용자는 이미 이 서버의 셸을 쓸 수
-있다(터미널 pane 이 그것이다).
-
-로컬이 **가장 단순하고 가장 빠르다.** 백엔드가 도는 기계가 곧 대상이라 SSH 채널도 터널도
-없이 `asyncio.open_connection('127.0.0.1', port)` 로 끝난다. 디스커버리도 서브프로세스로
-같은 명령을 돌린다 — **명령 문자열은 원격과 동일하게 유지**해야 한다. 파서가 하나뿐이라
-여기서 갈라지면 두 경로가 어긋난다.
-
-⚠️ **컨테이너 배포에서 `local` 은 컨테이너 자신이다.** 이미지에 VNC 가 없으므로(Dockerfile
-확인) 로컬 원격 데스크톱 버튼은 **홈 진입 시 한 번 조회해서 실제로 있을 때만** 그린다.
-없으면 버튼 자체가 안 뜬다. 원격 호스트는 SSH 를 타야 알 수 있어 매번 프로브할 수 없다
-(클릭 시 조회) — 로컬만 SSH 없이 한 번에 알 수 있어서 자동 감지가 가능하다.
-
-이 판정은 **`hooks/useLocalVncAvailable` 하나**가 갖는다(모듈 레벨 캐시 → 조회 1회).
-호스트 카드를 그리는 화면이 둘(App 홈 · 빈 pane 의 `EmptyPane` 홈)인데 App 쪽에만 값이
-있어서 **폰에서 빈 pane 으로 들어가면 로컬 원격 데스크톱 아이콘이 안 뜨는** 버그가 있었다
-(폰의 기본 동선이 빈 pane 홈이라 폰에서만 없는 것처럼 보였다). 홈을 그리는 곳이 늘어나면
-프로브를 복사하지 말고 이 훅을 써라.
-
-### 미설치 호스트에는 설치법을 보여준다
-
-"없다" 로 끝내면 다음에 뭘 할지 모른다. `/etc/os-release` 의 ID 로 배포판을 감지해 실제
-명령을 띄운다(계열마다 패키지명이 다르다 — `tigervnc-standalone-server` /
-`tigervnc-server` / `tigervnc`).
-
-`/usr/share/xsessions/` 유무도 같이 본다. **VNC 만 깔고 데스크탑이 없으면 세션이 뜨자마자
-죽는다** — TigerVNC 는 세션 스크립트가 끝나면 서버를 같이 내리기 때문이다. 실제로 겪은
-실패라 안내에 함께 띄운다.
-
-### 비밀번호 설정
-
-경고만 띄우고 고칠 방법을 안 주면 안 된다. 피커의 경고 바로 아래에서 설정한다
-(`POST /api/hosts/{id}/vnc/password`). 설정하면 백엔드가 `~/.vnc/passwd` 유무로 보안
-타입을 정하므로 이후 세션이 자동으로 VncAuth 가 되고 클라이언트 입력 폼이 이어받는다.
-
-- **비밀번호는 stdin 으로만 넘긴다.** 명령줄 인자로 주면 원격의 `ps` 에 그대로 보인다.
-- 우리 DB 에 저장하지 않는다. 호스트의 passwd 파일이 유일한 보관처다.
-- **6~8자로 제한한다.** 고전 VNC 인증은 8자까지만 쓰고 초과분을 조용히 자른다 — 긴
-  비밀번호를 넣고 "설정됐다" 고 믿게 두면 안 된다.
-
-### 화질 컨트롤은 접이식이다
-
-원격 데스크톱은 **화면 자체가 콘텐츠**다. 컨트롤을 상시 띄우면 데스크탑을 가린다.
-우측 가장자리 손잡이를 눌러야 펼쳐진다.
-
-pane `…` 메뉴에 넣을 수 없다 — **VNC pane 은 `TerminalHeader` 를 아예 렌더하지 않는다**
-(`Pane.jsx` 의 `!isVnc`). 터미널 전용 크롬이 VNC 에 의미 없고 30px 레일 없이 캔버스가
-전체를 채우도록 일부러 뺀 구조다.
-
-### 모바일 조작 — 터치패드와 확대 (2026-08-18)
-
-폰에서 "조작이 안 된다 / 확대가 안 된다" 의 원인은 둘 다 noVNC 의 기본 동작에 있다.
-
-- **터치는 전부 절대 좌표 탭이다.** 1920px 데스크탑이 폭 390px pane 에 맞춰지면 배율이
-  0.2 라 손가락 하나가 **원격 25px** 을 덮는다. 창 닫기 버튼을 누를 정확도가 안 나온다.
-  → 화면 아래에 **터치패드**(`VncTouchpad`)를 둔다. 손가락 **위치**가 아니라 **이동량**으로
-  커서를 옮기므로 정확도가 배율에서 풀려난다(느리면 정밀·빠르면 멀리 = 가속).
-  자리값도 공짜다 — 세로로 긴 폰에서 16:9 데스크탑 위아래는 원래 빈 공간이다.
-- **핀치는 원격에 Ctrl+휠을 보낸다**(rfb.js 의 `case 'pinch'`). 뷰어를 확대하는 기능이
-  애초에 없다. → 캔버스 위 두 손가락은 **캡처 단계에서 가로채**(`useVncViewerGestures`)
-  우리가 확대·이동한다.
-
-| 어디를 만지나 | 무엇이 움직이나 |
-|---|---|
-| 화면(캔버스) 한 손가락 | 원격 — noVNC 기본(탭=클릭, 끌기=드래그) |
-| 화면 두 손가락 | **보는 방식** — 핀치 확대, 밀어서 이동 |
-| 터치패드 한 손가락 | 커서 이동 · 톡 치면 클릭 |
-| 터치패드 두 손가락 | **원격 스크롤**(휠) |
-
-규칙과 함정:
-
-- ⚠️ **확대는 컨테이너 상자를 키워서 한다. CSS transform 은 안 된다.** noVNC 는 자기 화면
-  요소를 ResizeObserver 로 보다가 `scaleViewport` 면 그 크기에 맞춰 `autoscale` 한다 —
-  상자를 배율만큼 키우면 캔버스와 **좌표계가 같이** 커진다. transform 으로 겉만 키우면
-  noVNC 가 `getBoundingClientRect` 로 읽은 좌표를 자기 내부 배율로만 나누므로 누르는
-  위치가 배율만큼 어긋난다(이 절 위쪽의 "중간 배율은 공개 API 로 안 된다" 를 이 방법이 푼다).
-- ⚠️ **원격 해상도 판정은 컨테이너가 아니라 래퍼로 한다.** 확대하면 컨테이너가 커지는데,
-  그걸 pane 크기로 읽으면 손가락 확대가 `SetDesktopSize` 로 나가 **남의 데스크탑 해상도를
-  바꾼다.** `canResizeRemote`·리사이즈 스케줄러 둘 다 `viewportRef`(래퍼)를 잰다.
-  테스트가 이 선을 지킨다("확대해도 원격 해상도는 통보하지 않는다").
-- ⚠️ **두 손가락을 가로챌 때 캔버스에 `touchcancel` 을 보내야 한다.** 첫 손가락은 이미
-  캔버스에 도착해 noVNC 의 제스처 추적이 시작된 상태다. 그냥 삼키면 추적이 남아 원격에
-  드래그가 새거나 다음 터치가 통째로 무시된다(`GestureHandler._waitingRelease`).
-- ⚠️ **포인터 이벤트는 손가락마다 따로 온다.** 나란히 미는 스크롤 중에도 한 손가락이 먼저
-  움직인 순간에는 간격이 크게 변한 것처럼 보여 핀치로 오인된다. 그래서 판정은 간격만이
-  아니라 **간격 변화 > 중점 이동** 인지로 한다(`classifyTwoFinger`), 그리고 **한 제스처에
-  한 번만** 정한다(매번 다시 재면 화면이 떨린다).
-- noVNC 에는 **공개 포인터 API 가 없다.** 터치패드는 캔버스가 실제로 듣는 DOM 이벤트
-  (`mousedown/mouseup/mousemove/wheel`)를 합성해 보낸다(`utils/vncSyntheticInput.js`).
-  사설 필드 대신 `container.querySelector('canvas')` 로 찾으므로 깨질 표면이 가장 작고,
-  좌표는 **캔버스 요소 좌표**로만 다루면 된다 — 배율·뷰포트 변환은 noVNC 가 한다.
-  `vncSyntheticInput.contract.test.js` 가 그 계약(리스너 이름·버튼 비트·autoscale 근거)을
-  **설치된 noVNC 소스에 대고** 검사한다. 업그레이드로 조용히 깨지는 걸 그때 잡는다.
-- 터치패드는 **작은 pane 에서만** 뜬다 — 기준은 `shouldFollowPaneSize`, 즉 "원격 해상도를
-  건드리지 않는 창인가" 와 같은 잣대다(폰을 가로로 돌려도 유효하다는 그 이유 그대로).
-- 드래그 잠금은 버튼을 누른 채로 두는 것이라, **언마운트 때 반드시 떼야 한다.** 안 그러면
-  원격 마우스가 눌린 채로 굳는다.
-
-### 검증 방법
-
-**브라우저 없이 프로토콜까지 확인할 수 있다.** 토큰 생성 →
-`POST /api/ws-ticket {"path": "/ws/vnc/{host_id}"}` →
-`websockets.connect(url, subprotocols=['binary'])` → `ws.subprotocol` 과 첫 프레임
-(`RFB 003.008` 이어야 한다)을 확인. 위 서브프로토콜·스트림 오염 버그를 둘 다 이걸로 잡았다.
-
-⚠️ **실행 중인 앱에 브라우저(Playwright 등)로 붙지 마라.** 같은 계정이면 탭 복원이
-사용자가 쓰고 있던 tmux 세션을 가져간다. 브라우저 레이어 확인이 꼭 필요하면 사용자에게
-직접 열어보게 하라.
+- **`-localhost` 는 고정 문자열이다.** 빼면 VNC 가 인터넷에 그대로 노출된다.
+  `ss` 로 `127.0.0.1:5901` 인지 확인할 것(`0.0.0.0` 이면 사고).
+- **VNC 비밀번호가 막는 것은 그 호스트에 이미 셸 계정이 있는 사람뿐이다.** 실제로 조여야
+  할 곳은 앱의 현관이다 — 앱이 뚫리면 VNC 도 같이 뚫린다.
+- **WS 서브프로토콜(`binary`)을 골라줘야 한다.** 안 고르면 브라우저가 연결을 실패
+  처리하는데 서버 로그에는 `connection open / closed` 로만 보인다.
+- **VNC WS 로 제어 메시지(JSON)를 보내지 마라.** RFB 는 순수 바이너리다.
+- **`ssh_pool` 을 쓰지 마라** — janitor 가 idle 로 보고 5분 뒤 끊는다. 전용 conn.
+- ⚠️ **작은 pane 은 데스크탑 크기를 정하지 않는다**(`shouldFollowPaneSize`). 폰을 가로로
+  돌리면 844px 라 "폰 아님" 이 되던 판정 때문에 데스크탑이 폰 크기로 굳은 적이 있다.
+  **한 번 줄어든 세션은 클라이언트가 못 되돌린다.**
+- **확대는 컨테이너 상자를 키워서** 한다. CSS transform 은 좌표가 배율만큼 어긋난다.
 
 ## LLM 사용량 (2026-08-06)
 

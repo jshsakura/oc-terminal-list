@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from _deps import verify_auth_token
 import telegram_client
 import telegram_service
+import usage_report
 from push_keys import get_public_key
 from sqlite_storage import storage
 
@@ -140,6 +141,42 @@ async def telegram_test(username: str = Depends(verify_auth_token)):
     except telegram_client.TelegramError as e:
         raise HTTPException(status_code=502, detail=str(e))
     return {"status": "sent"}
+
+
+@router.get("/usage-report")
+async def usage_report_status(username: str = Depends(verify_auth_token)):
+    """하루 한 번 가는 사용량·누수 요약의 상태."""
+    return await usage_report.get_report_config()
+
+
+class UsageReportRequest(BaseModel):
+    enabled: bool | None = None
+    hour: int | None = Field(default=None, ge=0, le=23)
+
+
+@router.put("/usage-report")
+async def usage_report_save(
+    request: UsageReportRequest,
+    username: str = Depends(verify_auth_token),
+):
+    config = await usage_report.get_report_config()
+    if config["from_env"] and request.enabled is not None:
+        raise HTTPException(status_code=400, detail="USAGE_REPORT_ENABLED env 가 설정을 이깁니다")
+    await usage_report.save_report_config(request.enabled, request.hour)
+    return await usage_report.get_report_config()
+
+
+@router.post("/usage-report/test")
+async def usage_report_test(username: str = Depends(verify_auth_token)):
+    """'지금 보내보기' — 어제치 요약을 그대로 만들어 보낸다.
+
+    보낼 것이 없으면 그렇게 답한다. 빈 요약을 보내는 것보다 낫고, 무엇보다 왜 안 왔는지를
+    화면에서 알 수 있어야 한다.
+    """
+    result = await usage_report.build_and_send(username)
+    if result["status"] == "send-failed":
+        raise HTTPException(status_code=502, detail=result.get("detail") or "전송 실패")
+    return result
 
 
 @router.post("/telegram/discover")

@@ -159,12 +159,16 @@ async def lifespan(_app: FastAPI):
     agent_status_watcher.start()
     # 텔레그램 버튼 콜백 롱폴링 — 설정이 없으면 스스로 쉰다(연결 시도 안 함).
     telegram_worker.start()
+    # 하루 한 번 사용량·누수 요약 — 크론이 아니라 서비스가 보낸다(자격증명과 수집기를
+    # 이미 이 프로세스가 들고 있다). 텔레그램이 설정돼 있지 않으면 스스로 쉰다.
+    usage_report_worker.start()
     try:
         yield
     finally:
         logger.info("=== Terminal List 종료 ===")
         await agent_status_watcher.stop()
         await telegram_worker.stop()
+        await usage_report_worker.stop()
         ssh_pool.stop_janitor()
         try:
             await ssh_pool.close_all()
@@ -280,6 +284,7 @@ from tickets import (  # noqa: E402
 # 에이전트 상태 워처 배선 — agent_status_service.py
 from agent_status_service import agent_status_watcher  # noqa: E402
 from telegram_service import telegram_worker  # noqa: E402
+from usage_report import usage_report_worker  # noqa: E402
 
 
 

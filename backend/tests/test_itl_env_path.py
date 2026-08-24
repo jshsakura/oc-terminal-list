@@ -38,9 +38,15 @@ async def test_session_env_carries_identity_only():
 
 
 def test_the_tmux_server_environment_carries_the_cli_directory():
-    """pane 이 실제로 itl 을 찾는 통로 — 서버를 띄우는 환경."""
+    """pane 이 실제로 itl 을 찾는 통로 — 서버를 띄우는 환경.
+
+    ⚠️ "맨 앞" 이 아니라 "PATH 항목으로 있다" 를 본다. 이 앱의 pane **안에서** 테스트를
+    돌리면 PATH 에 이미 그 경로가 있고(우리가 넣은 것이다), 그러면 `_tmux_env` 는 옳게도
+    중복 추가를 건너뛴다. startswith 로 재면 정작 기능이 동작하는 환경에서만 빨개진다.
+    """
     env = TmuxManager()._tmux_env()
-    assert env["PATH"].startswith(f"{itl_env.CLI_DIR}:")
+    # CLI_DIR 은 PosixPath 다 — str() 없이 비교하면 항상 빗나간다.
+    assert str(itl_env.CLI_DIR) in env["PATH"].split(os.pathsep)
 
 
 def test_the_backend_path_passes_through_untouched():
