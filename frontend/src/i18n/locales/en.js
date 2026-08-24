@@ -1082,6 +1082,8 @@ export const en = {
     vncZoomOut: 'Zoom out',
     vncZoomFit: 'Fit to screen',
     vncQualitySharp: 'Sharp',
+    vncQualityAutoHint: 'Follows the link speed',
+    vncQualityAuto: 'Auto',
     vncQualityBalanced: 'Balanced',
     vncQualityLight: 'Light',
     vncSettings: 'VNC settings',
@@ -1092,7 +1094,7 @@ export const en = {
     vncViewPan: 'Actual size · drag',
     vncViewPanHint: 'Real pixels; drag to move, tap to click',
     vncQualitySharpHint: 'Best image, heaviest traffic',
-    vncQualityBalancedHint: 'Default',
+    vncQualityBalancedHint: 'Readable text, moderate traffic',
     vncQualityLightHint: 'Strong compression for slow links',
     // ── LLM usage (llm-watcher integration) ──
     dashboard: 'Dashboard',

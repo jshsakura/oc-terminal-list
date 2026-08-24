@@ -16,7 +16,7 @@ const { color, font, fontSize, fontWeight, radius, space } = tokens;
  * this modal only reports the choice.
  */
 const VncSettingsModal = ({
-  isOpen, onClose, viewMode, quality, onViewMode, onQuality, remoteSize, t,
+  isOpen, onClose, viewMode, quality, autoStep, onViewMode, onQuality, remoteSize, t,
 }) => (
   <GlassModal
     isOpen={isOpen}
@@ -63,6 +63,11 @@ const VncSettingsModal = ({
 
     <Group label={t?.('vncQuality') || 'Quality'}>
       {[
+        /* 자동이 무엇을 골랐는지 **같이 적는다.** "자동" 이라고만 두면 화면이 흐릴 때
+           이게 링크 탓인지 고장인지 알 길이 없다 — 이 앱의 "모른다고 적는 것이 기능" 규칙. */
+        ['auto', t?.('vncQualityAuto') || 'Auto',
+          `${t?.('vncQualityAutoHint') || 'Follows the link speed'}${
+            autoStep ? ` · ${t?.(`vncQuality${autoStep[0].toUpperCase()}${autoStep.slice(1)}`) || autoStep}` : ''}`],
         ['sharp', t?.('vncQualitySharp') || 'Sharp', t?.('vncQualitySharpHint') || 'Best image, heaviest traffic'],
         ['balanced', t?.('vncQualityBalanced') || 'Balanced', t?.('vncQualityBalancedHint') || 'Default'],
         ['light', t?.('vncQualityLight') || 'Light', t?.('vncQualityLightHint') || 'Strong compression for slow links'],

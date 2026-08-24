@@ -1087,6 +1087,8 @@ export const ko = {
     vncZoomOut: '축소',
     vncZoomFit: '화면에 맞춤',
     vncQualitySharp: '선명하게',
+    vncQualityAutoHint: '연결 속도에 맞춰 알아서',
+    vncQualityAuto: '자동',
     vncQualityBalanced: '균형',
     vncQualityLight: '가볍게',
     vncSettings: 'VNC 설정',
@@ -1097,7 +1099,7 @@ export const ko = {
     vncViewPan: '원본 크기 · 끌어서 이동',
     vncViewPanHint: '1:1 픽셀. 끌면 이동하고 탭하면 클릭',
     vncQualitySharpHint: '가장 선명, 데이터 많이 씀',
-    vncQualityBalancedHint: '기본값',
+    vncQualityBalancedHint: '글자가 읽히는 하한',
     vncQualityLightHint: '느린 망에서 끊김 최소화',
     // ── LLM 사용량 (llm-watcher 연동) ──
     dashboard: '대시보드',

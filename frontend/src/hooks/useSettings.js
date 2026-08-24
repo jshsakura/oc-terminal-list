@@ -65,7 +65,8 @@ export const DEFAULT_SETTINGS = {
 
   bellNotifications: false, // BEL(\x07) 수신 시 브라우저 알림 (탭 백그라운드일 때만)
   mobileKeys: DEFAULT_MOBILE_KEYS,  // 모바일 하단 단축키 목록 — 사용자가 Settings 에서 편집
-  vncQuality: 'balanced', // VNC 화질 프리셋 — 'sharp'(선명) | 'balanced'(균형) | 'light'(가볍게). updateSettings 로 영속화, 비밀번호와 달리 저장 OK.
+  vncQuality: 'auto',   // VNC 화질 — 'auto'(링크 속도에 맞춰 자동, 기본) | 'sharp' | 'balanced' | 'light'.
+                        // auto 는 프리셋이 아니라 **누가 정하느냐**다. 사람이 고르면 그게 이기고 적응은 멈춘다.
   currency: 'auto',      // 비용 표기 통화 — 'auto'(한국어면 원) | 'usd' | 'krw'. 환율은 서버가 하루 한 번.
   vncViewMode: 'fit',     // 폰에서 원격 데스크톱을 보는 방식 — 'fit'(통째로 축소) | 'pan'(1:1 + 끌어서 이동). 데스크탑에서는 무시(pane 크기가 곧 원격 해상도).
 };

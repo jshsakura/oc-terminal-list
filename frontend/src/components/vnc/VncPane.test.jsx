@@ -178,14 +178,22 @@ describe('VncPane', () => {
 
   // ── Quality presets ──
 
-  it('qualityLevel/compressionLevel 이 rfb 에 적용된다 (balanced 기본)', async () => {
+  it('기본은 auto — 사다리 꼭대기에서 낙관적으로 시작한다', async () => {
+    /* 링크가 못 버티면 첫 버스트가 알려준다. 낮게 시작하면 빠른 링크에서 이유 없이
+       흐린 화면을 보게 되고, 사람은 그걸 고장으로 읽는다. */
     render(<VncPane {...baseProps()} />);
     await waitFor(() => expect(lastClientOpts).toBeTruthy());
-    // balanced = { qualityLevel: 8, compressionLevel: 3 }
-    // ⚠️ 8 은 취향이 아니라 TurboVNC 의 매핑에서 온 값이다 — 레벨 6 은 JPEG 79 라
-    // 글자가 뭉갠다(6→79, 8→92, 9→100). 내리려면 그 표를 먼저 볼 것.
-    expect(lastClientOpts.qualityLevel).toBe(8);
-    expect(lastClientOpts.compressionLevel).toBe(3);
+    expect(lastClientOpts.qualityLevel).toBe(9);
+    expect(lastClientOpts.compressionLevel).toBe(0);
+    // auto 일 때만 처리량을 잰다 — 사람이 고른 값은 잴 이유가 없다.
+    expect(typeof lastClientOpts.onThroughput).toBe('function');
+  });
+
+  it('사람이 고른 화질이면 측정을 걸지 않는다 — 되돌릴 일이 없다', async () => {
+    render(<VncPane {...baseProps({ settings: { vncQuality: 'light' } })} />);
+    await waitFor(() => expect(lastClientOpts).toBeTruthy());
+    expect(lastClientOpts.qualityLevel).toBe(3);
+    expect(lastClientOpts.onThroughput).toBeUndefined();
   });
 
   it('settings.vncQuality=sharp → qualityLevel=9, compressionLevel=0', async () => {

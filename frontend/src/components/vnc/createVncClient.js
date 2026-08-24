@@ -1,4 +1,5 @@
 import { applyVncViewMode, VNC_VIEW_FIT } from '../../utils/vncResize';
+import { createBurstMeter } from '../../utils/vncAdaptiveQuality';
 
 /**
  * noVNC RFB 인스턴스를 만들어 컨테이너에 붙인다.
@@ -21,6 +22,8 @@ import { applyVncViewMode, VNC_VIEW_FIT } from '../../utils/vncResize';
  * @param {function=} opts.onDisconnected - RFB 'disconnect' 이벤트 (detail.clean)
  * @param {function=} opts.onCredentialsRequired - 인증 정보 요구
  * @param {function=} opts.onSecurityFailure - 보안 협상 실패 (detail.reason)
+ * @param {function=} opts.onThroughput - 버스트가 끝날 때 실측 대역폭 ({mbps, at, bytes}).
+ *   화질 자동 적응이 이 값으로 판단한다. 없으면 측정 자체를 하지 않는다.
  * @returns {Promise<{rfb: object, destroy: () => void}>}
  */
 export default async function createVncClient({
@@ -34,6 +37,7 @@ export default async function createVncClient({
   onDisconnected,
   onCredentialsRequired,
   onSecurityFailure,
+  onThroughput,
 }) {
   // 동적 import — noVNC 는 수백 KB. 첫 VNC 접속 시점에만 로드한다.
   // package.json exports 가 "." → "./core/rfb.js" 단일 매핑이므로 루트에서 불러온다.
@@ -41,7 +45,29 @@ export default async function createVncClient({
 
   // wsProtocols=['binary'] — RFB 는 바이너리 프로토콜이므로 WebSocket 서브프로토콜을
   // 'binary' 로 고정한다(noVNC 표준 설정).
-  const rfb = new RFB(container, url, { wsProtocols: ['binary'] });
+  /* 소켓을 **우리가 만들어** 넘긴다. RFB 는 URL 대신 WebSocket 을 받으면 그대로 붙이므로
+     (websock.attach), 우리는 같은 소켓에 리스너를 하나 더 달아 도착 바이트를 셀 수 있다.
+     화질을 자동으로 맞추려면 이 링크가 실제로 얼마를 나르는지 알아야 하는데, noVNC 는
+     처리량을 밖으로 내보내지 않는다.
+
+     ⚠️ 두 가지를 지켜야 한다.
+     1) 만들자마자 넘긴다. attach() 는 `onopen` 을 **대입**하므로, 이미 열린 뒤에 넘기면
+        그 이벤트를 영영 못 받아 noVNC 가 핸드셰이크를 시작하지 못한다.
+     2) 우리 리스너는 `addEventListener` 로 단다. noVNC 는 `onmessage =` 로 대입하므로
+        둘은 공존한다 — 대입으로 달면 noVNC 것을 덮어써서 화면이 통째로 멎는다. */
+  let socket = null;
+  let meter = null;
+  let onMessage = null;
+  if (typeof onThroughput === 'function') {
+    socket = new WebSocket(url, ['binary']);
+    meter = createBurstMeter(onThroughput);
+    onMessage = (e) => {
+      const size = e.data?.byteLength ?? e.data?.size ?? 0;
+      if (size) meter.push(size, performance.now());
+    };
+    socket.addEventListener('message', onMessage);
+  }
+  const rfb = new RFB(container, socket || url, { wsProtocols: ['binary'] });
 
   // 보기 모드 — fit(scaleViewport) / pan(clipViewport+dragViewport). 순서 규칙은
   // applyVncViewMode 가 안다("Scaling trumps clipping").
@@ -84,6 +110,9 @@ export default async function createVncClient({
     destroyed = true;
     for (const [name, fn] of Object.entries(handlers)) {
       try { rfb.removeEventListener(name, fn); } catch { /* noop */ }
+    }
+    if (socket && onMessage) {
+      try { socket.removeEventListener('message', onMessage); } catch { /* noop */ }
     }
     try { rfb.disconnect(); } catch { /* noop — 이미 끊겼어도 안전 */ }
   };

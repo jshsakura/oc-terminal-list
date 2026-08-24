@@ -23,7 +23,15 @@ import {
 } from './vncControlBus';
 import VncSettingsModal from './VncSettingsModal';
 
+import {
+  QUALITY_STEPS, INITIAL_STEP, initialState as adaptiveInitialState, decideStep,
+} from '../../utils/vncAdaptiveQuality';
+
 const { color, font, fontSize, fontWeight, radius } = tokens;
+
+/* 'auto' 는 프리셋 이름이 아니라 **누가 정하느냐**다: 링크가 정한다. 사람이 프리셋을
+   고르는 순간 그 선택이 이기고 적응은 멈춘다 — 자동이 사람의 결정을 되돌리면 안 된다. */
+const VNC_QUALITY_AUTO = 'auto';
 
 /* VNC 화질/압축 프리셋 — 이름으로 고르고 값은 UI 에 노출하지 않는다.
  *
@@ -85,6 +93,12 @@ const VncPane = ({
   // 스크롤을 갖는 바깥 래퍼 — 확대했을 때 화면을 미는 자리이자, **진짜 pane 크기**의 기준.
   const viewportRef = useRef(null);
   const clientRef = useRef(null);
+  /* 화질 자동 적응의 상태. **ref 다** — 판정은 렌더와 무관하고, state 로 두면 측정이
+     올 때마다 이 pane 이 다시 그려진다(버스트마다 리렌더는 그 자체로 비용이다). */
+  const adaptiveRef = useRef(null);
+  /* 자동이 지금 무엇을 골랐는지. 이건 화면에 보여줘야 하므로 state 다 —
+     "자동" 이라고만 적으면 왜 흐린지 알 길이 없다. */
+  const [autoStep, setAutoStep] = useState(QUALITY_STEPS[INITIAL_STEP].name);
   const [status, setStatus] = useState('connecting');
   const [errorMsg, setErrorMsg] = useState('');
   // 연결 진행 단계 — 'ticket'(티켓 발급 중) → 'negotiating'(WS+RFB 협상 중).
@@ -157,6 +171,24 @@ const VncPane = ({
      broken. Seeded from settings, and re-seeded when settings change elsewhere. */
   const [viewMode, setViewMode] = useState(() => normalizeVncViewMode(settings?.vncViewMode));
   const viewModeRef = useRef(viewMode);
+
+  /* 측정 하나가 도착했다 → 사다리를 한 칸 움직일지 정한다.
+     판정은 순수 함수(decideStep)가 하고 여기서는 **적용만** 한다 — 그래야 임계·쿨다운·
+     히스테리시스를 컴포넌트를 띄우지 않고 테스트할 수 있다. */
+  const handleThroughput = useCallback((sample) => {
+    const prev = adaptiveRef.current;
+    if (!prev) return;
+    const { state, changed, step } = decideStep(prev, sample);
+    adaptiveRef.current = state;
+    if (!changed) return;
+    const rfb = clientRef.current?.rfb;
+    if (rfb) {
+      rfb.qualityLevel = step.qualityLevel;
+      rfb.compressionLevel = step.compressionLevel;
+    }
+    setAutoStep(step.name);
+  }, []);
+
   viewModeRef.current = viewMode;
   useEffect(() => {
     setViewMode(normalizeVncViewMode(settings?.vncViewMode));
@@ -236,8 +268,14 @@ const VncPane = ({
       });
 
       try {
-        // 화질 프리셋 — settings.vncQuality → qualityLevel/compressionLevel.
-        const qPreset = VNC_QUALITY_PRESETS[settings?.vncQuality] || VNC_QUALITY_PRESETS.balanced;
+        /* 화질 — 사람이 고른 프리셋이 있으면 그것, 없으면(auto) 사다리의 꼭대기에서
+           낙관적으로 시작한다. 링크가 못 버티면 첫 버스트가 바로 알려준다. */
+        const isAuto = !VNC_QUALITY_PRESETS[settings?.vncQuality];
+        const qPreset = isAuto
+          ? QUALITY_STEPS[INITIAL_STEP]
+          : VNC_QUALITY_PRESETS[settings.vncQuality];
+        adaptiveRef.current = adaptiveInitialState(INITIAL_STEP);
+        setAutoStep(QUALITY_STEPS[INITIAL_STEP].name);
         // 티켓 발급 완료 → RFB 인스턴스 생성(WS 오픈 + RFB 협상) 단계로 전환.
         setConnectPhase('negotiating');
         const client = await createVncClient({
@@ -247,6 +285,9 @@ const VncPane = ({
           compressionLevel: qPreset.compressionLevel,
           resizeSession: canResizeRemote(),
           viewMode: viewModeRef.current,
+          /* 측정은 auto 일 때만 건다. 사람이 고른 화질을 재봐야 할 일이 없고,
+             콜백이 없으면 createVncClient 는 소켓 계측 자체를 하지 않는다. */
+          onThroughput: isAuto ? handleThroughput : undefined,
           onConnected: () => {
             if (!cancelled) {
               setStatus('connected');
@@ -389,6 +430,14 @@ const VncPane = ({
   });
 
   const applyQuality = useCallback((next) => {
+    if (next === VNC_QUALITY_AUTO) {
+      /* 자동으로 되돌린다 — 지금 화면은 그대로 두고 사다리만 여기서부터 다시 시작한다.
+         꼭대기로 되돌리면 방금 사람이 겪은 느린 링크를 한 번 더 겪게 된다. */
+      const at = QUALITY_STEPS.findIndex((q) => q.name === autoStep);
+      adaptiveRef.current = adaptiveInitialState(at < 0 ? INITIAL_STEP : at);
+      updateSettings?.({ vncQuality: VNC_QUALITY_AUTO });
+      return;
+    }
     const preset = VNC_QUALITY_PRESETS[next];
     if (!preset) return;
     if (clientRef.current?.rfb) {
@@ -396,7 +445,7 @@ const VncPane = ({
       clientRef.current.rfb.compressionLevel = preset.compressionLevel;
     }
     updateSettings?.({ vncQuality: next });
-  }, [updateSettings]);
+  }, [updateSettings, autoStep]);
 
   // View mode, applied live — no reconnect, just the noVNC flags.
   // `status` is in the deps so it also runs right after the client is created.
@@ -406,7 +455,7 @@ const VncPane = ({
 
   /* Controls live in the tab menus (see vncControlBus). Apply what they ask for
      immediately, then persist — the picture must not wait for the settings PUT. */
-  const quality = settings?.vncQuality || 'balanced';
+  const quality = settings?.vncQuality || VNC_QUALITY_AUTO;
   // Settings live in a modal opened from the tab menu — never on top of the desktop.
   const [settingsOpen, setSettingsOpen] = useState(false);
   /* Remote framebuffer size, read when the modal opens. noVNC exposes no public
@@ -459,12 +508,17 @@ const VncPane = ({
     }
   }, [passwordValue]);
 
-  // Quality changes apply without reconnecting — noVNC re-encodes on assignment.
-  // (Also covers a change made from another device via settings sync.)
+  /* Quality changes apply without reconnecting — noVNC re-encodes on assignment.
+     (Also covers a change made from another device via settings sync.)
+
+     ⚠️ auto 일 때는 **아무것도 하지 않는다.** 여기서 프리셋을 대입하면 적응이 방금 고른
+     값을 매 렌더마다 되돌려, 자동이 켜져 있는 동안 화질이 한 칸에 묶인다. 사람이 고른
+     값만 강제한다 — 그게 'auto' 와 프리셋의 차이 전부다. */
   useEffect(() => {
+    const preset = VNC_QUALITY_PRESETS[quality];
+    if (!preset) return;
     const c = clientRef.current;
     if (!c?.rfb) return;
-    const preset = VNC_QUALITY_PRESETS[quality] || VNC_QUALITY_PRESETS.balanced;
     c.rfb.qualityLevel = preset.qualityLevel;
     c.rfb.compressionLevel = preset.compressionLevel;
   }, [quality, status]);
@@ -648,6 +702,7 @@ const VncPane = ({
         onClose={() => setSettingsOpen(false)}
         viewMode={viewMode}
         quality={quality}
+        autoStep={autoStep}
         onViewMode={applyViewMode}
         onQuality={applyQuality}
         t={t}
