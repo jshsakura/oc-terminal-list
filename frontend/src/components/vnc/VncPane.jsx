@@ -25,15 +25,26 @@ import VncSettingsModal from './VncSettingsModal';
 
 const { color, font, fontSize, fontWeight, radius } = tokens;
 
-// VNC 화질/압축 프리셋 — 3 단면으로 단순화. 값 자체를 UI 에 노출하지 않고 이름으로 고른다.
-//   sharp:    최고 화질, 압축 없음 — 빠른 망/로컬에서 화면이 또렷함. 페이로드 큼.
-//   balanced: 기본값 — 적당한 화질과 가벼운 압축. 대부분의 환경에서 무난.
-//   light:    강한 압축 + 저화질 — 느린 망에서 끊김 최소화. CPU 도 더 씀.
-// noVNC qualityLevel(0-9, 높을수록 선명) + compressionLevel(0-9, 높을수록 압축 강함).
+/* VNC 화질/압축 프리셋 — 이름으로 고르고 값은 UI 에 노출하지 않는다.
+ *
+ * ⚠️ `qualityLevel` 은 "선명도 0~9" 같은 선형 눈금이 **아니다.** RFB 의 QualityLevel
+ * pseudo-encoding 이고, 서버가 그걸 실제 JPEG 품질로 옮긴다. TurboVNC 의 매핑은:
+ *
+ *   레벨   0   1   2   3   4   5   6   7   8   9
+ *   JPEG  15  29  41  42  62  77  79  86  92  100
+ *   서브샘플링  ← 4X →  ← 2X →   ← 1X(없음) →
+ *
+ * 그래서 예전 기본값(6)은 **JPEG 79** 였다. 사진에는 무난하지만 안티에일리어싱된 글자에
+ * JPEG 가 걸리면 눈에 띄게 뭉갠다 — 이 pane 으로 보는 것은 대개 코드와 터미널이다.
+ * 8 은 JPEG 92 로 글자가 읽히면서 압축비는 20(9 는 10)이라 대역폭이 3배로 뛰지 않는다.
+ * 그 사이를 기본값으로 잡는다.
+ *
+ * `compressionLevel` 은 zlib 세기(0-9)라 화질과 무관하다 — 대역폭 ↔ 양쪽 CPU 다.
+ */
 const VNC_QUALITY_PRESETS = {
-  sharp: { qualityLevel: 9, compressionLevel: 0 },
-  balanced: { qualityLevel: 6, compressionLevel: 3 },
-  light: { qualityLevel: 3, compressionLevel: 7 },
+  sharp: { qualityLevel: 9, compressionLevel: 0 },      // JPEG 100 — 사실상 무손실
+  balanced: { qualityLevel: 8, compressionLevel: 3 },   // JPEG 92 — 글자가 읽히는 하한
+  light: { qualityLevel: 3, compressionLevel: 7 },      // JPEG 42 + 2X — 느린 망 전용
 };
 
 /**

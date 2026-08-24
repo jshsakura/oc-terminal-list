@@ -42,6 +42,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# RFB 한 번의 send 에 허용하는 시간. 처리량이 아니라 **죽은 피어**를 재는 값이다 —
+# 근거는 _stream_to_ws 의 docstring 에 있다(5초이던 시절 해상도 변경이 연결을 끊었다).
+VNC_SEND_TIMEOUT_SEC = max(5, int(os.getenv("VNC_SEND_TIMEOUT_SEC", "60")))
+
 
 async def _ws_to_stream(websocket: WebSocket, writer) -> None:
     """브라우저 → RFB 스트림: receive_bytes → writer.write + drain.
@@ -63,10 +67,20 @@ async def _ws_to_stream(websocket: WebSocket, writer) -> None:
 
 
 async def _stream_to_ws(reader, websocket: WebSocket) -> None:
-    """RFB 스트림 → 브라우저: reader.read → send_bytes (바이너리, 5s 타임아웃).
+    """RFB 스트림 → 브라우저: reader.read → send_bytes (바이너리).
 
-    send 가 5초 안에 안 끝나면 클라가 죽은 것으로 보고 종료 — 느린/죽은 TCP 가 send
-    buffer 를 무한 누적시키지 않도록 (HostBridge._stdout_pump 와 동일).
+    상한이 필요한 이유는 그대로다 — 죽은 피어에 대고 send buffer 를 무한히 쌓으면 안 된다.
+
+    ⚠️ **그 상한이 5초이던 시절, 해상도를 바꾸면 연결이 끊겼다.** 원인은 이 값이
+    ``HostBridge._stdout_pump`` 에서 그대로 복사돼 왔다는 것이다. 터미널 출력은 조금씩
+    계속 나오지만 **RFB 는 몰아친다**: 화면 크기가 바뀌면 서버가 전체 프레임버퍼를 한꺼번에
+    보낸다(1868x1594 면 수 MB). 청크는 64KB 씩 읽지만 `send_bytes` 는 전송 버퍼가 고수위를
+    넘는 순간 **밀린 것이 다 빠질 때까지** 기다리므로, 공유 터널에서는 한 번의 await 가
+    쉽게 5초를 넘는다. 그러면 이 코드가 멀쩡한 연결을 "죽었다" 고 판정해 스스로 끊었다.
+
+    그래서 이 값은 **처리량이 아니라 죽음을 재는 값**이어야 한다. 정말 죽은 피어는 넉넉한
+    상한에서도 결국 걸리고, TCP close 는 그 전에 read 쪽에서 잡힌다.
+    (`VNC_SEND_TIMEOUT_SEC` 로 조정 — 화질을 올리면 페이로드도 커진다는 점을 같이 볼 것.)
     """
     try:
         while True:
@@ -76,9 +90,16 @@ async def _stream_to_ws(reader, websocket: WebSocket) -> None:
             if websocket.client_state.name != "CONNECTED":
                 break
             try:
-                await asyncio.wait_for(websocket.send_bytes(data), timeout=5.0)
+                await asyncio.wait_for(
+                    websocket.send_bytes(data), timeout=VNC_SEND_TIMEOUT_SEC
+                )
             except TimeoutError:
-                logger.info("ws send timeout (vnc) — closing")
+                # 정상 연결을 끊는 자리다 — 왜 끊었는지 로그가 말해야 한다.
+                logger.warning(
+                    "ws send timeout (vnc): %ds 안에 %d바이트를 못 보냈다 — 닫는다. "
+                    "해상도 변경 직후라면 상한이 낮은 것이다(VNC_SEND_TIMEOUT_SEC).",
+                    VNC_SEND_TIMEOUT_SEC, len(data),
+                )
                 break
             except Exception as e:
                 logger.info("ws send failed (vnc): %s", e)

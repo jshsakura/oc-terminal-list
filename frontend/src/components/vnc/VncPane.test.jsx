@@ -181,8 +181,10 @@ describe('VncPane', () => {
   it('qualityLevel/compressionLevel 이 rfb 에 적용된다 (balanced 기본)', async () => {
     render(<VncPane {...baseProps()} />);
     await waitFor(() => expect(lastClientOpts).toBeTruthy());
-    // balanced = { qualityLevel: 6, compressionLevel: 3 }
-    expect(lastClientOpts.qualityLevel).toBe(6);
+    // balanced = { qualityLevel: 8, compressionLevel: 3 }
+    // ⚠️ 8 은 취향이 아니라 TurboVNC 의 매핑에서 온 값이다 — 레벨 6 은 JPEG 79 라
+    // 글자가 뭉갠다(6→79, 8→92, 9→100). 내리려면 그 표를 먼저 볼 것.
+    expect(lastClientOpts.qualityLevel).toBe(8);
     expect(lastClientOpts.compressionLevel).toBe(3);
   });
 

@@ -3,6 +3,7 @@
 RFB 는 바이너리 프로토콜이므로 펌프가 반드시 receive_bytes/send_bytes 를 써야 한다.
 실제 SSH/VNC 서버 없이 펌프 함수와 bridge 직렬화만 검증한다.
 """
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -13,6 +14,7 @@ from routes.vnc_ws import (
     _select_subprotocol,
     _spawn_tailscale_vnc_pipe,
     _stream_to_ws,
+    VNC_SEND_TIMEOUT_SEC,
     _terminate_proc,
     _ws_to_stream,
 )
@@ -292,3 +294,48 @@ def test_select_subprotocol_handles_missing_scope_key():
     """scope 에 subprotocols 키 자체가 없어도 None."""
     assert _select_subprotocol({}) is None
     assert _select_subprotocol({"subprotocols": None}) is None
+
+
+# ── send 상한: 처리량이 아니라 죽음을 재는 값 ────────────────────────────────
+#
+# 이 상한이 5초이던 시절 **해상도를 바꾸면 연결이 끊겼다.** 화면 크기가 바뀌면 서버가
+# 전체 프레임버퍼를 한꺼번에 보내는데(수 MB), 전송 버퍼가 고수위를 넘으면 send 하나가
+# 밀린 것을 다 빼낼 때까지 기다린다 — 공유 터널에서 5초는 쉽게 넘는다. 그러면 멀쩡한
+# 연결이 "죽었다" 로 판정돼 스스로 끊겼다. 값 자체를 테스트가 잠근다.
+
+def test_send_timeout_is_generous_enough_for_a_full_framebuffer():
+    """터미널 출력용 5초를 그대로 쓰면 안 된다 — RFB 는 몰아친다."""
+    assert VNC_SEND_TIMEOUT_SEC >= 30
+
+
+@pytest.mark.asyncio
+async def test_a_slow_burst_is_not_treated_as_a_dead_peer(monkeypatch):
+    """해상도 변경 직후의 느린 한 덩어리는 끊을 이유가 아니다."""
+    import routes.vnc_ws as mod
+    monkeypatch.setattr(mod, "VNC_SEND_TIMEOUT_SEC", 1)
+
+    class _SlowWS(_FakeWS):
+        async def send_bytes(self, data: bytes) -> None:
+            await asyncio.sleep(0.05)          # 상한보다 한참 짧다 = 살아있는 피어
+            self.sent.append(data)
+
+    ws = _SlowWS()
+    reader = _FakeReader([b"a" * 65536, b"b" * 65536])
+    await _stream_to_ws(reader, ws)
+    assert len(ws.sent) == 2                   # 둘 다 나갔고 끊기지 않았다
+
+
+@pytest.mark.asyncio
+async def test_a_peer_that_never_drains_is_still_dropped(monkeypatch):
+    """상한을 늘렸다고 무한 대기가 되면 안 된다 — 죽은 피어는 여전히 끊는다."""
+    import routes.vnc_ws as mod
+    monkeypatch.setattr(mod, "VNC_SEND_TIMEOUT_SEC", 1)
+
+    class _DeadWS(_FakeWS):
+        async def send_bytes(self, data: bytes) -> None:
+            await asyncio.sleep(3600)
+
+    ws = _DeadWS()
+    reader = _FakeReader([b"x" * 65536, b"y" * 65536])
+    await asyncio.wait_for(_stream_to_ws(reader, ws), timeout=5)
+    assert ws.sent == []                       # 첫 청크에서 포기했다
