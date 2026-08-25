@@ -162,6 +162,15 @@ def cmd_send(args):
               file=sys.stderr)
     if not result["delivered"]:
         sys.exit(1)
+    # 보내는 쪽은 꼬리표를 볼 수 없다 — 답장이 온다는 사실을 여기서 말해주지 않으면
+    # 되묻는 쪽(화면 확인 반복)을 고르게 된다. 붙지 않은 대상도 같이 말한다.
+    can = [d["addr"] for d in result["delivered"] if d.get("reply")]
+    cannot = [d["addr"] for d in result["delivered"] if not d.get("reply")]
+    if can:
+        print(f"       ↩ 답장 경로 전달됨 ({', '.join(can)}) — 끝나면 이리로 옵니다")
+    if cannot:
+        print(f"       · 답장 불가 ({', '.join(cannot)}) — 셸이거나 그 기계에 itl 이 없습니다. "
+              f"결과는 `itl read` 로 확인하세요")
 
 
 def cmd_read(args):

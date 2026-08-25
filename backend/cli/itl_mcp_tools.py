@@ -253,6 +253,34 @@ def tool_terminal_resolve(args):
     return "\n".join(rows)
 
 
+def _reply_note(delivered):
+    """보낸 뒤 무엇을 할지 한 줄로 알려준다.
+
+    ⚠️ **보내는 쪽은 꼬리표를 볼 수 없다.** 답장 명령은 받는 쪽 화면에만 붙으므로,
+    이 줄이 없으면 호출자는 답장이 온다는 사실을 모른 채 `terminal_wait`/`terminal_read`
+    로 되묻는 쪽을 고른다. 그 되묻기가 예전에 토큰을 태운 그 패턴이다 —
+    도구 호출 한 번마다 컨텍스트 전체가 다시 청구된다.
+
+    붙지 **않은** 경우도 말해야 한다. 받는 쪽이 셸이거나 그 기계에 itl 이 없으면 답장할
+    방법이 없는데, 그때 "답장이 온다" 고 적으면 호출자는 오지 않을 답을 기다린다.
+    """
+    can = [d.get("addr") for d in delivered if d.get("reply")]
+    cannot = [d.get("addr") for d in delivered if not d.get("reply")]
+    notes = []
+    if can:
+        notes.append(
+            f"답장 경로가 함께 전달됐습니다({', '.join(a for a in can if a)}). "
+            "상대가 끝나면 이 터미널로 직접 답장을 보냅니다 — 기다리지 말고 지금 턴을 마치세요. "
+            "그 사이 다른 일을 해도 됩니다."
+        )
+    if cannot:
+        notes.append(
+            f"답장 경로가 없는 대상({', '.join(a for a in cannot if a)}): 셸이거나 그 기계에 "
+            "itl 이 없습니다. 결과가 필요하면 terminal_read 로 화면을 확인하세요."
+        )
+    return " ".join(notes)
+
+
 def tool_terminal_send(args):
     to = args["to"]
     text = args.get("text", "")
@@ -286,7 +314,8 @@ def tool_terminal_send(args):
         lines.append(f"skip   {s.get('addr')} ({SKIP_REASONS.get(s.get('reason'), s.get('reason', '?'))})")
     if not delivered:
         raise ToolError("보냈으나 전달된 터미널이 없습니다. " + " | ".join(lines))
-    return "\n".join(lines)
+    lines.append(_reply_note(delivered))
+    return "\n".join(line for line in lines if line)
 
 
 def tool_terminal_key(args):

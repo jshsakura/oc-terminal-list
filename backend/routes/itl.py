@@ -435,7 +435,7 @@ async def _deliver_to_host(
     host_id: str,
     targets: list[dict],
     username: str,
-    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]],
+    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[dict | None]],
     outcome: dict[str, dict],
     *,
     channels: _HostChannels | None = None,
@@ -473,7 +473,7 @@ async def _deliver_to_host_inner(
     host_id: str,
     targets: list[dict],
     username: str,
-    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]],
+    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[dict | None]],
     outcome: dict[str, dict],
     *,
     channels: _HostChannels | None = None,
@@ -492,7 +492,7 @@ async def _deliver_over(
     channel: itl_remote.RemoteChannel,
     host_id: str,
     targets: list[dict],
-    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]],
+    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[dict | None]],
     outcome: dict[str, dict],
 ) -> None:
     """열려 있는 채널 하나로 그 호스트의 대상 전부에 배달한다."""
@@ -508,7 +508,7 @@ async def _deliver_over(
             outcome[addr] = _skip(target, REASON_GONE)
             continue
         try:
-            await deliver_remote(channel, tmux_session, found)
+            extra = await deliver_remote(channel, tmux_session, found)
         except itl_remote.RemoteSendError as e:
             logger.warning("itl remote send unconfirmed (%s/%s): %s", host_id, tmux_session, e)
             outcome[addr] = _skip(target, REASON_SEND_FAILED)
@@ -517,7 +517,7 @@ async def _deliver_over(
             outcome[addr] = _skip(target, REASON_UNREACHABLE)
         else:
             outcome[addr] = {"delivered": {"addr": addr, "hostId": host_id,
-                                           "tmuxSession": tmux_session}}
+                                           "tmuxSession": tmux_session, **(extra or {})}}
 
 
 async def _fanout_deliver(
@@ -526,8 +526,8 @@ async def _fanout_deliver(
     username: str,
     *,
     bucket: str,
-    deliver_local: Callable[[str], Awaitable[None]],
-    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]] | None = None,
+    deliver_local: Callable[[str], Awaitable[dict | None]],
+    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[dict | None]] | None = None,
     exclude_self: bool = False,
 ) -> dict:
     """Resolve ``to`` against the caller's tabs and deliver to every matched pane.
@@ -583,8 +583,8 @@ async def _fanout_after_resolve(
     username: str,
     *,
     bucket: str,
-    deliver_local: Callable[[str], Awaitable[None]],
-    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[None]] | None,
+    deliver_local: Callable[[str], Awaitable[dict | None]],
+    deliver_remote: Callable[[itl_remote.RemoteChannel, str, itl_remote.PaneProbe], Awaitable[dict | None]] | None,
     exclude_self: bool,
     channels: _HostChannels | None,
     status_elapsed: float,
@@ -620,8 +620,10 @@ async def _fanout_after_resolve(
         if not await tmux_manager.session_exists(session_id):
             outcome[target["addr"]] = _skip(target, REASON_GONE)
             continue
-        await deliver_local(session_id)
-        outcome[target["addr"]] = {"delivered": {"addr": target["addr"], "sessionId": session_id}}
+        extra = await deliver_local(session_id)
+        outcome[target["addr"]] = {
+            "delivered": {"addr": target["addr"], "sessionId": session_id, **(extra or {})},
+        }
 
     if remote_by_host and deliver_remote:
         remaining = itl_remote.HOST_DEADLINE - status_elapsed
@@ -657,31 +659,36 @@ async def itl_send(request: SendRequest, username: str = Depends(verify_itl_toke
         else (None, "", "")
     )
 
-    def prefix_for(itl_cmd: str, command: str, title: str) -> str:
-        """꼬리표는 **에이전트 프롬프트에만** 붙인다. 셸에 붙으면 `[from …] ls` 가 되어
+    def prefix_for(itl_cmd: str, command: str, title: str) -> tuple[str, bool]:
+        """`(꼬리표, 답장명령이_붙었나)`.
+
+        꼬리표는 **에이전트 프롬프트에만** 붙인다. 셸에 붙으면 `[from …] ls` 가 되어
         그 줄 전체가 실행 불가능한 명령이 된다. 그래서 대상마다 따로 판정한다.
 
         답장 명령은 **받는 쪽이 실제로 itl 을 쓸 수 있을 때만** 넣는다 — 로컬은 이 서버의
         itl_cmd, 원격은 그 호스트에서 probe 로 확인한 것. 못 쓰는 명령을 답장 방법이라고
         적어 보내면 "command not found" 를 답장이라고 믿게 만든다.
+
+        붙었는지를 **돌려주는 이유**: 보내는 쪽은 꼬리표를 볼 수 없다. 그래서 답장이
+        올 수 있는지를 모르고, 모르면 기다리는 쪽(폴링)을 고른다. 이 값이 그대로
+        `delivered[].reply` 가 되어 CLI·MCP 응답에 "답장이 온다" 를 적게 한다.
         """
         if not sender or not is_agent_pane(command, title):
-            return ""
-        return format_origin(sender, machine, build_reply_cmd(itl_cmd, sender))
+            return "", False
+        reply_cmd = build_reply_cmd(itl_cmd, sender)
+        return format_origin(sender, machine, reply_cmd), bool(reply_cmd)
 
-    async def deliver_local(session_id: str) -> None:
+    async def deliver_local(session_id: str) -> dict:
         command, title = await tmux_manager.pane_info(session_id) or ("", "")
-        await tmux_manager.send_keys(
-            session_id, prefix_for(local_itl_cmd, command, title) + text, submit=request.submit,
-        )
+        prefix, replyable = prefix_for(local_itl_cmd, command, title)
+        await tmux_manager.send_keys(session_id, prefix + text, submit=request.submit)
+        return {"reply": replyable}
 
     async def deliver_remote(channel: itl_remote.RemoteChannel, tmux_session: str,
-                             found: itl_remote.PaneProbe) -> None:
-        await itl_remote.send_text(
-            channel, tmux_session,
-            prefix_for(found.itl_cmd, found.command, found.title) + text,
-            submit=request.submit,
-        )
+                             found: itl_remote.PaneProbe) -> dict:
+        prefix, replyable = prefix_for(found.itl_cmd, found.command, found.title)
+        await itl_remote.send_text(channel, tmux_session, prefix + text, submit=request.submit)
+        return {"reply": replyable}
 
     return await _fanout_deliver(
         request.to, request.from_session, username,
