@@ -27,11 +27,14 @@ export const FileEditorTabs = ({
         msOverflowStyle: 'none',
         gap: 0,
       }}>
-        {openFiles.map((path) => {
-          const isActive = path === activeFile;
-          const { path: filePath } = parseFileKey(path);
-          const filename = (filePath || path).split('/').pop();
-          const fileHasChanges = fileStates[path]?.hasChanges;
+        {/* ⚠️ 이 목록의 항목은 **fileKey** 다(원격이면 `remote:<host>:<path>`). 보여줄 이름이
+            필요할 때만 parseFileKey 로 경로를 뽑는다 — 이 둘을 섞어 쓰다가 원격 에디터가
+            빈 화면이 된 적이 있다. */}
+        {openFiles.map((fileKey) => {
+          const isActive = fileKey === activeFile;
+          const { path: filePath } = parseFileKey(fileKey);
+          const filename = (filePath || fileKey).split('/').pop();
+          const fileHasChanges = fileStates[fileKey]?.hasChanges;
           const dotColor = theme.ui.accent || '#89b4fa';
           const inactiveBg = `color-mix(in srgb, ${theme.ui.bgSecondary || theme.ui.bg} 70%, transparent)`;
           const activeBg = `color-mix(in srgb, ${theme.ui.bg} 86%, transparent)`;
@@ -39,10 +42,10 @@ export const FileEditorTabs = ({
 
           return (
             <div
-              key={path}
-              onClick={() => onFileSelect(path)}
+              key={fileKey}
+              onClick={() => onFileSelect(fileKey)}
               onAuxClick={(e) => {
-                if (e.button === 1) { e.preventDefault(); onCloseClick(path); }
+                if (e.button === 1) { e.preventDefault(); onCloseClick(fileKey); }
               }}
               style={{
                 display: 'flex',
@@ -124,7 +127,7 @@ export const FileEditorTabs = ({
                 {filename}
               </span>
               <button
-                onClick={(e) => { e.stopPropagation(); onCloseClick(path); }}
+                onClick={(e) => { e.stopPropagation(); onCloseClick(fileKey); }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(255,255,255,0.12)'; e.currentTarget.style.opacity = '1'; }}
                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.opacity = isActive ? '0.65' : '0.45'; }}
                 title={t?.('close') || 'Close'}

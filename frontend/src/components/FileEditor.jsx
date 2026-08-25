@@ -29,7 +29,7 @@ import { monacoLanguageForFile } from '../utils/fileTypes';
 import { FileEditorTabs } from './fileEditor/FileEditorTabs';
 
 
-// confirmClose.path 자리에 들어가는 "전체" 표식 — 경로와 절대 겹치지 않는 값.
+// confirmClose.fileKey 자리에 들어가는 "전체" 표식 — 어떤 fileKey 와도 겹치지 않는 값.
 const CLOSE_ALL = Symbol('close-all');
 
 /* 외부 변경 감시 주기. 원격이 긴 이유는 폴 하나가 SSH 왕복이기 때문이다 — 로컬 디스크
@@ -44,8 +44,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [status, setStatus] = useState('idle'); // 'idle' | 'saved' | 'error'
-  const [confirmClose, setConfirmClose] = useState({ isOpen: false, path: null });
-  const [externalChange, setExternalChange] = useState({ isOpen: false, path: null, newContent: '' });
+  const [confirmClose, setConfirmClose] = useState({ isOpen: false, fileKey: null });
+  const [externalChange, setExternalChange] = useState({ isOpen: false, fileKey: null, newContent: '' });
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [rawPreviewUrl, setRawPreviewUrl] = useState(null);
   // 원격 미리보기는 호스트가 꺼져 있을 수 있다 — 깨진 이미지 아이콘 대신 이유를 적는다.
@@ -116,7 +116,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
         if (isSilent && existing) {
           if (existing.hasChanges) {
             // 사용자도 편집 중 + 디스크도 바뀜 → 충돌 → 모달
-            setExternalChange({ isOpen: true, path: fileKey, newContent: data.content });
+            setExternalChange({ isOpen: true, fileKey, newContent: data.content });
             return prev;
           }
           // 편집 중 아님 → 조용히 새 내용으로 갱신
@@ -385,18 +385,21 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
     }));
   };
 
-  const handleCloseClick = (path) => {
-    if (fileStates[path]?.hasChanges) {
-      setConfirmClose({ isOpen: true, path });
+  /* ⚠️ 여기서 오가는 값은 **fileKey** 다(원격이면 `remote:<host>:<path>`). 이름을 `path` 로
+     두면 다음 사람이 그것을 실제 경로로 읽고 상태 키로 쓴다 — `loadFile` 이 정확히 그렇게
+     빠져서 원격 에디터가 빈 화면이었다. 경로가 필요하면 `parseFileKey` 를 쓸 것. */
+  const handleCloseClick = (fileKey) => {
+    if (fileStates[fileKey]?.hasChanges) {
+      setConfirmClose({ isOpen: true, fileKey });
     } else {
-      onClose(path);
+      onClose(fileKey);
     }
   };
 
   const confirmCloseFile = () => {
-    const path = confirmClose.path;
-    setConfirmClose({ isOpen: false, path: null });
-    if (path === CLOSE_ALL) {
+    const fileKey = confirmClose.fileKey;
+    setConfirmClose({ isOpen: false, fileKey: null });
+    if (fileKey === CLOSE_ALL) {
       setFileStates({});
       onCloseAll?.();
       return;
@@ -404,29 +407,29 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
     // Remove state for this file
     setFileStates(prev => {
       const newState = { ...prev };
-      delete newState[path];
+      delete newState[fileKey];
       return newState;
     });
-    onClose(path);
+    onClose(fileKey);
   };
 
   /* 모두 닫기 — 저장 안 된 파일이 하나라도 있으면 같은 확인창을 한 번만 띄운다.
      파일마다 물으면 사진 열댓 장 정리하다가 확인창만 열댓 번 누르게 된다. */
   const handleCloseAllClick = () => {
     if (!onCloseAll) return;
-    const dirty = (openFiles || []).some((p) => fileStates[p]?.hasChanges);
-    if (dirty) { setConfirmClose({ isOpen: true, path: CLOSE_ALL }); return; }
+    const dirty = (openFiles || []).some((k) => fileStates[k]?.hasChanges);
+    if (dirty) { setConfirmClose({ isOpen: true, fileKey: CLOSE_ALL }); return; }
     setFileStates({});
     onCloseAll();
   };
 
   const handleReload = () => {
-    const path = externalChange.path;
+    const fileKey = externalChange.fileKey;
     const newContent = externalChange.newContent;
-    setExternalChange({ isOpen: false, path: null, newContent: '' });
+    setExternalChange({ isOpen: false, fileKey: null, newContent: '' });
     setFileStates(prev => ({
       ...prev,
-      [path]: {
+      [fileKey]: {
         content: newContent,
         hasChanges: false,
         lastSavedContent: newContent
@@ -854,7 +857,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
         confirmText={t('close')}
         cancelText={t('cancel')}
         onConfirm={confirmCloseFile}
-        onCancel={() => setConfirmClose({ isOpen: false, path: null })}
+        onCancel={() => setConfirmClose({ isOpen: false, fileKey: null })}
         theme={theme}
         danger={true}
         language={language}
@@ -867,7 +870,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
         confirmText={t('reload')}
         cancelText={t('keepMine')}
         onConfirm={handleReload}
-        onCancel={() => setExternalChange({ isOpen: false, path: null, newContent: '' })}
+        onCancel={() => setExternalChange({ isOpen: false, fileKey: null, newContent: '' })}
         theme={theme}
         language={language}
       />

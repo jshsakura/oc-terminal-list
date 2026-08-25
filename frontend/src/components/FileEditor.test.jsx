@@ -234,6 +234,31 @@ describe('FileEditor', () => {
     }
   });
 
+  it('원격 파일을 닫으면 그 파일키가 그대로 올라간다', async () => {
+    /* 닫기 경로가 다루는 값도 **fileKey** 다. 여기서 경로로 착각하면 원격 파일을 닫아도
+       상태가 남아, 같은 경로의 로컬 파일을 열었을 때 남의 내용이 붙는다. */
+    const onClose = vi.fn();
+    global.fetch = vi.fn(() => Promise.resolve({
+      ok: true, json: async () => ({ content: 'BODY' }),
+    }));
+    render(
+      <FileEditor
+        activeFile="remote:h1:/home/u/a.txt"
+        openFiles={['remote:h1:/home/u/a.txt']}
+        onFileSelect={vi.fn()}
+        onClose={onClose}
+        theme={themes.catppuccin}
+      />
+    );
+    await screen.findByText('BODY');
+    // t() 는 키를 그대로 돌려주므로 닫기 버튼의 title 은 'close' 다.
+    // ⚠️ 못 찾으면 여기서 던져야 한다 — 조건부로 넘어가면 아무것도 검증하지 않고 통과한다.
+    const closeBtn = document.querySelector('button[title="close"]');
+    expect(closeBtn).toBeTruthy();
+    fireEvent.click(closeBtn);
+    expect(onClose).toHaveBeenCalledWith('remote:h1:/home/u/a.txt');
+  });
+
   it('previews a remote image through that host raw endpoint', () => {
     const { container } = render(
       <FileEditor
