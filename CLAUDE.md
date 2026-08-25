@@ -118,6 +118,31 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 - Session REST endpoints (`/api/sessions/{id}/...`) enforce ownership via `_assert_session_owner` (same check as the WS route).
 - `GET /api/hosts/{id}/files/raw?path=` — inline preview stream for **remote** files (the editor's `<img>`/`<video>`/pdf `<iframe>` bites it directly, so cookie auth is the primary path). Same bytes as `/files/download`; the difference is the browser *renders* them, and that difference is the whole rule: only media that is safe to render inline passes (`inline_media_type`), plus `nosniff`. **SVG and HTML are refused on purpose** — a remote host's file rendered as a same-origin document is XSS, so remote HTML preview stays unsupported in `FileEditor.jsx` while images/video/audio/pdf work exactly like local ones. A directory whose name ends in `.png` comes back from `open_download` as a zip; it is refused **and the stream is closed**, or the SFTP context leaks.
 
+## 에디터 상태의 키는 **fileKey** 다 — path 가 아니다 (2026-08-25)
+
+원격 파일을 열면 **에디터가 빈 화면**이었다. 읽기는 200 이고 내용도 왔는데 아무것도 안 그려졌다.
+
+`FileEditor` 의 `fileStates` 는 전부 `activeFile`(= fileKey, 원격이면
+`remote:<hostId>:<path>`)로 읽고 쓴다 — 저장·편집·닫기·diff 전부. 그런데 **`loadFile` 만**
+`parseFileKey` 로 뜯은 `path` 로 저장했다.
+
+- **로컬은 `fileKey === path` 라 우연히 맞는다.** 그래서 이 버그는 원격에서만 난다.
+- 원격은 쓴 자리(`/home/u/a.py`)와 읽는 자리(`remote:h1:/home/u/a.py`)가 달라 영영 못 만난다
+  → `content: ''` → 빈 화면.
+- 게다가 "아직 안 읽었다"(`!fileStates[activeFile]`)가 **영원히 참**이라 5초마다 SSH 왕복을
+  다시 태웠다. 로그에 5초 간격이 줄줄이 찍혀 있으면 이 병을 의심할 것.
+
+⚠️ **일반화: 같은 상태를 두 이름으로 키잉하지 마라.** 한쪽이 다른 쪽의 접두사 없는 부분집합이면
+테스트도 로컬 경로에서 통과한다 — 원격 경로 하나를 반드시 같이 테스트할 것.
+`FileEditor.test.jsx` 의 "원격 텍스트 파일의 내용을 실제로 보여준다" 가 그 선이고, Monaco 목이
+**value 를 실제로 그려야** 이 테스트가 의미를 갖는다(빈 목이면 빈 화면을 못 본다).
+
+### 원격 파일 폴링은 로컬과 같은 주기일 수 없다
+
+외부 변경 감시는 **폴 하나가 SSH/SFTP 왕복**이다. 로컬(5s)과 같은 값을 쓰면 파일 하나당
+분당 12회가 그 호스트로, 공유 터널을 타고 나간다. 지금 원격은 **30초**이고, 탭이 보이지
+않으면(`document.hidden`) 아예 멈춘다.
+
 ## 에디터 미리보기 — 무엇이 열리고 무엇이 안 열리나 (2026-08-11)
 
 | 종류 | 어떻게 | 원격도 |

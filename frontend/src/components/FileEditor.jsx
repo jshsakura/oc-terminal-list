@@ -32,6 +32,11 @@ import { FileEditorTabs } from './fileEditor/FileEditorTabs';
 // confirmClose.path 자리에 들어가는 "전체" 표식 — 경로와 절대 겹치지 않는 값.
 const CLOSE_ALL = Symbol('close-all');
 
+/* 외부 변경 감시 주기. 원격이 긴 이유는 폴 하나가 SSH 왕복이기 때문이다 — 로컬 디스크
+   읽기와 같은 값을 쓰면 남의 기계로 분당 12회가 나간다. */
+const LOCAL_POLL_MS = 5000;
+const REMOTE_POLL_MS = 30000;
+
 const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll = null, theme, language = 'en', onResizeStart }) => {
   const { t } = useTranslation(language);
   const [fileStates, setFileStates] = useState({}); // { path: { content, hasChanges, lastSavedContent } }
@@ -80,6 +85,12 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
     setError(null);
 
     try {
+      /* ⚠️ 상태 키는 **fileKey** 다. `path` 가 아니다.
+         나머지 전부(저장·편집·닫기·diff)가 `fileStates[activeFile]` 로 읽고 쓰는데
+         여기서만 `path` 로 썼다. 로컬은 fileKey === path 라 우연히 맞았고, **원격만**
+         `remote:<host>:<path>` ≠ `<path>` 로 어긋나 저장한 내용을 아무도 못 찾았다.
+         결과: 읽기는 200 인데 에디터가 빈 화면. 게다가 "아직 안 읽었다" 판정이
+         영원히 참이라 5초마다 SSH 왕복을 다시 태웠다. */
       const endpoint = hostId
         ? `/api/hosts/${hostId}/files/read?path=${encodeURIComponent(path)}`
         : `/api/files/read?path=${encodeURIComponent(path)}`;
@@ -93,10 +104,10 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
       }
 
       const data = await res.json();
-      binaryPathsRef.current.delete(path);
-      
+      binaryPathsRef.current.delete(fileKey);
+
       setFileStates(prev => {
-        const existing = prev[path];
+        const existing = prev[fileKey];
         // 디스크와 마지막 저장 내용이 같으면 외부 변경이 없는 것 — 폴링 스킵
         if (isSilent && existing && existing.lastSavedContent === data.content) {
           return prev;
@@ -105,13 +116,13 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
         if (isSilent && existing) {
           if (existing.hasChanges) {
             // 사용자도 편집 중 + 디스크도 바뀜 → 충돌 → 모달
-            setExternalChange({ isOpen: true, path, newContent: data.content });
+            setExternalChange({ isOpen: true, path: fileKey, newContent: data.content });
             return prev;
           }
           // 편집 중 아님 → 조용히 새 내용으로 갱신
           return {
             ...prev,
-            [path]: {
+            [fileKey]: {
               content: data.content,
               hasChanges: false,
               lastSavedContent: data.content,
@@ -121,7 +132,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
         // 처음 로드 또는 명시적 reload
         return {
           ...prev,
-          [path]: {
+          [fileKey]: {
             content: data.content,
             hasChanges: false,
             lastSavedContent: data.content,
@@ -131,7 +142,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
     } catch (error) {
       const isBinaryFile = /binary file not supported/i.test(error.message || '');
       if (isBinaryFile) {
-        binaryPathsRef.current.add(path);
+        binaryPathsRef.current.add(fileKey);
       } else {
         console.error('Failed to load file:', error);
       }
@@ -144,24 +155,27 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
     }
   }, []);
 
-  // git HEAD 시점 원본 로드 — diff 좌측에 사용. 리모트 파일 및 404/저장소 없음 등은 조용히 무시.
+  /* git HEAD 시점 원본 로드 — diff 좌측에 사용. 리모트 파일 및 404/저장소 없음 등은 조용히 무시.
+     ⚠️ 여기서도 상태 키는 **fileKey** 다. 지금은 원격이 위에서 걸러져 fileKey === path 라
+     티가 안 나지만, 읽는 쪽은 `diffStates[activeFile]` 이다 — loadFile 이 이 함정에
+     정확히 이렇게 빠져서 원격 에디터가 빈 화면이었다. 같은 실수를 남겨두지 않는다. */
   const loadOriginalContent = useCallback(async (fileKey) => {
     if (!fileKey) return;
     const { path, hostId } = parseFileKey(fileKey);
     if (!path || hostId) return; // 리모트 파일은 git diff 미지원
-    setDiffStates(prev => ({ ...prev, [path]: { ...(prev[path] || {}), loading: true, error: null } }));
+    setDiffStates(prev => ({ ...prev, [fileKey]: { ...(prev[fileKey] || {}), loading: true, error: null } }));
     try {
       const res = await fetch(`/api/git/file-content?path=${encodeURIComponent(path)}&ref=HEAD`, {
         headers: authHeaders(),
       });
       if (!res.ok) {
-        setDiffStates(prev => ({ ...prev, [path]: { original: '', exists: false, loading: false, error: null } }));
+        setDiffStates(prev => ({ ...prev, [fileKey]: { original: '', exists: false, loading: false, error: null } }));
         return;
       }
       const data = await res.json();
-      setDiffStates(prev => ({ ...prev, [path]: { original: data.content || '', exists: !!data.exists, loading: false, error: null } }));
+      setDiffStates(prev => ({ ...prev, [fileKey]: { original: data.content || '', exists: !!data.exists, loading: false, error: null } }));
     } catch (e) {
-      setDiffStates(prev => ({ ...prev, [path]: { original: '', exists: false, loading: false, error: String(e?.message || e) } }));
+      setDiffStates(prev => ({ ...prev, [fileKey]: { original: '', exists: false, loading: false, error: String(e?.message || e) } }));
     }
   }, []);
 
@@ -188,17 +202,31 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
     : null;
   const rawPreviewHostId = rawPreviewPath ? activeFileHostId : null;
 
-  // Poll for external changes every 5 seconds (only for text files)
+  /* 외부 변경 감시 — 텍스트 파일만.
+   *
+   * ⚠️ **원격은 한 번의 폴이 SSH/SFTP 왕복이다.** 로컬 디스크 읽기와 같은 주기로 두면
+   * 파일 하나당 분당 12회가 그 호스트로 나가고, 이 저장소가 계속 줄여 온 공유 터널을 탄다.
+   * 그래서 원격은 간격을 늘린다 — 남의 기계 파일이 초 단위로 바뀌는 일은 드물고,
+   * 바뀌었다면 늦게 알아도 저장 시점의 충돌 모달이 잡는다.
+   *
+   * 그리고 **탭이 안 보이면 아예 멈춘다.** 안 보는 화면을 최신으로 유지할 이유가 없다
+   * (밤새 켜둔 탭이 조용히 왕복을 태우던 이 저장소의 단골 병).
+   */
   useEffect(() => {
-    if (activeFile && !isBinaryPreview && !binaryPathsRef.current.has(activeFile)) {
-      pollingRef.current = setInterval(() => {
-        loadFile(activeFile, true);
-      }, 5000);
-    }
+    if (!activeFile || isBinaryPreview || binaryPathsRef.current.has(activeFile)) return undefined;
+    const intervalMs = activeFileHostId ? REMOTE_POLL_MS : LOCAL_POLL_MS;
+    const arm = () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      if (typeof document !== 'undefined' && document.hidden) return;
+      pollingRef.current = setInterval(() => { loadFile(activeFile, true); }, intervalMs);
+    };
+    arm();
+    document.addEventListener('visibilitychange', arm);
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
+      document.removeEventListener('visibilitychange', arm);
     };
-  }, [activeFile, loadFile, isBinaryPreview]);
+  }, [activeFile, loadFile, isBinaryPreview, activeFileHostId]);
 
   useEffect(() => {
     if (activeFile && !fileStates[activeFile] && !binaryPathsRef.current.has(activeFile)) {
