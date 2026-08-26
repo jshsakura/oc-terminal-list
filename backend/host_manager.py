@@ -36,7 +36,8 @@ REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "10000"))
 # 브리지가 이를 감지해 "session-gone" 컨트롤 메시지를 프론트로 보내면, 프론트는 무한 refresh
 # 재시도(스팸) 대신 새 세션 생성(create=1)으로 전환하고 "새 세션 시작"을 화면에 알린다.
 TMUX_SESSION_GONE_EXIT = 42
-CONNECT_TIMEOUT = 15  # 초
+CONNECT_TIMEOUT = 15  # 초 (TCP 연결)
+LOGIN_TIMEOUT = 20  # 초 (인증까지). asyncssh 기본 120 은 너무 길다.
 # 브리지 정리 시 SSH conn.wait_closed() 를 기다리는 상한(초). 끊긴 망에서는 이 대기가
 # 영영 안 끝나 브리지 태스크가 남는다.
 CONN_CLOSE_TIMEOUT_SEC = 5
@@ -218,6 +219,11 @@ async def open_connection(
         "username": host["ssh_user"],
         "known_hosts": None if not known_hosts else None,  # TOFU
         "connect_timeout": CONNECT_TIMEOUT,
+        # ⚠️ connect_timeout 은 **TCP 연결까지**만 잰다. 인증 단계는 `login_timeout` 이고
+        # asyncssh 기본이 120초다 — TCP 는 받아 주면서 인증에서 멈추는 호스트가 그 2분을
+        # 통째로 잡는다. 그동안 ssh_pool 의 per-host 잠금이 잡혀 있어 그 호스트로 가는
+        # 요청이 줄줄이 쌓인다(2026-08-27 사고).
+        "login_timeout": LOGIN_TIMEOUT,
         "keepalive_interval": KEEPALIVE_INTERVAL,
         "keepalive_count_max": KEEPALIVE_COUNT_MAX,
     }

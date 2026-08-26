@@ -341,6 +341,21 @@ after sending 'websocket.close'` 를 매일 7건씩 쌓고 있었다(닫히는 �
   소켓이 닫힌 뒤에 send 한다. 이 finally 는 run() 이 cancel 해서 도는 자리다.
 - `_ws_gone` 은 펌프를 **다 거둔 뒤에** 세운다. 그 전에 세우면 마지막 drain 이 버려진다.
 
+### SSH 풀의 대기에는 전부 상한이 있다 (2026-08-27)
+
+`ssh_pool.get()` 은 **per-host 잠금을 쥔 채** 연결을 연다. 거기서 멈추면 그 호스트로 가는
+**모든 후속 요청이 잠금 뒤에 쌓인다** — 홈 화면이 tmux 세션 목록을 주기적으로 폴링하므로
+폴링마다 태스크가 하나씩 영구히 늘었다(실측: 종료 시 `Cancel 97 running task(s)`).
+
+⚠️ **멈춤은 예외가 아니라서 실패 캐시에도 안 걸린다.** `_fetch_host_tmux_sessions` 의
+캐시는 예외에만 반응한다 — 상한이 있어야 멈춤이 예외가 되고, 그때 캐시가 받아 다음
+폴링을 막는다. 캐시와 상한은 **한 세트**다.
+
+- `SSH_POOL_CONNECT_SEC`(20) · `SSH_POOL_COMMAND_SEC`(20) · close 5s.
+- `login_timeout`(20s)도 함께. `connect_timeout` 은 **TCP 까지만** 재고 인증 단계는
+  asyncssh 기본이 **120초**다 — TCP 는 받아 주면서 인증에서 멈추는 호스트가 그 2분을 잡는다.
+- 타임아웃은 `logger.warning` 으로 남긴다. 이 사고가 오래간 이유가 **조용해서**였다.
+
 ### 연결 반납은 `_release_connection` 만이 한다 (2026-08-27)
 
 `db/*.py` 의 쿼리는 `_get_connection()` 으로 빌리고 **반드시 `_release_connection()` 으로
