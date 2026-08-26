@@ -464,6 +464,27 @@ describe('하단 도크 (모바일)', () => {
     expect(screen.getByTestId('command-input-dock')).toBeTruthy();   // 터지지 않는다
   });
 
+  it('도크 안의 컨트롤은 전부 같은 크기다', () => {
+    /* 예전에는 28/30/34 가 섞여 있었다 — 각자 다른 자리에서 자란 스타일이라 따로 보면
+       티가 안 나고, 한 줄에 모으니 들쭉날쭉했다. 다시 어긋나면 여기서 잡는다. */
+    const slot = document.createElement('div');
+    slot.id = 'iterm-dock-slot';
+    document.body.appendChild(slot);
+    render(<CommandInput {...base} terminalKey="a" />);
+
+    const dock = screen.getByTestId('command-input-dock');
+    const boxes = [...dock.querySelectorAll('button'), ...slot.querySelectorAll('button')]
+      .map((b) => ({ w: b.style.width, h: b.style.height }))
+      .filter((b) => b.w && b.h);           // 크기를 안 정한 것은 대상이 아니다
+    expect(boxes.length).toBeGreaterThan(1);
+    expect(new Set(boxes.map((b) => `${b.w}x${b.h}`)).size).toBe(1);
+    expect(boxes[0].w).toBe(boxes[0].h);    // 정사각
+
+    // 입력도 같은 높이에서 시작한다 — 버튼과 어깨를 맞춰야 한 줄로 보인다.
+    expect(dock.querySelector('textarea').style.height).toBe(boxes[0].h);
+    slot.remove();
+  });
+
   it('모달은 그대로 제목과 닫기를 갖는다 — 데스크탑은 건드리지 않았다', () => {
     render(<CommandInput {...base} docked={false} />);
     expect(screen.getByTestId('command-input-overlay')).toBeTruthy();

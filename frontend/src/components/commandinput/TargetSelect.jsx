@@ -16,7 +16,7 @@ const PANE_ICON_INK = '#0b0f14';
  * 독립된 중앙 팝업으로 띄운다 — 모달의 overflow:hidden / backdropFilter 에 잘리지 않고,
  * 모바일 ghost-click 방어(400ms 유예)와 터치 스크롤도 그대로 상속받는다.
  */
-const TargetSelect = ({ targets, terminalKey, t }) => {
+const TargetSelect = ({ targets, terminalKey, t, size = null }) => {
   const {
     targetKeys, groups, totalCount, selectedCount, allSelected,
     isPopupOpen, togglePopup, closePopup, toggleKey, toggleGroup, toggleAll,
@@ -41,7 +41,13 @@ const TargetSelect = ({ targets, terminalKey, t }) => {
         title={label}
         aria-label={label}
         aria-expanded={isPopupOpen}
-        style={{ ...styles.btn, ...(isPopupOpen ? styles.btnActive : null) }}
+        /* `size` 는 도크가 넘긴다 — 도크 안의 컨트롤은 전부 같은 한 변이어야 한다.
+           안 넘기면 예전 크기 그대로(모달·데스크탑). */
+        style={{
+          ...styles.btn,
+          ...(size ? { width: `${size}px`, height: `${size}px`, padding: 0, gap: 0 } : null),
+          ...(isPopupOpen ? styles.btnActive : null),
+        }}
       >
         <Crosshair size={13} strokeWidth={2} />
         {badge && <span style={styles.badge}>{badge}</span>}

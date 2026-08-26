@@ -21,6 +21,9 @@ const MOBILE_TOP_GAP = 12;
 // 가시 영역이 이만큼 줄면 키보드가 올라온 것으로 본다(브라우저 UI 바 변동은 이보다 작다).
 const KEYBOARD_SHRINK_THRESHOLD = 60;
 // 보낼 대상 선택 UI 는 고를 게 둘 이상일 때만 의미가 있다.
+// 도크의 모든 컨트롤이 공유하는 한 변. 입력 높이도 여기에 맞춘다.
+const DOCK_BTN = 32;
+
 const MIN_PANES_FOR_TARGETS = 2;
 
 /**
@@ -245,7 +248,11 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 키보드가 내려간다.
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => setHistoryOpen((v) => !v)}
-      style={{ ...styles.closeBtn, ...(historyOpen ? styles.headerToggleActive : null) }}
+      style={{
+        ...styles.closeBtn,
+        ...(docked ? styles.dockBtn : null),
+        ...(historyOpen ? styles.headerToggleActive : null),
+      }}
       title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
       aria-pressed={historyOpen}
     >
@@ -254,7 +261,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   ) : null;
 
   const targetSelect = panes.length >= MIN_PANES_FOR_TARGETS ? (
-    <TargetSelect targets={targets} terminalKey={terminalKey} t={t} />
+    <TargetSelect targets={targets} terminalKey={terminalKey} t={t} size={docked ? DOCK_BTN : null} />
   ) : null;
 
   const imageInput = (
@@ -278,7 +285,11 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       disabled={!voice.supported}
       title={micTitle}
       aria-pressed={voice.listening}
-      style={{ ...styles.micBtn, ...(voice.listening ? styles.micBtnActive : null) }}
+      style={{
+        ...styles.micBtn,
+        ...(docked ? styles.dockBtn : null),
+        ...(voice.listening ? styles.micBtnActive : null),
+      }}
     >
       <Mic size={14} strokeWidth={2} />
     </button>
@@ -524,13 +535,13 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           <Button
             variant="ghost" size="icon" onClick={image.openPicker} disabled={image.isUploading}
             icon={image.isUploading ? Loader2 : ImagePlus}
-            title={t?.('attachImage') || '이미지 첨부'} style={styles.footerIconBtn}
+            title={t?.('attachImage') || '이미지 첨부'} style={styles.dockBtn}
           />
           {textarea}
           {micButton}
           <Button
             variant="primary" size="icon" onClick={handleSend} icon={Send}
-            title={t?.('send') || 'Send'} style={styles.dockSendBtn}
+            title={t?.('send') || 'Send'} style={styles.dockBtn}
           />
         </div>
         {/* 첨부/업로드 상태만 한 줄 — 있을 때만 나온다. 없으면 도크는 한 줄 그대로다. */}
@@ -619,28 +630,37 @@ const styles = {
     flexDirection: 'column',
     overflow: 'hidden',
     fontFamily: font.sans,
+    /* 화면 맨 아래에 칼같이 붙으면 눌린 것처럼 보이고, iOS 홈 인디케이터와도 겹친다.
+       안전영역만큼 아래를 띄운다(없는 기기에서는 0 이라 그대로 붙는다). */
+    paddingBottom: 'env(safe-area-inset-bottom, 0px)',
   },
-  /* 도크 — 입력 줄 + 버튼 띠. 세로는 아끼되 입력의 **가로는 다 준다.** */
+  /* ⚠️ 도크 안의 버튼은 **전부 같은 크기**여야 한다. 예전에는 28/30/34 가 섞여 있어
+     한 줄에 놓으니 들쭉날쭉했다(각자 다른 자리에서 자란 스타일이라 티가 안 났다).
+     DOCK_BTN 하나만 고치면 전부 따라온다. */
   dockInputRow: {
     display: 'flex',
-    alignItems: 'flex-end',
-    gap: '4px',
-    padding: '5px 6px 0',
+    alignItems: 'flex-end',    // 여러 줄로 자라도 버튼은 아래에 고정
+    gap: '6px',
+    padding: '6px 8px',
   },
   dockTextarea: {
     flex: 1,
-    minHeight: '32px',
-    height: '32px',          // rows=1 과 짝 — 한 줄에서 시작한다
-    maxHeight: '96px',       // 여러 줄을 써도 화면 절반을 먹지 않게
-    padding: '6px 8px',
+    minWidth: 0,                    // flex 안에서 줄어들 수 있게 — 없으면 버튼을 밀어낸다
+    minHeight: `${DOCK_BTN}px`,
+    height: `${DOCK_BTN}px`,        // rows=1 과 짝 — 한 줄에서 시작한다
+    maxHeight: '96px',              // 여러 줄을 써도 화면 절반을 먹지 않게
+    padding: '6px 10px',
     lineHeight: 1.4,
+    borderRadius: radius.sm,        // 버튼과 같은 모서리
     resize: 'none',
     overflowY: 'auto',
   },
-  dockSendBtn: {
+  /* 도크 컨트롤 공통 — 크기·모서리를 여기 하나로 묶는다. */
+  dockBtn: {
     flexShrink: 0,
-    width: '34px',
-    height: '32px',
+    width: `${DOCK_BTN}px`,
+    height: `${DOCK_BTN}px`,
+    borderRadius: radius.sm,
   },
   modal: {
     width: '90%',
