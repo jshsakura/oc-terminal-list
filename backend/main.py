@@ -127,6 +127,20 @@ async def lifespan(_app: FastAPI):
         ensure_local_agent_mcp()
     except Exception as e:
         logger.warning("itl MCP 자동 등록 실패: %s", e)
+    # tmux 에 없는 세션 행 정리. 세션은 `DELETE /api/sessions/{id}` 를 **안 거치고도** 죽는다
+    # (기계 재부팅, tmux 서버 종료, OOM kill) — 그때 행은 영원히 남는다. 실측으로 45개가
+    # 그렇게 쌓여 있었다.
+    # ⚠️ 살아있는 목록이 비면 아무것도 지우지 않는다. "전부 죽었다" 와 "tmux 를 못 물어봤다"
+    # 가 같은 모습이고, 살아있는 세션의 행을 지우면 소유권 조회가 None 이 되어 그 세션에
+    # 다시 붙지 못한다. 재부팅 직후처럼 목록이 빈 경우는 다음 재시작에서 정리된다.
+    try:
+        live_ids = {s.name for s in await tmux_manager.list_sessions()}
+        removed = await storage.prune_sessions_not_in(live_ids)
+        if removed:
+            logger.info("정리: tmux 에 없는 세션 행 %d개 삭제", removed)
+    except Exception as e:
+        logger.warning("session row prune skipped: %s", e)
+
     # 서버 강제 종료로 detach hook 이 못 돈 orphan usage row 정리
     try:
         closed = await storage.close_orphan_usage_sessions()
