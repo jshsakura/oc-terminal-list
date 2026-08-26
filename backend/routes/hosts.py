@@ -108,6 +108,43 @@ async def update_host_last_cwd(
     return {"id": host_id, "last_cwd": (request.cwd or "").strip() or None}
 
 
+@router.post("/api/hosts/{host_id}/credentials/revoke")
+async def revoke_host_credentials(
+    host_id: str,
+    username: str = Depends(verify_auth_token),
+):
+    """이 호스트로 발급한 자격증명을 **전부** 무효화한다 (리모트 + 원격 tmux 의 ITL_TOKEN).
+
+    JWT 는 서명만 맞으면 통과하므로 세대를 올리는 것이 유일한 폐기 장치다. 한 대가
+    털렸을 때 사용자 토큰 전체를 갈지 않고 **그 호스트 것만** 죽이는 것이 요점이다.
+
+    되돌릴 수 없다 — 그 호스트는 다시 설치(리모트)하거나 다음 attach(ITL_TOKEN)에서
+    새 자격증명을 받는다. 그래서 호출자는 확인을 거쳐야 한다.
+    """
+    existing = await storage.get_host(host_id, username)
+    if not existing:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+
+    epoch = await storage.revoke_host_credentials(host_id, username)
+    if epoch is None:
+        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
+
+    # 지금 붙어 있는 리모트를 **즉시** 끊는다. 안 끊으면 이미 열린 통로는 폐기와 무관하게
+    # 계속 살아 있어서, "폐기했다" 는 말이 다음 재연결까지 거짓이 된다.
+    from remote_agent import registry
+    connection = registry.get(host_id)
+    if connection is not None:
+        registry.detach(connection)
+
+    # 다음 attach 때 새 토큰을 심도록 주입 캐시를 비운다 — 안 비우면 TTL 이 끝날 때까지
+    # 옛(이제 죽은) 토큰을 그대로 두고 "이미 심었다" 로 건너뛴다.
+    from itl_remote_setup import forget_injected
+    forget_injected(host_id, str(existing.get("remote_tmux_session") or ""))
+
+    logger.info("host credentials revoked: host=%s epoch=%s", host_id, epoch)
+    return {"id": host_id, "cred_epoch": epoch, "remote_disconnected": connection is not None}
+
+
 @router.post("/api/hosts/{host_id}/kill-tmux")
 async def kill_host_tmux(
     host_id: str,

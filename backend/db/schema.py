@@ -142,6 +142,13 @@ class SchemaMixin:
             cursor.execute("ALTER TABLE hosts ADD COLUMN sort_index INTEGER")
         except sqlite3.OperationalError:
             pass
+        # 마이그레이션: 자격증명 세대. 이 호스트로 발급한 토큰(리모트·ITL)이 이 값을
+        # 청구로 달고 다니며, 검증 때 대조한다. 값을 올리면 **그 호스트 것만** 즉시 죽는다.
+        # JWT 는 그냥은 폐기가 안 되므로(서버가 서명만 확인한다) 세대가 폐기 장치다.
+        try:
+            cursor.execute("ALTER TABLE hosts ADD COLUMN cred_epoch INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
 
         # 사용자별 UI 설정 — 단일 JSON blob 으로 모두 보관 (테마, 폰트 등)
         cursor.execute("""

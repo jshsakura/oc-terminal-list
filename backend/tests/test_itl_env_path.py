@@ -19,8 +19,10 @@ from tmux_manager import TmuxManager
 
 
 class _FakeAuthManager:
-    async def create_scoped_token(self, username: str, scope: str):
+    async def create_scoped_token(self, username: str, scope: str, extra: dict | None = None):
         assert scope == "itl"
+        # 로컬 pane 에는 호스트가 없다 — 청구도 없어야 한다.
+        assert extra is None
         return "scoped.token.value"
 
 

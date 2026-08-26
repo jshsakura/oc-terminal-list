@@ -36,7 +36,8 @@ class HostMixin:
                 row = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               password_enc, color_index, group_name, use_remote_tmux,
-                              remote_tmux_session, start_path, last_cwd, icon, theme, created_at, last_used
+                              remote_tmux_session, start_path, last_cwd, icon, theme, created_at,
+                              last_used, cred_epoch
                        FROM hosts WHERE id = ? AND username = ?""",
                     (host_id, username),
                 ).fetchone()
@@ -125,6 +126,46 @@ class HostMixin:
             finally:
                 self._release_connection(conn)
         await asyncio.to_thread(_reorder)
+
+    async def get_host_cred_epoch(self, host_id: str, username: str) -> int | None:
+        """이 호스트의 자격증명 세대. 호스트가 없으면 None — **0 이 아니다**
+        (없는 호스트를 세대 0 으로 읽으면 아무 토큰이나 대조에 걸릴 수 있다)."""
+        def _get():
+            conn = self._get_connection()
+            try:
+                row = conn.execute(
+                    "SELECT cred_epoch FROM hosts WHERE id = ? AND username = ?",
+                    (host_id, username),
+                ).fetchone()
+                return int(row["cred_epoch"]) if row else None
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_get)
+
+    async def revoke_host_credentials(self, host_id: str, username: str) -> int | None:
+        """세대를 올려 그 호스트로 발급한 토큰을 **전부** 무효화한다.
+
+        JWT 는 서명만 맞으면 통과하므로 이것이 유일한 폐기 장치다. 한 대가 털렸을 때
+        사용자 토큰 전체를 갈지 않고 그 호스트 것만 죽이는 것이 요점이다.
+        """
+        def _bump():
+            conn = self._get_connection()
+            try:
+                cur = conn.execute(
+                    "UPDATE hosts SET cred_epoch = cred_epoch + 1 WHERE id = ? AND username = ?",
+                    (host_id, username),
+                )
+                conn.commit()
+                if cur.rowcount == 0:
+                    return None
+                row = conn.execute(
+                    "SELECT cred_epoch FROM hosts WHERE id = ? AND username = ?",
+                    (host_id, username),
+                ).fetchone()
+                return int(row["cred_epoch"]) if row else None
+            finally:
+                conn.close()
+        return await asyncio.to_thread(_bump)
 
     async def update_host_last_cwd(self, host_id: str, username: str, cwd: str | None) -> None:
         """호스트의 마지막 cwd 갱신. 빈 문자열은 None 으로 정규화."""

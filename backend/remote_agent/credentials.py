@@ -30,18 +30,26 @@ REMOTE_TOKEN_SCOPE = "remote"
 CREDENTIAL_TTL_HOURS = 24 * 90
 
 
-async def issue_credential(auth_manager, username: str, host_id: str) -> str:
-    """호스트 전용 장기 자격증명. **stdin 으로만** 원격에 전달할 것."""
+async def issue_credential(auth_manager, username: str, host_id: str, epoch: int = 1) -> str:
+    """호스트 전용 장기 자격증명. **stdin 으로만** 원격에 전달할 것.
+
+    `epoch` 는 그 호스트의 자격증명 세대다. 호스트를 폐기하면 세대가 올라 이 토큰은
+    서명이 멀쩡해도 통과하지 못한다 — JWT 에 폐기 장치가 없으므로 이것이 그 역할이다.
+    """
     return await auth_manager.create_scoped_token(
-        username, REMOTE_TOKEN_SCOPE, hours=CREDENTIAL_TTL_HOURS, extra={"host": host_id},
+        username, REMOTE_TOKEN_SCOPE, hours=CREDENTIAL_TTL_HOURS,
+        extra={"host": host_id, "epoch": int(epoch)},
     )
 
 
-async def verify_credential(auth_manager, token: str | None) -> tuple[str, str] | None:
-    """(username, host_id) 또는 None.
+async def verify_credential(auth_manager, token: str | None) -> tuple[str, str, int] | None:
+    """(username, host_id, epoch) 또는 None.
 
     ⚠️ **host 청구가 없으면 거절한다.** 있으나 마나 한 검사로 두면 scope 만 맞는 토큰이
     아무 호스트로나 붙을 수 있고, 그러면 "호스트 전용" 이라는 말이 거짓이 된다.
+
+    세대 대조는 여기서 하지 않는다 — DB 를 아는 호출자(라우트)가 한다. 이 모듈이
+    저장소를 알면 순수 함수가 아니게 되고 테스트가 DB 를 끌고 온다.
     """
     if not token:
         return None
@@ -51,4 +59,10 @@ async def verify_credential(auth_manager, token: str | None) -> tuple[str, str] 
     username, host_id = claims.get("sub"), claims.get("host")
     if not username or not host_id:
         return None
-    return username, host_id
+    try:
+        epoch = int(claims.get("epoch", 0))
+    except (TypeError, ValueError):
+        return None
+    if epoch <= 0:          # 세대 없는 옛 토큰은 통과시키지 않는다
+        return None
+    return username, host_id, epoch

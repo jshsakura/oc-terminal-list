@@ -32,12 +32,21 @@ def client(monkeypatch, manager):
     registry.clear()
 
     class _Storage:
-        async def get_host(self, host_id):
-            if host_id != HOST_ID:
-                return None
-            return {"id": HOST_ID, "username": "jsh", "name": "gpu-box"}
+        """⚠️ 진짜 `get_host` 와 **같은 시그니처**여야 한다. 한 개짜리 목을 두면
+        라우트가 인자를 하나만 넘겨도 테스트가 통과하고 배포에서 TypeError 가 난다
+        (실제로 그렇게 났다)."""
 
-    monkeypatch.setattr("routes.remote_ws.storage", _Storage())
+        epoch = 1
+
+        async def get_host(self, host_id, username):
+            if host_id != HOST_ID or username != "jsh":
+                return None
+            return {"id": HOST_ID, "username": "jsh", "name": "gpu-box",
+                    "cred_epoch": self.epoch}
+
+    storage_stub = _Storage()
+
+    monkeypatch.setattr("routes.remote_ws.storage", storage_stub)
     monkeypatch.setattr("routes.remote_ws.get_auth_manager", lambda: manager)
     # ⚠️ main.app 을 쓰면 lifespan 이 통째로 뜬다(워처·레디스·tmux 폴링). 이 테스트가
     # 재려는 것은 **라우트 하나**이므로 그것만 담은 앱을 쓴다 — 빠르고, 앱 전체의
@@ -45,6 +54,7 @@ def client(monkeypatch, manager):
     app = FastAPI()
     app.include_router(remote_ws_router)
     with TestClient(app) as c:
+        c.storage_stub = storage_stub
         yield c
     registry.clear()
 
@@ -70,21 +80,21 @@ def test_an_itl_token_cannot_attach(client, manager, anyio_backend=None):
 
 def test_a_credential_for_someone_elses_host_is_refused(client, manager):
     """⚠️ 자격증명이 살아 있어도 그 호스트가 남의 것이면 통로는 안 연다."""
-    token = asyncio.run(issue_credential(manager, "someone-else", HOST_ID))
+    token = asyncio.run(issue_credential(manager, "someone-else", HOST_ID, epoch=1))
     with pytest.raises(WebSocketDisconnect):
         with _connect(client, token) as ws:
             ws.receive_json()
 
 
 def test_a_credential_for_a_deleted_host_is_refused(client, manager):
-    token = asyncio.run(issue_credential(manager, "jsh", "host-gone"))
+    token = asyncio.run(issue_credential(manager, "jsh", "host-gone", epoch=1))
     with pytest.raises(WebSocketDisconnect):
         with _connect(client, token) as ws:
             ws.receive_json()
 
 
 def test_a_valid_remote_attaches_and_detaches(client, manager):
-    token = asyncio.run(issue_credential(manager, "jsh", HOST_ID))
+    token = asyncio.run(issue_credential(manager, "jsh", HOST_ID, epoch=1))
     with _connect(client, token):
         assert HOST_ID in registry.connected_host_ids()
     assert registry.connected_host_ids() == []
@@ -92,7 +102,7 @@ def test_a_valid_remote_attaches_and_detaches(client, manager):
 
 def test_facts_are_kept_for_natural_language_targeting(client, manager):
     """'GPU 있는 데서 돌려' 를 풀 재료 — 없으면 주소는 영영 숫자로만 고른다."""
-    token = asyncio.run(issue_credential(manager, "jsh", HOST_ID))
+    token = asyncio.run(issue_credential(manager, "jsh", HOST_ID, epoch=1))
     with _connect(client, token) as ws:
         ws.send_json({"t": "facts", "facts": {"gpu": "RTX 4090", "os": "Ubuntu 24.04"}})
         ws.send_json({"t": "server"})          # 처리 순서를 보장받기 위한 뒤따르는 한 줄
@@ -105,8 +115,26 @@ def test_facts_are_kept_for_natural_language_targeting(client, manager):
 
 def test_unknown_message_kinds_are_ignored_not_fatal(client, manager):
     """⚠️ 모르는 낱말 하나에 통로가 끊기면, 리모트를 새 버전으로 올린 순간 전부 끊긴다."""
-    token = asyncio.run(issue_credential(manager, "jsh", HOST_ID))
+    token = asyncio.run(issue_credential(manager, "jsh", HOST_ID, epoch=1))
     with _connect(client, token) as ws:
         ws.send_json({"t": "something-from-a-newer-remote", "x": 1})
         ws.send_json({"t": "server"})
         assert HOST_ID in registry.connected_host_ids()
+
+
+def test_a_revoked_credential_is_refused(client, manager):
+    """세대를 올리면 서명이 멀쩡한 토큰도 막힌다 — JWT 의 유일한 폐기 장치다."""
+    token = asyncio.run(issue_credential(manager, "jsh", HOST_ID, epoch=1))
+    client.storage_stub.epoch = 2
+    with pytest.raises(WebSocketDisconnect):
+        with _connect(client, token) as ws:
+            ws.receive_json()
+
+
+def test_a_credential_without_an_epoch_is_refused(client, manager):
+    """세대 없는 옛 토큰을 통과시키면 폐기가 우회된다."""
+    token = asyncio.run(manager.create_scoped_token(
+        "jsh", "remote", extra={"host": HOST_ID}))
+    with pytest.raises(WebSocketDisconnect):
+        with _connect(client, token) as ws:
+            ws.receive_json()

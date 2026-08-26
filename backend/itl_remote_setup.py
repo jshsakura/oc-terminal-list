@@ -274,8 +274,16 @@ async def ensure_remote_itl_env(
     manager = get_auth_manager()
     if not manager:
         return False
+    # 🔐 이 토큰은 그 호스트의 tmux env 에 앉아 `tmux show-environment` 로 읽힌다.
+    # **어느 기계에서 나온 것인지**를 청구로 달아 둔다(host + 세대). 반경을 줄이려는
+    # 게 아니다 — 호스트끼리는 어차피 직접 못 붙고 배달은 허브가 자기 권한으로 한다.
+    # 사는 값은 둘이다: 배달 기록에 출처가 남고, 한 대가 털렸을 때 **그 호스트 것만**
+    # 즉시 죽일 수 있다(예전엔 사용자 토큰 전체를 갈아야 했다).
+    host_id = str(host.get("id") or "")
+    epoch = host.get("cred_epoch")
+    extra = {"host": host_id, "epoch": int(epoch)} if host_id and epoch else None
     try:
-        token = await manager.create_scoped_token(username, ITL_TOKEN_SCOPE)
+        token = await manager.create_scoped_token(username, ITL_TOKEN_SCOPE, extra=extra)
     except Exception as e:
         logger.warning("itl 스코프 토큰 발급 실패 (%s): %s", username, e)
         return False

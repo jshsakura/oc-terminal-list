@@ -23,8 +23,15 @@ def manager(tmp_path, monkeypatch):
 
 
 async def test_credential_round_trips_with_its_host(manager):
-    token = await issue_credential(manager, "jsh", "host-abc")
-    assert await verify_credential(manager, token) == ("jsh", "host-abc")
+    token = await issue_credential(manager, "jsh", "host-abc", epoch=3)
+    assert await verify_credential(manager, token) == ("jsh", "host-abc", 3)
+
+
+async def test_a_credential_without_an_epoch_is_refused(manager):
+    """세대 없는 토큰을 통과시키면 폐기 장치가 통째로 우회된다."""
+    token = await manager.create_scoped_token("jsh", REMOTE_TOKEN_SCOPE,
+                                              extra={"host": "host-abc"})
+    assert await verify_credential(manager, token) is None
 
 
 async def test_a_scoped_token_without_a_host_claim_is_refused(manager):
@@ -36,7 +43,8 @@ async def test_a_scoped_token_without_a_host_claim_is_refused(manager):
 
 async def test_an_itl_token_cannot_attach_as_a_remote(manager):
     """tmux env 로 새어 나가는 그 토큰이 리모트 통로를 열면 안 된다."""
-    token = await manager.create_scoped_token("jsh", "itl", extra={"host": "host-abc"})
+    token = await manager.create_scoped_token("jsh", "itl",
+                                              extra={"host": "host-abc", "epoch": 1})
     assert await verify_credential(manager, token) is None
 
 

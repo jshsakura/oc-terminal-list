@@ -45,11 +45,21 @@ async def remote_ws(websocket: WebSocket):
         # 백오프를 리셋한다(이 저장소가 두 번 밟은 그 함정).
         await websocket.close(code=1008)
         return
-    username, host_id = identity
+    username, host_id, epoch = identity
 
-    host = await storage.get_host(host_id)
-    if not host or host.get("username") != username:
+    # ⚠️ `get_host` 는 (host_id, username) 둘을 받는다 — 소유권 검사가 질의 안에 있다.
+    # 하나만 넘기면 TypeError 다(목이 한 개짜리면 테스트는 통과하고 배포에서 터진다).
+    host = await storage.get_host(host_id, username)
+    if not host:
         # 호스트가 지워졌거나 남의 것이다. 자격증명이 살아 있어도 통로는 안 연다.
+        await websocket.close(code=1008)
+        return
+
+    # 세대 대조 — 폐기된 자격증명은 서명이 멀쩡해도 여기서 막힌다.
+    current = host.get("cred_epoch")
+    if current is None or int(current) != epoch:
+        logger.info("remote refused: revoked credential host=%s (epoch %s != %s)",
+                    host_id, epoch, current)
         await websocket.close(code=1008)
         return
 

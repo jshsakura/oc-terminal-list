@@ -42,8 +42,9 @@ class _FakeAuthManager:
     def __init__(self, token: str):
         self._token = token
 
-    async def create_scoped_token(self, username: str, scope: str):
+    async def create_scoped_token(self, username: str, scope: str, extra: dict | None = None):
         assert scope == "itl"
+        self.extra = extra          # 원격 토큰이 어느 호스트에서 왔는지 청구로 다는지 본다
         return self._token
 
 
@@ -373,3 +374,51 @@ def test_cli_selfheals_from_tmux_session_env():
     assert mod.SESSION == "mobile-x"
     # TMUX 없는 셸(앱 밖)에서는 회복하지 않는다 — 토큰 없음 거부 유지.
     assert mod._from_tmux_env("ITL_TOKEN") == ""
+
+
+async def test_remote_itl_token_names_its_host_and_generation():
+    """🔐 원격 tmux env 의 토큰은 `tmux show-environment` 로 읽힌다. 어느 기계에서 나온
+    것인지를 청구로 달아 둬야 **그 호스트 것만** 폐기할 수 있다(세대를 올려서).
+    반경을 줄이는 게 아니다 — 배달은 허브가 자기 권한으로 하므로 기능은 그대로다."""
+    manager = _FakeAuthManager("tok")
+
+    async def fake_run(host, secrets, cmd, timeout=10, stdin_data=None):
+        return "ITL_ENV_OK"
+
+    orig_run, orig_ident, orig_mgr = sut.run_remote_cmd, sut.get_server_identity, sut.get_auth_manager
+    sut.run_remote_cmd = fake_run
+    sut.get_server_identity = AsyncMock(return_value={"ip_kind": "tailscale", "ip": "100.1.2.3"})
+    sut.get_auth_manager = lambda: manager
+    try:
+        sut.forget_injected("host-7", "mobile-x")
+        await sut.ensure_remote_itl_env(
+            {"id": "host-7", "cred_epoch": 4, "use_remote_tmux": 1, "hostname": "box"},
+            {}, "mobile-x", "jsh",
+        )
+    finally:
+        sut.run_remote_cmd, sut.get_server_identity, sut.get_auth_manager = orig_run, orig_ident, orig_mgr
+
+    assert manager.extra == {"host": "host-7", "epoch": 4}
+
+
+async def test_a_local_style_host_without_a_generation_still_gets_a_token():
+    """⚠️ 청구를 **필수**로 만들면 세대 컬럼이 아직 없는 호스트에서 itl 이 통째로 죽는다."""
+    manager = _FakeAuthManager("tok")
+
+    async def fake_run(host, secrets, cmd, timeout=10, stdin_data=None):
+        return "ITL_ENV_OK"
+
+    orig_run, orig_ident, orig_mgr = sut.run_remote_cmd, sut.get_server_identity, sut.get_auth_manager
+    sut.run_remote_cmd = fake_run
+    sut.get_server_identity = AsyncMock(return_value={"ip_kind": "tailscale", "ip": "100.1.2.3"})
+    sut.get_auth_manager = lambda: manager
+    try:
+        sut.forget_injected("box", "mobile-y")
+        ok = await sut.ensure_remote_itl_env(
+            {"use_remote_tmux": 1, "hostname": "box"}, {}, "mobile-y", "jsh",
+        )
+    finally:
+        sut.run_remote_cmd, sut.get_server_identity, sut.get_auth_manager = orig_run, orig_ident, orig_mgr
+
+    assert ok is True
+    assert manager.extra is None
