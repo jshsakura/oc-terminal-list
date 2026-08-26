@@ -90,11 +90,18 @@ glassBlurStyle.textContent = `
      도크는 **상시 노출**이라 떠 있다는 것만으로는 답이 되지 않는다. 그래서 도크가 포커스를
      가지면 터미널 면을 확실히 죽인다. 미묘하게 하면 없는 것과 같아서, 한눈에 보일 만큼 벌린다.
 
-     opacity 가 아니라 filter 인 이유: 터미널 면의 inline opacity 는 재연결 디밍이 이미
-     쓰고 있다. filter 는 그것과 **곱해지므로** 둘 중 하나가 다른 하나를 덮지 않는다.
-     그리고 transform/filter 는 합성 단계에서 끝나 렌더 비용이 없다(누른 표시와 같은 이유). */
+     CSS opacity 가 아니라 filter 인 이유: 터미널 면의 inline opacity 는 재연결 디밍이
+     이미 쓰고 있다. filter 는 그것과 **곱해지므로** 둘 중 하나가 다른 하나를 덮지 않는다.
+     그리고 transform/filter 는 합성 단계에서 끝나 렌더 비용이 없다(누른 표시와 같은 이유).
+
+     ⚠️ brightness 로 낮추지 않는다 — 그건 **어두워지는 한 방향**이라, 밝은 테마에서는
+     "가라앉는다" 가 아니라 "때가 탄다" 로 보인다. saturate+opacity 는 그 테마의 배경
+     쪽으로 물러나므로 어두운 테마든 밝은 테마든 같은 뜻이 된다.
+
+     세기는 일부러 중간이다. 진짜 신호는 도크가 **켜지는** 쪽이고 이건 거드는 역할이다 —
+     여기를 너무 죽이면 터미널 출력을 읽는 중에 도크를 만졌을 때 글이 안 읽힌다. */
   .iterm-term-surface { transition: filter 160ms ease; }
-  body[data-dock-focused="1"] .iterm-term-surface { filter: brightness(0.55) saturate(0.75); }
+  body[data-dock-focused="1"] .iterm-term-surface { filter: saturate(0.5) opacity(0.62); }
 
   .iterm-menu-item { transition: background 120ms, color 120ms; }
   .iterm-menu-item:hover:not(:disabled) {

@@ -643,3 +643,35 @@ describe('빈 전송 = 터미널에 Enter', () => {
     expect(onSendKey).not.toHaveBeenCalled();
   });
 });
+
+
+/* "테마 잘 들어가게" 를 코드로 잠근다. 비활성용 색을 따로 고르면 테마마다 어긋나므로,
+   비활성은 **색을 새로 정하지 않고** 상대적으로만 낮춘다. */
+describe('도크 비활성 표현은 테마를 따른다', () => {
+  const src = readFileSync(resolve(__dirname, 'CommandInput.jsx'), 'utf8');
+  const block = (name) => {
+    const at = src.indexOf(`  ${name}: {`);
+    return at < 0 ? '' : src.slice(at, src.indexOf('\n  },', at));
+  };
+
+  test('비활성은 색이 아니라 채도/불투명도로 낮춘다', () => {
+    const idle = block('dockRowIdle');
+    expect(idle).toMatch(/saturate\(/);
+    expect(idle).not.toMatch(/#[0-9a-fA-F]{3,6}/);      // 고정색을 박지 않았다
+  });
+
+  test('활성/비활성 배경은 모두 테마 변수에서 온다', () => {
+    for (const name of ['dockOn', 'dockOff', 'dockTextareaOn', 'dockTextareaOff']) {
+      const body = block(name);
+      expect(body, name).toMatch(/var\(--ui-/);
+      // 리터럴 hex 는 var() 의 폴백 자리에만 허용된다(토큰이 그렇게 생겼다).
+      const stray = body.replace(/var\([^)]*\)/g, '').match(/#[0-9a-fA-F]{3,6}/);
+      expect(stray, `${name}: ${stray}`).toBeNull();
+    }
+  });
+
+  /* ⚠️ 입력칸이 자기 opacity 를 또 가지면 줄 전체 처리와 곱해져 글자가 안 읽힌다. */
+  test('입력칸은 자기 불투명도를 따로 갖지 않는다', () => {
+    expect(block('dockTextareaOff')).not.toMatch(/opacity:/);
+  });
+});

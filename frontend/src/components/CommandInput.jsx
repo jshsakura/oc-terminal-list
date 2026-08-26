@@ -592,7 +592,8 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
         {/* 도크는 **한 줄**이다. [첨부] 입력 [마이크][전송].
             대상 선택·히스토리는 퀵바(MobileToolbar) 고정 슬롯으로 올라갔다 — 여기 두면
             줄이 하나 더 생기고, 폰에서 도크가 먹는 높이가 곧 터미널이 잃는 높이다. */}
-        <div style={styles.dockInputRow}>
+        <div style={{ ...styles.dockInputRow,
+          ...(dockFocused ? styles.dockRowActive : styles.dockRowIdle) }}>
           {imageInput}
           {textarea}
           {/* 버튼은 전부 오른쪽. 입력이 여러 줄로 자라면 버튼이 아래로 끌려가 보이므로
@@ -780,11 +781,27 @@ const styles = {
     opacity: 1,
   },
   dockTextareaOff: {
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 34%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 28%, transparent)`,
     color: `var(--ui-subtext, ${color.subtext})`,
     boxShadow: 'none',
-    // 비활성은 확실히 죽여 둔다 — 이게 "여기 아님" 을 말하는 가장 빠른 신호다.
-    opacity: 0.62,
+    // ⚠️ 여기서 opacity 를 또 주지 않는다. 줄 전체 처리(dockRowIdle)와 곱해져
+    // 글자가 읽을 수 없을 만큼 어두워진다.
+  },
+  /* 비활성일 때는 **줄 전체**가 가라앉아야 한다. 예전엔 입력칸만 죽여서, 정작 가장 밝은
+     것(액센트로 채운 전송 버튼)이 그대로 남아 "여기가 활성" 처럼 보였다.
+
+     색을 새로 정하지 않고 saturate/opacity 로만 낮추는 이유: **테마가 무엇이든** 그
+     테마의 색 그대로 가라앉는다. 비활성용 색을 따로 고르면 테마마다 어긋난다.
+     그리고 filter 는 합성 단계라 렌더 비용이 없다.
+
+     ⚠️ 너무 죽이면 "눌러도 안 되는 것" 으로 읽힌다 — 여기는 **눌러서 활성화하는 자리**다. */
+  dockRowIdle: {
+    filter: 'saturate(0.25) opacity(0.6)',
+    transition: 'filter 160ms ease',
+  },
+  dockRowActive: {
+    filter: 'none',
+    transition: 'filter 160ms ease',
   },
 
   /* 도크 컨트롤 공통 — 크기·모서리를 여기 하나로 묶는다. */
