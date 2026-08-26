@@ -807,26 +807,35 @@ describe('터미널 음영은 막으로 준다 — filter 가 아니라', () => 
 });
 
 
-/* 툴바 버튼을 탭하면 그 버튼이 포커스를 쥔 채 남고, 브라우저마다 거기에 제 나름의 링을
-   그린다(안드로이드 크롬은 흰 테두리). `outline: none` 으로 하나씩 막는 방식은 막는 쪽이
-   늘 한 발 늦는다 — 포커스를 안 남기면 그릴 것이 없다. */
-describe('포인터로 누른 버튼은 포커스를 남기지 않는다', () => {
+/* 흰 링을 없애려고 포커스를 그냥 뗐더니, 이번엔 포커스가 아무 데도 없어 **키보드가
+   내려갔다** — "입력창으로 포커스가 잘 안 간다" 가 그 증상이었다. 떼는 게 아니라
+   **돌려주는** 것이 답이다: 버튼에 포커스가 안 남아 링이 없고, 키보드가 유지되고,
+   칠 자리가 늘 입력이다. */
+describe('도크 버튼을 누르면 포커스가 입력으로 돌아온다', () => {
   const src = readFileSync(resolve(__dirname, 'CommandInput.jsx'), 'utf8');
 
-  test('도크·퀵바 버튼이 blurIfPointer 를 지난다', () => {
+  test('보조 버튼들이 포커스를 입력으로 돌려준다', () => {
     // 히스토리 토글 · 마이크 · 첨부 · 전송
-    expect((src.match(/blurIfPointer\(e\)/g) || []).length).toBeGreaterThanOrEqual(4);
+    expect((src.match(/returnFocusToInput\(\)/g) || []).length).toBeGreaterThanOrEqual(4);
   });
 
-  /* ⚠️ 키보드(Enter/Space) 활성화는 detail === 0 이다. 그때 포커스를 떼면 다음 Tab 이
-     처음으로 돌아가 키보드 사용자가 길을 잃는다. */
-  test('키보드로 누른 것은 포커스를 유지한다', async () => {
-    const { blurIfPointer } = await import('./commandinput/blurIfPointer');
-    const blur = vi.fn();
-    blurIfPointer({ detail: 0, currentTarget: { blur } });
-    expect(blur).not.toHaveBeenCalled();
-    blurIfPointer({ detail: 1, currentTarget: { blur } });
-    expect(blur).toHaveBeenCalled();
+  test('포커스를 떼기만 하는 코드는 남아 있지 않다', () => {
+    expect(src).not.toMatch(/blurIfPointer/);
+  });
+
+  /* ⚠️ 데스크탑 모달에서는 하지 않는다 — 거기서는 포커스 이동이 정상이고 링도 의미가 있다. */
+  test('데스크탑에서는 되돌리지 않는다', () => {
+    const at = src.indexOf('const returnFocusToInput');
+    const block = src.slice(at, at + 200);
+    expect(block).toMatch(/if \(!docked\) return;/);
+  });
+
+  test('첨부·전송은 애초에 포커스를 가져가지 않는다', () => {
+    for (const marker of ['image.openPicker', 'handleSend(); returnFocusToInput']) {
+      const at = src.lastIndexOf(marker);
+      const around = src.slice(Math.max(0, at - 260), at + 60);
+      expect(around, marker).toMatch(/onMouseDown=\{\(e\) => e\.preventDefault\(\)\}/);
+    }
   });
 });
 

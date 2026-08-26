@@ -8,7 +8,7 @@ import useVisualViewport from '../hooks/useVisualViewport';
 import HistoryPanel from './commandinput/HistoryPanel';
 import TargetSelect from './commandinput/TargetSelect';
 import focusToEnd from './commandinput/focusToEnd';
-import blurIfPointer from './commandinput/blurIfPointer';
+
 import useImageAttach from './commandinput/useImageAttach';
 import useSendTargets from './commandinput/useSendTargets';
 import { FOCUS_DOCK_EVENT, DOCK_SLOT_ID } from './commandinput/focusDock';
@@ -268,6 +268,20 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
   /* 음영은 **키보드가 올라와 있고 커서가 입력에 있을 때만**. 둘 중 하나라도 아니면
      화면이 어두울 이유가 없다 — 특히 키보드만 내렸을 때(포커스는 남는다) 막이 그대로
      남으면 그게 가장 어색하다. */
+  /* 도크의 보조 버튼을 누른 뒤 **포커스를 입력으로 돌려준다.**
+
+     ⚠️ 한때는 포커스를 그냥 뗐다(흰 링을 없애려고). 그러면 링은 사라지지만 포커스가
+     아무 데도 없는 상태가 되어 **키보드가 내려가고**, 다음 글자를 치려면 입력창을 다시
+     눌러야 한다 — "입력창으로 포커스가 잘 안 간다" 가 그 증상이었다.
+
+     돌려주면 셋이 한 번에 해결된다: 버튼에 포커스가 안 남아 링이 없고, 키보드가 유지되고,
+     칠 자리가 늘 입력이다. 데스크탑 모달에서는 하지 않는다 — 거기서는 포커스 이동이
+     정상이고 링도 의미가 있다. */
+  const returnFocusToInput = () => {
+    if (!docked) return;
+    focusToEnd(textareaRef.current);
+  };
+
   const scrimShown = docked && dockFocused && keyboardUp;
 
   /* 키보드를 내리면 **입력 포커스도 놓는다.**
@@ -316,7 +330,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
       type="button"
       // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 키보드가 내려간다.
       onMouseDown={(e) => e.preventDefault()}
-      onClick={(e) => { setHistoryOpen((v) => !v); blurIfPointer(e); }}
+      onClick={() => { setHistoryOpen((v) => !v); returnFocusToInput(); }}
       style={{
         ...styles.closeBtn,
         ...(docked ? styles.dockBtn : null),
@@ -352,7 +366,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
     <button
       type="button"
       onMouseDown={(e) => e.preventDefault()}
-      onClick={(e) => { voice.toggle(); blurIfPointer(e); }}
+      onClick={() => { voice.toggle(); returnFocusToInput(); }}
       disabled={!voice.supported}
       title={micTitle}
       aria-pressed={voice.listening}
@@ -505,7 +519,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={(e) => { voice.toggle(); blurIfPointer(e); }}
+          onClick={() => { voice.toggle(); returnFocusToInput(); }}
           disabled={!voice.supported}
           title={micTitle}
           aria-pressed={voice.listening}
@@ -645,7 +659,8 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
                아주 옅은 값이라 캣푸친처럼 대비가 낮은 팔레트에서 거의 안 보였다.
                퀵바 키가 잘 보이는 이유는 테두리가 진해서가 아니라 **면이 채워져서**다. */
             variant="secondary" size="icon"
-            onClick={(e) => { image.openPicker(); blurIfPointer(e); }}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { image.openPicker(); returnFocusToInput(); }}
             disabled={image.isUploading}
             icon={image.isUploading ? Loader2 : ImagePlus}
             title={t?.('attachImage') || '이미지 첨부'}
@@ -660,7 +675,8 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
                hover 를 뗄 때 variant 의 배경으로 되돌리므로 style 로 덮으면 스치기만
                해도 원래대로 돌아간다. */
             variant={dockFocused ? 'primary' : 'secondary'}
-            size="icon" onClick={(e) => { handleSend(); blurIfPointer(e); }} icon={Send}
+            size="icon" onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { handleSend(); returnFocusToInput(); }} icon={Send}
             title={t?.('send') || 'Send'} style={styles.dockBtn}
           />
         </div>

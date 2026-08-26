@@ -42,6 +42,8 @@ const sizeStyle = {
 const Button = ({
   children,
   onClick,
+  // 눌러도 포커스를 가져가지 않게 하려는 호출부용 — 모바일 도크가 쓴다(키보드 유지).
+  onMouseDown,
   variant = 'secondary',
   size = 'medium',
   disabled = false,
@@ -80,6 +82,7 @@ const Button = ({
     <button
       type={type}
       onClick={onClick}
+      onMouseDown={onMouseDown}
       disabled={disabled}
       style={baseStyle}
       title={title}
