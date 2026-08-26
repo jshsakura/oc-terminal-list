@@ -93,6 +93,25 @@ const RemoteAgentSection = ({ hostId, authHeaders, t }) => {
       )}
       {state.error && <div style={styles.error}>{state.error}</div>}
 
+      {/* ⚠️ 설치가 성공했는데 **아무것도 안 도는** 조합이 있다(systemd 없는 호스트).
+          그때 "아직 안 붙었습니다" 만 말하면 이유도 할 일도 알 수 없다. */}
+      {data?.hint === 'manual' && (
+        <div style={styles.warn}>
+          {t?.('remoteNoSystemd') || '이 호스트에는 systemd 사용자 서비스가 없습니다 — 직접 띄워 주세요:'}
+          <code style={styles.code}>{data.start_command}</code>
+        </div>
+      )}
+      {data?.hint === 'inactive' && (
+        <div style={styles.warn}>
+          {t?.('remoteServiceStopped') || '서비스가 멈춰 있습니다: systemctl --user start itl-remote'}
+        </div>
+      )}
+      {data?.hint === 'waiting' && (
+        <div style={styles.muted}>
+          {t?.('remoteWaiting') || '서비스는 돌고 있습니다 — 곧 붙습니다.'}
+        </div>
+      )}
+
       {data?.outdated && (
         <div style={styles.warn}>
           {t?.('remoteOutdated') || '설치된 리모트가 이 서버보다 낡았습니다 — 다시 설치하면 갱신됩니다.'}
@@ -162,6 +181,17 @@ const styles = {
   fact: { display: 'inline-flex', gap: '4px' },
   hint: { fontSize: fontSize['11'], color: color.muted, lineHeight: 1.5 },
   warn: { fontSize: fontSize['11'], color: 'var(--ui-warning, #f9e2af)', lineHeight: 1.5 },
+  code: {
+    display: 'block',
+    marginTop: '4px',
+    padding: '4px 6px',
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 60%, transparent)`,
+    borderRadius: '4px',
+    color: color.text,
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+    wordBreak: 'break-all',
+    userSelect: 'all',        // 한 번 눌러 전체 선택 — 폰에서 부분 선택은 사실상 불가능
+  },
   error: { fontSize: fontSize['11'], color: color.danger, lineHeight: 1.5 },
 };
 

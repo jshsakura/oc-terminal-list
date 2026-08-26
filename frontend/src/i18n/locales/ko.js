@@ -897,6 +897,9 @@ export const ko = {
     remoteUnreachable: '호스트에 닿지 못해 설치 여부를 확인하지 못했습니다.',
     remoteOutdated: '설치된 리모트가 이 서버보다 낡았습니다 — 다시 설치하면 갱신됩니다.',
     remoteHint: '깔면 이 호스트가 NAT 뒤에서도 스스로 붙고, 재부팅을 넘겨 살아남고, 이 호스트 전용 자격증명을 갖습니다. 안 깔아도 앱이 SSH 로 대신 살펴보므로 기능은 그대로입니다.',
+    remoteNoSystemd: '이 호스트에는 systemd 사용자 서비스가 없습니다 — 직접 띄워 주세요:',
+    remoteServiceStopped: '서비스가 멈춰 있습니다: systemctl --user start itl-remote',
+    remoteWaiting: '서비스는 돌고 있습니다 — 곧 붙습니다.',
     startPath: '시작 경로',
     startPathHint: '접속 시 진입할 디렉토리 (절대경로 또는 ~). 비우면 홈.',
 

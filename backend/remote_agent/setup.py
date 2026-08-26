@@ -150,6 +150,31 @@ UNINSTALL_SCRIPT = "\n".join([
 ])
 
 
+def manual_start_command() -> str:
+    """systemd user 서비스가 없는 호스트에서 사람이 직접 띄우는 명령.
+
+    경로가 여기 상수와 같이 움직여야 하므로 문자열을 화면에 박지 않는다 — 한쪽만 바뀌면
+    사용자가 붙여넣은 명령이 조용히 아무것도 안 하는 경로를 가리킨다.
+    """
+    return f"nohup python3 {LIB_DIR}/client.py >/dev/null 2>&1 &"
+
+
+def start_hint(status: dict) -> str | None:
+    """지금 무엇을 더 해야 하나 — 없으면 None.
+
+    ⚠️ 설치가 성공했는데 **아무것도 안 도는** 조합이 있다(systemd 없는 호스트). 그때
+    화면이 "아직 안 붙었습니다" 만 말하면 이유도 할 일도 알 수 없다.
+    """
+    if not status.get("installed") or status.get("connected"):
+        return None
+    service = status.get("service")
+    if service == "none":
+        return "manual"          # systemctl 자체가 없다 → 직접 띄워야 한다
+    if service == "inactive":
+        return "inactive"        # 유닛은 있는데 멈춰 있다
+    return "waiting"             # 서비스는 살아 있다 → 재시도 중일 뿐
+
+
 def parse_status(raw: str, connected: bool, current_version: str) -> dict:
     """원격 출력 → 상태. **모르는 것은 None 이다**(False 가 아니라)."""
     text = raw or ""

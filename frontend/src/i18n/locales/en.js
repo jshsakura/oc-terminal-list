@@ -892,6 +892,9 @@ export const en = {
     remoteUnreachable: 'Could not reach the host, so its install state is unknown.',
     remoteOutdated: 'The installed remote is older than this server — reinstall to update.',
     remoteHint: 'Installing lets this host connect on its own from behind NAT, survive reboots, and hold a credential scoped to itself. Without it the app watches over SSH, so nothing is lost.',
+    remoteNoSystemd: 'This host has no systemd user service — start it yourself:',
+    remoteServiceStopped: 'The service is stopped: systemctl --user start itl-remote',
+    remoteWaiting: 'The service is running — it should connect shortly.',
     startPath: 'Start path',
     startPathHint: 'Directory to enter on connect (absolute or ~). Empty = home.',
 

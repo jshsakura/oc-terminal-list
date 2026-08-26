@@ -118,7 +118,13 @@ async def get_host_remote_status(host_id: str, username: str = Depends(verify_au
     """
     from host_common import resolve_host_with_secrets, run_remote_cmd
     from remote_agent import registry
-    from remote_agent.setup import STATUS_SCRIPT, parse_status, version_hash
+    from remote_agent.setup import (
+        STATUS_SCRIPT,
+        manual_start_command,
+        parse_status,
+        start_hint,
+        version_hash,
+    )
 
     host, secrets = await resolve_host_with_secrets(host_id, username)
     connection = registry.get(host_id)
@@ -138,6 +144,9 @@ async def get_host_remote_status(host_id: str, username: str = Depends(verify_au
     status["reachable"] = True
     status["optional"] = True
     status["facts"] = connection.facts if connection else {}
+    # 설치는 됐는데 안 붙은 이유와 할 일 — 없으면 None.
+    status["hint"] = start_hint(status)
+    status["start_command"] = manual_start_command() if status["hint"] == "manual" else None
     return status
 
 

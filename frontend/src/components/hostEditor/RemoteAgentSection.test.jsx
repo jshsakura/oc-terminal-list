@@ -70,4 +70,42 @@ describe('RemoteAgentSection', () => {
     render(<RemoteAgentSection hostId="h1" authHeaders={authHeaders} t={t} />);
     expect(await screen.findByText(/낡았습니다/)).toBeInTheDocument();
   });
+
+  /* ⚠️ 설치가 성공했는데 **아무것도 안 도는** 조합 — systemd 없는 호스트. 여기서
+     "아직 안 붙었습니다" 만 말하면 사용자는 이유도 할 일도 알 수 없다. */
+  test('systemd 가 없으면 직접 띄우는 명령을 준다', async () => {
+    fetch.mockResolvedValue(reply({
+      installed: true, connected: false, reachable: true,
+      hint: 'manual', start_command: 'nohup python3 ~/x/client.py &', facts: {},
+    }));
+    render(<RemoteAgentSection hostId="h1" authHeaders={authHeaders} t={t} />);
+    expect(await screen.findByText(/systemd 사용자 서비스가 없습니다/)).toBeInTheDocument();
+    expect(screen.getByText('nohup python3 ~/x/client.py &')).toBeInTheDocument();
+  });
+
+  test('서비스가 멈춰 있으면 켜는 법을 준다', async () => {
+    fetch.mockResolvedValue(reply({
+      installed: true, connected: false, reachable: true, hint: 'inactive', facts: {},
+    }));
+    render(<RemoteAgentSection hostId="h1" authHeaders={authHeaders} t={t} />);
+    expect(await screen.findByText(/systemctl --user start/)).toBeInTheDocument();
+  });
+
+  test('서비스가 살아 있으면 기다리라고만 한다 — 할 일이 없으니', async () => {
+    fetch.mockResolvedValue(reply({
+      installed: true, connected: false, reachable: true, hint: 'waiting', facts: {},
+    }));
+    render(<RemoteAgentSection hostId="h1" authHeaders={authHeaders} t={t} />);
+    expect(await screen.findByText(/곧 붙습니다/)).toBeInTheDocument();
+  });
+
+  test('붙어 있으면 아무 안내도 띄우지 않는다', async () => {
+    fetch.mockResolvedValue(reply({
+      installed: true, connected: true, reachable: true, hint: null, facts: {},
+    }));
+    render(<RemoteAgentSection hostId="h1" authHeaders={authHeaders} t={t} />);
+    await screen.findByText(/연결됨/);
+    expect(screen.queryByText(/직접 띄워/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/곧 붙습니다/)).not.toBeInTheDocument();
+  });
 });
