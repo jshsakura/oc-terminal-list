@@ -257,14 +257,18 @@ const MobileToolbar = ({
         {/* 고정 슬롯 — 대상 선택·히스토리처럼 **키가 아닌 것**이 여기 온다.
             빠른입력 버튼이 빠지면서 이 자리가 비었고, 입력 도크에 두면 도크가 두 줄이 된다.
             여기 올리면 도크는 한 줄로 끝나고 전체는 키바+입력 두 줄이 된다. */}
-        <div style={styles.pinned}>
-          {/* 입력 도크가 여기로 포탈한다(대상 선택·히스토리). 비어 있으면 폭 0 이라
-              데스크탑이나 도크가 없는 상태에서 자리를 먹지 않는다. */}
-          <div id={DOCK_SLOT_ID} style={styles.dockSlot} />
-          {leading}
-          {pinnedKey && renderItem(pinnedKey, 'pinned')}
-          <Divider />
-        </div>
+        {/* 입력 도크가 여기로 포탈한다(대상 선택·히스토리).
+            ⚠️ 구분선을 여기서 그리면 **슬롯이 비어도** 빈 칸에 선이 선다 — 포탈은 React 가
+            모르는 자식이라 조건을 걸 수가 없다. 그래서 구분선은 도크가 자기 내용과 함께
+            포탈로 보낸다. 여기 남는 것은 자리(폭 0)뿐이다. */}
+        <div id={DOCK_SLOT_ID} style={styles.dockSlot} />
+        {(pinnedKey || leading) && (
+          <div style={styles.pinned}>
+            {leading}
+            {pinnedKey && renderItem(pinnedKey, 'pinned')}
+            <Divider />
+          </div>
+        )}
         <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
           <div style={styles.row}>
             {!terminalReady && terminalSessionId ? (
@@ -352,9 +356,12 @@ const styles = {
   },
   // 좌측 고정 슬롯 — 좌우 패딩은 최소로(스크롤 영역과 붙지 않을 만큼만).
   dockSlot: {
-    display: 'inline-flex',
+    flexShrink: 0,
+    display: 'flex',
     alignItems: 'center',
-    gap: '2px',
+    gap: '3px',
+    // 비어 있으면 폭 0 — 도크가 없거나 대상 선택이 필요 없을 때 자리를 먹지 않는다.
+    paddingLeft: 0,
   },
   pinned: {
     flexShrink: 0,

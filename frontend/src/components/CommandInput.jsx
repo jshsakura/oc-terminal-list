@@ -22,7 +22,9 @@ const MOBILE_TOP_GAP = 12;
 const KEYBOARD_SHRINK_THRESHOLD = 60;
 // 보낼 대상 선택 UI 는 고를 게 둘 이상일 때만 의미가 있다.
 // 도크의 모든 컨트롤이 공유하는 한 변. 입력 높이도 여기에 맞춘다.
-const DOCK_BTN = 32;
+const DOCK_BTN = 26;
+// 아이콘은 버튼보다 확실히 작아야 눌리는 면이 보인다. 26 버튼에 12 아이콘.
+const DOCK_ICON = 12;
 
 const MIN_PANES_FOR_TARGETS = 2;
 
@@ -256,7 +258,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
       aria-pressed={historyOpen}
     >
-      {historyOpen ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronUp size={14} strokeWidth={2} />}
+      {historyOpen
+        ? <ChevronDown size={docked ? DOCK_ICON : 14} strokeWidth={2} />
+        : <ChevronUp size={docked ? DOCK_ICON : 14} strokeWidth={2} />}
     </button>
   ) : null;
 
@@ -291,7 +295,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         ...(voice.listening ? styles.micBtnActive : null),
       }}
     >
-      <Mic size={14} strokeWidth={2} />
+      <Mic size={docked ? DOCK_ICON : 14} strokeWidth={2} />
     </button>
   );
 
@@ -518,6 +522,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           <>
             {targetSelect}
             {historyToggle}
+            {/* 구분선은 **내용과 함께** 보낸다 — 퀵바에 두면 슬롯이 비었을 때도 선이 선다. */}
+            <span style={styles.dockSlotDivider} />
           </>,
           dockSlot,
         )}
@@ -640,8 +646,8 @@ const styles = {
   dockInputRow: {
     display: 'flex',
     alignItems: 'flex-end',    // 여러 줄로 자라도 버튼은 아래에 고정
-    gap: '6px',
-    padding: '6px 8px',
+    gap: '4px',
+    padding: '4px 6px',
   },
   dockTextarea: {
     flex: 1,
@@ -649,11 +655,18 @@ const styles = {
     minHeight: `${DOCK_BTN}px`,
     height: `${DOCK_BTN}px`,        // rows=1 과 짝 — 한 줄에서 시작한다
     maxHeight: '96px',              // 여러 줄을 써도 화면 절반을 먹지 않게
-    padding: '6px 10px',
+    padding: '4px 8px',
+    fontSize: fontSize['12'],
     lineHeight: 1.4,
     borderRadius: radius.sm,        // 버튼과 같은 모서리
     resize: 'none',
     overflowY: 'auto',
+  },
+  dockSlotDivider: {
+    width: '1px',
+    height: '16px',
+    marginLeft: '2px',
+    background: `color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
   },
   /* 도크 컨트롤 공통 — 크기·모서리를 여기 하나로 묶는다. */
   dockBtn: {

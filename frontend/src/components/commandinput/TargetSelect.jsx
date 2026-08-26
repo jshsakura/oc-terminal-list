@@ -49,7 +49,7 @@ const TargetSelect = ({ targets, terminalKey, t, size = null }) => {
           ...(isPopupOpen ? styles.btnActive : null),
         }}
       >
-        <Crosshair size={13} strokeWidth={2} />
+        <Crosshair size={size ? 12 : 13} strokeWidth={2} />
         {badge && <span style={styles.badge}>{badge}</span>}
       </button>
 
