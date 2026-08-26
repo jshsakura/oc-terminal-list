@@ -117,6 +117,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
           label={t?.('infoSessionId') || 'Session ID'}
           value={info?.sessionId || '—'}
           copyable={!!info?.sessionId}
+          t={t}
           onCopy={() => handleCopy('sessionId', info?.sessionId)}
           copied={copiedKey === 'sessionId'}
         />
@@ -125,6 +126,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
             label={t?.('infoTmuxSession') || 'tmux session'}
             value={info.effectiveTmuxSession}
             copyable
+            t={t}
             onCopy={() => handleCopy('tmux', info.effectiveTmuxSession)}
             copied={copiedKey === 'tmux'}
             icon={Anchor}
@@ -174,6 +176,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
             label={t?.('infoAddress') || 'Address'}
             value={hostAddr || '—'}
             copyable={!!hostAddr}
+            t={t}
             onCopy={() => handleCopy('addr', hostAddr)}
             copied={copiedKey === 'addr'}
           />
@@ -196,6 +199,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
               label={t?.('infoStartPath') || 'Start path'}
               value={host.start_path}
               copyable
+              t={t}
               onCopy={() => handleCopy('start_path', host.start_path)}
               copied={copiedKey === 'start_path'}
             />
@@ -209,6 +213,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
           label={t?.('infoCwd') || 'CWD'}
           value={cwdDisplay}
           copyable={cwdDisplay !== '—'}
+          t={t}
           onCopy={() => handleCopy('cwd', cwdDisplay)}
           copied={copiedKey === 'cwd'}
         />
@@ -217,6 +222,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
             label={t?.('infoAbsolutePath') || 'Absolute'}
             value={info.cwdAbsolute}
             copyable
+            t={t}
             onCopy={() => handleCopy('cwdAbsolute', info.cwdAbsolute)}
             copied={copiedKey === 'cwdAbsolute'}
           />
@@ -286,13 +292,13 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
         ) : (
           <>
             <StatBar
-              label="CPU"
+              label={t?.('infoCpu') || 'CPU'}
               percent={stats.cpu ?? 0}
               right={stats.cpu_count ? `${(stats.cpu ?? 0).toFixed(1)}% · ${stats.cpu_count} cores` : `${(stats.cpu ?? 0).toFixed(1)}%`}
             />
-            <MemoryStackBar stats={stats} />
+            <MemoryStackBar stats={stats} t={t} />
             <StatBar
-              label="Disk"
+              label={t?.('infoDisk') || 'Disk'}
               percent={stats.disk ?? 0}
               right={stats.disk_total
                 ? `${formatBytes(stats.disk_used)} / ${formatBytes(stats.disk_total)} · free ${formatBytes(stats.disk_free)}`
@@ -300,13 +306,13 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, t }) => {
             />
             {(stats.net_rx_rate != null || stats.net_tx_rate != null) && (
               <InfoRow
-                label="Network"
+                label={t?.('infoNetwork') || 'Network'}
                 value={`↓ ${formatRate(stats.net_rx_rate || 0)} · ↑ ${formatRate(stats.net_tx_rate || 0)}`}
               />
             )}
             {Array.isArray(stats.load_avg) && stats.load_avg.length === 3 && (
               <InfoRow
-                label="Load"
+                label={t?.('infoLoad') || 'Load'}
                 value={stats.load_avg.map((x) => x.toFixed(2)).join(' · ')}
               />
             )}

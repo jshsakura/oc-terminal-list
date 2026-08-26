@@ -20,7 +20,7 @@ const InfoSection = ({ title, icon: Icon, subtitle = null, action = null, childr
   </div>
 );
 
-const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, onCopy, copied = false, icon: Icon = null }) => (
+const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, onCopy, copied = false, icon: Icon = null, t = null }) => (
   <div style={infoStyles.row}>
     <span style={{ ...infoStyles.rowLabel, color: 'var(--ui-subtext)' }}>{label}</span>
     <span style={{
@@ -35,7 +35,7 @@ const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, 
           type="button"
           onClick={onCopy}
           style={infoStyles.copyBtn}
-          title="Copy"
+          title={t?.('copy') || 'Copy'}
           onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--ui-text)'; }}
           onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--ui-subtext)'; }}
         >
@@ -46,7 +46,7 @@ const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, 
   </div>
 );
 
-const MemoryStackBar = ({ stats }) => {
+const MemoryStackBar = ({ stats, t = null }) => {
   const memTotal = Number(stats.mem_total) || 0;
   const swapTotal = Number(stats.swap_total) || 0;
   const total = memTotal + swapTotal;
@@ -56,18 +56,21 @@ const MemoryStackBar = ({ stats }) => {
   const free = Math.max(0, total - used - cache - swapUsed);
   const pct = (value) => total > 0 ? Math.max(0, Math.min(100, (value / total) * 100)) : 0;
   const segments = [
-    { key: 'used', label: 'Used', value: used, color: 'var(--ui-accent, #89b4fa)' },
-    { key: 'cache', label: 'Cache', value: cache, color: 'var(--ui-warning, #f9e2af)' },
-    { key: 'swap', label: 'Swap', value: swapUsed, color: 'var(--ui-danger, #f38ba8)' },
-    { key: 'free', label: 'Free', value: free, color: 'var(--ui-surface2, #585b70)' },
+    { key: 'used', label: t?.('memUsed') || 'Used', value: used, color: 'var(--ui-accent, #89b4fa)' },
+    { key: 'cache', label: t?.('memCache') || 'Cache', value: cache, color: 'var(--ui-warning, #f9e2af)' },
+    { key: 'swap', label: t?.('memSwap') || 'Swap', value: swapUsed, color: 'var(--ui-danger, #f38ba8)' },
+    { key: 'free', label: t?.('memFree') || 'Free', value: free, color: 'var(--ui-surface2, #585b70)' },
   ].filter((item) => item.value > 0 || item.key === 'free');
 
   return (
     <div style={infoStyles.statRow}>
       <div style={infoStyles.statHeader}>
-        <span style={infoStyles.statLabel}>Memory</span>
+        <span style={infoStyles.statLabel}>{t?.('infoMemory') || 'Memory'}</span>
         <span style={infoStyles.statRight}>
-          {memTotal ? `${formatBytes(used)} used · ${formatBytes(cache)} cache${swapTotal ? ` · ${formatBytes(swapUsed)} swap` : ''}` : `${(stats.ram ?? 0).toFixed(1)}%`}
+          {/* 요약 줄도 낱말이다 — 숫자만 남기고 영어를 흘리면 그 줄만 번역이 빠진 티가 난다. */}
+          {memTotal
+            ? `${formatBytes(used)} ${t?.('memUsed') || 'used'} · ${formatBytes(cache)} ${t?.('memCache') || 'cache'}${swapTotal ? ` · ${formatBytes(swapUsed)} ${t?.('memSwap') || 'swap'}` : ''}`
+            : `${(stats.ram ?? 0).toFixed(1)}%`}
         </span>
       </div>
       <div style={infoStyles.stackTrack}>
