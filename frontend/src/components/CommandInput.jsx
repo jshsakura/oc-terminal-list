@@ -553,7 +553,13 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           dockSlot,
         )}
         {historyOpen && terminalKey && (
-          <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
+          /* ⚠️ 높이 상한이 **여기** 있어야 한다. HistoryPanel 은 `flex: 1 1 auto` 로
+             "부모가 준 만큼" 을 쓰는데, 모달과 달리 도크에는 높이를 정해 주는 조상이 없다.
+             그러면 목록이 내용만큼 자라 `overflow-y: auto` 가 영영 안 걸리고 — 항목이
+             23개든 200개든 스크롤이 안 되며, 넘친 부분은 도크의 overflow:hidden 에 잘린다. */
+          <div style={styles.dockHistory}>
+            <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
+          </div>
         )}
         {/* 입력은 **폭을 다 쓴다.** 버튼을 같은 줄에 늘어놓으면 정작 글자 칠 자리가 좁아진다 —
             그래서 보조 버튼은 아래 한 줄로 내리고, 그 줄은 24px 짜리 얇은 띠다.
@@ -666,7 +672,10 @@ const styles = {
   /* 하단 도크 — 폭을 다 쓰고, 높이는 내용만큼. 위쪽만 테두리를 둬서 키바와 한 덩어리로 보이게. */
   dock: {
     width: '100%',
+    /* 한 줄일 때는 안 줄어든다. 히스토리가 열려 화면(키보드 포함)보다 커지면 그때는
+       줄어들 수 있어야 하고, 줄어드는 몫은 minHeight:0 인 목록이 먼저 내놓는다. */
     flexShrink: 0,
+    minHeight: 0,
     background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 92%, transparent)`,
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 62%, transparent)`,
     display: 'flex',
@@ -710,6 +719,15 @@ const styles = {
     marginLeft: '2px',
     background: `var(--ui-border, ${color.border})`,
     flexShrink: 0,
+  },
+  /* 지난 명령 목록의 높이 상한. vh 는 키보드를 모르므로 px 상한을 함께 둔다 —
+     둘 중 작은 쪽이 이겨서 작은 화면에서도 입력줄을 밀어내지 않는다. */
+  dockHistory: {
+    display: 'flex',
+    flexDirection: 'column',
+    minHeight: 0,
+    maxHeight: 'min(42vh, 260px)',
+    overflow: 'hidden',
   },
   /* 도크 컨트롤 공통 — 크기·모서리를 여기 하나로 묶는다. */
   dockBtn: {

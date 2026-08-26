@@ -65,6 +65,26 @@ glassBlurStyle.textContent = `
     button:not(:disabled):active, .iterm-pressable:active { transform: none; }
   }
 
+  /* Focus rings — **global**, and only for keyboard users.
+
+     A tap or click leaves the element focused, so a plain :focus ring stays painted on
+     screen long after the press: the button looks stuck in a selected state. Every
+     component was papering over this on its own (outline:none appears in dozens of style
+     objects), which means the ones nobody remembered to patch still show it — that is the
+     white border that keeps hanging around after a tap on mobile.
+
+     :focus-visible is the browser's own answer to "was this focus reached by keyboard?",
+     so tabbing still gets a visible ring and pointer/touch never does. The ring is drawn
+     from the accent token, not white, so it belongs to the theme.
+
+     NOTE: this block lives inside a JS template literal — no backticks in the prose. */
+  :focus:not(:focus-visible) { outline: none; }
+  :focus-visible {
+    outline: 2px solid var(--ui-accent, #89b4fa);
+    outline-offset: 2px;
+    border-radius: inherit;
+  }
+
   .iterm-menu-item { transition: background 120ms, color 120ms; }
   .iterm-menu-item:hover:not(:disabled) {
     background: color-mix(in srgb, var(--ui-accent, #89b4fa) 20%, var(--ui-surface2, #393949)) !important;

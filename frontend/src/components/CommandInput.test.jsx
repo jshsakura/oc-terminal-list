@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { resolve } from 'path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
@@ -550,5 +552,17 @@ describe('하단 도크 (모바일)', () => {
     render(<CommandInput {...base} docked={false} />);
     expect(screen.getByTestId('command-input-overlay')).toBeTruthy();
     expect(screen.getByText('Send command')).toBeTruthy();
+  });
+});
+
+/* 도크의 지난 명령 목록은 **높이 상한이 있어야** 스크롤된다. 모달과 달리 도크에는 높이를
+   정해 주는 조상이 없어서, 상한을 빼면 목록이 내용만큼 자라 overflow 가 안 걸린다 —
+   화면에서는 "항목이 23개인데 스크롤이 안 된다" 로 보인다. */
+describe('도크 히스토리 높이', () => {
+  test('목록을 감싸는 상자에 높이 상한이 있다', () => {
+    const src = readFileSync(resolve(__dirname, 'CommandInput.jsx'), 'utf8');
+    expect(src).toMatch(/dockHistory: \{[^}]*maxHeight/s);
+    expect(src).toMatch(/dockHistory: \{[^}]*minHeight: 0/s);
+    expect(src).toMatch(/style=\{styles\.dockHistory\}/);
   });
 });

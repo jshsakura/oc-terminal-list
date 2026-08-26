@@ -114,29 +114,7 @@ export const Select = ({ value, onChange, children }) => {
   );
 };
 
-export const Toggle = ({ label, checked, onChange, hint }) => (
-  <label style={styles.toggleRow}>
-    <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, paddingRight: space['3'] }}>
-      <span style={styles.toggleLabel}>{label}</span>
-      {hint ? <span style={styles.hint}>{hint}</span> : null}
-    </span>
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      style={{
-        ...styles.toggle,
-        background: checked ? color.accent : color.surface1,
-      }}
-    >
-      <span
-        style={{
-          ...styles.toggleKnob,
-          transform: checked ? 'translateX(14px)' : 'translateX(0)',
-        }}
-      />
-    </button>
-  </label>
-);
+export { default as Toggle } from '../common/Toggle';
 
 // 폰트 크기 — 숫자 input + 슬라이더 + ± 버튼 한 줄. 변경 빠르게.
 export const FontSizeRow = ({ value, onChange, min = 8, max = 28 }) => {

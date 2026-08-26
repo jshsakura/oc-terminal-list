@@ -140,6 +140,11 @@ const styles = {
     minHeight: 0,
     overflowY: 'auto',
     overflowX: 'hidden',
+    /* iOS: 관성 스크롤을 켜고, 목록 끝에서 스크롤이 페이지로 넘어가지 않게 가둔다
+       (넘어가면 도크째 밀려 목록이 손가락을 따라오지 않는 것처럼 보인다). */
+    WebkitOverflowScrolling: 'touch',
+    overscrollBehavior: 'contain',
+    touchAction: 'pan-y',
     padding: `0 ${space['2']} ${space['1.5']}`,
     display: 'flex',
     flexDirection: 'column',

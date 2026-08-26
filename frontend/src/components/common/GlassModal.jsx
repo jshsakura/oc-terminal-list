@@ -101,7 +101,9 @@ const styles = {
     boxSizing: 'border-box',
   },
   panel: {
-    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 58%, transparent)`,
+    /* 유리는 뒤가 비쳐야 유리지만, 설정처럼 **읽고 고르는** 창은 뒤의 터미널 글자가
+       라벨과 겹쳐 읽힌다. 58% → 74% — 질감은 남기고 글자만 또렷해지는 선. */
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 74%, transparent)`,
     border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 62%, transparent)`,
     borderRadius: '12px',
     boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)',

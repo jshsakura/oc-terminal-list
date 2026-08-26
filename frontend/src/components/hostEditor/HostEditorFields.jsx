@@ -77,24 +77,4 @@ export const SegmentedControl = ({ value, options, onChange }) => (
   </div>
 );
 
-export const Toggle = ({ label, hint, checked, onChange }) => (
-  <div style={styles.toggleRow}>
-    <div style={{ flex: 1 }}>
-      <div style={{ fontSize: fontSize['13'], color: color.text }}>{label}</div>
-      {hint && <div style={{ fontSize: fontSize['11'], color: color.muted, marginTop: '2px' }}>{hint}</div>}
-    </div>
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      onClick={() => onChange(!checked)}
-      style={{
-        ...styles.toggle,
-        background: checked ? color.accent : color.surface1,
-      }}
-    >
-      <span style={{ ...styles.toggleKnob, transform: checked ? 'translateX(14px)' : 'translateX(0)' }} />
-    </button>
-  </div>
-);
+export { default as Toggle } from '../common/Toggle';
