@@ -4,6 +4,7 @@ import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
 import { DOCK_SLOT_ID } from './commandinput/focusDock';
+import { MOBILE_CONTROL } from '../styles/mobileControl';
 import HostIcon from '../utils/hostIcons';
 import { createKeyRepeater } from '../utils/keyRepeat';
 
@@ -15,7 +16,7 @@ const DEFAULT_ICON_FOR_KIND = {
   copyAll: FileText,
 };
 
-const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+const { color, font, fontSize, fontWeight, space, motion } = tokens;
 
 /**
  * 모바일 (iOS) 전용 고밀도 키 툴바.
@@ -36,7 +37,7 @@ const skeletonKeyLabel = (k) => (
 );
 const skeletonKeyBox = (k) => {
   const label = skeletonKeyLabel(k);
-  const iconPx = k.icon ? 18 : 0;   // 아이콘(14) + 라벨과의 gap(4)
+  const iconPx = k.icon ? MOBILE_CONTROL.icon + 4 : 0;   // 아이콘 + 라벨과의 gap(4)
   return { width: `${Math.round(10 + iconPx + label.length * SKELETON_CHAR_PX)}px` };
 };
 
@@ -122,8 +123,10 @@ const MobileToolbar = ({
   const renderKeyContent = (k) => {
     const FallbackIcon = DEFAULT_ICON_FOR_KIND[k.kind] || null;
     const iconEl = k.icon
-      ? <HostIcon value={k.icon} size={14} strokeWidth={2.2} />
-      : (FallbackIcon ? <FallbackIcon size={14} strokeWidth={2.2} /> : null);
+      ? <HostIcon value={k.icon} size={MOBILE_CONTROL.icon} strokeWidth={MOBILE_CONTROL.stroke} />
+      : (FallbackIcon
+        ? <FallbackIcon size={MOBILE_CONTROL.icon} strokeWidth={MOBILE_CONTROL.stroke} />
+        : null);
     let labelText = k.label || '';
     if (!iconEl && !labelText) {
       if (k.kind === 'mod') labelText = (k.modifier || 'ctrl').toUpperCase();
@@ -394,14 +397,14 @@ const styles = {
   },
   key: {
     flexShrink: 0,
-    height: '24px',
-    minWidth: '24px',
+    height: `${MOBILE_CONTROL.size}px`,
+    minWidth: `${MOBILE_CONTROL.size}px`,
     padding: '0 5px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     border: '1px solid',
-    borderRadius: radius.xs,
+    borderRadius: MOBILE_CONTROL.radius,
     fontSize: fontSize['11'],
     fontWeight: fontWeight.medium,
     fontFamily: 'inherit',
@@ -413,7 +416,7 @@ const styles = {
   },
   divider: {
     width: '1px',
-    height: '14px',
+    height: `${MOBILE_CONTROL.dividerHeight}px`,
     background: color.border,
     // 자체 마진 없음 — row 의 gap(8px)만 받는다. 마진을 더하면 구분자 주변만 뻥 뚫려
     // 그룹 사이가 아니라 "빈칸"으로 보인다.

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2 } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
+import { MOBILE_CONTROL } from '../styles/mobileControl';
 import useVisualViewport from '../hooks/useVisualViewport';
 import HistoryPanel from './commandinput/HistoryPanel';
 import TargetSelect from './commandinput/TargetSelect';
@@ -21,12 +22,11 @@ const MOBILE_TOP_GAP = 12;
 // 가시 영역이 이만큼 줄면 키보드가 올라온 것으로 본다(브라우저 UI 바 변동은 이보다 작다).
 const KEYBOARD_SHRINK_THRESHOLD = 60;
 // 보낼 대상 선택 UI 는 고를 게 둘 이상일 때만 의미가 있다.
-// 도크의 모든 컨트롤이 공유하는 한 변. 입력 높이도 여기에 맞춘다.
-/* 퀵바 키와 **같은 한 변**. 두 줄이 위아래로 붙어 있어 24 와 26 이 섞이면 바로 보인다.
-   (MobileToolbar.styles.key.height 와 함께 움직인다.) */
-const DOCK_BTN = 24;
-// 아이콘은 버튼보다 확실히 작아야 눌리는 면이 보인다. 26 버튼에 12 아이콘.
-const DOCK_ICON = 12;
+/* 도크의 모든 컨트롤이 공유하는 한 변 — 퀵바 키와 **같은 값**이어야 한다. 두 줄이
+   위아래로 붙어 있어 한 쪽만 바뀌면 바로 보인다. 그래서 값의 출처는 styles/mobileControl. */
+const DOCK_BTN = MOBILE_CONTROL.size;
+// 아이콘은 버튼보다 작아야 눌리는 면이 보인다(24 상자에 14 → 좌우 5px).
+const DOCK_ICON = MOBILE_CONTROL.icon;
 // 입력이 자랄 수 있는 상한. 넘으면 스크롤 — 화면 절반을 입력창이 먹으면 안 된다.
 const DOCK_MAX_H = 104;
 
@@ -282,8 +282,8 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       aria-pressed={historyOpen}
     >
       {historyOpen
-        ? <ChevronDown size={docked ? DOCK_ICON : 14} strokeWidth={2} />
-        : <ChevronUp size={docked ? DOCK_ICON : 14} strokeWidth={2} />}
+        ? <ChevronDown size={docked ? DOCK_ICON : 14} strokeWidth={docked ? MOBILE_CONTROL.stroke : 2} />
+        : <ChevronUp size={docked ? DOCK_ICON : 14} strokeWidth={docked ? MOBILE_CONTROL.stroke : 2} />}
     </button>
   ) : null;
 
@@ -318,7 +318,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         ...(voice.listening ? styles.micBtnActive : null),
       }}
     >
-      <Mic size={docked ? DOCK_ICON : 14} strokeWidth={2} />
+      <Mic size={docked ? DOCK_ICON : 14} strokeWidth={docked ? MOBILE_CONTROL.stroke : 2} />
     </button>
   );
 
@@ -698,7 +698,7 @@ const styles = {
     fontSize: fontSize['12'],
     lineHeight: '16px',
     boxSizing: 'border-box',
-    borderRadius: radius.sm,        // 버튼과 같은 모서리
+    borderRadius: MOBILE_CONTROL.radius,   // 버튼과 같은 모서리
     resize: 'none',
     overflowY: 'auto',
   },
@@ -706,7 +706,7 @@ const styles = {
      둘은 한 줄에 나란히 서는데 14 와 16 이 섞여 있어 눈에 띄게 어긋났다. */
   dockSlotDivider: {
     width: '1px',
-    height: '14px',
+    height: `${MOBILE_CONTROL.dividerHeight}px`,
     marginLeft: '2px',
     background: `var(--ui-border, ${color.border})`,
     flexShrink: 0,
@@ -716,7 +716,7 @@ const styles = {
     flexShrink: 0,
     width: `${DOCK_BTN}px`,
     height: `${DOCK_BTN}px`,
-    borderRadius: radius.sm,
+    borderRadius: MOBILE_CONTROL.radius,
   },
   modal: {
     width: '90%',
