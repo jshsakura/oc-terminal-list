@@ -1278,6 +1278,9 @@ function App() {
       {isMobile && activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
         && (focusedPane.sessionId || focusedPane.hostId) && !authPromptOpen && (
         <LazyErrorBoundary><Suspense fallback={null}>
+          {/* ⚠️ 퀵바는 입력 도크보다 **먼저** 그려져야 한다 — 도크가 이 안의 고정
+              슬롯(DOCK_SLOT_ID)으로 포탈하기 때문. 순서를 바꾸면 첫 렌더에 슬롯이 없어
+              대상·히스토리 버튼이 한 틱 늦게 나타난다(도크가 재시도하긴 한다). */}
           <MobileToolbar
             onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}
             onOpenCommandInput={() => setCommandInputOpen(true)}

@@ -3,6 +3,7 @@ import { MessageSquare, ClipboardPaste, Copy, FileText } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
+import { DOCK_SLOT_ID } from './commandinput/focusDock';
 import HostIcon from '../utils/hostIcons';
 import { createKeyRepeater } from '../utils/keyRepeat';
 
@@ -39,7 +40,12 @@ const skeletonKeyBox = (k) => {
   return { width: `${Math.round(10 + iconPx + label.length * SKELETON_CHAR_PX)}px` };
 };
 
-const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en', keys = null, terminalSessionId = null }) => {
+const MobileToolbar = ({
+  onSendKey, onOpenCommandInput, onAction, language = 'en', keys = null, terminalSessionId = null,
+  /* 키가 아닌 고정 항목(대상 선택·히스토리 토글). 입력 도크가 넘겨준다 —
+     도크에 두면 도크가 두 줄이 되고, 여기 두면 전체가 키바+입력 두 줄로 끝난다. */
+  leading = null,
+}) => {
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
@@ -248,12 +254,17 @@ const MobileToolbar = ({ onSendKey, onOpenCommandInput, onAction, language = 'en
       `}</style>
 
       <div style={styles.toolbar}>
-        {pinnedKey && (
-          <div style={styles.pinned}>
-            {renderItem(pinnedKey, 'pinned')}
-            {pinnedDivider && <Divider />}
-          </div>
-        )}
+        {/* 고정 슬롯 — 대상 선택·히스토리처럼 **키가 아닌 것**이 여기 온다.
+            빠른입력 버튼이 빠지면서 이 자리가 비었고, 입력 도크에 두면 도크가 두 줄이 된다.
+            여기 올리면 도크는 한 줄로 끝나고 전체는 키바+입력 두 줄이 된다. */}
+        <div style={styles.pinned}>
+          {/* 입력 도크가 여기로 포탈한다(대상 선택·히스토리). 비어 있으면 폭 0 이라
+              데스크탑이나 도크가 없는 상태에서 자리를 먹지 않는다. */}
+          <div id={DOCK_SLOT_ID} style={styles.dockSlot} />
+          {leading}
+          {pinnedKey && renderItem(pinnedKey, 'pinned')}
+          <Divider />
+        </div>
         <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
           <div style={styles.row}>
             {!terminalReady && terminalSessionId ? (
@@ -340,6 +351,11 @@ const styles = {
     zIndex: 10,
   },
   // 좌측 고정 슬롯 — 좌우 패딩은 최소로(스크롤 영역과 붙지 않을 만큼만).
+  dockSlot: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '2px',
+  },
   pinned: {
     flexShrink: 0,
     display: 'flex',

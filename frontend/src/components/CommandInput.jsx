@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2 } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
@@ -8,7 +9,7 @@ import TargetSelect from './commandinput/TargetSelect';
 import focusToEnd from './commandinput/focusToEnd';
 import useImageAttach from './commandinput/useImageAttach';
 import useSendTargets from './commandinput/useSendTargets';
-import { FOCUS_DOCK_EVENT } from './commandinput/focusDock';
+import { FOCUS_DOCK_EVENT, DOCK_SLOT_ID } from './commandinput/focusDock';
 import useVoiceDictation from './commandinput/useVoiceDictation';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -45,6 +46,16 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   const modalRef = useRef(null);
   // 지난 명령 이력 패널 토글 — 헤더의 화살표 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
   const [historyOpen, setHistoryOpen] = useState(false);
+  /* 퀵바의 고정 슬롯 노드. 퀵바가 우리보다 먼저/나중에 마운트될 수 있어 ref 가 아니라
+     DOM 조회로 잡는다 — 없으면 그냥 안 보낸다(데스크탑에는 퀵바가 없다). */
+  const [dockSlot, setDockSlot] = useState(null);
+  useEffect(() => {
+    if (!docked) { setDockSlot(null); return undefined; }
+    const find = () => setDockSlot(document.getElementById(DOCK_SLOT_ID));
+    find();
+    const id = window.setTimeout(find, 0);   // 퀵바가 아직 안 그려졌을 때 한 틱 뒤 재시도
+    return () => window.clearTimeout(id);
+  }, [docked]);
 
   const viewport = useVisualViewport(isOpen && !docked);
   const targets = useSendTargets(panes, terminalKey);
@@ -489,27 +500,33 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         style={styles.dock}
       >
         <style>{CSS}</style>
+        {/* 대상 선택·히스토리 토글은 **퀵바의 고정 슬롯**으로 보낸다. 그 슬롯은 도크보다
+            먼저 그려지므로 포탈로 넘긴다 — prop 을 App 까지 올렸다 내리는 것보다 짧고,
+            슬롯이 없으면(데스크탑) 아무 일도 일어나지 않는다. */}
+        {dockSlot && createPortal(
+          <>
+            {targetSelect}
+            {historyToggle}
+          </>,
+          dockSlot,
+        )}
         {historyOpen && terminalKey && (
           <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
         )}
         {/* 입력은 **폭을 다 쓴다.** 버튼을 같은 줄에 늘어놓으면 정작 글자 칠 자리가 좁아진다 —
             그래서 보조 버튼은 아래 한 줄로 내리고, 그 줄은 24px 짜리 얇은 띠다.
             결과: 입력 32px + 버튼 띠 24px ≈ 예전 모달 대비 훨씬 낮으면서 입력은 훨씬 넓다. */}
+        {/* 도크는 **한 줄**이다. [첨부] 입력 [마이크][전송].
+            대상 선택·히스토리는 퀵바(MobileToolbar) 고정 슬롯으로 올라갔다 — 여기 두면
+            줄이 하나 더 생기고, 폰에서 도크가 먹는 높이가 곧 터미널이 잃는 높이다. */}
         <div style={styles.dockInputRow}>
-          {textarea}
-        </div>
-        {/* 버튼은 전부 **오른쪽**으로 몬다 — 엄지가 닿는 쪽이고, 왼쪽을 비워 두면
-            줄이 붐비지 않아 보인다. 라벨 없이 아이콘만 쓴다(도크는 세로가 곧 비용이다). */}
-        <div style={styles.dockActionRow}>
           {imageInput}
-          <div style={{ flex: 1 }} />
-          {historyToggle}
-          {targetSelect}
           <Button
             variant="ghost" size="icon" onClick={image.openPicker} disabled={image.isUploading}
             icon={image.isUploading ? Loader2 : ImagePlus}
             title={t?.('attachImage') || '이미지 첨부'} style={styles.footerIconBtn}
           />
+          {textarea}
           {micButton}
           <Button
             variant="primary" size="icon" onClick={handleSend} icon={Send}
@@ -606,13 +623,9 @@ const styles = {
   /* 도크 — 입력 줄 + 버튼 띠. 세로는 아끼되 입력의 **가로는 다 준다.** */
   dockInputRow: {
     display: 'flex',
+    alignItems: 'flex-end',
+    gap: '4px',
     padding: '5px 6px 0',
-  },
-  dockActionRow: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '2px',
-    padding: '1px 4px 3px',
   },
   dockTextarea: {
     flex: 1,

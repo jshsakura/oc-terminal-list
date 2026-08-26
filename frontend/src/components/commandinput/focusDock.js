@@ -18,3 +18,12 @@ export const focusCommandDock = () => {
   window.dispatchEvent(new CustomEvent(FOCUS_DOCK_EVENT));
   return true;
 };
+
+/**
+ * 퀵바(MobileToolbar) 안의 고정 슬롯 id.
+ *
+ * 대상 선택·히스토리 토글은 입력 도크의 것이지만 **그리는 자리는 퀵바**다 — 도크에 두면
+ * 줄이 하나 더 생기고, 폰에서 도크가 먹는 높이가 곧 터미널이 잃는 높이이기 때문이다.
+ * 도크가 이 노드로 포탈한다. 슬롯이 없으면(데스크탑) 아무 일도 일어나지 않는다.
+ */
+export const DOCK_SLOT_ID = 'iterm-dock-slot';

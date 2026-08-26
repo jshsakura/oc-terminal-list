@@ -225,7 +225,9 @@ describe('CommandInput send targets', () => {
 
   it('falls back to the active pane when nothing is selected', () => {
     const { onSend } = renderWith();
-    expect(screen.getByRole('button', { name: 'sendTarget' })).toHaveTextContent('sendToActive');
+    /* 기본(활성 pane)에는 **배지 글자를 쓰지 않는다** — 그게 기본값이라 이름을 붙일 이유가
+       없고, "활성" 세 글자가 좁은 툴바에서 가장 넓은 자리를 먹었다. */
+    expect(screen.getByRole('button', { name: 'sendTarget' })).toHaveTextContent('');
     send();
     expect(onSend).toHaveBeenCalledWith('ls', ['a'], {});
   });
@@ -252,7 +254,8 @@ describe('CommandInput send targets', () => {
     openPopup();
 
     fireEvent.click(screen.getByText('selectAll'));
-    expect(screen.getByRole('button', { name: 'sendTarget' })).toHaveTextContent('sendToAll');
+    // 전부 고르면 ∗ 한 글자 — 아이콘 옆에 이름을 다 적을 자리가 없다.
+    expect(screen.getByRole('button', { name: 'sendTarget' })).toHaveTextContent('∗');
 
     // 다시 누르면 전체 해제 → 선택 없음 → 활성 pane 폴백으로 되돌아간다.
     fireEvent.click(screen.getByText('deselectAll'));
@@ -442,6 +445,23 @@ describe('하단 도크 (모바일)', () => {
     expect(container.querySelector('textarea')).toBeTruthy();
     expect(screen.getByTitle('Send')).toBeTruthy();
     expect(row).toBeTruthy();
+  });
+
+  it('퀵바 슬롯이 있으면 대상·히스토리를 거기로 보낸다 — 도크는 한 줄로 남는다', () => {
+    const slot = document.createElement('div');
+    slot.id = 'iterm-dock-slot';
+    document.body.appendChild(slot);
+    render(<CommandInput {...base} terminalKey="a" />);
+    // 히스토리 토글이 도크가 아니라 슬롯 안에 그려진다.
+    expect(slot.querySelector('button')).toBeTruthy();
+    const dock = screen.getByTestId('command-input-dock');
+    expect(dock.contains(slot.querySelector('button'))).toBe(false);
+    slot.remove();
+  });
+
+  it('슬롯이 없으면 아무 일도 안 한다 — 데스크탑에는 퀵바가 없다', () => {
+    render(<CommandInput {...base} terminalKey="a" />);
+    expect(screen.getByTestId('command-input-dock')).toBeTruthy();   // 터지지 않는다
   });
 
   it('모달은 그대로 제목과 닫기를 갖는다 — 데스크탑은 건드리지 않았다', () => {

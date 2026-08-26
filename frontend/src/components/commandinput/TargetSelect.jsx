@@ -24,10 +24,12 @@ const TargetSelect = ({ targets, terminalKey, t }) => {
 
   const label = t?.('sendTarget') || 'Send to';
 
-  // 배지 — 아무것도 안 고르면 "활성", 전부면 "전체", 아니면 개수.
+  /* 배지 — 기본(활성 pane) 은 **아무 글자도 쓰지 않는다.** 그게 기본값이라 굳이 이름을
+     붙일 필요가 없고, "활성" 세 글자가 좁은 툴바에서 가장 넓은 자리를 먹었다.
+     고른 게 있을 때만 숫자를, 전부면 ∗ 를 쓴다 — 아이콘 옆 한 글자면 충분하다. */
   const badge = selectedCount === 0
-    ? (t?.('sendToActive') || 'Active')
-    : (allSelected ? (t?.('sendToAll') || 'All') : String(selectedCount));
+    ? null
+    : (allSelected ? '∗' : String(selectedCount));
 
   return (
     <div style={{ position: 'relative', display: 'inline-flex' }}>
@@ -42,7 +44,7 @@ const TargetSelect = ({ targets, terminalKey, t }) => {
         style={{ ...styles.btn, ...(isPopupOpen ? styles.btnActive : null) }}
       >
         <Crosshair size={13} strokeWidth={2} />
-        <span style={styles.badge}>{badge}</span>
+        {badge && <span style={styles.badge}>{badge}</span>}
       </button>
 
       {isPopupOpen && createPortal(
