@@ -663,6 +663,12 @@ function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
+  /* 모바일에서 입력 도크를 상시 노출할 조건 — MobileToolbar 와 **같은 조건**이어야 한다.
+     키를 받을 곳이 없는 자리(빈 pane, VNC, 2FA 프롬프트)에서 입력창만 떠 있으면
+     쳐도 아무 데도 안 간다. 두 조건이 갈라지면 그게 곧 버그다. */
+  const showCommandDock = isMobile && activeTabId !== null && !!focusedPane
+    && focusedPane.mode !== 'vnc' && (focusedPane.sessionId || focusedPane.hostId)
+    && !authPromptOpen;
   // 쓰다 만 명령은 localStorage 에 남긴다 — 배포 직후 지연로드 청크 404 로
   // LazyErrorBoundary 가 페이지를 리로드해도 입력이 날아가지 않게. (utils/quickInputDraft.js)
   const [commandText, setCommandText] = useState(loadDraft);
@@ -1314,11 +1320,17 @@ function App() {
         </Suspense></LazyErrorBoundary>
       )}
 
-      {/* ── command input (모바일 한글 IME 우회) ── */}
-      {commandInputOpen && (
+      {/* ── command input ──
+          모바일은 **하단에 상시 도크**, 데스크탑은 예전처럼 모달.
+          폰에서 사람이 하는 일은 대개 키를 치는 게 아니라 한 줄 보내는 것이라, 네 걸음
+          (터미널 탭 → 키보드 → 키바에서 버튼 찾기 → 모달)을 0 걸음으로 줄인다.
+          도크 자리는 MobileToolbar 바로 위 — 둘 다 wrapper 의 flex 흐름 끝이라
+          키보드가 올라오면 같이 밀려 올라간다. */}
+      {(commandInputOpen || showCommandDock) && (
         <LazyErrorBoundary><Suspense fallback={null}>
           <CommandInput
-            isOpen={commandInputOpen}
+            docked={showCommandDock}
+            isOpen={showCommandDock || commandInputOpen}
             onClose={() => setCommandInputOpen(false)}
             onSend={(cmd, targetKeys, textByKey = {}) => {
               // targetKeys = 보낼 pane key 배열. 비면 활성 pane 으로 폴백.

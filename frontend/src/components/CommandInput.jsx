@@ -28,13 +28,24 @@ const MIN_PANES_FOR_TARGETS = 2;
  * 입력 보존: command/setCommand 가 부모(App.jsx) state 라 X/ESC/backdrop 으로
  * 닫아도 텍스트는 유지된다. 비우는 건 명시적 "Clear" 또는 "Send" 시에만.
  */
-const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language, terminalKey = null, panes = [] }) => {
+/* `docked` — 모바일에서 **모달이 아니라 하단에 상시 붙는** 형태.
+ *
+ * 왜: 폰에서 한 줄 보내려면 터미널 탭 → 키보드 → 키바에서 입력 버튼 찾기 → 모달, 네 걸음이었다.
+ * 폰에서 사람이 하는 일은 대개 키를 치는 게 아니라 **한 줄 보내는 것**이라, 그게 늘 열려
+ * 있는 편이 맞다. 데스크탑은 그대로 모달이다 — 거기서는 터미널에 직접 치는 게 기본이고,
+ * 화면을 상시로 먹는 입력창이 오히려 방해다.
+ *
+ * ⚠️ docked 에서는 **포커스를 붙잡지 않는다.** 모달 모드의 focus 트랩(아래 focusin 방어)이
+ * 그대로 돌면 터미널을 탭해도 포커스가 입력창으로 되튕겨 **터미널에 아무것도 못 친다.**
+ * 그게 모달과 도크의 결정적 차이다.
+ */
+const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language, terminalKey = null, panes = [], docked = false }) => {
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
   // 지난 명령 이력 패널 토글 — 헤더의 화살표 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const viewport = useVisualViewport(isOpen);
+  const viewport = useVisualViewport(isOpen && !docked);
   const targets = useSendTargets(panes, terminalKey);
   const voice = useVoiceDictation({ isOpen, language, setCommand, textareaRef });
 
@@ -78,7 +89,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   // setTimeout 100ms 같은 지연을 두면 iOS Safari 가 user gesture 컨텍스트를 잃어
   // 키보드가 자동으로 안 올라오는 사고가 난다.
   useLayoutEffect(() => {
-    if (isOpen) focusToEnd(textareaRef.current);
+    if (isOpen && !docked) focusToEnd(textareaRef.current);
   }, [isOpen]);
 
   // 일부 모바일 브라우저는 useLayoutEffect 후에도 keyboard 가 즉시 안 올라오는
@@ -95,7 +106,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   // (받아쓰기 중에는 쉰다 — 마이크 UI 와 가상 키보드가 경쟁하면 모바일이 프리즈한다.)
   const isDictatingRef = voice.isDictatingRef;
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || docked) return undefined;   // 도크는 포커스를 붙잡지 않는다 (위 주석)
     let raf = 0;
     const refocus = () => {
       if (raf) return;
@@ -115,7 +126,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       document.removeEventListener('focusin', handleFocusIn, true);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [isOpen, isDictatingRef]);
+  }, [isOpen, isDictatingRef, docked]);
 
   if (!isOpen) return null;
 
@@ -204,6 +215,200 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       ? (t?.('voiceInputStop') || 'Stop voice input')
       : (t?.('voiceInputStart') || 'Start voice input');
 
+  /* 모달과 도크가 **같은 내용**을 쓴다 — 껍데기만 다르다. 복사해 두면 한쪽만 고쳐진다. */
+  const body = (
+    <>
+      <header style={styles.header}>
+        <div style={styles.title}>
+          <Send size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
+          {t?.('commandInput') || 'Send command'}
+        </div>
+        <div style={styles.headerActions}>
+          {terminalKey && (
+            <button
+              type="button"
+              // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 iOS/Chrome 키보드가 내려간다.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => setHistoryOpen((v) => !v)}
+              style={{ ...styles.closeBtn, ...(historyOpen ? styles.headerToggleActive : null) }}
+              title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
+              aria-pressed={historyOpen}
+            >
+              {historyOpen ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronUp size={14} strokeWidth={2} />}
+            </button>
+          )}
+          <button onClick={onClose} style={styles.closeBtn}>
+            <X size={14} strokeWidth={2} />
+          </button>
+        </div>
+      </header>
+
+      {/* 지난 명령 패널 — 화살표 토글 시 입력창 *위쪽* 으로 펼쳐진다.
+          모달이 (키보드 떠있을 때) 하단 고정이라 높이가 늘면 자연히 위로 길어진다. */}
+      {historyOpen && terminalKey && (
+        <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
+      )}
+
+      {/* 패널이 열리면 textarea 영역은 자연 높이만 차지(flex 0) → 남는 공간을 패널이 가져가
+          입력창이 가려지지 않게 한다. 닫혀 있으면 기존처럼 flex:1 로 채운다. */}
+      <div style={historyOpen ? { ...styles.body, flex: '0 0 auto' } : styles.body}>
+        <textarea
+          ref={textareaRef}
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={image.handlePaste}
+          onBlur={() => {
+            requestAnimationFrame(() => {
+              if (isDictatingRef.current) return;
+              if (!isOpen || modalRef.current?.contains(document.activeElement)) return;
+              focusToEnd(textareaRef.current);
+            });
+          }}
+          placeholder={t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}
+          className="command-input-textarea"
+          style={styles.textarea}
+          autoFocus
+        />
+      </div>
+
+      <footer style={styles.footer}>
+        {/* 좌측 — 붙여넣기 / 이미지 첨부 / 비우기 (보조 액션 그룹) */}
+        <Button
+          variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} style={styles.footerIconBtn} />
+        {/* 이미지 첨부/촬영 — 숨김 file input(accept=image/*). 모바일은 OS 피커가 카메라 촬영도 제공.
+            업로드 중엔 아이콘만 로딩(Loader2)으로 — 버튼 통째 회전 없음. */}
+        <input
+          ref={image.fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={image.handleFileChange}
+          style={{ display: 'none' }}
+          aria-hidden="true"
+          tabIndex={-1}
+        />
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={image.openPicker}
+          disabled={image.isUploading}
+          icon={image.isUploading ? Loader2 : ImagePlus}
+          title={t?.('attachImage') || '이미지 첨부'}
+          style={styles.footerIconBtn}
+        />
+        {/* 여러 장을 올리는 중에만 n/N — 한 장은 아이콘 회전만으로 충분하다. */}
+        {image.uploadProgress && (
+          <span style={styles.uploadCount}>
+            {image.uploadProgress.current + 1}/{image.uploadProgress.total}
+          </span>
+        )}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleClear}
+          disabled={!command.trim()}
+          icon={Eraser}
+          title={t?.('clearInput')}
+          style={styles.footerIconBtn}
+        />
+        <div style={{ flex: 1 }} />
+
+        {/* 보낼 대상 — pane 2개 이상일 때만. 아이콘 누르면 목록에서 멀티선택(색/호스트 표시). */}
+        {panes.length >= MIN_PANES_FOR_TARGETS && (
+          <TargetSelect targets={targets} terminalKey={terminalKey} t={t} />
+        )}
+
+        {/* 음성 입력 토글 — 보조 ghost 버튼과 사이즈/스타일 통일. 상태는 아이콘 컬러(빨강)로만. */}
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={voice.toggle}
+          disabled={!voice.supported}
+          title={micTitle}
+          aria-pressed={voice.listening}
+          aria-label={t?.('voiceInput') || 'Voice input'}
+          onMouseEnter={(e) => {
+            if (!voice.supported || voice.listening) return;
+            e.currentTarget.style.color = `var(--ui-danger, ${color.danger})`;
+            e.currentTarget.style.background = `var(--ui-surface0, ${color.surface0})`;
+          }}
+          onMouseLeave={(e) => {
+            if (!voice.supported || voice.listening) return;
+            e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`;
+            e.currentTarget.style.background = 'transparent';
+          }}
+          style={{
+            ...styles.micBtn,
+            ...(voice.listening ? styles.micBtnActive : null),
+            cursor: voice.supported ? 'pointer' : 'not-allowed',
+            opacity: voice.supported ? 1 : 0.45,
+          }}
+        >
+          <Mic size={14} strokeWidth={2} />
+        </button>
+
+        {/* 우측 — 주 액션 (전송 문구 포함) */}
+        <Button
+          variant="primary"
+          onClick={handleSend}
+          disabled={!command.trim()}
+          icon={Send}
+          title={t?.('send') || 'Send'}
+        >
+          {t?.('send') || 'Send'}
+        </Button>
+      </footer>
+
+      {/* 첨부의 예상 토큰 — 보낼 대상이 읽을 때 드는 값이다. 지금 지우면 안 든다. */}
+      {!image.uploadState && image.attachedTokens > 0 && (
+        <div style={styles.statusBar}>
+          <span style={{ opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
+            {`${t?.('imageAttached') || '이미지 첨부'} · ≈${image.attachedTokens.toLocaleString()} tok`}
+          </span>
+        </div>
+      )}
+
+      {/* 업로드 상태 — footer 버튼 줄을 어지럽히지 않게 모달 하단 전용 영역에 표시. */}
+      {image.uploadState && (
+        <div style={styles.statusBar}>
+          {image.uploadState === 'uploading' && (
+            <>
+              <Loader2 size={12} style={{ color: `var(--ui-accent, ${color.accent})`, animation: 'command-input-spin 0.8s linear infinite' }} />
+              <span>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
+            </>
+          )}
+          {image.uploadState === 'error' && (
+            <span style={{ color: `var(--ui-danger, ${color.danger})` }}>{t?.('imageUploadFailed') || '업로드 실패'}</span>
+          )}
+          {/* 요청이 서버에 닿지도 못한 경우 — 파일이나 호스트 문제가 아니라 연결이다. */}
+          {image.uploadState === 'blocked' && (
+            <span style={{ color: `var(--ui-danger, ${color.danger})` }}>
+              {t?.('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
+            </span>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  /* 도크는 **감싸는 층이 없다.** 모달의 바깥 div 는 backdrop(누르면 닫힘) + 터치 차단 +
+     visualViewport 좌표 고정을 하는데, 상시 노출에서는 셋 다 해로우므로 껍데기 자체를 뺀다.
+     같은 자리에 투명한 fixed 층을 두면 그 아래 터미널이 터치를 못 받는다. */
+  if (docked) {
+    return (
+      <div
+        ref={modalRef}
+        data-testid="command-input-dock"
+        className="ci-modal"
+        style={styles.dock}
+      >
+        <style>{CSS}</style>
+        {body}
+      </div>
+    );
+  }
+
   return (
     <div
       data-testid="command-input-overlay"
@@ -226,177 +431,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         onPointerDown={(e) => e.stopPropagation()}
         onTouchMove={(e) => e.stopPropagation()}
       >
-        <header style={styles.header}>
-          <div style={styles.title}>
-            <Send size={13} strokeWidth={2} style={{ flexShrink: 0 }} />
-            {t?.('commandInput') || 'Send command'}
-          </div>
-          <div style={styles.headerActions}>
-            {terminalKey && (
-              <button
-                type="button"
-                // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 iOS/Chrome 키보드가 내려간다.
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setHistoryOpen((v) => !v)}
-                style={{ ...styles.closeBtn, ...(historyOpen ? styles.headerToggleActive : null) }}
-                title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
-                aria-pressed={historyOpen}
-              >
-                {historyOpen ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronUp size={14} strokeWidth={2} />}
-              </button>
-            )}
-            <button onClick={onClose} style={styles.closeBtn}>
-              <X size={14} strokeWidth={2} />
-            </button>
-          </div>
-        </header>
-
-        {/* 지난 명령 패널 — 화살표 토글 시 입력창 *위쪽* 으로 펼쳐진다.
-            모달이 (키보드 떠있을 때) 하단 고정이라 높이가 늘면 자연히 위로 길어진다. */}
-        {historyOpen && terminalKey && (
-          <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
-        )}
-
-        {/* 패널이 열리면 textarea 영역은 자연 높이만 차지(flex 0) → 남는 공간을 패널이 가져가
-            입력창이 가려지지 않게 한다. 닫혀 있으면 기존처럼 flex:1 로 채운다. */}
-        <div style={historyOpen ? { ...styles.body, flex: '0 0 auto' } : styles.body}>
-          <textarea
-            ref={textareaRef}
-            value={command}
-            onChange={(e) => setCommand(e.target.value)}
-            onKeyDown={handleKeyDown}
-            onPaste={image.handlePaste}
-            onBlur={() => {
-              requestAnimationFrame(() => {
-                if (isDictatingRef.current) return;
-                if (!isOpen || modalRef.current?.contains(document.activeElement)) return;
-                focusToEnd(textareaRef.current);
-              });
-            }}
-            placeholder={t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}
-            className="command-input-textarea"
-            style={styles.textarea}
-            autoFocus
-          />
-        </div>
-
-        <footer style={styles.footer}>
-          {/* 좌측 — 붙여넣기 / 이미지 첨부 / 비우기 (보조 액션 그룹) */}
-          <Button
-            variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} style={styles.footerIconBtn} />
-          {/* 이미지 첨부/촬영 — 숨김 file input(accept=image/*). 모바일은 OS 피커가 카메라 촬영도 제공.
-              업로드 중엔 아이콘만 로딩(Loader2)으로 — 버튼 통째 회전 없음. */}
-          <input
-            ref={image.fileInputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            onChange={image.handleFileChange}
-            style={{ display: 'none' }}
-            aria-hidden="true"
-            tabIndex={-1}
-          />
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={image.openPicker}
-            disabled={image.isUploading}
-            icon={image.isUploading ? Loader2 : ImagePlus}
-            title={t?.('attachImage') || '이미지 첨부'}
-            style={styles.footerIconBtn}
-          />
-          {/* 여러 장을 올리는 중에만 n/N — 한 장은 아이콘 회전만으로 충분하다. */}
-          {image.uploadProgress && (
-            <span style={styles.uploadCount}>
-              {image.uploadProgress.current + 1}/{image.uploadProgress.total}
-            </span>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={handleClear}
-            disabled={!command.trim()}
-            icon={Eraser}
-            title={t?.('clearInput')}
-            style={styles.footerIconBtn}
-          />
-          <div style={{ flex: 1 }} />
-
-          {/* 보낼 대상 — pane 2개 이상일 때만. 아이콘 누르면 목록에서 멀티선택(색/호스트 표시). */}
-          {panes.length >= MIN_PANES_FOR_TARGETS && (
-            <TargetSelect targets={targets} terminalKey={terminalKey} t={t} />
-          )}
-
-          {/* 음성 입력 토글 — 보조 ghost 버튼과 사이즈/스타일 통일. 상태는 아이콘 컬러(빨강)로만. */}
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={voice.toggle}
-            disabled={!voice.supported}
-            title={micTitle}
-            aria-pressed={voice.listening}
-            aria-label={t?.('voiceInput') || 'Voice input'}
-            onMouseEnter={(e) => {
-              if (!voice.supported || voice.listening) return;
-              e.currentTarget.style.color = `var(--ui-danger, ${color.danger})`;
-              e.currentTarget.style.background = `var(--ui-surface0, ${color.surface0})`;
-            }}
-            onMouseLeave={(e) => {
-              if (!voice.supported || voice.listening) return;
-              e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`;
-              e.currentTarget.style.background = 'transparent';
-            }}
-            style={{
-              ...styles.micBtn,
-              ...(voice.listening ? styles.micBtnActive : null),
-              cursor: voice.supported ? 'pointer' : 'not-allowed',
-              opacity: voice.supported ? 1 : 0.45,
-            }}
-          >
-            <Mic size={14} strokeWidth={2} />
-          </button>
-
-          {/* 우측 — 주 액션 (전송 문구 포함) */}
-          <Button
-            variant="primary"
-            onClick={handleSend}
-            disabled={!command.trim()}
-            icon={Send}
-            title={t?.('send') || 'Send'}
-          >
-            {t?.('send') || 'Send'}
-          </Button>
-        </footer>
-
-        {/* 첨부의 예상 토큰 — 보낼 대상이 읽을 때 드는 값이다. 지금 지우면 안 든다. */}
-        {!image.uploadState && image.attachedTokens > 0 && (
-          <div style={styles.statusBar}>
-            <span style={{ opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
-              {`${t?.('imageAttached') || '이미지 첨부'} · ≈${image.attachedTokens.toLocaleString()} tok`}
-            </span>
-          </div>
-        )}
-
-        {/* 업로드 상태 — footer 버튼 줄을 어지럽히지 않게 모달 하단 전용 영역에 표시. */}
-        {image.uploadState && (
-          <div style={styles.statusBar}>
-            {image.uploadState === 'uploading' && (
-              <>
-                <Loader2 size={12} style={{ color: `var(--ui-accent, ${color.accent})`, animation: 'command-input-spin 0.8s linear infinite' }} />
-                <span>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
-              </>
-            )}
-            {image.uploadState === 'error' && (
-              <span style={{ color: `var(--ui-danger, ${color.danger})` }}>{t?.('imageUploadFailed') || '업로드 실패'}</span>
-            )}
-            {/* 요청이 서버에 닿지도 못한 경우 — 파일이나 호스트 문제가 아니라 연결이다. */}
-            {image.uploadState === 'blocked' && (
-              <span style={{ color: `var(--ui-danger, ${color.danger})` }}>
-                {t?.('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
-              </span>
-            )}
-          </div>
-        )}
+        {body}
       </div>
     </div>
   );
@@ -423,6 +458,17 @@ const styles = {
     zIndex: 10001,
     backdropFilter: 'blur(var(--glass-blur-overlay, 4px))',
     WebkitBackdropFilter: 'blur(var(--glass-blur-overlay, 4px))',
+    fontFamily: font.sans,
+  },
+  /* 하단 도크 — 폭을 다 쓰고, 높이는 내용만큼. 위쪽만 테두리를 둬서 키바와 한 덩어리로 보이게. */
+  dock: {
+    width: '100%',
+    flexShrink: 0,
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 92%, transparent)`,
+    borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 62%, transparent)`,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
     fontFamily: font.sans,
   },
   modal: {
