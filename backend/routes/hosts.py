@@ -108,6 +108,116 @@ async def update_host_last_cwd(
     return {"id": host_id, "last_cwd": (request.cwd or "").strip() or None}
 
 
+@router.get("/api/hosts/{host_id}/remote-status")
+async def get_host_remote_status(host_id: str, username: str = Depends(verify_auth_token)):
+    """리모트가 이 호스트에 깔려 있는가 · 돌고 있는가 · 지금 붙어 있는가.
+
+    **설치는 선택이다.** 안 깔아도 백엔드가 SSH 로 관찰자를 띄우는 경로가 그대로 있고,
+    이 응답의 `optional: True` 가 화면에 그 사실을 적게 한다 — 아이콘이 "안 깔림" 을
+    경고처럼 보여 주면, 강요할 생각이 없는데도 강요처럼 읽힌다.
+    """
+    from host_common import resolve_host_with_secrets, run_remote_cmd
+    from remote_agent import registry
+    from remote_agent.setup import STATUS_SCRIPT, parse_status, version_hash
+
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    connection = registry.get(host_id)
+    connected = connection is not None
+
+    try:
+        raw = await run_remote_cmd(host, secrets, STATUS_SCRIPT, timeout=15)
+    except Exception as e:
+        # ⚠️ 호스트에 못 닿는 것과 "안 깔렸다" 는 다른 사건이다. 못 닿았는데 "안 깔림"
+        # 으로 그리면 설치 버튼을 누르게 되고 그것도 실패한다.
+        logger.info("remote-status unreachable (%s): %s", host_id, e)
+        return {"installed": None, "connected": connected, "running": connected,
+                "reachable": False, "optional": True,
+                "facts": connection.facts if connection else {}}
+
+    status = parse_status(raw, connected, version_hash())
+    status["reachable"] = True
+    status["optional"] = True
+    status["facts"] = connection.facts if connection else {}
+    return status
+
+
+@router.post("/api/hosts/{host_id}/remote-install")
+async def install_host_remote(host_id: str, username: str = Depends(verify_auth_token)):
+    """리모트를 이 호스트에 얹는다. 사람이 누를 때만 일어난다.
+
+    자격증명은 **stdin 으로만** 간다 — 명령 문자열은 원격 `ps` 에 그대로 보인다.
+    """
+    from _deps import get_auth_manager
+    from host_common import resolve_host_with_secrets, run_remote_cmd
+    from itl_remote_setup import _remote_api_base, get_server_identity
+    from remote_agent.credentials import issue_credential
+    from remote_agent.setup import build_install_script
+
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+
+    identity = await get_server_identity()
+    base = _remote_api_base(identity)
+    if not base:
+        raise HTTPException(
+            status_code=409,
+            detail="이 서버의 주소를 원격에서 찾을 수 없습니다 (사설망 주소 없음)",
+        )
+    ws_url = base.replace("https://", "wss://").replace("http://", "ws://") + "/api/remote/ws"
+
+    manager = get_auth_manager()
+    if not manager:
+        raise HTTPException(status_code=503, detail="인증 관리자가 초기화되지 않았습니다")
+    epoch = host.get("cred_epoch") or 1
+    token = await issue_credential(manager, username, host_id, epoch=int(epoch))
+
+    script = build_install_script(ws_url, str(host.get("remote_tmux_session") or ""))
+    try:
+        out = await run_remote_cmd(host, secrets, script, timeout=60, stdin_data=token + "\n")
+    except Exception as e:
+        logger.warning("remote install failed (%s): %s", host_id, e)
+        raise HTTPException(status_code=502, detail="원격 설치에 실패했습니다") from e
+    if "ITL_REMOTE_INSTALLED" not in (out or ""):
+        # ⚠️ 표식이 없으면 성공으로 세지 않는다. `run_remote_cmd` 는 exit code 를 보지
+        # 않으므로, 표식 없이는 "SSH 가 돌았다" 와 "설치됐다" 를 구별할 수 없다.
+        raise HTTPException(status_code=502, detail="원격 설치가 완료되지 않았습니다")
+
+    service = "none"
+    for line in (out or "").splitlines():
+        if line.startswith("ITL_REMOTE_SERVICE="):
+            service = line.split("=", 1)[1].strip()
+    logger.info("remote installed: host=%s service=%s", host_id, service)
+    return {"id": host_id, "installed": True, "service": service}
+
+
+@router.post("/api/hosts/{host_id}/remote-uninstall")
+async def uninstall_host_remote(host_id: str, username: str = Depends(verify_auth_token)):
+    """리모트를 완전히 걷어낸다 — 서비스·파일·자격증명 전부.
+
+    같이 **세대를 올린다**. 파일만 지우고 자격증명을 살려 두면, 어딘가 남아 있던 사본이
+    계속 붙을 수 있다 — 제거했다는 말이 거짓이 된다.
+    """
+    from host_common import resolve_host_with_secrets, run_remote_cmd
+    from remote_agent import registry
+    from remote_agent.setup import UNINSTALL_SCRIPT
+
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    removed = False
+    try:
+        out = await run_remote_cmd(host, secrets, UNINSTALL_SCRIPT, timeout=30)
+        removed = "ITL_REMOTE_REMOVED" in (out or "")
+    except Exception as e:
+        # 호스트에 못 닿아도 **우리 쪽은 끊고 폐기한다** — 꺼진 기계 때문에 자격증명이
+        # 살아 있는 편이 더 나쁘다. 파일은 다음에 닿을 때 지운다.
+        logger.info("remote uninstall could not reach host (%s): %s", host_id, e)
+
+    connection = registry.get(host_id)
+    if connection is not None:
+        registry.detach(connection)
+    await storage.revoke_host_credentials(host_id, username)
+    logger.info("remote uninstalled: host=%s files_removed=%s", host_id, removed)
+    return {"id": host_id, "files_removed": removed, "credentials_revoked": True}
+
+
 @router.post("/api/hosts/{host_id}/credentials/revoke")
 async def revoke_host_credentials(
     host_id: str,
