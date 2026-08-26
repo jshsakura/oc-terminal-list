@@ -1,0 +1,97 @@
+"""리모트 WebSocket — 호스트에 심어 둔 관찰자가 **자기가 걸어 들어온다**.
+
+방향이 중요하다. 우리가 SSH 로 나가는 게 아니라 리모트가 우리 쪽으로 붙는다:
+호스트에 인바운드 포트를 열 필요가 없고, NAT 뒤에서도 되고, 붙어 있는 동안은
+**양방향이 공짜**다(상태·완료가 올라오고, 명령·읽기가 내려간다).
+
+인증은 자격증명 하나다 — `remote_agent/credentials` 참고. 로컬망 전제라 출처 대역은
+검사하지 않는다.
+
+⚠️ 자격증명은 **핸드셰이크 헤더로** 받는다. 쿼리스트링에 실으면 접근로그·리버스프록시
+로그에 장기 토큰이 그대로 남는다(WS 티켓이 짧은 수명인 것과 대비된다 — 이건 90일짜리다).
+"""
+from __future__ import annotations
+
+import logging
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from _deps import get_auth_manager
+from remote_agent import registry
+from remote_agent.credentials import verify_credential
+from sqlite_storage import storage
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# 리모트가 보내오는 낱말. 화이트리스트다 — 모르는 것은 조용히 버린다.
+# (클라이언트가 준 값으로 라우팅하지 않는다는 이 저장소의 규칙과 같다.)
+INBOUND_KINDS = {"hello", "server", "no-server", "panes", "excerpt", "facts", "pong"}
+
+
+def _bearer(websocket: WebSocket) -> str | None:
+    raw = websocket.headers.get("authorization") or ""
+    prefix = "bearer "
+    return raw[len(prefix):].strip() if raw.lower().startswith(prefix) else None
+
+
+@router.websocket("/api/remote/ws")
+async def remote_ws(websocket: WebSocket):
+    manager = get_auth_manager()
+    identity = await verify_credential(manager, _bearer(websocket)) if manager else None
+    if not identity:
+        # 붙기 전에 거절한다 — accept 한 뒤 닫으면 리모트는 "붙었다" 를 한 번 보고
+        # 백오프를 리셋한다(이 저장소가 두 번 밟은 그 함정).
+        await websocket.close(code=1008)
+        return
+    username, host_id = identity
+
+    host = await storage.get_host(host_id)
+    if not host or host.get("username") != username:
+        # 호스트가 지워졌거나 남의 것이다. 자격증명이 살아 있어도 통로는 안 연다.
+        await websocket.close(code=1008)
+        return
+
+    await websocket.accept()
+
+    async def send(message: dict) -> None:
+        await websocket.send_json(message)
+
+    connection = registry.RemoteConnection(host_id, username, send)
+    previous = registry.attach(connection)
+    if previous is not None:
+        logger.info("remote replaced an earlier connection: host=%s", host_id)
+    logger.info("remote attach: host=%s name=%s", host_id, host.get("name"))
+
+    try:
+        while True:
+            message = await websocket.receive_json()
+            kind = message.get("t")
+            if kind not in INBOUND_KINDS:
+                continue
+            await _handle(connection, kind, message)
+    except WebSocketDisconnect:
+        pass
+    except Exception as e:
+        logger.info("remote stream ended: host=%s (%s)", host_id, e)
+    finally:
+        registry.detach(connection)
+        logger.info("remote detach: host=%s", host_id)
+
+
+async def _handle(connection, kind: str, message: dict) -> None:
+    if kind == "facts":
+        # 호스트가 자기를 소개한다 — OS·CPU·메모리·GPU. 주소를 자연어로 고를 수 있게
+        # 하는 재료이고, 여기 없으면 "GPU 있는 데서 돌려" 는 영영 풀리지 않는다.
+        connection.facts = message.get("facts") or {}
+        return
+    if kind == "excerpt":
+        session = message.get("session")
+        if session:
+            connection.resolve(f"excerpt:{session}", message)
+        return
+    # 나머지(panes/server/no-server)는 상태 파이프라인이 가져간다. 다음 배선 단계.
+    from remote_agent import ingest
+
+    await ingest.handle_event(connection.host_id, kind, message)

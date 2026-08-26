@@ -223,7 +223,8 @@ class AuthManager:
         encoded_jwt = jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
         return encoded_jwt
 
-    async def create_scoped_token(self, username: str, scope: str, hours: int = 24 * 30) -> str:
+    async def create_scoped_token(self, username: str, scope: str, hours: int = 24 * 30,
+                                  extra: dict | None = None) -> str:
         """제한된 용도로만 쓰이는 토큰.
 
         `ITL_TOKEN` 처럼 tmux 환경변수에 실려 나가는 토큰용이다 —
@@ -238,7 +239,24 @@ class AuthManager:
             "exp": datetime.utcnow() + timedelta(hours=hours),
             "iat": datetime.utcnow(),
         }
+        # ⚠️ 추가 청구는 예약된 이름을 **덮지 못한다**. 덮을 수 있으면 호출자가 실수로
+        # sub/scope 를 바꿔 다른 사용자·다른 권한의 토큰을 찍어낼 수 있다.
+        for key, value in (extra or {}).items():
+            if key in to_encode:
+                raise ValueError(f"reserved claim: {key}")
+            to_encode[key] = value
         return jwt.encode(to_encode, secret_key, algorithm=ALGORITHM)
+
+    async def verify_scoped_claims(self, token: str, scope: str) -> dict | None:
+        """해당 scope 토큰의 청구 전체. 리모트처럼 sub 외의 청구(host)가 필요할 때 쓴다."""
+        try:
+            secret_key = await self.ensure_secret_key()
+            payload = jwt.decode(token, secret_key, algorithms=[ALGORITHM])
+            if payload.get("scope") != scope:
+                return None
+            return payload
+        except JWTError:
+            return None
 
     async def verify_scoped_token(self, token: str, scope: str) -> str | None:
         """해당 scope 로 발급된 토큰만 통과."""

@@ -379,6 +379,7 @@ from routes.itl import router as itl_router  # noqa: E402
 from routes.fleet import router as fleet_router  # noqa: E402
 from routes.llm_usage import router as llm_usage_router  # noqa: E402
 from routes.ws_tickets import router as ws_tickets_router  # noqa: E402
+from routes.remote_ws import router as remote_ws_router  # noqa: E402
 
 for _router in (
     auth_router,          # 로그인 / OTP / 패스키
@@ -404,6 +405,7 @@ for _router in (
     fleet_router,         # 실행 중 보드 — 기계별 상태 + 모든 pane (호스트당 왕복 1회)
     llm_usage_router,     # LLM 토큰·비용 (호스트별 llm-watcher 집계)
     ws_tickets_router,    # WS 티켓 배치 발급 (부팅 시 pane 수만큼 나가던 POST 를 1회로)
+    remote_ws_router,     # 호스트에 심은 리모트가 걸어 들어오는 통로
 ):
     app.include_router(_router)
 
