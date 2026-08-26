@@ -50,11 +50,24 @@ const MIN_PANES_FOR_TARGETS = 2;
  * 그대로 돌면 터미널을 탭해도 포커스가 입력창으로 되튕겨 **터미널에 아무것도 못 친다.**
  * 그게 모달과 도크의 결정적 차이다.
  */
-const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, language, terminalKey = null, panes = [], docked = false }) => {
+const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setCommand, t, language, terminalKey = null, panes = [], docked = false }) => {
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
   // 지난 명령 이력 패널 토글 — 헤더의 화살표 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
   const [historyOpen, setHistoryOpen] = useState(false);
+  /* 도크는 상시 노출이라 "지금 어디에 쳐지나" 가 보이지 않으면 사용자가 매번 시험 삼아
+     한 글자를 쳐 봐야 한다. 그래서 활성/비활성을 **크게** 벌린다. */
+  const [dockFocused, setDockFocused] = useState(false);
+
+  /* 그 신호를 body 에 걸어 **터미널 쪽도 같이 말하게** 한다. prop 을 Terminal 까지
+     내려보내지 않는 이유: 이 앱은 모든 탭의 PaneGrid 가 상시 마운트돼 있어서, 새 prop
+     하나가 pane 수만큼 리렌더로 곱해진다(project_request_multiplication 과 같은 결). */
+  useEffect(() => {
+    if (!docked) return undefined;
+    document.body.dataset.dockFocused = dockFocused ? '1' : '0';
+    // ⚠️ 언마운트에서 지운다. 남겨 두면 도크가 사라진 뒤에도 터미널이 계속 어둡다.
+    return () => { delete document.body.dataset.dockFocused; };
+  }, [docked, dockFocused]);
   /* 퀵바의 고정 슬롯 노드. 퀵바가 우리보다 먼저/나중에 마운트될 수 있어 ref 가 아니라
      DOM 조회로 잡는다 — 없으면 그냥 안 보낸다(데스크탑에는 퀵바가 없다). */
   const [dockSlot, setDockSlot] = useState(null);
@@ -163,7 +176,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
   if (!isOpen) return null;
 
   const handleSend = () => {
-    if (!command.trim()) return;
+    if (!command.trim()) {
+      /* 내용 없이 보내기 = 터미널에 **Enter**. 프롬프트 확인·"계속" 처럼 잦은 동작이
+         예전에는 [도크에서 손 떼기 → 터미널 누르기 → 엔터] 세 단계였다. 대상 선택을
+         그대로 따른다 — 여러 pane 을 골라 뒀는데 하나에만 가면 그게 더 헷갈린다.
+         ⚠️ 도크에서만. PC 모달에서 빈 전송은 그냥 실수다(닫으면 그만이다). */
+      if (docked && onSendKey) onSendKey('\r', targets.resolveTargets());
+      return;
+    }
     const keys = targets.resolveTargets();
 
     // 첨부가 없으면 **동기로** 보낸다. 흔한 경우에 await 를 끼우면 클릭과 전송
@@ -344,7 +364,12 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       /* ⚠️ 도크는 `rows={1}` 이 필수다. textarea 의 브라우저 기본은 **2줄**이라
          minHeight 를 32px 로 낮춰도 내용 상자가 2줄을 차지해 도크가 두 줄로 보인다. */
       rows={docked ? 1 : undefined}
-      style={docked ? { ...styles.textarea, ...styles.dockTextarea } : styles.textarea}
+      onFocus={() => docked && setDockFocused(true)}
+      onBlur={() => docked && setDockFocused(false)}
+      style={docked
+        ? { ...styles.textarea, ...styles.dockTextarea,
+            ...(dockFocused ? styles.dockTextareaOn : styles.dockTextareaOff) }
+        : styles.textarea}
       autoFocus={!docked}
     />
   );
@@ -537,7 +562,7 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         ref={modalRef}
         data-testid="command-input-dock"
         className="ci-modal"
-        style={styles.dock}
+        style={{ ...styles.dock, ...(dockFocused ? styles.dockOn : styles.dockOff) }}
       >
         <style>{CSS}</style>
         {/* 대상 선택·히스토리 토글은 **퀵바의 고정 슬롯**으로 보낸다. 그 슬롯은 도크보다
@@ -729,6 +754,39 @@ const styles = {
     maxHeight: 'min(42vh, 260px)',
     overflow: 'hidden',
   },
+  /* ─── 도크의 활성/비활성 ───────────────────────────────────────────────
+     ⚠️ 도크는 **상시 노출**이다. 그래서 "지금 치면 터미널로 가나 여기로 가나" 가 한눈에
+     안 보이면, 사용자는 매번 한 글자를 시험 삼아 쳐 보게 된다(실제로 그랬다). 모달이라면
+     떠 있는 것 자체가 답이지만 도크는 늘 거기 있으므로 **상태를 색으로 말해야** 한다.
+
+     예전에 걷어낸 것은 **버튼에 남던 포커스 링**이지 이 구분이 아니다. 그건 탭 뒤에도
+     남아 거슬리는 잔상이었고, 이건 지금 어디로 가는지를 말하는 신호다.
+
+     차이는 크게 벌린다 — 미묘하면 없는 것과 같다. 다만 움직이는 것은 색과 그림자뿐이라
+     레이아웃은 흔들리지 않는다(테두리 두께를 바꾸면 도크 높이가 튄다). */
+  dockOn: {
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 96%, transparent)`,
+    borderTop: `1px solid color-mix(in srgb, var(--ui-accent, ${color.accent}) 55%, transparent)`,
+  },
+  dockOff: {
+    background: `color-mix(in srgb, var(--ui-mantle, ${color.mantle}) 92%, transparent)`,
+    borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 62%, transparent)`,
+  },
+  dockTextareaOn: {
+    background: `var(--ui-base, ${color.base})`,
+    color: `var(--ui-text, ${color.text})`,
+    // 테두리 대신 inset 그림자 — 두께가 안 변하니 도크 높이가 튀지 않는다.
+    boxShadow: `inset 0 0 0 1px color-mix(in srgb, var(--ui-accent, ${color.accent}) 70%, transparent)`,
+    opacity: 1,
+  },
+  dockTextareaOff: {
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 34%, transparent)`,
+    color: `var(--ui-subtext, ${color.subtext})`,
+    boxShadow: 'none',
+    // 비활성은 확실히 죽여 둔다 — 이게 "여기 아님" 을 말하는 가장 빠른 신호다.
+    opacity: 0.62,
+  },
+
   /* 도크 컨트롤 공통 — 크기·모서리를 여기 하나로 묶는다. */
   dockBtn: {
     flexShrink: 0,

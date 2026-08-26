@@ -1335,6 +1335,12 @@ function App() {
             docked={showCommandDock}
             isOpen={showCommandDock || commandInputOpen}
             onClose={() => setCommandInputOpen(false)}
+            /* 빈 전송(도크 우측 버튼) → 그 대상들에 키를 그대로 흘린다. onSend 와 같은
+               폴백 규칙: 대상이 비면 활성 pane. */
+            onSendKey={(data, targetKeys) => {
+              const keys = (Array.isArray(targetKeys) && targetKeys.length) ? targetKeys : [terminalKey];
+              keys.filter(Boolean).forEach((k) => window.terminalSessions?.[k]?.sendData?.(data));
+            }}
             onSend={(cmd, targetKeys, textByKey = {}) => {
               // targetKeys = 보낼 pane key 배열. 비면 활성 pane 으로 폴백.
               // textByKey = pane 별로 다른 텍스트(첨부 이미지 경로가 호스트마다 다르다).

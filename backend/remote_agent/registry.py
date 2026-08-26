@@ -26,6 +26,11 @@ class RemoteConnection:
         self.facts: dict = {}             # 리모트가 보고한 호스트 사실(OS·CPU·메모리…)
         self.closed = False
         self._pending: dict[str, asyncio.Future] = {}
+        self._next_id = 0
+
+    def next_command_id(self) -> int:
+        self._next_id += 1
+        return self._next_id
 
     async def send(self, message: dict) -> bool:
         if self.closed:

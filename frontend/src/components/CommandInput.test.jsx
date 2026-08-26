@@ -566,3 +566,80 @@ describe('도크 히스토리 높이', () => {
     expect(src).toMatch(/style=\{styles\.dockHistory\}/);
   });
 });
+
+
+/* 도크는 **상시 노출**이라 떠 있다는 것만으로는 "지금 여기로 쳐진다" 가 되지 않는다.
+   신호가 없으면 사용자는 매번 한 글자를 시험 삼아 쳐 보게 된다(실제로 그랬다). */
+describe('도크 활성 표시', () => {
+  const dockProps = {
+    isOpen: true, docked: true, onClose: vi.fn(), onSend: vi.fn(),
+    command: '', setCommand: vi.fn(), t,
+  };
+  const renderDock = (extra = {}) => render(<CommandInput {...dockProps} {...extra} />);
+
+  afterEach(() => { delete document.body.dataset.dockFocused; });
+
+  test('도크에 포커스가 오면 전역 신호가 선다', () => {
+    const { getByTestId } = renderDock();
+    const box = getByTestId('command-input-dock').querySelector('textarea');
+    fireEvent.focus(box);
+    expect(document.body.dataset.dockFocused).toBe('1');
+  });
+
+  test('포커스가 빠지면 신호가 내려간다 — 터미널이 계속 어두우면 안 된다', () => {
+    const { getByTestId } = renderDock();
+    const box = getByTestId('command-input-dock').querySelector('textarea');
+    fireEvent.focus(box);
+    fireEvent.blur(box);
+    expect(document.body.dataset.dockFocused).toBe('0');
+  });
+
+  test('도크가 사라지면 신호도 사라진다', () => {
+    const { getByTestId, unmount } = renderDock();
+    fireEvent.focus(getByTestId('command-input-dock').querySelector('textarea'));
+    unmount();
+    expect(document.body.dataset.dockFocused).toBeUndefined();
+  });
+
+  /* ⚠️ 모바일 전용이다. PC 모달은 떠 있다는 것 자체가 답이라 터미널을 죽일 이유가 없다. */
+  test('PC 모달은 이 신호를 세우지 않는다', () => {
+    render(<CommandInput {...dockProps} docked={false} />);
+    expect(document.body.dataset.dockFocused).toBeUndefined();
+  });
+});
+
+
+/* 프롬프트 확인·"계속" 은 폰에서 가장 잦은 동작인데, 예전에는
+   [도크에서 손 떼기 → 터미널 누르기 → 엔터] 세 단계였다. */
+describe('빈 전송 = 터미널에 Enter', () => {
+  const base = {
+    isOpen: true, docked: true, onClose: vi.fn(), onSend: vi.fn(),
+    command: '', setCommand: vi.fn(), t,
+  };
+
+  test('내용이 없으면 Enter 를 흘린다', () => {
+    const onSendKey = vi.fn();
+    const onSend = vi.fn();
+    render(<CommandInput {...base} onSendKey={onSendKey} onSend={onSend} />);
+    fireEvent.click(screen.getByTitle('Send'));
+    expect(onSendKey).toHaveBeenCalledWith('\r', expect.anything());
+    expect(onSend).not.toHaveBeenCalled();      // 빈 명령을 보내지는 않는다
+  });
+
+  test('내용이 있으면 평소대로 명령을 보낸다', () => {
+    const onSendKey = vi.fn();
+    const onSend = vi.fn();
+    render(<CommandInput {...base} command="ls" onSendKey={onSendKey} onSend={onSend} />);
+    fireEvent.click(screen.getByTitle('Send'));
+    expect(onSend).toHaveBeenCalled();
+    expect(onSendKey).not.toHaveBeenCalled();
+  });
+
+  /* ⚠️ PC 모달에서 빈 전송은 그냥 실수다 — 닫으면 그만이지 터미널에 엔터를 칠 일이 아니다. */
+  test('PC 모달에서는 아무 일도 없다', () => {
+    const onSendKey = vi.fn();
+    render(<CommandInput {...base} docked={false} onSendKey={onSendKey} />);
+    fireEvent.click(screen.getByTitle('Send'));
+    expect(onSendKey).not.toHaveBeenCalled();
+  });
+});

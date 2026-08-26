@@ -35,6 +35,7 @@ import logging
 from typing import NamedTuple
 
 from host_common import resolve_host_with_secrets, run_remote_cmd
+from remote_agent import registry
 
 logger = logging.getLogger(__name__)
 
@@ -385,7 +386,20 @@ class RemoteChannel:
 
 
 async def open_channel(host_id: str, username: str) -> RemoteChannel:
-    """그 호스트로 가는 채널 하나. 실패는 그대로 던진다 — 호출부가 "못 닿음" 으로 센다."""
+    """그 호스트로 가는 채널 하나. 실패는 그대로 던진다 — 호출부가 "못 닿음" 으로 센다.
+
+    **리모트가 붙어 있으면 그쪽이 먼저다.** 이미 열려 있는 소켓이라 핸드셰이크가 없고,
+    NAT 뒤 호스트에도 닿고, 그 호스트의 SSH 자격증명을 꺼내지 않는다. 리모트가 없으면
+    예전처럼 SSH 로 간다 — 호출부는 둘을 구별하지 않는다(`run(cmd)` 하나뿐이다).
+    """
+    from remote_agent.channel import channel_for
+    agent = channel_for(host_id)
+    if agent is not None:
+        # ⚠️ 소유권 검사를 건너뛰지 않는다. SSH 경로는 `resolve_host_with_secrets` 가
+        # 그것까지 하는데, 리모트 경로는 그 함수를 지나지 않는다.
+        connection = registry.get(host_id)
+        if connection is not None and connection.username == username:
+            return agent
     host, secrets = await resolve_host_with_secrets(host_id, username)
     if host.get("auth_method") == "tailscale":
         return RemoteChannel(host, secrets)
