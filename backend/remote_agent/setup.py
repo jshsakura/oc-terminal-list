@@ -62,7 +62,8 @@ def build_install_script(url: str, tmux_socket: str) -> str:
     for index, (name, body) in enumerate(sorted(_sources().items())):
         parts.append(_heredoc(f"{LIB_DIR}/{name}", body, f"ITL_REMOTE_EOF_{index}"))
     parts += [
-        f"printf '%s' {shlex.quote(version_hash())} > {LIB_DIR}/VERSION",
+        # 개행을 꼭 붙인다 — 없으면 이 파일을 읽는 쪽에서 다음 출력이 같은 줄에 이어붙는다.
+        f"printf '%s\\n' {shlex.quote(version_hash())} > {LIB_DIR}/VERSION",
         # 자격증명 파일은 만들기 **전에** 권한을 좁힌다 — 먼저 쓰고 나중에 chmod 하면
         # 그 사이에 같은 기계의 다른 사용자가 읽을 수 있다.
         f"umask 077 && : > {CONFIG_DIR}/credentials",
@@ -101,16 +102,21 @@ def _systemd_unit_script() -> str:
         "[Install]",
         "WantedBy=default.target",
     ])
+    # ⚠️ **heredoc 은 절대 들여쓰지 않는다.** 보기 좋으라고 안쪽을 밀어 넣었다가 두 가지가
+    # 한꺼번에 깨졌다: ① 유닛 본문이 `  [Unit]` 로 쓰여 systemd 가 파싱하지 못하고,
+    # ② `<<'MARKER'` 는 구분자가 **행 맨 앞**이어야 하므로 heredoc 이 영영 닫히지 않아
+    # 뒤따르는 `systemctl`·완료 표식까지 통째로 삼킨다. 셸은 들여쓰기를 신경 쓰지 않으니
+    # 여기서 얻을 것은 없고 잃을 것만 있다.
     return "\n".join([
         "if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment "
         ">/dev/null 2>&1; then",
-        "  mkdir -p $HOME/.config/systemd/user",
-        "  " + _heredoc(UNIT_PATH, unit, "ITL_UNIT_EOF").replace("\n", "\n  "),
-        "  systemctl --user daemon-reload >/dev/null 2>&1",
-        f"  systemctl --user enable --now {UNIT_NAME} >/dev/null 2>&1"
+        "mkdir -p $HOME/.config/systemd/user",
+        _heredoc(UNIT_PATH, unit, "ITL_UNIT_EOF"),
+        "systemctl --user daemon-reload >/dev/null 2>&1",
+        f"systemctl --user enable --now {UNIT_NAME} >/dev/null 2>&1"
         " && echo ITL_REMOTE_SERVICE=1 || echo ITL_REMOTE_SERVICE=0",
         "else",
-        "  echo ITL_REMOTE_SERVICE=none",
+        "echo ITL_REMOTE_SERVICE=none",
         "fi",
     ])
 
@@ -118,7 +124,10 @@ def _systemd_unit_script() -> str:
 STATUS_SCRIPT = "\n".join([
     f'[ -f {LIB_DIR}/client.py ] && echo FILES=1 || echo FILES=0',
     f'[ -f {CONFIG_DIR}/credentials ] && echo CRED=1 || echo CRED=0',
-    f'cat {LIB_DIR}/VERSION 2>/dev/null | sed "s/^/VERSION=/" || true',
+    # ⚠️ `cat | sed` 로 흘리면 파일에 개행이 없을 때 **다음 줄이 이어붙는다**(실측:
+    # `VERSION=f0fc…SERVICE=active` → 버전도 서비스도 못 읽고 "낡았다" 로 오판했다).
+    # 명령치환은 끝의 개행을 떼고 echo 가 하나를 붙이므로, 파일이 어떻게 생겼든 한 줄이다.
+    f'echo "VERSION=$(cat {LIB_DIR}/VERSION 2>/dev/null)"',
     "if command -v systemctl >/dev/null 2>&1; then",
     f'  systemctl --user is-active {UNIT_NAME} 2>/dev/null | sed "s/^/SERVICE=/";',
     "else echo SERVICE=none; fi",

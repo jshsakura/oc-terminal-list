@@ -1,6 +1,11 @@
 """리모트 설치 스크립트 · 상태 판정."""
 from __future__ import annotations
 
+import shutil
+import subprocess
+
+import pytest
+
 from remote_agent.setup import (
     STATUS_SCRIPT,
     UNINSTALL_SCRIPT,
@@ -96,3 +101,98 @@ def test_the_running_probe_does_not_match_its_own_command_line():
     돌고 있다' 는 모순된 화면이 되고, 설치 버튼을 눌러도 상태가 안 변한다."""
     assert "itl-remote/[c]lient.py" in STATUS_SCRIPT
     assert 'pgrep -f "itl-remote/client.py"' not in STATUS_SCRIPT
+
+
+# ---------------------- 셸이 실제로 읽을 수 있는가 ----------------------
+
+def _bash_syntax_ok(script: str) -> tuple[bool, str]:
+    """`bash -n` — 실행하지 않고 파싱만 한다."""
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash 없음")
+    out = subprocess.run([bash, "-n"], input=script, capture_output=True, text=True)
+    return out.returncode == 0, out.stderr
+
+
+# ⚠️ id 를 붙이지 않으면 실패 메시지에 **스크립트 전문**(2만 자)이 테스트 이름으로 찍혀
+# 정작 bash 가 알려준 줄 번호를 못 읽는다. 실제로 그랬다.
+@pytest.mark.parametrize("label", ["install", "status", "uninstall"])
+def test_scripts_parse_as_shell(label):
+    script = {
+        "install": build_install_script(URL, "mobile"),
+        "status": STATUS_SCRIPT,
+        "uninstall": UNINSTALL_SCRIPT,
+    }[label]
+    """⚠️ 실측 버그가 여기 걸린다. 보기 좋으라고 heredoc 을 들여썼더니 `<<'MARKER'` 의
+    구분자가 행 맨 앞이 아니게 되어 **heredoc 이 영영 닫히지 않았다** — 뒤따르는
+    systemctl 과 완료 표식까지 통째로 삼켰다. 눈으로는 멀쩡해 보였고, 원격에서 실행할
+    때에야 실패했을 것이다."""
+    ok, err = _bash_syntax_ok(script)
+    assert ok, f"{label}: {err}"
+
+
+def test_the_unit_file_is_written_flush_left():
+    """systemd 는 `  [Unit]` 을 읽지 못한다. 그리고 들여쓴 구분자는 heredoc 을 못 닫는다."""
+    script = build_install_script(URL, "mobile")
+    body = script.split("<<'ITL_UNIT_EOF'\n", 1)[1].split("\nITL_UNIT_EOF", 1)[0]
+    assert body.startswith("[Unit]")
+    for line in body.splitlines():
+        assert line == line.lstrip(), f"들여쓴 줄: {line!r}"
+
+
+def test_the_unit_uses_systemd_home_not_a_shell_variable():
+    """systemd 는 ExecStart 에서 $HOME 을 펼치지 않는다 — %h 여야 한다."""
+    script = build_install_script(URL, "mobile")
+    exec_line = [ln for ln in script.splitlines() if ln.startswith("ExecStart=")][0]
+    assert "%h/" in exec_line
+    assert "$HOME" not in exec_line
+
+
+# ---------------------- 실제로 돌려서 재는 것 ----------------------
+
+def _run(script: str, home) -> str:
+    bash = shutil.which("bash")
+    if not bash:
+        pytest.skip("bash 없음")
+    out = subprocess.run([bash, "-s"], input=script, capture_output=True, text=True,
+                         env={"HOME": str(home), "PATH": "/usr/bin:/bin"})
+    return out.stdout
+
+
+def test_status_output_is_one_marker_per_line(tmp_path):
+    """⚠️ 실측 버그. `printf '%s'` 로 VERSION 을 개행 없이 써서 `cat | sed` 의 출력에
+    **다음 줄이 이어붙었다** — `VERSION=f0fc…SERVICE=active` 가 되어 버전도 서비스도
+    못 읽고 "낡았다" 로 오판했다. 문자열만 보는 테스트로는 안 잡히고, 실제로 돌려야 보인다."""
+    lib = tmp_path / ".local/share/itl-remote"
+    cfg = tmp_path / ".config/itl-remote"
+    lib.mkdir(parents=True)
+    cfg.mkdir(parents=True)
+    (lib / "client.py").write_text("")
+    (cfg / "credentials").write_text("{}")
+    (lib / "VERSION").write_text("abc123")        # 개행 없는 옛 설치 그대로
+
+    out = _run(STATUS_SCRIPT, tmp_path)
+    markers = [ln for ln in out.splitlines() if "=" in ln]
+    for line in markers:
+        assert line.count("=") == 1 or line.startswith("VERSION="), f"두 표식이 한 줄에: {line!r}"
+    assert "VERSION=abc123" in out.splitlines()
+
+
+def test_status_of_a_freshly_installed_tree_parses_clean(tmp_path):
+    """설치 스크립트가 만든 그대로를 상태 스크립트가 읽어 온전한 값이 나오는가."""
+    _run(build_install_script(URL, "mobile").replace(
+        "IFS= read -r _itl_tok", "_itl_tok=dummy"), tmp_path)
+    out = _run(STATUS_SCRIPT, tmp_path)
+    status = parse_status(out, connected=False, current_version=version_hash())
+    assert status["installed"] is True
+    assert status["version"] == version_hash()
+    assert status["outdated"] is False           # 방금 깐 것이 낡았다고 나오면 안 된다
+
+
+def test_the_credential_file_is_not_world_readable(tmp_path):
+    """🔐 같은 기계의 다른 사용자가 읽으면 그 호스트의 자격증명이 새어 나간다."""
+    _run(build_install_script(URL, "mobile").replace(
+        "IFS= read -r _itl_tok", "_itl_tok=dummy"), tmp_path)
+    cred = tmp_path / ".config/itl-remote/credentials"
+    assert cred.exists()
+    assert oct(cred.stat().st_mode)[-3:] == "600"
