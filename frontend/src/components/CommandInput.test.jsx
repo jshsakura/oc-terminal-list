@@ -485,6 +485,22 @@ describe('하단 도크 (모바일)', () => {
     slot.remove();
   });
 
+  it('도크 버튼은 아이콘이 가운데 온다', () => {
+    /* flex 의 기본 justifyContent 는 flex-start 다. 라벨이 있던 시절에는 티가 안 났는데,
+       배지를 빼고 정사각으로 만들자 아이콘이 왼쪽에 붙어 보였다(TargetSelect 만 빠져 있었다). */
+    const slot = document.createElement('div');
+    slot.id = 'iterm-dock-slot';
+    document.body.appendChild(slot);
+    render(<CommandInput {...base} terminalKey="a" />);
+
+    const buttons = [...screen.getByTestId('command-input-dock').querySelectorAll('button'),
+                     ...slot.querySelectorAll('button')]
+      .filter((b) => b.style.width);        // 크기를 정한 도크 컨트롤만
+    expect(buttons.length).toBeGreaterThan(1);
+    buttons.forEach((b) => expect(b.style.justifyContent).toBe('center'));
+    slot.remove();
+  });
+
   it('모달은 그대로 제목과 닫기를 갖는다 — 데스크탑은 건드리지 않았다', () => {
     render(<CommandInput {...base} docked={false} />);
     expect(screen.getByTestId('command-input-overlay')).toBeTruthy();
