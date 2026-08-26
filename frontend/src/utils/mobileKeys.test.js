@@ -130,3 +130,43 @@ describe('sanitizeMobileKeys 사용자 설정 우선', () => {
     expect(result).toBe(DEFAULT_MOBILE_KEYS);
   });
 });
+
+
+describe('맨 앞/뒤 구분자', () => {
+  it('맨 앞 구분자를 걷어낸다 — 아무것도 나누지 않는 선이다', () => {
+    /* 빠른입력 버튼이 있던 시절에는 그것과 키를 갈랐는데, 버튼이 사라지면서 저장된
+       설정의 sep1 이 줄 맨 앞에 홀로 남아 선만 하나 서 있었다. */
+    const out = sanitizeMobileKeys([
+      { id: 'sep1', kind: 'sep' },
+      { id: 'left', kind: 'send', label: '←', payload: 'x' },
+    ]);
+    expect(out[0].kind).not.toBe('sep');
+    expect(out).toHaveLength(1);
+  });
+
+  it('맨 뒤 구분자도 걷어낸다', () => {
+    const out = sanitizeMobileKeys([
+      { id: 'left', kind: 'send', label: '←', payload: 'x' },
+      { id: 'sepEnd', kind: 'sep' },
+    ]);
+    expect(out[out.length - 1].kind).not.toBe('sep');
+  });
+
+  it('가운데 구분자는 남긴다 — 거기서는 실제로 그룹을 나눈다', () => {
+    const out = sanitizeMobileKeys([
+      { id: 'a', kind: 'send', label: 'A', payload: 'a' },
+      { id: 'mid', kind: 'sep' },
+      { id: 'b', kind: 'send', label: 'B', payload: 'b' },
+    ]);
+    expect(out.some((k) => k.kind === 'sep')).toBe(true);
+  });
+
+  it('구분자만 있던 설정은 기본 키셋으로 — 빈 툴바를 만들지 않는다', () => {
+    expect(sanitizeMobileKeys([{ id: 's', kind: 'sep' }])).toBe(DEFAULT_MOBILE_KEYS);
+  });
+
+  it('기본 키셋은 구분자로 시작하지도 끝나지도 않는다', () => {
+    expect(DEFAULT_MOBILE_KEYS[0].kind).not.toBe('sep');
+    expect(DEFAULT_MOBILE_KEYS[DEFAULT_MOBILE_KEYS.length - 1].kind).not.toBe('sep');
+  });
+});

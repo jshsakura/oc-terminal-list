@@ -235,6 +235,27 @@ describe('attachTerminalInteractions', () => {
       expect(term.focus).toHaveBeenCalled();
     });
 
+    /* 도크가 있으면 **첫 탭만** 도크로 넘긴다. 매번 넘기면 터미널에 포커스를 줄 방법이
+       사라져 TUI 프롬프트에 엔터 한 번을 못 친다 — 실제로 그렇게 막혔다. */
+    it('도크가 있으면 첫 탭은 도크로, 그 다음부터는 터미널로 간다', () => {
+      const slot = document.createElement('div');
+      slot.setAttribute('data-testid', 'command-input-dock');
+      slot.innerHTML = '<textarea></textarea>';
+      document.body.appendChild(slot);
+      try {
+        mount();
+        overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
+        overlay.dispatchEvent(touchEvent('touchend', 100, 200));
+        expect(term.focus).not.toHaveBeenCalled();      // 첫 탭 — 도크가 가져갔다
+
+        overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
+        overlay.dispatchEvent(touchEvent('touchend', 100, 200));
+        expect(term.focus).toHaveBeenCalled();          // 두 번째부터는 터미널
+      } finally {
+        slot.remove();
+      }
+    });
+
     it('스크롤한 뒤의 touchend 는 포커스하지 않는다', () => {
       mount();
       overlay.dispatchEvent(touchEvent('touchstart', 100, 200));

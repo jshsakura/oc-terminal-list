@@ -22,9 +22,13 @@ const MOBILE_TOP_GAP = 12;
 const KEYBOARD_SHRINK_THRESHOLD = 60;
 // 보낼 대상 선택 UI 는 고를 게 둘 이상일 때만 의미가 있다.
 // 도크의 모든 컨트롤이 공유하는 한 변. 입력 높이도 여기에 맞춘다.
-const DOCK_BTN = 26;
+/* 퀵바 키와 **같은 한 변**. 두 줄이 위아래로 붙어 있어 24 와 26 이 섞이면 바로 보인다.
+   (MobileToolbar.styles.key.height 와 함께 움직인다.) */
+const DOCK_BTN = 24;
 // 아이콘은 버튼보다 확실히 작아야 눌리는 면이 보인다. 26 버튼에 12 아이콘.
 const DOCK_ICON = 12;
+// 입력이 자랄 수 있는 상한. 넘으면 스크롤 — 화면 절반을 입력창이 먹으면 안 된다.
+const DOCK_MAX_H = 104;
 
 const MIN_PANES_FOR_TARGETS = 2;
 
@@ -205,12 +209,31 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
     setHistoryOpen(false);
   };
 
+  /* 입력이 내용만큼 자란다. textarea 는 스스로 늘지 않으므로 scrollHeight 를 재서 준다.
+     ⚠️ 재기 전에 height 를 비워야 한다 — 안 그러면 이전 높이가 scrollHeight 의 하한이 되어
+     한 번 늘어난 뒤 **다시 줄지 않는다**(지우는데도 칸이 남아 있는 그 증상). */
+  useLayoutEffect(() => {
+    if (!docked) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const next = Math.min(el.scrollHeight, DOCK_MAX_H);
+    el.style.height = `${Math.max(next, DOCK_BTN)}px`;
+  }, [command, docked]);
+
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-      e.preventDefault();
-      handleSend();
+    /* 도크에서는 **Enter 가 전송**이다(줄바꿈은 Shift+Enter). 한 줄 보내려고 여는 자리인데
+       Enter 가 줄바꿈이면 매번 Ctrl 을 같이 눌러야 하고, 폰 키보드에는 그 조합이 없다.
+       모달은 예전 그대로 Ctrl/Cmd+Enter — 거기서는 여러 줄을 쓰는 일이 흔하다.
+       ⚠️ IME 조합 중의 Enter 는 확정이지 전송이 아니다. 한글을 치다 매번 날아간다. */
+    if (e.key === 'Enter' && !e.shiftKey && !(e.nativeEvent?.isComposing || e.isComposing)) {
+      if (docked || e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        handleSend();
+        return;
+      }
     }
-    if (e.key === 'Escape') onClose();
+    if (e.key === 'Escape' && !docked) onClose();
   };
 
   // 모달 뒤 터미널 등으로 touch drag 가 leak 되지 않도록 overlay 에서 명시 차단.
@@ -314,7 +337,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
           focusToEnd(textareaRef.current);
         });
       }}
-      placeholder={t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}
+      placeholder={docked
+        ? (t?.('commandDockHint') || 'Enter 전송, Shift+Enter 줄바꿈')
+        : (t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send')}
       className="command-input-textarea"
       /* ⚠️ 도크는 `rows={1}` 이 필수다. textarea 의 브라우저 기본은 **2줄**이라
          minHeight 를 32px 로 낮춰도 내용 상자가 2줄을 차지해 도크가 두 줄로 보인다. */
@@ -538,12 +563,14 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
             줄이 하나 더 생기고, 폰에서 도크가 먹는 높이가 곧 터미널이 잃는 높이다. */}
         <div style={styles.dockInputRow}>
           {imageInput}
+          {textarea}
+          {/* 버튼은 전부 오른쪽. 입력이 여러 줄로 자라면 버튼이 아래로 끌려가 보이므로
+              **상단정렬**한다 — 첫 줄과 어깨를 맞추는 편이 안정돼 보인다. */}
           <Button
             variant="ghost" size="icon" onClick={image.openPicker} disabled={image.isUploading}
             icon={image.isUploading ? Loader2 : ImagePlus}
             title={t?.('attachImage') || '이미지 첨부'} style={styles.dockBtn}
           />
-          {textarea}
           {micButton}
           <Button
             variant="primary" size="icon" onClick={handleSend} icon={Send}
@@ -605,6 +632,16 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
 
 const CSS = `
   .command-input-textarea::placeholder { color: ${color.muted}; }
+  /* 포커스 하이라이트가 눌린 뒤에도 남아 거슬렸다. 도크는 상시 노출이라 "지금 여기가
+     포커스" 를 굵게 알릴 이유가 없다 — 테두리 색만 살짝 바뀌면 충분하다.
+     ⚠️ 모바일 사파리는 tap highlight 를 따로 칠하므로 그것도 같이 끈다. */
+  .ci-modal textarea { -webkit-tap-highlight-color: transparent; }
+  .ci-modal textarea:focus, .ci-modal textarea:focus-visible {
+    outline: none !important;
+    box-shadow: none !important;
+    border-color: var(--ui-accent, ${color.accent});
+  }
+  .ci-modal button { -webkit-tap-highlight-color: transparent; }
   @keyframes command-input-spin { to { transform: rotate(360deg); } }
   /* 클릭/포커스 후 남는 브라우저 기본 흰 아웃라인 제거 — 모달 내 모든 버튼 공통. */
   .ci-modal button:focus, .ci-modal button:focus-visible { outline: none !important; box-shadow: none !important; }
@@ -645,7 +682,7 @@ const styles = {
      DOCK_BTN 하나만 고치면 전부 따라온다. */
   dockInputRow: {
     display: 'flex',
-    alignItems: 'flex-end',    // 여러 줄로 자라도 버튼은 아래에 고정
+    alignItems: 'flex-start',  // 입력이 자라도 버튼은 첫 줄과 어깨를 맞춘다
     gap: '4px',
     padding: '4px 6px',
   },
@@ -654,19 +691,25 @@ const styles = {
     minWidth: 0,                    // flex 안에서 줄어들 수 있게 — 없으면 버튼을 밀어낸다
     minHeight: `${DOCK_BTN}px`,
     height: `${DOCK_BTN}px`,        // rows=1 과 짝 — 한 줄에서 시작한다
-    maxHeight: '96px',              // 여러 줄을 써도 화면 절반을 먹지 않게
+    maxHeight: `${DOCK_MAX_H}px`,   // 여러 줄을 써도 화면 절반을 먹지 않게
+    /* ⚠️ 세로 패딩은 **대칭**이어야 하고, (패딩*2 + 줄높이)가 높이를 넘으면 안 된다.
+       넘으면 첫 줄이 위로 밀려 글자 윗부분이 잘린다. 24 = 4 + 16 + 4. */
     padding: '4px 8px',
     fontSize: fontSize['12'],
-    lineHeight: 1.4,
+    lineHeight: '16px',
+    boxSizing: 'border-box',
     borderRadius: radius.sm,        // 버튼과 같은 모서리
     resize: 'none',
     overflowY: 'auto',
   },
+  /* ⚠️ 퀵바의 구분선(MobileToolbar.styles.divider)과 **같은 높이·같은 색**이어야 한다.
+     둘은 한 줄에 나란히 서는데 14 와 16 이 섞여 있어 눈에 띄게 어긋났다. */
   dockSlotDivider: {
     width: '1px',
-    height: '16px',
+    height: '14px',
     marginLeft: '2px',
-    background: `color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
+    background: `var(--ui-border, ${color.border})`,
+    flexShrink: 0,
   },
   /* 도크 컨트롤 공통 — 크기·모서리를 여기 하나로 묶는다. */
   dockBtn: {

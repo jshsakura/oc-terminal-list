@@ -152,7 +152,12 @@ export const sanitizeMobileKeys = (keys) => {
   /* 'cmdInput' 은 **걷어낸다.** 예전에는 없으면 강제로 앞에 끼워 넣었는데(지울 수 없었다),
      지금은 입력창이 하단에 상시 도크로 깔려서 그 버튼이 여는 것이 이미 열려 있다.
      저장된 설정에 남아 있어도 여기서 사라지므로 사용자가 따로 지울 필요가 없다. */
-  const cleaned = keys.filter(isValidKey).filter((k) => k.kind !== 'cmdInput');
+  let cleaned = keys.filter(isValidKey).filter((k) => k.kind !== 'cmdInput');
+  /* 맨 앞 구분자는 **아무것도 나누지 않는다.** 빠른입력 버튼이 있던 시절에는 그것과 키를
+     갈랐지만, 버튼이 사라진 지금은 줄 맨 앞에 선만 하나 서 있게 된다(저장된 설정에
+     그대로 남아 있다). 끝에 오는 것도 마찬가지라 양쪽을 다 걷어낸다. */
+  while (cleaned.length && cleaned[0].kind === 'sep') cleaned = cleaned.slice(1);
+  while (cleaned.length && cleaned[cleaned.length - 1].kind === 'sep') cleaned = cleaned.slice(0, -1);
   if (!cleaned.length) return DEFAULT_MOBILE_KEYS;
   return cleaned;
 };

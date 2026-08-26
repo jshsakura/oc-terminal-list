@@ -501,6 +501,51 @@ describe('하단 도크 (모바일)', () => {
     slot.remove();
   });
 
+  it('입력의 세로 패딩이 대칭이고 글자가 잘리지 않는다', () => {
+    /* 상단 패딩이 더 크면 첫 줄이 아래로 밀려 글자 윗부분이 잘려 보였다.
+       (패딩*2 + 줄높이) 가 높이를 넘어도 같은 증상이 난다. */
+    render(<CommandInput {...base} />);
+    const ta = screen.getByTestId('command-input-dock').querySelector('textarea');
+    const [padY] = ta.style.padding.split(' ');
+    const h = parseInt(ta.style.height, 10);
+    const line = parseInt(ta.style.lineHeight, 10);
+    expect(ta.style.padding.split(' ')).toHaveLength(2);   // "Ypx Xpx" — 상하가 한 값
+    expect(parseInt(padY, 10) * 2 + line).toBeLessThanOrEqual(h);
+    expect(ta.style.boxSizing).toBe('border-box');          // 패딩이 높이를 밀지 않게
+  });
+
+  it('도크에서 Enter 는 전송이다', () => {
+    /* 한 줄 보내려고 여는 자리인데 Enter 가 줄바꿈이면 매번 Ctrl 을 같이 눌러야 하고,
+       폰 키보드에는 그 조합이 없다. */
+    const onSend = vi.fn();
+    render(<CommandInput {...base} command="ls" onSend={onSend} />);
+    fireEvent.keyDown(screen.getByTestId('command-input-dock').querySelector('textarea'), { key: 'Enter' });
+    expect(onSend).toHaveBeenCalled();
+  });
+
+  it('Shift+Enter 는 줄바꿈 — 전송하지 않는다', () => {
+    const onSend = vi.fn();
+    render(<CommandInput {...base} command="ls" onSend={onSend} />);
+    fireEvent.keyDown(screen.getByTestId('command-input-dock').querySelector('textarea'), { key: 'Enter', shiftKey: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('IME 조합 중의 Enter 는 확정이지 전송이 아니다', () => {
+    /* 이걸 놓치면 한글을 치다 글자를 확정할 때마다 명령이 날아간다. */
+    const onSend = vi.fn();
+    render(<CommandInput {...base} command="ㅁㅏ" onSend={onSend} />);
+    const ta = screen.getByTestId('command-input-dock').querySelector('textarea');
+    fireEvent.keyDown(ta, { key: 'Enter', isComposing: true });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it('모달에서는 Enter 가 줄바꿈 그대로 — 데스크탑 습관을 바꾸지 않는다', () => {
+    const onSend = vi.fn();
+    render(<CommandInput {...base} docked={false} command="ls" onSend={onSend} />);
+    fireEvent.keyDown(screen.getByRole('dialog').querySelector('textarea'), { key: 'Enter' });
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
   it('모달은 그대로 제목과 닫기를 갖는다 — 데스크탑은 건드리지 않았다', () => {
     render(<CommandInput {...base} docked={false} />);
     expect(screen.getByTestId('command-input-overlay')).toBeTruthy();

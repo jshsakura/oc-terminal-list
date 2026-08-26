@@ -246,6 +246,10 @@ const MobileToolbar = ({
           background: ${color.surface1} !important;
           transform: translateY(0.5px);
         }
+        /* 슬롯 여백 — 내용이 있을 때만. 비었을 때 여백이 남으면 유령 공간이 되고,
+           0 이면 첫 버튼이 화면 끝에 붙어 잘려 보인다. */
+        #${DOCK_SLOT_ID} { padding-left: 6px; padding-right: 2px; }
+        #${DOCK_SLOT_ID}:empty { padding: 0; }
         .mt-key.is-toggle-active {
           background: ${color.accentSubtle} !important;
           color: ${color.accent} !important;
@@ -355,13 +359,14 @@ const styles = {
     zIndex: 10,
   },
   // 좌측 고정 슬롯 — 좌우 패딩은 최소로(스크롤 영역과 붙지 않을 만큼만).
+  /* 여백은 CSS 로 준다 — 인라인으로 주면 **비었을 때도** 그 여백이 남아 유령 공간이
+     생긴다. 포탈 자식은 React 가 모르므로 조건부 스타일을 걸 수 없고, `:empty` 만이
+     "지금 내용이 있나" 를 안다. (여백이 0 이면 첫 버튼이 화면 끝에 붙어 잘려 보인다.) */
   dockSlot: {
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
     gap: '3px',
-    // 비어 있으면 폭 0 — 도크가 없거나 대상 선택이 필요 없을 때 자리를 먹지 않는다.
-    paddingLeft: 0,
   },
   pinned: {
     flexShrink: 0,

@@ -458,6 +458,7 @@ export const ko = {
     filePickerEmpty: '일치하는 파일이 없습니다',
     commandInputPlaceholder: '명령어 입력... (Ctrl+Enter로 전송)',
     commandInputHint: 'Shift+Enter 줄바꿈, Ctrl+Enter 전송',
+    commandDockHint: 'Enter 전송, Shift+Enter 줄바꿈',
     send: '전송',
     sendTarget: '보낼 대상',
     sendToActive: '활성',

@@ -390,17 +390,24 @@ const attachTerminalInteractions = ({
     handleScrollDelta(dy, 0, e.touches[0].clientX, e.touches[0].clientY, 'touch');
   };
 
+  /* 이 pane 에서 도크로 포커스를 한 번 넘겼나. attach 단위라 pane 을 새로 열면 다시
+     한 번 넘어간다 — "처음 열었을 때만 편의를 주고 그 뒤엔 방해하지 않는다". */
+  let handedToDock = false;
+
   const handleTouchEnd = () => {
     clearTimeout(longPressTimer);
     /* 짧은 탭(스크롤도 롱프레스도 아님) → 포커스해서 iOS 키보드를 올린다.
        touchstart 에서 preventDefault 했으므로 합성 click 이 안 온다 — 여기서 직접,
        사용자 제스처 컨텍스트 안에서 focus 해야 키보드가 뜬다.
 
-       하단 입력 도크가 떠 있으면 **그쪽으로** 보낸다. 폰에서 하는 일은 대개 키를 치는 게
-       아니라 한 줄 보내는 것이라, 탭 한 번에 쓸 자리로 가는 편이 맞다. 도크가 없으면
-       (데스크탑, 또는 도크를 띄우지 않는 pane) 예전처럼 터미널이 받는다. */
+       도크가 있으면 **첫 탭만** 도크로 넘긴다. 폰에서 처음 하는 일은 대개 한 줄 보내는
+       것이라 편하고, 그 다음부터는 터미널이 가져간다.
+
+       ⚠️ 매번 넘기면 터미널에 포커스를 줄 방법이 사라져 TUI 프롬프트에 엔터 한 번을
+       못 친다(실제로 그렇게 막혔다). 도크로 돌아가려면 도크를 누르면 된다 — 늘 보인다. */
     if (isTouchScrolling || longPressFired) return;
-    if (!focusCommandDock()) term.focus();
+    if (!handedToDock && focusCommandDock()) { handedToDock = true; return; }
+    term.focus();
   };
 
   const blockContextMenu = (e) => {

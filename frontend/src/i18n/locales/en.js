@@ -456,6 +456,7 @@ export const en = {
     filePickerEmpty: 'No files found',
     commandInputPlaceholder: 'Type command here... (Ctrl+Enter to send)',
     commandInputHint: 'Shift+Enter for new line, Ctrl+Enter to send',
+    commandDockHint: 'Enter to send, Shift+Enter for a new line',
     send: 'Send',
     sendTarget: 'Send to',
     sendToActive: 'Active',
