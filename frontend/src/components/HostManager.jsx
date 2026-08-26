@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
-import { X, Plus, Server, Settings as SettingsIcon, Monitor } from 'lucide-react';
+import { X, Plus, Server, Settings as SettingsIcon, Monitor, Link2 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
+import useConnectedRemotes from '../hooks/useConnectedRemotes';
 import useHostReorder from '../hooks/useHostReorder';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
@@ -20,6 +21,8 @@ const LINE = {
 };
 
 const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', settings = {}, onAdd, onEdit, onEditLocal = null, onConnect, refreshHosts = null, t }) => {
+  // 열려 있을 때만 묻는다 — 닫힌 모달이 배경에서 폴링하지 않게.
+  const { connected: connectedRemotes } = useConnectedRemotes(isOpen);
   useEffect(() => {
     if (!isOpen) return;
     const handle = (e) => { if (e.key === 'Escape') onClose(); };
@@ -73,6 +76,7 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', setting
 
           {orderedHosts.map((host) => {
             const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
+            const remoteOn = !!connectedRemotes[host.id];
             return (
               <Row
                 key={host.id}
@@ -90,6 +94,18 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', setting
                 }
                 /* 호스트 관리 row 는 클릭으로 연결 X — 관리/정렬 전용. 연결은 새 탭/홈에서. 편집은 우측 gear. */
                 actions={
+                  <>
+                    {/* 리모트가 붙어 있을 때만 표시한다. 없을 때 회색 아이콘을 두면
+                        '안 깔았다' 가 결함처럼 읽히는데, 설치는 선택이다. 자세한 상태와
+                        설치/제거는 옆의 설정(기어) 안에 있다. */}
+                    {remoteOn && (
+                      <span
+                        title={t?.('remoteConnectedShort') || '리모트 연결됨'}
+                        style={styles.remoteDot}
+                      >
+                        <Link2 size={12} strokeWidth={2} />
+                      </span>
+                    )}
                   <button
                     onClick={(e) => { e.stopPropagation(); onEdit?.(host); }}
                     title={t?.('hostSettings') || 'Settings'}
@@ -99,6 +115,7 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', setting
                   >
                     <SettingsIcon size={13} strokeWidth={1.8} />
                   </button>
+                  </>
                 }
               />
             );
@@ -271,6 +288,15 @@ const styles = {
     fontWeight: fontWeight.medium,
     fontFamily: font.sans,
     transition: 'background 150ms, border-color 150ms, color 150ms',
+  },
+  remoteDot: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '22px',
+    height: '22px',
+    flexShrink: 0,
+    color: color.success,
   },
   gearBtn: {
     width: '24px', height: '24px',

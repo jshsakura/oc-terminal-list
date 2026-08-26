@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
-from _deps import get_auth_manager
+from _deps import get_auth_manager, verify_auth_token
 from remote_agent import registry
 from remote_agent.credentials import verify_credential
 from sqlite_storage import storage
@@ -105,3 +105,21 @@ async def _handle(connection, kind: str, message: dict) -> None:
     from remote_agent import ingest
 
     await ingest.handle_event(connection.host_id, kind, message)
+
+
+@router.get("/api/remote/connected")
+async def list_connected_remotes(username: str = Depends(verify_auth_token)):
+    """지금 붙어 있는 리모트들 — **SSH 없이** 우리 쪽 사실만.
+
+    화면의 호스트 목록이 호스트마다 상태를 물으면 그 자체로 SSH 가 행 수만큼 곱해진다
+    (이 저장소가 `/api/git/status` 에서 이미 밟은 함정). 아이콘이 필요한 것은 "붙어
+    있나" 하나뿐이고, 그건 우리가 이미 안다. 설치 여부·버전처럼 원격을 실제로 봐야
+    아는 것은 사용자가 패널을 열 때만 묻는다.
+    """
+    hosts = {}
+    for host_id in registry.connected_host_ids():
+        connection = registry.get(host_id)
+        if connection is None or connection.username != username:
+            continue
+        hosts[host_id] = {"facts": connection.facts}
+    return {"connected": hosts}

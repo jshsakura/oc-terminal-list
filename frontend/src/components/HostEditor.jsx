@@ -10,6 +10,7 @@ import { authHeaders } from '../utils/auth';
 import { copyToClipboard } from '../utils/clipboard';
 import { heStyles, styles } from './hostEditor/hostEditorStyles';
 import { Section, Divider, Row, Field, Input, Select, SegmentedControl, Toggle } from './hostEditor/HostEditorFields';
+import RemoteAgentSection from './hostEditor/RemoteAgentSection';
 import { IconButton, ColorPicker, TailscalePicker } from './hostEditor/HostEditorPickers';
 
 const { color, font, fontSize, radius, space, motion } = tokens;
@@ -617,6 +618,14 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                       {t('itlHint') || '앱이 만드는 원격 터미널에 자격이 자동 주입됩니다. 설치되는 것은 비밀 없는 CLI 스크립트 하나뿐.'}
                     </div>
                   </div>
+                </Section>
+              )}
+
+              {/* 리모트 — itl 과 별개다. itl 은 pane 이 명령을 보내는 CLI 고, 리모트는
+                  호스트가 스스로 상태를 보내오는 관찰자다. 둘 다 선택이다. */}
+              {host?.id && (
+                <Section title={t('remoteAgent') || 'Remote'}>
+                  <RemoteAgentSection hostId={host.id} authHeaders={authHeaders} t={t} />
                 </Section>
               )}
             </>
