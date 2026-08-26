@@ -805,3 +805,47 @@ describe('터미널 음영은 막으로 준다 — filter 가 아니라', () => 
     expect(z(scrim)).toBeLessThan(z(dock));
   });
 });
+
+
+/* 툴바 버튼을 탭하면 그 버튼이 포커스를 쥔 채 남고, 브라우저마다 거기에 제 나름의 링을
+   그린다(안드로이드 크롬은 흰 테두리). `outline: none` 으로 하나씩 막는 방식은 막는 쪽이
+   늘 한 발 늦는다 — 포커스를 안 남기면 그릴 것이 없다. */
+describe('포인터로 누른 버튼은 포커스를 남기지 않는다', () => {
+  const src = readFileSync(resolve(__dirname, 'CommandInput.jsx'), 'utf8');
+
+  test('도크·퀵바 버튼이 blurIfPointer 를 지난다', () => {
+    // 히스토리 토글 · 마이크 · 첨부 · 전송
+    expect((src.match(/blurIfPointer\(e\)/g) || []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  /* ⚠️ 키보드(Enter/Space) 활성화는 detail === 0 이다. 그때 포커스를 떼면 다음 Tab 이
+     처음으로 돌아가 키보드 사용자가 길을 잃는다. */
+  test('키보드로 누른 것은 포커스를 유지한다', async () => {
+    const { blurIfPointer } = await import('./commandinput/blurIfPointer');
+    const blur = vi.fn();
+    blurIfPointer({ detail: 0, currentTarget: { blur } });
+    expect(blur).not.toHaveBeenCalled();
+    blurIfPointer({ detail: 1, currentTarget: { blur } });
+    expect(blur).toHaveBeenCalled();
+  });
+});
+
+
+/* 키보드 내리기 버튼은 blur 를 일으키지 않는다 — 키보드만 사라지고 커서는 남는다.
+   그러면 화면은 "여기에 쳐진다" 고 말하는데 칠 수단이 없다. */
+describe('키보드가 내려가면 포커스도 놓는다', () => {
+  const src = readFileSync(resolve(__dirname, 'CommandInput.jsx'), 'utf8');
+
+  test('키보드가 내려간 것을 보고 blur 한다', () => {
+    expect(src).toMatch(/textareaRef\.current\?\.blur\(\)/);
+  });
+
+  /* ⚠️ 포커스 직후엔 키보드가 아직 올라오는 중이라 keyboardUp 이 잠깐 false 다.
+     그걸 "내려갔다" 로 읽으면 누르자마자 포커스가 풀린다. */
+  test('올라온 적이 있을 때만 내려간 것으로 친다', () => {
+    expect(src).toMatch(/sawKeyboardRef/);
+    const at = src.indexOf('const sawKeyboardRef');
+    const block = src.slice(at, at + 600);
+    expect(block).toMatch(/if \(keyboardUp\) \{ sawKeyboardRef\.current = true; return; \}/);
+  });
+});

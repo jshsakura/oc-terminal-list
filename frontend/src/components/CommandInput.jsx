@@ -8,6 +8,7 @@ import useVisualViewport from '../hooks/useVisualViewport';
 import HistoryPanel from './commandinput/HistoryPanel';
 import TargetSelect from './commandinput/TargetSelect';
 import focusToEnd from './commandinput/focusToEnd';
+import blurIfPointer from './commandinput/blurIfPointer';
 import useImageAttach from './commandinput/useImageAttach';
 import useSendTargets from './commandinput/useSendTargets';
 import { FOCUS_DOCK_EVENT, DOCK_SLOT_ID } from './commandinput/focusDock';
@@ -269,6 +270,25 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
      남으면 그게 가장 어색하다. */
   const scrimShown = docked && dockFocused && keyboardUp;
 
+  /* 키보드를 내리면 **입력 포커스도 놓는다.**
+
+     iOS/안드로이드의 키보드 내리기 버튼은 blur 를 일으키지 않는다 — 키보드만 사라지고
+     커서는 그대로 남는다. 그러면 화면은 "여기에 쳐진다" 고 말하는데 정작 칠 수단이 없어
+     어색해지고, 터미널을 누르기 전까지 그 상태가 유지된다.
+
+     ⚠️ **키보드가 올라온 적이 있을 때만** 내려간 것으로 친다. 포커스 직후에는 키보드가
+     아직 올라오는 중이라 keyboardUp 이 잠깐 false 인데, 그걸 "내려갔다" 로 읽으면
+     누르자마자 포커스가 풀린다. */
+  const sawKeyboardRef = useRef(false);
+  useEffect(() => {
+    if (!docked || !dockFocused) { sawKeyboardRef.current = false; return; }
+    if (keyboardUp) { sawKeyboardRef.current = true; return; }
+    if (sawKeyboardRef.current) {
+      sawKeyboardRef.current = false;
+      textareaRef.current?.blur();
+    }
+  }, [docked, dockFocused, keyboardUp]);
+
   const overlayStyle = {
     ...styles.overlay,
     top: `${viewport.offsetTop}px`,
@@ -296,7 +316,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
       type="button"
       // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 키보드가 내려간다.
       onMouseDown={(e) => e.preventDefault()}
-      onClick={() => setHistoryOpen((v) => !v)}
+      onClick={(e) => { setHistoryOpen((v) => !v); blurIfPointer(e); }}
       style={{
         ...styles.closeBtn,
         ...(docked ? styles.dockBtn : null),
@@ -332,7 +352,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
     <button
       type="button"
       onMouseDown={(e) => e.preventDefault()}
-      onClick={voice.toggle}
+      onClick={(e) => { voice.toggle(); blurIfPointer(e); }}
       disabled={!voice.supported}
       title={micTitle}
       aria-pressed={voice.listening}
@@ -485,7 +505,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
-          onClick={voice.toggle}
+          onClick={(e) => { voice.toggle(); blurIfPointer(e); }}
           disabled={!voice.supported}
           title={micTitle}
           aria-pressed={voice.listening}
@@ -624,7 +644,9 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
             /* ⚠️ ghost 는 배경이 투명하고 테두리만 있다. 테두리 색은 어느 테마에서나
                아주 옅은 값이라 캣푸친처럼 대비가 낮은 팔레트에서 거의 안 보였다.
                퀵바 키가 잘 보이는 이유는 테두리가 진해서가 아니라 **면이 채워져서**다. */
-            variant="secondary" size="icon" onClick={image.openPicker} disabled={image.isUploading}
+            variant="secondary" size="icon"
+            onClick={(e) => { image.openPicker(); blurIfPointer(e); }}
+            disabled={image.isUploading}
             icon={image.isUploading ? Loader2 : ImagePlus}
             title={t?.('attachImage') || '이미지 첨부'}
             /* 오른쪽 버튼 무리는 입력칸에서 한 뼘 떨어뜨린다 — 버튼끼리는 붙어 있어야
@@ -638,7 +660,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
                hover 를 뗄 때 variant 의 배경으로 되돌리므로 style 로 덮으면 스치기만
                해도 원래대로 돌아간다. */
             variant={dockFocused ? 'primary' : 'secondary'}
-            size="icon" onClick={handleSend} icon={Send}
+            size="icon" onClick={(e) => { handleSend(); blurIfPointer(e); }} icon={Send}
             title={t?.('send') || 'Send'} style={styles.dockBtn}
           />
         </div>
