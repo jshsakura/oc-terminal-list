@@ -3,7 +3,7 @@ import { MessageSquare, ClipboardPaste, Copy, FileText } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
-import { DOCK_SLOT_ID } from './commandinput/focusDock';
+import { DOCK_SLOT_ID, DOCK_EDGE_GUTTER } from './commandinput/focusDock';
 import HostIcon from '../utils/hostIcons';
 import { createKeyRepeater } from '../utils/keyRepeat';
 
@@ -251,6 +251,15 @@ const MobileToolbar = ({
           color: ${color.accent} !important;
           border-color: ${color.accentBorder} !important;
         }
+        /* 슬롯의 좌우 여백은 인라인이 아니라 여기 둔다 — 그래야 :empty 가 되돌릴 수 있다.
+           내용은 도크가 포탈로 넣으므로 React 는 자식이 있는지 모르지만 CSS 는 안다.
+           빈 슬롯은 폭이 정확히 0 이어야 한다(도크가 없는 탭에서 빈 자리를 먹지 않게).
+           ⚠️ 이 주석은 템플릿 리터럴 안이다 — 백틱을 쓰면 문자열이 거기서 끊긴다. */
+        .mt-dock-slot {
+          padding-left: ${DOCK_EDGE_GUTTER}px;
+          padding-right: ${space['1']};
+        }
+        .mt-dock-slot:empty { padding: 0; }
       `}</style>
 
       <div style={styles.toolbar}>
@@ -261,7 +270,7 @@ const MobileToolbar = ({
             ⚠️ 구분선을 여기서 그리면 **슬롯이 비어도** 빈 칸에 선이 선다 — 포탈은 React 가
             모르는 자식이라 조건을 걸 수가 없다. 그래서 구분선은 도크가 자기 내용과 함께
             포탈로 보낸다. 여기 남는 것은 자리(폭 0)뿐이다. */}
-        <div id={DOCK_SLOT_ID} style={styles.dockSlot} />
+        <div id={DOCK_SLOT_ID} className="mt-dock-slot" style={styles.dockSlot} />
         {(pinnedKey || leading) && (
           <div style={styles.pinned}>
             {leading}
@@ -354,14 +363,14 @@ const styles = {
     fontFamily: font.sans,
     zIndex: 10,
   },
-  // 좌측 고정 슬롯 — 좌우 패딩은 최소로(스크롤 영역과 붙지 않을 만큼만).
+  /* 좌측 고정 슬롯. 좌우 여백은 위의 `.mt-dock-slot` 이 갖는다 — 인라인으로 두면
+     `:empty` 로 되돌릴 수 없어서, 슬롯이 비었을 때도 그만큼 자리를 먹는다.
+     gap 은 도크 입력줄과 같은 4px: 두 줄이 세로로 붙어 있으므로 간격이 다르면 어긋나 보인다. */
   dockSlot: {
     flexShrink: 0,
     display: 'flex',
     alignItems: 'center',
-    gap: '3px',
-    // 비어 있으면 폭 0 — 도크가 없거나 대상 선택이 필요 없을 때 자리를 먹지 않는다.
-    paddingLeft: 0,
+    gap: space['1'],
   },
   pinned: {
     flexShrink: 0,

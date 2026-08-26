@@ -9,7 +9,7 @@ import TargetSelect from './commandinput/TargetSelect';
 import focusToEnd from './commandinput/focusToEnd';
 import useImageAttach from './commandinput/useImageAttach';
 import useSendTargets from './commandinput/useSendTargets';
-import { FOCUS_DOCK_EVENT, DOCK_SLOT_ID } from './commandinput/focusDock';
+import { FOCUS_DOCK_EVENT, DOCK_SLOT_ID, DOCK_EDGE_GUTTER } from './commandinput/focusDock';
 import useVoiceDictation from './commandinput/useVoiceDictation';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -647,7 +647,8 @@ const styles = {
     display: 'flex',
     alignItems: 'flex-end',    // 여러 줄로 자라도 버튼은 아래에 고정
     gap: '4px',
-    padding: '4px 6px',
+    // 좌우는 퀵바 슬롯과 **같은 값**이어야 한다 — 두 줄이 맞닿아 있어 어긋나면 바로 보인다.
+    padding: `4px ${DOCK_EDGE_GUTTER}px`,
   },
   dockTextarea: {
     flex: 1,
@@ -662,10 +663,11 @@ const styles = {
     resize: 'none',
     overflowY: 'auto',
   },
+  /* 슬롯 끝의 구분선. 자체 마진은 없다 — 왼쪽은 슬롯의 gap, 오른쪽은 슬롯의 padding 이
+     같은 4px 을 주므로 좌우가 대칭이다. 마진을 더하면 한쪽만 벌어져 삐뚤어 보인다. */
   dockSlotDivider: {
     width: '1px',
     height: '16px',
-    marginLeft: '2px',
     background: `color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
   },
   /* 도크 컨트롤 공통 — 크기·모서리를 여기 하나로 묶는다. */

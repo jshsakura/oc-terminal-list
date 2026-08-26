@@ -74,3 +74,23 @@ describe('MobileToolbar 길게 누르기 반복', () => {
     expect(onSendKey).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('퀵바 좌측 슬롯의 여백', () => {
+  afterEach(cleanup);
+
+  it('여백은 CSS 클래스가 갖는다 — 인라인이면 비었을 때 되돌릴 수 없다', () => {
+    /* 슬롯 내용은 도크가 **포탈로** 넣는다. React 는 그 자식을 모르므로 "비었으면 여백 0"
+       을 조건부 스타일로 쓸 수 없고, `:empty` 만이 안다. 그래서 인라인 padding 으로
+       옮기면 그 규칙이 조용히 무력화되고(인라인이 이긴다) 도크가 없는 탭에서도 슬롯이
+       빈 자리를 먹는다 — jsdom 은 레이아웃을 안 재므로 폭으로는 잡히지 않는다. */
+    const { container } = render(<MobileToolbar language="en" />);
+    const slot = container.querySelector('#iterm-dock-slot');
+    expect(slot.className).toContain('mt-dock-slot');
+    expect(slot.style.paddingLeft).toBe('');
+    expect(slot.style.padding).toBe('');
+
+    const css = [...container.querySelectorAll('style')].map((s) => s.textContent).join('\n');
+    expect(css).toMatch(/\.mt-dock-slot\s*\{[^}]*padding-left:\s*6px/);
+    expect(css).toMatch(/\.mt-dock-slot:empty\s*\{[^}]*padding:\s*0/);
+  });
+});

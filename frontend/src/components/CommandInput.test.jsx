@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import CommandInput from './CommandInput';
+import { DOCK_EDGE_GUTTER } from './commandinput/focusDock';
 
 // 이미지 업로드 헬퍼는 mock — 컴포넌트의 삽입/상태 동작만 검증(네트워크 분리).
 vi.mock('./terminal/terminalHelpers', () => ({
@@ -483,6 +484,32 @@ describe('하단 도크 (모바일)', () => {
     // 입력도 같은 높이에서 시작한다 — 버튼과 어깨를 맞춰야 한 줄로 보인다.
     expect(dock.querySelector('textarea').style.height).toBe(boxes[0].h);
     slot.remove();
+  });
+
+  it('도크 버튼은 아이콘이 가운데 온다', () => {
+    /* flex 의 기본 justifyContent 는 flex-start 다. 라벨이 있던 시절에는 티가 안 났는데,
+       배지를 빼고 정사각으로 만들자 아이콘이 왼쪽에 붙어 보였다(TargetSelect 만 빠져 있었다). */
+    const slot = document.createElement('div');
+    slot.id = 'iterm-dock-slot';
+    document.body.appendChild(slot);
+    render(<CommandInput {...base} terminalKey="a" />);
+
+    const buttons = [...screen.getByTestId('command-input-dock').querySelectorAll('button'),
+                     ...slot.querySelectorAll('button')]
+      .filter((b) => b.style.width);        // 크기를 정한 도크 컨트롤만
+    expect(buttons.length).toBeGreaterThan(1);
+    buttons.forEach((b) => expect(b.style.justifyContent).toBe('center'));
+    slot.remove();
+  });
+
+  it('도크 입력줄의 좌우 여백은 퀵바 슬롯과 같은 값이다', () => {
+    /* 슬롯(퀵바)과 입력줄은 세로로 맞닿아 있어, 왼쪽 여백이 다르면 위아래 버튼이 어긋난다.
+       실제로 슬롯이 0 이라 대상 선택 버튼만 화면 끝에 붙어 테두리가 잘려 보였다.
+       두 파일이 DOCK_EDGE_GUTTER 하나를 나눠 쓰는지 여기서 잡는다. */
+    const dock = render(<CommandInput {...base} />).container
+      .querySelector('[data-testid="command-input-dock"] > div');
+    expect(dock.style.paddingLeft).toBe(`${DOCK_EDGE_GUTTER}px`);
+    expect(dock.style.paddingRight).toBe(`${DOCK_EDGE_GUTTER}px`);
   });
 
   it('모달은 그대로 제목과 닫기를 갖는다 — 데스크탑은 건드리지 않았다', () => {

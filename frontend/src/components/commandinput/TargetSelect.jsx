@@ -164,6 +164,9 @@ const styles = {
   btn: {
     display: 'inline-flex',
     alignItems: 'center',
+    /* ⚠️ 없으면 기본 flex-start 다. 라벨이 있던 시절에는 티가 안 났는데, 배지를 빼고
+       정사각으로 만들자 아이콘이 왼쪽에 붙어 보였다. */
+    justifyContent: 'center',
     gap: '3px',
     height: '30px',
     padding: `0 ${space['1.5']}`,
