@@ -405,3 +405,48 @@ describe('CommandInput image attach', () => {
     expect(uploadImageAndGetPath).not.toHaveBeenCalled();
   });
 });
+
+
+describe('하단 도크 (모바일)', () => {
+  const base = {
+    isOpen: true, docked: true, onClose: vi.fn(), onSend: vi.fn(),
+    command: '', setCommand: vi.fn(), t,
+  };
+
+  it('제목과 닫기 버튼이 없다 — 상시 노출이라 닫을 것도 설명할 것도 없다', () => {
+    render(<CommandInput {...base} />);
+    expect(screen.getByTestId('command-input-dock')).toBeTruthy();
+    expect(screen.queryByTestId('command-input-overlay')).toBeNull();
+    expect(screen.queryByText('Send command')).toBeNull();
+  });
+
+  it('backdrop 층을 만들지 않는다 — 투명 fixed 층이 깔리면 그 아래 터미널이 터치를 못 받는다', () => {
+    const { container } = render(<CommandInput {...base} />);
+    const fixed = Array.from(container.querySelectorAll('div'))
+      .filter((el) => el.style.position === 'fixed');
+    expect(fixed).toHaveLength(0);
+  });
+
+  it('포커스를 붙잡지 않는다 — 붙잡으면 터미널에 아무것도 못 친다', () => {
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    render(<CommandInput {...base} />);
+    outside.focus();
+    expect(document.activeElement).toBe(outside);   // 되튕기지 않는다
+    outside.remove();
+  });
+
+  it('입력·보내기가 한 줄에 같이 있다', () => {
+    const { container } = render(<CommandInput {...base} />);
+    const row = container.querySelector('[data-testid="command-input-dock"] > div:last-child, [data-testid="command-input-dock"] > div');
+    expect(container.querySelector('textarea')).toBeTruthy();
+    expect(screen.getByTitle('Send')).toBeTruthy();
+    expect(row).toBeTruthy();
+  });
+
+  it('모달은 그대로 제목과 닫기를 갖는다 — 데스크탑은 건드리지 않았다', () => {
+    render(<CommandInput {...base} docked={false} />);
+    expect(screen.getByTestId('command-input-overlay')).toBeTruthy();
+    expect(screen.getByText('Send command')).toBeTruthy();
+  });
+});

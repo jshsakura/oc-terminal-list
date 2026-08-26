@@ -42,13 +42,13 @@ describe('splitPinnedAndScroll', () => {
     expect(scrollKeys).toBe(list);
   });
 
-  it('DEFAULT_MOBILE_KEYS에서 sep1이 고정 영역으로 빠진다', () => {
+  it('기본 키셋에는 고정 영역이 없다 — 빠른입력 버튼이 빠졌기 때문', () => {
+    /* 입력창이 하단에 상시 도크로 깔리면서 그걸 여는 버튼이 사라졌고, 고정(pinned)
+       영역의 유일한 주인이 그 버튼이었다. 이제 키는 전부 스크롤 영역이다. */
     const { pinnedKey, pinnedDivider, scrollKeys } = splitPinnedAndScroll(DEFAULT_MOBILE_KEYS);
-    expect(pinnedKey?.kind).toBe('cmdInput');
-    expect(pinnedDivider?.kind).toBe('sep');
-    // scrollKeys에는 cmdInput도 sep1도 없어야 한다
-    expect(scrollKeys.some((k) => k.kind === 'cmdInput')).toBe(false);
-    expect(scrollKeys).not.toContain(pinnedDivider);
+    expect(pinnedKey).toBeNull();
+    expect(pinnedDivider).toBeNull();
+    expect(scrollKeys).toBe(DEFAULT_MOBILE_KEYS);
   });
 });
 
@@ -103,15 +103,26 @@ describe('DEFAULT_MOBILE_KEYS 줄 편집 + 세션 키', () => {
 
 describe('sanitizeMobileKeys 사용자 설정 우선', () => {
   it('사용자가 전달한 keys가 DEFAULT보다 우선한다', () => {
-    const userKeys = [
-      { id: 'cmd', kind: 'cmdInput', tone: 'accent' },
-      { id: 'mykey', kind: 'send', label: 'MY', payload: 'x' },
-    ];
+    const userKeys = [{ id: 'mykey', kind: 'send', label: 'MY', payload: 'x' }];
     const result = sanitizeMobileKeys(userKeys);
-    // filter를 거쳐 새 배열이 반환되지만, 내용은 동일하고 DEFAULT가 아니다
     expect(result).toEqual(userKeys);
     expect(result).not.toBe(DEFAULT_MOBILE_KEYS);
     expect(result.some((k) => k.id === 'mykey')).toBe(true);
+  });
+
+  it('저장된 설정에 남아 있는 빠른입력 버튼은 걷어낸다', () => {
+    /* 예전에는 없으면 강제로 끼워 넣었다(지울 수 없었다). 지금은 그 버튼이 여는 것이
+       이미 하단에 열려 있으므로, 옛 설정을 들고 있어도 사용자가 손댈 필요 없이 사라진다. */
+    const result = sanitizeMobileKeys([
+      { id: 'cmd', kind: 'cmdInput', tone: 'accent' },
+      { id: 'mykey', kind: 'send', label: 'MY', payload: 'x' },
+    ]);
+    expect(result.some((k) => k.kind === 'cmdInput')).toBe(false);
+    expect(result.some((k) => k.id === 'mykey')).toBe(true);
+  });
+
+  it('빠른입력 버튼만 있던 설정은 기본 키셋으로 되돌린다 — 빈 툴바를 만들지 않는다', () => {
+    expect(sanitizeMobileKeys([{ id: 'cmd', kind: 'cmdInput' }])).toBe(DEFAULT_MOBILE_KEYS);
   });
 
   it('DEFAULT_MOBILE_KEYS를 직접 수정하지 않고 새 배열을 반환한다 (비정상 입력)', () => {

@@ -12,8 +12,9 @@
  * 사용자가 Settings 에서 자유롭게 추가/삭제/순서 변경. 항상 최소 1개 이상 유지.
  */
 export const DEFAULT_MOBILE_KEYS = [
-   { id: 'cmd',   kind: 'cmdInput', tone: 'accent' },
-   { id: 'sep1',  kind: 'sep' },
+   /* 'cmdInput'(빠른입력 열기)은 뺐다 — 모바일에서 입력창이 **하단에 상시 도크**로
+      깔리므로 그걸 여는 버튼은 할 일이 없다. kind 자체는 남겨둔다: 예전 설정을 그대로
+      들고 있는 사용자의 배열이 통째로 무효가 되면 안 되고, 지우는 것은 sanitize 가 한다. */
    { id: 'left',  kind: 'send', label: '←', payload: '\x1b[D' },
    { id: 'up',    kind: 'send', label: '↑', payload: '\x1b[A' },
    { id: 'down',  kind: 'send', label: '↓', payload: '\x1b[B' },
@@ -148,10 +149,12 @@ export const isValidKey = (k) =>
 
 export const sanitizeMobileKeys = (keys) => {
   if (!Array.isArray(keys)) return DEFAULT_MOBILE_KEYS;
-  const cleaned = keys.filter(isValidKey);
+  /* 'cmdInput' 은 **걷어낸다.** 예전에는 없으면 강제로 앞에 끼워 넣었는데(지울 수 없었다),
+     지금은 입력창이 하단에 상시 도크로 깔려서 그 버튼이 여는 것이 이미 열려 있다.
+     저장된 설정에 남아 있어도 여기서 사라지므로 사용자가 따로 지울 필요가 없다. */
+  const cleaned = keys.filter(isValidKey).filter((k) => k.kind !== 'cmdInput');
   if (!cleaned.length) return DEFAULT_MOBILE_KEYS;
-  if (cleaned.some((k) => k.kind === 'cmdInput')) return cleaned;
-  return [{ id: 'cmd', kind: 'cmdInput', tone: 'accent' }, ...cleaned];
+  return cleaned;
 };
 
 // 툴바를 고정 영역(pinned)과 스크롤 영역(scroll)으로 나눈다.

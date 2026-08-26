@@ -215,7 +215,74 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       ? (t?.('voiceInputStop') || 'Stop voice input')
       : (t?.('voiceInputStart') || 'Start voice input');
 
-  /* 모달과 도크가 **같은 내용**을 쓴다 — 껍데기만 다르다. 복사해 두면 한쪽만 고쳐진다. */
+  /* 도크와 모달이 **같은 조각**을 쓴다 — 배치만 다르다. 복사해 두면 한쪽만 고쳐진다. */
+  const historyToggle = terminalKey ? (
+    <button
+      type="button"
+      // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 키보드가 내려간다.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => setHistoryOpen((v) => !v)}
+      style={{ ...styles.closeBtn, ...(historyOpen ? styles.headerToggleActive : null) }}
+      title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
+      aria-pressed={historyOpen}
+    >
+      {historyOpen ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronUp size={14} strokeWidth={2} />}
+    </button>
+  ) : null;
+
+  const targetSelect = panes.length >= MIN_PANES_FOR_TARGETS ? (
+    <TargetSelect targets={targets} terminalKey={terminalKey} t={t} />
+  ) : null;
+
+  const imageInput = (
+    <input
+      ref={image.fileInputRef}
+      type="file"
+      accept="image/*"
+      multiple
+      onChange={image.handleFileChange}
+      style={{ display: 'none' }}
+      aria-hidden="true"
+      tabIndex={-1}
+    />
+  );
+
+  const micButton = (
+    <button
+      type="button"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={voice.toggle}
+      disabled={!voice.supported}
+      title={micTitle}
+      aria-pressed={voice.listening}
+      style={{ ...styles.micBtn, ...(voice.listening ? styles.micBtnActive : null) }}
+    >
+      <Mic size={14} strokeWidth={2} />
+    </button>
+  );
+
+  const textarea = (
+    <textarea
+      ref={textareaRef}
+      value={command}
+      onChange={(e) => setCommand(e.target.value)}
+      onKeyDown={handleKeyDown}
+      onPaste={image.handlePaste}
+      onBlur={() => {
+        requestAnimationFrame(() => {
+          if (isDictatingRef.current) return;
+          if (docked) return;                      // 도크는 포커스를 붙잡지 않는다
+          if (!isOpen || modalRef.current?.contains(document.activeElement)) return;
+          focusToEnd(textareaRef.current);
+        });
+      }}
+      placeholder={t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}
+      className="command-input-textarea"
+      style={docked ? { ...styles.textarea, ...styles.dockTextarea } : styles.textarea}
+      autoFocus={!docked}
+    />
+  );
+
   const body = (
     <>
       <header style={styles.header}>
@@ -396,6 +463,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
      visualViewport 좌표 고정을 하는데, 상시 노출에서는 셋 다 해로우므로 껍데기 자체를 뺀다.
      같은 자리에 투명한 fixed 층을 두면 그 아래 터미널이 터치를 못 받는다. */
   if (docked) {
+    /* 도크는 **한 줄**이다. 제목·닫기는 없다 — 상시 노출이라 무엇인지 자명하고 닫을 것도
+       없다. 히스토리·대상 선택은 왼쪽 끝으로, 입력은 가운데, 마이크·보내기는 오른쪽 끝으로
+       몰아 세로를 최대한 아낀다. 폰 화면에서 이 도크가 먹는 높이가 곧 터미널이 잃는 높이다. */
     return (
       <div
         ref={modalRef}
@@ -404,7 +474,46 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         style={styles.dock}
       >
         <style>{CSS}</style>
-        {body}
+        {historyOpen && terminalKey && (
+          <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
+        )}
+        <div style={styles.dockRow}>
+          {historyToggle}
+          {targetSelect}
+          {imageInput}
+          <Button
+            variant="ghost" size="icon" onClick={image.openPicker} disabled={image.isUploading}
+            icon={image.isUploading ? Loader2 : ImagePlus}
+            title={t?.('attachImage') || '이미지 첨부'} style={styles.footerIconBtn}
+          />
+          {textarea}
+          {micButton}
+          <Button
+            variant="primary" size="icon" onClick={handleSend} icon={Send}
+            title={t?.('send') || 'Send'} style={styles.dockSendBtn}
+          />
+        </div>
+        {/* 첨부/업로드 상태만 한 줄 — 있을 때만 나온다. 없으면 도크는 한 줄 그대로다. */}
+        {(image.uploadState || image.attachedTokens > 0) && (
+          <div style={{ ...styles.statusBar, paddingTop: 0 }}>
+            {image.uploadState === 'uploading' && (
+              <span>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
+            )}
+            {image.uploadState === 'error' && (
+              <span style={{ color: `var(--ui-danger, ${color.danger})` }}>{t?.('imageUploadFailed') || '업로드 실패'}</span>
+            )}
+            {image.uploadState === 'blocked' && (
+              <span style={{ color: `var(--ui-danger, ${color.danger})` }}>
+                {t?.('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
+              </span>
+            )}
+            {!image.uploadState && image.attachedTokens > 0 && (
+              <span style={{ opacity: 0.7, fontVariantNumeric: 'tabular-nums' }}>
+                {`${t?.('imageAttached') || '이미지 첨부'} · ≈${image.attachedTokens.toLocaleString()} tok`}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -470,6 +579,25 @@ const styles = {
     flexDirection: 'column',
     overflow: 'hidden',
     fontFamily: font.sans,
+  },
+  /* 한 줄 도크 — 세로를 최대한 아낀다. */
+  dockRow: {
+    display: 'flex',
+    alignItems: 'flex-end',
+    gap: '4px',
+    padding: '5px 6px',
+  },
+  dockTextarea: {
+    flex: 1,
+    minHeight: '32px',
+    maxHeight: '96px',       // 여러 줄을 써도 화면 절반을 먹지 않게
+    padding: '6px 8px',
+    resize: 'none',
+  },
+  dockSendBtn: {
+    flexShrink: 0,
+    width: '34px',
+    height: '32px',
   },
   modal: {
     width: '90%',
