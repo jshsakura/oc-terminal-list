@@ -288,3 +288,43 @@ async def test_기억이_깨져_있어도_터지지_않는다(monkeypatch):
     monkeypatch.setattr(usage_report.storage, "get_config", get_config)
     monkeypatch.setattr(usage_report.storage, "set_config", set_config)
     assert await usage_report._dead_worth_reporting(45) == 45
+
+
+# ---------------------------------------------------------------- 옵트인
+# 밖으로 나가는 알림이다. 그 방에는 pane 제목·비용·기계 이름이 실린다 —
+# 묻지 않고 켜면 안 된다. 처음 판은 기본이 켜짐이었고 끄는 UI 도 없었다.
+
+@pytest.mark.asyncio
+async def test_기본은_꺼짐이다(monkeypatch):
+    async def get_config(_k):
+        return None
+    monkeypatch.setattr(usage_report.storage, "get_config", get_config)
+    monkeypatch.delenv("USAGE_REPORT_ENABLED", raising=False)
+    assert (await usage_report.get_report_config())["enabled"] is False
+
+
+@pytest.mark.asyncio
+async def test_명시적으로_켠_경우에만_켜진다(monkeypatch):
+    async def get_config(_k):
+        return "1"
+    monkeypatch.setattr(usage_report.storage, "get_config", get_config)
+    monkeypatch.delenv("USAGE_REPORT_ENABLED", raising=False)
+    assert (await usage_report.get_report_config())["enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_꺼져_있으면_수집도_전송도_하지_않는다(monkeypatch):
+    """꺼진 기능이 호스트로 SSH 를 걸거나 텔레그램을 두드리면 안 된다."""
+    touched = []
+
+    async def report_cfg():
+        return {"enabled": False, "hour": 9, "from_env": False}
+
+    async def gather(*a, **k):
+        touched.append("gather")
+        return {}
+
+    monkeypatch.setattr(usage_report, "get_report_config", report_cfg)
+    monkeypatch.setattr(usage_report, "gather", gather)
+    assert (await usage_report.build_and_send("someone"))["status"] == "disabled"
+    assert touched == []

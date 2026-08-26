@@ -57,7 +57,11 @@ async def get_report_config() -> dict:
     env_enabled = _env_flag("USAGE_REPORT_ENABLED")
     if env_enabled is None:
         stored = await storage.get_config(CONFIG_ENABLED)
-        enabled = stored != "0"          # default on; it only fires if Telegram is configured
+        # ⚠️ **기본은 꺼짐이다.** 이 기능은 텔레그램으로 나가는 알림이고, 그 방에는 pane
+        # 제목·비용·기계 이름이 실린다. 밖으로 나가는 것을 묻지 않고 켜면 안 된다.
+        # 처음 판은 기본이 켜짐이었고 끄는 UI 도 없어서, 사용자는 원치 않는 알림을 받고도
+        # 끌 방법이 없었다. 그게 이 기본값이 바뀐 이유다.
+        enabled = stored == "1"
         from_env = False
     else:
         enabled, from_env = env_enabled, True

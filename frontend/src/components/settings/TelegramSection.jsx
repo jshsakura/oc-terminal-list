@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Field } from './SettingsFields';
+import { Field, Toggle } from './SettingsFields';
 import { styles } from './settingsStyles';
 import { authHeaders } from '../../utils/auth';
 
@@ -22,6 +22,10 @@ const TelegramSection = ({ t }) => {
   const [baseUrlFromEnv, setBaseUrlFromEnv] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
+  /* 하루 한 번 가는 사용량·누수 요약. **기본은 꺼짐**이고 여기서만 켠다 —
+     밖으로 나가는 알림을 묻지 않고 켜면 안 된다. */
+  const [reportEnabled, setReportEnabled] = useState(false);
+  const [reportFromEnv, setReportFromEnv] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,8 +39,34 @@ const TelegramSection = ({ t }) => {
         setBaseUrlFromEnv(!!d.base_url_from_env);
       })
       .catch(() => { /* 설정 화면이 못 뜰 이유는 아니다 */ });
+    fetch('/api/push/usage-report', { headers: authHeaders() })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (cancelled || !d) return;
+        setReportEnabled(!!d.enabled);
+        setReportFromEnv(!!d.from_env);
+      })
+      .catch(() => { /* 상동 */ });
     return () => { cancelled = true; };
   }, []);
+
+  /* 스위치는 **즉시** 반영한다. 저장 버튼 뒤에 숨기면 "껐는데 또 왔다" 가 된다. */
+  const toggleReport = useCallback(async (next) => {
+    setReportEnabled(next);              // 낙관적 — 실패하면 되돌린다
+    try {
+      const res = await fetch('/api/push/usage-report', {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ enabled: next }),
+      });
+      if (!res.ok) throw new Error(String(res.status));
+      const d = await res.json();
+      setReportEnabled(!!d.enabled);
+    } catch {
+      setReportEnabled(!next);
+      setNotice({ kind: 'error', text: t?.('usageReportSaveFailed') || '설정을 저장하지 못했습니다' });
+    }
+  }, [t]);
 
   const save = useCallback(async () => {
     setBusy(true);
@@ -125,6 +155,17 @@ const TelegramSection = ({ t }) => {
           disabled={baseUrlFromEnv}
         />
       </Field>
+      <Toggle
+        label={t?.('usageReportToggle') || '하루 한 번 사용량 요약 받기'}
+        checked={reportEnabled}
+        /* env 로 정해진 경우 눌러도 아무 일 없게 — Toggle 은 onChange 를 무조건 부르므로
+           undefined 를 넘기면 클릭에서 터진다. */
+        onChange={reportFromEnv ? () => {} : toggleReport}
+        hint={reportFromEnv
+          ? (t?.('usageReportEnv') || 'USAGE_REPORT_ENABLED 환경변수로 설정됨 — 여기서는 바꿀 수 없습니다.')
+          : (t?.('usageReportHint')
+            || '어제 쓴 토큰과 누수 신호를 매일 아침 이 방으로 보냅니다. 기본은 꺼짐이며, 보낼 내용이 없는 날은 아무것도 오지 않습니다.')}
+      />
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" onClick={save} disabled={busy} style={styles.inlineLogoutBtn}>
           {t?.('telegramSave') || '연결 저장'}
