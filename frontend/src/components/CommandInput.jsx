@@ -8,6 +8,7 @@ import TargetSelect from './commandinput/TargetSelect';
 import focusToEnd from './commandinput/focusToEnd';
 import useImageAttach from './commandinput/useImageAttach';
 import useSendTargets from './commandinput/useSendTargets';
+import { FOCUS_DOCK_EVENT } from './commandinput/focusDock';
 import useVoiceDictation from './commandinput/useVoiceDictation';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -127,6 +128,17 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       if (raf) cancelAnimationFrame(raf);
     };
   }, [isOpen, isDictatingRef, docked]);
+
+  /* 터미널을 탭하면 이 도크로 포커스를 옮긴다 — 폰에서 사람이 하는 일은 대개 키를 치는 게
+     아니라 한 줄 보내는 것이라, 탭 한 번에 쓸 자리로 가는 편이 맞다(herdr 에서 가져온 개념).
+     App↔Terminal 사이는 이 저장소의 관례대로 window 이벤트로 잇는다(`iterm:open-file` 과 같은 패턴).
+     ⚠️ 포커스 이동은 **탭 제스처 안에서** 일어나야 iOS 키보드가 올라온다. */
+  useEffect(() => {
+    if (!docked) return undefined;
+    const onFocusRequest = () => focusToEnd(textareaRef.current);
+    window.addEventListener(FOCUS_DOCK_EVENT, onFocusRequest);
+    return () => window.removeEventListener(FOCUS_DOCK_EVENT, onFocusRequest);
+  }, [docked]);
 
   if (!isOpen) return null;
 
@@ -278,6 +290,9 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
       }}
       placeholder={t?.('commandInputHint') || 'Shift+Enter for new line, Ctrl+Enter to send'}
       className="command-input-textarea"
+      /* ⚠️ 도크는 `rows={1}` 이 필수다. textarea 의 브라우저 기본은 **2줄**이라
+         minHeight 를 32px 로 낮춰도 내용 상자가 2줄을 차지해 도크가 두 줄로 보인다. */
+      rows={docked ? 1 : undefined}
       style={docked ? { ...styles.textarea, ...styles.dockTextarea } : styles.textarea}
       autoFocus={!docked}
     />
@@ -477,16 +492,24 @@ const CommandInput = ({ isOpen, onClose, onSend, command, setCommand, t, languag
         {historyOpen && terminalKey && (
           <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
         )}
-        <div style={styles.dockRow}>
+        {/* 입력은 **폭을 다 쓴다.** 버튼을 같은 줄에 늘어놓으면 정작 글자 칠 자리가 좁아진다 —
+            그래서 보조 버튼은 아래 한 줄로 내리고, 그 줄은 24px 짜리 얇은 띠다.
+            결과: 입력 32px + 버튼 띠 24px ≈ 예전 모달 대비 훨씬 낮으면서 입력은 훨씬 넓다. */}
+        <div style={styles.dockInputRow}>
+          {textarea}
+        </div>
+        {/* 버튼은 전부 **오른쪽**으로 몬다 — 엄지가 닿는 쪽이고, 왼쪽을 비워 두면
+            줄이 붐비지 않아 보인다. 라벨 없이 아이콘만 쓴다(도크는 세로가 곧 비용이다). */}
+        <div style={styles.dockActionRow}>
+          {imageInput}
+          <div style={{ flex: 1 }} />
           {historyToggle}
           {targetSelect}
-          {imageInput}
           <Button
             variant="ghost" size="icon" onClick={image.openPicker} disabled={image.isUploading}
             icon={image.isUploading ? Loader2 : ImagePlus}
             title={t?.('attachImage') || '이미지 첨부'} style={styles.footerIconBtn}
           />
-          {textarea}
           {micButton}
           <Button
             variant="primary" size="icon" onClick={handleSend} icon={Send}
@@ -580,19 +603,26 @@ const styles = {
     overflow: 'hidden',
     fontFamily: font.sans,
   },
-  /* 한 줄 도크 — 세로를 최대한 아낀다. */
-  dockRow: {
+  /* 도크 — 입력 줄 + 버튼 띠. 세로는 아끼되 입력의 **가로는 다 준다.** */
+  dockInputRow: {
     display: 'flex',
-    alignItems: 'flex-end',
-    gap: '4px',
-    padding: '5px 6px',
+    padding: '5px 6px 0',
+  },
+  dockActionRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+    padding: '1px 4px 3px',
   },
   dockTextarea: {
     flex: 1,
     minHeight: '32px',
+    height: '32px',          // rows=1 과 짝 — 한 줄에서 시작한다
     maxHeight: '96px',       // 여러 줄을 써도 화면 절반을 먹지 않게
     padding: '6px 8px',
+    lineHeight: 1.4,
     resize: 'none',
+    overflowY: 'auto',
   },
   dockSendBtn: {
     flexShrink: 0,

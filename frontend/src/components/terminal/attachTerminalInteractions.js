@@ -1,4 +1,5 @@
 import createTerminalGeometry from '../../utils/terminalGeometry';
+import { focusCommandDock } from '../commandinput/focusDock';
 import {
   shouldUseNaturalMouseSelection,
   selectionArgsFromCells,
@@ -393,8 +394,13 @@ const attachTerminalInteractions = ({
     clearTimeout(longPressTimer);
     /* 짧은 탭(스크롤도 롱프레스도 아님) → 포커스해서 iOS 키보드를 올린다.
        touchstart 에서 preventDefault 했으므로 합성 click 이 안 온다 — 여기서 직접,
-       사용자 제스처 컨텍스트 안에서 focus 해야 키보드가 뜬다. */
-    if (!isTouchScrolling && !longPressFired) term.focus();
+       사용자 제스처 컨텍스트 안에서 focus 해야 키보드가 뜬다.
+
+       하단 입력 도크가 떠 있으면 **그쪽으로** 보낸다. 폰에서 하는 일은 대개 키를 치는 게
+       아니라 한 줄 보내는 것이라, 탭 한 번에 쓸 자리로 가는 편이 맞다. 도크가 없으면
+       (데스크탑, 또는 도크를 띄우지 않는 pane) 예전처럼 터미널이 받는다. */
+    if (isTouchScrolling || longPressFired) return;
+    if (!focusCommandDock()) term.focus();
   };
 
   const blockContextMenu = (e) => {
