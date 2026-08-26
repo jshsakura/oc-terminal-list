@@ -54,6 +54,9 @@ def test_죽은_세션을_모를_때는_그_줄이_없다():
     some = usage_report.render({"day": "d", "usage": {}, "blocked": {}, "dead_sessions": 45})
     assert unknown == ""
     assert "45개" in some
+    # ⚠️ "죽은 세션" 이라고 쓰면 세션이 날아간 것처럼 읽힌다 — 실제로는 아무것도 잃지 않았다.
+    assert "죽은" not in some
+    assert "잃은 것은 없습니다" in some
 
 
 def test_수집이_실패해도_누수_신호는_나간다():
@@ -223,3 +226,65 @@ def test_모르는_종류의_로그_줄은_세지_않는다(tmp_path, monkeypatc
 def test_로그가_없어도_조용히_넘어간다(monkeypatch):
     monkeypatch.setattr(usage_report, "POLL_GUARD_LOG", "/nonexistent/guard.log")
     assert usage_report._count_blocked("2026-08-24") == {}
+
+
+# ---------------------------------------------------------------- 반복하지 않기
+# 쌓인 기록은 **가만히 있는 상태**다. 매일 같은 숫자를 알리면 그 채널은 곧 안 읽히게 되고,
+# 정작 진짜 신호가 왔을 때도 묻힌다.
+
+@pytest.mark.asyncio
+async def test_적게_쌓였으면_말하지_않는다(monkeypatch):
+    async def get_config(_k):
+        return None
+    monkeypatch.setattr(usage_report.storage, "get_config", get_config)
+    assert await usage_report._dead_worth_reporting(5) is None
+    assert await usage_report._dead_worth_reporting(None) is None
+
+
+@pytest.mark.asyncio
+async def test_처음_임계를_넘으면_한_번_말하고_기억한다(monkeypatch):
+    saved = {}
+
+    async def get_config(_k):
+        return saved.get("v")
+
+    async def set_config(_k, v):
+        saved["v"] = v
+
+    monkeypatch.setattr(usage_report.storage, "get_config", get_config)
+    monkeypatch.setattr(usage_report.storage, "set_config", set_config)
+    assert await usage_report._dead_worth_reporting(45) == 45
+    assert saved["v"] == "45"
+    # 다음 날 같은 값 — 다시 말하지 않는다.
+    assert await usage_report._dead_worth_reporting(45) is None
+    # 조금 늘어난 정도로도 말하지 않는다.
+    assert await usage_report._dead_worth_reporting(48) is None
+
+
+@pytest.mark.asyncio
+async def test_의미_있게_더_늘면_다시_말한다(monkeypatch):
+    saved = {"v": "45"}
+
+    async def get_config(_k):
+        return saved.get("v")
+
+    async def set_config(_k, v):
+        saved["v"] = v
+
+    monkeypatch.setattr(usage_report.storage, "get_config", get_config)
+    monkeypatch.setattr(usage_report.storage, "set_config", set_config)
+    assert await usage_report._dead_worth_reporting(60) == 60
+    assert saved["v"] == "60"
+
+
+@pytest.mark.asyncio
+async def test_기억이_깨져_있어도_터지지_않는다(monkeypatch):
+    async def get_config(_k):
+        return "not-a-number"
+
+    async def set_config(_k, _v):
+        pass
+
+    monkeypatch.setattr(usage_report.storage, "get_config", get_config)
+    monkeypatch.setattr(usage_report.storage, "set_config", set_config)
+    assert await usage_report._dead_worth_reporting(45) == 45

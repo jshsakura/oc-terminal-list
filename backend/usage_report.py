@@ -138,6 +138,30 @@ async def gather(username: str, day: str | None = None) -> dict:
     }
 
 
+CONFIG_DEAD_SEEN = "usage_report_dead_seen"
+DEAD_REPORT_FLOOR = 20      # 이 아래면 정리할 만큼 쌓인 것도 아니다
+DEAD_REPORT_GROWTH = 10     # 이미 알린 뒤에는 이만큼 더 늘어야 다시 말한다
+
+
+async def _dead_worth_reporting(count: int | None) -> int | None:
+    """매일 같은 숫자를 반복하지 않는다.
+
+    쌓인 기록은 **가만히 있는 상태**다. 그걸 날마다 알리면 그 채널은 곧 안 읽히게 되고,
+    정작 진짜 신호가 왔을 때도 묻힌다(이 모듈이 "할 말이 없으면 안 보낸다" 를 지키는 이유와
+    같다). 처음 임계를 넘을 때 한 번, 그 뒤로는 의미 있게 더 늘었을 때만 말한다.
+    """
+    if not count or count < DEAD_REPORT_FLOOR:
+        return None
+    try:
+        seen = int(await storage.get_config(CONFIG_DEAD_SEEN) or 0)
+    except (TypeError, ValueError):
+        seen = 0
+    if count < seen + DEAD_REPORT_GROWTH and seen:
+        return None
+    await storage.set_config(CONFIG_DEAD_SEEN, str(count))
+    return count
+
+
 def _label(row: dict) -> str:
     """Aggregate rows carry `name` — not `label`, not `key`.
 
@@ -191,7 +215,13 @@ def render(data: dict) -> str:
         signals.append(f" · 폴링·대기 차단 {sum(blocked.values())}건 ({detail})")
     dead = data.get("dead_sessions")
     if dead:
-        signals.append(f" · 죽은 tmux 세션 {dead}개 — 홈에서 정리할 수 있습니다")
+        # ⚠️ "죽은 세션" 이라고 쓰면 세션이 날아간 것처럼 읽힌다. 실제로는 예전에 정상
+        # 종료된 탭이 남긴 **DB 기록**이고, 아무것도 잃지 않았다. 겁주는 문구는 신호가
+        # 아니라 소음이다.
+        signals.append(
+            f" · 정리 안 된 세션 기록 {dead}개 (종료된 탭이 남긴 것 — 잃은 것은 없습니다). "
+            "홈에서 한 번에 지울 수 있습니다"
+        )
     if signals:
         lines.append("")
         lines.append("🔎 누수 신호")
@@ -211,6 +241,8 @@ async def build_and_send(username: str, day: str | None = None) -> dict:
     if not (tg["token"] and tg["chat_id"]):
         return {"status": "no-telegram"}
     data = await gather(username, day)
+    # 쌓인 기록은 가만히 있는 값이라 매일 반복하면 소음이 된다 — 여기서 한 번 거른다.
+    data["dead_sessions"] = await _dead_worth_reporting(data.get("dead_sessions"))
     text = render(data)
     if not text:
         return {"status": "nothing-to-say"}
