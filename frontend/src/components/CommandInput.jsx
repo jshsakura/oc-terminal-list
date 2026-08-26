@@ -58,16 +58,13 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
   /* 도크는 상시 노출이라 "지금 어디에 쳐지나" 가 보이지 않으면 사용자가 매번 시험 삼아
      한 글자를 쳐 봐야 한다. 그래서 활성/비활성을 **크게** 벌린다. */
   const [dockFocused, setDockFocused] = useState(false);
-
-  /* 그 신호를 body 에 걸어 **터미널 쪽도 같이 말하게** 한다. prop 을 Terminal 까지
-     내려보내지 않는 이유: 이 앱은 모든 탭의 PaneGrid 가 상시 마운트돼 있어서, 새 prop
-     하나가 pane 수만큼 리렌더로 곱해진다(project_request_multiplication 과 같은 결). */
+  /* 음영 막을 그릴 자리 = 터미널 영역(App.jsx). 없으면 그냥 안 그린다(데스크탑). */
+  const [scrimHost, setScrimHost] = useState(null);
   useEffect(() => {
-    if (!docked) return undefined;
-    document.body.dataset.dockFocused = dockFocused ? '1' : '0';
-    // ⚠️ 언마운트에서 지운다. 남겨 두면 도크가 사라진 뒤에도 터미널이 계속 어둡다.
-    return () => { delete document.body.dataset.dockFocused; };
-  }, [docked, dockFocused]);
+    if (!docked) { setScrimHost(null); return; }
+    setScrimHost(document.getElementById('iterm-terminal-area'));
+  }, [docked]);
+
   /* 퀵바의 고정 슬롯 노드. 퀵바가 우리보다 먼저/나중에 마운트될 수 있어 ref 가 아니라
      DOM 조회로 잡는다 — 없으면 그냥 안 보낸다(데스크탑에는 퀵바가 없다). */
   const [dockSlot, setDockSlot] = useState(null);
@@ -79,7 +76,10 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
     return () => window.clearTimeout(id);
   }, [docked]);
 
-  const viewport = useVisualViewport(isOpen && !docked);
+  /* 도크에서도 뷰포트를 본다 — **단, 포커스가 있을 때만** 구독한다. 음영은 키보드가
+     올라와 있을 때만 의미가 있는데, 키보드를 내려도 포커스는 남으므로 포커스만으로
+     판단하면 막이 덩그러니 남아 어색해진다. 구독을 포커스에 묶어 평소에는 리스너가 0이다. */
+  const viewport = useVisualViewport(isOpen && (!docked || dockFocused));
   const targets = useSendTargets(panes, terminalKey);
   const voice = useVoiceDictation({ isOpen, language, setCommand, textareaRef });
 
@@ -264,6 +264,10 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
   // 키보드가 올라오면 모달을 가시 영역 *하단* (suggestion bar 바로 위) 에 붙인다 —
   // 사용자 의도는 "단축키 바 위에 떠있는 입력 도크" 라 상단에 띄우면 어색하다.
   const keyboardUp = viewport.height < window.innerHeight - KEYBOARD_SHRINK_THRESHOLD;
+  /* 음영은 **키보드가 올라와 있고 커서가 입력에 있을 때만**. 둘 중 하나라도 아니면
+     화면이 어두울 이유가 없다 — 특히 키보드만 내렸을 때(포커스는 남는다) 막이 그대로
+     남으면 그게 가장 어색하다. */
+  const scrimShown = docked && dockFocused && keyboardUp;
 
   const overlayStyle = {
     ...styles.overlay,
@@ -334,7 +338,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
       aria-pressed={voice.listening}
       style={{
         ...styles.micBtn,
-        ...(docked ? styles.dockBtn : null),
+        ...(docked ? { ...styles.dockBtn, ...styles.dockBtnFace } : null),
         ...(voice.listening ? styles.micBtnActive : null),
       }}
     >
@@ -562,9 +566,27 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
         ref={modalRef}
         data-testid="command-input-dock"
         className="ci-modal"
-        style={{ ...styles.dock, ...(dockFocused ? styles.dockOn : styles.dockOff) }}
+        style={styles.dock}
       >
         <style>{CSS}</style>
+        {/* 입력이 살아 있을 때 그 위쪽(터미널)에 옅은 막을 덮는다 — "지금은 여기가 아니다".
+
+            ⚠️ **터미널 면에 filter 를 걸지 않는다.** 한 번 그렇게 했다가 폰이 뜨거워졌다:
+            필터는 끊임없이 다시 그려지는 면 위에서 매 프레임 다시 걸리고, 그 아래 xterm
+            캔버스가 합성 빠른 경로에서 떨어진다. 막은 **한 번 그려지고 합성만** 되므로
+            프레임마다 드는 비용이 없다.
+
+            pointer-events: none 이라 터미널을 그대로 누를 수 있고, 누르면 포커스가 옮겨가
+            막이 사라진다.
+
+            ⚠️ **터미널 영역으로 포탈한다.** 도크 안에 두면 도크가 만든 층(zIndex 10)
+            안쪽으로 들어가 막이 도크 자기 내용 위로 올라가고, body 로 빼면 이번엔 헤더·
+            탭바까지 덮는다. 기준은 화면이 아니라 **터미널이 사는 상자**다. */}
+        {scrimHost && createPortal(
+          <div aria-hidden="true"
+               style={{ ...styles.dockScrim, opacity: scrimShown ? 1 : 0 }} />,
+          scrimHost,
+        )}
         {/* 대상 선택·히스토리 토글은 **퀵바의 고정 슬롯**으로 보낸다. 그 슬롯은 도크보다
             먼저 그려지므로 포탈로 넘긴다 — prop 을 App 까지 올렸다 내리는 것보다 짧고,
             슬롯이 없으면(데스크탑) 아무 일도 일어나지 않는다. */}
@@ -599,13 +621,24 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
           {/* 버튼은 전부 오른쪽. 입력이 여러 줄로 자라면 버튼이 아래로 끌려가 보이므로
               **상단정렬**한다 — 첫 줄과 어깨를 맞추는 편이 안정돼 보인다. */}
           <Button
-            variant="ghost" size="icon" onClick={image.openPicker} disabled={image.isUploading}
+            /* ⚠️ ghost 는 배경이 투명하고 테두리만 있다. 테두리 색은 어느 테마에서나
+               아주 옅은 값이라 캣푸친처럼 대비가 낮은 팔레트에서 거의 안 보였다.
+               퀵바 키가 잘 보이는 이유는 테두리가 진해서가 아니라 **면이 채워져서**다. */
+            variant="secondary" size="icon" onClick={image.openPicker} disabled={image.isUploading}
             icon={image.isUploading ? Loader2 : ImagePlus}
-            title={t?.('attachImage') || '이미지 첨부'} style={styles.dockBtn}
+            title={t?.('attachImage') || '이미지 첨부'}
+            /* 오른쪽 버튼 무리는 입력칸에서 한 뼘 떨어뜨린다 — 버튼끼리는 붙어 있어야
+               한 무리로 읽히지만, 입력칸까지 같은 간격이면 버튼이 입력의 일부처럼 보인다. */
+            style={{ ...styles.dockBtn, ...styles.dockBtnGroupStart }}
           />
           {micButton}
           <Button
-            variant="primary" size="icon" onClick={handleSend} icon={Send}
+            /* 비활성일 때는 **면을 비운다.** 액센트로 채운 채 두면 줄에서 가장 밝은
+               것이 남아 "여기가 활성" 처럼 읽힌다. variant 로 가르는 이유: Button 은
+               hover 를 뗄 때 variant 의 배경으로 되돌리므로 style 로 덮으면 스치기만
+               해도 원래대로 돌아간다. */
+            variant={dockFocused ? 'primary' : 'secondary'}
+            size="icon" onClick={handleSend} icon={Send}
             title={t?.('send') || 'Send'} style={styles.dockBtn}
           />
         </div>
@@ -702,8 +735,17 @@ const styles = {
        줄어들 수 있어야 하고, 줄어드는 몫은 minHeight:0 인 목록이 먼저 내놓는다. */
     flexShrink: 0,
     minHeight: 0,
-    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 92%, transparent)`,
-    borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 62%, transparent)`,
+    /* ⚠️ **퀵바와 같은 면, 그리고 그 사이에 선을 긋지 않는다.** 도크만 색을 바꾸거나
+       둘 사이에 1px 선을 두면 붙어 있는 두 줄이 쪼개져 보인다 — 여기는 한 덩어리다.
+       포커스가 오면 이 면은 퀵바와 **함께** 밝아진다(main.jsx 가 body 에 변수를 세운다).
+       정확한 신호는 입력칸 테두리가 진다. */
+    background: MOBILE_CONTROL.barBackground,
+    // 퀵바와 나누는 은은한 선. 없애 봤더니 두 줄의 경계가 사라져 오히려 읽기 나빴다.
+    borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 45%, transparent)`,
+    /* ⚠️ 막(dockScrim)보다 위여야 한다. 위치 지정이 없으면 막이 도크를 덮어 정작 활성인
+       입력칸이 가라앉는다 — 퀵바(zIndex 10)와 같은 층에 둔다. */
+    position: 'relative',
+    zIndex: 10,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
@@ -719,7 +761,9 @@ const styles = {
     display: 'flex',
     alignItems: 'flex-start',  // 입력이 자라도 버튼은 첫 줄과 어깨를 맞춘다
     gap: '4px',
-    padding: '4px 6px',
+    // ⚠️ 세로 여백은 퀵바와 **같은 상수**다. 버튼 크기가 같아도 이 값이 다르면 띠 높이가
+    // 달라져 한쪽 버튼이 더 커 보인다(퀵바 34 / 도크 32 로 어긋나 있었다).
+    padding: `${MOBILE_CONTROL.barPaddingY}px 6px`,
   },
   dockTextarea: {
     flex: 1,
@@ -736,6 +780,7 @@ const styles = {
     borderRadius: MOBILE_CONTROL.radius,   // 버튼과 같은 모서리
     resize: 'none',
     overflowY: 'auto',
+    transition: `border-color ${motion.fast}, box-shadow ${motion.fast}, background ${motion.fast}`,
   },
   /* ⚠️ 퀵바의 구분선(MobileToolbar.styles.divider)과 **같은 높이·같은 색**이어야 한다.
      둘은 한 줄에 나란히 서는데 14 와 16 이 섞여 있어 눈에 띄게 어긋났다. */
@@ -765,27 +810,17 @@ const styles = {
 
      차이는 크게 벌린다 — 미묘하면 없는 것과 같다. 다만 움직이는 것은 색과 그림자뿐이라
      레이아웃은 흔들리지 않는다(테두리 두께를 바꾸면 도크 높이가 튄다). */
-  dockOn: {
-    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 96%, transparent)`,
-    borderTop: `1px solid color-mix(in srgb, var(--ui-accent, ${color.accent}) 55%, transparent)`,
-  },
-  dockOff: {
-    background: `color-mix(in srgb, var(--ui-mantle, ${color.mantle}) 92%, transparent)`,
-    borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 62%, transparent)`,
-  },
+  /* ⚠️ 신호는 **테두리 하나**다. 한때 면(배경)도 같이 바꿨는데 과했다 — 맞붙은 두 줄이
+     번쩍이는 것처럼 보인다. 입력칸은 원래 1px 테두리를 갖고 있으므로 **색만** 바꾸면
+     되고, 두께가 그대로라 도크 높이도 안 튄다. 바깥 링은 레이아웃에 영향이 없고, 좁은
+     폰 화면에서 1px 만으로는 약해서 얹는다. 둘 다 테마 액센트라 테마를 따라간다. */
   dockTextareaOn: {
-    background: `var(--ui-base, ${color.base})`,
-    color: `var(--ui-text, ${color.text})`,
-    // 테두리 대신 inset 그림자 — 두께가 안 변하니 도크 높이가 튀지 않는다.
-    boxShadow: `inset 0 0 0 1px color-mix(in srgb, var(--ui-accent, ${color.accent}) 70%, transparent)`,
-    opacity: 1,
+    borderColor: `var(--ui-accent, ${color.accent})`,
+    boxShadow: `0 0 0 2px color-mix(in srgb, var(--ui-accent, ${color.accent}) 18%, transparent)`,
   },
   dockTextareaOff: {
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 28%, transparent)`,
-    color: `var(--ui-subtext, ${color.subtext})`,
+    borderColor: `color-mix(in srgb, var(--ui-border, ${color.border}) 55%, transparent)`,
     boxShadow: 'none',
-    // ⚠️ 여기서 opacity 를 또 주지 않는다. 줄 전체 처리(dockRowIdle)와 곱해져
-    // 글자가 읽을 수 없을 만큼 어두워진다.
   },
   /* 비활성일 때는 **줄 전체**가 가라앉아야 한다. 예전엔 입력칸만 죽여서, 정작 가장 밝은
      것(액센트로 채운 전송 버튼)이 그대로 남아 "여기가 활성" 처럼 보였다.
@@ -804,12 +839,43 @@ const styles = {
     transition: 'filter 160ms ease',
   },
 
-  /* 도크 컨트롤 공통 — 크기·모서리를 여기 하나로 묶는다. */
+  dockScrim: {
+    // 화면이 아니라 터미널 상자 기준 — 헤더·탭바는 덮지 않는다.
+    position: 'absolute',
+    inset: 0,
+    // 바닥 두 줄(퀵바 zIndex 10)보다 아래 — 그 둘은 막 위로 또렷하게 남는다.
+    zIndex: 5,
+    pointerEvents: 'none',
+    /* ⚠️ 테마 색(crust)을 쓰면 **그 색이 얹힌다.** 캣푸친의 crust 는 푸른 기가 도는
+       검정이라 터미널이 푸르딩딩해졌다. 음영은 색이 아니라 어둠이어야 하므로 중립
+       검정을 옅게 쓴다 — 이 저장소의 모달 오버레이(GlassModal)가 쓰는 것과 같은 값 계열이다. */
+    background: 'rgba(0, 0, 0, 0.3)',
+    transition: 'opacity 160ms ease',
+  },
+
+  /* 도크 컨트롤 공통 — 크기·모서리·면을 여기 하나로 묶는다.
+
+     ⚠️ **면을 채운다.** 예전에는 배경이 투명하고 테두리만 있었는데(ghost), 테두리 색은
+     어느 테마에서나 아주 옅은 값이라 캣푸친처럼 대비가 낮은 팔레트에서는 버튼이 거의
+     안 보였다. 바로 위 퀵바 키가 잘 보이는 이유는 테두리가 진해서가 아니라 **면이
+     채워져 있어서**다 — 같은 처리를 한다(같은 토큰, 같은 치수). */
   dockBtn: {
     flexShrink: 0,
     width: `${DOCK_BTN}px`,
     height: `${DOCK_BTN}px`,
     borderRadius: MOBILE_CONTROL.radius,
+  },
+  /* 퀵바 키와 같은 면. ⚠️ `Button` 은 hover 를 뗄 때 **variant 의 배경으로 되돌리므로**,
+     면은 style 로 덮어쓰지 말고 variant 를 골라야 한다(secondary=면 있음, ghost=투명).
+     이 스타일은 variant 개념이 없는 raw 버튼(마이크)에만 쓴다. */
+  /* 입력칸과 버튼 무리 사이의 틈. 버튼 사이 간격(dockInputRow.gap)보다 커야 무리가 나뉜다. */
+  dockBtnGroupStart: {
+    marginLeft: '6px',
+  },
+  dockBtnFace: {
+    background: `var(--ui-surface0, ${color.surface0})`,
+    color: `var(--ui-text, ${color.text})`,
+    border: `1px solid var(--ui-border, ${color.border})`,
   },
   modal: {
     width: '90%',

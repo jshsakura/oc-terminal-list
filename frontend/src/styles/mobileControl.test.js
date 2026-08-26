@@ -38,4 +38,16 @@ describe('모바일 하단 컨트롤 치수', () => {
     expect(MOBILE_CONTROL.icon).toBeLessThan(MOBILE_CONTROL.size);
     expect(MOBILE_CONTROL.dividerHeight).toBeLessThan(MOBILE_CONTROL.size);
   });
+
+  /* 버튼 크기가 같아도 띠의 세로 여백이 다르면 한쪽 버튼이 더 커 보인다 — 맞붙은 두
+     줄이라 2px 이 그대로 눈에 띈다(실제로 퀵바 34 / 도크 32 로 어긋나 있었다). */
+  test('퀵바와 도크의 띠 높이가 같은 상수에서 나온다', () => {
+    expect(MOBILE_CONTROL.barPaddingY).toBeGreaterThan(0);
+    const dockSrc = read('components/CommandInput.jsx');
+    const at = dockSrc.indexOf('  dockInputRow: {');
+    const block = dockSrc.slice(at, dockSrc.indexOf('\n  },', at));
+    expect(block).toMatch(/MOBILE_CONTROL\.barPaddingY/);
+    expect(block).not.toMatch(/padding: '\d+px/);
+    expect(TOOLBAR).toMatch(/MOBILE_CONTROL\.size \+ MOBILE_CONTROL\.barPaddingY \* 2/);
+  });
 });

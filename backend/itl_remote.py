@@ -393,13 +393,20 @@ async def open_channel(host_id: str, username: str) -> RemoteChannel:
     예전처럼 SSH 로 간다 — 호출부는 둘을 구별하지 않는다(`run(cmd)` 하나뿐이다).
     """
     from remote_agent.channel import channel_for
-    agent = channel_for(host_id)
-    if agent is not None:
-        # ⚠️ 소유권 검사를 건너뛰지 않는다. SSH 경로는 `resolve_host_with_secrets` 가
-        # 그것까지 하는데, 리모트 경로는 그 함수를 지나지 않는다.
-        connection = registry.get(host_id)
-        if connection is not None and connection.username == username:
+    # ⚠️ 소유권 검사를 건너뛰지 않는다. SSH 경로는 `resolve_host_with_secrets` 가 그것까지
+    # 하는데, 리모트 경로는 그 함수를 지나지 않는다.
+    connection = registry.get(host_id)
+    if connection is not None and connection.username == username:
+        # ⚠️ 물러설 길을 함께 넘긴다. 없으면 리모트 하나가 아픈 것이 곧 배달 실패가 된다 —
+        # 실제로 `run` 을 모르는 낡은 리모트 때문에 그 호스트의 itl 이 전부 502 였다.
+        agent = channel_for(host_id, lambda: _open_ssh_channel(host_id, username))
+        if agent is not None:
             return agent
+    return await _open_ssh_channel(host_id, username)
+
+
+async def _open_ssh_channel(host_id: str, username: str) -> RemoteChannel:
+    """예전 경로 — SSH 로 직접 연다."""
     host, secrets = await resolve_host_with_secrets(host_id, username)
     if host.get("auth_method") == "tailscale":
         return RemoteChannel(host, secrets)

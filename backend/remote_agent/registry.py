@@ -27,6 +27,9 @@ class RemoteConnection:
         self.closed = False
         self._pending: dict[str, asyncio.Future] = {}
         self._next_id = 0
+        # 낡은 리모트는 `run` 을 모른다 — 무시하므로 답이 없고, 그때마다 상한을 다 태운다.
+        # 한 번 겪으면 표시해 두고 다음부터는 곧장 SSH 로 간다(상태 보고는 계속 받는다).
+        self.run_unsupported = False
 
     def next_command_id(self) -> int:
         self._next_id += 1

@@ -119,3 +119,66 @@ def test_echo_needs_no_binary(probe):
     """표식 출력이 전부다. /bin/echo 가 없는 기계에서도 배달 확인이 되어야 한다."""
     ok, out = probe["run_chain"]([["echo", "ITL_SENT"]])
     assert ok and out.strip() == "ITL_SENT"
+
+
+# ---------------------- 실패했을 때 물러설 길 ----------------------
+
+class _FakeSSH:
+    """SSH 채널 대역."""
+
+    def __init__(self):
+        self.ran = []
+        self.closed = False
+
+    async def run(self, cmd, timeout=None):
+        self.ran.append(cmd)
+        return "ITL_SENT"
+
+    async def close(self):
+        self.closed = True
+
+
+async def test_a_stale_remote_falls_back_to_ssh():
+    """⚠️ 실측 사고. `run` 을 모르는 낡은 리모트가 붙어 있었더니 그 호스트로 가는 itl 이
+    전부 502 였다 — SSH 는 멀쩡했는데도. **새 경로가 옛 경로를 막으면 안 된다.**"""
+    _attach(drop=True)
+    ssh = _FakeSSH()
+    channel = channel_for(HOST, lambda: _ready(ssh))
+    out = await channel.run("tmux ls", timeout=0.05)
+    assert out == "ITL_SENT"
+    assert ssh.ran == ["tmux ls"]
+
+
+async def test_the_stale_remote_is_only_probed_once():
+    """상한을 매번 다시 태우면 명령마다 몇 초씩 늦어진다."""
+    conn, sent = _attach(drop=True)
+    ssh = _FakeSSH()
+    channel = channel_for(HOST, lambda: _ready(ssh))
+    await channel.run("tmux ls", timeout=0.05)
+    await channel.run("tmux ls", timeout=0.05)
+    assert conn.run_unsupported is True
+    assert len([m for m in sent if m.get("t") == "run"]) == 1   # 두 번째는 시도하지 않는다
+    assert len(ssh.ran) == 2
+
+
+async def test_the_fallback_connection_is_closed_by_us():
+    """소켓은 리모트의 것이라 안 닫지만, 물러서느라 연 SSH 는 우리가 연 것이다."""
+    _attach(drop=True)
+    ssh = _FakeSSH()
+    channel = channel_for(HOST, lambda: _ready(ssh))
+    await channel.run("tmux ls", timeout=0.05)
+    await channel.close()
+    assert ssh.closed is True
+
+
+async def test_a_healthy_remote_never_opens_ssh():
+    """물러설 길이 있다고 해서 매번 SSH 를 열면 리모트를 둔 의미가 없다."""
+    _attach()
+    ssh = _FakeSSH()
+    out = await channel_for(HOST, lambda: _ready(ssh)).run("tmux ls")
+    assert out == "ITL_SENT"
+    assert ssh.ran == []
+
+
+async def _ready(value):
+    return value

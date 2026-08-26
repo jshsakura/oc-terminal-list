@@ -2128,9 +2128,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           tmux 안 건드림. */}
       <div
         ref={terminalRef}
-        /* 입력 도크가 포커스를 가졌을 때 이 면을 죽이는 전역 규칙이 여기 붙는다(main.jsx).
-           filter 를 쓰는 이유: 위의 opacity(재연결 디밍)와 **곱해지므로** 서로를 덮지 않는다. */
-        className="iterm-term-surface"
         onClick={() => {
           if (xtermRef.current) {
             xtermRef.current.focus();

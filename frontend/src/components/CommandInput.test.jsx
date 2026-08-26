@@ -425,11 +425,14 @@ describe('하단 도크 (모바일)', () => {
     expect(screen.queryByText('Send command')).toBeNull();
   });
 
-  it('backdrop 층을 만들지 않는다 — 투명 fixed 층이 깔리면 그 아래 터미널이 터치를 못 받는다', () => {
+  /* 예전에는 fixed 층을 **전부** 금지했다. 막으려던 것은 층 자체가 아니라 "그 아래
+     터미널이 터치를 못 받는 것" 이었고, 그건 pointer-events 로 갈린다 — 그래서 금지가
+     아니라 규칙으로 둔다. 터미널을 눌러 포커스를 되찾는 길이 막히면 도크에 갇힌다. */
+  it('fixed 층은 터치를 막지 않는다', () => {
     const { container } = render(<CommandInput {...base} />);
     const fixed = Array.from(container.querySelectorAll('div'))
       .filter((el) => el.style.position === 'fixed');
-    expect(fixed).toHaveLength(0);
+    fixed.forEach((el) => expect(el.style.pointerEvents).toBe('none'));
   });
 
   it('포커스를 붙잡지 않는다 — 붙잡으면 터미널에 아무것도 못 친다', () => {
@@ -570,43 +573,7 @@ describe('도크 히스토리 높이', () => {
 
 /* 도크는 **상시 노출**이라 떠 있다는 것만으로는 "지금 여기로 쳐진다" 가 되지 않는다.
    신호가 없으면 사용자는 매번 한 글자를 시험 삼아 쳐 보게 된다(실제로 그랬다). */
-describe('도크 활성 표시', () => {
-  const dockProps = {
-    isOpen: true, docked: true, onClose: vi.fn(), onSend: vi.fn(),
-    command: '', setCommand: vi.fn(), t,
-  };
-  const renderDock = (extra = {}) => render(<CommandInput {...dockProps} {...extra} />);
 
-  afterEach(() => { delete document.body.dataset.dockFocused; });
-
-  test('도크에 포커스가 오면 전역 신호가 선다', () => {
-    const { getByTestId } = renderDock();
-    const box = getByTestId('command-input-dock').querySelector('textarea');
-    fireEvent.focus(box);
-    expect(document.body.dataset.dockFocused).toBe('1');
-  });
-
-  test('포커스가 빠지면 신호가 내려간다 — 터미널이 계속 어두우면 안 된다', () => {
-    const { getByTestId } = renderDock();
-    const box = getByTestId('command-input-dock').querySelector('textarea');
-    fireEvent.focus(box);
-    fireEvent.blur(box);
-    expect(document.body.dataset.dockFocused).toBe('0');
-  });
-
-  test('도크가 사라지면 신호도 사라진다', () => {
-    const { getByTestId, unmount } = renderDock();
-    fireEvent.focus(getByTestId('command-input-dock').querySelector('textarea'));
-    unmount();
-    expect(document.body.dataset.dockFocused).toBeUndefined();
-  });
-
-  /* ⚠️ 모바일 전용이다. PC 모달은 떠 있다는 것 자체가 답이라 터미널을 죽일 이유가 없다. */
-  test('PC 모달은 이 신호를 세우지 않는다', () => {
-    render(<CommandInput {...dockProps} docked={false} />);
-    expect(document.body.dataset.dockFocused).toBeUndefined();
-  });
-});
 
 
 /* 프롬프트 확인·"계속" 은 폰에서 가장 잦은 동작인데, 예전에는
@@ -660,8 +627,8 @@ describe('도크 비활성 표현은 테마를 따른다', () => {
     expect(idle).not.toMatch(/#[0-9a-fA-F]{3,6}/);      // 고정색을 박지 않았다
   });
 
-  test('활성/비활성 배경은 모두 테마 변수에서 온다', () => {
-    for (const name of ['dockOn', 'dockOff', 'dockTextareaOn', 'dockTextareaOff']) {
+  test('활성/비활성 테두리는 모두 테마 변수에서 온다', () => {
+    for (const name of ['dockTextareaOn', 'dockTextareaOff']) {
       const body = block(name);
       expect(body, name).toMatch(/var\(--ui-/);
       // 리터럴 hex 는 var() 의 폴백 자리에만 허용된다(토큰이 그렇게 생겼다).
@@ -673,5 +640,168 @@ describe('도크 비활성 표현은 테마를 따른다', () => {
   /* ⚠️ 입력칸이 자기 opacity 를 또 가지면 줄 전체 처리와 곱해져 글자가 안 읽힌다. */
   test('입력칸은 자기 불투명도를 따로 갖지 않는다', () => {
     expect(block('dockTextareaOff')).not.toMatch(/opacity:/);
+  });
+
+  /* ⚠️ 면(배경)까지 바꾸면 과하다 — 맞붙은 두 줄이 번쩍이는 것처럼 보인다.
+     신호는 테두리 하나로 충분하다. */
+  test('포커스로 면을 바꾸지 않는다 — 테두리만', () => {
+    for (const name of ['dockTextareaOn', 'dockTextareaOff']) {
+      expect(block(name), name).not.toMatch(/background:/);
+    }
+  });
+});
+
+
+/* 캣푸친처럼 대비가 낮은 팔레트에서 도크 버튼이 거의 안 보였다. 원인은 테두리 색이 아니라
+   **면이 비어 있었던 것**(ghost) — 바로 위 퀵바 키는 면이 채워져 있어 잘 보인다. */
+describe('도크 버튼은 면이 채워져 있다', () => {
+  const src = readFileSync(resolve(__dirname, 'CommandInput.jsx'), 'utf8');
+  /* ⚠️ 첨부 버튼은 **둘**이다 — PC 모달용과 도크용. 모달 쪽 ghost 는 그대로가 맞으므로
+     범위를 도크 분기 안으로 좁힌다(안 그러면 앞엣것을 재고 언제나 실패한다). */
+  const dockBranch = src.slice(src.indexOf('if (docked) {'), src.indexOf('const styles = {'));
+
+  test('도크 첨부 버튼은 ghost 가 아니다', () => {
+    const at = dockBranch.indexOf('image.openPicker');
+    const around = dockBranch.slice(Math.max(0, at - 200), at + 200);
+    expect(around).toMatch(/variant="secondary"/);
+    expect(around).not.toMatch(/variant="ghost"/);
+  });
+
+  test('PC 모달 쪽은 건드리지 않았다 — 거기 ghost 는 의도한 것이다', () => {
+    const modalPart = src.slice(0, src.indexOf('if (docked) {'));
+    expect(modalPart).toMatch(/variant="ghost"/);
+  });
+
+  /* ⚠️ `Button` 은 hover 를 뗄 때 variant 의 배경으로 되돌린다. style 로 면을 덮어쓰면
+     한 번 스치기만 해도 원래대로 돌아가 다시 안 보이게 된다 — variant 로 골라야 한다. */
+  test('공통 dockBtn 은 면을 칠하지 않는다 — variant 가 진다', () => {
+    const at = src.indexOf('  dockBtn: {');
+    const body = src.slice(at, src.indexOf('\n  },', at));
+    expect(body).not.toMatch(/background:/);
+  });
+
+  /* 버튼끼리는 붙어야 한 무리로 읽히지만, 입력칸까지 같은 간격이면 버튼이 입력의
+     일부처럼 보인다 — 무리의 시작에만 틈을 준다. */
+  test('오른쪽 버튼 무리는 입력칸에서 떨어져 있다', () => {
+    const gap = Number((src.match(/dockInputRow: \{[^}]*gap: '(\d+)px'/s) || [])[1]);
+    const lead = Number((src.match(/dockBtnGroupStart: \{[^}]*marginLeft: '(\d+)px'/s) || [])[1]);
+    expect(lead).toBeGreaterThan(gap);
+  });
+
+  test('마이크는 variant 가 없는 raw 버튼이라 면을 직접 받는다', () => {
+    expect(src).toMatch(/styles\.dockBtn, \.\.\.styles\.dockBtnFace/);
+  });
+});
+
+
+/* 붙어 있는 두 줄(퀵바 + 도크)은 한 덩어리로 읽혀야 한다. 도크 면을 상태에 따라 바꿨더니
+   도크만 색이 달라져 따로 노는 것처럼 보였다. */
+describe('도크와 퀵바는 한 덩어리', () => {
+  const src = readFileSync(resolve(__dirname, 'CommandInput.jsx'), 'utf8');
+
+  test('도크 면은 상태에 따라 바뀌지 않는다', () => {
+    expect(src).not.toMatch(/dockOn\b/);
+    expect(src).not.toMatch(/dockOff\b/);
+  });
+
+  test('도크와 퀵바는 같은 면 상수를 쓴다', () => {
+    const at = src.indexOf('  dock: {');
+    const body = src.slice(at, src.indexOf('\n  },', at));
+    expect(body).toMatch(/MOBILE_CONTROL\.barBackground/);
+    const toolbar = readFileSync(resolve(__dirname, 'MobileToolbar.jsx'), 'utf8');
+    expect(toolbar).toMatch(/MOBILE_CONTROL\.barBackground/);
+  });
+
+  /* 둘 사이의 선은 **은은하게** 남긴다. 없애 봤더니 두 줄의 경계가 사라져 오히려 읽기
+     나빴다 — 쪼개 보이던 것은 선이 아니라 면(배경)이 서로 달랐던 탓이다. */
+  test('분리선은 있되 옅다', () => {
+    const at = src.indexOf('  dock: {');
+    const body = src.slice(at, src.indexOf('\n  },', at));
+    const pct = Number((body.match(/borderTop:.*?(\d+)%/) || [])[1]);
+    expect(pct).toBeGreaterThan(0);
+    expect(pct).toBeLessThan(60);
+  });
+
+
+
+  /* ⚠️ 액센트로 채운 채 두면 비활성인데도 줄에서 가장 밝은 것이 남는다. */
+  test('전송 버튼은 비활성일 때 면이 빈다', () => {
+    expect(src).toMatch(/variant=\{dockFocused \? 'primary' : 'secondary'\}/);
+  });
+});
+
+
+/* ⚠️ 터미널 면에 filter 를 걸지 않는다. 작은 버튼과 달리 여기는 끊임없이 다시 그려지는
+   면이라 필터가 매 프레임 다시 걸리고, 그 아래 xterm 캔버스가 합성 빠른 경로에서 떨어질
+   수 있다 — 폰에서 발열로 돌아온다. 이 저장소는 그 근처에서 이미 두 번 데었다. */
+describe('터미널 음영은 막으로 준다 — filter 가 아니라', () => {
+  const src = readFileSync(resolve(__dirname, 'CommandInput.jsx'), 'utf8');
+
+  test('전역 CSS 가 터미널에 filter 를 걸지 않는다', () => {
+    const main = readFileSync(resolve(__dirname, '..', 'main.jsx'), 'utf8');
+    expect(main).not.toMatch(/iterm-term-surface/);
+  });
+
+  test('터미널에 그 클래스가 남아 있지 않다', () => {
+    const term = readFileSync(resolve(__dirname, 'Terminal.jsx'), 'utf8');
+    expect(term).not.toMatch(/iterm-term-surface/);
+  });
+
+  /* 막은 한 번 그려지고 합성만 된다. filter 는 매 프레임 다시 걸린다 — 그 차이가
+     폰 발열로 돌아왔다. */
+  /* ⚠️ 음영은 **색이 아니라 어둠**이다. 테마 색을 쓰면 그 색이 얹혀서, 푸른 기가 도는
+     팔레트(캣푸친)에서는 터미널이 푸르딩딩해진다. */
+  test('막은 색을 얹지 않는다 — 중립 검정이다', () => {
+    const at = src.indexOf('  dockScrim: {');
+    const body = src.slice(at, src.indexOf('\n  },', at));
+    expect(body).toMatch(/rgba\(0, ?0, ?0,/);
+    expect(body).not.toMatch(/--ui-/);
+  });
+
+  test('막은 터치를 막지 않는다 — 터미널을 눌러 포커스를 되찾아야 한다', () => {
+    const at = src.indexOf('  dockScrim: {');
+    const body = src.slice(at, src.indexOf('\n  },', at));
+    expect(body).toMatch(/pointerEvents: 'none'/);
+  });
+
+  /* ⚠️ z-index 만으로는 부족하다. 도크 **안**에 두면 도크가 만든 층 안쪽으로 들어가
+     막이 도크 자기 내용 위로 올라간다(실제로 바닥 두 줄까지 음영이 씌워졌다). */
+  /* ⚠️ 자리를 두 번 틀렸다. 도크 **안**에 두면 도크가 만든 층 안쪽으로 들어가 막이 도크
+     자기 내용 위로 올라가고(바닥 두 줄까지 음영), body 로 빼면 이번엔 헤더·탭바까지 덮는다.
+     기준은 화면이 아니라 **터미널이 사는 상자**다. */
+  test('막은 터미널 영역 안에만 그려진다', () => {
+    const at = src.indexOf('styles.dockScrim');
+    const around = src.slice(Math.max(0, at - 300), at + 200);
+    expect(around).toMatch(/createPortal/);
+    expect(around).toMatch(/scrimHost/);
+    expect(around).not.toMatch(/document\.body/);
+    expect(src).toMatch(/getElementById\('iterm-terminal-area'\)/);
+    const app = readFileSync(resolve(__dirname, '..', 'App.jsx'), 'utf8');
+    expect(app).toMatch(/id="iterm-terminal-area"/);
+  });
+
+  /* ⚠️ 키보드를 내려도 **포커스는 남는다.** 포커스만으로 판단하면 키보드가 사라진 뒤에도
+     막이 덩그러니 남아 그게 가장 어색하다. */
+  test('음영은 키보드가 올라와 있을 때만 — 포커스만으로는 아니다', () => {
+    expect(src).toMatch(/const scrimShown = docked && dockFocused && keyboardUp;/);
+  });
+
+  test('뷰포트 구독은 포커스에 묶인다 — 평소엔 리스너가 0이다', () => {
+    expect(src).toMatch(/useVisualViewport\(isOpen && \(!docked \|\| dockFocused\)\)/);
+  });
+
+  test('막은 그 상자 기준이다 — 화면 고정이 아니다', () => {
+    const at = src.indexOf('  dockScrim: {');
+    const body = src.slice(at, src.indexOf('\n  },', at));
+    expect(body).toMatch(/position: 'absolute'/);
+  });
+
+  test('막은 바닥 두 줄보다 아래다 — 정작 활성인 입력칸이 가라앉으면 안 된다', () => {
+    const scrimAt = src.indexOf('  dockScrim: {');
+    const scrim = src.slice(scrimAt, src.indexOf('\n  },', scrimAt));
+    const dockAt = src.indexOf('  dock: {');
+    const dock = src.slice(dockAt, src.indexOf('\n  },', dockAt));
+    const z = (block) => Number((block.match(/zIndex: (\d+)/) || [])[1]);
+    expect(z(scrim)).toBeLessThan(z(dock));
   });
 });

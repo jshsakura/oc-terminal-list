@@ -350,13 +350,14 @@ const styles = {
   toolbar: {
     flexShrink: 0,
     width: '100%',
-    // 28 → 34px. 키(24px)와 함께 올리되 위아래 5px 씩은 남긴다 — 키가 바 가장자리에
-    // 붙으면 답답하다. 여백(5px)은 종전과 동일, 비율은 더 좋아진다.
-    height: 'calc(34px + env(safe-area-inset-bottom, 0px))',
+    // 띠 높이 = 키 + 위아래 여백. 도크와 **같은 상수**를 쓴다 — 다르면 버튼 크기가
+    // 같아도 한쪽이 더 커 보인다(실제로 2px 어긋나 있었다).
+    height: `calc(${MOBILE_CONTROL.size + MOBILE_CONTROL.barPaddingY * 2}px + env(safe-area-inset-bottom, 0px))`,
     paddingBottom: 'env(safe-area-inset-bottom, 2px)',
     display: 'flex',
     alignItems: 'center',
-    background: color.mantle,
+    background: MOBILE_CONTROL.barBackground,
+    transition: 'background 160ms ease',
     borderTop: `1px solid ${color.border}`,
     fontFamily: font.sans,
     zIndex: 10,

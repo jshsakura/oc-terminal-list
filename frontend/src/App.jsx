@@ -972,7 +972,10 @@ function App() {
           [TODO Phase 3] 비활성 탭의 WS 를 grace 후 close → tmux capture-pane 으로 scrollback 복원.
           현재는 모든 탭의 WS 가 항상 open 상태. 활성/비활성 구분은 fit/poll 같은 보조 작업에만 적용.
           탭 전환 시 xterm 은 그대로라 사이즈 jitter 없음, scrollback 도 그대로. */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
+      {/* 터미널이 사는 영역. 모바일 입력 도크가 이 안으로 음영 막을 포탈한다 —
+          헤더·탭바까지 덮이면 안 되므로 화면 전체가 아니라 **이 상자**가 기준이다. */}
+      <div id="iterm-terminal-area"
+           style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0, position: 'relative' }}>
 
           {/* 홈 — activeTabId === null 일 때만 visible. visibility 로 토글해 layout 안 흔들리게. */}
