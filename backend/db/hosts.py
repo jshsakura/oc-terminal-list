@@ -139,7 +139,10 @@ class HostMixin:
                 ).fetchone()
                 return int(row["cred_epoch"]) if row else None
             finally:
-                conn.close()
+                # ⚠️ `conn.close()` 가 아니다. 그것은 연결을 닫을 뿐 **풀에서 빼지 않아**
+                # `_pool_size` 가 줄지 않는다 → 풀 크기만큼 부르고 나면 그 다음 호출이
+                # `_pool.get()` 에서 영원히 막힌다(2026-08-27 데드락).
+                self._release_connection(conn)
         return await asyncio.to_thread(_get)
 
     async def revoke_host_credentials(self, host_id: str, username: str) -> int | None:
@@ -164,7 +167,7 @@ class HostMixin:
                 ).fetchone()
                 return int(row["cred_epoch"]) if row else None
             finally:
-                conn.close()
+                self._release_connection(conn)
         return await asyncio.to_thread(_bump)
 
     async def update_host_last_cwd(self, host_id: str, username: str, cwd: str | None) -> None:

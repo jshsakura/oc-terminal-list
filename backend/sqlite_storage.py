@@ -18,6 +18,9 @@ DEFAULT_DB_PATH = os.getenv("DB_PATH") or os.path.join(
 # 다음 반납까지 블로킹하므로(이벤트 루프 stall), 동시 폴링/탭복원이 겹치는 순간을 위해
 # 10 으로 헤드룸을 둔다. SQLite 커넥션은 가벼워 메모리 부담 미미. 환경변수로 튠 가능.
 _POOL_SIZE = int(os.getenv("SQLITE_POOL_SIZE", "10"))
+# 풀이 빌 때까지 기다리는 상한. 정상 쿼리는 밀리초 단위라 여기 걸린다면 그건 경합이
+# 아니라 **버그**다(반납 누락). 그럴 때 조용히 멈추는 대신 시끄럽게 실패해야 한다.
+_POOL_WAIT_TIMEOUT = float(os.getenv("SQLITE_POOL_WAIT_SEC", "10"))
 
 
 from db import schema
@@ -101,8 +104,23 @@ class SQLiteStorage(
                 conn = self._make_connection()
                 self._pool_size += 1
                 return conn
-        # 풀이 가득 차고 모두 사용 중 — 다음 반납을 블로킹 대기.
-        return self._pool.get()
+        # 풀이 가득 차고 모두 사용 중 — 다음 반납을 기다린다.
+        #
+        # ⚠️ **상한 없이 기다리지 않는다.** 반납을 빠뜨린 코드가 하나만 있어도(예:
+        # `_release_connection` 대신 `conn.close()`) 슬롯이 영영 안 돌아오고, 그때
+        # 무한 대기는 그것을 **조용한 전면 정지**로 키운다 — 이 호출은 to_thread 안에서
+        # 돌아 실행기 스레드까지 잡아먹으므로 저장소를 쓰는 모든 요청이 함께 멈춘다
+        # (2026-08-27 실제 사고: 종료 로그에 `Cancel 97 running task(s)`).
+        #
+        # 상한을 두면 같은 버그가 **시끄럽게** 드러난다. 이 저장소의 규칙 그대로 —
+        # 끝나지 않는 대기를 두지 않는다.
+        try:
+            return self._pool.get(timeout=_POOL_WAIT_TIMEOUT)
+        except queue.Empty as exc:
+            raise RuntimeError(
+                f"SQLite 연결 풀이 {_POOL_WAIT_TIMEOUT}초 동안 비어 있었습니다 — "
+                "반납되지 않은 연결이 있는지 확인하세요(_release_connection)."
+            ) from exc
 
     def _release_connection(self, conn: sqlite3.Connection) -> None:
         """conn 을 풀에 반납. 풀이 닫혔거나 풀이 가득 차면 실제로 close."""

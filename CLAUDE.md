@@ -341,6 +341,21 @@ after sending 'websocket.close'` 를 매일 7건씩 쌓고 있었다(닫히는 �
   소켓이 닫힌 뒤에 send 한다. 이 finally 는 run() 이 cancel 해서 도는 자리다.
 - `_ws_gone` 은 펌프를 **다 거둔 뒤에** 세운다. 그 전에 세우면 마지막 drain 이 버려진다.
 
+### 연결 반납은 `_release_connection` 만이 한다 (2026-08-27)
+
+`db/*.py` 의 쿼리는 `_get_connection()` 으로 빌리고 **반드시 `_release_connection()` 으로
+반납**한다. `conn.close()` 를 부르면 연결은 닫히지만 `_pool_size` 가 줄지 않고 큐에도 안
+돌아간다 — 풀 크기(10)만큼 부르고 나면 그 다음 호출이 `_pool.get()` 에서 막힌다.
+
+⚠️ 그 호출은 `asyncio.to_thread` 안에서 돌아 **실행기 스레드까지 잡아먹는다.** 그래서
+한 함수의 반납 누락이 저장소를 쓰는 **모든 요청의 정지**가 된다. 실측: 반납을 빠뜨린
+함수 하나(`get_host_cred_epoch`, itl 요청마다 호출된다)가 앱 전체를 세웠고, 종료 로그에
+`Cancel 97 running task(s)` 가 남았다(정상값은 1 — SSE 스트림 하나).
+
+- 풀 대기에는 상한이 있다(`SQLITE_POOL_WAIT_SEC`, 기본 10s). 같은 버그가 다시 나면
+  **조용한 정지 대신 시끄러운 실패**가 된다. 상한을 없애면 그 진단 경로가 사라진다.
+- `tests/test_sqlite_pool_leak.py` 가 `db/*.py` 를 훑어 직접 `conn.close()` 를 막는다.
+
 ## 로그는 "재접속했다" 가 아니라 "왜" 를 남긴다 (2026-08-20)
 
 이 저장소의 버그는 거의 다 재연결에 있는데(memory `project_ws_reconnect_watchdog`,
