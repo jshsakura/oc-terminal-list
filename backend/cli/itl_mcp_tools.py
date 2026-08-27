@@ -47,9 +47,14 @@ SESSION = os.environ.get("ITL_SESSION", "") or _from_tmux_env("ITL_SESSION")
 
 FANOUT_CONFIRM_THRESHOLD = 5
 MAX_TEXT_CHARS = 8000
-POLL_SEC = 2.0
-# 원격 상태 조회는 호스트당 SSH 왕복이다 — 2초마다 두드릴 일이 아니다.
-REMOTE_POLL_SEC = 5.0
+# 서버가 **한 번에** 붙잡는 시간. 더 기다려야 하면 이어서 다시 부른다.
+#
+# ⚠️ HTTP_TIMEOUT(30s)보다 짧아야 한다 — 길면 서버가 붙잡는 도중에 클라이언트가 먼저
+# 끊어서, 조건이 만족돼도 그 응답을 못 받는다. 그리고 이 저장소는 **오래 매달린 요청**으로
+# 이미 데었다(iOS 진행바·공유 HTTP/2 풀 wedge). 붙잡되 짧게 붙잡는다.
+SERVER_WAIT_MAX_SEC = 25
+# 서버가 안 붙잡을 때의 최소 간격 — 바쁜 루프 방지용 바닥이지 폴 주기가 아니다.
+_MIN_WAIT_GAP_SEC = 1.0
 # 원격 배달은 백엔드가 SSH 를 거는 시간까지 포함한다(itl_remote.HOST_DEADLINE=20s).
 # 여기가 짧으면 배달은 됐는데 실패로 읽고, 모델이 재시도해 같은 말이 두 번 들어간다.
 HTTP_TIMEOUT = 30
@@ -367,45 +372,35 @@ def tool_terminal_read(args):
 
 
 def tool_terminal_wait(args):
+    """조건이 될 때까지 기다린다 — **서버가 붙잡는다.**
+
+    예전에는 여기서 2초(로컬)·5초(원격)마다 다시 물었고, 원격은 그때마다 SSH 왕복이었다.
+    지금은 `/api/itl/wait` 한 번이면 되고, 서버는 상태가 **바뀔 때만** 깨어나 판정한다.
+    조용한 동안에는 양쪽 다 아무 일도 하지 않는다.
+
+    ⚠️ 서버는 한 번에 25초만 붙잡는다(HTTP 상한 30초 안쪽). 더 기다려야 하면 여기서 이어
+    부른다 — 끝나지 않는 요청을 만들지 않으면서 호출자에게는 한 번으로 보이게 한다.
+    25초마다 다시 부르는 것은 예전 2·5초 폴링과 다르다: 그 사이 **서버도 호출자도 아무
+    일도 하지 않고**, 특히 원격 SSH 왕복이 0이다.
+    """
     to = args["to"]
     until = args.get("until", "not_working")
     timeout_sec = int(args.get("timeout_sec", 120))
     start = time.monotonic()
     deadline = start + timeout_sec
-    # 상태 주소(`@working` 등)는 첫 해석부터 원격 상태를 물어봐야 한다. 안 그러면 원격이
-    # 아예 안 잡혀 has_remote 가 False 가 되고, "원격에 넘긴 일" 을 기다리는 호출이
-    # 로컬만 보고 즉시 끝난다 — 이 파일이 이미 한 번 밟은 사고와 같은 뿌리다.
-    initial = _resolve_targets(to, remote_status=_references_status_group(to))
-    if not initial:
-        raise ToolError(f"'{to}'에 해당하는 터미널이 없습니다. terminal_list로 주소를 확인하세요.")
-    # 원격이 하나라도 섞였으면 상태를 물어봐야 알 수 있고, 그 조회는 호스트당 SSH 왕복이라
-    # 폴 간격도 늘린다. 로컬만이면 예전과 똑같이 2초 폴이다.
-    has_remote = any(not t.get("sessionId") for t in initial)
-    poll_sec = REMOTE_POLL_SEC if has_remote else POLL_SEC
-    expected = {t.get("addr") for t in initial}
-    gone = set()
+
     while True:
-        matched = _resolve_targets(to, remote_status=has_remote or _references_status_group(to))
-        by_addr = {t.get("addr"): t for t in matched}
-        # Disappeared targets satisfy the condition (session-gone). Track once.
-        for addr in list(expected):
-            if addr not in by_addr:
-                gone.add(addr)
-        remaining = expected - gone
-        all_ok = all(_wait_reached(by_addr[a], until) for a in remaining if a in by_addr)
-        if all_ok:
-            elapsed = int(time.monotonic() - start)
-            payload = {"reached": True, "elapsed_sec": elapsed,
-                       "targets": _format_wait_targets(expected, gone, by_addr)}
+        left = max(1, int(deadline - time.monotonic()))
+        called_at = time.monotonic()
+        payload = _api("GET", "/api/itl/wait", params={
+            "to": to, "until": until,
+            "timeout_sec": min(left, SERVER_WAIT_MAX_SEC),
+        })
+        if payload.get("reached"):
             return json.dumps(payload, ensure_ascii=False)
         if time.monotonic() >= deadline:
-            elapsed = int(time.monotonic() - start)
-            payload = {"reached": False, "elapsed_sec": elapsed,
-                       "targets": _format_wait_targets(expected, gone, by_addr)}
-            pending = sorted(
-                a for a in remaining
-                if a in by_addr and not _wait_reached(by_addr[a], until)
-            )
+            by_addr = {t.get("addr"): t for t in payload.get("targets") or []}
+            pending = sorted(a for a, t in by_addr.items() if not _wait_reached(t, until))
             unknown = sorted(a for a in pending if by_addr[a].get("statusUnknown"))
             still = [a for a in pending if a not in unknown]
             notes = []
@@ -416,7 +411,10 @@ def tool_terminal_wait(args):
                 notes.append(f"상태를 확인할 수 없었습니다(호스트 응답 없음): {', '.join(unknown)}")
             note = ("\n" + "\n".join(notes)) if notes else ""
             return json.dumps(payload, ensure_ascii=False) + note
-        time.sleep(poll_sec)
+        # ⚠️ 서버가 붙잡지 않고 곧바로 답하면(구버전·오류) 여기가 **바쁜 루프**가 된다.
+        # 붙잡는 것이 정상이지만, 그 가정이 깨져도 초당 수천 번 두드리지는 않게 바닥을 둔다.
+        if time.monotonic() - called_at < _MIN_WAIT_GAP_SEC:
+            time.sleep(_MIN_WAIT_GAP_SEC)
 
 
 HANDLERS = {

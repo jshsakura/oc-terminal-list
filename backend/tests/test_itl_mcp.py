@@ -240,45 +240,6 @@ def test_terminal_whoami_sibling_count_excludes_self(mcp, monkeypatch):
 
 
 # --- terminal_wait behavior ------------------------------------------------
-def test_terminal_wait_immediate_satisfy_polls_once(mcp, monkeypatch):
-    server, tools = mcp
-    monkeypatch.setattr(tools, "SESSION", "s-me")
-    fake = FakeApi()
-    target = _target("2.1", "s-other")
-    target["status"] = "idle"  # not_working satisfied
-    fake.responses[("GET", "/api/itl/resolve")] = {"matched": [target]}
-    monkeypatch.setattr(tools, "_api", fake)
-    resp = server.handle(_call("terminal_wait", {"to": "2.1", "timeout_sec": 5}))
-    payload = json.loads(resp["result"]["content"][0]["text"])
-    assert payload["reached"] is True
-    assert payload["elapsed_sec"] == 0
-    # One GET /resolve for setup, one for the first poll.
-    assert sum(1 for c in fake.calls if c[0] == "GET") == 2
-
-
-def test_terminal_wait_timeout_is_not_error(mcp, monkeypatch):
-    server, tools = mcp
-    monkeypatch.setattr(tools, "SESSION", "s-me")
-    # Force monotonic clock to elapse past deadline on second read.
-    times = iter([0.0, 0.0, 100.0, 100.0, 100.0, 100.0])
-    monkeypatch.setattr(tools.time, "monotonic", lambda: next(times))
-    fake = FakeApi()
-    target = _target("2.1", "s-other")
-    target["status"] = "working"  # never satisfies not_working
-    fake.responses[("GET", "/api/itl/resolve")] = {"matched": [target]}
-    monkeypatch.setattr(tools, "_api", fake)
-    resp = server.handle(_call("terminal_wait", {"to": "2.1", "timeout_sec": 5, "until": "not_working"}))
-    text = resp["result"]["content"][0]["text"]
-    payload = json.loads(text.split("\n", 1)[0])  # tool appends '\n아직 working 중입니다...' suffix
-    assert payload["reached"] is False
-    assert resp["result"]["isError"] is False
-    assert "아직 working 중입니다" in text
-
-
-# --- terminal_wait on a REMOTE pane ---------------------------------------
-# 원격 pane 의 상태는 백엔드 워처가 볼 수 없다. 그 빈 상태를 "일 안 함" 으로 세면
-# 기다림이 0 초에 "완료" 를 돌려주고, 일을 넘긴 에이전트는 아무 결과도 없는 채로
-# 다음 단계로 넘어간다. 원격이 sendable 이 되면서 생긴 새 실패 모드다.
 def _remote_target(addr="3.1", tmux_session="mobile-a1", **extra):
     t = {
         "addr": addr, "tabIndex": 3, "paneIndex": 1,
@@ -289,48 +250,94 @@ def _remote_target(addr="3.1", tmux_session="mobile-a1", **extra):
     return t
 
 
-def test_terminal_wait_does_not_claim_done_for_unknown_remote_status(mcp, monkeypatch):
+def test_terminal_wait_asks_the_server_to_hold(mcp, monkeypatch):
+    """대기는 이제 **서버가 붙잡는다.** 여기서 상태를 되묻지 않는다 —
+    예전에는 2초(로컬)·5초(원격)마다 다시 물었고 원격은 그때마다 SSH 왕복이었다."""
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/wait")] = {
+        "reached": True, "elapsed_sec": 0,
+        "targets": [{"addr": "2.1", "status": "idle"}],
+    }
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_wait", {"to": "2.1", "timeout_sec": 5}))
+    payload = json.loads(resp["result"]["content"][0]["text"])
+    assert payload["reached"] is True
+    gets = [c for c in fake.calls if c[0] == "GET"]
+    assert len(gets) == 1                       # 한 번이면 된다
+    assert gets[0][1] == "/api/itl/wait"
+    assert "/resolve" not in [c[1] for c in fake.calls]      # 되묻지 않는다
+
+
+def test_terminal_wait_never_holds_longer_than_the_http_timeout(mcp, monkeypatch):
+    """⚠️ 서버가 붙잡는 시간이 HTTP 상한보다 길면, 조건이 만족돼도 그 응답을 못 받는다.
+    그리고 이 저장소는 오래 매달린 요청으로 이미 데었다(공유 HTTP/2 풀 wedge)."""
+    server, tools = mcp
+    assert tools.SERVER_WAIT_MAX_SEC < tools.HTTP_TIMEOUT
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/wait")] = {"reached": True, "elapsed_sec": 0, "targets": []}
+    monkeypatch.setattr(tools, "_api", fake)
+    server.handle(_call("terminal_wait", {"to": "2.1", "timeout_sec": 600}))
+    asked = [c for c in fake.calls if c[0] == "GET"][0]
+    assert int(asked[2]["timeout_sec"]) <= tools.SERVER_WAIT_MAX_SEC
+
+
+def test_terminal_wait_continues_until_its_own_deadline(mcp, monkeypatch):
+    """서버가 한 번에 25초만 붙잡으므로, 더 기다려야 하면 이어 부른다."""
+    server, tools = mcp
+    monkeypatch.setattr(tools, "SESSION", "s-me")
+    times = iter([0.0, 0.0, 1.0, 1.0, 100.0, 100.0, 100.0, 100.0])
+    monkeypatch.setattr(tools.time, "monotonic", lambda: next(times))
+    fake = FakeApi()
+    fake.responses[("GET", "/api/itl/wait")] = {
+        "reached": False, "elapsed_sec": 25,
+        "targets": [{"addr": "2.1", "status": "working"}],
+    }
+    monkeypatch.setattr(tools, "_api", fake)
+    resp = server.handle(_call("terminal_wait", {"to": "2.1", "timeout_sec": 60}))
+    text = resp["result"]["content"][0]["text"]
+    assert len([c for c in fake.calls if c[0] == "GET"]) >= 2
+    assert "아직 working 중입니다" in text
+
+
+def test_terminal_wait_timeout_is_not_error(mcp, monkeypatch):
     server, tools = mcp
     monkeypatch.setattr(tools, "SESSION", "s-me")
     times = iter([0.0, 0.0, 100.0, 100.0, 100.0, 100.0])
     monkeypatch.setattr(tools.time, "monotonic", lambda: next(times))
     fake = FakeApi()
-    fake.responses[("GET", "/api/itl/resolve")] = {"matched": [_remote_target()]}
+    fake.responses[("GET", "/api/itl/wait")] = {
+        "reached": False, "elapsed_sec": 25,
+        "targets": [{"addr": "2.1", "status": "working"}],
+    }
     monkeypatch.setattr(tools, "_api", fake)
-    resp = server.handle(_call("terminal_wait", {"to": "3.1", "timeout_sec": 5}))
+    resp = server.handle(_call("terminal_wait", {"to": "2.1", "timeout_sec": 5}))
     text = resp["result"]["content"][0]["text"]
     payload = json.loads(text.split("\n", 1)[0])
     assert payload["reached"] is False
-    assert payload["targets"] == [{"addr": "3.1", "status": "unknown"}]
-    assert "상태를 확인할 수 없었습니다" in text
+    assert resp["result"]["isError"] is False
+    assert "아직 working 중입니다" in text
 
 
-def test_terminal_wait_asks_the_host_when_a_target_is_remote(mcp, monkeypatch):
-    """원격이 섞였으면 상태를 물어봐야 알 수 있다 — 그 조회를 요청했는지 잠근다."""
+def test_terminal_wait_says_unknown_rather_than_done(mcp, monkeypatch):
+    """⚠️ "모름" 을 "일 안 함" 으로 세면 기다림이 0초에 거짓 완료로 끝난다.
+    판정은 서버로 옮겼지만 **모델에게 모른다고 말하는 것**은 여전히 여기 몫이다."""
     server, tools = mcp
     monkeypatch.setattr(tools, "SESSION", "s-me")
+    times = iter([0.0, 0.0, 100.0, 100.0, 100.0, 100.0])
+    monkeypatch.setattr(tools.time, "monotonic", lambda: next(times))
     fake = FakeApi()
-    fake.responses[("GET", "/api/itl/resolve")] = {
-        "matched": [_remote_target(status="idle", statusUnknown=False)],
+    fake.responses[("GET", "/api/itl/wait")] = {
+        "reached": False, "elapsed_sec": 25,
+        "targets": [{"addr": "3.1", "status": None, "statusUnknown": True}],
     }
     monkeypatch.setattr(tools, "_api", fake)
     resp = server.handle(_call("terminal_wait", {"to": "3.1", "timeout_sec": 5}))
-    payload = json.loads(resp["result"]["content"][0]["text"])
-    assert payload["reached"] is True
-    polls = [c for c in fake.calls if c[0] == "GET"]
-    assert polls[0][2].get("remote_status") is None          # 첫 조회(대상 파악)는 값싸게
-    assert polls[1][2]["remote_status"] == "true"            # 그 뒤 폴은 물어본다
-
-
-def test_terminal_wait_local_only_keeps_the_cheap_poll(mcp, monkeypatch):
-    """로컬만이면 예전과 똑같아야 한다 — 공짜 조회에 SSH 를 얹지 않는다."""
-    server, tools = mcp
-    monkeypatch.setattr(tools, "SESSION", "s-me")
-    fake = FakeApi()
-    fake.responses[("GET", "/api/itl/resolve")] = {"matched": [_target("2.1", "s-other")]}
-    monkeypatch.setattr(tools, "_api", fake)
-    server.handle(_call("terminal_wait", {"to": "2.1", "timeout_sec": 5}))
-    assert all(c[2].get("remote_status") is None for c in fake.calls if c[0] == "GET")
+    text = resp["result"]["content"][0]["text"]
+    assert json.loads(text.split("\n", 1)[0])["reached"] is False
+    assert "상태를 확인할 수 없었습니다" in text
 
 
 def test_terminal_read_accepts_a_remote_pane(mcp, monkeypatch):

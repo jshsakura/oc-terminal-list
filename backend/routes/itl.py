@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+import agent_status_events
 import itl_remote
 from _deps import verify_itl_token
 from agent_status import detect_status, display_title, is_agent_pane
@@ -40,6 +41,10 @@ from sqlite_storage import storage
 from tmux_manager import tmux_manager
 
 logger = logging.getLogger(__name__)
+
+# 한 번에 자는 최대 시간. 신호를 놓쳐도 이만큼 뒤에는 다시 판정한다 —
+# 이벤트 하나에 전부를 걸지 않는 안전망이다(놓침이 곧 영구 대기가 되면 안 된다).
+_WAIT_SLICE_SEC = 30.0
 
 router = APIRouter(prefix="/api/itl", tags=["itl"])
 
@@ -162,10 +167,33 @@ async def _fill_remote_status(targets: list[dict], username: str) -> list[dict]:
     })
     if not host_ids:
         return targets
-    fetched = await asyncio.gather(*[
-        itl_remote.list_pane_status(host_id, username) for host_id in host_ids
-    ])
-    return _apply_status_tables(targets, dict(zip(host_ids, fetched, strict=True)))
+
+    # 리모트가 붙어 있는 호스트는 **이미 상태를 밀어 주고 있다** — 물어볼 이유가 없다.
+    # 그 호스트만 빼고 나머지에만 SSH 를 건다.
+    from remote_agent import ingest
+    streamed = {h: _table_from_stream(ingest.snapshot(h)) for h in host_ids
+                if ingest.has_live_state(h)}
+    need_ssh = [h for h in host_ids if h not in streamed]
+
+    tables = dict(streamed)
+    if need_ssh:
+        fetched = await asyncio.gather(*[
+            itl_remote.list_pane_status(host_id, username) for host_id in need_ssh
+        ])
+        tables.update(dict(zip(need_ssh, fetched, strict=True)))
+    return _apply_status_tables(targets, tables)
+
+
+def _table_from_stream(snapshot: dict) -> dict:
+    """리모트가 밀어 준 상태 → `list_pane_status` 와 **같은 모양**(세션명 → (명령, 타이틀)).
+
+    모양을 맞추는 이유: 아래 `_apply_status_tables` 가 두 경로의 단일 판정이다. 여기서
+    다른 모양을 내면 그 판정이 갈라지고, 갈라지면 한쪽이 "모름" 을 "일 안 함" 으로 접는다.
+    """
+    return {
+        session: (info.get("command") or "", info.get("rawTitle") or "")
+        for session, info in (snapshot or {}).items()
+    }
 
 
 def _apply_status_tables(targets: list[dict], by_host: dict[str, dict]) -> list[dict]:
@@ -235,6 +263,70 @@ async def itl_targets(
     if fmt == "table":
         return {"table": format_table(targets, from_session)}
     return {"targets": targets}
+
+
+@router.get("/wait")
+async def itl_wait(
+    to: str = Query(..., max_length=200),
+    until: str = Query("not_working", pattern="^(not_working|idle|permission)$"),
+    timeout_sec: int = Query(25, ge=1, le=60),
+    from_session: str | None = Query(None),
+    username: str = Depends(verify_itl_token),
+):
+    """조건이 될 때까지 **서버가 붙잡는다.** 호출자는 한 번만 부른다.
+
+    예전에는 호출자가 2초(로컬)·5초(원격)마다 다시 물었고, 원격은 그때마다 SSH 왕복이었다.
+    지금은 상태가 **바뀔 때만** 깨어나 다시 판정한다 — 조용한 동안에는 아무 일도 안 일어난다.
+
+    ⚠️ **짧게 붙잡는다**(최대 60초, 호출자는 25초를 쓴다). 오래 매달린 요청은 이 저장소가
+    이미 겪은 고장이다 — 공유 HTTP/2 풀을 물고 늘어지고 iOS 는 그걸 로딩으로 센다.
+    상한에 닿으면 `reached: false` 로 돌려주고 호출자가 이어 부를지 정한다.
+    """
+    deadline = time.monotonic() + timeout_sec
+    start = time.monotonic()
+    expected: set[str] | None = None
+    gone: set[str] = set()
+
+    while True:
+        targets = await _targets_for(username)
+        needs_remote = any(not t.get("sessionId") and t.get("hostId") for t in targets)
+        if needs_remote:
+            targets = await _fill_remote_status(targets, username)
+        matched = resolve(targets, to, from_session)
+        by_addr = {t.get("addr"): t for t in matched}
+        if expected is None:
+            if not matched:
+                raise HTTPException(status_code=404, detail=f"'{to}'에 해당하는 터미널이 없습니다")
+            expected = set(by_addr)
+        # 사라진 pane 은 조건을 만족한 것으로 친다(세션 종료).
+        gone |= {addr for addr in expected if addr not in by_addr}
+        remaining = expected - gone
+        if all(_wait_reached(by_addr[a], until) for a in remaining if a in by_addr):
+            return {"reached": True, "elapsed_sec": int(time.monotonic() - start),
+                    "targets": [by_addr[a] for a in sorted(expected) if a in by_addr]}
+
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return {"reached": False, "elapsed_sec": int(time.monotonic() - start),
+                    "targets": [by_addr[a] for a in sorted(expected) if a in by_addr]}
+        # 변화가 올 때까지 잔다. 안 오면 상한에서 깬다 — 폴링이 아니다.
+        await agent_status_events.wait_for_change(min(left, _WAIT_SLICE_SEC))
+
+
+def _wait_reached(target: dict, until: str) -> bool:
+    """조건 만족 여부 — **모르는 것은 만족이 아니다.**
+
+    ⚠️ 원격 pane 의 status 는 비어 있을 수 있고, 빈 값을 "일 안 함" 으로 읽으면 기다림이
+    0초에 거짓 완료로 끝난다. 이 저장소가 세 번 밟은 사고다.
+    """
+    if target.get("statusUnknown"):
+        return False
+    if target.get("statusGone"):
+        return True
+    status = target.get("status")
+    if until == "not_working":
+        return status is not None and status != "working"
+    return status == until
 
 
 @router.get("/resolve")

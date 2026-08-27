@@ -121,13 +121,31 @@ def test_the_mirror_in_the_mcp_layer_agrees_with_the_grammar():
         assert mod._references_status_group(expr) == references_status_group(expr), expr
 
 
-def test_wait_resolves_status_addresses_with_remote_status():
-    """`@working` 을 기다리는데 원격이 안 잡히면 0초에 '완료' 가 돌아온다."""
-    src = (_ROOT / "cli" / "itl_mcp_tools.py").read_text(encoding="utf-8")
-    body = src[src.index("def tool_terminal_wait"):]
-    assert re.search(r"initial = _resolve_targets\(to, remote_status=", body), (
-        "첫 해석이 원격 상태 없이 돌아 has_remote 판정 자체가 틀린다"
-    )
+def test_wait_fills_remote_status_before_matching():
+    """`@working` 을 기다리는데 원격 상태를 안 채우면 0초에 '완료' 가 돌아온다.
+
+    ⚠️ 판정이 MCP 클라이언트에서 **서버(`/api/itl/wait`)로 옮겨졌다** — 규칙은 그대로다:
+    매칭 **전에** 채운다. 채우기가 뒤로 가면 원격은 status 가 비어 어떤 상태 그룹에도
+    안 걸리고, 그러면 기다림이 대상 0개로 즉시 끝난다.
+    """
+    src = (_ROOT / "routes" / "itl.py").read_text(encoding="utf-8")
+    body = src[src.index("async def itl_wait("):src.index("def _wait_reached(")]
+    fill_at = body.index("_fill_remote_status")
+    match_at = body.index("resolve(targets, to, from_session)")
+    assert fill_at < match_at, "채우기가 매칭보다 뒤에 있다 — 원격이 통째로 빠진다"
+
+
+def test_wait_never_counts_unknown_as_satisfied():
+    """⚠️ 이 저장소가 세 번 밟은 사고. 원격 status 는 비어 있을 수 있고, 빈 값을
+    '일 안 함' 으로 읽으면 기다림이 0초에 거짓 완료로 끝난다."""
+    import importlib
+    itl_route = importlib.import_module("routes.itl")
+    assert itl_route._wait_reached({"statusUnknown": True}, "not_working") is False
+    assert itl_route._wait_reached({"status": None}, "not_working") is False
+    assert itl_route._wait_reached({"status": "working"}, "not_working") is False
+    assert itl_route._wait_reached({"status": "idle"}, "not_working") is True
+    # 사라진 pane 은 만족이다 — 세션이 끝난 것이므로.
+    assert itl_route._wait_reached({"statusGone": True}, "not_working") is True
 
 
 def test_the_schemas_are_still_valid_json_shaped():
