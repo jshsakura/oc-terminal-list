@@ -189,7 +189,11 @@ const HostAgentSection = ({ hostId, authHeaders, t }) => {
               : installed ? (t?.('remoteReinstall') || '다시 설치') : (t?.('agentInstall') || '연결하기')}
           </Button>
         )}
-        {itl.setup_command && !ready && (
+        {/* ⚠️ 셋업 명령 복사는 **자동 설치가 안 될 때의 탈출구**다. 깔린 뒤에도 남겨
+            두면 "설치했는데 왜 아직 명령을 복사하라고 하나" 가 된다 — 깔린 호스트에
+            필요한 것은 다시 설치와 제거뿐이다. `ready` 가 아니라 `installed` 로
+            가르는 이유: 설치 직후엔 아직 안 붙어서 ready 가 false 다. */}
+        {itl.setup_command && !installed && (
           <Button variant="ghost" type="button" icon={copied ? Check : Copy} onClick={copySetup}>
             {copied ? (t?.('itlCopied') || '복사됨') : (t?.('itlCopySetup') || '셋업 명령 복사')}
           </Button>
@@ -224,7 +228,7 @@ const HostAgentSection = ({ hostId, authHeaders, t }) => {
 
 const Benefit = ({ icon: Icon, text }) => (
   <li style={styles.benefit}>
-    <Icon size={13} strokeWidth={2} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--ui-accent)' }} />
+    <Icon size={12} strokeWidth={2} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--ui-accent)' }} />
     <span>{text}</span>
   </li>
 );
@@ -232,23 +236,27 @@ const Benefit = ({ icon: Icon, text }) => (
 const styles = {
   wrap: { display: 'flex', flexDirection: 'column', gap: space['3'] },
   pitch: {
-    display: 'flex', flexDirection: 'column', gap: space['2'],
-    padding: space['3'],
+    display: 'flex', flexDirection: 'column', gap: space['1.5'],
+    padding: space['2'],
     borderRadius: radius.md,
     // 강조는 하되 경고는 아니다 — 안 깐 것은 고장이 아니라 아직 안 한 선택이다.
     border: '1px solid color-mix(in srgb, var(--ui-accent) 30%, transparent)',
     background: 'color-mix(in srgb, var(--ui-accent) 7%, transparent)',
   },
-  pitchTitle: { fontSize: fontSize['16'], fontWeight: fontWeight.semibold, color: color.text },
-  pitchBody: { fontSize: fontSize['13'], color: color.subtext, lineHeight: 1.6 },
+  /* ⚠️ 한 번 과하게 갔다가 되돌렸다. "중요한 기능이니 크게" 를 **글자 크기**로 읽어
+     16px 제목을 얹었더니 설정 모달 안에서 광고처럼 보였다. 중요하다는 것은 **무엇을
+     잃고 있는지 제대로 적는다**는 뜻이지 활자를 키운다는 뜻이 아니다 — 내용은 그대로
+     두고 크기만 본문(13px)으로 내린다. */
+  pitchTitle: { fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: color.text },
+  pitchBody: { fontSize: fontSize['12'], color: color.subtext, lineHeight: 1.55 },
   benefits: {
-    display: 'flex', flexDirection: 'column', gap: space['1.5'],
+    display: 'flex', flexDirection: 'column', gap: space['1'],
     margin: 0, padding: 0, listStyle: 'none',
-    fontSize: fontSize['13'], color: color.text, lineHeight: 1.5,
+    fontSize: fontSize['12'], color: color.subtext, lineHeight: 1.45,
   },
-  benefit: { display: 'flex', gap: space['2'], alignItems: 'flex-start' },
-  pitchFoot: { fontSize: fontSize['11'], color: color.muted, lineHeight: 1.6 },
-  statusLabel: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: fontSize['13'] },
+  benefit: { display: 'flex', gap: space['1.5'], alignItems: 'flex-start' },
+  pitchFoot: { fontSize: fontSize['11'], color: color.muted, lineHeight: 1.5 },
+  statusLabel: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: fontSize['12'] },
   half: { display: 'flex', flexDirection: 'column', gap: space['1'] },
   muted: {
     display: 'inline-flex', alignItems: 'center', gap: '6px',

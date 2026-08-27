@@ -235,8 +235,11 @@ describe('HostEditor', () => {
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/hosts/h1/agent-status', expect.objectContaining({ headers: expect.anything() }));
     /* 두 번 묻지 않는다 — 예전에는 구획이 둘이라 편집기를 열 때마다 SSH 왕복이 두 번이었다. */
-    const asked = fetchMock.mock.calls.filter(([u]) => /agent-status|remote-status|itl-status/.test(String(u)));
+    const asked = fetchMock.mock.calls.filter(([u]) => /agent-status/.test(String(u)));
     expect(asked).toHaveLength(1);
+    /* 반쪽만 묻는 길은 걷어냈다 — 남아 있으면 그걸 부른 화면이 반쪽 상태를 보고
+       "준비됨" 이라고 적는다. */
+    expect(fetchMock.mock.calls.some(([u]) => /remote-status|itl-status/.test(String(u)))).toBe(false);
     vi.unstubAllGlobals();
   });
 

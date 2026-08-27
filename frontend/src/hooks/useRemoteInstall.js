@@ -3,7 +3,12 @@ import apiFetch from '../utils/apiFetch';
 import { authHeaders } from '../utils/auth';
 
 /**
- * 호스트 카드에서 **바로** 리모트를 설치한다.
+ * 호스트 카드에서 **바로** 연결한다(리모트 + itl).
+ *
+ * ⚠️ 한때 `remote-install` 만 불렀다 — 카드에서 깔면 **반쪽만** 깔렸다는 뜻이다.
+ * 리모트만 있으면 그 호스트의 에이전트는 `itl` 이 없어 답장도 호출도 못 한다. 호스트
+ * 편집기의 버튼과 **같은 곳**(`agent-setup`)으로 간다. 설치 경로가 둘이면 어느
+ * 버튼을 눌렀는지에 따라 결과가 달라지는데, 화면에는 그 차이가 보이지 않는다.
  *
  * ⚠️ 설치는 SSH 로 파일을 얹고 서비스를 띄우는 일이라 수십 초까지 걸린다. 그동안 아무
  * 표시가 없으면 사용자는 다시 누르고, 그러면 같은 설치가 겹쳐 돈다 — 진행 중인 호스트를
@@ -23,8 +28,8 @@ const useRemoteInstall = (onDone) => {
     setBusyHostId(hostId);
     setFailedHostId(null);
     try {
-      const res = await apiFetch(`/api/hosts/${hostId}/remote-install`, {
-        method: 'POST', headers: authHeaders(), timeoutMs: 90000,
+      const res = await apiFetch(`/api/hosts/${hostId}/agent-setup`, {
+        method: 'POST', headers: authHeaders(), timeoutMs: 120000,
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await new Promise((done) => { setTimeout(done, SETTLE_MS); });

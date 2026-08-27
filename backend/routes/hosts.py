@@ -120,9 +120,11 @@ async def update_host_last_cwd(
     return {"id": host_id, "last_cwd": (request.cwd or "").strip() or None}
 
 
-@router.get("/api/hosts/{host_id}/remote-status")
-async def get_host_remote_status(host_id: str, username: str = Depends(verify_auth_token)):
+async def get_host_remote_status(host_id: str, username: str) -> dict:
     """리모트가 이 호스트에 깔려 있는가 · 돌고 있는가 · 지금 붙어 있는가.
+
+    ⚠️ **라우트가 아니라 내부 함수다.** 공개 표면은 `agent-status` 하나뿐 — 리모트만
+    묻는 길이 따로 있으면 그걸 부른 화면은 **반쪽 상태**를 보고 "준비됨" 이라고 적는다.
 
     ⚠️ **문서 정정: SSH 폴백은 없다.** 예전엔 "안 깔아도 백엔드가 SSH 로 관찰자를
     띄우는 경로가 그대로 있다" 였고 화면도 그렇게 적었는데, 그 경로를 없앤 뒤로 그건
@@ -163,9 +165,12 @@ async def get_host_remote_status(host_id: str, username: str = Depends(verify_au
     return status
 
 
-@router.post("/api/hosts/{host_id}/remote-install")
-async def install_host_remote(host_id: str, username: str = Depends(verify_auth_token)):
+async def install_host_remote(host_id: str, username: str) -> dict:
     """리모트를 이 호스트에 얹는다. 사람이 누를 때만 일어난다.
+
+    ⚠️ **라우트가 아니라 내부 함수다.** 공개 표면은 `agent-setup` 하나뿐 — 리모트만
+    까는 길이 따로 있으면 그 버튼으로 깐 호스트는 `itl` 이 없어 답장을 못 한다.
+    실제로 홈 카드의 설치 버튼이 그 길로 가고 있었다(반쪽 설치).
 
     자격증명은 **stdin 으로만** 간다 — 명령 문자열은 원격 `ps` 에 그대로 보인다.
     """
@@ -724,40 +729,6 @@ async def list_host_tmux_sessions(
     if payload.get("error"):
         raise HTTPException(status_code=500, detail=payload["error"])
     return payload
-
-
-@router.get("/api/hosts/{host_id}/itl-status")
-async def get_host_itl_status(host_id: str, username: str = Depends(verify_auth_token)):
-    """원격 호스트의 itl CLI 설치 상태 + 수동 셋업 명령(비밀 미포함).
-
-    - installed: ~/.local/bin/itl 파일 존재
-    - pane_path: login shell(tmux pane 과 동일한 시작 방식)에서 itl 이 PATH 에 잡히는지
-    """
-    from host_common import resolve_host_with_secrets
-    from itl_remote_setup import remote_itl_status
-    host, secrets = await resolve_host_with_secrets(host_id, username)
-    try:
-        return await remote_itl_status(host, secrets)
-    except Exception as e:
-        logger.warning("itl-status failed (%s): %s", host_id, e)
-        raise HTTPException(status_code=500, detail="itl 상태 조회에 실패했습니다")
-
-
-@router.post("/api/hosts/{host_id}/itl-setup")
-async def setup_host_itl(host_id: str, username: str = Depends(verify_auth_token)):
-    """원격 호스트 ~/.local/bin/itl 영구 설치(멱등) + ~/.profile PATH 정리.
-
-    CLI 본문은 배포 저장소의 backend/cli/itl 을 요청 시 읽어 stdin 으로 흘려보낸다
-    — 사용자 입력이 원격 셸에 들어가는 경로가 없고, 비밀도 디스크에 안 남는다.
-    """
-    from host_common import resolve_host_with_secrets
-    from itl_remote_setup import install_remote_itl
-    host, secrets = await resolve_host_with_secrets(host_id, username)
-    try:
-        return await install_remote_itl(host, secrets)
-    except Exception as e:
-        logger.warning("itl-setup failed (%s): %s", host_id, e)
-        raise HTTPException(status_code=500, detail="itl 설치에 실패했습니다")
 
 
 # --- 한 기능의 두 반쪽: itl + 리모트 ---------------------------------------------
