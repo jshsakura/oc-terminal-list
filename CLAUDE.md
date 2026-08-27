@@ -622,7 +622,9 @@ Fires on the watcher's `working → not-working` transition (`completed: true`),
 - ⚠️ **"모름" 을 "일 안 함" 으로 세지 마라.** 원격 pane 의 status 는 워처가 못 봐서 비어
   있다. 빈 값을 만족으로 읽어 `terminal_wait` 가 0초에 "완료" 를 준 사고가 세 번 났다.
   상태 그룹 주소는 **매칭 전에** 상태를 채운다(`remote_status`).
-- **답을 바꾸는 인자는 자동으로 켠다** — 거른 목록은 상태에 대한 단언이다.
+- **원격 상태는 기본으로 채운다** — 거른 목록은 상태에 대한 단언이다. 옵트인이던
+  이유(호스트당 SSH 왕복)는 리모트 전환으로 사라졌고, 꺼 두면 목록이 원격을 전부
+  `?` 로 보여 **고장으로 읽힌다.** route·CLI·MCP 스키마·MCP 도구가 함께 움직인다.
 - **세 곳이 함께 움직인다**: `routes/itl.py` · `cli/itl` · `cli/itl_mcp_tools.py`.
   skip 사유든 조회 인자든 한쪽만 늘리면 사용자 화면에 슬러그가 그대로 나온다.
 - **호스트당 왕복 하나.** `_HostChannels` 가 상태 조회부터 배달까지 채널을 재사용하고,

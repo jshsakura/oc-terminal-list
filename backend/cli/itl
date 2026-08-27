@@ -101,11 +101,11 @@ def _request(method, path, params=None, body=None):
 
 
 def cmd_list(args):
-    # `--remote` 는 원격 pane 의 상태까지 물어본다(호스트당 SSH 한 번). 기본은 끈다 —
-    # 목록은 값싸야 하고, 원격 상태는 STATE 칸의 `?` 가 "모른다" 로 정직하게 말해 준다.
-    params = {"from_session": SESSION}
-    if args.remote:
-        params["remote_status"] = "true"
+    # 원격 상태는 **항상** 채운다. `--remote` 로 옵트인이던 시절의 이유는 그 채우기가
+    # 호스트당 SSH 왕복이었다는 것뿐인데, 지금은 리모트가 밀어 준 것을 읽는 메모리
+    # 조회다. 끈 채로 두면 원격이 전부 `?` 로 보이고, 사용자에게 그건 "안 물어봤다" 가
+    # 아니라 **고장** 으로 읽힌다.
+    params = {"from_session": SESSION, "remote_status": "true"}
     if args.json:
         print(json.dumps(_request("GET", "/api/itl/targets", params)["targets"],
                          ensure_ascii=False, indent=1))
@@ -194,9 +194,10 @@ def main():
 
     p_list = sub.add_parser("list", help="열려 있는 터미널과 그 주소")
     p_list.add_argument("--json", action="store_true")
+    # 이제 기본 동작이라 아무것도 안 한다. 받아만 두는 이유: 에이전트 프롬프트와 셸
+    # 히스토리에 이미 적혀 있고, 모르는 인자로 죽는 것보다 조용히 통과하는 게 낫다.
     p_list.add_argument("-r", "--remote", action="store_true",
-                        help="원격 pane 의 상태까지 조회한다(호스트당 SSH 한 번). "
-                             "STATE 의 `?` 는 물어보지 않았다는 뜻이다")
+                        help="(더 이상 필요 없음 — 원격 상태는 항상 채운다)")
     p_list.set_defaults(func=cmd_list)
 
     sub.add_parser("who", help="이 터미널의 주소").set_defaults(func=cmd_who)

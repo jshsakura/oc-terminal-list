@@ -227,7 +227,7 @@ async def itl_targets(
     status: str | None = Query(None, pattern="^(working|idle|permission)$"),
     command: str | None = Query(None, max_length=64),
     exclude_self: bool = Query(False),
-    remote_status: bool = Query(False),
+    remote_status: bool = Query(True),
     username: str = Depends(verify_itl_token),
 ):
     """열려 있는 터미널 목록. `fmt=table` 은 CLI 가 그대로 출력한다.
@@ -235,8 +235,11 @@ async def itl_targets(
     `scope=same_tab` 은 호출자가 속한 탭으로 좁힌다 — from_session 이 없으면
     좁힐 기준이 없으므로 422 로 명확히 알린다.
 
-    `remote_status=1` 은 원격 pane 의 상태까지 채운다(호스트당 SSH 한 번). 기본은 끈다 —
-    목록 조회는 값싸야 한다.
+    `remote_status` 는 **기본이 켜짐**이다. 예전엔 껐다 — 채우기가 호스트당 SSH 왕복
+    이었기 때문이다. 지금은 리모트가 밀어 준 것을 읽는 **메모리 조회**라 켜 둘 이유만
+    있다(실측: 원격 15 pane 을 채우고도 목록 전체가 0.1초). 끄면 원격이 전부 `?` 로
+    보이는데, 그건 "모른다" 가 아니라 **안 물어봤다** 이면서 화면에서는 구별되지 않는다.
+    끄는 길은 남겨 둔다(`remote_status=0`) — 낡은 호출자를 깨뜨리지 않으려고.
     """
     if scope == "same_tab" and not from_session:
         raise HTTPException(
@@ -324,31 +327,22 @@ def _wait_reached(target: dict, until: str) -> bool:
 async def itl_resolve(
     to: str = Query(...),
     from_session: str | None = Query(None),
-    remote_status: bool = Query(False),
+    remote_status: bool = Query(True),
     username: str = Depends(verify_itl_token),
 ):
     """주소가 어디로 가는지 미리 본다 — 보내기 전에 확인용(dry-run).
 
-    `remote_status=1` 은 맞은 pane 이 원격일 때 그 상태까지 채운다(호스트당 SSH 한 번).
-    기다림(`terminal_wait`)이 이걸 쓴다 — 상태를 모르는 채로 기다리면 즉시 끝나버린다.
+    ⚠️ **채우기는 언제나 매칭보다 먼저다.** `@working` 처럼 주소가 상태로 대상을 고르면,
+    상태가 빈 원격 pane 은 어떤 그룹에도 안 맞아 **통째로 조용히 빠진다.**
 
-    ⚠️ **채우기가 매칭보다 먼저여야 하는 경우가 있다.** `@working` 처럼 주소가 상태로
-    대상을 고르면, 상태가 빈 원격 pane 은 어떤 그룹에도 안 맞아 **통째로 조용히 빠진다** —
-    `remote_status=1` 을 줘도 그랬다(채우기가 매칭 뒤였으므로). `/targets` 는 이미
-    "채우기가 필터보다 먼저" 인데 여기만 반대였다.
-
-    그 외 주소(번호·이름·명령)는 매칭에 상태가 필요 없으므로 **맞은 것만** 채운다 —
-    `terminal_wait` 가 원격 pane 하나를 5초마다 폴링하는데, 그걸 전체 호스트 SSH 로
-    바꾸면 폴링 비용이 호스트 수만큼 곱해진다.
+    한때는 "상태 주소일 때만 전체를 채우고, 그 외에는 맞은 것만" 이라는 두 갈래였다.
+    채우기가 호스트당 SSH 왕복이던 시절의 절약인데, 지금은 메모리 조회라 아낄 것이
+    없다 — 그리고 갈래가 둘이면 그중 하나만 틀리는 사고가 실제로 났다.
     """
     targets = await _targets_for(username)
-    if remote_status and references_status_group(to):
+    if remote_status:
         targets = await _fill_remote_status(targets, username)
-        return {"matched": resolve(targets, to, from_session)}
-    matched = resolve(targets, to, from_session)
-    if remote_status and matched:
-        matched = await _fill_remote_status(matched, username)
-    return {"matched": matched}
+    return {"matched": resolve(targets, to, from_session)}
 
 
 @router.get("/read")

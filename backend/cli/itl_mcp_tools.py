@@ -126,34 +126,15 @@ def _is_self(target):
     return target.get("sessionId") == SESSION or target.get("tmuxSession") == SESSION
 
 
-_STATUS_GROUPS = ("working", "idle", "permission")
-
-
-def _references_status_group(to):
-    """주소가 pane 의 **상태**로 대상을 고르는가? (`@working` `@idle` `@permission`)
-
-    백엔드 `itl_targets.references_status_group` 의 거울이다. 여기서 판정하는 이유는
-    이 값이 "원격 상태를 물어봐야 답이 맞는가" 를 결정하기 때문이다 — 안 물어보면
-    상태가 빈 원격 pane 이 통째로 빠져서, 호출자는 "원격은 안 돌고 있다" 는 **틀린 답**을
-    받는다. 불완전한 답이 아니라 틀린 답이다.
-    """
-    if not to:
-        return False
-    raw = str(to).strip()
-    pos = max(raw.rfind("."), raw.rfind(":"))
-    parts = [raw] if pos < 0 else [raw[:pos].strip(), raw[pos + 1:].strip()]
-    return any(p.startswith("@") and p[1:].strip().lower() in _STATUS_GROUPS for p in parts)
-
-
-def _resolve_targets(to, remote_status=False):
+def _resolve_targets(to, remote_status=True):
     """Resolve `to` against the backend. Raises ToolError on backend failure.
 
-    `remote_status=True` 는 원격 pane 의 상태까지 채워 달라고 요청한다(호스트당 SSH 왕복
-    한 번) — 기다림에만 쓴다.
+    원격 pane 의 상태는 **기본으로 채운다.** 옵트인이던 시절의 이유(호스트당 SSH 왕복)는
+    사라졌다 — 지금은 리모트가 밀어 준 것을 읽을 뿐이다. 그리고 안 채우면 `@working`
+    같은 주소가 원격을 통째로 빼먹어 "원격은 안 돌고 있다" 는 **틀린 답**이 된다.
     """
-    params = {"to": to, "from_session": SESSION}
-    if remote_status:
-        params["remote_status"] = "true"
+    params = {"to": to, "from_session": SESSION,
+              "remote_status": "true" if remote_status else "false"}
     data = _api("GET", "/api/itl/resolve", params)
     return data.get("matched", []) or []
 
@@ -207,21 +188,17 @@ def tool_terminal_list(args):
     # 원격 pane 의 상태는 워처가 못 봐서 기본이 비어 있다(`?`). 물어보려면 호스트당 SSH 한
     # 번이라 목록 조회의 기본은 끈 채로 둔다 — 그게 값싸고, `?` 가 "모른다" 로 정직하다.
     #
-    # ⚠️ 단 **status 필터를 걸면 이야기가 다르다.** 거른 목록은 상태에 대한 단언인데,
-    # 물어보지도 않은 pane 에 대해 단언할 수는 없다. 안 물어보면 원격이 전부 조용히
-    # 빠져서 "원격은 안 돌고 있다" 는 틀린 답이 된다. 그래서 필터가 있으면 기본을 켠다.
-    # 명시로 준 값이 항상 이긴다(비용을 알고 끄고 싶을 수 있다).
+    # ⚠️ 원격 상태는 **기본으로 채운다.** 거른 목록은 상태에 대한 단언인데, 물어보지도
+    # 않은 pane 에 대해 단언할 수는 없다 — 안 채우면 원격이 전부 조용히 빠져서
+    # "원격은 안 돌고 있다" 는 틀린 답이 된다. 명시로 준 값이 이긴다.
     remote_status = args.get("remote_status")
-    if remote_status is None:
-        remote_status = status is not None
-    remote_status = bool(remote_status)
+    remote_status = True if remote_status is None else bool(remote_status)
     params = {
         "from_session": SESSION, "fmt": "table",
         "scope": scope, "status": status, "command": command,
         "exclude_self": not include_self,
     }
-    if remote_status:
-        params["remote_status"] = "true"
+    params["remote_status"] = "true" if remote_status else "false"
     table = _api("GET", "/api/itl/targets", params).get("table", "")
     return table or "열려 있는 터미널이 없습니다."
 
@@ -242,11 +219,9 @@ def tool_terminal_whoami(args):  # noqa: ARG001 — schema is empty, args unused
 
 def tool_terminal_resolve(args):
     to = args["to"]
-    # `@working` 같은 상태 주소는 상태를 모르면 답할 수 없다 — tool_terminal_list 의 주석 참고.
     remote_status = args.get("remote_status")
-    if remote_status is None:
-        remote_status = _references_status_group(to)
-    matched = _resolve_targets(to, remote_status=bool(remote_status))
+    matched = _resolve_targets(
+        to, remote_status=True if remote_status is None else bool(remote_status))
     if not matched:
         raise ToolError(f"'{to}'에 해당하는 터미널이 없습니다. terminal_list로 주소를 확인하세요.")
     rows = []

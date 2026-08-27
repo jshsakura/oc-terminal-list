@@ -86,11 +86,26 @@ def test_the_cli_and_the_mcp_layer_both_have_the_knob():
     assert "remote_status" in route
 
 
-def test_the_list_tool_turns_it_on_when_a_status_filter_is_used():
-    """거른 목록은 상태에 대한 단언이다 — 묻지도 않은 pane 을 두고 단언할 수 없다."""
-    src = (_ROOT / "cli" / "itl_mcp_tools.py").read_text(encoding="utf-8")
-    body = src[src.index("def tool_terminal_list"):src.index("def tool_terminal_whoami")]
-    assert "status is not None" in body, "status 필터가 있을 때 remote_status 를 켜지 않는다"
+def test_every_layer_fills_remote_status_by_default():
+    """거른 목록은 상태에 대한 단언이다 — 묻지도 않은 pane 을 두고 단언할 수 없다.
+
+    한때는 옵트인이었다(채우기가 호스트당 SSH 왕복이던 시절). 지금은 메모리 조회라
+    끌 이유가 없고, 꺼 두면 원격이 전부 `?` 로 보여 **고장으로 읽힌다.** 네 층이
+    같이 움직여야 한다 — 한 곳만 옛 기본값으로 남으면 그 경로로 들어온 호출자만
+    조용히 원격을 빼먹는다.
+    """
+    route = (_ROOT / "routes" / "itl.py").read_text(encoding="utf-8")
+    assert route.count("remote_status: bool = Query(True)") == 2, (
+        "/targets · /resolve 중 하나가 아직 기본 꺼짐이다")
+    assert "remote_status: bool = Query(False)" not in route
+
+    cli = (_ROOT / "cli" / "itl").read_text(encoding="utf-8")
+    assert '"remote_status": "true"' in cli, "CLI 목록이 원격 상태를 안 채운다"
+
+    tools = (_ROOT / "cli" / "itl_mcp_tools.py").read_text(encoding="utf-8")
+    assert "def _resolve_targets(to, remote_status=True)" in tools
+    body = tools[tools.index("def tool_terminal_list"):tools.index("def tool_terminal_whoami")]
+    assert "True if remote_status is None else" in body, "MCP 목록이 기본으로 안 채운다"
 
 
 def test_the_tool_description_says_question_mark_means_unknown():
@@ -100,25 +115,18 @@ def test_the_tool_description_says_question_mark_means_unknown():
     assert "모름" in desc and "?" in desc
 
 
-def test_the_resolve_route_fills_before_matching_for_status_addresses():
-    """`/targets` 는 '채우기가 필터보다 먼저' 인데 `/resolve` 만 반대였다."""
+def test_the_resolve_route_fills_before_matching():
+    """`/targets` 는 '채우기가 필터보다 먼저' 인데 `/resolve` 만 반대였다.
+
+    한때 여기엔 갈래가 둘이었다(상태 주소면 전부 채우고, 아니면 맞은 것만). SSH 를
+    아끼려던 것인데 아낄 게 없어졌고, **갈래가 둘이면 그중 하나만 틀리는 사고**가
+    실제로 났다. 지금은 언제나 채우고 나서 맞춘다.
+    """
     src = (_ROOT / "routes" / "itl.py").read_text(encoding="utf-8")
     body = src[src.index("async def itl_resolve"):src.index("async def itl_read")]
-    fill = body.index("_fill_remote_status")
-    guard = body.index("references_status_group")
-    assert guard < fill, "상태 주소일 때 매칭 전에 채우는 분기가 없다"
-
-
-def test_the_mirror_in_the_mcp_layer_agrees_with_the_grammar():
-    """MCP 쪽 판정은 백엔드 문법의 거울이다 — 어긋나면 한쪽만 원격을 빼먹는다."""
-    import importlib.util
-    spec = importlib.util.spec_from_file_location(
-        "itl_mcp_tools_probe", _ROOT / "cli" / "itl_mcp_tools.py")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    for expr in ["@working", "@idle", "@permission", "2.@working", "@here.@idle",
-                 "3", "1.3", "@all", "@here", "@claude", "@workingset", "", None]:
-        assert mod._references_status_group(expr) == references_status_group(expr), expr
+    assert body.index("_fill_remote_status") < body.index("resolve(targets, to, from_session)"), (
+        "채우기가 매칭보다 뒤에 있다 — 상태 주소가 원격을 통째로 빼먹는다")
+    assert body.count("_fill_remote_status") == 1, "채우는 갈래가 둘이면 하나만 틀린다"
 
 
 def test_wait_fills_remote_status_before_matching():
