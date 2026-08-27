@@ -181,11 +181,22 @@ const HomeSessions = ({
      Resumable 목록에서 항상 숨김. (어차피 base 를 resume 하거나 base 를 kill 할 때 같이 처리.) */
   const isCompanionSession = (name) => /_[1-9][0-9]*$/.test(name || '');
 
+  /* ⚠️ **붙어 있는 세션은 여기 오면 안 된다.** 그건 "이어할 수 있는" 게 아니라 지금 쓰는
+     중이다. 그런데도 내밀면 사용자는 그걸 지우려 하고, 지워지지 않는다 — 붙어 있는 쪽이
+     끊긴 것을 보고 곧바로 다시 만들기 때문이다(재접속이 `create=1` 이다). 화면에서는
+     "지워도 새로고침하면 다시 뜬다" 로 보인다.
+
+     열린 탭이 가진 것은 `isClaimedSession` 이 걸러 주지만, 그 판정은 **이 브라우저의 탭**만
+     본다. 다른 기기에서 열려 있거나 백엔드가 아직 붙잡고 있는 것은 거기 안 걸리고,
+     tmux 의 attached 플래그만이 그걸 안다. */
+
   const openTabs = hideOpen ? [] : tabs;
   const hasAnyResumable = tmuxHosts.some((h) => {
     const entry = tmuxByHost[h.id];
     if (!entry || entry.loading || entry.error || entry.dismissed) return false;
-    return entry.sessions.some((s) => !isCompanionSession(s.name) && !isClaimedSession(h.id, s.name));
+    return entry.sessions.some(
+      (s) => !isCompanionSession(s.name) && !isClaimedSession(h.id, s.name) && !s.attached,
+    );
   });
   const anyLoading = tmuxHosts.some((h) => {
     const entry = tmuxByHost[h.id];
@@ -296,7 +307,9 @@ const HomeSessions = ({
                 />;
               }
               const resumable = entry.sessions.filter(
-                (s) => !isCompanionSession(s.name) && !isClaimedSession(host.id, s.name),
+                (s) => !isCompanionSession(s.name)
+                  && !isClaimedSession(host.id, s.name)
+                  && !s.attached,
               );
               return resumable.map((s) => (
                 <ResumableCard
