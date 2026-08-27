@@ -78,14 +78,32 @@ def probe():
     return ns
 
 
-@pytest.mark.parametrize("cmd", [
-    "tmux send-keys -t '=s:' -l -- 'hi' && echo ITL_SENT",
-    "tmux send-keys -t '=s:' Enter && echo ITL_SENT",
-    "tmux has-session -t '=s:'",
-])
-def test_the_commands_we_actually_send_are_accepted(probe, cmd):
-    """허용목록이 우리 자신의 배달을 막으면 리모트 경로가 통째로 죽는다."""
-    assert probe["parse_chain"](cmd) is not None
+@pytest.mark.parametrize("name", ["send", "key", "capture"])
+def test_the_commands_we_actually_send_are_accepted(probe, name):
+    """⚠️ 실측 사고. 허용목록이 **우리 자신의 명령**을 막으면 리모트 경로가 통째로 죽는다
+    — `command-not-allowed` 로 거절되고 배달·읽기가 502 가 됐다.
+
+    문자열을 손으로 적지 않고 **실제 빌더**에서 뽑는다. 손으로 적으면 빌더가 바뀔 때
+    테스트만 옛 문자열을 지키고 진짜 명령은 막힌 채로 남는다(그게 이 사고였다).
+    """
+    import itl_remote
+    builders = {
+        "send": lambda: itl_remote.build_send_cmd("mobile-x", "hi", submit=True),
+        "key": lambda: itl_remote.build_key_cmd("mobile-x", "C-c"),
+        "capture": lambda: itl_remote.build_capture_cmd("mobile-x", 40),
+    }
+    assert probe["parse_chain"](builders[name]()) is not None
+
+
+def test_the_probe_command_is_not_sent_over_the_remote(probe):
+    """⚠️ `build_probe_cmd` 는 `||`·`{ }`·`exit` 를 쓰는 **진짜 셸 구문**이라 tmux 전용
+    통로로는 실행할 수 없다. 그래서 리모트가 붙어 있으면 그 명령을 보내지 않고 스트림에서
+    답한다(`itl_remote.probe`). 여기서 통과해 버리면 그 설계가 무너진 것이다."""
+    import itl_remote
+    assert probe["parse_chain"](itl_remote.build_probe_cmd("mobile-x")) is None
+    import inspect
+    body = inspect.getsource(itl_remote.probe)
+    assert "ingest" in body and "has_live_state" in body
 
 
 def test_message_text_containing_and_is_not_a_separator(probe):

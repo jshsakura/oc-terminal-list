@@ -441,8 +441,30 @@ async def open_channel_on_demand(host_id: str, username: str):
         return RemoteChannel(host, secrets, conn)
 
 
-async def probe(channel: RemoteChannel, tmux_session: str) -> PaneProbe | None:
-    """세션이 살아 있으면 PaneProbe, 사라졌으면 None. 못 물으면 예외."""
+async def probe(channel, tmux_session: str) -> PaneProbe | None:
+    """세션이 살아 있으면 PaneProbe, 사라졌으면 None. 못 물으면 예외.
+
+    ⚠️ **리모트가 붙어 있으면 호스트를 건드리지 않는다.** 답(존재·명령·타이틀)이 이미
+    스트림에 있기 때문이다. 게다가 `build_probe_cmd` 는 `||`·`{ }`·`exit` 를 쓰는 진짜
+    셸 구문이라 리모트의 tmux 전용 통로로는 **실행할 수 없다** — 그대로 보내면
+    `command-not-allowed` 로 거절되고 배달·읽기가 통째로 502 가 된다(실측).
+    """
+    # 채널이 자기 호스트를 안다 — 호출부 시그니처를 건드리지 않는다.
+    host_id = getattr(channel, "host_id", None)
+    if host_id:
+        from remote_agent import ingest
+        if ingest.has_live_state(host_id):
+            info = ingest.snapshot(host_id).get(tmux_session)
+            if info is None:
+                return None                      # 스트림이 아는데 그 세션이 없다 = 사라졌다
+            command = info.get("command") or ""
+            return PaneProbe(
+                command=command,
+                title=info.get("rawTitle") or "",
+                # 답장 명령을 적어도 되는지 — 그 pane 에서 itl 이 실제로 도는지는 여기서
+                # 알 수 없다. 리모트가 있는 호스트는 itl 도 함께 깔려 있으므로 이름을 준다.
+                itl_cmd="itl",
+            )
     return parse_probe(await channel.run(build_probe_cmd(tmux_session)))
 
 

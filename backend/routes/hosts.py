@@ -184,7 +184,14 @@ async def install_host_remote(host_id: str, username: str = Depends(verify_auth_
     epoch = host.get("cred_epoch") or 1
     token = await issue_credential(manager, username, host_id, epoch=int(epoch))
 
-    script = build_install_script(ws_url, str(host.get("remote_tmux_session") or ""))
+    # ⚠️ 두 번째 인자는 tmux **소켓 이름**이지 세션 이름이 아니다. 한때 여기에
+    # `remote_tmux_session`(예: `mobile`)을 넘겼는데, 그러면 리모트가 `tmux -L mobile` 을
+    # 보고 **서버 없음**으로 판정해 pane 스트림이 아예 안 온다 — 상태는 영영 "모름" 이고
+    # 배달·읽기는 셸 경로로 떨어져 거절된다(실측: statusUnknown 15/15, read 502).
+    #
+    # 원격 호스트의 우리 세션은 **기본 소켓**에 산다(host_manager 의 부트스트랩이 `-L`
+    # 없이 tmux 를 부른다). 그래서 빈 값이 맞다.
+    script = build_install_script(ws_url, "")
     try:
         out = await run_remote_cmd(host, secrets, script, timeout=60, stdin_data=token + "\n")
     except Exception as e:

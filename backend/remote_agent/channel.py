@@ -41,6 +41,11 @@ class RemoteAgentChannel:
         self._connection = connection
 
     @property
+    def host_id(self) -> str:
+        """이 통로가 어느 호스트로 가는가 — 호출부가 스트림을 대신 볼 수 있게."""
+        return self._connection.host_id
+
+    @property
     def host_name(self) -> str:
         return str(self._connection.facts.get("hostname") or "")
 

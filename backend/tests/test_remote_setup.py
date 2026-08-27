@@ -214,3 +214,29 @@ def test_installing_restarts_the_service():
     script = build_install_script(URL, "mobile")
     assert "systemctl --user restart" in script
     assert "enable --now" not in script
+
+
+def test_the_socket_argument_is_a_socket_not_a_session():
+    """⚠️ 실측 사고. 소켓 자리에 세션 이름(`mobile`)을 넘겼더니 리모트가
+    `tmux -L mobile` 을 보고 **서버 없음**으로 판정해 pane 스트림이 아예 안 왔다 —
+    상태는 영영 "모름" 이고 배달·읽기는 셸 경로로 떨어져 거절됐다.
+
+    원격 호스트의 우리 세션은 기본 소켓에 산다(부트스트랩이 `-L` 없이 tmux 를 부른다).
+    """
+    import inspect
+    import routes.hosts as hosts_route
+    body = inspect.getsource(hosts_route.install_host_remote)
+    # 주석에는 그 단어가 나온다(왜 틀렸는지 적어 뒀다) — **인자 자리**만 본다.
+    call = body[body.index("build_install_script("):]
+    call = call[:call.index(")") + 1]
+    assert "remote_tmux_session" not in call, f"세션 이름을 소켓 자리에 넘기고 있다: {call}"
+    assert call == 'build_install_script(ws_url, "")' 
+
+
+def test_the_socket_travels_in_the_credentials_not_the_env():
+    """소켓 이름은 자격증명 파일의 `tmux_socket` 으로 간다(client.py 가 그걸 읽어
+    `ITL_TMUX_SOCKET` 으로 넘긴다). 빈 값이면 리모트가 `-L` 을 안 붙인다 = 기본 소켓."""
+    assert '"tmux_socket":%s' in build_install_script(URL, "") or "tmux_socket" in build_install_script(URL, "")
+    import json
+    empty = build_install_script(URL, "")
+    assert json.dumps("") in empty          # 빈 소켓이 그대로 실린다

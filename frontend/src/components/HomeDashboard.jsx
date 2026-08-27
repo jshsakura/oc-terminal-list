@@ -577,8 +577,11 @@ export const HostRow = memo(({
    그래서 코너를 쓴다 — 칩은 우상단, 버튼은 우하단. */
 const REMOTE_CORNER = {
   position: 'absolute',
-  top: '6px',
-  right: '8px',
+  /* ⚠️ 카드 **모서리에 바짝** 붙인다. 6px 만 띄웠더니 액션 버튼 바로 위에 얹혀 둘이 한
+     덩어리로 보였다 — 정보와 버튼을 나누려고 코너를 쓴 것인데 그러면 의미가 없다.
+     테두리 안쪽 여백(카드 padding 10px)보다 위로 올라가야 "모서리에 붙은 표식" 이 된다. */
+  top: '3px',
+  right: '5px',
   zIndex: 1,
 };
 
