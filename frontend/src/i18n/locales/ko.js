@@ -895,6 +895,7 @@ export const ko = {
     remoteAgent: '리모트',
     remoteConnected: '연결됨 — 이 호스트가 상태를 직접 보내옵니다',
     remoteConnectedShort: '리모트 연결됨',
+    remoteInstallHint: '리모트 미설치 — 설치하면 명령 전달과 상태가 켜집니다',
     remoteInstalledIdle: '설치됨 — 아직 붙지 않았습니다',
     remoteNotInstalled: '앱이 SSH 로 살펴보는 중 — 리모트 미설치',
     remoteInstall: '리모트 설치',

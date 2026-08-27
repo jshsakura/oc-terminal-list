@@ -45,70 +45,69 @@ def test_table_says_question_mark_for_unknown():
     assert rows[2].endswith("?")      # 1.2 원격 — 물어보지 않았다
 
 
-@pytest.mark.asyncio
-async def test_fill_asks_each_host_once(monkeypatch):
-    """pane 마다 묻지 않는다 — `list-panes -a` 가 그 호스트의 모든 세션을 한 번에 준다."""
-    asked = []
+@pytest.fixture(autouse=True)
+def _clean_stream():
+    from remote_agent import ingest
+    for host in ("h1", "h2"):
+        ingest.forget(host)
+    yield
+    for host in ("h1", "h2"):
+        ingest.forget(host)
 
+
+async def _stream(host, panes):
+    """리모트가 상태를 밀어 준 상황을 만든다."""
+    from remote_agent import ingest
+    await ingest.handle_event(host, "server", {})
+    lines = [f"{session}\t1\t{command}\t/tmp\t{title}" for session, command, title in panes]
+    await ingest.handle_event(host, "panes", {"lines": lines})
+
+
+@pytest.mark.asyncio
+async def test_status_comes_from_the_stream_not_from_ssh(monkeypatch):
+    """⚠️ SSH 로 묻지 않는다. 예전에는 호스트마다 왕복이었고 `terminal_wait` 가 그걸
+    5초마다 했다 — 꺼진 호스트 하나가 홈 화면을 15초씩 멈춰 세우던 원인이다."""
+    asked = []
     async def fake_list(host_id, username):
         asked.append(host_id)
-        return {"a1": ("claude", "⠋ Building the thing"), "a2": ("zsh", "~")}
-
+        return {}
     monkeypatch.setattr(itl_remote, "list_pane_status", fake_list)
+
+    await _stream("h1", [("a1", "claude", "⠋ building")])
     filled = await itl_route._fill_remote_status(_targets(), "u")
     by_addr = {t["addr"]: t for t in filled}
-
-    assert sorted(asked) == ["h1", "h2"]                 # 호스트 수만큼, pane 수만큼이 아니라
     assert by_addr["1.2"]["status"] == "working"
-    assert by_addr["1.2"]["command"] == "claude"
     assert by_addr["1.2"]["statusUnknown"] is False
-    # 셸은 상태가 없다 — 그건 "모름" 이 아니라 "일하고 있지 않음" 이다.
-    assert by_addr["1.3"]["status"] is None
-    assert by_addr["1.3"]["statusUnknown"] is False
+    assert asked == []                                    # SSH 는 한 번도 안 갔다
 
 
 @pytest.mark.asyncio
-async def test_unreachable_host_stays_unknown(monkeypatch):
-    """못 물어본 것을 유휴로 적으면 기다림이 거짓으로 끝난다."""
-    async def fake_list(host_id, username):
-        return {} if host_id == "h2" else {"a1": ("claude", "✳ x"), "a2": ("zsh", "~")}
-
-    monkeypatch.setattr(itl_remote, "list_pane_status", fake_list)
-    by_addr = {t["addr"]: t for t in await itl_route._fill_remote_status(_targets(), "u")}
-    assert by_addr["1.4"]["statusUnknown"] is True
-    assert by_addr["1.4"]["status"] is None
+async def test_a_host_without_a_remote_stays_unknown():
+    """리모트가 없으면 우리가 볼 방법이 없다 — 그건 결함이 아니라 **사실**이다.
+    화면이 그 호스트에 "리모트 설치" 를 권하는 것이 답이지, 추측이 답이 아니다."""
+    await _stream("h1", [("a1", "claude", "✳ idle")])
+    filled = await itl_route._fill_remote_status(_targets(), "u")
+    by_addr = {t["addr"]: t for t in filled}
+    assert by_addr["1.4"]["statusUnknown"] is True        # h2 는 리모트가 없다
+    assert by_addr["1.2"]["statusUnknown"] is False       # h1 은 있다
 
 
 @pytest.mark.asyncio
-async def test_host_answered_but_session_missing_is_gone_not_unknown(monkeypatch):
-    async def fake_list(host_id, username):
-        return {"a1": ("claude", "✳ x")}          # a2 / b1 없음
-
-    monkeypatch.setattr(itl_remote, "list_pane_status", fake_list)
-    by_addr = {t["addr"]: t for t in await itl_route._fill_remote_status(_targets(), "u")}
+async def test_a_session_the_remote_does_not_report_is_gone_not_unknown():
+    """호스트는 답했는데 그 세션이 없다 — 사라진 것이지 모르는 게 아니다."""
+    await _stream("h1", [("a1", "claude", "✳ idle")])     # a2 는 없다
+    filled = await itl_route._fill_remote_status(_targets(), "u")
+    by_addr = {t["addr"]: t for t in filled}
     assert by_addr["1.3"]["statusGone"] is True
     assert by_addr["1.3"]["statusUnknown"] is False
 
 
 @pytest.mark.asyncio
-async def test_local_targets_and_the_input_list_are_untouched(monkeypatch):
-    """원본을 고치지 않는다 — 채운 결과는 새 dict 다(스냅샷을 나중에 다시 쓸 수 있게)."""
-    async def fake_list(host_id, username):
-        return {"a1": ("claude", "✳ x")}
-
-    monkeypatch.setattr(itl_remote, "list_pane_status", fake_list)
+async def test_local_targets_and_the_input_list_are_untouched():
+    """입력을 제자리에서 고치면 호출부가 옛 값을 들고 있다고 믿는다."""
+    await _stream("h1", [("a1", "claude", "✳ idle")])
     original = _targets()
     filled = await itl_route._fill_remote_status(original, "u")
-    assert original[1]["statusUnknown"] is True          # 입력은 그대로
+    assert original[1]["statusUnknown"] is True           # 입력은 그대로
     assert filled[1]["statusUnknown"] is False
-    assert filled[0] is original[0]                      # 로컬은 손대지 않으므로 같은 객체
-
-
-@pytest.mark.asyncio
-async def test_no_remote_targets_means_no_ssh(monkeypatch):
-    async def fake_list(host_id, username):      # pragma: no cover - 호출되면 실패
-        raise AssertionError("원격이 없는데 SSH 를 걸었다")
-
-    monkeypatch.setattr(itl_remote, "list_pane_status", fake_list)
-    local_only = [t for t in _targets() if t["addr"] == "1.1"]
-    assert await itl_route._fill_remote_status(local_only, "u") == local_only
+    assert filled[0] is original[0]                       # 로컬은 손대지 않는다

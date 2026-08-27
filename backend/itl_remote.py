@@ -34,7 +34,7 @@ import asyncio
 import logging
 from typing import NamedTuple
 
-from host_common import resolve_host_with_secrets, run_remote_cmd
+from host_common import run_remote_cmd
 from remote_agent import registry
 
 logger = logging.getLogger(__name__)
@@ -385,42 +385,26 @@ class RemoteChannel:
         await self.close()
 
 
-async def open_channel(host_id: str, username: str) -> RemoteChannel:
-    """그 호스트로 가는 채널 하나. 실패는 그대로 던진다 — 호출부가 "못 닿음" 으로 센다.
+class RemoteNotConnectedError(RuntimeError):
+    """그 호스트에 리모트가 붙어 있지 않다 — 가져올 곳이 없다."""
 
-    **리모트가 붙어 있으면 그쪽이 먼저다.** 이미 열려 있는 소켓이라 핸드셰이크가 없고,
-    NAT 뒤 호스트에도 닿고, 그 호스트의 SSH 자격증명을 꺼내지 않는다. 리모트가 없으면
-    예전처럼 SSH 로 간다 — 호출부는 둘을 구별하지 않는다(`run(cmd)` 하나뿐이다).
+
+async def open_channel(host_id: str, username: str):
+    """그 호스트로 가는 통로. **리모트가 붙어 있을 때만 있다.**
+
+    ⚠️ SSH 폴백은 없앴다. 예전에는 리모트가 없거나 실패하면 SSH 로 돌아갔는데, 그러면
+    경로가 둘이 되고 둘의 실패 방식이 다르다 — 어느 쪽으로 갔는지에 따라 지연도 오류도
+    달라져서 진단이 매번 새로 시작된다. 지금은 하나다: 붙어 있으면 되고, 아니면 안 된다.
+
+    리모트가 없는 호스트를 **찔러보지 않는다.** 꺼진 기계에 SSH 를 걸어 15초를 태우는
+    것이 홈 화면을 멈춰 세우던 원인이었다(CLAUDE.md 의 SSH 풀 절). 없으면 화면이
+    "리모트 설치" 를 권한다.
     """
-    from remote_agent.channel import channel_for
-    # ⚠️ 소유권 검사를 건너뛰지 않는다. SSH 경로는 `resolve_host_with_secrets` 가 그것까지
-    # 하는데, 리모트 경로는 그 함수를 지나지 않는다.
     connection = registry.get(host_id)
-    if connection is not None and connection.username == username:
-        # ⚠️ 물러설 길을 함께 넘긴다. 없으면 리모트 하나가 아픈 것이 곧 배달 실패가 된다 —
-        # 실제로 `run` 을 모르는 낡은 리모트 때문에 그 호스트의 itl 이 전부 502 였다.
-        agent = channel_for(host_id, lambda: _open_ssh_channel(host_id, username))
-        if agent is not None:
-            return agent
-    return await _open_ssh_channel(host_id, username)
-
-
-async def _open_ssh_channel(host_id: str, username: str) -> RemoteChannel:
-    """예전 경로 — SSH 로 직접 연다."""
-    host, secrets = await resolve_host_with_secrets(host_id, username)
-    if host.get("auth_method") == "tailscale":
-        return RemoteChannel(host, secrets)
-    from host_manager import open_connection
-    conn = await asyncio.wait_for(
-        open_connection(
-            host,
-            private_key=secrets["private_key"],
-            passphrase=secrets["passphrase"],
-            password=secrets["password"],
-        ),
-        timeout=REMOTE_CONNECT_TIMEOUT,
-    )
-    return RemoteChannel(host, secrets, conn)
+    if connection is None or connection.username != username:
+        raise RemoteNotConnectedError(host_id)
+    from remote_agent.channel import channel_for
+    return channel_for(host_id)
 
 
 async def probe(channel: RemoteChannel, tmux_session: str) -> PaneProbe | None:

@@ -890,6 +890,7 @@ export const en = {
     remoteAgent: 'Remote',
     remoteConnected: 'Connected — this host is reporting its own state',
     remoteConnectedShort: 'Remote connected',
+    remoteInstallHint: 'Remote not installed — install it to enable command relay and status',
     remoteInstalledIdle: 'Installed — not connected yet',
     remoteNotInstalled: 'The app watches over SSH — remote not installed',
     remoteInstall: 'Install remote',

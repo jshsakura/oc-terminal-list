@@ -121,64 +121,36 @@ def test_echo_needs_no_binary(probe):
     assert ok and out.strip() == "ITL_SENT"
 
 
-# ---------------------- 실패했을 때 물러설 길 ----------------------
+# ---------------------- SSH 는 없다 ----------------------
 
-class _FakeSSH:
-    """SSH 채널 대역."""
-
-    def __init__(self):
-        self.ran = []
-        self.closed = False
-
-    async def run(self, cmd, timeout=None):
-        self.ran.append(cmd)
-        return "ITL_SENT"
-
-    async def close(self):
-        self.closed = True
-
-
-async def test_a_stale_remote_falls_back_to_ssh():
-    """⚠️ 실측 사고. `run` 을 모르는 낡은 리모트가 붙어 있었더니 그 호스트로 가는 itl 이
-    전부 502 였다 — SSH 는 멀쩡했는데도. **새 경로가 옛 경로를 막으면 안 된다.**"""
-    _attach(drop=True)
-    ssh = _FakeSSH()
-    channel = channel_for(HOST, lambda: _ready(ssh))
-    out = await channel.run("tmux ls", timeout=0.05)
-    assert out == "ITL_SENT"
-    assert ssh.ran == ["tmux ls"]
+async def test_a_stale_remote_says_so_instead_of_reaching_for_ssh():
+    """⚠️ 한때 실패하면 SSH 로 물러섰다. 없앤 이유는 경로가 둘이면 실패 방식도 둘이기
+    때문이다 — 어느 쪽으로 갔는지에 따라 지연도 오류도 달라져 진단이 매번 새로 시작된다.
+    낡은 리모트는 **다시 설치해서** 고친다. 그러려면 낡았다고 말해야 한다."""
+    conn, _ = _attach(drop=True)
+    channel = channel_for(HOST)
+    with pytest.raises(RemoteChannelError):
+        await channel.run("tmux ls", timeout=0.05)
+    assert conn.run_unsupported is True
+    with pytest.raises(RemoteChannelError, match="다시 설치"):
+        await channel.run("tmux ls", timeout=0.05)
 
 
 async def test_the_stale_remote_is_only_probed_once():
     """상한을 매번 다시 태우면 명령마다 몇 초씩 늦어진다."""
-    conn, sent = _attach(drop=True)
-    ssh = _FakeSSH()
-    channel = channel_for(HOST, lambda: _ready(ssh))
-    await channel.run("tmux ls", timeout=0.05)
-    await channel.run("tmux ls", timeout=0.05)
-    assert conn.run_unsupported is True
-    assert len([m for m in sent if m.get("t") == "run"]) == 1   # 두 번째는 시도하지 않는다
-    assert len(ssh.ran) == 2
+    _, sent = _attach(drop=True)
+    channel = channel_for(HOST)
+    for _ in range(2):
+        with pytest.raises(RemoteChannelError):
+            await channel.run("tmux ls", timeout=0.05)
+    assert len([m for m in sent if m.get("t") == "run"]) == 1
 
 
-async def test_the_fallback_connection_is_closed_by_us():
-    """소켓은 리모트의 것이라 안 닫지만, 물러서느라 연 SSH 는 우리가 연 것이다."""
-    _attach(drop=True)
-    ssh = _FakeSSH()
-    channel = channel_for(HOST, lambda: _ready(ssh))
-    await channel.run("tmux ls", timeout=0.05)
-    await channel.close()
-    assert ssh.closed is True
-
-
-async def test_a_healthy_remote_never_opens_ssh():
-    """물러설 길이 있다고 해서 매번 SSH 를 열면 리모트를 둔 의미가 없다."""
-    _attach()
-    ssh = _FakeSSH()
-    out = await channel_for(HOST, lambda: _ready(ssh)).run("tmux ls")
-    assert out == "ITL_SENT"
-    assert ssh.ran == []
-
-
-async def _ready(value):
-    return value
+def test_no_ssh_anywhere_in_the_remote_path():
+    """🔐 경로가 하나라는 것을 코드로 잠근다. SSH 를 다시 끌어들이면 '리모트가 없으면
+    안 된다' 는 기준이 조용히 무너지고, 꺼진 호스트를 찔러 15초를 태우는 일이 돌아온다."""
+    from pathlib import Path
+    src = Path(__file__).resolve().parent.parent / "remote_agent" / "channel.py"
+    body = src.read_text(encoding="utf-8")
+    for banned in ("open_connection", "resolve_host_with_secrets", "run_remote_cmd", "fallback"):
+        assert banned not in body, f"리모트 경로에 {banned} 가 다시 들어왔다"

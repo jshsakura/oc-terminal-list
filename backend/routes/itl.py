@@ -152,35 +152,26 @@ def collapse_lines(text: str) -> str:
 
 
 async def _fill_remote_status(targets: list[dict], username: str) -> list[dict]:
-    """원격 pane 의 command/status/title 을 채운다 — **호스트당 SSH 한 번**.
+    """원격 pane 의 command/status/title 을 채운다 — **리모트가 밀어 준 것으로만.**
 
-    기본 목록에는 없다. 백엔드 워처는 원격 tmux 를 볼 수 없고(CLAUDE.md 의 상태감지 절),
-    목록을 그릴 때마다 SSH 를 거는 건 너무 비싸다. 그래서 필요한 쪽이 요청할 때만 한다.
+    ⚠️ SSH 로 물어보지 않는다. 예전에는 호스트마다 SSH 왕복이었고 `terminal_wait` 가
+    그걸 5초마다 했다 — 꺼진 호스트 하나가 홈 화면을 15초씩 멈춰 세우던 원인이자,
+    이 저장소가 토큰을 크게 태운 폴링 패턴이다.
 
-    ⚠️ 못 물어본 호스트의 pane 은 status 를 채우지 않고 `statusUnknown` 을 세운다 —
-    "일 안 한다" 와 "모른다" 를 같게 취급하면 기다림이 **즉시 거짓 완료**로 끝난다
-    (원격은 status 가 늘 비어 있어서 `terminal_wait` 가 0 초에 "완료" 를 돌려줬다).
+    리모트가 없는 호스트의 pane 은 `statusUnknown` 으로 남는다. 그건 결함이 아니라
+    **사실**이다 — 우리가 볼 방법이 없다. 화면은 그 호스트에 "리모트 설치" 를 권한다.
     """
-    host_ids = sorted({
+    from remote_agent import ingest
+    host_ids = {
         t["hostId"] for t in targets
         if not t.get("sessionId") and t.get("hostId")
-    })
+    }
     if not host_ids:
         return targets
-
-    # 리모트가 붙어 있는 호스트는 **이미 상태를 밀어 주고 있다** — 물어볼 이유가 없다.
-    # 그 호스트만 빼고 나머지에만 SSH 를 건다.
-    from remote_agent import ingest
-    streamed = {h: _table_from_stream(ingest.snapshot(h)) for h in host_ids
-                if ingest.has_live_state(h)}
-    need_ssh = [h for h in host_ids if h not in streamed]
-
-    tables = dict(streamed)
-    if need_ssh:
-        fetched = await asyncio.gather(*[
-            itl_remote.list_pane_status(host_id, username) for host_id in need_ssh
-        ])
-        tables.update(dict(zip(need_ssh, fetched, strict=True)))
+    tables = {
+        host_id: _table_from_stream(ingest.snapshot(host_id))
+        for host_id in host_ids if ingest.has_live_state(host_id)
+    }
     return _apply_status_tables(targets, tables)
 
 
