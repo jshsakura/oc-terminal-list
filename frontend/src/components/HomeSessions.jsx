@@ -338,8 +338,14 @@ const HomeSessions = ({
                       try {
                         await onTerminateHostSession?.(host, s.name);
                       } catch (err) {
-                        onNotify?.((t?.('terminateFailed') || 'Failed to terminate session: {err}')
-                          .replace('{err}', err?.message || String(err)));
+                        /* 409 = 쓰는 중이라 거절됐다. 서버 문구가 이미 완성된 문장이고
+                           고장이 아니므로 "종료 실패:" 로 감싸지 않는다. 카드는 바로
+                           아래 재조회가 치운다 — 붙어 있는 것은 애초에 이 목록에 올
+                           것이 아니었다. */
+                        onNotify?.(err?.status === 409
+                          ? err.message
+                          : (t?.('terminateFailed') || 'Failed to terminate session: {err}')
+                            .replace('{err}', err?.message || String(err)));
                       }
                       // 3) 서버 진실 재확인 — 실패해서 살아있으면 카드가 다시 노출됨
                       fetchHostSessions(host);

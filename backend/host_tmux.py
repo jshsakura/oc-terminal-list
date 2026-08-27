@@ -25,7 +25,9 @@ logger = logging.getLogger(__name__)
 
 # tmux 부분은 **한 번만** 적는다. 리모트 통로는 argv 만 받으므로(셸이 없다) 리다이렉션도
 # `||` 도 실을 수 없고, SSH 는 셸이라 실을 수 있다 — 두 벌로 적으면 포맷이 갈라진다.
-LIST_TMUX_CMD = "tmux list-sessions -F '#{session_name}|#{session_attached}'"
+LIST_TMUX_CMD = (
+    "tmux list-sessions -F '#{session_name}|#{session_attached}|#{session_created}'"
+)
 LIST_SSH_CMD = f"{LIST_TMUX_CMD} 2>/dev/null || true"
 
 
@@ -37,19 +39,32 @@ class SessionInUseError(RuntimeError):
         self.session = session
 
 
-def parse_sessions(output: str) -> dict[str, bool]:
-    """`name|attached` 줄들 → {이름: 붙어있나}.
+def parse_session_rows(output: str) -> list[dict]:
+    """`name|attached|created` 줄들 → 행 목록.
 
-    ⚠️ 못 읽은 줄은 **버린다**(빈 dict 로 접지 않는다). 여기서 "모른다" 를 "안 붙었다"
-    로 접으면 이 파일이 막으려는 바로 그 사고가 난다 — 호출부가 `.get(name)` 으로
-    묻고, 없으면 "그런 세션이 없다"(= 죽여도 잃을 것이 없다)로 읽는다.
+    ⚠️ **오른쪽부터 쪼갠다.** 세션 이름에 `|` 가 들어갈 수 있는데 왼쪽부터 자르면
+    이름이 잘리고, 잘린 이름은 어떤 대조에도 안 맞아 **조용히 다른 세션이 된다.**
+
+    ⚠️ 못 읽은 줄은 **버린다**(빈 값으로 채우지 않는다). 여기서 "모른다" 를
+    "안 붙었다" 로 접으면 이 파일이 막으려는 바로 그 사고가 난다.
     """
-    sessions: dict[str, bool] = {}
+    rows: list[dict] = []
     for line in (output or "").strip().splitlines():
-        name, sep, attached = line.strip().rpartition("|")
-        if sep and name:
-            sessions[name] = attached.strip() != "0"
-    return sessions
+        parts = line.strip().rsplit("|", 2)
+        if len(parts) != 3 or not parts[0]:
+            continue
+        name, attached, created = parts
+        rows.append({
+            "name": name,
+            "attached": attached.strip() != "0",
+            "created": int(created) if created.strip().isdigit() else None,
+        })
+    return rows
+
+
+def parse_sessions(output: str) -> dict[str, bool]:
+    """{이름: 붙어있나} — 종료 직전 판정이 쓰는 모양."""
+    return {row["name"]: row["attached"] for row in parse_session_rows(output)}
 
 
 def kill_tmux_cmd(session: str, *, shell: bool) -> str:

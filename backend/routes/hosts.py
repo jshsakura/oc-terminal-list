@@ -584,12 +584,43 @@ async def check_host_tmux(
     return {"host_id": host_id, "available": available, "platform": platform}
 
 
+async def _sessions_over_remote(host_id: str, username: str) -> list[dict] | None:
+    """붙어 있는 리모트에게 세션 목록을 묻는다. 없거나 못 물으면 None.
+
+    ⚠️ **결과를 캐시하지 않는다.** 캐시는 SSH 왕복이 비싸서 있던 것이고, 여기는 이미
+    열린 소켓에 한 줄 쓰는 일이다. 그리고 이 목록의 `attached` 는 **캐시하면 안 되는
+    종류의 값**이다 — 실측 사고: 사용자가 쓰고 있는 rpi5 세션이 홈의 "이어할 수 있는
+    세션" 에 계속 떴다. tmux 는 그때 `attached=1` 이라고 말하고 있었는데, 화면은 60초
+    전(백엔드 재시작으로 잠깐 떨어졌던 순간)의 `0` 을 들고 있었다.
+
+    "이어할 수 있다" 는 **지금**에 대한 단언이다. 낡은 값으로 그 단언을 하면 화면이
+    쓰는 중인 세션을 지우라고 내민다.
+    """
+    from itl_remote import RemoteNotConnectedError, open_channel
+    from remote_agent.channel import RemoteChannelError
+    try:
+        channel = await open_channel(host_id, username)
+        return host_tmux.parse_session_rows(await channel.run(host_tmux.LIST_TMUX_CMD))
+    except RemoteNotConnectedError:
+        return None
+    except RemoteChannelError as e:
+        # tmux 서버가 없으면 명령이 0 이 아닌 코드로 끝난다 — 그건 "세션 0개" 다.
+        if "no server running" in str(e):
+            return []
+        logger.info("remote session list failed, falling back to ssh (%s): %s", host_id, e)
+        return None
+
+
 async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, refresh: bool) -> dict:
-    """단일 호스트 tmux 세션 목록 조회. 캐시 + 에러 처리 포함.
+    """단일 호스트 tmux 세션 목록 조회. 리모트 우선, 없으면 SSH + 캐시.
 
     성공: {"id": host_id, "sessions": [...]}
     실패: {"id": host_id, "sessions": [], "error": "..."}  — generic 메시지로 raw SSH 에러 미노출.
     """
+    fresh = await _sessions_over_remote(host_id, username)
+    if fresh is not None:
+        return {"id": host_id, "sessions": fresh}
+
     cache_key = key_host_tmux_sessions(host_id)
     if not refresh:
         cached = await cache.get(cache_key)
@@ -597,7 +628,7 @@ async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, ref
             return cached
 
     from host_manager import open_connection
-    cmd = "tmux list-sessions -F '#{session_name}|#{session_created}|#{session_attached}' 2>/dev/null || true"
+    cmd = host_tmux.LIST_SSH_CMD
 
     try:
         if host.get("auth_method") == "tailscale":
@@ -635,16 +666,10 @@ async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, ref
         await cache.set(cache_key, payload, ttl_seconds=HOST_TMUX_ERROR_TTL_SEC)
         return payload
 
-    sessions = []
-    for line in output.strip().splitlines():
-        parts = line.split("|")
-        if len(parts) >= 3:
-            sessions.append({
-                "name": parts[0],
-                "created": int(parts[1]) if parts[1].isdigit() else None,
-                "attached": parts[2] != "0",
-            })
-    payload = {"id": host_id, "sessions": sessions}
+    # ⚠️ 파서는 리모트 경로와 **같은 것**을 쓴다. 예전에는 여기 손으로 쪼개는 코드가
+    # 따로 있었고 칸 순서도 달랐다(name|created|attached) — 두 경로가 다른 포맷을 쓰면
+    # 한쪽만 `attached` 를 잘못 읽어도 아무 데서도 안 터진다.
+    payload = {"id": host_id, "sessions": host_tmux.parse_session_rows(output)}
     await cache.set(cache_key, payload, ttl_seconds=HOST_TMUX_CACHE_TTL_SEC)
     return payload
 

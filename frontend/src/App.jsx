@@ -129,7 +129,11 @@ function App() {
     const body = await res.text().catch(() => '');
     let detail = '';
     try { detail = JSON.parse(body)?.detail || ''; } catch { detail = ''; }
-    throw new Error(detail || `HTTP ${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+    const err = new Error(detail || `HTTP ${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+    /* 409 는 **고장이 아니다** — "쓰는 중이라 안 지운다" 는 거절이다. 호출부가
+       "종료 실패: …" 로 감싸면 사용자는 버그를 의심하게 된다. */
+    err.status = res.status;
+    throw err;
   }, []);
 
   /* 원격 tmux 세션 kill — fire-and-forget. 호스트가 도달 불가능하면 다음 접속 때 Resumable 에 남음.

@@ -10,24 +10,24 @@ import host_tmux
 
 
 def test_parse_reads_the_attached_flag():
-    out = "mobile|1\nmobile-abc|0\n"
+    out = "mobile|1|100\nmobile-abc|0|200\n"
     assert host_tmux.parse_sessions(out) == {"mobile": True, "mobile-abc": False}
 
 
 def test_a_session_name_may_contain_the_separator():
     """`rpartition` 인 이유. 세션 이름에 `|` 가 들어가도 마지막 칸이 플래그다."""
-    assert host_tmux.parse_sessions("we|rd|1") == {"we|rd": True}
+    assert host_tmux.parse_sessions("we|rd|1|100") == {"we|rd": True}
 
 
 def test_garbage_lines_are_dropped_not_folded_to_false():
     """⚠️ 못 읽은 줄을 '안 붙었다' 로 접으면 이 파일이 막으려는 사고가 그대로 난다."""
-    assert host_tmux.parse_sessions("쓰레기\n\nmobile|1") == {"mobile": True}
+    assert host_tmux.parse_sessions("쓰레기\n\nmobile|1|100") == {"mobile": True}
 
 
 @pytest.mark.anyio
 async def test_attached_session_is_refused():
     async def run():
-        return "mobile|1"
+        return "mobile|1|100"
     with pytest.raises(host_tmux.SessionInUseError) as e:
         await host_tmux.assert_not_attached(run, "mobile")
     assert e.value.session == "mobile"
@@ -36,7 +36,7 @@ async def test_attached_session_is_refused():
 @pytest.mark.anyio
 async def test_detached_session_passes():
     async def run():
-        return "mobile|0\nother|1"
+        return "mobile|0|100\nother|1|200"
     await host_tmux.assert_not_attached(run, "mobile")
 
 
@@ -132,3 +132,47 @@ def test_tab_close_does_not_ask_for_recreate():
     body = body[:body.index("}, []);")]
     assert "allow_attached=true" in body
     assert "recreate" not in body, "탭 닫기가 recreate 를 주면 닫은 세션이 되살아난다"
+
+
+def test_the_created_stamp_survives_the_parse():
+    """홈 카드가 "N시간 전" 을 그린다 — 포맷을 늘렸으니 그 칸도 실제로 읽혀야 한다."""
+    rows = host_tmux.parse_session_rows("mobile|0|1787813468")
+    assert rows == [{"name": "mobile", "attached": False, "created": 1787813468}]
+
+
+def test_a_name_with_the_separator_keeps_its_created():
+    """오른쪽부터 쪼개는 이유 — 왼쪽부터면 이름이 잘려 다른 세션이 된다."""
+    rows = host_tmux.parse_session_rows("we|rd|1|1787813468")
+    assert rows[0]["name"] == "we|rd" and rows[0]["created"] == 1787813468
+
+
+# --- 목록의 attached 는 캐시하지 않는다 -------------------------------------------
+
+def test_the_session_list_prefers_the_live_remote():
+    """⚠️ 실측 사고: 쓰고 있는 rpi5 세션이 "이어할 수 있는 세션" 에 계속 떴다. tmux 는
+    그때 `attached=1` 이라고 말하고 있었는데 화면은 60초 캐시된 `0` 을 들고 있었다.
+
+    "이어할 수 있다" 는 **지금**에 대한 단언이다 — 낡은 값으로 그 단언을 하면 화면이
+    쓰는 중인 세션을 지우라고 내민다. 리모트가 붙어 있으면 캐시를 아예 지나친다.
+    """
+    import inspect
+
+    from routes import hosts as route
+    body = inspect.getsource(route._fetch_host_tmux_sessions)
+    live = body.index("_sessions_over_remote")
+    cached = body.index("cache.get")
+    assert live < cached, "캐시를 먼저 본다 — 리모트가 있어도 낡은 값을 준다"
+
+    # 그리고 리모트 경로는 그 결과를 캐시에 넣지 않는다(넣으면 다음 조회가 다시 낡는다).
+    assert "cache.set" not in inspect.getsource(route._sessions_over_remote)
+
+
+def test_both_paths_share_one_parser():
+    """포맷을 늘렸다. 손으로 쪼개는 코드가 한쪽에 남아 있으면 그쪽만 칸을 잘못 읽는데
+    아무 데서도 안 터진다 — 예전 SSH 경로는 칸 순서까지 달랐다."""
+    import inspect
+
+    from routes import hosts as route
+    body = inspect.getsource(route._fetch_host_tmux_sessions)
+    assert body.count("parse_session_rows") == 0 or "host_tmux.parse_session_rows" in body
+    assert 'line.split("|")' not in body, "손으로 쪼개는 코드가 남아 있다"
