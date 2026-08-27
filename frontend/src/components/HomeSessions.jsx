@@ -143,24 +143,33 @@ const HomeSessions = ({
   // Resume 으로 attach 한 탭은 pane.tmuxSessionName 자체를 prefix 로 (그 이름 + `_N` 컴패니언).
   const claimedPrefixesByHost = useMemo(() => {
     const map = new Map();
+    const claim = (hostId, value) => {
+      if (!hostId || !value) return;
+      const set = map.get(hostId) || new Set();
+      set.add(value);
+      map.set(hostId, set);
+    };
     tabs.forEach((tab) => {
-      if (tab.type !== 'host' || !tab.hostId) return;
-      const host = hosts.find((h) => h.id === tab.hostId);
-      if (!host) return;
-      const baseFromHost = host.remote_tmux_session || 'mobile';
-      const set = map.get(tab.hostId) || new Set();
-      // suffix 있는 탭 — 그 suffix 의 모든 컴패니언을 점유.
-      if (tab.tmuxSuffix) {
-        set.add(`${baseFromHost}-${tab.tmuxSuffix}`);
-      } else {
-        // suffix 없는 탭 (오래된 데이터 호환) — base 자체를 점유.
-        set.add(baseFromHost);
+      // 탭 단위 suffix 는 **host 탭에만** 있는 개념이다(그 탭 = 한 워크스페이스).
+      if (tab.type === 'host' && tab.hostId) {
+        const host = hosts.find((h) => h.id === tab.hostId);
+        if (host) {
+          const base = host.remote_tmux_session || 'mobile';
+          // suffix 없는 옛 데이터는 base 자체를 점유.
+          claim(tab.hostId, tab.tmuxSuffix ? `${base}-${tab.tmuxSuffix}` : base);
+        }
       }
-      // Resume 탭 — pane.tmuxSessionName 이 명시적으로 박혀있음.
+      /* ⚠️ **pane 은 자기 hostId 를 갖는다.** 예전엔 이 루프 전체가
+         `if (tab.type !== 'host') return;` 뒤에 있어서, **로컬 탭 안의 원격 pane 이
+         통째로 빠졌다.** 실측 사고가 정확히 그것이다 — 로컬 탭 `Proxmox 이관` 의
+         3번 pane 이 rpi5 세션(`mobile-6c3ea63b03c1`)인데 아무도 점유로 세지 않아,
+         쓰고 있는 그 세션이 "이어할 수 있는 세션" 에 떴고 종료하니 같이 죽었다.
+
+         이 저장소가 같은 자리에서 여러 번 밟았다(탭 색이 안 바뀌던 것, 분할탭이
+         풀리던 것) — **탭 단위로 판정하면 섞인 탭에서 반드시 틀린다.** */
       (tab.panes || []).forEach((pane) => {
-        if (pane?.tmuxSessionName) set.add(pane.tmuxSessionName);
+        claim(pane?.hostId || tab.hostId, pane?.tmuxSessionName);
       });
-      map.set(tab.hostId, set);
     });
     return map;
   }, [tabs, hosts]);
