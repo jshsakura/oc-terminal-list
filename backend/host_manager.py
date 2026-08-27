@@ -155,13 +155,19 @@ def _build_remote_command(
         f"tmux bind-key -T root PageUp if-shell -F '#{{alternate_on}}' "
         f"'send-keys PageUp' 'copy-mode -eu' >/dev/null 2>&1; "
         f"tmux bind-key -T root PageDown if-shell -F '#{{alternate_on}}' 'send-keys PageDown' '' >/dev/null 2>&1; "
-        # 휠도 PageUp 과 동일 분기: alt-screen 앱이면 휠을 앱에 전달(send -M), 일반 셸이면
-        # copy-mode 진입+scroll. (로컬과 동일 — claude 등 풀스크린 앱 안에서 휠 스크롤 보장)
-        f"tmux bind-key -T root WheelUpPane if-shell -F '#{{alternate_on}}' "
+        # 휠은 **tmux 자신의 기본 분기**를 따른다(로컬 tmux_manager 와 같은 판정).
+        # 물어야 할 것은 "alt-screen 인가" 가 아니라 "이 앱이 마우스를 원하나" 다 —
+        # less·man 처럼 alt-screen 이면서 마우스를 안 쓰는 앱에 휠을 던지면 앱이 무시해
+        # 아무 일도 안 일어난다. `pane_in_mode` 는 이미 copy-mode 인 경우.
+        #
+        # ⚠️ 이 바인딩은 **로컬(tmux_manager.create_session)과 한 벌**이다. 한쪽만 고치면
+        # 로컬과 원격 pane 의 휠이 서로 다르게 동작한다.
+        f"tmux bind-key -T root WheelUpPane "
+        f"if-shell -F '#{{||:#{{pane_in_mode}},#{{mouse_any_flag}}}}' "
         f"'send-keys -M' 'copy-mode -e; send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "
-        f"tmux bind-key -T root WheelDownPane if-shell -F '#{{alternate_on}}' 'send-keys -M' '' >/dev/null 2>&1; "
-        f"tmux bind-key -T copy-mode WheelUpPane send-keys -X -N 5 scroll-up >/dev/null 2>&1; "
-        f"tmux bind-key -T copy-mode WheelDownPane send-keys -X -N 5 scroll-down >/dev/null 2>&1; "
+        f"tmux bind-key -T root WheelDownPane "
+        f"if-shell -F '#{{||:#{{pane_in_mode}},#{{mouse_any_flag}}}}' 'send-keys -M' '' >/dev/null 2>&1; "
+        # copy-mode 안의 휠은 덮지 않는다 — tmux 기본이 이미 같다.
         f"exec tmux attach-session -t {safe}; "
         f"}} || "
         f"{cd_prefix}exec ${{SHELL:-bash}} -l"

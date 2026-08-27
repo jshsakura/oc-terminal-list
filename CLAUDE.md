@@ -263,6 +263,28 @@ Related behavior, same file:
   걸려 우리 create=1 이 조용히 버려진다.
 - 예외를 넓히면 **반대 사고**(셸을 끝내도 pane 이 안 닫힘)가 난다. 테스트가 양쪽을 다 잠근다.
 
+## 휠 바인딩은 tmux 기본을 따른다 (2026-08-27)
+
+물어야 할 것은 **"alt-screen 인가" 가 아니라 "이 앱이 마우스를 원하나"** 다.
+
+```
+tmux 3.4 기본:  if -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send -M } { copy-mode -e }
+```
+
+`alternate_on` 으로 가르면 less·man 처럼 **alt-screen 이면서 마우스를 안 쓰는** 앱에
+휠을 던지고, 앱이 무시해서 아무 일도 안 일어난다. `pane_in_mode` 는 이미 copy-mode 인
+경우 — 빠지면 copy-mode 안에서도 이벤트가 앱으로 간다.
+
+- ⚠️ **바인딩은 두 벌이다**: 로컬 `tmux_manager.create_session`, 원격
+  `host_manager` 부트스트랩. 한쪽만 고치면 로컬과 원격 pane 의 휠이 달라진다.
+- **copy-mode 안의 휠은 덮지 않는다.** tmux 기본이 이미 우리가 쓰던 것과 같다
+  (`send -X -N 5 scroll-up/down`) — 같은 것을 다시 적으면 tmux 가 기본을 바꿨을 때
+  우리만 옛 동작에 묶인다.
+- **PageUp/Down 은 그대로 `alternate_on` 이다.** 그건 마우스가 아니라 **키**다 —
+  여기까지 바꾸면 alt-screen 앱에서 PgUp 이 앱으로 안 가고 copy-mode 가 열린다.
+- 클릭·드래그 unbind 는 유지한다. 선택은 xterm.js 가 해야 하고, tmux 가 copy-mode 로
+  가로채면 브라우저 선택이 죽는다 — 이건 임베드라서 다른 것이지 실수가 아니다.
+
 ## 지우면 지워져야 한다 — 브리지가 되살리지 않게 (2026-08-27)
 
 원격 브리지는 세션이 사라진 것을 보면 `create=1` 로 **다시 만든다.** 호스트 재부팅

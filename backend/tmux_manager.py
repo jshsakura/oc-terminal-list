@@ -267,37 +267,41 @@ class TmuxManager:
             "send-keys PageDown", "",
             check=False,
         )
-        # WheelUp/Down: alternate_on 으로 분기해야 한다(PageUp 바인딩과 동일한 원리).
-        #   - alt-screen 앱(claude/vim/less/htop …): 휠을 `send-keys -M` 으로 앱에 그대로
-        #     전달 → 앱이 자기 스크롤을 처리한다. 여기서 copy-mode 로 들어가면 alt 버퍼엔
-        #     스크롤백이 없어 "휠 올려도 아무것도 안 움직이는" 것처럼 보이고 앱에도 전달 안 됨.
-        #     (mouse off+PgUp→mouse on+SGR휠 전환 때 이 분기를 빠뜨려 claude 안에서 스크롤이
-        #      통째로 죽었던 회귀 버그.)
-        #   - 일반 셸(normal buffer): copy-mode 진입 + scroll-up 으로 스크롤백을 올린다.
+        # WheelUp/Down — **tmux 자신의 기본 분기를 따른다.**
+        #
+        #   tmux 3.4 기본:  if -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send -M } { copy-mode -e }
+        #
+        # ⚠️ 한때 `alternate_on`(alt-screen 인가)으로 갈랐는데 그건 **틀린 질문**이다.
+        # 물어야 할 것은 "이 앱이 마우스를 원하나"(`mouse_any_flag`)이고, 그래야
+        #   - claude·vim(마우스 켬)  → 휠이 앱으로 간다
+        #   - less·man(alt-screen 이지만 마우스 안 씀) → copy-mode 로 스크롤백이 올라간다
+        # 가 둘 다 맞는다. alt-screen 으로 갈랐을 때는 뒤엣것이 휠을 앱에 던지고 앱은
+        # 그걸 무시해서 **아무 일도 안 일어났다**.
+        # `pane_in_mode` 가 함께 있는 이유: 이미 copy-mode 면 그 테이블이 처리해야 한다.
+        #
+        # tmux 와 다른 점은 하나뿐이다 — 첫 휠에서 `scroll-up` 을 같이 보낸다. tmux 기본은
+        # 첫 노치에서 copy-mode 로 들어가기만 해 화면이 안 움직이고, 그건 "휠이 안 먹는다"
+        # 로 읽힌다. 어느 앱이 이벤트를 받는지는 그대로다.
+        mouse_app = "#{||:#{pane_in_mode},#{mouse_any_flag}}"
         await self._run(
             "bind-key", "-T", "root", "WheelUpPane",
-            "if-shell", "-F", "#{alternate_on}",
+            "if-shell", "-F", mouse_app,
             "send-keys -M", "copy-mode -e; send-keys -X -N 5 scroll-up",
             check=False,
         )
-        # copy-mode 밖(normal buffer)에서의 WheelDown: alt-screen 이면 앱에 전달, 아니면 무동작
-        # (이미 맨 아래라 내릴 게 없음). copy-mode 안에서의 휠은 아래 copy-mode 테이블이 처리.
+        # tmux 기본에는 root WheelDownPane 이 아예 없다(이벤트가 pane 으로 흘러간다).
+        # 우리는 같은 판정을 명시해 둔다 — 없으면 마우스 안 쓰는 앱에서 휠다운이
+        # 스크롤백 아래로 내려가려 시도하다 엉뚱하게 동작한다.
         await self._run(
             "bind-key", "-T", "root", "WheelDownPane",
-            "if-shell", "-F", "#{alternate_on}",
+            "if-shell", "-F", mouse_app,
             "send-keys -M", "",
             check=False,
         )
-        await self._run(
-            "bind-key", "-T", "copy-mode", "WheelUpPane",
-            "send-keys -X -N 5 scroll-up",
-            check=False,
-        )
-        await self._run(
-            "bind-key", "-T", "copy-mode", "WheelDownPane",
-            "send-keys -X -N 5 scroll-down",
-            check=False,
-        )
+        # copy-mode 안의 휠은 **덮지 않는다** — tmux 기본이 이미 우리가 쓰던 것과 같다
+        # (`select-pane ; send -X -N 5 scroll-up/down`). 같은 것을 다시 적으면 tmux 가
+        # 기본을 바꿨을 때 우리만 옛 동작에 묶인다.
+        #
         # mouse on 이므로 wheel 은 위 바인딩으로 살리고, 드래그/우클릭/더블클릭만
         # tmux copy-mode 자동 진입이나 팝업으로 번지지 않게 차단한다.
         for _ev in (
