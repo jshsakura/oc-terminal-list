@@ -511,7 +511,10 @@ export const HostRow = memo(({
         방법이 없는 것이다. 그래서 "없다" 가 아니라 **"할 수 있다"** 를 내민다
         (VMware 가 Tools 미설치를 알리는 방식). */}
     {remoteState === 'on' && (
-      <span style={REMOTE_CORNER_ON} title={remoteOnTitle}>
+      /* 숨쉬기는 **붙어 있을 때만**이다. 이 표식이 말하는 것은 "지금 살아 있는 링크"
+         이고, 정지한 아이콘은 그냥 색깔 하나다. 미설치 칩에는 넣지 않는다 — 거기서
+         맥동하면 재촉이 되는데, 안 깐 것은 결함이 아니라 아직 안 한 선택이다. */
+      <span style={REMOTE_CORNER_ON} title={remoteOnTitle} className="iterm-breathe">
         <Link2 size={12} strokeWidth={2} />
       </span>
         )}

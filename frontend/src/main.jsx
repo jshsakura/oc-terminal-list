@@ -41,8 +41,22 @@ glassBlurStyle.textContent = `
   @keyframes iterm-skel-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.7; } }
   @keyframes dc-spin { to { transform: rotate(360deg); } }
   .dc-spin { animation: dc-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+  /* 숨쉬기 — "이 링크가 살아 있다" 를 말하는 아주 느린 맥동. **opacity 만** 건드려
+     합성 단계에서 끝난다(레이아웃도 리페인트도 없다). 호스트 카드마다 하나씩 도는
+     애니메이션이라, transform 이나 box-shadow 였다면 카드 수만큼 곱해졌을 것이다.
+
+     느린 것이 요점이다 — 빠르면 깜빡임이 되어 눈이 그리로 끌려간다. 이건 알림이
+     아니라 상태 표시다. 그리고 완전히 사라지지 않는다(하한 0.5): 0 까지 내려가면
+     "꺼졌다" 로 읽히는 순간이 생긴다. */
+  @keyframes iterm-breathe { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+  .iterm-breathe { animation: iterm-breathe 3.2s ease-in-out infinite; }
+
   @media (prefers-reduced-motion: reduce) {
     .dc-spin { animation-duration: 2.4s; }
+    /* 숨쉬기는 **끈다** — 장식이라 없어도 뜻이 안 변한다(색만으로 이미 켜짐을 말한다).
+       느리게 만드는 것으로는 부족하다: 모션에 민감한 사람에게 3초짜리 맥동은 12초여도
+       똑같이 거슬린다. 켜져 보이도록 불투명하게 고정한다. */
+    .iterm-breathe { animation: none; opacity: 1; }
     [aria-busy="true"] * { animation: none !important; opacity: 0.55; }
   }
 
