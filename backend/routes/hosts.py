@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shlex
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -32,6 +33,9 @@ router = APIRouter(tags=["hosts"])
 # SSH connect timeout(15초) 만큼 통째로 붙잡는다.
 HOST_TMUX_CACHE_TTL_SEC = 60
 HOST_TMUX_ERROR_TTL_SEC = 30
+# 여러 호스트를 한 번에 볼 때의 **전체** 마감. 살아 있는 호스트는 1초 안에 답하므로,
+# 여기 걸리는 것은 꺼졌거나 아픈 호스트다 — 그것 하나 때문에 화면 전체가 기다릴 이유가 없다.
+BATCH_TMUX_DEADLINE_SEC = float(os.getenv("BATCH_TMUX_DEADLINE_SEC", "6"))
 
 
 @router.get("/api/hosts")
@@ -549,17 +553,38 @@ async def batch_host_tmux_sessions(
     full = await asyncio.gather(*[storage.get_host(h["id"], username) for h in picked])
     hosts = [f or h for f, h in zip(full, picked)]
 
-    tasks = [
-        _fetch_host_tmux_sessions(h, h["id"], username, refresh) for h in hosts
-    ]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # ⚠️ **가장 느린 호스트가 전체의 대기 시간이 된다.** gather 는 다 끝나야 돌아오므로,
+    # 꺼진 호스트 하나가 "이어할 수 있는 세션" 구획을 통째로 붙잡는다(실측으로 겪은 그것).
+    # 그래서 전체에 짧은 마감을 두고, 못 끝낸 것은 그때까지의 결과와 함께 오류로 돌려준다.
+    # 오류는 캐시되므로(HOST_TMUX_ERROR_TTL_SEC) 다음 조회는 기다리지 않는다.
+    tasks = {
+        h["id"]: asyncio.ensure_future(
+            _fetch_host_tmux_sessions(h, h["id"], username, refresh)
+        )
+        for h in hosts
+    }
+    done, pending = await asyncio.wait(tasks.values(), timeout=BATCH_TMUX_DEADLINE_SEC)
+    for task in pending:
+        task.cancel()      # 남겨 두면 아무도 안 보는 SSH 가 계속 돈다
+
     items: list[dict] = []
-    for h, r in zip(hosts, results):
-        if isinstance(r, Exception):
-            logger.warning("batch tmux-sessions exception (%s): %s", h.get("id"), r)
-            items.append({"id": h["id"], "sessions": [], "error": "원격 tmux 세션 조회 실패"})
+    for host_id, task in tasks.items():
+        if task in pending:
+            logger.info("batch tmux-sessions timed out (%s)", host_id)
+            payload = {"id": host_id, "sessions": [], "error": "원격 tmux 세션 조회 실패"}
+            # ⚠️ **여기서 실패를 캐시해야 한다.** `_fetch_host_tmux_sessions` 안의 캐시
+            # 기록은 예외 경로에 있는데, 우리가 태스크를 취소하면 거기 도달하지 못한다 —
+            # 그러면 열 때마다 마감(6초)을 처음부터 다시 태운다(실측: 두 번째 조회도 6초).
+            await cache.set(key_host_tmux_sessions(host_id), payload,
+                            ttl_seconds=HOST_TMUX_ERROR_TTL_SEC)
+            items.append(payload)
+            continue
+        error = task.exception()
+        if error is not None:
+            logger.warning("batch tmux-sessions exception (%s): %s", host_id, error)
+            items.append({"id": host_id, "sessions": [], "error": "원격 tmux 세션 조회 실패"})
         else:
-            items.append(r)
+            items.append(task.result())
     return {"items": items}
 
 
