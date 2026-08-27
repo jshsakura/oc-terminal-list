@@ -114,10 +114,30 @@ function App() {
     return paneIndex === 0 ? base : `${base}_${paneIndex + 1}`;
   }, []);
 
-  /* 원격 tmux 세션 kill — fire-and-forget. 호스트가 도달 불가능하면 다음 접속 때 Resumable 에 남음. */
+  /* 홈·빈 pane 의 "이어할 수 있는 세션" 종료. **`allow_attached` 를 주지 않는다** —
+     여기 뜬 카드는 정의상 "안 쓰는 세션" 이고, 붙어 있다면 그 판정이 낡은 것이다.
+     서버가 409 로 막아 준다(그 판정을 스냅샷에 맡겼다가 쓰던 세션을 잃은 적이 있다).
+
+     ⚠️ **응답 본문을 그대로 토스트에 흘리지 않는다.** `HTTP 409 — {"detail":…}` 는
+     사용자에게 아무 말도 안 하는 문자열이다. detail 만 꺼내 그것만 보여준다. */
+  const terminateHostSession = useCallback(async (host, sessionName) => {
+    const res = await fetch(
+      `/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`,
+      { method: 'POST', headers: authHeaders() },
+    );
+    if (res.ok) return;
+    const body = await res.text().catch(() => '');
+    let detail = '';
+    try { detail = JSON.parse(body)?.detail || ''; } catch { detail = ''; }
+    throw new Error(detail || `HTTP ${res.status}${body ? ` — ${body.slice(0, 200)}` : ''}`);
+  }, []);
+
+  /* 원격 tmux 세션 kill — fire-and-forget. 호스트가 도달 불가능하면 다음 접속 때 Resumable 에 남음.
+     `allow_attached` — 탭을 닫는다는 건 이 앱에서 세션 종료를 뜻한다(detach 는 없다).
+     닫는 그 세션은 방금까지 붙어 있던 것이므로, 서버의 기본 거절을 명시로 넘어간다. */
   const killRemoteTmuxSession = useCallback((hostId, sessionName) => {
     if (!hostId || !sessionName) return;
-    fetch(`/api/hosts/${hostId}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
+    fetch(`/api/hosts/${hostId}/kill-tmux?session=${encodeURIComponent(sessionName)}&allow_attached=true`, {
       method: 'POST',
       headers: authHeaders(),
     }).catch(() => {});
@@ -1027,15 +1047,7 @@ function App() {
               onJumpTab={(tabId) => setActiveTabId(tabId)}
               onJumpPane={(tabId, paneId) => { setActiveTabId(tabId); focusPane(tabId, paneId); }}
               onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
-              onTerminateHostSession={async (host, sessionName) => {
-                const res = await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
-                  method: 'POST', headers: authHeaders(),
-                });
-                if (!res.ok) {
-                  const detail = await res.text().catch(() => '');
-                  throw new Error(`HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
-                }
-              }}
+              onTerminateHostSession={terminateHostSession}
               onConfirm={(opts) => setConfirmModal({ isOpen: true, ...opts })}
               onNotify={(message) => setNotification({ isOpen: true, message })}
               t={t}
@@ -1177,15 +1189,7 @@ function App() {
                     onConfirm={(opts) => setConfirmModal({ isOpen: true, ...opts })}
                     onNotify={(message) => setNotification({ isOpen: true, message })}
                     onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
-                    onTerminateHostSession={async (host, sessionName) => {
-                      const res = await fetch(`/api/hosts/${host.id}/kill-tmux?session=${encodeURIComponent(sessionName)}`, {
-                        method: 'POST', headers: authHeaders(),
-                      });
-                      if (!res.ok) {
-                        const detail = await res.text().catch(() => '');
-                        throw new Error(`HTTP ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`);
-                      }
-                    }}
+                    onTerminateHostSession={terminateHostSession}
                     busyTabIds={busyTabIds}
                     busyPaneIds={busyPaneIds}
                     /* EmptyPane Connections → 폴더 픽커. slot (tabId/paneId) 같이 넘겨 빈 슬롯에 채움. */

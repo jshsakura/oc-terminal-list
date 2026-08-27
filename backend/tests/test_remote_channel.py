@@ -7,6 +7,7 @@ import pytest
 
 from remote_agent import registry
 from remote_agent.channel import RemoteChannelError, channel_for
+import host_tmux
 from remote_agent.payload import script_source
 
 HOST = "h1"
@@ -78,7 +79,7 @@ def probe():
     return ns
 
 
-@pytest.mark.parametrize("name", ["send", "key", "capture"])
+@pytest.mark.parametrize("name", ["send", "key", "capture", "list_sessions", "kill_session"])
 def test_the_commands_we_actually_send_are_accepted(probe, name):
     """⚠️ 실측 사고. 허용목록이 **우리 자신의 명령**을 막으면 리모트 경로가 통째로 죽는다
     — `command-not-allowed` 로 거절되고 배달·읽기가 502 가 됐다.
@@ -91,6 +92,10 @@ def test_the_commands_we_actually_send_are_accepted(probe, name):
         "send": lambda: itl_remote.build_send_cmd("mobile-x", "hi", submit=True),
         "key": lambda: itl_remote.build_key_cmd("mobile-x", "C-c"),
         "capture": lambda: itl_remote.build_capture_cmd("mobile-x", 40),
+        # 종료 경로도 리모트로 간다 — SSH 를 새로 여는 것이 "원격 세션 재시작이
+        # 오래 걸린다" 의 정체였다. 여기서 막히면 그게 조용히 SSH 로 되돌아간다.
+        "list_sessions": lambda: host_tmux.LIST_TMUX_CMD,
+        "kill_session": lambda: host_tmux.kill_tmux_cmd("mobile-x", shell=False),
     }
     assert probe["parse_chain"](builders[name]()) is not None
 

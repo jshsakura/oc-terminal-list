@@ -14,8 +14,9 @@ import shlex
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from _deps import verify_auth_token
+import host_tmux
 import session_tombstones
+from _deps import verify_auth_token
 from remote_platform import PLATFORM_PROBE, classify_platform
 from cache import cache, invalidate_host, key_host_tmux_clients, key_host_tmux_sessions
 from host_manager import resolve_host_secrets
@@ -32,6 +33,12 @@ router = APIRouter(tags=["hosts"])
 # tmux 세션 목록 캐시 TTL(초). 성공과 실패를 따로 두는 이유는 `_fetch_host_tmux_sessions`
 # 의 주석 참고 — 실패를 캐시하지 않으면 꺼진 호스트 하나가 홈 화면을 열 때마다
 # SSH connect timeout(15초) 만큼 통째로 붙잡는다.
+# 붙어 있는 세션을 지우려 할 때의 문구. **두 경로가 같은 말을 해야 한다** — 사용자에게는
+# 리모트로 갔는지 SSH 로 갔는지가 보이지 않는데, 문구가 다르면 다른 고장으로 읽힌다.
+SESSION_IN_USE_DETAIL = (
+    "지금 사용 중인 세션입니다. 그 터미널을 먼저 닫으면 목록에서도 사라집니다."
+)
+
 HOST_TMUX_CACHE_TTL_SEC = 60
 HOST_TMUX_ERROR_TTL_SEC = 30
 # 여러 호스트를 한 번에 볼 때의 **전체** 마감. 살아 있는 호스트는 1초 안에 답하므로,
@@ -276,11 +283,58 @@ async def revoke_host_credentials(
     return {"id": host_id, "cred_epoch": epoch, "remote_disconnected": connection is not None}
 
 
+async def _stdout_of(awaitable) -> str:
+    """asyncssh 결과의 stdout 을 문자열로. bytes/str 을 둘 다 받는다."""
+    result = await awaitable
+    out = result.stdout
+    return out if isinstance(out, str) else (out or b"").decode("utf-8", errors="replace")
+
+
+async def _kill_over_remote(host_id: str, username: str, session: str,
+                            allow_attached: bool) -> bool:
+    """리모트가 붙어 있으면 그 소켓으로 죽인다. 성공하면 True.
+
+    ⚠️ **못 하면 조용히 False 를 준다** — 호출부가 SSH 로 이어간다. 리모트가 없는
+    호스트도 종료는 되어야 하고, 그건 사람이 누른 한 번이라 SSH 를 열 만하다
+    (`open_channel_on_demand` 와 같은 기준: 되풀이되는 일이 아니다).
+
+    붙어 있음 판정만은 예외로 **위로 던진다.** 그건 "이 경로가 안 된다" 가 아니라
+    "죽이면 안 된다" 이므로, SSH 로 물러서서 기어이 죽이면 이 수정이 무의미해진다.
+    """
+    from itl_remote import RemoteNotConnectedError, open_channel
+    from remote_agent.channel import RemoteChannelError
+    try:
+        channel = await open_channel(host_id, username)
+    except RemoteNotConnectedError:
+        return False
+    if not allow_attached:
+        await host_tmux.assert_not_attached(
+            lambda: channel.run(host_tmux.LIST_TMUX_CMD), session)
+    try:
+        await channel.run(host_tmux.kill_tmux_cmd(session, shell=False))
+    except RemoteChannelError as e:
+        # 없는 세션을 죽이면 tmux 가 0 이 아닌 코드로 끝난다 — 그건 실패가 아니라
+        # **이미 없다**이다. 그 외 사유(낡은 리모트 등)는 SSH 로 물러선다.
+        if "can't find session" in str(e) or "no server running" in str(e):
+            return True
+        logger.warning("remote kill fell back to ssh (%s): %s", host_id, e)
+        return False
+    return True
+
+
 @router.post("/api/hosts/{host_id}/kill-tmux")
 async def kill_host_tmux(
     host_id: str,
     force: bool = Query(False, description="true 면 tmux kill-server (전체 nuke)"),
     session: str | None = Query(None, description="특정 세션 이름 직접 지정 (예: mobile.2). 없으면 호스트 기본"),
+    allow_attached: bool = Query(
+        False,
+        description="붙어 있는 세션도 죽인다. 세션 재시작·탭 닫기처럼 **그게 목적인** 곳만.",
+    ),
+    recreate: bool = Query(
+        False,
+        description="곧바로 다시 만들 것이다(세션 재시작). 무덤을 남기지 않는다.",
+    ),
     username: str = Depends(verify_auth_token),
 ):
     """원격 tmux 세션 종료.
@@ -288,6 +342,26 @@ async def kill_host_tmux(
     - force=True: `tmux kill-server` (전체 nuke)
     - session 지정: 그 세션만 kill (분할 pane 의 자동 부여된 세션 정리용)
     - 둘 다 없으면 호스트의 기본 세션 kill
+
+    ⚠️ **`recreate` 는 무덤을 남기지 않는다.** 무덤(`session_tombstones`)은 "사용자가
+    지웠으니 되살리지 마라" 는 표다. 그런데 **세션 재시작은 정확히 그 되살리기가 목적**
+    이다 — 죽이고, 재접속이 `create=1` 로 새로 만든다. 그런데도 표를 남기고 있어서
+    그 재접속이 20초(`TOMBSTONE_TTL_SEC`) 동안 거절당했고, 거절은 `session-terminated`
+    라 클라이언트에게는 "셸이 끝났다" 로 보인다. 그게 "원격 세션 재시작이 오래 걸린다"
+    의 정체다(SSH 는 실측 0.34초로 범인이 아니었다).
+
+    ⚠️ 이 저장소가 같은 가족의 사고를 네 번째 밟은 것이다: **우리가 죽인 것과 저절로
+    죽은 것을 구별하지 못했다.** 구별은 의도를 아는 쪽(호출부)이 말해 주어야 한다.
+
+    ⚠️ **붙어 있는 세션은 기본적으로 거절한다(409).** 붙어 있다는 건 쓰는 중이라는
+    뜻이다. 사고 이력: 홈의 "이어할 수 있는 세션" 이 60초 캐시 위에서 판정하는 바람에
+    쓰고 있던 세션이 목록에 남았고, 그걸 종료하자 **쓰던 세션이 같이 죽었다.**
+    화면은 언제나 과거를 그리므로, 판정은 죽이기 직전에 여기서 한 번 더 한다.
+
+    **리모트가 붙어 있으면 SSH 를 열지 않는다.** 예전에는 kill 마다 새 SSH 연결을
+    맺었고(핸드셰이크+인증), 그게 "원격 세션 재시작이 오래 걸린다" 의 정체였다.
+    이건 폴링이 아니라 사람이 누른 한 번이지만, 이미 열려 있는 소켓을 두고 새로
+    연결할 이유는 없다.
     """
     from host_manager import DEFAULT_REMOTE_TMUX_SESSION, open_connection
     host = await storage.get_host(host_id, username)
@@ -301,18 +375,37 @@ async def kill_host_tmux(
         key_record = await storage.get_ssh_key(host["key_id"], username)
     secrets = resolve_host_secrets(host, key_record)
     target_session = (session or "").strip() or host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
-    safe = shlex.quote(target_session)
-    cmd = "tmux kill-server 2>/dev/null; true" if force else f"tmux has-session -t {safe} 2>/dev/null && tmux kill-session -t {safe}"
+
+    if not force:
+        try:
+            killed = await _kill_over_remote(host_id, username, target_session, allow_attached)
+        except host_tmux.SessionInUseError:
+            raise HTTPException(status_code=409, detail=SESSION_IN_USE_DETAIL) from None
+        if killed:
+            if not recreate:
+                session_tombstones.mark_killed(host_id, target_session)
+            await invalidate_host(host_id)
+            return {"id": host_id, "session": target_session, "status": "killed", "via": "remote"}
+
+    cmd = "tmux kill-server 2>/dev/null; true" if force else host_tmux.kill_tmux_cmd(target_session, shell=True)
     try:
         # tailscale auth 면 일반 ssh open_connection 안 됨 → tailscale ssh exec
         if host.get("auth_method") == "tailscale":
             target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
-            proc = await asyncio.create_subprocess_exec(
-                "tailscale", "ssh", target, cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=10)
+
+            async def _run_tailscale(one: str) -> str:
+                proc = await asyncio.create_subprocess_exec(
+                    "tailscale", "ssh", target, one,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+                return stdout.decode("utf-8", errors="replace")
+
+            if not force and not allow_attached:
+                await host_tmux.assert_not_attached(
+                    lambda: _run_tailscale(host_tmux.LIST_SSH_CMD), target_session)
+            await _run_tailscale(cmd)
         else:
             conn = await open_connection(
                 host,
@@ -321,17 +414,28 @@ async def kill_host_tmux(
                 password=secrets["password"],
             )
             try:
+                # 목록과 kill 은 **같은 연결**에서 — 확인하려고 연결을 하나 더 열면
+                # 이 엔드포인트가 느려진 원인(핸드셰이크)을 그대로 두 배로 만든다.
+                if not force and not allow_attached:
+                    await host_tmux.assert_not_attached(
+                        lambda: _stdout_of(conn.run(host_tmux.LIST_SSH_CMD, check=False)),
+                        target_session)
                 await conn.run(cmd, check=False)
             finally:
                 conn.close()
                 await conn.wait_closed()
+    except host_tmux.SessionInUseError:
+        raise HTTPException(status_code=409, detail=SESSION_IN_USE_DETAIL) from None
     except Exception as e:
         logger.error("kill-tmux failed (%s, force=%s, session=%s): %s", host_id, force, target_session, e)
         raise HTTPException(status_code=500, detail="tmux 세션 종료에 실패했습니다.")
-    if not force:
+    if not force and not recreate:
         # ⚠️ **지우면 지워져야 한다.** 브리지는 세션이 사라진 것을 보면 `create=1` 로 다시
         # 만든다(호스트 재부팅 복구용). 사용자가 직접 지운 경우엔 그게 정반대로 작동해
         # 곧바로 되살아난다 — 표를 남겨 그 한 번을 막는다.
+        #
+        # `recreate` 면 표를 남기지 않는다. 재시작은 그 되살리기가 **목적**이라,
+        # 표를 남기면 자기 재접속을 자기가 막는다.
         session_tombstones.mark_killed(host_id, target_session)
     await invalidate_host(host_id)  # 세션 목록·client 수 캐시 즉시 무효화
     await ssh_pool.invalidate(host_id)  # 풀의 살아있는 conn 도 끊어 새로 시작

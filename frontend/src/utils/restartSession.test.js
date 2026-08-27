@@ -23,7 +23,10 @@ describe('killPaneSession', () => {
 
     expect(result).toEqual({ ok: true });
     const [url, opts] = global.fetch.mock.calls[0];
-    expect(url).toBe('/api/hosts/host-1/kill-tmux?session=mobile-abc_2');
+    // ⚠️ `allow_attached` — 재시작은 지금 붙어 있는 세션을 죽이는 일이다. 서버는 그걸
+    // 기본으로 거절한다(쓰던 세션을 홈 목록에서 지워 잃은 사고). 빠지면 재시작이
+    // 409 로 조용히 실패하고 pane 은 옛 셸에 그대로 붙어 있는다.
+    expect(url).toBe('/api/hosts/host-1/kill-tmux?session=mobile-abc_2&allow_attached=true&recreate=true');
     expect(opts.method).toBe('POST');
   });
 

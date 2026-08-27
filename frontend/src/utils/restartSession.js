@@ -35,8 +35,19 @@ export const killPaneSession = async ({ isLocal, sessionId, hostId, remoteTmuxSe
     // 원격 tmux 를 안 쓰는 호스트는 죽일 세션이 없다 — 재접속만으로 새 셸이 뜬다.
     if (!remoteTmuxSession) return { ok: true };
 
+    /* 인자 두 개가 이 호출의 의도 전부다.
+
+       `allow_attached` — 재시작은 **지금 붙어서 보고 있는** 세션을 죽이는 일이다.
+       서버는 붙어 있는 세션의 종료를 기본으로 거절한다(홈의 "이어할 수 있는 세션" 에서
+       쓰던 세션을 지워 잃은 사고 때문에). 여기서는 그게 목적이므로 명시로 넘긴다.
+
+       `recreate` — ⚠️ **이게 빠지면 재시작이 자기 재접속을 자기가 막는다.** 서버는
+       사용자가 지운 세션에 무덤(20s)을 남겨 되살아나지 못하게 하는데, 재시작은 그
+       되살리기가 목적이다. 빠뜨렸던 동안 재접속이 그 20초 내내 `session-terminated`
+       로 거절당했고, 화면에서는 "재시작이 오래 걸린다" 로 보였다. */
     const res = await fetch(
-      `/api/hosts/${encodeURIComponent(hostId)}/kill-tmux?session=${encodeURIComponent(remoteTmuxSession)}`,
+      `/api/hosts/${encodeURIComponent(hostId)}/kill-tmux?session=${encodeURIComponent(remoteTmuxSession)}`
+      + '&allow_attached=true&recreate=true',
       { method: 'POST', headers: authHeaders() },
     );
     if (!res.ok) return { ok: false, error: `POST kill-tmux → ${res.status}` };
