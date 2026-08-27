@@ -42,4 +42,26 @@ describe('호스트 카드의 리모트 표시', () => {
       remoteFailed remoteFailedLabel="설치 실패" remoteOffLabel="리모트 미설치" />);
     expect(screen.getByText('설치 실패')).toBeTruthy();
   });
+
+  /* ⚠️ **버튼처럼 보이면 안 된다.** 카드가 알려주는 사실이고 누를 수 있다는 건 부수적이다.
+     테두리·면을 주면 우상단에 버튼이 하나 더 생긴 것처럼 읽히고, 카드가 좁아 답답해진다. */
+  test('정보성이다 — 테두리도 면도 없다', () => {
+    const { container } = render(
+      <HostRow {...base} remoteState="off" onInstallRemote={vi.fn()} remoteOffLabel="리모트 미설치" />,
+    );
+    const chip = container.querySelector('button');
+    // jsdom 은 `border: none` 을 border-style 로 정규화한다 — 읽히는 쪽으로 잰다.
+    expect(chip.style.borderStyle).toBe('none');
+    expect(chip.style.background).toBe('transparent');
+  });
+
+  test('우상단에 고정된다 — 액션 버튼과 같은 줄에 서지 않는다', () => {
+    const { container } = render(
+      <HostRow {...base} remoteState="on" remoteOnTitle="연결됨" onEdit={vi.fn()} editTitle="설정" />,
+    );
+    const badge = container.querySelector('[title="연결됨"]');
+    expect(badge.style.position).toBe('absolute');
+    expect(badge.style.top).toBeTruthy();
+    expect(badge.style.right).toBeTruthy();
+  });
 });

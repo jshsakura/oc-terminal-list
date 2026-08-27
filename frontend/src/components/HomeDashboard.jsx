@@ -503,40 +503,47 @@ export const HostRow = memo(({
       <div style={styles.sub}>{subtitle}</div>
     </div>
 
-    {(onPickPath || onEdit || onOpenVnc || remoteState) && (
-      <div style={styles.actions} onClick={(e) => e.stopPropagation()}>
-        {/* 리모트 — **설치는 선택이다.** 안 깔았다고 경고색을 쓰지 않는다. 안 깔면
-            세션 간 명령 전달과 상태 표시가 안 되는데, 그건 고장이 아니라 우리가 볼
-            방법이 없는 것이다. 그래서 "없다" 가 아니라 **"할 수 있다"** 를 내민다
-            (VMware 가 Tools 미설치를 알리는 방식). */}
-        {remoteState === 'on' && (
-          <span style={REMOTE_ON_STYLE} title={remoteOnTitle}>
-            <Link2 size={12} strokeWidth={2} />
-          </span>
+    {/* 리모트 표시는 **우상단 모서리**에 띄운다. 액션 아이콘은 세로 가운데라 같은 줄에
+        두면 붙어서 무엇이 상태고 무엇이 버튼인지 구별이 안 된다 — 코너를 나눠 쓴다
+        (칩=우상단, 버튼=우하단). 칩이 없는 카드(로컬)는 예전 배치 그대로다. */}
+    {/* 리모트 — **설치는 선택이다.** 안 깔았다고 경고색을 쓰지 않는다. 안 깔면
+        세션 간 명령 전달과 상태 표시가 안 되는데, 그건 고장이 아니라 우리가 볼
+        방법이 없는 것이다. 그래서 "없다" 가 아니라 **"할 수 있다"** 를 내민다
+        (VMware 가 Tools 미설치를 알리는 방식). */}
+    {remoteState === 'on' && (
+      <span style={REMOTE_CORNER_ON} title={remoteOnTitle}>
+        <Link2 size={12} strokeWidth={2} />
+      </span>
         )}
-        {remoteState === 'off' && onInstallRemote && (
-          /* 아이콘만으로는 무엇인지 알 수 없어 아무도 안 누른다 — 라벨을 단다.
-             경고색이 아닌 이유: 안 깐 것은 결함이 아니라 선택이고, 여기서 말하는 것은
-             **할 수 있는 일**이다. 무엇을 얻는지는 title 이 한 문장으로 말한다. */
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); if (!remoteBusy) onInstallRemote(); }}
-            title={remoteOffTitle}
-            disabled={remoteBusy}
-            style={{
-              ...REMOTE_CHIP_STYLE,
-              ...(remoteFailed ? { color: 'var(--ui-danger, #f38ba8)' } : null),
-              ...(remoteBusy ? { opacity: 0.6, cursor: 'default' } : null),
-            }}
-          >
-            <Download size={11} strokeWidth={2} />
-            {remoteBusy
-              ? (remoteBusyLabel || '설치 중…')
-              : remoteFailed
-                ? (remoteFailedLabel || '설치 실패')
-                : (remoteOffLabel || '리모트 미설치')}
-          </button>
+    {remoteState === 'off' && onInstallRemote && (
+      /* 아이콘만으로는 무엇인지 알 수 없어 아무도 안 누른다 — 라벨을 단다.
+         경고색이 아닌 이유: 안 깐 것은 결함이 아니라 선택이고, 여기서 말하는 것은
+         **할 수 있는 일**이다. 무엇을 얻는지는 title 이 한 문장으로 말한다. */
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); if (!remoteBusy) onInstallRemote(); }}
+        title={remoteOffTitle}
+        disabled={remoteBusy}
+        style={{
+          ...REMOTE_CORNER_CHIP,
+          ...(remoteFailed ? { color: 'var(--ui-danger, #f38ba8)' } : null),
+          ...(remoteBusy ? { opacity: 0.6, cursor: 'default' } : null),
+        }}
+      >
+        <Download size={10} strokeWidth={2} />
+        {remoteBusy
+          ? (remoteBusyLabel || '설치 중…')
+          : remoteFailed
+            ? (remoteFailedLabel || '설치 실패')
+            : (remoteOffLabel || '리모트 미설치')}
+      </button>
         )}
+
+    {(onPickPath || onEdit || onOpenVnc) && (
+      <div
+        style={{ ...styles.actions, ...(remoteState ? { alignSelf: 'flex-end' } : null) }}
+        onClick={(e) => e.stopPropagation()}
+      >
         {onOpenVnc && (
           <RowBtn onClick={(e) => { e.stopPropagation(); onOpenVnc(); }} title={openVncTitle}>
             <ScreenShare size={13} strokeWidth={1.8} />
@@ -557,29 +564,44 @@ export const HostRow = memo(({
   </div>
 ));
 
-const REMOTE_CHIP_STYLE = {
+/* 리모트 표시는 카드 **우상단 모서리**에 고정한다.
+
+   ⚠️ 액션 아이콘(기어·폴더)과 같은 줄에 두면 무엇이 **상태**고 무엇이 **버튼**인지
+   구별이 안 된다. 이건 정보이고(연결됨) 하나는 할 일이라(설치), 자리를 나눠야 읽힌다.
+   그래서 코너를 쓴다 — 칩은 우상단, 버튼은 우하단. */
+const REMOTE_CORNER = {
+  position: 'absolute',
+  top: '6px',
+  right: '8px',
+  zIndex: 1,
+};
+
+const REMOTE_CORNER_CHIP = {
+  ...REMOTE_CORNER,
   display: 'inline-flex',
   alignItems: 'center',
-  gap: '4px',
-  height: '22px',
-  padding: '0 7px',
-  flexShrink: 0,
+  gap: '3px',
+  padding: 0,
+  /* ⚠️ **버튼처럼 보이면 안 된다.** 이건 카드가 알려주는 사실이고, 누를 수 있다는 것은
+     부수적이다. 테두리·면을 주면 우상단에 버튼이 하나 더 생긴 것처럼 읽히고, 카드가
+     좁아 그 자체로 답답해진다. 글자와 아이콘만 남긴다. */
   background: 'transparent',
-  border: `1px solid color-mix(in srgb, var(--ui-border, ${tokens.color.border}) 70%, transparent)`,
-  borderRadius: tokens.radius.full,
-  color: tokens.color.subtext,
+  border: 'none',
+  color: tokens.color.muted,
   fontSize: tokens.fontSize['10'] || '10px',
   fontFamily: 'inherit',
+  lineHeight: 1,
   whiteSpace: 'nowrap',
   cursor: 'pointer',
 };
 
-const REMOTE_ON_STYLE = {
+const REMOTE_CORNER_ON = {
+  ...REMOTE_CORNER,
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: '22px',
-  height: '22px',
+  width: '18px',
+  height: '18px',
   flexShrink: 0,
   color: tokens.color.success,
 };
@@ -697,6 +719,8 @@ const styles = {
   row: {
     display: 'flex',
     alignItems: 'center',
+    // 리모트 칩이 우상단에 절대배치된다 — 그 기준점.
+    position: 'relative',
     gap: '12px',
     padding: '10px 12px',
     background: color.surface0,
