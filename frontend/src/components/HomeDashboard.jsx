@@ -1,9 +1,11 @@
 import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import {
-  Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen,
+  Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen, Download,
   Link2, BarChart3, ScreenShare, RefreshCw, Activity,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import useConnectedRemotes from '../hooks/useConnectedRemotes';
+import useRemoteInstall from '../hooks/useRemoteInstall';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import FleetBoard from './home/FleetBoard';
@@ -72,6 +74,10 @@ const HomeDashboard = ({
   extraTopSlot = null,
   t,
 }) => {
+  /* 어느 호스트에 리모트가 붙어 있나 — **한 번의 요청**이다(SSH 0회).
+     호스트마다 물으면 그 자체로 SSH 가 카드 수만큼 곱해진다. */
+  const { connected: connectedRemotes, refresh: refreshRemotes } = useConnectedRemotes(true);
+  const remoteInstall = useRemoteInstall(refreshRemotes);
   const [hoverId, setHoverId] = useState(null);
   // 'connections' | 'dashboard' — 홈에 오는 이유의 대부분은 연결이라 기본은 그쪽.
   const [view, setView] = useState('connections');
@@ -355,6 +361,16 @@ const HomeDashboard = ({
                   pickPathTitle={t?.('openAtPath') || 'Open at path…'}
                   onOpenVnc={onOpenVnc ? () => onOpenVnc(host) : null}
                   openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
+                  remoteState={connectedRemotes[host.id] ? 'on' : 'off'}
+                  remoteBusy={remoteInstall.busyHostId === host.id}
+                  remoteFailed={remoteInstall.failedHostId === host.id}
+                  remoteOnTitle={t?.('remoteConnectedShort') || '리모트 연결됨'}
+                  remoteOffTitle={t?.('remoteWhyInstall')
+                    || '리모트 미설치 — 눌러서 설치합니다. 깔면 이 호스트의 에이전트가 끝났을 때 텔레그램·푸시 알림이 오고, 다른 터미널에서 이 호스트로 명령을 보낼 수 있습니다.'}
+                  onInstallRemote={() => remoteInstall.install(host.id)}
+                  remoteOffLabel={t?.('remoteNotInstalledChip') || '리모트 미설치'}
+                  remoteBusyLabel={t?.('remoteInstalling') || '설치 중…'}
+                  remoteFailedLabel={t?.('remoteInstallFailed') || '설치 실패'}
                 />
               );
             })}
@@ -428,9 +444,15 @@ const HostRowSkeleton = () => (
 );
 
 export const HostRow = memo(({
+  remoteState = null,      // 'on' | 'off' | null(로컬·판단불가)
+  remoteBusy = false,
+  remoteFailed = false,
+  onInstallRemote = null,
   id, icon, name, subtitle, accentColor,
   leadingBadge = null,
   isHovered, isDragging, isDragOver,
+  remoteOnTitle = '', remoteOffTitle = '',
+  remoteOffLabel = '', remoteBusyLabel = '', remoteFailedLabel = '',
   onHover, onClick, onEdit, editTitle,
   onPickPath, pickPathTitle,
   onOpenVnc, openVncTitle,
@@ -481,8 +503,40 @@ export const HostRow = memo(({
       <div style={styles.sub}>{subtitle}</div>
     </div>
 
-    {(onPickPath || onEdit || onOpenVnc) && (
+    {(onPickPath || onEdit || onOpenVnc || remoteState) && (
       <div style={styles.actions} onClick={(e) => e.stopPropagation()}>
+        {/* 리모트 — **설치는 선택이다.** 안 깔았다고 경고색을 쓰지 않는다. 안 깔면
+            세션 간 명령 전달과 상태 표시가 안 되는데, 그건 고장이 아니라 우리가 볼
+            방법이 없는 것이다. 그래서 "없다" 가 아니라 **"할 수 있다"** 를 내민다
+            (VMware 가 Tools 미설치를 알리는 방식). */}
+        {remoteState === 'on' && (
+          <span style={REMOTE_ON_STYLE} title={remoteOnTitle}>
+            <Link2 size={12} strokeWidth={2} />
+          </span>
+        )}
+        {remoteState === 'off' && onInstallRemote && (
+          /* 아이콘만으로는 무엇인지 알 수 없어 아무도 안 누른다 — 라벨을 단다.
+             경고색이 아닌 이유: 안 깐 것은 결함이 아니라 선택이고, 여기서 말하는 것은
+             **할 수 있는 일**이다. 무엇을 얻는지는 title 이 한 문장으로 말한다. */
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); if (!remoteBusy) onInstallRemote(); }}
+            title={remoteOffTitle}
+            disabled={remoteBusy}
+            style={{
+              ...REMOTE_CHIP_STYLE,
+              ...(remoteFailed ? { color: 'var(--ui-danger, #f38ba8)' } : null),
+              ...(remoteBusy ? { opacity: 0.6, cursor: 'default' } : null),
+            }}
+          >
+            <Download size={11} strokeWidth={2} />
+            {remoteBusy
+              ? (remoteBusyLabel || '설치 중…')
+              : remoteFailed
+                ? (remoteFailedLabel || '설치 실패')
+                : (remoteOffLabel || '리모트 미설치')}
+          </button>
+        )}
         {onOpenVnc && (
           <RowBtn onClick={(e) => { e.stopPropagation(); onOpenVnc(); }} title={openVncTitle}>
             <ScreenShare size={13} strokeWidth={1.8} />
@@ -502,6 +556,33 @@ export const HostRow = memo(({
     )}
   </div>
 ));
+
+const REMOTE_CHIP_STYLE = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: '4px',
+  height: '22px',
+  padding: '0 7px',
+  flexShrink: 0,
+  background: 'transparent',
+  border: `1px solid color-mix(in srgb, var(--ui-border, ${tokens.color.border}) 70%, transparent)`,
+  borderRadius: tokens.radius.full,
+  color: tokens.color.subtext,
+  fontSize: tokens.fontSize['10'] || '10px',
+  fontFamily: 'inherit',
+  whiteSpace: 'nowrap',
+  cursor: 'pointer',
+};
+
+const REMOTE_ON_STYLE = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '22px',
+  height: '22px',
+  flexShrink: 0,
+  color: tokens.color.success,
+};
 
 const RowBtn = ({ onClick, title, children }) => (
   <button

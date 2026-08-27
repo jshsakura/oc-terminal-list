@@ -1,4 +1,5 @@
 import { Terminal } from '@xterm/xterm';
+import registerOsc52 from './osc52Clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -48,6 +49,9 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
     altClickMovesCursor: true,
     drawBoldTextInBrightColors: true,
   });
+
+  // 터미널 안의 선택을 브라우저 클립보드로 (tmux `set-clipboard on` → OSC 52).
+  const disposeOsc52 = registerOsc52(term);
 
   const fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
@@ -158,7 +162,9 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
     predictiveEcho.setEnabled(settings?.predictiveEcho !== false);
   } catch { /* 부착 실패해도 터미널 자체는 정상 동작 */ }
 
-  return { term, fitAddon, searchAddon, predictiveEcho };
+  /* ⚠️ OSC 52 핸들러는 term 과 함께 사라지지만, 명시적으로 거둘 길을 함께 돌려준다 —
+     term.dispose() 를 안 부르고 버리는 경로가 생기면 파서에 핸들러가 남는다. */
+  return { term, fitAddon, searchAddon, predictiveEcho, disposeOsc52 };
 };
 
 export default createXtermInstance;

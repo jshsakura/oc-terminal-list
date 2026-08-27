@@ -149,6 +149,7 @@ def _build_remote_command(
         # pane 타이틀을 클라이언트로 흘려보낸다 (기본값 off). 이게 켜져야 원격 pane 에서
         # 도는 에이전트의 상태 타이틀이 브라우저 xterm 까지 도달한다 — 원격은 로컬 tmux
         # 폴링으로 볼 수 없으므로, 원격 상태 감지는 전적으로 이 경로에 의존한다.
+        f"tmux set-option -t {safe} set-clipboard on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} set-titles on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} set-titles-string '#{{pane_title}}' >/dev/null 2>&1; "
         f"tmux set-option -ag -t {safe} terminal-overrides ',*256col*:Tc' >/dev/null 2>&1; "
@@ -162,6 +163,22 @@ def _build_remote_command(
         #
         # ⚠️ 이 바인딩은 **로컬(tmux_manager.create_session)과 한 벌**이다. 한쪽만 고치면
         # 로컬과 원격 pane 의 휠이 서로 다르게 동작한다.
+        # 선택(드래그·더블·트리플 클릭)은 tmux 기본을 명시적으로 되묶는다 — 로컬과 한 벌이다.
+        # `unbind` 는 서버 전역이라 한 번 풀리면 새 세션으로 되살아나지 않고, tmux 에는
+        # "기본으로 되돌려라" 가 없다. 명령 전체를 한 인자로 넘겨야 `;` 뒤가 안 잘린다.
+        f"tmux bind-key -T root MouseDown1Pane 'select-pane -t = ; send-keys -M' >/dev/null 2>&1; "
+        f"tmux bind-key -T root MouseDrag1Pane "
+        f"\"if-shell -F '#{{||:#{{pane_in_mode}},#{{mouse_any_flag}}}}' "
+        f"{{ send-keys -M }} {{ copy-mode -M }}\" >/dev/null 2>&1; "
+        f"tmux bind-key -T root MouseDrag1Border 'resize-pane -M' >/dev/null 2>&1; "
+        f"tmux bind-key -T root DoubleClick1Pane "
+        f"\"select-pane -t = ; if-shell -F '#{{||:#{{pane_in_mode}},#{{mouse_any_flag}}}}' "
+        f"{{ send-keys -M }} {{ copy-mode -H ; send-keys -X select-word ; run-shell -d 0.3 ; "
+        f"send-keys -X copy-pipe-and-cancel }}\" >/dev/null 2>&1; "
+        f"tmux bind-key -T root TripleClick1Pane "
+        f"\"select-pane -t = ; if-shell -F '#{{||:#{{pane_in_mode}},#{{mouse_any_flag}}}}' "
+        f"{{ send-keys -M }} {{ copy-mode -H ; send-keys -X select-line ; run-shell -d 0.3 ; "
+        f"send-keys -X copy-pipe-and-cancel }}\" >/dev/null 2>&1; "
         f"tmux bind-key -T root WheelUpPane "
         f"if-shell -F '#{{||:#{{pane_in_mode}},#{{mouse_any_flag}}}}' "
         f"'send-keys -M' 'copy-mode -e; send-keys -X -N 5 scroll-up' >/dev/null 2>&1; "

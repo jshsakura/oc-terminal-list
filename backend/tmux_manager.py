@@ -241,6 +241,10 @@ class TmuxManager:
             # 에이전트가 찍는 상태 타이틀("⠂ 작업중" / "✳ 대기")이 브라우저까지 도달해
             # 폴링 없이 즉시 상태를 알 수 있다 — 원격 호스트 pane 도 같은 경로로 온다.
             # 우리 xterm 엔 타이틀바가 없으므로 화면에는 아무 영향이 없다.
+            # 선택한 것을 **브라우저 클립보드로** 보낸다(OSC 52). tmux 가 선택을 하고
+            # 그 결과를 터미널에 실어 보내면 xterm 쪽 핸들러가 받아 클립보드에 쓴다.
+            # 이게 없으면 드래그 선택이 tmux 버퍼에만 남아 브라우저에서는 붙여넣을 수 없다.
+            ("set-clipboard", "on"),
             ("set-titles", "on"),
             ("set-titles-string", "#{pane_title}"),
         ]
@@ -304,13 +308,41 @@ class TmuxManager:
         #
         # mouse on 이므로 wheel 은 위 바인딩으로 살리고, 드래그/우클릭/더블클릭만
         # tmux copy-mode 자동 진입이나 팝업으로 번지지 않게 차단한다.
+        # ⚠️ **선택은 tmux 에게 맡긴다.** 한때 드래그·더블·트리플 클릭을 전부 unbind 했는데,
+        # `mouse on` 이면 xterm.js 는 마우스 이벤트를 tmux 로 넘기므로 그걸 unbind 하면
+        # **아무도 선택을 처리하지 않는다** — 드래그해도 아무 일이 없었다.
+        # 이제 tmux 기본이 선택을 하고, 그 결과는 아래 `set-clipboard on` 이 OSC 52 로
+        # 브라우저까지 보낸다(xterm 쪽 핸들러가 받아 클립보드에 쓴다).
+        #
+        # 남겨 두는 unbind 는 **우리 UI 와 겹치는 것들**뿐이다: 우클릭 메뉴(우리 컨텍스트
+        # 메뉴가 있다), 가운데 클릭 붙여넣기(X11 선택 버퍼는 브라우저에 없다), 상태바
+        # (status off 라 존재하지 않는다).
+        # ⚠️ **명시적으로 되묶어야 한다.** `unbind-key` 는 서버 전역이고 그 상태가 남는다 —
+        # 우리 코드가 unbind 를 그만두는 것만으로는 이미 풀린 서버에서 되살아나지 않고,
+        # tmux 에는 "이 키를 기본으로 되돌려라" 가 없다. 그래서 tmux 3.4 기본값을 그대로 적는다.
+        # (그 값들은 `tmux -L … list-keys -T root` 로 떠서 옮긴 것이다.)
+        mouse_app = "#{||:#{pane_in_mode},#{mouse_any_flag}}"
+        # ⚠️ 명령 전체를 **한 인자로** 넘긴다. `;` 를 argv 로 쪼개면 tmux 는 앞부분만
+        # 바인딩하고 나머지를 버린다 — 더블클릭이 pane 만 고르고 복사는 안 하는 식으로
+        # 조용히 반쪽이 된다(실측).
+        _select = "copy-mode -H ; send-keys -X select-%s ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel"
+        for _key, _cmd in (
+            ("MouseDown1Pane", "select-pane -t = ; send-keys -M"),
+            ("MouseDrag1Pane", f"if-shell -F '{mouse_app}' {{ send-keys -M }} {{ copy-mode -M }}"),
+            ("MouseDrag1Border", "resize-pane -M"),
+            ("DoubleClick1Pane",
+             f"select-pane -t = ; if-shell -F '{mouse_app}' {{ send-keys -M }} "
+             f"{{ {_select % 'word'} }}"),
+            ("TripleClick1Pane",
+             f"select-pane -t = ; if-shell -F '{mouse_app}' {{ send-keys -M }} "
+             f"{{ {_select % 'line'} }}"),
+        ):
+            await self._run("bind-key", "-T", "root", _key, _cmd, check=False)
+
         for _ev in (
-            "MouseDown1Pane", "MouseDown1Status", "MouseDown1StatusLeft", "MouseDown1StatusRight", "MouseDown1Border",
-            "MouseDrag1Pane", "MouseDrag1Border", "MouseDragEnd1Pane",
-            "MouseUp1Pane", "MouseUp1Status", "MouseUp1StatusLeft", "MouseUp1StatusRight", "MouseUp1Border",
+            "MouseDown1Status", "MouseDown1StatusLeft", "MouseDown1StatusRight",
             "MouseDown2Pane", "MouseUp2Pane",
             "MouseDown3Pane", "MouseDown3Status", "MouseDown3StatusLeft", "MouseDown3StatusRight",
-            "DoubleClick1Pane", "TripleClick1Pane",
         ):
             await self._run("unbind-key", "-T", "root", _ev, check=False)
 
