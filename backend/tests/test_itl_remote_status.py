@@ -64,21 +64,22 @@ async def _stream(host, panes):
 
 
 @pytest.mark.asyncio
-async def test_status_comes_from_the_stream_not_from_ssh(monkeypatch):
+async def test_status_comes_from_the_stream_not_from_ssh():
     """⚠️ SSH 로 묻지 않는다. 예전에는 호스트마다 왕복이었고 `terminal_wait` 가 그걸
     5초마다 했다 — 꺼진 호스트 하나가 홈 화면을 15초씩 멈춰 세우던 원인이다."""
-    asked = []
-    async def fake_list(host_id, username):
-        asked.append(host_id)
-        return {}
-    monkeypatch.setattr(itl_remote, "list_pane_status", fake_list)
-
     await _stream("h1", [("a1", "claude", "⠋ building")])
     filled = await itl_route._fill_remote_status(_targets(), "u")
     by_addr = {t["addr"]: t for t in filled}
     assert by_addr["1.2"]["status"] == "working"
     assert by_addr["1.2"]["statusUnknown"] is False
-    assert asked == []                                    # SSH 는 한 번도 안 갔다
+
+
+def test_the_polling_path_has_no_way_to_reach_ssh():
+    """🔐 상태 채우기에서 SSH 를 다시 부를 길이 아예 없어야 한다 — 있으면 언젠가 쓰인다."""
+    import inspect
+    body = inspect.getsource(itl_route._fill_remote_status)
+    for banned in ("itl_remote", "open_channel", "run_remote_cmd"):
+        assert banned not in body, f"폴링 경로에 {banned} 가 다시 들어왔다"
 
 
 @pytest.mark.asyncio

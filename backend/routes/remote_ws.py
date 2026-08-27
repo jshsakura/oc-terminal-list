@@ -27,7 +27,8 @@ router = APIRouter()
 
 # 리모트가 보내오는 낱말. 화이트리스트다 — 모르는 것은 조용히 버린다.
 # (클라이언트가 준 값으로 라우팅하지 않는다는 이 저장소의 규칙과 같다.)
-INBOUND_KINDS = {"hello", "server", "no-server", "panes", "excerpt", "facts", "pong", "ran"}
+INBOUND_KINDS = {"hello", "server", "no-server", "panes", "excerpt", "facts",
+                 "pong", "ran", "machine"}
 
 
 def _bearer(websocket: WebSocket) -> str | None:
@@ -100,6 +101,9 @@ async def _handle(connection, kind: str, message: dict) -> None:
         session = message.get("session")
         if session:
             connection.resolve(f"excerpt:{session}", message)
+        return
+    if kind == "machine":
+        connection.resolve("machine", message)
         return
     if kind == "ran":
         command_id = message.get("id")

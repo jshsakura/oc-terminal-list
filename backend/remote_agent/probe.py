@@ -118,6 +118,49 @@ def capture(session, socket_name):
     return "\n".join(lines[-EXCERPT_LINES:])
 
 
+def read_machine():
+    """이 기계의 값 — **셸을 쓰지 않는다.**
+
+    실행중 보드가 원하는 것(업타임·메모리·스왑·CPU)은 전부 `/proc` 에 있다. 예전에는
+    그걸 셸 명령으로 받아왔는데, 그러면 `run` 통로를 tmux 밖으로 열어야 한다. 우리 코드가
+    이미 그 기계 안에서 돌고 있으니 직접 읽으면 통로를 넓히지 않아도 된다.
+
+    못 읽은 값은 **넣지 않는다** — 0 으로 채우면 "없다" 와 "모른다" 가 구별되지 않는다.
+
+    ⚠️ 키 이름은 `itl_remote.parse_machine` 이 내는 것과 **똑같아야 한다**(snake_case).
+    화면(`routes/fleet.py`)이 그 이름으로 읽으므로, 여기서 camelCase 로 내면 값이 조용히
+    사라진다 — 실제로 그렇게 메모리가 안 보였다(`cpus` 만 우연히 이름이 같아서 나왔다).
+    """
+    out = {}
+    try:
+        with open("/proc/uptime", encoding="utf-8") as handle:
+            out["uptime_seconds"] = float(handle.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        fields = {}
+        with open("/proc/meminfo", encoding="utf-8") as handle:
+            for line in handle:
+                key, _, rest = line.partition(":")
+                if key in ("MemTotal", "MemAvailable", "SwapTotal", "SwapFree"):
+                    fields[key] = int(rest.split()[0]) * 1024
+        if "MemTotal" in fields:
+            out["mem_total"] = fields["MemTotal"]
+            if "MemAvailable" in fields:
+                out["mem_used"] = max(0, fields["MemTotal"] - fields["MemAvailable"])
+        if "SwapTotal" in fields:
+            out["swap_total"] = fields["SwapTotal"]
+            if "SwapFree" in fields:
+                out["swap_used"] = max(0, fields["SwapTotal"] - fields["SwapFree"])
+    except (OSError, ValueError, IndexError):
+        pass
+    try:
+        out["cpus"] = os.cpu_count()
+    except OSError:
+        pass
+    return out
+
+
 def emit(obj):
     sys.stdout.write(json.dumps(obj, ensure_ascii=False) + "\n")
     sys.stdout.flush()
@@ -130,10 +173,14 @@ ALLOWED_COMMANDS = ("tmux", "echo")
 
 
 def split_on_and(cmd):
-    """`&&` 로만 쪼갠다. 인용부호 **안**의 `&&` 는 구분자가 아니다.
+    """셸 구분자(`&&` `;` 개행)로 쪼갠다. 인용부호 **안**의 것은 구분자가 아니다.
 
-    ⚠️ 보내는 본문에 `&&` 가 들어 있을 수 있다(사람이 치는 텍스트다). 그걸 구분자로 세면
-    멀쩡한 배달이 거절된다.
+    ⚠️ 보내는 본문에 `&&` 나 `;` 가 들어 있을 수 있다(사람이 치는 텍스트다). 그걸
+    구분자로 세면 멀쩡한 배달이 거절된다.
+
+    ⚠️ 반대로 `;` 를 구분자로 **안 세면** 여러 명령이 한 덩어리로 통과해 첫 낱말 검사가
+    무의미해진다 — 셸을 안 쓰므로 실행되지는 않지만, tmux 에게 엉뚱한 인자가 들어가
+    "허용했는데 안 되는" 조용한 실패가 된다(실측: 실행중 보드의 스냅샷 명령).
     """
     segments, buf, quote, i = [], "", None, 0
     while i < len(cmd):
@@ -149,11 +196,14 @@ def split_on_and(cmd):
         elif ch in "\"'":
             quote = ch
             buf += ch
-        elif cmd.startswith("&&", i):
+        elif cmd.startswith("&&", i) or cmd.startswith("||", i):
             segments.append(buf)
             buf = ""
             i += 2
             continue
+        elif ch in ";\n":
+            segments.append(buf)
+            buf = ""
         else:
             buf += ch
         i += 1
@@ -220,6 +270,7 @@ class Control:
         self.stop = False
         self.requests = []
         self.commands = []
+        self.machine_requests = 0
         self._lock = threading.Lock()
 
     def take_requests(self):
@@ -231,6 +282,11 @@ class Control:
         with self._lock:
             pending, self.commands = self.commands, []
         return pending
+
+    def take_machine_requests(self):
+        with self._lock:
+            count, self.machine_requests = self.machine_requests, 0
+        return count
 
     def run(self):
         for raw in sys.stdin:
@@ -251,6 +307,9 @@ class Control:
             elif kind == "excerpt" and msg.get("session"):
                 with self._lock:
                     self.requests.append(msg["session"])
+            elif kind == "machine":
+                with self._lock:
+                    self.machine_requests += 1
             elif kind == "run" and msg.get("id") is not None:
                 with self._lock:
                     self.commands.append((msg["id"], msg.get("cmd") or ""))
@@ -267,6 +326,9 @@ def main():
     prev = []
     had_server = None
     while not control.stop:
+        for _ in range(control.take_machine_requests()):
+            emit({"t": "machine", "machine": read_machine()})
+
         for cmd_id, cmd in control.take_commands():
             chain = parse_chain(cmd)
             if chain is None:

@@ -34,7 +34,7 @@ import asyncio
 import logging
 from typing import NamedTuple
 
-from host_common import run_remote_cmd
+from host_common import resolve_host_with_secrets, run_remote_cmd
 from remote_agent import registry
 
 logger = logging.getLogger(__name__)
@@ -407,6 +407,40 @@ async def open_channel(host_id: str, username: str):
     return channel_for(host_id)
 
 
+async def open_channel_on_demand(host_id: str, username: str):
+    """**사람이 화면을 열었을 때** 한 번 쓰는 통로 — 리모트가 있으면 그쪽, 없으면 SSH.
+
+    ⚠️ 위의 `open_channel` 과 일부러 다르다. 가르는 기준은 "SSH 냐" 가 아니라
+    **얼마나 자주 부르냐**다:
+
+      - 되풀이되는 것(상태 채우기·기다림)은 리모트로만 간다. 예전엔 그게 호스트마다
+        5초짜리 SSH 였고, 꺼진 기계 하나가 홈 화면을 15초씩 멈춰 세웠다.
+      - 화면을 열 때 **한 번** 보는 것(실행중 보드의 메모리·업타임)은 SSH 라도 낫다.
+        여기까지 막으면 리모트를 안 깐 호스트가 화면에서 통째로 사라지는데, 그건
+        "정보가 없다" 가 아니라 **정보를 안 가져온 것**이라 사용자에게 손해다.
+
+    이 함수를 폴링 경로에서 부르면 그 구분이 무너진다 — 새로 쓰기 전에 "이게 반복되나" 를
+    먼저 물을 것.
+    """
+    try:
+        return await open_channel(host_id, username)
+    except RemoteNotConnectedError:
+        host, secrets = await resolve_host_with_secrets(host_id, username)
+        if host.get("auth_method") == "tailscale":
+            return RemoteChannel(host, secrets)
+        from host_manager import open_connection
+        conn = await asyncio.wait_for(
+            open_connection(
+                host,
+                private_key=secrets["private_key"],
+                passphrase=secrets["passphrase"],
+                password=secrets["password"],
+            ),
+            timeout=REMOTE_CONNECT_TIMEOUT,
+        )
+        return RemoteChannel(host, secrets, conn)
+
+
 async def probe(channel: RemoteChannel, tmux_session: str) -> PaneProbe | None:
     """세션이 살아 있으면 PaneProbe, 사라졌으면 None. 못 물으면 예외."""
     return parse_probe(await channel.run(build_probe_cmd(tmux_session)))
@@ -440,6 +474,27 @@ async def capture_pane(channel: RemoteChannel, tmux_session: str, lines: int) ->
     return await channel.run(build_capture_cmd(tmux_session, lines))
 
 
+async def _snapshot_over_remote(connection, host_id: str) -> dict:
+    """리모트가 붙어 있을 때의 스냅샷 — 셸 없이.
+
+    ⚠️ 못 받은 값은 채우지 않는다. 리모트가 답을 늦게 주는 것과 "그 기계에 메모리가
+    없는 것" 은 다르고, 화면은 그 둘을 구별해서 그린다.
+    """
+    from remote_agent import ingest
+    reply = await connection.request({"t": "machine"}, key="machine", timeout=8.0)
+    snapshot = ingest.snapshot(host_id)
+    sessions = {
+        session: (info.get("command") or "", info.get("rawTitle") or "")
+        for session, info in snapshot.items()
+    }
+    return {
+        "sessions": sessions,
+        "started": {},
+        "machine": (reply or {}).get("machine") or None,
+        "reachable": True,
+    }
+
+
 async def host_snapshot(host_id: str, username: str) -> dict:
     """Everything the fleet board needs from one host, in one SSH round trip.
 
@@ -448,9 +503,15 @@ async def host_snapshot(host_id: str, username: str) -> dict:
     which it is (the same rule that keeps a remote pane's status "unknown" instead of
     "idle").
     """
+    from remote_agent import registry
+    connection = registry.get(host_id)
+    if connection is not None and connection.username == username:
+        # 리모트가 있으면 **셸을 거치지 않는다.** 기계 값은 그쪽이 /proc 에서 직접 읽고,
+        # tmux 목록은 이미 밀어 준 상태에 있다 — `run` 통로를 tmux 밖으로 넓히지 않는다.
+        return await _snapshot_over_remote(connection, host_id)
     try:
         async with await asyncio.wait_for(
-            open_channel(host_id, username), timeout=REMOTE_CONNECT_TIMEOUT
+            open_channel_on_demand(host_id, username), timeout=REMOTE_CONNECT_TIMEOUT
         ) as channel:
             parsed = parse_snapshot(await channel.run(build_snapshot_cmd()))
             return {**parsed, "reachable": True}
@@ -459,17 +520,3 @@ async def host_snapshot(host_id: str, username: str) -> dict:
         return {"sessions": {}, "started": {}, "machine": None, "reachable": False}
 
 
-async def list_pane_status(host_id: str, username: str) -> dict[str, tuple[str, str]]:
-    """호스트 하나의 모든 tmux 세션 상태를 한 번의 왕복으로. 못 닿으면 빈 dict.
-
-    빈 dict 는 "아무 세션도 없다" 가 아니라 **"모른다"** 로 취급해야 한다 — 호출부가
-    그 구분을 한다(routes/itl.py `_fill_remote_status`).
-    """
-    try:
-        async with await asyncio.wait_for(
-            open_channel(host_id, username), timeout=REMOTE_CONNECT_TIMEOUT
-        ) as channel:
-            return parse_list_status(await channel.run(build_list_status_cmd()))
-    except Exception as e:
-        logger.info("remote status list failed (host=%s): %s", host_id, e)
-        return {}

@@ -189,6 +189,16 @@ def test_status_of_a_freshly_installed_tree_parses_clean(tmp_path):
     assert status["outdated"] is False           # 방금 깐 것이 낡았다고 나오면 안 된다
 
 
+def test_the_directories_are_not_group_writable(tmp_path):
+    """🔐 파일이 600 이어도 디렉터리가 그룹 쓰기 가능하면 **파일을 갈아치울 수** 있다 —
+    자격증명 교체, 나아가 client.py 를 자기 코드로 대체. 실측 호스트가 775 였다."""
+    _run(build_install_script(URL, "mobile").replace(
+        "IFS= read -r _itl_tok", "_itl_tok=dummy"), tmp_path)
+    for rel in (".local/share/itl-remote", ".config/itl-remote"):
+        mode = oct((tmp_path / rel).stat().st_mode)[-3:]
+        assert mode == "700", f"{rel} = {mode}"
+
+
 def test_the_credential_file_is_not_world_readable(tmp_path):
     """🔐 같은 기계의 다른 사용자가 읽으면 그 호스트의 자격증명이 새어 나간다."""
     _run(build_install_script(URL, "mobile").replace(
@@ -196,3 +206,11 @@ def test_the_credential_file_is_not_world_readable(tmp_path):
     cred = tmp_path / ".config/itl-remote/credentials"
     assert cred.exists()
     assert oct(cred.stat().st_mode)[-3:] == "600"
+
+
+def test_installing_restarts_the_service():
+    """⚠️ `enable --now` 는 이미 돌고 있는 서비스를 다시 띄우지 않는다 — 파일만 새것이고
+    프로세스는 옛 코드다. 다시 설치해도 아무것도 안 바뀌는 조용한 실패가 된다(실측)."""
+    script = build_install_script(URL, "mobile")
+    assert "systemctl --user restart" in script
+    assert "enable --now" not in script

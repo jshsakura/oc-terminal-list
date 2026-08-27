@@ -57,7 +57,12 @@ def build_install_script(url: str, tmux_socket: str) -> str:
     """설치 명령. **토큰은 여기 없다** — stdin 첫 줄로 들어온다."""
     parts = [
         "IFS= read -r _itl_tok",
+        # 🔐 **디렉터리도 좁힌다.** 파일만 600 으로 두면 그 파일은 못 읽어도, 디렉터리가
+        # 그룹 쓰기 가능하면(실측: 775) 같은 그룹의 다른 사용자가 **파일을 갈아치울 수**
+        # 있다 — 자격증명을 바꾸거나 client.py 를 자기 코드로 대체할 수 있다는 뜻이다.
+        # umask 에 맡기지 않고 못을 박는다(호스트마다 umask 가 다르다).
         f"mkdir -p {LIB_DIR} {CONFIG_DIR}",
+        f"chmod 700 {LIB_DIR} {CONFIG_DIR}",
     ]
     for index, (name, body) in enumerate(sorted(_sources().items())):
         parts.append(_heredoc(f"{LIB_DIR}/{name}", body, f"ITL_REMOTE_EOF_{index}"))
@@ -113,7 +118,11 @@ def _systemd_unit_script() -> str:
         "mkdir -p $HOME/.config/systemd/user",
         _heredoc(UNIT_PATH, unit, "ITL_UNIT_EOF"),
         "systemctl --user daemon-reload >/dev/null 2>&1",
-        f"systemctl --user enable --now {UNIT_NAME} >/dev/null 2>&1"
+        f"systemctl --user enable {UNIT_NAME} >/dev/null 2>&1",
+        # ⚠️ **restart 여야 한다.** `enable --now` 는 이미 돌고 있는 서비스를 다시 띄우지
+        # 않는다 — 파일만 새것이고 프로세스는 옛 코드 그대로다. 다시 설치했는데 아무것도
+        # 안 바뀌는 조용한 실패가 되고, 실측에서 그 탓에 기계 값이 계속 비어 있었다.
+        f"systemctl --user restart {UNIT_NAME} >/dev/null 2>&1"
         " && echo ITL_REMOTE_SERVICE=1 || echo ITL_REMOTE_SERVICE=0",
         "else",
         "echo ITL_REMOTE_SERVICE=none",

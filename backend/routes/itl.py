@@ -176,10 +176,10 @@ async def _fill_remote_status(targets: list[dict], username: str) -> list[dict]:
 
 
 def _table_from_stream(snapshot: dict) -> dict:
-    """리모트가 밀어 준 상태 → `list_pane_status` 와 **같은 모양**(세션명 → (명령, 타이틀)).
+    """리모트가 밀어 준 상태 → 세션명 → (명령, 타이틀).
 
-    모양을 맞추는 이유: 아래 `_apply_status_tables` 가 두 경로의 단일 판정이다. 여기서
-    다른 모양을 내면 그 판정이 갈라지고, 갈라지면 한쪽이 "모름" 을 "일 안 함" 으로 접는다.
+    `_apply_status_tables` 가 기대하는 모양이다. 그 함수가 "모름/사라짐/확인됨" 을 가르는
+    **단일 판정**이므로, 여기서 다른 모양을 내면 그 판정이 갈라진다.
     """
     return {
         session: (info.get("command") or "", info.get("rawTitle") or "")

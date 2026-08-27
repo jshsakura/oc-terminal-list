@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 
 import pytest
 
@@ -95,3 +96,22 @@ async def test_waiters_do_not_leak():
     agent_status_events.wake()
     await waiter
     assert agent_status_events.waiter_count() == before
+
+
+def test_machine_keys_match_what_the_board_reads():
+    """⚠️ 실측 사고. 리모트가 camelCase 로 내는 바람에 화면이 못 읽어 메모리가 통째로
+    비었다(`cpus` 만 우연히 이름이 같아서 나왔다). 두 경로가 같은 이름을 내야 한다."""
+    import inspect
+    from remote_agent.payload import script_source
+    import itl_remote
+    import routes.fleet as fleet
+
+    ns = {}
+    exec(compile(script_source(), "p", "exec"), ns)   # noqa: S102
+    produced = set(ns["read_machine"]())
+    read_by_board = set(re.findall(r'machine\.get\("([a-z_]+)"\)', inspect.getsource(fleet)))
+    # 보드가 읽는 이름 중 리모트가 낼 수 있는 것은 전부 같은 철자여야 한다.
+    assert read_by_board <= produced | {"cpu_percent"}, read_by_board - produced
+    # SSH 경로(parse_machine)와도 같은 어휘여야 한다.
+    ssh_keys = set(re.findall(r'machine\["([a-z_]+)"\]', inspect.getsource(itl_remote.parse_machine)))
+    assert ssh_keys <= produced, ssh_keys - produced
