@@ -13,8 +13,12 @@ from __future__ import annotations
 
 import time
 
-# 재접속 사다리(4→8→16→30s)를 덮을 만큼. 그 뒤의 생성은 사용자가 새로 여는 것으로 본다.
-TOMBSTONE_TTL_SEC = 90.0
+# ⚠️ **짧아야 한다.** 무덤은 붙는 것 자체를 막으므로, 길게 두면 같은 이름으로 **새로 여는
+# 것**까지 막힌다 — 호스트 기본 세션명(`mobile`)을 지운 직후라면 그 호스트가 안 열린다.
+#
+# 길 필요도 없다: 서버가 `session-terminated` 를 보내면 클라이언트가 재접속을 멈추므로
+# (Terminal.jsx `endedByServerRef`), 무덤이 덮어야 할 것은 **이미 날아간 재접속 몇 개**뿐이다.
+TOMBSTONE_TTL_SEC = 20.0
 
 _graves: dict[tuple[str, str], float] = {}
 

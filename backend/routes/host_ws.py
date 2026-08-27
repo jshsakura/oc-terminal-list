@@ -16,10 +16,11 @@ from cache import invalidate_host
 from host_manager import HostBridge, resolve_host_secrets
 from sqlite_storage import storage
 from tickets import _push_ws_tickets
-import session_tombstones
 from ws_auth import authenticate_ws
 from ws_clients import _register_ws_client, _unregister_ws_client
 from ws_observe import log_attach, log_detach
+
+import session_tombstones  # noqa: E402  (지역 모듈 — 위 블록과 분리)
 
 logger = logging.getLogger(__name__)
 
@@ -147,10 +148,24 @@ async def host_websocket(
     # ⚠️ **일부러 지운 세션은 되살리지 않는다.** 브리지는 세션이 없으면 만드는데, 그건
     # 호스트 재부팅 복구용이다. 사용자가 방금 지운 것이라면 그 복구가 정반대로 작동해
     # "지워도 다시 생긴다" 가 된다. 무덤은 수명이 짧아(90s) 재접속 한 번만 막는다.
-    if create and session_tombstones.was_killed(host_id, target_tmux_session):
-        logger.info("refusing to recreate a session the user killed: %s/%s",
+    # ⚠️ **재접속 루프를 여기서 끊는다.** `create` 만 끄면 붙기는 하고, 세션이 없으니
+    # `session-gone` 이 나가고, 클라이언트는 그걸 "새로 만들라" 로 읽어 create=1 로 다시
+    # 온다 — 거절해도 그 고리가 계속 돌고 무덤이 만료되는 순간 되살아난다.
+    # 사용자가 지운 것은 **끝난 것**이므로, 붙기 전에 그렇게 말하고 닫는다. 클라이언트는
+    # 셸이 exit 했을 때와 같은 길로 가서 pane 을 닫는다(재시도하지 않는다).
+    if session_tombstones.was_killed(host_id, target_tmux_session):
+        logger.info("session was terminated by the user, closing: %s/%s",
                     host_id[:8], target_tmux_session)
-        create = False
+        await websocket.accept()
+        try:
+            await websocket.send_json({
+                "type": "session-terminated",
+                "message": "이 세션은 종료되었습니다.",
+            })
+        except Exception:
+            pass
+        await websocket.close(code=1000)
+        return
 
     if host.get("auth_method") == "tailscale":
         from host_manager import TailscaleHostBridge

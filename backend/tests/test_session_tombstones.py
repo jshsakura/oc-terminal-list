@@ -32,9 +32,14 @@ def test_other_sessions_are_untouched():
     assert graves.was_killed("h2", "mobile-a") is False
 
 
+def test_the_grave_is_short_lived():
+    """⚠️ 무덤은 **붙는 것 자체**를 막는다. 길게 두면 같은 이름으로 새로 여는 것까지
+    막혀 호스트가 안 열린다(기본 세션명을 지운 직후라면 바로 그렇게 된다).
+    길 필요도 없다 — 클라이언트가 `session-terminated` 를 받으면 재접속을 멈춘다."""
+    assert graves.TOMBSTONE_TTL_SEC <= 30
+
+
 def test_the_grave_expires(monkeypatch):
-    """수명이 짧아야 한다 — 이건 재접속 한 번을 막는 장치지 영구 차단이 아니다.
-    나중에 같은 이름으로 새로 여는 것은 정상이고 막으면 안 된다."""
     monkeypatch.setattr(graves, "TOMBSTONE_TTL_SEC", 0.05)
     graves.mark_killed("h1", "mobile-a")
     time.sleep(0.08)
@@ -65,11 +70,28 @@ def test_killing_a_session_marks_it():
     assert "if not force:" in body
 
 
-def test_the_bridge_refuses_to_recreate_a_killed_session():
+def test_the_bridge_consults_the_grave():
+    import inspect
+    import routes.host_ws as host_ws
+    assert "session_tombstones.was_killed" in inspect.getsource(host_ws.host_websocket)
+
+
+def test_the_bridge_closes_instead_of_letting_the_loop_spin():
+    """⚠️ `create` 만 끄면 붙기는 하고 → session-gone → 클라이언트가 create=1 로 다시 온다.
+    그 고리가 돌면 무덤이 만료되는 순간 세션이 되살아난다. 붙기 전에 닫아야 한다."""
     import inspect
     import routes.host_ws as host_ws
     body = inspect.getsource(host_ws.host_websocket)
-    assert "session_tombstones.was_killed" in body
-    # 거절은 create 를 끄는 것이지 연결을 막는 것이 아니다 — 살아 있는 다른 세션에
-    # 붙는 것까지 막으면 그 호스트가 통째로 안 열린다.
-    assert "create = False" in body
+    at = body.index("session_tombstones.was_killed")
+    block = body[at:at + 700]
+    assert "session-terminated" in block
+    assert "websocket.close" in block
+
+
+def test_the_client_stops_reconnecting_on_that_signal():
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "components"
+           / "Terminal.jsx").read_text(encoding="utf-8")
+    assert "session-terminated" in src
+    # onclose 에서 재접속을 끊는 가드가 있어야 한다.
+    assert "if (endedByServerRef.current) return;" in src

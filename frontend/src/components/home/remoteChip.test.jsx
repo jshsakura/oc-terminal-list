@@ -64,4 +64,33 @@ describe('호스트 카드의 리모트 표시', () => {
     expect(badge.style.top).toBeTruthy();
     expect(badge.style.right).toBeTruthy();
   });
+
+  /* ⚠️ 고정 초록(success)이 아니라 테마 액센트다. success 는 팔레트마다 톤이 달라 카드
+     강조색과 부딪히고, 어떤 테마에서는 경고처럼 읽힌다. */
+  test('연결 표시는 테마 액센트를 쓴다', () => {
+    const { container } = render(<HostRow {...base} remoteState="on" remoteOnTitle="연결됨" />);
+    const badge = container.querySelector('[title="연결됨"]');
+    expect(badge.style.color).toMatch(/--ui-accent/);
+  });
+
+  /* 평소엔 조용한 정보지만, 얹으면 누를 수 있다고 말해야 한다. */
+  test('호버하면 색이 살아난다', () => {
+    const { container } = render(
+      <HostRow {...base} remoteState="off" onInstallRemote={vi.fn()} remoteOffLabel="리모트 미설치" />,
+    );
+    const chip = container.querySelector('button');
+    fireEvent.mouseEnter(chip);
+    expect(chip.style.color).toMatch(/--ui-accent/);
+    fireEvent.mouseLeave(chip);
+    expect(chip.style.color).not.toMatch(/--ui-accent/);
+  });
+
+  test('설치 중에는 호버해도 살아나지 않는다 — 지금은 누를 수 없다', () => {
+    const { container } = render(
+      <HostRow {...base} remoteState="off" onInstallRemote={vi.fn()} remoteBusy remoteBusyLabel="설치 중…" />,
+    );
+    const chip = container.querySelector('button');
+    fireEvent.mouseEnter(chip);
+    expect(chip.style.color).not.toMatch(/--ui-accent/);
+  });
 });

@@ -524,6 +524,12 @@ export const HostRow = memo(({
         onClick={(e) => { e.stopPropagation(); if (!remoteBusy) onInstallRemote(); }}
         title={remoteOffTitle}
         disabled={remoteBusy}
+        /* 평소엔 조용한 정보, 얹으면 **누를 수 있다**고 말한다. 테두리를 주는 대신 색만
+           액센트로 올린다 — 카드가 좁아 모양이 하나 더 생기면 답답하다. */
+        onMouseEnter={(e) => { if (!remoteBusy) e.currentTarget.style.color = 'var(--ui-accent)'; }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.color = remoteFailed ? 'var(--ui-danger)' : 'var(--ui-muted)';
+        }}
         style={{
           ...REMOTE_CORNER_CHIP,
           ...(remoteFailed ? { color: 'var(--ui-danger, #f38ba8)' } : null),
@@ -539,11 +545,11 @@ export const HostRow = memo(({
       </button>
         )}
 
+    {/* ⚠️ 액션 줄은 **모든 카드에서 같은 자리**여야 한다. 칩이 있는 카드만 아래로
+        내렸더니 카드마다 버튼 높이가 달라져 줄이 안 맞았다. 칩은 절대배치라 겹치지
+        않는다 — 호스트 카드는 세 줄이라 우상단에 자리가 남는다. */}
     {(onPickPath || onEdit || onOpenVnc) && (
-      <div
-        style={{ ...styles.actions, ...(remoteState ? { alignSelf: 'flex-end' } : null) }}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div style={styles.actions} onClick={(e) => e.stopPropagation()}>
         {onOpenVnc && (
           <RowBtn onClick={(e) => { e.stopPropagation(); onOpenVnc(); }} title={openVncTitle}>
             <ScreenShare size={13} strokeWidth={1.8} />
@@ -597,13 +603,16 @@ const REMOTE_CORNER_CHIP = {
 
 const REMOTE_CORNER_ON = {
   ...REMOTE_CORNER,
+  /* ⚠️ 고정 초록(success)이 아니라 **테마 액센트**다. success 는 팔레트마다 톤이 달라
+     카드 강조색과 부딪히고, 어떤 테마에서는 경고처럼 읽힌다. 액센트는 그 테마가 이미
+     "이게 활성이다" 로 쓰는 색이라 어디서든 같은 뜻이 된다. */
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   width: '18px',
   height: '18px',
   flexShrink: 0,
-  color: tokens.color.success,
+  color: tokens.color.accent,
 };
 
 const RowBtn = ({ onClick, title, children }) => (

@@ -256,6 +256,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       setTimeout(() => setImagePasteState(null), 2500);
     }
   }, []);
+  // 서버가 '이 세션은 끝났다' 고 알린 뒤의 close — 재접속하지 않는다.
+  const endedByServerRef = useRef(false);
   const reconnectingRef = useRef(false);
   const contentReadyRef = useRef(false);
   const onReadyChangeRef = useRef(onReadyChange);
@@ -1204,6 +1206,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             }
             return;
           }
+          /* 사용자가 **일부러 종료한** 세션 — `session-gone` 과 다르다.
+             session-gone 은 "없어졌으니 새로 만들어라" 지만, 이건 "끝났다" 다.
+             재접속하면 서버가 또 닫고 클라이언트가 또 붙는 고리가 돌므로, 셸이 exit
+             했을 때와 같은 길로 보내 pane 을 닫는다. */
+          if (msg && msg.type === 'session-terminated') {
+            endedByServerRef.current = true;
+            try { term.write(`\r\n\x1b[33m[${msg.message || '이 세션은 종료되었습니다.'}]\x1b[0m\r\n`); } catch { /* noop */ }
+            beginAutoClose();
+            return;
+          }
           if (msg && msg.type === 'session-gone') {
             /* 원격에 재접속 대상 tmux 세션이 없음(호스트 재부팅 등) — 이 소켓이 닫힐 때
                refresh 재시도 대신 새 세션 생성으로 전환한다. 터미널로 흘리지 않는다. */
@@ -1264,6 +1276,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       lastDownRef.current = { at: Date.now(), planned };
 
       if (intentionalCloseRef.current) return;
+      /* ⚠️ 서버가 "이 세션은 끝났다" 고 알린 뒤의 close — 재접속하면 서버가 또 닫고
+         우리가 또 붙는 고리가 돈다. 그 고리가 돌면 무덤이 만료되는 순간 세션이 되살아나
+         "지워도 다시 뜬다" 가 된다. 여기서 끊는다. */
+      if (endedByServerRef.current) return;
       setConnectionNotice(t('networkReconnect') || 'Network connection changed. Reconnecting...');
       setIsReady(false);
       // 재연결 시도 중 실패 — 스피너 해제 (오버레이는 유지)
