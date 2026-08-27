@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from _deps import verify_auth_token
+import session_tombstones
 from remote_platform import PLATFORM_PROBE, classify_platform
 from cache import cache, invalidate_host, key_host_tmux_clients, key_host_tmux_sessions
 from host_manager import resolve_host_secrets
@@ -320,6 +321,11 @@ async def kill_host_tmux(
     except Exception as e:
         logger.error("kill-tmux failed (%s, force=%s, session=%s): %s", host_id, force, target_session, e)
         raise HTTPException(status_code=500, detail="tmux 세션 종료에 실패했습니다.")
+    if not force:
+        # ⚠️ **지우면 지워져야 한다.** 브리지는 세션이 사라진 것을 보면 `create=1` 로 다시
+        # 만든다(호스트 재부팅 복구용). 사용자가 직접 지운 경우엔 그게 정반대로 작동해
+        # 곧바로 되살아난다 — 표를 남겨 그 한 번을 막는다.
+        session_tombstones.mark_killed(host_id, target_session)
     await invalidate_host(host_id)  # 세션 목록·client 수 캐시 즉시 무효화
     await ssh_pool.invalidate(host_id)  # 풀의 살아있는 conn 도 끊어 새로 시작
     return {"id": host_id, "session": target_session, "status": "server_killed" if force else "killed"}

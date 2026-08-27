@@ -1,0 +1,75 @@
+"""지운 세션은 되살아나지 않는다.
+
+⚠️ 원격 브리지는 세션이 사라지면 `create=1` 로 다시 만든다 — 호스트 재부팅 복구용이다.
+그런데 사용자가 **직접 지운** 경우엔 그 복구가 정반대로 작동해 곧바로 되살아난다.
+화면에서는 "지워도 새로고침하면 다시 뜬다" 로 보인다.
+"""
+from __future__ import annotations
+
+import time
+
+import pytest
+
+import session_tombstones as graves
+
+
+@pytest.fixture(autouse=True)
+def _clean():
+    graves.clear()
+    yield
+    graves.clear()
+
+
+def test_a_killed_session_is_remembered():
+    graves.mark_killed("h1", "mobile-a")
+    assert graves.was_killed("h1", "mobile-a") is True
+
+
+def test_other_sessions_are_untouched():
+    """⚠️ 한 세션을 지웠다고 그 호스트의 다른 세션까지 막으면 안 된다."""
+    graves.mark_killed("h1", "mobile-a")
+    assert graves.was_killed("h1", "mobile-b") is False
+    assert graves.was_killed("h2", "mobile-a") is False
+
+
+def test_the_grave_expires(monkeypatch):
+    """수명이 짧아야 한다 — 이건 재접속 한 번을 막는 장치지 영구 차단이 아니다.
+    나중에 같은 이름으로 새로 여는 것은 정상이고 막으면 안 된다."""
+    monkeypatch.setattr(graves, "TOMBSTONE_TTL_SEC", 0.05)
+    graves.mark_killed("h1", "mobile-a")
+    time.sleep(0.08)
+    assert graves.was_killed("h1", "mobile-a") is False
+
+
+def test_forget_clears_it():
+    graves.mark_killed("h1", "mobile-a")
+    graves.forget("h1", "mobile-a")
+    assert graves.was_killed("h1", "mobile-a") is False
+
+
+def test_blank_inputs_are_not_graves():
+    graves.mark_killed("", "")
+    assert graves.was_killed("", "") is False
+
+
+# ---------------------- 배선 ----------------------
+
+def test_killing_a_session_marks_it():
+    """`kill-tmux` 가 표를 남기지 않으면 아래 거절 로직이 쓸모없다."""
+    import inspect
+    import routes.hosts as hosts_route
+    body = inspect.getsource(hosts_route.kill_host_tmux)
+    assert "session_tombstones.mark_killed" in body
+    # ⚠️ force(kill-server)는 표를 남기지 않는다 — 그건 "이 호스트를 통째로 리셋" 이라
+    # 다음 연결이 정상적으로 새 세션을 여는 게 맞다.
+    assert "if not force:" in body
+
+
+def test_the_bridge_refuses_to_recreate_a_killed_session():
+    import inspect
+    import routes.host_ws as host_ws
+    body = inspect.getsource(host_ws.host_websocket)
+    assert "session_tombstones.was_killed" in body
+    # 거절은 create 를 끄는 것이지 연결을 막는 것이 아니다 — 살아 있는 다른 세션에
+    # 붙는 것까지 막으면 그 호스트가 통째로 안 열린다.
+    assert "create = False" in body

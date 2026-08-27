@@ -16,6 +16,7 @@ from cache import invalidate_host
 from host_manager import HostBridge, resolve_host_secrets
 from sqlite_storage import storage
 from tickets import _push_ws_tickets
+import session_tombstones
 from ws_auth import authenticate_ws
 from ws_clients import _register_ws_client, _unregister_ws_client
 from ws_observe import log_attach, log_detach
@@ -143,6 +144,14 @@ async def host_websocket(
         target_tmux_session = effective_tmux_session(base_session, pane_index)
 
     # auth_method == 'tailscale' → tailscale ssh subprocess 로 연결 (SSH 키 불필요)
+    # ⚠️ **일부러 지운 세션은 되살리지 않는다.** 브리지는 세션이 없으면 만드는데, 그건
+    # 호스트 재부팅 복구용이다. 사용자가 방금 지운 것이라면 그 복구가 정반대로 작동해
+    # "지워도 다시 생긴다" 가 된다. 무덤은 수명이 짧아(90s) 재접속 한 번만 막는다.
+    if create and session_tombstones.was_killed(host_id, target_tmux_session):
+        logger.info("refusing to recreate a session the user killed: %s/%s",
+                    host_id[:8], target_tmux_session)
+        create = False
+
     if host.get("auth_method") == "tailscale":
         from host_manager import TailscaleHostBridge
         bridge = TailscaleHostBridge(
