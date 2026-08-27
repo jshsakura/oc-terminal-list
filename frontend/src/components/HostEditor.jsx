@@ -10,7 +10,7 @@ import { authHeaders } from '../utils/auth';
 import { copyToClipboard } from '../utils/clipboard';
 import { heStyles, styles } from './hostEditor/hostEditorStyles';
 import { Section, Divider, Row, Field, Input, Select, SegmentedControl, Toggle } from './hostEditor/HostEditorFields';
-import RemoteAgentSection from './hostEditor/RemoteAgentSection';
+import HostAgentSection from './hostEditor/HostAgentSection';
 import { IconButton, ColorPicker, TailscalePicker } from './hostEditor/HostEditorPickers';
 
 const { color, font, fontSize, radius, space, motion } = tokens;
@@ -52,8 +52,6 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   const [heTab, setHeTab] = useState('connection');
   const [tmuxWarning, setTmuxWarning] = useState('');
   const [tmuxChecking, setTmuxChecking] = useState(false);
-  const [itl, setItl] = useState({ loaded: false, loading: false, installing: false, installed: null, panePath: null, setupCommand: '', error: null, copied: false });
-  const itlCopyTimerRef = useRef(null);
 
   useEffect(() => {
     setConfirmingDelete(false);
@@ -71,32 +69,6 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     }
     setError('');
   }, [host, isOpen]);
-
-  // itl 상태는 호스트가 바뀌면 다시 조회한다(편집 대상 전환).
-  useEffect(() => {
-    setItl({ loaded: false, loading: false, installing: false, installed: null, panePath: null, setupCommand: '', error: null, copied: false });
-  }, [host?.id]);
-
-  // 세션 탭에 처음 들어올 때 1회만 원격 상태를 묻는다 — 모달을 열 때마다 SSH 를 치지 않게.
-  useEffect(() => {
-    if (!isOpen || heTab !== 'session' || !host?.id || !draft.use_remote_tmux) return;
-    if (itl.loaded || itl.loading) return;
-    let cancelled = false;
-    setItl((s) => ({ ...s, loading: true }));
-    (async () => {
-      try {
-        const res = await fetch(`/api/hosts/${host.id}/itl-status`, { headers: authHeaders() });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        if (!cancelled) setItl((s) => ({ ...s, loaded: true, loading: false, installed: !!data.installed, panePath: !!data.pane_path, platform: data.platform || 'unknown', setupCommand: data.setup_command || '' }));
-      } catch (e) {
-        if (!cancelled) setItl((s) => ({ ...s, loaded: true, loading: false, error: e.message || 'failed' }));
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [isOpen, heTab, host?.id, draft.use_remote_tmux]);
-
-  useEffect(() => () => { if (itlCopyTimerRef.current) clearTimeout(itlCopyTimerRef.current); }, []);
 
   if (!isOpen) return null;
 
@@ -181,27 +153,6 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     }
   };
 
-  const installItl = async () => {
-    if (!host?.id) return;
-    setItl((s) => ({ ...s, installing: true, error: null }));
-    try {
-      const res = await fetch(`/api/hosts/${host.id}/itl-setup`, { method: 'POST', headers: authHeaders() });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      setItl((s) => ({ ...s, installing: false, installed: !!data.installed, panePath: !!data.pane_path, setupCommand: data.setup_command || s.setupCommand }));
-    } catch (e) {
-      setItl((s) => ({ ...s, installing: false, error: e.message || 'failed' }));
-    }
-  };
-
-  const copyItlSetup = async () => {
-    if (!itl.setupCommand) return;
-    const ok = await copyToClipboard(itl.setupCommand);
-    if (!ok) return;
-    setItl((s) => ({ ...s, copied: true }));
-    if (itlCopyTimerRef.current) clearTimeout(itlCopyTimerRef.current);
-    itlCopyTimerRef.current = setTimeout(() => setItl((s) => ({ ...s, copied: false })), 1200);
-  };
 
   // useIp=true 면 100.x.x.x 테일넷 IP, false 면 MagicDNS 호스트명을 hostname 필드에 채움.
   // 사용자가 명시적으로 골라야 — fallback 체인은 한 형식이 비어있는 경우만.
@@ -561,71 +512,13 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                   </div>
                 </Section>
               )}
-              {host && draft.use_remote_tmux && (
-                <Section title={t('itlSection') || '터미널 간 명령 전달 (itl)'}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: space['2'] }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: space['2'], flexWrap: 'wrap' }}>
-                      {itl.loading && (
-                        <span style={{ fontSize: fontSize['11'], color: color.muted }}>{t('loading') || 'Loading…'}</span>
-                      )}
-                      {itl.loaded && itl.error && (
-                        <span style={{ fontSize: fontSize['11'], color: color.danger }}>
-                          {(t('itlLoadError') || '상태 조회 실패')} ({itl.error})
-                        </span>
-                      )}
-                      {itl.loaded && !itl.error && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: fontSize['11'] }}>
-                          <span style={{
-                            width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                            background: itl.installed ? (itl.panePath ? color.success : 'var(--ui-warning, #f9e2af)') : color.muted,
-                          }} />
-                          <span style={{ color: color.subtext }}>
-                            {itl.platform === 'windows'
-                              ? (t('windowsUnsupportedShort') || 'Windows host — not supported')
-                              : itl.installed
-                                ? (itl.panePath
-                                    ? (t('itlStatusReady') || '준비 완료 — 새 원격 터미널에서 바로 사용 가능')
-                                    : (t('itlStatusNeedRelogin') || '설치됨 — 새 셸부터 PATH 활성화'))
-                                : (t('itlNotInstalled') || '미설치 — 이 호스트 터미널에서 발신 불가')}
-                          </span>
-                        </span>
-                      )}
-                      {itl.loaded && !itl.error && !itl.installed && itl.platform !== 'windows' && (
-                        <>
-                          <Button variant="ghost" type="button" disabled={itl.installing} onClick={installItl}>
-                            {itl.installing ? (t('itlInstalling') || '설치 중…') : (t('itlInstall') || '설치')}
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            type="button"
-                            disabled={!itl.setupCommand}
-                            onClick={copyItlSetup}
-                            icon={itl.copied ? Check : Copy}
-                          >
-                            {itl.copied ? (t('itlCopied') || '복사됨') : (t('itlCopySetup') || '셋업 명령 복사')}
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                    {itl.platform === 'windows' && (
-                      /* Told once, plainly, with the way out — the alternative is the
-                         user meeting this as three unrelated bugs over a week. */
-                      <div style={{ fontSize: fontSize['11'], color: 'var(--ui-warning, #f9e2af)', lineHeight: 1.5 }}>
-                        {t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and itl all assume a POSIX shell. Registering the SSH server inside WSL works as usual.'}
-                      </div>
-                    )}
-                    <div style={{ fontSize: fontSize['11'], color: color.muted, lineHeight: 1.5 }}>
-                      {t('itlHint') || '앱이 만드는 원격 터미널에 자격이 자동 주입됩니다. 설치되는 것은 비밀 없는 CLI 스크립트 하나뿐.'}
-                    </div>
-                  </div>
-                </Section>
-              )}
-
-              {/* 리모트 — itl 과 별개다. itl 은 pane 이 명령을 보내는 CLI 고, 리모트는
-                  호스트가 스스로 상태를 보내오는 관찰자다. 둘 다 선택이다. */}
-              {host?.id && (
-                <Section title={t('remoteAgent') || 'Remote'}>
-                  <RemoteAgentSection hostId={host.id} authHeaders={authHeaders} t={t} />
+              {/* itl 과 리모트는 **한 기능의 두 반쪽**이다 — 어느 한쪽만으로는 되는 일이
+                  없어서(리모트만 = 그쪽 에이전트가 답장 못 함, itl 만 = 이쪽에서 보지도
+                  부르지도 못함) 구획도 버튼도 하나다. 오래 둘이었던 건 만들어진 순서가
+                  그랬을 뿐이지 사용자가 고를 일이 있어서가 아니었다. */}
+              {host?.id && draft.use_remote_tmux && (
+                <Section title={t('agentSection') || '터미널 간 명령 주고받기'}>
+                  <HostAgentSection hostId={host.id} authHeaders={authHeaders} t={t} />
                 </Section>
               )}
             </>

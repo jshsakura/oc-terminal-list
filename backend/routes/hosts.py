@@ -124,9 +124,10 @@ async def update_host_last_cwd(
 async def get_host_remote_status(host_id: str, username: str = Depends(verify_auth_token)):
     """리모트가 이 호스트에 깔려 있는가 · 돌고 있는가 · 지금 붙어 있는가.
 
-    **설치는 선택이다.** 안 깔아도 백엔드가 SSH 로 관찰자를 띄우는 경로가 그대로 있고,
-    이 응답의 `optional: True` 가 화면에 그 사실을 적게 한다 — 아이콘이 "안 깔림" 을
-    경고처럼 보여 주면, 강요할 생각이 없는데도 강요처럼 읽힌다.
+    ⚠️ **문서 정정: SSH 폴백은 없다.** 예전엔 "안 깔아도 백엔드가 SSH 로 관찰자를
+    띄우는 경로가 그대로 있다" 였고 화면도 그렇게 적었는데, 그 경로를 없앤 뒤로 그건
+    거짓이다 — 리모트가 없으면 그 호스트의 pane 은 `statusUnknown` 이고 명령을 받지
+    못한다. 강요는 여전히 안 하지만, **없으면 없는 대로 사실을 적는다.**
     """
     from host_common import resolve_host_with_secrets, run_remote_cmd
     from remote_agent import registry
@@ -757,6 +758,94 @@ async def setup_host_itl(host_id: str, username: str = Depends(verify_auth_token
     except Exception as e:
         logger.warning("itl-setup failed (%s): %s", host_id, e)
         raise HTTPException(status_code=500, detail="itl 설치에 실패했습니다")
+
+
+# --- 한 기능의 두 반쪽: itl + 리모트 ---------------------------------------------
+#
+# 화면에는 오래 **두 구획**으로 있었다. 만들어진 순서가 그랬기 때문이지, 사용자가
+# 따로 고를 일이 있어서가 아니다. 실제로는 어느 한쪽만으로 되는 일이 없다:
+#
+#   itl 만  → 그 호스트의 에이전트가 **보낼** 수는 있다. 그런데 이쪽에서 그 호스트의
+#            pane 을 볼 수도(`?`) 거기로 보낼 수도 없다.
+#   리모트만 → 이쪽에서 보고 보낼 수 있다. 그런데 그 호스트의 에이전트는 `itl` 이
+#            없어서 **답장도 호출도 못 한다.**
+#
+# 그래서 하나로 묶는다. 묻는 것도 까는 것도 한 번이다.
+
+def _agent_ready(remote: dict, itl: dict) -> bool:
+    """양방향이 다 되는가. **한쪽만 되면 ready 가 아니다** — 반쪽인 채로 "준비 완료"
+    라고 적으면 사용자는 안 되는 이유를 다른 데서 찾는다."""
+    return bool(remote.get("connected")) and bool(itl.get("installed")) and bool(itl.get("pane_path"))
+
+
+async def _agent_status(host_id: str, username: str) -> dict:
+    """리모트 + itl 상태를 한 덩어리로.
+
+    ⚠️ 둘을 **병렬로** 묻는다. 각각 SSH 왕복이라 순서대로 하면 호스트 편집기를 열 때의
+    대기가 두 배가 된다 — 이 저장소가 계속 줄여 온 쪽이다.
+
+    ⚠️ itl 쪽이 실패해도 **전체를 실패로 만들지 않는다.** 리모트만 물어서 알 수 있는
+    것이 이미 있고, 하나가 넘어졌다고 화면이 통째로 "조회 실패" 가 되면 사용자는 무엇이
+    되는지도 모른 채 남는다.
+    """
+    from host_common import resolve_host_with_secrets
+    from itl_remote_setup import remote_itl_status
+
+    remote_task = asyncio.create_task(get_host_remote_status(host_id, username))
+
+    async def _itl() -> dict:
+        try:
+            host, secrets = await resolve_host_with_secrets(host_id, username)
+            return await remote_itl_status(host, secrets)
+        except Exception as e:                       # noqa: BLE001
+            logger.info("agent-status: itl 조회 실패 (%s): %s", host_id, e)
+            return {"installed": None, "pane_path": None, "platform": None, "error": str(e)[:200]}
+
+    remote, itl = await asyncio.gather(remote_task, _itl())
+    return {"remote": remote, "itl": itl, "ready": _agent_ready(remote, itl)}
+
+
+@router.get("/api/hosts/{host_id}/agent-status")
+async def get_host_agent_status(host_id: str, username: str = Depends(verify_auth_token)):
+    """이 호스트가 터미널 간 명령 주고받기에 참여하고 있는가 — 한 번에."""
+    return await _agent_status(host_id, username)
+
+
+@router.post("/api/hosts/{host_id}/agent-setup")
+async def setup_host_agent(host_id: str, username: str = Depends(verify_auth_token)):
+    """리모트 + itl 을 한 번에 설치한다. **사람이 누를 때만 일어난다.**
+
+    ⚠️ **순서대로** 한다. 병렬은 조회에서만 하는 선택이다 — 설치는 둘 다 원격 셸에
+    파일을 쓰므로, 겹쳐 돌려 얻는 몇 초보다 "어느 쪽이 실패했는지" 가 분명한 편이 낫다.
+
+    ⚠️ **한쪽이 실패해도 다른 쪽은 진행한다.** 리모트가 안 깔리는 호스트(예: python3
+    없음)에서 itl 까지 못 깔면 그 호스트는 아무것도 못 하게 된다. 결과는 상태로 말한다.
+    """
+    from host_common import resolve_host_with_secrets
+    from itl_remote_setup import install_remote_itl
+
+    errors: dict[str, str] = {}
+    try:
+        await install_host_remote(host_id, username)
+    except Exception as e:                           # noqa: BLE001
+        logger.warning("agent-setup: 리모트 설치 실패 (%s): %s", host_id, e)
+        errors["remote"] = _detail_of(e)
+    try:
+        host, secrets = await resolve_host_with_secrets(host_id, username)
+        await install_remote_itl(host, secrets)
+    except Exception as e:                           # noqa: BLE001
+        logger.warning("agent-setup: itl 설치 실패 (%s): %s", host_id, e)
+        errors["itl"] = _detail_of(e)
+
+    status = await _agent_status(host_id, username)
+    status["errors"] = errors
+    return status
+
+
+def _detail_of(e: Exception) -> str:
+    """HTTPException 이면 사람이 읽을 detail, 아니면 예외 문자열(길이 제한)."""
+    detail = getattr(e, "detail", None)
+    return str(detail or e)[:200]
 
 
 @router.delete("/api/hosts/{host_id}")
