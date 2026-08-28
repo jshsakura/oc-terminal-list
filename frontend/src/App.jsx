@@ -687,12 +687,21 @@ function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
-  /* 모바일에서 입력 도크를 상시 노출할 조건 — MobileToolbar 와 **같은 조건**이어야 한다.
-     키를 받을 곳이 없는 자리(빈 pane, VNC, 2FA 프롬프트)에서 입력창만 떠 있으면
-     쳐도 아무 데도 안 간다. 두 조건이 갈라지면 그게 곧 버그다. */
-  const showCommandDock = isMobile && activeTabId !== null && !!focusedPane
-    && focusedPane.mode !== 'vnc' && (focusedPane.sessionId || focusedPane.hostId)
-    && !authPromptOpen;
+  /* 모바일 입력은 **팝업으로 되돌렸다** (2026-08-28).
+
+     상시 노출 도크는 탭 한 번을 아끼려던 것인데, 폰에서 하단 입력부를 누르면 키보드가
+     올라왔다 곧바로 닫히는 일이 반복됐다. 뷰포트 값이 얼어붙던 것과 blur 래치가 흔들림
+     한 프레임에 반응하던 것 둘을 고쳤는데도 남았다 — 원인이 하나 더 있고, 그것은 실기기
+     없이 좁힐 수 없다(이 저장소의 키보드·visualViewport 영역은 jsdom 이 끝까지 대신해
+     주지 못하는 자리다).
+
+     **되돌리는 쪽이 맞다.** 아껴지는 것은 탭 한 번인데 잃는 것은 "입력이 되긴 하나" 라는
+     신뢰다. 퀵바의 💬 버튼 → 모달 경로는 그대로 살아 있으므로 이 값 하나로 갈린다.
+
+     도크 코드는 남겨 둔다(`docked` prop). 지우면 다시 만들 때 이 모든 판단을 처음부터
+     다시 해야 하는데, 여기 도달할 길이 없으므로 동작에는 영향이 없다. 다시 켜려면 이
+     조건을 되살리기 전에 **실기기에서 키보드 열고 닫기부터** 확인할 것. */
+  const showCommandDock = false;
   // 쓰다 만 명령은 localStorage 에 남긴다 — 배포 직후 지연로드 청크 404 로
   // LazyErrorBoundary 가 페이지를 리로드해도 입력이 날아가지 않게. (utils/quickInputDraft.js)
   const [commandText, setCommandText] = useState(loadDraft);
