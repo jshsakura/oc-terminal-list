@@ -22,6 +22,10 @@ const MOBILE_BOTTOM_GAP = 8;
 const MOBILE_TOP_GAP = 12;
 // 가시 영역이 이만큼 줄면 키보드가 올라온 것으로 본다(브라우저 UI 바 변동은 이보다 작다).
 const KEYBOARD_SHRINK_THRESHOLD = 60;
+/* 키보드가 "내려갔다" 를 **확정하기 전에 기다리는 시간.** 즉시 판정하면 올라오는 도중의
+   한 프레임짜리 흔들림 하나가 그대로 blur 가 되어, 키보드가 올라왔다 곧바로 내려간다.
+   여는 애니메이션보다 길게(iOS ~250ms), 사람이 알아채기에는 짧게. */
+const KEYBOARD_DOWN_CONFIRM_MS = 280;
 // 보낼 대상 선택 UI 는 고를 게 둘 이상일 때만 의미가 있다.
 /* 도크의 모든 컨트롤이 공유하는 한 변 — 퀵바 키와 **같은 값**이어야 한다. 두 줄이
    위아래로 붙어 있어 한 쪽만 바뀌면 바로 보인다. 그래서 값의 출처는 styles/mobileControl. */
@@ -130,10 +134,14 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
   // 일부 모바일 브라우저는 useLayoutEffect 후에도 keyboard 가 즉시 안 올라오는
   // 케이스가 있어 다음 frame 에 한 번 더 보강. 데스크톱은 이미 끝나서 영향 없음.
   useEffect(() => {
-    if (!isOpen) return undefined;
+    /* ⚠️ `docked` 는 제외한다. 바로 위 useLayoutEffect 는 이미 `!docked` 를 보는데
+       여기만 빠져 있어서, **도크는 화면에 뜨는 것만으로 키보드를 올렸다.** 도크는
+       상시 노출이라 "열렸다" 는 순간이 곧 앱을 켠 순간이다 — 묻지도 않고 키보드가
+       올라오면 터미널이 그만큼 가려진다. 도크의 포커스는 사용자가 탭할 때만 간다. */
+    if (!isOpen || docked) return undefined;
     const raf = requestAnimationFrame(() => focusToEnd(textareaRef.current));
     return () => cancelAnimationFrame(raf);
-  }, [isOpen]);
+  }, [isOpen, docked]);
 
   // 모달이 떠있는 동안 포커스가 뒤쪽 xterm/input 으로 빠지면 즉시 되돌린다.
   // xterm 이 상태 변경/클릭 잔상으로 focus() 를 다시 호출하는 타이밍이 있어
@@ -295,12 +303,21 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
      누르자마자 포커스가 풀린다. */
   const sawKeyboardRef = useRef(false);
   useEffect(() => {
-    if (!docked || !dockFocused) { sawKeyboardRef.current = false; return; }
-    if (keyboardUp) { sawKeyboardRef.current = true; return; }
-    if (sawKeyboardRef.current) {
+    if (!docked || !dockFocused) { sawKeyboardRef.current = false; return undefined; }
+    if (keyboardUp) { sawKeyboardRef.current = true; return undefined; }
+    if (!sawKeyboardRef.current) return undefined;
+
+    /* ⚠️ **확정을 미룬다.** 예전엔 여기서 곧바로 blur 했는데, `keyboardUp` 은 뷰포트
+       높이 하나로 재는 값이라 올라오는 도중에도 잠깐 false 가 된다. 그 한 순간이
+       그대로 blur 가 되어 **키보드가 올라왔다 곧바로 내려갔고, 탭할 때마다 반복됐다.**
+
+       타이머는 deps 가 바뀌면 cleanup 이 걷어간다 — 즉 그 사이에 keyboardUp 이 다시
+       true 가 되면 blur 는 아예 일어나지 않는다. 흔들림은 저절로 걸러진다. */
+    const timer = setTimeout(() => {
       sawKeyboardRef.current = false;
       textareaRef.current?.blur();
-    }
+    }, KEYBOARD_DOWN_CONFIRM_MS);
+    return () => clearTimeout(timer);
   }, [docked, dockFocused, keyboardUp]);
 
   const overlayStyle = {

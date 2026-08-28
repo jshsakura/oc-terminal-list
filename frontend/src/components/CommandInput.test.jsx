@@ -854,7 +854,72 @@ describe('키보드가 내려가면 포커스도 놓는다', () => {
   test('올라온 적이 있을 때만 내려간 것으로 친다', () => {
     expect(src).toMatch(/sawKeyboardRef/);
     const at = src.indexOf('const sawKeyboardRef');
-    const block = src.slice(at, at + 600);
-    expect(block).toMatch(/if \(keyboardUp\) \{ sawKeyboardRef\.current = true; return; \}/);
+    const block = src.slice(at, at + 900);
+    // 래치가 서는 조건은 "키보드가 올라온 것을 봤다" 하나뿐이다.
+    expect(block).toMatch(/if \(keyboardUp\) \{ sawKeyboardRef\.current = true;/);
+    // 그리고 내려감 판정은 **미뤄서 확정한다** — 흔들림 한 프레임이 blur 가 되면 안 된다.
+    expect(block).toMatch(/setTimeout\(/);
+    expect(block).toMatch(/clearTimeout\(/);
+  });
+});
+
+/* ⚠️ 실측 사고 — "키보드가 올라왔다 곧바로 내려가고를 반복". 두 겹이었다:
+   ① 뷰포트 훅이 blur 순간 구독을 끊어 **내려가는 중간 높이**에 얼어붙었고(그 값으로
+      다시 탭하면 래치가 t=0 에 선다), ② 래치가 흔들림 한 프레임에도 즉시 blur 했다.
+   여기서는 ②를 잠근다(①은 useVisualViewport.test.jsx). */
+describe('도크 — 키보드 내림 판정', () => {
+  const t = (k, f) => f || k;
+
+  const withVV = (height) => {
+    const vv = new EventTarget();
+    vv.height = height;
+    vv.offsetTop = 0;
+    Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true, writable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 800, writable: true, configurable: true });
+    return vv;
+  };
+
+  const renderDock = () => render(
+    <CommandInput
+      isOpen={true} docked={true}
+      onClose={vi.fn()} onSend={vi.fn()}
+      command="" setCommand={vi.fn()} t={t}
+    />
+  );
+
+  afterEach(() => { vi.useRealTimers(); });
+
+  it('올라오는 도중의 한 순간짜리 흔들림으로는 포커스를 놓지 않는다', () => {
+    vi.useFakeTimers();
+    const vv = withVV(400);                       // 키보드 올라와 있음
+    renderDock();
+    const ta = screen.getByRole('textbox');
+    act(() => { ta.focus(); });
+    expect(document.activeElement).toBe(ta);
+
+    /* ⚠️ 훅이 이벤트를 rAF 로 모으므로 **단계를 나눠 흘려야** 한다. 한 act 안에서
+       연달아 쏘면 두 변화가 하나로 합쳐져 keyboardUp 이 애초에 false 가 되지 않고,
+       그러면 이 테스트는 아무것도 안 재고 초록이 된다. */
+    act(() => { vv.height = 800; vv.dispatchEvent(new Event('resize')); });
+    act(() => { vi.advanceTimersByTime(50); });   // rAF → keyboardUp false → 확정 타이머 arm
+    act(() => { vv.height = 400; vv.dispatchEvent(new Event('resize')); });
+    act(() => { vi.advanceTimersByTime(50); });   // rAF → keyboardUp true → cleanup 이 걷어감
+    act(() => { vi.advanceTimersByTime(1000); });
+
+    expect(document.activeElement).toBe(ta);      // 키보드가 살아 있어야 한다
+  });
+
+  it('정말로 내려가면 포커스를 놓는다 — 커서만 남기지 않는다', () => {
+    vi.useFakeTimers();
+    const vv = withVV(400);
+    renderDock();
+    const ta = screen.getByRole('textbox');
+    act(() => { ta.focus(); });
+
+    act(() => { vv.height = 800; vv.dispatchEvent(new Event('resize')); });
+    act(() => { vi.advanceTimersByTime(50); });    // rAF → keyboardUp false → 확정 타이머 arm
+    act(() => { vi.advanceTimersByTime(500); });   // 확정 → blur
+
+    expect(document.activeElement).not.toBe(ta);
   });
 });
