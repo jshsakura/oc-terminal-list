@@ -27,6 +27,7 @@ import { styles } from './fileEditor/fileEditorStyles';
 import { canFormatLanguage } from '../utils/formatSupport';
 import { monacoLanguageForFile } from '../utils/fileTypes';
 import { FileEditorTabs } from './fileEditor/FileEditorTabs';
+import { einkPollMs } from '../utils/einkMode';
 
 
 // confirmClose.fileKey 자리에 들어가는 "전체" 표식 — 어떤 fileKey 와도 겹치지 않는 값.
@@ -214,7 +215,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
    */
   useEffect(() => {
     if (!activeFile || isBinaryPreview || binaryPathsRef.current.has(activeFile)) return undefined;
-    const intervalMs = activeFileHostId ? REMOTE_POLL_MS : LOCAL_POLL_MS;
+    const intervalMs = einkPollMs(activeFileHostId ? REMOTE_POLL_MS : LOCAL_POLL_MS);
     const arm = () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (typeof document !== 'undefined' && document.hidden) return;

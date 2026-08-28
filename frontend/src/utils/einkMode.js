@@ -9,6 +9,7 @@
  *   1. CSS      `html[data-eink="1"]` kills transition/animation/blur/shadow — styles/einkCss.js
  *   2. settings EINK_SETTINGS_OVERRIDE below (smooth scroll, predictive echo, WebGL, contrast)
  *   3. theme    forced to the pure black-and-white `eink` theme
+ *   4. polling  every background poll stretched by EINK_POLL_FACTOR (einkPollMs)
  *
  * ⚠️ It must be reversible. The user's own settings are never written — this module only
  *    hands out an *overridden copy*, so turning the mode off restores them untouched.
@@ -40,7 +41,45 @@ export const EINK_SETTINGS_OVERRIDE = Object.freeze({
   terminalContrast: 'original',
 });
 
+/**
+ * How much slower every periodic job runs in this mode.
+ *
+ * Each poll is not just a request — it is a React state write, which on e-ink is a screen
+ * refresh you did not ask for. A git badge that updates four times a minute instead of
+ * sixteen loses nothing a reader would notice, and costs a quarter of the redraws.
+ *
+ * ⚠️ This applies to **background jobs only** — things whose whole job is "check again".
+ *    It must never be put on the terminal's heartbeat, watchdog or reconnect ladder:
+ *    those measure *death*, not throughput, and stretching them turns a dropped socket
+ *    into a minute of silence. See the reconnect sections of CLAUDE.md.
+ */
+export const EINK_POLL_FACTOR = 4;
+
 export const isEinkEnabled = (settings) => settings?.einkMode === true;
+
+/**
+ * The live flag, read straight off <html>.
+ *
+ * Module-level timers (the git-status store, the fleet store) have no React settings in
+ * scope, and threading one through six components to reach a `setInterval` would spread
+ * the mode across the codebase — the opposite of what this file is for. The attribute is
+ * already the single source of truth, applied by App and by main.jsx before boot.
+ */
+export const isEinkActive = () => (
+  typeof document !== 'undefined' && document.documentElement.hasAttribute(EINK_ATTR)
+);
+
+/**
+ * A polling period, stretched when the mode is on. `0`/falsy (= not polling) stays off.
+ *
+ * ⚠️ Read at the moment a timer is armed, so toggling the mode does not re-time timers
+ *    that are already running — they pick it up when their subscriber set next changes.
+ *    That is fine for a mode you switch once per device, and the alternative (a global
+ *    re-arm broadcast) is a second source of truth for the same thing.
+ */
+export const einkPollMs = (baseMs, einkMode = isEinkActive()) => (
+  einkMode && baseMs > 0 ? baseMs * EINK_POLL_FACTOR : baseMs
+);
 
 /** A copy of `settings` with the mode's overrides applied. Returns the input untouched when off. */
 export const applyEinkSettings = (settings) => {

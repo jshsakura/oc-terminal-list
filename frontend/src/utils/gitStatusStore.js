@@ -14,6 +14,7 @@
  */
 import { authHeaders } from './auth';
 import { apiFetch } from './apiFetch';
+import { einkPollMs } from './einkMode';
 
 // A subscriber joining this soon after the last fetch reuses the result instead
 // of firing its own (tab switches, remounts, split siblings on one repo).
@@ -95,6 +96,9 @@ export const createGitStatusStore = ({
     let period = Infinity;
     entry.subs.forEach((sub) => { if (sub.intervalMs > 0 && sub.intervalMs < period) period = sub.intervalMs; });
     if (!Number.isFinite(period)) { stopTimer(entry); return; }
+    // 이북 모드에서는 그 주기를 늘린다. 배지 하나가 분당 16회 대신 4회 갱신되는 것은
+    // 읽는 사람이 알아채지 못하지만, 전자잉크에서는 화면 갱신 12번의 차이다.
+    period = einkPollMs(period);
     if (entry.periodMs === period && entry.timer) return;
     stopTimer(entry);
     entry.periodMs = period;

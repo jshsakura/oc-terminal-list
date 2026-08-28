@@ -88,7 +88,7 @@ const PaneAddressLabel = memo(({
         color: color.text,
         // 배경을 깔아 아래 글자와 겹쳐도 숫자가 읽힌다. 알파가 아니라 opaque color-mix —
         // 알파면 터미널 글자가 비쳐 숫자가 뭉개진다.
-        background: `color-mix(in srgb, ${color.surface1} 82%, transparent)`,
+        background: `color-mix(in srgb, ${color.surface1} var(--glass-fill, 82%), transparent)`,
         border: `1px solid color-mix(in srgb, ${color.overlay0} 40%, transparent)`,
         // 우상단은 스크롤되는 출력에 묻히지 않는 자리라, 평소에도 읽히게 둔다.
         opacity: isProminent ? 0.9 : 0.6,

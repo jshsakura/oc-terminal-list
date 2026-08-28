@@ -583,7 +583,7 @@ const chartTooltipStyle = {
   fontSize: fontSize['11'],
   fontFamily: font.sans,
   borderRadius: radius.sm,
-  background: `color-mix(in srgb, ${color.surface1} 92%, transparent)`,
+  background: `color-mix(in srgb, ${color.surface1} var(--glass-fill, 92%)%, transparent)`,
   border: `1px solid ${color.borderStrong}`,
   boxShadow: `0 4px 14px color-mix(in srgb, ${color.crust} 60%, transparent)`,
   backdropFilter: 'blur(var(--glass-blur-card, 12px))',

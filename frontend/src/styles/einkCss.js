@@ -19,15 +19,13 @@ html[data-eink="1"] {
   --glass-blur-overlay: 0px;
   --glass-blur-card: 0px;
 
-  /* With the blur gone, "translucent" is just "you can see through it" — unreadable on
-     paper. Fill the surfaces instead. (Same var indirection as the blur above.) */
-  --glass-fill-menu: 100%;
-  --glass-fill-panel: 100%;
-  --glass-fill-section: 100%;
-  --glass-fill-card: 100%;
-  --glass-line-menu: 100%;
-  --glass-line-panel: 100%;
-  --glass-line-section: 100%;
+  /* With the blur gone, "translucent" is just "you can see through it" — a menu with the
+     terminal showing through it is unreadable on paper. Every neutral surface in the app
+     mixes its fill through these two names, so this pair turns them all opaque at once.
+     ⚠️ Accent tints are deliberately NOT routed here: they sit on a face that is already
+     opaque, and at 100% they would become colour blocks over the text. */
+  --glass-fill: 100%;
+  --glass-line: 100%;
 
   /* buildThemeUI derives light-theme borders as 10% black. That is invisible on e-ink,
      and once shadows are gone the border is the ONLY thing separating two panels.
@@ -37,10 +35,11 @@ html[data-eink="1"] {
   --ui-border-strong: #000000 !important;
   --ui-border-subtle: #a8a8a8 !important;
 
-  /* A dark scrim means repainting the whole screen to grey and back. Fade the page out
-     with paper instead — the modal is opaque white with a black edge, so it still reads. */
-  --ui-scrim: rgba(255, 255, 255, 0.82) !important;
-  --modal-scrim: rgba(255, 255, 255, 0.82);
+  /* A dark scrim means repainting the whole screen to grey and back. Cover the page with
+     paper instead — and **fully**: a translucent scrim leaves the terminal ghosting
+     through the modal, which is exactly the thing this mode exists to remove. */
+  --ui-scrim: var(--ui-crust, #ffffff) !important;
+  --modal-scrim: var(--ui-crust, #ffffff);
 }
 
 html[data-eink="1"] *,

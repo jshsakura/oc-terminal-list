@@ -6,6 +6,7 @@
  */
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { authHeaders } from '../../../utils/auth';
+import { einkPollMs } from '../../../utils/einkMode';
 
 const SYSTEM_STATS_POLL_MS = 30000;
 
@@ -33,7 +34,7 @@ const useSystemStats = (enabled) => {
     };
     fetchRef.current = fetchOnce;
     fetchOnce();
-    intervalRef.current = setInterval(fetchOnce, SYSTEM_STATS_POLL_MS);
+    intervalRef.current = setInterval(fetchOnce, einkPollMs(SYSTEM_STATS_POLL_MS));
     return () => {
       aborted = true;
       fetchRef.current = null;

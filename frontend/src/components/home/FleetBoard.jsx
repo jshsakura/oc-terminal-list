@@ -306,7 +306,7 @@ const S = {
   row: {
     display: 'flex', alignItems: 'center', gap: '10px',
     width: '100%', minHeight: '46px', padding: '6px 10px',
-    background: `color-mix(in srgb, ${color.surface0} 55%, transparent)`,
+    background: `color-mix(in srgb, ${color.surface0} var(--glass-fill, 55%)%, transparent)`,
     border: `1px solid ${color.border}`,
     borderRadius: radius.md,
     color: color.text, textAlign: 'left', cursor: 'pointer', font: 'inherit',

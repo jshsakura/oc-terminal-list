@@ -24,7 +24,7 @@ export const GlassOverlayCard = ({ themeUi, zIndex = 10040, children }) => (
     fontFamily: 'inherit',
   }}>
     <div style={{
-      background: `color-mix(in srgb, ${themeUi.surface0 || themeUi.base} 82%, transparent)`,
+      background: `color-mix(in srgb, ${themeUi.surface0 || themeUi.base} var(--glass-fill, 82%), transparent)`,
       backdropFilter: 'blur(var(--glass-blur-panel, 20px))',
       WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 20px))',
       border: `1px solid ${themeUi.borderStrong || themeUi.border}`,

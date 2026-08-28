@@ -669,7 +669,7 @@ const VncPane = ({
           alignItems: 'center',
           gap: '6px',
           padding: '4px 10px',
-          background: `color-mix(in srgb, ${color.surface1} 85%, transparent)`,
+          background: `color-mix(in srgb, ${color.surface1} var(--glass-fill, 85%)%, transparent)`,
           border: `1px solid ${color.border}`,
           borderRadius: radius.md,
           fontFamily: font.sans,
@@ -718,7 +718,7 @@ const VncPane = ({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          background: `color-mix(in srgb, ${color.base} 90%, transparent)`,
+          background: `color-mix(in srgb, ${color.base} var(--glass-fill, 90%)%, transparent)`,
           zIndex: 20,
         }}>
           <form

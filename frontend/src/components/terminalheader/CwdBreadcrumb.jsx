@@ -75,7 +75,7 @@ const CwdBreadcrumb = memo(({ paneInfo, loading, disabled, ui, onRefreshCwd = nu
     maxWidth: '100%',
     boxSizing: 'border-box',
     overflow: 'hidden',
-    background: `color-mix(in srgb, ${ui.surface1 || ui.surface0} 45%, transparent)`,
+    background: `color-mix(in srgb, ${ui.surface1 || ui.surface0} var(--glass-fill, 45%)%, transparent)`,
     border: `1px solid color-mix(in srgb, ${ui.border || ui.surface1} 50%, transparent)`,
     borderRadius: '5px',
     padding: '2px 4px 2px 5px',

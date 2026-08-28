@@ -20,7 +20,7 @@ export const dashboardCardStyle = ({ padding = space['3'], corner = radius.md } 
   /* Fully opaque hides what is behind; too transparent puts the background lines under
      the text. 62% is where the scanlines still show through but body contrast holds
      (picked by looking at it, not by theory). */
-  background: `color-mix(in srgb, ${color.surface0} var(--glass-fill-card, 62%), transparent)`,
+  background: `color-mix(in srgb, ${color.surface0} var(--glass-fill, 62%), transparent)`,
   border: `1px solid ${color.borderStrong}`,
   /* A 1px top highlight is what gives the glass thickness — without it this is just a
      translucent rectangle. **No hardcoded white/black**: on a light theme a white

@@ -495,7 +495,7 @@ const EmptyResumableCard = ({ t }) => (
     style={{
       ...S.card,
       cursor: 'default',
-      background: `color-mix(in srgb, ${color.surface0} 45%, transparent)`,
+      background: `color-mix(in srgb, ${color.surface0} var(--glass-fill, 45%)%, transparent)`,
       borderStyle: 'dashed',
       borderWidth: '2px',
       borderColor: `color-mix(in srgb, ${color.text} 22%, transparent)`,

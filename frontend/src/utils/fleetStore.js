@@ -14,6 +14,7 @@
  */
 import { authHeaders } from './auth';
 import { apiFetch } from './apiFetch';
+import { einkPollMs } from './einkMode';
 
 // Slow on purpose. Every tick is one SSH connection per remote host, and a board of
 // "who is working right now" is still useful at this resolution.
@@ -88,7 +89,7 @@ export const createFleetStore = ({
 
   const arm = () => {
     if (timer || !subscribers.size) return;
-    timer = setInterval(tick, pollMs);
+    timer = setInterval(tick, einkPollMs(pollMs));
   };
 
   const disarm = () => {

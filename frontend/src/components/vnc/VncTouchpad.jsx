@@ -378,7 +378,7 @@ const S = {
     alignItems: 'center',
     justifyContent: 'center',
     gap: '4px',
-    background: `color-mix(in srgb, ${color.surface1} 45%, transparent)`,
+    background: `color-mix(in srgb, ${color.surface1} var(--glass-fill, 45%)%, transparent)`,
     border: `1px dashed ${color.border}`,
     borderRadius: radius.md,
     touchAction: 'none',

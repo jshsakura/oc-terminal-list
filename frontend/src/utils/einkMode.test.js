@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   EINK_ATTR,
+  EINK_POLL_FACTOR,
+  einkPollMs,
+  isEinkActive,
   EINK_SETTINGS_OVERRIDE,
   EINK_THEME_ID,
   applyEinkAttribute,
@@ -55,6 +58,31 @@ describe('einkMode', () => {
     expect(isEinkEnabled({})).toBe(false);
     expect(isEinkEnabled(null)).toBe(false);
     expect(isEinkEnabled({ einkMode: true })).toBe(true);
+  });
+
+  describe('einkPollMs', () => {
+    it('stretches a period only when the mode is on', () => {
+      expect(einkPollMs(30000, false)).toBe(30000);
+      expect(einkPollMs(30000, true)).toBe(30000 * EINK_POLL_FACTOR);
+    });
+
+    it('leaves "not polling" alone', () => {
+      // 0 means no timer at all. Multiplying it would still be 0, but a caller passing a
+      // falsy period must never come back with one armed.
+      expect(einkPollMs(0, true)).toBe(0);
+      expect(einkPollMs(undefined, true)).toBe(undefined);
+    });
+
+    it('reads the live flag off <html> when none is given', () => {
+      // Module-level timers have no settings in scope; this is how they ask.
+      applyEinkAttribute(false);
+      expect(isEinkActive()).toBe(false);
+      expect(einkPollMs(1000)).toBe(1000);
+
+      applyEinkAttribute(true);
+      expect(isEinkActive()).toBe(true);
+      expect(einkPollMs(1000)).toBe(1000 * EINK_POLL_FACTOR);
+    });
   });
 
   describe('applyEinkAttribute', () => {

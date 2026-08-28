@@ -27,11 +27,6 @@ document.addEventListener('contextmenu', (event) => {
 const glassBlurStyle = document.createElement('style');
 glassBlurStyle.textContent = `
   :root { --glass-blur-menu: 20px; --glass-blur-panel: 18px; --glass-blur-overlay: 5px; --glass-blur-card: 12px; }
-  /* How much of the surface colour a glass fill / edge keeps. Same indirection as the
-     blur above, and for the same reason: the e-ink stylesheet has to turn every glass
-     surface opaque at once, and it cannot reach inline styles any other way. */
-  :root { --glass-fill-menu: 34%; --glass-fill-panel: 72%; --glass-fill-section: 44%; --glass-fill-card: 62%; }
-  :root { --glass-line-menu: 24%; --glass-line-panel: 72%; --glass-line-section: 70%; }
   @media (max-width: 768px), (hover: none) and (pointer: coarse) {
     :root { --glass-blur-menu: 6px; --glass-blur-panel: 6px; --glass-blur-overlay: 2px; --glass-blur-card: 5px; }
   }

@@ -492,7 +492,7 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
               <div style={{
                 marginTop: '8px',
                 padding: '6px 8px',
-                background: `color-mix(in srgb, ${color.surface1} 70%, transparent)`,
+                background: `color-mix(in srgb, ${color.surface1} var(--glass-fill, 70%)%, transparent)`,
                 border: `1px solid ${color.border}`,
                 borderRadius: '4px',
                 fontFamily: font.mono,

@@ -275,13 +275,13 @@ const OtherSessionCommandList = ({ sessionKey, ui, isMobile, onSelect, onPickCop
             className="iterm-cmd-history-item"
             style={{
               flexShrink: 0, display: 'flex', alignItems: 'center', height: rowHeight,
-              background: `color-mix(in srgb, ${ui.surface1} 32%, transparent)`,
+              background: `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`,
               borderRadius: '4px', overflow: 'hidden',
               transition: 'background 120ms',
               animationDelay: idx < 12 ? `${idx * 18}ms` : '0ms',
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 70%, transparent)`; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 32%, transparent)`; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`; }}
           >
             {/* 행 클릭 = 이 pane 으로 pull. push 는 compose 행이 담당한다. */}
             <button
@@ -526,7 +526,7 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
         justifyContent: 'space-between',
         padding: '6px 10px',
         borderBottom: `1px solid color-mix(in srgb, ${ui.border} 65%, transparent)`,
-        background: `color-mix(in srgb, ${ui.base} 38%, transparent)`,
+        background: `color-mix(in srgb, ${ui.base} var(--glass-fill, 38%), transparent)`,
       }}>
         {mode === MODE_HISTORY ? (
           <>
@@ -694,13 +694,13 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
               className="iterm-cmd-history-item"
               style={{
                 flexShrink: 0, display: 'flex', alignItems: 'center', height: '30px',
-                background: `color-mix(in srgb, ${ui.surface1} 32%, transparent)`,
+                background: `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`,
                 borderRadius: '4px', overflow: 'hidden',
                 transition: 'background 120ms',
                 animationDelay: idx < 12 ? `${idx * 18}ms` : '0ms',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 70%, transparent)`; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 32%, transparent)`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`; }}
             >
               <button
                 type="button"
@@ -775,7 +775,7 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
               style={{
                 flexShrink: 0, display: 'flex', alignItems: 'center', gap: '8px',
                 height: rowHeight,
-                background: `color-mix(in srgb, ${ui.surface1} 32%, transparent)`,
+                background: `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`,
                 borderRadius: '4px', overflow: 'hidden',
                 border: 'none', cursor: 'pointer', textAlign: 'left',
                 padding: '0 6px 0 9px',
@@ -784,7 +784,7 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
                 animationDelay: idx < 12 ? `${idx * 18}ms` : '0ms',
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 70%, transparent)`; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 32%, transparent)`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`; }}
             >
               {session.isLocal
                 ? <Monitor size={12} strokeWidth={2} style={{ flexShrink: 0, color: ui.subtext }} />
@@ -848,7 +848,7 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
                       flex: 1, minWidth: 0,
                       height: isMobile ? '30px' : '26px',
                       padding: '0 8px', borderRadius: '4px',
-                      background: `color-mix(in srgb, ${ui.surface1} 32%, transparent)`,
+                      background: `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`,
                       border: `1px solid ${accentColor
                         || `color-mix(in srgb, ${ui.border} 45%, transparent)`}`,
                       color: ui.text, fontFamily: font.mono, fontSize: fontSize['12'],

@@ -105,8 +105,8 @@ const styles = {
   panel: {
     /* 유리는 뒤가 비쳐야 유리지만, 설정처럼 **읽고 고르는** 창은 뒤의 터미널 글자가
        라벨과 겹쳐 읽힌다. 58% → 74% — 질감은 남기고 글자만 또렷해지는 선. */
-    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 74%, transparent)`,
-    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 62%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) var(--glass-fill, 74%), transparent)`,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) var(--glass-line, 62%), transparent)`,
     borderRadius: '12px',
     boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)',
     backdropFilter: 'blur(var(--glass-blur-panel, 20px))',
@@ -120,8 +120,8 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: `${space['2']} ${space['3']}`,
-    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
+    borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) var(--glass-line, 70%), transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) var(--glass-fill, 44%), transparent)`,
     flexShrink: 0,
   },
   title: {
@@ -139,9 +139,9 @@ const styles = {
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 54%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 54%), transparent)`,
     color: `var(--ui-subtext, ${color.subtext})`,
-    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
+    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) var(--glass-line, 70%), transparent)`,
     borderRadius: '7px',
     cursor: 'pointer',
     transition: `background ${motion.fast}, color ${motion.fast}`,
@@ -162,7 +162,7 @@ const styles = {
     gap: space['1.5'],
     padding: `${space['1.5']} ${space['3']}`,
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) var(--glass-fill, 44%), transparent)`,
     flexShrink: 0,
   },
 };
