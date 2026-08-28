@@ -7,6 +7,7 @@ import useAuth from './hooks/useAuth';
 import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
 import useViewport from './hooks/useViewport';
+import killRemoteSession from './utils/killRemoteSession';
 import useTerminalSearch from './hooks/useTerminalSearch';
 import useFilePicker from './hooks/useFilePicker';
 import useEditorResize from './hooks/useEditorResize';
@@ -136,16 +137,28 @@ function App() {
     throw err;
   }, []);
 
-  /* 원격 tmux 세션 kill — fire-and-forget. 호스트가 도달 불가능하면 다음 접속 때 Resumable 에 남음.
-     `allow_attached` — 탭을 닫는다는 건 이 앱에서 세션 종료를 뜻한다(detach 는 없다).
-     닫는 그 세션은 방금까지 붙어 있던 것이므로, 서버의 기본 거절을 명시로 넘어간다. */
+  /* 원격 tmux 세션 kill — 화면은 안 붙잡되 **확인될 때까지 다시 시도한다**.
+
+     ⚠️ 예전에는 `.catch(() => {})` 였다. 백엔드가 재시작 중이거나(배포 직후가 그 창이다)
+     연결이 막혀 있으면 닫은 탭의 세션이 조용히 살아남았고, 그건 다음에 홈의 "이어할 수
+     있는 세션" 에 나타나 "닫았는데 왜 엉뚱한 게 올라오나" 가 됐다. 실측으로 그렇게 생긴
+     고아가 있었다. 재시도 규칙은 `utils/killRemoteSession.js` 에 적어 뒀다.
+
+     그래도 안 되면 **말한다.** 조용히 실패하면 사용자는 며칠 뒤 낯선 세션으로 그 사실을
+     알게 되는데, 그때는 그게 무엇이었는지 알 방법이 없다. */
   const killRemoteTmuxSession = useCallback((hostId, sessionName) => {
     if (!hostId || !sessionName) return;
-    fetch(`/api/hosts/${hostId}/kill-tmux?session=${encodeURIComponent(sessionName)}&allow_attached=true`, {
-      method: 'POST',
-      headers: authHeaders(),
-    }).catch(() => {});
-  }, []);
+    killRemoteSession(hostId, sessionName).then((ok) => {
+      if (ok) return;
+      setNotification({
+        isOpen: true,
+        type: 'error',
+        message: (t('sessionKillFailed')
+          || '원격 세션을 종료하지 못했습니다: {name} — 홈의 “이어할 수 있는 세션”에서 정리할 수 있습니다')
+          .replace('{name}', sessionName),
+      });
+    });
+  }, [t]);
 
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || null, [tabs, activeTabId]);
 

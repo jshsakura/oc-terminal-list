@@ -898,6 +898,7 @@ export const en = {
     agentHalfRemote: 'Installed, but not connected yet',
     agentHalfItl: 'The remote is connected — the itl command is not ready yet',
     agentInstall: 'Connect',
+    sessionKillFailed: 'Could not terminate the remote session: {name} — you can clear it from “Resumable sessions” on the home screen',
     remoteAgent: 'Remote',
     remoteConnected: 'Connected — this host is reporting its own state',
     remoteConnectedShort: 'Remote connected',
