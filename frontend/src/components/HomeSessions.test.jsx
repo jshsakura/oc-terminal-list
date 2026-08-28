@@ -1,7 +1,7 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import HomeSessions from './HomeSessions';
 
 describe('HomeSessions', () => {
@@ -85,5 +85,49 @@ describe('섞인 탭 — 로컬 탭 안의 원격 pane 도 점유다', () => {
     await waitFor(() => expect(screen.getByText('mobile-orphan')).toBeInTheDocument());
     // 쓰고 있는 것은 그 안에 없어야 한다.
     expect(screen.queryByText('mobile-6c3ea')).not.toBeInTheDocument();
+  });
+});
+
+/* ⚠️ 꺼진 호스트(rpi4)가 "이어할 수 있는 세션" 에 세션과 같은 크기의 카드로 계속
+   나타났다. 그 구획은 세션 목록인데 닿지 못한 호스트에는 이어할 세션이 **하나도 없다** —
+   우리가 모를 뿐이다. X 로 닫아도 그 기억이 모듈 변수라 새로고침이면 잊혔다. */
+describe('닿지 못한 호스트 — 카드가 아니라 한 줄', () => {
+  /* ⚠️ **이어할 세션이 하나라도 있어야 하는 조건이다.** 하나도 없으면 화면이 "비었음"
+     카드로 갈아타면서 호스트 루프 자체를 안 돈다 — 그 상태로 세운 첫 판은 버그를
+     되돌려 넣어도 초록이었다. 실제 사고 화면이 정확히 이 모양이었다:
+     ubuntu-lab 의 고아 세션 하나 + 닿지 못한 rpi4. */
+  const HOSTS = [
+    { id: 'h1', name: 'rpi4', use_remote_tmux: true },
+    { id: 'h2', name: 'ubuntu-lab', use_remote_tmux: true, remote_tmux_session: 'mobile' },
+  ];
+  const failing = () => vi.fn(() => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({ items: [
+      { id: 'h1', sessions: [], error: '원격 tmux 세션 조회 실패' },
+      { id: 'h2', sessions: [{ name: 'mobile-orphan', attached: false, created: 1 }] },
+    ] }),
+  }));
+
+  it('세션 카드로 그리지 않는다 — 카드에만 있는 문구가 없어야 한다', async () => {
+    vi.stubGlobal('fetch', failing());
+    render(<HomeSessions hosts={HOSTS} tabs={[]} />);
+    await waitFor(() => expect(screen.getByText('mobile-orphan')).toBeInTheDocument());
+    expect(screen.queryByText(/Cannot reach host/i)).toBeNull();
+  });
+
+  it('그래도 숨기지는 않는다 — 무엇을 못 봤는지 한 줄로 말한다', async () => {
+    vi.stubGlobal('fetch', failing());
+    render(<HomeSessions hosts={HOSTS} tabs={[]} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /rpi4/ })).toBeInTheDocument());
+  });
+
+  it('누르면 다시 조회한다', async () => {
+    const f = failing();
+    vi.stubGlobal('fetch', f);
+    render(<HomeSessions hosts={HOSTS} tabs={[]} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: /rpi4/ })).toBeInTheDocument());
+    const before = f.mock.calls.length;
+    fireEvent.click(screen.getByRole('button', { name: /rpi4/ }));
+    await waitFor(() => expect(f.mock.calls.length).toBeGreaterThan(before));
   });
 });

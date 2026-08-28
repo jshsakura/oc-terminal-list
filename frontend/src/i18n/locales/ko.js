@@ -904,6 +904,7 @@ export const ko = {
     agentHalfItl: '리모트는 붙었습니다 — itl 명령이 아직 준비되지 않았습니다',
     agentInstall: '연결하기',
     sessionKillFailed: '원격 세션을 종료하지 못했습니다: {name} — 홈의 “이어할 수 있는 세션”에서 정리할 수 있습니다',
+    hostsUnreachable: '{names} 은(는) 확인하지 못했습니다 — 눌러서 다시 시도',
     remoteAgent: '리모트',
     remoteConnected: '연결됨 — 이 호스트가 상태를 직접 보내옵니다',
     remoteConnectedShort: '리모트 연결됨',

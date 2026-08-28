@@ -199,6 +199,13 @@ const HomeSessions = ({
      본다. 다른 기기에서 열려 있거나 백엔드가 아직 붙잡고 있는 것은 거기 안 걸리고,
      tmux 의 attached 플래그만이 그걸 안다. */
 
+  /* 못 닿은 호스트들 — 카드가 아니라 아래 한 줄로 접힌다. */
+  const unreachableHosts = tmuxHosts.filter((h) => {
+    const entry = tmuxByHost[h.id];
+    return entry && !entry.loading && !entry.dismissed && !!entry.error;
+  });
+  const retryUnreachable = () => unreachableHosts.forEach((h) => fetchHostSessions(h));
+
   const openTabs = hideOpen ? [] : tabs;
   const hasAnyResumable = tmuxHosts.some((h) => {
     const entry = tmuxByHost[h.id];
@@ -302,19 +309,15 @@ const HomeSessions = ({
               const entry = tmuxByHost[host.id];
               if (entry?.dismissed) return null;
               if (entry?.loading) return null;
-              if (entry.error) {
-                return <ErrorCard
-                  key={`err-${host.id}`}
-                  host={host}
-                  message={entry.error}
-                  onRetry={() => fetchHostSessions(host)}
-                  onDismiss={() => {
-                    dismissedHostIds.add(host.id);
-                    setTmuxByHost((prev) => ({ ...prev, [host.id]: { dismissed: true } }));
-                  }}
-                  t={t}
-                />;
-              }
+              /* ⚠️ **못 닿은 호스트는 여기서 카드가 되지 않는다.** 이 구획은 "이어할 수
+                 있는 세션" 이고, 닿지 못한 호스트에는 이어할 세션이 **하나도 없다** —
+                 우리가 모를 뿐이다. 그걸 세션과 같은 크기의 카드로 내밀면, 꺼진 기계
+                 하나가 홈에 들어올 때마다 자리를 차지하며 다시 나타난다(실측: 꺼진
+                 rpi4 가 그랬다. X 로 닫아도 그 기억이 모듈 변수라 새로고침이면 잊는다).
+
+                 그렇다고 숨기지도 않는다 — 아래 한 줄로 접는다. 무엇을 못 봤는지는
+                 말하되, 세션인 척하지는 않는다. */
+              if (entry.error) return null;
               const resumable = entry.sessions.filter(
                 (s) => !isCompanionSession(s.name)
                   && !isClaimedSession(host.id, s.name)
@@ -376,6 +379,15 @@ const HomeSessions = ({
               ));
             })}
           </div>
+          {/* 못 본 호스트가 있으면 **한 줄**로 말한다. 카드가 아니라 줄인 이유는 위 참조 —
+              세션 목록에 세션 아닌 것이 끼면 그때부터 이 구획은 세션 목록이 아니게 된다. */}
+          {!anyLoading && unreachableHosts.length > 0 && (
+            <button type="button" style={S.unreachable} onClick={retryUnreachable}>
+              <AlertCircle size={11} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+              {(t?.('hostsUnreachable') || '{names} 은(는) 확인하지 못했습니다 — 눌러서 다시 시도')
+                .replace('{names}', unreachableHosts.map((h) => h.name).join(', '))}
+            </button>
+          )}
         </div>
       )}
     </section>
@@ -503,6 +515,8 @@ const EmptyResumableCard = ({ t }) => (
   </div>
 );
 
+/* 카드는 남겨 둔다 — 빈 pane 안의 Resumable(EmptyPane)에서는 여전히 카드가 맞다.
+   거기는 목록이 아니라 "이 자리에 무엇을 열까" 를 고르는 화면이라 사정이 다르다. */
 const ErrorCard = ({ host, message, onRetry, onDismiss, t }) => (
   <Card accent={color.danger} onClick={onRetry}>
     <IconBox accent={color.danger}>
@@ -628,6 +642,24 @@ const CardBtn = ({ children, onClick, title, primary, tone }) => {
 // ─── Styles ──────────────────────────────────────────────────────────────
 
 const S = {
+  /* 못 닿은 호스트 한 줄 — **카드가 아니다.** 면도 테두리도 주지 않는다. 세션 목록에
+     세션처럼 생긴 것이 하나 더 늘면 그때부터 이 구획은 세션 목록이 아니게 된다.
+     경고색도 아니다: 꺼진 기계가 있는 것은 사고가 아니라 흔한 상태다. */
+  unreachable: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '5px',
+    alignSelf: 'flex-start',
+    padding: '2px 0',
+    background: 'transparent',
+    border: 'none',
+    color: color.muted,
+    fontSize: fontSize['11'],
+    fontFamily: 'inherit',
+    lineHeight: 1.5,
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
   section: {
     display: 'flex',
     flexDirection: 'column',
