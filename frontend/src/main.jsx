@@ -2,6 +2,9 @@ import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
 import { isPhoneViewport } from './utils/tabModel'
+import { EINK_CSS } from './styles/einkCss'
+import { applyEinkAttribute, readStoredEinkMode } from './utils/einkMode'
+import { SETTINGS_STORAGE_KEY } from './hooks/useSettings'
 
 // 백스페이스로 브라우저 뒤로가기가 발생하지 않게 앱 코드에서 처리한다.
 document.addEventListener('keydown', (event) => {
@@ -24,6 +27,11 @@ document.addEventListener('contextmenu', (event) => {
 const glassBlurStyle = document.createElement('style');
 glassBlurStyle.textContent = `
   :root { --glass-blur-menu: 20px; --glass-blur-panel: 18px; --glass-blur-overlay: 5px; --glass-blur-card: 12px; }
+  /* How much of the surface colour a glass fill / edge keeps. Same indirection as the
+     blur above, and for the same reason: the e-ink stylesheet has to turn every glass
+     surface opaque at once, and it cannot reach inline styles any other way. */
+  :root { --glass-fill-menu: 34%; --glass-fill-panel: 72%; --glass-fill-section: 44%; --glass-fill-card: 62%; }
+  :root { --glass-line-menu: 24%; --glass-line-panel: 72%; --glass-line-section: 70%; }
   @media (max-width: 768px), (hover: none) and (pointer: coarse) {
     :root { --glass-blur-menu: 6px; --glass-blur-panel: 6px; --glass-blur-overlay: 2px; --glass-blur-card: 5px; }
   }
@@ -118,6 +126,14 @@ glassBlurStyle.textContent = `
   }
 `;
 document.head.appendChild(glassBlurStyle);
+
+/* 이북(전자잉크) 모드 — 스타일시트는 항상 붙여 두고, `html[data-eink]` 가 켤 때만 산다.
+   플래그는 **React 마운트 전에** 캐시에서 읽는다. 첫 렌더 뒤에 붙이면 전자잉크 기기는
+   이 모드가 없애려던 바로 그 애니메이션 첫 페인트를 이미 한 번 다시 그린 뒤다. */
+const einkStyle = document.createElement('style');
+einkStyle.textContent = EINK_CSS;
+document.head.appendChild(einkStyle);
+applyEinkAttribute(readStoredEinkMode(SETTINGS_STORAGE_KEY));
 
 // iOS Safari applies `:active` only on elements the page shows touch interest in.
 // Without this one empty listener the pressed state above simply never appears on iPhone.

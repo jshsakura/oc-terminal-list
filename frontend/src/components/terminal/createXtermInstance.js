@@ -33,7 +33,10 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
     fontSize: settings.fontSize,
     lineHeight: 1.2,
     letterSpacing: 0,
-    cursorBlink: true,
+    /* A blinking cursor asks the screen to redraw once or twice a second while nothing
+       at all is happening. On a normal panel that is free; on e-ink it is the single
+       most expensive decoration in the app, so the mode turns it into a solid block. */
+    cursorBlink: settings.einkMode !== true,
     cursorStyle: 'block',
     cursorInactiveStyle: 'outline',
     scrollback: SCROLLBACK_LINES,

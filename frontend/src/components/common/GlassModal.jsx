@@ -91,7 +91,9 @@ const styles = {
     left: 0,
     right: 0,
     padding: space['3'],
-    background: 'rgba(0,0,0,0.35)',
+    /* var 로 빼 둔다 — 이북 모드가 이 값을 뒤집는다(종이 위에서 화면을 어둡게 덮으면
+       전체 갱신 한 번을 태우고 다시 밝아질 때 또 한 번이다). 기본값은 그대로. */
+    background: 'var(--modal-scrim, rgba(0,0,0,0.35))',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

@@ -30,7 +30,7 @@ const {
   
   espressoTheme, bloodMoonTheme, matrixTheme, deepSeaTheme, amethystTheme, carbonTheme,
 
-  crtAmberTheme, crtGreenTheme, cyberpunkTheme, vaporwaveTheme, paperEinkTheme, trueBlackTheme, gameboyTheme,
+  crtAmberTheme, crtGreenTheme, cyberpunkTheme, vaporwaveTheme, paperEinkTheme, trueBlackTheme, gameboyTheme, einkTheme,
 } = { ...partA, ...partB, ...partC, ...partD, ...partE };
 
 export const themes = {
@@ -42,6 +42,8 @@ export const themes = {
   trueBlack:          trueBlackTheme,
   paperEink:          paperEinkTheme,
   gameboy:            gameboyTheme,
+  // 이북 모드가 강제로 쓰는 흑백 테마. 목록에서 직접 고를 수도 있다(전자잉크가 아니어도).
+  eink:               einkTheme,
   // ── Dark ────────────────────────────────────────────────────────────
   default:            defaultThemeObj,
   // 차갑고 어두운 계열

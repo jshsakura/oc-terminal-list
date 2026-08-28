@@ -69,9 +69,14 @@ export const DEFAULT_SETTINGS = {
                         // auto 는 프리셋이 아니라 **누가 정하느냐**다. 사람이 고르면 그게 이기고 적응은 멈춘다.
   currency: 'auto',      // 비용 표기 통화 — 'auto'(한국어면 원) | 'usd' | 'krw'. 환율은 서버가 하루 한 번.
   vncViewMode: 'fit',     // 폰에서 원격 데스크톱을 보는 방식 — 'fit'(통째로 축소) | 'pan'(1:1 + 끌어서 이동). 데스크탑에서는 무시(pane 크기가 곧 원격 해상도).
+  // 이북(전자잉크) 모드 — 켜면 애니메이션·유리·부드러운 스크롤·예측입력·WebGL 을 끄고 흑백
+  // 테마로 강제한다. 무엇을 덮는지는 utils/einkMode.js 한 곳이 정한다(여기 값은 안 건드린다).
+  einkMode: false,
 };
 
-const STORAGE_KEY = 'terminal_settings';
+// main.jsx 가 React 마운트 전에 이북 플래그를 읽어야 해서 내보낸다(utils/einkMode.js 참고).
+export const SETTINGS_STORAGE_KEY = 'terminal_settings';
+const STORAGE_KEY = SETTINGS_STORAGE_KEY;
 const DIRTY_KEY = 'terminal_settings_dirty';
 
 const saveSettingsToServer = async (nextSettings) => {

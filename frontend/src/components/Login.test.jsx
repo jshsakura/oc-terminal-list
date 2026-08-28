@@ -239,6 +239,31 @@ describe('Login dot pattern and card styling', () => {
     expect(scrollEl).toBeTruthy();
   });
 
+  /* 이북 스위치가 로그인 화면에 있는 이유는 이 화면이 전자잉크 기기가 **처음 만나는**
+     화면이기 때문이다. 설정 모달은 로그인 뒤에만 열린다. */
+  it('offers the e-ink toggle below the card and reports its state', () => {
+    const onToggleEink = vi.fn();
+    render(<Login onLogin={vi.fn()} language="en" einkMode={false} onToggleEink={onToggleEink} />);
+
+    const btn = screen.getByRole('button', { name: /E-ink mode/i });
+    expect(btn).toHaveAttribute('aria-pressed', 'false');
+    fireEvent.click(btn);
+    expect(onToggleEink).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the e-ink toggle when the host does not wire it', () => {
+    render(<Login onLogin={vi.fn()} language="en" />);
+    expect(screen.queryByRole('button', { name: /E-ink mode/i })).toBeNull();
+  });
+
+  it('keeps the card at its own width inside the new column wrapper', () => {
+    // The wrapper took over the calc() sizing; the card must not shrink by another 40px.
+    const { container } = render(<Login onLogin={vi.fn()} language="en" />);
+    const card = container.querySelector('form')?.parentElement;
+    expect(card.style.width).toBe('100%');
+    expect(card.style.maxWidth).toBe('380px');
+  });
+
   it('keeps real form padding inside the card', () => {
     const { container } = render(<Login onLogin={vi.fn()} language="en" />);
     const form = container.querySelector('form');

@@ -31,8 +31,14 @@ const WRITE_CHUNK_BYTES = 256 * 1024;
 export const COALESCE_FOCUSED_MS = 33;   // ~30fps — 지금 보고 있는 pane
 export const COALESCE_VISIBLE_MS = 50;   // ~20fps — 보이지만 포커스는 아닌 분할 형제
 export const COALESCE_INACTIVE_MS = 50;  // 안 보이는 pane — 어차피 버퍼에 쌓기만 한다
+/* 이북(전자잉크) 모드 — 이 값이 이 모드의 **핵심 절감**이다.
+   전자잉크는 화면 갱신 한 번이 100~300ms 다. 30fps 로 밀어 넣으면 패널이 못 따라와
+   잔상만 쌓이고, 사람이 읽을 수 있는 중간 프레임도 아니다. 창을 300ms(~3fps)로 벌리면
+   같은 출력에 write·파싱·리페인트가 10분의 1로 줄고, 화면은 오히려 더 읽힌다.
+   리딩엣지는 그대로라 조용하다 온 첫 바이트(=키 입력 에코)는 여전히 즉시 그려진다. */
+export const COALESCE_EINK_MS = 300;
 
-const createOutputSink = ({ term, isActive, isFocused = () => true, onServerOutput, onNewData, onContent }) => {
+const createOutputSink = ({ term, isActive, isFocused = () => true, isEink = () => false, onServerOutput, onNewData, onContent }) => {
   let buffer = [];
   let flushTimer = null;
   let pendingWriteBytes = 0;
@@ -40,6 +46,9 @@ const createOutputSink = ({ term, isActive, isFocused = () => true, onServerOutp
   let lastFlushAt = 0;
 
   const coalesceMs = () => {
+    // 이북 모드는 pane 이 활성이든 아니든 같은 창을 쓴다 — 상한을 정하는 것이 화면이지
+    // 우리 우선순위가 아니기 때문이다.
+    if (isEink()) return COALESCE_EINK_MS;
     if (!isActive()) return COALESCE_INACTIVE_MS;
     return isFocused() ? COALESCE_FOCUSED_MS : COALESCE_VISIBLE_MS;
   };

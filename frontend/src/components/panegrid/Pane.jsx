@@ -22,6 +22,7 @@ import { collectOtherPaneSessions } from '../../utils/paneSessions';
 import { buildSshAddr, formatServerAddr, formatSessionTarget, formatSessionTargetLabel } from '../../utils/sessionTarget';
 import { getAgentStatusSnapshot } from '../../utils/agentStatusStore';
 import { copyToClipboard } from '../../utils/clipboard';
+import { EINK_THEME_ID } from '../../utils/einkMode';
 
 const Terminal = lazy(() => import('../Terminal'));
 const VncPane = lazy(() => import('../vnc/VncPane'));
@@ -60,8 +61,13 @@ const Pane = ({
   /* per-pane 테마 오버라이드 — pane.themeOverride 가 있으면 그 테마 id 로 settings.theme 만 바꿔
      Terminal/TerminalHeader 에 내려보냄. 전역 settings.theme 자체는 안 건드리므로 다른 pane / 앱 UI
      (TabBar, TerminalHeader chrome, scrollbar 등) 는 그대로 유지. */
-  const effectiveThemeId = pane?.themeOverride || settings?.theme;
-  const paneSettings = pane?.themeOverride
+  /* ⚠️ 이북 모드에서는 그 오버라이드도 진다. 안 그러면 섞인 탭에서 컬러 pane 하나가
+     종이 pane 옆에 남고, 그 pane 만 전자잉크에서 못 읽는 회색 뭉치가 된다. */
+  const einkMode = settings?.einkMode === true;
+  const effectiveThemeId = einkMode
+    ? EINK_THEME_ID
+    : (pane?.themeOverride || settings?.theme);
+  const paneSettings = (!einkMode && pane?.themeOverride)
     ? { ...settings, theme: pane.themeOverride }
     : settings;
   const handlePaneThemeChange = (themeId) => {

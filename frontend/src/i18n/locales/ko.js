@@ -312,6 +312,10 @@ export const ko = {
     textContrastBalanced: '표준',
     textContrastOriginal: '원본 팔레트',
 
+    // 이북(전자잉크) 모드
+    einkMode: '이북 모드',
+    einkModeHint: '전자잉크(이북) 화면용입니다. 애니메이션·유리 효과·부드러운 스크롤·예측 입력·GPU 렌더링을 끄고 흑백 테마로 바꾸며, 터미널을 초당 30회 대신 3회만 다시 그립니다. 원래 테마와 설정은 그대로 남아 끄면 돌아옵니다.',
+
     // 테마
     themeCatppuccin: 'Catppuccin',
     themeDefault: 'Default',

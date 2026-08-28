@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import createOutputSink, {
+  COALESCE_EINK_MS,
   COALESCE_FOCUSED_MS,
   COALESCE_VISIBLE_MS,
 } from './createOutputSink';
@@ -37,6 +38,42 @@ describe('createOutputSink', () => {
     isActive: () => true,
     isFocused: () => true,
     ...opts,
+  });
+
+  describe('e-ink mode', () => {
+    // The mode's main saving. An e-ink panel needs 100-300ms per refresh, so pushing it
+    // at 30fps buys nothing but ghosting.
+    it('widens the window even for the focused pane', () => {
+      const out = sink({ isEink: () => true });
+      out.push(bytes('a'));          // leading edge — drawn at once
+      expect(term.text).toBe('a');
+
+      out.push(bytes('b'));
+      vi.advanceTimersByTime(COALESCE_FOCUSED_MS + 5);
+      expect(term.text).toBe('a');   // a normal window would have flushed here
+
+      vi.advanceTimersByTime(COALESCE_EINK_MS);
+      expect(term.text).toBe('ab');
+    });
+
+    // Keystroke echo after a quiet spell must stay instant — a 300ms window on *input*
+    // would make the terminal feel broken, which is not what this mode is buying.
+    it('keeps the leading edge, so a quiet keystroke still draws at once', () => {
+      const out = sink({ isEink: () => true });
+      out.push(bytes('x'));
+      expect(term.text).toBe('x');
+      vi.advanceTimersByTime(COALESCE_EINK_MS + 5);
+      out.push(bytes('y'));
+      expect(term.text).toBe('xy');
+    });
+
+    it('is off unless asked — the default sink is unchanged', () => {
+      const out = sink();
+      out.push(bytes('a'));
+      out.push(bytes('b'));
+      vi.advanceTimersByTime(COALESCE_FOCUSED_MS + 5);
+      expect(term.text).toBe('ab');
+    });
   });
 
   describe('leading edge', () => {

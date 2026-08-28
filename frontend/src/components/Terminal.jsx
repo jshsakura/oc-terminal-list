@@ -535,6 +535,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 빠르게 그리려면 포커스 여부가 따로 필요하다 (createOutputSink 의 코얼레싱 창).
   const isFocusedRef = useRef(isFocused);
   useEffect(() => { isFocusedRef.current = isFocused; }, [isFocused]);
+  // 이북(전자잉크) 모드 — 출력 싱크의 코얼레싱 창을 정한다(createOutputSink 참고).
+  const isEinkRef = useRef(settings?.einkMode === true);
+  useEffect(() => { isEinkRef.current = settings?.einkMode === true; }, [settings?.einkMode]);
   // outage 프로브 리스 키 — ref 라 markEnded/cleanup 의 deps 를 건드리지 않는다.
   const probeKeyRef = useRef(paneId || sessionId);
   probeKeyRef.current = paneId || sessionId;
@@ -684,6 +687,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       term,
       isActive: () => isActiveRef.current,
       isFocused: () => isFocusedRef.current,
+      // ref 로 읽는다 — 이북 모드를 켜고 끄는 데 소켓을 다시 열 이유는 없다.
+      isEink: () => isEinkRef.current,
       onServerOutput: () => predictiveEchoRef.current?.onServerOutput(),
       onNewData: () => handleNewDataRef.current(),
       onContent: () => {
@@ -1719,6 +1724,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       xtermRef.current.options.fontFamily = normalizeTerminalFontFamily(settings.fontFamily);
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
       xtermRef.current.options.minimumContrastRatio = resolveContrast(settings.terminalContrast);
+      xtermRef.current.options.cursorBlink = settings.einkMode !== true;
       // 예측 유령 색/셀 크기 갱신 — 테마·폰트 바뀌면 다시 측정.
       predictiveEchoRef.current?.setGhostColor(`color-mix(in srgb, ${currentTheme.foreground || '#cdd6f4'} 55%, transparent)`);
       predictiveEchoRef.current?.refreshMetrics();
@@ -1744,7 +1750,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }
       }, 50); // 200ms 는 너무 길어 반응이 느려 보이므로 50ms 로 단축
     }
-  }, [currentTheme, settings.fontSize, settings.fontFamily, settings.smoothScroll]);
+  }, [currentTheme, settings.fontSize, settings.fontFamily, settings.smoothScroll, settings.einkMode]);
 
   // 예측 입력 on/off 설정 동기화.
   useEffect(() => {

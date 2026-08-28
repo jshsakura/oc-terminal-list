@@ -22,6 +22,7 @@ import useLocalVncAvailable from './hooks/useLocalVncAvailable';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
+import { applyEinkAttribute, applyEinkSettings, resolveEinkThemeId } from './utils/einkMode';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
 import { authHeaders } from './utils/auth';
@@ -81,7 +82,16 @@ function App() {
   // 서버 측 feature flag — 컨테이너 배포(LOCAL_DISABLED=1) 면 로컬 머신 카드 숨김.
   const appConfig = useAppConfig();
   const { t } = useTranslation(settings.language);
-  const currentTheme = useMemo(() => themes[settings.theme] || themes.catppuccin, [settings.theme]);
+  /* 이북 모드는 테마를 이긴다 — 이 모드의 정체가 흑백 종이 화면 그 자체다.
+     호스트별 themeOverride 도 같이 진다(Pane.jsx). 사용자의 원래 theme 값은 그대로 남아
+     모드를 끄면 돌아온다 — utils/einkMode.js 는 덮어쓴 사본만 낸다. */
+  const currentTheme = useMemo(
+    () => themes[resolveEinkThemeId(settings.theme, settings.einkMode)] || themes.catppuccin,
+    [settings.theme, settings.einkMode],
+  );
+  // <html data-eink> 는 einkCss.js 의 스위치다. 부팅 첫 프레임은 main.jsx 가 이미 세웠고,
+  // 여기서는 사용자가 켜고 끌 때만 따라간다.
+  useEffect(() => { applyEinkAttribute(settings.einkMode === true); }, [settings.einkMode]);
   // 초기 1회 — focusedPane 이 아직 안 정의된 첫 렌더에 글로벌 테마 즉시 적용 (FOUC 방지).
   // 활성 pane 의 themeOverride 가 잡히면 아래쪽 effect 가 덮어씀.
   useEffect(() => { applyThemeVars(currentTheme); }, [currentTheme]);
@@ -736,7 +746,9 @@ function App() {
     const size = isMobile
       ? (settings.fontSizeMobile ?? 13)
       : (settings.fontSize ?? 12);
-    return { ...settings, fontSize: size };
+    // 이북 모드의 덮어쓰기는 **여기 한 곳**에서 걸린다. PaneGrid·Terminal 은 이미
+    // effectiveSettings 를 받으므로 각자 einkMode 를 볼 필요가 없다.
+    return applyEinkSettings({ ...settings, fontSize: size });
   }, [settings, isMobile]);
 
   // ── actions ───────────────────────────────────────────────────────────────
@@ -853,7 +865,7 @@ function App() {
   const authLoadingFallback = <LoadingScreen currentTheme={currentTheme} t={t} />;
   if (isLoading || isRestoringWorkspace) return authLoadingFallback;
   if (needsSetup) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense></LazyErrorBoundary>;
-  if (!isAuthenticated) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><Login onLogin={handleLogin} language={settings.language} theme={currentTheme} /></Suspense></LazyErrorBoundary>;
+  if (!isAuthenticated) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><Login onLogin={handleLogin} language={settings.language} theme={currentTheme} einkMode={settings.einkMode === true} onToggleEink={() => updateSettings({ einkMode: !settings.einkMode })} /></Suspense></LazyErrorBoundary>;
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (

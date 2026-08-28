@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { Terminal as TerminalIcon, Lock, User, ArrowLeft, KeyRound, Smartphone, Fingerprint } from 'lucide-react';
+import { Terminal as TerminalIcon, Lock, User, ArrowLeft, KeyRound, Smartphone, Fingerprint, BookOpen } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { buildThemeUI } from '../styles/themeUI';
@@ -12,7 +12,11 @@ import { ThemedSubmitButton, Field } from './login/LoginFields';
 const { color } = tokens;
 
 
-const Login = ({ onLogin, language = 'en', theme = null }) => {
+/* 이북(전자잉크) 모드 스위치가 **로그인 화면에도** 있는 이유: 전자잉크 기기로 처음 오는
+   사람이 가장 먼저 보는 화면이 이 화면이다. 설정은 로그인 뒤에만 열리므로, 그때까지는
+   애니메이션 카드와 유리 위에서 아이디를 쳐야 한다. 여기 스위치는 저장 버튼이 없으니
+   **즉시** 반영된다(설정 모달은 다른 항목과 같이 저장 버튼을 거친다). */
+const Login = ({ onLogin, language = 'en', theme = null, einkMode = false, onToggleEink = null }) => {
   const { t } = useTranslation(language);
   const themeUi = useMemo(() => (theme ? buildThemeUI(theme) : {}), [theme]);
   const themed = useMemo(() => buildThemed(themeUi), [themeUi]);
@@ -200,20 +204,43 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
   return (
     <div ref={scrollRef} className="login-scroll" style={{
       ...themed.overlay,
+      /* 이북 모드에서는 배경을 **평평하게** 둔다. 점 패턴·글로우·비네트는 전부 그라디언트라
+         전자잉크에서 디더링 노이즈가 되고, 그 노이즈가 화면 전체 갱신을 한 번 더 부른다. */
+      ...(einkMode ? { background: 'var(--ui-crust, #ffffff)' } : {}),
       ...(isMobile && vpStyle ? vpStyle : {}),
     }}>
-      <div style={{
-        ...themed.bgDots,
-        backgroundImage: dotBg,
-        backgroundSize: dotSizeBg,
-      }} />
-      <div style={themed.bgGlow} />
-      <div style={themed.bgVignette} />
+      {!einkMode && (
+        <>
+          <div style={{
+            ...themed.bgDots,
+            backgroundImage: dotBg,
+            backgroundSize: dotSizeBg,
+          }} />
+          <div style={themed.bgGlow} />
+          <div style={themed.bgVignette} />
+        </>
+      )}
 
+      {/* 카드 + 아래의 이북 스위치를 한 세로 묶음으로. overlay 는 row flex 이고, 모바일에서
+          키보드가 올라오면 alignItems 를 flex-start 로 바꾸므로 overlay 자체를 column 으로
+          돌리면 카드가 왼쪽에 붙는다 — 그래서 묶음을 하나 더 둔다. */}
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        width: 'calc(100% - 40px)',
+        maxWidth: '380px',
+        flexShrink: 0,
+      }}>
       <div style={{
         ...themed.card,
+        width: '100%',
+        /* 그림자가 사라진 자리를 테두리가 받는다 — 안 그러면 카드가 바탕에 녹아
+           어디부터가 입력칸인지 안 보인다. buildThemed 의 테두리는 라이트 테마에서
+           거의 투명이라 여기서 명시한다. */
+        ...(einkMode ? { border: '1px solid var(--ui-border-strong, #000000)' } : {}),
         opacity: visible ? 1 : 0,
-        animation: visible ? 'login-card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards' : 'none',
+        animation: (visible && !einkMode) ? 'login-card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards' : 'none',
       }}>
         <div style={themed.accentBar} />
 
@@ -375,6 +402,28 @@ const Login = ({ onLogin, language = 'en', theme = null }) => {
             </div>
           </form>
         )}
+      </div>
+
+      {onToggleEink && (
+        <button
+          type="button"
+          onClick={onToggleEink}
+          aria-pressed={einkMode}
+          style={{
+            ...themed.linkBtn,
+            marginTop: '14px',
+            border: `1px solid ${einkMode ? themed.accent : themed.border}`,
+            color: einkMode ? themed.text : themed.subtext,
+            background: einkMode ? themed.accentSubtle : 'transparent',
+          }}
+        >
+          <BookOpen size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
+          {t('einkMode') || 'E-ink mode'}
+          <span style={{ opacity: 0.7 }}>
+            {einkMode ? (t('on') || 'ON') : (t('off') || 'OFF')}
+          </span>
+        </button>
+      )}
       </div>
     </div>
   );

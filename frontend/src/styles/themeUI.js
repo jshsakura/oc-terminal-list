@@ -35,9 +35,18 @@ const rgba = (hex, alpha) => {
 };
 
 // hex 섞기 (col1 과 col2 를 t 비율로) — 사이드바 surface 단계 도출용
+/* ⚠️ 6자리 hex 만 받는다. 3자리 축약을 넘기면 조용히 **다른 색**이 된다 —
+   parseInt('fff', 16) 은 0xffffff 가 아니라 0x000fff, 즉 흰색이 아니라 파랑이다.
+   그래서 라이트 테마의 muted/faint 가 회색이 아니라 남색으로 나왔다(글자색이 순검정인
+   테마에서 특히 티가 났다). 이건 예외를 던지지 않으므로 화면을 보기 전엔 알 수 없다. */
+const expand = (hex) => {
+  const h = String(hex).replace('#', '');
+  return h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+};
+
 const mix = (col1, col2, t) => {
-  const p1 = parseInt(col1.replace('#', ''), 16);
-  const p2 = parseInt(col2.replace('#', ''), 16);
+  const p1 = parseInt(expand(col1), 16);
+  const p2 = parseInt(expand(col2), 16);
   const r1 = (p1 >> 16) & 0xff, g1 = (p1 >> 8) & 0xff, b1 = p1 & 0xff;
   const r2 = (p2 >> 16) & 0xff, g2 = (p2 >> 8) & 0xff, b2 = p2 & 0xff;
   const rr = Math.round(r1 + (r2 - r1) * t);

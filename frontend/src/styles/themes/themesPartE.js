@@ -182,3 +182,34 @@ export const gameboyTheme = {
     iconColor: '#306230', shadow: '0 1px 2px rgba(15,56,15,0.20)', innerShadow: 'none',
   },
 };
+
+/* 8. E-ink — 이북 모드 전용. 순백 종이 위 검은 잉크, ANSI 는 회색 계조로만.
+ *
+ * Not a taste, a constraint: e-ink renders colour as dithered grey, and dithering on
+ * small text is mud. So every ANSI slot is a real grey level, and the "bright" half goes
+ * *darker* rather than lighter — on paper, emphasis means more ink, not more light.
+ * The band stops at #7a7a7a: anything paler stops being text on a 16-level panel.
+ *
+ * `texture: 'flat'` is what keeps the home canvas scanlines and the pane overlay off. */
+export const einkTheme = {
+  texture: 'flat',
+  background: '#ffffff',
+  foreground: '#000000',
+  cursor: '#000000',
+  cursorAccent: '#ffffff',
+  selection: 'rgba(0, 0, 0, 0.22)',
+  black: '#000000', red: '#2e2e2e', green: '#4a4a4a', yellow: '#5f5f5f',
+  blue: '#1c1c1c', magenta: '#3a3a3a', cyan: '#545454', white: '#262626',
+  brightBlack: '#7a7a7a', brightRed: '#000000', brightGreen: '#2e2e2e',
+  brightYellow: '#454545', brightBlue: '#000000', brightMagenta: '#1c1c1c',
+  brightCyan: '#3a3a3a', brightWhite: '#000000',
+  ui: {
+    ...commonUI,
+    bg: '#ffffff', bgSecondary: '#f2f2f2', bgTertiary: '#e6e6e6',
+    glassBg: '#ffffff', cardBg: '#ffffff',
+    border: '#6b6b6b', borderLight: '#000000',
+    text: '#000000', textSecondary: '#4a4a4a',
+    accent: '#000000', accentMuted: 'rgba(0, 0, 0, 0.08)',
+    iconColor: '#333333', shadow: 'none', innerShadow: 'none',
+  },
+};

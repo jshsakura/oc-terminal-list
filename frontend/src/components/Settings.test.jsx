@@ -24,7 +24,25 @@ describe('Settings', () => {
         onSave={vi.fn()}
       />
     );
-    expect(screen.getByText(/Settings/i).length || 1).toBeTruthy();
+    // getAllBy, not getBy: this is a smoke test over a whole modal, and any hint copy
+    // that happens to contain the word would otherwise fail it for no real reason.
+    expect(screen.getAllByText(/Settings/i).length).toBeGreaterThan(0);
+  });
+
+  // 이북 모드는 화면 종류를 고르는 값이라 외양 절의 맨 위에 있어야 한다 — 그 아래
+  // 테마·대비·스크롤 선택을 이 스위치가 전부 덮기 때문이다.
+  it('offers the e-ink toggle, off by default', () => {
+    render(
+      <Settings
+        isOpen={true}
+        onClose={vi.fn()}
+        settings={fullSettings}
+        onSave={vi.fn()}
+      />
+    );
+
+    const toggle = screen.getByRole('switch', { name: /E-ink mode/i });
+    expect(toggle).toHaveAttribute('aria-checked', 'false');
   });
 
   it('uses the shared glass modal layer above portal menus', () => {

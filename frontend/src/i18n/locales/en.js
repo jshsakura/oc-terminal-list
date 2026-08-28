@@ -310,6 +310,10 @@ export const en = {
     textContrastBalanced: 'Balanced',
     textContrastOriginal: 'Original palette',
 
+    // E-ink mode
+    einkMode: 'E-ink mode',
+    einkModeHint: 'For e-ink / e-reader screens. Turns off animation, glass, smooth scrolling, predictive echo and GPU rendering, forces a black-and-white theme, and redraws the terminal about 3 times a second instead of 30. Your theme and other settings are kept and come back when you turn it off.',
+
     // Themes
     themeCatppuccin: 'Catppuccin',
     themeDefault: 'Default',

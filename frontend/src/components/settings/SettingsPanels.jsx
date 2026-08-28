@@ -86,6 +86,16 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
     <Divider />
 
     <Section title={t('appearance') || 'Appearance'}>
+      {/* 이북 모드가 이 절의 **맨 위**에 있는 이유: 이건 취향이 아니라 화면 종류다.
+          켜면 아래의 테마·대비·부드러운 스크롤 선택이 전부 덮이므로, 그것들을 만지기
+          전에 보여야 한다. 사용자의 원래 값은 그대로 남아 끄면 돌아온다. */}
+      <Toggle
+        label={t('einkMode') || 'E-ink mode'}
+        hint={t('einkModeHint')
+          || 'For e-ink/e-reader screens: turns off animation, glass, smooth scrolling, predictive echo and GPU rendering, forces a black-and-white theme, and redraws the terminal ~3x/s instead of 30. Your theme and other settings are kept and come back when you turn it off.'}
+        checked={s.einkMode === true}
+        onChange={(v) => change('einkMode', v)}
+      />
       {/* Themes fold away — a grid of 40+ swatches permanently open pushes language and
           font size off screen. The collapsed head carries the **current theme name** so
           you can tell without opening it. */}

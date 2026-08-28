@@ -15,6 +15,7 @@ export const THEME_LABELS = {
   trueBlack:           'True Black',
   paperEink:           'Paper E‑ink',
   gameboy:             'Game Boy',
+  eink:                'E‑ink Mono',
   // Dark — default first
   default:              'Default',
   // Dark — 차갑고 어두운
