@@ -8,9 +8,9 @@ describe('MobileToolbar quick input', () => {
     delete window.terminalSessions;
   });
 
-  it('빠른입력 버튼을 만들어 내지 않는다 — 입력창은 하단 도크로 상시 열려 있다', () => {
-    /* 예전에는 저장된 키셋에 없어도 툴바가 그 버튼을 끼워 넣었다. 지금은 그 버튼이 여는
-       것이 이미 열려 있으므로, 없으면 없는 채로 그린다(툴바 폭은 그만큼 키에 쓴다). */
+  /* ⚠️ 도크가 상시 노출이던 시절엔 이 버튼을 **안 그렸다.** 도크를 되돌린 지금 그건
+     모바일에서 입력할 방법이 아예 없다는 뜻이다 — 저장된 키셋에 없으면 되돌려 넣는다. */
+  it('저장된 키셋에 없어도 빠른입력 버튼을 되돌려 넣는다', () => {
     render(
       <MobileToolbar
         language="en"
@@ -18,22 +18,28 @@ describe('MobileToolbar quick input', () => {
         onOpenCommandInput={vi.fn()}
       />
     );
-    expect(screen.queryByTitle('Quick Input')).toBeNull();
+    expect(screen.getByTitle('Quick Input')).toBeTruthy();
     expect(screen.getByText('ESC')).toBeTruthy();
   });
 
-  it('옛 설정이 그 버튼을 들고 있어도 그리지 않는다 — 툴바가 sanitize 를 거친다', () => {
-    /* 툴바는 넘어온 키셋을 그대로 믿지 않고 sanitizeMobileKeys 를 통과시킨다. 그래서
-       저장된 설정에 남아 있어도 화면에는 안 나온다 — 사용자가 지울 필요가 없다.
-       (키가 통째로 사라지면 안 되므로 sanitize 는 기본 키셋으로 되돌린다.) */
-    render(
+  it('그 버튼은 퀵바 **왼쪽에 고정**된다 — 키를 옆으로 밀어도 안 사라진다', () => {
+    const { container } = render(
       <MobileToolbar
         language="en"
-        keys={[{ id: 'cmd', kind: 'cmdInput', tone: 'accent' }]}
+        keys={[{ id: 'esc', kind: 'send', label: 'ESC', payload: '\x1b' }]}
         onOpenCommandInput={vi.fn()}
       />
     );
-    expect(screen.queryByTitle('Quick Input')).toBeNull();
+    // 스크롤 영역보다 앞(DOM 순서상 먼저)에 있어야 왼쪽 고정이다.
+    const buttons = [...container.querySelectorAll('button')];
+    expect(buttons[0]).toBe(screen.getByTitle('Quick Input'));
+  });
+
+  it('누르면 입력창을 연다', () => {
+    const onOpen = vi.fn();
+    render(<MobileToolbar language="en" keys={[]} onOpenCommandInput={onOpen} />);
+    fireEvent.click(screen.getByTitle('Quick Input'));
+    expect(onOpen).toHaveBeenCalled();
   });
 });
 

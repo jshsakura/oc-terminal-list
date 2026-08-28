@@ -42,15 +42,12 @@ describe('splitPinnedAndScroll', () => {
     expect(scrollKeys).toBe(list);
   });
 
-  it('기본 키셋에는 고정 영역이 없다 — 빠른입력 버튼이 빠졌기 때문', () => {
-    /* 입력창이 하단에 상시 도크로 깔리면서 그걸 여는 버튼이 사라졌고, 고정(pinned)
-       영역의 유일한 주인이 그 버튼이었다. 이제 키는 전부 스크롤 영역이다. */
-    const { pinnedKey, pinnedDivider, scrollKeys } = splitPinnedAndScroll(DEFAULT_MOBILE_KEYS);
-    expect(pinnedKey).toBeNull();
-    expect(pinnedDivider).toBeNull();
-    expect(scrollKeys).toBe(DEFAULT_MOBILE_KEYS);
+  it('기본 키셋의 빠른입력 버튼은 고정 영역이다 — 스크롤에 밀려 사라지면 안 된다', () => {
+    const { pinnedKey } = splitPinnedAndScroll(DEFAULT_MOBILE_KEYS);
+    expect(pinnedKey?.kind).toBe('cmdInput');
   });
 });
+
 
 describe('DEFAULT_MOBILE_KEYS 줄 편집 + 세션 키', () => {
   const findByLabel = (label) => DEFAULT_MOBILE_KEYS.find((k) => k.label === label);
@@ -105,24 +102,32 @@ describe('sanitizeMobileKeys 사용자 설정 우선', () => {
   it('사용자가 전달한 keys가 DEFAULT보다 우선한다', () => {
     const userKeys = [{ id: 'mykey', kind: 'send', label: 'MY', payload: 'x' }];
     const result = sanitizeMobileKeys(userKeys);
-    expect(result).toEqual(userKeys);
     expect(result).not.toBe(DEFAULT_MOBILE_KEYS);
     expect(result.some((k) => k.id === 'mykey')).toBe(true);
   });
 
-  it('저장된 설정에 남아 있는 빠른입력 버튼은 걷어낸다', () => {
-    /* 예전에는 없으면 강제로 끼워 넣었다(지울 수 없었다). 지금은 그 버튼이 여는 것이
-       이미 하단에 열려 있으므로, 옛 설정을 들고 있어도 사용자가 손댈 필요 없이 사라진다. */
-    const result = sanitizeMobileKeys([
-      { id: 'cmd', kind: 'cmdInput', tone: 'accent' },
-      { id: 'mykey', kind: 'send', label: 'MY', payload: 'x' },
-    ]);
-    expect(result.some((k) => k.kind === 'cmdInput')).toBe(false);
+  /* ⚠️ 도크가 상시 노출이던 시절엔 여기서 빠른입력 버튼을 **걷어냈다.** 도크를 되돌린
+     지금 그대로 두면, 그 사이 설정이 한 번이라도 저장된 사용자는 배열에 버튼이 없고
+     sanitize 가 넣어 주지도 않아 **모바일에서 입력할 방법이 아예 없다.** */
+  it('빠른입력 버튼이 없는 저장된 설정에는 되돌려 넣는다', () => {
+    const result = sanitizeMobileKeys([{ id: 'mykey', kind: 'send', label: 'MY', payload: 'x' }]);
+    expect(result[0].kind).toBe('cmdInput');
     expect(result.some((k) => k.id === 'mykey')).toBe(true);
   });
 
-  it('빠른입력 버튼만 있던 설정은 기본 키셋으로 되돌린다 — 빈 툴바를 만들지 않는다', () => {
-    expect(sanitizeMobileKeys([{ id: 'cmd', kind: 'cmdInput' }])).toBe(DEFAULT_MOBILE_KEYS);
+  it('이미 있으면 하나뿐이고 자리도 그대로다', () => {
+    const result = sanitizeMobileKeys([
+      { id: 'mykey', kind: 'send', label: 'MY', payload: 'x' },
+      { id: 'cmd', kind: 'cmdInput', tone: 'accent' },
+    ]);
+    expect(result.filter((k) => k.kind === 'cmdInput')).toHaveLength(1);
+    expect(result[1].kind).toBe('cmdInput');   // 사용자가 둔 자리를 옮기지 않는다
+  });
+
+  it('빠른입력 버튼만 있던 설정은 그대로 둔다 — 그것만으로도 입력은 된다', () => {
+    const result = sanitizeMobileKeys([{ id: 'cmd', kind: 'cmdInput' }]);
+    expect(result).toHaveLength(1);
+    expect(result[0].kind).toBe('cmdInput');
   });
 
   it('DEFAULT_MOBILE_KEYS를 직접 수정하지 않고 새 배열을 반환한다 (비정상 입력)', () => {
@@ -134,14 +139,14 @@ describe('sanitizeMobileKeys 사용자 설정 우선', () => {
 
 describe('맨 앞/뒤 구분자', () => {
   it('맨 앞 구분자를 걷어낸다 — 아무것도 나누지 않는 선이다', () => {
-    /* 빠른입력 버튼이 있던 시절에는 그것과 키를 갈랐는데, 버튼이 사라지면서 저장된
-       설정의 sep1 이 줄 맨 앞에 홀로 남아 선만 하나 서 있었다. */
+    /* ⚠️ 구분자 정리는 빠른입력 버튼을 되돌리기 **전에** 돈다. 뒤에 하면 되돌린
+       버튼이 맨 앞을 차지해, 홀로 남은 선이 "가운데 구분자" 로 보여 영영 안 걷힌다. */
     const out = sanitizeMobileKeys([
       { id: 'sep1', kind: 'sep' },
       { id: 'left', kind: 'send', label: '←', payload: 'x' },
     ]);
-    expect(out[0].kind).not.toBe('sep');
-    expect(out).toHaveLength(1);
+    expect(out.some((k) => k.kind === 'sep')).toBe(false);
+    expect(out.map((k) => k.kind)).toEqual(['cmdInput', 'send']);
   });
 
   it('맨 뒤 구분자도 걷어낸다', () => {

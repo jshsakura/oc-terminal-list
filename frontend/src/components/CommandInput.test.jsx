@@ -923,3 +923,36 @@ describe('도크 — 키보드 내림 판정', () => {
     expect(document.activeElement).not.toBe(ta);
   });
 });
+
+/* 팝업으로 되돌린 뒤의 계약 — **열면 곧바로 칠 수 있어야 한다.**
+   퀵바 버튼을 눌러 열었는데 커서가 안 가 있으면 입력창을 한 번 더 눌러야 하고,
+   그러면 도크를 만들며 아끼려던 그 한 걸음이 도로 생긴다. */
+describe('모달 — 열면 입력에 포커스', () => {
+  const t = (k, f) => f || k;
+
+  it('열리는 즉시 textarea 로 포커스가 간다', () => {
+    render(
+      <CommandInput
+        isOpen={true}
+        onClose={vi.fn()} onSend={vi.fn()}
+        command="" setCommand={vi.fn()} t={t}
+      />
+    );
+    expect(document.activeElement).toBe(screen.getByRole('textbox'));
+  });
+
+  it('닫혀 있으면 아무것도 안 그리고 포커스도 안 가져간다', () => {
+    const outside = document.createElement('input');
+    document.body.appendChild(outside);
+    outside.focus();
+    render(
+      <CommandInput
+        isOpen={false}
+        onClose={vi.fn()} onSend={vi.fn()}
+        command="" setCommand={vi.fn()} t={t}
+      />
+    );
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+});

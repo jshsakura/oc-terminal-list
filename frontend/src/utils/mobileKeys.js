@@ -12,9 +12,14 @@
  * 사용자가 Settings 에서 자유롭게 추가/삭제/순서 변경. 항상 최소 1개 이상 유지.
  */
 export const DEFAULT_MOBILE_KEYS = [
-   /* 'cmdInput'(빠른입력 열기)은 뺐다 — 모바일에서 입력창이 **하단에 상시 도크**로
-      깔리므로 그걸 여는 버튼은 할 일이 없다. kind 자체는 남겨둔다: 예전 설정을 그대로
-      들고 있는 사용자의 배열이 통째로 무효가 되면 안 되고, 지우는 것은 sanitize 가 한다. */
+   /* 빠른입력(cmdInput)이 **다시 맨 앞이다.** 한때 뺐었다 — 입력창이 하단 상시 도크로
+      깔리니 그걸 여는 버튼은 할 일이 없다고 봤다. 그 도크를 되돌리면서(폰에서 키보드가
+      올라왔다 닫히기를 반복했다) 이 버튼이 **모바일에서 입력하는 유일한 길**로 돌아왔다.
+
+      ⚠️ 도크를 다시 켜더라도 이 버튼을 또 빼지 말 것. 빼는 순간 도크가 안 뜨는 자리
+      (빈 pane · VNC · 2FA 프롬프트)에서는 입력할 방법이 아예 사라진다. */
+   { id: 'cmd',   kind: 'cmdInput', tone: 'accent' },
+   { id: 'sep1',  kind: 'sep' },
    { id: 'left',  kind: 'send', label: '←', payload: '\x1b[D' },
    { id: 'up',    kind: 'send', label: '↑', payload: '\x1b[A' },
    { id: 'down',  kind: 'send', label: '↓', payload: '\x1b[B' },
@@ -149,16 +154,24 @@ export const isValidKey = (k) =>
 
 export const sanitizeMobileKeys = (keys) => {
   if (!Array.isArray(keys)) return DEFAULT_MOBILE_KEYS;
-  /* 'cmdInput' 은 **걷어낸다.** 예전에는 없으면 강제로 앞에 끼워 넣었는데(지울 수 없었다),
-     지금은 입력창이 하단에 상시 도크로 깔려서 그 버튼이 여는 것이 이미 열려 있다.
-     저장된 설정에 남아 있어도 여기서 사라지므로 사용자가 따로 지울 필요가 없다. */
-  let cleaned = keys.filter(isValidKey).filter((k) => k.kind !== 'cmdInput');
-  /* 맨 앞 구분자는 **아무것도 나누지 않는다.** 빠른입력 버튼이 있던 시절에는 그것과 키를
-     갈랐지만, 버튼이 사라진 지금은 줄 맨 앞에 선만 하나 서 있게 된다(저장된 설정에
-     그대로 남아 있다). 끝에 오는 것도 마찬가지라 양쪽을 다 걷어낸다. */
+  /* ⚠️ 한때 여기서 'cmdInput' 을 **걷어냈다**(도크가 상시 노출이던 시절). 그 도크를
+     되돌린 지금 그대로 두면, 그 사이에 설정이 한 번이라도 저장된 사용자는 저장된
+     배열에 버튼이 없고 sanitize 가 다시 넣어 주지도 않아 **입력할 방법이 영영 없다.**
+     그래서 없으면 맨 앞에 되돌려 준다.
+
+     지우고 싶은 사용자를 막지는 않는다 — 편집기에서 지운 배열은 그대로 저장된다.
+     여기서 채우는 것은 "한 번도 고른 적 없는" 자리뿐이라고 보기 어려우므로, 되살리는
+     쪽을 택한다: 없어서 못 쓰는 것보다 있는데 안 쓰는 편이 낫다. */
+  let cleaned = keys.filter(isValidKey);
+  /* 맨 앞/끝 구분자는 **아무것도 나누지 않는다.** 저장된 설정에 그대로 남아 있으므로
+     양쪽을 걷어낸다. ⚠️ **버튼을 되돌리기 전에** 해야 한다 — 뒤에 하면 되돌린 버튼이
+     맨 앞을 차지해 그 뒤의 홀로 남은 선이 "가운데 구분자" 로 보여 영영 안 걷힌다. */
   while (cleaned.length && cleaned[0].kind === 'sep') cleaned = cleaned.slice(1);
   while (cleaned.length && cleaned[cleaned.length - 1].kind === 'sep') cleaned = cleaned.slice(0, -1);
   if (!cleaned.length) return DEFAULT_MOBILE_KEYS;
+  if (!cleaned.some((k) => k.kind === 'cmdInput')) {
+    cleaned = [{ id: 'cmd', kind: 'cmdInput', tone: 'accent' }, ...cleaned];
+  }
   return cleaned;
 };
 
