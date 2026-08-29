@@ -962,7 +962,15 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
   - ⚠️ **ref 콜백도 같다** — 매 렌더 새 함수면 React 가 옛 것을 null 로 부르고 새 것을 다시
     부른다. 렌더마다 detach/attach 가 한 번씩 돈다.
   - **이 실수는 조용하다** — 에러도 경고도 없고 memo 가 그냥 매번 "달라졌다" 고 답한다.
-    `components/panegrid/terminalPropStability.test.js` 가 소스를 훑어 막는다.
+    `components/panegrid/memoPropStability.test.js` 가 **사슬 전체**(App→PaneGrid→Pane→
+    TerminalHeader/Terminal)를 소스로 훑는다. 네 컴포넌트가 전부 memo 이고, 한 자리만
+    깨져도 그 아래가 통째로 다시 렌더되므로 검사도 사슬로 해야 한다.
+  - ⚠️ **pane 처럼 항목별 인자를 잡는 콜백은 통짜 useEvent 로 안 된다.** PaneGrid 의
+    `paneHandlers` 처럼 **id 별로 캐시**한다(안쪽은 useEvent 라 낡지 않는다). 이 캐시가
+    사라지면 리터럴 스캔은 통과하면서 memo 만 조용히 안 걸린다 — 그래서 따로 잠근다.
+    닫힌 pane 의 항목은 지운다. 안 지우면 그 Map 이 세션 내내 자란다.
+  - ⚠️ **useEvent 는 훅이다 — App 의 early return(`if (!isAuthenticated) return …`)보다
+    위**에 있어야 한다. 아래로 내려가면 훅 순서가 렌더마다 달라진다.
 - ⚠️ **`isActive` 는 "보고 있는 pane" 이 아니다.** 분할 그리드에서는 형제가 전부
   `isActive=true` 이고 `isFocused` 만 1개다. 새 게이트를 달 때 **"분할이면 몇 개가
   실행되는가"** 를 먼저 물어라 — 이 하나로 출력 렌더·하트비트·health 프로브 세 군데가

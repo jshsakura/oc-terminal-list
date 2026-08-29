@@ -59,6 +59,7 @@ import LoadingScreen from './components/layout/LoadingScreen';
 import ScreenDumpModal from './components/ScreenDumpModal';
 import AppModals from './components/AppModals';
 import { copyToClipboard } from './utils/clipboard';
+import useEvent from './hooks/useEvent';
 
 const Terminal        = lazy(() => import('./components/Terminal'));
 const FileEditor      = lazy(() => import('./components/FileEditor'));
@@ -861,6 +862,106 @@ function App() {
     login(nextUsername, sessionToken);
   }, [login]);
 
+
+  /* ── PaneGrid 로 내려가는 핸들러의 참조 안정화 ──────────────────────────────
+     memo(PaneGrid) 가 걸리려면 prop 이 매 렌더 같은 참조여야 한다. 인라인으로 두면
+     App 의 상태가 하나만 바뀌어도 **열려 있는 모든 탭의 pane 트리 전체**가 다시
+     렌더된다 — 모든 탭의 PaneGrid 가 상시 마운트되기 때문이다.
+
+     ⚠️ 훅이므로 아래 early return 들보다 **위**에 있어야 한다. 본문은 그대로 옮겼고,
+     useEvent 라 안에서 읽는 값은 항상 최신이다(deps 없음 = stale 아님). */
+  const handleClosePaneImmediate = useEvent((tabId, paneId) => closePane(tabId, paneId, { skipConfirm: true }));
+  const handleSplitPane = useEvent((tabId, paneId, dir) => splitActivePane(dir, tabId, paneId));
+  const handleDropTabToPane = useEvent((sourceTabId, targetTabId, targetPaneId, dir) => dropTabToSplitPane(sourceTabId, targetTabId, targetPaneId, dir));
+  const handleOpenTerminalAtFolder = useEvent((path, hostId = null, source = null) => {
+                      if (isMobile && source?.tabId) {
+                        const paneId = generateUUID();
+                        const sessionId = hostId ? null : generateUUID();
+                        const host = hostId ? hosts.find((h) => h.id === hostId) : null;
+                        setTabs((prev) => prev.map((tt) =>
+                          tt.id === source.tabId
+                            ? appendPaneAsSplit(tt, makePane({
+                                id: paneId,
+                                ...(hostId ? { hostId, tmuxSessionName: makeFreshHostTmuxSessionName(host) } : { sessionId }),
+                                cwd: path,
+                                ...(() => {
+                                  const profileTheme = hostId
+                                    ? hosts.find((h) => h.id === hostId)?.theme
+                                    : settings.localTheme;
+                                  const resolvedTheme = resolveProfileTheme(profileTheme, usedThemeIdsFromTabs(prev));
+                                  return resolvedTheme ? { themeOverride: resolvedTheme } : {};
+                                })(),
+                              }), {
+                                afterPaneId: source.paneId,
+                                dir: 'right',
+                              })
+                            : tt
+                        ));
+                        setActiveTabId(source.tabId);
+                        return;
+                      }
+                      if (hostId) {
+                        const host = hosts.find((h) => h.id === hostId);
+                        if (host) { openHostTab(host, path); return; }
+                      }
+                      const sessionId = generateUUID();
+                      const tabId = `local:${sessionId}`;
+                      const name = path.split('/').pop() || (settings.localName || 'terminal');
+                      setTabs((prev) => {
+                        const newTab = makLocalTab(sessionId, name, path, {
+                          icon: settings.localIcon || null,
+                          colorIndex: settings.localColorIndex ?? 0,
+                          themeOverride: resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev)),
+                        });
+                        return [...prev, newTab];
+                      });
+                      setActiveTabId(tabId);
+                    });
+  const handleScreenDump = useEvent((text) => setScreenDumpText(text || '— empty —'));
+  const handleConfirm = useEvent((opts) => setConfirmModal({ isOpen: true, ...opts }));
+  const handleNotify = useEvent((message) => setNotification({ isOpen: true, message }));
+  const handleResumeHostSession = useEvent((host, sessionName) => openHostTab(host, null, sessionName));
+  const handlePickHostPath = useEvent((h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); });
+  const handlePickLocalPath = useEvent((slot) => setLocalFolderPicker({
+                      open: true,
+                      initial: settings.localStartPath || '',
+                      onPick: (chosen) => {
+                        if (slot?.tabId && slot?.paneId) {
+                          activatePane(slot.tabId, slot.paneId, { type: 'local', cwd: chosen });
+                        }
+                      },
+                      slot: slot || null,
+                    }));
+  const handleEditHost = useEvent((h) => setHostEditorState({ isOpen: true, host: h }));
+  const handleEditLocal = useEvent(() => setLocalEditorOpen(true));
+  const handleLocalPickerClose = useEvent(() => setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null }));
+  const handleLocalPickerPick = useEvent((chosen) => {
+                      const fn = localFolderPicker.onPick;
+                      setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null });
+                      fn?.(chosen);
+                    });
+  const handleRemotePickerClose = useEvent(() => { setFolderPickerHost(null); setFolderPickerSlot(null); });
+  const handleRemotePickerPick = useEvent(async (chosen) => {
+                      const host = folderPickerHost;
+                      const slot = folderPickerSlot;
+                      setFolderPickerHost(null);
+                      setFolderPickerSlot(null);
+                      if (!host || !chosen) return;
+                      try {
+                        await fetch(`/api/hosts/${host.id}/last-cwd`, {
+                          method: 'POST',
+                          headers: authHeaders({ 'Content-Type': 'application/json' }),
+                          body: JSON.stringify({ cwd: chosen }),
+                        });
+                      } catch { /* 무시 */ }
+                      if (slot?.tabId && slot?.paneId) {
+                        activatePane(slot.tabId, slot.paneId, { type: 'host', hostId: host.id, cwd: chosen });
+                      } else {
+                        openHostTab(host, chosen);
+                      }
+                      refreshHosts();
+                    });
+
   // ── guards ────────────────────────────────────────────────────────────────
   const authLoadingFallback = <LoadingScreen currentTheme={currentTheme} t={t} />;
   if (isLoading || isRestoringWorkspace) return authLoadingFallback;
@@ -1157,13 +1258,13 @@ function App() {
                     isMobile={isMobile}
                     onFocusPane={focusPane}
                     onClosePane={closePane}
-                    onClosePaneImmediate={(tabId, paneId) => closePane(tabId, paneId, { skipConfirm: true })}
+                    onClosePaneImmediate={handleClosePaneImmediate}
                     onActivatePane={activatePane}
                     onExtractPaneToTab={extractPaneToTab}
                     onReorderPane={reorderPane}
                     onPaneDragToSplit={dropPaneToSplit}
-                    onSplitPane={(tabId, paneId, dir) => splitActivePane(dir, tabId, paneId)}
-                    onDropTabToPane={(sourceTabId, targetTabId, targetPaneId, dir) => dropTabToSplitPane(sourceTabId, targetTabId, targetPaneId, dir)}
+                    onSplitPane={handleSplitPane}
+                    onDropTabToPane={handleDropTabToPane}
                     onPaneCwdChange={handlePaneCwdChange}
                     onPaneThemeChange={handlePaneThemeChange}
                     onPersistSplitSizes={handlePersistSplitSizes}
@@ -1175,107 +1276,32 @@ function App() {
                     cwd={tabCwd}
                     onFileSelect={handleFileOpen}
                     onFolderSelect={setSelectedFolderPath}
-                    onOpenTerminalAtFolder={(path, hostId = null, source = null) => {
-                      if (isMobile && source?.tabId) {
-                        const paneId = generateUUID();
-                        const sessionId = hostId ? null : generateUUID();
-                        const host = hostId ? hosts.find((h) => h.id === hostId) : null;
-                        setTabs((prev) => prev.map((tt) =>
-                          tt.id === source.tabId
-                            ? appendPaneAsSplit(tt, makePane({
-                                id: paneId,
-                                ...(hostId ? { hostId, tmuxSessionName: makeFreshHostTmuxSessionName(host) } : { sessionId }),
-                                cwd: path,
-                                ...(() => {
-                                  const profileTheme = hostId
-                                    ? hosts.find((h) => h.id === hostId)?.theme
-                                    : settings.localTheme;
-                                  const resolvedTheme = resolveProfileTheme(profileTheme, usedThemeIdsFromTabs(prev));
-                                  return resolvedTheme ? { themeOverride: resolvedTheme } : {};
-                                })(),
-                              }), {
-                                afterPaneId: source.paneId,
-                                dir: 'right',
-                              })
-                            : tt
-                        ));
-                        setActiveTabId(source.tabId);
-                        return;
-                      }
-                      if (hostId) {
-                        const host = hosts.find((h) => h.id === hostId);
-                        if (host) { openHostTab(host, path); return; }
-                      }
-                      const sessionId = generateUUID();
-                      const tabId = `local:${sessionId}`;
-                      const name = path.split('/').pop() || (settings.localName || 'terminal');
-                      setTabs((prev) => {
-                        const newTab = makLocalTab(sessionId, name, path, {
-                          icon: settings.localIcon || null,
-                          colorIndex: settings.localColorIndex ?? 0,
-                          themeOverride: resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev)),
-                        });
-                        return [...prev, newTab];
-                      });
-                      setActiveTabId(tabId);
-                    }}
+                    onOpenTerminalAtFolder={handleOpenTerminalAtFolder}
                     language={settings.language}
                     t={t}
                     viewportHeight={viewportHeight}
-                    onScreenDump={(text) => setScreenDumpText(text || '— empty —')}
+                    onScreenDump={handleScreenDump}
                     /* EmptyPane → 내부 Resumable 카드의 종료 confirm 을 표준 ConfirmModal 로. */
-                    onConfirm={(opts) => setConfirmModal({ isOpen: true, ...opts })}
-                    onNotify={(message) => setNotification({ isOpen: true, message })}
-                    onResumeHostSession={(host, sessionName) => openHostTab(host, null, sessionName)}
+                    onConfirm={handleConfirm}
+                    onNotify={handleNotify}
+                    onResumeHostSession={handleResumeHostSession}
                     onTerminateHostSession={terminateHostSession}
                     busyTabIds={busyTabIds}
                     busyPaneIds={busyPaneIds}
                     /* EmptyPane Connections → 폴더 픽커. slot (tabId/paneId) 같이 넘겨 빈 슬롯에 채움. */
-                    onPickHostPath={(h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); }}
-                    onPickLocalPath={(slot) => setLocalFolderPicker({
-                      open: true,
-                      initial: settings.localStartPath || '',
-                      onPick: (chosen) => {
-                        if (slot?.tabId && slot?.paneId) {
-                          activatePane(slot.tabId, slot.paneId, { type: 'local', cwd: chosen });
-                        }
-                      },
-                      slot: slot || null,
-                    })}
-                    onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
-                    onEditLocal={() => setLocalEditorOpen(true)}
+                    onPickHostPath={handlePickHostPath}
+                    onPickLocalPath={handlePickLocalPath}
+                    onEditHost={handleEditHost}
+                    onEditLocal={handleEditLocal}
                     refreshHosts={refreshHosts}
                     /* 인라인 picker 상태 — 매칭되는 (tabId, paneId) pane 안에서 오버레이. */
                     localPicker={localFolderPicker}
-                    onLocalPickerClose={() => setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null })}
-                    onLocalPickerPick={(chosen) => {
-                      const fn = localFolderPicker.onPick;
-                      setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null });
-                      fn?.(chosen);
-                    }}
+                    onLocalPickerClose={handleLocalPickerClose}
+                    onLocalPickerPick={handleLocalPickerPick}
                     remotePickerHost={folderPickerHost}
                     remotePickerSlot={folderPickerSlot}
-                    onRemotePickerClose={() => { setFolderPickerHost(null); setFolderPickerSlot(null); }}
-                    onRemotePickerPick={async (chosen) => {
-                      const host = folderPickerHost;
-                      const slot = folderPickerSlot;
-                      setFolderPickerHost(null);
-                      setFolderPickerSlot(null);
-                      if (!host || !chosen) return;
-                      try {
-                        await fetch(`/api/hosts/${host.id}/last-cwd`, {
-                          method: 'POST',
-                          headers: authHeaders({ 'Content-Type': 'application/json' }),
-                          body: JSON.stringify({ cwd: chosen }),
-                        });
-                      } catch { /* 무시 */ }
-                      if (slot?.tabId && slot?.paneId) {
-                        activatePane(slot.tabId, slot.paneId, { type: 'host', hostId: host.id, cwd: chosen });
-                      } else {
-                        openHostTab(host, chosen);
-                      }
-                      refreshHosts();
-                    }}
+                    onRemotePickerClose={handleRemotePickerClose}
+                    onRemotePickerPick={handleRemotePickerPick}
                   />
                   </PaneErrorBoundary>
                 </div>

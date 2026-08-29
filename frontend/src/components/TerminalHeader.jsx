@@ -757,4 +757,6 @@ const TerminalHeader = ({
   );
 };
 
-export default TerminalHeader;
+/* memo — pane 마다 하나씩 있고 pane 은 탭 수만큼 곱해진다. Pane 쪽에서 paneInfo 를
+   useMemo 로, 콜백을 useEvent 로 고정해 두었다. */
+export default memo(TerminalHeader);
