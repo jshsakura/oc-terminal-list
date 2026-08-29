@@ -958,8 +958,10 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
   실행되는가"** 를 먼저 물어라 — 이 하나로 출력 렌더·하트비트·health 프로브 세 군데가
   동시에 틀려 있었다. `tab.activePaneId` 는 보장되지 않으므로(`|| panes[0]` 폴백)
   정확히 하나여야 하는 일은 `isFocused` 가 아니라 모듈 레벨 리스로 정한다.
-- **출력 싱크의 코얼레싱 창이 곧 fps 다**(`createOutputSink.js`). 리딩엣지라 조용하다
-  들어온 첫 바이트는 항상 즉시 그려지고, 창을 늘려도 늘어나는 건 지속 출력의 병합 폭뿐이다.
+- **출력 싱크의 코얼레싱 창이 곧 fps 다**(`createOutputSink.js`, 지금 20fps/12fps).
+  리딩엣지라 조용하다 들어온 첫 바이트는 항상 즉시 그려지고, 창을 늘려도 늘어나는 건
+  지속 출력의 병합 폭뿐이다 — **이 숫자는 입력 지연과 무관하다.** 60→30→20 으로 두 번
+  내려왔고 아무도 차이를 못 느꼈다. 더 내리면 스크롤이 끊겨 보인다(바닥).
 - **모든 탭의 `PaneGrid` 가 상시 마운트된다** → pane 단위 fetch 는 조용히 곱해진다.
   실측에서 `/api/git/status` 하나가 전체 HTTP 의 80% 였다. **캐시가 아니라 타이머를 공유**
   하고(`gitStatusStore`), 안 보이면 구독하지 않는다.
