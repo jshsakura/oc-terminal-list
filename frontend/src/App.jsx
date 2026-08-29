@@ -22,7 +22,7 @@ import useLocalVncAvailable from './hooks/useLocalVncAvailable';
 import themes from './styles/themes';
 import { resolveRandomTheme } from './components/common/ThemePicker';
 import { applyThemeVars } from './styles/themeUI';
-import { applyEinkAttribute, applyEinkSettings, einkPollMs, resolveEinkThemeId } from './utils/einkMode';
+import { applyEinkAttribute, applyEinkSettings, resolveEinkThemeId } from './utils/einkMode';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
 import { authHeaders } from './utils/auth';
@@ -68,9 +68,6 @@ const MobileToolbar   = lazy(() => import('./components/MobileToolbar'));
 const CommandInput    = lazy(() => import('./components/CommandInput'));
 
 const { color, font, fontSize, fontWeight, space } = tokens;
-
-// busy 등장/소멸을 인지하는 주기. 이북 모드에서는 einkPollMs 가 늘린다.
-const BUSY_TICK_MS = 150;
 
 // 탭을 닫으면 tmux 세션이 살아남는가(detach=true) 아니면 종료되는가(false).
 // pane 중 하나라도 'tmux 꺼진 원격'이면 작업이 소실되므로 종료(false). 로컬 pane 은 항상 tmux.
@@ -564,12 +561,10 @@ function App() {
       if (next.idle) stop();
     };
 
-    /* 150ms — busy 등장/소멸 인지를 1프레임 안으로. 활동이 있는 동안에만 돈다.
-       이북 모드에서는 늘린다: 이 틱이 켜는 것은 점 하나인데, 전자잉크에서는 그 점 하나가
-       초당 6.7회 화면 갱신을 부른다. 에이전트가 도는 내내. */
+    /* 150ms — busy 등장/소멸 인지를 1프레임 안으로. 활동이 있는 동안에만 돈다. */
     const start = () => {
       if (tick || document.hidden) return;
-      tick = setInterval(run, einkPollMs(BUSY_TICK_MS));
+      tick = setInterval(run, 150);
     };
 
     const onActivity = (e) => {

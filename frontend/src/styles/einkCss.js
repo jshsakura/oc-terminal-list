@@ -52,6 +52,11 @@ html[data-eink="1"] *::after {
   box-shadow: none !important;
   text-shadow: none !important;
   scroll-behavior: auto !important;
+  /* Square corners. A rounded corner is an antialiased curve, and a panel that renders
+     grey as dithering turns every one of them into a speckled edge. Straight lines land
+     on whole pixels and stay crisp. It is the whole app, deliberately — a few rounded
+     survivors among square boxes read as a rendering fault, not as a style. */
+  border-radius: 0 !important;
 }
 
 /* The pressed state stays — but as a still frame, not a movement. The global rule in
