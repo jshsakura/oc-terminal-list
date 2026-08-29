@@ -953,6 +953,16 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
 전문 — 발열 오진 이력, 하트비트 실측, 부팅 버스트, 배지 갱신, 중복 소켓:
 **[docs/notes/render-budget.md](docs/notes/render-budget.md)**
 
+- ⚠️ **`memo()` 는 붙였다고 걸리는 게 아니다.** `Terminal` 은 이 앱에서 가장 무거운
+  컴포넌트인데, `Pane` 이 인라인 화살표(`ref`·`onBroadcast`·`onRefresh`)와 객체 리터럴
+  (`paneCwdInfo`·`paneSettings`)을 넘겨서 **얕은 비교가 항상 실패**했다 — 감싸 놓고 한 번도
+  안 걸리는 상태였다. 모든 탭의 PaneGrid 가 상시 마운트되므로 손실은 탭×pane 만큼 곱해진다.
+  - 고치는 도구는 `hooks/useEvent` 다. `useCallback([])` 은 stale closure 가 되고, deps 를
+    달면 다시 새 함수가 된다. useEvent 는 identity 고정 + 호출은 항상 최신.
+  - ⚠️ **ref 콜백도 같다** — 매 렌더 새 함수면 React 가 옛 것을 null 로 부르고 새 것을 다시
+    부른다. 렌더마다 detach/attach 가 한 번씩 돈다.
+  - **이 실수는 조용하다** — 에러도 경고도 없고 memo 가 그냥 매번 "달라졌다" 고 답한다.
+    `components/panegrid/terminalPropStability.test.js` 가 소스를 훑어 막는다.
 - ⚠️ **`isActive` 는 "보고 있는 pane" 이 아니다.** 분할 그리드에서는 형제가 전부
   `isActive=true` 이고 `isFocused` 만 1개다. 새 게이트를 달 때 **"분할이면 몇 개가
   실행되는가"** 를 먼저 물어라 — 이 하나로 출력 렌더·하트비트·health 프로브 세 군데가

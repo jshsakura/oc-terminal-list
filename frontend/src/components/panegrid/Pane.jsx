@@ -23,6 +23,7 @@ import { buildSshAddr, formatServerAddr, formatSessionTarget, formatSessionTarge
 import { getAgentStatusSnapshot } from '../../utils/agentStatusStore';
 import { copyToClipboard } from '../../utils/clipboard';
 import { EINK_THEME_ID } from '../../utils/einkMode';
+import useEvent from '../../hooks/useEvent';
 
 const Terminal = lazy(() => import('../Terminal'));
 const VncPane = lazy(() => import('../vnc/VncPane'));
@@ -67,9 +68,12 @@ const Pane = ({
   const effectiveThemeId = einkMode
     ? EINK_THEME_ID
     : (pane?.themeOverride || settings?.theme);
-  const paneSettings = (!einkMode && pane?.themeOverride)
-    ? { ...settings, theme: pane.themeOverride }
-    : settings;
+  /* ⚠️ useMemo 필수 — 이건 Terminal 로 내려가는 prop 이고, Terminal 은 memo() 다.
+     오버라이드가 있는 pane 에서 매 렌더 새 객체를 만들면 그 memo 가 영영 안 걸린다. */
+  const paneSettings = useMemo(
+    () => ((!einkMode && pane?.themeOverride) ? { ...settings, theme: pane.themeOverride } : settings),
+    [einkMode, pane?.themeOverride, settings],
+  );
   const handlePaneThemeChange = (themeId) => {
     /* 전역과 같은 id 를 고르면 override 해제 (null) — 동기화. */
     const next = themeId && themeId !== settings.theme ? themeId : null;
@@ -362,6 +366,26 @@ const Pane = ({
   const livePaneCwd = isLocal
     ? paneCwdRel
     : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null);
+
+  /* ── Terminal 로 내려가는 prop 의 참조 안정화 ────────────────────────────────
+     Terminal 은 이 앱에서 가장 무거운 컴포넌트이고 `memo()` 로 감싸져 있는데, memo 는
+     **얕은 비교**다. 여기서 인라인 화살표·객체 리터럴을 넘기면 매 렌더 새 참조가 되어
+     비교가 항상 실패한다 — memo 를 붙여 놓고 한 번도 안 걸리는 상태가 된다. 그리고
+     **모든 탭의 PaneGrid 가 상시 마운트**되므로(CLAUDE.md) 그 손실은 탭×pane 만큼 곱해진다.
+
+     ⚠️ `useCallback([])` 이 아니라 `useEvent` 인 이유: 여기 잡히는 값(pane.id 등)은
+     바뀔 수 있는데, deps 를 달면 그때마다 새 함수가 되어 원래 문제로 돌아가고, deps 를
+     비우면 stale closure 가 된다. useEvent 는 identity 는 고정, 호출은 항상 최신이다.
+
+     ⚠️ ref 콜백도 마찬가지다 — 매 렌더 새 함수면 React 가 옛 것을 null 로 부르고 새
+     것을 다시 부른다. 즉 렌더마다 detach/attach 가 한 번씩 돈다. */
+  const handleTerminalRef = useEvent((handle) => registerTerminal?.(pane.id, handle));
+  const handleTerminalBroadcast = useEvent((data) => onBroadcastData?.(pane.id, data));
+  const bumpRefreshNonce = useEvent(() => setRefreshNonce((n) => n + 1));
+  const paneCwdInfo = useMemo(
+    () => ({ isLocal, cwdAbs: paneCwdAbs || '', cwdRel: paneCwdRel || '' }),
+    [isLocal, paneCwdAbs, paneCwdRel],
+  );
 
   /* Clicking the pane number (top-right) copies this pane's **LLM-friendly handle** (+toast).
      The reader is an LLM in another terminal, so it carries only what is **runnable there**:
@@ -769,8 +793,8 @@ const Pane = ({
             <Suspense fallback={null}>
               <Terminal
                 key={`${pane.id}:${refreshNonce}`}
-                ref={(handle) => registerTerminal?.(pane.id, handle)}
-                onBroadcast={(data) => onBroadcastData?.(pane.id, data)}
+                ref={handleTerminalRef}
+                onBroadcast={handleTerminalBroadcast}
                 sessionId={pane.sessionId || pane.id}
                 hostId={pane.hostId || undefined}
                 isMobile={isMobile}
@@ -791,7 +815,7 @@ const Pane = ({
                 cwd={restartCwd ?? pane.cwd ?? cwd}
                 /* 탐색기에서 끌어온 경로를 셸용 절대 경로로 환산하는 데 쓴다.
                    트리 경로가 로컬은 워크스페이스 상대, 원격은 절대라 두 표현이 다 필요하다. */
-                paneCwdInfo={{ isLocal, cwdAbs: paneCwdAbs || '', cwdRel: paneCwdRel || '' }}
+                paneCwdInfo={paneCwdInfo}
                 /* 방금 우리가 죽인 세션을 "셸이 끝났다" 로 오진해 pane 을 닫지 않게. */
                 restartAt={restartAt}
                 settings={paneSettings}
@@ -802,11 +826,11 @@ const Pane = ({
                 isActive={isActive}
                 isFocused={isFocused}
                 layoutSignal={`${layoutSignal}:${pane.id}`}
-                onTakeOver={() => setRefreshNonce((n) => n + 1)}
+                onTakeOver={bumpRefreshNonce}
                 onReadyChange={setTerminalReady}
                 onStatusChange={setTerminalStatus}
                 onClosePane={onCloseImmediate || onClose}
-                onRefresh={() => setRefreshNonce((n) => n + 1)}
+                onRefresh={bumpRefreshNonce}
               />
             </Suspense>
             </>
