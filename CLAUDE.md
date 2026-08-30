@@ -963,6 +963,16 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
     부른다. 렌더마다 detach/attach 가 한 번씩 돈다.
   - **이 실수는 조용하다** — 에러도 경고도 없고 memo 가 그냥 매번 "달라졌다" 고 답한다.
     `components/panegrid/terminalPropStability.test.js` 가 소스를 훑어 막는다.
+- ⚠️ **memo 를 트리 위쪽으로 넓히는 것은 되돌아온 실패다** (2026-08-30). `PaneGrid`·`Pane`·
+  `TerminalHeader` 를 memo 로 감싸고 그 사이 prop 을 useEvent/useMemo 로 고정했더니
+  **세션 종료·탭 종료가 먹통**이 됐다. 테스트 1,529개가 전부 통과했고 소스 스캔 가드도
+  통과했다 — **아무도 실제로 닫아 보지 않았기 때문**이다. 커밋 단위로는 범인을 확정했지만
+  (`a86447a`, revert `800ecad`) 그 안의 어느 줄인지는 아직 모른다.
+  - **다시 시도한다면 닫기·분할·재시작 흐름을 실제로 밟는 테스트가 먼저다.** 구조 검사
+    (인라인 prop 이 있나)는 동작을 대신하지 못한다. `components/paneGridClose.test.jsx` 가
+    그 첫 조각이다(PaneGrid→Pane 배선). 그것만으로는 이 사고를 못 잡았다.
+  - `memo(Terminal)` 하나만 걸리게 한 것(`9e2c410`)은 남아 있다. 변경이 Pane 안에서 끝나고
+    실제로 확인됐다. **memo 는 잎에서부터, 한 겹씩.**
 - ⚠️ **`isActive` 는 "보고 있는 pane" 이 아니다.** 분할 그리드에서는 형제가 전부
   `isActive=true` 이고 `isFocused` 만 1개다. 새 게이트를 달 때 **"분할이면 몇 개가
   실행되는가"** 를 먼저 물어라 — 이 하나로 출력 렌더·하트비트·health 프로브 세 군데가
