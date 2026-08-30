@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { RotateCw } from 'lucide-react';
 import { tokens } from '../styles/tokens';
@@ -6,6 +6,7 @@ import useSnippets from '../hooks/useSnippets';
 import SnippetPalette from './SnippetPalette';
 import Pane from './panegrid/Pane';
 import SubTabBar from './panegrid/SubTabBar';
+import useEvent from '../hooks/useEvent';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -144,6 +145,43 @@ const PaneGrid = ({
   // termRefMap: paneId → Terminal imperative handle ({ sendData })
   const termRefMap = useRef({});
   // panesRef: handleBroadcast 에서 최신 panes 를 참조하기 위한 stable ref
+  /* ── pane 별 핸들러의 참조 안정화 ──────────────────────────────────────────
+     `Pane` 은 memo() 다. 그런데 onFocus 등을 화살표 리터럴로 (tab.id·pane.id 를 잡아)
+     인라인으로 만들면 매 렌더 새 함수라 그 memo 가 한 번도 안 걸린다.
+
+     pane 마다 다른 id 를 잡아야 해서 통짜 useEvent 하나로는 안 된다 — 대신 id 별로 한 번만
+     만들어 캐시한다. 안쪽에서 부르는 것들은 useEvent 라 항상 최신이므로, 캐시된 함수가
+     오래돼도 낡은 값을 쓰지 않는다.
+
+     ⚠️ Pane 의 콜백 **시그니처는 그대로 둔다**(인자 없음). 바꾸면 Pane 안에서 onClose 를
+     다시 넘겨 쓰는 자리들까지 전부 따라가야 하는데, 얻는 것은 같고 위험만 는다. */
+  const focusPaneEvt = useEvent((paneId) => onFocusPane?.(tab.id, paneId));
+  const closePaneEvt = useEvent((paneId) => onClosePane?.(tab.id, paneId));
+  const activatePaneEvt = useEvent((paneId, target) => onActivatePane?.(tab.id, paneId, target));
+  const toggleExcludeEvt = useEvent((paneId) => toggleBroadcastExclude(paneId));
+  const paneHandlersRef = useRef(new Map());
+  const paneHandlers = useCallback((paneId) => {
+    const cache = paneHandlersRef.current;
+    let h = cache.get(paneId);
+    if (!h) {
+      h = {
+        onFocus: () => focusPaneEvt(paneId),
+        onClose: () => closePaneEvt(paneId),
+        onActivate: (target) => activatePaneEvt(paneId, target),
+        onToggleBroadcastExclude: () => toggleExcludeEvt(paneId),
+      };
+      cache.set(paneId, h);
+    }
+    return h;
+  }, [focusPaneEvt, closePaneEvt, activatePaneEvt, toggleExcludeEvt]);
+  // 닫힌 pane 의 항목은 버린다 — 안 그러면 이 Map 이 세션 내내 자란다.
+  useEffect(() => {
+    const live = new Set(panes.map((pn) => pn.id));
+    for (const key of paneHandlersRef.current.keys()) {
+      if (!live.has(key)) paneHandlersRef.current.delete(key);
+    }
+  }, [panes]);
+
   const panesRef = useRef(panes);
   useEffect(() => { panesRef.current = panes; }, [panes]);
   // stable fan-out 콜백 — broadcastActiveRef + panesRef 를 통해 최신 상태 읽음
@@ -401,9 +439,9 @@ const PaneGrid = ({
                   isMobile={isMobile}
                   isFocused={isThisActive}
                   isMultiple={false}
-                  onFocus={() => onFocusPane?.(tab.id, pane.id)}
-                  onClose={() => onClosePane?.(tab.id, pane.id)}
-                  onActivate={(target) => onActivatePane?.(tab.id, pane.id, target)}
+                  onFocus={paneHandlers(pane.id).onFocus}
+                  onClose={paneHandlers(pane.id).onClose}
+                  onActivate={paneHandlers(pane.id).onActivate}
                   isActive={isActive && isThisActive}
                   layoutSignal={layoutSignal}
                   settings={settings}
@@ -449,7 +487,7 @@ const PaneGrid = ({
                   onCloseImmediate={onClosePaneImmediate ? () => onClosePaneImmediate(tab.id, pane.id) : null}
                   isBroadcasting={broadcastActive}
                   isBroadcastExcluded={broadcastExcluded.has(pane.id)}
-                  onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
+                  onToggleBroadcastExclude={paneHandlers(pane.id).onToggleBroadcastExclude}
                   onReadyChange={handlePaneReady}
                   registerPaneActions={registerPaneActions}
                   onRestartPane={handleRestartPane}
@@ -488,9 +526,9 @@ const PaneGrid = ({
             isMobile={isMobile}
             isFocused={pane.id === tab.activePaneId}
             isMultiple={panes.length > 1}
-            onFocus={() => onFocusPane?.(tab.id, pane.id)}
-            onClose={() => onClosePane?.(tab.id, pane.id)}
-            onActivate={(target) => onActivatePane?.(tab.id, pane.id, target)}
+            onFocus={paneHandlers(pane.id).onFocus}
+            onClose={paneHandlers(pane.id).onClose}
+            onActivate={paneHandlers(pane.id).onActivate}
             isActive={isActive}
             layoutSignal={`${layoutSignal}:r${rSig}`}
             reloadSignal={reloadSignal}
@@ -538,7 +576,7 @@ const PaneGrid = ({
             onEqualizePane={panes.length > 1 ? equalizeCurrentTab : null}
             isBroadcasting={broadcastActive}
             isBroadcastExcluded={broadcastExcluded.has(pane.id)}
-            onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
+            onToggleBroadcastExclude={paneHandlers(pane.id).onToggleBroadcastExclude}
             onReadyChange={handlePaneReady}
             registerPaneActions={registerPaneActions}
             onRestartPane={handleRestartPane}
@@ -649,9 +687,9 @@ const PaneGrid = ({
           isMobile={isMobile}
           isFocused={pane.id === tab.activePaneId}
           isMultiple={panes.length > 1}
-          onFocus={() => onFocusPane?.(tab.id, pane.id)}
-          onClose={() => onClosePane?.(tab.id, pane.id)}
-          onActivate={(target) => onActivatePane?.(tab.id, pane.id, target)}
+          onFocus={paneHandlers(pane.id).onFocus}
+          onClose={paneHandlers(pane.id).onClose}
+          onActivate={paneHandlers(pane.id).onActivate}
           isActive={isActive}
           layoutSignal={`${layoutSignal}:r${resizeSignal}`}
           reloadSignal={reloadSignal}
@@ -700,7 +738,7 @@ const PaneGrid = ({
           onEqualizePane={panes.length > 1 ? equalizeCurrentTab : null}
           isBroadcasting={broadcastActive}
           isBroadcastExcluded={broadcastExcluded.has(pane.id)}
-          onToggleBroadcastExclude={() => toggleBroadcastExclude(pane.id)}
+          onToggleBroadcastExclude={paneHandlers(pane.id).onToggleBroadcastExclude}
           onReadyChange={handlePaneReady}
           registerPaneActions={registerPaneActions}
           onRestartPane={handleRestartPane}
@@ -760,4 +798,7 @@ const SplitHandle = ({ direction, onMouseDown, onDoubleClick }) => {
   );
 };
 
-export default PaneGrid;
+/* memo — 이 컴포넌트는 **모든 탭 것이 상시 마운트**된다(CLAUDE.md "요청은 마운트 수만큼
+   곱해진다"). memo 가 없으면 App 의 상태 하나가 바뀔 때마다 열려 있는 탭 전부의 pane
+   트리가 다시 렌더된다. App 쪽 prop 은 useEvent/useMemo 로 참조를 고정해 두었다. */
+export default memo(PaneGrid);

@@ -8,6 +8,7 @@
  * - 미인증 / 오프라인: localStorage 만 사용 (캐시).
  */
 import { useState, useEffect, useRef } from 'react';
+import useEvent from './useEvent';
 import { DEFAULT_TERMINAL_FONT_FAMILY, normalizeTerminalFontFamily } from '../utils/terminalFonts';
 import { DEFAULT_MOBILE_KEYS } from '../utils/mobileKeys';
 
@@ -187,7 +188,7 @@ export const useSettings = (isAuthenticated = null) => {
   }, [settings, isAuthenticated]);
 
   // 개별 설정 업데이트
-  const updateSetting = (key, value) => {
+  const updateSetting = useEvent((key, value) => {
     markSettingsDirty();
     setSettings((prev) => ({
       ...prev,
@@ -197,10 +198,10 @@ export const useSettings = (isAuthenticated = null) => {
           ? normalizeDefaultShell(value)
           : value,
     }));
-  };
+  });
 
   // 여러 설정 동시 업데이트
-  const updateSettings = (newSettings) => {
+  const updateSettings = useEvent((newSettings) => {
     markSettingsDirty();
     setSettings((prev) => ({
       ...prev,
@@ -208,14 +209,14 @@ export const useSettings = (isAuthenticated = null) => {
       fontFamily: normalizeTerminalFontFamily(newSettings.fontFamily ?? prev.fontFamily),
       defaultShell: normalizeDefaultShell(newSettings.defaultShell ?? prev.defaultShell),
     }));
-  };
+  });
 
   // 설정 초기화
-  const resetSettings = () => {
+  const resetSettings = useEvent(() => {
     markSettingsDirty();
     setSettings(DEFAULT_SETTINGS);
     localStorage.removeItem(STORAGE_KEY);
-  };
+  });
 
   return {
     settings,
