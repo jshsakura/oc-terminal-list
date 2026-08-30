@@ -557,6 +557,22 @@ after sending 'websocket.close'` 를 매일 7건씩 쌓고 있었다(닫히는 �
 ⚠️ **낡은 클라이언트는 `reason=unset` 으로 찍힌다.** 브라우저가 새 번들을 받아야 사유가
 붙는다 — 배포 직후 `unset` 이 섞이는 것은 정상이다.
 
+## `.env` 로드는 앱 import 보다 먼저다 (2026-08-31)
+
+이 저장소의 여러 모듈이 **import 시점에** `os.getenv` 를 읽는다 — `sqlite_storage` 의
+`DB_PATH`, `_deps` 의 `WORKSPACE_ROOT`, `tmux_manager` 의 `TMUX_SOCKET_NAME`,
+`ssh_pool` 의 타임아웃들. `load_dotenv` 가 그 아래에 있으면 그 값들에는 `.env` 가
+**영영 닿지 않는다.** 에러는 안 난다 — 조용히 기본값으로 뜬다.
+
+⚠️ **프로덕션은 systemd 의 `EnvironmentFile=.env` 가 가려 준다.** 드러나는 곳은
+`python run.py`(dev) 다: 거기서 `TMUX_SOCKET_NAME` 이 기본값 `iterminallist-app`,
+곧 **운영 소켓**으로 떨어진다. 개발용으로 띄운 인스턴스가 운영 tmux 서버와 DB 를
+잡는다는 뜻이다 — 격리 인스턴스를 띄우다 실제로 그렇게 붙었다.
+
+`tests/test_dotenv_before_imports.py` 가 순서를 잠근다. 그 테스트는 "import 시점에
+env 를 읽는 모듈" 목록의 **전제까지** 검사한다 — 목록이 낡으면 지키는 것 없이 통과만
+하기 때문이다.
+
 ## Backend module layout
 
 `main.py` owns only the app object, middleware, lifespan, and router registration. Endpoints live in `routes/*.py`; shared state lives in focused top-level modules. **Add new endpoints to a `routes/` module, never back into `main.py`.**

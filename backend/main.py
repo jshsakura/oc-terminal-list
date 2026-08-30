@@ -16,6 +16,20 @@ from pathlib import Path
 
 import anyio
 from dotenv import load_dotenv
+
+# ⚠️ .env 로드는 **앱 모듈 import 보다 먼저**여야 한다.
+#
+# 이 저장소의 여러 모듈이 import 시점에 os.getenv 를 읽는다 — sqlite_storage 의 DB_PATH,
+# _deps 의 WORKSPACE_ROOT, tmux_manager 의 TMUX_SOCKET_NAME, ssh_pool 의 타임아웃들.
+# load_dotenv 가 그 아래에 있으면 그 값들에는 .env 가 **영영 닿지 않는다.** 에러는 안 난다 —
+# 조용히 기본값으로 뜬다.
+#
+# 프로덕션은 systemd 의 EnvironmentFile=.env 가 프로세스 환경에 미리 넣어 줘서 가려져
+# 있었다. 드러나는 곳은 `python run.py`(dev) 다 — 거기서는 .env 가 무시되어
+# TMUX_SOCKET_NAME 이 기본값(= 운영 소켓!)으로 떨어진다. 즉 개발용으로 띄운 인스턴스가
+# 운영 tmux 서버와 DB 를 잡는다. 실제로 그렇게 붙어 버린 적이 있다(2026-08-31).
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
 from fastapi import (
     Depends,
     FastAPI,
@@ -39,10 +53,6 @@ from auth_manager import AuthManager
 from sqlite_storage import storage
 from ssh_pool import ssh_pool
 from tmux_manager import tmux_manager
-
-# .env 로드 (프로젝트 루트). 실행 셸의 TMUX_SOCKET_NAME 이 앱 격리를 깨지 않도록 .env 를 우선한다.
-_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-load_dotenv(os.path.join(_PROJECT_ROOT, ".env"), override=True)
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
