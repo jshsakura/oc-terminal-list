@@ -2,7 +2,7 @@
  * 단일 pane — (Terminal / 빈 화면 EmptyPane) + 자체 TerminalHeader 오버레이 + 폴더 픽커.
  * 분할 그리드의 잎 노드. PaneGrid.jsx 에서 로직 변경 없이 추출.
  */
-import { Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import { Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Plus, ArrowRightLeft, LayoutPanelLeft } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
@@ -379,46 +379,6 @@ const Pane = ({
 
      ⚠️ ref 콜백도 마찬가지다 — 매 렌더 새 함수면 React 가 옛 것을 null 로 부르고 새
      것을 다시 부른다. 즉 렌더마다 detach/attach 가 한 번씩 돈다. */
-  /* TerminalHeader 도 memo() 다 — 이 객체를 인라인으로 두면 매 렌더 새 참조라 안 걸린다. */
-  const paneInfo = useMemo(() => ({
-          tabName: tab?.name || '',
-          tabType: pane.hostId ? 'host' : 'local',
-          tabId: tab?.id || null,
-          sessionId: pane.sessionId || pane.id,
-          paneId: pane.id,
-          paneIndex,
-          paneCount: tab?.panes?.length || 1,
-          tmuxSessionName: pane.tmuxSessionName || null,
-          effectiveTmuxSession: pane.hostId ? (() => {
-            if (pane.tmuxSessionName) return pane.tmuxSessionName;
-            const host = hosts.find((h) => h.id === pane.hostId);
-            if (!host?.use_remote_tmux) return null;
-            const baseFromHost = host.remote_tmux_session || 'mobile';
-            const base = tab?.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
-            return paneIndex === 0 ? base : `${base}_${paneIndex + 1}`;
-          })() : null,
-          tmuxSuffix: tab?.tmuxSuffix || null,
-          isPersistent: pane.hostId
-            ? !!(hosts.find((h) => h.id === pane.hostId)?.use_remote_tmux) || !!pane.tmuxSessionName
-            : true,
-          host: pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null,
-          tabIcon: pane.hostId ? (tab?.icon || null) : (settings.localIcon || tab?.icon || null),
-          tabColorIndex: pane.hostId
-            ? (tab?.color_index ?? 0)
-            : (settings.localColorIndex ?? tab?.color_index ?? 0),
-          paneName: pane.name || null,
-          cwd: isLocal ? (paneCwdRel ?? '') : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null),
-          cwdAbsolute: paneCwdAbs || null,
-          paneCwdRel: paneCwdRel ?? null,
-          takeoverPolicy: 'last-attach-wins',
-        }), [
-    tab, pane, paneIndex, hosts, settings.localIcon, settings.localColorIndex,
-    isLocal, paneCwdRel, paneCwdAbs, remoteHost,
-  ]);
-  const handleHeaderFileSelect = useEvent((path) => onFileSelect?.(path, pane.hostId || null));
-  const handleHeaderOpenTerminalAtFolder = useEvent(
-    (path) => onOpenTerminalAtFolder?.(path, pane.hostId || null, { tabId: tab?.id, paneId: pane.id }),
-  );
   const handleTerminalRef = useEvent((handle) => registerTerminal?.(pane.id, handle));
   const handleTerminalBroadcast = useEvent((data) => onBroadcastData?.(pane.id, data));
   const bumpRefreshNonce = useEvent(() => setRefreshNonce((n) => n + 1));
@@ -683,10 +643,41 @@ const Pane = ({
           activeTabType={pane.hostId ? 'host' : 'local'}
           activeHostId={pane.hostId || null}
           gitContextPath={paneGitContext}
-          paneInfo={paneInfo}
-          onFileSelect={handleHeaderFileSelect}
+          paneInfo={{
+            tabName: tab?.name || '',
+            tabType: pane.hostId ? 'host' : 'local',
+            tabId: tab?.id || null,
+            sessionId: pane.sessionId || pane.id,
+            paneId: pane.id,
+            paneIndex,
+            paneCount: tab?.panes?.length || 1,
+            tmuxSessionName: pane.tmuxSessionName || null,
+            effectiveTmuxSession: pane.hostId ? (() => {
+              if (pane.tmuxSessionName) return pane.tmuxSessionName;
+              const host = hosts.find((h) => h.id === pane.hostId);
+              if (!host?.use_remote_tmux) return null;
+              const baseFromHost = host.remote_tmux_session || 'mobile';
+              const base = tab?.tmuxSuffix ? `${baseFromHost}-${tab.tmuxSuffix}` : baseFromHost;
+              return paneIndex === 0 ? base : `${base}_${paneIndex + 1}`;
+            })() : null,
+            tmuxSuffix: tab?.tmuxSuffix || null,
+            isPersistent: pane.hostId
+              ? !!(hosts.find((h) => h.id === pane.hostId)?.use_remote_tmux) || !!pane.tmuxSessionName
+              : true,
+            host: pane.hostId ? (hosts.find((h) => h.id === pane.hostId) || null) : null,
+            tabIcon: pane.hostId ? (tab?.icon || null) : (settings.localIcon || tab?.icon || null),
+            tabColorIndex: pane.hostId
+              ? (tab?.color_index ?? 0)
+              : (settings.localColorIndex ?? tab?.color_index ?? 0),
+            paneName: pane.name || null,
+            cwd: isLocal ? (paneCwdRel ?? '') : (paneCwdAbs ?? pane.cwd ?? tab?.cwd ?? remoteHost?.last_cwd ?? remoteHost?.start_path ?? null),
+            cwdAbsolute: paneCwdAbs || null,
+            paneCwdRel: paneCwdRel ?? null,
+            takeoverPolicy: 'last-attach-wins',
+          }}
+          onFileSelect={(path) => onFileSelect?.(path, pane.hostId || null)}
           onFolderSelect={onFolderSelect}
-          onOpenTerminalAtFolder={handleHeaderOpenTerminalAtFolder}
+          onOpenTerminalAtFolder={(path) => onOpenTerminalAtFolder?.(path, pane.hostId || null, { tabId: tab?.id, paneId: pane.id })}
           onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
           onRestartSession={isEmpty || !onRestartPane ? null : () => onRestartPane(pane.id)}
           onRefreshCwd={refreshPaneCwd}
@@ -964,6 +955,4 @@ const Pane = ({
   );
 };
 
-/* memo — PaneGrid 가 다시 렌더돼도 실제로 바뀐 pane 만 다시 그리게 한다.
-   PaneGrid 는 pane id 별 안정 핸들러를 넘긴다(paneHandlers). */
-export default memo(Pane);
+export default Pane;
