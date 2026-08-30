@@ -405,21 +405,32 @@ const Login = ({ onLogin, language = 'en', theme = null, einkMode = false, onTog
       </div>
 
       {onToggleEink && (
+        /* 카드의 보조 버튼(패스키)과 **같은 치수**를 쓴다. linkBtn(12px·좁은 패딩)으로
+           두었더니 테두리가 붙는 순간 글자가 낀 태그처럼 보였다 — 로그인 화면에서 이건
+           링크가 아니라 화면 종류를 고르는 **컨트롤**이다. */
         <button
           type="button"
           onClick={onToggleEink}
           aria-pressed={einkMode}
           style={{
-            ...themed.linkBtn,
-            marginTop: '14px',
-            border: `1px solid ${einkMode ? themed.accent : themed.border}`,
+            ...themed.passkeyBtn,
+            marginTop: '10px',
+            borderColor: einkMode ? themed.accent : themed.border,
             color: einkMode ? themed.text : themed.subtext,
             background: einkMode ? themed.accentSubtle : 'transparent',
           }}
         >
-          <BookOpen size={12} strokeWidth={2} style={{ flexShrink: 0 }} />
-          {t('einkMode') || 'E-ink mode'}
-          <span style={{ opacity: 0.7 }}>
+          <BookOpen size={15} strokeWidth={2} style={{ flexShrink: 0 }} />
+          <span>{t('einkMode') || 'E-ink mode'}</span>
+          <span
+            style={{
+              marginLeft: 'auto',
+              fontSize: '11px',
+              fontWeight: 600,
+              letterSpacing: '0.04em',
+              opacity: einkMode ? 1 : 0.65,
+            }}
+          >
             {einkMode ? (t('on') || 'ON') : (t('off') || 'OFF')}
           </span>
         </button>

@@ -1177,6 +1177,12 @@ LLM API 는 여전히 아무 데서도 부르지 않는다(아키텍처 규칙 �
 - 카드 면의 정의는 `dashboardCard.js` **하나뿐**이다. 타일·막대·차트가 각자 그리면 농도가
   어긋난다.
 
+⚠️ **`space`·`radius` 에 없는 키는 그 선언을 통째로 죽인다.** 템플릿 문자열이
+`undefined 16px` 가 되면 CSS 파서가 그 속성을 버린다 — 에러도 경고도 없다. 실제로
+`space['2.5']` 가 스케일에 없어서 **로그인 화면의 패스키 버튼·링크 버튼과
+`PaneErrorBoundary` 가 패딩 0 으로** 렌더되고 있었다(2026-08-30 발견, 키를 추가해 고침).
+`styles/tokens.fontSize.test.js` 가 이제 세 스케일(fontSize·space·radius)을 다 훑는다.
+
 **`tokens.fontSize` 에 없는 키를 쓰면 글씨가 커진다.** `fontSize['10.5']` 같은 키는
 undefined 를 내고, undefined 인 fontSize 는 무시되어 **상속 크기(글로벌 CSS 가 없으므로
 브라우저 기본 16px)** 로 렌더된다 — 작게 하려던 보조 라벨이 화면에서 가장 큰 글씨가 되는데
