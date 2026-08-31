@@ -60,6 +60,7 @@ import ScreenDumpModal from './components/ScreenDumpModal';
 import AppModals from './components/AppModals';
 import { copyToClipboard } from './utils/clipboard';
 import useEvent from './hooks/useEvent';
+import { typeIntoPane } from './utils/paneTyping';
 
 const Terminal        = lazy(() => import('./components/Terminal'));
 const FileEditor      = lazy(() => import('./components/FileEditor'));
@@ -199,12 +200,14 @@ function App() {
       return [...prev, tab];
     });
     setActiveTabId(tabId);
+    // 탭 id 를 돌려준다 — 새로 연 터미널에 무언가 보내려면 그것으로 찾는다
+    // (pane id 는 setTabs 안에서 만들어져 밖에서는 알 수 없다. utils/paneTyping).
+    return tabId;
   }, [settings.localName, settings.localIcon, settings.localColorIndex, settings.localTheme, settings.localStartPath]);
 
   const openHostTab = useCallback((host, cwd = null, tmuxSessionName = null) => {
     if (!host || host.isLocal || host.id === 'local') {
-      openLocalTab();
-      return;
+      return openLocalTab();
     }
     // 명시 cwd 가 없으면 host 설정의 start_path 로 폴백 → FileTree 가 그 경로에서 시작
     const initialCwd = cwd ?? host.start_path ?? null;
@@ -217,6 +220,7 @@ function App() {
       return [...prev, tab];
     });
     setActiveTabId(tabId);
+    return tabId;
   }, [openLocalTab]);
 
   // VNC 원격 데스크톱 — 홈 화면에서 호스트 카드의 ScreenShare 버튼으로 연다.
@@ -610,6 +614,8 @@ function App() {
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
   const [editingKey, setEditingKey] = useState(null);
   const [hostManagerOpen, setHostManagerOpen] = useState(false);
+  // 도구 설치 — 어느 기계에 무엇을 깔 것인가. hostId 가 빈 문자열이면 이 서버.
+  const [toolsModal, setToolsModal] = useState({ isOpen: false, hostId: '' });
   /* 폴더 픽커 컨텍스트 — { host, slot? } 형태.
      slot 이 있으면 (tabId/paneId) 그 빈 pane 을 채움 (split 케이스).
      slot 없으면 새 탭으로 openHostTab (홈 대시보드 케이스). */
@@ -921,6 +927,20 @@ function App() {
   const handleConfirm = useEvent((opts) => setConfirmModal({ isOpen: true, ...opts }));
   const handleNotify = useEvent((message) => setNotification({ isOpen: true, message }));
   const handleResumeHostSession = useEvent((host, sessionName) => openHostTab(host, null, sessionName));
+
+  /**
+   * 도구 설치 — 그 기계의 터미널을 새로 열고 명령을 **타이핑만** 한다.
+   *
+   * ⚠️ 엔터는 사용자가 누른다. 남의 스크립트를 사용자의 기계에서 돌리는 일이라,
+   * 무엇이 실행될지 보고 확인하는 단계가 있어야 한다(파일 드롭에서 배운 규칙).
+   * 이 설계 덕분에 sudo 프롬프트·진행 표시·중단이 전부 평소 터미널대로 동작하고,
+   * 이 기능이 **새 권한을 만들지 않는다** — 사용자가 직접 칠 수 있는 것을 대신 친다.
+   */
+  const handleInstallTool = useEvent(async (host, command) => {
+    const tabId = host ? openHostTab(host) : await openLocalTab();
+    if (!tabId || !command) return;
+    typeIntoPane({ tabId }, command);
+  });
   const handlePickHostPath = useEvent((h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); });
   const handlePickLocalPath = useEvent((slot) => setLocalFolderPicker({
                       open: true,
@@ -1179,6 +1199,7 @@ function App() {
               })}
               onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
               onEditHost={(h) => setHostEditorState({ isOpen: true, host: h })}
+              onOpenTools={(h) => setToolsModal({ isOpen: true, hostId: h?.id || '' })}
               onDeleteHost={async (h) => { await deleteHost(h.id); await refreshHosts(); }}
               onOpenSettings={() => setIsSettingsOpen(true)}
               tabs={tabsWithMeta}
@@ -1556,6 +1577,7 @@ function App() {
         deleteHost={deleteHost} setNotification={setNotification}
         confirmModal={confirmModal} handleConfirmModal={handleConfirmModal} setConfirmModal={setConfirmModal}
         notification={notification}
+        toolsModal={toolsModal} setToolsModal={setToolsModal} handleInstallTool={handleInstallTool}
         isCommandPaletteOpen={isCommandPaletteOpen} setIsCommandPaletteOpen={setIsCommandPaletteOpen}
         handleAddTab={handleAddTab} openTerminalSearch={openTerminalSearch} openFilePicker={openFilePicker}
         isFilePickerOpen={isFilePickerOpen} setIsFilePickerOpen={setIsFilePickerOpen}

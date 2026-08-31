@@ -309,6 +309,25 @@ class SchemaMixin:
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_snippets_user ON snippets(username, sort_index)")
 
+        # 설치 도구 — 사용자가 "이 호스트에 이걸 깔겠다" 고 적어 둔 명령.
+        # 내장 목록(host_tools.BUILTIN_TOOLS)은 여기 넣지 않는다: 저장하면 사용자마다
+        # 사본이 생겨 우리가 명령을 고쳐도 옛 사본이 남는다.
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tools (
+                id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                name TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                url TEXT DEFAULT '',
+                check_command TEXT DEFAULT '',
+                install_command TEXT NOT NULL,
+                sort_index INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_tools_user ON tools(username, sort_index)")
+
         # 웹 푸시 구독 — 기기마다 하나. endpoint 가 브라우저가 발급한 고유 주소라 PK 로 쓴다.
         # 구독이 만료/취소되면 푸시 서비스가 404/410 을 주고, 그때 이 행을 지운다.
         cursor.execute("""

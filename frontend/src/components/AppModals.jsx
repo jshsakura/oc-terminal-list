@@ -11,6 +11,7 @@ const HostEditor = lazy(() => import('./HostEditor'));
 const ConfirmModal = lazy(() => import('./ConfirmModal'));
 const NotificationModal = lazy(() => import('./NotificationModal'));
 const CommandPalette = lazy(() => import('./CommandPalette'));
+const ToolsModal = lazy(() => import('./ToolsModal'));
 
 /** Placeholder while a modal loads — scrim plus a small spinner, replaced on arrival. */
 const ModalLoading = () => (
@@ -48,6 +49,8 @@ export default function AppModals({
   hostEditorState, createHost, updateHost, deleteHost, setNotification,
   // confirm / notification
   confirmModal, handleConfirmModal, setConfirmModal, notification,
+  // tools (호스트에 깔 도구)
+  toolsModal, setToolsModal, handleInstallTool,
   // command palette
   isCommandPaletteOpen, setIsCommandPaletteOpen, handleAddTab, openTerminalSearch, openFilePicker,
   // file picker
@@ -171,6 +174,16 @@ export default function AppModals({
           isOpen={notification.isOpen}
           message={notification.message}
           onClose={() => setNotification({ isOpen: false, message: '' })}
+          t={t}
+        />
+      )}
+      {toolsModal?.isOpen && (
+        <ToolsModal
+          isOpen={toolsModal.isOpen}
+          hosts={hosts}
+          initialHostId={toolsModal.hostId || ''}
+          onInstall={handleInstallTool}
+          onClose={() => setToolsModal({ isOpen: false, hostId: '' })}
           t={t}
         />
       )}

@@ -1,6 +1,6 @@
 import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import {
-  Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen, Download,
+  Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen, Download, Package,
   Link2, BarChart3, ScreenShare, RefreshCw, Activity,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
@@ -44,6 +44,7 @@ const HomeDashboard = ({
   onOpenHost,
   onOpenHostAtPath,
   onOpenVnc,
+  onOpenTools,
   showLocalVnc = false,
   onAddHost,
   onEditHost,
@@ -326,6 +327,8 @@ const HomeDashboard = ({
                    버튼 자체가 뜨지 않아야 한다. */
                 onOpenVnc={(onOpenVnc && showLocalVnc) ? () => onOpenVnc({ id: 'local', isLocal: true, name: localCard?.name || 'local' }) : null}
                 openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
+                onOpenTools={onOpenTools ? () => onOpenTools(null) : null}
+                openToolsTitle={t?.('tools') || '도구 설치'}
               />
             )}
 
@@ -361,6 +364,8 @@ const HomeDashboard = ({
                   pickPathTitle={t?.('openAtPath') || 'Open at path…'}
                   onOpenVnc={onOpenVnc ? () => onOpenVnc(host) : null}
                   openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
+                  onOpenTools={onOpenTools ? () => onOpenTools(host) : null}
+                  openToolsTitle={t?.('tools') || '도구 설치'}
                   remoteState={connectedRemotes[host.id] ? 'on' : 'off'}
                   remoteBusy={remoteInstall.busyHostId === host.id}
                   remoteFailed={remoteInstall.failedHostId === host.id}
@@ -456,6 +461,7 @@ export const HostRow = memo(({
   onHover, onClick, onEdit, editTitle,
   onPickPath, pickPathTitle,
   onOpenVnc, openVncTitle,
+  onOpenTools, openToolsTitle,
   // useHostReorder.rowPropsFor 가 spread 로 보내는 것들: data-host-row, onPointerDown, isDragging, isDragOver.
   ...rest
 }) => (
@@ -551,8 +557,13 @@ export const HostRow = memo(({
     {/* ⚠️ 액션 줄은 **모든 카드에서 같은 자리**여야 한다. 칩이 있는 카드만 아래로
         내렸더니 카드마다 버튼 높이가 달라져 줄이 안 맞았다. 칩은 절대배치라 겹치지
         않는다 — 호스트 카드는 세 줄이라 우상단에 자리가 남는다. */}
-    {(onPickPath || onEdit || onOpenVnc) && (
+    {(onPickPath || onEdit || onOpenVnc || onOpenTools) && (
       <div style={styles.actions} onClick={(e) => e.stopPropagation()}>
+        {onOpenTools && (
+          <RowBtn onClick={(e) => { e.stopPropagation(); onOpenTools(); }} title={openToolsTitle}>
+            <Package size={13} strokeWidth={1.8} />
+          </RowBtn>
+        )}
         {onOpenVnc && (
           <RowBtn onClick={(e) => { e.stopPropagation(); onOpenVnc(); }} title={openVncTitle}>
             <ScreenShare size={13} strokeWidth={1.8} />

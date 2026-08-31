@@ -61,6 +61,16 @@ async def test_snippet_roundtrip(storage):
 
 
 @pytest.mark.anyio
+async def test_tool_roundtrip(storage):
+    await storage.create_tool("u", "t1", "herdr", "curl x | sh", check_command="command -v herdr")
+    rows = await storage.list_tools("u")
+    assert any(x["id"] == "t1" and x["check_command"] == "command -v herdr" for x in rows)
+    assert await storage.update_tool("u", "t1", name="herdr2")
+    assert await storage.delete_tool("u", "t1")
+    assert await storage.list_tools("u") == []
+
+
+@pytest.mark.anyio
 async def test_list_endpoints_are_reachable(storage):
     """ssh_keys/passkeys/usage — 빈 상태 조회만으로도 믹스인 합류 여부는 증명된다."""
     assert await storage.list_ssh_keys("u") == []

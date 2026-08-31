@@ -429,6 +429,7 @@ from routes.fleet import router as fleet_router  # noqa: E402
 from routes.llm_usage import router as llm_usage_router  # noqa: E402
 from routes.ws_tickets import router as ws_tickets_router  # noqa: E402
 from routes.remote_ws import router as remote_ws_router  # noqa: E402
+from routes.tools import router as tools_router  # noqa: E402
 
 for _router in (
     auth_router,          # 로그인 / OTP / 패스키
@@ -447,6 +448,7 @@ for _router in (
     vnc_ws_router,        # Xvnc RFB WebSocket 터널
     local_git_router,     # 워크스페이스 git
     snippets_router,      # 명령 스니펫
+    tools_router,         # 호스트에 깔 도구 목록 · 설치 여부
     files_read_router,    # 워크스페이스 파일 읽기
     files_write_router,   # 워크스페이스 파일 쓰기
     push_router,          # 웹 푸시 구독
