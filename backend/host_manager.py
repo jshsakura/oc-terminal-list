@@ -31,6 +31,8 @@ DEFAULT_REMOTE_TMUX_SESSION = "mobile"
 # 미설정 시 tmux 시스템 기본 2000 줄에 묶여, 스크롤 시 이전 내용이 금방 날아간다.
 # 반드시 new-session 전에 -g(전역)로 걸어야 새 세션의 첫 pane 이 이 한도를 물려받는다
 # (history-limit 은 pane 생성 시점에 고정되며 이후 변경은 기존 pane 에 소급 적용 안 됨).
+ITL_ADDR_FORMAT = "#{?@itl_addr,[#{@itl_addr}] ,}"
+
 REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "10000"))
 # 재접속(create=0 refresh) 대상 tmux 세션이 원격에 없을 때 원격 명령이 반환하는 마커 exit code.
 # 브리지가 이를 감지해 "session-gone" 컨트롤 메시지를 프론트로 보내면, 프론트는 무한 refresh
@@ -152,7 +154,7 @@ def _build_remote_command(
         f"tmux set-option -t {safe} status on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} status-style 'bg=default,fg=default' >/dev/null 2>&1; "
         f"tmux set-option -t {safe} window-status-current-style reverse >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} status-left '' >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} status-left '{ITL_ADDR_FORMAT}' >/dev/null 2>&1; "
         f"tmux set-option -t {safe} status-right '' >/dev/null 2>&1; "
         f"tmux set-option -t {safe} status-interval 0 >/dev/null 2>&1; "
         # pane 타이틀을 클라이언트로 흘려보낸다 (기본값 off). 이게 켜져야 원격 pane 에서

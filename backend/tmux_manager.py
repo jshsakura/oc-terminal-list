@@ -242,8 +242,10 @@ class TmuxManager:
             # 아래 reverse 로 구분된다.
             ("status-style", "bg=default,fg=default"),
             ("window-status-current-style", "reverse"),
-            # 세션 이름은 이 앱에서 **UUID** 다(`[9bf9790d-`). 잘린 UUID 는 정보가 아니다.
-            ("status-left", ""),
+            # 세션 이름(UUID)이 아니라 **이 pane 의 itl 주소**(`[1.2]`)를 왼쪽에 둔다.
+            # 자기 주소를 자기가 봐야 "옆에 2번한테 시켜" 가 된다 — itl_addr_stamp 참고.
+            # 안 새겨진 세션은 조건부 포맷이라 조용히 빈칸이다.
+            ("status-left", "#{?@itl_addr,[#{@itl_addr}] ,}"),
             # ⚠️ **`pane_title` 을 넣지 마라.** tmux 기본 status-right 가 그걸 쓰는데,
             # 에이전트 스피너가 타이틀을 **초당 10~12회** 바꾼다(→ 상태바가 그만큼 다시
             # 그려져 WS 로 나간다). 이 저장소가 렌더 예산에서 줄여 온 것을 그대로 까먹는다.

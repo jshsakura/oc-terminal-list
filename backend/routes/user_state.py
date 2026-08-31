@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from _deps import AUTH_COOKIE_NAME, verify_auth_token
+from itl_addr_stamp import stamp_local_addresses
 from agent_status_service import agent_status_watcher
 from models import CommandHistoryPushRequest
 from sqlite_storage import storage
@@ -289,5 +290,9 @@ async def put_tab_state(
 
     updated_at = await storage.save_tab_state(username, tabs, active_tab_id)
     _notify_tab_state_change(username, updated_at)
+    # pane 번호가 바뀔 수 있는 **모든** 순간이 여기다(추가·닫기·순서변경 전부 탭 상태를 바꾼다).
+    # 각 로컬 세션의 하단 상태바가 자기 주소를 그리도록 새겨 준다 — 자기 주소를 자기가
+    # 봐야 "옆에 2번한테 시켜" 가 된다. 실패해도 저장은 이미 끝났다.
+    await stamp_local_addresses(tabs)
     return {"status": "saved", "updatedAt": updated_at}
 

@@ -141,7 +141,7 @@ async def lifespan(_app: FastAPI):
             ("status", "on"),
             ("status-style", "bg=default,fg=default"),
             ("window-status-current-style", "reverse"),
-            ("status-left", ""),
+            ("status-left", "#{?@itl_addr,[#{@itl_addr}] ,}"),
             ("status-right", ""),
             ("status-interval", "0"),
         )
@@ -150,6 +150,17 @@ async def lifespan(_app: FastAPI):
         for _sess in await tmux_manager.list_sessions():
             for _k, _v in _status_opts:
                 await tmux_manager._run("set-option", "-t", _sess.name, _k, _v, check=False)
+        # 저장된 탭 상태로 주소를 한 번 새긴다 — 백엔드가 재시작해도(세션은 살아남는다)
+        # 상태바가 빈 주소로 남지 않게. 다음 갱신은 PUT /api/tab-state 가 한다.
+        try:
+            from itl_addr_stamp import stamp_local_addresses
+            _admin = await storage.get_admin()
+            if _admin and _admin.get("username"):
+                _st = await storage.get_tab_state(_admin["username"])
+                if _st:
+                    await stamp_local_addresses(_st.get("tabs") or [])
+        except Exception:
+            logger.debug("itl addr stamp (startup) 실패", exc_info=True)
         # status off 시절에 서버 전역으로 풀어 둔 좌클릭을 되살린다(unbind 는 남는다).
         await tmux_manager._run(
             "bind-key", "-T", "root", "MouseDown1Status", "select-window -t =", check=False,
