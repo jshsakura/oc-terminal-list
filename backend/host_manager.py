@@ -145,7 +145,16 @@ def _build_remote_command(
         f"tmux set-option -t {safe} mouse on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
         f"tmux set-option -t {safe} focus-events on >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} status off >/dev/null 2>&1; "
+        # 하단 상태바 — **로컬 tmux_manager 와 한 벌이다.** 값어치는 윈도우 목록 하나이고,
+        # 기본 초록 배경은 60개 테마와 충돌하므로 default 로 녹인다. status-right 에
+        # pane_title 을 넣지 않는 이유는 에이전트 스피너가 초당 10~12회 타이틀을 바꿔
+        # 상태바가 그만큼 다시 그려지기 때문이다(원격은 그 바이트가 SSH 를 탄다).
+        f"tmux set-option -t {safe} status on >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} status-style 'bg=default,fg=default' >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} window-status-current-style reverse >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} status-left '' >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} status-right '' >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} status-interval 0 >/dev/null 2>&1; "
         # pane 타이틀을 클라이언트로 흘려보낸다 (기본값 off). 이게 켜져야 원격 pane 에서
         # 도는 에이전트의 상태 타이틀이 브라우저 xterm 까지 도달한다 — 원격은 로컬 tmux
         # 폴링으로 볼 수 없으므로, 원격 상태 감지는 전적으로 이 경로에 의존한다.

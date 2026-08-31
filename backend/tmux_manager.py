@@ -233,7 +233,24 @@ class TmuxManager:
             ("window-size", "latest"),         # 다중 클라이언트시 최근 활성 사이즈
             ("default-terminal", "tmux-256color"),
             ("aggressive-resize", "on"),       # 클라이언트 PTY 차원으로 즉시 리사이즈
-            ("status", "off"),                 # 하단 상태바 숨김 (xterm.js 임베드 친화)
+            # ── 하단 상태바 ─────────────────────────────────────────────────
+            # 켜 두는 값어치는 **윈도우 목록** 하나다 — 앱 UI 가 안 보여주는 유일한 것.
+            # 세션/호스트/경로는 pane 헤더가 이미 말한다.
+            ("status", "on"),
+            # ⚠️ tmux 기본 `bg=green,fg=black` 은 이 앱의 60개 테마와 전부 충돌한다.
+            # default 로 두면 터미널 배경에 녹아 어느 테마에서도 어색하지 않고, 지금 창은
+            # 아래 reverse 로 구분된다.
+            ("status-style", "bg=default,fg=default"),
+            ("window-status-current-style", "reverse"),
+            # 세션 이름은 이 앱에서 **UUID** 다(`[9bf9790d-`). 잘린 UUID 는 정보가 아니다.
+            ("status-left", ""),
+            # ⚠️ **`pane_title` 을 넣지 마라.** tmux 기본 status-right 가 그걸 쓰는데,
+            # 에이전트 스피너가 타이틀을 **초당 10~12회** 바꾼다(→ 상태바가 그만큼 다시
+            # 그려져 WS 로 나간다). 이 저장소가 렌더 예산에서 줄여 온 것을 그대로 까먹는다.
+            ("status-right", ""),
+            # 시간 표시가 없으니 주기 재그리기도 필요 없다. 상태바는 **사건**(창 추가·전환·
+            # 이름 변경)에만 다시 그려진다 — 이북 모드에서 15초마다 화면이 갱신되는 것도 막는다.
+            ("status-interval", "0"),
             ("renumber-windows", "on"),
             ("focus-events", "on"),
             # pane 타이틀(OSC 0/2)을 클라이언트로 그대로 흘려보낸다.
@@ -316,7 +333,7 @@ class TmuxManager:
         #
         # 남겨 두는 unbind 는 **우리 UI 와 겹치는 것들**뿐이다: 우클릭 메뉴(우리 컨텍스트
         # 메뉴가 있다), 가운데 클릭 붙여넣기(X11 선택 버퍼는 브라우저에 없다), 상태바
-        # (status off 라 존재하지 않는다).
+        # **우클릭** 메뉴(창/세션 메뉴가 우리 것과 겹친다 — 좌클릭은 위에서 되살린다).
         # ⚠️ **명시적으로 되묶어야 한다.** `unbind-key` 는 서버 전역이고 그 상태가 남는다 —
         # 우리 코드가 unbind 를 그만두는 것만으로는 이미 풀린 서버에서 되살아나지 않고,
         # tmux 에는 "이 키를 기본으로 되돌려라" 가 없다. 그래서 tmux 3.4 기본값을 그대로 적는다.
@@ -339,8 +356,14 @@ class TmuxManager:
         ):
             await self._run("bind-key", "-T", "root", _key, _cmd, check=False)
 
+        # 상태바가 보이므로 **좌클릭으로 창을 고르는 것**은 되살린다. 이건 tmux 기본이고,
+        # 보이는 바를 눌렀는데 아무 일이 없으면 고장으로 읽힌다.
+        # ⚠️ 되묶는 이유는 `unbind-key` 가 서버 전역이라서다 — status off 시절에 풀어 둔
+        # 서버가 그대로 살아 있으면(tmux 는 백엔드보다 오래 산다) 저절로 돌아오지 않는다.
+        await self._run("bind-key", "-T", "root", "MouseDown1Status", "select-window -t =", check=False)
+
         for _ev in (
-            "MouseDown1Status", "MouseDown1StatusLeft", "MouseDown1StatusRight",
+            # 우클릭 메뉴는 계속 우리 것을 쓴다(창/세션 메뉴가 우리 컨텍스트 메뉴와 겹친다).
             "MouseDown2Pane", "MouseUp2Pane",
             "MouseDown3Pane", "MouseDown3Status", "MouseDown3StatusLeft", "MouseDown3StatusRight",
         ):

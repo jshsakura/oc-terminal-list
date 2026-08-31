@@ -129,6 +129,31 @@ async def lifespan(_app: FastAPI):
         # (tmux 세션은 백엔드보다 오래 산다 — KillMode=process).
         await tmux_manager._run("set-option", "-g", "set-titles", "on", check=False)
         await tmux_manager._run("set-option", "-g", "set-titles-string", "#{pane_title}", check=False)
+        # 하단 상태바도 켠다. create_session 은 새 세션에만 걸므로, 이걸 안 하면 백엔드보다
+        # 오래 산 세션들은 재시작할 때까지 바가 안 보인다. 값은 create_session 의 opts 와
+        # **한 벌**이어야 한다.
+        #
+        # ⚠️ **전역(-g)만으로는 안 된다.** 옛 세션들은 `status off` 를 **세션 레벨**로 들고
+        # 있고(그때의 create_session 이 그렇게 걸었다), 세션 값은 전역을 이긴다. 실측:
+        # 전역 `status on` + 세션 `status off` → 그 세션은 계속 off. 그래서 전역을 깔고
+        # 살아 있는 세션마다 다시 건다.
+        _status_opts = (
+            ("status", "on"),
+            ("status-style", "bg=default,fg=default"),
+            ("window-status-current-style", "reverse"),
+            ("status-left", ""),
+            ("status-right", ""),
+            ("status-interval", "0"),
+        )
+        for _k, _v in _status_opts:
+            await tmux_manager._run("set-option", "-g", _k, _v, check=False)
+        for _sess in await tmux_manager.list_sessions():
+            for _k, _v in _status_opts:
+                await tmux_manager._run("set-option", "-t", _sess.name, _k, _v, check=False)
+        # status off 시절에 서버 전역으로 풀어 둔 좌클릭을 되살린다(unbind 는 남는다).
+        await tmux_manager._run(
+            "bind-key", "-T", "root", "MouseDown1Status", "select-window -t =", check=False,
+        )
     # 이 기계의 에이전트가 옆 터미널을 부릴 수 있게 itl MCP 를 등록해 둔다.
     # 설정 파일이 없거나(그 기계에서 에이전트를 쓴 적이 없다) 사람이 손으로 쓴 항목이
     # 있으면 아무것도 하지 않는다 — ITL_AUTO_MCP=0 으로 끈다.

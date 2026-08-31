@@ -263,6 +263,32 @@ Related behavior, same file:
   걸려 우리 create=1 이 조용히 버려진다.
 - 예외를 넓히면 **반대 사고**(셸을 끝내도 pane 이 안 닫힘)가 난다. 테스트가 양쪽을 다 잠근다.
 
+## 하단 상태바는 켜 두되, tmux 기본값은 거의 다 갈아낀다 (2026-08-31)
+
+켜 둘 값어치는 **윈도우 목록** 하나다 — 세션·호스트·경로는 pane 헤더가 이미 말하고,
+tmux 창 목록만 앱 UI 에 없다. 그래서 바는 그것만 보여준다.
+
+tmux 3.4 기본값 중 이 임베드에서 쓸 수 있는 건 사실상 없다:
+
+| 기본값 | 왜 바꾸나 |
+|---|---|
+| `status-style bg=green,fg=black` | 60개 테마와 전부 충돌 → `bg=default,fg=default` 로 배경에 녹인다 |
+| `status-left "[#{session_name}]"` | 이 앱의 세션명은 **UUID** 라 `[9bf9790d-` 로 잘린다 → 비운다 |
+| `status-right … #{pane_title} …` | ⚠️ **에이전트 스피너가 타이틀을 초당 10~12회 바꾼다** → 상태바가 그만큼 다시 그려져 WS 로 나간다(원격은 SSH 를 탄다). 비운다 |
+| `status-interval 15` | 시계가 없으니 주기 재그리기도 필요 없다 → `0`. 이북 모드에서 15초마다 화면이 갱신되는 것도 막는다 |
+
+- **`window-status-current-style reverse`** 로 지금 창을 표시한다. 색을 쓰면 테마와 싸운다.
+- ⚠️ **`MouseDown1Status` 를 되묶어야 한다.** status off 시절에 unbind 해 뒀는데, 바가
+  보이는데 눌러도 아무 일이 없으면 고장으로 읽힌다. `unbind-key` 는 서버 전역이라 코드에서
+  빼는 것만으로는 안 돌아온다(이 파일의 다른 바인딩과 같은 규칙). 우클릭 메뉴는 계속
+  unbind — 우리 컨텍스트 메뉴와 겹친다.
+- ⚠️ **전역(`-g`)만 켜면 옛 세션은 안 켜진다.** 그때의 `create_session` 이 `status off` 를
+  **세션 레벨**로 걸었고, 세션 값은 전역을 이긴다(실측: 전역 on + 세션 off → 계속 off).
+  그래서 `lifespan` 이 전역을 깐 뒤 **살아 있는 세션마다 다시 건다.** tmux 세션은 백엔드보다
+  오래 산다(`KillMode=process`) — 이 걸음이 없으면 쓰던 세션은 영영 바가 안 보인다.
+- **설정은 세 벌이다**: `tmux_manager.create_session`(새 로컬) · `main.py` lifespan(살아 있는
+  로컬) · `host_manager` 부트스트랩(원격). 한쪽만 고치면 pane 마다 다르게 보인다.
+
 ## tmux 바인딩은 tmux 기본을 따른다 (2026-08-27)
 
 물어야 할 것은 **"alt-screen 인가" 가 아니라 "이 앱이 마우스를 원하나"** 다.
