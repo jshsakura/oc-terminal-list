@@ -139,17 +139,20 @@ async def lifespan(_app: FastAPI):
         # 살아 있는 세션마다 다시 건다.
         _status_opts = (
             ("status", "on"),
-            ("status-style", "bg=default,fg=default"),
-            ("window-status-current-style", "reverse"),
-            ("status-left", "#{?@itl_addr,[#{@itl_addr}] ,}"),
-            ("status-right", ""),
-            ("status-interval", "0"),
+            ("status-left", "#{?@itl_addr,[#{@itl_addr}] ,[#{session_name}] }"),
         )
         for _k, _v in _status_opts:
             await tmux_manager._run("set-option", "-g", _k, _v, check=False)
+        # 한때 색·오른쪽 칸·갱신 주기까지 덮었다. 세션 값은 그대로 남으므로 코드에서
+        # 빼는 것만으로는 안 돌아온다 — `-u` 로 명시적으로 떼야 tmux 순정이 된다.
+        _drop = ("status-style", "window-status-current-style", "status-right", "status-interval")
+        for _k in _drop:
+            await tmux_manager._run("set-option", "-gu", _k, check=False)
         for _sess in await tmux_manager.list_sessions():
             for _k, _v in _status_opts:
                 await tmux_manager._run("set-option", "-t", _sess.name, _k, _v, check=False)
+            for _k in _drop:
+                await tmux_manager._run("set-option", "-u", "-t", _sess.name, _k, check=False)
         # 저장된 탭 상태로 주소를 한 번 새긴다 — 백엔드가 재시작해도(세션은 살아남는다)
         # 상태바가 빈 주소로 남지 않게. 다음 갱신은 PUT /api/tab-state 가 한다.
         try:

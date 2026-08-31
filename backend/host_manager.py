@@ -31,7 +31,7 @@ DEFAULT_REMOTE_TMUX_SESSION = "mobile"
 # 미설정 시 tmux 시스템 기본 2000 줄에 묶여, 스크롤 시 이전 내용이 금방 날아간다.
 # 반드시 new-session 전에 -g(전역)로 걸어야 새 세션의 첫 pane 이 이 한도를 물려받는다
 # (history-limit 은 pane 생성 시점에 고정되며 이후 변경은 기존 pane 에 소급 적용 안 됨).
-ITL_ADDR_FORMAT = "#{?@itl_addr,[#{@itl_addr}] ,}"
+ITL_ADDR_FORMAT = "#{?@itl_addr,[#{@itl_addr}] ,[#{session_name}] }"
 
 REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "10000"))
 # 재접속(create=0 refresh) 대상 tmux 세션이 원격에 없을 때 원격 명령이 반환하는 마커 exit code.
@@ -147,16 +147,17 @@ def _build_remote_command(
         f"tmux set-option -t {safe} mouse on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
         f"tmux set-option -t {safe} focus-events on >/dev/null 2>&1; "
-        # 하단 상태바 — **로컬 tmux_manager 와 한 벌이다.** 값어치는 윈도우 목록 하나이고,
-        # 기본 초록 배경은 60개 테마와 충돌하므로 default 로 녹인다. status-right 에
-        # pane_title 을 넣지 않는 이유는 에이전트 스피너가 초당 10~12회 타이틀을 바꿔
-        # 상태바가 그만큼 다시 그려지기 때문이다(원격은 그 바이트가 SSH 를 탄다).
+        # 하단 상태바 — **로컬 tmux_manager 와 한 벌이다.** tmux 순정 그대로 두고
+        # 왼쪽 칸만 바꾼다(세션명 대신 itl 주소). 원격은 백엔드가 `@itl_addr` 를 새길 수
+        # 없으므로 조건부 포맷의 else 가지로 떨어져 **순정대로 세션 이름**이 나온다 —
+        # 원격 세션명(`mobile-abc`)은 UUID 가 아니라 그 자체로 읽을 만하다.
+        # 예전에 색·오른쪽 칸·갱신 주기까지 덮었던 값들은 `-u` 로 떼어 순정으로 되돌린다.
         f"tmux set-option -t {safe} status on >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} status-style 'bg=default,fg=default' >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} window-status-current-style reverse >/dev/null 2>&1; "
         f"tmux set-option -t {safe} status-left '{ITL_ADDR_FORMAT}' >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} status-right '' >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} status-interval 0 >/dev/null 2>&1; "
+        f"tmux set-option -u -t {safe} status-style >/dev/null 2>&1; "
+        f"tmux set-option -u -t {safe} window-status-current-style >/dev/null 2>&1; "
+        f"tmux set-option -u -t {safe} status-right >/dev/null 2>&1; "
+        f"tmux set-option -u -t {safe} status-interval >/dev/null 2>&1; "
         # pane 타이틀을 클라이언트로 흘려보낸다 (기본값 off). 이게 켜져야 원격 pane 에서
         # 도는 에이전트의 상태 타이틀이 브라우저 xterm 까지 도달한다 — 원격은 로컬 tmux
         # 폴링으로 볼 수 없으므로, 원격 상태 감지는 전적으로 이 경로에 의존한다.
