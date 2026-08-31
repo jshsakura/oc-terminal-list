@@ -175,3 +175,38 @@ describe('맨 앞/뒤 구분자', () => {
     expect(DEFAULT_MOBILE_KEYS[DEFAULT_MOBILE_KEYS.length - 1].kind).not.toBe('sep');
   });
 });
+
+/* ── herdr 프리셋 ──────────────────────────────────────────────────────────
+ * 이 앱의 pane 은 언제나 tmux 클라이언트 안이고 tmux 기본 프리픽스도 `C-b` 다.
+ * 그래서 herdr 키를 `\x02x` 로 보내면 **바깥 tmux 가 먹고 herdr 까지 가지 않는다.**
+ * `\x02\x02` 로 시작해야 tmux 의 send-prefix 를 태워 리터럴 `^B` 가 안쪽으로 통과한다.
+ *
+ * 이 실수는 조용하다 — 키를 눌러도 아무 일이 안 일어날 뿐이라 herdr 설정을 의심하게 된다.
+ * 그래서 "단순화" 로 프리픽스가 하나로 줄어드는 것을 여기서 막는다.
+ */
+describe('herdr 프리셋', () => {
+  const herdrPresets = KEY_PRESETS.filter((p) => (p.label || '').startsWith('H·'));
+
+  it('프리셋이 실제로 들어 있다', () => {
+    expect(herdrPresets.length).toBeGreaterThan(0);
+  });
+
+  it('전부 이중 프리픽스로 시작한다 (tmux send-prefix 통과)', () => {
+    for (const p of herdrPresets) {
+      expect(p.payload.startsWith('\x02\x02'), `${p.label} 이 ^B 하나로 시작한다 — tmux 가 먹는다`)
+        .toBe(true);
+    }
+  });
+
+  it('프리픽스 뒤에 키가 정확히 하나다', () => {
+    // herdr 바인딩은 `prefix + <키 하나>` 다. 두 글자면 오타이거나 다른 바인딩이다.
+    for (const p of herdrPresets) {
+      expect(p.payload.slice(2), `${p.label} 의 키가 한 글자가 아니다`).toHaveLength(1);
+    }
+  });
+
+  it('같은 키를 두 번 등록하지 않는다', () => {
+    const keys = herdrPresets.map((p) => p.payload);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+});

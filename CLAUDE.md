@@ -676,6 +676,21 @@ Fires on the watcher's `working → not-working` transition (`completed: true`),
 - Push services returning 404/410 mean the subscription is permanently dead — it is deleted on the spot rather than retried forever.
 - **Requires a secure context.** `localhost` and HTTPS work; `http://<LAN-IP>:38822` does not — the browser hides the API entirely. `pushCapability()` reports `insecure` distinctly from `unsupported` so the UI can say "change how you connect", not "your browser is too old".
 
+## 퀵바에서 중첩 멀티플렉서를 부릴 때 — 프리픽스는 두 번이다 (2026-09-01)
+
+이 앱의 pane 은 **언제나 tmux 클라이언트 안**이고, tmux 기본 프리픽스도 `C-b` 다. 그래서
+pane 안에서 herdr(또는 다른 `C-b` 프리픽스 멀티플렉서)를 돌릴 때 퀵바가 `\x02` 를 그냥
+보내면 **바깥 tmux 가 먹고 안쪽까지 가지 않는다.**
+
+→ payload 를 `\x02\x02` 로 시작한다. tmux 의 `bind-key -T prefix C-b send-prefix`(기본값)를
+태워 리터럴 `^B` 를 안쪽으로 통과시키는 것이다.
+
+- ⚠️ **이 실수는 조용하다** — 키를 눌러도 아무 일이 안 일어날 뿐이라 herdr 설정을 의심하게
+  된다. `utils/mobileKeys.test.js` 의 "herdr 프리셋" 이 이중 프리픽스를 잠근다.
+- 퀵바는 원래 임의 바이트열을 보낼 수 있다(`kind: 'send'` + `payload`). 프리셋은 폰에서
+  `\e` 표기를 손으로 치지 않게 하려는 것뿐이고, 없는 키는 설정에서 커스텀으로 추가하면 된다.
+- herdr 쪽 프리픽스를 다른 키로 바꿨다면 이 프리셋은 안 맞는다 — 그때는 커스텀 키로.
+
 ## Terminal-to-terminal messaging (`itl`)
 
 한 pane 의 에이전트가 옆 pane(다른 기계 포함)을 부린다. **이 앱만의 주력 가치다.**

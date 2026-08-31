@@ -124,6 +124,30 @@ export const KEY_PRESETS = [
   { label: 'F11', payload: '\x1b[23~' },
   { label: 'F12', payload: '\x1b[24~' },
 
+  /* herdr (멀티플렉서) — prefix 키.
+   *
+   * ⚠️ **payload 가 `^B` 하나가 아니라 `^B ^B` 로 시작하는 이유**: 이 앱의 pane 은 언제나
+   * tmux 클라이언트 안이고, tmux 기본 프리픽스도 `C-b` 다. 그래서 `\x02` 를 그냥 보내면
+   * **바깥 tmux 가 먹고 herdr 까지 가지 않는다.** tmux 의 `bind-key -T prefix C-b
+   * send-prefix`(기본값)를 태워 리터럴 `\x02` 를 안쪽으로 통과시켜야 한다.
+   * 이 실수는 조용하다 — 키를 눌러도 아무 일이 안 일어날 뿐이라 herdr 설정을 의심하게 된다.
+   *
+   * herdr 쪽에서 prefix 를 다른 키로 바꿨다면 이 프리셋들은 안 맞는다(그때는 커스텀 키로).
+   * 키 목록 출처: herdr 기본 keybindings(prefix = ctrl+b). */
+  { label: 'H·c', payload: '\x02\x02c' },   // 새 탭
+  { label: 'H·v', payload: '\x02\x02v' },   // 세로 분할
+  { label: 'H·−', payload: '\x02\x02-' },   // 가로 분할
+  { label: 'H·h', payload: '\x02\x02h', tone: 'muted' },  // pane ←
+  { label: 'H·j', payload: '\x02\x02j', tone: 'muted' },  // pane ↓
+  { label: 'H·k', payload: '\x02\x02k', tone: 'muted' },  // pane ↑
+  { label: 'H·l', payload: '\x02\x02l', tone: 'muted' },  // pane →
+  { label: 'H·p', payload: '\x02\x02p', tone: 'muted' },  // 이전 탭
+  { label: 'H·n', payload: '\x02\x02n', tone: 'muted' },  // 다음 탭
+  { label: 'H·z', payload: '\x02\x02z' },   // 줌 토글
+  { label: 'H·w', payload: '\x02\x02w' },   // 워크스페이스
+  { label: 'H·?', payload: '\x02\x02?' },   // 단축키 도움말
+  { label: 'H·q', payload: '\x02\x02q', tone: 'danger' }, // detach
+
   // 자주 쓰는 텍스트 (prefix — 스페이스 포함)
   { label: 'sudo', payload: 'sudo ' },
   { label: 'cd', payload: 'cd ' },
