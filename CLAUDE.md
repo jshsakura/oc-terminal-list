@@ -969,18 +969,13 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
 전문 — 발열 오진 이력, 하트비트 실측, 부팅 버스트, 배지 갱신, 중복 소켓:
 **[docs/notes/render-budget.md](docs/notes/render-budget.md)**
 
-- ⚠️ **`memo()` 는 붙였다고 걸리는 게 아니다.** `Terminal` 은 이 앱에서 가장 무거운
-  컴포넌트인데, `Pane` 이 인라인 화살표(`ref`·`onBroadcast`·`onRefresh`)와 객체 리터럴
-  (`paneCwdInfo`·`paneSettings`)을 넘겨서 **얕은 비교가 항상 실패**했다 — 감싸 놓고 한 번도
-  안 걸리는 상태였다. 모든 탭의 PaneGrid 가 상시 마운트되므로 손실은 탭×pane 만큼 곱해진다.
-  - 고치는 도구는 `hooks/useEvent` 다. `useCallback([])` 은 stale closure 가 되고, deps 를
-    달면 다시 새 함수가 된다. useEvent 는 identity 고정 + 호출은 항상 최신.
-  - ⚠️ **ref 콜백도 같다** — 매 렌더 새 함수면 React 가 옛 것을 null 로 부르고 새 것을 다시
-    부른다. 렌더마다 detach/attach 가 한 번씩 돈다.
-  - **이 실수는 조용하다** — 에러도 경고도 없고 memo 가 그냥 매번 "달라졌다" 고 답한다.
-    `components/panegrid/terminalPropStability.test.js` 가 소스를 훑어 막는다.
-- ⚠️ **memo 자체는 답이 아니었다 — 훅이 돌려주는 함수 참조가 진짜 원인이었다** (2026-08-31).
-  격리 인스턴스에서 렌더를 실제로 세어 얻은 값:
+- ⚠️ **memo 는 붙였다고 걸리지 않는다 — 그리고 memo 부터 붙이면 아무것도 못 얻는다.**
+  터미널 트리는 App → PaneGrid → Pane → TerminalHeader/Terminal 로 내려가고 넷 다
+  `memo()` 다. 그런데 memo 는 **얕은 비교**라, prop 하나만 매 렌더 새 참조여도 그 아래
+  전체가 다시 렌더된다. **모든 탭의 PaneGrid 가 상시 마운트**되므로 손실은 탭×pane 만큼
+  곱해진다.
+
+  격리 인스턴스에서 App 상태를 40회 흔들며 실제로 센 값(2026-08-31):
 
   | | App | PaneGrid | Pane | Header | Terminal |
   |---|---|---|---|---|---|
@@ -988,19 +983,32 @@ Terminal.jsx is dominated by a single ~919-line `useEffect` (`[connectionKey, up
   | memo 사슬만 | 92 | 80 | 80 | 80 | 80 |
   | memo + 훅 2개 고정 | 94 | **0** | **0** | **0** | **0** |
 
-  **memo 를 네 군데 다 걸어도 이득이 0 이었다.** App 이 내려보내는 prop 중 딱 둘 —
-  `updateSettings`(useSettings)와 `onFileSelect`(= useEditorTabs 의 `handleFileOpen`) —
-  이 매 렌더 새 함수라 얕은 비교가 항상 실패했다. 인라인 화살표가 아니라 **이름 있는
-  참조**여서 소스 스캔 가드도 못 잡았다.
-  - **순서가 규칙이다: 위층(훅)의 참조를 먼저 고정하고, 그 다음 memo.** 반대로 하면
-    memo 는 장식이고, 그 장식 때문에 실제로 탭 종료가 깨진 적이 있다(revert `800ecad`).
-  - 고치는 도구는 `hooks/useEvent`. `useCallback([])` 은 stale closure 가 되고 deps 를
-    달면 다시 새 함수가 된다.
-  - `hooks/hookIdentityStability.test.jsx` 가 그 전제를 잠근다 — 참조가 고정인지, 그러면서
-    **최신 상태를 보는지**(stale 이 아닌지) 둘 다 본다.
-  - ⚠️ **memo 검사는 동작을 대신하지 못한다.** 구조 스캔·단위 테스트 1,500여 개가 전부
-    통과한 채로 탭 종료가 먹통이 됐다. 지금은 격리 인스턴스(별도 DB·포트·tmux 소켓)에
-    **프로덕션 빌드**를 올려 브라우저로 직접 눌러 확인한다.
+  - **순서가 규칙이다: 위층의 참조를 먼저 고정하고, 그 다음 memo.** 반대로 하면 memo 는
+    장식이고(위 표의 가운데 줄), 그 장식 때문에 실제로 탭 종료가 깨진 적이 있다
+    (`a86447a` → revert `800ecad`).
+  - **깨뜨리는 방식이 두 가지고, 둘째가 훨씬 잘 숨는다.**
+    1. 인라인 리터럴 — `ref={(h) => …}`, `paneCwdInfo={{…}}`. 소스 스캔으로 잡힌다.
+    2. **이름 있는 참조인데 실은 불안정** — 훅이 매 렌더 새로 만들어 돌려주는 함수
+       (`useSettings` 의 `updateSettings`, `useEditorTabs` 의 `handleFileOpen`). 호출부만
+       보면 멀쩡해 보여서 스캔이 못 잡는다. **어느 prop 이 바뀌는지는 memo 비교기에
+       계측을 넣어 재는 수밖에 없다** — 실제로 그렇게 찾았다.
+  - 고치는 도구는 `hooks/useEvent`. `useCallback([])` 은 stale closure 가 되고, deps 를
+    달면 다시 새 함수가 된다. useEvent 는 identity 고정 + 호출은 항상 최신.
+  - ⚠️ **ref 콜백도 같다** — 매 렌더 새 함수면 React 가 옛 것을 null 로 부르고 새 것을 다시
+    부른다. 렌더마다 detach/attach 가 한 번씩 돈다.
+  - ⚠️ **pane 처럼 항목별 인자를 잡는 콜백은 통짜 useEvent 로 안 된다.** PaneGrid 의
+    `paneHandlers` 처럼 id 별로 캐시한다(안쪽은 useEvent 라 낡지 않는다). 닫힌 pane 의
+    항목은 지운다 — 안 지우면 그 Map 이 세션 내내 자란다.
+  - 잠그는 테스트 셋. 하나로는 부족하다는 것이 이 사고의 교훈이다:
+    - `hooks/hookIdentityStability.test.jsx` — 훅이 돌려주는 참조가 고정인지, 그러면서
+      **최신 상태를 보는지**(stale 아닌지). 위 2번을 막는다.
+    - `components/panegrid/memoPropStability.test.js` — 사슬 네 구간의 인라인 리터럴.
+      1번을 막는다.
+    - `components/paneGridClose.test.jsx` — 닫기 콜백을 **실제로 호출**해 자기 pane 의
+      id 로 부모를 부르는지.
+  - ⚠️ **그래도 구조 검사는 동작을 대신하지 못한다.** 위 테스트와 단위 테스트 1,500여 개가
+    전부 통과한 채로 탭 종료가 먹통이 됐다. **성능 변경은 격리 인스턴스**(별도 DB·포트·
+    tmux 소켓, `.env` 로 분리)**에 프로덕션 빌드를 올려 브라우저로 직접 눌러 확인한다.**
 - ⚠️ **`isActive` 는 "보고 있는 pane" 이 아니다.** 분할 그리드에서는 형제가 전부
   `isActive=true` 이고 `isFocused` 만 1개다. 새 게이트를 달 때 **"분할이면 몇 개가
   실행되는가"** 를 먼저 물어라 — 이 하나로 출력 렌더·하트비트·health 프로브 세 군데가

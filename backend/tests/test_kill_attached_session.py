@@ -89,13 +89,17 @@ def test_only_restart_and_tab_close_may_kill_an_attached_session():
 
     ⚠️ 기본값이 안전한 쪽인 이유가 이것이다 — 새 호출부가 아무것도 안 하면 거절로
     떨어진다. 반대로 만들면(기본 허용 + 위험한 곳만 명시) 잊은 곳이 곧 사고다.
+
+    ⚠️ 검사 대상은 **실제 사용**(`allow_attached=true`)이지 낱말 언급이 아니다. App.jsx 는
+    "주지 않는다" 고 적은 주석 때문에 낱말로는 걸리는데, 그걸 허용목록에 넣어 두면 언젠가
+    App.jsx 가 진짜로 플래그를 주기 시작해도 통과한다.
     """
-    allowed = {"utils/restartSession.js", "App.jsx"}
+    allowed = {"utils/restartSession.js", "utils/killRemoteSession.js"}
     for path in _FRONT.rglob("*.js*"):
         if path.suffix not in (".js", ".jsx") or ".test." in path.name:
             continue
         text = path.read_text(encoding="utf-8")
-        if "allow_attached" not in text:
+        if "allow_attached=true" not in text:
             continue
         rel = path.relative_to(_FRONT).as_posix()
         assert rel in allowed, f"{rel} 이 붙어 있는 세션을 죽이려 한다 — 의도한 것인가?"
@@ -126,10 +130,13 @@ def test_restart_asks_for_recreate():
 
 
 def test_tab_close_does_not_ask_for_recreate():
-    """탭 닫기는 정반대다 — 이 앱에서 닫기는 종료를 뜻하고, 되살아나면 안 된다."""
-    app = (_FRONT / "App.jsx").read_text(encoding="utf-8")
-    body = app[app.index("const killRemoteTmuxSession"):]
-    body = body[:body.index("}, []);")]
+    """탭 닫기는 정반대다 — 이 앱에서 닫기는 종료를 뜻하고, 되살아나면 안 된다.
+
+    ⚠️ 이 로직은 App.jsx 의 `killRemoteTmuxSession` 에서 `utils/killRemoteSession.js` 로
+    옮겨졌다(재시도가 붙으면서). 테스트가 옛 자리를 보는 동안 **불변식은 지켜지는데
+    테스트만 빨갛게** 남아 있었다 — 모듈 내부를 손으로 짚는 테스트는 코드를 따라와야 한다.
+    """
+    body = (_FRONT / "utils" / "killRemoteSession.js").read_text(encoding="utf-8")
     assert "allow_attached=true" in body
     assert "recreate" not in body, "탭 닫기가 recreate 를 주면 닫은 세션이 되살아난다"
 
