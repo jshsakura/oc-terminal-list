@@ -34,13 +34,13 @@ _DEFAULT_IDLE = 300.0  # 5min
 _CONNECT_TIMEOUT = float(os.getenv("SSH_POOL_CONNECT_SEC", "20"))
 # 이 풀을 쓰는 명령은 전부 짧다(tmux list-sessions, ss). 긴 작업은 run_remote_cmd 를 쓴다.
 _COMMAND_TIMEOUT = float(os.getenv("SSH_POOL_COMMAND_SEC", "20"))
-# 끊긴 망에서 wait_closed() 는 안 돌아올 수 있다(host_manager·itl_remote 와 같은 값).
+# 끊긴 망에서 wait_closed() 는 안 돌아올 수 있다(host_manager 와 같은 값).
 _CLOSE_TIMEOUT = 5.0
 
 
 async def _close_bounded(conn) -> None:
     """연결을 닫되 **정리를 기다리다 매달리지 않는다.** 끊긴 망에서 `wait_closed()` 는
-    돌아오지 않을 수 있다(host_manager·itl_remote 가 같은 상한을 갖는 이유)."""
+    돌아오지 않을 수 있다(host_manager 가 같은 상한을 갖는 이유)."""
     try:
         conn.close()
         await asyncio.wait_for(conn.wait_closed(), timeout=_CLOSE_TIMEOUT)

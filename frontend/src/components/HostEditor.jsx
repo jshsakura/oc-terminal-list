@@ -10,7 +10,6 @@ import { authHeaders } from '../utils/auth';
 import { copyToClipboard } from '../utils/clipboard';
 import { heStyles, styles } from './hostEditor/hostEditorStyles';
 import { Section, Divider, Row, Field, Input, Select, SegmentedControl, Toggle } from './hostEditor/HostEditorFields';
-import HostAgentSection from './hostEditor/HostAgentSection';
 import { IconButton, ColorPicker, TailscalePicker } from './hostEditor/HostEditorPickers';
 
 const { color, font, fontSize, radius, space, motion } = tokens;
@@ -96,7 +95,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
         } else if (data.platform === 'windows') {
           /* "tmux not found" is true but useless here — nothing else on this host will
              work either, and the fix is a different kind of host, not a package. */
-          setTmuxWarning(t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and itl all assume a POSIX shell.');
+          setTmuxWarning(t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and tool installs all assume a POSIX shell.');
         } else {
           setTmuxWarning(t('tmuxNotAvailable') || 'tmux not found on this host — sessions will not persist.');
         }
@@ -240,7 +239,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
           {heTab === 'connection' && (
             <>
               <Section title={t('connection') || 'Connection'}>
-                <Field label={t('hostName') || 'Display name'} hint={t('hostNameFieldHint') || 'The name you will see in the list. It seeds the tab name, and doubles as an itl address (@name).'}>
+                <Field label={t('hostName') || 'Display name'} hint={t('hostNameFieldHint') || 'The name you will see in the list. It seeds the tab name.'}>
                   <Input value={draft.name} onChange={(v) => set('name', v)} placeholder="prod-web-01" autoFocus />
                 </Field>
                 <Row>
@@ -510,15 +509,6 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                       </div>
                     )}
                   </div>
-                </Section>
-              )}
-              {/* itl 과 리모트는 **한 기능의 두 반쪽**이다 — 어느 한쪽만으로는 되는 일이
-                  없어서(리모트만 = 그쪽 에이전트가 답장 못 함, itl 만 = 이쪽에서 보지도
-                  부르지도 못함) 구획도 버튼도 하나다. 오래 둘이었던 건 만들어진 순서가
-                  그랬을 뿐이지 사용자가 고를 일이 있어서가 아니었다. */}
-              {host?.id && draft.use_remote_tmux && (
-                <Section title={t('agentSection') || '터미널 간 명령 주고받기'}>
-                  <HostAgentSection hostId={host.id} authHeaders={authHeaders} t={t} />
                 </Section>
               )}
             </>

@@ -8,7 +8,8 @@ const { color, font, fontWeight } = tokens;
 /**
  * pane 우상단의 주소 배지 — "3번 터미널로 보내"라고 말할 수 있게 하는 라벨.
  *
- * `탭|pane` 이 곧 `itl send 1.3` 의 주소다. 이름을 함께 다는 이유는 분할 화면(데스크탑)엔
+ * `탭|pane` 이 곧 이 pane 의 주소다(하단 tmux 상태바에도 같은 값이 뜬다). 이름을 함께
+ * 다는 이유는 분할 화면(데스크탑)엔
  * 서브탭바가 없어 pane 이름이 나올 자리가 여기뿐이기 때문.
  *
  * **접기/펼치기**: 이름까지 펼치면 그만큼 터미널 출력을 덮는다. 주소만 남기고 접을 수
@@ -95,14 +96,14 @@ const PaneAddressLabel = memo(({
         transition: 'opacity 120ms ease',
       }}
     >
-      {/* 주소 = 접기/펼치기 핸들. 앞이 탭 번호, 뒤가 pane 번호이고 둘이 합쳐 `itl send 1.3`.
+      {/* 주소 = 접기/펼치기 핸들. 앞이 탭 번호, 뒤가 pane 번호이고 둘이 합쳐 `1.3`.
           탭 번호를 모르면(목록에 없는 탭) pane 번호만 — 틀린 주소를 그리느니 안 그린다. */}
       <button
         type="button"
         style={{ ...addressGroupStyle, cursor: onToggleExpand ? 'pointer' : 'default' }}
         title={onToggleExpand
           ? (isExpanded ? collapseLabel : expandLabel)
-          : (fullAddress ? `itl send ${fullAddress}` : undefined)}
+          : (fullAddress || undefined)}
         onClick={onToggleExpand ? (e) => { e.stopPropagation(); onToggleExpand(); } : undefined}
       >
         {tabNumber != null && (

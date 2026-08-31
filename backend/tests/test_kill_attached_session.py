@@ -155,23 +155,23 @@ def test_a_name_with_the_separator_keeps_its_created():
 
 # --- 목록의 attached 는 캐시하지 않는다 -------------------------------------------
 
-def test_the_session_list_prefers_the_live_remote():
+def test_a_stale_list_cannot_kill_a_session_you_are_using():
     """⚠️ 실측 사고: 쓰고 있는 rpi5 세션이 "이어할 수 있는 세션" 에 계속 떴다. tmux 는
     그때 `attached=1` 이라고 말하고 있었는데 화면은 60초 캐시된 `0` 을 들고 있었다.
+    그걸 종료하자 **쓰던 세션이 같이 죽었다.**
 
-    "이어할 수 있다" 는 **지금**에 대한 단언이다 — 낡은 값으로 그 단언을 하면 화면이
-    쓰는 중인 세션을 지우라고 내민다. 리모트가 붙어 있으면 캐시를 아예 지나친다.
+    목록은 캐시를 지난다(SSH 왕복이 비싸다 — 꺼진 호스트 하나가 홈을 15초씩 붙잡던 자리).
+    그래서 화면은 언제나 과거를 그릴 수 있고, **안전 판정을 화면의 스냅샷에 맡기면 안 된다.**
+    판정은 죽이기 **직전에** 한 번 더 한다.
     """
     import inspect
 
     from routes import hosts as route
-    body = inspect.getsource(route._fetch_host_tmux_sessions)
-    live = body.index("_sessions_over_remote")
-    cached = body.index("cache.get")
-    assert live < cached, "캐시를 먼저 본다 — 리모트가 있어도 낡은 값을 준다"
-
-    # 그리고 리모트 경로는 그 결과를 캐시에 넣지 않는다(넣으면 다음 조회가 다시 낡는다).
-    assert "cache.set" not in inspect.getsource(route._sessions_over_remote)
+    body = inspect.getsource(route.kill_host_tmux)
+    assert "assert_not_attached" in body, "죽이기 직전 재판정이 사라졌다"
+    # 그리고 그 재판정은 캐시가 아니라 **그 순간의 tmux 목록**을 본다.
+    assert "LIST_SSH_CMD" in body
+    assert "cache.get" not in body
 
 
 def test_both_paths_share_one_parser():

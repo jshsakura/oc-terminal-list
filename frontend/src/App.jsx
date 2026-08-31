@@ -741,8 +741,8 @@ function App() {
   // 대신 CustomEvent 로 터미널이 직접 화면 텍스트를 보내고 여기서 수신한다.
   useEffect(() => {
     const handler = (e) => setScreenDumpText(e.detail?.text || '— empty —');
-    window.addEventListener('itl:screen-dump', handler);
-    return () => window.removeEventListener('itl:screen-dump', handler);
+    window.addEventListener('iterm:screen-dump', handler);
+    return () => window.removeEventListener('iterm:screen-dump', handler);
   }, []);
 
   // 활성 viewport 기준 effective settings — fontSize 를 PC/모바일 분리. 자식들

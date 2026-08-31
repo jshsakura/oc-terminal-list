@@ -16,7 +16,7 @@ const { color, font, fontSize, fontWeight, radius, space } = tokens;
 const STEPS = [
   { key: 'guideStep1', fallback: 'Add a server below. Keys and passwords are stored encrypted and never shown again.' },
   { key: 'guideStep2', fallback: 'Click it to open a terminal there. It keeps running after you close the window.' },
-  { key: 'guideStep3', fallback: 'Hand work to another terminal: itl list shows the addresses, itl send 1.2 "…" delivers. Nothing to install.' },
+  { key: 'guideStep3', fallback: 'Put your tools on a machine: the 📦 button on a host card opens the install list and types the command into a terminal there.' },
 ];
 
 const FirstRunGuide = ({ t = null }) => (

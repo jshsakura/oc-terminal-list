@@ -56,3 +56,13 @@ def _fake_ok(script: str) -> str:
     """스크립트에 박힌 표식을 그대로 되돌려 준다 — 실제 셸이 하는 일과 같은 모양."""
     marker = re.search(r"@@TOOL[0-9a-f]+", script).group(0)
     return f"{marker} herdr\n{marker} ok\n/usr/bin/herdr\n"
+
+
+def test_check_is_registered_before_the_param_route():
+    """⚠️ 라우트 등록 순서 = 매칭 우선순위.
+
+    `POST /api/tools/{tool_id}` 가 언젠가 생기면, `check` 가 뒤에 있는 순간 "check 라는
+    도구" 로 읽힌다. 이 저장소는 `POST /api/sessions/prune` 에서 같은 함정을 밟았다.
+    """
+    paths = [r.path for r in tools_route.router.routes]
+    assert paths.index("/api/tools/check") < paths.index("/api/tools/{tool_id}")

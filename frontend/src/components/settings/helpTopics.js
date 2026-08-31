@@ -14,7 +14,7 @@
  * Order is an argument. The first section is what this app does that others cannot:
  * relaying a command from one machine's agent to another's, over sessions that outlive
  * the browser. Filed fifth, behind "tabs and panes", the reader never learns why they
- * would pick this over any other web terminal — so it leads, and itl follows the basics
+ * would pick this over any other web terminal — so it leads, and the basics follow
  * rather than trailing the feature list.
  */
 
@@ -42,17 +42,12 @@ export const HELP_TOPICS = [
     ],
   },
   {
-    id: 'itl',
-    titleKey: 'helpSecItl',
+    id: 'tools',
+    titleKey: 'helpSecTools',
     entries: [
-      { termKey: 'helpItlWhatTerm', descKey: 'helpItlWhatDesc' },
-      { termKey: 'helpItlHandoffTerm', descKey: 'helpItlHandoffDesc' },
-      { termKey: 'helpItlAddrTerm', descKey: 'helpItlAddrDesc' },
-      { termKey: 'helpItlRemoteTerm', descKey: 'helpItlRemoteDesc' },
-      { termKey: 'helpItlNoKeyTerm', descKey: 'helpItlNoKeyDesc' },
-      { termKey: 'helpItlReadTerm', descKey: 'helpItlReadDesc' },
-      { termKey: 'helpItlWaitTerm', descKey: 'helpItlWaitDesc' },
-      { termKey: 'helpItlMcpTerm', descKey: 'helpItlMcpDesc' },
+      { termKey: 'helpToolsTerm', descKey: 'helpToolsDesc' },
+      { termKey: 'helpToolsCheckTerm', descKey: 'helpToolsCheckDesc' },
+      { termKey: 'helpStatusDotTerm', descKey: 'helpStatusDotDesc' },
     ],
   },
   {
@@ -85,16 +80,6 @@ export const HELP_TOPICS = [
       { termKey: 'helpEditorTerm', descKey: 'helpEditorDesc' },
       { termKey: 'helpFileLinkTerm', descKey: 'helpFileLinkDesc' },
       { termKey: 'helpFileSearchTerm', descKey: 'helpFileSearchDesc' },
-    ],
-  },
-  {
-    id: 'notify',
-    titleKey: 'helpSecNotify',
-    entries: [
-      { termKey: 'helpPushTerm', descKey: 'helpPushDesc' },
-      { termKey: 'helpTelegramTerm', descKey: 'helpTelegramDesc' },
-      { termKey: 'helpStatusDotTerm', descKey: 'helpStatusDotDesc' },
-      { termKey: 'helpNotifyOpenTerm', descKey: 'helpNotifyOpenDesc' },
     ],
   },
   {

@@ -11,7 +11,7 @@ Two constraints follow from that:
 1. **stdlib only.** Installing nothing on the hosts is the entire point of this
    approach — no resident process, no port to open, no image to keep updated.
 2. **It must stay a single file,** because what gets piped over stdin is exactly
-   this file. (Same rule, same reason, as `backend/cli/itl`.)
+   this file.
 
 The collector **only extracts**. Multiplying by prices happens in the backend
 (`pricing.py`): prices change, and a table living inside the remote script would

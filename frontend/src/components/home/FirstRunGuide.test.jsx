@@ -13,9 +13,9 @@ describe('FirstRunGuide', () => {
     expect(screen.getByText(ko.guideStep3)).toBeTruthy();
   });
 
-  it('마지막 걸음은 이 앱의 요점이다 — 일은 연 터미널에 머물지 않는다', () => {
+  it('마지막 걸음은 그 기계에 필요한 걸 얹는 것이다 — 빈 상자로 시작하지 않는다', () => {
     render(<FirstRunGuide t={t} />);
-    expect(ko.guideStep3).toMatch(/itl send/);
+    expect(ko.guideStep3).toMatch(/설치/);
   });
 
   it('t 가 없어도 죽지 않는다', () => {

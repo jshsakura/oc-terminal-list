@@ -31,7 +31,7 @@ describe('collectOtherPaneSessions', () => {
 
   it('sessionKey 는 백엔드가 아는 신원 — 로컬은 sessionId, 원격은 tmux 세션명', () => {
     /* `key` 는 이 브라우저 안에서만 통하는 값이다(원격이면 프론트 pane id). 백엔드로
-       명령을 보낼 때 그걸 주소로 쓰면 서버가 못 찾는다 — itl_targets 는 sessionId /
+       명령을 보낼 때 그걸 주소로 쓰면 서버가 못 찾는다 — 백엔드는 sessionId /
        tmuxSessionName 정확일치로 신원을 찾는다. */
     const out = collectOtherPaneSessions(makeTabs(), { excludePaneId: 'p1', excludeKey: 'sess1' });
     expect(out.map((s) => [s.key, s.sessionKey])).toEqual([
@@ -112,7 +112,7 @@ describe('collectOtherPaneSessions', () => {
 
   it('tabIndex/paneIndex/address 는 원본 순번(1-based) — 빈 pane 등을 건너뛰어도 순번은 그대로', () => {
     // makeTabs 의 sess2 는 tab-a 의 두번째 pane(p2) — p3(빈)/p4(vnc) 는 목록에서 빠지지만
-    // 순번은 배열 위치를 따르므로 화면의 pane 배치와 일치한다. address 는 itl 주소
+    // 순번은 배열 위치를 따르므로 화면의 pane 배치와 일치한다. address 는 pane 주소
     // 체계(tabIdx.paneIdx)와 같은 형식이라 탭이 몇 개든 항상 유일하다.
     const out = collectOtherPaneSessions(makeTabs(), { excludePaneId: 'p1', excludeKey: 'sess1' });
     expect(out.find((s) => s.key === 'sess2').paneIndex).toBe(2);

@@ -170,7 +170,7 @@ Do not put JWT or vault keys in `.env` — they are auto-managed.
 **Fix (`backend/ws_auth.py`):** the WS handshake authenticates by ticket **or**, if none, by the same-origin auth cookie (`iterm_auth`). A fresh WebSocket is always a fresh TCP connection, so it sidesteps the wedged HTTP/2 pool, and the cookie rides the handshake automatically — reconnect no longer depends on an HTTP fetch. Both `routes/terminal_ws.py` and `routes/host_ws.py` call `authenticate_ws()`.
 
 - **CSWSH defense:** the cookie is `SameSite=Strict` (browser won't attach it cross-site) **plus** an Origin check — cookie fallback is refused unless `Origin` is in `ALLOWED_ORIGINS` (or, when that's unset/wildcard, `Origin` host == `Host`). No `Origin` header (non-browser) → cookie fallback refused. Tickets are unaffected by the Origin check.
-- **Same trust as every cookie endpoint:** fallback uses `verify_token`, which rejects scoped (ITL) / otp_pending tokens — a leaked `ITL_TOKEN` can't attach a WS.
+- **Same trust as every cookie endpoint:** fallback uses `verify_token`, which rejects scoped / otp_pending tokens. (The app no longer issues scoped tokens; the rejection stays because an old `ITL_TOKEN` may still be sitting in a remote tmux env until it expires.)
 - **Client (`Terminal.jsx` `connect()`):** when the ticket fetch fails and it is **not** a 401 (i.e. the wedge case), it no longer bails — it opens the WS with no ticket and lets cookie auth bootstrap it. `buildWsUrl` omits the `ticket` param when falsy. Genuine auth expiry (401) still routes to the login screen; if the cookie is also dead the server closes 1008 and the next ticket fetch's 401 triggers login.
 
 **SSE and raw-file tickets got the same cookie fallback (2026-07-24).** Same wedge, same cure — but simpler, because both are ordinary GET routes (not a WS handshake), so they reuse `verify_auth_token` directly instead of `ws_auth`:
@@ -266,7 +266,7 @@ Related behavior, same file:
 ## 하단 상태바 — 순정 그대로, 왼쪽 칸만 바꾼다 (2026-08-31)
 
 `status off` 였다. 켠 이유는 둘: **윈도우 목록**(앱 UI 에 없는 유일한 것)과, 왼쪽 칸에
-넣을 **이 pane 의 `itl` 주소**.
+넣을 **이 pane 의 주소**(`1.2`).
 
 **나머지는 tmux 순정을 건드리지 않는다.** 한때 색·오른쪽 칸·갱신 주기를 전부 덮었다가
 "바를 너무 커스텀했다" 로 되돌린 자리다. 덮을 이유가 실제로는 없었다 —
@@ -282,13 +282,14 @@ Related behavior, same file:
   그 값만 손보면 된다 — 지금은 순정을 우선했다.
 
 **왼쪽 칸만 바꾸는 이유**: 순정은 `[#{session_name}] ` 인데 이 앱의 세션명은 **UUID** 라
-`[9bf9790d-` 로 잘려 아무 정보가 아니다. 같은 자리·같은 모양에 `itl` 주소(`[1.2]`)를 넣는다.
+`[9bf9790d-` 로 잘려 아무 정보가 아니다. 같은 자리·같은 모양에 pane 주소(`[1.2]`)를 넣는다.
 
-- **왜 필요한가**: `itl` 로 옆 터미널을 부리려면 주소가 필요한데 **자기 주소를 자기가 볼
+- **왜 필요한가**: "옆에 2번한테 시켜" 라고 말하려면 주소가 필요한데 **자기 주소를 자기가 볼
   방법이 없었다**(MCP `terminal_whoami` 를 쓰는 에이전트만 알 수 있었다). 이제 "옆에
   2번한테 시켜" 가 된다.
-- 주소는 앱 개념(탭.pane)이라 tmux 가 모른다 → 백엔드가 tmux **사용자 옵션** `@itl_addr` 로
-  새기고(`itl_addr_stamp.py`) `status-left` 가 `#{?@itl_addr,…,…}` 로 읽는다.
+- 주소는 앱 개념(탭.pane)이라 tmux 가 모른다 → 백엔드가 tmux **사용자 옵션** `@pane_addr` 로
+  새기고(`pane_addr.py`) `status-left` 가 `#{?@pane_addr,…,…}` 로 읽는다. 번호를 세는 곳은
+  `pane_targets.build_targets` **하나**다 — 두 곳이 세면 반드시 어긋난다.
 - ⚠️ **번호는 밀린다** — pane 을 닫으면 뒤가 당겨진다. 그래서 `PUT /api/tab-state`(번호가
   바뀔 수 있는 **모든** 순간)마다 다시 새긴다. 바뀐 것만 호출한다(탭 상태 저장은 잦다).
 - **원격 pane 은 안 새긴다**(그쪽 tmux 는 그 호스트에 있다) → 조건부 포맷의 else 로 떨어져
@@ -450,73 +451,6 @@ after sending 'websocket.close'` 를 매일 7건씩 쌓고 있었다(닫히는 �
   소켓이 닫힌 뒤에 send 한다. 이 finally 는 run() 이 cancel 해서 도는 자리다.
 - `_ws_gone` 은 펌프를 **다 거둔 뒤에** 세운다. 그 전에 세우면 마지막 drain 이 버려진다.
 
-### 원격은 리모트로만 간다 — SSH 로 찌르지 않는다 (2026-08-27)
-
-⚠️ **설치할 때 넘기는 두 번째 인자는 tmux 소켓이지 세션 이름이 아니다.** 거기에
-`remote_tmux_session`(예: `mobile`)을 넘겼더니 리모트가 `tmux -L mobile` 을 보고
-**서버 없음**으로 판정해 pane 스트림이 아예 안 왔다 — 상태는 영영 "모름" 이고
-배달·읽기는 셸 경로로 떨어져 거절됐다(실측: statusUnknown 15/15, read 502).
-원격의 우리 세션은 **기본 소켓**에 산다(부트스트랩이 `-L` 없이 tmux 를 부른다).
-
-⚠️ **`build_probe_cmd` 는 리모트로 보내지 않는다.** `||`·`{ }`·`exit` 를 쓰는 진짜 셸
-구문이라 tmux 전용 통로로는 실행할 수 없다. 리모트가 붙어 있으면 그 답(존재·명령·타이틀)이
-이미 스트림에 있으므로 거기서 낸다(`itl_remote.probe`). 채널이 자기 `host_id` 를 들고
-있어서 호출부 시그니처는 그대로다.
-
-⚠️ 허용목록 테스트는 **실제 빌더에서 명령을 뽑는다.** 손으로 적으면 빌더가 바뀔 때
-테스트만 옛 문자열을 지키고 진짜 명령은 막힌 채로 남는다 — 그게 이 사고였다.
-
-**가르는 기준은 "SSH 냐" 가 아니라 "얼마나 자주 부르냐" 다.**
-
-| | 경로 |
-|---|---|
-| 되풀이되는 것 (상태 채우기·기다림) | **리모트만.** 없으면 `statusUnknown` |
-| 화면 열 때 한 번 (실행중 보드) | 리모트가 있으면 그쪽, 없으면 SSH (`open_channel_on_demand`) |
-
-⚠️ `open_channel_on_demand` 를 폴링 경로에서 부르면 그 구분이 무너진다. 새로 쓰기 전에
-**"이게 반복되나"** 를 먼저 물을 것.
-
-⚠️ 실행중 보드의 기계 값은 리모트가 **`/proc` 에서 직접 읽어** 보낸다. 셸로 받아오면
-`run` 통로를 tmux 밖으로 넓혀야 하는데, 우리 코드가 이미 그 기계에 있으니 그럴 이유가 없다.
-키 이름은 `parse_machine` 과 **똑같아야 한다**(snake_case) — camelCase 로 냈다가 화면이
-못 읽어 메모리가 통째로 비었다(`cpus` 만 우연히 같아서 나왔다).
-
-**기준이 하나다: 그 호스트에 리모트가 붙어 있나.** 붙어 있으면 상태·배달·읽기가 전부 그
-소켓으로 가고, 아니면 안 된다. SSH 폴백은 **없다.**
-
-없앤 이유는 경로가 둘이면 실패 방식도 둘이기 때문이다 — 어느 쪽으로 갔는지에 따라
-지연도 오류도 달라져 진단이 매번 새로 시작된다. 그리고 없는 리모트를 SSH 로 대신하려면
-**꺼진 기계를 찔러 15초를 태워야** 하는데, 그게 홈 화면을 멈춰 세우던 원인이었다
-(`terminal_wait` 는 그걸 5초마다 했다).
-
-- 리모트 없는 호스트의 pane 은 `statusUnknown` 이다. 결함이 아니라 **사실**이다 —
-  우리가 볼 방법이 없다. 추측으로 채우면 `terminal_wait` 가 0초에 거짓 완료를 준다.
-- 화면은 그 호스트에 **설치 버튼**을 내민다(호스트 목록의 ⤓). 경고색이 아니다 —
-  안 깐 것은 선택이고, 여기서 말하는 것은 "할 수 있다" 다.
-- 낡은 리모트는 **다시 설치해서** 고친다(상태에 `outdated`). SSH 로 숨기지 않는다.
-- `tests/test_remote_channel.py` 가 리모트 경로에 SSH 관련 이름이 다시 들어오는 것을 막는다.
-
-### 원격 상태는 밀려 온다 — 물어보지 않는다 (2026-08-27)
-
-리모트가 붙어 있는 호스트는 pane 상태를 **스트림으로 밀어 준다**(`remote_agent/ingest`).
-그래서 그 호스트에는 SSH 로 상태를 묻지 않는다(`_fill_remote_status` 가 리모트 있는
-호스트를 먼저 빼고 나머지에만 왕복한다). `itl list` 의 원격 `?` 도 그만큼 사라진다.
-
-`terminal_wait` 는 **서버가 붙잡는다**(`GET /api/itl/wait`). 예전에는 호출자가 2초(로컬)·
-5초(원격)마다 다시 물었고 원격은 그때마다 SSH 왕복이었다 — 이 저장소가 토큰을 크게
-태운 그 패턴이다. 지금은 상태가 바뀔 때만 깨어난다(`agent_status_events`).
-
-- **한 번에 25초만 붙잡는다**(호출자 HTTP 상한 30초 안쪽). 더 기다려야 하면 이어 부른다.
-  오래 매달린 요청은 이 저장소가 이미 겪은 고장이다(공유 HTTP/2 풀 wedge · iOS 진행바).
-- ⚠️ 신호(`agent_status_events`)에 **내용을 싣지 않는다.** 깨어난 쪽이 다시 판정한다 —
-  신호에 상태를 실으면 받는 쪽마다 판정이 생긴다(이 저장소가 파서 이중화로 여러 번 데었다).
-- ⚠️ `asyncio.Event` 를 모듈 전역으로 두지 않는다. 처음 쓰인 루프에 묶여 다른 루프에서
-  기다리면 죽는다. 기다리는 쪽이 자기 루프에서 future 를 만들어 등록한다.
-- ⚠️ 완료 알림은 로컬과 **같은 함수**를 탄다(`_notify_completions` 에 소유자·발췌를 주입).
-  두 벌로 만들면 중복 억제·소요시간 규칙이 조용히 갈라진다.
-- ⚠️ 상태 맵의 키에 호스트를 붙인다. 원격 sessionId 는 그 호스트의 tmux 세션명이라
-  호스트가 다르면 겹치고, 겹치면 한쪽 완료가 다른 쪽 지문을 덮어 알림이 사라진다.
-
 ### SSH 풀의 대기에는 전부 상한이 있다 (2026-08-27)
 
 `ssh_pool.get()` 은 **per-host 잠금을 쥔 채** 연결을 연다. 거기서 멈추면 그 호스트로 가는
@@ -540,7 +474,7 @@ after sending 'websocket.close'` 를 매일 7건씩 쌓고 있었다(닫히는 �
 
 ⚠️ 그 호출은 `asyncio.to_thread` 안에서 돌아 **실행기 스레드까지 잡아먹는다.** 그래서
 한 함수의 반납 누락이 저장소를 쓰는 **모든 요청의 정지**가 된다. 실측: 반납을 빠뜨린
-함수 하나(`get_host_cred_epoch`, itl 요청마다 호출된다)가 앱 전체를 세웠고, 종료 로그에
+함수 하나(당시 요청마다 호출되던 호스트 조회)가 앱 전체를 세웠고, 종료 로그에
 `Cancel 97 running task(s)` 가 남았다(정상값은 1 — SSE 스트림 하나).
 
 - 풀 대기에는 상한이 있다(`SQLITE_POOL_WAIT_SEC`, 기본 10s). 같은 버그가 다시 나면
@@ -620,6 +554,7 @@ env 를 읽는 모듈" 목록의 **전제까지** 검사한다 — 목록이 낡
 |---|---|
 | `routes/auth.py` | login/token, OTP, passkey |
 | `routes/sessions.py` · `routes/terminal_ws.py` | session REST · local terminal WS |
+| `routes/tools.py` · `host_tools.py` · `db/tools.py` | 설치 도구 목록 · 설치 여부 프로브 |
 | `routes/hosts.py` · `routes/host_ws.py` · `routes/host_files.py` · `routes/host_git.py` | SSH hosts |
 | `routes/files_read.py` · `routes/files_write.py` | workspace files, split by side effects |
 | `routes/user_state.py` | UI settings, command history, tab state, SSE |
@@ -649,7 +584,7 @@ Terminal panes report agent state (`working` / `permission` / `idle`) with **no 
 | xterm `onTitleChange` (`createXtermInstance.js`) | any attached pane, **incl. remote SSH hosts** | instant |
 | backend `tmux list-panes -a -F` poll (`agent_status_watcher.py`) | local sessions **with no client attached** | 1.5s active / 5s idle |
 
-Remote panes live in the *remote* box's tmux, so the backend poll cannot see them — remote status depends entirely on the xterm feed.
+Remote panes live in the *remote* box's tmux, so the backend poll cannot see them — remote status depends **entirely** on the xterm feed, which means a remote pane no browser is attached to has **no status at all**. That is a fact, not a bug: we have no way to look. Never fold that blank into "idle".
 
 Both feeds require `set-titles on` + `set-titles-string '#{pane_title}'`; tmux's default is **off**, which forwards nothing. Set in three places: `tmux_manager.create_session` (new local), `host_manager` remote bootstrap, and globally in `lifespan` (so sessions that outlived a backend restart still report).
 
@@ -662,19 +597,6 @@ Traps:
 - `idle` deliberately draws no tab badge; a dot on every agent tab is noise, not signal.
 
 Detection rules ported from [stablyai/orca](https://github.com/stablyai/orca) (MIT), `src/shared/agent-title-status.ts`.
-
-## Web push (agent-done notifications)
-
-Fires on the watcher's `working → not-working` transition (`completed: true`), so it rides entirely on the tmux title feed — still no LLM call anywhere.
-
-**The server decides whether to *send*; the service worker decides whether to *show*.** The server cannot know which pane you are looking at, so `sw.js` calls `clients.matchAll` and suppresses the notification when any window is focused. In-app, the tab status dot already carries the same signal more quietly.
-
-- VAPID keys: `data/.vapid-key` (PEM, 0600), auto-created at startup. **Changing it invalidates every existing subscription** — browsers bind subscriptions to the public key. Never put it in `.env`.
-- `py-vapid` wants the private key as **base64url of the raw 32-byte scalar**, not PEM. Passing PEM dies with "ASN.1 parsing error".
-- Subscribing *is* the opt-in — there is no separate server-side setting. Unsubscribe to turn it off.
-- Duplicate suppression is **by content, not by clock**. A completion is re-sent only when its signature (task title + screen excerpt) differs from the last one. An agent that answers briefly and pauses over and over does not buzz the phone each time. Crucially this is not a "waiting for you to press 계속" latch: the moment the content changes, the next notification fires immediately regardless of elapsed time — there is no held-back state. Spinner flapping never reaches here anyway; the watcher folds it before `completed` is emitted.
-- Push services returning 404/410 mean the subscription is permanently dead — it is deleted on the spot rather than retried forever.
-- **Requires a secure context.** `localhost` and HTTPS work; `http://<LAN-IP>:38822` does not — the browser hides the API entirely. `pushCapability()` reports `insecure` distinctly from `unsupported` so the UI can say "change how you connect", not "your browser is too old".
 
 ## 퀵바에서 중첩 멀티플렉서를 부릴 때 — 프리픽스는 두 번이다 (2026-09-01)
 
@@ -691,47 +613,56 @@ pane 안에서 herdr(또는 다른 `C-b` 프리픽스 멀티플렉서)를 돌릴
   `\e` 표기를 손으로 치지 않게 하려는 것뿐이고, 없는 키는 설정에서 커스텀으로 추가하면 된다.
 - herdr 쪽 프리픽스를 다른 키로 바꿨다면 이 프리셋은 안 맞는다 — 그때는 커스텀 키로.
 
-## Terminal-to-terminal messaging (`itl`)
+## 호스트에 도구 깔기 — 목록은 데이터고, 설치는 터미널에서 한다 (2026-09-01)
 
-한 pane 의 에이전트가 옆 pane(다른 기계 포함)을 부린다. **이 앱만의 주력 가치다.**
-`backend/cli/itl` (stdlib only) + MCP(`cli/itl_mcp.py`) + `routes/itl.py`.
-전문 — 주소 문법 표, 원격 배달, 자동 설치, MCP 도구 7종, 밟은 함정 전부: **[docs/notes/itl.md](docs/notes/itl.md)**
+이 앱은 오래 **자기 것 두 개**(itl CLI · 리모트 에이전트)만 설치할 줄 알았다. 그건
+거꾸로다 — 기계도 셸도 사용자의 것이다. 지금은 목록이 코드가 아니라 데이터다:
+내장 하나(**herdr**)와, 사용자가 쓰는 만큼.
 
-깨면 조용히 거짓말이 시작되는 것들만 여기 남긴다:
+`backend/host_tools.py`(카탈로그·프로브) · `routes/tools.py` · `db/tools.py` ·
+프론트 `ToolsModal` + `hooks/useTools` + `utils/paneTyping`. 진입은 호스트/로컬 카드의 📦.
 
-- **주소는 사람이 말하는 번호, 신원은 세션 ID.** pane 이 닫히면 번호가 밀리므로 호출
-  시점에 세션으로 풀고 그 뒤로는 번호를 재사용하지 않는다. 사용자가 붙인 탭 이름은
-  언제나 내장 그룹(`@working` 등)을 이긴다.
-- **확인된 것만 delivered.** 원격은 `&& echo ITL_SENT` 표식이 없으면 `send-failed`.
-  `conn.run(check=False)` 는 exit code 를 안 보므로 표식 없이는 "SSH 가 돌았다" 와
-  "입력이 들어갔다" 를 구별할 수 없다.
-- ⚠️ **"모름" 을 "일 안 함" 으로 세지 마라.** 원격 pane 의 status 는 워처가 못 봐서 비어
-  있다. 빈 값을 만족으로 읽어 `terminal_wait` 가 0초에 "완료" 를 준 사고가 세 번 났다.
-  상태 그룹 주소는 **매칭 전에** 상태를 채운다(`remote_status`).
-- **원격 상태는 기본으로 채운다** — 거른 목록은 상태에 대한 단언이다. 옵트인이던
-  이유(호스트당 SSH 왕복)는 리모트 전환으로 사라졌고, 꺼 두면 목록이 원격을 전부
-  `?` 로 보여 **고장으로 읽힌다.** route·CLI·MCP 스키마·MCP 도구가 함께 움직인다.
-- **세 곳이 함께 움직인다**: `routes/itl.py` · `cli/itl` · `cli/itl_mcp_tools.py`.
-  skip 사유든 조회 인자든 한쪽만 늘리면 사용자 화면에 슬러그가 그대로 나온다.
-- **호스트당 왕복 하나.** `_HostChannels` 가 상태 조회부터 배달까지 채널을 재사용하고,
-  예산(`HOST_DEADLINE` 20s)을 나눠 쓴다. 백엔드 상한 < 호출자 상한(30s) 이어야 한다 —
-  넘으면 **배달됐는데 실패로 읽혀 재시도가 중복 전송**된다.
-- `--submit` 은 기본 off (vim/claude 안의 stray Enter 방지). `send-keys` 는 `--` 필요.
-- 🔐 원격 tmux env 의 `ITL_TOKEN` 은 **사용자 전체 범위**다. 그 호스트에 셸이 있는 사람은
-  그것으로 **다른 호스트의 pane 까지** 입력할 수 있다(배달이 백엔드 자격증명으로 일어나므로).
-  새 호스트를 추가할 때 이 사실을 기억할 것.
-- **stdout 은 JSON-RPC 전용**(MCP). `print()` 하나가 서버를 죽은 것으로 만든다.
-- **핸드오프는 되묻지 않고 이어진다 (2026-08-25).** 배달되는 본문 앞에 **답장 명령**이
-  붙는다(`[from … · 답장: itl send <보낸쪽 세션ID> '<답장>' --submit]`). 받은 에이전트가
-  그걸 실행하면 `--submit` 때문에 보낸 쪽이 **즉시 깨어난다** — 폴링이 0이다.
-  ⚠️ **보내는 쪽은 그 꼬리표를 볼 수 없다.** 그래서 `/send` 응답이 대상마다
-  `reply: true|false` 를 실어 보내고, CLI·MCP 가 "답장 경로 전달됨 — 기다리지 마세요" 를
-  적는다. 이 한 줄이 없으면 기능이 있어도 호출자가 `terminal_read` 반복을 고르고,
-  그 되묻기가 **호출 한 번마다 컨텍스트 전체를 재청구**한다.
-  ⚠️ **붙지 않았을 때도 말해야 한다** — 받는 쪽이 셸이거나 그 기계에 itl 이 없으면
-  답장할 방법이 없는데, 그때 "답장이 온다" 고 적으면 오지 않을 답을 기다리게 된다.
-- **`terminal_wait` 의 폴링은 그 사고와 다르다.** 루프가 MCP 프로세스 **안**에서 돌아
-  얼마를 기다리든 컨텍스트 청구는 1회다. 비싼 것은 *에이전트가* 도구를 반복 호출하는 쪽.
+- **설치를 우리가 실행하지 않는다.** 그 기계의 터미널을 새로 열어 명령을 타이핑하고
+  **엔터는 사용자가** 누른다. 헤드리스 `ssh host 'curl … | sh'` 는 sudo 프롬프트·진행
+  표시·Ctrl-C 를 전부 조용한 멈춤으로 바꾼다. 그리고 이 방식이라 이 기능은 **새 권한을
+  만들지 않는다** — 사용자가 직접 칠 수 있는 것을 대신 친다.
+- ⚠️ **확인 명령은 그 도구를 실행하지 않는 것이 규칙이다.** `command -v x` 는 되고
+  `x --version` 은 안 된다 — 모르는 플래그를 만나면 TUI 를 띄우는 프로그램이 있고
+  (herdr 가 정확히 그렇다: 인자 없이 부르면 멀티플렉서가 뜬다), tty 가 없는 확인
+  경로에서 그러면 상한까지 매달린다. `test_host_tools` 가 내장 목록을 그 규칙으로 잠근다.
+- ⚠️ **못 물어본 것은 `installed: null`** 이다. 못 닿은 호스트를 "안 깔림" 으로 그리면
+  사용자는 실패할 설치 버튼을 누른다.
+- ⚠️ 확인 스크립트의 프레이밍 표식은 **요청마다 난수**다. 프로브는 그 도구가 찍는 것을
+  그대로 흘려보내므로, 고정 표식이면 그 출력이 다음 도구의 판정을 위조할 수 있다.
+- **호스트당 왕복 하나. 화면을 열 때만 부른다**(폴링 아님). `~/.local/bin` 을 PATH 에
+  얹고 확인한다 — 비대화형 SSH 셸에는 없는데 설치물은 거기 앉는다.
+- 새 탭에 타이핑할 때는 pane id 가 아니라 **탭 id** 로 찾는다(`utils/paneTyping`).
+  pane id 는 `setTabs` 안에서 만들어져 밖에서는 알 수 없다.
+
+### itl · 리모트 에이전트 · 기기 알림은 없앴다 (2026-09-01)
+
+터미널 간 명령 전달(`itl` CLI·MCP·라우트), 호스트에 심던 리모트 에이전트, 텔레그램·웹
+푸시 알림을 통째로 걷어냈다. 세션끼리의 통신은 herdr 가 자기 안에서 한다.
+
+같이 사라진 것 — **되돌리려면 이걸 다시 만들어야 한다**:
+
+| 없어진 것 | 지금 |
+|---|---|
+| 원격 pane 의 상태(안 보고 있을 때) | 브라우저가 붙어 있는 동안만 xterm 타이틀 피드로 들어온다 |
+| 텔레그램/웹푸시 완료 알림 · 폰에서 명령 넣기 | 없다 |
+| 터미널 간 명령 전달 · 커맨드 히스토리의 "다른 세션으로 보내기" | 없다 |
+| 원격 tmux 목록·kill 의 리모트 경로 | **SSH 만.** 목록은 캐시를 지나므로 화면이 과거를 그릴 수 있다 |
+
+⚠️ 그래서 **죽이기 직전의 재판정**(`assert_not_attached` → 409)이 더 중요해졌다.
+목록이 60초 낡을 수 있는데, 붙어 있는 세션을 지우라고 내미는 화면에서 그것만이
+"쓰던 세션이 같이 죽는" 사고를 막는다. `test_kill_attached_session` 이 잠근다.
+
+⚠️ **에이전트 설정에 남는 죽은 MCP 항목을 지운다**(`agent_mcp_cleanup`, lifespan 에서
+멱등 실행). 안 지우면 이 기계에서 에이전트를 띄울 때마다 **지워진 파일**을 가리키는
+서버가 뜨려다 실패한다. 우리가 쓴 항목(`args` 가 `itl_mcp.py` 로 끝나는 것)만 지우고
+사람이 손으로 적은 것은 놔둔다. **원격 호스트는 자동으로 못 지운다** — 부팅마다 호스트
+수만큼 SSH 를 태워야 해서다. 그쪽은 사람이 한 줄로:
+`rm -f ~/.local/bin/itl ~/.local/bin/itl_mcp*.py; claude mcp remove itl`
 
 ## iOS 주소창 밑 진행바 = 페이지가 소유한 "끝나지 않는 요청" (2026-08-11)
 
@@ -782,7 +713,7 @@ pane 안에서 herdr(또는 다른 `C-b` 프리픽스 멀티플렉서)를 돌릴
 **클립보드 구현은 `utils/clipboard.js` 하나다.** 아이폰에서 "복사 눌러도 안 붙는다" 의 원인:
 
 - `navigator.clipboard` 는 **비보안 오리진에서 아예 없다**(plain-http LAN 주소). 인앱
-  웹뷰(텔레그램의 그 "열기" 버튼)에서는 있어도 reject 될 수 있다. 폴백 없이 부르면
+  웹뷰(메신저의 그 "열기" 버튼)에서는 있어도 reject 될 수 있다. 폴백 없이 부르면
   예외만 나고 화면은 아무 말도 안 한다 — 실제로 모바일 툴바 복사가 그 상태였다.
 - **iOS 는 `textarea.select()` 를 무시한다.** `Range` + `setSelectionRange` 로 잡아야 하고,
   대상 요소가 **화면 밖(`top:-9999px`)이거나 완전 투명이면 복사 자체를 거부한다.**
@@ -935,32 +866,10 @@ Filenames are `<timestamp>-<random>-<safe-basename>`. **The timestamp alone is n
 
 이 문서는 **모든 요청에 동행한다.** 한때 46K tok 이었고, 그래서 이 저장소의 세션 시작
 컨텍스트가 95~109K 로 다른 저장소(57~70K)보다 무거웠다. 2026-08-24 에 25K 로 줄였다 —
-**버린 게 아니라 `docs/notes/` 로 옮기고 규칙만 남겼다**(itl · vnc · render-budget).
+**버린 게 아니라 `docs/notes/` 로 옮기고 규칙만 남겼다**(vnc · render-budget).
 
 **새 사건을 적을 때의 규칙: 규칙과 함정은 여기, 서사는 `docs/notes/`.** 여기 남길 문장의
 기준은 "이걸 모르면 되돌릴 수 있는가" 다. 왜 그렇게 됐는지의 이야기는 링크 한 홉 뒤에 둔다.
-
-### 하루 한 번 요약은 서비스가 보낸다 (크론 아님)
-
-`backend/usage_report.py` — 사용량 + 누수 신호(차단된 폴링, 죽은 세션)를 텔레그램으로.
-크론이 아니라 이 프로세스가 보내는 이유: 수집기·세션 표·텔레그램 자격증명을 **이미 셋 다
-들고 있다.** 크론 줄은 한 기계에만 살고 앱과 따로 논다.
-
-- **할 말이 없으면 아무것도 안 보낸다.** 매일 "0" 이 오면 그 채널은 안 읽히게 된다.
-- ⚠️ **`parse_mode` 를 절대 쓰지 마라** — 본문에 경로·명령 조각이 그대로 들어간다.
-- ⚠️ **"모른다" 를 "0" 으로 접지 않는다.** tmux 서버가 죽었을 때의 빈 목록을 "죽은 세션
-  0개" 로 읽으면 화면이 조용히 거짓말한다. `_dead_session_count` 는 그때 `None` 이다.
-- ⚠️ **기본은 꺼짐이다(옵트인).** 이 알림은 텔레그램으로 나가고 그 방에는 pane 제목·비용·
-  기계 이름이 실린다 — 묻지 않고 켤 수 없다. 처음 판은 기본이 켜짐이었고 **끄는 UI 도
-  없어서**, 사용자는 원치 않는 알림을 받고도 끌 방법이 없었다. 스위치는 설정 → 텔레그램에
-  있고, 저장 버튼 뒤가 아니라 **즉시** 반영된다("껐는데 또 왔다" 를 만들지 않는다).
-- ⚠️ **가만히 있는 값을 매일 반복하지 않는다.** 쌓인 세션 기록처럼 어제도 오늘도 같은
-  숫자는 임계(20)를 처음 넘을 때 한 번, 그 뒤로는 10개 이상 더 늘었을 때만 말한다.
-  날마다 같은 줄을 보내면 그 채널은 곧 안 읽히고, 정작 진짜 신호가 묻힌다.
-- ⚠️ **겁주는 문구는 신호가 아니라 소음이다.** "죽은 tmux 세션 45개" 는 세션이 날아간
-  것처럼 읽혔지만 실제로는 정상 종료된 탭이 남긴 DB 기록이었다. 무엇을 잃었는지/안
-  잃었는지를 문구가 말해야 한다.
-- `USAGE_REPORT_ENABLED` / `USAGE_REPORT_HOUR` env 가 DB 설정을 이긴다(텔레그램과 같은 규칙).
 
 ### 죽은 세션 기록 정리
 
@@ -971,32 +880,6 @@ Filenames are `<timestamp>-<random>-<safe-basename>`. **The timestamp alone is n
   세션" 으로 읽혀 **정리 대신 세션을 만든다.** 반드시 앞에.
 - ⚠️ **빈 tmux 목록은 "전부 죽었다" 가 아니라 "판정 불가" 다**(tmux 서버가 멈춘 모습과
   같다). 그 상태에서 지우면 전 행이 날아간다 — 409 로 거절한다.
-
-## Telegram notifications (buttons that work on iOS)
-
-Web push delivers notifications, but **`showNotification` action buttons are not rendered on iOS** — on an iPhone the "계속" button simply does not appear. So Telegram carries the notifications that need buttons; web push stays for plain ones.
-
-Flow: watcher sees `working → idle` → Telegram message with an inline keyboard → tap on the lock screen → long-poll worker receives `callback_query` → text injected into that pane.
-
-- Config: `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` in `.env` (**env wins over the DB**, so secrets need not live in SQLite). The settings UI is the fallback path and vault-encrypts what it stores; it never returns the token.
-- Buttons come from `TELEGRAM_ACTIONS` (comma-separated, e.g. `계속,테스트 돌려`); pressing one types that text into the pane and presses Enter. Default is a single `계속`. Action ids stay short (`a0`, `a1`) precisely so a long button label cannot push the session ID past Telegram's 64-byte `callback_data` limit.
-- **중단 is always appended** and sends `C-c` as a *key*, not text — `send_keys -l "C-c"` would type the literal characters. A continue button without a stop button is half a tool: the point of watching from your phone is being able to halt a runaway agent.
-- Notifications pack in everything already known — address, agent, elapsed time, host, cwd, task title, screen excerpt, and what the *other* terminals are doing (`notify_message.py`). One glance should answer "do I need to look at this now?". Empty fields are omitted rather than rendered blank; emoji are safe (they are plain text — only Markdown breaks).
-- The heading is **main tab › sub tab** (`session_label.py`). The sub-tab slot shows the pane's *path tail* when that says something new, and the pane number when it does not — tab names usually come from the folder name, so printing both repeats the same word twice. The same de-duplication drops the `📁` line when the path adds nothing. Live cwd comes from `#{pane_current_path}` in the watcher's existing poll (free); tab-state's stored cwd is a save-time snapshot and goes stale.
-- Elapsed time comes free from the watcher: it already sees the `working` transition, so `agent_status_service` just records the timestamp.
-- Notifications carry a **screen excerpt** (`pane_excerpt.py`, no LLM). Naively tailing `capture-pane` yields UI chrome, because agent CLIs draw an input box and statusline at the bottom. The extractor judges by *shape*, not by matching known phrases — box-character ratio (catches `─ Worked for 8m 33s ────`), prompt-prefixed lines, and width-truncated `…` tails (every custom statusline gets clipped to terminal width). Phrase lists lose: each CLI and each user statusline breaks them anew. Expect one stray statusline line on unusual layouts; perfect stripping is not reachable without an LLM.
-- **Every notification carries the pane address** (`1.3 · frontend`, from `session_label.py`, same numbering as `itl list`). Without it a "작업 완료" ping is useless once more than one terminal is running.
-- **Long-poll, not webhook.** A webhook would mean opening another inbound door; `getUpdates` only makes outbound connections. Note that Telegram delivers each update **once** — if another integration polls the same bot, the two steal updates from each other.
-- Two channels from Telegram back into a pane: **buttons** (callback, action id → whitelisted text) and **free text** (`telegram_command.py`). A message like `1.1 테스트 돌려` or `@claude 커밋해` routes through the same `itl_targets.resolve` addressing and injects the body (Enter pressed — a line from your phone means "run this"). Free text has no whitelist by design; that is the point. **The `chat_id` guard is therefore the only security boundary** — anyone in that chat can type into your terminals. `_handle_message` drops anything from another chat before doing anything, and does not even reply. Fan-out is capped (`MAX_MESSAGE_FANOUT`) so an `@all` typo cannot hit every session.
-- Button callbacks are stricter: they carry an **action id only** — `push_actions.PUSH_ACTIONS` maps it to text, so a crafted callback cannot inject arbitrary strings.
-- `callback_data` is capped at 64 bytes by Telegram; the format is `action:sessionId`.
-- Discovering the chat ID needs the user to message the bot first — bots cannot start conversations. `discover_chats()` reads updates **without an offset** so it does not consume them; the normal poll filters to `callback_query`, which is why a plain message is invisible to it.
-- **Never set `parse_mode`.** The body carries a raw terminal excerpt, so `*`, `_`, backticks and brackets appear arbitrarily; asking Telegram to parse it as Markdown fails the whole send with "unclosed entity" or silently drops characters. Plain text passes Korean, emoji and box-drawing through untouched (verified against the live API). Bodies are truncated to 4000 chars — over the limit Telegram rejects with 400 and the notification vanishes entirely.
-- **열기 (Open) deep-link — an inline URL button (`🔗 열기`).** Each notification can carry a button linking to `<base>/?open=<sessionId>` that opens the web app straight to the pane that fired it. The frontend (`hooks/useDeepLinkOpen.js`) reads `?open=`, finds the tab/pane whose `sessionId` (local) or `id` (remote) matches, activates it, then strips the param. It waits for login+restore before giving up on a not-yet-loaded session; a session that's genuinely gone just clears the param quietly.
-  - **Why a button, not a body-text link:** Telegram's push notification preview uses the message's **first line**, so a `🔗 https://…` line at the top mangles the notification title into a URL. The link lives in the inline keyboard instead. (Trade-off accepted: an inline URL button opens in Telegram's in-app WebView, which lacks the app's login cookies, and the Bot API can't force the external browser — the clean notification title won out.)
-  - **Not full-width:** the open button shares one row with 계속·중단 (`telegram_client` renders all buttons in a single `inline_keyboard` row) so it renders compact, not as a big full-width button.
-  - The base URL **must be configured** — a background worker has no request to derive it from. `PUBLIC_BASE_URL` env wins; otherwise the settings-UI value (`public_base_url` config key). **No base URL → no button** (a broken link is worse than none), so the notification still sends.
-- This sends data outward: pane titles (your task text) and a few lines of screen content pass through Telegram's servers.
 
 ## Terminal file-path links (P4, from orca)
 

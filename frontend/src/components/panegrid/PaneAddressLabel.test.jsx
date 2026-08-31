@@ -8,7 +8,7 @@ const badge = (container) => container.querySelector('.iterm-pane-address');
 const addressBtn = (container) => container.querySelectorAll('button')[0];
 
 describe('PaneAddressLabel', () => {
-  it('pane 번호를 그린다 — 이게 `itl send 3` 의 주소다', () => {
+  it('pane 번호를 그린다 — 이게 이 pane 의 주소다', () => {
     render(<PaneAddressLabel paneNumber={3} fullAddress="2.3" />);
     expect(screen.getByText('3')).toBeTruthy();
   });
@@ -38,7 +38,7 @@ describe('PaneAddressLabel', () => {
 
   it('tooltip 에 다른 탭에서 부를 전체 주소를 담는다', () => {
     const { container } = render(<PaneAddressLabel paneNumber={3} fullAddress="2.3" />);
-    expect(addressBtn(container).getAttribute('title')).toBe('itl send 2.3');
+    expect(addressBtn(container).getAttribute('title')).toBe('2.3');
   });
 
   it('전체 주소를 모르면 tooltip 을 붙이지 않는다', () => {

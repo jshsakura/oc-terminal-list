@@ -2,7 +2,7 @@
 
 One screen, one sweep. Filling this in costs **one SSH round trip per remote host**, so
 the pane statuses, when each session started, and the machine's own figures all travel
-in that single visit (`itl_remote.build_snapshot_cmd`). Asking for uptime separately
+in that single visit (`host_snapshot.build_snapshot_cmd`). Asking for uptime separately
 would double the cost of drawing the board.
 
 What must survive any refactor here: a host we could not reach is reported as such.
@@ -17,14 +17,16 @@ import logging
 
 from fastapi import APIRouter, Depends
 
-import itl_remote
+import host_snapshot
 from _deps import verify_auth_token
 # Both modules export a **singleton**, not module-level functions. Importing the module
 # and calling `system_monitor.get_stats` silently produced an AttributeError that this
 # route swallowed into "stats unavailable" — the board drew every local figure blank.
 from system_monitor import system_monitor
 from tmux_manager import tmux_manager
-from routes.itl import _targets_for
+from pane_targets import build_targets
+import agent_status_watcher
+from sqlite_storage import storage
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,7 +36,7 @@ async def _local_rss() -> dict[str, int]:
     """Per-session resident memory for this machine, the same way remote hosts report it.
 
     One `ps` for the whole table plus tmux's pane pids — the arithmetic is shared with the
-    remote path (`itl_remote.sum_tree_rss`) so the two can never disagree about what the
+    remote path (`host_snapshot.sum_tree_rss`) so the two can never disagree about what the
     number means.
     """
     try:
@@ -48,8 +50,8 @@ async def _local_rss() -> dict[str, int]:
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
         )
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-        return itl_remote.sum_tree_rss(
-            stdout.decode("utf-8", errors="replace"), itl_remote.parse_pane_pids(out),
+        return host_snapshot.sum_tree_rss(
+            stdout.decode("utf-8", errors="replace"), host_snapshot.parse_pane_pids(out),
         )
     except Exception as e:
         logger.info("local per-session memory unavailable: %s", e)
@@ -118,7 +120,8 @@ def apply_snapshot(target: dict, snapshot: dict) -> dict:
 
 @router.get("/api/fleet")
 async def get_fleet(username: str = Depends(verify_auth_token)):
-    targets = await _targets_for(username)
+    state = await storage.get_tab_state(username) or {}
+    targets = build_targets(state.get("tabs") or [], agent_status_watcher.snapshot())
 
     local_started: dict[str, int] = {}
     try:
@@ -130,7 +133,7 @@ async def get_fleet(username: str = Depends(verify_auth_token)):
     host_ids = sorted({t["hostId"] for t in targets if not t.get("sessionId") and t.get("hostId")})
     snapshots = dict(zip(
         host_ids,
-        await asyncio.gather(*[itl_remote.host_snapshot(h, username) for h in host_ids]),
+        await asyncio.gather(*[host_snapshot.fetch(h, username) for h in host_ids]),
         strict=True,
     )) if host_ids else {}
 

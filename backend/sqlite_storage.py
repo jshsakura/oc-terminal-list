@@ -34,7 +34,6 @@ from db import usage
 from db import llm_usage
 from db import command_history
 from db import passkeys
-from db import push_subscriptions
 from db import snippets
 from db import tools
 
@@ -55,7 +54,6 @@ class SQLiteStorage(
     passkeys.PasskeyMixin,
     snippets.SnippetMixin,
     tools.ToolMixin,
-    push_subscriptions.PushSubscriptionMixin,
 ):
     """SQLite 기반 저장소 (admin / sessions / system_config).
 

@@ -115,19 +115,19 @@ Terminal List는 사용자가 소유한 머신을 위한 브라우저 기반 터
 | 성능 | Gzip/Brotli, 장기 정적 자산 캐시, 지연 로딩 프론트엔드 청크, Monaco idle prefetch, WebSocket 배치, WebGL 렌더러 |
 | 배포 | GHCR Docker 이미지, Compose 예시, systemd host-native 서비스 |
 
-### AI 에이전트 (MCP) 브릿지
+### 기계에 도구 깔기
 
-`itl`은 MCP 서버(`backend/cli/itl_mcp.py`)로도 노출돼, pane 안의 AI 코딩 에이전트가 형제 터미널에 명령을 보내고·화면을 읽고·작업 완료를 기다리고·특수 키를 보낼 수 있습니다. 동일한 스코프 `ITL_TOKEN`으로 통제됩니다.
+호스트 카드(그리고 이 서버 카드)의 📦 버튼 — 기계를 고르고, 무엇이 깔려 있는지 보고,
+원하는 것을 설치합니다. 내장은 **herdr** 하나이고 나머지는 직접 추가합니다. 이 앱이
+무엇을 깔 수 있는지 정하지 않습니다.
 
-```bash
-# Claude Code (프로젝트 로컬)
-claude mcp add itl -- python3 <repo>/backend/cli/itl_mcp.py
+설치를 몰래 실행하지 않습니다. 그 기계의 터미널을 새로 열어 명령을 대신 쳐 주고
+**엔터는 사용자가** 누릅니다 — 그래야 sudo 프롬프트·진행 표시·Ctrl-C 가 평소 터미널과
+똑같이 동작하고, 이 기능이 원래 없던 권한을 만들지 않습니다.
 
-# opencode / 기타 클라이언트 (mcpServers 형식)
-{ "itl": { "command": "python3", "args": ["<repo>/backend/cli/itl_mcp.py"] } }
-```
-
-환경 변수(`ITL_API` / `ITL_TOKEN` / `ITL_SESSION`)는 pane에서 자동 상속됩니다 — `ITL_TOKEN`을 설정 파일에 박지 마세요.
+> 설치 여부를 확인하는 명령은 그 도구를 **실행하면 안 됩니다** — `command -v herdr` 는
+> 되고 `herdr --version` 은 안 됩니다. 모르는 플래그에 TUI 를 띄우는 프로그램은 tty 가
+> 없는 확인 경로에서 그대로 매달립니다.
 
 ---
 

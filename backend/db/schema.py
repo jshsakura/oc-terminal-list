@@ -142,7 +142,9 @@ class SchemaMixin:
             cursor.execute("ALTER TABLE hosts ADD COLUMN sort_index INTEGER")
         except sqlite3.OperationalError:
             pass
-        # 마이그레이션: 자격증명 세대. 이 호스트로 발급한 토큰(리모트·ITL)이 이 값을
+        # 마이그레이션: 자격증명 세대. (리모트·ITL 층과 함께 쓰이던 값 — 지금은 아무도
+        # 읽지 않는다. 열은 남긴다: SQLite 에서 열 제거는 표 재작성이고, 비어 있는
+        # 열 하나가 그 위험보다 싸다.) 이 호스트로 발급한 토큰이 이 값을
         # 청구로 달고 다니며, 검증 때 대조한다. 값을 올리면 **그 호스트 것만** 즉시 죽는다.
         # JWT 는 그냥은 폐기가 안 되므로(서버가 서명만 확인한다) 세대가 폐기 장치다.
         try:
@@ -328,19 +330,6 @@ class SchemaMixin:
         """)
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_tools_user ON tools(username, sort_index)")
 
-        # 웹 푸시 구독 — 기기마다 하나. endpoint 가 브라우저가 발급한 고유 주소라 PK 로 쓴다.
-        # 구독이 만료/취소되면 푸시 서비스가 404/410 을 주고, 그때 이 행을 지운다.
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS push_subscriptions (
-                endpoint TEXT PRIMARY KEY,
-                username TEXT NOT NULL,
-                p256dh TEXT NOT NULL,
-                auth TEXT NOT NULL,
-                user_agent TEXT,
-                created_at TEXT NOT NULL
-            )
-        """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_push_sub_user ON push_subscriptions(username)")
 
         conn.commit()
         self._release_connection(conn)

@@ -10,8 +10,6 @@ import useHostReorder from '../../hooks/useHostReorder';
 import { DEFAULT_MOBILE_KEYS } from '../../utils/mobileKeys';
 import { styles, shortcutStyles } from './settingsStyles';
 import { Section, Divider, Field, Select, Toggle, FontSizeRow, ShortcutRow } from './SettingsFields';
-import PushNotificationToggle from './PushNotificationToggle';
-import TelegramSection from './TelegramSection';
 import LlmWatcherSection from './LlmWatcherSection';
 import HelpPanel from './HelpPanel';
 
@@ -129,14 +127,6 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           <option value="original">{t('textContrastOriginal') || 'Original palette'}</option>
         </Select>
       </Field>
-    </Section>
-
-    <Divider />
-
-    <Section title={t('notifications') || 'Notifications'}>
-      <PushNotificationToggle t={t} />
-      {/* 버튼이 붙는 알림은 텔레그램이 맡는다 — 웹푸시 액션 버튼은 iOS 에서 안 뜬다. */}
-      <TelegramSection t={t} />
     </Section>
 
     <Divider />

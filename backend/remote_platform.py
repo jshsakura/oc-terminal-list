@@ -1,7 +1,7 @@
 """What kind of machine is on the other end of that SSH connection.
 
 Everything this app does to a host assumes a POSIX shell: tmux for sessions that outlive
-the browser, `/tmp` for pasted files, `~/.local/bin` for the itl CLI. On a Windows host
+the browser, `/tmp` for pasted files, `~/.local/bin` for anything you install. On a Windows host
 none of it works — and until now it failed *quietly*, one confusing symptom at a time
 (the tmux toggle refusing, pastes landing nowhere, the handoff silently unavailable).
 

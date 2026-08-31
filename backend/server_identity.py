@@ -15,11 +15,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import shutil
 import socket
 import time
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -66,22 +64,6 @@ def _lan_ip() -> str:
         sock.close()
 
 
-def _itl_cmd() -> str:
-    """How to invoke the `itl` CLI **on this machine**, as a runnable prefix.
-
-    The pane handle prints this, so it has to be true rather than aspirational: if
-    `itl` is not on PATH, saying `itl send …` sends the reader off to debug a
-    "command not found" instead of driving a terminal. The absolute path always works
-    (stdlib-only script), so that is the fallback.
-    """
-    override = (os.getenv("ITL_CMD") or "").strip()
-    if override:
-        # 배포가 정하는 문구. 컨테이너에서는 밖에서 읽는 사람에게 `docker exec -i <name> itl`
-        # 이 맞는 답일 수 있는데, 그건 우리가 컨테이너 안에서 알아낼 수 없는 사실이다.
-        return override
-    if shutil.which("itl"):
-        return "itl"
-    return f"python3 {Path(__file__).with_name('cli') / 'itl'}"
 
 
 async def get_server_identity() -> dict:
@@ -106,11 +88,10 @@ async def get_server_identity() -> dict:
                 "hostname": socket.gethostname(),
                 "ip": ip,
                 "ip_kind": "tailscale" if ts_ip else ("lan" if ip else ""),
-                "itl_cmd": _itl_cmd(),
             }
         except Exception as e:
             logger.debug("server identity lookup failed: %s", e)
-            value = {"hostname": "", "ip": "", "ip_kind": "", "itl_cmd": _itl_cmd()}
+            value = {"hostname": "", "ip": "", "ip_kind": ""}
         _cache["value"] = value
         _cache["at"] = now
         return value

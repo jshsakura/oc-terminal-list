@@ -147,32 +147,8 @@ export function formatServerAddr({ hostname = '', ip = '', ipKind = '' } = {}) {
   return parts.join(' ');
 }
 
-/**
- * `itl send <session-id> 'TEXT'` — the address that cannot land on the wrong terminal.
- *
- * Two failures this fixes, both observed:
- *  - **The receiver has no key for that host.** `ssh user@ip` got "Permission denied"
- *    and the agent had to dig its own `~/.ssh/config` for an alias. `itl` goes through
- *    the backend, which already holds that host's credentials — nothing to guess.
- *  - **A dead session becomes someone else's session.** Told `can't find session`, an
- *    agent picks a plausible-looking name off `tmux ls` and types into it. An id either
- *    resolves to that exact terminal or comes back `session-gone`; it never slides.
- *
- * `itlCmd` comes from the backend (`/api/system/self`), which knows whether `itl` is on
- * PATH there — printing a command that is not installed is its own wild goose chase.
- */
-export function buildItlSendCmd(itlCmd, sessionKey) {
-  const prog = String(itlCmd || '').trim();
-  if (!prog || !sessionKey) return '';
-  // `--submit` presses Enter. The CLI default is off — text on the prompt, a human decides —
-  // because a stray Enter inside vim or an agent's input box runs something nobody asked for.
-  // A copied handle is the opposite situation: it exists to say "do this over there", and a
-  // message that lands but never runs reads as "delivery is broken".
-  return `${prog} send ${sessionKey} 'TEXT' --submit`;
-}
-
 export function formatSessionTarget({
-  server = '', tmuxSession = '', socket = '', remote = false, host = null, itlCmd = '',
+  server = '', tmuxSession = '', socket = '', remote = false, host = null,
   cwd = '', agent = '',
 } = {}) {
   // No tmux on this host (`use_remote_tmux` off) — then the way in is the ssh line itself.
@@ -182,27 +158,23 @@ export function formatSessionTarget({
     return ssh ? `${ssh}  # no tmux session on this host` : `host ${server}`;
   }
 
-  // The itl line is the primary one wherever we can print it: it is the only form that
-  // works the same for a local pane and for a pane on another server, because the
-  // backend does the reaching. The tmux/ssh command stays in the comment, for a reader
-  // who is outside this app's terminals (no ITL_TOKEN) and has to get in on its own.
-  const itl = buildItlSendCmd(itlCmd, tmuxSession);
-
   if (remote) {
     // A remote session lives on that box's default socket — ours would point at nothing.
     // The ssh line comes from the host record, not the display address: the port has to
     // be `-p`, and a tailscale host is reached with `tailscale ssh`.
     const attach = buildAttachCmd(tmuxSession);
     const ssh = buildSshCmd(host, { tty: true }) || (server ? `ssh -t ${server}` : '');
-    if (!ssh) return itl || `${attach}  # on ${server}, ${TYPE_HINT}`;
+    if (!ssh) return `${attach}  # on ${server}, ${TYPE_HINT}`;
     const alias = hostAliasNote(host, ssh);
     // Everything inside is single-quoted, so wrapping it in "…" is safe.
     const direct = `${ssh} "${attach}"`;
-    if (!itl) return `${direct}  # ${alias ? `${alias} · ` : ''}${TYPE_HINT}`;
-    // The ssh/attach form is deliberately *not* printed next to the itl one. It is what
-    // sent a receiver down the credential rabbit hole in the first place, and every
-    // character here competes with the context that actually starts the work.
-    return `${itl}  # ${contextNote({ where: host?.name || server, cwd, agent })}`;
+    // 맥락 **과** 타이핑 방법을 함께 싣는다. 붙는 줄은 attach 형태라 그대로 실행하면
+    // 화면만 보이고, 받는 쪽이 실제로 해야 하는 것은 send-keys 다 — 그 한 낱말 차이를
+    // 주석이 말해 주지 않으면 받은 에이전트가 attach 한 채로 멈춘다.
+    // ⚠️ 원격에서는 **기계 이름을 주석에 또 넣지 않는다** — ssh 줄이 이미 목적지를
+    // 말하고 있다. 같은 값을 두 번 적으면 한 줄이 길어질 뿐이다.
+    const note = contextNote({ where: '', cwd, agent });
+    return `${direct}  # ${[alias, note, TYPE_HINT].filter(Boolean).join(' · ')}`;
   }
 
   // Local: the command runs on that box, so it is not wrapped in ssh (we do not know a
@@ -212,8 +184,8 @@ export function formatSessionTarget({
   // it comes from the backend (`/api/system/self`), never from `location.hostname`, which
   // is the *web* address.
   const attach = buildAttachCmd(tmuxSession, socket);
-  if (!itl) return `${attach}  # ${server ? `${server} · ` : ''}${TYPE_HINT}`;
-  return `${itl}  # ${contextNote({ where: server || 'this server', cwd, agent })}`;
+  const note = contextNote({ where: server, cwd, agent });
+  return `${attach}  # ${[note, TYPE_HINT].filter(Boolean).join(' · ')}`;
 }
 
 

@@ -67,7 +67,7 @@ def test_killing_a_session_marks_it():
     assert "session_tombstones.mark_killed" in body
     # ⚠️ force(kill-server)는 표를 남기지 않는다 — 그건 "이 호스트를 통째로 리셋" 이라
     # 다음 연결이 정상적으로 새 세션을 여는 게 맞다.
-    assert "if not force:" in body
+    assert "not force" in body.split("session_tombstones.mark_killed")[0].rsplit("if ", 1)[-1]
 
 
 def test_the_bridge_consults_the_grave():

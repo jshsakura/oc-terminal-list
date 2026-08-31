@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
-import { X, Plus, Server, Settings as SettingsIcon, Monitor, Link2, Download } from 'lucide-react';
+import { X, Plus, Server, Settings as SettingsIcon, Monitor } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import HostIcon from '../utils/hostIcons';
-import useConnectedRemotes from '../hooks/useConnectedRemotes';
 import useHostReorder from '../hooks/useHostReorder';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
@@ -22,7 +21,6 @@ const LINE = {
 
 const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', settings = {}, onAdd, onEdit, onEditLocal = null, onConnect, refreshHosts = null, t }) => {
   // 열려 있을 때만 묻는다 — 닫힌 모달이 배경에서 폴링하지 않게.
-  const { connected: connectedRemotes } = useConnectedRemotes(isOpen);
   useEffect(() => {
     if (!isOpen) return;
     const handle = (e) => { if (e.key === 'Escape') onClose(); };
@@ -76,7 +74,6 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', setting
 
           {orderedHosts.map((host) => {
             const accent = color.dotPalette[(host.color_index || 0) % color.dotPalette.length];
-            const remoteOn = !!connectedRemotes[host.id];
             return (
               <Row
                 key={host.id}
@@ -95,29 +92,6 @@ const HostManager = ({ isOpen, onClose, hosts = [], localStartPath = '', setting
                 /* 호스트 관리 row 는 클릭으로 연결 X — 관리/정렬 전용. 연결은 새 탭/홈에서. 편집은 우측 gear. */
                 actions={
                   <>
-                    {/* 리모트가 붙어 있을 때만 표시한다. 없을 때 회색 아이콘을 두면
-                        '안 깔았다' 가 결함처럼 읽히는데, 설치는 선택이다. 자세한 상태와
-                        설치/제거는 옆의 설정(기어) 안에 있다. */}
-                    {remoteOn ? (
-                      <span
-                        title={t?.('remoteConnectedShort') || '리모트 연결됨'}
-                        style={styles.remoteDot}
-                      >
-                        <Link2 size={12} strokeWidth={2} />
-                      </span>
-                    ) : (
-                      /* 리모트가 없으면 그 호스트는 세션 간 명령 전달도 상태 표시도 안 된다.
-                         우리가 볼 방법이 없어서지 고장이 아니다 — 그래서 경고색이 아니라
-                         **할 수 있는 일**을 내민다(VMware 가 Tools 미설치를 알리는 방식).
-                         누르면 그 호스트의 설정(리모트 구획)이 열린다. */
-                      <button
-                        onClick={(e) => { e.stopPropagation(); onEdit?.(host); }}
-                        title={t?.('remoteInstallHint') || '리모트 미설치 — 설치하면 명령 전달과 상태가 켜집니다'}
-                        style={styles.remoteInstall}
-                      >
-                        <Download size={12} strokeWidth={2} />
-                      </button>
-                    )}
                   <button
                     onClick={(e) => { e.stopPropagation(); onEdit?.(host); }}
                     title={t?.('hostSettings') || 'Settings'}
@@ -300,30 +274,6 @@ const styles = {
     fontWeight: fontWeight.medium,
     fontFamily: font.sans,
     transition: 'background 150ms, border-color 150ms, color 150ms',
-  },
-  remoteInstall: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '22px',
-    height: '22px',
-    flexShrink: 0,
-    padding: 0,
-    background: 'transparent',
-    border: 'none',
-    borderRadius: radius.sm,
-    // 경고색이 아니다 — 안 깐 것은 결함이 아니라 선택이고, 여기서 말하는 것은 "할 수 있다" 다.
-    color: color.subtext,
-    cursor: 'pointer',
-  },
-  remoteDot: {
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '22px',
-    height: '22px',
-    flexShrink: 0,
-    color: color.success,
   },
   gearBtn: {
     width: '24px', height: '24px',

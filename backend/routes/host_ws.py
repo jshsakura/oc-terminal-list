@@ -26,43 +26,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# 브리지가 원격 세션을 만들고 붙는 데 걸리는 시간. 첫 시도가 이르면 세션이 아직 없어
-# 물러나므로 몇 번 더 본다 — 그러나 영원히 두드리지는 않는다(없는 세션에 심을 것도 없다).
-_ITL_INJECT_DELAYS = (1.5, 4.0, 10.0)
-
-
-async def _inject_itl_env(host: dict, secrets: dict, tmux_session: str,
-                          username: str, host_id: str) -> None:
-    """원격 세션에 ITL_* 를 심고, 그 호스트에 itl 이 없으면 깔아 둔다.
-
-    이미 심어 둔 세션이면 `ensure_remote_itl_env` 가 SSH 없이 바로 True 를 준다
-    (itl_remote_setup 의 TTL 창) — 그래서 재연결 폭풍이 왕복을 늘리지 않는다.
-
-    Env and binary are two halves of one feature: a pane that knows its own address but
-    has no `itl` to run cannot act on it, and that was the state of every host whose
-    owner had not found the install button. `ensure_remote_itl_cli` carries its own,
-    longer TTL keyed by the CLI hash, so this costs one round trip on the first attach
-    to a host and nothing afterwards.
-    """
-    from itl_remote_setup import ensure_remote_itl_cli, ensure_remote_itl_env
-    for delay in _ITL_INJECT_DELAYS:
-        await asyncio.sleep(delay)
-        try:
-            if await ensure_remote_itl_env(host, secrets, tmux_session, username):
-                # Order matters: register the MCP server only after the files it points
-                # at are actually there, or an agent starting up on that host finds an
-                # entry that cannot run and logs a failure the user has to decode.
-                if await ensure_remote_itl_cli(host, secrets):
-                    from agent_mcp import ensure_remote_agent_mcp
-                    await ensure_remote_agent_mcp(host, secrets)
-                return
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.warning("itl env 주입 실패 (%s/%s): %s", host_id, tmux_session, e)
-            return
-
-
 @router.websocket("/ws/host/{host_id}")
 async def host_websocket(
     websocket: WebSocket,
@@ -211,16 +174,6 @@ async def host_websocket(
     # 새 attach/spawn 으로 세션 목록/클라이언트 수가 바뀌었을 수 있음 — 캐시 무효화.
     await invalidate_host(host_id)
     ticket_pusher = asyncio.create_task(_push_ws_tickets(bridge, username, ws_path))
-    # itl 환경 주입 — **attach 뒤에, 백그라운드로.** 세 가지가 이 자리를 정한다:
-    #  1. 세션을 만드는 것은 브리지의 일이다(history-limit·PTY 차원을 그쪽만 제대로 준다).
-    #     그래서 세션이 생긴 다음에 심어야 하고, 그러니 attach 앞에 둘 수 없다.
-    #  2. attach 를 SSH 왕복만큼 늦추면 안 된다 — 재연결마다 그 값을 물고, 부팅 때는
-    #     pane 수만큼 겹친다(이 저장소가 줄여 온 바로 그 동시성).
-    #  3. 실패해도 터미널은 열린다. itl 이 안 되는 것과 터미널이 안 열리는 건 다르다.
-    # 토큰은 SSH stdin 으로만 이동한다(itl_remote_setup 모듈 헤더의 보안 규칙).
-    itl_injector = asyncio.create_task(
-        _inject_itl_env(host, secrets, target_tmux_session, username, host_id)
-    )
     try:
         await bridge.run()
     except WebSocketDisconnect:
@@ -229,7 +182,6 @@ async def host_websocket(
         logger.error("host WS bridge error (%s): %s", host_id, e, exc_info=True)
     finally:
         ticket_pusher.cancel()
-        itl_injector.cancel()
         if usage_event_id is not None:
             try:
                 await storage.record_usage_end(usage_event_id)

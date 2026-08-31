@@ -52,6 +52,7 @@ from _deps import (
 from auth_manager import AuthManager
 from sqlite_storage import storage
 from ssh_pool import ssh_pool
+import pane_addr
 from tmux_manager import tmux_manager
 
 logging.basicConfig(
@@ -139,7 +140,7 @@ async def lifespan(_app: FastAPI):
         # 살아 있는 세션마다 다시 건다.
         _status_opts = (
             ("status", "on"),
-            ("status-left", "#{?@itl_addr,[#{@itl_addr}] ,[#{session_name}] }"),
+            ("status-left", pane_addr.ADDR_FORMAT),
         )
         for _k, _v in _status_opts:
             await tmux_manager._run("set-option", "-g", _k, _v, check=False)
@@ -156,26 +157,25 @@ async def lifespan(_app: FastAPI):
         # 저장된 탭 상태로 주소를 한 번 새긴다 — 백엔드가 재시작해도(세션은 살아남는다)
         # 상태바가 빈 주소로 남지 않게. 다음 갱신은 PUT /api/tab-state 가 한다.
         try:
-            from itl_addr_stamp import stamp_local_addresses
             _admin = await storage.get_admin()
             if _admin and _admin.get("username"):
                 _st = await storage.get_tab_state(_admin["username"])
                 if _st:
-                    await stamp_local_addresses(_st.get("tabs") or [])
+                    await pane_addr.stamp_local_addresses(_st.get("tabs") or [])
         except Exception:
-            logger.debug("itl addr stamp (startup) 실패", exc_info=True)
+            logger.debug("pane addr stamp (startup) 실패", exc_info=True)
         # status off 시절에 서버 전역으로 풀어 둔 좌클릭을 되살린다(unbind 는 남는다).
         await tmux_manager._run(
             "bind-key", "-T", "root", "MouseDown1Status", "select-window -t =", check=False,
         )
-    # 이 기계의 에이전트가 옆 터미널을 부릴 수 있게 itl MCP 를 등록해 둔다.
-    # 설정 파일이 없거나(그 기계에서 에이전트를 쓴 적이 없다) 사람이 손으로 쓴 항목이
-    # 있으면 아무것도 하지 않는다 — ITL_AUTO_MCP=0 으로 끈다.
+    # itl 이 이 기계의 에이전트 설정에 써 둔 MCP 항목을 걷어낸다. 안 지우면 에이전트를
+    # 띄울 때마다 **지워진 파일**을 가리키는 서버가 뜨려다 실패한다 — 우리가 쓴 것이니
+    # 우리가 지운다. 멱등이라 두 번째 부팅부터는 아무 일도 하지 않는다.
     try:
-        from agent_mcp import ensure_local_agent_mcp
-        ensure_local_agent_mcp()
+        from agent_mcp_cleanup import drop_local_agent_mcp
+        drop_local_agent_mcp()
     except Exception as e:
-        logger.warning("itl MCP 자동 등록 실패: %s", e)
+        logger.warning("itl MCP 정리 실패: %s", e)
     # tmux 에 없는 세션 행 정리. 세션은 `DELETE /api/sessions/{id}` 를 **안 거치고도** 죽는다
     # (기계 재부팅, tmux 서버 종료, OOM kill) — 그때 행은 영원히 남는다. 실측으로 45개가
     # 그렇게 쌓여 있었다.
@@ -211,27 +211,13 @@ async def lifespan(_app: FastAPI):
         await register_bootstrap_host()
     except Exception as e:
         logger.warning("bootstrap host registration failed: %s", e)
-    # VAPID 키를 기동 시 만들어 둔다 — 지연 생성하면 권한/디스크 문제를 사용자가
-    # "알림 켜기"를 누르는 순간에야 알게 된다. 실패해도 앱은 뜬다(푸시만 비활성).
-    try:
-        from push_keys import get_public_key
-        get_public_key()
-    except Exception as e:
-        logger.warning("VAPID 키 준비 실패 — 웹 푸시가 비활성화됩니다: %s", e)
     ssh_pool.start_janitor(idle_timeout=300)
     agent_status_watcher.start()
-    # 텔레그램 버튼 콜백 롱폴링 — 설정이 없으면 스스로 쉰다(연결 시도 안 함).
-    telegram_worker.start()
-    # 하루 한 번 사용량·누수 요약 — 크론이 아니라 서비스가 보낸다(자격증명과 수집기를
-    # 이미 이 프로세스가 들고 있다). 텔레그램이 설정돼 있지 않으면 스스로 쉰다.
-    usage_report_worker.start()
     try:
         yield
     finally:
         logger.info("=== Terminal List 종료 ===")
         await agent_status_watcher.stop()
-        await telegram_worker.stop()
-        await usage_report_worker.stop()
         ssh_pool.stop_janitor()
         try:
             await ssh_pool.close_all()
@@ -346,8 +332,6 @@ from tickets import (  # noqa: E402
 # SSE 브로드캐스트 레지스트리 — sse_broadcast.py
 # 에이전트 상태 워처 배선 — agent_status_service.py
 from agent_status_service import agent_status_watcher  # noqa: E402
-from telegram_service import telegram_worker  # noqa: E402
-from usage_report import usage_report_worker  # noqa: E402
 
 
 
@@ -423,12 +407,9 @@ from routes.local_git import router as local_git_router  # noqa: E402
 from routes.snippets import router as snippets_router  # noqa: E402
 from routes.files_read import router as files_read_router  # noqa: E402
 from routes.files_write import router as files_write_router  # noqa: E402
-from routes.push import router as push_router  # noqa: E402
-from routes.itl import router as itl_router  # noqa: E402
 from routes.fleet import router as fleet_router  # noqa: E402
 from routes.llm_usage import router as llm_usage_router  # noqa: E402
 from routes.ws_tickets import router as ws_tickets_router  # noqa: E402
-from routes.remote_ws import router as remote_ws_router  # noqa: E402
 from routes.tools import router as tools_router  # noqa: E402
 
 for _router in (
@@ -451,12 +432,9 @@ for _router in (
     tools_router,         # 호스트에 깔 도구 목록 · 설치 여부
     files_read_router,    # 워크스페이스 파일 읽기
     files_write_router,   # 워크스페이스 파일 쓰기
-    push_router,          # 웹 푸시 구독
-    itl_router,           # 세션 간 명령 전달 (itl CLI)
     fleet_router,         # 실행 중 보드 — 기계별 상태 + 모든 pane (호스트당 왕복 1회)
     llm_usage_router,     # LLM 토큰·비용 (호스트별 llm-watcher 집계)
     ws_tickets_router,    # WS 티켓 배치 발급 (부팅 시 pane 수만큼 나가던 POST 를 1회로)
-    remote_ws_router,     # 호스트에 심은 리모트가 걸어 들어오는 통로
 ):
     app.include_router(_router)
 

@@ -87,7 +87,7 @@ const Pane = ({
   // VNC pane — mode:'vnc' 로 활성화된 원격 데스크톱. TerminalHeader 없이 전체 영역 사용.
   const isVnc = pane.mode === 'vnc';
   // 전체 주소(`탭.pane`) — 다른 탭에서 이 pane 을 부를 때 쓴다. 같은 탭 안에서는
-  // pane 번호만으로 충분하다(itl 이 호출자의 탭을 기준점으로 삼는다).
+  // pane 번호만으로 충분하다(같은 탭 안에서는 탭 번호가 자명하다).
   const tabNumber = (() => {
     const tabIndex = allTabs.findIndex((tt) => tt.id === tab?.id);
     return tabIndex >= 0 ? tabIndex + 1 : null;
@@ -451,7 +451,6 @@ const Pane = ({
       // tailscale host, `tailscale ssh` (which is how this app itself gets in).
       host: isLocal ? null : remoteHost,
       // How to run the CLI on this box — the backend knows whether it is on PATH.
-      itlCmd: serverIdentity.itl_cmd || '',
       // Where the work is and what is doing it. A receiver on another machine cannot
       // infer either, and without them it starts in its own checkout and finds nothing.
       cwd: paneCwdAbs || pane.cwd || '',
@@ -771,11 +770,11 @@ const Pane = ({
                 boxShadow: 'inset 0 0 0 1px rgba(245,158,11,0.15)',
               }} />
             )}
-            {/* pane 번호 + 이름 — `itl send 3` 의 주소. **분할 여부와 무관하게 항상 단다.**
+            {/* pane 번호 + 이름 — 이 pane 의 주소. **분할 여부와 무관하게 항상 단다.**
                 예전엔 `isMultiple` 일 때만 뜨게 했다("단일이면 부를 이름이 필요 없다"). 그런데
                 tmux 세션 핸들 복사가 이 배지에만 걸려 있어서, 단일 pane 탭에서는 복사할 방법이
                 통째로 사라졌다 — "열려있던(분할) 창은 되는데 새로 연 창은 안 된다" 의 정체다.
-                주소는 단일 pane 에서도 유효하다(`itl send 1.1`). 예외 없음.
+                주소는 단일 pane 에서도 유효하다(`1.1`). 예외 없음.
                 이름을 함께 다는 이유: 분할 화면(데스크탑)엔 서브탭바가 없어서 여기 말고는
                 pane 이름이 나올 자리가 없다. 모바일 서브탭바와 같은 규칙(derivePaneLabel). */}
             <PaneAddressLabel

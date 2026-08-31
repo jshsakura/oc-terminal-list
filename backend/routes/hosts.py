@@ -120,212 +120,11 @@ async def update_host_last_cwd(
     return {"id": host_id, "last_cwd": (request.cwd or "").strip() or None}
 
 
-async def get_host_remote_status(host_id: str, username: str) -> dict:
-    """리모트가 이 호스트에 깔려 있는가 · 돌고 있는가 · 지금 붙어 있는가.
-
-    ⚠️ **라우트가 아니라 내부 함수다.** 공개 표면은 `agent-status` 하나뿐 — 리모트만
-    묻는 길이 따로 있으면 그걸 부른 화면은 **반쪽 상태**를 보고 "준비됨" 이라고 적는다.
-
-    ⚠️ **문서 정정: SSH 폴백은 없다.** 예전엔 "안 깔아도 백엔드가 SSH 로 관찰자를
-    띄우는 경로가 그대로 있다" 였고 화면도 그렇게 적었는데, 그 경로를 없앤 뒤로 그건
-    거짓이다 — 리모트가 없으면 그 호스트의 pane 은 `statusUnknown` 이고 명령을 받지
-    못한다. 강요는 여전히 안 하지만, **없으면 없는 대로 사실을 적는다.**
-    """
-    from host_common import resolve_host_with_secrets, run_remote_cmd
-    from remote_agent import registry
-    from remote_agent.setup import (
-        STATUS_SCRIPT,
-        manual_start_command,
-        parse_status,
-        start_hint,
-        version_hash,
-    )
-
-    host, secrets = await resolve_host_with_secrets(host_id, username)
-    connection = registry.get(host_id)
-    connected = connection is not None
-
-    try:
-        raw = await run_remote_cmd(host, secrets, STATUS_SCRIPT, timeout=15)
-    except Exception as e:
-        # ⚠️ 호스트에 못 닿는 것과 "안 깔렸다" 는 다른 사건이다. 못 닿았는데 "안 깔림"
-        # 으로 그리면 설치 버튼을 누르게 되고 그것도 실패한다.
-        logger.info("remote-status unreachable (%s): %s", host_id, e)
-        return {"installed": None, "connected": connected, "running": connected,
-                "reachable": False, "optional": True,
-                "facts": connection.facts if connection else {}}
-
-    status = parse_status(raw, connected, version_hash())
-    status["reachable"] = True
-    status["optional"] = True
-    status["facts"] = connection.facts if connection else {}
-    # 설치는 됐는데 안 붙은 이유와 할 일 — 없으면 None.
-    status["hint"] = start_hint(status)
-    status["start_command"] = manual_start_command() if status["hint"] == "manual" else None
-    return status
-
-
-async def install_host_remote(host_id: str, username: str) -> dict:
-    """리모트를 이 호스트에 얹는다. 사람이 누를 때만 일어난다.
-
-    ⚠️ **라우트가 아니라 내부 함수다.** 공개 표면은 `agent-setup` 하나뿐 — 리모트만
-    까는 길이 따로 있으면 그 버튼으로 깐 호스트는 `itl` 이 없어 답장을 못 한다.
-    실제로 홈 카드의 설치 버튼이 그 길로 가고 있었다(반쪽 설치).
-
-    자격증명은 **stdin 으로만** 간다 — 명령 문자열은 원격 `ps` 에 그대로 보인다.
-    """
-    from _deps import get_auth_manager
-    from host_common import resolve_host_with_secrets, run_remote_cmd
-    from itl_remote_setup import _remote_api_base, get_server_identity
-    from remote_agent.credentials import issue_credential
-    from remote_agent.setup import build_install_script
-
-    host, secrets = await resolve_host_with_secrets(host_id, username)
-
-    identity = await get_server_identity()
-    base = _remote_api_base(identity)
-    if not base:
-        raise HTTPException(
-            status_code=409,
-            detail="이 서버의 주소를 원격에서 찾을 수 없습니다 (사설망 주소 없음)",
-        )
-    ws_url = base.replace("https://", "wss://").replace("http://", "ws://") + "/api/remote/ws"
-
-    manager = get_auth_manager()
-    if not manager:
-        raise HTTPException(status_code=503, detail="인증 관리자가 초기화되지 않았습니다")
-    epoch = host.get("cred_epoch") or 1
-    token = await issue_credential(manager, username, host_id, epoch=int(epoch))
-
-    # ⚠️ 두 번째 인자는 tmux **소켓 이름**이지 세션 이름이 아니다. 한때 여기에
-    # `remote_tmux_session`(예: `mobile`)을 넘겼는데, 그러면 리모트가 `tmux -L mobile` 을
-    # 보고 **서버 없음**으로 판정해 pane 스트림이 아예 안 온다 — 상태는 영영 "모름" 이고
-    # 배달·읽기는 셸 경로로 떨어져 거절된다(실측: statusUnknown 15/15, read 502).
-    #
-    # 원격 호스트의 우리 세션은 **기본 소켓**에 산다(host_manager 의 부트스트랩이 `-L`
-    # 없이 tmux 를 부른다). 그래서 빈 값이 맞다.
-    script = build_install_script(ws_url, "")
-    try:
-        out = await run_remote_cmd(host, secrets, script, timeout=60, stdin_data=token + "\n")
-    except Exception as e:
-        logger.warning("remote install failed (%s): %s", host_id, e)
-        raise HTTPException(status_code=502, detail="원격 설치에 실패했습니다") from e
-    if "ITL_REMOTE_INSTALLED" not in (out or ""):
-        # ⚠️ 표식이 없으면 성공으로 세지 않는다. `run_remote_cmd` 는 exit code 를 보지
-        # 않으므로, 표식 없이는 "SSH 가 돌았다" 와 "설치됐다" 를 구별할 수 없다.
-        raise HTTPException(status_code=502, detail="원격 설치가 완료되지 않았습니다")
-
-    service = "none"
-    for line in (out or "").splitlines():
-        if line.startswith("ITL_REMOTE_SERVICE="):
-            service = line.split("=", 1)[1].strip()
-    logger.info("remote installed: host=%s service=%s", host_id, service)
-    return {"id": host_id, "installed": True, "service": service}
-
-
-@router.post("/api/hosts/{host_id}/remote-uninstall")
-async def uninstall_host_remote(host_id: str, username: str = Depends(verify_auth_token)):
-    """리모트를 완전히 걷어낸다 — 서비스·파일·자격증명 전부.
-
-    같이 **세대를 올린다**. 파일만 지우고 자격증명을 살려 두면, 어딘가 남아 있던 사본이
-    계속 붙을 수 있다 — 제거했다는 말이 거짓이 된다.
-    """
-    from host_common import resolve_host_with_secrets, run_remote_cmd
-    from remote_agent import registry
-    from remote_agent.setup import UNINSTALL_SCRIPT
-
-    host, secrets = await resolve_host_with_secrets(host_id, username)
-    removed = False
-    try:
-        out = await run_remote_cmd(host, secrets, UNINSTALL_SCRIPT, timeout=30)
-        removed = "ITL_REMOTE_REMOVED" in (out or "")
-    except Exception as e:
-        # 호스트에 못 닿아도 **우리 쪽은 끊고 폐기한다** — 꺼진 기계 때문에 자격증명이
-        # 살아 있는 편이 더 나쁘다. 파일은 다음에 닿을 때 지운다.
-        logger.info("remote uninstall could not reach host (%s): %s", host_id, e)
-
-    connection = registry.get(host_id)
-    if connection is not None:
-        registry.detach(connection)
-    await storage.revoke_host_credentials(host_id, username)
-    logger.info("remote uninstalled: host=%s files_removed=%s", host_id, removed)
-    return {"id": host_id, "files_removed": removed, "credentials_revoked": True}
-
-
-@router.post("/api/hosts/{host_id}/credentials/revoke")
-async def revoke_host_credentials(
-    host_id: str,
-    username: str = Depends(verify_auth_token),
-):
-    """이 호스트로 발급한 자격증명을 **전부** 무효화한다 (리모트 + 원격 tmux 의 ITL_TOKEN).
-
-    JWT 는 서명만 맞으면 통과하므로 세대를 올리는 것이 유일한 폐기 장치다. 한 대가
-    털렸을 때 사용자 토큰 전체를 갈지 않고 **그 호스트 것만** 죽이는 것이 요점이다.
-
-    되돌릴 수 없다 — 그 호스트는 다시 설치(리모트)하거나 다음 attach(ITL_TOKEN)에서
-    새 자격증명을 받는다. 그래서 호출자는 확인을 거쳐야 한다.
-    """
-    existing = await storage.get_host(host_id, username)
-    if not existing:
-        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
-
-    epoch = await storage.revoke_host_credentials(host_id, username)
-    if epoch is None:
-        raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
-
-    # 지금 붙어 있는 리모트를 **즉시** 끊는다. 안 끊으면 이미 열린 통로는 폐기와 무관하게
-    # 계속 살아 있어서, "폐기했다" 는 말이 다음 재연결까지 거짓이 된다.
-    from remote_agent import registry
-    connection = registry.get(host_id)
-    if connection is not None:
-        registry.detach(connection)
-
-    # 다음 attach 때 새 토큰을 심도록 주입 캐시를 비운다 — 안 비우면 TTL 이 끝날 때까지
-    # 옛(이제 죽은) 토큰을 그대로 두고 "이미 심었다" 로 건너뛴다.
-    from itl_remote_setup import forget_injected
-    forget_injected(host_id, str(existing.get("remote_tmux_session") or ""))
-
-    logger.info("host credentials revoked: host=%s epoch=%s", host_id, epoch)
-    return {"id": host_id, "cred_epoch": epoch, "remote_disconnected": connection is not None}
-
-
 async def _stdout_of(awaitable) -> str:
     """asyncssh 결과의 stdout 을 문자열로. bytes/str 을 둘 다 받는다."""
     result = await awaitable
     out = result.stdout
     return out if isinstance(out, str) else (out or b"").decode("utf-8", errors="replace")
-
-
-async def _kill_over_remote(host_id: str, username: str, session: str,
-                            allow_attached: bool) -> bool:
-    """리모트가 붙어 있으면 그 소켓으로 죽인다. 성공하면 True.
-
-    ⚠️ **못 하면 조용히 False 를 준다** — 호출부가 SSH 로 이어간다. 리모트가 없는
-    호스트도 종료는 되어야 하고, 그건 사람이 누른 한 번이라 SSH 를 열 만하다
-    (`open_channel_on_demand` 와 같은 기준: 되풀이되는 일이 아니다).
-
-    붙어 있음 판정만은 예외로 **위로 던진다.** 그건 "이 경로가 안 된다" 가 아니라
-    "죽이면 안 된다" 이므로, SSH 로 물러서서 기어이 죽이면 이 수정이 무의미해진다.
-    """
-    from itl_remote import RemoteNotConnectedError, open_channel
-    from remote_agent.channel import RemoteChannelError
-    try:
-        channel = await open_channel(host_id, username)
-    except RemoteNotConnectedError:
-        return False
-    if not allow_attached:
-        await host_tmux.assert_not_attached(
-            lambda: channel.run(host_tmux.LIST_TMUX_CMD), session)
-    try:
-        await channel.run(host_tmux.kill_tmux_cmd(session, shell=False))
-    except RemoteChannelError as e:
-        # 없는 세션을 죽이면 tmux 가 0 이 아닌 코드로 끝난다 — 그건 실패가 아니라
-        # **이미 없다**이다. 그 외 사유(낡은 리모트 등)는 SSH 로 물러선다.
-        if "can't find session" in str(e) or "no server running" in str(e):
-            return True
-        logger.warning("remote kill fell back to ssh (%s): %s", host_id, e)
-        return False
-    return True
 
 
 @router.post("/api/hosts/{host_id}/kill-tmux")
@@ -381,17 +180,6 @@ async def kill_host_tmux(
         key_record = await storage.get_ssh_key(host["key_id"], username)
     secrets = resolve_host_secrets(host, key_record)
     target_session = (session or "").strip() or host.get("remote_tmux_session") or DEFAULT_REMOTE_TMUX_SESSION
-
-    if not force:
-        try:
-            killed = await _kill_over_remote(host_id, username, target_session, allow_attached)
-        except host_tmux.SessionInUseError:
-            raise HTTPException(status_code=409, detail=SESSION_IN_USE_DETAIL) from None
-        if killed:
-            if not recreate:
-                session_tombstones.mark_killed(host_id, target_session)
-            await invalidate_host(host_id)
-            return {"id": host_id, "session": target_session, "status": "killed", "via": "remote"}
 
     cmd = "tmux kill-server 2>/dev/null; true" if force else host_tmux.kill_tmux_cmd(target_session, shell=True)
     try:
@@ -542,7 +330,7 @@ async def check_host_tmux(
 
     # One probe answers both questions. `uname -s` runs first because a host that cannot
     # run it is not a POSIX host at all, and that is the more useful thing to report:
-    # every remote feature here (tmux sessions, /tmp pastes, the itl CLI) assumes a POSIX
+    # every remote feature here (tmux sessions, /tmp pastes, installs) assumes a POSIX
     # shell, and a Windows host used to fail one confusing symptom at a time.
     cmd = f"{PLATFORM_PROBE}; command -v tmux 2>/dev/null && echo YES || echo NO"
     try:
@@ -584,43 +372,16 @@ async def check_host_tmux(
     return {"host_id": host_id, "available": available, "platform": platform}
 
 
-async def _sessions_over_remote(host_id: str, username: str) -> list[dict] | None:
-    """붙어 있는 리모트에게 세션 목록을 묻는다. 없거나 못 물으면 None.
-
-    ⚠️ **결과를 캐시하지 않는다.** 캐시는 SSH 왕복이 비싸서 있던 것이고, 여기는 이미
-    열린 소켓에 한 줄 쓰는 일이다. 그리고 이 목록의 `attached` 는 **캐시하면 안 되는
-    종류의 값**이다 — 실측 사고: 사용자가 쓰고 있는 rpi5 세션이 홈의 "이어할 수 있는
-    세션" 에 계속 떴다. tmux 는 그때 `attached=1` 이라고 말하고 있었는데, 화면은 60초
-    전(백엔드 재시작으로 잠깐 떨어졌던 순간)의 `0` 을 들고 있었다.
-
-    "이어할 수 있다" 는 **지금**에 대한 단언이다. 낡은 값으로 그 단언을 하면 화면이
-    쓰는 중인 세션을 지우라고 내민다.
-    """
-    from itl_remote import RemoteNotConnectedError, open_channel
-    from remote_agent.channel import RemoteChannelError
-    try:
-        channel = await open_channel(host_id, username)
-        return host_tmux.parse_session_rows(await channel.run(host_tmux.LIST_TMUX_CMD))
-    except RemoteNotConnectedError:
-        return None
-    except RemoteChannelError as e:
-        # tmux 서버가 없으면 명령이 0 이 아닌 코드로 끝난다 — 그건 "세션 0개" 다.
-        if "no server running" in str(e):
-            return []
-        logger.info("remote session list failed, falling back to ssh (%s): %s", host_id, e)
-        return None
-
-
 async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, refresh: bool) -> dict:
-    """단일 호스트 tmux 세션 목록 조회. 리모트 우선, 없으면 SSH + 캐시.
+    """단일 호스트 tmux 세션 목록 조회 — SSH + 캐시.
 
     성공: {"id": host_id, "sessions": [...]}
     실패: {"id": host_id, "sessions": [], "error": "..."}  — generic 메시지로 raw SSH 에러 미노출.
-    """
-    fresh = await _sessions_over_remote(host_id, username)
-    if fresh is not None:
-        return {"id": host_id, "sessions": fresh}
 
+    ⚠️ **실패도 캐시한다**(더 짧게). 꺼진 호스트 하나가 조회 때마다 connect timeout(15초)을
+    새로 태우면, batch 는 `gather` 라 그 15초가 응답 전체의 대기가 된다 — 홈의 "이어할 수
+    있는 세션" 이 열 때마다 멈춰 서던 원인이 그것이었다.
+    """
     cache_key = key_host_tmux_sessions(host_id)
     if not refresh:
         cached = await cache.get(cache_key)
@@ -754,94 +515,6 @@ async def list_host_tmux_sessions(
     if payload.get("error"):
         raise HTTPException(status_code=500, detail=payload["error"])
     return payload
-
-
-# --- 한 기능의 두 반쪽: itl + 리모트 ---------------------------------------------
-#
-# 화면에는 오래 **두 구획**으로 있었다. 만들어진 순서가 그랬기 때문이지, 사용자가
-# 따로 고를 일이 있어서가 아니다. 실제로는 어느 한쪽만으로 되는 일이 없다:
-#
-#   itl 만  → 그 호스트의 에이전트가 **보낼** 수는 있다. 그런데 이쪽에서 그 호스트의
-#            pane 을 볼 수도(`?`) 거기로 보낼 수도 없다.
-#   리모트만 → 이쪽에서 보고 보낼 수 있다. 그런데 그 호스트의 에이전트는 `itl` 이
-#            없어서 **답장도 호출도 못 한다.**
-#
-# 그래서 하나로 묶는다. 묻는 것도 까는 것도 한 번이다.
-
-def _agent_ready(remote: dict, itl: dict) -> bool:
-    """양방향이 다 되는가. **한쪽만 되면 ready 가 아니다** — 반쪽인 채로 "준비 완료"
-    라고 적으면 사용자는 안 되는 이유를 다른 데서 찾는다."""
-    return bool(remote.get("connected")) and bool(itl.get("installed")) and bool(itl.get("pane_path"))
-
-
-async def _agent_status(host_id: str, username: str) -> dict:
-    """리모트 + itl 상태를 한 덩어리로.
-
-    ⚠️ 둘을 **병렬로** 묻는다. 각각 SSH 왕복이라 순서대로 하면 호스트 편집기를 열 때의
-    대기가 두 배가 된다 — 이 저장소가 계속 줄여 온 쪽이다.
-
-    ⚠️ itl 쪽이 실패해도 **전체를 실패로 만들지 않는다.** 리모트만 물어서 알 수 있는
-    것이 이미 있고, 하나가 넘어졌다고 화면이 통째로 "조회 실패" 가 되면 사용자는 무엇이
-    되는지도 모른 채 남는다.
-    """
-    from host_common import resolve_host_with_secrets
-    from itl_remote_setup import remote_itl_status
-
-    remote_task = asyncio.create_task(get_host_remote_status(host_id, username))
-
-    async def _itl() -> dict:
-        try:
-            host, secrets = await resolve_host_with_secrets(host_id, username)
-            return await remote_itl_status(host, secrets)
-        except Exception as e:                       # noqa: BLE001
-            logger.info("agent-status: itl 조회 실패 (%s): %s", host_id, e)
-            return {"installed": None, "pane_path": None, "platform": None, "error": str(e)[:200]}
-
-    remote, itl = await asyncio.gather(remote_task, _itl())
-    return {"remote": remote, "itl": itl, "ready": _agent_ready(remote, itl)}
-
-
-@router.get("/api/hosts/{host_id}/agent-status")
-async def get_host_agent_status(host_id: str, username: str = Depends(verify_auth_token)):
-    """이 호스트가 터미널 간 명령 주고받기에 참여하고 있는가 — 한 번에."""
-    return await _agent_status(host_id, username)
-
-
-@router.post("/api/hosts/{host_id}/agent-setup")
-async def setup_host_agent(host_id: str, username: str = Depends(verify_auth_token)):
-    """리모트 + itl 을 한 번에 설치한다. **사람이 누를 때만 일어난다.**
-
-    ⚠️ **순서대로** 한다. 병렬은 조회에서만 하는 선택이다 — 설치는 둘 다 원격 셸에
-    파일을 쓰므로, 겹쳐 돌려 얻는 몇 초보다 "어느 쪽이 실패했는지" 가 분명한 편이 낫다.
-
-    ⚠️ **한쪽이 실패해도 다른 쪽은 진행한다.** 리모트가 안 깔리는 호스트(예: python3
-    없음)에서 itl 까지 못 깔면 그 호스트는 아무것도 못 하게 된다. 결과는 상태로 말한다.
-    """
-    from host_common import resolve_host_with_secrets
-    from itl_remote_setup import install_remote_itl
-
-    errors: dict[str, str] = {}
-    try:
-        await install_host_remote(host_id, username)
-    except Exception as e:                           # noqa: BLE001
-        logger.warning("agent-setup: 리모트 설치 실패 (%s): %s", host_id, e)
-        errors["remote"] = _detail_of(e)
-    try:
-        host, secrets = await resolve_host_with_secrets(host_id, username)
-        await install_remote_itl(host, secrets)
-    except Exception as e:                           # noqa: BLE001
-        logger.warning("agent-setup: itl 설치 실패 (%s): %s", host_id, e)
-        errors["itl"] = _detail_of(e)
-
-    status = await _agent_status(host_id, username)
-    status["errors"] = errors
-    return status
-
-
-def _detail_of(e: Exception) -> str:
-    """HTTPException 이면 사람이 읽을 detail, 아니면 예외 문자열(길이 제한)."""
-    detail = getattr(e, "detail", None)
-    return str(detail or e)[:200]
 
 
 @router.delete("/api/hosts/{host_id}")

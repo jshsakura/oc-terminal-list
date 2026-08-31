@@ -101,12 +101,15 @@ describe('formatSessionTarget — 줄 자체가 명령이다', () => {
     expect(formatSessionTarget({ tmuxSession: 'abc' })).toContain("send-keys -l 'TEXT' then Enter");
   });
 
-  it('경로도 pane 번호도 넣지 않는다 — 프롬프트에 이미 있고, 밖에선 가리키는 게 없다', () => {
+  /* ⚠️ 여기서 규칙이 한 번 뒤집혔다. 예전에는 경로를 뺐다 — **붙는 사람**은 프롬프트에서
+     읽으니까. 그런데 이 줄의 용도는 붙는 것이 아니라 **넘기는 것**이고, 넘겨받은 쪽은
+     그 프롬프트를 영영 보지 않는다(실제로 자기 체크아웃에서 시작했다가 멈췄다).
+     pane 번호는 여전히 뺀다 — 이 앱 안에서만 뜻이 있고 pane 이 닫히면 밀린다. */
+  it('경로는 넣고 pane 번호는 넣지 않는다', () => {
     const out = formatSessionTarget({
       server: 'a1-ubuntu', tmuxSession: 'abc', socket: 'sock', cwd: '/w', address: '2.3',
     });
-    expect(out).not.toContain('/w');
-    expect(out).not.toContain('cwd');
+    expect(out).toContain('/w');
     expect(out).not.toContain('2.3');
   });
 
@@ -198,58 +201,56 @@ describe('formatSessionTarget — 줄 자체가 명령이다', () => {
   });
 });
 
-/* 받는 에이전트에게 남은 두 개의 실패를 없앤 형태 — 실제로 둘 다 밟았다:
-   ① 그 호스트의 열쇠가 없어 ssh 가 거절당한다 ② 죽은 세션 이름을 받은 에이전트가
-   `tmux ls` 에서 그럴싸한 다른 세션을 골라 거기에 명령을 박는다. */
-describe('itl 형태 — 자격증명도, 엉뚱한 세션도 없다', () => {
-  const ITL = 'python3 /srv/app/backend/cli/itl';
-
-  /* 주석은 받는 쪽이 **일을 시작하는 데** 필요한 것만 — 어느 기계, 어느 트리, 뭐가 돌고 있나.
-     실제로 이게 없어서 받은 에이전트가 자기 체크아웃에서 시작했다가 아무것도 못 찾고 멈췄다. */
+/* 받는 에이전트가 **일을 시작하는 데** 필요한 것만 주석에 싣는다 — 어느 기계, 어느
+   트리, 뭐가 돌고 있나. 실제로 이게 없어서 받은 에이전트가 자기 체크아웃에서 시작했다가
+   아무것도 못 찾고 멈췄다. */
+describe('붙는 줄 — 그대로 붙여넣으면 도는 명령', () => {
   it('로컬 — 기계·경로·돌고 있는 것을 싣는다', () => {
     expect(formatSessionTarget({
-      server: 'a1-ubuntu', tmuxSession: 'abc', socket: 'sock', itlCmd: ITL,
+      server: 'a1-ubuntu', tmuxSession: 'abc', socket: 'sock',
       cwd: '/home/ubuntu/work/retro-go', agent: 'claude ◐ Cx4 포팅',
-    })).toBe(`${ITL} send abc 'TEXT' --submit`
-      + '  # a1-ubuntu · /home/ubuntu/work/retro-go · claude ◐ Cx4 포팅');
+    })).toBe("tmux -L sock attach -t '=abc:'"
+      + '  # a1-ubuntu · /home/ubuntu/work/retro-go · claude ◐ Cx4 포팅'
+      + " · type: send-keys -l 'TEXT' then Enter");
   });
 
-  it('엔터까지 친다 — 넘긴 일이 프롬프트에 얹힌 채 안 돌면 전달 실패와 같다', () => {
-    expect(formatSessionTarget({ tmuxSession: 'abc', itlCmd: ITL })).toContain("'TEXT' --submit");
+  it('⚠️ 소켓은 선택이 아니다 — 우리 세션은 전용 소켓에 산다', () => {
+    const out = formatSessionTarget({ tmuxSession: 'abc', socket: 'sock' });
+    expect(out).toContain('-L sock');
   });
 
-  it('원격도 같은 한 줄이다 — 호스트 이름은 등록명으로 말한다', () => {
+  it('원격은 ssh 로 감싼다 — 그 세션은 그쪽 기본 소켓에 있다', () => {
     const out = formatSessionTarget({
       server: 'jshsakura@100.115.177.3', tmuxSession: 'mobile-1ea43f8888f1', remote: true,
       host: { name: 'ubuntu-lab', ssh_user: 'jshsakura', hostname: '100.115.177.3' },
-      itlCmd: ITL, cwd: '/home/jshsakura/workspace/retro-go',
+      cwd: '/home/jshsakura/workspace/retro-go',
     });
-    expect(out).toBe(`${ITL} send mobile-1ea43f8888f1 'TEXT' --submit`
-      + '  # ubuntu-lab · /home/jshsakura/workspace/retro-go');
-    // ssh 줄은 일부러 빼 둔다 — 받는 쪽을 자격증명 삽질로 보낸 게 그것이다.
-    expect(out).not.toContain('ssh ');
+    expect(out).toContain('ssh -t jshsakura@100.115.177.3');
+    expect(out).toContain("tmux attach -t '=mobile-1ea43f8888f1:'");
+    expect(out).toContain('/home/jshsakura/workspace/retro-go');
+    expect(out).not.toContain('-L ');          // 우리 소켓은 그 기계에 없다
   });
 
   it('긴 경로는 뒤를, 긴 제목은 앞을 남긴다 — 줄바꿈되면 아무도 안 읽는다', () => {
     const out = formatSessionTarget({
-      server: 'a1', tmuxSession: 'abc', itlCmd: ITL,
+      server: 'a1', tmuxSession: 'abc', socket: 'sock',
       cwd: '/very/deep/path/that/keeps/going/and/going/until/nobody/reads/it/project',
       agent: `claude ${'가'.repeat(80)}`,
     });
     expect(out).toContain('· …');
     expect(out).toContain('/nobody/reads/it/project ·');
     expect(out).toContain('claude 가');
-    expect(out.length).toBeLessThan(200);
+    expect(out.length).toBeLessThan(250);
   });
 
-  it('주소는 세션 ID 다 — pane 을 닫아도 밀리지 않는다', () => {
-    const out = formatSessionTarget({ tmuxSession: 'abc', socket: 'sock', itlCmd: ITL });
-    expect(out).toContain('send abc');
-    expect(out).not.toMatch(/send \d+\.\d+/);
+  it('주소는 세션 이름이다 — pane 을 닫아도 밀리지 않는다', () => {
+    const out = formatSessionTarget({ tmuxSession: 'abc', socket: 'sock' });
+    expect(out).toContain("'=abc:'");
+    expect(out).not.toMatch(/\d+\.\d+/);
   });
 
-  it('itl 이 없으면 예전 tmux 줄로 돌아간다 — 없는 명령을 알려주지 않는다', () => {
-    expect(formatSessionTarget({ tmuxSession: 'abc', socket: 'sock', itlCmd: '' }))
+  it('맥락이 없으면 타이핑 힌트를 남긴다 — 빈 주석은 줄만 차지한다', () => {
+    expect(formatSessionTarget({ tmuxSession: 'abc', socket: 'sock' }))
       .toBe("tmux -L sock attach -t '=abc:'  # type: send-keys -l 'TEXT' then Enter");
   });
 });

@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from _deps import AUTH_COOKIE_NAME, verify_auth_token
-from itl_addr_stamp import stamp_local_addresses
+from pane_addr import stamp_local_addresses
 from agent_status_service import agent_status_watcher
 from models import CommandHistoryPushRequest
 from sqlite_storage import storage

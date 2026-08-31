@@ -1,5 +1,0 @@
-#!/bin/sh
-# itl-mcp — exec wrapper for the itl MCP server.
-# Keeps the .py file discoverable for tests (importlib) while giving clients
-# a clean extensionless entry on PATH. stdin/stdout/stderr pass through.
-exec python3 "$(dirname "$0")/itl_mcp.py" "$@"

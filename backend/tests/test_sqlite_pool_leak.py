@@ -1,6 +1,6 @@
 """연결 풀을 새게 하는 코드가 다시 들어오지 못하게 한다.
 
-⚠️ **실측 사고(2026-08-27).** `get_host_cred_epoch` 가 반납 대신 `conn.close()` 를
+⚠️ **실측 사고(2026-08-27).** 호스트를 읽는 함수 하나가 반납 대신 `conn.close()` 를
 불렀다. 그러면 연결은 닫히지만 `_pool_size` 는 줄지 않고 큐에도 안 돌아간다 — 풀 크기
 (10)만큼 부르고 나면 그 다음 `_get_connection()` 이 `self._pool.get()` 에서 **영원히**
 막힌다. 그 호출은 `asyncio.to_thread` 안에서 도므로 실행기 스레드까지 함께 잡아먹고,
@@ -46,16 +46,18 @@ async def test_repeated_reads_do_not_exhaust_the_pool(storage):
     await _seed_host(storage)
     import asyncio
     for _ in range(25):                      # 풀(10)의 두 배 넘게
-        got = await asyncio.wait_for(storage.get_host_cred_epoch("h1", "u"), timeout=5)
-        assert got == 1
+        got = await asyncio.wait_for(storage.get_host("h1", "u"), timeout=5)
+        assert got["id"] == "h1"
 
 
 async def test_repeated_writes_do_not_exhaust_the_pool(storage):
     await _seed_host(storage)
     import asyncio
-    for expected in range(2, 20):
-        got = await asyncio.wait_for(storage.revoke_host_credentials("h1", "u"), timeout=5)
-        assert got == expected
+    for i in range(20):
+        await asyncio.wait_for(
+            storage.update_host_last_cwd("h1", "u", f"/tmp/{i}"), timeout=5,
+        )
+    assert (await storage.get_host("h1", "u"))["last_cwd"] == "/tmp/19"
 
 
 def test_the_pool_size_bookkeeping_stays_honest(storage):

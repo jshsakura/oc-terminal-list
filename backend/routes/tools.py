@@ -70,29 +70,9 @@ async def create_tool(body: ToolBody, username: str = Depends(verify_auth_token)
     )
 
 
-@router.put("/api/tools/{tool_id}")
-async def update_tool(tool_id: str, body: ToolPatch, username: str = Depends(verify_auth_token)):
-    if tool_id in host_tools.BUILTIN_IDS:
-        # 내장은 코드가 소유한다. 고치고 싶으면 사용자 항목으로 새로 만들면 되고,
-        # 같은 id 로 만들면 목록에서 내장을 대신한다(host_tools.merge_tools).
-        raise HTTPException(status_code=409, detail="내장 도구는 수정할 수 없습니다")
-    updates = {k: v for k, v in body.model_dump().items() if v is not None}
-    if not updates:
-        raise HTTPException(status_code=400, detail="바꿀 항목이 없습니다")
-    if not await storage.update_tool(username, tool_id, **updates):
-        raise HTTPException(status_code=404, detail="도구를 찾을 수 없습니다")
-    return {"ok": True}
-
-
-@router.delete("/api/tools/{tool_id}")
-async def delete_tool(tool_id: str, username: str = Depends(verify_auth_token)):
-    if tool_id in host_tools.BUILTIN_IDS:
-        raise HTTPException(status_code=409, detail="내장 도구는 삭제할 수 없습니다")
-    if not await storage.delete_tool(username, tool_id):
-        raise HTTPException(status_code=404, detail="도구를 찾을 수 없습니다")
-    return {"ok": True}
-
-
+# ⚠️ **`{tool_id}` 라우트보다 먼저 등록한다.** FastAPI 는 먼저 맞는 것을 잡으므로,
+# 뒤에 두면 언젠가 `POST /api/tools/{tool_id}` 가 생기는 순간 "check 라는 도구" 로
+# 읽힌다. 이 저장소가 `POST /api/sessions/prune` 에서 이미 밟은 함정이다.
 @router.post("/api/tools/check")
 async def check_tools(body: CheckBody, username: str = Depends(verify_auth_token)):
     """이 기계에 무엇이 깔려 있나 — 호스트당 **왕복 하나**.
@@ -129,3 +109,26 @@ async def check_tools(body: CheckBody, username: str = Depends(verify_auth_token
         for tool in tools
     }
     return {"host_id": host_id, "results": results, "error": error}
+
+
+@router.put("/api/tools/{tool_id}")
+async def update_tool(tool_id: str, body: ToolPatch, username: str = Depends(verify_auth_token)):
+    if tool_id in host_tools.BUILTIN_IDS:
+        # 내장은 코드가 소유한다. 고치고 싶으면 사용자 항목으로 새로 만들면 되고,
+        # 같은 id 로 만들면 목록에서 내장을 대신한다(host_tools.merge_tools).
+        raise HTTPException(status_code=409, detail="내장 도구는 수정할 수 없습니다")
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(status_code=400, detail="바꿀 항목이 없습니다")
+    if not await storage.update_tool(username, tool_id, **updates):
+        raise HTTPException(status_code=404, detail="도구를 찾을 수 없습니다")
+    return {"ok": True}
+
+
+@router.delete("/api/tools/{tool_id}")
+async def delete_tool(tool_id: str, username: str = Depends(verify_auth_token)):
+    if tool_id in host_tools.BUILTIN_IDS:
+        raise HTTPException(status_code=409, detail="내장 도구는 삭제할 수 없습니다")
+    if not await storage.delete_tool(username, tool_id):
+        raise HTTPException(status_code=404, detail="도구를 찾을 수 없습니다")
+    return {"ok": True}

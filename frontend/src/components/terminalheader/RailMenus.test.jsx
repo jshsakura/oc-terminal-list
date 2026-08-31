@@ -12,7 +12,6 @@ vi.mock('../../utils/commandHistory', () => ({
 vi.mock('../../utils/clipboard', () => ({ copyToClipboard: vi.fn() }));
 // cwd 힌트는 util 을 mock — 픽커 배선(1회 fetch, 접미 렌더)만 검증한다.
 vi.mock('../../utils/paneSessions', () => ({ fetchPaneCwdHints: vi.fn() }));
-// push 는 백엔드(/api/itl/send)를 지난다 — 그 호출을 그대로 관찰한다.
 vi.mock('../../utils/apiFetch', () => ({ apiFetch: vi.fn() }));
 vi.mock('../../utils/auth', () => ({ authHeaders: () => ({ Authorization: 'Bearer t' }) }));
 import { fetchPage } from '../../utils/commandHistory';
@@ -123,13 +122,12 @@ describe('CommandHistoryPopover modes', () => {
     expect(screen.getByText('echo own-one')).toBeTruthy();
   });
 
-  it('세션 선택 → 그 세션의 히스토리 + compose 행, ← 로 세션 목록으로', async () => {
+  it('세션 선택 → 그 세션의 히스토리, ← 로 세션 목록으로', async () => {
     renderPopover();
     fireEvent.click(screen.getByTitle('Copy a command from another session'));
     fireEvent.click(screen.getByText('nas'));
     await waitFor(() => expect(screen.getByText('kubectl get pods')).toBeTruthy());
     expect(fetchPage).toHaveBeenCalledWith('p-host', { before: null });
-    expect(screen.getByPlaceholderText('Send a command to this session')).toBeTruthy();
     fireEvent.click(screen.getByTitle('Back to sessions'));
     expect(screen.getByText('Pick a session')).toBeTruthy();
     expect(screen.queryByText('kubectl get pods')).toBeNull();
@@ -201,93 +199,6 @@ describe('CommandHistoryPopover modes', () => {
       (_, el) => el?.tagName === 'SPAN' && el?.textContent === 'This machine · w',
     )).toBeTruthy();
     expect(screen.getByText('#1.1')).toBeTruthy();
-  });
-});
-
-describe('CommandHistoryPopover push (compose → 다른 세션으로 전송)', () => {
-  beforeEach(() => {
-    vi.mocked(fetchPage).mockReset();
-    vi.mocked(fetchPage).mockImplementation(async (key) => (
-      key === 'own' ? { items: ownHistory, hasMore: false } : { items: otherHistory, hasMore: false }
-    ));
-    vi.mocked(apiFetch).mockReset();
-    window.terminalSessions = {};
-  });
-
-  const openCommandsMode = async () => {
-    renderPopover();
-    fireEvent.click(screen.getByTitle('Copy a command from another session'));
-    fireEvent.click(screen.getByText('nas'));
-    await waitFor(() => expect(screen.getByText('kubectl get pods')).toBeTruthy());
-  };
-
-  it('입력 + Enter → 백엔드로 전송(원격 tmux 세션명 주소), 입력은 비워진다', async () => {
-    vi.mocked(apiFetch).mockResolvedValue({
-      ok: true, status: 200,
-      json: async () => ({ delivered: [{ addr: '2.1' }], skipped: [] }),
-    });
-    await openCommandsMode();
-    const input = screen.getByPlaceholderText('Send a command to this session');
-    fireEvent.change(input, { target: { value: 'systemctl restart api' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    await waitFor(() => expect(input.value).toBe(''));
-    const [path, opts] = vi.mocked(apiFetch).mock.calls[0];
-    expect(path).toBe('/api/itl/send');
-    // 주소는 신원이다 — 프론트 pane id 를 보내면 서버가 못 찾는다.
-    expect(JSON.parse(opts.body)).toEqual({
-      to: 'mobile-a1', text: 'systemctl restart api', submit: true, origin: false,
-    });
-    // 원격 배달은 백엔드의 SSH 왕복을 포함한다 — 기본 15초 마감으로는 성공도 실패로 읽힌다.
-    expect(opts.timeoutMs).toBeGreaterThanOrEqual(30000);
-  });
-
-  it('붙어 있지 않은 pane 이어도 보낸다 — 브라우저 소켓을 쓰지 않는다', async () => {
-    /* 이 회귀가 이 변경의 이유다: 예전 경로는 window.terminalSessions 로 밀어넣었고,
-       모바일에서 안 본 pane(미부착)·60초 지난 비활성 pane(소켓 닫힘)에서는 입력이
-       큐에서 4초 뒤 버려졌다 — 화면은 초록으로 "보냈다" 고 말한 채. */
-    window.terminalSessions = {};
-    vi.mocked(apiFetch).mockResolvedValue({
-      ok: true, status: 200,
-      json: async () => ({ delivered: [{ addr: '2.1' }], skipped: [] }),
-    });
-    await openCommandsMode();
-    const input = screen.getByPlaceholderText('Send a command to this session');
-    fireEvent.change(input, { target: { value: 'df -h' } });
-    fireEvent.click(screen.getByTitle('Send to this session'));
-    await waitFor(() => expect(vi.mocked(apiFetch)).toHaveBeenCalled());
-    await waitFor(() => expect(input.value).toBe(''));
-  });
-
-  it('배달된 게 없으면 사유를 말하고 입력을 지우지 않는다', async () => {
-    vi.mocked(apiFetch).mockResolvedValue({
-      ok: true, status: 200,
-      json: async () => ({ delivered: [], skipped: [{ addr: '2.1', reason: 'session-gone' }] }),
-    });
-    await openCommandsMode();
-    const input = screen.getByPlaceholderText('Send a command to this session');
-    fireEvent.change(input, { target: { value: 'ls -la' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    await waitFor(() => expect(screen.getByRole('alert').textContent)
-      .toBe('That session is gone'));
-    expect(input.value).toBe('ls -la');        // 다시 시도할 것이므로 지우지 않는다
-  });
-
-  it('요청 자체가 실패해도 성공처럼 보이지 않는다', async () => {
-    vi.mocked(apiFetch).mockRejectedValue(new Error('timed out'));
-    await openCommandsMode();
-    const input = screen.getByPlaceholderText('Send a command to this session');
-    fireEvent.change(input, { target: { value: 'make' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy());
-    expect(input.value).toBe('make');
-  });
-
-  it('빈 입력은 전송하지 않는다', async () => {
-    await openCommandsMode();
-    const input = screen.getByPlaceholderText('Send a command to this session');
-    fireEvent.change(input, { target: { value: '   ' } });
-    fireEvent.keyDown(input, { key: 'Enter' });
-    expect(vi.mocked(apiFetch)).not.toHaveBeenCalled();
   });
 });
 

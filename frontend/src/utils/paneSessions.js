@@ -37,15 +37,15 @@ export const collectOtherPaneSessions = (allTabs, {
       sessions.push({
         key,
         // 백엔드로 보낼 때 쓰는 **신원** — 로컬은 세션 ID, 원격은 tmux 세션명
-        // (itl_targets 가 정확일치로 찾는 그 값). `key` 와 다른 이유: 원격 pane 은
+        // (백엔드가 정확일치로 찾는 그 값). `key` 와 다른 이유: 원격 pane 은
         // sessionId 가 없어 key 가 프론트 pane id 이고, 그건 서버가 모르는 값이다.
         sessionKey: pane.sessionId || pane.tmuxSessionName || '',
         tabId: tab?.id || null,
         tabName: tab?.name || '',
         label: derivePaneLabel(pane, { hosts, settings, t }),
         isLocal: !!pane.sessionId && !pane.hostId,
-        // 전역 좌표(1-based) — 탭바 순서 × 탭 내 팬 순서. itl 주소 체계(tabIdx.paneIdx,
-        // itl_targets.py)와 같은 규칙이라 서브탭에 적힌 번호 그대로와 대응한다.
+        // 전역 좌표(1-based) — 탭바 순서 × 탭 내 팬 순서. 백엔드 주소 체계(tabIdx.paneIdx,
+        // pane_targets.py)와 같은 규칙이라 서브탭에 적힌 번호 그대로와 대응한다.
         // 탭 위치까지 합치면 목록 안에서 항상 유일 — "옆창"을 가리키는 확정 좌표.
         tabIndex: tIdx + 1,
         paneIndex: pIdx + 1,

@@ -26,7 +26,7 @@ describe('HelpPanel', () => {
   it('맨 앞은 이 앱만 할 수 있는 것 — 기본 설명은 그 다음이다', () => {
     render(<HelpPanel t={t} />);
     expect(HELP_TOPICS[0].titleKey).toBe('helpSecCore');
-    expect(HELP_TOPICS.findIndex((s) => s.id === 'itl'))
+    expect(HELP_TOPICS.findIndex((s) => s.id === 'tools'))
       .toBeLessThan(HELP_TOPICS.findIndex((s) => s.id === 'pane'));
     // 접힌 섹션은 제목만 보인다 — 첫 섹션만 펼쳐 두는 규칙이 지켜지는지.
     expect(screen.getByText(ko.helpSecBasics)).toBeTruthy();

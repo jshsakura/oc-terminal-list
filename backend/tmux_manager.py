@@ -17,7 +17,7 @@ import shutil
 import time
 from collections import deque
 from dataclasses import dataclass
-from pathlib import Path
+
 
 logger = logging.getLogger(__name__)
 
@@ -59,25 +59,12 @@ class TmuxManager:
         """Environment for the tmux binary we invoke — and, on the first call, for the
         server it starts.
 
-        The CLI directory is prepended here rather than injected into the session
-        environment because **that is the only place tmux honours PATH**. Measured on
-        3.4: a pane started by the server inherits `-e FOO=bar` but keeps the server's
-        PATH, whether the value was set with `new-session -e`, `set-environment`, or
-        `set-environment -g`. Putting it here means `itl` is simply on PATH in every pane
-        this app opens, with nothing installed anywhere and nothing to uninstall.
-
-        Caveat worth knowing: a tmux server that is already running keeps the PATH it
-        started with (sessions outlive the backend by design), so an existing server
-        picks this up only when it restarts.
+        `TMUX`/`TMUX_PANE` are dropped so a backend that was itself started from inside a
+        tmux pane does not hand its own session down to the server it spawns.
         """
         env = os.environ.copy()
         env.pop("TMUX", None)
         env.pop("TMUX_PANE", None)
-        cli_dir = str(Path(__file__).resolve().with_name("cli"))
-        if os.path.exists(os.path.join(cli_dir, "itl")):
-            current = env.get("PATH", "")
-            if f"{cli_dir}:" not in f"{current}:":
-                env["PATH"] = f"{cli_dir}:{current}" if current else cli_dir
         return env
 
     async def _run(self, *args: str, check: bool = True, capture: bool = True) -> tuple[int, str, str]:
@@ -148,23 +135,6 @@ class TmuxManager:
         command, title = command.strip(), title.strip()
         return (command, title) if (command or title) else None
 
-    async def refresh_session_env(self, session_id: str, env: dict[str, str] | None) -> None:
-        """Push env onto a session that already exists.
-
-        `create_session` is a no-op when the session is there, so a session restored
-        from before a backend restart — the common case on this box — would never learn
-        about ITL_* or the CLI on PATH. Panes already running keep their old copy (we do
-        not respawn a live agent); the CLI recovers those itself via
-        `tmux show-environment`, and every pane opened afterwards inherits it.
-        """
-        if not env:
-            return
-        for key, value in env.items():
-            try:
-                await self._run("set-environment", "-t", session_id, key, value, check=False)
-            except Exception as e:  # never block an attach over this
-                logger.debug("set-environment failed (%s=%s): %s", session_id, key, e)
-
     async def create_session(
         self,
         session_id: str,
@@ -176,14 +146,16 @@ class TmuxManager:
     ) -> None:
         """새 detached 세션 생성. 이미 존재하면 no-op.
 
-        `env` 는 `new-session -e` 로 세션 환경에 주입된다(tmux 3.2+). itl CLI 가
-        "나는 어느 터미널인가"를 아는 통로다. ⚠️ 여기 넣은 값은 같은 tmux 소켓에
-        접근할 수 있으면 `show-environment` 로 읽힌다 — 그래서 ITL_TOKEN 은 용도가
-        제한된 scoped 토큰이어야 한다(auth_manager.create_scoped_token).
+        `env` 는 `new-session -e` 로 세션 환경에 주입된다(tmux 3.2+).
+        ⚠️ 여기 넣은 값은 같은 tmux 소켓에 접근할 수 있는 사람이 `show-environment` 로
+        읽을 수 있다 — 비밀을 넣는 자리가 아니다.
         """
         if await self.session_exists(session_id):
             logger.debug("tmux session already exists: %s", session_id)
             return
+
+        # 늦은 import: pane_addr 는 이 모듈의 싱글턴을 가져다 쓴다 — 위에서 부르면 순환이다.
+        from pane_addr import ADDR_FORMAT
 
         # history-limit 은 pane 생성(new-session) 시점에 버퍼 크기가 고정된다 — 나중에
         # set-option 으로 키워도 이미 만들어진 '첫 pane' 엔 소급 적용 안 돼 스크롤백이
@@ -239,11 +211,11 @@ class TmuxManager:
             #
             # 딱 하나만 바꾼다: 왼쪽 칸. 순정은 `[#{session_name}] ` 인데 이 앱의 세션명은
             # **UUID** 라 `[9bf9790d-` 로 잘려 아무 정보가 아니다. 같은 자리·같은 모양에
-            # **이 pane 의 itl 주소**(`[1.2]`)를 넣는다 — 자기 주소를 자기가 봐야
-            # "옆에 2번한테 시켜" 가 된다(itl_addr_stamp 참고). 주소가 없는 세션(원격)은
+            # **이 pane 의 주소**(`[1.2]`)를 넣는다 — 자기 주소를 자기가 봐야
+            # "옆에 2번한테 시켜" 가 된다(pane_addr 참고). 주소가 없는 세션(원격)은
             # 조건부라 순정대로 세션 이름이 나온다.
             ("status", "on"),
-            ("status-left", "#{?@itl_addr,[#{@itl_addr}] ,[#{session_name}] }"),
+            ("status-left", ADDR_FORMAT),
             ("renumber-windows", "on"),
             ("focus-events", "on"),
             # pane 타이틀(OSC 0/2)을 클라이언트로 그대로 흘려보낸다.

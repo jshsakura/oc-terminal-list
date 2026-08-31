@@ -38,7 +38,6 @@ _QUIET_PATHS = (
     "/api/snippets",
     "/api/command-history",
     "/api/health",
-    "/api/itl/targets",
 )
 # `/api/hosts/<id>/cwd|clients|tmux-clients` 처럼 id 가 낀 폴링.
 _QUIET_RE = re.compile(r"^/api/hosts/[^/]+/(cwd/batch|tmux-clients|files\?|git/status)")

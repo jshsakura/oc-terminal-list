@@ -13,7 +13,6 @@ import time
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from _deps import is_safe_id
-from itl_env import build_itl_env
 from cache import invalidate_session
 from rate_limit import check_rate_limit
 from session_launch import _resolve_create_cwd, _resolve_shell
@@ -98,7 +97,6 @@ async def terminal_websocket(
                 rows=rows,
                 cwd=safe_cwd,
                 shell=_resolve_shell(shell),
-                env=await build_itl_env(username, session_id),
             )
             try:
                 await storage.create_session(session_id, username, cwd=cwd or "")
@@ -114,9 +112,6 @@ async def terminal_websocket(
             await storage.update_session_activity(session_id)
         except Exception:
             pass
-        # A session that outlived a backend restart never went through create_session,
-        # so without this it stays the one place where `itl` is missing from PATH.
-        await tmux_manager.refresh_session_env(session_id, await build_itl_env(username, session_id))
         # tmux mouse on — 브라우저는 wheel/touch 를 SGR mouse 이벤트로 전달하고,
         # tmux 가 copy-mode 스크롤을 담당한다. 드래그 선택은 frontend 가 plain drag
         # 임계값 이후 xterm selection 으로 보정하므로 스크롤과 선택을 함께 유지한다.

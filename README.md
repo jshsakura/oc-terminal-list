@@ -114,19 +114,20 @@ Splits collapse into sub-tabs, and a key toolbar supplies `Esc`, `Tab`, `Ctrl+C`
 | Performance | Gzip/Brotli, long-lived static asset cache, lazy loaded frontend chunks, Monaco idle prefetch, WebSocket batching, WebGL renderer |
 | Deployment | GHCR Docker image, Compose example, systemd host-native service |
 
-### MCP bridge for AI agents
+### Installing tools on your machines
 
-`itl` is also exposed as an MCP server (`backend/cli/itl_mcp.py`) so AI coding agents inside a pane can drive siblings — send commands, read screens, wait for completion, send special keys — under the same scoped `ITL_TOKEN`.
+Every host card (and this server's own card) has a 📦 button: pick a machine, see what is
+installed, and install what you want. **herdr** ships as the one built-in entry; anything
+else you add yourself — the app does not decide what belongs on your machines.
 
-```bash
-# Claude Code (project-local)
-claude mcp add itl -- python3 <repo>/backend/cli/itl_mcp.py
+Installing does not run behind your back. It opens a terminal on that machine, types the
+command, and leaves the Enter to you — so sudo prompts, progress output and Ctrl-C all
+behave the way they do in any other terminal, and the feature grants no privilege you did
+not already have.
 
-# opencode / other clients (mcpServers format)
-{ "itl": { "command": "python3", "args": ["<repo>/backend/cli/itl_mcp.py"] } }
-```
-
-Env (`ITL_API` / `ITL_TOKEN` / `ITL_SESSION`) is inherited from the pane — never put `ITL_TOKEN` in the config.
+> The probe that reports "installed" must not *run* the tool — `command -v herdr`, never
+> `herdr --version`. A program that starts a TUI on an unknown flag would hang a probe
+> that has no tty.
 
 ---
 

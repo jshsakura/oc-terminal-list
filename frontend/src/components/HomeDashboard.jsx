@@ -1,11 +1,9 @@
 import { useState, memo, useMemo, useRef, useEffect } from 'react';
 import {
-  Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen, Download, Package,
+  Server, Monitor, Plus, Settings as SettingsIcon, FolderOpen, Package,
   Link2, BarChart3, ScreenShare, RefreshCw, Activity,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
-import useConnectedRemotes from '../hooks/useConnectedRemotes';
-import useRemoteInstall from '../hooks/useRemoteInstall';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import FleetBoard from './home/FleetBoard';
@@ -77,8 +75,6 @@ const HomeDashboard = ({
 }) => {
   /* 어느 호스트에 리모트가 붙어 있나 — **한 번의 요청**이다(SSH 0회).
      호스트마다 물으면 그 자체로 SSH 가 카드 수만큼 곱해진다. */
-  const { connected: connectedRemotes, refresh: refreshRemotes } = useConnectedRemotes(true);
-  const remoteInstall = useRemoteInstall(refreshRemotes);
   const [hoverId, setHoverId] = useState(null);
   // 'connections' | 'dashboard' — 홈에 오는 이유의 대부분은 연결이라 기본은 그쪽.
   const [view, setView] = useState('connections');
@@ -103,7 +99,7 @@ const HomeDashboard = ({
     ...(showUsageStats ? [['dashboard', t?.('dashboard') || 'Dashboard', BarChart3]] : []),
   ];
   const fleet = useFleet(isVisible && view === 'fleet');
-  /* The board addresses panes the way `itl list` does (tab.pane, 1-based); jumping needs
+  /* The board addresses panes the way the rest of the app does (tab.pane, 1-based); jumping needs
      the real ids, and this component is the one holding the tab list. */
   const handleFleetOpen = (target) => {
     const tab = tabs[(target?.tabIndex || 0) - 1];
@@ -366,16 +362,6 @@ const HomeDashboard = ({
                   openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
                   onOpenTools={onOpenTools ? () => onOpenTools(host) : null}
                   openToolsTitle={t?.('tools') || '도구 설치'}
-                  remoteState={connectedRemotes[host.id] ? 'on' : 'off'}
-                  remoteBusy={remoteInstall.busyHostId === host.id}
-                  remoteFailed={remoteInstall.failedHostId === host.id}
-                  remoteOnTitle={t?.('remoteConnectedShort') || '리모트 연결됨'}
-                  remoteOffTitle={t?.('remoteWhyInstall')
-                    || '리모트 미설치 — 눌러서 설치합니다. 깔면 이 호스트의 에이전트가 끝났을 때 텔레그램·푸시 알림이 오고, 다른 터미널에서 이 호스트로 명령을 보낼 수 있습니다.'}
-                  onInstallRemote={() => remoteInstall.install(host.id)}
-                  remoteOffLabel={t?.('remoteNotInstalledChip') || '리모트 미설치'}
-                  remoteBusyLabel={t?.('remoteInstalling') || '설치 중…'}
-                  remoteFailedLabel={t?.('remoteInstallFailed') || '설치 실패'}
                 />
               );
             })}
@@ -449,15 +435,9 @@ const HostRowSkeleton = () => (
 );
 
 export const HostRow = memo(({
-  remoteState = null,      // 'on' | 'off' | null(로컬·판단불가)
-  remoteBusy = false,
-  remoteFailed = false,
-  onInstallRemote = null,
   id, icon, name, subtitle, accentColor,
   leadingBadge = null,
   isHovered, isDragging, isDragOver,
-  remoteOnTitle = '', remoteOffTitle = '',
-  remoteOffLabel = '', remoteBusyLabel = '', remoteFailedLabel = '',
   onHover, onClick, onEdit, editTitle,
   onPickPath, pickPathTitle,
   onOpenVnc, openVncTitle,
@@ -509,51 +489,6 @@ export const HostRow = memo(({
       <div style={styles.sub}>{subtitle}</div>
     </div>
 
-    {/* 리모트 표시는 **우상단 모서리**에 띄운다. 액션 아이콘은 세로 가운데라 같은 줄에
-        두면 붙어서 무엇이 상태고 무엇이 버튼인지 구별이 안 된다 — 코너를 나눠 쓴다
-        (칩=우상단, 버튼=우하단). 칩이 없는 카드(로컬)는 예전 배치 그대로다. */}
-    {/* 리모트 — **설치는 선택이다.** 안 깔았다고 경고색을 쓰지 않는다. 안 깔면
-        세션 간 명령 전달과 상태 표시가 안 되는데, 그건 고장이 아니라 우리가 볼
-        방법이 없는 것이다. 그래서 "없다" 가 아니라 **"할 수 있다"** 를 내민다
-        (VMware 가 Tools 미설치를 알리는 방식). */}
-    {remoteState === 'on' && (
-      /* 숨쉬기는 **붙어 있을 때만**이다. 이 표식이 말하는 것은 "지금 살아 있는 링크"
-         이고, 정지한 아이콘은 그냥 색깔 하나다. 미설치 칩에는 넣지 않는다 — 거기서
-         맥동하면 재촉이 되는데, 안 깐 것은 결함이 아니라 아직 안 한 선택이다. */
-      <span style={REMOTE_CORNER_ON} title={remoteOnTitle} className="iterm-breathe">
-        <Link2 size={12} strokeWidth={2} />
-      </span>
-        )}
-    {remoteState === 'off' && onInstallRemote && (
-      /* 아이콘만으로는 무엇인지 알 수 없어 아무도 안 누른다 — 라벨을 단다.
-         경고색이 아닌 이유: 안 깐 것은 결함이 아니라 선택이고, 여기서 말하는 것은
-         **할 수 있는 일**이다. 무엇을 얻는지는 title 이 한 문장으로 말한다. */
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); if (!remoteBusy) onInstallRemote(); }}
-        title={remoteOffTitle}
-        disabled={remoteBusy}
-        /* 평소엔 조용한 정보, 얹으면 **누를 수 있다**고 말한다. 테두리를 주는 대신 색만
-           액센트로 올린다 — 카드가 좁아 모양이 하나 더 생기면 답답하다. */
-        onMouseEnter={(e) => { if (!remoteBusy) e.currentTarget.style.color = 'var(--ui-accent)'; }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.color = remoteFailed ? 'var(--ui-danger)' : 'var(--ui-muted)';
-        }}
-        style={{
-          ...REMOTE_CORNER_CHIP,
-          ...(remoteFailed ? { color: 'var(--ui-danger, #f38ba8)' } : null),
-          ...(remoteBusy ? { opacity: 0.6, cursor: 'default' } : null),
-        }}
-      >
-        <Download size={10} strokeWidth={2} />
-        {remoteBusy
-          ? (remoteBusyLabel || '설치 중…')
-          : remoteFailed
-            ? (remoteFailedLabel || '설치 실패')
-            : (remoteOffLabel || '리모트 미설치')}
-      </button>
-        )}
-
     {/* ⚠️ 액션 줄은 **모든 카드에서 같은 자리**여야 한다. 칩이 있는 카드만 아래로
         내렸더니 카드마다 버튼 높이가 달라져 줄이 안 맞았다. 칩은 절대배치라 겹치지
         않는다 — 호스트 카드는 세 줄이라 우상단에 자리가 남는다. */}
@@ -583,54 +518,6 @@ export const HostRow = memo(({
     )}
   </div>
 ));
-
-/* 리모트 표시는 카드 **우상단 모서리**에 고정한다.
-
-   ⚠️ 액션 아이콘(기어·폴더)과 같은 줄에 두면 무엇이 **상태**고 무엇이 **버튼**인지
-   구별이 안 된다. 이건 정보이고(연결됨) 하나는 할 일이라(설치), 자리를 나눠야 읽힌다.
-   그래서 코너를 쓴다 — 칩은 우상단, 버튼은 우하단. */
-const REMOTE_CORNER = {
-  position: 'absolute',
-  /* ⚠️ 카드 **모서리에 바짝** 붙인다. 6px 만 띄웠더니 액션 버튼 바로 위에 얹혀 둘이 한
-     덩어리로 보였다 — 정보와 버튼을 나누려고 코너를 쓴 것인데 그러면 의미가 없다.
-     테두리 안쪽 여백(카드 padding 10px)보다 위로 올라가야 "모서리에 붙은 표식" 이 된다. */
-  top: '3px',
-  right: '5px',
-  zIndex: 1,
-};
-
-const REMOTE_CORNER_CHIP = {
-  ...REMOTE_CORNER,
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: '3px',
-  padding: 0,
-  /* ⚠️ **버튼처럼 보이면 안 된다.** 이건 카드가 알려주는 사실이고, 누를 수 있다는 것은
-     부수적이다. 테두리·면을 주면 우상단에 버튼이 하나 더 생긴 것처럼 읽히고, 카드가
-     좁아 그 자체로 답답해진다. 글자와 아이콘만 남긴다. */
-  background: 'transparent',
-  border: 'none',
-  color: tokens.color.muted,
-  fontSize: tokens.fontSize['10'] || '10px',
-  fontFamily: 'inherit',
-  lineHeight: 1,
-  whiteSpace: 'nowrap',
-  cursor: 'pointer',
-};
-
-const REMOTE_CORNER_ON = {
-  ...REMOTE_CORNER,
-  /* ⚠️ 고정 초록(success)이 아니라 **테마 액센트**다. success 는 팔레트마다 톤이 달라
-     카드 강조색과 부딪히고, 어떤 테마에서는 경고처럼 읽힌다. 액센트는 그 테마가 이미
-     "이게 활성이다" 로 쓰는 색이라 어디서든 같은 뜻이 된다. */
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: '18px',
-  height: '18px',
-  flexShrink: 0,
-  color: tokens.color.accent,
-};
 
 const RowBtn = ({ onClick, title, children }) => (
   <button

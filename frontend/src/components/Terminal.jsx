@@ -2263,7 +2263,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
                 if (line) lines.push(line.translateToString(true));
               }
               while (lines.length && lines[lines.length - 1] === '') lines.pop();
-              window.dispatchEvent(new CustomEvent('itl:screen-dump', { detail: { text: lines.join('\n') } }));
+              window.dispatchEvent(new CustomEvent('iterm:screen-dump', { detail: { text: lines.join('\n') } }));
             }
             setContextMenu(null);
           }}

@@ -85,30 +85,3 @@ describe('HomeDashboard', () => {
 
 /* 숨쉬기 — "지금 살아 있는 링크" 를 말하는 맥동. 붙어 있을 때만이고, 미설치 칩에는
    없다(거기서 맥동하면 재촉이 되는데 안 깐 것은 결함이 아니라 선택이다). */
-describe('리모트 표식의 숨쉬기', () => {
-  const HOST = { id: 'h1', name: 'rpi5', hostname: '10.0.0.1', use_remote_tmux: true };
-
-  /* 붙어 있음은 prop 이 아니라 `useConnectedRemotes` 가 한 번에 물어 온다(호스트마다
-     묻지 않는 것이 그 훅의 요점이다). 그래서 그 요청을 세운다. */
-  const stubConnected = (connected) => vi.stubGlobal('fetch', vi.fn((url) => Promise.resolve(
-    String(url).includes('/api/remote/connected')
-      ? { ok: true, json: () => Promise.resolve({ connected }) }
-      : { ok: true, json: () => Promise.resolve({}) },
-  )));
-
-  afterEach(() => vi.unstubAllGlobals());
-
-  it('붙어 있으면 맥동한다', async () => {
-    stubConnected({ h1: true });
-    const { container } = render(<HomeDashboard hosts={[HOST]} t={mockT} />);
-    await waitFor(() => expect(container.querySelector('.iterm-breathe')).toBeTruthy());
-  });
-
-  it('안 붙어 있으면 맥동하지 않는다 — 재촉이 아니라 상태 표시다', async () => {
-    stubConnected({});
-    const { container } = render(<HomeDashboard hosts={[HOST]} t={mockT} />);
-    // 미설치 칩이 그려진 뒤에 본다 — 부재 단언은 t=0 에 헛통과한다.
-    await waitFor(() => expect(screen.getByTitle(/remote/i)).toBeInTheDocument());
-    expect(container.querySelector('.iterm-breathe')).toBeFalsy();
-  });
-});

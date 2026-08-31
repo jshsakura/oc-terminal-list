@@ -162,7 +162,6 @@ const MenuBtn = ({ icon: Icon, onClick, children, hint = null, danger = false, d
 //  history  — 이 터미널의 최근 명령 (기본). 클릭 → 재전송, X → 개별 삭제, 휴지통 → 비우기.
 //  sessions — 다른 살아있는 세션 목록 (Pane 이 collectOtherPaneSessions 로 계산해 넘김).
 //  commands — 고른 세션의 히스토리. 행 클릭 → 이 터미널로 pull, 클립보드 아이콘 → 복사,
-//             상단 compose 행 입력 → **그 세션으로 push**(사용자가 원하던 "tab2 에서 tab1 로").
 //
 // 동작:
 // - 외부 클릭 / Escape 로 닫힘 (setTimeout(0) 패턴 — 즉시 자동 닫힘 방지)
@@ -171,27 +170,6 @@ const MenuBtn = ({ icon: Icon, onClick, children, hint = null, danger = false, d
 const MODE_HISTORY = 'history';
 const MODE_SESSIONS = 'sessions';
 const MODE_COMMANDS = 'commands';
-
-// push 상태 — 성공/실패를 구분해서 보여준다(예전엔 무조건 초록 플래시였다).
-const PUSH_IDLE = 'idle';
-const PUSH_SENDING = 'sending';
-const PUSH_OK = 'ok';
-const PUSH_FAIL = 'fail';
-// 백엔드가 원격 호스트로 SSH 를 거는 시간까지 기다린다(itl_remote.HOST_DEADLINE=20s).
-// apiFetch 기본 15초로는 원격 전송이 성공해도 실패로 보인다.
-const PUSH_TIMEOUT_MS = 30_000;
-
-/** skip 사유 → 사람말. 백엔드 routes/itl.py 의 REASON_* 과 같이 움직인다. */
-const pushSkipLabel = (reason, t) => {
-  const map = {
-    'session-gone': t?.('pickerSkipSessionGone') || 'That session is gone',
-    'host-unreachable': t?.('pickerSkipHostUnreachable') || 'Could not reach that host',
-    'send-failed': t?.('pickerSkipSendFailed') || 'tmux did not confirm the input',
-    'remote-unsupported': t?.('pickerSkipUnsupported') || 'Nowhere to send that pane',
-    deadline: t?.('pickerSkipDeadline') || 'Timed out before delivery',
-  };
-  return map[reason] || (t?.('pickerPushFailed') || 'Send failed');
-};
 
 const headerTitleStyle = (ui) => ({
   display: 'inline-flex',
@@ -283,7 +261,7 @@ const OtherSessionCommandList = ({ sessionKey, ui, isMobile, onSelect, onPickCop
             onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} 70%, transparent)`; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`; }}
           >
-            {/* 행 클릭 = 이 pane 으로 pull. push 는 compose 행이 담당한다. */}
+            {/* 행 클릭 = 이 pane 으로 pull — 다른 터미널이 쓴 명령을 여기서 다시 쓴다. */}
             <button
               type="button"
               onClick={() => onSelect?.(entry.text)}
@@ -354,12 +332,6 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
   const [selected, setSelected] = useState(null);
   const [copiedText, setCopiedText] = useState(null);
   const copyTimerRef = useRef(null);
-  // push compose — 고른 세션으로 보낼 새 명령.
-  // 상태를 boolean 플래시가 아니라 4단계로 두는 이유: **실패를 성공처럼 보여주면 안 된다.**
-  const [pushText, setPushText] = useState('');
-  const [pushState, setPushState] = useState(PUSH_IDLE);
-  const [pushError, setPushError] = useState('');
-  const pushFlashTimerRef = useRef(null);
   // 세션 행 식별 힌트 — 라벨 중복 행은 #순번 으로 항상 구분되고, 로컬 세션은 실제 tmux cwd
   // 를 배치 API 로 1회 fetch 해 경로를 덧붙인다(App 탭 상태의 pane.cwd 는 비어 있을 때가 많다).
   const [cwdHints, setCwdHints] = useState({});
@@ -370,7 +342,6 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
 
   useEffect(() => () => {
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
-    if (pushFlashTimerRef.current) clearTimeout(pushFlashTimerRef.current);
   }, []);
 
   // 위치는 anchor 가 바뀔 때만 다시 잰다 — 모드 전환/목록 로딩으로 프레임이 재측정·재이동
@@ -423,63 +394,6 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
     setCopiedText(text);
     if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
     copyTimerRef.current = setTimeout(() => setCopiedText(null), 1200);
-  };
-
-  /* compose 행: 입력한 **새** 명령을 고른 세션(다른 터미널)으로 push.
-   *
-   * **백엔드(`/api/itl/send`)를 지난다. 이 브라우저의 WebSocket 으로 보내지 않는다.**
-   * 예전엔 `window.terminalSessions[key]` 로 직접 밀어넣었는데, 그 경로는 대상 pane 이
-   * 지금 이 브라우저에 붙어 있어야만 동작한다:
-   *   - 모바일에서 아직 안 본 pane 은 아예 붙지 않는다(`skipInitialConnect`),
-   *   - 안 보이는 pane 의 소켓은 60초 뒤 닫힌다(`INACTIVE_PANE_GRACE_MS`),
-   *   - 그리고 닫힌 소켓에 넣은 입력은 큐에서 4초 뒤 버려진다(`STALE_INPUT_MS`).
-   * 즉 "보냈다" 는 초록 표시만 뜨고 명령은 조용히 사라졌다. 백엔드는 tmux 에 직접 넣으므로
-   * 붙어 있지 않아도 도달하고, 무엇보다 **도달했는지를 알려준다**(delivered/skipped).
-   */
-  const submitPush = async () => {
-    const text = pushText.trim();
-    if (!text || !selected || pushState === PUSH_SENDING) return;
-    // 주소는 신원(세션 ID / 원격 tmux 세션명)이 먼저다 — 번호는 pane 이 닫히면 밀린다.
-    const to = selected.sessionKey || selected.address;
-    const flash = (state, message = '') => {
-      setPushState(state);
-      setPushError(message);
-      if (pushFlashTimerRef.current) clearTimeout(pushFlashTimerRef.current);
-      pushFlashTimerRef.current = setTimeout(() => {
-        setPushState(PUSH_IDLE);
-        setPushError('');
-      }, state === PUSH_FAIL ? 4000 : 900);
-    };
-    if (!to) {
-      flash(PUSH_FAIL, t?.('pickerPushNoTarget') || 'No address for this session');
-      return;
-    }
-    setPushState(PUSH_SENDING);
-    setPushError('');
-    try {
-      const res = await apiFetch('/api/itl/send', {
-        method: 'POST',
-        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-        // origin=false — 사람이 특정 터미널을 골라 친 명령이다. `[from …]` 꼬리표는
-        // 에이전트끼리 헤매지 않게 하는 장치이고, 여기서는 그 자리에 노이즈다.
-        body: JSON.stringify({ to, text, submit: true, origin: false }),
-        timeoutMs: PUSH_TIMEOUT_MS,
-      });
-      const data = res.ok ? await res.json().catch(() => null) : null;
-      if (!res.ok) {
-        flash(PUSH_FAIL, `${t?.('pickerPushFailed') || 'Send failed'} (${res.status})`);
-        return;
-      }
-      if (!data?.delivered?.length) {
-        const reason = data?.skipped?.[0]?.reason;
-        flash(PUSH_FAIL, pushSkipLabel(reason, t));
-        return;                                   // 입력은 지우지 않는다 — 다시 시도할 것이다
-      }
-      setPushText('');
-      flash(PUSH_OK);
-    } catch (e) {
-      flash(PUSH_FAIL, e?.message || (t?.('pickerPushFailed') || 'Send failed'));
-    }
   };
 
   const rowHeight = isMobile ? '34px' : '30px';
@@ -822,76 +736,6 @@ const CommandHistoryPopover = ({ anchor, terminalKey, sessions = [], ui, isMobil
         </div>
       ) : (
         <>
-          {/* push compose 행 — 여기서 입력한 명령은 **고른 세션**으로 간다(반대 방향).
-              테두리·아이콘 색이 결과를 말한다: 초록=배달됨, 빨강=못 갔음(사유는 아래 줄). */}
-          {(() => {
-            const okColor = ui.green || '#a6e3a1';
-            const failColor = ui.danger || '#f38ba8';
-            const accentColor = pushState === PUSH_OK ? okColor
-              : (pushState === PUSH_FAIL ? failColor : null);
-            const busy = pushState === PUSH_SENDING;
-            return (
-              <div style={{
-                display: 'flex', flexDirection: 'column', gap: '4px',
-                padding: '6px 6px',
-                borderBottom: `1px solid color-mix(in srgb, ${ui.border} 45%, transparent)`,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <input
-                    type="text"
-                    value={pushText}
-                    onChange={(e) => setPushText(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submitPush(); } }}
-                    placeholder={t?.('pickerPushPlaceholder') || 'Send a command to this session'}
-                    aria-label={t?.('pickerPushPlaceholder') || 'Send a command to this session'}
-                    style={{
-                      flex: 1, minWidth: 0,
-                      height: isMobile ? '30px' : '26px',
-                      padding: '0 8px', borderRadius: '4px',
-                      background: `color-mix(in srgb, ${ui.surface1} var(--glass-fill, 32%), transparent)`,
-                      border: `1px solid ${accentColor
-                        || `color-mix(in srgb, ${ui.border} 45%, transparent)`}`,
-                      color: ui.text, fontFamily: font.mono, fontSize: fontSize['12'],
-                      outline: 'none',
-                      transition: 'border-color 250ms',
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={submitPush}
-                    disabled={busy}
-                    title={t?.('pickerSendToSession') || 'Send to this session'}
-                    aria-label={t?.('pickerSendToSession') || 'Send to this session'}
-                    style={{
-                      flexShrink: 0,
-                      width: isMobile ? '30px' : '26px',
-                      height: isMobile ? '30px' : '26px',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      background: `color-mix(in srgb, ${ui.accent} ${accentColor ? '45' : '18'}%, transparent)`,
-                      border: 'none', borderRadius: '4px',
-                      color: accentColor || ui.subtext,
-                      cursor: busy ? 'default' : 'pointer', padding: 0,
-                      opacity: busy ? 0.6 : 1,
-                      transition: 'background 250ms, color 250ms, opacity 120ms',
-                    }}
-                    onMouseEnter={(e) => { if (!accentColor && !busy) e.currentTarget.style.color = ui.text; }}
-                    onMouseLeave={(e) => { if (!accentColor && !busy) e.currentTarget.style.color = ui.subtext; }}
-                  >
-                    <CornerDownLeft size={12} strokeWidth={2} />
-                  </button>
-                </div>
-                {/* 실패는 말로 알려준다 — 색만 바뀌면 무엇이 잘못됐는지 알 수 없다. */}
-                {pushState === PUSH_FAIL && pushError && (
-                  <div role="alert" style={{
-                    fontSize: fontSize['10'], color: failColor,
-                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-                  }}>
-                    {pushError}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
           <OtherSessionCommandList
             key={selected?.key}
             sessionKey={selected?.key}

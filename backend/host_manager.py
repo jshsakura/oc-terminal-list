@@ -31,7 +31,10 @@ DEFAULT_REMOTE_TMUX_SESSION = "mobile"
 # 미설정 시 tmux 시스템 기본 2000 줄에 묶여, 스크롤 시 이전 내용이 금방 날아간다.
 # 반드시 new-session 전에 -g(전역)로 걸어야 새 세션의 첫 pane 이 이 한도를 물려받는다
 # (history-limit 은 pane 생성 시점에 고정되며 이후 변경은 기존 pane 에 소급 적용 안 됨).
-ITL_ADDR_FORMAT = "#{?@itl_addr,[#{@itl_addr}] ,[#{session_name}] }"
+# 원격 세션의 상태바 왼쪽 칸. 주소(@pane_addr)는 이 백엔드가 로컬 세션에만 새기므로
+# 원격은 조건부의 else 로 떨어져 **순정대로 세션 이름**이 나온다 — 원격 세션명
+# (`mobile-abc`)은 그 자체로 읽을 만하다.
+STATUS_LEFT_FORMAT = "#{?@pane_addr,[#{@pane_addr}] ,[#{session_name}] }"
 
 REMOTE_HISTORY_LIMIT = int(os.getenv("REMOTE_TMUX_HISTORY_LIMIT", "10000"))
 # 재접속(create=0 refresh) 대상 tmux 세션이 원격에 없을 때 원격 명령이 반환하는 마커 exit code.
@@ -148,12 +151,12 @@ def _build_remote_command(
         f"tmux set-option -t {safe} window-size latest >/dev/null 2>&1; "
         f"tmux set-option -t {safe} focus-events on >/dev/null 2>&1; "
         # 하단 상태바 — **로컬 tmux_manager 와 한 벌이다.** tmux 순정 그대로 두고
-        # 왼쪽 칸만 바꾼다(세션명 대신 itl 주소). 원격은 백엔드가 `@itl_addr` 를 새길 수
+        # 왼쪽 칸만 바꾼다(세션명 대신 pane 주소). 원격은 백엔드가 `@pane_addr` 를 새길 수
         # 없으므로 조건부 포맷의 else 가지로 떨어져 **순정대로 세션 이름**이 나온다 —
         # 원격 세션명(`mobile-abc`)은 UUID 가 아니라 그 자체로 읽을 만하다.
         # 예전에 색·오른쪽 칸·갱신 주기까지 덮었던 값들은 `-u` 로 떼어 순정으로 되돌린다.
         f"tmux set-option -t {safe} status on >/dev/null 2>&1; "
-        f"tmux set-option -t {safe} status-left '{ITL_ADDR_FORMAT}' >/dev/null 2>&1; "
+        f"tmux set-option -t {safe} status-left '{STATUS_LEFT_FORMAT}' >/dev/null 2>&1; "
         f"tmux set-option -u -t {safe} status-style >/dev/null 2>&1; "
         f"tmux set-option -u -t {safe} window-status-current-style >/dev/null 2>&1; "
         f"tmux set-option -u -t {safe} status-right >/dev/null 2>&1; "
