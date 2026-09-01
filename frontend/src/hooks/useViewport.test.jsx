@@ -190,6 +190,47 @@ describe('useViewport — 가시 영역 추적', () => {
     expect(document.documentElement.style.getPropertyValue('--vvt')).toBe('120px');
   });
 
+  /* ── 실측 보고가 실제로 나가는가 ─────────────────────────────────────────
+   * 폰 전용 병은 값을 받는 것 말고 진단할 길이 없는데, **그 통로가 조용히 안 도는 것**이
+   * 하필 그 상황에서 가장 알아채기 어렵다. 첫 배선이 정확히 그랬다: 마운트 때 한 번만
+   * 재고 그때는 터미널 소켓이 없어서, WS attach 12번에 보고 0건이었다.
+   */
+  describe('실측 보고', () => {
+    let seen;
+    const onReport = (e) => seen.push(e.detail);
+
+    beforeEach(() => {
+      seen = [];
+      // 폰에서만 보낸다 — 게이트를 통과시킨다.
+      vi.stubGlobal('matchMedia', () => ({ matches: true }));
+      window.addEventListener('iterm:client-report', onReport);
+    });
+    afterEach(() => window.removeEventListener('iterm:client-report', onReport));
+
+    it('소켓이 붙을 시간을 준 뒤에도 다시 보낸다 — 첫 화면 값이 가장 중요하다', () => {
+      renderHook(() => useViewport());
+      seen.length = 0;                       // 마운트 시점 보고는 받을 곳이 없다
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(seen.length).toBeGreaterThan(0);
+      expect(seen[0].scope).toBe('viewport');
+    });
+
+    it('보고에 root 와 app 높이가 들어간다 — 그 차이가 곧 하단 띠다', () => {
+      renderHook(() => useViewport());
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(seen.at(-1).detail).toMatch(/root=/);
+      expect(seen.at(-1).detail).toMatch(/app=/);
+      expect(seen.at(-1).detail).toMatch(/vv=\d+/);
+    });
+
+    it('폰이 아니면 아무것도 안 보낸다', () => {
+      vi.stubGlobal('matchMedia', () => ({ matches: false }));
+      renderHook(() => useViewport());
+      act(() => { vi.advanceTimersByTime(2000); });
+      expect(seen).toEqual([]);
+    });
+  });
+
   it('언마운트하면 리스너를 전부 뗀다', () => {
     const { unmount } = renderHook(() => useViewport());
     unmount();
