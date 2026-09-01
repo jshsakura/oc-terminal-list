@@ -113,6 +113,49 @@ describe('useViewport — 가시 영역 추적', () => {
     expect(vvh()).toBe('364px');
   });
 
+  /* ── 하단 빈틈의 진짜 뿌리 ──────────────────────────────────────────────────
+   * `#root`(fixed; inset:0)는 **레이아웃 뷰포트**를 채우는데 자식 높이를
+   * `visualViewport.height` 로 잡으면 그 차이만큼 아무도 안 칠한 띠가 남는다.
+   * 로그인 화면에서도 같은 이유로 났다 — 거기엔 앱 컨테이너가 아예 없다.
+   * 그래서 면은 상자를 꽉 채우고 **내용만** `--vvb` 만큼 띄운다. */
+  describe('--vvb (레이아웃 뷰포트와 가시 영역의 차이)', () => {
+    const vvb = () => document.documentElement.style.getPropertyValue('--vvb');
+    let root;
+
+    beforeEach(() => {
+      root = document.createElement('div');
+      root.id = 'root';
+      // jsdom 은 레이아웃이 없다 — 상자 높이를 직접 말해 준다.
+      root.getBoundingClientRect = () => ({ height: 665 });
+      document.body.appendChild(root);
+    });
+    afterEach(() => root.remove());
+
+    it('상자와 가시 영역의 차이를 낸다', () => {
+      renderHook(() => useViewport());
+      setViewport(556, 0, 556);
+      fireVV('resize');
+      flushRaf();
+      expect(vvb()).toBe('109px');       // 665 - 556 = 그 검은 띠
+    });
+
+    it('키보드가 페이지를 밀어 올린 만큼도 뺀다', () => {
+      renderHook(() => useViewport());
+      setViewport(400, 100, 665);
+      fireVV('resize');
+      flushRaf();
+      expect(vvb()).toBe('165px');       // 665 - 400 - 100
+    });
+
+    it('음수가 되지 않는다 — 크롬이 없으면 0', () => {
+      renderHook(() => useViewport());
+      setViewport(700, 0, 700);          // 가시 영역이 상자보다 크다고 보고돼도
+      fireVV('resize');
+      flushRaf();
+      expect(vvb()).toBe('0px');
+    });
+  });
+
   it('말이 안 되는 높이는 무시한다 — 접히면 하단바가 사라진다', () => {
     renderHook(() => useViewport());
     setViewport(420, 0, 800);

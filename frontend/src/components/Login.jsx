@@ -46,16 +46,18 @@ const Login = ({ onLogin, language = 'en', theme = null, einkMode = false, onTog
     const vv = window.visualViewport;
     const update = () => {
       const keyboardUp = vv.height < window.innerHeight - 60;
+      /* ⚠️ **높이를 줄이지 않는다.** 이 오버레이는 `inset: 0` 이라 레이아웃 뷰포트를
+         채우는데, 여기서 `height` 를 주면 `bottom` 이 무시되고(over-constrained) 그
+         차이만큼 아무도 안 칠한 띠가 남는다 — body 의 `#0f0f17` 이 드러나는 그 검은
+         띠다. 면은 그대로 두고 **내용만** 보이는 영역 안으로 민다. */
       setVpStyle({
-        height: `${vv.height}px`,
+        paddingBottom: `calc(var(--vvb, 0px) + ${keyboardUp ? 20 : 0}px)`,
         width: `${vv.width}px`,
-        top: `${vv.offsetTop}px`,
         left: `${vv.offsetLeft}px`,
         alignItems: keyboardUp ? 'flex-start' : 'center',
         overflowY: 'auto',
         WebkitOverflowScrolling: 'touch',
         paddingTop: keyboardUp ? '20px' : '0',
-        paddingBottom: keyboardUp ? '20px' : '0',
       });
     };
     update();

@@ -1019,12 +1019,14 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      /* 모바일 높이는 **언제나 `--vvh`**(= visualViewport.height, 사람이 보는 높이).
-         ⚠️ `100dvh` 는 폴백일 뿐이고, 이 iOS 에서는 **믿을 수 없다** — 실측에서 가시
-         영역이 556 일 때 dvh 로 잡힌 앱이 665 였다(hooks/useViewport.js 주석 참고).
-         JS 가 아직 안 돈 첫 프레임에만 쓰이며, 그때는 `100%`(레이아웃 뷰포트, 하단 크롬
-         뒤까지 뻗음)보다는 낫다. */
-      height: isMobile ? 'var(--vvh, 100dvh)' : '100%',
+      /* ⚠️ **높이를 줄이지 않는다 — 아래를 밀어 올린다.**
+         `#root` 는 `position: fixed; inset: 0` 이라 레이아웃 뷰포트를 채운다. 여기서
+         높이를 `visualViewport.height` 로 줄이면 그 차이만큼 **아무도 안 칠한 띠**가
+         남고 body 의 `#0f0f17` 이 드러난다 — 그게 하단 검은 띠였다(로그인 화면에서도
+         같은 이유로 났다). 면은 상자를 꽉 채우고, 내용만 `--vvb` 만큼 띄운다. */
+      height: '100%',
+      paddingBottom: isMobile ? 'var(--vvb, 0px)' : 0,
+      boxSizing: 'border-box',
       width: '100%',
       background: currentTheme.ui.bg,
       overflow: 'hidden',
