@@ -148,6 +148,10 @@ async def host_websocket(
             tmux_suffix=safe_suffix,
             tmux_session_name=safe_session_name,
             create_session=create,
+            # itl 표식 통로. 원격 팬의 주소록 열쇠는 그쪽 tmux/herdr 세션명이다
+            # (itl_router.native_addr 와 **같은 값**이어야 배달이 자기 자신을 찾는다).
+            app_user=username,
+            itl_key=target_tmux_session,
         )
     else:
         bridge = HostBridge(
@@ -164,6 +168,10 @@ async def host_websocket(
             tmux_suffix=safe_suffix,
             tmux_session_name=safe_session_name,
             create_session=create,
+            # itl 표식 통로. 원격 팬의 주소록 열쇠는 그쪽 tmux/herdr 세션명이다
+            # (itl_router.native_addr 와 **같은 값**이어야 배달이 자기 자신을 찾는다).
+            app_user=username,
+            itl_key=target_tmux_session,
         )
     opened_at = time.monotonic()
     log_attach(

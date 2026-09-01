@@ -1,3 +1,5 @@
+import { HERDR, TMUX, normalize as normalizeMux } from './multiplexer';
+
 /**
  * 모바일 하단 툴바 키 정의 + 디폴트.
  *
@@ -53,6 +55,123 @@ export const DEFAULT_MOBILE_KEYS = [
    { id: 'copy',  kind: 'copy', tone: 'accent' },
    { id: 'paste', kind: 'paste' },
 ];
+
+/** 프리픽스는 **하나**다 — 그 팬에서 도는 멀티플렉서에게 바로 간다. */
+const PREFIX = '\x02';   // ctrl+b — tmux 와 herdr 의 기본 프리픽스가 같다
+
+/* herdr 프리픽스 키.
+ *
+ * ⚠️ **한때 `^B^B` 였고, 지금은 아니다.** 그 이중 프리픽스는 "이 앱의 pane 은 언제나
+ * tmux 클라이언트 안" 이라는 전제 위에 있었다 — 바깥 tmux 가 `\x02` 를 먹으니
+ * `send-prefix` 를 태워야 했다. 그 전제가 사라졌다: 지금은 고른 멀티플렉서 **하나만**
+ * 깔고(backend/local_mux.js 의 짝인 local_mux.py), herdr 를 고르면 팬이 herdr 를 직접
+ * 실행한다. 바깥 tmux 가 없으므로 프리픽스를 두 번 보내면 herdr 가 두 번째를 명령 키로
+ * 읽어 **아무 일도 안 일어난다.**
+ *
+ * ⚠️ 손으로 tmux 안에서 herdr 를 띄운 경우(전환기 잔존 세션이 그렇다)에는 여전히 이중
+ * 프리픽스가 필요하다. 그건 앱이 만드는 모양이 아니므로 커스텀 키로 둔다.
+ *
+ * 키 출처: `herdr --default-config` 의 `[keys]` 기본값. */
+export const HERDR_KEYS = [
+  { label: 'H·c', payload: `${PREFIX}c` },   // new_tab
+  { label: 'H·v', payload: `${PREFIX}v` },   // split_vertical
+  { label: 'H·−', payload: `${PREFIX}-` },   // split_horizontal (prefix+minus)
+  { label: 'H·h', payload: `${PREFIX}h`, tone: 'muted' },  // focus_pane_left
+  { label: 'H·j', payload: `${PREFIX}j`, tone: 'muted' },  // focus_pane_down
+  { label: 'H·k', payload: `${PREFIX}k`, tone: 'muted' },  // focus_pane_up
+  { label: 'H·l', payload: `${PREFIX}l`, tone: 'muted' },  // focus_pane_right
+  { label: 'H·p', payload: `${PREFIX}p`, tone: 'muted' },  // previous_tab
+  { label: 'H·n', payload: `${PREFIX}n`, tone: 'muted' },  // next_tab
+  { label: 'H·z', payload: `${PREFIX}z` },   // zoom
+  { label: 'H·b', payload: `${PREFIX}b` },   // toggle_sidebar
+  { label: 'H·w', payload: `${PREFIX}w` },   // workspace_picker
+  { label: 'H·x', payload: `${PREFIX}x`, tone: 'danger' },  // close_pane
+  { label: 'H·?', payload: `${PREFIX}?` },   // help
+  { label: 'H·q', payload: `${PREFIX}q`, tone: 'danger' },  // detach
+];
+
+/* tmux 프리픽스 키 — herdr 와 **같은 자리, 다른 글자**다.
+ * 두 목록이 나란히 있어야 "왜 이 키는 저기 없나" 를 눈으로 답할 수 있다. */
+export const TMUX_KEYS = [
+  { label: 'T·c', payload: `${PREFIX}c` },   // 새 윈도우
+  { label: 'T·%', payload: `${PREFIX}%` },   // 세로 분할
+  { label: 'T·"', payload: `${PREFIX}"` },   // 가로 분할
+  { label: 'T·o', payload: `${PREFIX}o`, tone: 'muted' },  // 다음 pane
+  { label: 'T·p', payload: `${PREFIX}p`, tone: 'muted' },  // 이전 윈도우
+  { label: 'T·n', payload: `${PREFIX}n`, tone: 'muted' },  // 다음 윈도우
+  { label: 'T·z', payload: `${PREFIX}z` },   // 줌 토글
+  { label: 'T·[', payload: `${PREFIX}[` },   // copy-mode (스크롤)
+  { label: 'T·x', payload: `${PREFIX}x`, tone: 'danger' },  // pane 종료
+  { label: 'T·d', payload: `${PREFIX}d`, tone: 'danger' },  // detach
+];
+
+
+/** 우리가 심은 멀티플렉서 키는 id 로 알아본다 — 사용자가 프리셋에서 손수 넣은 것과 구별. */
+const MUX_KEY_PREFIX = 'mux_';
+
+/** 그 묶음 앞의 구분자. **키와 함께 걷어야 한다** — 안 그러면 `none` 으로 바꿨을 때
+ *  가리킬 것이 없는 구분자만 덩그러니 남는다(테스트가 잡은 실제 결함). */
+const MUX_SEP_ID = 'sep_mux';
+
+/* 퀵바에 **기본으로** 실리는 멀티플렉서 키. 전부 싣지 않는다 — 바가 길어지면 정작 자주
+   쓰는 것이 스크롤 뒤로 밀린다. 나머지는 설정의 프리셋에서 골라 넣는다.
+
+   ⚠️ 무엇을 싣느냐가 **고른 멀티플렉서를 따라간다.** 안 그러면 tmux 사용자의 바에
+   herdr 키가 남아 눌러도 아무 일이 없는데, 그 실패는 조용하다(이 파일이 이미 이중
+   프리픽스로 한 번 겪은 그 조용함이다). `none` 은 프리픽스라는 개념이 없어 비운다. */
+const DEFAULT_MUX_LABELS = {
+  [HERDR]: ['H·c', 'H·v', 'H·−', 'H·z', 'H·b', 'H·n'],
+  [TMUX]: ['T·c', 'T·%', 'T·"', 'T·z', 'T·o', 'T·n'],
+};
+
+/** 이 멀티플렉서의 기본 등록 키들. 모르는 값이면 빈 배열. */
+export const muxKeysFor = (multiplexer) => {
+  const mux = normalizeMux(multiplexer);
+  const source = mux === HERDR ? HERDR_KEYS : mux === TMUX ? TMUX_KEYS : [];
+  return (DEFAULT_MUX_LABELS[mux] || [])
+    .map((label) => source.find((k) => k.label === label))
+    .filter(Boolean)
+    .map((k) => ({ id: `${MUX_KEY_PREFIX}${k.label}`, kind: 'send', ...k }));
+};
+
+/** 기본 퀵바 = 공통 키 + 고른 멀티플렉서의 프리픽스 키. */
+export const mobileKeysFor = (multiplexer) => {
+  const muxKeys = muxKeysFor(multiplexer);
+  if (!muxKeys.length) return DEFAULT_MOBILE_KEYS;
+  return [...DEFAULT_MOBILE_KEYS, { id: MUX_SEP_ID, kind: 'sep' }, ...muxKeys];
+};
+
+
+/**
+ * 이미 저장된 바에 **고른 멀티플렉서의 키를 맞춰 넣는다.**
+ *
+ * 왜 필요한가: `mobileKeys` 는 첫 실행에 저장되므로, 기본값만 바꾸면 **기존 사용자에게는
+ * 영영 안 나온다.** 그렇다고 초기화로 밀면 사용자가 손본 배열이 날아간다.
+ *
+ * 규칙:
+ *  - 우리가 심은 것(`mux_` id)만 걷어내고 다시 넣는다. 사용자가 프리셋에서 손수 넣은
+ *    키는 id 가 다르므로 **건드리지 않는다.**
+ *  - `seededFor` 가 지금 멀티플렉서와 같으면 **아무것도 안 한다** — 심어준 뒤에 사용자가
+ *    지웠다면 지운 대로 두어야 한다. 매번 되살리면 지울 방법이 없어진다.
+ *  - 멀티플렉서를 바꾸면 옛 키를 걷고 새 키를 넣는다. 안 그러면 tmux 로 옮긴 바에
+ *    herdr 키가 남아 눌러도 아무 일이 없다(그 실패는 조용하다).
+ *
+ * @returns {{keys: Array, seededFor: string}} 바뀐 게 없으면 `keys` 는 같은 참조다.
+ */
+export const syncMuxKeys = (keys, multiplexer, seededFor = null) => {
+  const mux = normalizeMux(multiplexer);
+  if (!Array.isArray(keys) || seededFor === mux) return { keys, seededFor };
+  const kept = keys.filter((k) => {
+    const id = String(k?.id || '');
+    return id !== MUX_SEP_ID && !id.startsWith(MUX_KEY_PREFIX);
+  });
+  const muxKeys = muxKeysFor(mux);
+  if (!muxKeys.length) return { keys: kept, seededFor: mux };
+  return {
+    keys: [...kept, { id: MUX_SEP_ID, kind: 'sep' }, ...muxKeys],
+    seededFor: mux,
+  };
+};
 
 // "추가" 프리셋 — Settings 의 "Add key" 메뉴에서 빠르게 선택. 사용자는 Custom (label+payload) 도 가능.
 // kind 가 'sep' 면 구분자 (payload 없음), 명시 안 하면 'send' 로 추가.
@@ -124,29 +243,8 @@ export const KEY_PRESETS = [
   { label: 'F11', payload: '\x1b[23~' },
   { label: 'F12', payload: '\x1b[24~' },
 
-  /* herdr (멀티플렉서) — prefix 키.
-   *
-   * ⚠️ **payload 가 `^B` 하나가 아니라 `^B ^B` 로 시작하는 이유**: 이 앱의 pane 은 언제나
-   * tmux 클라이언트 안이고, tmux 기본 프리픽스도 `C-b` 다. 그래서 `\x02` 를 그냥 보내면
-   * **바깥 tmux 가 먹고 herdr 까지 가지 않는다.** tmux 의 `bind-key -T prefix C-b
-   * send-prefix`(기본값)를 태워 리터럴 `\x02` 를 안쪽으로 통과시켜야 한다.
-   * 이 실수는 조용하다 — 키를 눌러도 아무 일이 안 일어날 뿐이라 herdr 설정을 의심하게 된다.
-   *
-   * herdr 쪽에서 prefix 를 다른 키로 바꿨다면 이 프리셋들은 안 맞는다(그때는 커스텀 키로).
-   * 키 목록 출처: herdr 기본 keybindings(prefix = ctrl+b). */
-  { label: 'H·c', payload: '\x02\x02c' },   // 새 탭
-  { label: 'H·v', payload: '\x02\x02v' },   // 세로 분할
-  { label: 'H·−', payload: '\x02\x02-' },   // 가로 분할
-  { label: 'H·h', payload: '\x02\x02h', tone: 'muted' },  // pane ←
-  { label: 'H·j', payload: '\x02\x02j', tone: 'muted' },  // pane ↓
-  { label: 'H·k', payload: '\x02\x02k', tone: 'muted' },  // pane ↑
-  { label: 'H·l', payload: '\x02\x02l', tone: 'muted' },  // pane →
-  { label: 'H·p', payload: '\x02\x02p', tone: 'muted' },  // 이전 탭
-  { label: 'H·n', payload: '\x02\x02n', tone: 'muted' },  // 다음 탭
-  { label: 'H·z', payload: '\x02\x02z' },   // 줌 토글
-  { label: 'H·w', payload: '\x02\x02w' },   // 워크스페이스
-  { label: 'H·?', payload: '\x02\x02?' },   // 단축키 도움말
-  { label: 'H·q', payload: '\x02\x02q', tone: 'danger' }, // detach
+  ...HERDR_KEYS,
+  ...TMUX_KEYS,
 
   // 자주 쓰는 텍스트 (prefix — 스페이스 포함)
   { label: 'sudo', payload: 'sudo ' },

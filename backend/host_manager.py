@@ -22,6 +22,7 @@ import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
 
 import multiplexer as mux
+from itl_channel import SentinelScanner
 from vault import decrypt_str
 from ws_observe import log_client_error
 
@@ -383,6 +384,8 @@ class HostBridge:
         tmux_session_name: str | None = None,
         create_session: bool = True,
         default_multiplexer: str = mux.DEFAULT,
+        app_user: str | None = None,
+        itl_key: str | None = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -399,6 +402,11 @@ class HostBridge:
         self.tmux_suffix = (tmux_suffix or "").strip() or None
         # 명시적 세션명 override (Home 의 영속 세션 Resume 등). 주어지면 base/suffix/pane 계산 무시.
         self.tmux_session_name = (tmux_session_name or "").strip() or None
+        # itl 표식 통로 — 원격 팬도 자기 PTY 로 백엔드에 말을 건다. 크리덴셜을 그 호스트에
+        # 두지 않기 위한 통로이므로, 앱 사용자를 모르면(=배달할 주소록이 없으면) 안 켠다.
+        self.app_user = app_user
+        self.itl_key = itl_key
+        self._itl_scanner = SentinelScanner() if app_user else None
         self.create_session = bool(create_session)
         self.conn: asyncssh.SSHClientConnection | None = None
         self.process: asyncssh.SSHClientProcess | None = None
@@ -406,6 +414,14 @@ class HostBridge:
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         # 출력 펌프와 pong 응답이 동시에 send 하지 않도록 직렬화.
         self._send_lock = asyncio.Lock()
+
+    async def _dispatch_itl(self, msg: dict) -> None:
+        """표식 하나를 라우터로. 던지면 출력 펌프가 죽으므로 전부 삼킨다."""
+        try:
+            from itl_router import deliver_from_pane
+            await deliver_from_pane(self.app_user, self.itl_key or "", msg)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("itl dispatch failed (%s): %s", self.itl_key, e)
 
     async def send_control(self, text: str) -> None:
         """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
@@ -547,6 +563,9 @@ class HostBridge:
                 chunk: bytes = await self.process.stdout.read(65536)
                 if not chunk:
                     break
+                if self._itl_scanner is not None:
+                    for msg in self._itl_scanner.feed(chunk):
+                        asyncio.create_task(self._dispatch_itl(msg))
                 if self.websocket.client_state.name != "CONNECTED":
                     break
                 try:
@@ -738,6 +757,8 @@ class TailscaleHostBridge:
         tmux_session_name: str | None = None,
         create_session: bool = True,
         default_multiplexer: str = mux.DEFAULT,
+        app_user: str | None = None,
+        itl_key: str | None = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -750,12 +771,25 @@ class TailscaleHostBridge:
         self.cwd = (cwd or "").strip() or None
         self.tmux_suffix = (tmux_suffix or "").strip() or None
         self.tmux_session_name = (tmux_session_name or "").strip() or None
+        # itl 표식 통로 — 원격 팬도 자기 PTY 로 백엔드에 말을 건다. 크리덴셜을 그 호스트에
+        # 두지 않기 위한 통로이므로, 앱 사용자를 모르면(=배달할 주소록이 없으면) 안 켠다.
+        self.app_user = app_user
+        self.itl_key = itl_key
+        self._itl_scanner = SentinelScanner() if app_user else None
         self.create_session = bool(create_session)
         self.process: ptyprocess.PtyProcess | None = None
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._closed = asyncio.Event()
         # 출력 펌프와 pong 응답이 동시에 send 하지 않도록 직렬화.
         self._send_lock = asyncio.Lock()
+
+    async def _dispatch_itl(self, msg: dict) -> None:
+        """표식 하나를 라우터로. 던지면 출력 펌프가 죽으므로 전부 삼킨다."""
+        try:
+            from itl_router import deliver_from_pane
+            await deliver_from_pane(self.app_user, self.itl_key or "", msg)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("itl dispatch failed (%s): %s", self.itl_key, e)
 
     async def send_control(self, text: str) -> None:
         """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
@@ -829,6 +863,10 @@ class TailscaleHostBridge:
             nonlocal pending_bytes
             try:
                 data = self.process.read(self.READ_CHUNK)
+                # 백프레셔가 버리기 전에 먹인다 — 화면에 안 보이는 것과 못 들은 것은 다르다.
+                if data and self._itl_scanner is not None:
+                    for msg in self._itl_scanner.feed(data):
+                        asyncio.create_task(self._dispatch_itl(msg))
             except OSError as e:
                 if getattr(e, "errno", None) in (11, 35):
                     return

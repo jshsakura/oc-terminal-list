@@ -20,6 +20,8 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from ws_observe import log_client_error
 
+from itl_channel import SentinelScanner
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,9 +36,15 @@ class TmuxClientBridge:
     """단일 WebSocket과 tmux attach PTY 한 쌍의 라이프사이클."""
 
     def __init__(self, websocket: WebSocket, session_id: str, attach_argv: list[str], cols: int, rows: int,
-                 client_id: str | None = None, term: str = "tmux-256color", cwd: str | None = None):
+                 client_id: str | None = None, term: str = "tmux-256color", cwd: str | None = None,
+                 username: str | None = None):
         self.websocket = websocket
         self.session_id = session_id
+        # 팬 → 백엔드 통로(itl_channel). 새 포트도 크리덴셜도 만들지 않는다 — 이 PTY 가
+        # 이미 인증된 채널이라 표식 한 줄이면 된다. username 이 없으면 아예 안 켠다:
+        # 배달은 **그 사용자의 팬** 안에서만 일어난다.
+        self.username = username
+        self._itl_scanner = SentinelScanner() if username else None
         # 로그 상관용으로만 쓴다(WS attach/detach 와 같은 값이라 줄을 이어 읽을 수 있다).
         self.client_id = client_id
         self.attach_argv = attach_argv
@@ -83,6 +91,14 @@ class TmuxClientBridge:
             "tmux attach client spawned: session=%s pid=%s size=%dx%d",
             self.session_id, self.process.pid, self.cols, self.rows,
         )
+
+    async def _dispatch_itl(self, msg: dict) -> None:
+        """표식 하나를 라우터로. 여기서 던지면 출력 펌프가 죽으므로 전부 삼킨다."""
+        try:
+            from itl_router import deliver_from_pane
+            await deliver_from_pane(self.username, self.session_id, msg)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("itl dispatch failed (%s): %s", self.session_id, e)
 
     async def send_control(self, text: str) -> None:
         """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
@@ -186,6 +202,11 @@ class TmuxClientBridge:
                 return
             if not data:
                 return
+            # ⚠️ 백프레셔가 청크를 버리기 **전에** 먹인다. 화면에 안 보이는 것과
+            # 못 들은 것은 다르다 — 표식을 흘리면 배달이 조용히 사라진다.
+            if self._itl_scanner is not None:
+                for msg in self._itl_scanner.feed(data):
+                    asyncio.create_task(self._dispatch_itl(msg))
             pending.append(data)
             pending_bytes += len(data)
             # 백프레셔: 너무 쌓이면 가장 오래된 청크 폐기 (byte 또는 item 기준)

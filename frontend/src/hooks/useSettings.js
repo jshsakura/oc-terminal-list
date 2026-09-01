@@ -10,7 +10,7 @@
 import { useState, useEffect, useRef } from 'react';
 import useEvent from './useEvent';
 import { DEFAULT_TERMINAL_FONT_FAMILY, normalizeTerminalFontFamily } from '../utils/terminalFonts';
-import { DEFAULT_MOBILE_KEYS } from '../utils/mobileKeys';
+import { mobileKeysFor, syncMuxKeys } from '../utils/mobileKeys';
 
 const SUPPORTED_DEFAULT_SHELLS = new Set(['auto', 'bash', 'zsh', 'sh']);
 
@@ -65,7 +65,12 @@ export const DEFAULT_SETTINGS = {
   predictiveEcho: true, // 예측 입력(local echo) — 키를 RTT 안 기다리고 유령 글자로 즉시 표시. 오예측 싫으면 off
 
   bellNotifications: false, // BEL(\x07) 수신 시 브라우저 알림 (탭 백그라운드일 때만)
-  mobileKeys: DEFAULT_MOBILE_KEYS,  // 모바일 하단 단축키 목록 — 사용자가 Settings 에서 편집
+  // 기본값은 저장소 기본 멀티플렉서(tmux)의 키까지 실은 것이다. 사용자가 herdr 로
+  // 바꾸면 아직 손대지 않은 바는 MobileToolbar 가 그 쪽 키로 채운다(mobileKeysFor).
+  mobileKeys: mobileKeysFor('tmux'),  // 모바일 하단 단축키 — 사용자가 Settings 에서 편집
+  // 퀵바에 어느 멀티플렉서의 키를 심어 뒀는지. **null 이면 아직 안 심었다**(옛 사용자).
+  // 이 값 없이 매번 심으면 사용자가 지운 키가 계속 되살아나 지울 방법이 없어진다.
+  mobileKeysMuxSeeded: null,
   vncQuality: 'auto',   // VNC 화질 — 'auto'(링크 속도에 맞춰 자동, 기본) | 'sharp' | 'balanced' | 'light'.
                         // auto 는 프리셋이 아니라 **누가 정하느냐**다. 사람이 고르면 그게 이기고 적응은 멈춘다.
   currency: 'auto',      // 비용 표기 통화 — 'auto'(한국어면 원) | 'usd' | 'krw'. 환율은 서버가 하루 한 번.
@@ -186,6 +191,21 @@ export const useSettings = (isAuthenticated = null) => {
     }, 600);
     return () => { if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current); };
   }, [settings, isAuthenticated]);
+
+  /* 저장된 퀵바에 고른 멀티플렉서의 키를 맞춰 넣는다.
+     기본값만 바꾸면 **이미 저장된 사용자에게는 영영 안 나온다** — `mobileKeys` 는 첫
+     실행에 저장되기 때문이다. 그렇다고 초기화로 밀면 손본 배열이 날아간다. 그래서
+     덧붙이기만 한다(utils/mobileKeys.syncMuxKeys 의 규칙). */
+  useEffect(() => {
+    setSettings((prev) => {
+      const { keys, seededFor } = syncMuxKeys(
+        prev.mobileKeys, prev.defaultMultiplexer, prev.mobileKeysMuxSeeded,
+      );
+      if (keys === prev.mobileKeys && seededFor === prev.mobileKeysMuxSeeded) return prev;
+      markSettingsDirty();
+      return { ...prev, mobileKeys: keys, mobileKeysMuxSeeded: seededFor };
+    });
+  }, [settings.defaultMultiplexer, settings.mobileKeysMuxSeeded]);
 
   // 개별 설정 업데이트
   const updateSetting = useEvent((key, value) => {

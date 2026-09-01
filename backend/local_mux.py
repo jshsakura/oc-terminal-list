@@ -119,6 +119,54 @@ def parse_herdr_sessions(text: str) -> set[str]:
     return names
 
 
+async def _herdr_stop_and_delete(session_id: str) -> None:
+    """herdr 세션을 멈추고 지운다. `stop` 만으로는 이름이 남아 새로 안 뜬다.
+
+    두 단계 다 실패해도 던지지 않는다 — 호출부(세션 삭제)는 "없어졌다" 를 최선으로 하고,
+    남았을 때의 증상은 재시작이 조용히 무의미해지는 것이라 **로그로 남는 것이 중요하다.**
+    """
+    binary = herdr_bin()
+    if not binary:
+        logger.warning("herdr kill skipped — binary not found (%s)", session_id)
+        return
+    for args in (("session", "stop", session_id), ("session", "delete", session_id)):
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                binary, *args,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            _out, err = await asyncio.wait_for(proc.communicate(), timeout=LIST_TIMEOUT_SEC)
+        except (asyncio.TimeoutError, OSError) as e:
+            logger.warning("herdr %s failed (%s): %s", " ".join(args), session_id, e)
+            return
+        if proc.returncode != 0:
+            # `stop` 이 "이미 멈춰 있다" 로 실패해도 `delete` 는 해야 하므로 계속 간다.
+            logger.info(
+                "herdr %s returned %s (%s): %s",
+                " ".join(args), proc.returncode, session_id,
+                (err or b"").decode("utf-8", errors="replace").strip()[:200],
+            )
+
+
+async def kill_session(choice: str, session_id: str) -> None:
+    """이 세션을 없앤다 — **고른 것에게 맞는 방법으로.**
+
+    tmux 에게만 물으면 herdr 사용자의 "세션 재시작" 이 조용한 무동작이 된다(죽일 tmux
+    세션이 애초에 없으므로 kill 이 성공한 것처럼 끝나고, 재접속은 멀쩡히 살아 있는 herdr
+    세션에 그대로 다시 붙는다). 이 저장소가 cwd 에서 이미 한 번 밟은 함정과 같은 모양이다.
+
+    `none` 은 붙잡아 두는 것이 없다 — 셸은 소켓이 닫히면 함께 끝나므로 할 일이 없다.
+    """
+    choice = mux.normalize(choice)
+    if choice == mux.TMUX:
+        await tmux_manager.kill_session(session_id)
+        return
+    if choice == mux.HERDR:
+        await _herdr_stop_and_delete(session_id)
+
+
 async def live_session_names(choice: str) -> set[str]:
     """살아있는 로컬 세션 이름. **빈 집합 = 판정 불가**(지우는 코드는 손을 뗀다)."""
     choice = mux.normalize(choice)

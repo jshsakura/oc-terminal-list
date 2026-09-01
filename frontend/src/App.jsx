@@ -963,10 +963,14 @@ function App() {
     });
   });
   const handlePickHostPath = useEvent((h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); });
+  /* 폴더 픽커는 App 이 소유하지만 **고른 경로로 무엇을 할지는 부른 쪽이 안다.**
+     슬롯에 `onPicked` 가 실려 오면 그것이 이긴다(PaneGrid 의 "경로 지정해 재시작").
+     없으면 기본 동작 — 그 빈 pane 을 그 경로의 새 로컬 세션으로 채운다. */
   const handlePickLocalPath = useEvent((slot) => setLocalFolderPicker({
                       open: true,
-                      initial: settings.localStartPath || '',
+                      initial: slot?.initial ?? (settings.localStartPath || ''),
                       onPick: (chosen) => {
+                        if (slot?.onPicked) { slot.onPicked(chosen); return; }
                         if (slot?.tabId && slot?.paneId) {
                           activatePane(slot.tabId, slot.paneId, { type: 'local', cwd: chosen });
                         }
@@ -988,6 +992,8 @@ function App() {
                       setFolderPickerHost(null);
                       setFolderPickerSlot(null);
                       if (!host || !chosen) return;
+                      // 로컬 픽커와 같은 규칙 — 슬롯이 할 일을 들고 왔으면 그것이 이긴다.
+                      if (slot?.onPicked) { slot.onPicked(chosen); return; }
                       try {
                         await fetch(`/api/hosts/${host.id}/last-cwd`, {
                           method: 'POST',
@@ -1013,9 +1019,12 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      // 모바일에선 visualViewport.height 를 우선 (iOS 키보드/주소표시줄 대응).
-      // 데스크탑은 100% 유지 — visualViewport 가 없어도 영향 없음.
-      height: isMobile ? 'var(--vvh, 100%)' : '100%',
+      /* 모바일에선 visualViewport.height 를 우선 (iOS 키보드/주소표시줄 대응).
+         데스크탑은 100% 유지 — visualViewport 가 없어도 영향 없음.
+         ⚠️ 폴백이 `100%` 가 아니라 `100dvh` 다. `100%` 는 `#root`(position:fixed; inset:0)
+         를 따라가는데 그건 **레이아웃 뷰포트**라 iOS 하단 크롬 뒤까지 뻗는다 — 변수가
+         아직 없거나 못 붙는 브라우저에서 그만큼이 검은 띠가 된다. dvh 는 크롬을 뺀 값이다. */
+      height: isMobile ? 'var(--vvh, 100dvh)' : '100%',
       width: '100%',
       background: currentTheme.ui.bg,
       overflow: 'hidden',
@@ -1395,6 +1404,7 @@ function App() {
               슬롯(DOCK_SLOT_ID)으로 포탈하기 때문. 순서를 바꾸면 첫 렌더에 슬롯이 없어
               대상·히스토리 버튼이 한 틱 늦게 나타난다(도크가 재시도하긴 한다). */}
           <MobileToolbar
+            multiplexer={settings.defaultMultiplexer}
             onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}
             onOpenCommandInput={() => setCommandInputOpen(true)}
             onAction={(type) => {

@@ -216,6 +216,7 @@ export const MobilePanel = ({ s, change, t }) => (
     <Section title={t('mobileKeys') || 'Mobile shortcut bar'}>
       <MobileKeysEditor
         keys={s.mobileKeys ?? DEFAULT_MOBILE_KEYS}
+        multiplexer={s.defaultMultiplexer}
         onChange={(next) => change('mobileKeys', next)}
         t={t}
       />

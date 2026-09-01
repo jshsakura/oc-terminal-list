@@ -86,3 +86,75 @@ class TestChoiceFor:
         with patch.object(local_mux.storage, "get_user_settings",
                           AsyncMock(return_value={"defaultMultiplexer": "zellij"})):
             assert await local_mux.choice_for("u") == mux.DEFAULT
+
+
+class TestKillSession:
+    """세션 재시작이 **고른 것에게** 가 닿는지.
+
+    tmux 로 고정돼 있던 동안 herdr 사용자의 "세션 재시작" 은 조용한 무동작이었다 —
+    죽일 tmux 세션이 없으니 kill 이 성공한 척 끝나고, 재접속은 멀쩡히 살아 있는 herdr
+    세션에 그대로 다시 붙었다. 눌러도 아무 일이 안 나는데 에러도 없다.
+    """
+
+    @pytest.mark.anyio
+    async def test_tmux_는_tmux_에게_보낸다(self):
+        with patch.object(local_mux.tmux_manager, "kill_session", AsyncMock()) as killed:
+            await local_mux.kill_session(mux.TMUX, "sess-1")
+        killed.assert_awaited_once_with("sess-1")
+
+    @pytest.mark.anyio
+    async def test_herdr_는_stop_뒤_delete_다(self):
+        """`stop` 만으로는 이름이 남아 같은 id 로 새 세션이 안 뜬다."""
+        calls = []
+
+        async def fake_exec(binary, *args, **kwargs):
+            calls.append((binary, *args))
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(return_value=(b"", b""))
+            proc.returncode = 0
+            return proc
+
+        with (
+            patch.object(local_mux, "herdr_bin", return_value="/opt/herdr"),
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+            patch.object(local_mux.tmux_manager, "kill_session", AsyncMock()) as tmux_killed,
+        ):
+            await local_mux.kill_session(mux.HERDR, "sess-1")
+
+        assert calls == [
+            ("/opt/herdr", "session", "stop", "sess-1"),
+            ("/opt/herdr", "session", "delete", "sess-1"),
+        ]
+        tmux_killed.assert_not_awaited()   # tmux 를 밑에 깔지 않는다
+
+    @pytest.mark.anyio
+    async def test_stop_이_실패해도_delete_는_한다(self):
+        """이미 멈춰 있는 세션이 그 경우다 — 거기서 멈추면 이름이 영영 남는다."""
+        calls = []
+
+        async def fake_exec(binary, *args, **kwargs):
+            calls.append(args)
+            proc = AsyncMock()
+            proc.communicate = AsyncMock(return_value=(b"", b"not running"))
+            proc.returncode = 1
+            return proc
+
+        with (
+            patch.object(local_mux, "herdr_bin", return_value="/opt/herdr"),
+            patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
+        ):
+            await local_mux.kill_session(mux.HERDR, "sess-1")
+
+        assert [a[1] for a in calls] == ["stop", "delete"]
+
+    @pytest.mark.anyio
+    async def test_herdr_가_없으면_조용히_넘어간다(self):
+        with patch.object(local_mux, "herdr_bin", return_value=None):
+            await local_mux.kill_session(mux.HERDR, "sess-1")   # 던지지 않는다
+
+    @pytest.mark.anyio
+    async def test_none_은_죽일_것이_없다(self):
+        """셸은 소켓이 닫히면 함께 끝난다 — tmux 를 건드리면 남의 세션을 죽인다."""
+        with patch.object(local_mux.tmux_manager, "kill_session", AsyncMock()) as killed:
+            await local_mux.kill_session(mux.NONE, "sess-1")
+        killed.assert_not_awaited()

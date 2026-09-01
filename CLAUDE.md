@@ -380,7 +380,13 @@ Two different things — don't conflate them:
 - **Reload terminal** (`onRefreshTerminal`) — bumps `refreshNonce`, remounting xterm. It re-attaches to the **same live tmux session**, so the shell, its PATH/hash, and its processes are untouched.
 - **Restart session** (`onRestartSession` → `utils/restartSession.js`) — **kills the tmux session** and reopens a fresh shell at the same cwd. Use when a just-installed binary isn't on PATH yet. Everything running inside dies, so it goes through a confirm dialog.
 
+- **Restart at path** (`onRestartSessionAtPath` → `PaneGrid.handleRestartPaneAtPath`) — the same restart, except a folder picker chooses where the new shell starts. Pick → confirm (the chosen path is in the confirm text) → `restart(cwd)`.
+
 Restart only *kills*; recreation is done by the reconnect (the WS route creates the session when it's missing, using the `cwd` query as the start dir). **So the kill must complete before the remount** — reversed, you re-attach to the still-living session and nothing happens.
+
+⚠️ **The kill must go to whatever actually holds the session** (`local_mux.kill_session`). While `DELETE /api/sessions/{id}` was hardwired to tmux, restart was a **silent no-op for herdr users**: there was no tmux session to kill, so the kill "succeeded" and the reconnect re-attached to the perfectly alive herdr session. Nothing failed, nothing logged, the button just did nothing. herdr needs `session stop` **and** `session delete` — stop alone leaves the name, and the same id then refuses to come back fresh. `none` has nothing to kill (the shell dies with the socket).
+
+⚠️ **The picker is owned by App, but what to do with the chosen path is not.** The slot carries an `onPicked`; App honors it and otherwise falls back to filling an empty pane. Adding a third meaning goes in the caller, not in a growing `if` in App.
 
 `cwd` format differs by pane type: **local = workspace-relative** (`validate_path()` strips a leading `/` and joins it onto the workspace, so an absolute path lands somewhere wrong), **remote = absolute** on the remote box.
 
@@ -598,20 +604,29 @@ Traps:
 
 Detection rules ported from [stablyai/orca](https://github.com/stablyai/orca) (MIT), `src/shared/agent-title-status.ts`.
 
-## 퀵바에서 중첩 멀티플렉서를 부릴 때 — 프리픽스는 두 번이다 (2026-09-01)
+## 퀵바의 프리픽스 키 — 고른 멀티플렉서를 따라간다 (2026-09-01)
 
-이 앱의 pane 은 **언제나 tmux 클라이언트 안**이고, tmux 기본 프리픽스도 `C-b` 다. 그래서
-pane 안에서 herdr(또는 다른 `C-b` 프리픽스 멀티플렉서)를 돌릴 때 퀵바가 `\x02` 를 그냥
-보내면 **바깥 tmux 가 먹고 안쪽까지 가지 않는다.**
+퀵바 기본값에 **고른 멀티플렉서의 프리픽스 키**가 실린다(`utils/mobileKeys.js` 의
+`mobileKeysFor`). herdr 를 고르면 `H·c`(새 탭)·`H·v`(분할)·`H·b`(사이드바)…, tmux 면
+`T·c`·`T·%`·`T·"`…. `none` 은 프리픽스라는 개념이 없어 공통 키만 남는다.
 
-→ payload 를 `\x02\x02` 로 시작한다. tmux 의 `bind-key -T prefix C-b send-prefix`(기본값)를
-태워 리터럴 `^B` 를 안쪽으로 통과시키는 것이다.
+⚠️ **프리픽스는 하나다(`\x02`).** 한때 `\x02\x02` 였고, 그 근거는 "이 앱의 pane 은
+언제나 tmux 클라이언트 안" 이었다 — 바깥 tmux 가 `^B` 를 먹으니 `send-prefix` 를 태워야
+했다. **그 전제는 `f38bd02` 로 사라졌다**(고른 것 하나만 깔고, herdr 를 고르면 팬이 herdr
+를 직접 실행한다). 지금 이중으로 보내면 안쪽이 두 번째를 명령 키로 읽어 아무 일도 안
+일어난다. 손으로 tmux 안에서 herdr 를 띄운 경우(전환기 잔존 세션)에는 여전히 이중이
+필요하지만 그건 앱이 만드는 모양이 아니므로 **커스텀 키로 둔다.**
 
-- ⚠️ **이 실수는 조용하다** — 키를 눌러도 아무 일이 안 일어날 뿐이라 herdr 설정을 의심하게
-  된다. `utils/mobileKeys.test.js` 의 "herdr 프리셋" 이 이중 프리픽스를 잠근다.
+⚠️ **틀린 키를 싣는 실수는 어느 방향이든 조용하다** — 눌러도 아무 일이 없을 뿐이라
+사용자는 멀티플렉서 설정을 의심한다. 그래서 `utils/mobileKeys.test.js` 가 ① 프리픽스가
+하나인지 ② 고른 멀티플렉서의 키만 실리는지를 양쪽으로 잠근다.
+
+- **사용자가 바를 손댔으면 그것이 이긴다.** 멀티플렉서 기본값은 `keys` 가 비었을 때만 채워진다.
+- 키 출처는 `herdr --default-config` 의 `[keys]` 다(`prefix+c` new_tab, `prefix+minus`
+  split_horizontal, `prefix+b` toggle_sidebar …). 사용자가 herdr 프리픽스를 바꿨다면
+  이 프리셋은 안 맞는다 — 그때는 커스텀 키로.
 - 퀵바는 원래 임의 바이트열을 보낼 수 있다(`kind: 'send'` + `payload`). 프리셋은 폰에서
-  `\e` 표기를 손으로 치지 않게 하려는 것뿐이고, 없는 키는 설정에서 커스텀으로 추가하면 된다.
-- herdr 쪽 프리픽스를 다른 키로 바꿨다면 이 프리셋은 안 맞는다 — 그때는 커스텀 키로.
+  `\e` 표기를 손으로 치지 않게 하려는 것뿐이다.
 
 ## 멀티플렉서는 선택이다 — tmux 를 밑에 깔지 않는다 (2026-09-01)
 
@@ -633,6 +648,12 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
 | `none`  | 로그인 셸                        | 로그인 셸 |
 
 - **`none` 은 고장이 아니라 유효한 선택이다.** 셸이 뜨고 탭을 닫으면 끝난다.
+- ⚠️ **시작 경로는 고른 것과 무관하게 지켜져야 한다.** tmux 는 세션을 만들 때 `-c` 로
+  받으므로 cwd 해소를 **tmux 분기 안에** 두기 쉬운데, herdr·none 은 `ws_bridge` 가
+  프로세스를 직접 띄우므로 거기서 안 넘기면 bridge 기본값인 **`$HOME` 에서 뜬다.**
+  실제로 그랬다 — 폴더를 골라도 매번 같은 자리에 붙었고, 에러도 로그도 없었다(고른 것이
+  아무 데도 가 닿지 않는 조용한 실패). 이 배포는 `WORKSPACE_ROOT ≠ $HOME` 이라 증상이
+  "자꾸 루트로 붙는다" 로 보였다. `tests/test_terminal_ws_cwd.py` 가 잠근다.
 - **대신 반드시 말한다.** 고른 것이 그 기계에 없으면 `{"type":"mux-missing"}` 이 나가고
   pane 이 "닫으면 사라집니다 + [설치]" 를 띄운다(로컬·원격 양쪽에서 보낸다). 판정은
   `persists()` **하나**다.
@@ -652,8 +673,13 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
 
 ⚠️ **herdr 를 고르면 tmux 에 얹혀 있던 것들이 사라진다.** 빠뜨린 게 아니라 tmux 의
 기능이었다 — pane 주소 상태바(`@pane_addr`), 아무도 안 보는 pane 의 에이전트 상태 폴링
-(`list-panes -a`), pane cwd 추적, tmux 세션 재시작·무덤. herdr 는 자기 UI 안에서 자기
-방식으로 한다. **모르는 것을 아는 척 채우지 않는다.**
+(`list-panes -a`), pane cwd 추적, 세션 무덤. herdr 는 자기 UI 안에서 자기 방식으로 한다.
+**모르는 것을 아는 척 채우지 않는다.**
+
+⚠️ **다만 "사라진다" 와 "조용히 안 된다" 는 다르다.** 세션 재시작이 그 경계에 있었다 —
+없어진 게 아니라 kill 이 tmux 로만 가서 **눌러도 아무 일이 없었다.** 지금은
+`local_mux.kill_session` 이 고른 것에게 보낸다. 로컬 세션을 죽이는 코드를 새로 쓸 때
+`tmux_manager.kill_session` 을 직접 부르면 이 병이 그대로 재발한다.
 
 기타 함정:
 - herdr 는 `herdr --session <name>` 하나가 생성과 접속을 겸한다 → `create=0`(이어붙기만)은
@@ -700,17 +726,18 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
 - 새 탭에 타이핑할 때는 pane id 가 아니라 **탭 id** 로 찾는다(`utils/paneTyping`).
   pane id 는 `setTabs` 안에서 만들어져 밖에서는 알 수 없다.
 
-### pane 우상단 배지는 번호만이다 (2026-09-01)
+### pane 우상단 주소 배지는 걷어냈다 (2026-09-01)
 
-한때 이름·복사 버튼·접기 핸들이 함께 달려 있었고, 그 복사는 `tmux -L … attach -t '=…'`
-+ `send-keys` 안내가 붙은 **남의 에이전트에게 건네는 핸들**이었다. 그 쓰임(itl · 세션 간
-명령 전달)이 통째로 사라진 뒤에는 터미널 출력을 덮는 상자만 남아서 걷어냈다
-(`utils/sessionTarget.js` 삭제).
+단계적으로 사라졌다. 먼저 이름·복사 버튼·접기 핸들이 빠졌고(그 복사는
+`tmux -L … attach -t '=…'` + `send-keys` 안내가 붙은 **남의 에이전트에게 건네는 핸들**
+이었다 — itl · 세션 간 명령 전달이 사라지며 무의미해졌다, `utils/sessionTarget.js` 삭제),
+남아 있던 번호 배지(`PaneAddressLabel`)도 지웠다.
 
-배지가 남은 이유는 하나다: **자기 주소를 자기가 볼 방법이 없으면 "옆에 2번한테 시켜" 라고
-말할 수 없다.** 하단 tmux 상태바의 `[1.2]` 와 같은 값이고 같은 이유다. `pointerEvents: none`
-이라 아래 터미널이 그대로 클릭되고, `PaneAddressLabel.test.jsx` 가 "배지 안에 버튼 없음" 을
-잠근다.
+**주소 자체가 필요 없어진 게 아니다.** "옆에 2번한테 시켜" 라고 말하려면 자기 주소를
+자기가 볼 수 있어야 하고, 그건 **하단 tmux 상태바의 `[1.2]`** 가 이미 한다(`@pane_addr`,
+위의 상태바 절). 같은 값을 두 곳에 그릴 이유가 없었고, 그중 하나는 터미널 출력의 우상단을
+덮고 있었다. 되살릴 일이 생기면 `pointerEvents: none` 이 조건이었다는 것만 기억할 것 —
+읽는 것이지 누르는 것이 아니다.
 
 ### itl · 리모트 에이전트 · 기기 알림은 없앴다 (2026-09-01)
 
@@ -780,6 +807,37 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
 
 같은 함정의 일반형: **화면에 보이는 브라우저 UI 이상 증상을 CSS 문제로 보지 마라.**
 대개는 우리가 연 연결·요청의 수명이 원인이다.
+
+## 하단 빈틈 — 높이를 JS 로 재지 마라 (2026-09-02)
+
+폰에서 퀵바 아래로 검은 띠가 남았다. **"처음 들어오면 보이고 나중엔 괜찮아진다"** 가
+이 병의 지문이다 — 어딘가에 낡은 높이가 굳어 있고, 나중 이벤트가 그걸 고친다는 뜻.
+
+앱 컨테이너는 `var(--vvh)` 였고 `--vvh` 는 `visualViewport.height` 를 JS 로 재서 넣었다.
+**그 값은 반드시 언젠가 낡는다:**
+- iOS 는 주소창 접힘 **애니메이션 중간값**으로 마지막 resize 를 쏘고 끝내기도 한다.
+- 앱 전환·bfcache 복원은 **이벤트 없이** 크롬 높이만 바꿔 놓는다.
+- `window.resize` 만 오고 `visualViewport.resize` 는 안 오는 조합이 있다.
+
+낡은 값이 실제보다 작으면 그 차이가 그대로 띠다.
+
+**규칙: 평소에는 `--vvh` 를 걸지 않는다.** CSS `100dvh` 는 브라우저가 매 프레임 직접
+계산하므로 낡을 수가 없다. 변수는 **dvh 가 모르는 것 — 키보드가 올라온 상태**에만 건다.
+
+⚠️ **키보드 판정은 픽셀이 아니라 비율이다**(`KEYBOARD_MAX_VISIBLE_RATIO = 0.7`).
+"150px 이상 벌어지면 키보드" 로 잡았다가 **첫 진입의 펼쳐진 주소창(79.6%)이 걸렸다** —
+정확히 위의 "처음엔 보이는데 스크롤하면 사라진다" 가 그때 났다. 크롬은 가시 영역을
+80% 이상 남기고 키보드는 60% 아래로 떨어뜨린다. 기기가 크면 크롬의 절대 픽셀도 커진다.
+
+⚠️ **`visibilitychange` 는 숨겨질 때도 발화한다.** 그 순간의 `visualViewport.height` 는
+0 이거나 직전 프레임의 찌꺼기다. 그걸 쓰면 컨테이너가 접혀 **하단 툴바가 통째로 사라진다**
+(실제로 그렇게 만들었다). 보이게 될 때만 읽고, 말이 안 되는 높이(<120px)는 무시한다.
+
+⚠️ **리스너 등록은 `const` 선언 뒤여야 한다.** TDZ 라 위에서 부르면 마운트가 죽는다 —
+이 파일을 고치면서 두 번 만들었다.
+
+`hooks/useViewport.test.jsx` 가 이 전부를 잠근다. 원래 이 훅에는 테스트가 **하나도 없었고**,
+폰에서만 보이는 병이라 그래서 오래갔다.
 
 ## 클립보드 · 팝업 닫기 — 모바일에서 조용히 죽던 두 규칙 (2026-08-11)
 

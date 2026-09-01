@@ -3,10 +3,10 @@ import { tokens } from './tokens';
 const { color, font, fontWeight } = tokens;
 
 /**
- * 숫자를 담는 네모 타일 — 탭 번호(Ctrl+N), 서브탭 번호, pane 주소 배지가 **같은 모양**을 쓴다.
+ * 숫자를 담는 네모 타일 — 탭 번호(Ctrl+N)와 서브탭 번호가 **같은 모양**을 쓴다.
  *
  * 맨 숫자로 두면 sans 라벨 옆에서 떠도는 모노 글자로 보이지만, 아이콘 타일과 같은 네모에
- * 담으면 "식별자"로 읽힌다. 세 곳이 각자 그리면 곧 어긋나므로 여기 하나로 둔다.
+ * 담으면 "식별자"로 읽힌다. 두 곳이 각자 그리면 곧 어긋나므로 여기 하나로 둔다.
  *
  * @param size  타일 한 변(px). 아이콘 타일보다 살짝 작게 두면 아이콘이 주, 숫자가 부로 읽힌다.
  * @param base  타일이 얹히는 바탕색. **알파가 아니라 opaque color-mix** 로 섞기 위해 필요하다 —
@@ -29,16 +29,5 @@ export const numberTileStyle = ({ size = 14, fontSize = '9.5px', base = 'transpa
   lineHeight: 1,
   flexShrink: 0,
 });
-
-/**
- * 숫자와 이름 사이를 끊는 옅은 세로선 — pane 우상단 주소 배지와 모바일 서브탭이 공유한다.
- * 상자를 두르지 않고도 "번호"와 "이름"이 다른 값임을 알리는 최소 장치.
- */
-export const numberDividerStyle = {
-  width: '1px',
-  height: '8px',
-  flexShrink: 0,
-  background: `color-mix(in srgb, ${color.text} 22%, transparent)`,
-};
 
 export default numberTileStyle;

@@ -219,7 +219,7 @@ export const Tab = memo(({
       >
         {/* Ctrl+N 번호 — 아이콘 타일과 같은 네모에 담는다. 맨 숫자로 두면 sans 라벨 옆에서
             떠도는 모노 글자로 보이지만, 타일에 담기면 "식별자"로 읽힌다.
-            (pane 우상단 주소 배지도 같은 타일을 쓴다 — styles/numberTile) */}
+            (모바일 서브탭 번호도 같은 타일을 쓴다 — styles/numberTile) */}
         {index != null && index <= 9 && (
           <span
             aria-hidden

@@ -6,7 +6,7 @@ import {
   GripVertical,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
-import { DEFAULT_MOBILE_KEYS, KEY_PRESETS, decodeUserPayload } from '../utils/mobileKeys';
+import { DEFAULT_MOBILE_KEYS, KEY_PRESETS, decodeUserPayload, mobileKeysFor } from '../utils/mobileKeys';
 import IconPickerPopup from './IconPickerPopup';
 import HostIcon from '../utils/hostIcons';
 
@@ -127,7 +127,7 @@ const ALT_KEY_LABELS = {
   '\x1b.': 'Alt+.',
 };
 
-const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
+const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, multiplexer = 'tmux', onChange, t }) => {
   const [presetsOpen, setPresetsOpen] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -169,7 +169,9 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, onChange, t }) => {
   const addEmpty = () => {
     onChange?.([...list, { id: newId(), kind: 'send', label: 'X', payload: '' }]);
   };
-  const reset = () => onChange?.(DEFAULT_MOBILE_KEYS);
+  // 초기화는 **지금 고른 멀티플렉서** 기준으로 되돌린다 — 옛 기본으로 되돌리면
+  //  herdr 사용자가 초기화할 때마다 tmux 키를 받는다.
+  const reset = () => onChange?.(mobileKeysFor(multiplexer));
 
   return (
     <>

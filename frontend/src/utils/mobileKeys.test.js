@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   DEFAULT_MOBILE_KEYS,
+  HERDR_KEYS,
   KEY_PRESETS,
+  TMUX_KEYS,
+  mobileKeysFor,
+  syncMuxKeys,
   sanitizeMobileKeys,
   splitPinnedAndScroll,
 } from './mobileKeys';
@@ -176,37 +180,142 @@ describe('맨 앞/뒤 구분자', () => {
   });
 });
 
-/* ── herdr 프리셋 ──────────────────────────────────────────────────────────
- * 이 앱의 pane 은 언제나 tmux 클라이언트 안이고 tmux 기본 프리픽스도 `C-b` 다.
- * 그래서 herdr 키를 `\x02x` 로 보내면 **바깥 tmux 가 먹고 herdr 까지 가지 않는다.**
- * `\x02\x02` 로 시작해야 tmux 의 send-prefix 를 태워 리터럴 `^B` 가 안쪽으로 통과한다.
+/* ── 멀티플렉서 프리픽스 키 ─────────────────────────────────────────────────
+ * ⚠️ **한때 이중 프리픽스(`^B^B`)를 잠그던 자리다.** 그 전제("이 앱의 pane 은 언제나
+ * tmux 클라이언트 안")가 사라졌다 — 지금은 고른 멀티플렉서 하나만 깔고, herdr 를 고르면
+ * 팬이 herdr 를 직접 실행한다. 바깥 tmux 가 없으므로 프리픽스는 하나다.
  *
- * 이 실수는 조용하다 — 키를 눌러도 아무 일이 안 일어날 뿐이라 herdr 설정을 의심하게 된다.
- * 그래서 "단순화" 로 프리픽스가 하나로 줄어드는 것을 여기서 막는다.
+ * 이 실수는 어느 방향이든 **조용하다** — 키를 눌러도 아무 일이 안 일어날 뿐이라 사용자는
+ * 멀티플렉서 설정을 의심한다. 그래서 양쪽 다 여기서 막는다.
  */
-describe('herdr 프리셋', () => {
-  const herdrPresets = KEY_PRESETS.filter((p) => (p.label || '').startsWith('H·'));
+describe('멀티플렉서 프리픽스 키', () => {
+  const all = [...HERDR_KEYS, ...TMUX_KEYS];
 
   it('프리셋이 실제로 들어 있다', () => {
-    expect(herdrPresets.length).toBeGreaterThan(0);
+    expect(HERDR_KEYS.length).toBeGreaterThan(0);
+    expect(TMUX_KEYS.length).toBeGreaterThan(0);
   });
 
-  it('전부 이중 프리픽스로 시작한다 (tmux send-prefix 통과)', () => {
-    for (const p of herdrPresets) {
-      expect(p.payload.startsWith('\x02\x02'), `${p.label} 이 ^B 하나로 시작한다 — tmux 가 먹는다`)
-        .toBe(true);
+  it('프리픽스는 하나다 — 바깥 tmux 가 없다', () => {
+    for (const k of all) {
+      expect(k.payload.startsWith('\x02'), `${k.label} 이 ^B 로 시작하지 않는다`).toBe(true);
+      expect(k.payload.startsWith('\x02\x02'), `${k.label} 이 이중 프리픽스다 — 안쪽이 두 번째를 명령 키로 읽는다`)
+        .toBe(false);
     }
   });
 
   it('프리픽스 뒤에 키가 정확히 하나다', () => {
-    // herdr 바인딩은 `prefix + <키 하나>` 다. 두 글자면 오타이거나 다른 바인딩이다.
-    for (const p of herdrPresets) {
-      expect(p.payload.slice(2), `${p.label} 의 키가 한 글자가 아니다`).toHaveLength(1);
+    for (const k of all) {
+      expect(k.payload.slice(1), `${k.label} 의 키가 한 글자가 아니다`).toHaveLength(1);
     }
   });
 
-  it('같은 키를 두 번 등록하지 않는다', () => {
-    const keys = herdrPresets.map((p) => p.payload);
-    expect(new Set(keys).size).toBe(keys.length);
+  it('한 묶음 안에서 같은 키를 두 번 등록하지 않는다', () => {
+    for (const group of [HERDR_KEYS, TMUX_KEYS]) {
+      const keys = group.map((k) => k.payload);
+      expect(new Set(keys).size).toBe(keys.length);
+    }
+  });
+});
+
+/* ── 기본 퀵바가 고른 멀티플렉서를 따라간다 ────────────────────────────────
+ * tmux 사용자의 바에 herdr 키가 남으면 눌러도 아무 일이 없다. 그 실패는 조용하므로
+ * 여기서 막는다.
+ */
+describe('mobileKeysFor', () => {
+  const labels = (mux) => mobileKeysFor(mux).map((k) => k.label);
+
+  it('herdr 를 고르면 herdr 키가, tmux 를 고르면 tmux 키가 실린다', () => {
+    expect(labels('herdr').some((l) => l?.startsWith('H·'))).toBe(true);
+    expect(labels('herdr').some((l) => l?.startsWith('T·'))).toBe(false);
+    expect(labels('tmux').some((l) => l?.startsWith('T·'))).toBe(true);
+    expect(labels('tmux').some((l) => l?.startsWith('H·'))).toBe(false);
+  });
+
+  it('none 은 프리픽스라는 개념이 없다 — 공통 키만', () => {
+    expect(mobileKeysFor('none')).toEqual(DEFAULT_MOBILE_KEYS);
+  });
+
+  it('모르는 값이면 저장소 기본(tmux)으로 접는다', () => {
+    expect(labels('zellij')).toEqual(labels('tmux'));
+  });
+
+  it('공통 키를 잃지 않는다 — 붙이는 것이지 갈아치우는 것이 아니다', () => {
+    for (const base of DEFAULT_MOBILE_KEYS) {
+      expect(mobileKeysFor('herdr')).toContainEqual(base);
+    }
+  });
+
+  it('붙인 키가 sanitize 를 통과한다', () => {
+    const out = sanitizeMobileKeys(mobileKeysFor('herdr'));
+    expect(out.some((k) => k.label?.startsWith('H·'))).toBe(true);
+  });
+
+  it('id 가 겹치지 않는다 — 겹치면 React key 가 무너진다', () => {
+    const ids = mobileKeysFor('herdr').map((k) => k.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+/* ── 이미 저장된 바에 심기 ─────────────────────────────────────────────────
+ * 기본값만 바꾸면 **이미 저장된 사용자에게는 영영 안 나온다**(`mobileKeys` 는 첫 실행에
+ * 저장된다). 실제로 그래서 "퀵바 단축키 왜 안 들어가냐" 가 나왔다. 초기화로 밀면 손본
+ * 배열이 날아가므로, 덧붙이기만 한다.
+ */
+describe('syncMuxKeys', () => {
+  const saved = [
+    { id: 'cmd', kind: 'cmdInput' },
+    { id: 'esc', kind: 'send', label: 'ESC', payload: '\x1b' },
+  ];
+
+  it('아직 안 심었으면 심는다', () => {
+    const { keys, seededFor } = syncMuxKeys(saved, 'herdr', null);
+    expect(seededFor).toBe('herdr');
+    expect(keys.some((k) => k.label?.startsWith('H·'))).toBe(true);
+  });
+
+  it('사용자가 손본 키는 하나도 안 잃는다 — 덧붙이는 것이지 갈아치우는 게 아니다', () => {
+    const { keys } = syncMuxKeys(saved, 'herdr', null);
+    for (const k of saved) expect(keys).toContainEqual(k);
+    expect(keys.slice(0, saved.length)).toEqual(saved);   // 순서도 그대로
+  });
+
+  it('같은 멀티플렉서로 다시 부르면 아무것도 안 한다', () => {
+    /* ⚠️ 매번 심으면 사용자가 지운 키가 계속 되살아나 **지울 방법이 없어진다.** */
+    const first = syncMuxKeys(saved, 'herdr', null);
+    const again = syncMuxKeys(first.keys, 'herdr', first.seededFor);
+    expect(again.keys).toBe(first.keys);                  // 같은 참조 = 리렌더도 없다
+  });
+
+  it('멀티플렉서를 바꾸면 옛 키를 걷고 새 키를 넣는다', () => {
+    const first = syncMuxKeys(saved, 'herdr', null);
+    const { keys } = syncMuxKeys(first.keys, 'tmux', first.seededFor);
+    expect(keys.some((k) => k.label?.startsWith('H·'))).toBe(false);
+    expect(keys.some((k) => k.label?.startsWith('T·'))).toBe(true);
+    for (const k of saved) expect(keys).toContainEqual(k);
+  });
+
+  it('none 으로 바꾸면 걷어내기만 한다', () => {
+    const first = syncMuxKeys(saved, 'herdr', null);
+    const { keys, seededFor } = syncMuxKeys(first.keys, 'none', first.seededFor);
+    expect(keys.some((k) => k.label?.startsWith('H·'))).toBe(false);
+    expect(seededFor).toBe('none');
+    expect(keys).toEqual(saved);
+  });
+
+  it('사용자가 프리셋에서 손수 넣은 같은 키는 안 건드린다', () => {
+    /* 우리가 심은 것은 `mux_` id 로 알아본다. 사용자가 넣은 것은 id 가 다르다. */
+    const mine = [...saved, { id: 'custom1', kind: 'send', label: 'H·c', payload: '\x02c' }];
+    const { keys } = syncMuxKeys(mine, 'tmux', 'herdr');
+    expect(keys).toContainEqual({ id: 'custom1', kind: 'send', label: 'H·c', payload: '\x02c' });
+  });
+
+  it('심은 결과가 sanitize 를 통과한다', () => {
+    const { keys } = syncMuxKeys(saved, 'herdr', null);
+    expect(sanitizeMobileKeys(keys).some((k) => k.label?.startsWith('H·'))).toBe(true);
+  });
+
+  it('배열이 아니면 그대로 돌려준다', () => {
+    expect(syncMuxKeys(null, 'herdr', null).keys).toBe(null);
   });
 });

@@ -84,6 +84,23 @@ async def terminal_websocket(
     # none 은 붙잡아 둘 세션 자체가 없다.
     choice = await local_mux.choice_for(username)
 
+    # **고른 경로는 무엇이 붙잡든 지켜진다.** tmux 는 세션을 만들 때 `-c` 로 받지만(아래),
+    # herdr·none 은 이 파일의 bridge 가 프로세스를 직접 띄운다. 여기서 안 넘기면 bridge 의
+    # 기본값인 $HOME 에서 떠서, 폴더를 골라도 매번 같은 자리에 붙는다 — 고른 것이 아무
+    # 데도 가 닿지 않는 조용한 실패였다. 원격은 이미 세 선택 모두에 start_path 를 먹인다
+    # (host_manager._build_remote_command).
+    spawn_cwd: str | None = None
+    if choice != mux.TMUX:
+        try:
+            spawn_cwd = _resolve_create_cwd(cwd)
+        except HTTPException as e:
+            # 새로 여는 자리면 잘못된 경로를 말해 준다. 재접속이면 닫지 않는다 — 그 사이
+            # 폴더가 사라졌다고 pane 을 영영 못 붙게 만들 이유는 없다. 워크스페이스 루트로.
+            if create:
+                await websocket.close(code=1008, reason=str(e.detail)[:120])
+                return
+            spawn_cwd = _resolve_create_cwd(None)
+
     if choice == mux.TMUX:
         if not await tmux_manager.session_exists(session_id):
             if not create:
@@ -181,9 +198,14 @@ async def terminal_websocket(
         # TERM 은 실제로 무엇이 도는지에 따른다. tmux 가 아닌데 tmux-256color 를 주면
         # terminfo 가 없는 기계에서 앱이 화면을 못 그린다.
         term="tmux-256color" if choice == mux.TMUX else "xterm-256color",
+        # tmux 는 attach 라 이 cwd 가 화면에 안 보인다(세션 생성 때 이미 정해졌다).
+        # herdr·none 은 여기가 그 셸이 실제로 서는 자리다.
+        cwd=spawn_cwd,
         cols=cols,
         rows=rows,
         client_id=client_id,
+        # itl 표식 통로를 켠다 — 배달은 이 사용자의 팬 안에서만 일어난다.
+        username=username,
     )
     usage_event_id = None
     client_token = _register_ws_client("local", session_id, client_id, websocket)

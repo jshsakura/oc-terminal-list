@@ -45,7 +45,7 @@ const parentOf = (abs) => {
  * inline=true 면 모달 대신 부모 컨테이너 전체를 덮는 오버레이 (분할 pane 안에서 사용).
  *   - 부모는 position:relative 여야 함.
  */
-const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = null, title = null, inline = false }) => {
+const RemoteFolderPicker = ({ isOpen, host, initialPath = '', onPick, onClose, t, confirmLabel = null, title = null, inline = false }) => {
   const [path, setPath] = useState('');         // 현재 보고 있는 절대 경로
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -79,13 +79,15 @@ const RemoteFolderPicker = ({ isOpen, host, onPick, onClose, t, confirmLabel = n
     }
   }, [host]);
 
+  /* `initialPath` 는 시작 위치일 뿐이다 — 없거나 사라진 경로면 load 가 에러를 내고
+     사용자는 🏠 로 홈에 간다. 여기서 미리 확인하려면 왕복이 하나 더 든다. */
   useEffect(() => {
     if (!isOpen || !host) return;
     setPath('');
     setItems([]);
     setError(null);
-    load('');
-  }, [isOpen, host?.id, load]);
+    load(initialPath || '');
+  }, [isOpen, host?.id, initialPath, load]);
 
   useEffect(() => {
     if (!isOpen) return;

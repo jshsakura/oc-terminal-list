@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MessageSquare, ClipboardPaste, Copy, FileText } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
-import { DEFAULT_MOBILE_KEYS, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
+import { mobileKeysFor, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
 import { DOCK_SLOT_ID } from './commandinput/focusDock';
 import { MOBILE_CONTROL } from '../styles/mobileControl';
 import HostIcon from '../utils/hostIcons';
@@ -43,6 +43,9 @@ const skeletonKeyBox = (k) => {
 
 const MobileToolbar = ({
   onSendKey, onOpenCommandInput, onAction, language = 'en', keys = null, terminalSessionId = null,
+  /* 아직 바를 손대지 않은 사용자에게 어느 프리픽스 키를 실을지. settings 객체를 통째로
+     받지 않는 이유는 이 컴포넌트가 memo 아래에 있어서다 — 필요한 값 하나만 받는다. */
+  multiplexer = 'tmux',
   /* 키가 아닌 고정 항목(대상 선택·히스토리 토글). 입력 도크가 넘겨준다 —
      도크에 두면 도크가 두 줄이 되고, 여기 두면 전체가 키바+입력 두 줄로 끝난다. */
   leading = null,
@@ -84,7 +87,10 @@ const MobileToolbar = ({
     import('./CommandInput').catch(() => { /* offline 등 — 첫 클릭 때 다시 시도 */ });
   }, []);
 
-  const list = sanitizeMobileKeys(keys ?? DEFAULT_MOBILE_KEYS);
+  // 사용자가 바를 손댔으면 그것이 이긴다. 손대지 않았을 때만 고른 멀티플렉서의
+  // 프리픽스 키가 실린다 — tmux 사용자의 바에 herdr 키가 남으면 눌러도 아무 일이 없고,
+  // 그 실패는 조용하다.
+  const list = sanitizeMobileKeys(keys ?? mobileKeysFor(multiplexer));
   // 빠른입력(⌘)은 스크롤 밖 좌측에 고정한다 — 키를 옆으로 밀다 보면 정작 제일 자주 쓰는
   // 버튼이 화면 밖으로 사라진다. 나머지 키만 가로 스크롤 영역에 남긴다.
   // 고정 영역 바로 뒤가 구분자면 그 구분자도 함께 고정(splitPinnedAndScroll 참조).

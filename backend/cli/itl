@@ -1,0 +1,627 @@
+#!/usr/bin/env python3
+"""itl — 이 기계의 팬 사이로 말을 옮긴다. **무엇이 그 팬을 잡고 있든.**
+
+`herdr agent prompt` 는 대상이 herdr 일 때만 되고, `tmux send-keys` 는 tmux 일 때만
+된다. 그래서 에이전트가 "옆에 2번한테 시켜" 를 하려면 상대가 뭘 쓰는지 먼저 알아야
+했는데, 그건 보내는 쪽이 알 수 있는 값이 아니다. itl 이 그 한 겹이다 — **팬에게**
+보내고, 누가 그 팬을 잡고 있는지는 여기서 알아낸다.
+
+규칙 셋:
+
+1. **설정이 아니라 탐색이다.** DB 도 설정 파일도 안 읽는다. tmux 소켓과 herdr 소켓을
+   직접 물어 지금 실제로 있는 것만 답한다. 그래서 앱 없이 단독으로 돌고, 이 저장소가
+   이미 세 번 밟은 "설정과 현실이 어긋난다" 에 안 걸린다.
+2. **한 기계 안이다.** 크리덴셜을 만들지도 읽지도 않고 네트워크를 열지도 않는다.
+   기계를 넘는 전달은 이미 인증된 SSH 를 쥔 쪽(앱 백엔드)이 이 파일을 stdin 으로 밀어
+   원격에서 한 번 실행하는 방식으로 한다(llm_usage/collect.py 와 같은 규칙).
+3. **stdlib only, 단일 파일.** 위의 stdin 밀어넣기가 성립하려면 import 할 것이 없어야
+   한다. 설치 0, 포트 0, 버전 드리프트 0.
+
+  itl list                     이 기계의 팬 전부 (tmux + herdr)
+  itl whoami                   지금 이 팬의 주소
+  itl send <주소> <내용>        그 팬에 꽂는다 (`2.1` 이면 다른 기계여도 된다)
+  itl read <주소>              그 팬의 최근 출력
+
+⚠️ 보내는 내용은 **남이 준 값**일 수 있다. 키 이름으로 해석되지 않게 전 경로에서
+리터럴로만 다룬다(tmux `send-keys -l`, herdr `pane send-text`). 이걸 되돌리면 팬 하나가
+남의 팬에 임의 키를 넣는 통로가 된다.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+#: 어떤 조회도 여기서 더 기다리지 않는다 — 끝나지 않는 대기는 버그다.
+TIMEOUT_SEC = 5.0
+
+#: 한 번에 꽂을 수 있는 길이. 터미널 한 줄에 붙여넣는 것 이상은 이 도구의 일이 아니다.
+MAX_TEXT_BYTES = 8192
+
+TMUX = "tmux"
+HERDR = "herdr"
+
+#: 앱의 탭 주소(`탭.pane`). 이 모양은 **이 기계 밖일 수 있으므로** itl 이 직접 못 푼다 —
+#: 앱 백엔드만이 어느 호스트의 어느 세션인지 안다. 그래서 표식 한 줄로 넘긴다.
+APP_ADDR_RE = re.compile(r"^\d+\.\d+$")
+
+#: 백엔드 브리지가 PTY 출력에서 줍는 표식(backend/itl_channel.py). 양쪽이 **같아야** 한다.
+SEND_MARKER = "__ITL_SEND__"
+
+#: tmux 가 들고 있는 이 팬의 앱 주소. 백엔드가 탭 상태가 바뀔 때마다 새긴다(pane_addr.py).
+TMUX_ADDR_OPTION = "@pane_addr"
+
+#: herdr 는 대개 `~/.local/bin` 에 앉는데 비대화형 셸의 PATH 에는 없다.
+HERDR_SEARCH_PATH = (
+    os.path.expanduser("~/.local/bin"),
+    "/usr/local/bin",
+    "/usr/bin",
+)
+
+
+# ─── 프로세스 실행 ────────────────────────────────────────────────────────────
+
+def run(argv: list[str], *, timeout: float = TIMEOUT_SEC) -> tuple[int, str, str]:
+    """(returncode, stdout, stderr). **던지지 않는다** — 없는 멀티플렉서는 흔한 상태다."""
+    try:
+        p = subprocess.run(
+            argv, stdin=subprocess.DEVNULL, capture_output=True,
+            timeout=timeout, text=True, errors="replace",
+        )
+        return p.returncode, p.stdout or "", p.stderr or ""
+    except (OSError, subprocess.SubprocessError) as e:
+        return 127, "", str(e)
+
+
+def herdr_bin() -> str | None:
+    found = shutil.which("herdr")
+    if found:
+        return found
+    for d in HERDR_SEARCH_PATH:
+        c = os.path.join(d, "herdr")
+        if os.access(c, os.X_OK):
+            return c
+    return None
+
+
+def tmux_bin() -> str | None:
+    return shutil.which("tmux")
+
+
+# ─── 에이전트 상태 — 하나의 어휘 ─────────────────────────────────────────────
+#
+# tmux 는 상태를 모른다(타이틀만 준다). herdr 는 자기 어휘로 말한다
+# (idle/working/blocked/done/unknown). 둘을 그대로 두면 `itl list` 가 같은 상황을
+# 멀티플렉서에 따라 다르게 부르고, 그러면 이 도구의 존재 이유가 없다.
+#
+# 판정 규칙은 stablyai/orca (MIT) `src/shared/agent-title-status.ts` 에서 왔고,
+# 이 저장소에 이미 두 벌 있다(backend/agent_status.py · frontend/utils/agentTitle.js).
+# ⚠️ 여기가 **세 번째 사본**이다. 단일 파일이어야 stdin 으로 밀 수 있으므로 import 를
+# 못 한다. 대신 나머지 둘과 같은 규율을 진다 — 판정 케이스는 여전히
+# `shared/agent-title-cases.json` 하나이고, tests/test_itl_cli.py 가 그 표로 이 사본을
+# 검사한다. 표를 안 보고 여기만 고치면 같은 팬이 보는 각도에 따라 다른 상태가 된다.
+
+WORKING, PERMISSION, IDLE = "working", "permission", "idle"
+
+CLAUDE_IDLE = "\u2733"
+GEMINI_WORKING = "\u2726"
+GEMINI_SILENT_WORKING = "\u23f2"
+GEMINI_IDLE = "\u25c7"
+GEMINI_PERMISSION = "\u270b"
+BRAILLE_RE = re.compile(r"[\u2800-\u28ff]")
+
+#: 의도적으로 좁다 — `amp` 같은 짧은 이름을 넣으면 평범한 셸 타이틀이 에이전트로 둔갑한다.
+AGENT_NAMES = (
+    "claude", "openclaude", "codex", "copilot", "cursor", "gemini",
+    "antigravity", "opencode", "aider", "grok", "devin", "droid", "hermes", "agy",
+)
+# 토큰 단위 매치. substring 이면 "android" ⊃ "droid", "~/codex/ready" ⊃ "codex" 가 전부 오탐.
+_B, _BE = r"(?<![\w./\\-])", r"(?![\w./\\-])"
+_AGENT_NAME_RE = re.compile(
+    _B + "(?:" + "|".join(AGENT_NAMES) + r")(?:\.(?:exe|cmd|bat|ps1))?" + _BE, re.IGNORECASE)
+_IDLE_RE = re.compile(r"(?<![\w./\\-])(ready|idle|done)(?![\w-])", re.IGNORECASE)
+_WORKING_RE = re.compile(r"(?<![\w./\\-])(working|thinking|running)(?![\w-])", re.IGNORECASE)
+_PERMISSION_WORDS = ("action required", "permission", "waiting")
+
+
+def detect_status(title):
+    """'working' | 'permission' | 'idle' | None.
+
+    None 은 "에이전트가 아니다" 이지 "모르겠다" 가 아니다.
+    """
+    if not title:
+        return None
+    # 글리프가 가장 강한 증거다 — cwd·세션 텍스트보다 우선한다.
+    if GEMINI_PERMISSION in title:
+        return PERMISSION
+    if GEMINI_WORKING in title or GEMINI_SILENT_WORKING in title:
+        return WORKING
+    if GEMINI_IDLE in title:
+        return IDLE
+    if title.startswith(CLAUDE_IDLE):
+        return IDLE
+    if BRAILLE_RE.search(title):
+        return WORKING
+    # 글리프가 없으면 에이전트 이름이 있어야만 상태를 논한다.
+    if not _AGENT_NAME_RE.search(title):
+        return None
+    lowered = title.lower()
+    if any(w in lowered for w in _PERMISSION_WORDS):
+        return PERMISSION
+    if _IDLE_RE.search(title):
+        return IDLE
+    if _WORKING_RE.search(title):
+        return WORKING
+    return IDLE          # 이름만 있고 상태어가 없다 — 떠 있지만 놀고 있다
+
+
+#: herdr 의 어휘 → 이 저장소의 어휘. `unknown` 은 일부러 빠져 있다 —
+#: 그건 "모른다" 라서 타이틀 판정으로 한 번 더 물어봐야 한다.
+_HERDR_STATUS = {
+    "working": WORKING, "blocked": PERMISSION, "idle": IDLE, "done": IDLE,
+}
+
+
+def unify_status(mux_status, title):
+    """멀티플렉서가 말한 것 + 타이틀 판정 → 하나의 어휘. 모르면 빈 문자열."""
+    mapped = _HERDR_STATUS.get((mux_status or "").strip().lower())
+    if mapped:
+        return mapped
+    return detect_status(title) or ""
+
+
+# ─── 팬 하나 ─────────────────────────────────────────────────────────────────
+
+def pane_record(mux, socket, session, native_id, *, label="", agent="",
+                status="", cwd="", title="") -> dict:
+    """탐색 결과 한 줄. 두 멀티플렉서의 서로 다른 모양을 **여기 하나로** 접는다.
+
+    `native_id` 는 그 멀티플렉서에게 다시 말할 때 쓰는 값이고(tmux `%0`, herdr `w1:p1`),
+    `addr` 는 사람이 치는 값이다.
+    """
+    return {
+        "mux": mux,
+        "socket": socket,          # tmux 소켓 경로 / herdr 세션 소켓 (표시·진단용)
+        "session": session,
+        "native_id": native_id,
+        "label": label,            # tmux 의 `0.1` 같은 사람용 위치
+        "addr": f"{session}:{native_id}",
+        "agent": agent,
+        "status": status,
+        "cwd": cwd,
+        "title": title,
+        # 앱의 탭 주소(`1.2`). 모르면 빈 문자열 — **모른다고 적는다.**
+        "app_addr": "",
+    }
+
+
+# ─── tmux 탐색 ───────────────────────────────────────────────────────────────
+
+def tmux_sockets() -> list[str]:
+    """이 사용자의 tmux 소켓 전부. 기본 소켓과 `-L` 소켓이 같은 디렉터리에 있다.
+
+    앱이 자기 소켓(`-L iterminallist-app`)을 쓰므로 기본 소켓만 보면 앱의 팬을 통째로
+    놓친다 — 이 도구가 존재하는 이유의 절반이 그것이다.
+    """
+    base = f"/tmp/tmux-{os.getuid()}"
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return []
+    return [os.path.join(base, n) for n in names]
+
+
+TMUX_FORMAT = (
+    "#{pane_id}\t#{session_name}\t#{window_index}.#{pane_index}"
+    "\t#{pane_current_command}\t#{pane_current_path}\t#{pane_title}"
+)
+
+
+def parse_tmux_panes(raw: str, socket: str) -> list[dict]:
+    """`list-panes -a -F TMUX_FORMAT` 출력 → 팬 목록.
+
+    타이틀이 **마지막**이어야 한다 — 그 안의 탭 문자를 maxsplit 이 흡수한다.
+    """
+    out: list[dict] = []
+    for line in (raw or "").splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t", 5)
+        if len(parts) < 6:
+            continue
+        pane_id, session, label, command, cwd, title = parts
+        out.append(pane_record(
+            TMUX, socket, session, pane_id, label=label,
+            # tmux 는 상태를 모른다 — 타이틀이 유일한 증거다(orca 규칙).
+            agent=command, status=unify_status("", title), cwd=cwd, title=title,
+        ))
+    return out
+
+
+def tmux_app_addr(binary: str, socket: str, session: str) -> str:
+    """이 tmux 세션에 새겨진 앱 주소(`1.2`). 없으면 빈 문자열.
+
+    백엔드가 탭 번호가 바뀔 수 있는 모든 순간에 `@pane_addr` 로 새긴다(pane_addr.py) —
+    하단 상태바의 `[1.2]` 와 **같은 값**이다. 그래서 팬 안의 에이전트가 "나는 2.1 이다"
+    라고 말할 수 있다. ⚠️ herdr 팬에는 이런 것이 없다(tmux 의 기능이었다).
+    """
+    code, out, _err = run([binary, "-S", socket, "show-options", "-qv",
+                           "-t", session, TMUX_ADDR_OPTION])
+    return out.strip() if code == 0 else ""
+
+
+def discover_tmux() -> list[dict]:
+    binary = tmux_bin()
+    if not binary:
+        return []
+    panes: list[dict] = []
+    for sock in tmux_sockets():
+        code, out, _err = run([binary, "-S", sock, "list-panes", "-a", "-F", TMUX_FORMAT])
+        if code != 0:
+            continue          # 죽은 소켓 파일이 남아 있는 것은 흔하다
+        found = parse_tmux_panes(out, sock)
+        # 세션당 한 번만 묻는다 — 주소는 세션에 새겨져 있다.
+        seen: dict[str, str] = {}
+        for pane in found:
+            sess = pane["session"]
+            if sess not in seen:
+                seen[sess] = tmux_app_addr(binary, sock, sess)
+            pane["app_addr"] = seen[sess]
+        panes.extend(found)
+    return panes
+
+
+# ─── herdr 탐색 ──────────────────────────────────────────────────────────────
+
+def herdr_json(binary: str, session: str | None, args: list[str]) -> dict | None:
+    """herdr CLI 는 JSON 한 덩이를 낸다. 모양이 달라지면 **조용히 None**.
+
+    빈 값은 호출부에서 "판정 불가" 로 읽힌다 — 모양이 바뀌었을 때 있는 팬을 없다고
+    말하는 것보다 아무 말도 안 하는 쪽이 낫다.
+    """
+    argv = [binary]
+    if session:
+        argv += ["--session", session]
+    argv += args
+    code, out, _err = run(argv)
+    if code != 0 and not out.strip():
+        return None
+    try:
+        data = json.loads(out)
+    except (ValueError, TypeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def herdr_running_sessions(binary: str) -> list[str]:
+    data = herdr_json(binary, None, ["session", "list", "--json"])
+    rows = (data or {}).get("sessions")
+    if not isinstance(rows, list):
+        return []
+    names = []
+    for row in rows:
+        if isinstance(row, dict) and row.get("running") and isinstance(row.get("name"), str):
+            names.append(row["name"])
+    return names
+
+
+def parse_herdr_panes(data: dict | None, session: str) -> list[dict]:
+    rows = ((data or {}).get("result") or {}).get("panes")
+    if not isinstance(rows, list):
+        return []
+    out = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        pane_id = row.get("pane_id")
+        if not isinstance(pane_id, str):
+            continue
+        out.append(pane_record(
+            HERDR, session, session, pane_id,
+            label=pane_id,
+            agent=row.get("agent") or "",
+            status=unify_status(row.get("agent_status"),
+                                row.get("terminal_title") or ""),
+            cwd=row.get("foreground_cwd") or row.get("cwd") or "",
+            title=row.get("terminal_title_stripped") or row.get("terminal_title") or "",
+        ))
+    return out
+
+
+def discover_herdr() -> list[dict]:
+    binary = herdr_bin()
+    if not binary:
+        return []
+    panes: list[dict] = []
+    for session in herdr_running_sessions(binary):
+        panes.extend(parse_herdr_panes(
+            herdr_json(binary, session, ["pane", "list"]), session,
+        ))
+    return panes
+
+
+def discover() -> list[dict]:
+    """이 기계의 팬 전부. 한쪽이 없어도 다른 쪽은 그대로 나온다."""
+    return discover_tmux() + discover_herdr()
+
+
+# ─── 주소 풀기 ───────────────────────────────────────────────────────────────
+
+def resolve(panes: list[dict], addr: str) -> tuple[dict | None, str]:
+    """주소 → 팬 하나. 받는 모양은 셋이고 **모호하면 고르지 않는다.**
+
+      `<세션>:<네이티브id>`  정확한 주소 (list 가 내는 값)
+      `<세션>`              그 세션에 팬이 하나뿐일 때. 앱이 만드는 모양이 정확히 이것이다
+      `<에이전트이름>`        살아있는 에이전트가 하나뿐일 때
+
+    ⚠️ 여러 개에 맞으면 **에러다.** 하나를 골라 주면 "그 중 하나" 에 명령이 들어가고,
+    잘못 들어간 것을 되돌릴 방법이 없다.
+    """
+    want = (addr or "").strip()
+    if not want:
+        return None, "빈 주소"
+
+    # 앱 주소(`1.2`)를 이 기계에서 바로 풀 수 있으면 그렇게 한다. tmux 가 `@pane_addr` 로
+    # 들고 있기 때문이다 — **백엔드도 브라우저도 없이** 옆 탭에 말을 걸 수 있다는 뜻이고,
+    # 그게 자율로 도는 에이전트에게 필요한 유일한 모양이다.
+    by_app = [p for p in panes if p.get("app_addr") and p["app_addr"] == want]
+    if len(by_app) == 1:
+        return by_app[0], ""
+    if len(by_app) > 1:
+        opts = ", ".join(p["addr"] for p in by_app)
+        return None, f"앱 주소 '{want}' 가 여럿이다 — 하나를 고르라: {opts}"
+
+    exact = [p for p in panes if p["addr"] == want]
+    if len(exact) == 1:
+        return exact[0], ""
+    if len(exact) > 1:
+        return None, f"주소가 여러 팬에 맞는다: {want}"
+
+    by_session = [p for p in panes if p["session"] == want]
+    if len(by_session) == 1:
+        return by_session[0], ""
+    if len(by_session) > 1:
+        opts = ", ".join(p["addr"] for p in by_session)
+        return None, f"세션 '{want}' 에 팬이 여럿이다 — 하나를 고르라: {opts}"
+
+    by_agent = [p for p in panes if p["agent"] and p["agent"] == want]
+    if len(by_agent) == 1:
+        return by_agent[0], ""
+    if len(by_agent) > 1:
+        opts = ", ".join(p["addr"] for p in by_agent)
+        return None, f"에이전트 '{want}' 가 여럿이다 — 하나를 고르라: {opts}"
+
+    return None, f"그런 팬이 없다: {want}"
+
+
+# ─── 꽂기 ────────────────────────────────────────────────────────────────────
+
+def send_tmux(pane: dict, text: str, *, enter: bool) -> tuple[bool, str]:
+    binary = tmux_bin()
+    if not binary:
+        return False, "tmux 가 없다"
+    target = pane["native_id"]
+    # `-l` = 리터럴. 이게 없으면 "Enter" 나 "C-c" 같은 내용이 **키로 해석된다.**
+    # `--` 로 옵션 파싱을 끊어야 `-` 로 시작하는 내용이 플래그로 먹히지 않는다.
+    code, _out, err = run([binary, "-S", pane["socket"], "send-keys",
+                           "-t", target, "-l", "--", text])
+    if code != 0:
+        return False, err.strip() or f"send-keys → {code}"
+    if enter:
+        code, _out, err = run([binary, "-S", pane["socket"], "send-keys", "-t", target, "Enter"])
+        if code != 0:
+            return False, err.strip() or f"send-keys Enter → {code}"
+    return True, ""
+
+
+def send_herdr(pane: dict, text: str, *, enter: bool, raw: bool) -> tuple[bool, str]:
+    binary = herdr_bin()
+    if not binary:
+        return False, "herdr 가 없다"
+    session, pane_id = pane["session"], pane["native_id"]
+    # 에이전트가 있으면 `agent prompt` 가 낫다 — 제출이 명세된 명령이고, 상대가 이미
+    # blocked 면 **보내기 전에** 거절한다(그때 키를 밀어 넣으면 승인 프롬프트를 누른다).
+    if pane["agent"] and not raw:
+        code, out, err = run([binary, "--session", session, "agent", "prompt", pane_id, text],
+                             timeout=TIMEOUT_SEC * 2)
+        if code == 0 and '"error"' not in out:
+            return True, ""
+        detail = (err.strip() or out.strip())[:200]
+        return False, f"agent prompt 거절: {detail}"
+    code, out, err = run([binary, "--session", session, "pane", "send-text", pane_id, text])
+    if code != 0:
+        return False, (err.strip() or out.strip() or f"send-text → {code}")[:200]
+    if enter:
+        code, out, err = run([binary, "--session", session, "pane", "send-keys", pane_id, "enter"])
+        if code != 0:
+            return False, (err.strip() or out.strip() or f"send-keys → {code}")[:200]
+    return True, ""
+
+
+def send_app_addr(addr: str, text: str) -> tuple[bool, str]:
+    """이 기계 밖일 수 있는 주소 — 표식 한 줄로 백엔드에 넘긴다.
+
+    itl 은 여기서 **배달을 확인하지 못한다.** 크리덴셜이 없으니 그래야 맞고(그게 이
+    설계의 전부다), 대신 실패하면 백엔드가 이 팬에 `[itl] … 못 보냈다` 를 꽂는다.
+    ⚠️ 그러니 "성공" 이라고 말하지 않는다 — "넘겼다" 라고만 말한다.
+
+    표식이 화면에 남는 것은 의도다. 스트림 중간에서 바이트를 들어내면 렌더가 깨지고,
+    무엇이 나갔는지 사람이 보는 편이 정직하다.
+    """
+    if len(text.encode("utf-8", errors="replace")) > MAX_TEXT_BYTES:
+        return False, f"내용이 너무 길다 (>{MAX_TEXT_BYTES}B)"
+    # 개행이 있으면 표식 줄이 쪼개져 백엔드가 못 줍는다. JSON 이 알아서 이스케이프한다.
+    print(SEND_MARKER + " " + json.dumps({"to": addr, "text": text}, ensure_ascii=False),
+          flush=True)
+    return True, ""
+
+
+def send(pane: dict, text: str, *, enter: bool = True, raw: bool = False) -> tuple[bool, str]:
+    if len(text.encode("utf-8", errors="replace")) > MAX_TEXT_BYTES:
+        return False, f"내용이 너무 길다 (>{MAX_TEXT_BYTES}B)"
+    if pane["mux"] == TMUX:
+        return send_tmux(pane, text, enter=enter)
+    return send_herdr(pane, text, enter=enter, raw=raw)
+
+
+# ─── 읽기 ────────────────────────────────────────────────────────────────────
+
+def read(pane: dict, lines: int) -> tuple[str, str]:
+    if pane["mux"] == TMUX:
+        binary = tmux_bin()
+        if not binary:
+            return "", "tmux 가 없다"
+        code, out, err = run([binary, "-S", pane["socket"], "capture-pane", "-p",
+                              "-t", pane["native_id"], "-S", f"-{max(lines, 1)}"])
+        return (out, "") if code == 0 else ("", err.strip() or f"capture-pane → {code}")
+    binary = herdr_bin()
+    if not binary:
+        return "", "herdr 가 없다"
+    # ⚠️ `--source recent` (herdr 기본) 는 이 팬에서 **빈 문자열**을 낸다 — 성공한 것처럼
+    # 조용히. tmux `capture-pane` 과 같은 뜻인 것은 `visible` 이다. recent 는 폴백으로만.
+    out = ""
+    for source in ("visible", "recent"):
+        code, out, err = run([binary, "--session", pane["session"], "pane", "read",
+                              pane["native_id"], "--source", source,
+                              "--lines", str(max(lines, 1)), "--format", "text"])
+        if code != 0:
+            return "", (err.strip() or f"pane read → {code}")
+        if out.strip():
+            break
+    try:
+        data = json.loads(out)
+        text = ((data.get("result") or {}).get("text"))
+        if isinstance(text, str):
+            return text, ""
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return out, ""
+
+
+# ─── 나는 누구인가 ───────────────────────────────────────────────────────────
+
+def whoami(panes: list[dict]) -> dict | None:
+    """이 프로세스가 앉아 있는 팬. 두 멀티플렉서 다 환경변수로 말해 준다.
+
+    herdr: `HERDR_SESSION` + `HERDR_PANE_ID` / tmux: `TMUX` + `TMUX_PANE`.
+    ⚠️ 중첩(tmux 안의 herdr)이면 안쪽이 이긴다 — 내가 실제로 타이핑당하는 자리다.
+    """
+    h_session, h_pane = os.environ.get("HERDR_SESSION"), os.environ.get("HERDR_PANE_ID")
+    if h_session and h_pane:
+        for p in panes:
+            if p["mux"] == HERDR and p["session"] == h_session and p["native_id"] == h_pane:
+                return p
+    t_pane = os.environ.get("TMUX_PANE")
+    if t_pane:
+        for p in panes:
+            if p["mux"] == TMUX and p["native_id"] == t_pane:
+                return p
+    return None
+
+
+# ─── 화면 ────────────────────────────────────────────────────────────────────
+
+def format_table(panes: list[dict], me: dict | None) -> str:
+    if not panes:
+        return "팬이 없다 — tmux 도 herdr 도 이 기계에서 안 돌고 있다."
+    rows = [("", "TAB", "ADDR", "MUX", "AGENT", "STATUS", "CWD")]
+    for p in panes:
+        rows.append((
+            "*" if me and p["addr"] == me["addr"] and p["mux"] == me["mux"] else "",
+            # 앱의 탭 번호. 남에게 "나는 2.1 이다" 라고 말할 때 쓰는 값이다.
+            p.get("app_addr") or "-",
+            p["addr"], p["mux"], p["agent"] or "-", p["status"] or "-",
+            p["cwd"] or "-",
+        ))
+    widths = [max(len(r[i]) for r in rows) for i in range(len(rows[0]))]
+    return "\n".join(
+        "  ".join(cell.ljust(widths[i]) for i, cell in enumerate(row)).rstrip()
+        for row in rows
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(
+        prog="itl",
+        description="이 기계의 팬 사이로 말을 옮긴다 — tmux 든 herdr 든.",
+    )
+    ap.add_argument("--json", action="store_true", help="사람이 아니라 프로그램이 읽는 출력")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    sub.add_parser("list", help="이 기계의 팬 전부")
+    sub.add_parser("whoami", help="지금 이 팬의 주소")
+
+    s = sub.add_parser("send", help="그 팬에 꽂는다")
+    s.add_argument("addr")
+    s.add_argument("text")
+    s.add_argument("--no-enter", action="store_true", help="내용만 넣고 엔터는 사람이")
+    s.add_argument("--raw", action="store_true",
+                   help="에이전트여도 그냥 텍스트로 (agent prompt 를 건너뛴다)")
+
+    r = sub.add_parser("read", help="그 팬의 최근 출력")
+    r.add_argument("addr")
+    r.add_argument("--lines", type=int, default=40)
+
+    args = ap.parse_args(argv)
+    panes = discover()
+
+    if args.cmd == "list":
+        if args.json:
+            print(json.dumps({"panes": panes}, ensure_ascii=False))
+        else:
+            print(format_table(panes, whoami(panes)))
+        return 0
+
+    if args.cmd == "whoami":
+        me = whoami(panes)
+        if args.json:
+            print(json.dumps({"pane": me}, ensure_ascii=False))
+        elif me:
+            # 남에게 알려줄 값은 앱의 탭 번호다. 없으면(herdr 팬) 네이티브 주소로 떨어진다.
+            print(me.get("app_addr") or me["addr"])
+        else:
+            print("여기는 tmux 도 herdr 도 아니다", file=sys.stderr)
+        return 0 if me else 1
+
+    # 앱 주소(`1.2`)는 이 기계 밖일 수 있다. **먼저 이 기계에서 풀어 본다** — 풀리면
+    # 백엔드도 브라우저도 필요 없다. 못 풀면 그때만 표식으로 백엔드에 넘긴다.
+    _local_hit, _ = resolve(panes, args.addr) if APP_ADDR_RE.match(args.addr.strip()) else (None, "")
+    if args.cmd == "send" and APP_ADDR_RE.match(args.addr.strip()) and _local_hit is None:
+        ok, why = send_app_addr(args.addr.strip(), args.text)
+        if args.json:
+            print(json.dumps({"ok": ok, "handedOff": ok, "error": why or None}, ensure_ascii=False))
+        elif not ok:
+            print(f"itl: {why}", file=sys.stderr)
+        return 0 if ok else 3
+
+    pane, why = resolve(panes, args.addr)
+    if not pane:
+        # ⚠️ 실패는 반드시 말한다. 조용히 성공한 척하면 보낸 쪽은 상대가 받았다고 믿는다.
+        if args.json:
+            print(json.dumps({"ok": False, "error": why}, ensure_ascii=False))
+        else:
+            print(f"itl: {why}", file=sys.stderr)
+        return 2
+
+    if args.cmd == "read":
+        text, err = read(pane, args.lines)
+        if err:
+            print(f"itl: {err}", file=sys.stderr)
+            return 3
+        print(json.dumps({"pane": pane, "text": text}, ensure_ascii=False) if args.json else text)
+        return 0
+
+    ok, err = send(pane, args.text, enter=not args.no_enter, raw=args.raw)
+    if args.json:
+        print(json.dumps({"ok": ok, "pane": pane, "error": err or None}, ensure_ascii=False))
+    elif not ok:
+        print(f"itl: {err}", file=sys.stderr)
+    return 0 if ok else 3
+
+
+if __name__ == "__main__":
+    sys.exit(main())

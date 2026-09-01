@@ -228,6 +228,46 @@ const PaneGrid = ({
       onConfirm: run,
     });
   }, [onConfirm, onNotify, t]);
+
+  /* 같은 재시작인데 "어디서 다시 여느냐" 만 다르다 — 그래서 폴더 픽커를 먼저 띄우고,
+     고른 뒤에 위와 같은 확인을 거친다(파괴적 동작인 것은 똑같다). 확인 문구에 고른
+     경로를 박아 넣는 이유: 잘못 고른 것을 되돌릴 수 있는 마지막 지점이 여기다.
+
+     픽커 자체는 App 이 소유한다(빈 pane 채우기와 같은 것을 쓴다). 그래서 슬롯에
+     `onPicked` 를 실어 보낸다 — **고른 경로로 무엇을 할지는 부른 쪽이 안다.** */
+  const handleRestartPaneAtPath = useCallback((paneId) => {
+    const ctx = paneActionsRef.current[paneId]?.restartPathContext;
+    if (!ctx) return;
+    const onPicked = (chosen) => {
+      const nextCwd = chosen ?? '';
+      const run = async () => {
+        const result = await paneActionsRef.current[paneId]?.restart?.(nextCwd);
+        if (result && !result.ok) {
+          onNotify?.(t?.('restartSessionFailed') || 'Failed to restart the session.');
+        }
+      };
+      if (!onConfirm) { run(); return; }
+      // 로컬의 빈 경로는 워크스페이스 루트다 — "" 를 그대로 보여주면 아무 말도 아니다.
+      const shown = nextCwd || (ctx.isLocal ? (t?.('workspaceRoot') || 'Workspace root') : '~');
+      onConfirm({
+        title: t?.('restartSessionAtPath') || 'Restart at path',
+        titleIcon: RotateCw,
+        message: `${shown}\n\n${t?.('restartSessionAtPathConfirm')
+          || 'This ends the current session and reopens it at this path. Every process running inside it is terminated.'}`,
+        confirmText: t?.('restartSession') || 'Restart',
+        danger: true,
+        onConfirm: run,
+      });
+    };
+    const slot = { tabId: tab?.id, paneId, intent: 'restart', initial: ctx.initialPath, onPicked };
+    if (ctx.hostId) {
+      const host = hosts.find((h) => h.id === ctx.hostId);
+      if (!host) return;
+      onPickHostPath?.(host, slot);
+      return;
+    }
+    onPickLocalPath?.(slot);
+  }, [tab?.id, hosts, onPickHostPath, onPickLocalPath, onConfirm, onNotify, t]);
   // pane 2개 이상일 때만 토글 가능. 그 외엔 null → TabBar 버튼 숨김.
   const broadcastToggle = panes.length >= 2 ? () => setBroadcastActive((v) => !v) : null;
 
@@ -403,6 +443,7 @@ const PaneGrid = ({
           onReorder={onReorderPane ? (fromId, toId) => onReorderPane(tab.id, fromId, toId) : null}
           onRenamePane={onRenamePane ? (paneId) => onRenamePane(tab.id, paneId) : null}
           onRestartPane={handleRestartPane}
+          onRestartPaneAtPath={handleRestartPaneAtPath}
           onSplitPane={onSplitPane ? (paneId, dir) => onSplitPane(tab.id, paneId, dir) : null}
           isMobile={isMobile}
           t={t}
@@ -491,6 +532,7 @@ const PaneGrid = ({
                   onReadyChange={handlePaneReady}
                   registerPaneActions={registerPaneActions}
                   onRestartPane={handleRestartPane}
+                  onRestartPaneAtPath={handleRestartPaneAtPath}
                   registerTerminal={registerTerminal}
                   onBroadcastData={handleBroadcast}
                   activeFilePath={activeFilePath}
@@ -580,6 +622,7 @@ const PaneGrid = ({
             onReadyChange={handlePaneReady}
             registerPaneActions={registerPaneActions}
             onRestartPane={handleRestartPane}
+            onRestartPaneAtPath={handleRestartPaneAtPath}
             registerTerminal={registerTerminal}
             onBroadcastData={handleBroadcast}
             activeFilePath={activeFilePath}
@@ -742,6 +785,7 @@ const PaneGrid = ({
           onReadyChange={handlePaneReady}
           registerPaneActions={registerPaneActions}
           onRestartPane={handleRestartPane}
+          onRestartPaneAtPath={handleRestartPaneAtPath}
           registerTerminal={registerTerminal}
           onBroadcastData={handleBroadcast}
           activeFilePath={activeFilePath}

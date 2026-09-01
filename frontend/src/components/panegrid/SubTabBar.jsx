@@ -5,7 +5,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Server, Monitor, Plus, MoreHorizontal, Edit3, Trash2, RotateCw } from 'lucide-react';
+import { Server, Monitor, Plus, MoreHorizontal, Edit3, Trash2, RotateCw, FolderSymlink } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import HostIcon from '../../utils/hostIcons';
 import { derivePaneLabel } from '../../utils/paneLabel';
@@ -26,7 +26,7 @@ const SUB_CHIP_PAD_X = 5;
 
 const SubTabBar = ({
   panes, activePaneId, hosts, busyPaneIds = null,
-  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, onRestartPane = null, onSplitPane = null, t,
+  settings = {}, tabColorIndex, onSelect, onClose, onReorder = null, onRenamePane = null, onRestartPane = null, onRestartPaneAtPath = null, onSplitPane = null, t,
 }) => {
   const scrollRef = useRef(null);
   const [ctxMenu, setCtxMenu] = useState(null); // { paneId, x, y }
@@ -161,15 +161,23 @@ const SubTabBar = ({
               {t?.('rename') || 'Rename'}
             </MenuItem>
           )}
-          {/* No "copy tmux session" row — the pane address badge carries that action and is
-              now drawn on every pane, phone included. Two doors to one action just make you
-              wonder which is real. */}
+          {/* No "copy tmux session" row — that action was a handle for handing a pane to
+              someone else's agent, and it went away with itl. Nothing replaced it because
+              nothing needs it. */}
           {onRestartPane && (
             <MenuItem
               icon={RotateCw}
               onClick={() => { const id = ctxMenu.paneId; ctxCloseRef.current(); onRestartPane(id); }}
             >
               {t?.('restartSession') || 'Restart session'}
+            </MenuItem>
+          )}
+          {onRestartPaneAtPath && (
+            <MenuItem
+              icon={FolderSymlink}
+              onClick={() => { const id = ctxMenu.paneId; ctxCloseRef.current(); onRestartPaneAtPath(id); }}
+            >
+              {t?.('restartSessionAtPath') || 'Restart at path…'}
             </MenuItem>
           )}
           <MenuItem

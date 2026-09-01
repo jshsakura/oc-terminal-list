@@ -120,7 +120,9 @@ async def create_session(
 @router.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str, username: str = Depends(verify_auth_token)):
     await _assert_session_owner(session_id, username)
-    await tmux_manager.kill_session(session_id)
+    # 고른 멀티플렉서에게 맞는 방법으로 죽인다. tmux 로 고정하면 herdr 사용자의
+    # "세션 재시작" 이 조용한 무동작이 된다(local_mux.kill_session 참고).
+    await local_mux.kill_session(await local_mux.choice_for(username), session_id)
     await storage.delete_session(session_id)
     await invalidate_session(session_id)
     return {"session_id": session_id, "status": "deleted"}

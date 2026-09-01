@@ -14,7 +14,6 @@ import BroadcastBadge from './BroadcastBadge';
 import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
 import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
-import PaneAddressLabel from './PaneAddressLabel';
 import { collectOtherPaneSessions } from '../../utils/paneSessions';
 import { EINK_THEME_ID } from '../../utils/einkMode';
 import useEvent from '../../hooks/useEvent';
@@ -49,6 +48,7 @@ const Pane = ({
   onReadyChange = null,  // (paneId, ready) → 터미널 접속 완료 여부를 PaneGrid 로 보고
   registerPaneActions = null,  // (paneId, {restart}) → PaneGrid calls these from menus
   onRestartPane = null,        // (paneId) → 확인창을 거쳐 재시작. PaneGrid 가 구현.
+  onRestartPaneAtPath = null,  // (paneId) → 폴더를 고른 뒤 그 경로에서 재시작. 위와 같은 자리.
   activeFilePath = null,
   registerTerminal = null,
   onBroadcastData = null,
@@ -80,13 +80,6 @@ const Pane = ({
   const isEmpty = !pane.sessionId && !pane.hostId;
   // VNC pane — mode:'vnc' 로 활성화된 원격 데스크톱. TerminalHeader 없이 전체 영역 사용.
   const isVnc = pane.mode === 'vnc';
-  // 전체 주소(`탭.pane`) — 다른 탭에서 이 pane 을 부를 때 쓴다. 같은 탭 안에서는
-  // pane 번호만으로 충분하다(같은 탭 안에서는 탭 번호가 자명하다).
-  const tabNumber = (() => {
-    const tabIndex = allTabs.findIndex((tt) => tt.id === tab?.id);
-    return tabIndex >= 0 ? tabIndex + 1 : null;
-  })();
-  const paneAddress = tabNumber != null ? `${tabNumber}.${paneIndex + 1}` : null;
 
   /* Eye 히스토리 popover 의 세션 픽커에 실릴 "다른 살아있는 세션" 목록.
      여기(allTabs/hosts/settings/t 가 있는 곳)에서 계산해 TerminalHeader 로 넘긴다.
@@ -438,12 +431,15 @@ const Pane = ({
   useEffect(() => {
     if (restartAt && terminalReady) setRestartAt(0);
   }, [restartAt, terminalReady]);
-  const restartSession = useCallback(async () => {
+  /* `cwdOverride` 가 있으면 그 경로에서 다시 연다("경로 지정해 재시작"). 형식은
+     restartCwdFor 가 내는 것과 **같아야** 한다 — 로컬은 워크스페이스 상대, 원격은 절대.
+     빈 문자열은 유효한 값(로컬 워크스페이스 루트)이므로 null/undefined 만 기본으로 떨어진다. */
+  const restartSession = useCallback(async (cwdOverride = null) => {
     if (isEmpty) return { ok: false, error: 'empty pane' };
     if (restartingRef.current) return { ok: false, error: 'already restarting' };
     restartingRef.current = true;
     setRestartAt(Date.now());
-    const nextCwd = restartCwdFor({ isLocal, paneCwdRel, paneCwdAbs });
+    const nextCwd = cwdOverride ?? restartCwdFor({ isLocal, paneCwdRel, paneCwdAbs });
     const result = await killPaneSession({
       isLocal,
       sessionId: pane.sessionId,
@@ -460,9 +456,18 @@ const Pane = ({
 
   useEffect(() => {
     if (!registerPaneActions || !pane?.id) return undefined;
-    registerPaneActions(pane.id, { restart: restartSession });
+    registerPaneActions(pane.id, {
+      restart: restartSession,
+      /* "경로 지정해 재시작" 이 픽커를 **어디서** 열지. 로컬/원격 구분과 살아있는 cwd 는
+         pane 만 아는 값이라 여기서 실어 보낸다 — 메뉴가 있는 PaneGrid 는 부르기만 한다. */
+      restartPathContext: {
+        isLocal,
+        hostId: pane.hostId || null,
+        initialPath: restartCwdFor({ isLocal, paneCwdRel, paneCwdAbs }) ?? '',
+      },
+    });
     return () => registerPaneActions(pane.id, null);
-  }, [registerPaneActions, pane?.id, restartSession]);
+  }, [registerPaneActions, pane?.id, pane?.hostId, restartSession, isLocal, paneCwdRel, paneCwdAbs]);
 
   return (
     <div
@@ -630,6 +635,7 @@ const Pane = ({
           onOpenTerminalAtFolder={handleHeaderOpenTerminalAtFolder}
           onRefreshTerminal={isEmpty ? null : () => setRefreshNonce((n) => n + 1)}
           onRestartSession={isEmpty || !onRestartPane ? null : () => onRestartPane(pane.id)}
+          onRestartSessionAtPath={isEmpty || !onRestartPaneAtPath ? null : () => onRestartPaneAtPath(pane.id)}
           onRefreshCwd={refreshPaneCwd}
           onCloseTerminal={(isEmpty || paneCount <= 1) ? onClose : () => setPendingClose(true)}
           settings={settings}
@@ -712,16 +718,10 @@ const Pane = ({
                 boxShadow: 'inset 0 0 0 1px rgba(245,158,11,0.15)',
               }} />
             )}
-            {/* pane 주소(`탭.pane`) — **분할 여부와 무관하게 항상 단다.**
-                자기 주소를 자기가 볼 방법이 없으면 "옆에 2번한테 시켜" 라고 말할 수 없다.
-                번호만 그린다: 이름·복사·접기가 붙어 있던 시절의 그 복사는 남의 에이전트에게
-                건네는 tmux attach 핸들이었고, 그 쓰임이 사라진 지금은 출력을 덮기만 했다. */}
-            <PaneAddressLabel
-              paneNumber={paneIndex + 1}
-              tabNumber={tabNumber}
-              fullAddress={paneAddress}
-              isProminent={isFocused || hover}
-            />
+            {/* pane 우상단 주소 배지(`탭.pane`)는 걷어냈다. 그것이 있던 이유는 "옆에
+                2번한테 시켜" 라고 남의 에이전트에게 pane 을 지목하는 쓰임 하나였고, 그
+                쓰임(itl · 세션 간 명령 전달)이 사라지면서 남은 건 터미널 출력 우상단을
+                덮는 상자뿐이었다. 주소가 다시 필요해지면 그때 되살린다. */}
             {isBroadcasting && onToggleBroadcastExclude && (
               <BroadcastBadge
                 isExcluded={isBroadcastExcluded}
@@ -797,6 +797,7 @@ const Pane = ({
                 inline
                 isOpen
                 host={remotePickerHost}
+                initialPath={remotePickerSlot?.initial || ''}
                 onClose={onRemotePickerClose}
                 onPick={onRemotePickerPick}
                 t={t}
