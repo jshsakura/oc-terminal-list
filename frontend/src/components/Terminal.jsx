@@ -32,7 +32,7 @@ import {
   uploadFileAndGetPath, copyTextToClipboard, issueWsTicket,
 } from './terminal/terminalHelpers';
 import { TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
-import { CopiedToast, FileDropOverlay, ImagePasteToast, ReconnectPill, TerminalSkeleton, TmuxFallbackBanner } from './terminal/TerminalChrome';
+import { CopiedToast, FileDropOverlay, ImagePasteToast, ReconnectPill, TerminalSkeleton, MuxFallbackBanner } from './terminal/TerminalChrome';
 import { ConnectionTroubleCard, ShellClosingCard, ShellEndedCard, TakeoverCard } from './terminal/TerminalStatusCards';
 import attachTerminalFileDrop from './terminal/attachTerminalFileDrop';
 import { probeSpacingMs, claimProbeLease, releaseProbeLease } from './terminal/outageProbe';
@@ -544,7 +544,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
   const [authPrompt, setAuthPrompt] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
-  const [tmuxFallback, setTmuxFallback] = useState(false);
+  /* 고른 멀티플렉서가 이 호스트에 없다 — 값은 **없는 도구의 이름**이다(null = 문제없음).
+     불리언이면 무엇을 깔아야 하는지 못 쓴다. */
+  const [muxMissing, setMuxMissing] = useState(null);
   const [copyFlash, setCopyFlash] = useState(false);
   const [edgeGutter, setEdgeGutter] = useState({ right: 0, bottom: 0 });
   const edgeGutterRef = useRef(edgeGutter);
@@ -1193,8 +1195,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setAuthPrompt(msg);
             return;
           }
-          if (msg && msg.type === 'tmux-missing') {
-            setTmuxFallback(true);
+          /* `tmux-missing` 은 옛 이름이다. 브라우저에 낡은 번들이 남아 있을 수 있는
+             것처럼 그 반대도 있다(백엔드만 먼저 롤백) — 둘 다 받는 값이 싸다. */
+          if (msg && (msg.type === 'mux-missing' || msg.type === 'tmux-missing')) {
+            setMuxMissing(String(msg.multiplexer || 'tmux'));
             return;
           }
           if (msg && msg.type === 'connect-failed') {
@@ -2288,8 +2292,17 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
       <ImagePasteToast state={imagePasteState} themeUi={themeUi} t={t} />
 
-      {tmuxFallback && (
-        <TmuxFallbackBanner themeUi={themeUi} t={t} onDismiss={() => setTmuxFallback(false)} />
+      {muxMissing && (
+        <MuxFallbackBanner
+          themeUi={themeUi}
+          t={t}
+          tool={muxMissing}
+          /* 프롭을 여섯 단계 내리는 대신 window 이벤트 — `iterm:open-file` 과 같은 패턴. */
+          onInstall={() => window.dispatchEvent(new CustomEvent('iterm:open-tools', {
+            detail: { hostId: hostId || '' },
+          }))}
+          onDismiss={() => setMuxMissing(null)}
+        />
       )}
 
       {/* 재연결 pill — 짧은 끊김은 아예 안 뜨고(디바운스), 길어지면 스피너. 복구되면 스르륵 사라진다. */}

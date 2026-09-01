@@ -2,8 +2,9 @@
 
 This app used to know how to install exactly two things, both of them its own. That is
 backwards: the machines are the user's, the shell is the user's, and what belongs on them
-is the user's call. So the catalog is data, not code — one built-in entry (herdr) and
-however many the user writes.
+is the user's call. So the catalog is data, not code — two built-in entries (the
+multiplexers this app can hand a session to: tmux and herdr) and however many the user
+writes. Neither built-in is "ours"; they are there because the app offers to use them.
 
 Three rules hold this together:
 
@@ -41,6 +42,32 @@ MAX_DETAIL = 200
 PROBE_PATH_PREFIX = 'PATH="$HOME/.local/bin:$PATH"; export PATH'
 
 BUILTIN_TOOLS: tuple[dict, ...] = (
+    {
+        # tmux 가 여기 있는 이유는 "우리 것" 이어서가 아니다 — 오히려 그 반대다. 이 앱은
+        # 원격 호스트에서 세션을 붙잡아 두는 데 tmux 를 쓸 수 있는데, **깔 방법은 주지
+        # 않으면서 없으면 경고만 띄우고 있었다.** 고를 수 있게 만든 이상 깔 수도 있어야
+        # 한다(멀티플렉서 선택은 backend/multiplexer.py).
+        "id": "tmux",
+        "name": "tmux",
+        "description": (
+            "터미널 멀티플렉서. 이 앱이 원격 세션을 붙잡아 두는 기본 방식이라, "
+            "없으면 탭을 닫는 순간 작업이 끝납니다."
+        ),
+        "url": "https://github.com/tmux/tmux/wiki",
+        # `tmux` 를 인자 없이 부르면 서버를 띄우고 세션을 만든다 — 확인이 목적인 자리에서
+        # 그러면 안 된다. `command -v` 는 PATH 만 본다.
+        "check_command": "command -v tmux",
+        # 배포판마다 패키지 관리자가 다르고, 이 명령은 **사용자가 읽고 엔터를 누른다.**
+        # 그래서 영리한 한 줄보다 눈으로 따라갈 수 있는 사슬이 낫다 — 안 맞는 갈래는
+        # 그냥 실패하고 다음으로 넘어간다.
+        "install_command": (
+            "sudo apt-get install -y tmux "
+            "|| sudo dnf install -y tmux "
+            "|| sudo pacman -S --noconfirm tmux "
+            "|| sudo apk add tmux "
+            "|| brew install tmux"
+        ),
+    },
     {
         "id": "herdr",
         "name": "herdr",

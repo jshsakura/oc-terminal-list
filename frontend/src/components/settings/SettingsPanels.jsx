@@ -9,6 +9,7 @@ import MobileKeysEditor from '../MobileKeysEditor';
 import useHostReorder from '../../hooks/useHostReorder';
 import { DEFAULT_MOBILE_KEYS } from '../../utils/mobileKeys';
 import { styles, shortcutStyles } from './settingsStyles';
+import { OPTIONS as MUX_OPTIONS, HINTS as MUX_HINTS, normalize as normalizeMultiplexer } from '../../utils/multiplexer';
 import { Section, Divider, Field, Select, Toggle, FontSizeRow, ShortcutRow } from './SettingsFields';
 import LlmWatcherSection from './LlmWatcherSection';
 import HelpPanel from './HelpPanel';
@@ -47,6 +48,19 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           <option value="zsh">{t('shellZsh')}</option>
           <option value="sh">{t('shellSh')}</option>
           <option value="auto">{t('shellAuto')}</option>
+        </Select>
+      </Field>
+      {/* 새 호스트가 어떤 멀티플렉서로 시작할지. 호스트마다 따로 바꿀 수 있으므로
+          이건 **기본값**이지 강제가 아니다 — 이미 등록된 호스트는 건드리지 않는다. */}
+      <Field
+        label={t('defaultMultiplexer') || 'Default for new hosts'}
+        hint={MUX_HINTS[normalizeMultiplexer(s.defaultMultiplexer)]?.(t)}
+      >
+        <Select
+          value={normalizeMultiplexer(s.defaultMultiplexer)}
+          onChange={(v) => change('defaultMultiplexer', v)}
+        >
+          {MUX_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Select>
       </Field>
       <Field

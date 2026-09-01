@@ -107,6 +107,7 @@ class SchemaMixin:
                 color_index INTEGER DEFAULT 0,
                 group_name TEXT,
                 use_remote_tmux INTEGER DEFAULT 1,
+                multiplexer TEXT,
                 remote_tmux_session TEXT DEFAULT 'mobile',
                 start_path TEXT,
                 last_cwd TEXT,
@@ -149,6 +150,14 @@ class SchemaMixin:
         # JWT 는 그냥은 폐기가 안 되므로(서버가 서명만 확인한다) 세대가 폐기 장치다.
         try:
             cursor.execute("ALTER TABLE hosts ADD COLUMN cred_epoch INTEGER NOT NULL DEFAULT 1")
+        except sqlite3.OperationalError:
+            pass
+        # 마이그레이션: 이 호스트에서 무엇으로 세션을 잡아 둘지 — 'tmux'|'herdr'|'none'.
+        # NULL 이면 옛 `use_remote_tmux` 로 되짚는다(backend/multiplexer.from_host_row).
+        # 두 칸이 공존하는 것은 과도기라서가 아니라, 옛 행에는 herdr 라는 값이 존재조차
+        # 하지 않았으므로 되짚기가 "끄기" 만 표현할 수 있기 때문이다.
+        try:
+            cursor.execute("ALTER TABLE hosts ADD COLUMN multiplexer TEXT")
         except sqlite3.OperationalError:
             pass
 

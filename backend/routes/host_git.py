@@ -7,6 +7,7 @@ import shlex
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import host_sftp
+import multiplexer as mux
 from _deps import verify_auth_token
 from host_common import (
     MAX_COMMIT_MESSAGE_LEN,
@@ -30,7 +31,10 @@ async def host_git_status(
     host, secrets = await resolve_host_with_secrets(host_id, username)
     target = (path or "").strip()
     if not target:
-        cwd = await host_sftp.get_tmux_cwd(host, secrets) if host.get("use_remote_tmux") else None
+        # `get_tmux_cwd` 는 이름 그대로 tmux 에게 묻는다 — herdr/none 호스트에는 물어볼
+        # 상대가 없다. "영속이냐"(persists)가 아니라 "tmux 냐" 로 갈라야 하는 이유다.
+        cwd = (await host_sftp.get_tmux_cwd(host, secrets)
+               if mux.from_host_row(host) == mux.TMUX else None)
         target = cwd or host.get("start_path") or "."
     safe = shlex.quote(target)
     cmd = (

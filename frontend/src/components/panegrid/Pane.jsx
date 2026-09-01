@@ -12,16 +12,10 @@ import LocalFolderPicker from '../LocalFolderPicker';
 import RemoteFolderPicker from '../RemoteFolderPicker';
 import BroadcastBadge from './BroadcastBadge';
 import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
-import useAppConfig from '../../hooks/useAppConfig';
-import useServerIdentity from '../../hooks/useServerIdentity';
 import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
 import PaneAddressLabel from './PaneAddressLabel';
-import { derivePaneLabel, isEmptyPane } from '../../utils/paneLabel';
 import { collectOtherPaneSessions } from '../../utils/paneSessions';
-import { buildSshAddr, formatServerAddr, formatSessionTarget, formatSessionTargetLabel } from '../../utils/sessionTarget';
-import { getAgentStatusSnapshot } from '../../utils/agentStatusStore';
-import { copyToClipboard } from '../../utils/clipboard';
 import { EINK_THEME_ID } from '../../utils/einkMode';
 import useEvent from '../../hooks/useEvent';
 
@@ -93,13 +87,6 @@ const Pane = ({
     return tabIndex >= 0 ? tabIndex + 1 : null;
   })();
   const paneAddress = tabNumber != null ? `${tabNumber}.${paneIndex + 1}` : null;
-  // 주소 배지 접힘 — 설정에 저장해 새로고침·재분할 후에도 유지된다(pane 마다 다시 접게
-  // 만들면 매번 같은 동작을 반복하게 된다). 기본은 펼침: 이름이 안 보이면 붙인 의미가 없다.
-  const isAddressExpanded = settings?.paneAddressExpanded !== false;
-  const toggleAddressExpanded = useCallback(
-    () => updateSettings?.({ paneAddressExpanded: !isAddressExpanded }),
-    [updateSettings, isAddressExpanded],
-  );
 
   /* Eye 히스토리 popover 의 세션 픽커에 실릴 "다른 살아있는 세션" 목록.
      여기(allTabs/hosts/settings/t 가 있는 곳)에서 계산해 TerminalHeader 로 넘긴다.
@@ -427,51 +414,6 @@ const Pane = ({
     [isLocal, paneCwdAbs, paneCwdRel],
   );
 
-  /* Clicking the pane number (top-right) copies this pane's **LLM-friendly handle** (+toast).
-     The reader is an LLM in another terminal, so it carries only what is **runnable there**:
-     the tmux session name, the command that attaches to it, and the working directory. The
-     pane number (2.2) means something only inside this app and shifts when a pane closes. */
-  // Local tmux socket name — module-cached, so many panes still make one request.
-  const { tmux_socket: tmuxSocket } = useAppConfig();
-  // Where this server runs — goes into the handle so a local session says which machine.
-  const serverIdentity = useServerIdentity();
-
-  const handleCopyPaneTarget = useCallback(() => {
-    const tmuxSession = isLocal ? (pane.sessionId || '') : (pane.tmuxSessionName || '');
-    const addr = isLocal
-      ? formatServerAddr({
-        hostname: serverIdentity.hostname,
-        ip: serverIdentity.ip,
-        ipKind: serverIdentity.ip_kind,
-      })
-      : (buildSshAddr(remoteHost) || pane.hostId || '');
-    const target = formatSessionTarget({
-      server: addr,
-      // The record, not just the address — the ssh line needs `-p <port>` and, for a
-      // tailscale host, `tailscale ssh` (which is how this app itself gets in).
-      host: isLocal ? null : remoteHost,
-      // How to run the CLI on this box — the backend knows whether it is on PATH.
-      // Where the work is and what is doing it. A receiver on another machine cannot
-      // infer either, and without them it starts in its own checkout and finds nothing.
-      cwd: paneCwdAbs || pane.cwd || '',
-      agent: (() => {
-        const st = getAgentStatusSnapshot()[tmuxSession] || {};
-        return [st.command, st.title].filter(Boolean).join(' ');
-      })(),
-      tmuxSession,
-      // Local sessions live on the app's own socket — the name alone cannot be attached to.
-      socket: isLocal ? (tmuxSocket || '') : '',
-      remote: !isLocal,
-    });
-    if (!target) return;
-    // 클립보드에는 붙여넣어 바로 쓸 수 있는 긴 핸들이 그대로 들어간다. 토스트는 **무엇을**
-    // 복사했는지만 한 줄로 — 같은 문자열을 다시 띄우면 폰 화면 절반이 글자로 덮인다.
-    const label = formatSessionTargetLabel({ server: addr, tmuxSession });
-    copyToClipboard(target).then((ok) => onNotify?.(ok
-      ? `${t?.('copied') || 'Copied'}${label ? ` · ${label}` : ''}`
-      : (t?.('clipboardError') || 'Copy failed')));
-  }, [isLocal, remoteHost, pane, paneCwdAbs, tmuxSocket, serverIdentity, onNotify, t]);
-
   // cwd 변할 때마다 부모(App.jsx)에 보고 → 자동 탭/pane 이름 갱신에 활용.
   // 원격은 workspace 상대경로가 없으므로 절대경로(paneCwdAbs)도 함께 보내 basename 으로 쓰게 한다.
   useEffect(() => {
@@ -770,25 +712,15 @@ const Pane = ({
                 boxShadow: 'inset 0 0 0 1px rgba(245,158,11,0.15)',
               }} />
             )}
-            {/* pane 번호 + 이름 — 이 pane 의 주소. **분할 여부와 무관하게 항상 단다.**
-                예전엔 `isMultiple` 일 때만 뜨게 했다("단일이면 부를 이름이 필요 없다"). 그런데
-                tmux 세션 핸들 복사가 이 배지에만 걸려 있어서, 단일 pane 탭에서는 복사할 방법이
-                통째로 사라졌다 — "열려있던(분할) 창은 되는데 새로 연 창은 안 된다" 의 정체다.
-                주소는 단일 pane 에서도 유효하다(`1.1`). 예외 없음.
-                이름을 함께 다는 이유: 분할 화면(데스크탑)엔 서브탭바가 없어서 여기 말고는
-                pane 이름이 나올 자리가 없다. 모바일 서브탭바와 같은 규칙(derivePaneLabel). */}
+            {/* pane 주소(`탭.pane`) — **분할 여부와 무관하게 항상 단다.**
+                자기 주소를 자기가 볼 방법이 없으면 "옆에 2번한테 시켜" 라고 말할 수 없다.
+                번호만 그린다: 이름·복사·접기가 붙어 있던 시절의 그 복사는 남의 에이전트에게
+                건네는 tmux attach 핸들이었고, 그 쓰임이 사라진 지금은 출력을 덮기만 했다. */}
             <PaneAddressLabel
               paneNumber={paneIndex + 1}
               tabNumber={tabNumber}
-              paneLabel={isEmptyPane(pane) ? null : derivePaneLabel(pane, { hosts, settings, t })}
               fullAddress={paneAddress}
               isProminent={isFocused || hover}
-              onCopy={handleCopyPaneTarget}
-              copyLabel={t?.('copyPaneTarget') || 'Copy tmux session (with attach command)'}
-              isExpanded={isAddressExpanded}
-              onToggleExpand={toggleAddressExpanded}
-              expandLabel={t?.('showPaneName') || 'Show pane name'}
-              collapseLabel={t?.('hidePaneName') || 'Show address only'}
             />
             {isBroadcasting && onToggleBroadcastExclude && (
               <BroadcastBadge

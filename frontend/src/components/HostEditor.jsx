@@ -8,6 +8,7 @@ import ThemePicker from './common/ThemePicker';
 import RemoteFolderPicker from './RemoteFolderPicker';
 import { authHeaders } from '../utils/auth';
 import { copyToClipboard } from '../utils/clipboard';
+import { fromHost as multiplexerFromHost, normalize as normalizeMultiplexer, OPTIONS as MUX_OPTIONS, HINTS as MUX_HINTS } from '../utils/multiplexer';
 import { heStyles, styles } from './hostEditor/hostEditorStyles';
 import { Section, Divider, Row, Field, Input, Select, SegmentedControl, Toggle } from './hostEditor/HostEditorFields';
 import { IconButton, ColorPicker, TailscalePicker } from './hostEditor/HostEditorPickers';
@@ -24,7 +25,7 @@ const EMPTY = {
   password: '',
   color_index: 0,
   group_name: null,
-  use_remote_tmux: true,
+  multiplexer: 'tmux',
   remote_tmux_session: 'mobile',
   start_path: '',
   icon: '',
@@ -38,7 +39,7 @@ const HE_TABS = [
   { id: 'appearance', icon: Palette, labelKey: 'appearance' },
 ];
 
-const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t, globalThemeId = 'default', zIndex = null }) => {
+const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTmuxServer, t, globalThemeId = 'default', defaultMultiplexer = 'tmux', zIndex = null }) => {
   const [draft, setDraft] = useState(EMPTY);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
@@ -49,8 +50,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
   const [sessions, setSessions] = useState({ open: false, items: [], loading: false, error: null, killing: null });
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [heTab, setHeTab] = useState('connection');
-  const [tmuxWarning, setTmuxWarning] = useState('');
-  const [tmuxChecking, setTmuxChecking] = useState(false);
+  const [muxWarning, setMuxWarning] = useState('');
+  const [muxChecking, setMuxChecking] = useState(false);
 
   useEffect(() => {
     setConfirmingDelete(false);
@@ -61,51 +62,54 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
       setDraft({
         ...EMPTY,
         ...host,
-        use_remote_tmux: !!host.use_remote_tmux,
+        // 옛 행에는 `multiplexer` 칸이 없다 — 되짚기는 백엔드와 **같은 규칙**이어야 한다
+        // (backend/multiplexer.from_host_row). 두 곳이 다르게 되짚으면 화면과 실제 동작이
+        // 어긋나고, 그건 저장할 때까지 안 드러난다.
+        multiplexer: multiplexerFromHost(host),
       });
     } else {
-      setDraft(EMPTY);
+      // 새 호스트는 설정의 기본값으로 시작한다 — 고정 'tmux' 로 시작하면 설정을 바꿔 둔
+      // 의미가 없다. 유효하지 않은 값이면 normalize 가 기본으로 접는다.
+      setDraft({ ...EMPTY, multiplexer: normalizeMultiplexer(defaultMultiplexer) });
     }
     setError('');
-  }, [host, isOpen]);
+  }, [host, isOpen, defaultMultiplexer]);
 
   if (!isOpen) return null;
 
   const set = (k, v) => setDraft((d) => ({ ...d, [k]: v }));
 
-  const handleTmuxToggle = useCallback(async (v) => {
-    setTmuxWarning('');
-    if (!v) {
-      set('use_remote_tmux', false);
-      return;
-    }
-    if (!host?.id) {
-      set('use_remote_tmux', true);
-      return;
-    }
-    setTmuxChecking(true);
+  /**
+   * 멀티플렉서를 고른다. tmux 는 고르는 순간 **그 호스트에 있는지 물어본다.**
+   *
+   * ⚠️ 없다고 해서 되돌리지 않는다 — 고른 값은 그대로 두고 경고만 붙인다. 이 앱은
+   * 없으면 평범한 셸로 떨어지므로 터미널 자체는 열리고, 사용자는 도구 설치로 가서
+   * 깔면 된다. 골랐는데 화면이 제멋대로 되돌아가는 쪽이 훨씬 나쁘다.
+   *
+   * herdr 는 여기서 안 물어본다: 확인 엔드포인트가 tmux 전용이고, 도구 설치 화면이
+   * 이미 그 호스트의 설치 여부를 보여 준다. 없으면 연결할 때 `mux-missing` 이 온다.
+   */
+  const handleMultiplexerChange = useCallback(async (choice) => {
+    setMuxWarning('');
+    set('multiplexer', choice);
+    if (choice !== 'tmux' || !host?.id) return;
+    setMuxChecking(true);
     try {
-      const res = await fetch(`/api/hosts/${host.id}/tmux-check`, {
-        headers: authHeaders(),
-      });
+      const res = await fetch(`/api/hosts/${host.id}/tmux-check`, { headers: authHeaders() });
       if (res.ok) {
         const data = await res.json();
-        if (data.available) {
-          set('use_remote_tmux', true);
-        } else if (data.platform === 'windows') {
+        if (data.platform === 'windows') {
           /* "tmux not found" is true but useless here — nothing else on this host will
              work either, and the fix is a different kind of host, not a package. */
-          setTmuxWarning(t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and tool installs all assume a POSIX shell.');
-        } else {
-          setTmuxWarning(t('tmuxNotAvailable') || 'tmux not found on this host — sessions will not persist.');
+          setMuxWarning(t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and tool installs all assume a POSIX shell.');
+        } else if (!data.available) {
+          setMuxWarning(t('tmuxNotAvailable') || 'tmux not found on this host — sessions will not persist.');
         }
-      } else {
-        set('use_remote_tmux', true);
       }
     } catch {
-      set('use_remote_tmux', true);
+      // 못 물어봤다 = 모른다. 모르는 것을 경고로 그리지 않는다.
     }
-    setTmuxChecking(false);
+    setMuxChecking(false);
   }, [host?.id, t]);
 
   const openTailscalePicker = async () => {
@@ -337,19 +341,23 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
           {heTab === 'session' && (
             <>
               <Section title={t('persistence') || 'Persistence'}>
-                <Toggle
-                  label={t('useRemoteTmux') || 'Persist sessions across disconnects (tmux)'}
-                  hint={
-                    tmuxChecking
-                      ? (t('tmuxChecking') || 'Checking tmux on remote host…')
-                      : draft.use_remote_tmux
-                        ? (t('useRemoteTmuxHintOn') || 'ON: 연결 끊겨도 원격 tmux 가 세션을 살려둠.')
-                        : (t('useRemoteTmuxHintOff') || 'OFF: 일반 SSH 셸. 연결 끊기면 실행 중이던 작업 사라짐.')
-                  }
-                  checked={draft.use_remote_tmux}
-                  onChange={handleTmuxToggle}
-                />
-                {tmuxWarning && (
+                {/* 멀티플렉서는 **선택이고, 안 골라도 된다.** 셋 다 유효한 값이라
+                    on/off 토글로는 표현이 안 된다 — 그래서 3지선다다.
+                    고른 것이 그 호스트에 없으면 평범한 셸로 떨어지고, 그때는 pane 이
+                    "닫으면 끊어집니다" 를 상시로 알린다(backend `mux-missing`). */}
+                <Field
+                  label={t('multiplexer') || 'Session multiplexer'}
+                  hint={muxChecking
+                    ? (t('tmuxChecking') || 'Checking tmux on remote host…')
+                    : (MUX_HINTS[draft.multiplexer]?.(t) || '')}
+                >
+                  <SegmentedControl
+                    value={draft.multiplexer}
+                    options={MUX_OPTIONS}
+                    onChange={handleMultiplexerChange}
+                  />
+                </Field>
+                {muxWarning && (
                   <div style={{
                     display: 'flex', alignItems: 'flex-start', gap: space['2'],
                     padding: space['2'], borderRadius: radius.md,
@@ -357,12 +365,12 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                     fontSize: fontSize['12'], color: 'var(--ui-subtext)', lineHeight: 1.4,
                   }}>
                     <AlertTriangle size={14} style={{ flexShrink: 0, marginTop: 1, color: 'var(--ui-warning, #f9e2af)' }} />
-                    <span>{tmuxWarning}</span>
+                    <span>{muxWarning}</span>
                   </div>
                 )}
-                {draft.use_remote_tmux && (
+                {draft.multiplexer !== 'none' && (
                   <Field
-                    label={t('tmuxSessionName') || 'tmux session name'}
+                    label={t('sessionName') || 'Session name'}
                     hint={t('tmuxSessionNameHint') || '같은 이름이면 다른 탭/디바이스에서도 같은 화면 공유.'}
                   >
                     <Input

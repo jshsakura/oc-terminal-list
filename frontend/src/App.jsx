@@ -688,6 +688,15 @@ function App() {
     return () => window.removeEventListener('iterm:open-file', onOpenFile);
   }, [handleFileOpen, t]);
 
+  /* pane 의 "멀티플렉서가 없습니다" 배너에서 곧장 도구 설치로. 안내만 하고 길을 안 주면
+     사용자는 그 배너를 닫고 잊는다 — 그리고 탭을 닫는 순간 작업이 사라진다.
+     프롭을 여섯 단계 내리는 대신 window 이벤트(`iterm:open-file` 과 같은 패턴). */
+  useEffect(() => {
+    const onOpenTools = (e) => setToolsModal({ isOpen: true, hostId: e?.detail?.hostId || '' });
+    window.addEventListener('iterm:open-tools', onOpenTools);
+    return () => window.removeEventListener('iterm:open-tools', onOpenTools);
+  }, []);
+
   const { editorHeight, isResizingEditor, onEditorResizeStart } = useEditorResize();
   const [terminalReloadSignal, setTerminalReloadSignal] = useState(0);
   const equalizeTabRef = useRef(null); // PaneGrid 가 활성 탭의 equalize 콜백을 채워줌
@@ -939,7 +948,19 @@ function App() {
   const handleInstallTool = useEvent(async (host, command) => {
     const tabId = host ? openHostTab(host) : await openLocalTab();
     if (!tabId || !command) return;
-    typeIntoPane({ tabId }, command);
+    const result = await typeIntoPane({ tabId }, command);
+    if (result.ok) return;
+    /* ⚠️ **조용히 성공한 척하지 않는다.** 실제로 oh-my-zsh 의 `[Y/n]` 프롬프트가 첫 글자를
+       먹어서 `url -fsSL … | sh` 만 남았고, 사용자는 `command not found` 를 보고 herdr
+       설치 스크립트를 의심했다. 이제 그걸 알아채므로, 알아챈 것을 말하고 붙여넣을 수
+       있게 클립보드에 넣어 준다. */
+    const copied = await copyToClipboard(command);
+    setNotification({
+      isOpen: true,
+      message: copied
+        ? (t('toolTypeFailedCopied') || '터미널이 명령을 받지 못했습니다 — 클립보드에 복사했으니 붙여넣으세요')
+        : (t('toolTypeFailed') || '터미널이 명령을 받지 못했습니다 — 도구 목록에서 명령을 복사해 직접 붙여넣으세요'),
+    });
   });
   const handlePickHostPath = useEvent((h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); });
   const handlePickLocalPath = useEvent((slot) => setLocalFolderPicker({

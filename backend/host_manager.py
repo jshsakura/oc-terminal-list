@@ -21,6 +21,7 @@ import asyncssh
 import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
 
+import multiplexer as mux
 from vault import decrypt_str
 from ws_observe import log_client_error
 
@@ -92,31 +93,98 @@ def effective_tmux_session(base: str, pane_index: int = 0) -> str:
     return f"{base}_{int(pane_index) + 1}"
 
 
+# 설치물은 대개 `~/.local/bin` 에 앉는데 **비대화형 SSH 셸의 PATH 에는 그게 없다**
+# (host_tools 의 프로브가 같은 이유로 같은 줄을 쓴다). 이걸 빼면 방금 깐 herdr 를
+# "설치되지 않음" 으로 읽고 조용히 평범한 셸로 떨어진다.
+REMOTE_PATH_PREFIX = 'PATH="$HOME/.local/bin:$PATH"; export PATH; '
+
+
+def _gone_notice(detail: str) -> str:
+    """세션이 없어서 못 붙는다고 알리고 약속된 코드로 죽는다.
+
+    이 종료코드가 프론트의 `session-gone` → `create=1` 전환을 태운다. 코드를 바꾸면
+    호스트 재부팅 복구가 조용히 멈춘다(CLAUDE.md "원격 세션 소멸" 참고).
+    """
+    return (
+        f"printf '\\r\\n\\033[33m[session not found] {detail}\\033[0m\\r\\n'; "
+        f"exit {TMUX_SESSION_GONE_EXIT}"
+    )
+
+
+def _plain_shell_command(start_path: str | None, *, create_session: bool) -> str | None:
+    """멀티플렉서 없이 그냥 로그인 셸.
+
+    **고장이 아니라 유효한 선택이다.** 다만 붙잡아 둘 세션이 없으므로 재접속
+    (`create=0`)은 애초에 이어붙을 대상이 없다.
+    """
+    if not create_session:
+        return _gone_notice("this host does not keep a shell to reconnect")
+    if start_path:
+        return f"cd {_shell_path(start_path)} 2>/dev/null; exec ${{SHELL:-bash}} -l"
+    return None
+
+
+def _build_herdr_command(
+    session_name: str, start_path: str | None, *, create_session: bool
+) -> str:
+    """`herdr --session <name>` — 있으면 붙고 없으면 만든다(tmux 의 has-session 이 불필요).
+
+    tmux 갈래의 그 긴 옵션 뭉치가 여기 없는 것은 빠뜨려서가 아니다: 상태바·마우스
+    바인딩·history-limit 은 전부 **tmux 의 설정 이름**이라 herdr 에 뜻이 없다. herdr 는
+    자기 기본값으로 뜬다.
+
+    ⚠️ **herdr 의 프리픽스도 `C-b` 다.** 이 앱의 pane 은 언제나 바깥 멀티플렉서 안이므로,
+    퀵바에서 herdr 프리픽스를 보낼 때는 `\x02` 를 두 번 보내야 한다(utils/mobileKeys).
+    """
+    safe = shlex.quote(session_name or DEFAULT_REMOTE_TMUX_SESSION)
+    cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
+    if create_session:
+        guard = ""
+    else:
+        # herdr 는 `--session` 하나로 생성과 접속을 겸하므로, "만들지 말고 붙기만" 은
+        # 목록을 먼저 보는 수밖에 없다. 이름은 JSON 안에 따옴표째 들어 있다.
+        guard = (
+            f"herdr session list --json 2>/dev/null | grep -qF '"'{safe}'"' || "
+            f"{{ {_gone_notice('refresh could not find ' + session_name)}; }}; "
+        )
+    return (
+        f"{REMOTE_PATH_PREFIX}"
+        f"command -v herdr >/dev/null 2>&1 && {{ "
+        f"{guard}{cd_prefix}exec herdr --session {safe}; "
+        f"}} || "
+        f"{cd_prefix}exec ${{SHELL:-bash}} -l"
+    )
+
+
 def _build_remote_command(
-    use_tmux: bool,
+    multiplexer: str | bool,
     tmux_session: str,
     start_path: str | None = None,
     *,
     create_session: bool = True,
 ) -> str | None:
-    """원격에서 실행할 명령. tmux 없으면 기본 셸로 fallback.
+    """원격에서 실행할 명령. 고른 멀티플렉서가 그 호스트에 없으면 **평범한 셸로 떨어진다.**
+
+    떨어지는 것 자체는 사고가 아니다 — 사고는 그걸 **말해 주지 않는 것**이다. 프론트가
+    `mux-missing` 컨트롤을 받아 "닫으면 세션이 끊어집니다" 를 띄운다.
 
     - tmux -CC (control mode) 는 xterm.js 와 프로토콜 불일치라 사용 안 함.
     - start_path 가 주어지면 tmux -c 로 신규 세션 시작 디렉토리 지정. 기존 세션 재attach 시엔 무시됨(tmux 동작).
     - window-size latest + 연결 직후 resize 메시지로 새 클라이언트 PTY 크기 즉시 적용.
     - -d 없이 attach — 여러 기기 동시 접속 허용, 마지막 resize 를 보낸 클라이언트 크기로 동기화.
-    - 셸 fallback 에서는 cd 로 진입 후 로그인 셸.
     """
-    if not use_tmux:
-        if not create_session:
-            return (
-                "printf '\\r\\n\\033[33m[session not found] this host does not keep "
-                "a tmux shell to reconnect\\033[0m\\r\\n'; "
-                f"exit {TMUX_SESSION_GONE_EXIT}"
-            )
-        if start_path:
-            return f"cd {_shell_path(start_path)} 2>/dev/null; exec ${{SHELL:-bash}} -l"
-        return None
+    # 옛 호출부(그리고 옛 테스트)가 넘기던 bool 을 그대로 받아 준다.
+    if isinstance(multiplexer, bool):
+        choice = mux.TMUX if multiplexer else mux.NONE
+    else:
+        choice = mux.normalize(multiplexer)
+
+    if choice == mux.NONE:
+        return _plain_shell_command(start_path, create_session=create_session)
+    if choice == mux.HERDR:
+        return _build_herdr_command(
+            tmux_session, start_path, create_session=create_session
+        )
     safe = shlex.quote(tmux_session or DEFAULT_REMOTE_TMUX_SESSION)
     cwd_arg = f" -c {_shell_path(start_path)}" if start_path else ""
     cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
@@ -384,6 +452,43 @@ class HostBridge:
             logger.warning("auth-prompt response wait failed: %s", e)
             return None
 
+    async def _warn_if_multiplexer_missing(self, choice: str) -> None:
+        """고른 멀티플렉서가 그 호스트에 없으면 프론트에 알린다.
+
+        ⚠️ **떨어지는 것보다 말 안 하는 것이 사고다.** 예전에는 tmux 가 없으면 조용히
+        평범한 셸로 떨어졌고, 사용자는 **탭을 닫고 나서야** 작업이 안 남는다는 걸 알았다.
+        지금은 프론트가 이 컨트롤을 받아 pane 에 "닫으면 끊어집니다" 를 상시로 붙이고,
+        도구 설치로 가는 길을 함께 준다.
+
+        `NONE` 은 알리지 않는다 — 고른 대로 동작한 것이고, 비영속 표시는 호스트 설정에서
+        이미 나온다. 여기서 또 말하면 **일부러 고른 값에 매번 경고**가 붙는다.
+        """
+        if choice == mux.NONE:
+            return
+        try:
+            # ⚠️ `command -v` 로만 묻는다. `herdr --version` 처럼 그 도구를 **실행**하면
+            # 인자 없이 뜨는 TUI(herdr 가 정확히 그렇다)가 tty 없는 이 경로에서 매달린다
+            # — host_tools 의 프로브가 같은 이유로 같은 규칙을 쓴다.
+            chk = await self.conn.run(
+                f"{REMOTE_PATH_PREFIX}command -v {shlex.quote(choice)} 2>/dev/null",
+                check=False,
+            )
+            found = bool((chk.stdout or "").strip())
+        except Exception:
+            # 못 물어봤다 = 모른다. 모르는 것을 "없다" 로 그리면 멀쩡한 호스트에 거짓
+            # 경고가 붙는다(host_tools 의 `installed: None` 과 같은 규칙).
+            return
+        if found:
+            return
+        try:
+            await self.websocket.send_text(json.dumps({
+                "type": "mux-missing",
+                "multiplexer": choice,
+                "message": f"{choice} not found on remote host — session will not persist",
+            }))
+        except Exception:
+            pass
+
     async def _connect(self) -> None:
         self.conn = await open_connection(
             self.host,
@@ -393,7 +498,7 @@ class HostBridge:
             kbdint_prompter=self._ws_kbdint_prompter,
         )
 
-        use_tmux = bool(self.host.get("use_remote_tmux", 1))
+        choice = mux.from_host_row(self.host)
         if self.tmux_session_name:
             # 명시적 override — 기존 세션 그대로 attach (Home 의 Resume).
             tmux_session = self.tmux_session_name
@@ -410,23 +515,9 @@ class HostBridge:
             or (self.host.get("start_path") or "").strip()
             or None
         )
-        cmd = _build_remote_command(use_tmux, tmux_session, start_path, create_session=self.create_session)
+        cmd = _build_remote_command(choice, tmux_session, start_path, create_session=self.create_session)
 
-        if use_tmux:
-            try:
-                chk = await self.conn.run("command -v tmux 2>/dev/null", check=False)
-                _tmux_found = bool((chk.stdout or "").strip())
-            except Exception:
-                _tmux_found = False
-            if not _tmux_found:
-                try:
-                    import json as _json
-                    await self.websocket.send_text(_json.dumps({
-                        "type": "tmux-missing",
-                        "message": "tmux not found on remote host — session will not persist",
-                    }))
-                except Exception:
-                    pass
+        await self._warn_if_multiplexer_missing(choice)
 
         # PTY 요청해서 인터랙티브 셸로 동작
         # encoding=None → bytes 스트림. read(n) 으로 비라인버퍼 읽기 (async for 는 줄단위라 화면갱신 지연됨)
@@ -670,7 +761,7 @@ class TailscaleHostBridge:
         ssh_user = self.host.get("ssh_user") or os.environ.get("USER") or "root"
         hostname = self.host["hostname"]
         target = f"{ssh_user}@{hostname}"
-        use_tmux = bool(self.host.get("use_remote_tmux", 1))
+        choice = mux.from_host_row(self.host)
         if self.tmux_session_name:
             tmux_session = self.tmux_session_name
         else:
@@ -684,7 +775,7 @@ class TailscaleHostBridge:
             or (self.host.get("start_path") or "").strip()
             or None
         )
-        cmd = _build_remote_command(use_tmux, tmux_session, start_path, create_session=self.create_session)
+        cmd = _build_remote_command(choice, tmux_session, start_path, create_session=self.create_session)
         argv = ["tailscale", "ssh", "-t", target]
         if cmd:
             argv.append(cmd)

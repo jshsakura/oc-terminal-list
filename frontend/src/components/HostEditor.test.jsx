@@ -123,7 +123,7 @@ describe('HostEditor', () => {
     expect(screen.getByText(/Edit host/i)).toBeInTheDocument();
   });
 
-  it('uses auth_token when checking remote tmux availability', async () => {
+  it('tmux 를 고르면 그 호스트에 있는지 auth_token 으로 물어본다', async () => {
     localStorage.setItem('auth_token', 'auth-token-123');
     fetch.mockResolvedValueOnce({
       ok: true,
@@ -144,13 +144,31 @@ describe('HostEditor', () => {
     );
 
     fireEvent.click(screen.getByText(/Session/i).closest('button'));
-    fireEvent.click(document.querySelector('[role="switch"][aria-label^="Persist session"]'));
+    // 멀티플렉서는 on/off 가 아니라 3지선다다 — none 으로 저장된 호스트에서 tmux 를 고른다.
+    fireEvent.click(screen.getByText('tmux'));
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith('/api/hosts/h1/tmux-check', {
         headers: { Authorization: 'Bearer auth-token-123' },
       });
     });
+  });
+
+  /* `none` 은 고장이 아니라 유효한 선택이다. 그러면 반드시 "닫으면 끝난다" 를
+     읽을 수 있어야 한다 — 이걸 안 말한 채로 떨어뜨린 것이 예전 동작이었다. */
+  it('none 을 고르면 세션이 안 남는다고 말한다', () => {
+    render(
+      <HostEditor
+        isOpen={true}
+        host={{ ...sampleHost, multiplexer: 'none' }}
+        sshKeys={sampleKeys}
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+        t={mockT}
+      />
+    );
+    fireEvent.click(screen.getByText(/Session/i).closest('button'));
+    expect(screen.getByText(/Closing the tab or losing the connection ends/)).toBeTruthy();
   });
 
   it('shows skeleton rows in TailscalePicker while loading', () => {

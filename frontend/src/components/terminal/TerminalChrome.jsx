@@ -175,13 +175,29 @@ export const ImagePasteToast = ({ state, themeUi, t }) => {
   );
 };
 
-/** 호스트에 tmux 가 없어 세션이 유지되지 않음 — 패널 하단 인라인 경고. */
-export const TmuxFallbackBanner = ({ themeUi, t, onDismiss }) => (
+/**
+ * 고른 멀티플렉서가 이 호스트에 없어 평범한 셸로 열렸다 — 패널 하단 인라인 경고.
+ *
+ * ⚠️ **"없다" 로 끝내면 안 된다.** 예전 문구는 tmux 가 없다는 사실만 말하고 사용자를
+ * 거기 세워 뒀다. 정작 알아야 할 것은 **닫으면 작업이 사라진다**는 결과이고, 하고 싶은
+ * 것은 **깔기**다. 그래서 결과를 먼저 쓰고 설치 버튼을 함께 준다.
+ */
+export const MuxFallbackBanner = ({ themeUi, t, tool = 'tmux', onInstall, onDismiss }) => (
   <div style={styles.inlineBanner(themeUi)}>
     <AlertTriangle size={13} strokeWidth={1.8} style={{ flexShrink: 0, color: themeUi.warning || '#f9e2af' }} />
     <span style={styles.bannerText(themeUi)}>
-      {t('tmuxFallbackWarning') || 'tmux not found on this host — session will not persist across disconnects'}
+      {(t('muxMissingBanner') || '{tool} is not installed here — this session will not survive closing the tab.')
+        .replace('{tool}', tool)}
     </span>
+    {onInstall && (
+      <button
+        type="button"
+        onClick={onInstall}
+        style={{ ...styles.bannerButton(themeUi), width: 'auto', padding: '0 7px', fontSize: '11px' }}
+      >
+        {t('installTool') || 'Install'}
+      </button>
+    )}
     <button type="button" onClick={onDismiss} style={styles.bannerButton(themeUi)}>
       <X size={11} strokeWidth={2} />
     </button>

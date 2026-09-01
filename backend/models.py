@@ -9,6 +9,8 @@ import re
 
 from pydantic import BaseModel, field_validator
 
+import multiplexer
+
 
 class ResizeRequest(BaseModel):
     cols: int
@@ -113,10 +115,27 @@ class HostUpsertRequest(BaseModel):
     color_index: int = 0
     group_name: str | None = None
     use_remote_tmux: bool = True
+    # 'tmux' | 'herdr' | 'none'. None 이면 옛 use_remote_tmux 로 되짚는다
+    # (backend/multiplexer.from_host_row) — 옛 클라이언트가 이 칸을 안 보낸다.
+    multiplexer: str | None = None
     remote_tmux_session: str | None = "mobile"
     start_path: str | None = None
     icon: str | None = None
     theme: str | None = None  # pane.themeOverride 자동 적용용 (없으면 글로벌 settings.theme)
+
+    @field_validator("multiplexer")
+    @classmethod
+    def _check_multiplexer(cls, v: str | None) -> str | None:
+        """모르는 값은 **거절**한다 — 조용히 기본값으로 접지 않는다.
+
+        이건 사용자가 화면에서 고른 값이라, 오타로 tmux 가 되면 "골랐는데 안 바뀐다" 가
+        된다. 되짚기(None)와 잘못된 값은 다른 사건이다.
+        """
+        if v is None or v == "":
+            return None
+        if v not in multiplexer.CHOICES:
+            raise ValueError("invalid multiplexer")
+        return v
 
     @field_validator("remote_tmux_session")
     @classmethod

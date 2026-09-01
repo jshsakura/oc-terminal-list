@@ -103,6 +103,27 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
     return lines.join('\n');
   }, [xtermRef]);
 
+  /* 커서가 앉아 있는 **입력 줄** — 접힌(wrapped) 앞줄까지 이어 붙인다.
+     보낸 글자가 실제로 셸의 명령줄에 들어갔는지 확인하는 유일한 방법이다.
+     "화면 어딘가에 그 문자열이 있다" 로는 부족하다: 셸 rc 가 띄운 프롬프트가
+     첫 글자를 먹어도 **먹은 글자까지 그대로 에코**되므로 화면 검색은 통과한다
+     (oh-my-zsh 의 `[Y/n]` 이 `c` 를 먹고 `url -fsSL …` 만 남긴 그 사고). */
+  const getInputLine = useCallback(() => {
+    const term = xtermRef.current;
+    const buf = term?.buffer?.active;
+    if (!buf) return '';
+    const end = buf.baseY + buf.cursorY;
+    let start = end;
+    while (start > 0 && buf.getLine(start)?.isWrapped) start -= 1;
+    const parts = [];
+    for (let i = start; i <= end; i += 1) {
+      const line = buf.getLine(i);
+      if (!line) break;
+      parts.push(line.translateToString(true));
+    }
+    return parts.join('');
+  }, [xtermRef]);
+
   const copyAll = useCallback(async () => {
     const text = getBufferText(true);
     if (!text) return false;
@@ -142,6 +163,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
       sendCommand,
       getSelection,
       getBufferText,
+      getInputLine,
       copyAll,
       scrollToBottom,
       scrollToTop,
@@ -191,7 +213,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
     };
   }, [
     sessionId, paneId, tabId, isReady,
-    sendData, sendCommand, getSelection, getBufferText, copyAll,
+    sendData, sendCommand, getSelection, getBufferText, getInputLine, copyAll,
     scrollToBottom, scrollToTop, scrollPages, scrollLines,
     focus, clear, searchNext, searchPrevious, closeSearch,
     xtermRef, wsRef, fitNowRef, lastDimsRef, evictedRef, endedRef, hasContentRef,

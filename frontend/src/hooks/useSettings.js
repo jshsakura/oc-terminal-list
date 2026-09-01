@@ -50,6 +50,8 @@ export const DEFAULT_SETTINGS = {
   fontSizeMobile: 13,      // 모바일 글자크기 (별도 — 작은 화면 보정)
   fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
   defaultShell: 'auto',  // 시스템 로그인 쉘 자동 사용 (zsh, bash 등)
+  // 새 호스트가 시작할 멀티플렉서. 어휘는 utils/multiplexer 하나에서 온다.
+  defaultMultiplexer: 'tmux',
   autoScroll: 'smart', // 'always' | 'smart' | 'never'
   smoothScroll: true,
   scrollSensitivity: 0.8, // AI 스트리밍 대응 (0~1, 높을수록 민감)
@@ -60,8 +62,6 @@ export const DEFAULT_SETTINGS = {
   localColorIndex: 0,  // 호스트 카드의 ColorPicker 와 동일한 인덱스
   terminalContrast: 'high', // 글자 대비 강제 수위 — 'high'(7,또렷) | 'balanced'(4.5) | 'original'(1,테마 팔레트 그대로). high 는 저대비 색을 밝혀 가독성↑ 대신 테마 개성이 다소 뭉개짐.
   useWebgl: true,      // GPU 가속 렌더러 — context loss / 초기화 실패 시 Terminal.jsx 가 자동으로 DOM 으로 폴백
-  // pane 우상단 주소 배지를 이름까지 펼쳐 둘지. 접으면 `1|3` 주소만 남아 출력을 덜 덮는다.
-  paneAddressExpanded: true,
   predictiveEcho: true, // 예측 입력(local echo) — 키를 RTT 안 기다리고 유령 글자로 즉시 표시. 오예측 싫으면 off
 
   bellNotifications: false, // BEL(\x07) 수신 시 브라우저 알림 (탭 백그라운드일 때만)

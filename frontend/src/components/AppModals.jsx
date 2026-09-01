@@ -121,6 +121,7 @@ export default function AppModals({
           isOpen={hostEditorState.isOpen}
           host={hostEditorState.host}
           sshKeys={sshKeys}
+          defaultMultiplexer={settings?.defaultMultiplexer}
           zIndex={hostEditorState.reopenSettings ? 200002 : undefined}
           onSave={async (data) => {
             if (hostEditorState.host) await updateHost(hostEditorState.host.id, data);

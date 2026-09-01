@@ -17,7 +17,8 @@ class HostMixin:
             try:
                 rows = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
-                              color_index, group_name, use_remote_tmux, remote_tmux_session,
+                              color_index, group_name, use_remote_tmux, multiplexer,
+                              remote_tmux_session,
                               start_path, last_cwd, icon, theme, sort_index, created_at, last_used
                        FROM hosts WHERE username = ?
                        ORDER BY sort_index IS NULL, sort_index ASC,
@@ -36,6 +37,7 @@ class HostMixin:
                 row = conn.execute(
                     """SELECT id, name, hostname, port, ssh_user, auth_method, key_id,
                               password_enc, color_index, group_name, use_remote_tmux,
+                              multiplexer,
                               remote_tmux_session, start_path, last_cwd, icon, theme, created_at,
                               last_used, cred_epoch
                        FROM hosts WHERE id = ? AND username = ?""",
@@ -51,7 +53,7 @@ class HostMixin:
         allowed = {
             "name", "hostname", "port", "ssh_user", "auth_method", "key_id",
             "password_enc", "color_index", "group_name", "use_remote_tmux",
-            "remote_tmux_session", "start_path", "icon", "theme",
+            "multiplexer", "remote_tmux_session", "start_path", "icon", "theme",
         }
         updates = {k: v for k, v in fields.items() if k in allowed}
 
@@ -72,9 +74,10 @@ class HostMixin:
                     conn.execute(
                         """INSERT INTO hosts (id, username, name, hostname, port, ssh_user,
                                               auth_method, key_id, password_enc, color_index,
-                                              group_name, use_remote_tmux, remote_tmux_session,
+                                              group_name, use_remote_tmux, multiplexer,
+                                              remote_tmux_session,
                                               start_path, icon, theme, created_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             host_id, username,
                             updates.get("name", "Unnamed"),
@@ -87,6 +90,7 @@ class HostMixin:
                             int(updates.get("color_index", 0)),
                             updates.get("group_name"),
                             int(updates.get("use_remote_tmux", 1)),
+                            updates.get("multiplexer"),
                             updates.get("remote_tmux_session", "mobile"),
                             updates.get("start_path"),
                             updates.get("icon"),

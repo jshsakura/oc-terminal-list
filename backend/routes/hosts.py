@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 import host_tmux
+import multiplexer as mux
 import session_tombstones
 from _deps import verify_auth_token
 from remote_platform import PLATFORM_PROBE, classify_platform
@@ -52,6 +53,11 @@ async def list_hosts(username: str = Depends(verify_auth_token)):
 
 
 def _host_payload_to_fields(req: HostUpsertRequest) -> dict:
+    # 새 클라이언트는 multiplexer 를 보내고, 옛 클라이언트는 use_remote_tmux 만 보낸다.
+    choice = mux.normalize(
+        req.multiplexer,
+        fallback=mux.DEFAULT if req.use_remote_tmux else mux.NONE,
+    )
     fields = {
         "name": req.name,
         "hostname": req.hostname,
@@ -61,7 +67,10 @@ def _host_payload_to_fields(req: HostUpsertRequest) -> dict:
         "key_id": req.key_id,
         "color_index": int(req.color_index or 0),
         "group_name": req.group_name,
-        "use_remote_tmux": 1 if req.use_remote_tmux else 0,
+        # 두 칸을 함께 쓴다. `multiplexer` 가 진짜 값이고, `use_remote_tmux` 는 이 행을
+        # 읽는 옛 코드/옛 클라이언트가 최소한 "영속이냐" 는 맞게 보도록 파생시켜 둔다.
+        "multiplexer": choice,
+        "use_remote_tmux": 1 if mux.persists(choice) else 0,
         "remote_tmux_session": req.remote_tmux_session or "mobile",
         "start_path": (req.start_path or "").strip() or None,
         "icon": (req.icon or "").strip() or None,
@@ -172,7 +181,9 @@ async def kill_host_tmux(
     host = await storage.get_host(host_id, username)
     if not host:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
-    if not bool(host.get("use_remote_tmux", 1)) and not force:
+    # tmux 세션 조회/정리는 tmux 호스트에만 뜻이 있다. herdr 세션은 `herdr session list`
+    # 로 사는 별개 세계이고, none 호스트에는 붙잡아 둔 세션이 아예 없다.
+    if mux.from_host_row(host) != mux.TMUX and not force:
         return {"id": host_id, "status": "skipped", "reason": "tmux not used"}
 
     key_record = None
@@ -437,7 +448,7 @@ async def _fetch_host_tmux_sessions(host: dict, host_id: str, username: str, ref
 
 @router.get("/api/hosts/tmux-sessions/batch")
 async def batch_host_tmux_sessions(
-    ids: str = Query("", description="콤마 구분 host_id. 비면 use_remote_tmux 모든 호스트."),
+    ids: str = Query("", description="콤마 구분 host_id. 비면 tmux 를 쓰는 모든 호스트."),
     refresh: bool = Query(False, description="강제 새로고침 — 캐시 무시"),
     username: str = Depends(verify_auth_token),
 ):
@@ -450,7 +461,7 @@ async def batch_host_tmux_sessions(
         wanted = {s.strip() for s in ids.split(",") if s.strip()}
         picked = [h for h in all_hosts if h.get("id") in wanted]
     else:
-        picked = [h for h in all_hosts if h.get("use_remote_tmux")]
+        picked = [h for h in all_hosts if mux.from_host_row(h) == mux.TMUX]
     if not picked:
         return {"items": []}
 

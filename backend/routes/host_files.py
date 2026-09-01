@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
 import host_sftp
+import multiplexer as mux
 from _deps import verify_auth_token
 from file_models import FilePathsRequest
 from host_common import resolve_host_with_secrets
@@ -61,7 +62,7 @@ async def get_host_cwd(
 ):
     """원격 호스트 tmux 세션의 현재 작업 디렉토리."""
     host, secrets = await resolve_host_with_secrets(host_id, username)
-    if not host.get("use_remote_tmux"):
+    if mux.from_host_row(host) != mux.TMUX:
         return {"host_id": host_id, "cwd": None}
     cwd = await host_sftp.get_tmux_cwd(host, secrets, session)
     return {"host_id": host_id, "cwd": cwd}
@@ -79,7 +80,7 @@ async def get_host_cwds(
     shadow it — `/cwd` is a literal, so the two never compete.
     """
     host, secrets = await resolve_host_with_secrets(host_id, username)
-    if not host.get("use_remote_tmux"):
+    if mux.from_host_row(host) != mux.TMUX:
         return {"host_id": host_id, "cwds": {}}
     return {"host_id": host_id, "cwds": await host_sftp.get_tmux_cwds(host, secrets)}
 

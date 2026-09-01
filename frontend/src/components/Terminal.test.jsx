@@ -200,7 +200,38 @@ describe('Terminal', () => {
       await waitFor(() => expect(screen.getByText(/OTP:/)).toBeTruthy());
     });
 
-    it('tmux-missing 경고 배너를 띄우고 닫을 수 있다', async () => {
+    /* 배너가 말해야 하는 것은 "tmux 가 없다" 가 아니라 **"닫으면 사라진다"** 다.
+       그리고 깔러 갈 길이 함께 있어야 한다 — 안내만 하고 길을 안 주면 사용자는
+       배너를 닫고 잊은 뒤, 탭을 닫는 순간 작업을 잃는다. */
+    it('멀티플렉서가 없으면 없는 도구 이름과 결과를 말한다', async () => {
+      renderTerminal({ hostId: 'h1' });
+      const ws = await openSocket();
+
+      await act(async () => {
+        ws.serverSend(JSON.stringify({ type: 'mux-missing', multiplexer: 'herdr' }));
+      });
+
+      expect(await screen.findByText(/herdr .*not installed/i)).toBeTruthy();
+    });
+
+    it('배너의 설치 버튼이 그 호스트의 도구 화면을 연다', async () => {
+      renderTerminal({ hostId: 'h1' });
+      const ws = await openSocket();
+      const opened = [];
+      const onOpen = (e) => opened.push(e.detail);
+      window.addEventListener('iterm:open-tools', onOpen);
+
+      await act(async () => {
+        ws.serverSend(JSON.stringify({ type: 'mux-missing', multiplexer: 'herdr' }));
+      });
+      await act(async () => { (await screen.findByText('Install')).click(); });
+      window.removeEventListener('iterm:open-tools', onOpen);
+
+      expect(opened).toEqual([{ hostId: 'h1' }]);
+    });
+
+    /* 옛 백엔드(롤백 등)가 보내는 이름도 그대로 받는다. */
+    it('옛 tmux-missing 도 같은 배너를 띄운다', async () => {
       renderTerminal({ hostId: 'h1' });
       const ws = await openSocket();
 
@@ -208,8 +239,7 @@ describe('Terminal', () => {
         ws.serverSend(JSON.stringify({ type: 'tmux-missing' }));
       });
 
-      const banner = await screen.findByText(/tmux not found|tmux/i);
-      expect(banner).toBeTruthy();
+      expect(await screen.findByText(/tmux .*not installed/i)).toBeTruthy();
     });
   });
 
