@@ -126,8 +126,13 @@ def log_detach(
 
 
 # 클라이언트가 보고할 수 있는 실패 범위/종류. 밖의 값은 `other` 로 접는다.
-CLIENT_ERROR_SCOPES = frozenset({"paste-image", "paste-file", "file-drop", "attach-image"})
-CLIENT_ERROR_KINDS = frozenset({"blocked", "offline", "server", "error"})
+# `viewport` 는 실패가 아니라 **관측**이다. 폰에서만 나는 레이아웃 병(하단 검은 띠)은
+# 기기 없이는 재현이 안 되고, 코드만 읽어서는 추측이 된다 — 실제로 한 번 그렇게 고쳤다가
+# 안 먹었다. 살아있는 WS 로 실측값을 받아 로그에서 읽는다.
+CLIENT_ERROR_SCOPES = frozenset({
+    "paste-image", "paste-file", "file-drop", "attach-image", "viewport",
+})
+CLIENT_ERROR_KINDS = frozenset({"blocked", "offline", "server", "error", "measure"})
 _MAX_DETAIL_LEN = 120
 
 

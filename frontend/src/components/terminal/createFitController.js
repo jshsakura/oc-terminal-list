@@ -99,10 +99,31 @@ export const attachFitController = (refs) => {
     scheduleLeadingAndTrailing(0, 120);
   };
 
+  /* 클라이언트만 아는 관측값을 **살아있는 WS 로** 올린다. HTTP 는 막힐 수 있고, 폰에서만
+     나는 병(하단 검은 띠)은 기기 없이 재현이 안 돼 값을 받는 것 말고 길이 없다.
+     여기 붙이는 이유: 이 컨트롤러가 이미 `wsRef` 를 쥐고 window 리스너를 단다.
+     ⚠️ **한 소켓만 보낸다** — 모든 pane 이 보내면 pane 수만큼 같은 줄이 찍힌다.
+     활성/포커스가 아니면 건너뛴다(shouldSkipFit 과 같은 게이트). */
+  const handleClientReport = (e) => {
+    if (shouldSkipFit({ isActive: isActiveRef.current })) return;
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const d = e?.detail || {};
+    try {
+      ws.send(JSON.stringify({
+        type: 'client-error',
+        scope: String(d.scope || '').slice(0, 32),
+        kind: String(d.kind || '').slice(0, 32),
+        detail: String(d.detail || '').slice(0, 200),
+      }));
+    } catch { /* 관측이 기능을 망가뜨리면 안 된다 */ }
+  };
+
   const observer = new ResizeObserver(() => handleResize());
   if (containerRef.current) observer.observe(containerRef.current);
   window.addEventListener('resize', handleResize);
   window.addEventListener('iterm:fit-terminals', handleGlobalFit);
+  window.addEventListener('iterm:client-report', handleClientReport);
   if (window.visualViewport) {
     window.visualViewport.addEventListener('resize', handleResize);
   }
@@ -111,6 +132,7 @@ export const attachFitController = (refs) => {
     observer.disconnect();
     window.removeEventListener('resize', handleResize);
     window.removeEventListener('iterm:fit-terminals', handleGlobalFit);
+    window.removeEventListener('iterm:client-report', handleClientReport);
     if (window.visualViewport) {
       window.visualViewport.removeEventListener('resize', handleResize);
     }

@@ -26,6 +26,47 @@ const MIN_SANE_VIEWPORT_PX = 120;
    0.7 은 그 사이다. 0.8 로 잡았다가 첫 진입의 펼쳐진 주소창(79.6%)이 걸려 되돌렸다. */
 const KEYBOARD_MAX_VISIBLE_RATIO = 0.7;
 
+/* ── 실측 보고 ────────────────────────────────────────────────────────────────
+ * 하단 검은 띠는 **폰에서만** 나고 기기 없이는 재현이 안 된다. 한 번은 코드만 읽고
+ * 고쳤다가 안 먹었다 — 그래서 값을 추측하지 않고 받는다.
+ *
+ * 살아있는 WS 로 올라간다(`ws_observe` 의 `viewport` scope). 값이 **바뀔 때만**, 그리고
+ * 최소 간격을 두고 보낸다 — 주소창이 접히는 동안 resize 가 연달아 오므로 그대로 흘리면
+ * 로그가 그 애니메이션으로 덮인다.
+ *
+ * 이 블록은 진단이 끝나면 지운다. 남겨 두면 조용한 상시 비용이 된다. */
+const REPORT_MIN_GAP_MS = 1500;
+let lastReportAt = 0;
+let lastReportKey = '';
+
+const reportViewport = (vv, layout, keyboard) => {
+  if (!window.matchMedia?.('(pointer: coarse)')?.matches) return;   // 폰에서만
+  const el = document.documentElement;
+  const root = document.getElementById('root');
+  const app = root?.firstElementChild;
+  const detail = [
+    `vv=${Math.round(vv.height)}`,
+    `inner=${Math.round(layout)}`,
+    `ratio=${(vv.height / (layout || 1)).toFixed(3)}`,
+    `kbd=${keyboard ? 1 : 0}`,
+    `vvh=${el.style.getPropertyValue('--vvh') || '-'}`,
+    `off=${Math.round(vv.offsetTop)}`,
+    `root=${root ? Math.round(root.getBoundingClientRect().height) : '-'}`,
+    `app=${app ? Math.round(app.getBoundingClientRect().height) : '-'}`,
+    `sab=${getComputedStyle(el).getPropertyValue('--sab') || '-'}`,
+  ].join(' ');
+  if (detail === lastReportKey) return;
+  const now = Date.now();
+  if (now - lastReportAt < REPORT_MIN_GAP_MS) return;
+  lastReportAt = now;
+  lastReportKey = detail;
+  try {
+    window.dispatchEvent(new CustomEvent('iterm:client-report', {
+      detail: { scope: 'viewport', kind: 'measure', detail },
+    }));
+  } catch { /* 관측이 기능을 망가뜨리면 안 된다 */ }
+};
+
 export default function useViewport() {
   const [isMobile, setIsMobile] = useState(() => isPhoneViewport());
   const [viewportHeight, setViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
@@ -84,11 +125,13 @@ export default function useViewport() {
 
          판정은 넉넉하게: 브라우저 크롬은 120px 을 넘지 않고 키보드는 250px 을 넘는다. */
       const layout = window.innerHeight || vv.height;
-      if (vv.height < layout * KEYBOARD_MAX_VISIBLE_RATIO) {
+      const keyboard = vv.height < layout * KEYBOARD_MAX_VISIBLE_RATIO;
+      if (keyboard) {
         document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
       } else {
         document.documentElement.style.removeProperty('--vvh');
       }
+      reportViewport(vv, layout, keyboard);
     };
 
     const handleVV = () => {

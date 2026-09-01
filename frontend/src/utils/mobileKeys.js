@@ -1,4 +1,4 @@
-import { HERDR, TMUX, normalize as normalizeMux } from './multiplexer';
+import { TMUX, normalize as normalizeMux } from './multiplexer';
 
 /**
  * 모바일 하단 툴바 키 정의 + 디폴트.
@@ -59,38 +59,16 @@ export const DEFAULT_MOBILE_KEYS = [
 /** 프리픽스는 **하나**다 — 그 팬에서 도는 멀티플렉서에게 바로 간다. */
 const PREFIX = '\x02';   // ctrl+b — tmux 와 herdr 의 기본 프리픽스가 같다
 
-/* herdr 프리픽스 키.
+/* tmux 프리픽스 키.
  *
- * ⚠️ **한때 `^B^B` 였고, 지금은 아니다.** 그 이중 프리픽스는 "이 앱의 pane 은 언제나
- * tmux 클라이언트 안" 이라는 전제 위에 있었다 — 바깥 tmux 가 `\x02` 를 먹으니
- * `send-prefix` 를 태워야 했다. 그 전제가 사라졌다: 지금은 고른 멀티플렉서 **하나만**
- * 깔고(backend/local_mux.js 의 짝인 local_mux.py), herdr 를 고르면 팬이 herdr 를 직접
- * 실행한다. 바깥 tmux 가 없으므로 프리픽스를 두 번 보내면 herdr 가 두 번째를 명령 키로
- * 읽어 **아무 일도 안 일어난다.**
+ * ⚠️ **프리픽스는 하나다(`\x02`).** 한때 `\x02\x02` 였고, 그 근거는 "이 앱의 pane 은
+ * 언제나 tmux 클라이언트 안" 이었다. 지금은 팬을 tmux 가 잡을 수도 herdr 가 잡을 수도
+ * 있고(backend/local_mux.py), 어느 쪽이든 바깥에 또 하나가 깔려 있지 않다 — 이중으로
+ * 보내면 안쪽이 두 번째를 명령 키로 읽어 아무 일도 안 일어난다.
  *
- * ⚠️ 손으로 tmux 안에서 herdr 를 띄운 경우(전환기 잔존 세션이 그렇다)에는 여전히 이중
- * 프리픽스가 필요하다. 그건 앱이 만드는 모양이 아니므로 커스텀 키로 둔다.
- *
- * 키 출처: `herdr --default-config` 의 `[keys]` 기본값. */
-export const HERDR_KEYS = [
-  { label: 'H·c', payload: `${PREFIX}c` },   // new_tab
-  { label: 'H·v', payload: `${PREFIX}v` },   // split_vertical
-  { label: 'H·−', payload: `${PREFIX}-` },   // split_horizontal (prefix+minus)
-  { label: 'H·h', payload: `${PREFIX}h`, tone: 'muted' },  // focus_pane_left
-  { label: 'H·j', payload: `${PREFIX}j`, tone: 'muted' },  // focus_pane_down
-  { label: 'H·k', payload: `${PREFIX}k`, tone: 'muted' },  // focus_pane_up
-  { label: 'H·l', payload: `${PREFIX}l`, tone: 'muted' },  // focus_pane_right
-  { label: 'H·p', payload: `${PREFIX}p`, tone: 'muted' },  // previous_tab
-  { label: 'H·n', payload: `${PREFIX}n`, tone: 'muted' },  // next_tab
-  { label: 'H·z', payload: `${PREFIX}z` },   // zoom
-  { label: 'H·b', payload: `${PREFIX}b` },   // toggle_sidebar
-  { label: 'H·w', payload: `${PREFIX}w` },   // workspace_picker
-  { label: 'H·x', payload: `${PREFIX}x`, tone: 'danger' },  // close_pane
-  { label: 'H·?', payload: `${PREFIX}?` },   // help
-  { label: 'H·q', payload: `${PREFIX}q`, tone: 'danger' },  // detach
-];
-
-/* tmux 프리픽스 키 — herdr 와 **같은 자리, 다른 글자**다.
+ * ⚠️ **herdr 프리픽스 키는 걷어냈다.** herdr 도 `C-b` 라 같은 바이트지만 뒤 글자가 달라
+ * (`H·c` 는 new_tab, `T·c` 는 새 윈도우) 섞어 두면 눌러도 아무 일이 없는 키가 바에
+ * 남는다 — 그 실패는 조용하다. 필요하면 커스텀 키로 넣는다(임의 바이트열을 보낼 수 있다).
  * 두 목록이 나란히 있어야 "왜 이 키는 저기 없나" 를 눈으로 답할 수 있다. */
 export const TMUX_KEYS = [
   { label: 'T·c', payload: `${PREFIX}c` },   // 새 윈도우
@@ -116,18 +94,17 @@ const MUX_SEP_ID = 'sep_mux';
 /* 퀵바에 **기본으로** 실리는 멀티플렉서 키. 전부 싣지 않는다 — 바가 길어지면 정작 자주
    쓰는 것이 스크롤 뒤로 밀린다. 나머지는 설정의 프리셋에서 골라 넣는다.
 
-   ⚠️ 무엇을 싣느냐가 **고른 멀티플렉서를 따라간다.** 안 그러면 tmux 사용자의 바에
-   herdr 키가 남아 눌러도 아무 일이 없는데, 그 실패는 조용하다(이 파일이 이미 이중
-   프리픽스로 한 번 겪은 그 조용함이다). `none` 은 프리픽스라는 개념이 없어 비운다. */
+   ⚠️ **tmux 것만 싣는다.** herdr 키는 눌러도 아무 일이 없는 채로 바에 남기 쉬웠고
+   (같은 프리픽스, 다른 글자), 그 실패는 조용하다. `none` 은 프리픽스라는 개념이 없어
+   비운다. herdr 를 쓰는 사람은 커스텀 키로 넣는다. */
 const DEFAULT_MUX_LABELS = {
-  [HERDR]: ['H·c', 'H·v', 'H·−', 'H·z', 'H·b', 'H·n'],
   [TMUX]: ['T·c', 'T·%', 'T·"', 'T·z', 'T·o', 'T·n'],
 };
 
 /** 이 멀티플렉서의 기본 등록 키들. 모르는 값이면 빈 배열. */
 export const muxKeysFor = (multiplexer) => {
   const mux = normalizeMux(multiplexer);
-  const source = mux === HERDR ? HERDR_KEYS : mux === TMUX ? TMUX_KEYS : [];
+  const source = mux === TMUX ? TMUX_KEYS : [];
   return (DEFAULT_MUX_LABELS[mux] || [])
     .map((label) => source.find((k) => k.label === label))
     .filter(Boolean)
@@ -153,8 +130,8 @@ export const mobileKeysFor = (multiplexer) => {
  *    키는 id 가 다르므로 **건드리지 않는다.**
  *  - `seededFor` 가 지금 멀티플렉서와 같으면 **아무것도 안 한다** — 심어준 뒤에 사용자가
  *    지웠다면 지운 대로 두어야 한다. 매번 되살리면 지울 방법이 없어진다.
- *  - 멀티플렉서를 바꾸면 옛 키를 걷고 새 키를 넣는다. 안 그러면 tmux 로 옮긴 바에
- *    herdr 키가 남아 눌러도 아무 일이 없다(그 실패는 조용하다).
+ *  - 멀티플렉서를 바꾸면 옛 키를 걷고 새 키를 넣는다. 그래서 herdr/none 으로 바꾸면
+ *    tmux 키가 **걷힌다** — 남겨 두면 눌러도 아무 일이 없는 키가 바에 남는다.
  *
  * @returns {{keys: Array, seededFor: string}} 바뀐 게 없으면 `keys` 는 같은 참조다.
  */
@@ -243,7 +220,6 @@ export const KEY_PRESETS = [
   { label: 'F11', payload: '\x1b[23~' },
   { label: 'F12', payload: '\x1b[24~' },
 
-  ...HERDR_KEYS,
   ...TMUX_KEYS,
 
   // 자주 쓰는 텍스트 (prefix — 스페이스 포함)
