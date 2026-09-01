@@ -1019,11 +1019,11 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      /* 모바일에선 visualViewport.height 를 우선 (iOS 키보드/주소표시줄 대응).
-         데스크탑은 100% 유지 — visualViewport 가 없어도 영향 없음.
-         ⚠️ 폴백이 `100%` 가 아니라 `100dvh` 다. `100%` 는 `#root`(position:fixed; inset:0)
-         를 따라가는데 그건 **레이아웃 뷰포트**라 iOS 하단 크롬 뒤까지 뻗는다 — 변수가
-         아직 없거나 못 붙는 브라우저에서 그만큼이 검은 띠가 된다. dvh 는 크롬을 뺀 값이다. */
+      /* 모바일 높이는 **언제나 `--vvh`**(= visualViewport.height, 사람이 보는 높이).
+         ⚠️ `100dvh` 는 폴백일 뿐이고, 이 iOS 에서는 **믿을 수 없다** — 실측에서 가시
+         영역이 556 일 때 dvh 로 잡힌 앱이 665 였다(hooks/useViewport.js 주석 참고).
+         JS 가 아직 안 돈 첫 프레임에만 쓰이며, 그때는 `100%`(레이아웃 뷰포트, 하단 크롬
+         뒤까지 뻗음)보다는 낫다. */
       height: isMobile ? 'var(--vvh, 100dvh)' : '100%',
       width: '100%',
       background: currentTheme.ui.bg,

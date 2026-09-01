@@ -61,66 +61,56 @@ describe('useViewport — 가시 영역 추적', () => {
 
   const flushRaf = () => act(() => { rafQueue.splice(0).forEach((cb) => cb()); });
 
-  it('평소에는 --vvh 를 걸지 않는다 — CSS 100dvh 가 재게 둔다', () => {
-    /* 이게 하단 빈틈의 뿌리였다. JS 로 잰 값은 반드시 언젠가 낡고, 낡은 값이 실제보다
-       작으면 그 차이가 그대로 검은 띠가 된다. 브라우저가 매 프레임 재는 값은 안 낡는다. */
+  /* ⚠️ **이 블록을 뒤집지 마라.** 한때 "평소엔 `--vvh` 를 안 걸고 CSS `100dvh` 가 재게
+     두자" 였고, 근거는 "JS 로 잰 값은 낡는다" 였다. 그 근거 자체는 맞지만 `dvh` 가 대안이
+     못 된다는 것이 **폰 실측으로 드러났다**(iOS Safari):
+
+       vv=556  inner=556  root=665  app=665
+
+     가시 영역이 556 인데 `100dvh` 로 잡힌 앱이 665 였다 — 109px 이 그대로 하단 빈틈이다.
+     `visualViewport.height` 는 정의상 사람이 보는 높이라 어긋날 수가 없고, 낡음은 아래의
+     재측정(settle·visibilitychange·pageshow·resize) 테스트들이 막는다. */
+  it('가시 영역을 언제나 --vvh 에 건다', () => {
     renderHook(() => useViewport());
-    expect(vvh()).toBe('');
+    expect(vvh()).toBe('800px');
   });
 
-  it('키보드가 올라오면 그때만 --vvh 를 건다 (dvh 는 키보드를 모른다)', () => {
+  it('주소창만 접혀도 따라간다 — 키보드인지 구별하지 않는다', () => {
     renderHook(() => useViewport());
-    setViewport(420, 0, 800);          // 380px 만큼 줄었다 = 키보드
-    fireVV('resize');
-    flushRaf();
-    expect(vvh()).toBe('420px');
-  });
-
-  it('키보드가 내려가면 변수를 도로 지운다', () => {
-    renderHook(() => useViewport());
-    setViewport(420, 0, 800);
-    fireVV('resize');
-    flushRaf();
-    expect(vvh()).toBe('420px');
-
-    setViewport(800, 0, 800);
-    fireVV('resize');
-    flushRaf();
-    expect(vvh()).toBe('');            // 남아 있으면 그 값이 곧 빈틈이다
-  });
-
-  it('브라우저 크롬만큼의 차이는 키보드가 아니다', () => {
-    /* iOS 하단 툴바는 60px 안팎이다. 이걸 키보드로 읽으면 평소에도 변수가 걸려
-       낡을 기회가 생긴다 — 그게 원래 병이었다. */
-    renderHook(() => useViewport());
-    setViewport(740, 0, 800);
-    fireVV('resize');
-    flushRaf();
-    expect(vvh()).toBe('');
-  });
-
-  it('첫 진입의 펼쳐진 주소창을 키보드로 읽지 않는다', () => {
-    /* ⚠️ 회귀 방지 — "150px 이상 벌어지면 키보드" 로 재던 시절, iOS 첫 화면이 정확히
-       여기 걸려서 **처음엔 띠가 보이고 스크롤하면 사라지는** 증상이 났다. 큰 기기일수록
-       크롬의 절대 픽셀도 커지므로 픽셀로 재면 안 된다. */
-    renderHook(() => useViewport());
-    setViewport(716, 0, 900);          // 184px 차이 = 펼쳐진 상하 크롬
-    fireVV('resize');
-    flushRaf();
-    expect(vvh()).toBe('');
-  });
-
-  it('큰 기기에서도 비율로 판정한다', () => {
-    renderHook(() => useViewport());
-    setViewport(1100, 0, 1300);        // 200px 차이지만 85% 라 크롬이다
-    fireVV('resize');
-    flushRaf();
-    expect(vvh()).toBe('');
-
-    setViewport(700, 0, 1300);         // 54% 라 키보드다
+    setViewport(700, 0, 800);          // 크롬만큼의 차이
     fireVV('resize');
     flushRaf();
     expect(vvh()).toBe('700px');
+  });
+
+  it('키보드가 올라오면 그만큼 줄어든다', () => {
+    renderHook(() => useViewport());
+    setViewport(400, 0, 800);
+    fireVV('resize');
+    flushRaf();
+    expect(vvh()).toBe('400px');
+  });
+
+  it('키보드가 내려가면 도로 커진다', () => {
+    renderHook(() => useViewport());
+    setViewport(400, 0, 800);
+    fireVV('resize');
+    flushRaf();
+    setViewport(800, 0, 800);
+    fireVV('resize');
+    flushRaf();
+    expect(vvh()).toBe('800px');
+  });
+
+  /* 실측에서 나온 경계 — 키보드가 올라왔는데 `innerHeight` 도 함께 줄어 비율이 0.718 이
+     나왔다. 비율로 "키보드냐" 를 가르던 판이었으면 이걸 놓쳐 앱이 실제보다 커진다.
+     지금은 가르지 않으므로 그런 경계 자체가 없다. */
+  it('비율이 애매한 순간에도 가시 영역을 그대로 쓴다', () => {
+    renderHook(() => useViewport());
+    setViewport(364, 158, 507);        // 실측값
+    fireVV('resize');
+    flushRaf();
+    expect(vvh()).toBe('364px');
   });
 
   it('말이 안 되는 높이는 무시한다 — 접히면 하단바가 사라진다', () => {
@@ -137,13 +127,18 @@ describe('useViewport — 가시 영역 추적', () => {
   });
 
   it('숨겨질 때는 읽지 않는다', () => {
+    /* ⚠️ 그 순간의 visualViewport 는 0 이거나 직전 프레임의 찌꺼기다. 그걸 쓰면 컨테이너가
+       접혀 **하단 툴바가 통째로 사라진다.** 직전 값을 그대로 지켜야 한다. */
     renderHook(() => useViewport());
-    setViewport(420, 0, 800);
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
-    flushRaf();
-    expect(vvh()).toBe('');
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    try {
+      setViewport(420, 0, 800);
+      act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+      flushRaf();
+      expect(vvh()).toBe('800px');       // 마운트 시점 값 그대로
+    } finally {
+      Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    }
   });
 
   it('앱 전환에서 돌아오면 다시 읽는다 (resize 없이 바뀐다)', () => {
@@ -233,11 +228,12 @@ describe('useViewport — 가시 영역 추적', () => {
 
   it('언마운트하면 리스너를 전부 뗀다', () => {
     const { unmount } = renderHook(() => useViewport());
+    const before = vvh();
     unmount();
     setViewport(400, 0, 800);
     act(() => { window.dispatchEvent(new Event('resize')); });
     flushRaf();
-    expect(vvh()).toBe('');
+    expect(vvh()).toBe(before);   // 리스너를 뗐으니 값이 안 따라간다
   });
 
   it('visualViewport 가 없어도 던지지 않는다', () => {

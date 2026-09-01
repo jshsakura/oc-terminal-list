@@ -14,17 +14,18 @@ import { isPhoneViewport } from '../utils/tabModel';
 /** 이보다 작은 가시 영역은 실제 화면이 아니라 전환 중의 찌꺼기다(숨김·복원 순간). */
 const MIN_SANE_VIEWPORT_PX = 120;
 
-/* 키보드냐 브라우저 크롬이냐 — **픽셀이 아니라 비율로 잰다.**
-   ⚠️ 한때 "150px 이상 벌어지면 키보드" 였고, 그게 틀렸다. iOS 는 주소창이 펼쳐진 첫
-   화면에서 크롬만으로도 그만큼 벌어진다 → 첫 진입에 키보드로 오판 → `--vvh` 가 걸려
-   하단에 띠가 남고, 스크롤해서 크롬이 접히면 저절로 사라진다("처음엔 보이는데 나중엔
-   괜찮아진다" 가 정확히 이 모양이었다).
+/* ⚠️ **`--vvh` 는 언제나 건다.** 한때 "키보드일 때만 걸고 평소엔 CSS `100dvh` 가 재게
+   두자" 로 바꿨다가 되돌린 자리다. 근거는 "JS 로 잰 값은 낡는다" 였고 그 자체는 맞지만,
+   `dvh` 가 그 대안이 못 된다는 것이 **실측으로 드러났다**(iOS Safari):
 
-   비율은 기기 크기와 무관하다. 실측 기준으로 가운데를 잡는다:
-     - 상하 크롬이 다 펼쳐져도 가시 영역은 **80% 이상** 남는다(작은 폰이 가장 불리하다).
-     - 키보드가 올라오면 가시 영역은 **60% 아래**로 떨어진다(키보드가 화면의 ~40%).
-   0.7 은 그 사이다. 0.8 로 잡았다가 첫 진입의 펼쳐진 주소창(79.6%)이 걸려 되돌렸다. */
-const KEYBOARD_MAX_VISIBLE_RATIO = 0.7;
+     vv=556  inner=556  root=665  app=665
+
+   가시 영역이 556 인데 `100dvh` 로 잡힌 앱은 665 였다 — 이 브라우저의 `dvh` 는 *지금*
+   뷰포트가 아니라 큰 쪽을 준다. 109px 이 그대로 어긋나고, 그게 하단 빈틈이다.
+   **낡을 수 있는 값과 항상 틀린 값 중에는 전자가 낫다** — 게다가 낡음은 아래의
+   재측정(settle·visibilitychange·pageshow·resize)으로 이미 막는다.
+
+   `visualViewport.height` 는 정의상 **사람이 보는 높이**라 어긋날 수가 없다. */
 
 /* ── 실측 보고 ────────────────────────────────────────────────────────────────
  * 하단 검은 띠는 **폰에서만** 나고 기기 없이는 재현이 안 된다. 한 번은 코드만 읽고
@@ -122,24 +123,12 @@ export default function useViewport() {
       setViewportHeight(vv.height);
       document.documentElement.style.setProperty('--vvt', `${vv.offsetTop}px`);
 
-      /* ⚠️ **평소에는 `--vvh` 를 아예 걸지 않는다.** 이게 하단 빈틈의 뿌리였다.
-         JS 로 잰 높이는 반드시 언젠가 낡는다 — iOS 는 주소창 접힘 애니메이션 중간값으로
-         마지막 이벤트를 쏘고 끝내기도 하고, 앱 전환 복원처럼 이벤트 없이 바뀌기도 한다.
-         낡은 값이 실제보다 작으면 그 차이가 그대로 검은 띠다.
-
-         CSS `100dvh` 는 **브라우저가 매 프레임 직접 계산**하는 값이라 낡을 수가 없다.
-         그래서 키보드가 없을 때는 변수를 지워 CSS 가 재게 두고, 변수는 dvh 가 모르는
-         **키보드가 올라온 상태**에만 건다(dvh 는 키보드를 반영하지 않는다).
-
-         판정은 넉넉하게: 브라우저 크롬은 120px 을 넘지 않고 키보드는 250px 을 넘는다. */
+      /* 가시 영역을 그대로 건다 — 키보드든 주소창이든 구별할 필요가 없다.
+         `visualViewport.height` 는 **둘 다 이미 반영된** 값이다. 구별하려 들었던 판이
+         하단 빈틈을 만들었다(위 주석). */
+      document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
       const layout = window.innerHeight || vv.height;
-      const keyboard = vv.height < layout * KEYBOARD_MAX_VISIBLE_RATIO;
-      if (keyboard) {
-        document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
-      } else {
-        document.documentElement.style.removeProperty('--vvh');
-      }
-      reportViewport(vv, layout, keyboard, forceReportRef.current);
+      reportViewport(vv, layout, vv.height < layout * 0.7, forceReportRef.current);
     };
 
     const handleVV = () => {
