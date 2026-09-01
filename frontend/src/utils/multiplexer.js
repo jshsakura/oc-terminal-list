@@ -7,6 +7,11 @@
  *
  * ⚠️ **`none` 은 고장이 아니다.** 셸이 하나 뜨고 탭을 닫으면 끝난다 — 많은 쓰임에 그게
  * 맞다. 다만 그 사실은 **닫기 전에** 알려야 하고, 그 판정이 `persists()` 하나다.
+ *
+ * ⚠️ **고르는 자리는 설정 한 곳뿐이다**(설정 → 세션 멀티플렉서). 이 서버의 pane 도
+ * 호스트의 pane 도 같은 값을 따른다 — "herdr 로 두면 앞으로 여는 건 전부 herdr".
+ * 호스트마다 또 고르게 두면 같은 결정이 두 자리에 생기고, 전역 값을 바꿔도 옛 호스트가
+ * 따라오지 않는다. 호스트 행의 값은 옛 `use_remote_tmux=0` 을 존중하기 위해서만 읽는다.
  */
 
 export const TMUX = 'tmux';
@@ -39,7 +44,7 @@ export const fromHost = (host, fallback = DEFAULT) => {
   return normalize(null, fallback);
 };
 
-/** 세그먼트 컨트롤의 라벨 — 도구 이름은 번역하지 않는다. */
+/** 설정 셀렉트의 라벨 — 도구 이름은 번역하지 않는다. */
 export const OPTIONS = [
   { value: TMUX, label: 'tmux' },
   { value: HERDR, label: 'herdr' },
@@ -52,6 +57,7 @@ export const HINTS = {
     || '연결이 끊겨도 원격 tmux 가 세션을 살려둡니다.',
   [HERDR]: (t) => t?.('muxHintHerdr')
     || '연결이 끊겨도 herdr 가 세션을 살려둡니다. 없으면 도구 설치에서 깔 수 있습니다.',
+  // tmux 를 밑에 깔지 않는다 — 고른 것 하나만 돈다(backend/local_mux.py).
   [NONE]: (t) => t?.('muxHintNone')
     || '평범한 SSH 셸입니다. 탭을 닫거나 연결이 끊기면 실행 중이던 작업도 끝납니다.',
 };

@@ -35,9 +35,12 @@ def storage_mock():
 
 @pytest.fixture
 def tmux_mock():
-    """_sanitize_tab_state 가 호출하는 tmux_manager.list_sessions 모킹."""
-    with patch.object(user_state, "tmux_manager", autospec=False) as m:
-        m.list_sessions = AsyncMock(return_value=[])
+    """_sanitize_tab_state 가 묻는 "살아있는 로컬 세션" 목록 모킹.
+
+    무엇에게 묻는지는 설정을 따른다(tmux / herdr / none) — backend/local_mux.py.
+    """
+    with patch.object(user_state.local_mux, "live_session_names",
+                      AsyncMock(return_value=set())) as m:
         yield m
 
 

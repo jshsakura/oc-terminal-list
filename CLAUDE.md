@@ -613,37 +613,58 @@ pane 안에서 herdr(또는 다른 `C-b` 프리픽스 멀티플렉서)를 돌릴
   `\e` 표기를 손으로 치지 않게 하려는 것뿐이고, 없는 키는 설정에서 커스텀으로 추가하면 된다.
 - herdr 쪽 프리픽스를 다른 키로 바꿨다면 이 프리셋은 안 맞는다 — 그때는 커스텀 키로.
 
-## 멀티플렉서는 선택이다 — 없어도 터미널은 된다 (2026-09-01)
+## 멀티플렉서는 선택이다 — tmux 를 밑에 깔지 않는다 (2026-09-01)
 
-이 앱은 오래 "tmux 가 있다" 를 전제로 삼았다. 원격에 tmux 가 없으면 평범한 셸로 떨어뜨리고
-경고 한 줄을 흘려보냈는데, 그 줄은 연결 순간 한 번 지나갈 뿐이라 **닫으면 작업이 날아간다는
-사실을 아무 데서도 말해 주지 않았다.**
+이 앱은 오래 tmux 를 **기반층**으로 깔았다. 로컬 pane 은 무조건 `tmux attach` 였고, 원격도
+tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주지 않았다. 지금은 **herdr 와 tmux
+중 하나만 깔고, 설정된 것을 쓴다.**
 
-어휘는 `backend/multiplexer.py` 와 그 거울 `frontend/src/utils/multiplexer.js` 한 쌍이 정한다:
-`tmux` · `herdr` · `none`. 규칙 셋 —
+- **고르는 자리는 설정 한 곳뿐이다** — 설정 → 세션 멀티플렉서(`defaultMultiplexer`).
+  이 서버의 pane 도 호스트의 pane 도 **같은 값**을 따른다. "herdr 로 두면 앞으로 여는 건
+  전부 herdr" 가 이 기능의 전부다. ⚠️ 호스트마다 또 고르게 두지 마라 — 같은 결정이 두
+  자리에 생기고, 전역을 바꿔도 옛 호스트가 안 따라온다(한 번 그렇게 만들었다가 되돌렸다).
+- 어휘는 `backend/multiplexer.py` 와 그 거울 `frontend/src/utils/multiplexer.js`.
+  실행 갈래는 로컬이 `backend/local_mux.py`, 원격이 `host_manager._build_remote_command`.
 
-1. **멀티플렉서는 데이터다.** tmux 도 herdr 도 서드파티이고 우리 것(itl)은 이미 걷어냈다.
-   둘 중 하나를 특별 취급할 근거가 없다.
-2. **`none` 은 고장이 아니라 유효한 선택이다.** 셸이 하나 뜨고 탭을 닫으면 끝난다.
-3. **대신 반드시 말한다.** 고른 것이 그 호스트에 없으면 `{"type":"mux-missing"}` 이 나가고,
-   pane 이 "닫으면 이 세션은 사라집니다 + [설치]" 를 띄운다. 판정은 `persists()` **하나**다.
+| 고른 것 | 로컬 pane 이 실행하는 것 | 원격 pane 이 실행하는 것 |
+|---|---|---|
+| `tmux`  | `tmux -L <sock> attach -t <id>` | `tmux new/attach -t <name>` |
+| `herdr` | `herdr --session <id>`          | `herdr --session <name>` |
+| `none`  | 로그인 셸                        | 로그인 셸 |
 
-- 설정: 호스트별(호스트 편집 → 세션) + 전역 기본값(설정 → `defaultMultiplexer`, 새 호스트에만).
-- ⚠️ **`use_remote_tmux` 는 아직 살아 있다.** 새 칸이 비면 그것으로 되짚되(`from_host_row`),
-  되짚기는 **끄기만** 표현한다 — 옛 스키마에 herdr 라는 값은 존재조차 하지 않았으므로
-  `use_remote_tmux=1` 은 "tmux" 가 아니라 "기본값 그대로" 다. **프론트도 같은 규칙으로
-  되짚어야 한다**(`fromHost`) — 어긋나면 화면과 실제 동작이 갈라지고 그건 저장하고 다시
-  연결해 보기 전엔 안 드러난다.
-- ⚠️ **"영속이냐"(persists)와 "tmux 냐" 는 다른 질문이다.** `get_tmux_cwd` · tmux 세션
-  목록/kill 은 **tmux 에게 묻는** 코드라 herdr 호스트에서는 뜻이 없다. 그 자리는
-  `from_host_row(host) == TMUX` 로 갈라야 한다 — `persists` 로 가르면 herdr 호스트에
-  tmux 질문을 던지게 된다.
-- herdr 는 `herdr --session <name>` 하나가 생성과 접속을 겸한다. 그래서 `create=0`
-  (이어붙기만)은 `herdr session list --json` 을 먼저 봐야 한다.
-- ⚠️ **`~/.local/bin` 을 PATH 에 얹어야 한다.** 비대화형 SSH 셸에는 없는데 herdr 는 거기
-  앉는다 — 빼면 방금 깐 것을 "없음" 으로 읽고 조용히 셸로 떨어진다.
-- **로컬 pane 은 아직 tmux 고정이다.** pane 주소·상태 감지·세션 재시작·무덤이 전부 tmux 에
-  물려 있다. 로컬 herdr 백엔드는 별건이다.
+- **`none` 은 고장이 아니라 유효한 선택이다.** 셸이 뜨고 탭을 닫으면 끝난다.
+- **대신 반드시 말한다.** 고른 것이 그 기계에 없으면 `{"type":"mux-missing"}` 이 나가고
+  pane 이 "닫으면 사라집니다 + [설치]" 를 띄운다(로컬·원격 양쪽에서 보낸다). 판정은
+  `persists()` **하나**다.
+
+⚠️ **가장 위험한 자리는 "살아있는 세션 목록" 이다.** 탭 상태 sanitize(`_sanitize_tab_state`)와
+세션 행 prune 이 그 목록에 **없는 것을 지운다.** tmux 에게만 물으면 herdr 로 열어 둔 탭이
+전부 "죽었다" 로 읽혀 **레이아웃이 통째로 날아간다.** 그래서 목록도 고른 것을 따라 갈라진다
+(`local_mux.live_session_names`). 같은 이유로:
+- `choice_for` 는 설정을 **못 읽었을 때 `none` 이 아니라 기본값**으로 떨어진다. `none` 으로
+  떨어지면 멀쩡한 tmux 세션이 전부 죽은 것으로 읽힌다.
+- `parse_herdr_sessions` 는 herdr 의 JSON 모양이 바뀌어도 **던지지 않고 빈 집합**을 낸다.
+  빈 집합은 호출부에서 "판정 불가" 라 아무것도 안 지운다.
+
+⚠️ **"영속이냐"(`persists`)와 "tmux 냐" 는 다른 질문이다.** `get_tmux_cwd` · tmux 세션
+목록/kill 은 **tmux 에게 묻는** 코드라 herdr 호스트에서는 뜻이 없다 → 그 자리는
+`from_host_row(host) == TMUX` 로 갈라야 한다.
+
+⚠️ **herdr 를 고르면 tmux 에 얹혀 있던 것들이 사라진다.** 빠뜨린 게 아니라 tmux 의
+기능이었다 — pane 주소 상태바(`@pane_addr`), 아무도 안 보는 pane 의 에이전트 상태 폴링
+(`list-panes -a`), pane cwd 추적, tmux 세션 재시작·무덤. herdr 는 자기 UI 안에서 자기
+방식으로 한다. **모르는 것을 아는 척 채우지 않는다.**
+
+기타 함정:
+- herdr 는 `herdr --session <name>` 하나가 생성과 접속을 겸한다 → `create=0`(이어붙기만)은
+  `herdr session list --json` 을 먼저 봐야 한다.
+- ⚠️ **`~/.local/bin` 을 PATH 에 얹어야 한다**(원격은 `REMOTE_PATH_PREFIX`, 로컬은
+  `HERDR_SEARCH_PATH`). 비대화형 SSH 셸과 systemd 서비스의 PATH 에는 없는데 herdr 는
+  거기 앉는다 — 빼면 방금 깐 것을 "없음" 으로 읽고 조용히 셸로 떨어진다.
+- ⚠️ **TERM 은 실제로 무엇이 도는지에 따른다.** tmux 가 아닌데 `tmux-256color` 를 주면
+  terminfo 가 없는 기계에서 앱이 화면을 못 그린다(`TmuxClientBridge(term=...)`).
+- ⚠️ 옛 `use_remote_tmux` 되짚기는 프론트·백엔드가 **같은 규칙**이고, **끄기만** 표현한다
+  (옛 스키마에 herdr 값이 없었으므로 `=1` 은 "tmux" 가 아니라 "설정을 따르라" 다).
 
 ## 호스트에 도구 깔기 — 목록은 데이터고, 설치는 터미널에서 한다 (2026-09-01)
 

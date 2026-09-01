@@ -14,6 +14,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from _deps import is_safe_id
 from cache import invalidate_host
 from host_manager import HostBridge, resolve_host_secrets
+import local_mux
 from sqlite_storage import storage
 from tickets import _push_ws_tickets
 from ws_auth import authenticate_ws
@@ -71,6 +72,10 @@ async def host_websocket(
         await storage.touch_host(host_id, username)
     except Exception:
         pass
+
+    # 무엇으로 열지는 **전역 설정**이 정한다 — "설정에서 herdr 로 두면 앞으로 여는 건
+    # 전부 herdr". 호스트 행에 값이 있으면(옛 `use_remote_tmux=0` 포함) 그것이 이긴다.
+    default_multiplexer = await local_mux.choice_for(username)
 
     effective_cwd = (cwd or "").strip() or None
     # cwd 가 명시적으로 들어왔으면 last_cwd 갱신 (다음 접속에서 폴백 기본값으로 사용)
@@ -135,6 +140,7 @@ async def host_websocket(
         bridge = TailscaleHostBridge(
             websocket=websocket,
             host=host,
+            default_multiplexer=default_multiplexer,
             cols=cols,
             rows=rows,
             pane_index=pane_index,
@@ -147,6 +153,7 @@ async def host_websocket(
         bridge = HostBridge(
             websocket=websocket,
             host=host,
+            default_multiplexer=default_multiplexer,
             private_key=secrets["private_key"],
             passphrase=secrets["passphrase"],
             password=secrets["password"],

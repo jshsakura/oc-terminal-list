@@ -34,12 +34,16 @@ class TmuxClientBridge:
     """단일 WebSocket과 tmux attach PTY 한 쌍의 라이프사이클."""
 
     def __init__(self, websocket: WebSocket, session_id: str, attach_argv: list[str], cols: int, rows: int,
-                 client_id: str | None = None):
+                 client_id: str | None = None, term: str = "tmux-256color", cwd: str | None = None):
         self.websocket = websocket
         self.session_id = session_id
         # 로그 상관용으로만 쓴다(WS attach/detach 와 같은 값이라 줄을 이어 읽을 수 있다).
         self.client_id = client_id
         self.attach_argv = attach_argv
+        # tmux 가 아닌 것(herdr·맨 셸)이 도는데 tmux-256color 를 주면 terminfo 가 없는
+        # 기계에서 앱이 화면을 못 그린다. 무엇이 도는지는 호출부만 안다.
+        self.term = term or "xterm-256color"
+        self.cwd = cwd
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)
         self.process: ptyprocess.PtyProcess | None = None
@@ -59,7 +63,7 @@ class TmuxClientBridge:
         env.pop("TMUX", None)
         env.pop("TMUX_PANE", None)
         env.update({
-            "TERM": "tmux-256color",
+            "TERM": self.term,
             "COLORTERM": "truecolor",
             "LANG": env.get("LANG") or "ko_KR.UTF-8",
             "LC_ALL": env.get("LC_ALL") or "ko_KR.UTF-8",
@@ -69,7 +73,7 @@ class TmuxClientBridge:
             self.attach_argv,
             dimensions=(self.rows, self.cols),
             env=env,
-            cwd=os.path.expanduser("~"),
+            cwd=self.cwd or os.path.expanduser("~"),
         )
         try:
             os.set_blocking(self.process.fd, False)

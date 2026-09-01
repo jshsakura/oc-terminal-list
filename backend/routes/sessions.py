@@ -19,6 +19,8 @@ from llm_usage.service import maybe_collect_in_background
 from session_launch import (
     _assert_session_owner, _basename_or_none, _resolve_create_cwd, _resolve_shell,
 )
+import local_mux
+import multiplexer as mux
 from sqlite_storage import storage
 from tmux_manager import tmux_manager
 from ws_clients import _client_identity_payload
@@ -52,11 +54,14 @@ async def prune_sessions(username: str = Depends(verify_auth_token)):
     tmux server looks like. Deleting on that reading would wipe every row the moment the
     server blipped (the same mistake that once unwrapped split tabs), so it refuses instead.
     """
-    if not await tmux_manager.server_alive():
+    # ⚠️ 무엇이 세션을 붙잡는지는 설정을 따른다 — tmux 에게만 물으면 herdr 로 열어 둔
+    # 세션들이 전부 "죽은 행" 으로 읽혀 통째로 지워진다(backend/local_mux.py).
+    choice = await local_mux.choice_for(username)
+    if choice == mux.TMUX and not await tmux_manager.server_alive():
         raise HTTPException(status_code=409, detail="tmux 서버가 응답하지 않아 정리를 건너뜁니다")
-    live = {s.name for s in await tmux_manager.list_sessions()}
+    live = await local_mux.live_session_names(choice)
     if not live:
-        raise HTTPException(status_code=409, detail="살아있는 tmux 세션이 하나도 없어 정리를 건너뜁니다")
+        raise HTTPException(status_code=409, detail="살아있는 세션이 하나도 없어 정리를 건너뜁니다")
     dead = [s["id"] for s in await storage.get_user_sessions(username) if s["id"] not in live]
     for session_id in dead:
         await storage.delete_session(session_id)

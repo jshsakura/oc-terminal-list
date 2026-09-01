@@ -21,10 +21,11 @@ from _deps import AUTH_COOKIE_NAME, verify_auth_token
 from pane_addr import stamp_local_addresses
 from agent_status_service import agent_status_watcher
 from models import CommandHistoryPushRequest
+import local_mux
+import multiplexer as mux
 from sqlite_storage import storage
 from sse_broadcast import _notify_tab_state_change, _tab_state_sse_queues
 from tickets import _consume_sse_ticket, _create_sse_ticket
-from tmux_manager import tmux_manager
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,9 @@ class TabStateRequest(BaseModel):
     ifMatch: str | None = None
 
 
-async def _sanitize_tab_state(tabs: list, active_tab_id: str | None) -> tuple[list, str | None]:
+async def _sanitize_tab_state(
+    tabs: list, active_tab_id: str | None, username: str | None = None,
+) -> tuple[list, str | None]:
     """모든 terminal 로컬 pane 이 죽은 local 탭만 정리한다 — pane 단위 생사 판정.
 
     탭 레벨 sessionId 는 첫 pane 생성 시점 값으로 고정이라, 분할 후 첫 pane 을 닫으면
@@ -57,8 +60,13 @@ async def _sanitize_tab_state(tabs: list, active_tab_id: str | None) -> tuple[li
     tmux 확인 결과가 비어 있으면 정리를 통째로 건너뛴다 — list-sessions 는 일시
     오류(rc!=0)와 진짜 빈 상태를 구분할 수 없고, 잘못 지운 탭 레이아웃은 복구
     불가인 반면 죽은 탭을 남겨두면 프론트가 종료 pane 으로 표시할 뿐이다.
+
+    ⚠️ **tmux 에게만 물으면 안 된다.** 로컬 pane 을 붙잡는 것이 herdr 일 수도 있고
+    (`backend/local_mux.py`), 그때 tmux 목록은 당연히 비어 있다 — 그걸 "전부 죽었다" 로
+    읽으면 **사용자의 탭 레이아웃이 통째로 날아간다.** 고른 것에게 묻는다.
     """
-    live_local_sessions = {session.name for session in await tmux_manager.list_sessions()}
+    choice = await local_mux.choice_for(username) if username else mux.DEFAULT
+    live_local_sessions = await local_mux.live_session_names(choice)
     if not live_local_sessions:
         return tabs, active_tab_id
 
@@ -179,7 +187,7 @@ async def get_tab_state(username: str = Depends(verify_auth_token)):
     raw_active_tab_id = state.get("activeTabId")
     active_tab_id = raw_active_tab_id if isinstance(raw_active_tab_id, str) else None
     updated_at = state.get("updatedAt")
-    sanitized_tabs, sanitized_active_tab_id = await _sanitize_tab_state(tabs, active_tab_id)
+    sanitized_tabs, sanitized_active_tab_id = await _sanitize_tab_state(tabs, active_tab_id, username)
     if sanitized_tabs != tabs or sanitized_active_tab_id != active_tab_id:
         updated_at = await storage.save_tab_state(username, sanitized_tabs, sanitized_active_tab_id)
     return {
@@ -278,7 +286,7 @@ async def put_tab_state(
                 status_code=409,
                 content={"detail": "tab-state version mismatch", "current": current_state},
             )
-    tabs, active_tab_id = await _sanitize_tab_state(request.tabs, request.activeTabId)
+    tabs, active_tab_id = await _sanitize_tab_state(request.tabs, request.activeTabId, username)
 
     # 내용이 그대로면 새 버전을 찍지 않는다 (no-op write 차단).
     # save_tab_state 는 내용과 무관하게 updated_at 을 새로 찍고, 그 값이 SSE 로 다른 기기에

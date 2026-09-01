@@ -1,4 +1,7 @@
-"""터미널 WebSocket — 로컬 tmux 세션에 attach.
+"""터미널 WebSocket — 이 서버의 pane 에 attach.
+
+무엇이 세션을 붙잡는지는 설정을 따른다(tmux / herdr / none). **tmux 를 밑에 깔지
+않는다** — 고른 것 하나만 쓴다(backend/local_mux.py).
 
 WS 는 커스텀 헤더를 못 보내므로 쿼리스트링 일회용 티켓으로 인증한다.
 연결 유지 중에는 다음 재연결용 티켓을 주기적으로 밀어준다 — 클라가 stash 해두면
@@ -7,6 +10,7 @@ WS 는 커스텀 헤더를 못 보내므로 쿼리스트링 일회용 티켓으�
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 
@@ -18,6 +22,8 @@ from rate_limit import check_rate_limit
 from session_launch import _resolve_create_cwd, _resolve_shell
 from sqlite_storage import storage
 from tickets import _push_ws_tickets
+import local_mux
+import multiplexer as mux
 from tmux_manager import tmux_manager
 from ws_auth import authenticate_ws
 from ws_bridge import TmuxClientBridge
@@ -73,71 +79,108 @@ async def terminal_websocket(
         reason=reason, prev_ms=prev_ms, cols=cols, rows=rows,
     )
 
-    # 세션이 없으면 생성 (백엔드 재시작 후 첫 연결 또는 새 세션 직접 WS 진입)
-    if not await tmux_manager.session_exists(session_id):
-        if not create:
-            await websocket.close(code=1000, reason="session not found")
-            return
-        # 신규 세션 생성만 rate limit (기존 세션 재attach/재연결은 대상 아님) —
-        # REST create_session 과 같은 버킷 공유.
-        try:
-            check_rate_limit(f"session:create:{username}", max_attempts=30, window_seconds=60)
-        except HTTPException as e:
-            await websocket.close(code=1013, reason=str(e.detail)[:120])
-            return
-        try:
-            safe_cwd = _resolve_create_cwd(cwd)
-        except HTTPException as e:
-            await websocket.close(code=1008, reason=e.detail)
-            return
-        try:
-            await tmux_manager.create_session(
-                session_id,
-                cols=cols,
-                rows=rows,
-                cwd=safe_cwd,
-                shell=_resolve_shell(shell),
-            )
+    # **tmux 를 밑에 깔지 않는다.** 고른 것 하나만 쓴다(backend/local_mux.py).
+    # herdr 는 `--session` 이 생성과 접속을 겸하므로 여기서 만들 것이 없고,
+    # none 은 붙잡아 둘 세션 자체가 없다.
+    choice = await local_mux.choice_for(username)
+
+    if choice == mux.TMUX:
+        if not await tmux_manager.session_exists(session_id):
+            if not create:
+                await websocket.close(code=1000, reason="session not found")
+                return
+            # 신규 세션 생성만 rate limit (기존 세션 재attach/재연결은 대상 아님) —
+            # REST create_session 과 같은 버킷 공유.
             try:
-                await storage.create_session(session_id, username, cwd=cwd or "")
+                check_rate_limit(f"session:create:{username}", max_attempts=30, window_seconds=60)
+            except HTTPException as e:
+                await websocket.close(code=1013, reason=str(e.detail)[:120])
+                return
+            try:
+                safe_cwd = _resolve_create_cwd(cwd)
+            except HTTPException as e:
+                await websocket.close(code=1008, reason=e.detail)
+                return
+            try:
+                await tmux_manager.create_session(
+                    session_id,
+                    cols=cols,
+                    rows=rows,
+                    cwd=safe_cwd,
+                    shell=_resolve_shell(shell),
+                )
+                try:
+                    await storage.create_session(session_id, username, cwd=cwd or "")
+                except Exception:
+                    pass
+            except Exception as e:
+                logger.error("tmux create on WS failed (%s): %s", session_id, e)
+                # 상세 예외는 서버 로그에만. 클라이언트엔 일반 메시지.
+                await websocket.close(code=1011, reason="세션 초기화에 실패했습니다.")
+                return
+        else:
+            try:
+                await storage.update_session_activity(session_id)
             except Exception:
                 pass
-        except Exception as e:
-            logger.error("tmux create on WS failed (%s): %s", session_id, e)
-            # 상세 예외는 서버 로그에만. 클라이언트엔 일반 메시지.
-            await websocket.close(code=1011, reason="세션 초기화에 실패했습니다.")
+            # tmux mouse on — 브라우저는 wheel/touch 를 SGR mouse 이벤트로 전달하고,
+            # tmux 가 copy-mode 스크롤을 담당한다. 드래그 선택은 frontend 가 plain drag
+            # 임계값 이후 xterm selection 으로 보정하므로 스크롤과 선택을 함께 유지한다.
+            try:
+                await tmux_manager._run("set-option", "-t", session_id, "mouse", "on", check=False)
+                # PageUp/Down 키보드 바인딩 — alternate buffer(vim 등) 이면 앱에 전달,
+                # 아니면 tmux copy-mode 로 터미널 히스토리 탐색. 마우스 모드와 무관.
+                await tmux_manager._run(
+                    "bind-key", "-T", "root", "PageUp",
+                    "if-shell", "-F", "#{alternate_on}",
+                    "send-keys PageUp", "copy-mode -eu",
+                    check=False,
+                )
+                await tmux_manager._run(
+                    "bind-key", "-T", "root", "PageDown",
+                    "if-shell", "-F", "#{alternate_on}",
+                    "send-keys PageDown", "",
+                    check=False,
+                )
+            except Exception:
+                pass
+
+    elif not create:
+        # tmux 가 아니면 "이어붙기만" 을 이 층에서 판정할 수 없다 — herdr 는 자기가
+        # 알아서 이어 붙고, none 은 이어 붙을 대상이 애초에 없다.
+        if choice == mux.NONE:
+            await websocket.close(code=1000, reason="session not found")
             return
-    else:
+
+    if choice != mux.TMUX:
+        # 세션 행은 소유권·cwd 기록용이라 무엇이 붙잡느냐와 무관하게 남긴다.
+        # `existing_owner` 가 이미 있으면 새로 쓰지 않는다 — `create_session` 은
+        # INSERT OR REPLACE 라 재연결마다 created_at 과 이름을 지워 버린다.
         try:
-            await storage.update_session_activity(session_id)
-        except Exception:
-            pass
-        # tmux mouse on — 브라우저는 wheel/touch 를 SGR mouse 이벤트로 전달하고,
-        # tmux 가 copy-mode 스크롤을 담당한다. 드래그 선택은 frontend 가 plain drag
-        # 임계값 이후 xterm selection 으로 보정하므로 스크롤과 선택을 함께 유지한다.
+            if existing_owner:
+                await storage.update_session_activity(session_id)
+            else:
+                await storage.create_session(session_id, username, cwd=cwd or "")
+        except Exception as e:
+            logger.warning("session row bookkeeping failed (%s): %s", session_id, e)
+
+    if local_mux.is_missing(choice):
+        # 떨어지는 것 자체는 사고가 아니다 — 말 안 하는 것이 사고다(host_manager 와 같은 규칙).
         try:
-            await tmux_manager._run("set-option", "-t", session_id, "mouse", "on", check=False)
-            # PageUp/Down 키보드 바인딩 — alternate buffer(vim 등) 이면 앱에 전달,
-            # 아니면 tmux copy-mode 로 터미널 히스토리 탐색. 마우스 모드와 무관.
-            await tmux_manager._run(
-                "bind-key", "-T", "root", "PageUp",
-                "if-shell", "-F", "#{alternate_on}",
-                "send-keys PageUp", "copy-mode -eu",
-                check=False,
-            )
-            await tmux_manager._run(
-                "bind-key", "-T", "root", "PageDown",
-                "if-shell", "-F", "#{alternate_on}",
-                "send-keys PageDown", "",
-                check=False,
-            )
+            await websocket.send_text(json.dumps({
+                "type": "mux-missing", "multiplexer": choice,
+                "message": f"{choice} not found on this server — session will not persist",
+            }))
         except Exception:
             pass
 
     bridge = TmuxClientBridge(
         websocket=websocket,
         session_id=session_id,
-        attach_argv=tmux_manager.attach_argv(session_id),
+        attach_argv=local_mux.attach_argv(choice, session_id, shell=_resolve_shell(shell)),
+        # TERM 은 실제로 무엇이 도는지에 따른다. tmux 가 아닌데 tmux-256color 를 주면
+        # terminfo 가 없는 기계에서 앱이 화면을 못 그린다.
+        term="tmux-256color" if choice == mux.TMUX else "xterm-256color",
         cols=cols,
         rows=rows,
         client_id=client_id,

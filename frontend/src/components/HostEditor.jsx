@@ -8,7 +8,7 @@ import ThemePicker from './common/ThemePicker';
 import RemoteFolderPicker from './RemoteFolderPicker';
 import { authHeaders } from '../utils/auth';
 import { copyToClipboard } from '../utils/clipboard';
-import { fromHost as multiplexerFromHost, normalize as normalizeMultiplexer, OPTIONS as MUX_OPTIONS, HINTS as MUX_HINTS } from '../utils/multiplexer';
+import { fromHost as multiplexerFromHost, normalize as normalizeMultiplexer, HINTS as MUX_HINTS } from '../utils/multiplexer';
 import { heStyles, styles } from './hostEditor/hostEditorStyles';
 import { Section, Divider, Row, Field, Input, Select, SegmentedControl, Toggle } from './hostEditor/HostEditorFields';
 import { IconButton, ColorPicker, TailscalePicker } from './hostEditor/HostEditorPickers';
@@ -65,7 +65,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
         // 옛 행에는 `multiplexer` 칸이 없다 — 되짚기는 백엔드와 **같은 규칙**이어야 한다
         // (backend/multiplexer.from_host_row). 두 곳이 다르게 되짚으면 화면과 실제 동작이
         // 어긋나고, 그건 저장할 때까지 안 드러난다.
-        multiplexer: multiplexerFromHost(host),
+        multiplexer: multiplexerFromHost(host, normalizeMultiplexer(defaultMultiplexer)),
       });
     } else {
       // 새 호스트는 설정의 기본값으로 시작한다 — 고정 'tmux' 로 시작하면 설정을 바꿔 둔
@@ -74,6 +74,36 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     }
     setError('');
   }, [host, isOpen, defaultMultiplexer]);
+
+  const probeTmux = useCallback(async (choice, hostId) => {
+    setMuxWarning('');
+    if (choice !== 'tmux' || !hostId) return;
+    setMuxChecking(true);
+    try {
+      const res = await fetch(`/api/hosts/${hostId}/tmux-check`, { headers: authHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.platform === 'windows') {
+          /* "tmux not found" is true but useless here — nothing else on this host will
+             work either, and the fix is a different kind of host, not a package. */
+          setMuxWarning(t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and tool installs all assume a POSIX shell.');
+        } else if (!data.available) {
+          setMuxWarning(t('tmuxNotAvailable') || 'tmux not found on this host — sessions will not persist.');
+        }
+      }
+    } catch {
+      // 못 물어봤다 = 모른다. 모르는 것을 경고로 그리지 않는다(host_tools 의 규칙과 같다).
+    }
+    setMuxChecking(false);
+  }, [t]);
+
+  /* 세션 탭을 열 때 한 번만 물어본다. 폴링이 아니다 — SSH 왕복 하나다.
+     herdr 는 여기서 안 묻는다: 이 엔드포인트가 tmux 전용이고, 도구 설치 화면이 이미
+     그 호스트의 설치 여부를 보여 준다. 없으면 연결할 때 `mux-missing` 이 온다. */
+  useEffect(() => {
+    if (!isOpen || heTab !== 'session') return;
+    probeTmux(draft.multiplexer, host?.id);
+  }, [isOpen, heTab, draft.multiplexer, host?.id, probeTmux]);
 
   if (!isOpen) return null;
 
@@ -89,29 +119,6 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
    * herdr 는 여기서 안 물어본다: 확인 엔드포인트가 tmux 전용이고, 도구 설치 화면이
    * 이미 그 호스트의 설치 여부를 보여 준다. 없으면 연결할 때 `mux-missing` 이 온다.
    */
-  const handleMultiplexerChange = useCallback(async (choice) => {
-    setMuxWarning('');
-    set('multiplexer', choice);
-    if (choice !== 'tmux' || !host?.id) return;
-    setMuxChecking(true);
-    try {
-      const res = await fetch(`/api/hosts/${host.id}/tmux-check`, { headers: authHeaders() });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.platform === 'windows') {
-          /* "tmux not found" is true but useless here — nothing else on this host will
-             work either, and the fix is a different kind of host, not a package. */
-          setMuxWarning(t('windowsUnsupported') || 'This host looks like Windows — persistent sessions, file paste and tool installs all assume a POSIX shell.');
-        } else if (!data.available) {
-          setMuxWarning(t('tmuxNotAvailable') || 'tmux not found on this host — sessions will not persist.');
-        }
-      }
-    } catch {
-      // 못 물어봤다 = 모른다. 모르는 것을 경고로 그리지 않는다.
-    }
-    setMuxChecking(false);
-  }, [host?.id, t]);
-
   const openTailscalePicker = async () => {
     setTsPicker({ open: true, peers: [], loading: true, available: true });
     try {
@@ -341,21 +348,29 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
           {heTab === 'session' && (
             <>
               <Section title={t('persistence') || 'Persistence'}>
-                {/* 멀티플렉서는 **선택이고, 안 골라도 된다.** 셋 다 유효한 값이라
-                    on/off 토글로는 표현이 안 된다 — 그래서 3지선다다.
-                    고른 것이 그 호스트에 없으면 평범한 셸로 떨어지고, 그때는 pane 이
-                    "닫으면 끊어집니다" 를 상시로 알린다(backend `mux-missing`). */}
+                {/* ⚠️ **여기서 고르지 않는다.** 설정 한 곳(설정 → 세션 멀티플렉서)이
+                    이 서버와 모든 호스트를 함께 정한다 — "herdr 로 두면 앞으로 여는 건
+                    전부 herdr". 호스트마다 또 고르게 두면 같은 결정이 두 자리에 생기고,
+                    전역 값을 바꿔도 옛 호스트들이 따라오지 않는다. */}
                 <Field
                   label={t('multiplexer') || 'Session multiplexer'}
                   hint={muxChecking
                     ? (t('tmuxChecking') || 'Checking tmux on remote host…')
                     : (MUX_HINTS[draft.multiplexer]?.(t) || '')}
                 >
-                  <SegmentedControl
-                    value={draft.multiplexer}
-                    options={MUX_OPTIONS}
-                    onChange={handleMultiplexerChange}
-                  />
+                  <div style={{
+                    display: 'flex', alignItems: 'center',
+                    padding: `${space['2']} ${space['2.5']}`,
+                    borderRadius: radius.md,
+                    background: 'var(--ui-surface0)',
+                    border: `1px solid var(--ui-border)`,
+                    fontFamily: font.mono, fontSize: fontSize['12'], color: 'var(--ui-text)',
+                  }}>
+                    {draft.multiplexer}
+                    <span style={{ fontFamily: font.sans, color: color.muted, marginLeft: space['2'] }}>
+                      {t('changeInSettings') || '설정에서 변경'}
+                    </span>
+                  </div>
                 </Field>
                 {muxWarning && (
                   <div style={{

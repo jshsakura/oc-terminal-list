@@ -382,9 +382,13 @@ class HostBridge:
         tmux_suffix: str | None = None,
         tmux_session_name: str | None = None,
         create_session: bool = True,
+        default_multiplexer: str = mux.DEFAULT,
     ):
         self.websocket = websocket
         self.host = host
+        # 호스트 행에 값이 없으면 전역 설정을 따른다 — "설정에서 herdr 로 두면
+        # 앞으로 여는 건 전부 herdr". 옛 `use_remote_tmux=0` 은 명시적 선택이라 이긴다.
+        self.default_multiplexer = mux.normalize(default_multiplexer)
         self.private_key = private_key
         self.passphrase = passphrase
         self.password = password
@@ -498,7 +502,7 @@ class HostBridge:
             kbdint_prompter=self._ws_kbdint_prompter,
         )
 
-        choice = mux.from_host_row(self.host)
+        choice = mux.from_host_row(self.host, fallback=self.default_multiplexer)
         if self.tmux_session_name:
             # 명시적 override — 기존 세션 그대로 attach (Home 의 Resume).
             tmux_session = self.tmux_session_name
@@ -733,9 +737,13 @@ class TailscaleHostBridge:
         tmux_suffix: str | None = None,
         tmux_session_name: str | None = None,
         create_session: bool = True,
+        default_multiplexer: str = mux.DEFAULT,
     ):
         self.websocket = websocket
         self.host = host
+        # 호스트 행에 값이 없으면 전역 설정을 따른다 — "설정에서 herdr 로 두면
+        # 앞으로 여는 건 전부 herdr". 옛 `use_remote_tmux=0` 은 명시적 선택이라 이긴다.
+        self.default_multiplexer = mux.normalize(default_multiplexer)
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)
         self.pane_index = max(int(pane_index or 0), 0)
@@ -761,7 +769,7 @@ class TailscaleHostBridge:
         ssh_user = self.host.get("ssh_user") or os.environ.get("USER") or "root"
         hostname = self.host["hostname"]
         target = f"{ssh_user}@{hostname}"
-        choice = mux.from_host_row(self.host)
+        choice = mux.from_host_row(self.host, fallback=self.default_multiplexer)
         if self.tmux_session_name:
             tmux_session = self.tmux_session_name
         else:

@@ -113,7 +113,7 @@ describe('HostEditor', () => {
     render(
       <HostEditor
         isOpen={true}
-        host={{ ...sampleHost, use_remote_tmux: 0 }}
+        host={{ ...sampleHost, multiplexer: 'tmux' }}
         sshKeys={sampleKeys}
         onSave={vi.fn()}
         onClose={vi.fn()}
@@ -123,7 +123,7 @@ describe('HostEditor', () => {
     expect(screen.getByText(/Edit host/i)).toBeInTheDocument();
   });
 
-  it('tmux 를 고르면 그 호스트에 있는지 auth_token 으로 물어본다', async () => {
+  it('세션 탭을 열면 tmux 가 그 호스트에 있는지 auth_token 으로 물어본다', async () => {
     localStorage.setItem('auth_token', 'auth-token-123');
     fetch.mockResolvedValueOnce({
       ok: true,
@@ -135,7 +135,7 @@ describe('HostEditor', () => {
     render(
       <HostEditor
         isOpen={true}
-        host={{ ...sampleHost, use_remote_tmux: 0 }}
+        host={{ ...sampleHost, multiplexer: 'tmux' }}
         sshKeys={sampleKeys}
         onSave={vi.fn()}
         onClose={vi.fn()}
@@ -143,9 +143,9 @@ describe('HostEditor', () => {
       />
     );
 
+    // 멀티플렉서는 여기서 고르는 값이 아니다(설정 한 곳이 정한다) — 탭을 여는 것만으로
+    // 그 호스트에 tmux 가 있는지 한 번 물어본다.
     fireEvent.click(screen.getByText(/Session/i).closest('button'));
-    // 멀티플렉서는 on/off 가 아니라 3지선다다 — none 으로 저장된 호스트에서 tmux 를 고른다.
-    fireEvent.click(screen.getByText('tmux'));
 
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith('/api/hosts/h1/tmux-check', {
@@ -156,7 +156,7 @@ describe('HostEditor', () => {
 
   /* `none` 은 고장이 아니라 유효한 선택이다. 그러면 반드시 "닫으면 끝난다" 를
      읽을 수 있어야 한다 — 이걸 안 말한 채로 떨어뜨린 것이 예전 동작이었다. */
-  it('none 을 고르면 세션이 안 남는다고 말한다', () => {
+  it('none 인 호스트는 세션이 안 남는다고 말한다', () => {
     render(
       <HostEditor
         isOpen={true}
