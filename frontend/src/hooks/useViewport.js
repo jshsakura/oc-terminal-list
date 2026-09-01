@@ -39,7 +39,7 @@ const REPORT_MIN_GAP_MS = 1500;
 let lastReportAt = 0;
 let lastReportKey = '';
 
-const reportViewport = (vv, layout, keyboard) => {
+const reportViewport = (vv, layout, keyboard, force = false) => {
   if (!window.matchMedia?.('(pointer: coarse)')?.matches) return;   // 폰에서만
   const el = document.documentElement;
   const root = document.getElementById('root');
@@ -55,9 +55,14 @@ const reportViewport = (vv, layout, keyboard) => {
     `app=${app ? Math.round(app.getBoundingClientRect().height) : '-'}`,
     `sab=${getComputedStyle(el).getPropertyValue('--sab') || '-'}`,
   ].join(' ');
-  if (detail === lastReportKey) return;
+  /* ⚠️ **첫 측정은 반드시 흘려보낸다.** 마운트 시점에는 터미널 소켓이 아직 없어서
+     이벤트가 허공에 떨어진다 — 그 뒤 뷰포트가 안 바뀌면 영영 아무것도 안 올라온다.
+     실제로 그렇게 배선했다가 attach 12번에 보고 0건이었다. `force` 가 그 구멍을 막는다. */
   const now = Date.now();
-  if (now - lastReportAt < REPORT_MIN_GAP_MS) return;
+  if (!force) {
+    if (detail === lastReportKey) return;
+    if (now - lastReportAt < REPORT_MIN_GAP_MS) return;
+  }
   lastReportAt = now;
   lastReportKey = detail;
   try {
@@ -71,6 +76,9 @@ export default function useViewport() {
   const [isMobile, setIsMobile] = useState(() => isPhoneViewport());
   const [viewportHeight, setViewportHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
   const isMobileRef = useRef(false);
+
+  /* 소켓이 붙기 전의 측정은 허공에 떨어진다 — 초반 몇 번은 dedup 을 건너뛰고 흘린다. */
+  const forceReportRef = useRef(true);
 
   useEffect(() => {
     let viewportRaf = 0;
@@ -131,7 +139,7 @@ export default function useViewport() {
       } else {
         document.documentElement.style.removeProperty('--vvh');
       }
-      reportViewport(vv, layout, keyboard);
+      reportViewport(vv, layout, keyboard, forceReportRef.current);
     };
 
     const handleVV = () => {
@@ -190,6 +198,15 @@ export default function useViewport() {
     // 최초 1회 — mount 시점 visualViewport 값을 CSS 변수에 반영.
     // 최초 1회도 **같은 함수**를 지난다. 여기서만 무조건 걸면 마운트 시점 값이 그대로 굳는다.
     applyViewport();
+    forceReportRef.current = false;   // 여기서부터는 평소 규칙(변할 때만·간격 두고)
+
+    /* 소켓이 붙은 뒤에 다시 한 번씩 — 첫 화면의 값이야말로 가장 보고 싶은 것인데
+       (하단 띠는 "처음 들어오면 보인다"), 그때는 아직 보낼 통로가 없다. */
+    const flushTimers = [1500, 4000, 10000].map((ms) => setTimeout(() => {
+      forceReportRef.current = true;
+      applyViewport();
+      forceReportRef.current = false;
+    }, ms));
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', handleVV);
@@ -203,6 +220,7 @@ export default function useViewport() {
       document.removeEventListener('visibilitychange', handleVisible);
       if (viewportRaf) cancelAnimationFrame(viewportRaf);
       if (settleTimer) clearTimeout(settleTimer);
+      flushTimers.forEach(clearTimeout);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleVV);
         window.visualViewport.removeEventListener('scroll', handleVV);
