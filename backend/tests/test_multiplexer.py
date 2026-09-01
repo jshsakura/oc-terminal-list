@@ -49,48 +49,66 @@ class TestFromHostRow:
 
 
 class TestRemoteCommand:
-    def test_tmux_는_tmux_에_붙는다(self):
-        cmd = _build_remote_command(mux.TMUX, "mobile")
-        # 안전한 이름은 shlex.quote 가 따옴표 없이 그대로 둔다.
+    """원격도 **묻지 말고 찾는다** — 한 번의 SSH 안에서 순서대로 본다.
+
+    실측(ubuntu-lab): tmux 8개 · herdr 12개 · 겹치는 이름 8개 · herdr 에만 4개.
+    설정 하나로 갈랐을 때 그 4개는 **보이지도 붙지도 않았고**, 탭 sanitize 가 "죽었다" 로
+    읽어 그 탭들을 지웠다. 이 클래스가 그 재발을 막는다.
+    """
+
+    def test_tmux_가_잡고_있으면_tmux_로_붙는다(self):
+        cmd = _build_remote_command(mux.HERDR, "mobile")   # 설정은 herdr 인데도
+        assert "if command -v tmux >/dev/null 2>&1 && tmux has-session -t mobile" in cmd
         assert "exec tmux attach-session -t mobile" in cmd
-        assert "herdr" not in cmd
 
-    def test_herdr_는_herdr_에_붙는다(self):
-        cmd = _build_remote_command(mux.HERDR, "mobile")
+    def test_herdr_가_잡고_있으면_herdr_로_붙는다(self):
+        cmd = _build_remote_command(mux.TMUX, "mobile")    # 설정은 tmux 인데도
+        assert "herdr session list --json" in cmd
         assert "exec herdr --session mobile" in cmd
-        # tmux 옵션 뭉치가 herdr 명령에 새어 들어가면 안 된다 — 그건 tmux 의 설정 이름이다.
-        assert "tmux " not in cmd
 
-    def test_none_은_그냥_로그인_셸이다(self):
+    def test_겹치면_tmux_가_먼저다(self):
+        """전환기에 두 번 만들어진 이름이 그 모양이고, 사람이 쓰던 쪽은 tmux 였다."""
+        cmd = _build_remote_command(mux.HERDR, "mobile")
+        assert cmd.index("tmux has-session") < cmd.index("herdr session list")
+
+    def test_아무도_없으면_설정된_것으로_새로_만든다(self):
+        """설정의 역할은 여기 하나뿐이다."""
+        tmux_cmd = _build_remote_command(mux.TMUX, "mobile")
+        assert "new-session -d -s mobile" in tmux_cmd
+        herdr_cmd = _build_remote_command(mux.HERDR, "mobile")
+        assert "new-session -d -s mobile" not in herdr_cmd
+        # else 가지가 herdr 생성으로 끝난다
+        assert herdr_cmd.rsplit("else", 1)[1].count("exec herdr --session mobile") == 1
+
+    def test_none_은_탐색하지_않는다(self):
+        """붙잡지 말라고 **일부러 고른 값**이다 — 남아 있던 세션에 슬그머니 붙으면 안 된다."""
         assert _build_remote_command(mux.NONE, "mobile") is None
         cmd = _build_remote_command(mux.NONE, "mobile", "/srv/app")
         assert cmd == "cd /srv/app 2>/dev/null; exec ${SHELL:-bash} -l"
+        assert "has-session" not in cmd and "herdr" not in cmd
 
-    def test_어느_선택이든_도구가_없으면_셸로_떨어진다(self):
+    def test_어느_쪽도_없으면_셸로_떨어진다(self):
         """떨어지는 것 자체는 사고가 아니다. 연결이 실패하는 것이 사고다."""
         for choice in (mux.TMUX, mux.HERDR):
             cmd = _build_remote_command(choice, "mobile")
-            assert cmd.rstrip().endswith("exec ${SHELL:-bash} -l"), choice
-            assert f"command -v {choice} >/dev/null 2>&1 &&" in cmd
+            assert "exec ${SHELL:-bash} -l" in cmd, choice
 
-    def test_herdr_는_설치_경로를_PATH_에_얹는다(self):
+    def test_설치_경로를_PATH_에_얹는다(self):
         """installer 가 ~/.local/bin 에 넣는데 비대화형 SSH 셸에는 그게 없다."""
-        cmd = _build_remote_command(mux.HERDR, "mobile")
-        assert 'PATH="$HOME/.local/bin:$PATH"' in cmd
+        for choice in (mux.TMUX, mux.HERDR):
+            assert 'PATH="$HOME/.local/bin:$PATH"' in _build_remote_command(choice, "mobile")
 
-    def test_herdr_재접속은_없는_세션을_새로_만들지_않는다(self):
-        """create=0 은 "이어붙기만" 이다. herdr 는 --session 하나로 생성까지 하므로
-        목록을 먼저 봐야 한다."""
-        cmd = _build_remote_command(mux.HERDR, "mobile", create_session=False)
-        assert "herdr session list --json" in cmd
-        assert f"exit {TMUX_SESSION_GONE_EXIT}" in cmd
-
-    def test_none_재접속은_이어붙을_대상이_없다고_말한다(self):
-        cmd = _build_remote_command(mux.NONE, "mobile", create_session=False)
-        assert f"exit {TMUX_SESSION_GONE_EXIT}" in cmd
+    def test_재접속은_없는_세션을_새로_만들지_않는다(self):
+        """`create=0` 은 "이어붙기만" 이다. 둘 다 없으면 약속된 코드로 죽어야
+        프론트가 `session-gone` → `create=1` 로 전환한다."""
+        for choice in (mux.TMUX, mux.HERDR):
+            cmd = _build_remote_command(choice, "mobile", create_session=False)
+            assert f"exit {TMUX_SESSION_GONE_EXIT}" in cmd
+            assert "new-session -d" not in cmd
+            # 그래도 **붙는 것**은 여전히 시도한다 — 살아 있으면 이어 붙어야 한다.
+            assert "tmux has-session" in cmd and "herdr session list" in cmd
 
     def test_불리언_옛_호출부도_그대로_받는다(self):
-        """옛 호출부/테스트가 넘기던 True/False. 조용히 뜻이 바뀌면 안 된다."""
         assert "tmux attach-session" in _build_remote_command(True, "mobile")
         assert _build_remote_command(False, "mobile") is None
 
@@ -98,3 +116,12 @@ class TestRemoteCommand:
         """모델이 이미 막지만, 명령 조립도 스스로 인용한다(방어선은 둘이어야 한다)."""
         cmd = _build_remote_command(mux.HERDR, "a b; rm -rf /")
         assert "'a b; rm -rf /'" in cmd
+
+    def test_만들어진_셸이_문법적으로_유효하다(self):
+        """if/elif/else 를 문자열로 짜므로, 한 조각만 어긋나도 조용히 안 붙는다."""
+        import subprocess
+        for choice in (mux.TMUX, mux.HERDR):
+            for create in (True, False):
+                cmd = _build_remote_command(choice, "mobile", "/srv/app", create_session=create)
+                r = subprocess.run(["bash", "-n", "-c", cmd], capture_output=True, text=True)
+                assert r.returncode == 0, f"{choice}/{create}: {r.stderr}"

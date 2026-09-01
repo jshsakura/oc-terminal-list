@@ -51,7 +51,7 @@ class _FakeWS:
         self.sent_text.append(text)
 
 
-async def _connect(choice: str, *, cwd: str | None, create: bool = True):
+async def _connect(choice: str, *, cwd: str | None, create: bool = True, holder=None):
     """WS 라우트를 한 번 태우고, bridge 가 받은 생성 인자를 돌려준다.
 
     실제 PTY 는 띄우지 않는다 — `run()` 이 바로 끝나는 가짜 bridge 를 꽂는다.
@@ -81,6 +81,9 @@ async def _connect(choice: str, *, cwd: str | None, create: bool = True):
         patch.object(terminal_ws, "_unregister_ws_client", MagicMock(return_value=None)),
         patch.object(terminal_ws, "_push_ws_tickets", AsyncMock(return_value=None)),
         patch.object(terminal_ws.local_mux, "choice_for", AsyncMock(return_value=choice)),
+        # 이미 붙잡고 있는 쪽이 있으면 그것이 이긴다(설정은 새 세션에만 관여한다).
+        # 목하지 않으면 진짜 tmux/herdr 소켓에 물으러 나간다.
+        patch.object(terminal_ws.local_mux, "holder_of", AsyncMock(return_value=holder)),
         patch.object(terminal_ws.local_mux, "attach_argv", MagicMock(return_value=["/bin/sh", "-l"])),
         patch.object(terminal_ws.local_mux, "is_missing", MagicMock(return_value=False)),
     ):
@@ -125,9 +128,34 @@ class TestSpawnCwd:
     async def test_재접속은_경로가_사라져도_닫지_않는다(self, workspace_dir):
         """폴더가 지워졌다고 pane 을 영영 못 붙게 만들 이유는 없다."""
         root, _picked = workspace_dir
-        ws, kwargs = await _connect(mux.HERDR, cwd="없는-폴더", create=False)
+        # 재접속이므로 그 세션은 이미 herdr 가 붙잡고 있다.
+        ws, kwargs = await _connect(mux.HERDR, cwd="없는-폴더", create=False, holder=mux.HERDR)
         assert ws.closed_with is None
         assert kwargs["cwd"] == os.path.abspath(str(root))
+
+    async def test_아무도_안_잡고_있으면_이어붙기는_닫는다(self, workspace_dir):
+        """`create=0` 은 "만들지 말고 붙기만" 이다. 붙을 대상이 없으면 닫아야 프론트가
+        `session-gone` → `create=1` 로 전환한다(호스트 재부팅 복구가 그 길이다)."""
+        ws, kwargs = await _connect(mux.HERDR, cwd=None, create=False, holder=None)
+        assert ws.closed_with == (1000, "session not found")
+        assert kwargs == {}
+
+    async def test_설정과_다른_쪽이_잡고_있어도_그쪽으로_붙는다(self, workspace_dir):
+        """**양자택일을 없앤 자리.** 설정이 herdr 여도 그 세션을 tmux 가 잡고 있으면
+        tmux 로 붙어야 한다 — 아니면 멀쩡한 세션을 두고 빈 herdr 세션이 새로 뜬다.
+
+        관찰은 `term` 으로 한다. 라우트가 무엇이 도는지에 따라 고르는 값이라
+        (tmux 면 `tmux-256color`) 실제로 어느 갈래를 탔는지의 지문이 된다.
+        """
+        with patch.object(terminal_ws.tmux_manager, "session_exists", AsyncMock(return_value=True)):
+            _ws, kwargs = await _connect(mux.HERDR, cwd=None, holder=mux.TMUX)
+        assert kwargs["term"] == "tmux-256color"
+        assert kwargs["cwd"] is None       # tmux 는 attach 라 시작 경로를 안 받는다
+
+    async def test_설정이_tmux_여도_herdr_가_잡고_있으면_herdr_로(self, workspace_dir):
+        """반대 방향도 같다 — 섞여 있어도 각자 제 세션에 붙는다."""
+        _ws, kwargs = await _connect(mux.TMUX, cwd=None, holder=mux.HERDR)
+        assert kwargs["term"] == "xterm-256color"
 
     async def test_tmux_는_bridge_에_경로를_주지_않는다(self, workspace_dir):
         """tmux 는 attach 다 — 시작 경로는 세션을 만들 때 `-c` 로 이미 정해졌다."""

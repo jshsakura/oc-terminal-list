@@ -4,6 +4,7 @@
 세션 행 prune)가 읽는 값이라, 여기서 tmux 에게만 물으면 herdr 로 열어 둔 탭이 전부
 "죽었다" 로 읽혀 사용자의 레이아웃이 통째로 날아간다.
 """
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -35,21 +36,82 @@ class TestAttachArgv:
         assert local_mux.attach_argv(mux.NONE, "sess-1", shell="/bin/zsh") == ["/bin/zsh", "-l"]
 
 
-class TestLiveSessionNames:
-    @pytest.mark.anyio
-    async def test_herdr_를_골랐으면_tmux_에게_묻지_않는다(self):
-        """tmux 에게 물으면 herdr 세션이 전부 '죽은 것' 이 되고, 그 목록으로 탭을 지운다."""
-        with patch.object(local_mux, "_herdr_session_names",
-                          AsyncMock(return_value={"a", "b"})) as herdr, \
-             patch.object(local_mux.tmux_manager, "list_sessions", AsyncMock()) as tmux:
-            names = await local_mux.live_session_names(mux.HERDR)
-        assert names == {"a", "b"}
-        assert herdr.called and not tmux.called
+class TestSessionHolders:
+    """**양자택일을 없앤 자리.**
+
+    처음 판은 설정으로 갈라 고른 쪽 세션만 돌려줬다. 그래서 herdr 로 바꾸는 순간 멀쩡히
+    살아 있는 tmux 세션이 전부 "죽었다" 로 읽혔고(그 목록으로 탭을 지운다), 이어할 수
+    있는 세션 목록에서도 통째로 사라졌다. 지금은 **둘 다 묻고 합집합**이다.
+    """
+
+    @staticmethod
+    def _tmux(*names):
+        return [SimpleNamespace(name=n) for n in names]
 
     @pytest.mark.anyio
-    async def test_none_은_항상_빈_집합(self):
-        """빈 집합은 호출부에서 '판정 불가' 로 읽혀 아무것도 안 지운다."""
-        assert await local_mux.live_session_names(mux.NONE) == set()
+    async def test_둘을_섞어_보여준다(self):
+        with (
+            patch.object(local_mux, "_herdr_session_names", AsyncMock(return_value={"h1", "h2"})),
+            patch.object(local_mux.tmux_manager, "list_sessions",
+                         AsyncMock(return_value=self._tmux("t1"))),
+            patch.object(local_mux.shutil, "which", return_value="/usr/bin/tmux"),
+        ):
+            assert await local_mux.live_session_names() == {"h1", "h2", "t1"}
+
+    @pytest.mark.anyio
+    async def test_붙잡고_있는_쪽을_알려준다(self):
+        """attach 는 설정이 아니라 이 답을 따른다 — 그래야 섞여 있어도 제 세션에 붙는다."""
+        with (
+            patch.object(local_mux, "_herdr_session_names", AsyncMock(return_value={"h1"})),
+            patch.object(local_mux.tmux_manager, "list_sessions",
+                         AsyncMock(return_value=self._tmux("t1"))),
+            patch.object(local_mux.shutil, "which", return_value="/usr/bin/tmux"),
+        ):
+            assert await local_mux.holder_of("t1") == mux.TMUX
+            assert await local_mux.holder_of("h1") == mux.HERDR
+            assert await local_mux.holder_of("없는것") is None
+
+    @pytest.mark.anyio
+    async def test_이름이_겹치면_tmux_가_이긴다(self):
+        """전환기에 같은 이름이 양쪽에 생겼다. 사람이 쓰던 쪽은 tmux 였다."""
+        with (
+            patch.object(local_mux, "_herdr_session_names", AsyncMock(return_value={"dup"})),
+            patch.object(local_mux.tmux_manager, "list_sessions",
+                         AsyncMock(return_value=self._tmux("dup"))),
+            patch.object(local_mux.shutil, "which", return_value="/usr/bin/tmux"),
+        ):
+            assert await local_mux.holder_of("dup") == mux.TMUX
+
+    @pytest.mark.anyio
+    async def test_tmux_가_없으면_묻지_않는다(self):
+        """안 깔린 도구에 묻는 건 탭 상태 저장마다 헛도는 프로세스 하나다."""
+        with (
+            patch.object(local_mux, "_herdr_session_names", AsyncMock(return_value={"h1"})),
+            patch.object(local_mux.tmux_manager, "list_sessions", AsyncMock()) as tmux,
+            patch.object(local_mux.shutil, "which", return_value=None),
+        ):
+            assert await local_mux.live_session_names() == {"h1"}
+        tmux.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_tmux_가_던져도_herdr_쪽은_살린다(self):
+        """한쪽 실패로 빈 집합을 내면 그 순간 다른 쪽 탭이 전부 지워진다."""
+        with (
+            patch.object(local_mux, "_herdr_session_names", AsyncMock(return_value={"h1"})),
+            patch.object(local_mux.tmux_manager, "list_sessions",
+                         AsyncMock(side_effect=RuntimeError("tmux down"))),
+            patch.object(local_mux.shutil, "which", return_value="/usr/bin/tmux"),
+        ):
+            assert await local_mux.live_session_names() == {"h1"}
+
+    @pytest.mark.anyio
+    async def test_둘_다_없으면_빈_집합(self):
+        """빈 집합은 '전부 죽었다' 가 아니라 '판정 불가' — 지우는 코드는 손을 뗀다."""
+        with (
+            patch.object(local_mux, "_herdr_session_names", AsyncMock(return_value=set())),
+            patch.object(local_mux.shutil, "which", return_value=None),
+        ):
+            assert await local_mux.live_session_names() == set()
 
 
 class TestParseHerdrSessions:
@@ -89,7 +151,7 @@ class TestChoiceFor:
 
 
 class TestKillSession:
-    """세션 재시작이 **고른 것에게** 가 닿는지.
+    """세션 재시작이 **붙잡고 있는 쪽에게** 가 닿는지.
 
     tmux 로 고정돼 있던 동안 herdr 사용자의 "세션 재시작" 은 조용한 무동작이었다 —
     죽일 tmux 세션이 없으니 kill 이 성공한 척 끝나고, 재접속은 멀쩡히 살아 있는 herdr
@@ -99,7 +161,8 @@ class TestKillSession:
     @pytest.mark.anyio
     async def test_tmux_는_tmux_에게_보낸다(self):
         with patch.object(local_mux.tmux_manager, "kill_session", AsyncMock()) as killed:
-            await local_mux.kill_session(mux.TMUX, "sess-1")
+            with patch.object(local_mux, "holder_of", AsyncMock(return_value=mux.TMUX)):
+                await local_mux.kill_session("sess-1")
         killed.assert_awaited_once_with("sess-1")
 
     @pytest.mark.anyio
@@ -119,7 +182,8 @@ class TestKillSession:
             patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
             patch.object(local_mux.tmux_manager, "kill_session", AsyncMock()) as tmux_killed,
         ):
-            await local_mux.kill_session(mux.HERDR, "sess-1")
+            with patch.object(local_mux, "holder_of", AsyncMock(return_value=mux.HERDR)):
+                await local_mux.kill_session("sess-1")
 
         assert calls == [
             ("/opt/herdr", "session", "stop", "sess-1"),
@@ -143,18 +207,23 @@ class TestKillSession:
             patch.object(local_mux, "herdr_bin", return_value="/opt/herdr"),
             patch("asyncio.create_subprocess_exec", side_effect=fake_exec),
         ):
-            await local_mux.kill_session(mux.HERDR, "sess-1")
+            with patch.object(local_mux, "holder_of", AsyncMock(return_value=mux.HERDR)):
+                await local_mux.kill_session("sess-1")
 
         assert [a[1] for a in calls] == ["stop", "delete"]
 
     @pytest.mark.anyio
     async def test_herdr_가_없으면_조용히_넘어간다(self):
         with patch.object(local_mux, "herdr_bin", return_value=None):
-            await local_mux.kill_session(mux.HERDR, "sess-1")   # 던지지 않는다
+            with patch.object(local_mux, "holder_of", AsyncMock(return_value=mux.HERDR)):
+                await local_mux.kill_session("sess-1")   # 던지지 않는다
 
     @pytest.mark.anyio
     async def test_none_은_죽일_것이_없다(self):
         """셸은 소켓이 닫히면 함께 끝난다 — tmux 를 건드리면 남의 세션을 죽인다."""
-        with patch.object(local_mux.tmux_manager, "kill_session", AsyncMock()) as killed:
-            await local_mux.kill_session(mux.NONE, "sess-1")
+        with (
+            patch.object(local_mux, "holder_of", AsyncMock(return_value=None)),
+            patch.object(local_mux.tmux_manager, "kill_session", AsyncMock()) as killed,
+        ):
+            await local_mux.kill_session("sess-1")
         killed.assert_not_awaited()

@@ -15,6 +15,10 @@ import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
 import { killPaneSession, restartCwdFor } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
 import { collectOtherPaneSessions } from '../../utils/paneSessions';
+import PaneAddressLabel from './PaneAddressLabel';
+import useAppConfig from '../../hooks/useAppConfig';
+import { copyToClipboard } from '../../utils/clipboard';
+import { buildItlHandle, itlHandleLabel } from '../../utils/itlHandle';
 import { EINK_THEME_ID } from '../../utils/einkMode';
 import useEvent from '../../hooks/useEvent';
 
@@ -80,6 +84,14 @@ const Pane = ({
   const isEmpty = !pane.sessionId && !pane.hostId;
   // VNC pane — mode:'vnc' 로 활성화된 원격 데스크톱. TerminalHeader 없이 전체 영역 사용.
   const isVnc = pane.mode === 'vnc';
+
+  /* 이 pane 의 주소(`탭.pane`). "옆에 2번한테 시켜" 라고 말하려면 자기 주소를 자기가
+     볼 수 있어야 한다 — 하단 tmux 상태바의 `[1.2]` 와 같은 값이고 같은 이유다. */
+  const tabNumber = (() => {
+    const tabIndex = allTabs.findIndex((tt) => tt.id === tab?.id);
+    return tabIndex >= 0 ? tabIndex + 1 : null;
+  })();
+  const paneAddress = tabNumber != null ? `${tabNumber}.${paneIndex + 1}` : null;
 
   /* Eye 히스토리 popover 의 세션 픽커에 실릴 "다른 살아있는 세션" 목록.
      여기(allTabs/hosts/settings/t 가 있는 곳)에서 계산해 TerminalHeader 로 넘긴다.
@@ -336,6 +348,23 @@ const Pane = ({
   useEffect(() => {
     if (terminalReady && !paneCwdAbs) setCwdReadyTick((n) => n + 1);
   }, [terminalReady, paneCwdAbs]);
+
+  /* ⚠️ **`paneCwdAbs` 선언 뒤여야 한다** — const 라 위에서 부르면 TDZ 로 마운트가 죽는다.
+     복사 핸들 — `itl send 1.2 'TEXT'`. **`itl` 이 이 서버에 있을 때만** 내민다:
+     받아서 붙여넣는 쪽에 없으면 `command not found` 로 끝나기 때문이다. */
+  const { itl_available: itlAvailable } = useAppConfig();
+  const handleCopyPaneTarget = useCallback(() => {
+    const server = pane.hostId
+      ? (hosts.find((h) => h.id === pane.hostId)?.name || pane.hostId)
+      : (settings.localName || t?.('thisMachine') || '');
+    const text = buildItlHandle({ addr: paneAddress, server, cwd: paneCwdAbs || pane.cwd || '' });
+    if (!text) return;
+    // 클립보드에는 붙여넣어 바로 쓸 줄이 그대로, 토스트는 **무엇을** 복사했는지만 한 줄로.
+    copyToClipboard(text).then((ok) => onNotify?.(ok
+      ? `${t?.('copied') || 'Copied'} · ${itlHandleLabel({ addr: paneAddress, server })}`
+      : (t?.('clipboardError') || 'Copy failed')));
+  }, [pane.hostId, pane.cwd, paneCwdAbs, paneAddress, hosts, settings.localName, onNotify, t]);
+
   // Git context path for sidebar Files/Git tabs:
   //   local: workspace-relative path ('' = root, null = outside workspace)
   //   host:  null — remote git uses separate API, not local git endpoint
@@ -718,10 +747,16 @@ const Pane = ({
                 boxShadow: 'inset 0 0 0 1px rgba(245,158,11,0.15)',
               }} />
             )}
-            {/* pane 우상단 주소 배지(`탭.pane`)는 걷어냈다. 그것이 있던 이유는 "옆에
-                2번한테 시켜" 라고 남의 에이전트에게 pane 을 지목하는 쓰임 하나였고, 그
-                쓰임(itl · 세션 간 명령 전달)이 사라지면서 남은 건 터미널 출력 우상단을
-                덮는 상자뿐이었다. 주소가 다시 필요해지면 그때 되살린다. */}
+            {/* pane 우상단 주소 배지(`탭.pane`) — **분할 여부와 무관하게 항상 단다.**
+                복사 버튼은 itl 이 있을 때만 붙는다(핸들이 `itl send` 라 없으면 무의미하다). */}
+            <PaneAddressLabel
+              paneNumber={paneIndex + 1}
+              tabNumber={tabNumber}
+              fullAddress={paneAddress}
+              isProminent={isFocused || hover}
+              onCopy={itlAvailable && paneAddress ? handleCopyPaneTarget : null}
+              copyLabel={t?.('copyPaneTarget') || "Copy itl handle (itl send 1.2 'TEXT')"}
+            />
             {isBroadcasting && onToggleBroadcastExclude && (
               <BroadcastBadge
                 isExcluded={isBroadcastExcluded}

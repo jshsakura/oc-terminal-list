@@ -1,25 +1,31 @@
-"""이 서버의 pane 을 **무엇이** 붙잡는가 — tmux 를 밑에 깔지 않는다.
+"""이 서버의 팬을 **무엇이** 붙잡고 있는가 — 묻지 말고 찾는다.
 
-로컬 pane 은 오래 tmux 고정이었다. 그래서 herdr 를 골라도 실제로는 `tmux attach` 안에서
-herdr 가 뜨는, 아무도 원하지 않은 이중 구조가 됐다. **둘 중 하나만 깔고 고른 것을 쓴다**
-가 이 모듈의 전부다.
+처음 판은 설정 하나로 tmux 냐 herdr 냐를 갈랐다. 그건 **양자택일**이었고, 그래서
+herdr 로 바꾸는 순간 멀쩡히 살아 있는 tmux 세션들이 "이어할 수 있는 세션" 목록에서
+통째로 사라졌다(반대도 같다). 섞어 쓸 수가 없었다.
 
-| 고른 것 | pane 이 실행하는 것 | 세션을 붙잡는 것 |
-|---|---|---|
-| `tmux`  | `tmux -L <sock> attach -t <id>` | 우리 소켓의 tmux 서버 |
-| `herdr` | `herdr --session <id>`          | herdr 자신의 서버 |
-| `none`  | 로그인 셸                        | 아무도 (닫으면 끝) |
+`backend/cli/itl` 이 이미 옳은 규칙을 쓰고 있었다 — **설정이 아니라 탐색이다.** 소켓에
+직접 물어 지금 실제로 있는 것만 답하므로 "설정과 현실이 어긋난다" 에 걸리지 않는다.
+이 모듈이 그 규칙을 앱 쪽에 맞춘 것이다:
 
-⚠️ **herdr 를 고르면 tmux 에 얹혀 있던 것들이 함께 사라진다.** 그건 빠뜨린 게 아니라
-tmux 의 기능이었다 — pane 주소 상태바(`@pane_addr`), 아무도 안 보는 pane 의 에이전트 상태
-폴링(`list-panes -a`), pane cwd 추적, tmux 세션 재시작·무덤. herdr 는 자기 UI 안에서
-자기 방식으로 한다. **모르는 것을 아는 척 채우지 않는다**(이 저장소의 `installed: null`
-규칙과 같다).
+- **살아있는 세션은 언제나 둘의 합집합이다**(`live_session_names`). 지우는 코드가 읽는
+  값이라, 한쪽만 물으면 다른 쪽 탭이 전부 "죽었다" 로 읽혀 레이아웃이 날아간다.
+- **이미 있는 세션에는 그것을 붙잡고 있는 쪽으로 붙는다**(`holder_of`). 설정은 여기에
+  관여하지 않는다 — 설정이 정하는 것은 **새 세션을 무엇으로 열까** 뿐이다.
+- **죽이는 것도 붙잡은 쪽에게 보낸다**(`kill_session`). tmux 로만 보내면 herdr 세션의
+  "세션 재시작" 이 조용한 무동작이 된다.
 
-⚠️ **가장 위험한 자리는 "살아있는 세션 목록" 이다.** 탭 상태 sanitize 와 세션 행 prune 이
-그 목록에 없는 것을 **지운다.** tmux 에게만 물으면 herdr pane 은 전부 "죽은 것" 으로 읽혀
-사용자의 탭 레이아웃이 통째로 날아간다. 그래서 목록도 고른 것을 따라 갈라진다
-(`live_session_names`).
+| 붙잡은 것 | 팬이 실행하는 것 |
+|---|---|
+| `tmux`  | `tmux -L <sock> attach -t <id>` |
+| `herdr` | `herdr --session <id>` |
+| 없음(`none`) | 로그인 셸 — 닫으면 끝 |
+
+⚠️ **없는 도구는 아예 묻지 않는다.** herdr 가 안 깔린 기계에서 `herdr session list` 를
+부르면 그건 매 탭 상태 저장마다 헛도는 프로세스 하나다. `which` 결과를 먼저 본다.
+
+⚠️ **빈 집합은 "전부 죽었다" 가 아니라 "판정 불가" 다.** 둘 다 못 물어봤을 때와 진짜로
+아무것도 없을 때가 구별되지 않으므로, 지우는 코드는 빈 집합을 보면 손을 뗀다.
 """
 from __future__ import annotations
 
@@ -150,39 +156,67 @@ async def _herdr_stop_and_delete(session_id: str) -> None:
             )
 
 
-async def kill_session(choice: str, session_id: str) -> None:
-    """이 세션을 없앤다 — **고른 것에게 맞는 방법으로.**
+async def kill_session(session_id: str) -> None:
+    """이 세션을 없앤다 — **붙잡고 있는 쪽에게** 보낸다.
 
-    tmux 에게만 물으면 herdr 사용자의 "세션 재시작" 이 조용한 무동작이 된다(죽일 tmux
+    tmux 에게만 보내면 herdr 세션의 "세션 재시작" 이 조용한 무동작이 된다: 죽일 tmux
     세션이 애초에 없으므로 kill 이 성공한 것처럼 끝나고, 재접속은 멀쩡히 살아 있는 herdr
-    세션에 그대로 다시 붙는다). 이 저장소가 cwd 에서 이미 한 번 밟은 함정과 같은 모양이다.
-
-    `none` 은 붙잡아 두는 것이 없다 — 셸은 소켓이 닫히면 함께 끝나므로 할 일이 없다.
+    세션에 그대로 다시 붙는다. 아무도 안 붙잡고 있으면 할 일이 없다(셸은 소켓과 함께 끝난다).
     """
-    choice = mux.normalize(choice)
-    if choice == mux.TMUX:
+    holder = await holder_of(session_id)
+    if holder == mux.TMUX:
         await tmux_manager.kill_session(session_id)
-        return
-    if choice == mux.HERDR:
+    elif holder == mux.HERDR:
         await _herdr_stop_and_delete(session_id)
 
 
-async def live_session_names(choice: str) -> set[str]:
-    """살아있는 로컬 세션 이름. **빈 집합 = 판정 불가**(지우는 코드는 손을 뗀다)."""
-    choice = mux.normalize(choice)
-    if choice == mux.TMUX:
-        return {s.name for s in await tmux_manager.list_sessions()}
-    if choice == mux.HERDR:
-        return await _herdr_session_names()
-    # none — 붙잡아 두는 것이 없으므로 살아있는 세션이라는 개념 자체가 없다.
-    return set()
+async def session_holders() -> dict[str, str]:
+    """`{세션이름: 붙잡은 것}` — tmux 와 herdr 를 **둘 다** 묻는다.
+
+    한 번에 모아 두는 이유는 호출부(생사 판정·attach·kill)가 전부 같은 답을 필요로 하기
+    때문이다. 두 곳에서 따로 세면 반드시 어긋난다.
+
+    같은 이름이 양쪽에 있으면 **tmux 가 이긴다** — 전환기에 두 번 만들어진 이름이 그런
+    모양이고, 그때 실제로 사람이 쓰던 쪽이 tmux 였다(herdr 쪽은 앱이 만들어만 두고
+    아무도 안 붙은 껍데기였다).
+    """
+    holders: dict[str, str] = {}
+    for name in await _herdr_session_names():
+        holders[name] = mux.HERDR
+    if shutil.which("tmux"):
+        try:
+            for session in await tmux_manager.list_sessions():
+                holders[session.name] = mux.TMUX
+        except Exception as e:
+            logger.warning("tmux list-sessions failed: %s", e)
+    return holders
+
+
+async def live_session_names() -> set[str]:
+    """살아있는 로컬 세션 이름 — **둘의 합집합.**
+
+    ⚠️ 이 값으로 탭 상태 sanitize 와 세션 행 prune 이 **지운다.** 한쪽만 물으면 다른 쪽
+    세션이 전부 죽은 것으로 읽혀 사용자의 레이아웃이 통째로 날아간다.
+    **빈 집합 = 판정 불가**(지우는 코드는 손을 뗀다).
+    """
+    return set(await session_holders())
+
+
+async def holder_of(session_id: str) -> str | None:
+    """이 세션을 지금 붙잡고 있는 것. 아무도 안 붙잡고 있으면 None(= 새로 만들어야 한다)."""
+    return (await session_holders()).get(session_id)
 
 
 def attach_argv(choice: str, session_id: str, shell: str | None = None) -> list[str]:
-    """이 pane 의 PTY 가 실제로 실행할 명령.
+    """이 팬의 PTY 가 실제로 실행할 명령.
+
+    `choice` 는 **이미 정해진 답**이다 — 호출부가 `holder_of()` 로 붙잡은 쪽을 찾았으면
+    그것이고, 아무도 안 붙잡고 있을 때만 설정의 기본값이다. 여기서 다시 설정을 읽지
+    않는다(같은 결정을 두 곳에서 하면 반드시 어긋난다).
 
     herdr 는 `--session` 하나가 생성과 접속을 겸하므로 tmux 처럼 별도의 생성 단계가 없다.
-    herdr 가 없으면 셸로 떨어진다 — 연결이 실패하는 것보다 낫고, 프론트에는 따로 알린다.
+    고른 것이 이 기계에 없으면 셸로 떨어진다 — 연결이 실패하는 것보다 낫고, 없다는
+    사실은 `is_missing` 이 따로 알린다.
     """
     choice = mux.normalize(choice)
     if choice == mux.TMUX:

@@ -61,12 +61,13 @@ async def _sanitize_tab_state(
     오류(rc!=0)와 진짜 빈 상태를 구분할 수 없고, 잘못 지운 탭 레이아웃은 복구
     불가인 반면 죽은 탭을 남겨두면 프론트가 종료 pane 으로 표시할 뿐이다.
 
-    ⚠️ **tmux 에게만 물으면 안 된다.** 로컬 pane 을 붙잡는 것이 herdr 일 수도 있고
-    (`backend/local_mux.py`), 그때 tmux 목록은 당연히 비어 있다 — 그걸 "전부 죽었다" 로
-    읽으면 **사용자의 탭 레이아웃이 통째로 날아간다.** 고른 것에게 묻는다.
+    ⚠️ **tmux 에게만 물으면 안 된다.** 팬을 붙잡는 것이 herdr 일 수도 있고, 그때 tmux
+    목록은 당연히 비어 있다 — 그걸 "전부 죽었다" 로 읽으면 **사용자의 탭 레이아웃이
+    통째로 날아간다.** 그래서 `local_mux.live_session_names()` 는 **둘의 합집합**이다.
+    설정(어느 쪽을 기본으로 여는가)은 여기에 관여하지 않는다 — 지금 무엇이 살아 있는지는
+    설정이 아니라 사실이다.
     """
-    choice = await local_mux.choice_for(username) if username else mux.DEFAULT
-    live_local_sessions = await local_mux.live_session_names(choice)
+    live_local_sessions = await local_mux.live_session_names()
     if not live_local_sessions:
         return tabs, active_tab_id
 

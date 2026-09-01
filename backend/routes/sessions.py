@@ -19,6 +19,8 @@ from llm_usage.service import maybe_collect_in_background
 from session_launch import (
     _assert_session_owner, _basename_or_none, _resolve_create_cwd, _resolve_shell,
 )
+import shutil
+
 import local_mux
 import multiplexer as mux
 from sqlite_storage import storage
@@ -56,10 +58,11 @@ async def prune_sessions(username: str = Depends(verify_auth_token)):
     """
     # ⚠️ 무엇이 세션을 붙잡는지는 설정을 따른다 — tmux 에게만 물으면 herdr 로 열어 둔
     # 세션들이 전부 "죽은 행" 으로 읽혀 통째로 지워진다(backend/local_mux.py).
-    choice = await local_mux.choice_for(username)
-    if choice == mux.TMUX and not await tmux_manager.server_alive():
+    # 합집합이므로 tmux 서버가 멈춰 있어도 herdr 쪽 판정은 살아 있다. tmux 가 아예
+    # 응답하지 않는 상태에서의 정리는 여전히 거절한다(그 순간의 빈 목록은 사실이 아니다).
+    if shutil.which("tmux") and not await tmux_manager.server_alive():
         raise HTTPException(status_code=409, detail="tmux 서버가 응답하지 않아 정리를 건너뜁니다")
-    live = await local_mux.live_session_names(choice)
+    live = await local_mux.live_session_names()
     if not live:
         raise HTTPException(status_code=409, detail="살아있는 세션이 하나도 없어 정리를 건너뜁니다")
     dead = [s["id"] for s in await storage.get_user_sessions(username) if s["id"] not in live]
@@ -122,7 +125,7 @@ async def delete_session(session_id: str, username: str = Depends(verify_auth_to
     await _assert_session_owner(session_id, username)
     # 고른 멀티플렉서에게 맞는 방법으로 죽인다. tmux 로 고정하면 herdr 사용자의
     # "세션 재시작" 이 조용한 무동작이 된다(local_mux.kill_session 참고).
-    await local_mux.kill_session(await local_mux.choice_for(username), session_id)
+    await local_mux.kill_session(session_id)
     await storage.delete_session(session_id)
     await invalidate_session(session_id)
     return {"session_id": session_id, "status": "deleted"}

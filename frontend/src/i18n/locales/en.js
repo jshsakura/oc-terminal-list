@@ -605,6 +605,7 @@ export const en = {
     muxMissingBanner: '{tool} is not installed here — this session will not survive closing the tab.',
     sessionNotPersisted: 'Closing this tab ends the session.',
     installTool: 'Install',
+    copyPaneTarget: "Copy itl handle (itl send 1.2 'TEXT')",
     changeInSettings: 'change in Settings',
     toolTypeFailedCopied: 'The terminal did not take the command — it is on your clipboard, paste it there.',
     toolTypeFailed: 'The terminal did not take the command — copy it from the tool list and paste it yourself.',

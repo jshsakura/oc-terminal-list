@@ -79,10 +79,12 @@ async def terminal_websocket(
         reason=reason, prev_ms=prev_ms, cols=cols, rows=rows,
     )
 
-    # **tmux 를 밑에 깔지 않는다.** 고른 것 하나만 쓴다(backend/local_mux.py).
-    # herdr 는 `--session` 이 생성과 접속을 겸하므로 여기서 만들 것이 없고,
-    # none 은 붙잡아 둘 세션 자체가 없다.
-    choice = await local_mux.choice_for(username)
+    # **묻지 말고 찾는다.** 이미 있는 세션에는 그것을 **붙잡고 있는 쪽**으로 붙는다 —
+    # 설정이 정하는 것은 "새 세션을 무엇으로 열까" 뿐이다. 이 구분이 없으면 설정을
+    # herdr 로 바꾼 순간 멀쩡히 살아 있는 tmux 세션에 못 붙고 빈 herdr 세션이 새로 뜬다
+    # (그게 "양자택일" 이 되는 자리였다).
+    holder = await local_mux.holder_of(session_id)
+    choice = holder or await local_mux.choice_for(username)
 
     # **고른 경로는 무엇이 붙잡든 지켜진다.** tmux 는 세션을 만들 때 `-c` 로 받지만(아래),
     # herdr·none 은 이 파일의 bridge 가 프로세스를 직접 띄운다. 여기서 안 넘기면 bridge 의
@@ -162,12 +164,11 @@ async def terminal_websocket(
             except Exception:
                 pass
 
-    elif not create:
-        # tmux 가 아니면 "이어붙기만" 을 이 층에서 판정할 수 없다 — herdr 는 자기가
-        # 알아서 이어 붙고, none 은 이어 붙을 대상이 애초에 없다.
-        if choice == mux.NONE:
-            await websocket.close(code=1000, reason="session not found")
-            return
+    elif not create and holder is None:
+        # 아무도 안 붙잡고 있는데 "이어붙기만" 이라면 이어 붙을 대상이 없다.
+        # (herdr 가 붙잡고 있으면 `holder` 가 채워지므로 여기 오지 않는다.)
+        await websocket.close(code=1000, reason="session not found")
+        return
 
     if choice != mux.TMUX:
         # 세션 행은 소유권·cwd 기록용이라 무엇이 붙잡느냐와 무관하게 남긴다.

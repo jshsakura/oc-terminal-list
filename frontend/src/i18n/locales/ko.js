@@ -608,6 +608,7 @@ export const ko = {
     muxMissingBanner: '이 호스트에 {tool} 이(가) 없습니다 — 탭을 닫으면 이 세션은 사라집니다.',
     sessionNotPersisted: '탭을 닫으면 세션이 끝납니다.',
     installTool: '설치',
+    copyPaneTarget: "itl 핸들 복사 (itl send 1.2 'TEXT')",
     changeInSettings: '설정에서 변경',
     toolTypeFailedCopied: '터미널이 명령을 받지 못했습니다 — 클립보드에 복사했으니 붙여넣으세요',
     toolTypeFailed: '터미널이 명령을 받지 못했습니다 — 도구 목록에서 명령을 복사해 직접 붙여넣으세요',

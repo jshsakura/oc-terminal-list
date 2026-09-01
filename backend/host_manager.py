@@ -157,63 +157,15 @@ def _build_herdr_command(
     )
 
 
-def _build_remote_command(
-    multiplexer: str | bool,
-    tmux_session: str,
-    start_path: str | None = None,
-    *,
-    create_session: bool = True,
-) -> str | None:
-    """원격에서 실행할 명령. 고른 멀티플렉서가 그 호스트에 없으면 **평범한 셸로 떨어진다.**
+def _tmux_session_options(safe: str) -> str:
+    """이 세션에 걸 tmux 옵션·바인딩 뭉치. **로컬 `tmux_manager` 와 한 벌이다.**
 
-    떨어지는 것 자체는 사고가 아니다 — 사고는 그걸 **말해 주지 않는 것**이다. 프론트가
-    `mux-missing` 컨트롤을 받아 "닫으면 세션이 끊어집니다" 를 띄운다.
-
-    - tmux -CC (control mode) 는 xterm.js 와 프로토콜 불일치라 사용 안 함.
-    - start_path 가 주어지면 tmux -c 로 신규 세션 시작 디렉토리 지정. 기존 세션 재attach 시엔 무시됨(tmux 동작).
-    - window-size latest + 연결 직후 resize 메시지로 새 클라이언트 PTY 크기 즉시 적용.
-    - -d 없이 attach — 여러 기기 동시 접속 허용, 마지막 resize 를 보낸 클라이언트 크기로 동기화.
+    한쪽만 고치면 로컬 팬과 원격 팬의 휠·선택·상태바가 서로 다르게 동작한다.
     """
-    # 옛 호출부(그리고 옛 테스트)가 넘기던 bool 을 그대로 받아 준다.
-    if isinstance(multiplexer, bool):
-        choice = mux.TMUX if multiplexer else mux.NONE
-    else:
-        choice = mux.normalize(multiplexer)
-
-    if choice == mux.NONE:
-        return _plain_shell_command(start_path, create_session=create_session)
-    if choice == mux.HERDR:
-        return _build_herdr_command(
-            tmux_session, start_path, create_session=create_session
-        )
-    safe = shlex.quote(tmux_session or DEFAULT_REMOTE_TMUX_SESSION)
-    cwd_arg = f" -c {_shell_path(start_path)}" if start_path else ""
-    cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
-    # 콜드 스타트 첫 세션이 2000 에 묶이지 않도록 set-option -g 와 new-session 을 '한 번의
-    # tmux 호출'로 묶는다. 별도 프로세스로 나누면 set-option -g 가 no-op 되고 new-session 이
-    # 기본값으로 서버를 띄워 첫 pane 한도가 2000 으로 고정된다. `\;` 는 셸이 tmux 에 리터럴
-    # ";" 를 넘겨 tmux 명령 구분자로 쓰이게 한다.
-    create_clause = (
-        f"tmux has-session -t {safe} 2>/dev/null || "
-        f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} \\; "
-        f"new-session -d -s {safe}{cwd_arg}; "
-        if create_session
-        else (
-            f"tmux has-session -t {safe} 2>/dev/null || "
-            f"{{ printf '\\r\\n\\033[33m[session not found] refresh could not find "
-            f"{tmux_session}\\033[0m\\r\\n'; exit {TMUX_SESSION_GONE_EXIT}; }}; "
-        )
-    )
-    # 핵심: new-session 단계에서 stty size 로 PTY 차원 그대로 주입 → 80x24 기본 아래 시작 후
-    # attach 시 리사이즈하느라 prompt 가 안 그려지는 race 방지.
-    # mouse on — frontend 가 wheel/touch 를 SGR mouse 이벤트로 전달하고 tmux 가
-    # copy-mode 스크롤을 담당한다. plain drag 선택은 frontend 의 보정층에서 처리한다.
     return (
-        f"command -v tmux >/dev/null 2>&1 && {{ "
         # history-limit 은 new-session 보다 먼저 전역(-g)으로 걸어야 새 세션의 첫 pane 이 물려받는다.
         f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} >/dev/null 2>&1; "
-        f"{create_clause}"
-        # 기존 세션에도 세션 옵션으로 한 번 더 — 이 세션에서 새로 여는 window/pane 이 큰 한도를 받게 한다.
+                # 기존 세션에도 세션 옵션으로 한 번 더 — 이 세션에서 새로 여는 window/pane 이 큰 한도를 받게 한다.
         f"tmux set-option -t {safe} history-limit {REMOTE_HISTORY_LIMIT} >/dev/null 2>&1; "
         f"tmux set-option -t {safe} aggressive-resize on >/dev/null 2>&1; "
         f"tmux set-option -t {safe} mouse on >/dev/null 2>&1; "
@@ -269,9 +221,95 @@ def _build_remote_command(
         f"tmux bind-key -T root WheelDownPane "
         f"if-shell -F '#{{||:#{{pane_in_mode}},#{{mouse_any_flag}}}}' 'send-keys -M' '' >/dev/null 2>&1; "
         # copy-mode 안의 휠은 덮지 않는다 — tmux 기본이 이미 같다.
+        
+    )
+
+
+def _herdr_has_session(safe: str) -> str:
+    """herdr 가 이 이름을 잡고 있나 — 셸 조건식.
+
+    herdr 는 `--session` 이 생성과 접속을 겸해서 "있나?" 를 따로 물어야 한다.
+    이름은 JSON 안에 따옴표째 들어 있다.
+    """
+    return (
+        f"command -v herdr >/dev/null 2>&1 && "
+        f"herdr session list --json 2>/dev/null | grep -qF '\"'{safe}'\"'"
+    )
+
+
+def _build_remote_command(
+    multiplexer: str | bool,
+    tmux_session: str,
+    start_path: str | None = None,
+    *,
+    create_session: bool = True,
+) -> str | None:
+    """원격에서 실행할 명령 — **묻지 말고 찾는다.**
+
+    처음 판은 설정 하나로 tmux 냐 herdr 냐를 갈랐다. 그건 양자택일이라, 설정을 herdr 로
+    바꾸는 순간 그 호스트에 멀쩡히 살아 있는 tmux 세션에 못 붙고 같은 이름의 빈 herdr
+    세션이 새로 떴다(실제로 ubuntu-lab 에는 **같은 이름이 양쪽에 다** 있다).
+
+    지금은 한 번의 SSH 안에서 순서대로 본다 — 왕복은 늘지 않는다:
+
+      1. tmux 가 그 이름을 잡고 있나 → tmux 로 붙는다
+      2. herdr 가 잡고 있나          → herdr 로 붙는다
+      3. 아무도 없으면              → **설정된 것**으로 새로 만든다(그게 설정의 역할이다)
+
+    ⚠️ **겹치면 tmux 가 이긴다.** 전환기에 두 번 만들어진 이름이 그 모양이고, 그때 사람이
+    실제로 쓰던 쪽은 tmux 였다(herdr 쪽은 앱이 만들어만 두고 아무도 안 붙은 껍데기).
+
+    ⚠️ `none` 은 탐색하지 않는다 — 붙잡지 말라고 **일부러 고른 값**이라, 남아 있던 세션에
+    슬그머니 다시 붙으면 고른 뜻과 반대가 된다.
+
+    - tmux -CC (control mode) 는 xterm.js 와 프로토콜 불일치라 사용 안 함.
+    - window-size latest + 연결 직후 resize 메시지로 새 클라이언트 PTY 크기 즉시 적용.
+    - -d 없이 attach — 여러 기기 동시 접속 허용.
+    """
+    # 옛 호출부(그리고 옛 테스트)가 넘기던 bool 을 그대로 받아 준다.
+    if isinstance(multiplexer, bool):
+        choice = mux.TMUX if multiplexer else mux.NONE
+    else:
+        choice = mux.normalize(multiplexer)
+
+    if choice == mux.NONE:
+        return _plain_shell_command(start_path, create_session=create_session)
+
+    safe = shlex.quote(tmux_session or DEFAULT_REMOTE_TMUX_SESSION)
+    cwd_arg = f" -c {_shell_path(start_path)}" if start_path else ""
+    cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
+
+    # ── 3) 아무도 안 잡고 있을 때: 설정된 것으로 새로 ──
+    if not create_session:
+        create_branch = _gone_notice(f"refresh could not find {tmux_session}")
+    elif choice == mux.HERDR:
+        create_branch = (
+            f"command -v herdr >/dev/null 2>&1 && {{ {cd_prefix}exec herdr --session {safe}; }} "
+            f"|| {{ {cd_prefix}exec ${{SHELL:-bash}} -l; }}"
+        )
+    else:
+        # history-limit 은 new-session 보다 먼저 전역(-g)으로 걸어야 첫 pane 이 물려받는다.
+        # set-option 과 new-session 을 한 번의 tmux 호출로 묶어야 콜드 스타트에서도 적용된다.
+        create_branch = (
+            f"command -v tmux >/dev/null 2>&1 && {{ "
+            f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} \\; "
+            f"new-session -d -s {safe}{cwd_arg} >/dev/null 2>&1; "
+            f"{_tmux_session_options(safe)}"
+            f"exec tmux attach-session -t {safe}; }} "
+            f"|| {{ {cd_prefix}exec ${{SHELL:-bash}} -l; }}"
+        )
+
+    return (
+        f"{REMOTE_PATH_PREFIX}"
+        # ── 1) tmux 가 잡고 있나 ──
+        f"if command -v tmux >/dev/null 2>&1 && tmux has-session -t {safe} 2>/dev/null; then "
+        f"{_tmux_session_options(safe)}"
         f"exec tmux attach-session -t {safe}; "
-        f"}} || "
-        f"{cd_prefix}exec ${{SHELL:-bash}} -l"
+        # ── 2) herdr 가 잡고 있나 ──
+        f"elif {_herdr_has_session(safe)}; then "
+        f"{cd_prefix}exec herdr --session {safe}; "
+        # ── 3) 아무도 ──
+        f"else {create_branch}; fi"
     )
 
 

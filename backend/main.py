@@ -374,10 +374,20 @@ async def app_config():
     `tmux_socket` 은 비밀이 아니다 — 이 서버의 세션이 **어느 소켓에 있는지**이고,
     그걸 모르면 복사한 세션 이름으로 붙을 수가 없다(`tmux attach -t X` 는 기본 소켓을
     본다). 붙는 것은 여전히 그 머신의 셸 권한이 있어야 하는 일이다.
+
+    `itl_available` 은 팬 우상단의 **복사 핸들을 띄울지**를 정한다. 그 핸들은
+    `itl send 1.2 '…'` 인데, 받아서 붙여넣는 쪽 셸에 `itl` 이 없으면 그냥
+    `command not found` 다 — 없는 도구를 쓰라고 내미는 것이 이 저장소가 반복해서
+    피해 온 실수라, 이 서버에 깔려 있을 때만 내민다(도구 설치에서 깔 수 있다).
     """
+    import shutil
+
     from tmux_manager import TMUX_SOCKET_NAME
 
-    return {"tmux_socket": TMUX_SOCKET_NAME}
+    return {
+        "tmux_socket": TMUX_SOCKET_NAME,
+        "itl_available": shutil.which("itl") is not None,
+    }
 
 
 # ---------------------- 라우터 등록 ----------------------
