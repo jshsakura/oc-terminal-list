@@ -567,7 +567,7 @@ const TerminalHeader = ({
             <MenuBtn
               icon={RefreshCw}
               onClick={() => { closeRailMenu(); onRefreshTerminal(); }}
-              hint={t?.('refreshTerminalHint') || 'Redraws the screen. Nothing running is affected.'}
+              hint={t?.('refreshTerminalHint') || 'Redraws the screen'}
               ui={panelUi}
             >
               {t?.('refreshTerminal') || 'Reload terminal'}
@@ -580,7 +580,7 @@ const TerminalHeader = ({
             <MenuBtn
               icon={FolderPlus}
               onClick={() => { closeRailMenu(); onOpenTerminalAtFolder(paneCwd || ''); }}
-              hint={t?.('openTerminalHereHint') || 'Opens another terminal at this path. This one keeps running.'}
+              hint={t?.('openTerminalHereHint') || 'Another one here — this one keeps running'}
               ui={panelUi}
             >
               {t?.('openTerminalSamePath') || 'New terminal at this path'}
@@ -591,7 +591,7 @@ const TerminalHeader = ({
             <MenuBtn
               icon={FolderSymlink}
               onClick={() => { closeRailMenu(); onRestartSessionAtPath(); }}
-              hint={t?.('restartSessionAtPathHint') || 'Pick a folder, then reopen the shell there.'}
+              hint={t?.('restartSessionAtPathHint') || 'Fresh shell in a chosen folder'}
               ui={panelUi}
             >
               {t?.('restartSessionAtPath') || 'Restart at path…'}
@@ -604,7 +604,7 @@ const TerminalHeader = ({
             <MenuBtn
               icon={RotateCw}
               onClick={() => { closeRailMenu(); onRestartSession(); }}
-              hint={t?.('restartSessionHint') || 'Opens a fresh shell. Everything running here ends.'}
+              hint={t?.('restartSessionHint') || 'Fresh shell — running work ends'}
               ui={panelUi}
             >
               {t?.('restartSession') || 'Restart session'}
