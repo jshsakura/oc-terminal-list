@@ -23,6 +23,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 import multiplexer as mux
 import itl_key as itl_keys
+import remote_panes
 from itl_channel import SentinelScanner
 from vault import decrypt_str
 from ws_observe import log_client_error
@@ -100,6 +101,10 @@ def effective_tmux_session(base: str, pane_index: int = 0) -> str:
 # "설치되지 않음" 으로 읽고 조용히 평범한 셸로 떨어진다.
 REMOTE_PATH_PREFIX = 'PATH="$HOME/.local/bin:$PATH"; export PATH; '
 
+#: 원격 tmux 에 pane 주소를 새기는 데 허용하는 시간. 상태바 라벨 하나가 탭 상태 저장을
+#: 붙잡으면 안 된다 — 이 저장소의 모든 기다림에는 상한이 있다.
+PANE_ADDR_STAMP_TIMEOUT_SEC = 5.0
+
 
 def _gone_notice(detail: str) -> str:
     """세션이 없어서 못 붙는다고 알리고 약속된 코드로 죽는다.
@@ -158,7 +163,8 @@ def _build_herdr_command(
     )
 
 
-def _tmux_session_options(safe: str, itl_pane_key: str | None = None) -> str:
+def _tmux_session_options(safe: str, itl_pane_key: str | None = None,
+                          itl_pane_addr: str | None = None) -> str:
     """이 세션에 걸 tmux 옵션·바인딩 뭉치. **로컬 `tmux_manager` 와 한 벌이다.**
 
     한쪽만 고치면 로컬 팬과 원격 팬의 휠·선택·상태바가 서로 다르게 동작한다.
@@ -171,8 +177,15 @@ def _tmux_session_options(safe: str, itl_pane_key: str | None = None) -> str:
     if itl_pane_key:
         key_opt = (f"tmux set-option -t {safe} {itl_keys.KEY_OPTION} "
                    f"{shlex.quote(itl_pane_key)} >/dev/null 2>&1; ")
+    # 앱 주소(`1.2`)도 여기서 새긴다 — 이 명령은 어차피 나가므로 왕복이 늘지 않는다.
+    # 붙은 뒤 번호가 밀리면 `remote_panes` 가 살아 있는 연결로 다시 쓴다.
+    addr_opt = ""
+    if itl_pane_addr:
+        from pane_addr import ADDR_OPTION
+        addr_opt = (f"tmux set-option -t {safe} {ADDR_OPTION} "
+                    f"{shlex.quote(itl_pane_addr)} >/dev/null 2>&1; ")
     return (
-        f"{key_opt}"
+        f"{key_opt}{addr_opt}"
         # history-limit 은 new-session 보다 먼저 전역(-g)으로 걸어야 새 세션의 첫 pane 이 물려받는다.
         f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} >/dev/null 2>&1; "
                 # 기존 세션에도 세션 옵션으로 한 번 더 — 이 세션에서 새로 여는 window/pane 이 큰 한도를 받게 한다.
@@ -254,6 +267,7 @@ def _build_remote_command(
     *,
     create_session: bool = True,
     itl_pane_key: str | None = None,
+    itl_pane_addr: str | None = None,
 ) -> str | None:
     """원격에서 실행할 명령 — **묻지 말고 찾는다.**
 
@@ -305,7 +319,7 @@ def _build_remote_command(
             f"command -v tmux >/dev/null 2>&1 && {{ "
             f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} \\; "
             f"new-session -d -s {safe}{cwd_arg} >/dev/null 2>&1; "
-            f"{_tmux_session_options(safe, itl_pane_key)}"
+            f"{_tmux_session_options(safe, itl_pane_key, itl_pane_addr)}"
             f"exec tmux attach-session -t {safe}; }} "
             f"|| {{ {cd_prefix}exec ${{SHELL:-bash}} -l; }}"
         )
@@ -314,7 +328,7 @@ def _build_remote_command(
         f"{REMOTE_PATH_PREFIX}"
         # ── 1) tmux 가 잡고 있나 ──
         f"if command -v tmux >/dev/null 2>&1 && tmux has-session -t {safe} 2>/dev/null; then "
-        f"{_tmux_session_options(safe, itl_pane_key)}"
+        f"{_tmux_session_options(safe, itl_pane_key, itl_pane_addr)}"
         f"exec tmux attach-session -t {safe}; "
         # ── 2) herdr 가 잡고 있나 ──
         f"elif {_herdr_has_session(safe)}; then "
@@ -435,6 +449,7 @@ class HostBridge:
         default_multiplexer: str = mux.DEFAULT,
         app_user: str | None = None,
         itl_key: str | None = None,
+        pane_addr_hint: str | None = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -455,6 +470,10 @@ class HostBridge:
         # 두지 않기 위한 통로이므로, 앱 사용자를 모르면(=배달할 주소록이 없으면) 안 켠다.
         self.app_user = app_user
         self.itl_key = itl_key
+        # 이 pane 의 앱 주소(`탭.pane`). 라우트가 탭 상태에서 찾아 넘긴다 — 붙는 명령에
+        # 얹어 원격 tmux 에 새기고, 번호가 밀리면 `remote_panes` 가 다시 쓴다.
+        self.pane_addr_hint = (pane_addr_hint or "").strip()
+        self.tmux_session = ""
         self._itl_scanner = SentinelScanner() if app_user else None
         self.create_session = bool(create_session)
         self.conn: asyncssh.SSHClientConnection | None = None
@@ -471,6 +490,30 @@ class HostBridge:
             await deliver_from_pane(self.app_user, self.itl_key or "", msg)
         except Exception as e:  # noqa: BLE001
             logger.warning("itl dispatch failed (%s): %s", self.itl_key, e)
+
+    def _arm_pane_addr(self, tmux_session: str) -> str:
+        """이 pane 의 앱 주소(`1.2`) — 붙는 명령에 얹어 보낼 값.
+
+        갓 만든 pane 은 탭 상태에 아직 없어 빈 문자열이 나온다(클라이언트가 WS 를 먼저
+        연다). 그 경우는 곧 오는 `PUT /api/tab-state` 가 살아 있는 이 연결로 채운다.
+        """
+        import pane_addr as pane_addr_mod
+
+        host_id = str(self.host.get("id") or "")
+        # ⚠️ 라우트가 센 이름과 여기서 센 이름은 **같아야** 한다. 다르면 주소록(탭 상태)의
+        # 키와 우리가 새기는 세션이 어긋나 stamp 가 영영 안 걸리는데, 그건 아무것도 실패
+        # 시키지 않으므로 조용하다 — 그래서 로그로 시끄럽게 만든다.
+        if self.itl_key and self.itl_key != tmux_session:
+            logger.warning("pane addr: 세션 이름이 갈렸다 (route=%s bridge=%s)",
+                           self.itl_key, tmux_session)
+        self.tmux_session = tmux_session
+        addr = self.pane_addr_hint or ""
+        if host_id and tmux_session:
+            # 붙는 순간을 기준으로 캐시를 맞춰 둔다 — 새 세션은 옵션을 안 들고 뜨므로
+            # "이미 새겼다" 가 남아 있으면 영영 빈 주소가 된다.
+            pane_addr_mod.note_attached(host_id, tmux_session, addr)
+            remote_panes.register(host_id, tmux_session, self)
+        return addr
 
     def _arm_itl_key(self, tmux_session: str) -> str | None:
         """Derive this pane's marker key and give it to the scanner.
@@ -600,8 +643,10 @@ class HostBridge:
             or None
         )
         pane_key = self._arm_itl_key(tmux_session)
+        pane_addr = self._arm_pane_addr(tmux_session)
         cmd = _build_remote_command(choice, tmux_session, start_path,
-                                    create_session=self.create_session, itl_pane_key=pane_key)
+                                    create_session=self.create_session,
+                                    itl_pane_key=pane_key, itl_pane_addr=pane_addr)
 
         await self._warn_if_multiplexer_missing(choice)
 
@@ -784,7 +829,29 @@ class HostBridge:
             return
         await self.send_control('{"type":"session-gone"}')
 
+    async def stamp_pane_addr(self, addr: str) -> bool:
+        """살아 있는 이 SSH 연결로 원격 tmux 세션에 앱 주소를 새긴다.
+
+        새 채널 하나다 — 핸드셰이크도 인증도 없다(멀티플렉서 존재 확인이 이미 같은
+        길을 쓴다). ⚠️ 원격 herdr 세션이면 이 명령은 그냥 실패한다: herdr 에는 tmux
+        사용자 옵션이 없고 자기 리모트가 따로 있다 — **미지원이 결론이다.**
+        """
+        conn, session = self.conn, self.tmux_session
+        if conn is None or not session or not addr:
+            return False
+        from pane_addr import ADDR_OPTION
+        cmd = f"tmux set-option -t {shlex.quote(session)} {ADDR_OPTION} {shlex.quote(addr)}"
+        try:
+            # 상한 없는 기다림은 이 저장소의 반복된 사고다. 라벨 하나가 탭 상태 저장을
+            # 붙잡고 있으면 안 된다.
+            result = await asyncio.wait_for(conn.run(cmd, check=False),
+                                            timeout=PANE_ADDR_STAMP_TIMEOUT_SEC)
+        except Exception:                    # noqa: BLE001 — CancelledError 는 BaseException 이라 통과한다
+            return False
+        return (result.exit_status or 0) == 0
+
     async def _teardown(self) -> None:
+        remote_panes.unregister(str(self.host.get("id") or ""), self.tmux_session, self)
         try:
             if self.process is not None:
                 self.process.terminate()
@@ -825,6 +892,7 @@ class TailscaleHostBridge:
         default_multiplexer: str = mux.DEFAULT,
         app_user: str | None = None,
         itl_key: str | None = None,
+        pane_addr_hint: str | None = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -841,6 +909,10 @@ class TailscaleHostBridge:
         # 두지 않기 위한 통로이므로, 앱 사용자를 모르면(=배달할 주소록이 없으면) 안 켠다.
         self.app_user = app_user
         self.itl_key = itl_key
+        # 이 pane 의 앱 주소(`탭.pane`). 라우트가 탭 상태에서 찾아 넘긴다 — 붙는 명령에
+        # 얹어 원격 tmux 에 새기고, 번호가 밀리면 `remote_panes` 가 다시 쓴다.
+        self.pane_addr_hint = (pane_addr_hint or "").strip()
+        self.tmux_session = ""
         self._itl_scanner = SentinelScanner() if app_user else None
         self.create_session = bool(create_session)
         self.process: ptyprocess.PtyProcess | None = None
@@ -856,6 +928,30 @@ class TailscaleHostBridge:
             await deliver_from_pane(self.app_user, self.itl_key or "", msg)
         except Exception as e:  # noqa: BLE001
             logger.warning("itl dispatch failed (%s): %s", self.itl_key, e)
+
+    def _arm_pane_addr(self, tmux_session: str) -> str:
+        """이 pane 의 앱 주소(`1.2`) — 붙는 명령에 얹어 보낼 값.
+
+        갓 만든 pane 은 탭 상태에 아직 없어 빈 문자열이 나온다(클라이언트가 WS 를 먼저
+        연다). 그 경우는 곧 오는 `PUT /api/tab-state` 가 살아 있는 이 연결로 채운다.
+        """
+        import pane_addr as pane_addr_mod
+
+        host_id = str(self.host.get("id") or "")
+        # ⚠️ 라우트가 센 이름과 여기서 센 이름은 **같아야** 한다. 다르면 주소록(탭 상태)의
+        # 키와 우리가 새기는 세션이 어긋나 stamp 가 영영 안 걸리는데, 그건 아무것도 실패
+        # 시키지 않으므로 조용하다 — 그래서 로그로 시끄럽게 만든다.
+        if self.itl_key and self.itl_key != tmux_session:
+            logger.warning("pane addr: 세션 이름이 갈렸다 (route=%s bridge=%s)",
+                           self.itl_key, tmux_session)
+        self.tmux_session = tmux_session
+        addr = self.pane_addr_hint or ""
+        if host_id and tmux_session:
+            # 붙는 순간을 기준으로 캐시를 맞춰 둔다 — 새 세션은 옵션을 안 들고 뜨므로
+            # "이미 새겼다" 가 남아 있으면 영영 빈 주소가 된다.
+            pane_addr_mod.note_attached(host_id, tmux_session, addr)
+            remote_panes.register(host_id, tmux_session, self)
+        return addr
 
     def _arm_itl_key(self, tmux_session: str) -> str | None:
         """Derive this pane's marker key and give it to the scanner.
@@ -899,8 +995,10 @@ class TailscaleHostBridge:
             or None
         )
         pane_key = self._arm_itl_key(tmux_session)
+        pane_addr = self._arm_pane_addr(tmux_session)
         cmd = _build_remote_command(choice, tmux_session, start_path,
-                                    create_session=self.create_session, itl_pane_key=pane_key)
+                                    create_session=self.create_session,
+                                    itl_pane_key=pane_key, itl_pane_addr=pane_addr)
         argv = ["tailscale", "ssh", "-t", target]
         if cmd:
             argv.append(cmd)
@@ -1120,12 +1218,23 @@ class TailscaleHostBridge:
                     await t
                 except (asyncio.CancelledError, Exception):
                     pass
+            remote_panes.unregister(str(self.host.get("id") or ""), self.tmux_session, self)
             await self._notify_if_session_gone()
             try:
                 if self.process and self.process.isalive():
                     self.process.terminate(force=True)
             except Exception:
                 pass
+
+    async def stamp_pane_addr(self, addr: str) -> bool:
+        """언제나 False — **이 전송에는 재사용할 채널이 없다.**
+
+        이 브리지는 `tailscale ssh` 를 PTY 프로세스로 띄운다. asyncssh 연결이 없으니
+        명령 하나를 더 돌리려면 SSH 를 통째로 새로 열어야 하고, 그 값은 상태바 라벨
+        하나가 치를 값이 아니다. 붙을 때 새긴 주소로 살고, 번호가 밀리면 다음 attach
+        까지 낡아 있다. **모르는 것을 아는 척 채우지 않는다.**
+        """
+        return False
 
     async def _notify_if_session_gone(self) -> None:
         """HostBridge._notify_if_session_gone 과 동일 — ptyprocess 는 isalive() 가

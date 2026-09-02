@@ -168,7 +168,7 @@ async def lifespan(_app: FastAPI):
             if _admin and _admin.get("username"):
                 _st = await storage.get_tab_state(_admin["username"])
                 if _st:
-                    await pane_addr.stamp_local_addresses(_st.get("tabs") or [])
+                    await pane_addr.stamp_addresses(_st.get("tabs") or [])
         except Exception:
             logger.debug("pane addr stamp (startup) 실패", exc_info=True)
         # status off 시절에 서버 전역으로 풀어 둔 좌클릭을 되살린다(unbind 는 남는다).

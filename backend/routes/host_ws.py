@@ -135,6 +135,16 @@ async def host_websocket(
         await websocket.close(code=1000)
         return
 
+    # 이 pane 의 앱 주소(`1.2`). 붙는 명령에 얹어 원격 tmux 에 새긴다 — 그래야 그 안의
+    # 에이전트가 `itl whoami` 로 자기 주소를 말할 수 있다. 갓 만든 pane 은 탭 상태에 아직
+    # 없어 빈 값이고, 그건 곧 오는 `PUT /api/tab-state` 가 살아 있는 연결로 채운다.
+    try:
+        import pane_addr
+        pane_addr_hint = await pane_addr.remote_address_for(
+            username, host_id, target_tmux_session)
+    except Exception:                                    # noqa: BLE001
+        pane_addr_hint = ""          # 라벨 하나가 연결을 막으면 안 된다
+
     if host.get("auth_method") == "tailscale":
         from host_manager import TailscaleHostBridge
         bridge = TailscaleHostBridge(
@@ -152,6 +162,7 @@ async def host_websocket(
             # (itl_router.native_addr 와 **같은 값**이어야 배달이 자기 자신을 찾는다).
             app_user=username,
             itl_key=target_tmux_session,
+            pane_addr_hint=pane_addr_hint,
         )
     else:
         bridge = HostBridge(
@@ -172,6 +183,7 @@ async def host_websocket(
             # (itl_router.native_addr 와 **같은 값**이어야 배달이 자기 자신을 찾는다).
             app_user=username,
             itl_key=target_tmux_session,
+            pane_addr_hint=pane_addr_hint,
         )
     opened_at = time.monotonic()
     log_attach(
