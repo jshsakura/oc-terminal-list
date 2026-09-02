@@ -1175,6 +1175,8 @@ export const en = {
     toolDescription: 'Description (optional)',
     toolUrl: 'Link (optional)',
     toolCheckFailed: 'Could not check what is installed',
+    toolOutdated: 'Outdated',
+    toolUpdate: 'Update',
     toolPush: 'Install',
     toolUnpush: 'Remove',
     toolPushing: 'Installing…',

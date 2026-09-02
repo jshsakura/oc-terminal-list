@@ -130,3 +130,40 @@ def test_local_tool_installed_looks_in_local_bin(tmp_path, monkeypatch):
     (tmp_path / ".local" / "bin").mkdir(parents=True)
     (tmp_path / ".local" / "bin" / "itl").write_text("x")
     assert host_tools.local_tool_installed("itl")
+
+
+# ─── 설치본이 낡았는지 ─────────────────────────────────────────────────────────
+
+def test_itl_probe_reports_a_fingerprint_without_running_it():
+    """⚠️ 확인 명령은 그 도구를 실행하면 안 된다(규칙 2). 읽기만 한다."""
+    itl = next(t for t in host_tools.builtin_tools() if t["id"] == "itl")
+    check = itl["check_command"]
+    assert check.startswith("command -v itl")
+    assert "sha256sum" in check and "fp=" in check
+    assert "itl --version" not in check and "itl -v" not in check
+
+
+def test_expected_fingerprint_matches_the_shipped_file():
+    import hashlib
+    expected = hashlib.sha256(host_tools.push_source("itl").encode("utf-8")).hexdigest()
+    assert host_tools.expected_fingerprint("itl") == expected
+    assert host_tools.expected_fingerprint("herdr") == ""      # 밀기 대상이 아니다
+
+
+def test_outdated_is_none_when_the_fingerprint_could_not_be_read():
+    """모르면 "최신" 이 아니라 **모름** 이다 — 최신으로 그리면 갱신할 이유를 못 본다."""
+    assert host_tools.is_outdated("itl", "/home/u/.local/bin/itl") is None
+    assert host_tools.is_outdated("itl", None) is None
+    assert host_tools.is_outdated("herdr", "fp=" + "0" * 64) is None
+
+
+def test_outdated_compares_against_what_we_would_push():
+    same = "fp=" + host_tools.expected_fingerprint("itl")
+    assert host_tools.is_outdated("itl", same) is False
+    assert host_tools.is_outdated("itl", "fp=" + "0" * 64) is True
+
+
+def test_fingerprint_is_read_out_of_a_noisy_detail():
+    fp = host_tools.expected_fingerprint("itl")
+    assert host_tools.fingerprint_in(f"/home/u/.local/bin/itl fp={fp} 기타") == fp
+    assert host_tools.fingerprint_in("fp=너무짧음") == ""

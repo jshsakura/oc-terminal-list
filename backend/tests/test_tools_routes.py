@@ -124,3 +124,46 @@ async def test_install_and_uninstall_on_this_server(tmp_path, monkeypatch):
 def test_push_routes_do_not_shadow_check():
     paths = [r.path for r in tools_route.router.routes]
     assert paths.index("/api/tools/check") < paths.index("/api/tools/{tool_id}/install")
+
+
+@pytest.mark.anyio
+async def test_check_flags_a_stale_installed_copy():
+    """"설치됨" 만 보이면 낡았는지 알 길이 없다 — 실제 신고였다."""
+    def _reply(script: str) -> str:
+        marker = re.search(r"@@TOOL[0-9a-f]+", script).group(0)
+        return f"{marker} itl\n{marker} ok\n/home/u/.local/bin/itl fp={'0' * 64}\n"
+
+    with patch.object(tools_route.storage, "list_tools", AsyncMock(return_value=[])), \
+         patch.object(tools_route.host_tools, "run_local_script",
+                      AsyncMock(side_effect=lambda script, timeout=0: _reply(script))):
+        out = await tools_route.check_tools(tools_route.CheckBody(), username="u")
+    assert out["results"]["itl"]["installed"] is True
+    assert out["results"]["itl"]["outdated"] is True
+
+
+@pytest.mark.anyio
+async def test_check_says_unknown_when_the_fingerprint_is_missing():
+    """지문을 못 읽는 기계가 있다. 그때 "최신" 으로 그리면 갱신할 이유를 못 본다."""
+    def _reply(script: str) -> str:
+        marker = re.search(r"@@TOOL[0-9a-f]+", script).group(0)
+        return f"{marker} itl\n{marker} ok\n/home/u/.local/bin/itl\n"
+
+    with patch.object(tools_route.storage, "list_tools", AsyncMock(return_value=[])), \
+         patch.object(tools_route.host_tools, "run_local_script",
+                      AsyncMock(side_effect=lambda script, timeout=0: _reply(script))):
+        out = await tools_route.check_tools(tools_route.CheckBody(), username="u")
+    assert out["results"]["itl"]["outdated"] is None
+
+
+@pytest.mark.anyio
+async def test_not_installed_is_never_flagged_outdated():
+    def _reply(script: str) -> str:
+        marker = re.search(r"@@TOOL[0-9a-f]+", script).group(0)
+        return f"{marker} itl\n{marker} no\n\n"
+
+    with patch.object(tools_route.storage, "list_tools", AsyncMock(return_value=[])), \
+         patch.object(tools_route.host_tools, "run_local_script",
+                      AsyncMock(side_effect=lambda script, timeout=0: _reply(script))):
+        out = await tools_route.check_tools(tools_route.CheckBody(), username="u")
+    assert out["results"]["itl"]["installed"] is False
+    assert "outdated" not in out["results"]["itl"]

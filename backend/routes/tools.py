@@ -108,10 +108,15 @@ async def check_tools(body: CheckBody, username: str = Depends(verify_auth_token
         error = str(e)[:200]
 
     parsed = host_tools.parse_check_output(raw, marker)
-    results = {
-        tool["id"]: parsed.get(tool["id"], {"installed": None, "detail": ""})
-        for tool in tools
-    }
+    results = {}
+    for tool in tools:
+        state = dict(parsed.get(tool["id"], {"installed": None, "detail": ""}))
+        # 밀어 넣는 도구는 **설치본이 낡을 수 있다.** 배달 경로는 매번 현재 파일을 밀지만
+        # 설치본은 그때 그 판본이라, "설치됨" 만 보이면 갱신할 이유를 영영 못 본다.
+        # 모르면 None 으로 남긴다 — 지문을 못 읽는 기계가 실제로 있다.
+        if state.get("installed") and host_tools.is_pushable(tool["id"]):
+            state["outdated"] = host_tools.is_outdated(tool["id"], state.get("detail"))
+        results[tool["id"]] = state
     return {"host_id": host_id, "results": results, "error": error}
 
 

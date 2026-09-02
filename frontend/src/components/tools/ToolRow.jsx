@@ -1,4 +1,4 @@
-import { Check, CircleHelp, Download, Pencil, Trash2, ExternalLink, Copy, Loader2 } from 'lucide-react';
+import { Check, CircleHelp, Download, Pencil, Trash2, ExternalLink, Copy, Loader2, RefreshCw } from 'lucide-react';
 import Button from '../common/Button';
 import { tokens } from '../../styles/tokens';
 import { toolsStyles as styles } from './toolsStyles';
@@ -12,8 +12,19 @@ const { color } = tokens;
  * 실행하는 것이다. 무엇이 실행될지 안 보이면 그건 신뢰해 달라는 요구인데, 이 앱은 그걸
  * 요구할 처지도 이유도 없다 — 어차피 사용자가 터미널에서 직접 확인하고 엔터를 누른다.
  */
-const StatusChip = ({ installed, detail, t }) => {
+const StatusChip = ({ installed, detail, outdated, t }) => {
   if (installed === true) {
+    /* ⚠️ **"설치됨" 만으로는 낡았는지 알 수 없다.** 배달 경로는 매번 현재 파일을 밀지만
+       설치본은 그때 그 판본이라, 새 기능이 안 되는데 화면은 초록불이었다(실제 신고).
+       `outdated` 가 null 이면 **모르는 것**이라 초록불 그대로 둔다. */
+    if (outdated === true) {
+      return (
+        <span style={{ ...styles.chip, color: color.warning }} title={detail || ''}>
+          <RefreshCw size={11} strokeWidth={2.2} />
+          {t?.('toolOutdated') || '옛 버전'}
+        </span>
+      );
+    }
     return (
       <span style={{ ...styles.chip, color: color.success }} title={detail || ''}>
         <Check size={11} strokeWidth={2.4} />
@@ -42,10 +53,15 @@ const StatusChip = ({ installed, detail, t }) => {
  */
 const PushActions = ({ state, busy, onPush, onUnpush, t }) => (
   <>
-    {state?.installed !== true && (
+    {/* 낡았으면 **덮어쓰는 것이 할 일**이라 같은 버튼을 이름만 바꿔 내민다. */}
+    {(state?.installed !== true || state?.outdated === true) && (
       <Button variant="primary" size="small" type="button" icon={busy ? Loader2 : Download}
         disabled={busy} onClick={onPush}>
-        {busy ? (t?.('toolPushing') || '설치 중…') : (t?.('toolPush') || '설치')}
+        {busy
+          ? (t?.('toolPushing') || '설치 중…')
+          : (state?.outdated === true
+            ? (t?.('toolUpdate') || '업데이트')
+            : (t?.('toolPush') || '설치'))}
       </Button>
     )}
     {state?.installed !== false && (
@@ -83,7 +99,8 @@ const ToolRow = ({
         </a>
       )}
       <span style={styles.spacer} />
-      <StatusChip installed={state?.installed} detail={state?.detail} t={t} />
+      <StatusChip installed={state?.installed} detail={state?.detail}
+        outdated={state?.outdated} t={t} />
     </div>
 
     {tool.description && <div style={styles.desc}>{tool.description}</div>}

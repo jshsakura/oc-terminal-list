@@ -1180,6 +1180,8 @@ export const ko = {
     toolDescription: '설명 (선택)',
     toolUrl: '링크 (선택)',
     toolCheckFailed: '설치 여부를 확인하지 못했습니다',
+    toolOutdated: '옛 버전',
+    toolUpdate: '업데이트',
     toolPush: '설치',
     toolUnpush: '제거',
     toolPushing: '설치 중…',

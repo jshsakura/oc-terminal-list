@@ -26,6 +26,8 @@ Three rules hold this together:
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import re
 import secrets
 import shlex
 from pathlib import Path
@@ -43,6 +45,9 @@ MAX_DETAIL = 200
 # this repo already lost an afternoon to that with its own CLI — so the probe puts it back
 # rather than asking the user to fix their rc files.
 PROBE_PATH_PREFIX = 'PATH="$HOME/.local/bin:$PATH"; export PATH'
+
+#: 확인 출력에 실리는 설치본 지문.
+_FP_RE = re.compile(r"fp=([0-9a-f]{64})")
 
 BUILTIN_TOOLS: tuple[dict, ...] = (
     {
@@ -99,7 +104,13 @@ BUILTIN_TOOLS: tuple[dict, ...] = (
             "다른 탭의 에이전트에게 지시합니다(다른 기계여도). 파일 하나라 언제든 지울 수 있습니다."
         ),
         "url": "",
-        "check_command": "command -v itl",
+        # ⚠️ 확인 명령은 그 도구를 **실행하지 않는다**(이 파일 머리말의 규칙 2). `command -v`
+        # 로 자리만 찾고, 그 파일의 지문을 따로 찍는다 — 실행이 아니라 읽기다.
+        # 지문이 없으면 "설치됨" 만 보이고 **낡았는지 알 길이 없다**(실제 신고).
+        "check_command": (
+            'command -v itl && { p=$(command -v itl); '
+            'printf "fp=%s\n" "$(sha256sum "$p" 2>/dev/null | cut -c1-64)"; }'
+        ),
         "install_command": "",
         "install_kind": "push",
         "install_path": "~/.local/bin/itl",
@@ -147,6 +158,32 @@ def remove_script(tool_id: str) -> str:
 
 def install_path(tool_id: str) -> str:
     return f"~/.local/bin/{tool_id}"
+
+
+def expected_fingerprint(tool_id: str) -> str:
+    """지금 이 백엔드가 밀어 넣을 파일의 지문(sha256). 밀기 대상이 아니면 빈 문자열."""
+    if not is_pushable(tool_id):
+        return ""
+    return hashlib.sha256(push_source(tool_id).encode("utf-8")).hexdigest()
+
+
+def fingerprint_in(detail: str | None) -> str:
+    """확인 출력에서 `fp=<sha256>` 을 뽑는다. 없으면 빈 문자열 = **모른다**."""
+    m = _FP_RE.search(detail or "")
+    return m.group(1) if m else ""
+
+
+def is_outdated(tool_id: str, detail: str | None) -> bool | None:
+    """설치본이 낡았나. **모르면 None** — "최신" 으로 그리면 갱신할 이유를 못 본다.
+
+    지문을 못 읽는 경우가 실제로 있다(`sha256sum` 이 없는 기계, 권한). 그때는 모른다고
+    적는 것이 이 저장소의 규칙이다(`installed: None` 과 같은 이유).
+    """
+    expected = expected_fingerprint(tool_id)
+    found = fingerprint_in(detail)
+    if not expected or not found:
+        return None
+    return found != expected
 
 
 def local_tool_installed(tool_id: str) -> bool:
