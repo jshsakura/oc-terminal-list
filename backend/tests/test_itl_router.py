@@ -354,3 +354,70 @@ class TestDeliverFromPane:
             patch.object(itl_router, "_run_local", AsyncMock(side_effect=RuntimeError("boom"))),
         ):
             await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x"})
+
+
+class TestSuccessAck:
+    """침묵이 두 가지를 뜻하면 안 된다 — 잘 갔거나, 표식이 안 주워졌거나.
+
+    표식 통로는 한 방향이라 보낸 쪽은 그 둘을 스스로 구별할 수 없다. 그게 이 기능의
+    첫 신고("전달됐는지 확인할 방법이 없다")였다.
+    """
+
+    async def test_전달되면_보낸_팬에_알린다(self):
+        sent: list[list[str]] = []
+
+        async def fake_local(args):
+            sent.append(args)
+            return ""
+
+        with (
+            patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
+            patch.object(itl_router, "_run_local", fake_local),
+        ):
+            await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "보고"})
+        assert len(sent) == 2
+        assert "전달됨" in sent[1][2] and sent[1][1] == "sess-a"
+
+    async def test_통지는_엔터를_치지_않는다(self):
+        sent: list[list[str]] = []
+
+        async def fake_local(args):
+            sent.append(args)
+            return ""
+
+        with (
+            patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
+            patch.object(itl_router, "_run_local", fake_local),
+        ):
+            await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x"})
+        assert sent[1][-1] == "--no-enter"
+
+    async def test_주소록에_없는_팬이면_알릴_곳이_없다(self):
+        sent: list[list[str]] = []
+
+        async def fake_local(args):
+            sent.append(args)
+            return ""
+
+        with (
+            patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
+            patch.object(itl_router, "_run_local", fake_local),
+        ):
+            await itl_router.deliver_from_pane("u", "모르는세션", {"to": "1.1", "text": "x"})
+        assert len(sent) == 1          # 배달만 되고 통지는 없다
+
+    async def test_통지가_실패해도_배달은_성공이다(self):
+        calls = {"n": 0}
+
+        async def fake_local(args):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("보낸 팬이 방금 닫혔다")
+            return ""
+
+        with (
+            patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
+            patch.object(itl_router, "_run_local", fake_local),
+        ):
+            await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x"})
+        assert calls["n"] == 2         # 던지지 않는다

@@ -194,12 +194,32 @@ async def deliver_from_pane(username: str, sender_key: str, msg: dict) -> None:
     sender = next((t["addr"] for t in targets if native_addr(t) == sender_key), "")
     try:
         await deliver(username, msg["to"], msg["text"], sender=sender)
+        await _ack_ok(username, sender, msg.get("to", ""))
     except DeliveryFailed as e:
         # 조용히 성공한 척하지 않는다 — 보낸 에이전트는 상대가 받았다고 믿는다.
         logger.warning("itl 배달 실패 (%s → %s): %s", sender or "-", msg.get("to"), e)
         await _ack_failure(username, sender, msg.get("to", ""), str(e))
     except Exception as e:  # noqa: BLE001 — 한 번의 배달 실패가 브리지를 죽이면 안 된다
         logger.warning("itl 배달 예외 (%s → %s): %s", sender or "-", msg.get("to"), e)
+
+
+async def _ack_ok(username: str, sender: str, to: str) -> None:
+    """보낸 팬에게 **전달됐다고** 알린다.
+
+    ⚠️ 이게 없으면 침묵이 두 가지를 뜻한다: 잘 갔거나, 표식이 아예 안 주워졌거나.
+    표식 통로는 한 방향(팬 → 백엔드)이라 보낸 쪽은 그 둘을 구별할 방법이 없다 —
+    실제로 "전달됐는지 확인할 방법이 없다" 가 이 기능의 첫 신고였다.
+
+    실패 통지와 **같은 규칙**이다: 타이핑만 하고 제출하지 않는다(`submit=False`).
+    고리가 안 생기는 이유도 같다 — 이 배달은 `deliver` 를 직접 부르므로 스캐너를
+    거치지 않고, 이 문구에는 표식이 없다.
+    """
+    if not ADDR_RE.match((sender or "").strip()) or not ADDR_RE.match((to or "").strip()):
+        return
+    try:
+        await deliver(username, sender, f"[itl] {to} 로 전달됨", submit=False)
+    except Exception as e:  # noqa: BLE001 — 통지 실패가 배달 성공을 뒤집지는 않는다
+        logger.info("itl 성공 통지 실패 (%s): %s", sender, e)
 
 
 async def _ack_failure(username: str, sender: str, to: str, why: str) -> None:
