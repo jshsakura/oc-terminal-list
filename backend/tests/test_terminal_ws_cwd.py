@@ -51,7 +51,8 @@ class _FakeWS:
         self.sent_text.append(text)
 
 
-async def _connect(choice: str, *, cwd: str | None, create: bool = True, holder=None):
+async def _connect(choice: str, *, cwd: str | None, create: bool = True, holder=None,
+                   multiplexer: str | None = None):
     """WS 라우트를 한 번 태우고, bridge 가 받은 생성 인자를 돌려준다.
 
     실제 PTY 는 띄우지 않는다 — `run()` 이 바로 끝나는 가짜 bridge 를 꽂는다.
@@ -96,6 +97,7 @@ async def _connect(choice: str, *, cwd: str | None, create: bool = True, holder=
             rows=24,
             cwd=cwd,
             shell=None,
+            multiplexer=multiplexer,
             create=create,
             reason="initial",
             prev_ms=None,
@@ -170,3 +172,29 @@ class TestSpawnCwd:
 def test_워크스페이스_루트가_홈과_다른_배포에서만_의미가_있다():
     """이 저장소의 기본 배포가 그렇다 — 둘이 같으면 위 회귀를 애초에 못 봤다."""
     assert isinstance(WORKSPACE_ROOT, str) and WORKSPACE_ROOT
+
+
+class TestPerOpenMultiplexer:
+    """폴더 픽커에서 이 pane 만 다른 것으로 열 수 있다 — **만들 때만** 쓰이는 값이다.
+
+    bridge 가 `cwd` 를 받았는지가 곧 증거다: tmux 는 세션을 만들 때 `-c` 로 받으므로
+    bridge 에 안 넘어가고, herdr·none 만 bridge 가 직접 띄우며 받는다.
+    """
+
+    async def test_고른_것이_전역_설정을_대신한다(self, workspace_dir):
+        _ws, kwargs = await _connect("tmux", cwd=None, multiplexer="none")
+        assert kwargs["cwd"] is not None
+
+    async def test_이미_붙잡고_있는_쪽이_고른_것을_이긴다(self, workspace_dir):
+        """살아 있는 세션에 다른 멀티플렉서로 붙으려 들면 빈 세션이 새로 뜬다."""
+        _ws, kwargs = await _connect("none", cwd=None, holder="tmux", multiplexer="none")
+        assert kwargs["cwd"] is None
+
+    async def test_모르는_값은_기본으로_접힌다(self, workspace_dir):
+        """쿼리는 클라이언트가 준 값이다 — 화이트리스트 밖은 조용히 기본(tmux)으로."""
+        _ws, kwargs = await _connect("none", cwd=None, multiplexer="; rm -rf /")
+        assert kwargs["cwd"] is None
+
+    async def test_안_고르면_설정을_따른다(self, workspace_dir):
+        _ws, kwargs = await _connect("none", cwd=None, multiplexer=None)
+        assert kwargs["cwd"] is not None

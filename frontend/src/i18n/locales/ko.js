@@ -1187,5 +1187,8 @@ export const ko = {
     toolPushHint: '파일 하나를 이 자리에 놓습니다. 제거하면 그 파일만 지웁니다.',
     toolActionFailed: '설치/제거에 실패했습니다',
     toolsFootPush: 'itl 은 파일 하나라 이 화면에서 바로 놓고 지웁니다.',
+    moreActions: '더보기',
+    openTerminalSamePath: '같은 경로로 새 터미널 열기',
+    openTerminalHereHint: '이 경로에서 터미널을 하나 더 엽니다. 지금 이 터미널은 그대로입니다.',
     toolsFoot: '설치는 선택한 기계의 터미널을 새로 열어 명령을 붙여 넣습니다. 무엇이 실행될지 보고 직접 엔터를 누르세요.',
 };

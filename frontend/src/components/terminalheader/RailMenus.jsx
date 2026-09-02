@@ -58,7 +58,10 @@ const RailSubMenu = ({ anchor, ui, isMobile = false, onClose, t, children }) => 
         left: pos.x,
         ...glassMenuStyle(ui),
         zIndex: 200000,
-        minWidth: '160px',
+        /* ⚠️ 160px 이던 시절 설명 줄이 세 줄씩 접혔다("셸을 끄고 새로 엽니다. / 여기서
+           실행 중이던 작업은 / 모두 종료됩니다."). 헷갈리면 사고가 나는 자리라 설명을
+           붙였는데, 그 설명이 읽기 어려우면 붙인 뜻이 없다. 높이·여백은 그대로 둔다. */
+        minWidth: '214px',
         fontFamily: font.sans,
         opacity: measured ? 1 : 0,
         transition: 'opacity 120ms',

@@ -45,6 +45,11 @@ async def terminal_websocket(
     rows: int = Query(24),
     cwd: str | None = Query(None),
     shell: str | None = Query(None),
+    multiplexer: str | None = Query(
+        None,
+        description="이 세션을 **새로 만들 때만** 쓰는 선택(tmux/herdr/none). 이미 살아 있는 "
+                    "세션에는 붙잡고 있는 쪽이 이긴다. 비우면 사용자 설정을 따른다.",
+    ),
     create: bool = Query(True, description="false면 없는 tmux 세션을 새로 만들지 않고 연결만 시도"),
     reason: str | None = Query(None, description="클라이언트가 이 연결을 연 사유(관측 전용, ws_observe 참고)"),
     prev_ms: int | None = Query(None, description="직전 소켓이 살아있던 시간(ms). 요동과 단발 끊김을 구별한다."),
@@ -84,7 +89,14 @@ async def terminal_websocket(
     # herdr 로 바꾼 순간 멀쩡히 살아 있는 tmux 세션에 못 붙고 빈 herdr 세션이 새로 뜬다
     # (그게 "양자택일" 이 되는 자리였다).
     holder = await local_mux.holder_of(session_id)
-    choice = holder or await local_mux.choice_for(username)
+    # 폴더를 고를 때 이 pane 만 다른 것으로 열 수 있다(경로 픽커의 "터미널" 칸). 그 값은
+    # **만들 때만** 쓴다 — 이미 살아 있는 세션에는 위의 holder 가 이기고, 그래서 나중에
+    # 전역 설정을 바꿔도 이 pane 은 자기를 붙잡고 있는 쪽으로 계속 붙는다.
+    # ⚠️ 여기서 고른 것이 무엇이든 `live_session_names()` 는 tmux·herdr **둘 다** 묻는다.
+    # 한쪽만 물으면 이렇게 만든 세션이 탭 sanitize 에서 죽은 것으로 읽혀 레이아웃이 통째로
+    # 날아간다 — 그 합집합이 이 기능의 전제다.
+    picked = mux.normalize(multiplexer) if isinstance(multiplexer, str) and multiplexer else None
+    choice = holder or picked or await local_mux.choice_for(username)
 
     # **고른 경로는 무엇이 붙잡든 지켜진다.** tmux 는 세션을 만들 때 `-c` 로 받지만(아래),
     # herdr·none 은 이 파일의 bridge 가 프로세스를 직접 띄운다. 여기서 안 넘기면 bridge 의

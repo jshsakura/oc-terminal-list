@@ -4,6 +4,7 @@ import {
   Link2, BarChart3, ScreenShare, RefreshCw, Activity,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import CardActionsMenu from './home/CardActionsMenu';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import FleetBoard from './home/FleetBoard';
@@ -325,6 +326,7 @@ const HomeDashboard = ({
                 openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
                 onOpenTools={onOpenTools ? () => onOpenTools(null) : null}
                 openToolsTitle={t?.('tools') || '도구 설치'}
+                moreTitle={t?.('moreActions') || '더보기'}
               />
             )}
 
@@ -362,6 +364,7 @@ const HomeDashboard = ({
                   openVncTitle={t?.('remoteDesktop') || 'Remote desktop'}
                   onOpenTools={onOpenTools ? () => onOpenTools(host) : null}
                   openToolsTitle={t?.('tools') || '도구 설치'}
+                  moreTitle={t?.('moreActions') || '더보기'}
                 />
               );
             })}
@@ -442,6 +445,7 @@ export const HostRow = memo(({
   onPickPath, pickPathTitle,
   onOpenVnc, openVncTitle,
   onOpenTools, openToolsTitle,
+  moreTitle,
   // useHostReorder.rowPropsFor 가 spread 로 보내는 것들: data-host-row, onPointerDown, isDragging, isDragOver.
   ...rest
 }) => (
@@ -491,29 +495,27 @@ export const HostRow = memo(({
 
     {/* ⚠️ 액션 줄은 **모든 카드에서 같은 자리**여야 한다. 칩이 있는 카드만 아래로
         내렸더니 카드마다 버튼 높이가 달라져 줄이 안 맞았다. 칩은 절대배치라 겹치지
-        않는다 — 호스트 카드는 세 줄이라 우상단에 자리가 남는다. */}
+        않는다 — 호스트 카드는 세 줄이라 우상단에 자리가 남는다.
+
+        ⚠️ **아이콘은 두 개까지다.** 넷이던 시절 이 줄이 116px 을 늘 차지했고, 카드 폭이
+        330px 남짓이라 이름과 시작 경로에 130px 밖에 안 남았다. 게다가 폰에는 hover 가
+        없어 `title` 툴팁이 영영 안 뜬다 — 그림 넷은 **폰에서 아무 설명도 없는 그림 넷**
+        이었다. 자주 쓰는 폴더 버튼만 남기고 나머지는 이름이 붙는 `…` 안으로 넣는다. */}
     {(onPickPath || onEdit || onOpenVnc || onOpenTools) && (
       <div style={styles.actions} onClick={(e) => e.stopPropagation()}>
-        {onOpenTools && (
-          <RowBtn onClick={(e) => { e.stopPropagation(); onOpenTools(); }} title={openToolsTitle}>
-            <Package size={13} strokeWidth={1.8} />
-          </RowBtn>
-        )}
-        {onOpenVnc && (
-          <RowBtn onClick={(e) => { e.stopPropagation(); onOpenVnc(); }} title={openVncTitle}>
-            <ScreenShare size={13} strokeWidth={1.8} />
-          </RowBtn>
-        )}
         {onPickPath && (
           <RowBtn onClick={(e) => { e.stopPropagation(); onPickPath(); }} title={pickPathTitle}>
             <FolderOpen size={13} strokeWidth={1.8} />
           </RowBtn>
         )}
-        {onEdit && (
-          <RowBtn onClick={(e) => { e.stopPropagation(); onEdit(); }} title={editTitle}>
-            <SettingsIcon size={13} strokeWidth={1.8} />
-          </RowBtn>
-        )}
+        <CardActionsMenu
+          title={moreTitle}
+          items={[
+            onOpenTools && { key: 'tools', icon: Package, label: openToolsTitle, onClick: onOpenTools },
+            onOpenVnc && { key: 'vnc', icon: ScreenShare, label: openVncTitle, onClick: onOpenVnc },
+            onEdit && { key: 'edit', icon: SettingsIcon, label: editTitle, onClick: onEdit },
+          ]}
+        />
       </div>
     )}
   </div>

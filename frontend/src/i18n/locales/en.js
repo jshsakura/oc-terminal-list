@@ -1182,5 +1182,8 @@ export const en = {
     toolPushHint: 'Places a single file here. Removing deletes only that file.',
     toolActionFailed: 'Install/remove failed',
     toolsFootPush: 'itl is a single file, so it is placed and removed right here.',
+    moreActions: 'More',
+    openTerminalSamePath: 'New terminal at this path',
+    openTerminalHereHint: 'Opens another terminal at this path. This one keeps running.',
     toolsFoot: 'Installing opens a new terminal on the selected machine and types the command there. Read it, then press Enter yourself.',
 };

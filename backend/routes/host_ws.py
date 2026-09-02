@@ -15,6 +15,7 @@ from _deps import is_safe_id
 from cache import invalidate_host
 from host_manager import HostBridge, resolve_host_secrets
 import local_mux
+import multiplexer as mux
 from sqlite_storage import storage
 from tickets import _push_ws_tickets
 from ws_auth import authenticate_ws
@@ -40,6 +41,11 @@ async def host_websocket(
     tmux_suffix: str | None = Query(None, description="새 호스트 탭마다 base session 분리용 suffix. 영문/숫자/하이픈만, 32자 이내."),
     tmux_session_name: str | None = Query(None, description="명시적 tmux 세션명 override (기존 영속 세션 Resume). 주어지면 base/suffix/pane 계산 무시."),
     create: bool = Query(True, description="false면 없는 원격 tmux 세션을 새로 만들지 않고 연결만 시도"),
+    multiplexer: str | None = Query(
+        None,
+        description="이 원격 세션을 **새로 만들 때만** 쓰는 선택(tmux/herdr/none). 그 이름을 "
+                    "이미 붙잡고 있는 것이 있으면 원격 명령이 그것을 먼저 찾는다.",
+    ),
     reason: str | None = Query(None, description="클라이언트가 이 연결을 연 사유(관측 전용, ws_observe 참고)"),
     prev_ms: int | None = Query(None, description="직전 소켓이 살아있던 시간(ms). 요동과 단발 끊김을 구별한다."),
 ):
@@ -75,7 +81,20 @@ async def host_websocket(
 
     # 무엇으로 열지는 **전역 설정**이 정한다 — "설정에서 herdr 로 두면 앞으로 여는 건
     # 전부 herdr". 호스트 행에 값이 있으면(옛 `use_remote_tmux=0` 포함) 그것이 이긴다.
-    default_multiplexer = await local_mux.choice_for(username)
+    # 다만 폴더를 골라 여는 자리에서 이 pane 만 다르게 고를 수 있다(경로 픽커의 "터미널"
+    # 칸). 그건 사용자가 **이번 한 번을 위해** 명시적으로 고른 값이라 호스트 행보다 위다 —
+    # 전역 설정을 대신하는 것이지 두 번째 설정이 생기는 것이 아니다.
+    # ⚠️ 이 값도 "만들 때" 만 쓰인다. `_build_remote_command` 는 그 이름을 tmux 가 잡고
+    # 있는지 herdr 가 잡고 있는지 **먼저 찾고**, 아무도 없을 때만 이 선택으로 만든다.
+    pane_multiplexer = (mux.normalize(multiplexer)
+                        if isinstance(multiplexer, str) and multiplexer else None)
+    default_multiplexer = pane_multiplexer or await local_mux.choice_for(username)
+    if pane_multiplexer:
+        # ⚠️ `fallback` 만으론 부족하다 — 브리지는 `from_host_row(host, fallback=…)` 를
+        # 지나므로 호스트 행에 값이 있으면 그것이 이겨서 사용자가 방금 고른 값이 조용히
+        # 무시된다. 행을 **복사해서** 덮는다(원본은 건드리지 않는다. 저장도 하지 않는다 —
+        # 이건 이번 연결에만 사는 값이다).
+        host = {**host, "multiplexer": pane_multiplexer}
 
     effective_cwd = (cwd or "").strip() or None
     # cwd 가 명시적으로 들어왔으면 last_cwd 갱신 (다음 접속에서 폴백 기본값으로 사용)

@@ -6,7 +6,7 @@ import {
   ExternalLink, MoreHorizontal,
   GripVertical, Columns2, Rows2,
   Eye, EyeOff,
-  XCircle, Zap, RotateCw, FolderSymlink,
+  XCircle, Zap, RotateCw, FolderSymlink, FolderPlus,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RailSkeleton from './common/RailSkeleton';
@@ -571,6 +571,19 @@ const TerminalHeader = ({
               ui={panelUi}
             >
               {t?.('refreshTerminal') || 'Reload terminal'}
+            </MenuBtn>
+          )}
+          {/* 지금 이 팬이 있는 자리에서 **또 하나** 연다 — 위의 재시작들과 달리 이 팬은
+              그대로 둔다. 파일탐색기의 "여기서 터미널 열기" 와 같은 길로 나가되, 고를
+              폴더가 이미 정해져 있다(지금 이 팬의 cwd). */}
+          {onOpenTerminalAtFolder && !disabled && (
+            <MenuBtn
+              icon={FolderPlus}
+              onClick={() => { closeRailMenu(); onOpenTerminalAtFolder(paneCwd || ''); }}
+              hint={t?.('openTerminalHereHint') || 'Opens another terminal at this path. This one keeps running.'}
+              ui={panelUi}
+            >
+              {t?.('openTerminalSamePath') || 'New terminal at this path'}
             </MenuBtn>
           )}
           {/* 새로고침은 살아있는 tmux 에 다시 붙을 뿐이라 셸 환경이 그대로다.
