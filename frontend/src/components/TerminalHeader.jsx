@@ -586,18 +586,6 @@ const TerminalHeader = ({
               {t?.('openTerminalSamePath') || 'New terminal at this path'}
             </MenuBtn>
           )}
-          {/* 새로고침은 살아있는 tmux 에 다시 붙을 뿐이라 셸 환경이 그대로다.
-              재시작은 셸을 새로 띄운다 — 방금 설치한 명령이 PATH 에 안 잡힐 때 쓴다. */}
-          {onRestartSession && !disabled && (
-            <MenuBtn
-              icon={RotateCw}
-              onClick={() => { closeRailMenu(); onRestartSession(); }}
-              hint={t?.('restartSessionHint') || 'Opens a fresh shell. Everything running here ends.'}
-              ui={panelUi}
-            >
-              {t?.('restartSession') || 'Restart session'}
-            </MenuBtn>
-          )}
           {/* 같은 재시작인데 시작 지점만 고른다 — 폴더 픽커를 먼저 띄우고, 고른 뒤 확인. */}
           {onRestartSessionAtPath && !disabled && (
             <MenuBtn
@@ -607,6 +595,19 @@ const TerminalHeader = ({
               ui={panelUi}
             >
               {t?.('restartSessionAtPath') || 'Restart at path…'}
+            </MenuBtn>
+          )}
+          {/* ⚠️ **맨 아래가 자리다.** 셸을 새로 띄우므로 여기서 돌던 것이 전부 끝난다 —
+              메뉴 중간에 두면 지나가다 눌린다. 새로고침(위)은 살아있는 tmux 에 다시 붙을
+              뿐이라 셸 환경이 그대로고, 재시작은 방금 설치한 명령이 PATH 에 안 잡힐 때 쓴다. */}
+          {onRestartSession && !disabled && (
+            <MenuBtn
+              icon={RotateCw}
+              onClick={() => { closeRailMenu(); onRestartSession(); }}
+              hint={t?.('restartSessionHint') || 'Opens a fresh shell. Everything running here ends.'}
+              ui={panelUi}
+            >
+              {t?.('restartSession') || 'Restart session'}
             </MenuBtn>
           )}
         </RailSubMenu>,
