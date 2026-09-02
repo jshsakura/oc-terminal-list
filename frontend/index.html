@@ -3,8 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preload" href="/fonts/JetBrainsMonoNerdFontMono-Regular.ttf" as="font" type="font/ttf" crossorigin="anonymous" />
-    <link rel="preload" href="/fonts/JetBrainsMonoNerdFontMono-Bold.ttf" as="font" type="font/ttf" crossorigin="anonymous" />
+    <!-- ⚠️ **preload 는 Regular 하나뿐이다. Bold 를 다시 얹지 마라.**
+         preload 는 로드 완료를 붙잡는다. 예전엔 여기서 TTF 두 벌(4.2MB)을 최우선으로 받았고,
+         캐시가 없는 강력 새로고침에서는 그 시간 내내 사파리가 주소창을 펼친 채(작은 뷰포트)
+         페이지를 잡아 레이아웃이 그 크기로 굳었다 — 하단에 틈이 남던 그 증상이다.
+         woff2 로 바꾸고(2.1MB → 892KB) Bold 는 preload 에서 뺐다: 4.2MB → 892KB.
+         Bold 는 @font-face 로 필요할 때 받는다. -->
+    <link rel="preload" href="/fonts/JetBrainsMonoNerdFontMono-Regular.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
+    <!-- ⚠️ 이 줄을 만지기 전에: 2026-09-02 에 viewport-fit 을 빼 봤지만 증상은 그대로였다.
+         이 병의 실제 갈림길은 `#root` 가 fixed 인지였다(아래 주석). -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -15,7 +22,7 @@
     <style>
       @font-face {
         font-family: 'Gugi';
-        src: url('/fonts/Gugi-Regular.ttf') format('truetype');
+        src: url('/fonts/Gugi-Regular.woff2') format('woff2');
         font-weight: 400;
         font-style: normal;
         font-display: swap;
@@ -24,14 +31,14 @@
       /* JetBrainsMono Nerd Font (로컬 번들, 패치된 모노 + Nerd 글리프 포함) */
       @font-face {
         font-family: 'JetBrainsMono Nerd Font Mono';
-        src: url('/fonts/JetBrainsMonoNerdFontMono-Regular.ttf') format('truetype');
+        src: url('/fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
         font-weight: 400;
         font-style: normal;
         font-display: swap;
       }
       @font-face {
         font-family: 'JetBrainsMono Nerd Font Mono';
-        src: url('/fonts/JetBrainsMonoNerdFontMono-Bold.ttf') format('truetype');
+        src: url('/fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
         font-weight: 700;
         font-style: normal;
         font-display: swap;
@@ -49,9 +56,18 @@
         overflow: hidden;
         margin: 0;
         padding: 0;
-        background: #0f0f17;
+        /* ⚠️ 이 색은 **로딩 화면에서 실제로 보인다.** 사파리가 페이지 상자를 보이는 영역보다
+           작게 그리는 순간, 그 아래로 이 캔버스 배경이 드러난다 — 검정을 쓰면 그게 검은 띠로
+           도드라진다(실측 스크린샷). 기본 테마의 배경색과 같은 값으로 두어 앱의 밑단처럼
+           보이게 한다. 로그인 후에는 App.jsx 가 현재 테마 색으로 덮는다. */
+        background: #3b414d;
         color: #e4e6f1;
       }
+      /* ⚠️ **fixed 를 빼지 마라.** iOS 에서 fixed 상자는 밀린 레이아웃이 아니라 보이는
+         영역에 붙는다. 2026-09-02 에 정적 배치로 바꿨다가, 최초 로딩에서 페이지가 상단
+         크롬 뒤로 깔릴 때 앱까지 통째로 딸려 올라가 탭바가 화면 밖으로 나갔다.
+         ⚠️ 같은 규칙이 App.jsx 의 <style> 에도 있다 — 두 벌이다. 여기 값이 첫 페인트와
+         최초 레이아웃을 정한다. */
       #root {
         position: fixed;
         inset: 0;

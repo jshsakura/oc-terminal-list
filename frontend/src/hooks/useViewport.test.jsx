@@ -5,17 +5,17 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /**
- * 하단 검은 띠 — `--vvh` 가 실제 가시 영역보다 작게 굳는 병.
+ * 하단 빈 띠 · 화면이 위로 들리는 병 — 둘 다 폰에서만 보인다.
  *
- * 이 병은 **폰에서만 보인다.** 데스크탑에선 `isMobile` 이 false 라 이 값을 안 쓰고,
- * jsdom 은 visualViewport 가 없어 아무 일도 안 일어난다. 그래서 사람이 폰을 들고
- * 보기 전까지 아무도 모른다 — 그게 이 파일이 있는 이유다.
+ * 규칙 두 개가 이 파일의 전부다:
+ *   1. `#root` 는 `position: fixed; inset: 0` 이다. iOS 에서 fixed 상자는 **보이는 영역**에
+ *      붙는다. 정적 배치로 바꿨더니(2026-09-02) 최초 로딩에 페이지가 상단 크롬 뒤로 깔릴 때
+ *      앱이 통째로 딸려 올라가 탭바가 화면 밖으로 나갔다.
+ *   2. 앱은 그 상자를 `height: 100%` 로 **꽉 채운다.** `--vvh` 로 줄이면 그 값이 한 프레임만
+ *      낡아도 차이가 하단의 빈 띠가 된다. `--vvh` 는 **키보드일 때만** 건다.
  *
- * 굳는 길이 셋이었고 셋 다 여기서 막는다:
- *   1. `window.resize` 가 높이를 안 갱신했다(isMobile 만 봤다).
- *   2. settle 타이머가 높이를 **다시 읽지 않았다** — iOS 는 주소창 접힘 애니메이션
- *      중간값으로 마지막 resize 를 쏘고 끝낼 수 있다.
- *   3. 앱 전환/bfcache 복원은 resize 없이 크롬 높이만 바꿔 놓는다.
+ * 데스크탑에선 `isMobile` 이 false 라 이 값을 안 쓰고, jsdom 은 visualViewport 가 없다 —
+ * 사람이 폰을 들기 전엔 아무도 모른다. 그게 이 파일이 있는 이유다.
  */
 
 const vvh = () => document.documentElement.style.getPropertyValue('--vvh');
@@ -63,26 +63,21 @@ describe('useViewport — 가시 영역 추적', () => {
 
   const flushRaf = () => act(() => { rafQueue.splice(0).forEach((cb) => cb()); });
 
-  /* ⚠️ **이 블록을 뒤집지 마라.** 한때 "평소엔 `--vvh` 를 안 걸고 CSS `100dvh` 가 재게
-     두자" 였고, 근거는 "JS 로 잰 값은 낡는다" 였다. 그 근거 자체는 맞지만 `dvh` 가 대안이
-     못 된다는 것이 **폰 실측으로 드러났다**(iOS Safari):
-
-       vv=556  inner=556  root=665  app=665
-
-     가시 영역이 556 인데 `100dvh` 로 잡힌 앱이 665 였다 — 109px 이 그대로 하단 빈틈이다.
-     `visualViewport.height` 는 정의상 사람이 보는 높이라 어긋날 수가 없고, 낡음은 아래의
-     재측정(settle·visibilitychange·pageshow·resize) 테스트들이 막는다. */
-  it('가시 영역을 언제나 --vvh 에 건다', () => {
+  /* ⚠️ **평소에는 아무것도 걸지 않는다.** 한때 "가시 영역을 언제나 건다" 였고, 그때 값이
+     한 프레임 낡는 순간이 그대로 하단 빈 띠였다(iOS 는 주소창 접힘 애니메이션 중간값으로
+     마지막 resize 를 쏘고 끝내기도 한다). 상자(`#root`)가 fixed 라 이미 보이는 영역이므로
+     잴 이유가 없다 — 재지 않으면 낡을 수도 없다. */
+  it('평소에는 --vvh 를 걸지 않는다 — 상자를 꽉 채운다', () => {
     renderHook(() => useViewport());
-    expect(vvh()).toBe('800px');
+    expect(vvh()).toBe('');
   });
 
-  it('주소창만 접혀도 따라간다 — 키보드인지 구별하지 않는다', () => {
+  it('주소창이 접히고 펴져도 걸지 않는다 — 그건 상자가 이미 안다', () => {
     renderHook(() => useViewport());
-    setViewport(700, 0, 800);          // 크롬만큼의 차이
+    setViewport(700, 0, 800);          // 크롬만큼의 차이(87.5%)
     fireVV('resize');
     flushRaf();
-    expect(vvh()).toBe('700px');
+    expect(vvh()).toBe('');
   });
 
   it('키보드가 올라오면 그만큼 줄어든다', () => {
@@ -93,21 +88,22 @@ describe('useViewport — 가시 영역 추적', () => {
     expect(vvh()).toBe('400px');
   });
 
-  it('키보드가 내려가면 도로 커진다', () => {
+  it('키보드가 내려가면 도로 걷힌다', () => {
     renderHook(() => useViewport());
     setViewport(400, 0, 800);
     fireVV('resize');
     flushRaf();
+    expect(vvh()).toBe('400px');
     setViewport(800, 0, 800);
     fireVV('resize');
     flushRaf();
-    expect(vvh()).toBe('800px');
+    expect(vvh()).toBe('');            // 값이 남으면 그게 하단 빈 띠다
   });
 
-  /* 실측에서 나온 경계 — 키보드가 올라왔는데 `innerHeight` 도 함께 줄어 비율이 0.718 이
-     나왔다. 비율로 "키보드냐" 를 가르던 판이었으면 이걸 놓쳐 앱이 실제보다 커진다.
-     지금은 가르지 않으므로 그런 경계 자체가 없다. */
-  it('비율이 애매한 순간에도 가시 영역을 그대로 쓴다', () => {
+  /* 실측에서 나온 경계 — 키보드가 올라왔는데 `innerHeight` 도 함께 줄어(507) 비율이
+     0.718 로 보였다. 그래서 기준은 **지금까지 본 가장 큰 레이아웃 뷰포트**(800)다.
+     현재 innerHeight 로 재면 이 케이스에서 키보드를 놓쳐 입력창이 가린다. */
+  it('전환 중 innerHeight 가 줄어 보여도 키보드를 놓치지 않는다', () => {
     renderHook(() => useViewport());
     setViewport(364, 158, 507);        // 실측값
     fireVV('resize');
@@ -141,11 +137,14 @@ describe('useViewport — 가시 영역 추적', () => {
 
   /* 진짜 상자는 App.jsx 가 그린다 — 그런데 App.jsx 에는 렌더 테스트가 없다(CLAUDE.md).
      그래서 소스를 훑어 되돌림만 막는다. 이 두 줄이 이 병의 전부였다. */
-  it('#root 는 fixed 가 아니고, 앱 상자는 --vvb 로 밀지 않는다', () => {
-    const src = readFileSync(resolve(__dirname, '..', 'App.jsx'), 'utf8');
-    const rootBlock = src.slice(src.indexOf('#root {'), src.indexOf('#root {') + 200);
-    expect(rootBlock).not.toMatch(/position:\s*fixed/);
-    expect(src).not.toMatch(/paddingBottom:[^\n]*--vvb/);
+  it('#root 는 두 곳 모두 fixed 다 — 한쪽만 고치면 첫 페인트가 어긋난다', () => {
+    const rootRule = (src) => src.slice(src.indexOf('#root {'), src.indexOf('#root {') + 200);
+    const app = readFileSync(resolve(__dirname, '..', 'App.jsx'), 'utf8');
+    const html = readFileSync(resolve(__dirname, '..', '..', 'index.html'), 'utf8');
+    expect(rootRule(app)).toMatch(/position:\s*fixed/);
+    expect(rootRule(html)).toMatch(/position:\s*fixed/);
+    // 상자를 채우지 않고 밀거나 줄이던 옛 판들 — 되돌아오면 다시 빈 띠다.
+    expect(app).not.toMatch(/paddingBottom:[^\n]*--vvb/);
   });
 
   it('말이 안 되는 높이는 무시한다 — 접히면 하단바가 사라진다', () => {
@@ -170,7 +169,7 @@ describe('useViewport — 가시 영역 추적', () => {
       setViewport(420, 0, 800);
       act(() => { document.dispatchEvent(new Event('visibilitychange')); });
       flushRaf();
-      expect(vvh()).toBe('800px');       // 마운트 시점 값 그대로
+      expect(vvh()).toBe('');            // 숨겨지는 순간의 값으로 상자를 줄이지 않는다
     } finally {
       Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
     }
@@ -220,46 +219,6 @@ describe('useViewport — 가시 영역 추적', () => {
     expect(document.documentElement.style.getPropertyValue('--vvt')).toBe('120px');
   });
 
-  /* ── 실측 보고가 실제로 나가는가 ─────────────────────────────────────────
-   * 폰 전용 병은 값을 받는 것 말고 진단할 길이 없는데, **그 통로가 조용히 안 도는 것**이
-   * 하필 그 상황에서 가장 알아채기 어렵다. 첫 배선이 정확히 그랬다: 마운트 때 한 번만
-   * 재고 그때는 터미널 소켓이 없어서, WS attach 12번에 보고 0건이었다.
-   */
-  describe('실측 보고', () => {
-    let seen;
-    const onReport = (e) => seen.push(e.detail);
-
-    beforeEach(() => {
-      seen = [];
-      // 폰에서만 보낸다 — 게이트를 통과시킨다.
-      vi.stubGlobal('matchMedia', () => ({ matches: true }));
-      window.addEventListener('iterm:client-report', onReport);
-    });
-    afterEach(() => window.removeEventListener('iterm:client-report', onReport));
-
-    it('소켓이 붙을 시간을 준 뒤에도 다시 보낸다 — 첫 화면 값이 가장 중요하다', () => {
-      renderHook(() => useViewport());
-      seen.length = 0;                       // 마운트 시점 보고는 받을 곳이 없다
-      act(() => { vi.advanceTimersByTime(2000); });
-      expect(seen.length).toBeGreaterThan(0);
-      expect(seen[0].scope).toBe('viewport');
-    });
-
-    it('보고에 root 와 app 높이가 들어간다 — 그 차이가 곧 하단 띠다', () => {
-      renderHook(() => useViewport());
-      act(() => { vi.advanceTimersByTime(2000); });
-      expect(seen.at(-1).detail).toMatch(/root=/);
-      expect(seen.at(-1).detail).toMatch(/app=/);
-      expect(seen.at(-1).detail).toMatch(/vv=\d+/);
-    });
-
-    it('폰이 아니면 아무것도 안 보낸다', () => {
-      vi.stubGlobal('matchMedia', () => ({ matches: false }));
-      renderHook(() => useViewport());
-      act(() => { vi.advanceTimersByTime(2000); });
-      expect(seen).toEqual([]);
-    });
-  });
 
   it('언마운트하면 리스너를 전부 뗀다', () => {
     const { unmount } = renderHook(() => useViewport());

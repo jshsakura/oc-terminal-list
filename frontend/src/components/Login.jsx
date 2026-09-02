@@ -46,15 +46,13 @@ const Login = ({ onLogin, language = 'en', theme = null, einkMode = false, onTog
     const vv = window.visualViewport;
     const update = () => {
       const keyboardUp = vv.height < window.innerHeight - 60;
-      /* 오버레이는 정적 배치라 이미 레이아웃 뷰포트(=보이는 영역)를 채운다. 키보드가
-         올라온 동안만 가시 영역으로 줄인다 — 그때는 레이아웃 뷰포트가 안 줄어든다. */
+      /* 오버레이는 `inset: 0` 이라 이미 상자를 채운다 — 평소에는 아무것도 덮어쓰지 않는다.
+         키보드가 올라온 동안만 가시 영역으로 줄인다(그때는 레이아웃 뷰포트가 안 줄어든다). */
       setVpStyle({
-        height: keyboardUp ? `${vv.height}px` : '100%',
-        paddingBottom: keyboardUp ? '20px' : 0,
+        ...(keyboardUp ? { height: `${vv.height}px`, paddingBottom: '20px', paddingTop: '20px' } : {}),
         alignItems: keyboardUp ? 'flex-start' : 'center',
         overflowY: 'auto',
         WebkitOverflowScrolling: 'touch',
-        paddingTop: keyboardUp ? '20px' : '0',
       });
     };
     update();

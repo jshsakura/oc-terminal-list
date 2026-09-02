@@ -14,65 +14,22 @@ import { isPhoneViewport } from '../utils/tabModel';
 /** 이보다 작은 가시 영역은 실제 화면이 아니라 전환 중의 찌꺼기다(숨김·복원 순간). */
 const MIN_SANE_VIEWPORT_PX = 120;
 
-/* ⚠️ **`--vvh` 는 언제나 건다.** 한때 "키보드일 때만 걸고 평소엔 CSS `100dvh` 가 재게
-   두자" 로 바꿨다가 되돌린 자리다. 근거는 "JS 로 잰 값은 낡는다" 였고 그 자체는 맞지만,
-   `dvh` 가 그 대안이 못 된다는 것이 **실측으로 드러났다**(iOS Safari):
+/** 이 비율보다 많이 보이면 키보드가 아니라 브라우저 크롬이다. */
+const KEYBOARD_MAX_VISIBLE_RATIO = 0.7;
 
-     vv=556  inner=556  root=665  app=665
+/* ⚠️ **`--vvh` 는 키보드일 때만 건다.** 두 번 뒤집힌 자리라 이유를 남긴다.
 
-   가시 영역이 556 인데 `100dvh` 로 잡힌 앱은 665 였다 — 이 브라우저의 `dvh` 는 *지금*
-   뷰포트가 아니라 큰 쪽을 준다. 109px 이 그대로 어긋나고, 그게 하단 빈틈이다.
-   **낡을 수 있는 값과 항상 틀린 값 중에는 전자가 낫다** — 게다가 낡음은 아래의
-   재측정(settle·visibilitychange·pageshow·resize)으로 이미 막는다.
+   ① 평소에도 걸었더니(2026-09-02 오전) 값이 한 프레임 낡는 순간 그 차이가 **하단의 빈 띠**로
+      남았다. iOS 는 주소창 접힘 애니메이션 중간값으로 마지막 resize 를 쏘고 끝내기도 하고,
+      앱 전환·bfcache 복원은 이벤트 없이 크롬 높이를 바꿔 놓는다.
+   ② `100dvh` 는 대안이 못 된다(실측: vv=556 인데 dvh 로 잡힌 앱은 665 였다).
 
-   `visualViewport.height` 는 정의상 **사람이 보는 높이**라 어긋날 수가 없다. */
+   결론은 **아무것도 재지 않는 것**이다. `#root` 가 `position: fixed; inset: 0` 이라 iOS 에서
+   보이는 영역에 붙고 크기도 그것이다 — 앱은 그 상자를 `height: 100%` 로 꽉 채우면 된다.
+   낡을 값이 없으므로 띠가 생길 수가 없다.
 
-/* ── 실측 보고 ────────────────────────────────────────────────────────────────
- * 하단 검은 띠는 **폰에서만** 나고 기기 없이는 재현이 안 된다. 한 번은 코드만 읽고
- * 고쳤다가 안 먹었다 — 그래서 값을 추측하지 않고 받는다.
- *
- * 살아있는 WS 로 올라간다(`ws_observe` 의 `viewport` scope). 값이 **바뀔 때만**, 그리고
- * 최소 간격을 두고 보낸다 — 주소창이 접히는 동안 resize 가 연달아 오므로 그대로 흘리면
- * 로그가 그 애니메이션으로 덮인다.
- *
- * 이 블록은 진단이 끝나면 지운다. 남겨 두면 조용한 상시 비용이 된다. */
-const REPORT_MIN_GAP_MS = 1500;
-let lastReportAt = 0;
-let lastReportKey = '';
-
-const reportViewport = (vv, layout, keyboard, force = false) => {
-  if (!window.matchMedia?.('(pointer: coarse)')?.matches) return;   // 폰에서만
-  const el = document.documentElement;
-  const root = document.getElementById('root');
-  const app = root?.firstElementChild;
-  const detail = [
-    `vv=${Math.round(vv.height)}`,
-    `inner=${Math.round(layout)}`,
-    `ratio=${(vv.height / (layout || 1)).toFixed(3)}`,
-    `kbd=${keyboard ? 1 : 0}`,
-    `vvh=${el.style.getPropertyValue('--vvh') || '-'}`,
-    `off=${Math.round(vv.offsetTop)}`,
-    `root=${root ? Math.round(root.getBoundingClientRect().height) : '-'}`,
-    `app=${app ? Math.round(app.getBoundingClientRect().height) : '-'}`,
-    `cw=${el.clientHeight}`,
-    `bh=${document.body?.clientHeight ?? '-'}`,
-  ].join(' ');
-  /* ⚠️ **첫 측정은 반드시 흘려보낸다.** 마운트 시점에는 터미널 소켓이 아직 없어서
-     이벤트가 허공에 떨어진다 — 그 뒤 뷰포트가 안 바뀌면 영영 아무것도 안 올라온다.
-     실제로 그렇게 배선했다가 attach 12번에 보고 0건이었다. `force` 가 그 구멍을 막는다. */
-  const now = Date.now();
-  if (!force) {
-    if (detail === lastReportKey) return;
-    if (now - lastReportAt < REPORT_MIN_GAP_MS) return;
-  }
-  lastReportAt = now;
-  lastReportKey = detail;
-  try {
-    window.dispatchEvent(new CustomEvent('iterm:client-report', {
-      detail: { scope: 'viewport', kind: 'measure', detail },
-    }));
-  } catch { /* 관측이 기능을 망가뜨리면 안 된다 */ }
-};
+   키보드만 예외다: 그때는 레이아웃 뷰포트가 안 줄어들어 상자가 키보드 밑까지 덮으므로
+   가시 영역으로 줄여야 입력창이 안 가린다. */
 
 export default function useViewport() {
   const [isMobile, setIsMobile] = useState(() => isPhoneViewport());
@@ -80,12 +37,11 @@ export default function useViewport() {
   const isMobileRef = useRef(false);
 
   /* 소켓이 붙기 전의 측정은 허공에 떨어진다 — 초반 몇 번은 dedup 을 건너뛰고 흘린다. */
-  const forceReportRef = useRef(true);
-
   useEffect(() => {
     let viewportRaf = 0;
     let settleTimer = 0;
     let lastVVHeight = window.visualViewport?.height ?? window.innerHeight;
+    let maxLayout = window.innerHeight || lastVVHeight;
     const check = () => {
       const m = isPhoneViewport();
       if (isMobileRef.current !== m) setIsMobile(m);
@@ -124,18 +80,30 @@ export default function useViewport() {
       setViewportHeight(vv.height);
       document.documentElement.style.setProperty('--vvt', `${vv.offsetTop}px`);
 
-      /* 가시 영역을 그대로 건다 — 키보드든 주소창이든 구별할 필요가 없다.
-         `visualViewport.height` 는 **둘 다 이미 반영된** 값이다. 구별하려 들었던 판이
-         하단 빈틈을 만들었다(위 주석). */
-      document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
+      /* ⚠️ **키보드일 때만 건다.** 앱 상자(`#root`)는 fixed 라 보이는 영역에 붙어 있고
+         크기도 그것이다. 평소에도 이 값으로 상자를 줄이면, 값이 한 프레임이라도 낡았을 때
+         그 차이가 그대로 하단의 빈 띠가 된다 — 그게 이 병의 원래 증상이었다.
+         키보드는 다르다: 그때는 레이아웃 뷰포트가 안 줄어들어 상자가 키보드 밑까지 덮으므로
+         가시 영역으로 줄여야 입력창이 안 가린다.
+         ⚠️ 판정은 픽셀이 아니라 **비율**이다. "150px 이상 벌어지면 키보드" 로 잡았다가
+         첫 진입의 펼쳐진 주소창(79.6%)이 걸렸다. 크롬은 80% 이상 남기고 키보드는 60% 아래로
+         떨어뜨린다. */
+      /* ⚠️ 기준은 **지금까지 본 가장 큰 레이아웃 뷰포트**다. 전환 중에는 `innerHeight` 가
+         함께 줄어 보고되는 순간이 있어(실측: vv=364 inner=507, 페이지가 158 밀린 상태)
+         그 값으로 비율을 재면 0.718 이 나와 키보드를 놓친다. 레이아웃 뷰포트는 키보드로
+         줄지 않으므로 최대값이 곧 참값이다. 회전하면 다시 잰다. */
+      maxLayout = Math.max(maxLayout, window.innerHeight || 0, vv.height);
+      if (vv.height < maxLayout * KEYBOARD_MAX_VISIBLE_RATIO) {
+        document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
+      } else {
+        document.documentElement.style.removeProperty('--vvh');
+      }
 
       /* ⚠️ **`--vvb`(레이아웃 뷰포트와 가시 영역의 차이만큼 아래를 밀던 값)는 없앴다.**
          그 값은 `position: fixed` 상자를 전제로 한 보정인데, iOS 의 fixed 상자는 위쪽이
          화면 밖이었다 — 아래를 밀어봐야 내용은 그대로 잘린 자리에 있었다. 지금은 상자
          자체가 정적 배치(레이아웃 뷰포트)라 보정할 차이가 없다. App.jsx 의 `#root` 주석. */
 
-      const layout = window.innerHeight || vv.height;
-      reportViewport(vv, layout, vv.height < layout * 0.7, forceReportRef.current);
     };
 
     const handleVV = () => {
@@ -178,31 +146,28 @@ export default function useViewport() {
        않는다 — 그 어긋남이 하단 검은 띠로 남는다. 두 이벤트 다 같은 자리로 보낸다.
        ⚠️ 등록은 **`handleVV` 선언 뒤**여야 한다(const 는 TDZ 라 위에서 부르면 던진다). */
     window.addEventListener('resize', handleVV);
-    window.addEventListener('orientationchange', handleVV);
+    /* 회전하면 레이아웃 뷰포트가 통째로 달라진다 — 최대값을 들고 있으면 안 된다. */
+    const handleOrientation = () => { maxLayout = 0; handleVV(); };
+    window.addEventListener('orientationchange', handleOrientation);
     /* 앱을 전환했다 돌아오는 길 — iOS 는 bfcache 복원이나 탭 재활성화에서 **resize 를
        안 쏘고도** 크롬 높이가 달라져 있을 수 있다. 그때 옛 `--vvh` 가 그대로 굳으면
        하단에 검은 띠가 남는다. "자꾸" 생기는 쪽은 대개 여기다 — 이벤트가 없는 변화. */
     /* ⚠️ 선언이 등록보다 **먼저**여야 한다 — const 는 TDZ 라 위에서 부르면 마운트가 죽는다. */
     const handleVisible = () => {
-      if (document.visibilityState === 'visible') handleVV();
+      if (document.visibilityState !== 'visible') return;
+      handleVV();
     };
 
-    window.addEventListener('pageshow', handleVV);
+    const handlePageShow = () => handleVV();
+    window.addEventListener('pageshow', handlePageShow);
     // 보이게 될 때만 읽는다. 숨겨지는 순간의 값은 쓸 데도 없고 믿을 수도 없다.
     document.addEventListener('visibilitychange', handleVisible);
+
 
     // 최초 1회 — mount 시점 visualViewport 값을 CSS 변수에 반영.
     // 최초 1회도 **같은 함수**를 지난다. 여기서만 무조건 걸면 마운트 시점 값이 그대로 굳는다.
     applyViewport();
-    forceReportRef.current = false;   // 여기서부터는 평소 규칙(변할 때만·간격 두고)
 
-    /* 소켓이 붙은 뒤에 다시 한 번씩 — 첫 화면의 값이야말로 가장 보고 싶은 것인데
-       (하단 띠는 "처음 들어오면 보인다"), 그때는 아직 보낼 통로가 없다. */
-    const flushTimers = [1500, 4000, 10000].map((ms) => setTimeout(() => {
-      forceReportRef.current = true;
-      applyViewport();
-      forceReportRef.current = false;
-    }, ms));
 
     if (window.visualViewport) {
       window.visualViewport.addEventListener('resize', handleVV);
@@ -211,12 +176,11 @@ export default function useViewport() {
 
     return () => {
       window.removeEventListener('resize', handleVV);
-      window.removeEventListener('orientationchange', handleVV);
-      window.removeEventListener('pageshow', handleVV);
+      window.removeEventListener('orientationchange', handleOrientation);
+      window.removeEventListener('pageshow', handlePageShow);
       document.removeEventListener('visibilitychange', handleVisible);
       if (viewportRaf) cancelAnimationFrame(viewportRaf);
       if (settleTimer) clearTimeout(settleTimer);
-      flushTimers.forEach(clearTimeout);
       if (window.visualViewport) {
         window.visualViewport.removeEventListener('resize', handleVV);
         window.visualViewport.removeEventListener('scroll', handleVV);

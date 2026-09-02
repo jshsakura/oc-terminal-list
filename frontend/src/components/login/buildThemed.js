@@ -28,11 +28,10 @@ export const buildThemed = (ui) => {
     dot: alpha(t.border, 'cc', 'rgba(255,255,255,0.06)'),
 
     overlay: {
-      /* ⚠️ fixed 가 아니다 — iOS 의 fixed 상자는 큰 뷰포트(ICB)라 위쪽이 화면 밖으로
-         들린다(App.jsx 의 `#root` 주석). 정적 배치가 곧 보이는 영역이다. */
-      position: 'relative',
-      width: '100%',
-      height: '100%',
+      /* fixed 다 — iOS 에서 fixed 상자가 보이는 영역에 붙는다(App.jsx 의 `#root` 주석).
+         정적 배치로 바꿨더니 최초 로딩에서 통째로 상단 크롬 뒤로 딸려 올라갔다. */
+      position: 'fixed',
+      inset: 0,
       background: `linear-gradient(135deg, ${t.crust} 0%, ${t.mantle} 48%, ${t.crust} 100%)`,
       display: 'flex',
       alignItems: 'center',
