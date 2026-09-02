@@ -15,7 +15,7 @@ import {
   DEFAULT_FONT_SIZE_MOBILE,
   normalizeTerminalFontFamily,
 } from '../utils/terminalFonts';
-import { mobileKeysFor, syncMuxKeys } from '../utils/mobileKeys';
+import { mobileKeysFor, migrateMobileKeys } from '../utils/mobileKeys';
 
 const SUPPORTED_DEFAULT_SHELLS = new Set(['auto', 'bash', 'zsh', 'sh']);
 
@@ -72,7 +72,7 @@ export const DEFAULT_SETTINGS = {
   bellNotifications: false, // BEL(\x07) 수신 시 브라우저 알림 (탭 백그라운드일 때만)
   // 기본값은 저장소 기본 멀티플렉서(tmux)의 키까지 실은 것이다. 사용자가 herdr 로
   // 바꾸면 아직 손대지 않은 바는 MobileToolbar 가 그 쪽 키로 채운다(mobileKeysFor).
-  mobileKeys: mobileKeysFor('tmux'),  // 모바일 하단 단축키 — 사용자가 Settings 에서 편집
+  mobileKeys: mobileKeysFor(),  // 모바일 하단 단축키 — 사용자가 Settings 에서 편집
   // 퀵바에 어느 멀티플렉서의 키를 심어 뒀는지. **null 이면 아직 안 심었다**(옛 사용자).
   // 이 값 없이 매번 심으면 사용자가 지운 키가 계속 되살아나 지울 방법이 없어진다.
   mobileKeysMuxSeeded: null,
@@ -197,20 +197,19 @@ export const useSettings = (isAuthenticated = null) => {
     return () => { if (saveDebounceRef.current) clearTimeout(saveDebounceRef.current); };
   }, [settings, isAuthenticated]);
 
-  /* 저장된 퀵바에 고른 멀티플렉서의 키를 맞춰 넣는다.
-     기본값만 바꾸면 **이미 저장된 사용자에게는 영영 안 나온다** — `mobileKeys` 는 첫
-     실행에 저장되기 때문이다. 그렇다고 초기화로 밀면 손본 배열이 날아간다. 그래서
-     덧붙이기만 한다(utils/mobileKeys.syncMuxKeys 의 규칙). */
+  /* 저장된 퀵바를 지금 규칙에 맞게 **한 번** 정리한다(멀티플렉서 키 제거 · 엔터 추가).
+     기본값만 바꾸면 **이미 저장된 사용자에게는 영영 반영되지 않는다** — `mobileKeys` 는
+     첫 실행에 저장되기 때문이다. 그렇다고 초기화로 밀면 손본 배열이 날아간다.
+     ⚠️ 한 번만 돈다(`MOBILE_KEYS_REVISION`). 매번 돌면 사용자가 지운 키가 계속 되살아나
+     지울 방법이 없어진다. */
   useEffect(() => {
     setSettings((prev) => {
-      const { keys, seededFor } = syncMuxKeys(
-        prev.mobileKeys, prev.defaultMultiplexer, prev.mobileKeysMuxSeeded,
-      );
+      const { keys, seededFor } = migrateMobileKeys(prev.mobileKeys, prev.mobileKeysMuxSeeded);
       if (keys === prev.mobileKeys && seededFor === prev.mobileKeysMuxSeeded) return prev;
       markSettingsDirty();
       return { ...prev, mobileKeys: keys, mobileKeysMuxSeeded: seededFor };
     });
-  }, [settings.defaultMultiplexer, settings.mobileKeysMuxSeeded]);
+  }, [settings.mobileKeysMuxSeeded]);
 
   // 개별 설정 업데이트
   const updateSetting = useEvent((key, value) => {

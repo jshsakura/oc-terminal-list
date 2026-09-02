@@ -4,7 +4,7 @@ import {
   KEY_PRESETS,
   TMUX_KEYS,
   mobileKeysFor,
-  syncMuxKeys,
+  migrateMobileKeys,
   sanitizeMobileKeys,
   splitPinnedAndScroll,
 } from './mobileKeys';
@@ -228,102 +228,98 @@ describe('멀티플렉서 프리픽스 키', () => {
  * 여기서 막는다.
  */
 describe('mobileKeysFor', () => {
-  const labels = (mux) => mobileKeysFor(mux).map((k) => k.label);
-
-  it('tmux 면 tmux 키가 실린다', () => {
-    expect(labels('tmux').some((l) => l?.startsWith('T·'))).toBe(true);
-  });
-
-  it('herdr 는 프리셋이 없다 — 눌러도 아무 일이 없는 키를 싣지 않는다', () => {
-    expect(mobileKeysFor('herdr')).toEqual(DEFAULT_MOBILE_KEYS);
-  });
-
-  it('none 은 프리픽스라는 개념이 없다 — 공통 키만', () => {
-    expect(mobileKeysFor('none')).toEqual(DEFAULT_MOBILE_KEYS);
-  });
-
-  it('모르는 값이면 저장소 기본(tmux)으로 접는다', () => {
-    expect(labels('zellij')).toEqual(labels('tmux'));
-  });
-
-  it('공통 키를 잃지 않는다 — 붙이는 것이지 갈아치우는 것이 아니다', () => {
-    for (const base of DEFAULT_MOBILE_KEYS) {
-      expect(mobileKeysFor('tmux')).toContainEqual(base);
+  /* ⚠️ **멀티플렉서 키는 기본에 없다.** 한때 tmux 프리픽스 키 여섯 개를 심었는데, 폰의
+     짧은 바에서 정작 자주 쓰는 것(엔터·화살표·^C)을 스크롤 뒤로 밀어냈다. 필요하면
+     프리셋에서 골라 넣는다 — 고른 사람의 바에만 있는 것이 맞다. */
+  it('어떤 멀티플렉서에도 프리픽스 키를 싣지 않는다', () => {
+    for (const mux of ['tmux', 'herdr', 'none', 'zellij', undefined]) {
+      expect(mobileKeysFor(mux)).toEqual(DEFAULT_MOBILE_KEYS);
     }
   });
 
-  it('붙인 키가 sanitize 를 통과한다', () => {
-    const out = sanitizeMobileKeys(mobileKeysFor('tmux'));
-    expect(out.some((k) => k.label?.startsWith('T·'))).toBe(true);
+  it('엔터와 지우기가 기본에 있다 — 없으면 퀵바만으로 줄을 끝내지도 고치지도 못한다', () => {
+    expect(DEFAULT_MOBILE_KEYS.find((k) => k.id === 'enter'))
+      .toMatchObject({ kind: 'send', payload: '\r' });
+    expect(DEFAULT_MOBILE_KEYS.find((k) => k.id === 'bs'))
+      .toMatchObject({ kind: 'send', payload: '\x7f' });
   });
 
   it('id 가 겹치지 않는다 — 겹치면 React key 가 무너진다', () => {
-    const ids = mobileKeysFor('herdr').map((k) => k.id);
+    const ids = mobileKeysFor('tmux').map((k) => k.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('기본 키셋이 sanitize 를 통과한다', () => {
+    expect(sanitizeMobileKeys(mobileKeysFor())).toEqual(DEFAULT_MOBILE_KEYS);
   });
 });
 
-/* ── 이미 저장된 바에 심기 ─────────────────────────────────────────────────
- * 기본값만 바꾸면 **이미 저장된 사용자에게는 영영 안 나온다**(`mobileKeys` 는 첫 실행에
- * 저장된다). 실제로 그래서 "퀵바 단축키 왜 안 들어가냐" 가 나왔다. 초기화로 밀면 손본
- * 배열이 날아가므로, 덧붙이기만 한다.
+/* ── 이미 저장된 바 정리 ───────────────────────────────────────────────────
+ * 기본값만 바꾸면 **이미 저장된 사용자에게는 영영 반영되지 않는다**(`mobileKeys` 는 첫
+ * 실행에 저장된다). 초기화로 밀면 손본 배열이 날아가므로 한 번만 훑어 고친다.
  */
-describe('syncMuxKeys', () => {
+describe('migrateMobileKeys', () => {
   const saved = [
     { id: 'cmd', kind: 'cmdInput' },
     { id: 'esc', kind: 'send', label: 'ESC', payload: '\x1b' },
+    { id: 'tab', kind: 'send', label: 'TAB', payload: '\t' },
+    { id: 'sep_mux', kind: 'sep' },
+    { id: 'mux_T·c', kind: 'send', label: 'T·c', payload: '\x02c' },
+    { id: 'mux_T·z', kind: 'send', label: 'T·z', payload: '\x02z' },
   ];
 
-  it('아직 안 심었으면 심는다', () => {
-    const { keys, seededFor } = syncMuxKeys(saved, 'tmux', null);
-    expect(seededFor).toBe('tmux');
-    expect(keys.some((k) => k.label?.startsWith('T·'))).toBe(true);
+  it('우리가 심었던 멀티플렉서 키와 그 구분자를 걷어낸다', () => {
+    const { keys } = migrateMobileKeys(saved, null);
+    expect(keys.some((k) => String(k.id).startsWith('mux_'))).toBe(false);
+    expect(keys.some((k) => k.id === 'sep_mux')).toBe(false);
   });
 
-  it('사용자가 손본 키는 하나도 안 잃는다 — 덧붙이는 것이지 갈아치우는 게 아니다', () => {
-    const { keys } = syncMuxKeys(saved, 'herdr', null);
-    for (const k of saved) expect(keys).toContainEqual(k);
-    expect(keys.slice(0, saved.length)).toEqual(saved);   // 순서도 그대로
+  it('엔터와 지우기가 없으면 TAB 뒤에 넣는다', () => {
+    const { keys } = migrateMobileKeys(saved, null);
+    const at = keys.findIndex((k) => k.id === 'enter');
+    expect(at).toBeGreaterThan(-1);
+    expect(keys[at - 1].id).toBe('tab');
+    expect(keys[at + 1].id).toBe('bs');
   });
 
-  it('같은 멀티플렉서로 다시 부르면 아무것도 안 한다', () => {
-    /* ⚠️ 매번 심으면 사용자가 지운 키가 계속 되살아나 **지울 방법이 없어진다.** */
-    const first = syncMuxKeys(saved, 'tmux', null);
-    const again = syncMuxKeys(first.keys, 'tmux', first.seededFor);
-    expect(again.keys).toBe(first.keys);                  // 같은 참조 = 리렌더도 없다
+  it('길게 눌러 연타되려면 kind 가 send 여야 한다', () => {
+    /* 반복은 `send` 키에만 붙는다(MobileToolbar) — kind 를 바꾸면 조용히 안 된다. */
+    const { keys } = migrateMobileKeys(saved, null);
+    for (const id of ['enter', 'bs']) {
+      expect(keys.find((k) => k.id === id).kind).toBe('send');
+    }
   });
 
-  it('멀티플렉서를 바꾸면 옛 키를 걷는다', () => {
-    /* herdr 에는 프리셋이 없다 — tmux 키가 **걷혀야** 한다. 남겨 두면 눌러도 아무 일이
-       없는 키가 바에 남고, 그 실패는 조용하다. */
-    const first = syncMuxKeys(saved, 'tmux', null);
-    expect(first.keys.some((k) => k.label?.startsWith('T·'))).toBe(true);
-    const { keys } = syncMuxKeys(first.keys, 'herdr', first.seededFor);
-    expect(keys.some((k) => k.label?.startsWith('T·'))).toBe(false);
-    for (const k of saved) expect(keys).toContainEqual(k);
+  it('사용자가 손수 넣은 키는 하나도 안 잃는다', () => {
+    const mine = [...saved, { id: 'custom1', kind: 'send', label: 'X', payload: 'x' }];
+    const { keys } = migrateMobileKeys(mine, null);
+    expect(keys).toContainEqual({ id: 'custom1', kind: 'send', label: 'X', payload: 'x' });
+    expect(keys[0]).toEqual(mine[0]);          // 순서도 그대로
   });
 
-  it('none 으로 바꾸면 걷어내기만 한다', () => {
-    const first = syncMuxKeys(saved, 'tmux', null);
-    const { keys, seededFor } = syncMuxKeys(first.keys, 'none', first.seededFor);
-    expect(keys.some((k) => k.label?.startsWith('T·'))).toBe(false);
-    expect(seededFor).toBe('none');
-    expect(keys).toEqual(saved);
+  it('한 번 정리했으면 다시 안 건드린다', () => {
+    /* ⚠️ 매번 돌면 사용자가 지운 엔터가 계속 되살아나 **지울 방법이 없어진다.** */
+    const first = migrateMobileKeys(saved, null);
+    const again = migrateMobileKeys(first.keys, first.seededFor);
+    expect(again.keys).toBe(first.keys);       // 같은 참조 = 리렌더도 없다
   });
 
-  it('사용자가 프리셋에서 손수 넣은 같은 키는 안 건드린다', () => {
-    /* 우리가 심은 것은 `mux_` id 로 알아본다. 사용자가 넣은 것은 id 가 다르다. */
-    const mine = [...saved, { id: 'custom1', kind: 'send', label: 'H·c', payload: '\x02c' }];
-    const { keys } = syncMuxKeys(mine, 'herdr', 'tmux');
-    expect(keys).toContainEqual({ id: 'custom1', kind: 'send', label: 'H·c', payload: '\x02c' });
+  it('이미 갖고 있으면 두 개로 만들지 않는다', () => {
+    const mine = [
+      { id: 'enter', kind: 'send', label: '⏎', payload: '\r' },
+      { id: 'bs', kind: 'send', label: '⌫', payload: '\x7f' },
+    ];
+    const { keys } = migrateMobileKeys(mine, null);
+    expect(keys.filter((k) => k.id === 'enter')).toHaveLength(1);
+    expect(keys.filter((k) => k.id === 'bs')).toHaveLength(1);
   });
 
-  it('심은 결과가 sanitize 를 통과한다', () => {
-    const { keys } = syncMuxKeys(saved, 'tmux', null);
-    expect(sanitizeMobileKeys(keys).some((k) => k.label?.startsWith('T·'))).toBe(true);
+  it('정리 결과가 sanitize 를 통과한다', () => {
+    const { keys } = migrateMobileKeys(saved, null);
+    expect(sanitizeMobileKeys(keys).some((k) => k.id === 'enter')).toBe(true);
   });
 
-  it('배열이 아니면 그대로 돌려준다', () => {
-    expect(syncMuxKeys(null, 'herdr', null).keys).toBe(null);
+  it('배열이 아니면 그대로 둔다', () => {
+    expect(migrateMobileKeys(null, null).keys).toBe(null);
   });
 });

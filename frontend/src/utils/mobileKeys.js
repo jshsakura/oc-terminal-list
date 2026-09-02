@@ -1,4 +1,3 @@
-import { TMUX, normalize as normalizeMux } from './multiplexer';
 
 /**
  * 모바일 하단 툴바 키 정의 + 디폴트.
@@ -29,6 +28,13 @@ export const DEFAULT_MOBILE_KEYS = [
    { id: 'sep2',  kind: 'sep' },
    { id: 'esc',   kind: 'send', label: 'ESC', payload: '\x1b' },
    { id: 'tab',   kind: 'send', label: 'TAB', payload: '\t' },
+   /* ⚠️ **엔터는 기본에 있어야 한다.** 오래 빠져 있었다 — 소프트 키보드로 칠 때는 거기
+      엔터가 있으니 안 아쉬운데, 퀵바만으로(빠른입력·화살표·^C) 다루다 보면 **줄을 끝낼
+      방법이 없다.** "내 엔터 어디갔어" 가 그 자리에서 나왔다. */
+   { id: 'enter', kind: 'send', label: '⏎', payload: '\r' },
+   /* 지우기도 마찬가지다 — 프리셋에만 있어서 기본 바로는 한 글자도 못 지웠다.
+      길게 누르면 연타된다(`utils/keyRepeat`, 420ms 뒤 80ms 간격). */
+   { id: 'bs',    kind: 'send', label: '⌫', payload: '\x7f' },
    // ^C 는 터미널 작업 중단(SIGINT) 의 표준 단축키 — CTRL 토글 + 'c' 입력은 모바일에 별도
    // 알파벳 키가 없어 실제로 못 보내므로 디폴트 툴바에 직접 박아 둔다.
     { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', tone: 'danger' },
@@ -91,64 +97,69 @@ const MUX_KEY_PREFIX = 'mux_';
  *  가리킬 것이 없는 구분자만 덩그러니 남는다(테스트가 잡은 실제 결함). */
 const MUX_SEP_ID = 'sep_mux';
 
-/* 퀵바에 **기본으로** 실리는 멀티플렉서 키. 전부 싣지 않는다 — 바가 길어지면 정작 자주
-   쓰는 것이 스크롤 뒤로 밀린다. 나머지는 설정의 프리셋에서 골라 넣는다.
+/* ⚠️ **멀티플렉서 키는 기본으로 싣지 않는다.**
+ *
+ * 한때 tmux 프리픽스 키 여섯 개(`T·c` `T·%` `T·"` `T·z` `T·o` `T·n`)를 심었다. 이유는
+ * "이 앱의 팬은 대개 tmux 안이니 새 윈도우·분할이 손에 닿아야 한다" 였는데, 실제로는
+ * **바에서 가장 자주 쓰는 것들을 스크롤 뒤로 밀어냈다.** 폰의 바는 짧고, 거기 있어야
+ * 하는 것은 엔터·화살표·^C 다. 새 윈도우를 여는 일은 앱의 탭 UI 가 이미 한다.
+ *
+ * 필요하면 설정의 프리셋에서 골라 넣는다(`KEY_PRESETS` 에 그대로 있다) — 고른 사람의
+ * 바에만 있는 것이 맞다. `TMUX_KEYS` 를 남겨 두는 것은 그 프리셋을 위해서다. */
 
-   ⚠️ **tmux 것만 싣는다.** herdr 키는 눌러도 아무 일이 없는 채로 바에 남기 쉬웠고
-   (같은 프리픽스, 다른 글자), 그 실패는 조용하다. `none` 은 프리픽스라는 개념이 없어
-   비운다. herdr 를 쓰는 사람은 커스텀 키로 넣는다. */
-const DEFAULT_MUX_LABELS = {
-  [TMUX]: ['T·c', 'T·%', 'T·"', 'T·z', 'T·o', 'T·n'],
-};
+/** 기본 퀵바. 멀티플렉서와 무관하다 — 인자는 옛 호출부 호환으로만 받는다. */
+export const mobileKeysFor = () => DEFAULT_MOBILE_KEYS;
 
-/** 이 멀티플렉서의 기본 등록 키들. 모르는 값이면 빈 배열. */
-export const muxKeysFor = (multiplexer) => {
-  const mux = normalizeMux(multiplexer);
-  const source = mux === TMUX ? TMUX_KEYS : [];
-  return (DEFAULT_MUX_LABELS[mux] || [])
-    .map((label) => source.find((k) => k.label === label))
-    .filter(Boolean)
-    .map((k) => ({ id: `${MUX_KEY_PREFIX}${k.label}`, kind: 'send', ...k }));
-};
 
-/** 기본 퀵바 = 공통 키 + 고른 멀티플렉서의 프리픽스 키. */
-export const mobileKeysFor = (multiplexer) => {
-  const muxKeys = muxKeysFor(multiplexer);
-  if (!muxKeys.length) return DEFAULT_MOBILE_KEYS;
-  return [...DEFAULT_MOBILE_KEYS, { id: MUX_SEP_ID, kind: 'sep' }, ...muxKeys];
-};
-
+/** 이 판본까지 정리했다는 표시. 값이 바뀌면 저장된 바를 한 번 더 훑는다. */
+export const MOBILE_KEYS_REVISION = 'v2-no-mux';
 
 /**
- * 이미 저장된 바에 **고른 멀티플렉서의 키를 맞춰 넣는다.**
+ * 저장된 바를 지금 규칙에 맞게 **한 번** 정리한다.
  *
- * 왜 필요한가: `mobileKeys` 는 첫 실행에 저장되므로, 기본값만 바꾸면 **기존 사용자에게는
- * 영영 안 나온다.** 그렇다고 초기화로 밀면 사용자가 손본 배열이 날아간다.
+ * 왜 필요한가: `mobileKeys` 는 첫 실행에 저장되므로 기본값만 바꾸면 **기존 사용자에게는
+ * 영영 반영되지 않는다.** 그렇다고 초기화로 밀면 손본 배열이 날아간다.
  *
- * 규칙:
- *  - 우리가 심은 것(`mux_` id)만 걷어내고 다시 넣는다. 사용자가 프리셋에서 손수 넣은
- *    키는 id 가 다르므로 **건드리지 않는다.**
- *  - `seededFor` 가 지금 멀티플렉서와 같으면 **아무것도 안 한다** — 심어준 뒤에 사용자가
- *    지웠다면 지운 대로 두어야 한다. 매번 되살리면 지울 방법이 없어진다.
- *  - 멀티플렉서를 바꾸면 옛 키를 걷고 새 키를 넣는다. 그래서 herdr/none 으로 바꾸면
- *    tmux 키가 **걷힌다** — 남겨 두면 눌러도 아무 일이 없는 키가 바에 남는다.
+ * 하는 일 둘:
+ *  - 우리가 심었던 멀티플렉서 키(`mux_` id)와 그 앞 구분자를 걷어낸다. 사용자가 프리셋
+ *    에서 손수 넣은 키는 id 가 다르므로 **건드리지 않는다.**
+ *  - 엔터가 없으면 TAB 뒤에 넣는다.
+ *
+ * ⚠️ **한 번만이다.** `revision` 이 지금 판본이면 아무것도 안 한다 — 정리한 뒤에 사용자가
+ * 지웠다면 지운 대로 두어야 한다. 매번 되살리면 지울 방법이 없어진다(그게 옛 심기 로직이
+ * 남긴 실제 불만이었다).
  *
  * @returns {{keys: Array, seededFor: string}} 바뀐 게 없으면 `keys` 는 같은 참조다.
  */
-export const syncMuxKeys = (keys, multiplexer, seededFor = null) => {
-  const mux = normalizeMux(multiplexer);
-  if (!Array.isArray(keys) || seededFor === mux) return { keys, seededFor };
-  const kept = keys.filter((k) => {
+export const migrateMobileKeys = (keys, revision = null) => {
+  if (!Array.isArray(keys)) return { keys, seededFor: revision };
+  if (revision === MOBILE_KEYS_REVISION) return { keys, seededFor: revision };
+
+  const stripped = keys.filter((k) => {
     const id = String(k?.id || '');
     return id !== MUX_SEP_ID && !id.startsWith(MUX_KEY_PREFIX);
   });
-  const muxKeys = muxKeysFor(mux);
-  if (!muxKeys.length) return { keys: kept, seededFor: mux };
-  return {
-    keys: [...kept, { id: MUX_SEP_ID, kind: 'sep' }, ...muxKeys],
-    seededFor: mux,
-  };
+
+  // TAB 뒤에 ⏎, ⌫ 순서로 — 없는 것만 넣는다.
+  let next = stripped;
+  for (const id of ['enter', 'bs']) {
+    if (next.some((k) => k?.id === id)) continue;
+    const key = DEFAULT_MOBILE_KEYS.find((k) => k.id === id);
+    if (!key) continue;
+    const after = next.findIndex((k) => k?.id === (id === 'enter' ? 'tab' : 'enter'));
+    next = after >= 0
+      ? [...next.slice(0, after + 1), { ...key }, ...next.slice(after + 1)]
+      : [...next, { ...key }];
+  }
+
+  const changed = next.length !== keys.length;
+  return { keys: changed ? next : keys, seededFor: MOBILE_KEYS_REVISION };
 };
+
+/** 옛 이름 — 호출부가 아직 이걸 부른다. 하는 일은 위와 같다. */
+export const syncMuxKeys = (keys, _multiplexer, revision = null) => (
+  migrateMobileKeys(keys, revision)
+);
 
 // "추가" 프리셋 — Settings 의 "Add key" 메뉴에서 빠르게 선택. 사용자는 Custom (label+payload) 도 가능.
 // kind 가 'sep' 면 구분자 (payload 없음), 명시 안 하면 'send' 로 추가.
