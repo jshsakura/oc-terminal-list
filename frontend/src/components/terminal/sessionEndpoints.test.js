@@ -33,12 +33,17 @@ describe('buildWsUrl', () => {
     expect(query(buildWsUrl({ ...base, ticket: null })).get('client_id')).toBe('client-9');
   });
 
-  it('호스트 세션은 /ws/host/<hostId> 로 가고 셸은 싣지 않는다', () => {
-    // 원격 셸은 호스트 설정이 정한다 — 로컬 defaultShell 을 보내면 안 된다.
-    const url = buildWsUrl({ ...base, hostId: 'h1', shell: 'zsh' });
+  it('호스트 세션은 /ws/host/<hostId> 로 가고, 셸은 준 때만 싣는다', () => {
+    /* ⚠️ **로컬 `기본 셸` 설정을 원격에 보내면 안 된다** — 남의 호스트 로그인 셸을
+       이 서버의 값으로 덮는 셈이다. 그 판정은 이제 `Terminal.jsx` 가 한다(원격이면
+       pane 이 고른 값만 넘긴다). 여기서는 준 것을 그대로 싣는지만 본다 — 안 그러면
+       경로 픽커에서 고른 셸이 원격에서 조용히 사라진다. */
+    const withShell = buildWsUrl({ ...base, hostId: 'h1', shell: 'zsh' });
+    expect(withShell.startsWith('wss://example.com/ws/host/h1?')).toBe(true);
+    expect(query(withShell).get('shell')).toBe('zsh');
 
-    expect(url.startsWith('wss://example.com/ws/host/h1?')).toBe(true);
-    expect(query(url).get('shell')).toBeNull();
+    const without = buildWsUrl({ ...base, hostId: 'h1' });
+    expect(query(without).get('shell')).toBeNull();
   });
 
   it('명시적 tmux 세션명을 그대로 넘긴다 (Home 의 이어하기)', () => {

@@ -68,7 +68,7 @@ class AgentStatusWatcher:
     # ---------------------- 상태 ----------------------
 
     def snapshot(self) -> dict[str, dict]:
-        """세션ID → {status, title, command}. 신규 클라이언트 하이드레이션용."""
+        """세션ID → {status, title, command, cwd}. 신규 클라이언트 하이드레이션용."""
         return {k: dict(v) for k, v in self._state.items()}
 
     def _diff(self, panes: list[dict]) -> list[dict]:
@@ -85,7 +85,13 @@ class AgentStatusWatcher:
                 same_status = previous["status"] == pane["status"]
                 # 스피너 프레임만 다른 건 변경이 아니다.
                 spinner_only = is_spinner_only_change(previous["rawTitle"], pane["rawTitle"])
-                if same_status and spinner_only:
+                # ⚠️ **cwd 도 봐야 한다.** 이 폴링은 이미 `#{pane_current_path}` 를 읽고
+                # 있는데(공짜다 — 같은 tmux 호출의 칸 하나), 비교에서 빠져 있어서 타이틀이
+                # 안 변하는 셸에서 `cd` 를 하면 아무 신호도 안 나갔다. 그래서 상단 주소가
+                # 손으로 새로고침해야만 따라오는 "반쯤 수동" 상태였다.
+                # `cd` 는 사람 속도로 일어나므로 스피너와 달리 폭주 위험이 없다.
+                same_cwd = (previous.get("cwd") or "") == (pane.get("cwd") or "")
+                if same_status and spinner_only and same_cwd:
                     # rawTitle 은 갱신해 둔다 — 다음 비교의 기준이 프레임 하나만큼 흐르지 않게.
                     previous["rawTitle"] = pane["rawTitle"]
                     continue

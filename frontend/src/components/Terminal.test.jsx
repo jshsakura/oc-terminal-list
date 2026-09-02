@@ -102,6 +102,20 @@ describe('Terminal', () => {
       expect(ws.url).toContain('rows=24');
     });
 
+    it('원격에는 로컬 `기본 셸` 설정을 보내지 않는다', async () => {
+      /* 남의 호스트 로그인 셸(대개 zsh)을 이 서버의 설정으로 덮으면 안 된다.
+         고른 것이 없으면 아무것도 안 싣는 것이 그 규칙이다. */
+      renderTerminal({ sessionId: 'abc', hostId: 'h1', tmuxSessionName: 'work' });
+      const ws = await waitForSocket();
+      expect(ws.url).not.toContain('shell=');
+    });
+
+    it('원격이라도 pane 이 고른 셸은 싣는다', async () => {
+      renderTerminal({ sessionId: 'abc', hostId: 'h1', tmuxSessionName: 'work', paneShell: 'zsh' });
+      const ws = await waitForSocket();
+      expect(ws.url).toContain('shell=zsh');
+    });
+
     it('호스트 세션은 /ws/host/<hostId> 로 tmux 세션명을 실어 연결한다', async () => {
       renderTerminal({ sessionId: 'abc', hostId: 'h1', tmuxSessionName: 'work' });
       const ws = await waitForSocket();

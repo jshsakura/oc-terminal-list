@@ -2,9 +2,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home, Eye, EyeOff } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import TerminalLaunchOptions from './common/TerminalLaunchOptions';
+import NewFolderRow from './common/NewFolderRow';
 import { INHERIT } from '../utils/launchOptions';
 import SkeletonRow from './common/SkeletonRow';
 import { authHeaders } from '../utils/auth';
+import { apiFetch } from '../utils/apiFetch';
 import { splitHiddenEntries, readShowHidden, writeShowHidden } from '../utils/hiddenEntries';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -51,7 +53,7 @@ const RemoteFolderPicker = ({
   isOpen, host, initialPath = '', onPick, onClose, t,
   confirmLabel = null, title = null, inline = false,
   /* 고른 폴더로 **터미널을 여는** 자리에서만 켠다(LocalFolderPicker 와 같은 규칙). */
-  launchOptions = false, defaultMultiplexer,
+  launchOptions = false, defaultMultiplexer, defaultShell,
 }) => {
   const [launch, setLaunch] = useState({ multiplexer: INHERIT, shell: INHERIT });
   const [path, setPath] = useState('');         // 현재 보고 있는 절대 경로
@@ -91,6 +93,8 @@ const RemoteFolderPicker = ({
      사용자는 🏠 로 홈에 간다. 여기서 미리 확인하려면 왕복이 하나 더 든다. */
   useEffect(() => {
     if (!isOpen || !host) return;
+    /* ⚠️ 로컬 픽커와 같은 이유로 열 때마다 잊는다 — 닫아도 언마운트되지 않는다. */
+    setLaunch({ multiplexer: INHERIT, shell: INHERIT });
     setPath('');
     setItems([]);
     setError(null);
@@ -110,6 +114,22 @@ const RemoteFolderPicker = ({
   const goUp = () => load(parentOf(path));
   const goHome = () => load('');
   const enter = (folder) => load(folder.path);
+  /* 원격도 로컬과 같은 모양이다 — 경로가 절대 경로라는 것만 다르다. 루트에서 만들 때
+     `//` 가 되지 않게 끝의 슬래시를 정리한다. */
+  const createFolder = async (name) => {
+    const base = (path || '/').replace(/\/+$/, '');
+    const target = `${base}/${name}`;
+    const res = await apiFetch(`/api/hosts/${host.id}/files/create`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ path: target, type: 'directory' }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    await load(target);
+  };
   const confirm = () => {
     if (!path) return;
     onPick?.(path, launch);
@@ -158,6 +178,7 @@ const RemoteFolderPicker = ({
           >
             {showHidden ? <Eye size={13} strokeWidth={1.8} /> : <EyeOff size={13} strokeWidth={1.8} />}
           </HoverBtn>
+          <NewFolderRow onCreate={createFolder} disabled={loading} t={t} />
           <div style={styles.crumb} title={path || '~'}>
             {path || '~'}
           </div>
@@ -200,13 +221,12 @@ const RemoteFolderPicker = ({
         </div>
 
         {launchOptions && (
-          /* ⚠️ 셸 칸은 없다 — 원격 pane 의 WS 는 `shell` 을 아예 안 싣는다(그쪽 로그인
-             셸이 뜬다). 안 먹는 칸을 그리면 조용한 실패가 된다. */
           <TerminalLaunchOptions
             multiplexer={launch.multiplexer}
+            shell={launch.shell}
             onChange={setLaunch}
             defaultMultiplexer={defaultMultiplexer}
-            showShell={false}
+            defaultShell={defaultShell}
             t={t}
           />
         )}

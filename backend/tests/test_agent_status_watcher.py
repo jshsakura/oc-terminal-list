@@ -108,3 +108,43 @@ def test_snapshot_shape(watcher):
     assert snap["s1"]["status"] == "working"
     assert snap["s1"]["command"] == "claude"
     assert snap["s1"]["title"] == "작업중"
+
+
+class TestCwdIsPartOfTheChange:
+    """`cd` 만 해도 신호가 나가야 한다 — 상단 주소가 그 신호로 따라간다.
+
+    이 폴링은 이미 `#{pane_current_path}` 를 읽고 있다(같은 tmux 호출의 칸 하나라 공짜).
+    비교에서 빠져 있던 탓에 **타이틀이 안 변하는 셸**에서는 경로가 영영 안 갱신됐다.
+    """
+
+    @staticmethod
+    def _line(session: str, cwd: str, title: str = "zsh") -> str:
+        return f"{session}\t1\tzsh\t{cwd}\t{title}"
+
+    def test_cd_만_해도_변경으로_잡힌다(self):
+        w = AgentStatusWatcher()
+        w._diff(parse_pane_lines(self._line("s1", "/home/u")))
+        changes = w._diff(parse_pane_lines(self._line("s1", "/home/u/project")))
+        assert [c["cwd"] for c in changes] == ["/home/u/project"]
+
+    def test_아무것도_안_바뀌면_조용하다(self):
+        w = AgentStatusWatcher()
+        w._diff(parse_pane_lines(self._line("s1", "/home/u")))
+        assert w._diff(parse_pane_lines(self._line("s1", "/home/u"))) == []
+
+    def test_스피너만_돌면_경로가_같을_때_여전히_조용하다(self):
+        """⚠️ 초당 10~12회다. 여기서 새면 SSE 와 리렌더가 폭주한다."""
+        w = AgentStatusWatcher()
+        w._diff(parse_pane_lines(self._line("s1", "/home/u", "⠋ claude")))
+        assert w._diff(parse_pane_lines(self._line("s1", "/home/u", "⠙ claude"))) == []
+
+    def test_스피너가_돌아도_경로가_바뀌면_알린다(self):
+        w = AgentStatusWatcher()
+        w._diff(parse_pane_lines(self._line("s1", "/home/u", "⠋ claude")))
+        changes = w._diff(parse_pane_lines(self._line("s1", "/home/u/x", "⠙ claude")))
+        assert [c["cwd"] for c in changes] == ["/home/u/x"]
+
+    def test_스냅샷에도_경로가_실린다(self):
+        w = AgentStatusWatcher()
+        w._diff(parse_pane_lines(self._line("s1", "/home/u")))
+        assert w.snapshot()["s1"]["cwd"] == "/home/u"

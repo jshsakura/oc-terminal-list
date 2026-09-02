@@ -118,7 +118,17 @@ def _gone_notice(detail: str) -> str:
     )
 
 
-def _plain_shell_command(start_path: str | None, *, create_session: bool) -> str | None:
+#: 고른 셸 이름 → 그 기계에서 실제로 실행할 것. **없으면 로그인 셸로 떨어진다** —
+#: 고른 셸이 그 호스트에 없다고 pane 이 죽으면 고친 게 아니라 부순 것이다. 이름은
+#: 호출부(`routes/host_ws`)가 화이트리스트로 접은 값이라 그대로 끼워도 안전하다.
+def _shell_expr(shell: str | None = None) -> str:
+    if not shell:
+        return "${SHELL:-bash}"
+    return f'"$(command -v {shell} 2>/dev/null || echo ${{SHELL:-/bin/bash}})"'
+
+
+def _plain_shell_command(start_path: str | None, *, create_session: bool,
+                         shell: str | None = None) -> str | None:
     """멀티플렉서 없이 그냥 로그인 셸.
 
     **고장이 아니라 유효한 선택이다.** 다만 붙잡아 둘 세션이 없으므로 재접속
@@ -127,7 +137,9 @@ def _plain_shell_command(start_path: str | None, *, create_session: bool) -> str
     if not create_session:
         return _gone_notice("this host does not keep a shell to reconnect")
     if start_path:
-        return f"cd {_shell_path(start_path)} 2>/dev/null; exec ${{SHELL:-bash}} -l"
+        return f"cd {_shell_path(start_path)} 2>/dev/null; exec {_shell_expr(shell)} -l"
+    if shell:
+        return f"exec {_shell_expr(shell)} -l"
     return None
 
 
@@ -160,7 +172,7 @@ def _build_herdr_command(
         f"{guard}{cd_prefix}exec herdr --session {safe}; "
         f"}} || "
         f"{cd_prefix}exec ${{SHELL:-bash}} -l"
-    )
+    )      # herdr 전용 빌더 — 여기 오는 경우 셸 선택은 애초에 herdr 가 안 받는다
 
 
 def _tmux_session_options(safe: str, itl_pane_key: str | None = None,
@@ -268,6 +280,7 @@ def _build_remote_command(
     create_session: bool = True,
     itl_pane_key: str | None = None,
     itl_pane_addr: str | None = None,
+    shell: str | None = None,
 ) -> str | None:
     """원격에서 실행할 명령 — **묻지 말고 찾는다.**
 
@@ -298,19 +311,23 @@ def _build_remote_command(
         choice = mux.normalize(multiplexer)
 
     if choice == mux.NONE:
-        return _plain_shell_command(start_path, create_session=create_session)
+        return _plain_shell_command(start_path, create_session=create_session, shell=shell)
 
     safe = shlex.quote(tmux_session or DEFAULT_REMOTE_TMUX_SESSION)
     cwd_arg = f" -c {_shell_path(start_path)}" if start_path else ""
+    # tmux 는 세션을 **만들 때만** 셸을 받는다. 이미 있는 세션에 붙을 때는 뜻이 없다.
+    shell_arg = f" {_shell_expr(shell)}" if shell else ""
     cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
 
     # ── 3) 아무도 안 잡고 있을 때: 설정된 것으로 새로 ──
     if not create_session:
         create_branch = _gone_notice(f"refresh could not find {tmux_session}")
     elif choice == mux.HERDR:
+        # ⚠️ herdr 는 셸을 인자로 받지 않는다 — 자기 방식으로 연다. 화면의 셸 칸이
+        # herdr 일 때 비활성인 이유가 이것이다(TerminalLaunchOptions). 폴백 셸에는 건다.
         create_branch = (
             f"command -v herdr >/dev/null 2>&1 && {{ {cd_prefix}exec herdr --session {safe}; }} "
-            f"|| {{ {cd_prefix}exec ${{SHELL:-bash}} -l; }}"
+            f"|| {{ {cd_prefix}exec {_shell_expr(shell)} -l; }}"
         )
     else:
         # history-limit 은 new-session 보다 먼저 전역(-g)으로 걸어야 첫 pane 이 물려받는다.
@@ -318,10 +335,10 @@ def _build_remote_command(
         create_branch = (
             f"command -v tmux >/dev/null 2>&1 && {{ "
             f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} \\; "
-            f"new-session -d -s {safe}{cwd_arg} >/dev/null 2>&1; "
+            f"new-session -d -s {safe}{cwd_arg}{shell_arg} >/dev/null 2>&1; "
             f"{_tmux_session_options(safe, itl_pane_key, itl_pane_addr)}"
             f"exec tmux attach-session -t {safe}; }} "
-            f"|| {{ {cd_prefix}exec ${{SHELL:-bash}} -l; }}"
+            f"|| {{ {cd_prefix}exec {_shell_expr(shell)} -l; }}"
         )
 
     return (
@@ -450,6 +467,7 @@ class HostBridge:
         app_user: str | None = None,
         itl_key: str | None = None,
         pane_addr_hint: str | None = None,
+        shell: str | None = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -473,6 +491,8 @@ class HostBridge:
         # 이 pane 의 앱 주소(`탭.pane`). 라우트가 탭 상태에서 찾아 넘긴다 — 붙는 명령에
         # 얹어 원격 tmux 에 새기고, 번호가 밀리면 `remote_panes` 가 다시 쓴다.
         self.pane_addr_hint = (pane_addr_hint or "").strip()
+        # 이 세션을 **만들 때만** 쓰는 셸. 호출부가 화이트리스트로 접어 넘긴다.
+        self.shell = (shell or "").strip() or None
         self.tmux_session = ""
         self._itl_scanner = SentinelScanner() if app_user else None
         self.create_session = bool(create_session)
@@ -646,7 +666,8 @@ class HostBridge:
         pane_addr = self._arm_pane_addr(tmux_session)
         cmd = _build_remote_command(choice, tmux_session, start_path,
                                     create_session=self.create_session,
-                                    itl_pane_key=pane_key, itl_pane_addr=pane_addr)
+                                    itl_pane_key=pane_key, itl_pane_addr=pane_addr,
+                                    shell=self.shell)
 
         await self._warn_if_multiplexer_missing(choice)
 
@@ -893,6 +914,7 @@ class TailscaleHostBridge:
         app_user: str | None = None,
         itl_key: str | None = None,
         pane_addr_hint: str | None = None,
+        shell: str | None = None,
     ):
         self.websocket = websocket
         self.host = host
@@ -912,6 +934,8 @@ class TailscaleHostBridge:
         # 이 pane 의 앱 주소(`탭.pane`). 라우트가 탭 상태에서 찾아 넘긴다 — 붙는 명령에
         # 얹어 원격 tmux 에 새기고, 번호가 밀리면 `remote_panes` 가 다시 쓴다.
         self.pane_addr_hint = (pane_addr_hint or "").strip()
+        # 이 세션을 **만들 때만** 쓰는 셸. 호출부가 화이트리스트로 접어 넘긴다.
+        self.shell = (shell or "").strip() or None
         self.tmux_session = ""
         self._itl_scanner = SentinelScanner() if app_user else None
         self.create_session = bool(create_session)
@@ -998,7 +1022,8 @@ class TailscaleHostBridge:
         pane_addr = self._arm_pane_addr(tmux_session)
         cmd = _build_remote_command(choice, tmux_session, start_path,
                                     create_session=self.create_session,
-                                    itl_pane_key=pane_key, itl_pane_addr=pane_addr)
+                                    itl_pane_key=pane_key, itl_pane_addr=pane_addr,
+                                    shell=self.shell)
         argv = ["tailscale", "ssh", "-t", target]
         if cmd:
             argv.append(cmd)

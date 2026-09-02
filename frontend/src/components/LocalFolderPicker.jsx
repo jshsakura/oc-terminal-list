@@ -2,9 +2,11 @@ import { useEffect, useState, useCallback } from 'react';
 import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home, Eye, EyeOff } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import TerminalLaunchOptions from './common/TerminalLaunchOptions';
+import NewFolderRow from './common/NewFolderRow';
 import { INHERIT } from '../utils/launchOptions';
 import SkeletonRow from './common/SkeletonRow';
 import { authHeaders } from '../utils/auth';
+import { apiFetch } from '../utils/apiFetch';
 import { splitHiddenEntries, readShowHidden, writeShowHidden } from '../utils/hiddenEntries';
 
 const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
@@ -94,6 +96,10 @@ const LocalFolderPicker = ({
     setPath(initialPath || '');
     setItems([]);
     setError(null);
+    /* ⚠️ **열 때마다 잊는다.** 이 컴포넌트는 닫혀도 언마운트되지 않아(`return null` 이라
+       상태가 그대로 산다) 지난번에 고른 값이 다음 열기에 그대로 남아 있었다 — 한 번
+       herdr 를 고르면 그 뒤로 계속 herdr 로 열렸다. 한 번짜리 선택은 한 번만 산다. */
+    setLaunch({ multiplexer: INHERIT, shell: INHERIT });
     load(initialPath || '');
   }, [isOpen, initialPath, load]);
 
@@ -110,6 +116,22 @@ const LocalFolderPicker = ({
   const goUp = () => load(parentOf(path));
   const goHome = () => load('');
   const enter = (folder) => load(folder.path);
+
+  /* 지금 보고 있는 폴더 **안에** 만들고 곧장 들어간다. 경로 합치기는 여기서만 한다 —
+     이름 검사는 NewFolderRow 가 이미 했다(`/` 금지). */
+  const createFolder = useCallback(async (name) => {
+    const target = path ? `${path}/${name}` : name;
+    const res = await apiFetch('/api/files/create', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ path: target, type: 'directory' }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.detail || `HTTP ${res.status}`);
+    }
+    await load(target);
+  }, [path, load]);
   const confirm = () => onPick?.(path, launch);
 
   const overlayStyle = inline ? styles.inlineOverlay : styles.overlay;
@@ -164,6 +186,7 @@ const LocalFolderPicker = ({
           >
             {showHidden ? <Eye size={13} strokeWidth={1.8} /> : <EyeOff size={13} strokeWidth={1.8} />}
           </HoverBtn>
+          <NewFolderRow onCreate={createFolder} disabled={loading} t={t} />
           <div style={styles.crumb} title={path || '/'}>
             {path ? `/${path}` : '/'}
           </div>

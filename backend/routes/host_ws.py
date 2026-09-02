@@ -16,6 +16,9 @@ from cache import invalidate_host
 from host_manager import HostBridge, resolve_host_secrets
 import local_mux
 import multiplexer as mux
+
+#: 원격에 넘길 수 있는 셸 이름. 이 밖의 값은 버린다(명령 문자열에 들어가는 값이다).
+REMOTE_SHELLS = frozenset({"bash", "zsh", "sh"})
 from sqlite_storage import storage
 from tickets import _push_ws_tickets
 from ws_auth import authenticate_ws
@@ -45,6 +48,11 @@ async def host_websocket(
         None,
         description="이 원격 세션을 **새로 만들 때만** 쓰는 선택(tmux/herdr/none). 그 이름을 "
                     "이미 붙잡고 있는 것이 있으면 원격 명령이 그것을 먼저 찾는다.",
+    ),
+    shell: str | None = Query(
+        None,
+        description="이 원격 세션을 **새로 만들 때만** 쓰는 셸(bash/zsh/sh). herdr 는 셸을 "
+                    "인자로 받지 않아 무시된다. 그 호스트에 없으면 로그인 셸로 떨어진다.",
     ),
     reason: str | None = Query(None, description="클라이언트가 이 연결을 연 사유(관측 전용, ws_observe 참고)"),
     prev_ms: int | None = Query(None, description="직전 소켓이 살아있던 시간(ms). 요동과 단발 끊김을 구별한다."),
@@ -88,6 +96,10 @@ async def host_websocket(
     # 있는지 herdr 가 잡고 있는지 **먼저 찾고**, 아무도 없을 때만 이 선택으로 만든다.
     pane_multiplexer = (mux.normalize(multiplexer)
                         if isinstance(multiplexer, str) and multiplexer else None)
+    # 🔐 이 값은 원격 셸 명령 문자열에 그대로 들어간다 — **화이트리스트 밖은 버린다.**
+    # 실제 경로 확인은 그 호스트에서 `command -v` 가 한다(여기선 알 수 없다).
+    pane_shell = (shell.strip().lower()
+                  if isinstance(shell, str) and shell.strip().lower() in REMOTE_SHELLS else None)
     default_multiplexer = pane_multiplexer or await local_mux.choice_for(username)
     if pane_multiplexer:
         # ⚠️ `fallback` 만으론 부족하다 — 브리지는 `from_host_row(host, fallback=…)` 를
@@ -182,6 +194,7 @@ async def host_websocket(
             app_user=username,
             itl_key=target_tmux_session,
             pane_addr_hint=pane_addr_hint,
+            shell=pane_shell,
         )
     else:
         bridge = HostBridge(
@@ -203,6 +216,7 @@ async def host_websocket(
             app_user=username,
             itl_key=target_tmux_session,
             pane_addr_hint=pane_addr_hint,
+            shell=pane_shell,
         )
     opened_at = time.monotonic()
     log_attach(

@@ -23,7 +23,10 @@ export const buildWsUrl = ({
   hostId = null,
   cols,
   rows,
-  shell = 'bash',
+  /* ⚠️ 기본값을 두지 않는다. 원격에서 "안 고름" 과 "bash 를 골랐음" 을 구별해야 하는데,
+     여기서 'bash' 로 채우면 그 구별이 사라져 남의 호스트 로그인 셸을 매번 덮는다.
+     로컬의 기본값은 아래 분기가 그 자리에서 넣는다. */
+  shell = null,
   cwd = null,
   paneIndex = 0,
   tmuxSuffix = null,
@@ -45,6 +48,10 @@ export const buildWsUrl = ({
     if (paneIndex) params.set('pane_index', String(paneIndex));
     if (tmuxSuffix) params.set('tmux_suffix', tmuxSuffix);
     if (tmuxSessionName) params.set('tmux_session_name', tmuxSessionName);
+    /* 원격도 **고른 경우에만** 싣는다. 로컬처럼 기본값('bash')을 박으면 그 호스트의
+       로그인 셸(zsh 를 쓰는 사람이 많다)을 우리가 덮어써 버린다 — 안 고른 사람에게
+       없던 변화가 생기는 것이 이 저장소가 피하는 쪽이다. */
+    if (shell) params.set('shell', shell);
   } else {
     params.set('shell', shell || 'bash');
   }

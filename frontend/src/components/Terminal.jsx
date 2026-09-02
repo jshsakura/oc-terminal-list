@@ -917,7 +917,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         rows,
         /* pane 이 자기 값을 들고 있으면 그것이 이긴다(경로 픽커에서 고른 값). 없으면
            설정 — "앞으로 여는 것 전부" 를 정하는 자리는 여전히 설정 하나다. */
-        shell: paneShell || settings.defaultShell || 'bash',
+        /* 원격은 **고른 것만** 보낸다 — 설정의 `기본 셸` 은 이 서버의 개념이라 남의
+           호스트 로그인 셸을 그 값으로 덮으면 안 된다. 로컬은 예전 그대로. */
+        shell: hostId ? (paneShell || null) : (paneShell || settings.defaultShell || 'bash'),
         multiplexer: paneMultiplexer || null,
         cwd,
         paneIndex,

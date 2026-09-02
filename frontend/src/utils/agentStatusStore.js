@@ -12,7 +12,7 @@
  */
 import { detectAgentStatus, agentDisplayTitle, isSpinnerOnlyChange } from './agentTitle';
 
-// sessionId → { status, title, rawTitle, command, updatedAt }
+// sessionId → { status, title, rawTitle, command, cwd, updatedAt }
 let state = {};
 const listeners = new Set();
 
@@ -65,12 +65,18 @@ export const applyAgentStatusChanges = (changes) => {
     }
     const prev = state[id];
     // 프론트가 방금 본 타이틀이 더 최신이다 — 폴링(최대 5s 지연)이 덮어쓰지 않게 한다.
-    if (prev && prev.rawTitle === change.rawTitle && prev.status === change.status) return;
+    // ⚠️ **cwd 도 비교에 넣는다.** 타이틀이 안 변하는 셸에서 `cd` 만 한 경우가 정확히
+    // 여기서 걸러졌다 — 그러면 상단 주소가 영영 안 따라온다.
+    if (prev && prev.rawTitle === change.rawTitle && prev.status === change.status
+        && (prev.cwd || '') === (change.cwd || '')) return;
     state[id] = {
       status: change.status ?? null,
       title: change.title || '',
       rawTitle: change.rawTitle || '',
       command: change.command || '',
+      // tmux 가 아는 **지금** 경로. 폴링이 이미 읽고 있던 값이라 이걸 싣는 데 드는 왕복이
+      // 없다(backend/agent_status_watcher.PANE_FORMAT).
+      cwd: change.cwd || '',
       updatedAt: Date.now(),
     };
     dirty = true;
@@ -90,6 +96,7 @@ export const hydrateAgentStatus = (sessions) => {
       title: value?.title || '',
       rawTitle: value?.rawTitle || '',
       command: value?.command || '',
+      cwd: value?.cwd || '',
       updatedAt: 0,
     };
   });
@@ -106,3 +113,16 @@ export const forgetAgentStatus = (sessionId) => {
 
 /** 테스트 전용 — 스토어 초기화. */
 export const _resetAgentStatus = () => { state = {}; listeners.clear(); };
+
+
+/**
+ * 이 세션의 **살아있는 cwd** — tmux 가 방금 보고한 절대 경로. 없으면 빈 문자열.
+ *
+ * 원시값(문자열)을 돌려주는 것이 중요하다: `useSyncExternalStore` 는 스냅샷을 참조로
+ * 비교하므로, 객체를 새로 만들어 돌려주면 매 렌더가 변경으로 읽혀 무한 루프가 된다.
+ *
+ * ⚠️ **로컬 tmux pane 만 채워진다.** 백엔드 폴링은 이 기계의 tmux 만 볼 수 있다 —
+ * 원격 pane 의 tmux 는 그 호스트에 있고, herdr 에는 이 폴링 자체가 없다. 그쪽은 빈
+ * 문자열이고, 호출부는 그걸 "모른다" 로 읽어 원래 하던 대로 한다.
+ */
+export const getAgentCwd = (sessionId) => (sessionId ? (state[sessionId]?.cwd || '') : '');

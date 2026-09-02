@@ -138,3 +138,40 @@ class TestRouteHint:
                    AsyncMock(return_value={"tabs": TABS})):
             got = await pane_addr.remote_address_for("u", "h1", "mobile-x")
         assert got == "1.2"
+
+
+class TestRemoteShell:
+    """원격도 고른 셸로 뜬다 — **만들 때만**, 그리고 없으면 로그인 셸로 떨어진다.
+
+    이 칸이 로컬에만 있던 것이 "기본 셸은 안 나오기 일쑤" 의 정체였다.
+    """
+
+    def test_tmux_는_세션을_만들_때_셸을_받는다(self):
+        cmd = _build_remote_command(TMUX, "mobile", shell="zsh")
+        assert "new-session -d -s mobile" in cmd
+        assert "command -v zsh" in cmd
+
+    def test_없으면_로그인_셸로_떨어진다(self):
+        """고른 셸이 그 호스트에 없다고 pane 이 죽으면 고친 게 아니라 부순 것이다."""
+        cmd = _build_remote_command(TMUX, "mobile", shell="zsh")
+        assert "|| echo ${SHELL:-/bin/bash}" in cmd
+
+    def test_안_고르면_명령이_그대로다(self):
+        assert _build_remote_command(TMUX, "mobile") == _build_remote_command(TMUX, "mobile", shell=None)
+
+    def test_herdr_는_셸을_안_받는다(self):
+        """`herdr --session` 하나가 생성과 접속을 겸한다 — 셸 자리가 없다."""
+        cmd = _build_remote_command(HERDR, "mobile", shell="zsh")
+        assert "exec herdr --session mobile" in cmd
+        assert "herdr --session mobile zsh" not in cmd
+
+    def test_맨_셸은_고른_것으로_뜬다(self):
+        from multiplexer import NONE
+        cmd = _build_remote_command(NONE, "mobile", "/tmp", shell="zsh")
+        assert "command -v zsh" in cmd and "exec " in cmd
+
+    def test_화이트리스트_밖은_라우트가_버린다(self):
+        """🔐 이 값은 원격 셸 명령 문자열에 그대로 들어간다."""
+        from routes.host_ws import REMOTE_SHELLS
+        assert REMOTE_SHELLS == {"bash", "zsh", "sh"}
+        assert "; rm -rf /" not in REMOTE_SHELLS

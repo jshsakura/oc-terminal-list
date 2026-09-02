@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { authHeaders } from '../utils/auth';
 import { apiFetch } from '../utils/apiFetch';
 import { createHostCwdBatcher } from '../utils/hostCwdBatch';
+import { subscribeAgentStatus, getAgentCwd } from '../utils/agentStatusStore';
 
 const fetchHostCwds = async (hostId) => {
   const res = await apiFetch(`/api/hosts/${hostId}/cwd/batch`, { headers: authHeaders() });
@@ -26,6 +27,16 @@ const { request: requestLocalCwd } = createHostCwdBatcher({ fetchCwds: fetchLoca
  *
  * 로컬/리모트: 마운트·세션 변경·명시적 refresh 때만 fetch.
  * tmux 의 #{pane_current_path} 는 즉시 조회 가능하므로 주기 폴링하지 않는다.
+ *
+ * **그런데 `cd` 는 따라간다 — 새 폴링을 만들지 않고.** 에이전트 상태 폴링이 이미
+ * `#{pane_current_path}` 를 읽어 SSE 로 흘려보내고 있으므로(공짜다: 같은 tmux 호출의
+ * 칸 하나, 이미 열려 있는 SSE), 그 값이 바뀐 순간을 **신호로만** 쓴다. 값 자체를 쓰지
+ * 않는 이유는 화면이 워크스페이스 **상대** 경로도 필요로 하는데 그 환산은 서버만
+ * 할 수 있어서다 — 상대 경로 계산을 여기 베끼면 두 곳이 반드시 어긋난다.
+ * 그래서 `cd` 한 번당 배치된 요청 하나. 사람 속도로 일어나는 일이라 무시할 수 있다.
+ *
+ * ⚠️ 이 신호는 **로컬 tmux pane 에만** 온다. 원격 pane 의 tmux 는 그 호스트에 있고
+ * herdr 에는 이 폴링이 없다 — 그쪽은 예전처럼 명시적 refresh 로만 갱신된다.
  *
  * deferMs: delays the first lookup, for off-screen panes. A restored workspace
  * mounts every pane at once, so these lookups (a per-pane SSH round trip when
@@ -150,6 +161,23 @@ const useActiveTerminalCwd = ({
     });
     return p;
   }, [isLocal, sessionId, hostId, tmuxSession, fetchLocal, fetchRemote, scheduleRetry, clearRetry]);
+
+  /* 이 세션의 살아있는 cwd(문자열). ⚠️ 원시값이어야 한다 — 객체를 만들어 돌려주면
+     `useSyncExternalStore` 가 매 렌더를 변경으로 읽어 무한 루프가 된다. */
+  const liveCwd = useSyncExternalStore(
+    subscribeAgentStatus,
+    () => (isLocal ? getAgentCwd(sessionId) : ''),
+    () => '',
+  );
+  /* 그 값이 우리가 아는 것과 달라진 순간에만 다시 묻는다. 같은 값이 또 와도(스냅샷
+     하이드레이션 등) 아무 일도 하지 않는다. */
+  const lastLiveRef = useRef('');
+  useEffect(() => {
+    if (!liveCwd || liveCwd === lastLiveRef.current) return;
+    lastLiveRef.current = liveCwd;
+    if (absolutePath && liveCwd === absolutePath) return;   // 이미 그 경로를 알고 있다
+    refresh();
+  }, [liveCwd, absolutePath, refresh]);
 
   // 기본은 1회성 조회 + 실패 시 백오프. intervalMs 를 명시한 경우에만 하위호환 폴링.
   useEffect(() => {
