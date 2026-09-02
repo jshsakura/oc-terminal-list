@@ -511,6 +511,37 @@ def send(pane: dict, text: str, *, enter: bool = True, raw: bool = False) -> tup
     return send_herdr(pane, text, enter=enter, raw=raw)
 
 
+# ─── 알리기 ──────────────────────────────────────────────────────────────────
+
+def notify(pane: dict, text: str) -> tuple[bool, str]:
+    """팬의 **화면**에 한 줄 찍는다 — 입력줄은 건드리지 않는다.
+
+    ⚠️ `send` 로 통지를 보내면 엔터를 안 치는 한 그 글이 **입력줄에 쌓인다.** 실제로
+    통지 서너 개가 한 줄로 이어붙어 사용자가 손으로 지워야 했다. 통지는 답을 요구하는
+    말이 아니라 알림이므로 출력 쪽에 속한다.
+
+    tmux 는 팬의 tty 경로를 알려 주므로 거기에 그대로 쓴다 — 프로그램이 찍은 것과 같은
+    자리라 에이전트도 자기 화면에서 읽을 수 있다(상태바 `display-message` 는 못 읽는다).
+    ⚠️ herdr 팬에는 `pane_tty` 가 없다 → 조용히 실패한다.
+    """
+    if pane["mux"] != TMUX:
+        return False, "tmux 팬이 아니다"
+    binary = tmux_bin()
+    if not binary:
+        return False, "tmux 가 없다"
+    code, out, err = run([binary, "-S", pane["socket"], "display-message", "-p",
+                          "-t", pane["native_id"], "#{pane_tty}"])
+    tty = (out or "").strip()
+    if code != 0 or not tty:
+        return False, (err.strip() or "pane_tty 를 못 읽었다")[:200]
+    try:
+        with open(tty, "w") as fh:
+            fh.write("\r\n" + text + "\r\n")
+    except OSError as e:
+        return False, str(e)[:200]
+    return True, ""
+
+
 # ─── 읽기 ────────────────────────────────────────────────────────────────────
 
 def read(pane: dict, lines: int) -> tuple[str, str]:
@@ -650,6 +681,10 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--raw", action="store_true",
                    help="에이전트여도 그냥 텍스트로 (agent prompt 를 건너뛴다)")
 
+    n = sub.add_parser("notify", help="그 팬의 화면에 한 줄 (입력줄은 안 건드린다)")
+    n.add_argument("addr")
+    n.add_argument("text")
+
     r = sub.add_parser("read", help="그 팬의 최근 출력")
     r.add_argument("addr")
     r.add_argument("--lines", type=int, default=40)
@@ -694,6 +729,14 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print(f"itl: {why}", file=sys.stderr)
         return 2
+
+    if args.cmd == "notify":
+        ok, err = notify(pane, args.text)
+        if args.json:
+            print(json.dumps({"ok": ok, "error": err or None}, ensure_ascii=False))
+        elif not ok:
+            print(f"itl: {err}", file=sys.stderr)
+        return 0 if ok else 3
 
     if args.cmd == "read":
         text, err = read(pane, args.lines)

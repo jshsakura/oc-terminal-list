@@ -198,6 +198,35 @@ def _already_delivered(sender_key: str, nonce: str | None) -> bool:
     return False
 
 
+async def notify(username: str, addr: str, text: str) -> bool:
+    """`addr` 팬의 **화면**에 한 줄. 입력줄은 건드리지 않는다.
+
+    ⚠️ 통지를 `deliver` 로 보내면 엔터를 안 치는 한 그 글이 **입력줄에 쌓인다** — 실제로
+    통지 서너 개가 한 줄로 이어붙어 사용자가 손으로 지워야 했다. 통지는 답을 요구하는
+    말이 아니라 알림이라 출력 쪽에 속한다.
+    """
+    text = _CONTROL_RE.sub(" ", text or "").strip()
+    if not text:
+        return False
+    try:
+        target = resolve(await _targets_for(username), addr)
+    except DeliveryFailed:
+        return False
+    native = native_addr(target)
+    if not native:
+        return False
+    args = ["notify", native, text[:400]]
+    try:
+        if target.get("kind") == "host" and target.get("hostId"):
+            await _run_remote(target["hostId"], username, args)
+        else:
+            await _run_local(args)
+        return True
+    except DeliveryFailed as e:
+        logger.info("itl 통지 실패 (%s): %s", addr, e)
+        return False
+
+
 async def deliver_from_pane(username: str, sender_key: str, msg: dict) -> None:
     """팬이 찍은 표식 하나를 배달한다 — 브리지가 부르는 진입점.
 
@@ -238,7 +267,7 @@ async def _ack_ok(username: str, sender: str, to: str) -> None:
     if not ADDR_RE.match((sender or "").strip()) or not ADDR_RE.match((to or "").strip()):
         return
     try:
-        await deliver(username, sender, f"[itl] {to} 로 전달됨", submit=False)
+        await notify(username, sender, f"[itl] {to} 로 전달됨")
     except Exception as e:  # noqa: BLE001 — 통지 실패가 배달 성공을 뒤집지는 않는다
         logger.info("itl 성공 통지 실패 (%s): %s", sender, e)
 
@@ -249,9 +278,9 @@ async def _ack_failure(username: str, sender: str, to: str, why: str) -> None:
     고리가 안 생기는 이유: 배달은 스캐너를 거치지 않고, 이 문구에는 표식이 없다.
     표식이 없는 줄은 다시 주워지지 않는다.
 
-    🔐 **Typed, never submitted** (`submit=False`). `why` can be the *target* host's
-    stderr; submitting it into the sender agent as a prompt would let a target host
-    inject instructions into whoever talks to it. Typed text just sits in the input.
+    🔐 **화면에만 쓴다**(`notify`). `why` 에는 *대상* 호스트의 stderr 가 섞일 수 있어
+    발신 에이전트에 프롬프트로 제출하면 상대 호스트가 지시를 주입하는 통로가 된다.
+    그렇다고 입력줄에 타이핑해 두면 통지들이 이어붙어 쌓인다 — 그래서 출력 쪽이다.
     """
     if not ADDR_RE.match((sender or "").strip()):
         return          # 보낸 팬이 주소록에 없다 — 알릴 곳이 없다
@@ -259,6 +288,6 @@ async def _ack_failure(username: str, sender: str, to: str, why: str) -> None:
     # the sender's pane, so it must stay one line of plain text — no control characters.
     why = _CONTROL_RE.sub(" ", why)
     try:
-        await deliver(username, sender, f"[itl] {to} 로 못 보냈다: {why}"[:400], submit=False)
+        await notify(username, sender, f"[itl] {to} 로 못 보냈다: {why}")
     except Exception as e:  # noqa: BLE001
         logger.info("itl 실패 통지도 실패 (%s): %s", sender, e)

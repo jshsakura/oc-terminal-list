@@ -236,9 +236,10 @@ class TestDeliver:
             await itl_router.deliver("u", "1.1", "ls\nrm -rf /")
         assert "\n" not in local.await_args.args[0][2]
 
-    async def test_실패_통지는_엔터_없이_타이핑만_한다(self):
-        """The reason may be the *target* host's stderr — submitted into the sender
-        agent it would be a prompt injection from whoever the agent talked to."""
+    async def test_실패_통지는_입력줄이_아니라_화면에_찍힌다(self):
+        """⚠️ 타이핑해 두면 통지들이 **입력줄에 이어붙어 쌓인다**(실제로 그랬다).
+        그리고 제출하면 대상 호스트의 stderr 가 발신 에이전트에 프롬프트로 주입된다.
+        둘 다 아닌 자리가 화면이다."""
         sent: list[list[str]] = []
 
         async def fake_local(args):
@@ -252,8 +253,8 @@ class TestDeliver:
             patch.object(itl_router, "_run_local", fake_local),
         ):
             await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x"})
-        assert sent[0][-1] == "--enter-if-agent"
-        assert sent[1][-1] == "--no-enter"
+        assert sent[0][0] == "send" and sent[0][-1] == "--enter-if-agent"
+        assert sent[1][0] == "notify"
 
     async def test_원격_itl_의_실패는_실패다(self):
         """⚠️ stdout alone reads a remote "no such pane" as success."""
@@ -384,7 +385,7 @@ class TestSuccessAck:
         assert len(sent) == 2
         assert "전달됨" in sent[1][2] and sent[1][1] == "sess-a"
 
-    async def test_통지는_엔터를_치지_않는다(self):
+    async def test_통지는_입력줄을_건드리지_않는다(self):
         sent: list[list[str]] = []
 
         async def fake_local(args):
@@ -396,7 +397,7 @@ class TestSuccessAck:
             patch.object(itl_router, "_run_local", fake_local),
         ):
             await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x"})
-        assert sent[1][-1] == "--no-enter"
+        assert sent[1][0] == "notify"
 
     async def test_주소록에_없는_팬이면_알릴_곳이_없다(self):
         sent: list[list[str]] = []
