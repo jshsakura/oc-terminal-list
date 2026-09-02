@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from 'react';
-import { Terminal as TerminalIcon, Lock, User, ArrowLeft, KeyRound, Smartphone, Fingerprint, BookOpen } from 'lucide-react';
+import { Terminal as TerminalIcon, Lock, User, ArrowLeft, KeyRound, Smartphone, Fingerprint, BookOpen, Check } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { buildThemeUI } from '../styles/themeUI';
@@ -197,6 +197,8 @@ const Login = ({ onLogin, language = 'en', theme = null, einkMode = false, onTog
   const dotSizeBg = `${dotGap} ${dotGap}`;
 
   const isMobile = typeof window !== 'undefined' && ('ontouchstart' in window || window.innerWidth < 768);
+  /* 이북 버튼은 카드 밖(점 패턴 위)에 있다 — 카드와 같은 위계의 면이라야 컨트롤로 읽힌다. */
+  const alphaSurface = themed.surface0;
 
   return (
     <div ref={scrollRef} className="login-scroll" style={{
@@ -277,24 +279,39 @@ const Login = ({ onLogin, language = 'en', theme = null, einkMode = false, onTog
               concealLabel={t('hideSecret') || 'Hide'}
             />
 
-            <div style={themed.checkRow}>
+            {/* 행 전체가 하나의 버튼이다 — 네이티브 체크박스(14px)는 폰에서 조준이 안 되고,
+                글자와 상자가 따로 눌리면 어느 쪽이 진짜인지 알 수 없다. 네이티브 input 은
+                접근성(스크린리더·폼 시맨틱)용으로만 남기고 화면에서는 감춘다. */}
+            <button
+              type="button"
+              onClick={() => setRememberUsername((v) => !v)}
+              disabled={isLoading}
+              aria-pressed={rememberUsername}
+              /* 접근성 이름은 이제 **버튼**에 붙는다 — 눌리는 것이 버튼이므로. */
+              aria-label={t('rememberUsernameToggle') || 'Remember username'}
+              style={{
+                ...themed.checkBtn,
+                ...(rememberUsername ? themed.checkBtnOn : {}),
+                position: 'relative',
+              }}
+            >
               <input
                 type="checkbox"
                 checked={rememberUsername}
                 onChange={(e) => setRememberUsername(e.target.checked)}
                 disabled={isLoading}
-                aria-label={t('rememberUsernameToggle') || 'Remember username'}
-                style={themed.checkbox}
+                tabIndex={-1}
+                aria-hidden="true"
+                style={themed.checkInput}
               />
-              <button
-                type="button"
-                onClick={() => setRememberUsername((v) => !v)}
-                disabled={isLoading}
-                style={themed.checkTextBtn}
-              >
-                {t('rememberUsername') || 'Remember ID'}
-              </button>
-            </div>
+              <span style={{
+                ...themed.checkMark,
+                ...(rememberUsername ? themed.checkMarkOn : {}),
+              }}>
+                <Check size={13} strokeWidth={3} />
+              </span>
+              {t('rememberUsername') || 'Remember ID'}
+            </button>
 
             {error && <div key={errorKey} style={{ ...themed.error, animation: 'login-shake 0.35s ease' }}>{error}</div>}
 
@@ -412,20 +429,29 @@ const Login = ({ onLogin, language = 'en', theme = null, einkMode = false, onTog
           style={{
             ...themed.passkeyBtn,
             marginTop: '10px',
-            borderColor: einkMode ? themed.accent : themed.border,
-            color: einkMode ? themed.text : themed.subtext,
-            background: einkMode ? themed.accentSubtle : 'transparent',
+            /* ⚠️ 배경을 transparent 로 두면 카드 밖(점 패턴 위)이라 **숨겨 둔 것처럼**
+               보인다. 이건 화면 종류를 고르는 컨트롤이므로 자기 면을 가져야 한다. */
+            borderColor: einkMode ? themed.accent : 'rgba(255,255,255,0.20)',
+            color: themed.text,
+            background: einkMode ? themed.accentSubtle : alphaSurface,
+            boxShadow: '0 10px 28px rgba(0,0,0,0.35)',
+            justifyContent: 'flex-start',
           }}
         >
           <BookOpen size={15} strokeWidth={2} style={{ flexShrink: 0 }} />
           <span>{t('einkMode') || 'E-ink mode'}</span>
+          {/* 상태는 흐린 글자가 아니라 **칩**으로 — 흐리게 두면 버튼 전체가 비활성으로 읽힌다. */}
           <span
             style={{
               marginLeft: 'auto',
               fontSize: '11px',
-              fontWeight: 600,
+              fontWeight: 700,
               letterSpacing: '0.04em',
-              opacity: einkMode ? 1 : 0.65,
+              padding: '2px 8px',
+              borderRadius: '999px',
+              border: `1px solid ${einkMode ? themed.accent : 'rgba(255,255,255,0.18)'}`,
+              background: einkMode ? themed.accent : 'transparent',
+              color: einkMode ? themed.crust : themed.subtext,
             }}
           >
             {einkMode ? (t('on') || 'ON') : (t('off') || 'OFF')}

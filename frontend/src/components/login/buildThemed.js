@@ -75,12 +75,17 @@ export const buildThemed = (ui) => {
       position: 'relative',
       width: 'calc(100% - 40px)',
       maxWidth: '380px',
-      background: alpha(t.mantle, 'ee', 'rgba(24,24,37,0.93)'),
-      border: `1px solid ${alpha(t.border, '18', 'rgba(255,255,255,0.035)')}`,
+      /* ⚠️ 반투명 + blur 로 두면 폰에서 "떠 있는 유리" 가 아니라 **안 읽히는 면**이 된다.
+         이 카드는 뒤가 비쳐야 할 이유가 없다(뒤에 있는 건 점 패턴뿐이다) — 거의 불투명한
+         면으로 두고, 테두리와 그림자로 띄운다. */
+      /* ⚠️ 배경(crust→mantle 그라디언트) 위에 **mantle 로 칠하면 카드가 안 보인다** —
+         투명도 문제가 아니라 같은 색이라서다. 한 단계 밝은 면(base)으로 띄운다. */
+      background: alpha(t.surface0, 'fa', 'rgba(35,35,47,0.98)'),
+      border: '1px solid rgba(255,255,255,0.14)',
       borderRadius: radius.xl,
-      boxShadow: '0 28px 90px rgba(0, 0, 0, 0.28)',
-      backdropFilter: 'blur(18px)',
-      WebkitBackdropFilter: 'blur(18px)',
+      boxShadow: '0 32px 90px rgba(0, 0, 0, 0.45), 0 2px 0 rgba(255,255,255,0.04) inset',
+      backdropFilter: 'blur(12px)',
+      WebkitBackdropFilter: 'blur(12px)',
       overflow: 'hidden',
       margin: `${space['5']} 0`,
       flexShrink: 0,
@@ -195,20 +200,56 @@ export const buildThemed = (ui) => {
       marginTop: `-${space['2']}`,
       userSelect: 'none',
     },
-    checkTextBtn: {
-      padding: 0,
-      border: 'none',
+    /* 행 전체가 하나의 버튼이다 — 폰에서 14px 네이티브 체크박스는 조준이 안 된다. */
+    checkBtn: {
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: space['2'],
+      alignSelf: 'flex-start',
+      marginTop: `-${space['2']}`,
+      padding: `${space['1']} ${space['2']} ${space['1']} ${space['1']}`,
+      border: '1px solid transparent',
+      borderRadius: radius.sm,
       background: 'transparent',
-      color: 'inherit',
-      font: 'inherit',
+      color: t.subtext,
+      fontFamily: 'inherit',
+      fontSize: fontSize['12'],
       cursor: 'pointer',
+      userSelect: 'none',
+      transition: `background ${motion.fast}, color ${motion.fast}, border-color ${motion.fast}`,
     },
-    checkbox: {
-      width: '14px',
-      height: '14px',
-      accentColor: t.accent,
-      cursor: 'pointer',
+    checkBtnOn: {
+      color: t.text,
+      borderColor: alpha(t.accent, '3d', 'rgba(137,180,250,0.24)'),
+      background: alpha(t.accent, '14', 'rgba(137,180,250,0.08)'),
+    },
+    /* 네이티브 체크박스는 접근성용으로만 남기고 화면에서는 감춘다(w/h 0 은 포커스를
+       잃게 하므로 1px 로 둔다). */
+    checkInput: {
+      position: 'absolute',
+      width: '1px',
+      height: '1px',
+      opacity: 0,
+      pointerEvents: 'none',
+      margin: 0,
+    },
+    checkMark: {
+      width: '18px',
+      height: '18px',
       flexShrink: 0,
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.xs,
+      border: `1.5px solid ${alpha(t.border, '6b', 'rgba(255,255,255,0.20)')}`,
+      background: t.surface0,
+      color: 'transparent',
+      transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}`,
+    },
+    checkMarkOn: {
+      background: t.accent,
+      borderColor: t.accent,
+      color: t.crust,
     },
 
     error: {
@@ -299,7 +340,9 @@ export const buildThemed = (ui) => {
       transition: `background ${motion.fast}, border-color ${motion.fast}, color ${motion.fast}`,
     },
 
-    _inputBg: t.surface0,
+    /* 카드가 surface0 이므로 입력칸은 **더 어둡게**(mantle) — 그래야 파인 칸으로 읽힌다.
+       카드와 같은 톤이면 입력칸의 경계가 사라진다. */
+    _inputBg: alpha(t.mantle, 'e6', 'rgba(21,21,31,0.90)'),
     _inputFocusBg: t.crust,
     _inputBorder: t.border,
     _inputFocusBorder: t.accentBorder,
