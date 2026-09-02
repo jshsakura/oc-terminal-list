@@ -19,8 +19,25 @@ describe('sentenceLines', () => {
     expect(sentenceLines('   ')).toEqual([]);
   });
 
-  it('실제 메뉴 문구가 두 줄로 갈린다 — 이 함수가 쓰이는 자리', () => {
-    expect(sentenceLines(ko.refreshTerminalHint)).toHaveLength(2);
-    expect(sentenceLines(ko.restartSessionHint)).toHaveLength(2);
+  /* ⚠️ **줄 수를 세지 않는다.** 한때 "두 줄로 갈린다" 를 못 박았는데, 그 문구를 한 줄로
+     줄이자(`87fe590`) 함수는 멀쩡한데 테스트만 빨개졌다. 문구는 앞으로도 다듬어질 값이다
+     — 여기서 지켜야 하는 것은 **쪼개는 과정에서 글자가 사라지지 않는다** 는 쪽이다. */
+  it('실제 메뉴 문구를 쪼개도 내용이 사라지지 않는다 — 이 함수가 쓰이는 자리', () => {
+    const squash = (t) => t.trim().replace(/\s+/g, ' ');
+    const hints = Object.entries(ko).filter(
+      ([key, value]) => key.endsWith('Hint') && typeof value === 'string' && value.trim());
+
+    expect(hints.length, '검사할 문구가 없다 — 키 이름 규칙이 바뀌었나').toBeGreaterThan(5);
+    for (const [key, text] of hints) {
+      const lines = sentenceLines(text);
+      expect(lines.length, key).toBeGreaterThan(0);
+      expect(lines.every((line) => line.trim()), `${key}: 빈 줄`).toBe(true);
+      expect(lines.join(' '), key).toBe(squash(text));
+    }
+  });
+
+  it('한 문장이면 한 줄, 두 문장이면 두 줄', () => {
+    expect(sentenceLines('화면만 다시 그립니다')).toHaveLength(1);
+    expect(sentenceLines('셸을 새로 엽니다. 작업은 종료됩니다.')).toHaveLength(2);
   });
 });
