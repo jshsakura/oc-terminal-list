@@ -65,6 +65,11 @@ TMUX_ADDR_OPTION = "@pane_addr"
 TMUX_KEY_OPTION = "@itl_key"
 KEY_ENV = "ITL_KEY"
 
+#: 붙어 있지 않은 팬의 통로. 표식은 **브라우저가 붙어 있을 때만** 읽히는데(읽는 주체가
+#: 그 WS 브리지다) 배경 에이전트는 대개 안 붙어 있다 — 그때 표식은 조용히 사라진다.
+#: tmux 옵션은 붙어 있든 아니든 남고, 백엔드의 기존 1.5초 폴링이 같은 호출로 걷어 간다.
+TMUX_OUTBOX_OPTION = "@itl_outbox"
+
 #: herdr 는 대개 `~/.local/bin` 에 앉는데 비대화형 셸의 PATH 에는 없다.
 HERDR_SEARCH_PATH = (
     os.path.expanduser("~/.local/bin"),
@@ -452,6 +457,22 @@ def send_herdr(pane: dict, text: str, *, enter: bool, raw: bool) -> tuple[bool, 
     return True, ""
 
 
+def put_outbox(line: str) -> bool:
+    """이 팬의 tmux 세션에 우편함을 세운다. tmux 가 아니면 조용히 False.
+
+    🔐 표식보다 오히려 **더** 믿을 만한 통로다: 화면에 찍는 것은 그 팬을 지나가는 어떤
+    출력이든 할 수 있지만, tmux 옵션을 세우려면 그 소켓에 닿아야 한다(같은 OS 사용자).
+    """
+    tmux_env, pane = os.environ.get("TMUX") or "", os.environ.get("TMUX_PANE") or ""
+    binary = tmux_bin()
+    if not (tmux_env and pane and binary):
+        return False
+    socket = tmux_env.split(",", 1)[0]
+    code, _out, _err = run([binary, "-S", socket, "set-option", "-t", pane,
+                            TMUX_OUTBOX_OPTION, line])
+    return code == 0
+
+
 def send_app_addr(addr: str, text: str) -> tuple[bool, str]:
     """이 기계 밖일 수 있는 주소 — 표식 한 줄로 백엔드에 넘긴다.
 
@@ -474,7 +495,11 @@ def send_app_addr(addr: str, text: str) -> tuple[bool, str]:
     # `n` is a per-send nonce: the bridge drops an identical line seen before (a `cat`ed
     # transcript would otherwise replay every send), and this keeps real repeats distinct.
     payload = {"to": addr, "text": text, "key": key, "n": secrets.token_hex(4)}
-    print(SEND_MARKER + " " + json.dumps(payload, ensure_ascii=False), flush=True)
+    line = json.dumps(payload, ensure_ascii=False)
+    # **두 통로로 같이 낸다.** 표식은 붙어 있을 때 즉시, 우편함은 안 붙어 있어도 1.5초
+    # 안에. 같은 `n` 이라 백엔드가 접으므로 두 번 꽂히지 않는다.
+    put_outbox(line)
+    print(SEND_MARKER + " " + line, flush=True)
     return True, ""
 
 

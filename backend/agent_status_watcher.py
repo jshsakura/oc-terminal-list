@@ -24,7 +24,9 @@ INTERVAL_IDLE_SECONDS = 5.0
 # 타이틀이 **마지막**이어야 한다 — 그 안의 탭 문자를 maxsplit 이 흡수한다.
 PANE_FORMAT = (
     "#{session_name}\t#{?pane_active,1,0}\t#{pane_current_command}"
-    "\t#{pane_current_path}\t#{pane_title}"
+    # ⚠️ **타이틀은 언제나 마지막이어야 한다** — 그 안의 탭을 maxsplit 이 흡수한다.
+    # 우편함(`@itl_outbox`)은 JSON 이라 리터럴 탭이 들어갈 수 없어 그 앞이 안전하다.
+    "\t#{pane_current_path}\t#{@itl_outbox}\t#{pane_title}"
 )
 
 
@@ -34,10 +36,10 @@ def parse_pane_lines(raw: str) -> list[dict]:
     for line in (raw or "").splitlines():
         if not line.strip():
             continue
-        parts = line.split("\t", 4)
-        if len(parts) < 5:
+        parts = line.split("\t", 5)
+        if len(parts) < 6:
             continue
-        session_id, active, command, cwd, raw_title = parts
+        session_id, active, command, cwd, outbox, raw_title = parts
         if active != "1":
             continue
         panes.append({
@@ -45,6 +47,9 @@ def parse_pane_lines(raw: str) -> list[dict]:
             "command": command,
             # tmux 가 아는 **실제** 경로. tab-state 의 cwd 는 저장 시점 값이라 낡는다.
             "cwd": cwd,
+            # 붙어 있지 않은 팬이 백엔드에 말을 거는 통로(itl). 상태와 무관한 값이라
+            # `_diff` 는 보지 않고, `_tick` 이 따로 걷어 간다.
+            "outbox": outbox,
             "title": display_title(raw_title),
             "rawTitle": raw_title,
             "status": detect_status(raw_title),
@@ -55,13 +60,15 @@ def parse_pane_lines(raw: str) -> list[dict]:
 class AgentStatusWatcher:
     """폴링 → 전이 이벤트. tmux 접근은 주입받는다(테스트에서 교체 가능)."""
 
-    def __init__(self, list_panes=None, on_change=None, has_listeners=None):
+    def __init__(self, list_panes=None, on_change=None, has_listeners=None, on_outbox=None):
         # list_panes: async () -> str (tmux 원시 출력)
         # on_change:  async (changes: list[dict]) -> None
         # has_listeners: () -> bool  (붙어있는 클라이언트 유무 → 폴링 주기)
         self._list_panes = list_panes
         self._on_change = on_change
         self._has_listeners = has_listeners
+        # on_outbox: async (list[(session_id, payload)]) -> None
+        self._on_outbox = on_outbox
         self._state: dict[str, dict] = {}
         self._task: asyncio.Task | None = None
 
@@ -118,9 +125,17 @@ class AgentStatusWatcher:
 
     async def _tick(self) -> None:
         raw = await self._list_panes()
-        changes = self._diff(parse_pane_lines(raw))
+        panes = parse_pane_lines(raw)
+        # 우편함은 상태가 아니라 **전달할 것**이다 — 상태 비교에 섞이면 안 되고(값이
+        # 지워지는 것을 변경으로 읽는다), 변경이 없어도 걷어 가야 한다.
+        pending = [(p["sessionId"], p["outbox"]) for p in panes if p.get("outbox")]
+        for pane in panes:
+            pane.pop("outbox", None)
+        changes = self._diff(panes)
         if changes and self._on_change:
             await self._on_change(changes)
+        if pending and self._on_outbox:
+            await self._on_outbox(pending)
 
     async def _loop(self) -> None:
         while True:

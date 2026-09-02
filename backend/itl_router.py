@@ -22,6 +22,7 @@ import asyncio
 import logging
 import re
 import shlex
+from collections import OrderedDict
 from pathlib import Path
 
 from pane_targets import build_targets
@@ -179,12 +180,32 @@ async def deliver(username: str, addr: str, text: str, *, sender: str = "",
     return {"ok": True, "addr": addr, "kind": target.get("kind"), "detail": out.strip()[:200]}
 
 
+#: 이미 배달한 (보낸팬, nonce). 표식 통로와 우편함 통로가 **둘 다 살아 있을 수 있어**
+#: (붙어 있는 팬은 양쪽으로 나간다) 같은 것을 두 번 꽂지 않기 위한 것.
+_delivered: OrderedDict[tuple[str, str], None] = OrderedDict()
+DELIVERED_MAX = 512
+
+
+def _already_delivered(sender_key: str, nonce: str | None) -> bool:
+    if not nonce:
+        return False                      # 난수가 없으면 판단하지 않는다(옛 클라이언트)
+    key = (sender_key, nonce)
+    if key in _delivered:
+        return True
+    _delivered[key] = None
+    while len(_delivered) > DELIVERED_MAX:
+        _delivered.popitem(last=False)
+    return False
+
+
 async def deliver_from_pane(username: str, sender_key: str, msg: dict) -> None:
     """팬이 찍은 표식 하나를 배달한다 — 브리지가 부르는 진입점.
 
     ⚠️ **보낸 이는 여기서 되짚는다.** 페이로드의 자칭을 쓰면 팬 하나가 다른 팬을 사칭해
     "1.1 이 시켰다" 를 만들 수 있다. 우리는 그 표식이 어느 세션에서 나왔는지 알고 있다.
     """
+    if _already_delivered(sender_key, msg.get("n")):
+        return                            # 다른 통로가 먼저 배달했다
     try:
         targets = await _targets_for(username)
     except Exception as e:

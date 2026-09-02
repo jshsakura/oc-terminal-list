@@ -46,6 +46,10 @@ logger = logging.getLogger(__name__)
 
 MARKER = "__ITL_SEND__"
 
+#: 붙어 있지 않은 팬의 통로 — tmux 사용자 옵션. 표식과 **같은 JSON** 을 담는다.
+#: 이름을 바꾸면 `cli/itl` 과 `agent_status_watcher.PANE_FORMAT` 도 같이 바꿔야 한다.
+OUTBOX_OPTION = "@itl_outbox"
+
 #: Cap on one marker line. Longer lines are dropped — this is also what keeps a stream
 #: with no newline from growing the carry buffer forever.
 MAX_LINE_CHARS = 16384
@@ -172,7 +176,7 @@ class SentinelScanner:
                 logger.warning("itl sentinel rate-limited (>%d/%ss)",
                                RATE_MAX_SENDS, RATE_WINDOW_SEC)
                 continue
-            out.append({"to": msg["to"], "text": msg["text"]})
+            out.append({"to": msg["to"], "text": msg["text"], "n": msg.get("n")})
         return out
 
 
@@ -205,6 +209,13 @@ def parse_sentinel(payload: str) -> dict | None:
     if not text:
         return None
     key = data.get("key")
+    nonce = data.get("n")
     # Shape only. Whether that tab exists is re-counted right before delivery
     # (numbers shift when panes close).
-    return {"to": to, "text": text, "key": key if isinstance(key, str) else None}
+    return {
+        "to": to,
+        "text": text,
+        "key": key if isinstance(key, str) else None,
+        # 같은 것을 두 통로로 받을 수 있어(표식 + 우편함) 라우터가 이걸로 접는다.
+        "n": nonce if isinstance(nonce, str) else None,
+    }
