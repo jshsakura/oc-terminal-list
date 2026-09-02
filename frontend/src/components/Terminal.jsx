@@ -76,7 +76,7 @@ const createLogger = (sessionId) => ({
   error: (msg, err) => console.error(`[Terminal:${sessionId}] ${msg}`, err),
 });
 
-const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneCwdInfo = null, restartAt = 0, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
+const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmuxSuffix = null, tmuxSessionName = null, effectiveTmuxSession = null, settings, onSendData, onBroadcast, isActive = true, isFocused = true, layoutSignal = '', cwd = null, paneCwdInfo = null, paneShell = null, paneMultiplexer = null, restartAt = 0, paneIndex = 0, paneId = null, tabId = null, onTakeOver = null, onReadyChange = null, onStatusChange = null, onClosePane = null, onRefresh = null }, ref) => {
   const { t } = useTranslation(settings.language);
   const logger = useMemo(() => createLogger(sessionId), [sessionId]);
   const terminalClientIdRef = useRef(getTerminalClientId());
@@ -915,7 +915,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         hostId,
         cols,
         rows,
-        shell: settings.defaultShell || 'bash',
+        /* pane 이 자기 값을 들고 있으면 그것이 이긴다(경로 픽커에서 고른 값). 없으면
+           설정 — "앞으로 여는 것 전부" 를 정하는 자리는 여전히 설정 하나다. */
+        shell: paneShell || settings.defaultShell || 'bash',
+        multiplexer: paneMultiplexer || null,
         cwd,
         paneIndex,
         tmuxSuffix,

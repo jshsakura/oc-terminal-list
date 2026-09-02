@@ -22,8 +22,10 @@ export const makePane = (extra = {}) => ({
   ...extra,
 });
 
-export const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = null, themeOverride = null } = {}) => {
-  const pane = makePane({ sessionId, ...(themeOverride ? { themeOverride } : null) });
+export const makLocalTab = (sessionId, name, cwd = null, { icon = null, colorIndex = null, themeOverride = null, launch = null } = {}) => {
+  // `launch` = 경로 픽커에서 고른 "무엇으로 열까"(utils/launchOptions). 안 고르면 빈
+  // 객체라 pane 에 키가 아예 안 생기고, 그러면 서버가 설정을 읽는다.
+  const pane = makePane({ sessionId, ...(themeOverride ? { themeOverride } : null), ...(launch || null) });
   return {
     id: `local:${sessionId}`,
     type: 'local',
@@ -74,7 +76,7 @@ export const resolveProfileTheme = (themeId, usedThemeIds = []) => {
   return themeId;
 };
 
-export const makeHostTab = (host, cwd = null, tmuxSessionName = null, { themeOverride = undefined, tabId = null } = {}) => {
+export const makeHostTab = (host, cwd = null, tmuxSessionName = null, { themeOverride = undefined, tabId = null, launch = null } = {}) => {
   // tmuxSessionName 이 주어지면 이미 존재하는 영속 세션을 명시적으로 attach (Resume).
   // 새 호스트 터미널도 pane 0 에 fresh tmuxSessionName 을 직접 박는다. paneIndex 기반 이름은
   // 같은 탭/경로에서 예전 원격 tmux 세션이 살아있을 때 "새 터미널"이 기존 세션으로 붙는
@@ -87,6 +89,7 @@ export const makeHostTab = (host, cwd = null, tmuxSessionName = null, { themeOve
     hostId: host.id,
     tmuxSessionName: paneTmuxSessionName,
     ...(selectedTheme ? { themeOverride: selectedTheme } : null),
+    ...(launch || null),
   });
   return {
     id: tabId || `host:${host.id}:${Date.now()}`,

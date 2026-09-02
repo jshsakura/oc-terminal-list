@@ -290,6 +290,8 @@ export const activatePaneOp = (tabs, { tabId, paneId, target = null, hosts, sett
       // target.cwd 가 있으면 pane.cwd 에 저장 → Terminal 이 그 경로로 SSH/셸 시작
       // '' (workspace root) 도 유효한 cwd 이므로 null/undefined 가 아닌 이상 보존.
       const cwdPatch = target?.cwd != null ? { cwd: target.cwd } : {};
+      // 경로와 함께 고른 "무엇으로 열까"(utils/launchOptions). 안 고르면 빈 객체다.
+      const launchPatch = target?.launch || {};
       if (target?.type === 'host' && target.hostId) {
         // 호스트 프로필 테마가 있으면 새 pane 생성 시점에 구체 테마로 해석.
         const h = hosts.find((hh) => hh.id === target.hostId);
@@ -298,7 +300,7 @@ export const activatePaneOp = (tabs, { tabId, paneId, target = null, hosts, sett
         const tmuxPatch = {
           tmuxSessionName: target.tmuxSessionName || makeFreshHostTmuxSessionName(h),
         };
-        return { ...p, hostId: target.hostId, sessionId: undefined, ...tmuxPatch, ...cwdPatch, ...themePatch };
+        return { ...p, hostId: target.hostId, sessionId: undefined, ...tmuxPatch, ...cwdPatch, ...themePatch, ...launchPatch };
       }
       // VNC 원격 데스크톱 — 터미널 세션이 아닌 noVNC RFB 연결 pane. host/display 만 설정하고
       // sessionId/tmuxSessionName 은 비운다. 위 empty-pane guard(p.sessionId || p.hostId) 가
@@ -316,7 +318,7 @@ export const activatePaneOp = (tabs, { tabId, paneId, target = null, hosts, sett
       if (target?.type === 'local') {
         const resolvedTheme = resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev));
         const themePatch = resolvedTheme ? { themeOverride: resolvedTheme } : {};
-        return { ...p, sessionId: generateUUID(), hostId: undefined, tmuxSessionName: undefined, ...cwdPatch, ...themePatch };
+        return { ...p, sessionId: generateUUID(), hostId: undefined, tmuxSessionName: undefined, ...cwdPatch, ...themePatch, ...launchPatch };
       }
       if (t.type === 'host') {
         const h = hosts.find((hh) => hh.id === t.hostId);

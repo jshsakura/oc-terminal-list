@@ -791,6 +791,10 @@ const Pane = ({
                 /* 탐색기에서 끌어온 경로를 셸용 절대 경로로 환산하는 데 쓴다.
                    트리 경로가 로컬은 워크스페이스 상대, 원격은 절대라 두 표현이 다 필요하다. */
                 paneCwdInfo={paneCwdInfo}
+                /* 이 pane 을 **만들 때** 무엇으로 열지 — 경로 픽커에서 골랐으면 그 값이
+                   여기 실려 있다. 없으면 Terminal 이 설정을 쓴다. */
+                paneShell={pane.shell || null}
+                paneMultiplexer={pane.multiplexer || null}
                 /* 방금 우리가 죽인 세션을 "셸이 끝났다" 로 오진해 pane 을 닫지 않게. */
                 restartAt={restartAt}
                 settings={paneSettings}
@@ -822,6 +826,11 @@ const Pane = ({
                 initialPath={localPicker.initial}
                 onClose={onLocalPickerClose}
                 onPick={onLocalPickerPick}
+                /* 이 픽커는 언제나 터미널을 여는(또는 그 자리에서 다시 여는) 쓰임이다 —
+                   빈 pane 채우기와 "경로 지정해 재시작". 그래서 늘 켠다. */
+                launchOptions
+                defaultMultiplexer={settings.defaultMultiplexer}
+                defaultShell={settings.defaultShell}
                 t={t}
               />
             )}
@@ -835,6 +844,8 @@ const Pane = ({
                 initialPath={remotePickerSlot?.initial || ''}
                 onClose={onRemotePickerClose}
                 onPick={onRemotePickerPick}
+                launchOptions
+                defaultMultiplexer={settings.defaultMultiplexer}
                 t={t}
               />
             )}

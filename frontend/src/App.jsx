@@ -26,6 +26,7 @@ import { applyThemeVars } from './styles/themeUI';
 import { applyEinkAttribute, applyEinkSettings, resolveEinkThemeId } from './utils/einkMode';
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
+import { cleanLaunch } from './utils/launchOptions';
 import { authHeaders } from './utils/auth';
 import { apiFetch } from './utils/apiFetch';
 import { resolveWorkspacePath } from './utils/terminalFileLinks';
@@ -187,7 +188,7 @@ function App() {
   // ── open / close tabs ─────────────────────────────────────────────────────
   // 새 로컬 터미널 — 명시 cwd 없으면 settings.localStartPath 사용. 비어 있어도 '' (= 워크스페이스 루트)
   // 로 명시 전달해 backend 가 임의 위치($HOME 등) 에서 spawn 하지 않도록 함.
-  const openLocalTab = useCallback(async (cwd = null) => {
+  const openLocalTab = useCallback(async (cwd = null, launch = null) => {
     const sessionId = generateUUID();
     const tabId = `local:${sessionId}`;
     const name = (settings.localName || '').trim() || 'terminal';
@@ -197,6 +198,7 @@ function App() {
         icon: settings.localIcon || null,
         colorIndex: settings.localColorIndex ?? 0,
         themeOverride: resolveProfileTheme(settings.localTheme, usedThemeIdsFromTabs(prev)),
+        launch: cleanLaunch(launch),
       });
       return [...prev, tab];
     });
@@ -206,9 +208,9 @@ function App() {
     return tabId;
   }, [settings.localName, settings.localIcon, settings.localColorIndex, settings.localTheme, settings.localStartPath]);
 
-  const openHostTab = useCallback((host, cwd = null, tmuxSessionName = null) => {
+  const openHostTab = useCallback((host, cwd = null, tmuxSessionName = null, launch = null) => {
     if (!host || host.isLocal || host.id === 'local') {
-      return openLocalTab();
+      return openLocalTab(cwd, launch);
     }
     // 명시 cwd 가 없으면 host 설정의 start_path 로 폴백 → FileTree 가 그 경로에서 시작
     const initialCwd = cwd ?? host.start_path ?? null;
@@ -217,6 +219,7 @@ function App() {
       const tab = makeHostTab(host, initialCwd, tmuxSessionName, {
         tabId,
         themeOverride: resolveProfileTheme(host.theme, usedThemeIdsFromTabs(prev)),
+        launch: cleanLaunch(launch),
       });
       return [...prev, tab];
     });
@@ -963,17 +966,35 @@ function App() {
         : (t('toolTypeFailed') || '터미널이 명령을 받지 못했습니다 — 도구 목록에서 명령을 복사해 직접 붙여넣으세요'),
     });
   });
+  /* "경로 지정해 재시작" 이 함께 고른 "무엇으로 열까" 를 그 pane 에 새긴다.
+     ⚠️ 지우는 것도 이 함수의 일이다 — 다시 "기본" 으로 고른 사람은 옛 선택이 남아 있길
+     바라지 않는다. 그래서 두 키를 **먼저 걷어내고** 고른 것만 다시 얹는다. */
+  const setPaneLaunch = useEvent((tabId, paneId, launch) => {
+    const patch = cleanLaunch(launch);
+    setTabs((prev) => prev.map((tt) => (tt.id !== tabId ? tt : {
+      ...tt,
+      panes: (tt.panes || []).map((pp) => {
+        if (pp.id !== paneId) return pp;
+        const { multiplexer: _mux, shell: _sh, ...rest } = pp;
+        return { ...rest, ...patch };
+      }),
+    })));
+  });
   const handlePickHostPath = useEvent((h, slot) => { setFolderPickerHost(h); setFolderPickerSlot(slot || null); });
   /* 폴더 픽커는 App 이 소유하지만 **고른 경로로 무엇을 할지는 부른 쪽이 안다.**
      슬롯에 `onPicked` 가 실려 오면 그것이 이긴다(PaneGrid 의 "경로 지정해 재시작").
      없으면 기본 동작 — 그 빈 pane 을 그 경로의 새 로컬 세션으로 채운다. */
   const handlePickLocalPath = useEvent((slot) => setLocalFolderPicker({
                       open: true,
+                      // 이 경로로 **터미널을 연다** → 무엇으로 열지 고르는 칸도 함께.
+                      launch: true,
                       initial: slot?.initial ?? (settings.localStartPath || ''),
-                      onPick: (chosen) => {
-                        if (slot?.onPicked) { slot.onPicked(chosen); return; }
+                      onPick: (chosen, launch) => {
+                        if (slot?.onPicked) { slot.onPicked(chosen, launch); return; }
                         if (slot?.tabId && slot?.paneId) {
-                          activatePane(slot.tabId, slot.paneId, { type: 'local', cwd: chosen });
+                          activatePane(slot.tabId, slot.paneId, {
+                            type: 'local', cwd: chosen, launch: cleanLaunch(launch),
+                          });
                         }
                       },
                       slot: slot || null,
@@ -981,20 +1002,20 @@ function App() {
   const handleEditHost = useEvent((h) => setHostEditorState({ isOpen: true, host: h }));
   const handleEditLocal = useEvent(() => setLocalEditorOpen(true));
   const handleLocalPickerClose = useEvent(() => setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null }));
-  const handleLocalPickerPick = useEvent((chosen) => {
+  const handleLocalPickerPick = useEvent((chosen, launch) => {
                       const fn = localFolderPicker.onPick;
                       setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null });
-                      fn?.(chosen);
+                      fn?.(chosen, launch);
                     });
   const handleRemotePickerClose = useEvent(() => { setFolderPickerHost(null); setFolderPickerSlot(null); });
-  const handleRemotePickerPick = useEvent(async (chosen) => {
+  const handleRemotePickerPick = useEvent(async (chosen, launch) => {
                       const host = folderPickerHost;
                       const slot = folderPickerSlot;
                       setFolderPickerHost(null);
                       setFolderPickerSlot(null);
                       if (!host || !chosen) return;
                       // 로컬 픽커와 같은 규칙 — 슬롯이 할 일을 들고 왔으면 그것이 이긴다.
-                      if (slot?.onPicked) { slot.onPicked(chosen); return; }
+                      if (slot?.onPicked) { slot.onPicked(chosen, launch); return; }
                       try {
                         await fetch(`/api/hosts/${host.id}/last-cwd`, {
                           method: 'POST',
@@ -1003,9 +1024,11 @@ function App() {
                         });
                       } catch { /* 무시 */ }
                       if (slot?.tabId && slot?.paneId) {
-                        activatePane(slot.tabId, slot.paneId, { type: 'host', hostId: host.id, cwd: chosen });
+                        activatePane(slot.tabId, slot.paneId, {
+                          type: 'host', hostId: host.id, cwd: chosen, launch: cleanLaunch(launch),
+                        });
                       } else {
-                        openHostTab(host, chosen);
+                        openHostTab(host, chosen, null, launch);
                       }
                       refreshHosts();
                     });
@@ -1020,11 +1043,11 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      /* `#root` 가 정적 배치라 이 상자의 100% 는 **레이아웃 뷰포트**다. 키보드가
-         올라오면 그것만으로는 모자라므로(레이아웃 뷰포트는 그대로고 가시 영역만 줄어든다)
-         `--vvh` 로 줄인다. 남는 아래쪽은 키보드가 덮는 자리라 보이지 않는다.
-         ⚠️ 빈틈이 생길 수 없는 이유: 부모(#root)도 같은 레이아웃 뷰포트라 키보드가
-         없을 때 둘의 높이가 정확히 같다. */
+      /* ⚠️ **평소에는 상자를 꽉 채운다.** `#root` 는 fixed 라 보이는 영역에 붙어 있고
+         크기도 그것이다 — 여기서 `visualViewport.height` 로 줄이면, 그 값이 한 프레임이라도
+         낡았을 때 그 차이가 그대로 **하단의 빈 띠**가 된다(그게 이 병의 원래 증상이었다).
+         `--vvh` 는 **키보드가 올라온 동안에만** 걸린다 — 그때는 레이아웃 뷰포트가 안 줄어들어
+         상자가 키보드 밑까지 덮으므로, 줄여야 입력창이 안 가린다. */
       height: isMobile ? 'var(--vvh, 100%)' : '100%',
       boxSizing: 'border-box',
       width: '100%',
@@ -1039,19 +1062,29 @@ function App() {
           margin: 0;
           padding: 0;
           overflow: hidden;
+          /* ⚠️ 이 배경이 보이는 순간이 있다. 사파리가 페이지 상자를 실제로 보이는 영역보다
+             작게 잡으면(주소창이 접힌 뒤 다시 안 재는 상태) 그 아래로 **캔버스 배경**이
+             드러난다 — 그게 하단의 "빈 띠" 다. 상자 크기는 우리가 못 정하지만 색은 정할 수
+             있으므로, 테마 배경으로 칠해 앱의 일부처럼 보이게 한다.
+             ⚠️ index.html 의 부트 CSS 에도 같은 목적의 기본색이 있다(첫 페인트용). */
+          background: ${currentTheme.ui.bg};
         }
-        /* ⚠️ **position: fixed 로 두지 마라.** iOS Safari 는 fixed 상자를 레이아웃
-           뷰포트가 아니라 **큰 뷰포트(ICB)** 로 잡는다. 실측(주소창이 펼쳐진 순간):
-
-             vv=556  inner=556  root(fixed; inset:0)=665
-
-           그 상자의 위 109px 이 화면 밖(위)이었다 — 그래서 탭바가 들려 잘리고 아래에는
-           빈 띠가 남았다. 아래를 padding 으로 밀어도 내용은 여전히 상자 맨 위에서
-           시작하므로 아무것도 안 고쳐진다(그렇게 한 번 고쳤다가 그대로였다).
-           정적 배치는 **레이아웃 뷰포트** = 보이는 영역을 쓴다. 그게 이 병의 해답이다.
-           ⚠️ 이 주석은 style 템플릿 리터럴 안이다 — 백틱을 쓰면 빌드가 깨진다. */
+        /* ⚠️ **index.html 의 부트 CSS 와 같은 값이어야 한다 — 두 벌이다.**
+           fixed 를 빼면 iOS 에서 최초 로딩에 페이지가 상단 크롬 뒤로 깔릴 때 앱이 통째로
+           딸려 올라간다(2026-09-02 에 실제로 그렇게 만들었다). fixed 상자는 보이는 영역에
+           붙으므로 그 상태에서도 자리를 지킨다. */
         #root {
-          height: 100%;
+          position: fixed;
+          inset: 0;
+        /* ⚠️ height:100dvh 를 지워도 안 되고, inset:0 을 지워도 안 된다.
+           inset:0 만이면 상자는 레이아웃 뷰포트(실측 665)인데, 주소창이 접히면 실제로
+           보이는 높이는 그보다 커진다(약 774) — 그 차이가 **하단의 빈 띠**다. 키보드를
+           올렸다 내리면 사라지던 이유가 이것이다(그때 사파리가 다시 계산한다).
+           dvh 는 그 "지금 보이는 높이" 를 브라우저가 매 프레임 직접 재는 단위다.
+           over-constrained 라 지원 브라우저에서는 height 가 이기고, 모르는 브라우저는
+           이 줄을 버려 inset:0 동작으로 남는다 — 그래서 둘 다 필요하다.
+           ⚠️ 이 주석은 style 템플릿 리터럴 안이다 — 백틱을 쓰면 빌드가 깨진다. */
+        height: 100dvh;
           overflow: hidden;
         }
 
@@ -1234,8 +1267,9 @@ function App() {
               onEditLocal={() => setLocalEditorOpen(true)}
               onPickLocalPath={() => setLocalFolderPicker({
                 open: true,
+                launch: true,
                 initial: settings.localStartPath || '',
-                onPick: (chosen) => openLocalTab(chosen),
+                onPick: (chosen, launch) => openLocalTab(chosen, launch),
                 slot: null,
               })}
               onAddHost={() => setHostEditorState({ isOpen: true, host: null })}
@@ -1353,6 +1387,7 @@ function App() {
                     /* EmptyPane Connections → 폴더 픽커. slot (tabId/paneId) 같이 넘겨 빈 슬롯에 채움. */
                     onPickHostPath={handlePickHostPath}
                     onPickLocalPath={handlePickLocalPath}
+                    onSetPaneLaunch={setPaneLaunch}
                     onEditHost={handleEditHost}
                     onEditLocal={handleEditLocal}
                     refreshHosts={refreshHosts}
@@ -1537,8 +1572,12 @@ function App() {
       <RemoteFolderPicker
         isOpen={!!folderPickerHost && !folderPickerSlot}
         host={folderPickerHost}
+        /* 원격 픽커는 이 자리에선 언제나 터미널을 여는 쓰임이다(호스트 카드의 "경로 골라
+           열기"). 셸 칸은 그리지 않는다 — 원격 WS 는 `shell` 을 안 싣는다. */
+        launchOptions
+        defaultMultiplexer={settings.defaultMultiplexer}
         onClose={() => { setFolderPickerHost(null); setFolderPickerSlot(null); }}
-        onPick={async (chosen) => {
+        onPick={async (chosen, launch) => {
           const host = folderPickerHost;
           const slot = folderPickerSlot;
           setFolderPickerHost(null);
@@ -1555,10 +1594,12 @@ function App() {
           }
           if (slot?.tabId && slot?.paneId) {
             // split 한 빈 pane 채우기 — 새 탭 X.
-            activatePane(slot.tabId, slot.paneId, { type: 'host', hostId: host.id, cwd: chosen });
+            activatePane(slot.tabId, slot.paneId, {
+              type: 'host', hostId: host.id, cwd: chosen, launch: cleanLaunch(launch),
+            });
           } else {
             // 홈 대시보드 케이스 — 새 탭으로 열기.
-            openHostTab(host, chosen);
+            openHostTab(host, chosen, null, launch);
           }
           refreshHosts();
         }}
@@ -1583,6 +1624,8 @@ function App() {
         settings={settings}
         onSave={(patch) => updateSettings(patch)}
         onClose={() => setLocalEditorOpen(false)}
+        /* ⚠️ 여기는 `launch` 를 켜지 않는다 — 고른 경로를 **설정에 적을 뿐** 터미널을
+           열지 않는다. 아무 데도 안 쓰이는 칸을 내밀면 조용한 실패가 된다. */
         onPickFolder={(initial, applyChosen) => setLocalFolderPicker({
           open: true,
           initial: initial || '',
@@ -1597,11 +1640,14 @@ function App() {
       <LocalFolderPicker
         isOpen={localFolderPicker.open && !localFolderPicker.slot}
         initialPath={localFolderPicker.initial}
+        launchOptions={!!localFolderPicker.launch}
+        defaultMultiplexer={settings.defaultMultiplexer}
+        defaultShell={settings.defaultShell}
         onClose={() => setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null })}
-        onPick={(chosen) => {
+        onPick={(chosen, launch) => {
           const fn = localFolderPicker.onPick;
           setLocalFolderPicker({ open: false, initial: '', onPick: null, slot: null });
-          fn?.(chosen);
+          fn?.(chosen, launch);
         }}
         t={t}
       />

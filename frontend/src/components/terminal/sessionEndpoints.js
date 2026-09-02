@@ -28,6 +28,7 @@ export const buildWsUrl = ({
   paneIndex = 0,
   tmuxSuffix = null,
   tmuxSessionName = null,
+  multiplexer = null,
   createIfMissing = true,
   clientId,
   reason = null,
@@ -47,6 +48,11 @@ export const buildWsUrl = ({
   } else {
     params.set('shell', shell || 'bash');
   }
+  /* 이 pane 을 **만들 때만** 쓰이는 선택(경로 픽커의 "터미널" 칸). 안 고르면 아예 안
+     싣고, 그러면 서버가 사용자 설정을 읽는다 — 여기서 기본값을 박으면 나중에 설정을
+     바꿔도 옛 pane 이 안 따라온다. 살아 있는 세션에는 붙잡고 있는 쪽이 이기므로
+     재연결 때 이 값이 실려도 아무것도 바꾸지 않는다. */
+  if (multiplexer) params.set('multiplexer', multiplexer);
 
   if (cwd) params.set('cwd', cwd);
   if (!createIfMissing) params.set('create', '0');

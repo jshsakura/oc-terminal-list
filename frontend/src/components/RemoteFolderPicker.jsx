@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home, Eye, EyeOff } from 'lucide-react';
 import { tokens } from '../styles/tokens';
+import TerminalLaunchOptions from './common/TerminalLaunchOptions';
+import { INHERIT } from '../utils/launchOptions';
 import SkeletonRow from './common/SkeletonRow';
 import { authHeaders } from '../utils/auth';
 import { splitHiddenEntries, readShowHidden, writeShowHidden } from '../utils/hiddenEntries';
@@ -45,7 +47,13 @@ const parentOf = (abs) => {
  * inline=true 면 모달 대신 부모 컨테이너 전체를 덮는 오버레이 (분할 pane 안에서 사용).
  *   - 부모는 position:relative 여야 함.
  */
-const RemoteFolderPicker = ({ isOpen, host, initialPath = '', onPick, onClose, t, confirmLabel = null, title = null, inline = false }) => {
+const RemoteFolderPicker = ({
+  isOpen, host, initialPath = '', onPick, onClose, t,
+  confirmLabel = null, title = null, inline = false,
+  /* 고른 폴더로 **터미널을 여는** 자리에서만 켠다(LocalFolderPicker 와 같은 규칙). */
+  launchOptions = false, defaultMultiplexer,
+}) => {
+  const [launch, setLaunch] = useState({ multiplexer: INHERIT, shell: INHERIT });
   const [path, setPath] = useState('');         // 현재 보고 있는 절대 경로
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -104,7 +112,7 @@ const RemoteFolderPicker = ({ isOpen, host, initialPath = '', onPick, onClose, t
   const enter = (folder) => load(folder.path);
   const confirm = () => {
     if (!path) return;
-    onPick?.(path);
+    onPick?.(path, launch);
   };
 
   const overlayStyle = inline ? styles.inlineOverlay : styles.overlay;
@@ -191,6 +199,17 @@ const RemoteFolderPicker = ({ isOpen, host, initialPath = '', onPick, onClose, t
           ))}
         </div>
 
+        {launchOptions && (
+          /* ⚠️ 셸 칸은 없다 — 원격 pane 의 WS 는 `shell` 을 아예 안 싣는다(그쪽 로그인
+             셸이 뜬다). 안 먹는 칸을 그리면 조용한 실패가 된다. */
+          <TerminalLaunchOptions
+            multiplexer={launch.multiplexer}
+            onChange={setLaunch}
+            defaultMultiplexer={defaultMultiplexer}
+            showShell={false}
+            t={t}
+          />
+        )}
         <footer style={styles.footer}>
           <HoverBtn type="button" onClick={onClose} baseStyle={styles.cancelBtn} hoverStyle={styles.cancelBtnHover}>
             {t?.('cancel') || 'Cancel'}

@@ -71,6 +71,7 @@ const PaneGrid = ({
   /* EmptyPane 의 호스트/로컬 카드용 — 새탭 (HomeDashboard) 과 동일한 폴더 픽커 / 호스트 설정 진입. */
   onPickHostPath,
   onPickLocalPath,
+  onSetPaneLaunch,   // (tabId, paneId, launch) → 경로 지정 재시작이 함께 고른 값을 pane 에 새긴다
   onEditHost,
   onEditLocal,
   refreshHosts,
@@ -238,9 +239,12 @@ const PaneGrid = ({
   const handleRestartPaneAtPath = useCallback((paneId) => {
     const ctx = paneActionsRef.current[paneId]?.restartPathContext;
     if (!ctx) return;
-    const onPicked = (chosen) => {
+    const onPicked = (chosen, launch) => {
       const nextCwd = chosen ?? '';
       const run = async () => {
+        /* ⚠️ 죽이기 **전에** 새긴다. 재접속이 세션을 새로 만들 때 이 값을 읽으므로,
+           순서가 뒤집히면 이번 재시작은 옛 선택으로 뜬다. */
+        onSetPaneLaunch?.(tab?.id, paneId, launch);
         const result = await paneActionsRef.current[paneId]?.restart?.(nextCwd);
         if (result && !result.ok) {
           onNotify?.(t?.('restartSessionFailed') || 'Failed to restart the session.');
@@ -267,7 +271,7 @@ const PaneGrid = ({
       return;
     }
     onPickLocalPath?.(slot);
-  }, [tab?.id, hosts, onPickHostPath, onPickLocalPath, onConfirm, onNotify, t]);
+  }, [tab?.id, hosts, onPickHostPath, onPickLocalPath, onSetPaneLaunch, onConfirm, onNotify, t]);
   // pane 2개 이상일 때만 토글 가능. 그 외엔 null → TabBar 버튼 숨김.
   const broadcastToggle = panes.length >= 2 ? () => setBroadcastActive((v) => !v) : null;
 
