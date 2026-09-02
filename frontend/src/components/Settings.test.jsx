@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import Settings from './Settings';
+import { DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE_MOBILE } from '../utils/terminalFonts';
 
 const fullSettings = {
   theme: 'catppuccin',
@@ -179,8 +180,8 @@ describe('Settings', () => {
     fireEvent.click(screen.getByText(/Reset/i));
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
-      fontSize: 12,
-      fontSizeMobile: 13,
+      fontSize: DEFAULT_FONT_SIZE,
+      fontSizeMobile: DEFAULT_FONT_SIZE_MOBILE,
       defaultShell: 'auto',
     }));
 

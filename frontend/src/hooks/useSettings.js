@@ -9,7 +9,12 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import useEvent from './useEvent';
-import { DEFAULT_TERMINAL_FONT_FAMILY, normalizeTerminalFontFamily } from '../utils/terminalFonts';
+import {
+  DEFAULT_TERMINAL_FONT_FAMILY,
+  DEFAULT_FONT_SIZE,
+  DEFAULT_FONT_SIZE_MOBILE,
+  normalizeTerminalFontFamily,
+} from '../utils/terminalFonts';
 import { mobileKeysFor, syncMuxKeys } from '../utils/mobileKeys';
 
 const SUPPORTED_DEFAULT_SHELLS = new Set(['auto', 'bash', 'zsh', 'sh']);
@@ -46,8 +51,8 @@ const detectBrowserLanguage = () => {
 export const DEFAULT_SETTINGS = {
   theme: 'default',
   language: detectBrowserLanguage(), // 브라우저 언어 자동 감지
-  fontSize: 12,            // PC 글자크기
-  fontSizeMobile: 13,      // 모바일 글자크기 (별도 — 작은 화면 보정)
+  fontSize: DEFAULT_FONT_SIZE,               // PC 글자크기
+  fontSizeMobile: DEFAULT_FONT_SIZE_MOBILE,  // 모바일 글자크기 (별도 — 작은 화면 보정)
   fontFamily: DEFAULT_TERMINAL_FONT_FAMILY,
   defaultShell: 'auto',  // 시스템 로그인 쉘 자동 사용 (zsh, bash 등)
   // 새 호스트가 시작할 멀티플렉서. 어휘는 utils/multiplexer 하나에서 온다.

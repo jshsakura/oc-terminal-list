@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
 import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare, LayoutGrid } from 'lucide-react';
+import { DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE_MOBILE } from './utils/terminalFonts';
 import useSettings from './hooks/useSettings';
 import useAppConfig from './hooks/useAppConfig';
 import useTranslation from './hooks/useTranslation';
@@ -758,10 +759,10 @@ function App() {
   // (PaneGrid, Terminal) 은 settings.fontSize 만 보면 자동으로 알맞은 값 적용.
   const effectiveSettings = useMemo(() => {
     // 진짜 핸드폰 UI일 때만 fontSizeMobile 을 사용한다.
-    // null-ish coalescing 으로 기본값(13/12) 보장.
+    // null-ish coalescing 으로 기본값 보장 — 값은 utils/terminalFonts 한 곳이 정한다.
     const size = isMobile
-      ? (settings.fontSizeMobile ?? 13)
-      : (settings.fontSize ?? 12);
+      ? (settings.fontSizeMobile ?? DEFAULT_FONT_SIZE_MOBILE)
+      : (settings.fontSize ?? DEFAULT_FONT_SIZE);
     // 이북 모드의 덮어쓰기는 **여기 한 곳**에서 걸린다. PaneGrid·Terminal 은 이미
     // effectiveSettings 를 받으므로 각자 einkMode 를 볼 필요가 없다.
     return applyEinkSettings({ ...settings, fontSize: size });

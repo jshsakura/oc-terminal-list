@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
-import useSettings from './useSettings';
+import useSettings, { DEFAULT_SETTINGS } from './useSettings';
+import { DEFAULT_FONT_SIZE_MOBILE } from '../utils/terminalFonts';
 
 const TestSettings = () => {
   const { settings } = useSettings(true);
@@ -8,6 +9,20 @@ const TestSettings = () => {
 };
 
 describe('useSettings', () => {
+  it('defaults the mobile font size to 10 (the desktop size reads oversized on a phone)', () => {
+    expect(DEFAULT_FONT_SIZE_MOBILE).toBe(10);
+    expect(DEFAULT_SETTINGS.fontSizeMobile).toBe(DEFAULT_FONT_SIZE_MOBILE);
+  });
+
+  it('keeps a stored mobile font size instead of the new default', () => {
+    localStorage.setItem('terminal_settings', JSON.stringify({ fontSizeMobile: 13 }));
+    global.fetch = vi.fn(() => new Promise(() => {}));
+
+    render(<TestSettings />);
+
+    expect(screen.getByTestId('mobile-font-size')).toHaveTextContent('13');
+  });
+
   it('does not overwrite a dirty local mobile font size with stale remote settings', async () => {
     localStorage.setItem('auth_token', 'token');
     localStorage.setItem('terminal_settings_dirty', '1');

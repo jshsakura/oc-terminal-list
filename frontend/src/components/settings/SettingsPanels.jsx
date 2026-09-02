@@ -8,6 +8,7 @@ import PasswordSection from '../PasswordSection';
 import MobileKeysEditor from '../MobileKeysEditor';
 import useHostReorder from '../../hooks/useHostReorder';
 import { DEFAULT_MOBILE_KEYS } from '../../utils/mobileKeys';
+import { DEFAULT_FONT_SIZE_MOBILE } from '../../utils/terminalFonts';
 import { styles, shortcutStyles } from './settingsStyles';
 import { OPTIONS as MUX_OPTIONS, HINTS as MUX_HINTS, normalize as normalizeMultiplexer } from '../../utils/multiplexer';
 import { Section, Divider, Field, Select, Toggle, FontSizeRow, ShortcutRow } from './SettingsFields';
@@ -201,11 +202,11 @@ export const MobilePanel = ({ s, change, t }) => (
   <>
     <Section title={t('appearance') || 'Appearance'}>
       <Field
-        label={`${t('fontSizeMobile') || 'Font size (Mobile)'} · ${s.fontSizeMobile ?? 13}px`}
+        label={`${t('fontSizeMobile') || 'Font size (Mobile)'} · ${s.fontSizeMobile ?? DEFAULT_FONT_SIZE_MOBILE}px`}
         hint={t('mobileTabHint') || 'Settings that only apply on mobile devices.'}
       >
         <FontSizeRow
-          value={s.fontSizeMobile ?? 13}
+          value={s.fontSizeMobile ?? DEFAULT_FONT_SIZE_MOBILE}
           onChange={(v) => change('fontSizeMobile', v)}
         />
       </Field>

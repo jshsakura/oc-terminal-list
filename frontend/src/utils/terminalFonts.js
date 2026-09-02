@@ -19,3 +19,10 @@ export const normalizeTerminalFontFamily = (fontFamily) => {
 
   return `${trimmed}, ${NERD_FONT_FALLBACK}`;
 };
+
+// Default terminal font size. Mobile is deliberately smaller: the phone screen is
+// narrow, so the desktop size (12-13px) reads oversized there.
+// Keep the fallbacks pointing here — a literal copied into a call site silently
+// keeps the old default when this one changes.
+export const DEFAULT_FONT_SIZE = 12;
+export const DEFAULT_FONT_SIZE_MOBILE = 10;
