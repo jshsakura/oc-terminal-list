@@ -220,11 +220,15 @@ async def lifespan(_app: FastAPI):
         logger.warning("bootstrap host registration failed: %s", e)
     ssh_pool.start_janitor(idle_timeout=300)
     agent_status_watcher.start()
+    # 원격 팬이 **보내는** 쪽. 로컬은 위 폴링이 공짜로 걷지만 원격 tmux 는 남의 기계라
+    # 같은 공짜가 없다 — 이게 없으면 8.2 → 8.1 회신이 영영 안 온다(remote_outbox 참고).
+    remote_outbox_drainer.start()
     try:
         yield
     finally:
         logger.info("=== Terminal List 종료 ===")
         await agent_status_watcher.stop()
+        await remote_outbox_drainer.stop()
         ssh_pool.stop_janitor()
         try:
             await ssh_pool.close_all()
@@ -338,7 +342,8 @@ from tickets import (  # noqa: E402
 )
 # SSE 브로드캐스트 레지스트리 — sse_broadcast.py
 # 에이전트 상태 워처 배선 — agent_status_service.py
-from agent_status_service import agent_status_watcher  # noqa: E402
+from agent_status_service import agent_status_watcher
+from remote_outbox_service import remote_outbox_drainer  # noqa: E402
 
 
 
