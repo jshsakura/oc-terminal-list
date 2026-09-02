@@ -1,57 +1,95 @@
-"""팬 → 백엔드 통로. **새 포트도, 새 크리덴셜도 만들지 않는다.**
+"""Pane → backend channel. **No new port, no new credential.**
 
-팬 안의 에이전트가 옆 탭에 말을 걸려면 백엔드에게 말을 걸 수 있어야 한다. 그런데 그
-팬은 남의 기계에 있을 수도 있고, 거기에 토큰이나 SSH 키를 두는 순간 그 기계에서 도는
-아무 코드나 그것을 읽는다 — 그게 이 설계가 피하려는 단 하나다.
+An agent inside a pane needs a way to talk to this backend so it can reach a pane on
+another tab. That pane may sit on somebody else's machine, and the moment a token or SSH
+key lands there, any code running on that machine can read it — that is the one thing
+this design refuses to do.
 
-그래서 통로를 새로 뚫지 않고 **이미 있는 것**을 쓴다: 그 팬의 PTY 출력은 이미 인증된
-채널을 타고 이 백엔드로 흐른다. 에이전트가 표식 한 줄을 찍으면 브리지가 그것을 줍는다.
-보내는 쪽이 가진 것은 자기 주소와 할 말뿐이고, 둘 다 비밀이 아니다.
+So instead of opening a new path we use the one that already exists: the pane's PTY
+output already flows to this backend over an authenticated channel. The agent prints one
+marker line and the bridge picks it up. What the sender holds is its own address, the
+text, and the pane's key — none of which is a secret of any value elsewhere.
 
-    __ITL_SEND__ {"to": "1.2", "text": "빌드 끝났다"}
+    __ITL_SEND__ {"to": "1.2", "text": "build done", "key": "<pane key>", "n": "<nonce>"}
 
-⚠️ **줄을 지우지 않는다.** 스트림 중간에서 바이트를 들어내면 터미널 렌더가 깨진다(그리고
-청크 경계에서 반쪽만 지우게 된다). 화면에 보이는 편이 정직하기도 하다 — 무엇이 나갔는지
-사용자가 본다.
+⚠️ **The line is not erased.** Cutting bytes out of the middle of a stream breaks the
+terminal renderer (and at chunk boundaries you would cut half of it). Leaving it visible
+is also the honest choice — the user sees what went out.
 
-🔐 **이 줄은 팬이 준 값이다.** 팬에서 도는 코드가 임의로 찍을 수 있으므로:
-  - `to` 는 주소 모양(`탭.pane`)으로만 접는다. 보낸 이는 **백엔드가 세션에서 되짚는다**
-    — 페이로드의 자칭을 믿으면 사칭이 공짜가 된다.
-  - 길이·빈도 상한이 있다. 팬 둘이 서로에게 답하면 무한 고리가 된다.
-  - 배달 대상은 **그 사용자의 팬**뿐이다(주소록 자체가 사용자별이다).
+🔐 **The line is data the pane produced.** Any code — and any *output* — in the pane can
+print it, so:
+  - **The key must match the pane** (itl_key). Without this, a `curl`ed page or a `cat`ed
+    file that happens to contain a marker types — and submits — a command into another
+    pane of the user, possibly on another host. Code inside the pane can read the key;
+    bytes merely printed through the pane cannot know it.
+  - **An identical line is delivered once.** The agent's own transcript contains the
+    line it printed; `cat`ing that transcript would replay every send. The per-send nonce
+    keeps legitimate repeats distinct.
+  - `to` is folded to the address shape only. The sender is **resolved by the backend
+    from the session** — trusting a self-declared sender makes impersonation free.
+  - Length and rate caps: two panes answering each other is an infinite loop.
+  - Delivery targets are **this user's panes only** (the address book is per user).
 """
 from __future__ import annotations
 
 import codecs
+import hashlib
 import json
 import logging
+import re
 import time
+from collections import OrderedDict
+
+import itl_key
 
 logger = logging.getLogger(__name__)
 
 MARKER = "__ITL_SEND__"
 
-#: 표식 줄 하나의 상한. 이보다 길면 그 줄은 버린다 — 개행 없는 스트림이 버퍼를 무한히
-#: 키우는 것을 막는 값이기도 하다.
+#: Cap on one marker line. Longer lines are dropped — this is also what keeps a stream
+#: with no newline from growing the carry buffer forever.
 MAX_LINE_CHARS = 16384
 
-#: 한 팬이 이 창 안에 보낼 수 있는 횟수. 서로 답하는 고리를 여기서 끊는다.
+#: Sends one pane may make inside the window. Cuts the answer-each-other loop.
 RATE_WINDOW_SEC = 10.0
 RATE_MAX_SENDS = 5
 
+#: Recently seen lines remembered for replay suppression. Bounded; shared by every
+#: scanner in the process, because a reconnect makes a new scanner and tmux's attach
+#: redraw can re-emit a marker line that is still on screen.
+SEEN_MAX = 1024
+_seen: OrderedDict[str, None] = OrderedDict()
+
+#: Address shape (`tab.pane`) — the only thing this channel can deliver to.
+ADDR_RE = re.compile(r"^\d+\.\d+$")
+#: Bytes that would break a typed line or move the cursor. A line feed typed into a
+#: shell *is* Enter, which would void the agent-only Enter rule downstream.
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+#: One "key mismatch" warning per scanner per this many seconds — a cat'ed file with a
+#: million forged lines must not become a million log lines.
+MISMATCH_LOG_INTERVAL_SEC = 30.0
+
 
 class SentinelScanner:
-    """PTY 바이트 → 표식 메시지. **청크 경계를 넘어 살아남는다.**
+    """PTY bytes → marker messages. **Survives chunk boundaries.**
 
-    이 저장소는 상태 감지에서 PTY 스캔을 일부러 피했다(스피너가 초당 10~12회라
-    스캔 자체가 부하였다). 여기는 사정이 다르다 — 사람이 부르는 빈도이고, 하는 일은
-    개행으로 쪼개 접두사를 보는 것뿐이다.
+    This repo deliberately avoids PTY scanning for status detection (spinners redraw the
+    title 10–12×/s, so scanning itself was the load). Here it is different — sends happen
+    at human frequency, and the work is splitting on newlines and looking for a prefix.
+
+    `expected_key` is the key the pane was given (itl_key). Until it is set, every
+    marker is dropped and logged — a scanner with no key must never deliver.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, expected_key: str | None = None) -> None:
         self._decoder = codecs.getincrementaldecoder("utf-8")("replace")
         self._carry = ""
         self._hits: list[float] = []
+        self._last_mismatch_log = 0.0
+        self.expected_key = expected_key
+
+    def set_key(self, expected_key: str | None) -> None:
+        self.expected_key = expected_key
 
     def _rate_ok(self, now: float) -> bool:
         self._hits = [t for t in self._hits if now - t < RATE_WINDOW_SEC]
@@ -60,10 +98,36 @@ class SentinelScanner:
         self._hits.append(now)
         return True
 
-    def feed(self, data: bytes) -> list[dict]:
-        """읽은 바이트를 넣고 **완성된** 표식 메시지만 돌려받는다.
+    @staticmethod
+    def _seen_before(line: str) -> bool:
+        digest = hashlib.sha256(line.encode("utf-8", errors="replace")).hexdigest()
+        if digest in _seen:
+            return True
+        _seen[digest] = None
+        while len(_seen) > SEEN_MAX:
+            _seen.popitem(last=False)
+        return False
 
-        반쪽 줄은 다음 호출까지 들고 있는다 — PTY 읽기는 개행 단위가 아니다.
+    def _log_mismatch(self, now: float, to: str) -> None:
+        if now - self._last_mismatch_log < MISMATCH_LOG_INTERVAL_SEC:
+            return
+        self._last_mismatch_log = now
+        logger.warning("itl sentinel rejected — key mismatch (to=%s)", to)
+
+    def feed_safe(self, data: bytes) -> list[dict]:
+        """`feed`, but **never raises.** This is what the output pumps call: an
+        exception there closes the pane (or drops the chunk from the screen), and a
+        line any web page can print must not have that power."""
+        try:
+            return self.feed(data)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("itl scanner error: %s", e)
+            return []
+
+    def feed(self, data: bytes) -> list[dict]:
+        """Feed bytes; get back only **complete** marker messages.
+
+        A partial line is carried to the next call — PTY reads are not line-aligned.
         """
         try:
             text = self._decoder.decode(data)
@@ -74,7 +138,7 @@ class SentinelScanner:
 
         buf = self._carry + text
         lines = buf.split("\n")
-        # 마지막 조각은 아직 줄이 아니다. 다만 무한정 들고 있지는 않는다.
+        # The last piece is not a line yet. It is not kept without bound, though.
         self._carry = lines.pop()
         if len(self._carry) > MAX_LINE_CHARS:
             self._carry = ""
@@ -82,28 +146,42 @@ class SentinelScanner:
         out: list[dict] = []
         now = time.monotonic()
         for line in lines:
+            # The marker is searched anywhere in the line, not at column 0: an agent
+            # TUI (Claude Code, codex) prints tool output indented inside its own box.
+            # Column anchoring would break the main use case; the key is the defense.
             idx = line.find(MARKER)
             if idx < 0:
                 continue
             if len(line) > MAX_LINE_CHARS:
-                logger.info("itl sentinel dropped — 줄이 너무 길다")
+                logger.info("itl sentinel dropped — line too long")
                 continue
-            msg = parse_sentinel(line[idx + len(MARKER):])
+            payload = line[idx + len(MARKER):]
+            msg = parse_sentinel(payload)
             if not msg:
                 continue
+            if not itl_key.matches(self.expected_key, msg.get("key")):
+                # Not silent: this is the signature of a reflected marker (or a pane
+                # that has no key yet), and both are worth seeing in the log.
+                self._log_mismatch(now, msg["to"])
+                continue
+            if self._seen_before(payload.strip()):
+                logger.info("itl sentinel dropped — replay (to=%s)", msg["to"])
+                continue
             if not self._rate_ok(now):
-                # ⚠️ 조용히 버리지 않는다. 고리에 빠진 팬은 로그로만 드러난다.
-                logger.warning("itl sentinel rate-limited (%d/%ss 초과)",
+                # ⚠️ Not silent. A pane stuck in a loop is only visible in the log.
+                logger.warning("itl sentinel rate-limited (>%d/%ss)",
                                RATE_MAX_SENDS, RATE_WINDOW_SEC)
                 continue
-            out.append(msg)
+            out.append({"to": msg["to"], "text": msg["text"]})
         return out
 
 
 def parse_sentinel(payload: str) -> dict | None:
-    """표식 뒤의 JSON → `{"to", "text"}`. 모양이 아니면 **조용히 None**.
+    """JSON after the marker → `{"to", "text", "key"}`. Wrong shape → **silently None**.
 
-    표식이 우연히 섞인 평범한 출력(로그·소스코드)에 대고 에러를 쏟으면 그게 소음이다.
+    Shouting errors at ordinary output (logs, source code) that happens to contain the
+    marker would be noise. `key` is passed through untouched for the scanner to check;
+    a line without one parses but can never be delivered.
     """
     try:
         data = json.loads(payload.strip())
@@ -118,5 +196,15 @@ def parse_sentinel(payload: str) -> dict | None:
     to, text = to.strip(), text.strip()
     if not to or not text:
         return None
-    # 여기서는 모양만 본다. "그 탭이 실제로 있나" 는 배달 직전에 다시 센다(번호는 밀린다).
-    return {"to": to, "text": text}
+    # `to` must already look like an address (that is all the router accepts, and it
+    # is what ends up in log lines). Interior control characters in `text` are cut out,
+    # not merely stripped at the ends: a line feed typed into a pane is Enter.
+    if not ADDR_RE.match(to):
+        return None
+    text = CONTROL_RE.sub(" ", text).strip()
+    if not text:
+        return None
+    key = data.get("key")
+    # Shape only. Whether that tab exists is re-counted right before delivery
+    # (numbers shift when panes close).
+    return {"to": to, "text": text, "key": key if isinstance(key, str) else None}

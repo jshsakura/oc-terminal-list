@@ -20,6 +20,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from ws_observe import log_client_error
 
+import itl_key as itl_keys
 from itl_channel import SentinelScanner
 
 logger = logging.getLogger(__name__)
@@ -44,7 +45,10 @@ class TmuxClientBridge:
         # 이미 인증된 채널이라 표식 한 줄이면 된다. username 이 없으면 아예 안 켠다:
         # 배달은 **그 사용자의 팬** 안에서만 일어난다.
         self.username = username
-        self._itl_scanner = SentinelScanner() if username else None
+        # The pane's key (itl_key): a marker without it is dropped, so output merely
+        # printed through the pane (a curl'ed page, a cat'ed file) cannot send.
+        self._itl_pane_key = itl_keys.key_for(itl_keys.local_scope(session_id))
+        self._itl_scanner = SentinelScanner(self._itl_pane_key) if username else None
         # 로그 상관용으로만 쓴다(WS attach/detach 와 같은 값이라 줄을 이어 읽을 수 있다).
         self.client_id = client_id
         self.attach_argv = attach_argv
@@ -70,6 +74,10 @@ class TmuxClientBridge:
         env = os.environ.copy()
         env.pop("TMUX", None)
         env.pop("TMUX_PANE", None)
+        # herdr / plain-shell panes have no tmux option to read the key from — they get
+        # it from the environment of the process this bridge spawns. Harmless for tmux
+        # (the attach client does not pass its env into the session).
+        env[itl_keys.KEY_ENV] = self._itl_pane_key
         env.update({
             "TERM": self.term,
             "COLORTERM": "truecolor",
@@ -205,7 +213,7 @@ class TmuxClientBridge:
             # ⚠️ 백프레셔가 청크를 버리기 **전에** 먹인다. 화면에 안 보이는 것과
             # 못 들은 것은 다르다 — 표식을 흘리면 배달이 조용히 사라진다.
             if self._itl_scanner is not None:
-                for msg in self._itl_scanner.feed(data):
+                for msg in self._itl_scanner.feed_safe(data):
                     asyncio.create_task(self._dispatch_itl(msg))
             pending.append(data)
             pending_bytes += len(data)

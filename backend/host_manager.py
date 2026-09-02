@@ -22,6 +22,7 @@ import ptyprocess
 from fastapi import WebSocket, WebSocketDisconnect
 
 import multiplexer as mux
+import itl_key as itl_keys
 from itl_channel import SentinelScanner
 from vault import decrypt_str
 from ws_observe import log_client_error
@@ -157,12 +158,21 @@ def _build_herdr_command(
     )
 
 
-def _tmux_session_options(safe: str) -> str:
+def _tmux_session_options(safe: str, itl_pane_key: str | None = None) -> str:
     """이 세션에 걸 tmux 옵션·바인딩 뭉치. **로컬 `tmux_manager` 와 한 벌이다.**
 
     한쪽만 고치면 로컬 팬과 원격 팬의 휠·선택·상태바가 서로 다르게 동작한다.
+
+    `itl_pane_key` is stamped as `@itl_key` so `itl` inside the session can sign its
+    marker lines (itl_key). Derived per host+session, so re-attaching writes the same
+    value; nothing secret leaves this backend beyond what the pane itself may know.
     """
+    key_opt = ""
+    if itl_pane_key:
+        key_opt = (f"tmux set-option -t {safe} {itl_keys.KEY_OPTION} "
+                   f"{shlex.quote(itl_pane_key)} >/dev/null 2>&1; ")
     return (
+        f"{key_opt}"
         # history-limit 은 new-session 보다 먼저 전역(-g)으로 걸어야 새 세션의 첫 pane 이 물려받는다.
         f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} >/dev/null 2>&1; "
                 # 기존 세션에도 세션 옵션으로 한 번 더 — 이 세션에서 새로 여는 window/pane 이 큰 한도를 받게 한다.
@@ -243,6 +253,7 @@ def _build_remote_command(
     start_path: str | None = None,
     *,
     create_session: bool = True,
+    itl_pane_key: str | None = None,
 ) -> str | None:
     """원격에서 실행할 명령 — **묻지 말고 찾는다.**
 
@@ -294,7 +305,7 @@ def _build_remote_command(
             f"command -v tmux >/dev/null 2>&1 && {{ "
             f"tmux set-option -g history-limit {REMOTE_HISTORY_LIMIT} \\; "
             f"new-session -d -s {safe}{cwd_arg} >/dev/null 2>&1; "
-            f"{_tmux_session_options(safe)}"
+            f"{_tmux_session_options(safe, itl_pane_key)}"
             f"exec tmux attach-session -t {safe}; }} "
             f"|| {{ {cd_prefix}exec ${{SHELL:-bash}} -l; }}"
         )
@@ -303,7 +314,7 @@ def _build_remote_command(
         f"{REMOTE_PATH_PREFIX}"
         # ── 1) tmux 가 잡고 있나 ──
         f"if command -v tmux >/dev/null 2>&1 && tmux has-session -t {safe} 2>/dev/null; then "
-        f"{_tmux_session_options(safe)}"
+        f"{_tmux_session_options(safe, itl_pane_key)}"
         f"exec tmux attach-session -t {safe}; "
         # ── 2) herdr 가 잡고 있나 ──
         f"elif {_herdr_has_session(safe)}; then "
@@ -461,6 +472,21 @@ class HostBridge:
         except Exception as e:  # noqa: BLE001
             logger.warning("itl dispatch failed (%s): %s", self.itl_key, e)
 
+    def _arm_itl_key(self, tmux_session: str) -> str | None:
+        """Derive this pane's marker key and give it to the scanner.
+
+        Done where the session name is finally known (it is computed at connect time),
+        so the value stamped on the remote session and the one the scanner expects are
+        the same expression evaluated once.
+        """
+        host_id = str(self.host.get("id") or "")
+        if not (host_id and tmux_session):
+            return None
+        pane_key = itl_keys.key_for(itl_keys.host_scope(host_id, tmux_session))
+        if self._itl_scanner is not None:
+            self._itl_scanner.set_key(pane_key)
+        return pane_key
+
     async def send_control(self, text: str) -> None:
         """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
         try:
@@ -573,7 +599,9 @@ class HostBridge:
             or (self.host.get("start_path") or "").strip()
             or None
         )
-        cmd = _build_remote_command(choice, tmux_session, start_path, create_session=self.create_session)
+        pane_key = self._arm_itl_key(tmux_session)
+        cmd = _build_remote_command(choice, tmux_session, start_path,
+                                    create_session=self.create_session, itl_pane_key=pane_key)
 
         await self._warn_if_multiplexer_missing(choice)
 
@@ -602,7 +630,7 @@ class HostBridge:
                 if not chunk:
                     break
                 if self._itl_scanner is not None:
-                    for msg in self._itl_scanner.feed(chunk):
+                    for msg in self._itl_scanner.feed_safe(chunk):
                         asyncio.create_task(self._dispatch_itl(msg))
                 if self.websocket.client_state.name != "CONNECTED":
                     break
@@ -829,6 +857,21 @@ class TailscaleHostBridge:
         except Exception as e:  # noqa: BLE001
             logger.warning("itl dispatch failed (%s): %s", self.itl_key, e)
 
+    def _arm_itl_key(self, tmux_session: str) -> str | None:
+        """Derive this pane's marker key and give it to the scanner.
+
+        Done where the session name is finally known (it is computed at connect time),
+        so the value stamped on the remote session and the one the scanner expects are
+        the same expression evaluated once.
+        """
+        host_id = str(self.host.get("id") or "")
+        if not (host_id and tmux_session):
+            return None
+        pane_key = itl_keys.key_for(itl_keys.host_scope(host_id, tmux_session))
+        if self._itl_scanner is not None:
+            self._itl_scanner.set_key(pane_key)
+        return pane_key
+
     async def send_control(self, text: str) -> None:
         """제어용 JSON 텍스트를 출력 펌프와 직렬화해 보낸다(ws_ticket 푸시 등)."""
         try:
@@ -855,7 +898,9 @@ class TailscaleHostBridge:
             or (self.host.get("start_path") or "").strip()
             or None
         )
-        cmd = _build_remote_command(choice, tmux_session, start_path, create_session=self.create_session)
+        pane_key = self._arm_itl_key(tmux_session)
+        cmd = _build_remote_command(choice, tmux_session, start_path,
+                                    create_session=self.create_session, itl_pane_key=pane_key)
         argv = ["tailscale", "ssh", "-t", target]
         if cmd:
             argv.append(cmd)
@@ -903,7 +948,7 @@ class TailscaleHostBridge:
                 data = self.process.read(self.READ_CHUNK)
                 # 백프레셔가 버리기 전에 먹인다 — 화면에 안 보이는 것과 못 들은 것은 다르다.
                 if data and self._itl_scanner is not None:
-                    for msg in self._itl_scanner.feed(data):
+                    for msg in self._itl_scanner.feed_safe(data):
                         asyncio.create_task(self._dispatch_itl(msg))
             except OSError as e:
                 if getattr(e, "errno", None) in (11, 35):

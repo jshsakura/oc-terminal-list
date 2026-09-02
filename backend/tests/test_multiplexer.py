@@ -125,3 +125,16 @@ class TestRemoteCommand:
                 cmd = _build_remote_command(choice, "mobile", "/srv/app", create_session=create)
                 r = subprocess.run(["bash", "-n", "-c", cmd], capture_output=True, text=True)
                 assert r.returncode == 0, f"{choice}/{create}: {r.stderr}"
+
+
+class TestItlKeyStamp:
+    def test_원격_tmux_세션에_열쇠를_새긴다(self):
+        cmd = _build_remote_command(mux.TMUX, "mobile", itl_pane_key="abc123")
+        assert "set-option -t mobile @itl_key abc123" in cmd
+
+    def test_열쇠가_없으면_옵션도_없다(self):
+        assert "@itl_key" not in _build_remote_command(mux.TMUX, "mobile")
+
+    def test_열쇠는_셸_인용을_지난다(self):
+        cmd = _build_remote_command(mux.TMUX, "mobile", itl_pane_key="a b")
+        assert "@itl_key 'a b'" in cmd

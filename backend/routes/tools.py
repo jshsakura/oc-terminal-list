@@ -5,6 +5,10 @@
 이유는 host_tools 모듈 머리말에 있다 — 요약하면 sudo 프롬프트·진행 표시·중단이 전부
 사람이 보는 터미널에서만 제대로 동작하고, 그렇게 해야 이 기능이 **새 권한을 만들지
 않는다**(사용자가 직접 칠 수 있는 것을 대신 쳐 줄 뿐).
+
+예외 하나: `host_tools.PUSHABLE` 의 도구(itl)는 파일 하나를 `~/.local/bin` 에 놓는 것이
+설치의 전부라 백엔드가 직접 놓고 직접 지운다(`/install` · `/uninstall`). sudo 도 프롬프트도
+없고, 이미 쥔 SSH 로 하니 이것도 새 권한이 아니다.
 """
 from __future__ import annotations
 
@@ -109,6 +113,59 @@ async def check_tools(body: CheckBody, username: str = Depends(verify_auth_token
         for tool in tools
     }
     return {"host_id": host_id, "results": results, "error": error}
+
+
+async def _run_on_target(host_id: str, username: str, script: str,
+                         stdin_data: str | None) -> tuple[int, str]:
+    """Run one bounded script on the chosen machine; `(exit_code, output)`."""
+    if host_id:
+        from host_common import resolve_host_with_secrets, run_remote_cmd_full
+        host, secrets = await resolve_host_with_secrets(host_id, username)
+        rc, out, err = await run_remote_cmd_full(
+            host, secrets, script, timeout=CHECK_TIMEOUT_SEC, stdin_data=stdin_data,
+        )
+        return rc, (err or out)
+    return await host_tools.run_local_script_full(
+        script, timeout=CHECK_TIMEOUT_SEC, stdin_data=stdin_data,
+    )
+
+
+async def _push_action(tool_id: str, body: CheckBody, username: str, *, remove: bool) -> dict:
+    """Place or delete a push-installed tool's single file (host_tools.PUSHABLE).
+
+    This is the narrow exception to "we do not run the install": one file under the
+    user's home, no sudo, no prompts, no network on the far side. Everything else in the
+    catalog still goes through a terminal the user watches.
+    """
+    if not host_tools.is_pushable(tool_id):
+        raise HTTPException(status_code=404, detail="이 도구는 터미널에서 설치합니다")
+    host_id = (body.host_id or "").strip()
+    script = host_tools.remove_script(tool_id) if remove else host_tools.push_script(tool_id)
+    stdin_data = None if remove else host_tools.push_source(tool_id)
+    try:
+        rc, out = await _run_on_target(host_id, username, script, stdin_data)
+    except HTTPException:
+        raise
+    except Exception as e:                                    # noqa: BLE001
+        logger.info("도구 %s 실패 (tool=%s host=%s): %s",
+                    "제거" if remove else "설치", tool_id, host_id or "local", e)
+        raise HTTPException(status_code=502, detail=str(e)[:200]) from e
+    if rc != 0:
+        detail = out.strip()[:host_tools.MAX_DETAIL] or f"exit {rc}"
+        raise HTTPException(status_code=502, detail=detail)
+    logger.info("도구 %s (tool=%s host=%s) by %s",
+                "제거" if remove else "설치", tool_id, host_id or "local", username)
+    return {"ok": True, "host_id": host_id, "path": host_tools.install_path(tool_id)}
+
+
+@router.post("/api/tools/{tool_id}/install")
+async def install_tool(tool_id: str, body: CheckBody, username: str = Depends(verify_auth_token)):
+    return await _push_action(tool_id, body, username, remove=False)
+
+
+@router.post("/api/tools/{tool_id}/uninstall")
+async def uninstall_tool(tool_id: str, body: CheckBody, username: str = Depends(verify_auth_token)):
+    return await _push_action(tool_id, body, username, remove=True)
 
 
 @router.put("/api/tools/{tool_id}")

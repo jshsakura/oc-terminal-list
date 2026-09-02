@@ -1180,5 +1180,12 @@ export const ko = {
     toolDescription: '설명 (선택)',
     toolUrl: '링크 (선택)',
     toolCheckFailed: '설치 여부를 확인하지 못했습니다',
+    toolPush: '설치',
+    toolUnpush: '제거',
+    toolPushing: '설치 중…',
+    toolUnpushing: '제거 중…',
+    toolPushHint: '파일 하나를 이 자리에 놓습니다. 제거하면 그 파일만 지웁니다.',
+    toolActionFailed: '설치/제거에 실패했습니다',
+    toolsFootPush: 'itl 은 파일 하나라 이 화면에서 바로 놓고 지웁니다.',
     toolsFoot: '설치는 선택한 기계의 터미널을 새로 열어 명령을 붙여 넣습니다. 무엇이 실행될지 보고 직접 엔터를 누르세요.',
 };

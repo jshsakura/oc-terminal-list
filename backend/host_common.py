@@ -34,6 +34,25 @@ async def run_remote_cmd(host: dict, secrets: dict, cmd: str, timeout: float = 1
     (`K=값 cmd`)도 마찬가지로 argv 의 일부라 소용없다. stdin 은 남지 않는다.
     (VNC 비밀번호를 stdin 으로만 넘기는 것과 같은 규칙.)
     """
+    _rc, stdout, _stderr = await run_remote_cmd_full(
+        host, secrets, cmd, timeout=timeout, stdin_data=stdin_data,
+    )
+    return stdout
+
+
+def _as_text(value) -> str:
+    if isinstance(value, str):
+        return value
+    return (value or b"").decode("utf-8", errors="replace")
+
+
+async def run_remote_cmd_full(host: dict, secrets: dict, cmd: str, timeout: float = 10.0,
+                              stdin_data: str | None = None) -> tuple[int, str, str]:
+    """Like `run_remote_cmd`, but returns `(exit_code, stdout, stderr)`.
+
+    Callers that need to know whether the far side *succeeded* must use this one —
+    stdout alone reads a remote failure as success (itl_router learned that the hard way).
+    """
     if host.get("auth_method") == "tailscale":
         target = f"{host.get('ssh_user') or 'root'}@{host['hostname']}"
         proc = await asyncio.create_subprocess_exec(
@@ -43,8 +62,8 @@ async def run_remote_cmd(host: dict, secrets: dict, cmd: str, timeout: float = 1
             stderr=asyncio.subprocess.PIPE,
         )
         payload = stdin_data.encode() if stdin_data is not None else None
-        stdout, _ = await asyncio.wait_for(proc.communicate(input=payload), timeout=timeout)
-        return stdout.decode("utf-8", errors="replace")
+        stdout, stderr = await asyncio.wait_for(proc.communicate(input=payload), timeout=timeout)
+        return proc.returncode or 0, _as_text(stdout), _as_text(stderr)
     from host_manager import open_connection
     conn = await open_connection(
         host,
@@ -57,7 +76,8 @@ async def run_remote_cmd(host: dict, secrets: dict, cmd: str, timeout: float = 1
             cmd, check=False, input=stdin_data
         )
         result = await asyncio.wait_for(run, timeout=timeout)
-        return (result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode("utf-8", errors="replace"))
+        rc = result.exit_status if result.exit_status is not None else 0
+        return rc, _as_text(result.stdout), _as_text(result.stderr)
     finally:
         conn.close()
         await conn.wait_closed()

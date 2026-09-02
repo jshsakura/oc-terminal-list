@@ -31,6 +31,8 @@ logger = logging.getLogger(__name__)
 
 #: 앱 주소 — `탭.pane`. 이 모양이 아니면 그 기계의 itl 이 알아서 풀 몫이다.
 ADDR_RE = re.compile(r"^\d+\.\d+$")
+#: Anything that could break a typed line into more than one (or move the cursor).
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 #: 배달 한 번의 상한. 원격은 SSH 왕복이라 로컬보다 넉넉하다.
 LOCAL_TIMEOUT_SEC = 10.0
@@ -100,7 +102,7 @@ async def _run_remote(host_id: str, username: str, args: list[str]) -> str:
     파일은 매번 stdin 으로 간다(llm_usage 수집기와 같은 규칙) — 설치 0, 포트 0,
     버전 드리프트 0. 원격이 낡은 itl 을 들고 있을 수가 없다.
     """
-    from host_common import resolve_host_with_secrets, run_remote_cmd
+    from host_common import resolve_host_with_secrets, run_remote_cmd_full
 
     try:
         host, secrets = await resolve_host_with_secrets(host_id, username)
@@ -110,13 +112,18 @@ async def _run_remote(host_id: str, username: str, args: list[str]) -> str:
     quoted = " ".join(shlex.quote(a) for a in args)
     cmd = f"{REMOTE_PATH_PREFIX}python3 - {quoted}"
     try:
-        return await run_remote_cmd(host, secrets, cmd,
-                                   timeout=REMOTE_TIMEOUT_SEC,
-                                   stdin_data=_itl_source())
+        rc, out, err = await run_remote_cmd_full(host, secrets, cmd,
+                                                 timeout=REMOTE_TIMEOUT_SEC,
+                                                 stdin_data=_itl_source())
     except asyncio.TimeoutError as e:
         raise DeliveryFailed(f"원격이 {REMOTE_TIMEOUT_SEC}s 안에 답하지 않았다") from e
     except Exception as e:
         raise DeliveryFailed(f"SSH 실패: {e}") from e
+    # ⚠️ The exit code must be read. `run_remote_cmd` returns stdout regardless, and
+    # with that alone a remote "no such pane" looked like success to the sender.
+    if rc != 0:
+        raise DeliveryFailed((err or out).strip()[:200] or f"itl(원격) → {rc}")
+    return out
 
 
 async def _targets_for(username: str) -> list[dict]:
@@ -129,14 +136,21 @@ async def list_targets(username: str) -> list[dict]:
     return await _targets_for(username)
 
 
-async def deliver(username: str, addr: str, text: str, *, sender: str = "") -> dict:
+async def deliver(username: str, addr: str, text: str, *, sender: str = "",
+                  submit: bool = True) -> dict:
     """`addr` 이 가리키는 팬에 `text` 를 꽂는다.
 
     ⚠️ `sender` 는 **보낸 쪽이 준 값**이라 신뢰하지 않는다. 주소 모양으로만 접고,
     아니면 통째로 버린다 — 여기로 임의 문자열이 새면 받는 에이전트에게 보내는 쪽을
     사칭할 수 있다.
+
+    `submit=True` → `--enter-if-agent` (Enter only into an agent pane). `submit=False`
+    → `--no-enter`: the text is typed and left for a human, whatever the pane holds.
     """
-    if not text or not text.strip():
+    # One line, always. A line feed typed into a pane is Enter; that would void the
+    # agent-only rule below no matter what the flag says.
+    text = _CONTROL_RE.sub(" ", text or "").strip()
+    if not text:
         raise DeliveryFailed("빈 내용")
     if len(text.encode("utf-8", errors="replace")) > MAX_TEXT_BYTES:
         raise DeliveryFailed(f"내용이 너무 길다 (>{MAX_TEXT_BYTES}B)")
@@ -151,7 +165,10 @@ async def deliver(username: str, addr: str, text: str, *, sender: str = "") -> d
     tag = f"[from {sender}] " if ADDR_RE.match((sender or "").strip()) else ""
     payload = f"{tag}{text}"
 
-    args = ["send", native, payload]
+    # `--enter-if-agent`: text arriving through this channel may have originated on
+    # another machine. Submitting it into an agent is a prompt; submitting it into a
+    # bare shell would execute it, and that stays a human act (the user presses Enter).
+    args = ["send", native, payload, "--enter-if-agent" if submit else "--no-enter"]
     if target.get("kind") == "host" and target.get("hostId"):
         out = await _run_remote(target["hostId"], username, args)
     else:
@@ -190,10 +207,17 @@ async def _ack_failure(username: str, sender: str, to: str, why: str) -> None:
 
     고리가 안 생기는 이유: 배달은 스캐너를 거치지 않고, 이 문구에는 표식이 없다.
     표식이 없는 줄은 다시 주워지지 않는다.
+
+    🔐 **Typed, never submitted** (`submit=False`). `why` can be the *target* host's
+    stderr; submitting it into the sender agent as a prompt would let a target host
+    inject instructions into whoever talks to it. Typed text just sits in the input.
     """
     if not ADDR_RE.match((sender or "").strip()):
         return          # 보낸 팬이 주소록에 없다 — 알릴 곳이 없다
+    # `why` may carry text a remote host produced (its itl's stderr). It is typed into
+    # the sender's pane, so it must stay one line of plain text — no control characters.
+    why = _CONTROL_RE.sub(" ", why)
     try:
-        await deliver(username, sender, f"[itl] {to} 로 못 보냈다: {why}"[:400])
+        await deliver(username, sender, f"[itl] {to} 로 못 보냈다: {why}"[:400], submit=False)
     except Exception as e:  # noqa: BLE001
         logger.info("itl 실패 통지도 실패 (%s): %s", sender, e)

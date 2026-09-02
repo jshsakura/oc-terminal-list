@@ -2,9 +2,11 @@
 
 This app used to know how to install exactly two things, both of them its own. That is
 backwards: the machines are the user's, the shell is the user's, and what belongs on them
-is the user's call. So the catalog is data, not code — two built-in entries (the
-multiplexers this app can hand a session to: tmux and herdr) and however many the user
-writes. Neither built-in is "ours"; they are there because the app offers to use them.
+is the user's call. So the catalog is data, not code — three built-in entries (the
+multiplexers this app can hand a session to, tmux and herdr, plus the itl CLI) and
+however many the user writes. The multiplexers are there because the app offers to use
+them, not because they are "ours". itl is a single file and is *pushed*, not typed —
+see its catalog entry for why that is the one exception to rule 1.
 
 Three rules hold this together:
 
@@ -26,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import secrets
 import shlex
+from pathlib import Path
 
 # A tool the user writes is arbitrary shell. These caps exist so a paste accident cannot
 # put a megabyte into the DB or the SSH command line, not as a security boundary — the
@@ -81,9 +84,74 @@ BUILTIN_TOOLS: tuple[dict, ...] = (
         "check_command": "command -v herdr",
         "install_command": "curl -fsSL https://herdr.dev/install.sh | sh",
     },
+    {
+        # itl is the one exception to rule 1, and a narrow one: it is a single stdlib-only
+        # Python file that the backend already ships to hosts over stdin for every
+        # delivery (itl_router). "Installing" it is placing that file under ~/.local/bin;
+        # "removing" it is deleting that file. No sudo, no prompt, no network on the far
+        # side, nothing an installer could hang on — so the backend does it directly
+        # (`install_kind: "push"`), over the SSH it already holds, and the row offers a
+        # remove button so it is as easy to take off as to put on.
+        "id": "itl",
+        "name": "itl",
+        "description": (
+            "탭 사이로 말을 옮기는 CLI. `itl list` 로 팬을 보고 `itl send 1.2 '…'` 로 "
+            "다른 탭의 에이전트에게 지시합니다(다른 기계여도). 파일 하나라 언제든 지울 수 있습니다."
+        ),
+        "url": "",
+        "check_command": "command -v itl",
+        "install_command": "",
+        "install_kind": "push",
+        "install_path": "~/.local/bin/itl",
+    },
 )
 
 BUILTIN_IDS = frozenset(t["id"] for t in BUILTIN_TOOLS)
+
+# ── Push-installed tools (a file the backend places, not a command the user types) ──
+
+_LOCAL_BIN = '"$HOME/.local/bin"'
+_CLI_DIR = Path(__file__).resolve().parent / "cli"
+
+#: tool id → the file that *is* the tool. Only stdlib-only single files belong here:
+#: the whole point is that placing one file needs none of what rule 1 protects.
+PUSHABLE: dict[str, Path] = {
+    "itl": _CLI_DIR / "itl",
+}
+
+
+def is_pushable(tool_id: str) -> bool:
+    return tool_id in PUSHABLE
+
+
+def push_source(tool_id: str) -> str:
+    return PUSHABLE[tool_id].read_text(encoding="utf-8")
+
+
+def push_script(tool_id: str) -> str:
+    """Place the file read from stdin at ~/.local/bin/<tool_id>, executable.
+
+    `cat >` rather than an scp/sftp put: it works over every transport this app has
+    (asyncssh, tailscale ssh) with the same stdin mechanism deliveries already use.
+    """
+    name = shlex.quote(tool_id)
+    return (
+        f"mkdir -p {_LOCAL_BIN} && cat > {_LOCAL_BIN}/{name} && chmod 755 {_LOCAL_BIN}/{name}"
+    )
+
+
+def remove_script(tool_id: str) -> str:
+    """Delete exactly the file `push_script` placed. Nothing else is touched."""
+    return f"rm -f {_LOCAL_BIN}/{shlex.quote(tool_id)}"
+
+
+def install_path(tool_id: str) -> str:
+    return f"~/.local/bin/{tool_id}"
+
+
+def local_tool_installed(tool_id: str) -> bool:
+    """Is the pushed file present on *this* machine? (`which` misses ~/.local/bin under systemd.)"""
+    return (Path.home() / ".local" / "bin" / tool_id).is_file()
 
 
 def builtin_tools() -> list[dict]:
@@ -168,13 +236,22 @@ async def run_local_script(script: str, timeout: float = 15.0) -> str:
     Bounded like every other wait in this repo: a probe that hangs would hold the panel
     open with nothing on it.
     """
+    _rc, out = await run_local_script_full(script, timeout=timeout)
+    return out
+
+
+async def run_local_script_full(script: str, timeout: float = 15.0,
+                                stdin_data: str | None = None) -> tuple[int, str]:
+    """`(exit_code, combined output)` — for callers that must know it succeeded."""
     proc = await asyncio.create_subprocess_exec(
         "/bin/sh", "-c", script,
+        stdin=asyncio.subprocess.PIPE if stdin_data is not None else asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
+    payload = stdin_data.encode("utf-8") if stdin_data is not None else None
     try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+        stdout, _ = await asyncio.wait_for(proc.communicate(input=payload), timeout=timeout)
     except asyncio.TimeoutError:
         proc.kill()
         raise
-    return stdout.decode("utf-8", errors="replace")
+    return proc.returncode or 0, stdout.decode("utf-8", errors="replace")

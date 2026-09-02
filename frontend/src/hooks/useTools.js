@@ -89,9 +89,45 @@ const useTools = () => {
     await load();
   }, [load]);
 
+  /* Push-installed tools (`install_kind: 'push'`, today only itl): the backend places or
+     deletes one file under ~/.local/bin on the chosen machine. Nothing is typed into a
+     terminal, so this is the one place the panel acts on the host itself — and the row
+     re-checks afterwards so the chip shows what actually happened, not what we hoped. */
+  const [busyId, setBusyId] = useState(null);
+  const [actionError, setActionError] = useState(null);
+
+  const pushAction = useCallback(async (hostId, toolId, action) => {
+    setBusyId(toolId);
+    setActionError(null);
+    try {
+      const res = await apiFetch(`/api/tools/${encodeURIComponent(toolId)}/${action}`, {
+        method: 'POST',
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host_id: hostId || '' }),
+        timeoutMs: CHECK_TIMEOUT_MS,
+      });
+      if (!res.ok) {
+        let detail = '';
+        try { detail = (await res.json())?.detail || ''; } catch { /* body is optional */ }
+        throw new Error(detail || `HTTP ${res.status}`);
+      }
+      await check(hostId);
+      return true;
+    } catch (e) {
+      setActionError(e.message || 'failed');
+      return false;
+    } finally {
+      setBusyId(null);
+    }
+  }, [check]);
+
+  const push = useCallback((hostId, toolId) => pushAction(hostId, toolId, 'install'), [pushAction]);
+  const unpush = useCallback((hostId, toolId) => pushAction(hostId, toolId, 'uninstall'), [pushAction]);
+
   return {
     tools, loading, error, status, checking, checkError,
     load, check, create, update, remove,
+    push, unpush, busyId, actionError,
   };
 };
 

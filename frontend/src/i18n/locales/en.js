@@ -1175,5 +1175,12 @@ export const en = {
     toolDescription: 'Description (optional)',
     toolUrl: 'Link (optional)',
     toolCheckFailed: 'Could not check what is installed',
+    toolPush: 'Install',
+    toolUnpush: 'Remove',
+    toolPushing: 'Installing…',
+    toolUnpushing: 'Removing…',
+    toolPushHint: 'Places a single file here. Removing deletes only that file.',
+    toolActionFailed: 'Install/remove failed',
+    toolsFootPush: 'itl is a single file, so it is placed and removed right here.',
     toolsFoot: 'Installing opens a new terminal on the selected machine and types the command there. Read it, then press Enter yourself.',
 };

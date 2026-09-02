@@ -66,3 +66,61 @@ def test_check_is_registered_before_the_param_route():
     """
     paths = [r.path for r in tools_route.router.routes]
     assert paths.index("/api/tools/check") < paths.index("/api/tools/{tool_id}")
+
+
+# ─── install / uninstall of push tools ────────────────────────────────────────
+
+@pytest.mark.anyio
+async def test_install_refuses_tools_that_are_not_push_installed():
+    """herdr goes through a terminal the user watches — the backend must not run it."""
+    with pytest.raises(HTTPException) as exc:
+        await tools_route.install_tool("herdr", tools_route.CheckBody(), username="u")
+    assert exc.value.status_code == 404
+
+
+@pytest.mark.anyio
+async def test_install_pushes_the_file_over_ssh_stdin():
+    run = AsyncMock(return_value=(0, "", ""))
+    with patch("host_common.resolve_host_with_secrets", AsyncMock(return_value=({"id": "h1"}, {}))), \
+         patch("host_common.run_remote_cmd_full", run):
+        out = await tools_route.install_tool("itl", tools_route.CheckBody(host_id="h1"), username="u")
+    assert out == {"ok": True, "host_id": "h1", "path": "~/.local/bin/itl"}
+    script = run.await_args.args[2]
+    assert 'cat > "$HOME/.local/bin"/itl' in script
+    assert "def main(" in run.await_args.kwargs["stdin_data"]
+
+
+@pytest.mark.anyio
+async def test_install_reports_a_remote_failure_instead_of_claiming_success():
+    with patch("host_common.resolve_host_with_secrets", AsyncMock(return_value=({"id": "h1"}, {}))), \
+         patch("host_common.run_remote_cmd_full", AsyncMock(return_value=(1, "", "read-only file system"))):
+        with pytest.raises(HTTPException) as exc:
+            await tools_route.install_tool("itl", tools_route.CheckBody(host_id="h1"), username="u")
+    assert exc.value.status_code == 502 and "read-only" in exc.value.detail
+
+
+@pytest.mark.anyio
+async def test_uninstall_removes_only_that_file():
+    run = AsyncMock(return_value=(0, "", ""))
+    with patch("host_common.resolve_host_with_secrets", AsyncMock(return_value=({"id": "h1"}, {}))), \
+         patch("host_common.run_remote_cmd_full", run):
+        await tools_route.uninstall_tool("itl", tools_route.CheckBody(host_id="h1"), username="u")
+    assert run.await_args.args[2] == 'rm -f "$HOME/.local/bin"/itl'
+    assert run.await_args.kwargs["stdin_data"] is None
+
+
+@pytest.mark.anyio
+async def test_install_and_uninstall_on_this_server(tmp_path, monkeypatch):
+    """The local branch really places (and deletes) the file — under a throwaway HOME."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+    await tools_route.install_tool("itl", tools_route.CheckBody(), username="u")
+    placed = tmp_path / ".local" / "bin" / "itl"
+    assert placed.is_file() and os.access(placed, os.X_OK)
+    assert placed.read_text().startswith("#!/usr/bin/env python3")
+    await tools_route.uninstall_tool("itl", tools_route.CheckBody(), username="u")
+    assert not placed.exists()
+
+
+def test_push_routes_do_not_shadow_check():
+    paths = [r.path for r in tools_route.router.routes]
+    assert paths.index("/api/tools/check") < paths.index("/api/tools/{tool_id}/install")

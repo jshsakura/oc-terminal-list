@@ -32,6 +32,7 @@ import argparse
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -51,9 +52,18 @@ APP_ADDR_RE = re.compile(r"^\d+\.\d+$")
 
 #: 백엔드 브리지가 PTY 출력에서 줍는 표식(backend/itl_channel.py). 양쪽이 **같아야** 한다.
 SEND_MARKER = "__ITL_SEND__"
+#: Bytes that break a typed line (a line feed typed into a pane is Enter).
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 #: tmux 가 들고 있는 이 팬의 앱 주소. 백엔드가 탭 상태가 바뀔 때마다 새긴다(pane_addr.py).
 TMUX_ADDR_OPTION = "@pane_addr"
+
+#: The pane's key for the marker channel (backend/itl_key.py). The backend stamps it on
+#: tmux sessions as this user option and hands it to non-tmux panes as this env var.
+#: A marker line without the right key is dropped by the bridge — that is what stops a
+#: `cat`ed file or a `curl`ed page from typing into another pane.
+TMUX_KEY_OPTION = "@itl_key"
+KEY_ENV = "ITL_KEY"
 
 #: herdr 는 대개 `~/.local/bin` 에 앉는데 비대화형 셸의 PATH 에는 없다.
 HERDR_SEARCH_PATH = (
@@ -454,9 +464,17 @@ def send_app_addr(addr: str, text: str) -> tuple[bool, str]:
     """
     if len(text.encode("utf-8", errors="replace")) > MAX_TEXT_BYTES:
         return False, f"내용이 너무 길다 (>{MAX_TEXT_BYTES}B)"
+    key = my_key()
+    if not key:
+        # Without the key the bridge drops the line, so say so here instead of printing
+        # a marker that goes nowhere. Panes the app did not open have no key.
+        return False, ("이 팬에는 열쇠가 없다 — 앱이 연 tmux 세션(또는 앱이 띄운 셸) 안에서만 "
+                       "다른 기계의 탭으로 보낼 수 있다")
     # 개행이 있으면 표식 줄이 쪼개져 백엔드가 못 줍는다. JSON 이 알아서 이스케이프한다.
-    print(SEND_MARKER + " " + json.dumps({"to": addr, "text": text}, ensure_ascii=False),
-          flush=True)
+    # `n` is a per-send nonce: the bridge drops an identical line seen before (a `cat`ed
+    # transcript would otherwise replay every send), and this keeps real repeats distinct.
+    payload = {"to": addr, "text": text, "key": key, "n": secrets.token_hex(4)}
+    print(SEND_MARKER + " " + json.dumps(payload, ensure_ascii=False), flush=True)
     return True, ""
 
 
@@ -502,6 +520,43 @@ def read(pane: dict, lines: int) -> tuple[str, str]:
     return out, ""
 
 
+# ─── 열쇠 ────────────────────────────────────────────────────────────────────
+
+def my_key() -> str:
+    """The key the backend gave this pane, or "" when this pane has none.
+
+    Env first (herdr / plain shell spawned by the bridge), then the tmux session option.
+    tmux is asked through the socket in `$TMUX` and the pane in `$TMUX_PANE` — a pane
+    option lookup with `-t <pane>` resolves to that pane's session.
+    """
+    env_key = (os.environ.get(KEY_ENV) or "").strip()
+    if env_key:
+        return env_key
+    tmux_env, pane = os.environ.get("TMUX") or "", os.environ.get("TMUX_PANE") or ""
+    binary = tmux_bin()
+    if not (tmux_env and pane and binary):
+        return ""
+    socket = tmux_env.split(",", 1)[0]
+    code, out, _err = run([binary, "-S", socket, "show-options", "-qv", "-t", pane,
+                           TMUX_KEY_OPTION])
+    return out.strip() if code == 0 else ""
+
+
+def is_agent(pane: dict) -> bool:
+    """Is an agent (not a bare shell) sitting in this pane?
+
+    Decides whether a backend-mediated send may press Enter. Submitting into an agent is
+    a prompt; submitting into a shell is a command — the second must stay a human act.
+    herdr names the agent; tmux only has the title (and the foreground command name).
+    """
+    # ⚠️ Not the title. Any output can set a pane title (OSC 0/2), so a shell that
+    # displayed a hostile page would read as "claude". For tmux `agent` is the foreground
+    # *process name* (`pane_current_command`); for herdr it is herdr's own verdict.
+    if pane.get("mux") == HERDR:
+        return bool(pane.get("agent"))
+    return bool(_AGENT_NAME_RE.search(pane.get("agent") or ""))
+
+
 # ─── 나는 누구인가 ───────────────────────────────────────────────────────────
 
 def whoami(panes: list[dict]) -> dict | None:
@@ -517,9 +572,15 @@ def whoami(panes: list[dict]) -> dict | None:
                 return p
     t_pane = os.environ.get("TMUX_PANE")
     if t_pane:
+        # Pane ids (`%0`) restart per tmux *server*; with the app's socket and the
+        # default socket both alive, `%0` exists on each. `$TMUX` names the socket.
+        t_socket = (os.environ.get("TMUX") or "").split(",", 1)[0]
         for p in panes:
-            if p["mux"] == TMUX and p["native_id"] == t_pane:
-                return p
+            if p["mux"] != TMUX or p["native_id"] != t_pane:
+                continue
+            if t_socket and p["socket"] != t_socket:
+                continue
+            return p
     return None
 
 
@@ -559,6 +620,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("addr")
     s.add_argument("text")
     s.add_argument("--no-enter", action="store_true", help="내용만 넣고 엔터는 사람이")
+    s.add_argument("--enter-if-agent", action="store_true",
+                   help="에이전트 팬이면 엔터, 맨 셸이면 내용만 (백엔드가 대신 보낼 때의 규칙)")
     s.add_argument("--raw", action="store_true",
                    help="에이전트여도 그냥 텍스트로 (agent prompt 를 건너뛴다)")
 
@@ -615,7 +678,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"pane": pane, "text": text}, ensure_ascii=False) if args.json else text)
         return 0
 
-    ok, err = send(pane, args.text, enter=not args.no_enter, raw=args.raw)
+    # Backend-mediated sends carry text that may have come from another machine.
+    # Submitting it into an agent is a prompt; submitting it into a shell would run it.
+    enter = not args.no_enter
+    text = args.text
+    if args.enter_if_agent:
+        enter = enter and is_agent(pane)
+        # Last hop of a backend-mediated send: a line feed typed into a pane *is* Enter,
+        # so the "no Enter into a shell" rule has to hold for the bytes too.
+        text = _CONTROL_RE.sub(" ", text)
+    ok, err = send(pane, text, enter=enter, raw=args.raw)
     if args.json:
         print(json.dumps({"ok": ok, "pane": pane, "error": err or None}, ensure_ascii=False))
     elif not ok:

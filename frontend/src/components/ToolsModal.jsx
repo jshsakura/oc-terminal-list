@@ -19,6 +19,10 @@ import copyToClipboard from '../utils/clipboard';
  * 엔터는 사용자가 누른다. sudo 프롬프트·진행 표시·중단이 전부 사람이 보는 터미널에서만
  * 제대로 되고, 그래야 이 기능이 **새 권한을 만들지 않는다**(직접 칠 수 있는 것을 대신
  * 쳐 줄 뿐).
+ *
+ * 예외 하나: `install_kind: 'push'`(itl). 파일 하나를 `~/.local/bin` 에 놓는 것이 설치의
+ * 전부라 백엔드가 직접 놓고 직접 지운다 — 설치와 제거가 같은 무게여야 "언제든 지울 수
+ * 있다" 가 말이 된다.
  */
 const LOCAL_ID = '';
 
@@ -30,6 +34,7 @@ const ToolsModal = ({ isOpen, onClose, hosts = [], initialHostId = '', onInstall
   const {
     tools, loading, error, status, checking, checkError,
     load, check, create, update, remove,
+    push, unpush, busyId, actionError,
   } = useTools();
 
   useEffect(() => { if (isOpen) setHostId(initialHostId || LOCAL_ID); }, [isOpen, initialHostId]);
@@ -97,6 +102,11 @@ const ToolsModal = ({ isOpen, onClose, hosts = [], initialHostId = '', onInstall
           </div>
         )}
         {error && <div style={styles.error}>{error}</div>}
+        {actionError && (
+          <div style={styles.error}>
+            {t?.('toolActionFailed') || '설치/제거에 실패했습니다'} — {actionError}
+          </div>
+        )}
 
         {loading && tools.length === 0 && (
           <span style={styles.muted}>{t?.('loading') || 'Loading…'}</span>
@@ -122,6 +132,9 @@ const ToolsModal = ({ isOpen, onClose, hosts = [], initialHostId = '', onInstall
                 t={t}
                 onInstall={() => install(tool)}
                 onCopy={() => copy(tool)}
+                onPush={() => push(hostId, tool.id)}
+                onUnpush={() => unpush(hostId, tool.id)}
+                busy={busyId === tool.id}
                 onEdit={() => { setEditing(tool.id); setAdding(false); }}
                 onDelete={() => remove(tool.id)}
               />
@@ -146,6 +159,9 @@ const ToolsModal = ({ isOpen, onClose, hosts = [], initialHostId = '', onInstall
         <div style={styles.muted}>
           {t?.('toolsFoot')
             || '설치는 선택한 기계의 터미널을 새로 열어 명령을 붙여 넣습니다. 무엇이 실행될지 보고 직접 엔터를 누르세요.'}
+          {' '}
+          {t?.('toolsFootPush')
+            || 'itl 은 파일 하나라 이 화면에서 바로 놓고 지웁니다.'}
         </div>
       </div>
     </GlassModal>

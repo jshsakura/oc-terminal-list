@@ -156,6 +156,7 @@ class TmuxManager:
 
         # 늦은 import: pane_addr 는 이 모듈의 싱글턴을 가져다 쓴다 — 위에서 부르면 순환이다.
         from pane_addr import ADDR_FORMAT
+        import itl_key as itl_keys
 
         # history-limit 은 pane 생성(new-session) 시점에 버퍼 크기가 고정된다 — 나중에
         # set-option 으로 키워도 이미 만들어진 '첫 pane' 엔 소급 적용 안 돼 스크롤백이
@@ -216,6 +217,9 @@ class TmuxManager:
             # 조건부라 순정대로 세션 이름이 나온다.
             ("status", "on"),
             ("status-left", ADDR_FORMAT),
+            # Marker-channel key for `itl` inside this session (itl_key). Without it
+            # any output containing a marker line could type into another pane.
+            (itl_keys.KEY_OPTION, itl_keys.key_for(itl_keys.local_scope(session_id))),
             ("renumber-windows", "on"),
             ("focus-events", "on"),
             # pane 타이틀(OSC 0/2)을 클라이언트로 그대로 흘려보낸다.

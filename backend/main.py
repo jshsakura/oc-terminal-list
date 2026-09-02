@@ -52,6 +52,7 @@ from _deps import (
 from auth_manager import AuthManager
 from sqlite_storage import storage
 from ssh_pool import ssh_pool
+import itl_key
 import pane_addr
 from tmux_manager import tmux_manager
 
@@ -154,6 +155,12 @@ async def lifespan(_app: FastAPI):
                 await tmux_manager._run("set-option", "-t", _sess.name, _k, _v, check=False)
             for _k in _drop:
                 await tmux_manager._run("set-option", "-u", "-t", _sess.name, _k, check=False)
+            # itl marker key — sessions outlive the backend, and ones created before
+            # this option existed would otherwise never be able to send.
+            await tmux_manager._run(
+                "set-option", "-t", _sess.name, itl_key.KEY_OPTION,
+                itl_key.key_for(itl_key.local_scope(_sess.name)), check=False,
+            )
         # 저장된 탭 상태로 주소를 한 번 새긴다 — 백엔드가 재시작해도(세션은 살아남는다)
         # 상태바가 빈 주소로 남지 않게. 다음 갱신은 PUT /api/tab-state 가 한다.
         try:
@@ -384,9 +391,11 @@ async def app_config():
 
     from tmux_manager import TMUX_SOCKET_NAME
 
+    from host_tools import local_tool_installed
+
     return {
         "tmux_socket": TMUX_SOCKET_NAME,
-        "itl_available": shutil.which("itl") is not None,
+        "itl_available": shutil.which("itl") is not None or local_tool_installed("itl"),
     }
 
 

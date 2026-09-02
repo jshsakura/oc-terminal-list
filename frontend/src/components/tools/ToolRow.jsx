@@ -1,4 +1,4 @@
-import { Check, CircleHelp, Download, Pencil, Trash2, ExternalLink, Copy } from 'lucide-react';
+import { Check, CircleHelp, Download, Pencil, Trash2, ExternalLink, Copy, Loader2 } from 'lucide-react';
 import Button from '../common/Button';
 import { tokens } from '../../styles/tokens';
 import { toolsStyles as styles } from './toolsStyles';
@@ -34,7 +34,46 @@ const StatusChip = ({ installed, detail, t }) => {
   );
 };
 
-const ToolRow = ({ tool, state, onInstall, onEdit, onDelete, onCopy, copied, t }) => (
+/**
+ * Push-installed tool (`install_kind: 'push'`): the backend places one file, so there is
+ * no command to show — the *path* is what gets shown, and the actions are "put the file
+ * there" / "delete that file". The chip decides which of the two makes sense; when the
+ * check could not run (unknown) both are offered, because either is safe to repeat.
+ */
+const PushActions = ({ state, busy, onPush, onUnpush, t }) => (
+  <>
+    {state?.installed !== true && (
+      <Button variant="primary" size="small" type="button" icon={busy ? Loader2 : Download}
+        disabled={busy} onClick={onPush}>
+        {busy ? (t?.('toolPushing') || '설치 중…') : (t?.('toolPush') || '설치')}
+      </Button>
+    )}
+    {state?.installed !== false && (
+      <Button variant="ghost" size="small" type="button" icon={busy ? Loader2 : Trash2}
+        disabled={busy} onClick={onUnpush}>
+        {busy ? (t?.('toolUnpushing') || '제거 중…') : (t?.('toolUnpush') || '제거')}
+      </Button>
+    )}
+  </>
+);
+
+const TypedActions = ({ copied, onInstall, onCopy, t }) => (
+  <>
+    <Button variant="primary" size="small" type="button" icon={Download} onClick={onInstall}>
+      {t?.('toolInstall') || '터미널에서 설치'}
+    </Button>
+    <Button variant="ghost" size="small" type="button" icon={copied ? Check : Copy} onClick={onCopy}>
+      {copied ? (t?.('copied') || '복사됨') : (t?.('copyCommand') || '명령 복사')}
+    </Button>
+  </>
+);
+
+const ToolRow = ({
+  tool, state, onInstall, onEdit, onDelete, onCopy, copied, t,
+  onPush, onUnpush, busy = false,
+}) => {
+  const isPush = tool.install_kind === 'push';
+  return (
   <div style={styles.row}>
     <div style={styles.rowHead}>
       <span style={styles.name}>{tool.name}</span>
@@ -48,15 +87,18 @@ const ToolRow = ({ tool, state, onInstall, onEdit, onDelete, onCopy, copied, t }
     </div>
 
     {tool.description && <div style={styles.desc}>{tool.description}</div>}
-    <code style={styles.cmd}>{tool.install_command}</code>
+    {isPush ? (
+      <code style={styles.cmd} title={t?.('toolPushHint') || '파일 하나를 이 자리에 놓습니다. 제거하면 그 파일만 지웁니다.'}>
+        {tool.install_path}
+      </code>
+    ) : (
+      <code style={styles.cmd}>{tool.install_command}</code>
+    )}
 
     <div style={styles.actions}>
-      <Button variant="primary" size="small" type="button" icon={Download} onClick={onInstall}>
-        {t?.('toolInstall') || '터미널에서 설치'}
-      </Button>
-      <Button variant="ghost" size="small" type="button" icon={copied ? Check : Copy} onClick={onCopy}>
-        {copied ? (t?.('copied') || '복사됨') : (t?.('copyCommand') || '명령 복사')}
-      </Button>
+      {isPush
+        ? <PushActions state={state} busy={busy} onPush={onPush} onUnpush={onUnpush} t={t} />
+        : <TypedActions copied={copied} onInstall={onInstall} onCopy={onCopy} t={t} />}
       <span style={styles.spacer} />
       {!tool.builtin && (
         <>
@@ -70,6 +112,7 @@ const ToolRow = ({ tool, state, onInstall, onEdit, onDelete, onCopy, copied, t }
       )}
     </div>
   </div>
-);
+  );
+};
 
 export default ToolRow;

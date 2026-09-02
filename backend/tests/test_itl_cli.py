@@ -210,7 +210,17 @@ class TestWhoami:
         # ⚠️ 중첩(tmux 안의 herdr)이면 **안쪽이 이긴다** — 내가 실제로 타이핑당하는 자리다.
         assert itl.whoami(self.PANES)["mux"] == "herdr"
 
+    def test_tmux_는_소켓까지_맞아야_한다(self, monkeypatch):
+        """`%0` exists on every tmux server; the app socket and the default socket both have one."""
+        monkeypatch.delenv("HERDR_SESSION", raising=False)
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/app,1,0")
+        monkeypatch.setenv("TMUX_PANE", "%0")
+        mine = dict(mux=itl.TMUX, socket="/tmp/tmux-1000/app", session="s", native_id="%0", addr="s:%0")
+        other = dict(mux=itl.TMUX, socket="/tmp/tmux-1000/default", session="d", native_id="%0", addr="d:%0")
+        assert itl.whoami([other, mine]) is mine
+
     def test_tmux_만_있으면_tmux_팬(self, monkeypatch):
+        monkeypatch.delenv("TMUX", raising=False)          # no socket to match against
         monkeypatch.delenv("HERDR_SESSION", raising=False)
         monkeypatch.delenv("HERDR_PANE_ID", raising=False)
         monkeypatch.setenv("TMUX_PANE", "%3")
@@ -236,7 +246,7 @@ def test_stdlib_만_쓴다():
     import ast
     tree = ast.parse(ITL_PATH.read_text(encoding="utf-8"))
     allowed = {
-        "argparse", "json", "os", "re", "shutil", "subprocess", "sys", "__future__",
+        "argparse", "json", "os", "re", "secrets", "shutil", "subprocess", "sys", "__future__",
     }
     imported = set()
     for node in ast.walk(tree):
@@ -245,3 +255,116 @@ def test_stdlib_만_쓴다():
         elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
             imported.add(node.module.split(".")[0])
     assert imported <= allowed, f"stdlib 밖의 import: {sorted(imported - allowed)}"
+
+
+# ─── 열쇠와 엔터 정책 ──────────────────────────────────────────────────────────
+
+class TestKey:
+    def test_env_가_먼저다(self, monkeypatch):
+        monkeypatch.setenv(itl.KEY_ENV, "envkey")
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/x,1,0")
+        assert itl.my_key() == "envkey"
+
+    def test_tmux_옵션에서_읽는다(self, monkeypatch):
+        monkeypatch.delenv(itl.KEY_ENV, raising=False)
+        monkeypatch.setenv("TMUX", "/tmp/tmux-1000/app,1,0")
+        monkeypatch.setenv("TMUX_PANE", "%3")
+        seen = {}
+
+        def fake_run(argv, **_kw):
+            seen["argv"] = argv
+            return 0, "abc123\n", ""
+
+        monkeypatch.setattr(itl, "tmux_bin", lambda: "/usr/bin/tmux")
+        monkeypatch.setattr(itl, "run", fake_run)
+        assert itl.my_key() == "abc123"
+        assert seen["argv"][:3] == ["/usr/bin/tmux", "-S", "/tmp/tmux-1000/app"]
+        assert "-t" in seen["argv"] and "%3" in seen["argv"] and itl.TMUX_KEY_OPTION in seen["argv"]
+
+    def test_둘_다_없으면_빈_문자열(self, monkeypatch):
+        monkeypatch.delenv(itl.KEY_ENV, raising=False)
+        monkeypatch.delenv("TMUX", raising=False)
+        monkeypatch.delenv("TMUX_PANE", raising=False)
+        assert itl.my_key() == ""
+
+    def test_열쇠_없이는_표식을_찍지_않는다(self, monkeypatch, capsys):
+        """A marker without the key is dropped by the bridge — say so instead of printing it."""
+        monkeypatch.setattr(itl, "my_key", lambda: "")
+        ok, why = itl.send_app_addr("1.2", "hi")
+        assert not ok and "열쇠" in why
+        assert itl.SEND_MARKER not in capsys.readouterr().out
+
+    def test_표식에는_열쇠와_난수가_실린다(self, monkeypatch, capsys):
+        monkeypatch.setattr(itl, "my_key", lambda: "k" * 32)
+        assert itl.send_app_addr("1.2", "hi") == (True, "")
+        out = capsys.readouterr().out
+        assert out.startswith(itl.SEND_MARKER + " ")
+        payload = json.loads(out[len(itl.SEND_MARKER):])
+        assert payload["to"] == "1.2" and payload["text"] == "hi" and payload["key"] == "k" * 32
+        assert len(payload["n"]) == 8
+        # two sends of the same text are distinct lines (replay suppression must not eat them)
+        itl.send_app_addr("1.2", "hi")
+        assert json.loads(capsys.readouterr().out[len(itl.SEND_MARKER):])["n"] != payload["n"]
+
+
+class TestIsAgent:
+    def _pane(self, **kw):
+        base = dict(mux=itl.TMUX, socket="", session="s", native_id="%1", label="", agent="",
+                    status="", cwd="", title="")
+        base.update(kw)
+        return base
+
+    def test_타이틀만으로는_에이전트가_아니다(self):
+        """Any output can set the title (OSC 0/2). Only the process name counts."""
+        assert not itl.is_agent(self._pane(status=itl.WORKING, title="✳ claude", agent="zsh"))
+
+    def test_전면_명령이_에이전트_이름이면_에이전트(self):
+        assert itl.is_agent(self._pane(agent="claude"))
+
+    def test_맨_셸은_아니다(self):
+        assert not itl.is_agent(self._pane(agent="zsh"))
+        assert not itl.is_agent(self._pane(agent="node"))      # a name is not enough
+
+    def test_herdr_는_에이전트를_이름으로_안다(self):
+        assert itl.is_agent(self._pane(mux=itl.HERDR, agent="anything"))
+        assert not itl.is_agent(self._pane(mux=itl.HERDR, agent=""))
+
+
+class TestEnterIfAgent:
+    """`--enter-if-agent` is the backend's rule: submit into an agent, only type into a shell."""
+
+    def _run_send(self, monkeypatch, pane, argv):
+        calls = {}
+        monkeypatch.setattr(itl, "discover", lambda: [pane])
+
+        def fake_send(p, text, *, enter=True, raw=False):
+            calls["enter"] = enter
+            return True, ""
+
+        monkeypatch.setattr(itl, "send", fake_send)
+        assert itl.main(argv) == 0
+        return calls["enter"]
+
+    def test_맨_셸에는_엔터를_안_친다(self, monkeypatch):
+        pane = dict(mux=itl.TMUX, socket="", session="s", native_id="%1", label="", agent="zsh",
+                    status="", cwd="", title="", addr="s:%1", app_addr="")
+        assert self._run_send(monkeypatch, pane, ["send", "s", "ls", "--enter-if-agent"]) is False
+
+    def test_에이전트에는_엔터를_친다(self, monkeypatch):
+        pane = dict(mux=itl.TMUX, socket="", session="s", native_id="%1", label="", agent="claude",
+                    status=itl.IDLE, cwd="", title="✳ Claude Code", addr="s:%1", app_addr="")
+        assert self._run_send(monkeypatch, pane, ["send", "s", "go", "--enter-if-agent"]) is True
+
+    def test_백엔드_경로에서는_본문의_개행을_지운다(self, monkeypatch):
+        pane = dict(mux=itl.TMUX, socket="", session="s", native_id="%1", label="", agent="zsh",
+                    status="", cwd="", title="", addr="s:%1", app_addr="")
+        got = {}
+        monkeypatch.setattr(itl, "discover", lambda: [pane])
+        monkeypatch.setattr(itl, "send", lambda p, text, *, enter=True, raw=False: got.update(text=text) or (True, ""))
+        itl.main(["send", "s", "ls\nrm -rf /", "--enter-if-agent"])
+        assert "\n" not in got["text"]
+
+    def test_사람이_직접_치면_기본은_엔터다(self, monkeypatch):
+        pane = dict(mux=itl.TMUX, socket="", session="s", native_id="%1", label="", agent="zsh",
+                    status="", cwd="", title="", addr="s:%1", app_addr="")
+        assert self._run_send(monkeypatch, pane, ["send", "s", "ls"]) is True

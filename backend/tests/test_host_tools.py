@@ -82,3 +82,51 @@ def test_parse_leaves_unmentioned_tool_unknown():
 def test_marker_is_unpredictable():
     """도구 출력이 표식을 흉내내 다음 도구의 판정을 바꿀 수 없어야 한다."""
     assert host_tools.new_marker() != host_tools.new_marker()
+
+
+# ─── push-installed tools (itl) ───────────────────────────────────────────────
+
+def test_builtin_list_has_itl_as_a_push_tool():
+    itl = next(t for t in host_tools.builtin_tools() if t["id"] == "itl")
+    assert itl["install_kind"] == "push"
+    assert itl["install_path"] == "~/.local/bin/itl"
+    assert host_tools.is_pushable("itl")
+    assert not host_tools.is_pushable("herdr")
+
+
+def test_push_source_is_the_shipped_cli():
+    src = host_tools.push_source("itl")
+    assert src.startswith("#!/usr/bin/env python3") and "def main(" in src
+
+
+def test_push_script_places_one_executable_file_and_nothing_else():
+    script = host_tools.push_script("itl")
+    assert 'mkdir -p "$HOME/.local/bin"' in script
+    assert 'cat > "$HOME/.local/bin"/itl' in script
+    assert 'chmod 755 "$HOME/.local/bin"/itl' in script
+    assert "sudo" not in script and "curl" not in script
+
+
+def test_remove_script_deletes_exactly_that_file():
+    assert host_tools.remove_script("itl") == 'rm -f "$HOME/.local/bin"/itl'
+
+
+def test_push_script_quotes_the_tool_id():
+    """Not reachable today (PUSHABLE is code-owned), but the id must never be shell."""
+    assert "'a b'" in host_tools.push_script("a b")
+
+
+async def test_run_local_script_full_feeds_stdin_and_reports_exit_code(tmp_path):
+    target = tmp_path / "out"
+    rc, out = await host_tools.run_local_script_full(f"cat > {target}", stdin_data="hello")
+    assert rc == 0 and target.read_text() == "hello"
+    rc, _ = await host_tools.run_local_script_full("exit 3")
+    assert rc == 3
+
+
+def test_local_tool_installed_looks_in_local_bin(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    assert not host_tools.local_tool_installed("itl")
+    (tmp_path / ".local" / "bin").mkdir(parents=True)
+    (tmp_path / ".local" / "bin" / "itl").write_text("x")
+    assert host_tools.local_tool_installed("itl")
