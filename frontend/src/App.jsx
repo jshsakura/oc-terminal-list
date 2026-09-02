@@ -1020,13 +1020,12 @@ function App() {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column',
-      /* ⚠️ **높이를 줄이지 않는다 — 아래를 밀어 올린다.**
-         `#root` 는 `position: fixed; inset: 0` 이라 레이아웃 뷰포트를 채운다. 여기서
-         높이를 `visualViewport.height` 로 줄이면 그 차이만큼 **아무도 안 칠한 띠**가
-         남고 body 의 `#0f0f17` 이 드러난다 — 그게 하단 검은 띠였다(로그인 화면에서도
-         같은 이유로 났다). 면은 상자를 꽉 채우고, 내용만 `--vvb` 만큼 띄운다. */
-      height: '100%',
-      paddingBottom: isMobile ? 'var(--vvb, 0px)' : 0,
+      /* `#root` 가 정적 배치라 이 상자의 100% 는 **레이아웃 뷰포트**다. 키보드가
+         올라오면 그것만으로는 모자라므로(레이아웃 뷰포트는 그대로고 가시 영역만 줄어든다)
+         `--vvh` 로 줄인다. 남는 아래쪽은 키보드가 덮는 자리라 보이지 않는다.
+         ⚠️ 빈틈이 생길 수 없는 이유: 부모(#root)도 같은 레이아웃 뷰포트라 키보드가
+         없을 때 둘의 높이가 정확히 같다. */
+      height: isMobile ? 'var(--vvh, 100%)' : '100%',
       boxSizing: 'border-box',
       width: '100%',
       background: currentTheme.ui.bg,
@@ -1041,9 +1040,18 @@ function App() {
           padding: 0;
           overflow: hidden;
         }
+        /* ⚠️ **position: fixed 로 두지 마라.** iOS Safari 는 fixed 상자를 레이아웃
+           뷰포트가 아니라 **큰 뷰포트(ICB)** 로 잡는다. 실측(주소창이 펼쳐진 순간):
+
+             vv=556  inner=556  root(fixed; inset:0)=665
+
+           그 상자의 위 109px 이 화면 밖(위)이었다 — 그래서 탭바가 들려 잘리고 아래에는
+           빈 띠가 남았다. 아래를 padding 으로 밀어도 내용은 여전히 상자 맨 위에서
+           시작하므로 아무것도 안 고쳐진다(그렇게 한 번 고쳤다가 그대로였다).
+           정적 배치는 **레이아웃 뷰포트** = 보이는 영역을 쓴다. 그게 이 병의 해답이다.
+           ⚠️ 이 주석은 style 템플릿 리터럴 안이다 — 백틱을 쓰면 빌드가 깨진다. */
         #root {
-          position: fixed;
-          inset: 0;
+          height: 100%;
           overflow: hidden;
         }
 

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import useViewport from './useViewport';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /**
  * 하단 검은 띠 — `--vvh` 가 실제 가시 영역보다 작게 굳는 병.
@@ -114,46 +116,36 @@ describe('useViewport — 가시 영역 추적', () => {
   });
 
   /* ── 하단 빈틈의 진짜 뿌리 ──────────────────────────────────────────────────
-   * `#root`(fixed; inset:0)는 **레이아웃 뷰포트**를 채우는데 자식 높이를
-   * `visualViewport.height` 로 잡으면 그 차이만큼 아무도 안 칠한 띠가 남는다.
-   * 로그인 화면에서도 같은 이유로 났다 — 거기엔 앱 컨테이너가 아예 없다.
-   * 그래서 면은 상자를 꽉 채우고 **내용만** `--vvb` 만큼 띄운다. */
-  describe('--vvb (레이아웃 뷰포트와 가시 영역의 차이)', () => {
-    const vvb = () => document.documentElement.style.getPropertyValue('--vvb');
-    let root;
-
-    beforeEach(() => {
-      root = document.createElement('div');
-      root.id = 'root';
-      // jsdom 은 레이아웃이 없다 — 상자 높이를 직접 말해 준다.
-      root.getBoundingClientRect = () => ({ height: 665 });
-      document.body.appendChild(root);
-    });
-    afterEach(() => root.remove());
-
-    it('상자와 가시 영역의 차이를 낸다', () => {
+   * iOS Safari 는 `position: fixed` 상자를 레이아웃 뷰포트가 아니라 **큰 뷰포트(ICB)**
+   * 로 잡는다. 실측: `vv=556 inner=556` 인데 `#root`(fixed; inset:0)는 665 였고, 그
+   * 상자의 **위** 109px 이 화면 밖이었다 — 탭바가 들려 잘리고 아래에 빈 띠가 남았다.
+   *
+   * 한때 그 차이를 `--vvb` 로 재서 아래를 밀었는데, 내용은 여전히 상자 맨 위에서
+   * 시작하므로 아무것도 안 고쳐졌다. 해답은 보정이 아니라 **정적 배치**(= 레이아웃
+   * 뷰포트 = 보이는 영역)다. 그래서 이 훅은 이제 그 값을 아예 만들지 않는다. */
+  it('--vvb 를 만들지 않는다 — 아래로 미는 보정은 틀린 방향이었다', () => {
+    const root = document.createElement('div');
+    root.id = 'root';
+    root.getBoundingClientRect = () => ({ height: 665 });
+    document.body.appendChild(root);
+    try {
       renderHook(() => useViewport());
       setViewport(556, 0, 556);
       fireVV('resize');
       flushRaf();
-      expect(vvb()).toBe('109px');       // 665 - 556 = 그 검은 띠
-    });
+      expect(document.documentElement.style.getPropertyValue('--vvb')).toBe('');
+    } finally {
+      root.remove();
+    }
+  });
 
-    it('키보드가 페이지를 밀어 올린 만큼도 뺀다', () => {
-      renderHook(() => useViewport());
-      setViewport(400, 100, 665);
-      fireVV('resize');
-      flushRaf();
-      expect(vvb()).toBe('165px');       // 665 - 400 - 100
-    });
-
-    it('음수가 되지 않는다 — 크롬이 없으면 0', () => {
-      renderHook(() => useViewport());
-      setViewport(700, 0, 700);          // 가시 영역이 상자보다 크다고 보고돼도
-      fireVV('resize');
-      flushRaf();
-      expect(vvb()).toBe('0px');
-    });
+  /* 진짜 상자는 App.jsx 가 그린다 — 그런데 App.jsx 에는 렌더 테스트가 없다(CLAUDE.md).
+     그래서 소스를 훑어 되돌림만 막는다. 이 두 줄이 이 병의 전부였다. */
+  it('#root 는 fixed 가 아니고, 앱 상자는 --vvb 로 밀지 않는다', () => {
+    const src = readFileSync(resolve(__dirname, '..', 'App.jsx'), 'utf8');
+    const rootBlock = src.slice(src.indexOf('#root {'), src.indexOf('#root {') + 200);
+    expect(rootBlock).not.toMatch(/position:\s*fixed/);
+    expect(src).not.toMatch(/paddingBottom:[^\n]*--vvb/);
   });
 
   it('말이 안 되는 높이는 무시한다 — 접히면 하단바가 사라진다', () => {

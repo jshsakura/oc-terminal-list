@@ -46,14 +46,11 @@ const Login = ({ onLogin, language = 'en', theme = null, einkMode = false, onTog
     const vv = window.visualViewport;
     const update = () => {
       const keyboardUp = vv.height < window.innerHeight - 60;
-      /* ⚠️ **높이를 줄이지 않는다.** 이 오버레이는 `inset: 0` 이라 레이아웃 뷰포트를
-         채우는데, 여기서 `height` 를 주면 `bottom` 이 무시되고(over-constrained) 그
-         차이만큼 아무도 안 칠한 띠가 남는다 — body 의 `#0f0f17` 이 드러나는 그 검은
-         띠다. 면은 그대로 두고 **내용만** 보이는 영역 안으로 민다. */
+      /* 오버레이는 정적 배치라 이미 레이아웃 뷰포트(=보이는 영역)를 채운다. 키보드가
+         올라온 동안만 가시 영역으로 줄인다 — 그때는 레이아웃 뷰포트가 안 줄어든다. */
       setVpStyle({
-        paddingBottom: `calc(var(--vvb, 0px) + ${keyboardUp ? 20 : 0}px)`,
-        width: `${vv.width}px`,
-        left: `${vv.offsetLeft}px`,
+        height: keyboardUp ? `${vv.height}px` : '100%',
+        paddingBottom: keyboardUp ? '20px' : 0,
         alignItems: keyboardUp ? 'flex-start' : 'center',
         overflowY: 'auto',
         WebkitOverflowScrolling: 'touch',

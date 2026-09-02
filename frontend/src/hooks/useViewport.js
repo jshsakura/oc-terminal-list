@@ -54,7 +54,8 @@ const reportViewport = (vv, layout, keyboard, force = false) => {
     `off=${Math.round(vv.offsetTop)}`,
     `root=${root ? Math.round(root.getBoundingClientRect().height) : '-'}`,
     `app=${app ? Math.round(app.getBoundingClientRect().height) : '-'}`,
-    `vvb=${el.style.getPropertyValue('--vvb') || '-'}`,
+    `cw=${el.clientHeight}`,
+    `bh=${document.body?.clientHeight ?? '-'}`,
   ].join(' ');
   /* ⚠️ **첫 측정은 반드시 흘려보낸다.** 마운트 시점에는 터미널 소켓이 아직 없어서
      이벤트가 허공에 떨어진다 — 그 뒤 뷰포트가 안 바뀌면 영영 아무것도 안 올라온다.
@@ -128,18 +129,10 @@ export default function useViewport() {
          하단 빈틈을 만들었다(위 주석). */
       document.documentElement.style.setProperty('--vvh', `${vv.height}px`);
 
-      /* ── 하단 빈틈의 진짜 뿌리 ──────────────────────────────────────────────
-         `#root` 와 로그인 오버레이는 `position: fixed; inset: 0` 이라 **레이아웃 뷰포트**
-         를 채운다. 그 안에서 자식 높이를 `visualViewport.height` 로 잡으면, 둘의 차이만큼
-         **아무도 안 칠한 띠**가 남고 거기서 body 의 `#0f0f17` 이 드러난다. 그게 검은 띠다.
-         (⚠️ `inset:0` + `height` 를 함께 주면 `bottom` 이 무시되고 height 가 이긴다.)
-
-         그래서 **칠하는 면은 상자를 꽉 채우고**(height:100%), 내용만 이 값만큼 아래에서
-         띄운다. 어느 브라우저가 위/아래 중 어디를 크롬으로 먹든 빈틈이 생길 수가 없다. */
-      const box = document.getElementById('root');
-      const boxH = box ? box.getBoundingClientRect().height : document.documentElement.clientHeight;
-      const bottomGap = Math.max(0, Math.round(boxH - vv.height - vv.offsetTop));
-      document.documentElement.style.setProperty('--vvb', `${bottomGap}px`);
+      /* ⚠️ **`--vvb`(레이아웃 뷰포트와 가시 영역의 차이만큼 아래를 밀던 값)는 없앴다.**
+         그 값은 `position: fixed` 상자를 전제로 한 보정인데, iOS 의 fixed 상자는 위쪽이
+         화면 밖이었다 — 아래를 밀어봐야 내용은 그대로 잘린 자리에 있었다. 지금은 상자
+         자체가 정적 배치(레이아웃 뷰포트)라 보정할 차이가 없다. App.jsx 의 `#root` 주석. */
 
       const layout = window.innerHeight || vv.height;
       reportViewport(vv, layout, vv.height < layout * 0.7, forceReportRef.current);
