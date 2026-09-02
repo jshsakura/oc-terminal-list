@@ -52,45 +52,35 @@ describe('splitPinnedAndScroll', () => {
 });
 
 
-describe('DEFAULT_MOBILE_KEYS 줄 편집 + 세션 키', () => {
-  const findByLabel = (label) => DEFAULT_MOBILE_KEYS.find((k) => k.label === label);
+describe('DEFAULT_MOBILE_KEYS — 짧게 유지한다', () => {
+  const byLabel = (label) => DEFAULT_MOBILE_KEYS.find((k) => k.label === label);
 
-  it('^A ^E ^U ^W 가 올바른 payload와 tone을 갖는다', () => {
-    const expected = {
-      '^A': '\x01',
-      '^E': '\x05',
-      '^U': '\x15',
-      '^W': '\x17',
-    };
-    for (const [label, payload] of Object.entries(expected)) {
-      const k = findByLabel(label);
-      expect(k, `missing ${label}`).toBeDefined();
-      expect(k.payload).toBe(payload);
-      expect(k.tone).toBe('muted');
+  /* ⚠️ 폰의 바는 짧다. 스크롤 뒤로 밀린 키는 없는 키다 — 한때 줄편집·세션·PgUp/PgDn·ALT
+     까지 전부 실었다가 "쓸데없는 키가 많다" 로 되돌렸다. 전부 프리셋에 있다. */
+  it('은퇴한 키는 기본에 없다 — 프리셋에서 골라 넣는 것이다', () => {
+    for (const label of ['^A', '^E', '^U', '^W', '^R', '^L', '^D', '^Z', 'PgUp', 'PgDn', 'ALT']) {
+      expect(byLabel(label), `${label} 이 기본에 남아 있다`).toBeUndefined();
     }
   });
 
-  it('^R ^L ^D ^Z 가 올바른 payload와 tone을 갖는다', () => {
-    const expected = {
-      '^R': '\x12',
-      '^L': '\x0c',
-      '^D': '\x04',
-      '^Z': '\x1a',
-    };
-    for (const [label, payload] of Object.entries(expected)) {
-      const k = findByLabel(label);
-      expect(k, `missing ${label}`).toBeDefined();
-      expect(k.payload).toBe(payload);
-      expect(k.tone).toBe('muted');
+  it('은퇴한 키는 프리셋에 그대로 있다 — 되찾을 길이 있어야 한다', () => {
+    for (const label of ['^A', '^E', '^U', '^W', '^R', '^L', '^D', '^Z', 'PgUp', 'PgDn']) {
+      expect(KEY_PRESETS.some((p) => p.label === label), `${label} 프리셋 없음`).toBe(true);
     }
   });
 
-  it('payload 값이 KEY_PRESETS과 일치한다', () => {
-    const presetPayload = (label) => KEY_PRESETS.find((p) => p.label === label)?.payload;
-    for (const label of ['^A', '^E', '^U', '^W', '^R', '^L', '^D', '^Z']) {
-      const k = findByLabel(label);
-      expect(k.payload).toBe(presetPayload(label));
+  it('없으면 아예 못 하는 것만 남는다', () => {
+    const ids = DEFAULT_MOBILE_KEYS.map((k) => k.id);
+    for (const id of ['cmd', 'left', 'up', 'down', 'right',
+                      'esc', 'tab', 'enter', 'bs', 'ctrlc', 'ctrl', 'copy', 'paste']) {
+      expect(ids, `${id} 가 빠졌다`).toContain(id);
     }
+  });
+
+  it('조합키는 ^C 와 CTRL 뿐이다 — 둘 다 없으면 폰에서 못 하는 일이 생긴다', () => {
+    const combos = DEFAULT_MOBILE_KEYS.filter(
+      (k) => k.kind === 'mod' || (k.label || '').startsWith('^'));
+    expect(combos.map((k) => k.id)).toEqual(['ctrlc', 'ctrl']);
   });
 
   it('^C는 danger tone이고 중복되지 않는다', () => {
@@ -98,6 +88,13 @@ describe('DEFAULT_MOBILE_KEYS 줄 편집 + 세션 키', () => {
     expect(ctrlc.length).toBe(1);
     expect(ctrlc[0].payload).toBe('\x03');
     expect(ctrlc[0].tone).toBe('danger');
+  });
+
+  it('구분자가 연달아 오지 않는다 — 아무것도 안 나누는 선', () => {
+    DEFAULT_MOBILE_KEYS.forEach((k, i) => {
+      if (i === 0) return;
+      expect(k.kind === 'sep' && DEFAULT_MOBILE_KEYS[i - 1].kind === 'sep').toBe(false);
+    });
   });
 });
 
@@ -267,6 +264,37 @@ describe('migrateMobileKeys', () => {
     { id: 'mux_T·c', kind: 'send', label: 'T·c', payload: '\x02c' },
     { id: 'mux_T·z', kind: 'send', label: 'T·z', payload: '\x02z' },
   ];
+
+  it('은퇴한 키와 그 구분자도 걷어낸다 — 옛 기본값이 계속 남아 있으면 안 된다', () => {
+    const old = [
+      { id: 'cmd', kind: 'cmdInput' },
+      { id: 'sep_line', kind: 'sep' },
+      { id: 'ctrla', kind: 'send', label: '^A', payload: '\x01' },
+      { id: 'pgup', kind: 'send', label: 'PgUp', payload: '\x1b[5~' },
+      { id: 'alt', kind: 'mod', label: 'ALT' },
+    ];
+    const { keys } = migrateMobileKeys(old, null);
+    for (const id of ['ctrla', 'pgup', 'alt', 'sep_line']) {
+      expect(keys.some((k) => k.id === id), `${id} 가 남았다`).toBe(false);
+    }
+  });
+
+  it('묶음을 걷어낸 자리에 빈 구분자가 연달아 남지 않는다', () => {
+    const old = [
+      { id: 'cmd', kind: 'cmdInput' },
+      { id: 'sep_line', kind: 'sep' },
+      { id: 'ctrla', kind: 'send', label: '^A', payload: '\x01' },
+      { id: 'sep_ses', kind: 'sep' },
+      { id: 'ctrlr', kind: 'send', label: '^R', payload: '\x12' },
+      { id: 'sep3', kind: 'sep' },
+      { id: 'copy', kind: 'copy' },
+    ];
+    const { keys } = migrateMobileKeys(old, null);
+    keys.forEach((k, i) => {
+      if (i === 0) return;
+      expect(k.kind === 'sep' && keys[i - 1].kind === 'sep').toBe(false);
+    });
+  });
 
   it('우리가 심었던 멀티플렉서 키와 그 구분자를 걷어낸다', () => {
     const { keys } = migrateMobileKeys(saved, null);

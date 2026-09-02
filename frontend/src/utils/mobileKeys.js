@@ -13,9 +13,17 @@
  * 사용자가 Settings 에서 자유롭게 추가/삭제/순서 변경. 항상 최소 1개 이상 유지.
  */
 export const DEFAULT_MOBILE_KEYS = [
-   /* 빠른입력(cmdInput)이 **다시 맨 앞이다.** 한때 뺐었다 — 입력창이 하단 상시 도크로
-      깔리니 그걸 여는 버튼은 할 일이 없다고 봤다. 그 도크를 되돌리면서(폰에서 키보드가
-      올라왔다 닫히기를 반복했다) 이 버튼이 **모바일에서 입력하는 유일한 길**로 돌아왔다.
+   /* 폰의 바는 **짧다.** 스크롤 뒤로 밀린 키는 없는 키다 — 그래서 기본에는 "이게 없으면
+      아예 못 하는 것" 만 둔다. 한때 줄편집(^A ^E ^W)·세션(^R ^L ^D ^Z)·PgUp/PgDn·ALT 까지
+      전부 실었다가 "쓸데없는 키가 많다" 로 되돌린 자리다. 전부 설정 프리셋에 있으므로
+      쓰는 사람이 골라 넣는다 — 고른 사람의 바에만 있는 것이 맞다.
+
+      ⚠️ 여기에 키를 더하기 전에 "이게 없으면 폰에서 무엇을 못 하나" 를 먼저 답할 것.
+      CTRL 토글이 있으므로 나머지 컨트롤 조합은 소프트 키보드 글자와 조합해 낼 수 있다. */
+
+   /* 빠른입력(cmdInput)이 **맨 앞이다.** 한때 뺐었다 — 입력창이 하단 상시 도크로 깔리니
+      그걸 여는 버튼은 할 일이 없다고 봤다. 그 도크를 되돌리면서 이 버튼이 **모바일에서
+      입력하는 유일한 길**로 돌아왔다.
 
       ⚠️ 도크를 다시 켜더라도 이 버튼을 또 빼지 말 것. 빼는 순간 도크가 안 뜨는 자리
       (빈 pane · VNC · 2FA 프롬프트)에서는 입력할 방법이 아예 사라진다. */
@@ -28,37 +36,21 @@ export const DEFAULT_MOBILE_KEYS = [
    { id: 'sep2',  kind: 'sep' },
    { id: 'esc',   kind: 'send', label: 'ESC', payload: '\x1b' },
    { id: 'tab',   kind: 'send', label: 'TAB', payload: '\t' },
-   /* ⚠️ **엔터는 기본에 있어야 한다.** 오래 빠져 있었다 — 소프트 키보드로 칠 때는 거기
-      엔터가 있으니 안 아쉬운데, 퀵바만으로(빠른입력·화살표·^C) 다루다 보면 **줄을 끝낼
-      방법이 없다.** "내 엔터 어디갔어" 가 그 자리에서 나왔다. */
+   /* ⚠️ **엔터와 지우기는 기본에 있어야 한다.** 오래 빠져 있었다 — 소프트 키보드로 칠
+      때는 거기 있으니 안 아쉬운데, 퀵바만으로 다루면 **줄을 끝낼 수도 고칠 수도 없다.**
+      길게 누르면 연타된다(`utils/keyRepeat`). 반복은 `kind: 'send'` 에만 붙는다. */
    { id: 'enter', kind: 'send', label: '⏎', payload: '\r' },
-   /* 지우기도 마찬가지다 — 프리셋에만 있어서 기본 바로는 한 글자도 못 지웠다.
-      길게 누르면 연타된다(`utils/keyRepeat`, 420ms 뒤 80ms 간격). */
    { id: 'bs',    kind: 'send', label: '⌫', payload: '\x7f' },
-   // ^C 는 터미널 작업 중단(SIGINT) 의 표준 단축키 — CTRL 토글 + 'c' 입력은 모바일에 별도
-   // 알파벳 키가 없어 실제로 못 보내므로 디폴트 툴바에 직접 박아 둔다.
-    { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', tone: 'danger' },
-    // 줄 편집 — bash readline 단축키. 모바일에서 커서 옮기기/지우기가 손이 많이 가므로
-    // 기본 툴바에 둔다. payload/tone 은 KEY_PRESETS 의 값을 그대로 쓴다.
-    { id: 'sep_line', kind: 'sep' },
-    { id: 'ctrla', kind: 'send', label: '^A', payload: '\x01', tone: 'muted' },  // 줄 시작
-    { id: 'ctrle', kind: 'send', label: '^E', payload: '\x05', tone: 'muted' },  // 줄 끝
-    { id: 'ctrlu', kind: 'send', label: '^U', payload: '\x15', tone: 'muted' },  // 줄 전체 삭제
-    { id: 'ctrlw', kind: 'send', label: '^W', payload: '\x17', tone: 'muted' },  // 단어 삭제
-    // 세션 / 히스토리
-    { id: 'sep_ses', kind: 'sep' },
-    { id: 'ctrlr', kind: 'send', label: '^R', payload: '\x12', tone: 'muted' },  // 히스토리 검색
-    { id: 'ctrll', kind: 'send', label: '^L', payload: '\x0c', tone: 'muted' },  // clear
-    { id: 'ctrld', kind: 'send', label: '^D', payload: '\x04', tone: 'muted' },  // EOF
-    { id: 'ctrlz', kind: 'send', label: '^Z', payload: '\x1a', tone: 'muted' },  // SIGTSTP
-    { id: 'sep_pg', kind: 'sep' },
-   { id: 'pgup',  kind: 'send', label: 'PgUp', payload: '\x1b[5~' },
-   { id: 'pgdn',  kind: 'send', label: 'PgDn', payload: '\x1b[6~' },
    { id: 'sep3',  kind: 'sep' },
-   { id: 'ctrl',  kind: 'mod',  label: 'CTRL', modifier: 'ctrl' },
-   { id: 'alt',   kind: 'mod',  label: 'ALT',  modifier: 'alt' },
+   /* 조합키는 **둘만** 남긴다. 나머지(^A ^E ^U ^W ^R ^L ^D ^Z, ALT)는 프리셋으로 내렸다.
+      - `^C` 는 소프트 키보드를 안 열고 작업을 중단하는 **유일한** 길이다. 바에 알파벳
+        키가 없으므로 CTRL 토글로는 못 만든다.
+      - `CTRL` 토글은 그 나머지 조합을 만드는 **유일한** 길이다(+ 소프트 키보드 글자).
+      둘 중 하나라도 빼면 폰에서 못 하게 되는 일이 생긴다 — 그래서 여기까지다. */
+   { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', tone: 'danger' },
+   { id: 'ctrl',  kind: 'mod', label: 'CTRL' },
    { id: 'sep4',  kind: 'sep' },
-   { id: 'copy',  kind: 'copy', tone: 'accent' },
+   { id: 'copy',  kind: 'copy' },
    { id: 'paste', kind: 'paste' },
 ];
 
@@ -112,7 +104,17 @@ export const mobileKeysFor = () => DEFAULT_MOBILE_KEYS;
 
 
 /** 이 판본까지 정리했다는 표시. 값이 바뀌면 저장된 바를 한 번 더 훑는다. */
-export const MOBILE_KEYS_REVISION = 'v2-no-mux';
+export const MOBILE_KEYS_REVISION = 'v3-lean';
+
+/** 예전에 **우리가 기본으로 심었던** 키들. 지금 기준으로는 바를 길게만 만든다.
+ *  프리셋에 그대로 있으므로 쓰는 사람은 다시 넣을 수 있다. */
+const RETIRED_IDS = new Set([
+  'ctrla', 'ctrle', 'ctrlu', 'ctrlw',   // 줄 편집 — 조합키는 ^C·CTRL 만 남긴다
+  'ctrlr', 'ctrll', 'ctrld', 'ctrlz',   // 세션·히스토리
+  'pgup', 'pgdn',                       // 터치로 스크롤된다
+  'alt',                                // CTRL 만으로 충분하다
+  'sep_line', 'sep_ses', 'sep_pg', 'sep5',  // 위 묶음들의 구분자
+]);
 
 /**
  * 저장된 바를 지금 규칙에 맞게 **한 번** 정리한다.
@@ -137,7 +139,8 @@ export const migrateMobileKeys = (keys, revision = null) => {
 
   const stripped = keys.filter((k) => {
     const id = String(k?.id || '');
-    return id !== MUX_SEP_ID && !id.startsWith(MUX_KEY_PREFIX);
+    if (id === MUX_SEP_ID || id.startsWith(MUX_KEY_PREFIX)) return false;
+    return !RETIRED_IDS.has(id);
   });
 
   // TAB 뒤에 ⏎, ⌫ 순서로 — 없는 것만 넣는다.
@@ -151,6 +154,10 @@ export const migrateMobileKeys = (keys, revision = null) => {
       ? [...next.slice(0, after + 1), { ...key }, ...next.slice(after + 1)]
       : [...next, { ...key }];
   }
+
+  /* ⚠️ 묶음을 통째로 걷어내면 **아무것도 안 나누는 선**이 연달아 남는다. sanitize 는
+     맨 앞/뒤만 걷으므로 가운데 중복은 여기서 접어야 한다. */
+  next = next.filter((k, i) => !(k?.kind === 'sep' && next[i - 1]?.kind === 'sep'));
 
   const changed = next.length !== keys.length;
   return { keys: changed ? next : keys, seededFor: MOBILE_KEYS_REVISION };
