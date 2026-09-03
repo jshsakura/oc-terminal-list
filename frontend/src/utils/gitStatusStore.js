@@ -59,6 +59,14 @@ export const createGitStatusStore = ({
   now = () => Date.now(),
 } = {}) => {
   const entries = new Map();
+  /* 같은 저장소를 보는 엔트리를 하나로 합치기 위한 색인.
+     pane 의 구독 키는 그 pane 의 cwd 다(`paneGitContext = paneCwdRel`). 같은 저장소라도
+     하위 폴더가 다르면 키가 달라져 각각 폴링했다 — 실측에서 pane 두 개가 60초마다 1.9초
+     간격으로 같은 저장소를 두 번 물었다. 어느 경로로 물어도 백엔드는 저장소 루트로
+     해소해 **같은 결과**를 주므로, 루트를 알게 된 순간 합치는 것이 맞다.
+     루트는 첫 응답의 `repo` 로만 알 수 있어서(요청 전에는 모른다) 사후에 합친다. */
+  const canonicalByRoot = new Map();   // repo 루트(절대경로) → 대표 엔트리 키
+  const aliasByKey = new Map();        // 흡수된 키 → 대표 엔트리 키
 
   const notify = (entry) => {
     entry.subs.forEach((sub) => {
@@ -72,6 +80,8 @@ export const createGitStatusStore = ({
       try {
         const data = await fetcher(entry.hostId, entry.path);
         entry.state = { data, error: null, ts: now() };
+        // 워크스페이스 전체 집계(path 없음)는 repo 가 null 이라 합치지 않는다.
+        if (data?.repo) absorbIntoRepo(entry, `${entry.hostId || 'l'}:${data.repo}`);
       } catch (e) {
         // Keep the last good data — a transient failure must not blank the list.
         entry.state = { data: entry.state.data, error: e?.message || 'git status failed', ts: now() };
@@ -109,11 +119,36 @@ export const createGitStatusStore = ({
     }, period);
   };
 
+  /* 이 엔트리가 보던 저장소의 대표를 정하고, 이미 대표가 있으면 그리로 합친다.
+     ⚠️ 구독 해지는 `sub.entry` 를 보고 지운다. 옮겨진 구독자의 해지가 옛 엔트리를
+     가리키면 대표 쪽에 죽은 구독자가 남아 타이머가 영영 안 멈춘다. */
+  const absorbIntoRepo = (entry, rootKey) => {
+    const canonicalKey = canonicalByRoot.get(rootKey);
+    const canonical = canonicalKey ? entries.get(canonicalKey) : null;
+    if (!canonical || canonical === entry) {
+      canonicalByRoot.set(rootKey, entry.key);
+      entry.rootKey = rootKey;
+      return;
+    }
+    aliasByKey.set(entry.key, canonicalKey);
+    entry.subs.forEach((sub) => { sub.entry = canonical; canonical.subs.add(sub); });
+    entry.subs.clear();
+    stopTimer(entry);
+    entries.delete(entry.key);
+    retime(canonical);
+    // 옮겨온 구독자에게 대표의 현재 값을 준다(빈 화면이 스치지 않게).
+    if (canonical.state.ts) notify(canonical);
+  };
+
   const prune = () => {
     const idle = [...entries.values()].filter((e) => !e.subs.size);
     if (idle.length <= MAX_IDLE_ENTRIES) return;
     idle.sort((a, b) => a.state.ts - b.state.ts);
-    idle.slice(0, idle.length - MAX_IDLE_ENTRIES).forEach((e) => entries.delete(e.key));
+    idle.slice(0, idle.length - MAX_IDLE_ENTRIES).forEach((e) => {
+      entries.delete(e.key);
+      // 색인에 죽은 키가 남으면 다음 구독자가 없는 엔트리로 간다.
+      if (e.rootKey && canonicalByRoot.get(e.rootKey) === e.key) canonicalByRoot.delete(e.rootKey);
+    });
   };
 
   let visibilityBound = false;
@@ -160,9 +195,12 @@ export const createGitStatusStore = ({
    * @returns unsubscribe fn
    */
   const subscribe = ({ hostId = null, path = '', intervalMs = 15000, onData }) => {
-    const key = gitStatusKey(hostId, path);
-    const entry = ensure(key, hostId || null, path || '');
-    const sub = { intervalMs, onData };
+    const rawKey = gitStatusKey(hostId, path);
+    // 이 경로가 이미 다른 엔트리로 합쳐졌으면 그리로 붙는다(같은 저장소를 두 번 안 문다).
+    const aliased = aliasByKey.get(rawKey);
+    const key = (aliased && entries.has(aliased)) ? aliased : rawKey;
+    const entry = key === rawKey ? ensure(key, hostId || null, path || '') : entries.get(key);
+    const sub = { intervalMs, onData, entry };
     entry.subs.add(sub);
     bindVisibility();
 
@@ -174,8 +212,10 @@ export const createGitStatusStore = ({
     }
 
     return () => {
-      entry.subs.delete(sub);
-      if (!entry.subs.size) { stopTimer(entry); prune(); } else retime(entry);
+      // 합쳐졌으면 옮겨간 쪽에서 지운다 — 옛 엔트리에서 지우면 대표에 남는다.
+      const owner = sub.entry;
+      owner.subs.delete(sub);
+      if (!owner.subs.size) { stopTimer(owner); prune(); } else retime(owner);
     };
   };
 

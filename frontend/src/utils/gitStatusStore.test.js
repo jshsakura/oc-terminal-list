@@ -52,6 +52,65 @@ describe('gitStatusStore', () => {
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
+  /* pane 의 구독 키는 그 pane 의 cwd 다. 같은 저장소라도 하위 폴더가 다르면 키가 달라
+     각각 폴링했고, 실측에서 pane 두 개가 60초마다 같은 저장소를 두 번 물었다.
+     루트는 첫 응답의 `repo` 로만 알 수 있으므로 **사후에** 합친다. */
+  describe('같은 저장소 합치기', () => {
+    const sameRepo = async () => ({ items: [], branch: 'main', repo: '/w/repo' });
+
+    it('경로가 달라도 같은 저장소면 폴링이 하나가 된다', async () => {
+      store = makeStore(sameRepo);
+      store.subscribe({ path: 'repo/src', intervalMs: 1000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(0);
+      store.subscribe({ path: 'repo/lib', intervalMs: 1000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(0);
+      const afterSubscribe = fetcher.mock.calls.length;   // 각자 첫 조회는 한다(루트를 알아야 하므로)
+      await vi.advanceTimersByTimeAsync(3000);
+      // 합쳐졌으면 주기마다 1건씩만 는다.
+      expect(fetcher.mock.calls.length - afterSubscribe).toBe(3);
+    });
+
+    it('합쳐진 구독자를 해지하면 대표에서 빠진다', async () => {
+      store = makeStore(sameRepo);
+      const stopA = store.subscribe({ path: 'repo/src', intervalMs: 1000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(0);
+      const stopB = store.subscribe({ path: 'repo/lib', intervalMs: 1000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(0);
+      stopA(); stopB();
+      const before = fetcher.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(5000);
+      // 아무도 안 보면 타이머가 멈춰야 한다. 옛 엔트리에서 지웠다면 대표에 죽은
+      // 구독자가 남아 계속 돈다 — 이 테스트가 그걸 잡는다.
+      expect(fetcher.mock.calls.length).toBe(before);
+    });
+
+    it('합쳐진 뒤에도 흡수된 구독자가 계속 갱신을 받는다', async () => {
+      let n = 0;
+      store = makeStore(async () => { n += 1; return { items: [{ path: `f${n}` }], branch: 'main', repo: '/w/repo' }; });
+      const a = vi.fn();
+      const c = vi.fn();
+      store.subscribe({ path: 'repo/src', intervalMs: 1000, onData: a });
+      await vi.advanceTimersByTimeAsync(0);
+      store.subscribe({ path: 'repo/lib', intervalMs: 1000, onData: c });
+      await vi.advanceTimersByTimeAsync(0);
+      const seenBefore = c.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(2000);
+      // 대표 엔트리의 틱이 흡수된 구독자에게도 간다. 안 가면 그 pane 의 배지가 굳는다.
+      expect(c.mock.calls.length).toBeGreaterThan(seenBefore);
+      expect(a.mock.calls.length).toBeGreaterThan(1);
+    });
+
+    it('저장소 밖(워크스페이스 집계)은 합치지 않는다', async () => {
+      store = makeStore(async () => ({ items: [], branch: null, repo: null }));
+      store.subscribe({ path: 'a', intervalMs: 1000, onData: vi.fn() });
+      store.subscribe({ path: 'b', intervalMs: 1000, onData: vi.fn() });
+      await vi.advanceTimersByTimeAsync(0);
+      const before = fetcher.mock.calls.length;
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(fetcher.mock.calls.length - before).toBe(2);
+    });
+  });
+
   it('가장 짧은 간격을 요구한 구독자가 주기를 정하고, 그가 떠나면 되돌아간다', async () => {
     const un = store.subscribe({ path: 'repo', intervalMs: 500, onData: vi.fn() });
     store.subscribe({ path: 'repo', intervalMs: 5000, onData: vi.fn() });
