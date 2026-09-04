@@ -7,6 +7,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import types
 import logging
 import os
 import secrets
@@ -106,12 +107,32 @@ def _verify_secret(value: str, hashed_value: str) -> bool:
     try:
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", message="'crypt' is deprecated.*", category=DeprecationWarning)
+            _teach_passlib_the_bcrypt_version()
             from passlib.context import CryptContext
 
         return CryptContext(schemes=["bcrypt"], deprecated="auto").verify(value, hashed_value)
     except Exception:
         return False
 
+
+
+def _teach_passlib_the_bcrypt_version() -> None:
+    """passlib 이 bcrypt 버전을 읽는 옛 경로를 되살린다.
+
+    passlib 1.7.4 는 `bcrypt.__about__.__version__` 을 본다. bcrypt 4.1 이 그 속성을
+    없애서, 로그인할 때마다 `(trapped) error reading bcrypt version` 경고와
+    AttributeError 트레이스백이 로그에 쌓였다. 검증 자체는 정상 동작한다(passlib 이
+    예외를 잡는다). passlib 은 2020년이 마지막 릴리스라 위쪽에서 고쳐질 일이 없다.
+
+    ⚠️ 경고를 끄는 대신 **값을 알려준다.** 로거를 막으면 이 라이브러리의 다른 경고까지
+    같이 사라지고, 그건 다음 사람이 진짜 문제를 못 보게 만든다.
+    """
+    try:
+        import bcrypt
+        if not hasattr(bcrypt, "__about__"):
+            bcrypt.__about__ = types.SimpleNamespace(__version__=bcrypt.__version__)
+    except Exception:
+        pass   # 못 알려줘도 검증은 된다. 로그가 조금 시끄러울 뿐이다.
 
 class AuthManager:
     """Manages authentication operations"""

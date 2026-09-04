@@ -49,11 +49,32 @@ if _AUTH_COOKIE_SECURE_MODE in {"0", "false", "no", "off"}:
         "localhost 개발 환경이 아니라면 위험합니다.",
         _AUTH_COOKIE_SECURE_MODE,
     )
-elif _AUTH_COOKIE_SECURE_MODE not in {"1", "true", "yes", "on"} and not _env_flag("TRUST_PROXY_HEADERS"):
+# ⚠️ 기동 시점에는 경고하지 않는다. `auto` + 프록시 미신뢰는 **표준 배포의 기본값**이라
+# (http 로 직접 접속하는 구성) 재시작마다 찍혔고 3일간 36건이 쌓였다. 늘 찍히는 경고는
+# 곧 안 읽힌다.
+#
+# 이 구성이 실제로 위험해지는 순간은 따로 있다. HTTPS 를 종료하는 프록시 뒤인데 그
+# 헤더를 안 믿는 상태로 요청이 들어올 때다. 그건 요청을 봐야 알 수 있으므로 판정을
+# 그 자리로 옮긴다. 한 번만 말한다.
+_PROXY_MISMATCH_WARNED = False
+
+
+def _warn_once_if_behind_https_proxy(request: Request) -> None:
+    """프록시가 HTTPS 를 끝내 주는데 우리가 그 헤더를 안 믿는 구성이면 한 번 알린다."""
+    global _PROXY_MISMATCH_WARNED
+    if _PROXY_MISMATCH_WARNED:
+        return
+    if _AUTH_COOKIE_SECURE_MODE in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+        return
+    if _env_flag("TRUST_PROXY_HEADERS") or request.url.scheme == "https":
+        return
+    forwarded = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
+    if forwarded != "https":
+        return
+    _PROXY_MISMATCH_WARNED = True
     logger.warning(
-        "[auth] AUTH_COOKIE_SECURE=auto, TRUST_PROXY_HEADERS=0. "
-        "HTTPS 를 종료하는 리버스 프록시 뒤에서 서비스한다면 요청 scheme 이 http 로 보여 "
-        "인증 쿠키가 non-secure 로 발급될 수 있습니다. 그런 구성이면 TRUST_PROXY_HEADERS=1 "
+        "[auth] HTTPS 프록시 뒤인데 TRUST_PROXY_HEADERS=0 입니다(X-Forwarded-Proto=https, "
+        "요청 scheme=http). 인증 쿠키가 non-secure 로 발급됩니다. TRUST_PROXY_HEADERS=1 "
         "또는 AUTH_COOKIE_SECURE=1 을 설정하세요."
     )
 
@@ -65,8 +86,9 @@ def _resolve_auth_cookie_secure(request: Request) -> bool:
     - 기본값(auto)은 기존 동작 유지: request scheme(또는 신뢰된 X-Forwarded-Proto) 기반.
       표준 배포가 프록시 없이 http 로 직접 서비스되므로(README 참고) non-localhost 라고
       무조건 secure=True 로 바꾸면 그 표준 배포의 로그인이 깨진다 — 그래서 판정 로직은
-      건드리지 않고, 애매한 구성은 기동 시 로그 경고로만 알린다.
+      건드리지 않고, 애매한 구성은 그런 요청이 실제로 들어왔을 때 한 번만 경고한다.
     """
+    _warn_once_if_behind_https_proxy(request)
     if _AUTH_COOKIE_SECURE_MODE in {"1", "true", "yes", "on"}:
         return True
     if _AUTH_COOKIE_SECURE_MODE in {"0", "false", "no", "off"}:
