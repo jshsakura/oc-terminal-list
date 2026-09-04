@@ -88,6 +88,20 @@ def test_the_bridge_closes_instead_of_letting_the_loop_spin():
     assert "websocket.close" in block
 
 
+def test_the_bridge_does_not_accept_twice():
+    """⚠️ 소켓은 secrets 해석 직후 한 번만 accept 한다.
+
+    무덤 분기가 또 accept 하면 starlette 가 RuntimeError 를 던지고, 그러면 이 분기가
+    하려던 `session-terminated` 통보가 통째로 날아가 클라이언트는 재접속 고리에 남는다.
+    실제 로그에 `Expected ASGI message "websocket.send" or "websocket.close", but got
+    'websocket.accept'` 로 남아 있었다(2026-09-04).
+    """
+    import inspect
+    import routes.host_ws as host_ws
+    body = inspect.getsource(host_ws.host_websocket)
+    assert body.count("websocket.accept()") == 1
+
+
 def test_the_client_stops_reconnecting_on_that_signal():
     from pathlib import Path
     src = (Path(__file__).resolve().parents[2] / "frontend" / "src" / "components"

@@ -155,7 +155,9 @@ async def host_websocket(
     if session_tombstones.was_killed(host_id, target_tmux_session):
         logger.info("session was terminated by the user, closing: %s/%s",
                     host_id[:8], target_tmux_session)
-        await websocket.accept()
+        # ⚠️ 여기서 accept 하지 마라. 소켓은 위에서 이미 수락했다(secrets 해석 직후).
+        # 두 번 부르면 starlette 가 RuntimeError 를 던지고, 그러면 이 분기가 하려던
+        # `session-terminated` 통보가 통째로 날아가 클라이언트가 재접속 고리에 남는다.
         try:
             await websocket.send_json({
                 "type": "session-terminated",
