@@ -9,9 +9,9 @@ exact machine, and running one more command on it is a new channel, not a new ha
 So: a bridge registers itself while it lives, and `pane_addr` asks the registry to
 re-stamp when the number shifts.
 
-⚠️ **Only sessions held by tmux.** A remote herdr pane is deliberately out of scope —
-herdr has its own remote, and stamping tmux options at it would do nothing. A registered
-bridge whose session turned out to be herdr simply fails the stamp and is ignored.
+⚠️ **Only sessions held by tmux.** A remote plain-shell pane has no tmux option to stamp;
+a registered bridge whose session turned out not to be tmux simply fails the stamp and is
+ignored.
 
 ⚠️ **Unregister must check identity.** A reconnect creates the new bridge before the old
 one tears down, so a blind `pop` on the old one's way out would erase the live entry and

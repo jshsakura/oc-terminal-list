@@ -31,7 +31,7 @@ async def host_git_status(
     host, secrets = await resolve_host_with_secrets(host_id, username)
     target = (path or "").strip()
     if not target:
-        # `get_tmux_cwd` 는 이름 그대로 tmux 에게 묻는다 — herdr/none 호스트에는 물어볼
+        # `get_tmux_cwd` 는 이름 그대로 tmux 에게 묻는다 — none 호스트에는 물어볼
         # 상대가 없다. "영속이냐"(persists)가 아니라 "tmux 냐" 로 갈라야 하는 이유다.
         cwd = (await host_sftp.get_tmux_cwd(host, secrets)
                if mux.from_host_row(host) == mux.TMUX else None)

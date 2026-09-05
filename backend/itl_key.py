@@ -16,10 +16,10 @@ How it reaches the pane, per multiplexer:
 |--------------------------|----------------------------------------------|
 | local tmux session       | tmux user option `@itl_key` (tmux_manager)   |
 | remote tmux session      | same option, set by the SSH bootstrap        |
-| local herdr / plain shell| env `ITL_KEY` on the spawned process         |
+| local plain shell        | env `ITL_KEY` on the spawned process         |
 
-Remote herdr / plain-shell panes get no key and therefore cannot send through this
-channel (herdr has its own remote). That is documented, not accidental.
+Remote plain-shell panes get no key and therefore cannot send through this channel.
+That is documented, not accidental.
 
 Keys are derived, not stored: HMAC(secret, scope). tmux sessions outlive the backend
 (`KillMode=process`), so a per-process random would strand every surviving session;
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 #: tmux user option that carries the key. `backend/cli/itl` reads the same name.
 KEY_OPTION = "@itl_key"
-#: Environment variable for panes that are not tmux (local herdr / plain shell).
+#: Environment variable for panes that are not tmux (local plain shell).
 KEY_ENV = "ITL_KEY"
 #: Hex chars of the derived key. 32 hex = 128 bits; the line is printed to a terminal,
 #: so it stays short enough not to wrap on narrow panes.

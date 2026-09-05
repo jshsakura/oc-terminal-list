@@ -1,7 +1,7 @@
 """터미널 WebSocket — 이 서버의 pane 에 attach.
 
-무엇이 세션을 붙잡는지는 설정을 따른다(tmux / herdr / none). **tmux 를 밑에 깔지
-않는다** — 고른 것 하나만 쓴다(backend/local_mux.py).
+세션은 tmux 가 붙잡는다. 설정으로 `none`(맨 셸, 닫으면 끝)을 고를 수도 있다
+(backend/local_mux.py).
 
 WS 는 커스텀 헤더를 못 보내므로 쿼리스트링 일회용 티켓으로 인증한다.
 연결 유지 중에는 다음 재연결용 티켓을 주기적으로 밀어준다 — 클라가 stash 해두면
@@ -47,7 +47,7 @@ async def terminal_websocket(
     shell: str | None = Query(None),
     multiplexer: str | None = Query(
         None,
-        description="이 세션을 **새로 만들 때만** 쓰는 선택(tmux/herdr/none). 이미 살아 있는 "
+        description="이 세션을 **새로 만들 때만** 쓰는 선택(tmux/none). 이미 살아 있는 "
                     "세션에는 붙잡고 있는 쪽이 이긴다. 비우면 사용자 설정을 따른다.",
     ),
     create: bool = Query(True, description="false면 없는 tmux 세션을 새로 만들지 않고 연결만 시도"),
@@ -85,23 +85,19 @@ async def terminal_websocket(
     )
 
     # **묻지 말고 찾는다.** 이미 있는 세션에는 그것을 **붙잡고 있는 쪽**으로 붙는다 —
-    # 설정이 정하는 것은 "새 세션을 무엇으로 열까" 뿐이다. 이 구분이 없으면 설정을
-    # herdr 로 바꾼 순간 멀쩡히 살아 있는 tmux 세션에 못 붙고 빈 herdr 세션이 새로 뜬다
-    # (그게 "양자택일" 이 되는 자리였다).
+    # 설정이 정하는 것은 "새 세션을 무엇으로 열까" 뿐이다. 설정을 none 으로 바꿔도
+    # 살아 있는 tmux 세션에는 계속 tmux 로 붙는다.
     holder = await local_mux.holder_of(session_id)
     # 폴더를 고를 때 이 pane 만 다른 것으로 열 수 있다(경로 픽커의 "터미널" 칸). 그 값은
     # **만들 때만** 쓴다 — 이미 살아 있는 세션에는 위의 holder 가 이기고, 그래서 나중에
     # 전역 설정을 바꿔도 이 pane 은 자기를 붙잡고 있는 쪽으로 계속 붙는다.
-    # ⚠️ 여기서 고른 것이 무엇이든 `live_session_names()` 는 tmux·herdr **둘 다** 묻는다.
-    # 한쪽만 물으면 이렇게 만든 세션이 탭 sanitize 에서 죽은 것으로 읽혀 레이아웃이 통째로
-    # 날아간다 — 그 합집합이 이 기능의 전제다.
     picked = mux.normalize(multiplexer) if isinstance(multiplexer, str) and multiplexer else None
     choice = holder or picked or await local_mux.choice_for(username)
 
     # **고른 경로는 무엇이 붙잡든 지켜진다.** tmux 는 세션을 만들 때 `-c` 로 받지만(아래),
-    # herdr·none 은 이 파일의 bridge 가 프로세스를 직접 띄운다. 여기서 안 넘기면 bridge 의
+    # none 은 이 파일의 bridge 가 프로세스를 직접 띄운다. 여기서 안 넘기면 bridge 의
     # 기본값인 $HOME 에서 떠서, 폴더를 골라도 매번 같은 자리에 붙는다 — 고른 것이 아무
-    # 데도 가 닿지 않는 조용한 실패였다. 원격은 이미 세 선택 모두에 start_path 를 먹인다
+    # 데도 가 닿지 않는 조용한 실패였다. 원격은 이미 두 선택 모두에 start_path 를 먹인다
     # (host_manager._build_remote_command).
     spawn_cwd: str | None = None
     if choice != mux.TMUX:
@@ -178,7 +174,6 @@ async def terminal_websocket(
 
     elif not create and holder is None:
         # 아무도 안 붙잡고 있는데 "이어붙기만" 이라면 이어 붙을 대상이 없다.
-        # (herdr 가 붙잡고 있으면 `holder` 가 채워지므로 여기 오지 않는다.)
         await websocket.close(code=1000, reason="session not found")
         return
 
@@ -212,7 +207,7 @@ async def terminal_websocket(
         # terminfo 가 없는 기계에서 앱이 화면을 못 그린다.
         term="tmux-256color" if choice == mux.TMUX else "xterm-256color",
         # tmux 는 attach 라 이 cwd 가 화면에 안 보인다(세션 생성 때 이미 정해졌다).
-        # herdr·none 은 여기가 그 셸이 실제로 서는 자리다.
+        # none 은 여기가 그 셸이 실제로 서는 자리다.
         cwd=spawn_cwd,
         cols=cols,
         rows=rows,

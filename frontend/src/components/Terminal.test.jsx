@@ -222,10 +222,10 @@ describe('Terminal', () => {
       const ws = await openSocket();
 
       await act(async () => {
-        ws.serverSend(JSON.stringify({ type: 'mux-missing', multiplexer: 'herdr' }));
+        ws.serverSend(JSON.stringify({ type: 'mux-missing', multiplexer: 'tmux' }));
       });
 
-      expect(await screen.findByText(/herdr .*not installed/i)).toBeTruthy();
+      expect(await screen.findByText(/tmux .*not installed/i)).toBeTruthy();
     });
 
     it('배너의 설치 버튼이 그 호스트의 도구 화면을 연다', async () => {
@@ -236,7 +236,7 @@ describe('Terminal', () => {
       window.addEventListener('iterm:open-tools', onOpen);
 
       await act(async () => {
-        ws.serverSend(JSON.stringify({ type: 'mux-missing', multiplexer: 'herdr' }));
+        ws.serverSend(JSON.stringify({ type: 'mux-missing', multiplexer: 'tmux' }));
       });
       await act(async () => { (await screen.findByText('Install')).click(); });
       window.removeEventListener('iterm:open-tools', onOpen);

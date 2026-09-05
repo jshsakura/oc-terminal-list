@@ -1,6 +1,6 @@
 """탭 번호(`1.2`)로 팬에 말을 옮긴다 — **같은 기계든 아니든.**
 
-`backend/cli/itl` 은 한 기계 안만 안다(그 기계의 tmux 소켓과 herdr 소켓). 기계를 넘는
+`backend/cli/itl` 은 한 기계 안만 안다(그 기계의 tmux 소켓). 기계를 넘는
 것은 여기다. 그리고 넘는 방법이 이 모듈의 전부다:
 
     **크리덴셜을 호스트로 내보내지 않는다. 이미 인증된 SSH 로 itl 을 밀어 넣는다.**
@@ -45,7 +45,7 @@ MAX_TEXT_BYTES = 8192
 
 ITL_PATH = Path(__file__).resolve().parent / "cli" / "itl"
 
-#: 비대화형 SSH 셸의 PATH 에는 `~/.local/bin` 이 없는데 herdr 는 거기 앉는다.
+#: 비대화형 SSH 셸의 PATH 에는 `~/.local/bin` 이 없는데 홈에 깐 도구는 거기 앉는다.
 #: 이 저장소가 이미 여러 번 밟은 함정이라 원격 명령마다 앞에 붙인다.
 REMOTE_PATH_PREFIX = 'PATH="$HOME/.local/bin:$PATH" '
 
@@ -61,7 +61,7 @@ def _itl_source() -> str:
 def native_addr(target: dict) -> str:
     """앱의 타깃 → 그 기계의 itl 이 아는 주소.
 
-    로컬은 세션 id(= tmux 세션명이자 herdr 세션명), 원격은 원격 tmux/herdr 세션명이다.
+    로컬은 세션 id(= tmux 세션명), 원격은 원격 tmux 세션명이다.
     어느 쪽이든 **그 기계에서 세션 하나에 팬 하나**라 itl 이 이름만으로 푼다.
     """
     return target.get("sessionId") or target.get("tmuxSession") or ""

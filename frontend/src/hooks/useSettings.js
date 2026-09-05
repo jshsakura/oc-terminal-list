@@ -70,8 +70,7 @@ export const DEFAULT_SETTINGS = {
   predictiveEcho: true, // 예측 입력(local echo) — 키를 RTT 안 기다리고 유령 글자로 즉시 표시. 오예측 싫으면 off
 
   bellNotifications: false, // BEL(\x07) 수신 시 브라우저 알림 (탭 백그라운드일 때만)
-  // 기본값은 저장소 기본 멀티플렉서(tmux)의 키까지 실은 것이다. 사용자가 herdr 로
-  // 바꾸면 아직 손대지 않은 바는 MobileToolbar 가 그 쪽 키로 채운다(mobileKeysFor).
+  // 기본값은 저장소 기본 멀티플렉서(tmux) 기준이다(mobileKeysFor).
   mobileKeys: mobileKeysFor(),  // 모바일 하단 단축키 — 사용자가 Settings 에서 편집
   // 퀵바에 어느 멀티플렉서의 키를 심어 뒀는지. **null 이면 아직 안 심었다**(옛 사용자).
   // 이 값 없이 매번 심으면 사용자가 지운 키가 계속 되살아나 지울 방법이 없어진다.

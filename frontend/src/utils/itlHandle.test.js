@@ -18,9 +18,9 @@ describe('buildItlHandle', () => {
 
   /* 소켓 이름·멀티플렉서 종류·ssh 주소는 옛 핸들의 짐이었다. itl 이 알아서 풀므로
      여기 실을 이유가 없고, 실으면 그만큼 주석이 줄바꿈돼 아무도 안 읽는다. */
-  it('tmux·herdr·ssh 같은 구현 세부를 싣지 않는다', () => {
+  it('tmux·ssh 같은 구현 세부를 싣지 않는다', () => {
     const out = buildItlHandle({ addr: '2.1', server: 'rpi5', cwd: '/home/pi' });
-    for (const noise of ['tmux', 'herdr', 'ssh', 'attach', 'send-keys', '-L ']) {
+    for (const noise of ['tmux', 'ssh', 'attach', 'send-keys', '-L ']) {
       expect(out).not.toContain(noise);
     }
   });

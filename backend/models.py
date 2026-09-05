@@ -115,7 +115,7 @@ class HostUpsertRequest(BaseModel):
     color_index: int = 0
     group_name: str | None = None
     use_remote_tmux: bool = True
-    # 'tmux' | 'herdr' | 'none'. None 이면 옛 use_remote_tmux 로 되짚는다
+    # 'tmux' | 'none'. None 이면 옛 use_remote_tmux 로 되짚는다
     # (backend/multiplexer.from_host_row) — 옛 클라이언트가 이 칸을 안 보낸다.
     multiplexer: str | None = None
     remote_tmux_session: str | None = "mobile"

@@ -62,10 +62,10 @@ async def test_snippet_roundtrip(storage):
 
 @pytest.mark.anyio
 async def test_tool_roundtrip(storage):
-    await storage.create_tool("u", "t1", "herdr", "curl x | sh", check_command="command -v herdr")
+    await storage.create_tool("u", "t1", "lazygit", "curl x | sh", check_command="command -v lazygit")
     rows = await storage.list_tools("u")
-    assert any(x["id"] == "t1" and x["check_command"] == "command -v herdr" for x in rows)
-    assert await storage.update_tool("u", "t1", name="herdr2")
+    assert any(x["id"] == "t1" and x["check_command"] == "command -v lazygit" for x in rows)
+    assert await storage.update_tool("u", "t1", name="lazygit2")
     assert await storage.delete_tool("u", "t1")
     assert await storage.list_tools("u") == []
 

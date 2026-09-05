@@ -88,7 +88,7 @@ const MobileToolbar = ({
   }, []);
 
   // 사용자가 바를 손댔으면 그것이 이긴다. 손대지 않았을 때만 고른 멀티플렉서의
-  // 프리픽스 키가 실린다 — tmux 사용자의 바에 herdr 키가 남으면 눌러도 아무 일이 없고,
+  // 프리픽스 키가 실린다 — 바에 tmux 가 모르는 키가 남으면 눌러도 아무 일이 없고,
   // 그 실패는 조용하다.
   const list = sanitizeMobileKeys(keys ?? mobileKeysFor(multiplexer));
   // 빠른입력(⌘)은 스크롤 밖 좌측에 고정한다 — 키를 옆으로 밀다 보면 정작 제일 자주 쓰는

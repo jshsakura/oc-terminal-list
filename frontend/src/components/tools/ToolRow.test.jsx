@@ -9,8 +9,8 @@ const PUSH_TOOL = {
   install_path: '~/.local/bin/itl', install_command: '', description: 'd',
 };
 const TYPED_TOOL = {
-  id: 'herdr', name: 'herdr', builtin: true,
-  install_command: 'curl -fsSL https://herdr.dev/install.sh | sh',
+  id: 'tmux', name: 'tmux', builtin: true,
+  install_command: 'sudo apt-get install -y tmux',
 };
 
 describe('ToolRow — push-installed tools', () => {

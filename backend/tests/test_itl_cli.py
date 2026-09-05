@@ -8,14 +8,13 @@
    사본**이다 — 사본이 늘어난 만큼 규율도 같이 와야 한다. 판정 케이스의 단일 진실
    공급원은 여전히 `shared/agent-title-cases.json` 이고, 이 파일이 그 표로 itl 을 친다.
 
-2. **두 멀티플렉서가 같은 어휘로 말한다.** tmux 는 상태를 모르고 herdr 는 자기 낱말
-   (blocked/done/unknown)을 쓴다. `itl list` 가 같은 상황을 멀티플렉서에 따라 다르게
-   부르면 이 도구는 존재 이유가 없다.
+2. **상태는 타이틀에서만 판정한다.** tmux 는 상태를 모른다 — `unify_status` 는 그
+   판정 하나로 접힌다.
 
 3. **모호한 주소는 고르지 않는다.** 하나를 골라 주면 "그 중 하나" 에 명령이 들어가고,
    잘못 들어간 것을 되돌릴 방법이 없다.
 
-⚠️ 실제 tmux/herdr 는 띄우지 않는다 — 파싱과 판정만 순수 함수로 친다.
+⚠️ 실제 tmux 는 띄우지 않는다 — 파싱과 판정만 순수 함수로 친다.
 """
 from __future__ import annotations
 
@@ -71,18 +70,9 @@ class TestStatusMatchesSharedTable:
 
 
 class TestUnifiedVocabulary:
-    @pytest.mark.parametrize("herdr_status,expected", [
-        ("working", "working"),
-        ("blocked", "permission"),   # herdr 의 낱말 → 이 저장소의 낱말
-        ("idle", "idle"),
-        ("done", "idle"),            # done 은 "안 보고 있는 사이 끝난 idle" 이다
-    ])
-    def test_herdr_어휘를_옮긴다(self, herdr_status, expected):
-        assert itl.unify_status(herdr_status, "") == expected
-
-    def test_unknown_이면_타이틀에_다시_묻는다(self):
-        """herdr 가 모른다고 해서 우리도 포기할 이유는 없다 — 타이틀은 남아 있다."""
-        assert itl.unify_status("unknown", "✳ 정리 중") == "idle"
+    def test_멀티플렉서_상태는_무시하고_타이틀에_묻는다(self):
+        """옛 `mux_status` 자리에 무엇이 와도 판정은 타이틀이다."""
+        assert itl.unify_status("blocked", "✳ 정리 중") == "idle"
         assert itl.unify_status("unknown", "⠼ 빌드") == "working"
 
     def test_아무_증거도_없으면_빈_문자열(self):
@@ -113,36 +103,16 @@ class TestParseTmux:
         assert panes[0]["addr"] == "sess:%2"
 
 
-class TestParseHerdr:
-    def test_팬_목록을_읽는다(self):
-        data = {"result": {"panes": [
-            {"pane_id": "w1:p1", "agent": "claude", "agent_status": "blocked",
-             "foreground_cwd": "/home/u", "terminal_title": "claude waiting"},
-        ]}}
-        panes = itl.parse_herdr_panes(data, "s1")
-        assert panes[0]["addr"] == "s1:w1:p1"
-        assert panes[0]["status"] == "permission"
-
-    def test_모양이_바뀌면_조용히_빈_목록(self):
-        """던지면 멀쩡한 tmux 팬까지 같이 안 보이게 된다 — 한쪽의 고장이 전부를 먹는다."""
-        for bad in (None, {}, {"result": {}}, {"result": {"panes": "nope"}}):
-            assert itl.parse_herdr_panes(bad, "s1") == []
-
-    def test_pane_id_없는_행은_버린다(self):
-        data = {"result": {"panes": [{"agent": "claude"}, {"pane_id": "w1:p2"}]}}
-        assert [p["native_id"] for p in itl.parse_herdr_panes(data, "s")] == ["w1:p2"]
-
-
 class TestResolve:
     PANES = [
         itl.pane_record("tmux", "/s", "alpha", "%0", agent="claude"),
-        itl.pane_record("herdr", "/h", "beta", "w1:p1", agent="codex"),
-        itl.pane_record("herdr", "/h", "beta", "w1:p2", agent="codex"),
+        itl.pane_record("tmux", "/h", "beta", "%1", agent="codex"),
+        itl.pane_record("tmux", "/h", "beta", "%2", agent="codex"),
     ]
 
     def test_정확한_주소(self):
-        pane, why = itl.resolve(self.PANES, "beta:w1:p2")
-        assert pane["native_id"] == "w1:p2" and not why
+        pane, why = itl.resolve(self.PANES, "beta:%2")
+        assert pane["native_id"] == "%2" and not why
 
     def test_팬이_하나뿐인_세션은_이름만으로(self):
         """앱이 만드는 모양이 정확히 이것이다 — 세션 하나에 팬 하나."""
@@ -156,7 +126,7 @@ class TestResolve:
     def test_모호하면_고르지_않고_후보를_준다(self):
         pane, why = itl.resolve(self.PANES, "beta")
         assert pane is None
-        assert "beta:w1:p1" in why and "beta:w1:p2" in why
+        assert "beta:%1" in why and "beta:%2" in why
 
     def test_에이전트가_여럿이어도_고르지_않는다(self):
         pane, why = itl.resolve(self.PANES, "codex")
@@ -200,19 +170,10 @@ class TestResolve:
 class TestWhoami:
     PANES = [
         itl.pane_record("tmux", "/s", "alpha", "%3"),
-        itl.pane_record("herdr", "/h", "sess-h", "w1:p1"),
     ]
-
-    def test_herdr_환경이면_herdr_팬(self, monkeypatch):
-        monkeypatch.setenv("HERDR_SESSION", "sess-h")
-        monkeypatch.setenv("HERDR_PANE_ID", "w1:p1")
-        monkeypatch.setenv("TMUX_PANE", "%3")
-        # ⚠️ 중첩(tmux 안의 herdr)이면 **안쪽이 이긴다** — 내가 실제로 타이핑당하는 자리다.
-        assert itl.whoami(self.PANES)["mux"] == "herdr"
 
     def test_tmux_는_소켓까지_맞아야_한다(self, monkeypatch):
         """`%0` exists on every tmux server; the app socket and the default socket both have one."""
-        monkeypatch.delenv("HERDR_SESSION", raising=False)
         monkeypatch.setenv("TMUX", "/tmp/tmux-1000/app,1,0")
         monkeypatch.setenv("TMUX_PANE", "%0")
         mine = dict(mux=itl.TMUX, socket="/tmp/tmux-1000/app", session="s", native_id="%0", addr="s:%0")
@@ -221,14 +182,11 @@ class TestWhoami:
 
     def test_tmux_만_있으면_tmux_팬(self, monkeypatch):
         monkeypatch.delenv("TMUX", raising=False)          # no socket to match against
-        monkeypatch.delenv("HERDR_SESSION", raising=False)
-        monkeypatch.delenv("HERDR_PANE_ID", raising=False)
         monkeypatch.setenv("TMUX_PANE", "%3")
         assert itl.whoami(self.PANES)["addr"] == "alpha:%3"
 
-    def test_둘_다_아니면_None(self, monkeypatch):
-        for var in ("HERDR_SESSION", "HERDR_PANE_ID", "TMUX_PANE"):
-            monkeypatch.delenv(var, raising=False)
+    def test_tmux_밖이면_None(self, monkeypatch):
+        monkeypatch.delenv("TMUX_PANE", raising=False)
         assert itl.whoami(self.PANES) is None
 
 
@@ -324,10 +282,6 @@ class TestIsAgent:
     def test_맨_셸은_아니다(self):
         assert not itl.is_agent(self._pane(agent="zsh"))
         assert not itl.is_agent(self._pane(agent="node"))      # a name is not enough
-
-    def test_herdr_는_에이전트를_이름으로_안다(self):
-        assert itl.is_agent(self._pane(mux=itl.HERDR, agent="anything"))
-        assert not itl.is_agent(self._pane(mux=itl.HERDR, agent=""))
 
 
 class TestEnterIfAgent:

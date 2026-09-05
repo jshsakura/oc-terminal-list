@@ -181,8 +181,8 @@ async def kill_host_tmux(
     host = await storage.get_host(host_id, username)
     if not host:
         raise HTTPException(status_code=404, detail="호스트를 찾을 수 없습니다")
-    # tmux 세션 조회/정리는 tmux 호스트에만 뜻이 있다. herdr 세션은 `herdr session list`
-    # 로 사는 별개 세계이고, none 호스트에는 붙잡아 둔 세션이 아예 없다.
+    # tmux 세션 조회/정리는 tmux 호스트에만 뜻이 있다. none 호스트에는 붙잡아 둔 세션이
+    # 아예 없다.
     if mux.from_host_row(host) != mux.TMUX and not force:
         return {"id": host_id, "status": "skipped", "reason": "tmux not used"}
 

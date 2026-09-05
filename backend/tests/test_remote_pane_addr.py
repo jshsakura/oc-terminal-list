@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 import pane_addr
 import remote_panes
 from host_manager import _build_remote_command
-from multiplexer import HERDR, TMUX
+from multiplexer import TMUX
 
 TABS = [
     {"panes": [{"sessionId": "local-a"}, {"hostId": "h1", "tmuxSessionName": "mobile-x"}]},
@@ -70,7 +70,7 @@ class TestRegistry:
         assert bridge.stamped == ["1.2", "1.1"]
 
     async def test_실패는_캐시하지_않는다(self):
-        """herdr 세션이거나 잠깐 못 닿은 것 — 다음 기회에 다시 해야 한다."""
+        """잠깐 못 닿은 것 — 다음 기회에 다시 해야 한다."""
         bridge = FakeBridge(ok=False)
         remote_panes.register("h1", "mobile-x", bridge)
         await pane_addr.stamp_remote_addresses(TABS)
@@ -126,11 +126,6 @@ class TestBootstrapStamp:
         assert "@pane_addr '1.2; rm -rf /'" in _build_remote_command(
             TMUX, "mobile", itl_pane_addr="1.2; rm -rf /")
 
-    def test_herdr_갈래는_대상이_아니다(self):
-        """herdr 에는 tmux 사용자 옵션이 없다 — 미지원이 결론이지 빠뜨린 것이 아니다."""
-        cmd = _build_remote_command(HERDR, "mobile", itl_pane_addr="1.2")
-        assert "exec herdr --session mobile" in cmd
-
 
 class TestRouteHint:
     async def test_라우트는_저장된_탭_상태에서_주소를_찾는다(self):
@@ -158,12 +153,6 @@ class TestRemoteShell:
 
     def test_안_고르면_명령이_그대로다(self):
         assert _build_remote_command(TMUX, "mobile") == _build_remote_command(TMUX, "mobile", shell=None)
-
-    def test_herdr_는_셸을_안_받는다(self):
-        """`herdr --session` 하나가 생성과 접속을 겸한다 — 셸 자리가 없다."""
-        cmd = _build_remote_command(HERDR, "mobile", shell="zsh")
-        assert "exec herdr --session mobile" in cmd
-        assert "herdr --session mobile zsh" not in cmd
 
     def test_맨_셸은_고른_것으로_뜬다(self):
         from multiplexer import NONE

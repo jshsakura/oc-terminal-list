@@ -6,8 +6,8 @@ describe('TerminalLaunchOptions', () => {
   afterEach(cleanup);
 
   it('기본 선택지에 지금 설정값을 적는다 — "기본" 만으론 그게 뭔지 모른다', () => {
-    render(<TerminalLaunchOptions defaultMultiplexer="herdr" defaultShell="zsh" onChange={vi.fn()} />);
-    expect(screen.getByText('기본 (herdr)')).toBeTruthy();
+    render(<TerminalLaunchOptions defaultMultiplexer="none" defaultShell="zsh" onChange={vi.fn()} />);
+    expect(screen.getByText('기본 (none)')).toBeTruthy();
     expect(screen.getByText('기본 (zsh)')).toBeTruthy();
   });
 
@@ -19,8 +19,8 @@ describe('TerminalLaunchOptions', () => {
   it('고르면 두 값을 함께 돌려준다', () => {
     const onChange = vi.fn();
     render(<TerminalLaunchOptions multiplexer="" shell="zsh" defaultMultiplexer="tmux" onChange={onChange} />);
-    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'herdr' } });
-    expect(onChange).toHaveBeenCalledWith({ multiplexer: 'herdr', shell: 'zsh' });
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'none' } });
+    expect(onChange).toHaveBeenCalledWith({ multiplexer: 'none', shell: 'zsh' });
   });
 
   /* ⚠️ 원격 pane 의 WS 는 `shell` 을 아예 안 싣는다. 안 먹는 칸을 내밀면 조용한 실패다. */
@@ -30,8 +30,14 @@ describe('TerminalLaunchOptions', () => {
     expect(screen.queryByText('셸')).toBeNull();
   });
 
-  it('멀티플렉서 선택지는 세 가지 모두 나온다', () => {
+  it('멀티플렉서 선택지는 tmux 와 none 뿐이다', () => {
     render(<TerminalLaunchOptions defaultMultiplexer="tmux" onChange={vi.fn()} />);
-    ['tmux', 'herdr', 'none'].forEach((v) => expect(screen.getByText(v)).toBeTruthy());
+    ['tmux', 'none'].forEach((v) => expect(screen.getByText(v)).toBeTruthy());
+    expect(screen.queryByText('herdr')).toBeNull();
+  });
+
+  it('셸 칸은 어느 선택에서도 살아 있다', () => {
+    render(<TerminalLaunchOptions multiplexer="none" defaultMultiplexer="tmux" onChange={vi.fn()} />);
+    expect(screen.getAllByRole('combobox')[1].disabled).toBe(false);
   });
 });

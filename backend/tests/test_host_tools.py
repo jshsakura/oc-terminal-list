@@ -9,15 +9,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import host_tools  # noqa: E402
 
 
-def test_builtin_list_has_herdr():
+def test_builtin_list_is_tmux_and_itl_only():
+    """tmux 기반 터미널이다 — 다른 멀티플렉서를 카탈로그에 싣지 않는다."""
     ids = [t["id"] for t in host_tools.builtin_tools()]
-    assert "herdr" in ids
+    assert ids == ["tmux", "itl"]
 
 
 def test_builtin_probe_never_runs_the_tool():
     """확인 명령이 그 도구를 **실행하면** 안 된다.
 
-    herdr 는 인자 없이 부르면 멀티플렉서를 띄운다. tty 가 없는 SSH exec 에서 그러면
+    tmux 는 인자 없이 부르면 서버와 세션을 띄운다. tty 가 없는 SSH exec 에서 그러면
     프로브가 우리 상한까지 매달린다 — `command -v` 는 PATH 만 본다.
     """
     for tool in host_tools.builtin_tools():
@@ -39,18 +40,18 @@ def test_merge_puts_builtin_first_and_marks_origin():
 
 
 def test_user_row_overrides_builtin_of_same_id():
-    merged = host_tools.merge_tools([{"id": "herdr", "name": "내 herdr"}])
-    herdr = [t for t in merged if t["id"] == "herdr"]
-    assert len(herdr) == 1
-    assert herdr[0]["name"] == "내 herdr"
-    assert herdr[0]["builtin"] is False
+    merged = host_tools.merge_tools([{"id": "tmux", "name": "내 tmux"}])
+    tmux = [t for t in merged if t["id"] == "tmux"]
+    assert len(tmux) == 1
+    assert tmux[0]["name"] == "내 tmux"
+    assert tmux[0]["builtin"] is False
 
 
 def test_check_script_puts_local_bin_on_path():
     """비대화형 SSH 셸에는 ~/.local/bin 이 없다 — 설치물이 거기 앉는데도."""
     script = host_tools.build_check_script(host_tools.builtin_tools(), "@@M")
     assert host_tools.PROBE_PATH_PREFIX in script
-    assert "command -v herdr" in script
+    assert "command -v tmux" in script
 
 
 def test_check_script_skips_tools_without_a_check():
@@ -62,15 +63,15 @@ def test_check_script_skips_tools_without_a_check():
 
 
 def test_parse_reads_verdict_and_detail():
-    out = "@@M herdr\n@@M ok\n/home/u/.local/bin/herdr\n"
+    out = "@@M tmux\n@@M ok\n/home/u/.local/bin/tmux\n"
     parsed = host_tools.parse_check_output(out, "@@M")
-    assert parsed["herdr"]["installed"] is True
-    assert "herdr" in parsed["herdr"]["detail"]
+    assert parsed["tmux"]["installed"] is True
+    assert "tmux" in parsed["tmux"]["detail"]
 
 
 def test_parse_marks_missing_tool_as_not_installed():
-    parsed = host_tools.parse_check_output("@@M herdr\n@@M no\n", "@@M")
-    assert parsed["herdr"]["installed"] is False
+    parsed = host_tools.parse_check_output("@@M tmux\n@@M no\n", "@@M")
+    assert parsed["tmux"]["installed"] is False
 
 
 def test_parse_leaves_unmentioned_tool_unknown():
@@ -91,7 +92,7 @@ def test_builtin_list_has_itl_as_a_push_tool():
     assert itl["install_kind"] == "push"
     assert itl["install_path"] == "~/.local/bin/itl"
     assert host_tools.is_pushable("itl")
-    assert not host_tools.is_pushable("herdr")
+    assert not host_tools.is_pushable("tmux")
 
 
 def test_push_source_is_the_shipped_cli():
@@ -147,14 +148,14 @@ def test_expected_fingerprint_matches_the_shipped_file():
     import hashlib
     expected = hashlib.sha256(host_tools.push_source("itl").encode("utf-8")).hexdigest()
     assert host_tools.expected_fingerprint("itl") == expected
-    assert host_tools.expected_fingerprint("herdr") == ""      # 밀기 대상이 아니다
+    assert host_tools.expected_fingerprint("tmux") == ""      # 밀기 대상이 아니다
 
 
 def test_outdated_is_none_when_the_fingerprint_could_not_be_read():
     """모르면 "최신" 이 아니라 **모름** 이다 — 최신으로 그리면 갱신할 이유를 못 본다."""
     assert host_tools.is_outdated("itl", "/home/u/.local/bin/itl") is None
     assert host_tools.is_outdated("itl", None) is None
-    assert host_tools.is_outdated("herdr", "fp=" + "0" * 64) is None
+    assert host_tools.is_outdated("tmux", "fp=" + "0" * 64) is None
 
 
 def test_outdated_compares_against_what_we_would_push():

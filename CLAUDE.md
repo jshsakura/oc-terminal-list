@@ -294,7 +294,7 @@ Related behavior, same file:
   바뀔 수 있는 **모든** 순간)마다 다시 새긴다. 바뀐 것만 호출한다(탭 상태 저장은 잦다).
 - **원격 tmux pane 도 새긴다**(2026-09-02). 그쪽 tmux 는 그 호스트에 있지만, 붙어 있는 동안
   그 브리지가 바로 그 기계로 가는 인증된 SSH 연결을 쥐고 있다 — 자세한 규칙은 아래 "itl" 절.
-  원격 herdr·맨 셸 pane 은 대상이 아니라 조건부 포맷의 else 로 떨어져 **순정대로 세션
+  원격 맨 셸 pane 은 대상이 아니라 조건부 포맷의 else 로 떨어져 **순정대로 세션
   이름**이 나온다. 원격 세션명(`mobile-abc`)은 그 자체로 읽을 만하다.
 - ⚠️ **`MouseDown1Status` 를 되묶어야 한다.** status off 시절에 unbind 해 뒀는데, 바가
   보이는데 눌러도 아무 일이 없으면 고장으로 읽힌다. `unbind-key` 는 서버 전역이라 코드에서
@@ -386,7 +386,7 @@ Two different things — don't conflate them:
 
 Restart only *kills*; recreation is done by the reconnect (the WS route creates the session when it's missing, using the `cwd` query as the start dir). **So the kill must complete before the remount** — reversed, you re-attach to the still-living session and nothing happens.
 
-⚠️ **The kill must go to whatever actually holds the session** (`local_mux.kill_session`). While `DELETE /api/sessions/{id}` was hardwired to tmux, restart was a **silent no-op for herdr users**: there was no tmux session to kill, so the kill "succeeded" and the reconnect re-attached to the perfectly alive herdr session. Nothing failed, nothing logged, the button just did nothing. herdr needs `session stop` **and** `session delete` — stop alone leaves the name, and the same id then refuses to come back fresh. `none` has nothing to kill (the shell dies with the socket).
+⚠️ **The kill must go through `local_mux.kill_session`**, which asks who actually holds the session. When `DELETE /api/sessions/{id}` was hardwired to tmux, a pane whose session was held by something else got a restart that was a **silent no-op**: nothing to kill, so the kill "succeeded" and the reconnect re-attached to the still-alive session. Nothing failed, nothing logged, the button just did nothing. `none` has nothing to kill (the shell dies with the socket).
 
 ⚠️ **The picker is owned by App, but what to do with the chosen path is not.** The slot carries an `onPicked`; App honors it and otherwise falls back to filling an empty pane. Adding a third meaning goes in the caller, not in a growing `if` in App.
 
@@ -631,28 +631,24 @@ Detection rules ported from [stablyai/orca](https://github.com/stablyai/orca) (M
   없는 키를 넣는다. **한 번만이다**(`MOBILE_KEYS_REVISION`) — 매번 돌면 사용자가 지운
   키가 계속 되살아나 지울 방법이 없어진다.
 
-## 퀵바의 프리픽스 키 — tmux 것만 싣는다 (2026-09-02, 위 절로 대체됨)
+## 퀵바의 프리픽스 키 (2026-09-02, 위 절로 대체됨)
 
-퀵바 기본값에 **tmux 프리픽스 키**가 실린다(`utils/mobileKeys.js` 의 `mobileKeysFor`):
-`T·c`(새 윈도우)·`T·%`·`T·"`(분할)·`T·z`(줌)·`T·o`·`T·n`. `herdr`·`none` 은 프리셋이
-없어 공통 키만 남는다.
-
-⚠️ **herdr 프리셋은 걷어냈다.** herdr 도 프리픽스가 `C-b` 로 **같은 바이트**지만 뒤
-글자가 다르다(`H·c`=new_tab vs `T·c`=새 윈도우). 섞어 두면 **눌러도 아무 일이 없는 키가
-바에 남는데 그 실패는 조용하다** — 사용자는 멀티플렉서 설정을 의심한다. herdr 를 쓰면
-커스텀 키로 넣는다(퀵바는 원래 임의 바이트열을 보낼 수 있다: `kind: 'send'` + `payload`).
+tmux 프리픽스 키 프리셋(`utils/mobileKeys.js` 의 `TMUX_KEYS`): `T·c`(새 윈도우)·`T·%`·
+`T·"`(분할)·`T·z`(줌)·`T·o`·`T·n`. 기본 바에는 안 실리고 프리셋에서 골라 넣는다.
 
 ⚠️ **프리픽스는 하나다(`\x02`).** 한때 `\x02\x02` 였고 근거는 "이 앱의 pane 은 언제나
-tmux 클라이언트 안" 이었다 — 바깥 tmux 가 `^B` 를 먹으니 `send-prefix` 를 태워야 했다.
-지금은 팬을 tmux 가 잡을 수도 herdr 가 잡을 수도 있고 어느 쪽이든 **바깥에 또 하나가
-깔려 있지 않다.** 이중으로 보내면 안쪽이 두 번째를 명령 키로 읽어 아무 일도 안 일어난다.
+바깥 tmux 클라이언트 안" 이었다 — 바깥 tmux 가 `^B` 를 먹으니 `send-prefix` 를 태워야 했다.
+지금은 팬이 붙는 tmux 가 유일한 tmux 다. 이중으로 보내면 안쪽이 두 번째를 명령 키로 읽어
+아무 일도 안 일어난다.
 
+- **tmux 가 아닌 멀티플렉서의 키는 싣지 않는다.** 같은 `C-b` 라도 뒤 글자가 달라, 섞어 두면
+  **눌러도 아무 일이 없는 키가 바에 남는데 그 실패는 조용하다.** 필요하면 커스텀 키로
+  넣는다(퀵바는 원래 임의 바이트열을 보낼 수 있다: `kind: 'send'` + `payload`).
 - **사용자가 바를 손댔으면 그것이 이긴다.** 우리가 심은 것은 `mux_` id 로 알아보고,
   사용자가 프리셋에서 손수 넣은 키는 건드리지 않는다(`syncMuxKeys`).
 - **한 번 심었으면 다시 안 심는다**(`seededFor`). 매번 심으면 사용자가 지운 키가 계속
   되살아나 지울 방법이 없어진다.
-- 멀티플렉서를 herdr/none 으로 바꾸면 tmux 키가 **걷힌다** — 남기면 위의 조용한 실패다.
-- `utils/mobileKeys.test.js` 가 ① 프리픽스가 하나인지 ② herdr 프리셋이 없는지
+- `utils/mobileKeys.test.js` 가 ① 프리픽스가 하나인지 ② 다른 멀티플렉서 프리셋이 없는지
   ③ 구분자가 키와 함께 걷히는지를 잠근다.
 
 ## 상단 주소는 `cd` 를 따라간다 — 새 폴링 없이 (2026-09-02)
@@ -666,8 +662,8 @@ tmux 클라이언트 안" 이었다 — 바깥 tmux 가 `^B` 를 먹으니 `send
 - 프론트는 그 값을 **신호로만** 쓴다(`useActiveTerminalCwd`). 화면은 워크스페이스 **상대**
   경로도 필요한데 그 환산은 서버만 할 수 있어서다 — 상대 경로 계산을 프론트에 베끼면 두 곳이
   반드시 어긋난다. 그래서 `cd` 한 번당 배치된 요청 하나.
-- ⚠️ **로컬 tmux pane 만이다.** 원격 tmux 는 그 호스트에 있고 herdr 에는 이 폴링이 없다.
-  그쪽은 예전처럼 명시적 refresh 로만 갱신된다 — 모르는 것을 아는 척 채우지 않는다.
+- ⚠️ **로컬 tmux pane 만이다.** 원격 tmux 는 그 호스트에 있다. 그쪽은 예전처럼 명시적
+  refresh 로만 갱신된다 — 모르는 것을 아는 척 채우지 않는다.
 - ⚠️ 스토어의 SSE 적용에도 **cwd 를 비교에 넣어야 한다**(`agentStatusStore`). 거기서
   타이틀·상태만 보고 early-return 하면 백엔드를 고쳐도 화면은 그대로다.
 - 픽커에서 **없는 폴더를 만들어 들어갈 수 있다**(`NewFolderRow`, 로컬·원격 공통). 이미 있던
@@ -676,7 +672,7 @@ tmux 클라이언트 안" 이었다 — 바깥 tmux 가 `^B` 를 먹으니 `send
 ## 경로를 고를 때 "무엇으로 열까" 도 고른다 (2026-09-02)
 
 폴더 픽커 아래에 칸 두 개(`components/common/TerminalLaunchOptions.jsx`) — **터미널**
-(tmux/herdr/none)과 **셸**(bash/zsh/sh). 안 고르면 설정을 따른다.
+(tmux/none)과 **셸**(bash/zsh/sh). 안 고르면 설정을 따른다.
 
 **설정과 이 값은 다른 것이다.** 설정은 "앞으로 여는 것 전부", 이 값은 "이 pane 하나".
 그래서 `utils/multiplexer.js` 의 "고르는 자리는 설정 한 곳뿐" 을 어기지 않는다 — 그 규칙이
@@ -688,19 +684,12 @@ tmux 클라이언트 안" 이었다 — 바깥 tmux 가 `^B` 를 먹으니 `send
 - ⚠️ **이 값은 "만들 때" 만 쓰인다.** 로컬은 `holder_of()` 가, 원격은 `_build_remote_command`
   의 탐색이 먼저다 — 살아 있는 세션에는 **붙잡고 있는 쪽**이 이긴다. 그래서 재연결 때 이
   값이 실려도 아무것도 바꾸지 않는다.
-- ⚠️ **탭 sanitize 가 안전한 이유는 `live_session_names()` 가 둘의 합집합이기 때문이다.**
-  한쪽만 물으면 기본값 아닌 것으로 만든 세션이 "죽었다" 로 읽혀 레이아웃이 통째로 날아간다.
-  이 기능의 전제가 그 합집합이다.
 - ⚠️ **픽커는 열 때마다 선택을 잊는다.** 이 컴포넌트들은 닫혀도 언마운트되지 않아
   (`return null` 이라 상태가 그대로 산다) 지난번에 고른 값이 다음 열기에 남아 있었다 —
-  한 번 herdr 를 고르면 그 뒤로 계속 herdr 로 열렸다. **한 번짜리 선택은 한 번만 산다.**
+  한 번 none 을 고르면 그 뒤로 계속 none 으로 열렸다. **한 번짜리 선택은 한 번만 산다.**
 - **셸 칸은 로컬·원격 둘 다 그린다.** 원격도 tmux `new-session` 과 맨 셸에 고른 것을 먹인다
   (`_shell_expr`). ⚠️ 없으면 **로그인 셸로 떨어진다** — 고른 셸이 그 호스트에 없다고 pane 이
   죽으면 고친 게 아니라 부순 것이다.
-  - ⚠️ **`herdr` 는 셸을 안 받는다**(로컬도 원격도). `herdr --session <이름>` 하나가 생성과
-    접속을 겸해 셸 자리가 없다. 그래서 herdr 일 때 칸을 **지우지 않고 비활성으로 두고 이유를
-    적는다** — 지우면 "왜 아까는 있었지" 가 되고, 그대로 두면 골라도 아무 일이 없는 조용한
-    실패가 된다.
   - ⚠️ **원격에는 로컬 `기본 셸` 설정을 보내지 않는다.** 그건 이 서버의 개념이라, 보내면 남의
     호스트 로그인 셸(대개 zsh)을 매번 덮는다. `buildWsUrl` 의 `shell` 에 **기본값을 두지
     않는** 이유가 이것이다 — 'bash' 로 채우면 "안 고름" 과 "bash 를 고름" 이 구별되지 않는다.
@@ -714,69 +703,60 @@ tmux 클라이언트 안" 이었다 — 바깥 tmux 가 `^B` 를 먹으니 `send
 - "경로 지정해 재시작" 도 같은 칸을 쓴다. ⚠️ **죽이기 전에** pane 에 새긴다(`setPaneLaunch`)
   — 순서가 뒤집히면 이번 재시작이 옛 선택으로 뜬다. 다시 "기본" 을 고르면 두 키를 걷어낸다.
 
-## 멀티플렉서는 선택이다 — tmux 를 밑에 깔지 않는다 (2026-09-01)
+## tmux 기반 터미널 — herdr 는 걷어냈다 (2026-09-05)
 
-이 앱은 오래 tmux 를 **기반층**으로 깔았다. 로컬 pane 은 무조건 `tmux attach` 였고, 원격도
-tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주지 않았다. 지금은 **herdr 와 tmux
-중 하나만 깔고, 설정된 것을 쓴다.**
+이 앱의 컨셉은 **tmux 위의 편리한 터미널**이다. 로컬 pane 도 원격 pane 도 tmux 세션에
+attach 하고, 연결이 끊겨도 백엔드가 재시작돼도 셸은 tmux 가 붙잡고 있다. 2026-09-01 에
+herdr 를 두 번째 멀티플렉서로 나란히 실었다가 **09-05 에 통째로 걷어냈다** — "살아있는
+세션 목록" 을 두 곳에 묻고, 설정과 현실이 어긋나는 자리가 두 배가 되고, 상태바·pane
+주소·에이전트 상태 폴링·세션 무덤처럼 tmux 위에 얹은 것들이 전부 "herdr 에선 안 된다"
+가 됐기 때문이다. 하나만 깊게 받치는 쪽이 맞다.
 
-- **고르는 자리는 설정 한 곳뿐이다** — 설정 → 세션 멀티플렉서(`defaultMultiplexer`).
-  이 서버의 pane 도 호스트의 pane 도 **같은 값**을 따른다. "herdr 로 두면 앞으로 여는 건
-  전부 herdr" 가 이 기능의 전부다. ⚠️ 호스트마다 또 고르게 두지 마라 — 같은 결정이 두
-  자리에 생기고, 전역을 바꿔도 옛 호스트가 안 따라온다(한 번 그렇게 만들었다가 되돌렸다).
+남은 선택은 하나다 — 설정 → 세션 멀티플렉서(`defaultMultiplexer`)의 **`tmux` / `none`**.
+`none` 은 붙잡지 않는 맨 셸이고(닫으면 끝), tmux 가 없는 호스트나 일회성 셸에 쓴다.
+옛 `use_remote_tmux=0` 이 이것으로 되짚힌다.
+
 - 어휘는 `backend/multiplexer.py` 와 그 거울 `frontend/src/utils/multiplexer.js`.
   실행 갈래는 로컬이 `backend/local_mux.py`, 원격이 `host_manager._build_remote_command`.
-
-| 고른 것 | 로컬 pane 이 실행하는 것 | 원격 pane 이 실행하는 것 |
-|---|---|---|
-| `tmux`  | `tmux -L <sock> attach -t <id>` | `tmux new/attach -t <name>` |
-| `herdr` | `herdr --session <id>`          | `herdr --session <name>` |
-| `none`  | 로그인 셸                        | 로그인 셸 |
-
-- **`none` 은 고장이 아니라 유효한 선택이다.** 셸이 뜨고 탭을 닫으면 끝난다.
+- ⚠️ **저장돼 있던 `herdr` 값은 `normalize` 가 기본값(tmux)으로 접는다** — 설정·호스트
+  행·pane 의 launch 키 어디에 남아 있든. 죽은 것으로 읽히는 것보다 tmux 로 여는 쪽이
+  안전하다. 이 규칙이 없으면 그 사용자의 탭이 sanitize 에서 통째로 지워진다.
+- **고르는 자리는 설정 한 곳뿐이다.** 이 서버의 pane 도 호스트의 pane 도 같은 값을 따른다.
+  ⚠️ 호스트마다 또 고르게 두지 마라 — 같은 결정이 두 자리에 생기고, 전역을 바꿔도 옛
+  호스트가 안 따라온다(한 번 그렇게 만들었다가 되돌렸다).
+- **설정이 정하는 것은 "새 세션을 무엇으로 열까" 뿐이다.** 이미 살아 있는 tmux 세션에는
+  설정이 `none` 이어도 tmux 로 붙는다(`local_mux.holder_of`, 원격은 `has-session` 이 먼저).
 - ⚠️ **시작 경로는 고른 것과 무관하게 지켜져야 한다.** tmux 는 세션을 만들 때 `-c` 로
-  받으므로 cwd 해소를 **tmux 분기 안에** 두기 쉬운데, herdr·none 은 `ws_bridge` 가
-  프로세스를 직접 띄우므로 거기서 안 넘기면 bridge 기본값인 **`$HOME` 에서 뜬다.**
-  실제로 그랬다 — 폴더를 골라도 매번 같은 자리에 붙었고, 에러도 로그도 없었다(고른 것이
-  아무 데도 가 닿지 않는 조용한 실패). 이 배포는 `WORKSPACE_ROOT ≠ $HOME` 이라 증상이
-  "자꾸 루트로 붙는다" 로 보였다. `tests/test_terminal_ws_cwd.py` 가 잠근다.
-- **대신 반드시 말한다.** 고른 것이 그 기계에 없으면 `{"type":"mux-missing"}` 이 나가고
+  받으므로 cwd 해소를 **tmux 분기 안에** 두기 쉬운데, `none` 은 `ws_bridge` 가 프로세스를
+  직접 띄우므로 거기서 안 넘기면 bridge 기본값인 **`$HOME` 에서 뜬다.** 실제로 그랬다 —
+  폴더를 골라도 매번 같은 자리에 붙었고, 에러도 로그도 없었다. `tests/test_terminal_ws_cwd.py`.
+- **대신 반드시 말한다.** tmux 가 그 기계에 없으면 `{"type":"mux-missing"}` 이 나가고
   pane 이 "닫으면 사라집니다 + [설치]" 를 띄운다(로컬·원격 양쪽에서 보낸다). 판정은
   `persists()` **하나**다.
 
 ⚠️ **가장 위험한 자리는 "살아있는 세션 목록" 이다.** 탭 상태 sanitize(`_sanitize_tab_state`)와
-세션 행 prune 이 그 목록에 **없는 것을 지운다.** tmux 에게만 물으면 herdr 로 열어 둔 탭이
-전부 "죽었다" 로 읽혀 **레이아웃이 통째로 날아간다.** 그래서 목록도 고른 것을 따라 갈라진다
-(`local_mux.live_session_names`). 같은 이유로:
+세션 행 prune 이 그 목록에 **없는 것을 지운다**(`local_mux.live_session_names`). 그래서:
+- **빈 집합은 "전부 죽었다" 가 아니라 "판정 불가" 다.** tmux 서버가 멈춘 모습과 같다.
+  지우는 코드는 빈 집합을 보면 손을 뗀다.
 - `choice_for` 는 설정을 **못 읽었을 때 `none` 이 아니라 기본값**으로 떨어진다. `none` 으로
   떨어지면 멀쩡한 tmux 세션이 전부 죽은 것으로 읽힌다.
-- `parse_herdr_sessions` 는 herdr 의 JSON 모양이 바뀌어도 **던지지 않고 빈 집합**을 낸다.
-  빈 집합은 호출부에서 "판정 불가" 라 아무것도 안 지운다.
 
 ⚠️ **"영속이냐"(`persists`)와 "tmux 냐" 는 다른 질문이다.** `get_tmux_cwd` · tmux 세션
-목록/kill 은 **tmux 에게 묻는** 코드라 herdr 호스트에서는 뜻이 없다 → 그 자리는
+목록/kill 은 **tmux 에게 묻는** 코드라 `none` 호스트에서는 뜻이 없다 → 그 자리는
 `from_host_row(host) == TMUX` 로 갈라야 한다.
 
-⚠️ **herdr 를 고르면 tmux 에 얹혀 있던 것들이 사라진다.** 빠뜨린 게 아니라 tmux 의
-기능이었다 — pane 주소 상태바(`@pane_addr`), 아무도 안 보는 pane 의 에이전트 상태 폴링
-(`list-panes -a`), pane cwd 추적, 세션 무덤. herdr 는 자기 UI 안에서 자기 방식으로 한다.
-**모르는 것을 아는 척 채우지 않는다.**
-
-⚠️ **다만 "사라진다" 와 "조용히 안 된다" 는 다르다.** 세션 재시작이 그 경계에 있었다 —
-없어진 게 아니라 kill 이 tmux 로만 가서 **눌러도 아무 일이 없었다.** 지금은
-`local_mux.kill_session` 이 고른 것에게 보낸다. 로컬 세션을 죽이는 코드를 새로 쓸 때
-`tmux_manager.kill_session` 을 직접 부르면 이 병이 그대로 재발한다.
+⚠️ **로컬 세션을 죽이는 코드는 `local_mux.kill_session` 을 지난다.** 붙잡고 있는 쪽에게
+보내고, 아무도 안 붙잡고 있으면 아무것도 안 한다 — `tmux_manager.kill_session` 을 직접
+부르면 `none` pane 의 "세션 재시작" 이 남의 tmux 세션을 건드린다.
 
 기타 함정:
-- herdr 는 `herdr --session <name>` 하나가 생성과 접속을 겸한다 → `create=0`(이어붙기만)은
-  `herdr session list --json` 을 먼저 봐야 한다.
-- ⚠️ **`~/.local/bin` 을 PATH 에 얹어야 한다**(원격은 `REMOTE_PATH_PREFIX`, 로컬은
-  `HERDR_SEARCH_PATH`). 비대화형 SSH 셸과 systemd 서비스의 PATH 에는 없는데 herdr 는
-  거기 앉는다 — 빼면 방금 깐 것을 "없음" 으로 읽고 조용히 셸로 떨어진다.
+- ⚠️ **`~/.local/bin` 을 PATH 에 얹어야 한다**(원격은 `REMOTE_PATH_PREFIX`). 비대화형 SSH
+  셸의 PATH 에는 없는데 홈에 깐 tmux 나 itl 은 거기 앉는다 — 빼면 방금 깐 것을 "없음"
+  으로 읽고 조용히 셸로 떨어진다.
 - ⚠️ **TERM 은 실제로 무엇이 도는지에 따른다.** tmux 가 아닌데 `tmux-256color` 를 주면
   terminfo 가 없는 기계에서 앱이 화면을 못 그린다(`TmuxClientBridge(term=...)`).
 - ⚠️ 옛 `use_remote_tmux` 되짚기는 프론트·백엔드가 **같은 규칙**이고, **끄기만** 표현한다
-  (옛 스키마에 herdr 값이 없었으므로 `=1` 은 "tmux" 가 아니라 "설정을 따르라" 다).
+  (`=1` 은 "tmux" 라기보다 "설정을 따르라" 다).
 
 ## itl — 팬 사이 전달, 설치 없이 (2026-09-02)
 
@@ -785,7 +765,7 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
 
 | 층 | 파일 | 하는 일 |
 |---|---|---|
-| 한 기계 안 | `backend/cli/itl` | tmux·herdr 소켓을 탐색해 `list`/`whoami`/`send`/`read`. stdlib only 단일 파일 |
+| 한 기계 안 | `backend/cli/itl` | 이 사용자의 tmux 소켓을 전부 탐색해 `list`/`whoami`/`send`/`read`. stdlib only 단일 파일 |
 | 기계 넘기 | `backend/itl_router.py` | 이미 인증된 SSH 로 itl 을 **stdin 으로 밀어** 원격에서 1회 실행 — 설치 0 |
 | 팬 → 백엔드 ① | `backend/itl_channel.py` | PTY 에 찍힌 `__ITL_SEND__ {…}` 를 브리지가 줍는다 |
 | 팬 → 백엔드 ② | tmux 옵션 `@itl_outbox` | **붙어 있지 않아도** 되는 통로. 기존 1.5초 폴링이 걷어 간다 |
@@ -845,14 +825,13 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
 - ⚠️ **Tailscale 호스트는 ①만이다.** 그 브리지는 `tailscale ssh` 를 PTY 프로세스로 띄워
   재사용할 asyncssh 연결이 없다(`stamp_pane_addr` 가 언제나 False). 번호가 밀리면 다음
   attach 까지 낡아 있다 — 라벨 하나에 SSH 를 새로 열 값은 아니다.
-- ⚠️ **원격 herdr·맨 셸 팬은 이 기능의 대상이 아니다.** herdr 에는 tmux 사용자 옵션이 없고
-  **자기 리모트가 따로 있다** — 미지원이 결론이지 빠뜨린 것이 아니다.
+- ⚠️ **원격 맨 셸(`none`) 팬은 이 기능의 대상이 아니다.** 새길 tmux 옵션이 없다.
 
 - 열쇠는 `HMAC(data/.itl-secret, scope)` 로 **파생**한다(저장 안 함). tmux 세션은 백엔드보다
   오래 사니 프로세스 난수로는 재시작마다 전부 끊긴다. 로컬 tmux 는 `@itl_key` 옵션
   (`create_session` + lifespan 재도장), 원격 tmux 는 부트스트랩이 같은 옵션을 새기고, 로컬
-  herdr/셸은 브리지가 띄우는 프로세스의 env `ITL_KEY`. **원격 herdr/셸 팬은 열쇠가 없어
-  못 보낸다** — herdr 는 자기 리모트가 있다.
+  맨 셸은 브리지가 띄우는 프로세스의 env `ITL_KEY`. **원격 맨 셸 팬은 열쇠가 없어
+  못 보낸다.**
 - 열쇠는 크리덴셜이 아니다. 팬 **안에서 도는 코드**는 읽을 수 있고(그 팬을 이미 쥐고 있다)
   팬을 **지나가는 출력**은 알 수 없다 — 막는 것은 정확히 그 부류다. 뚫린 호스트는 여전히
   자기 열쇠를 안다 → 그래서 아래 Enter 규칙이 따로 있다.
@@ -885,7 +864,6 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
   통지들이 **입력줄에 이어붙어 쌓이고** 사용자가 손으로 지워야 한다(실제로 넷이 한 줄로
   붙었다). 제출하는 것도 안 된다 — 실패 사유에는 *대상* 호스트의 stderr 가 섞일 수 있어
   발신 에이전트에 프롬프트를 주입하는 통로가 된다. 둘 다 아닌 자리가 출력이다.
-  ⚠️ herdr 팬에는 `pane_tty` 가 없다 → 통지가 조용히 실패한다(배달 자체는 된다).
 - 보낸 이는 페이로드가 아니라 **브리지가 세션에서 되짚는다**(사칭 방지). 상한: 8192B, 10초 5회.
   재생 억제(`_seen`)는 모듈 레벨이라 재접속을 넘어 산다(tmux 재그리기가 보이는 줄을 다시 낸다).
 - 남긴 잔존(설계로 받아들인 것): ① 뚫린 호스트는 자기 열쇠를 아므로 그 사용자의 로컬 에이전트에
@@ -904,8 +882,8 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
 
 이 앱은 오래 **자기 것 두 개**(itl CLI · 리모트 에이전트)만 설치할 줄 알았다. 그건
 거꾸로다 — 기계도 셸도 사용자의 것이다. 지금은 목록이 코드가 아니라 데이터다:
-내장 둘(**tmux · herdr** — 이 앱이 세션을 맡길 수 있는 멀티플렉서들이라 들어 있는
-것이지 "우리 것" 이라서가 아니다)과, 사용자가 쓰는 만큼.
+내장 둘(**tmux** — 이 앱이 세션을 맡기는 멀티플렉서라 들어 있는 것이지 "우리 것" 이라서가
+아니다 — 와 **itl**)과, 사용자가 쓰는 만큼.
 
 `backend/host_tools.py`(카탈로그·프로브) · `routes/tools.py` · `db/tools.py` ·
 프론트 `ToolsModal` + `hooks/useTools` + `utils/paneTyping`. 진입은 호스트/로컬 카드의 📦.
@@ -916,7 +894,7 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
   만들지 않는다** — 사용자가 직접 칠 수 있는 것을 대신 친다.
 - ⚠️ **확인 명령은 그 도구를 실행하지 않는 것이 규칙이다.** `command -v x` 는 되고
   `x --version` 은 안 된다 — 모르는 플래그를 만나면 TUI 를 띄우는 프로그램이 있고
-  (herdr 가 정확히 그렇다: 인자 없이 부르면 멀티플렉서가 뜬다), tty 가 없는 확인
+  (맨 `tmux` 가 그렇다: 인자 없이 부르면 서버와 세션이 뜬다), tty 가 없는 확인
   경로에서 그러면 상한까지 매달린다. `test_host_tools` 가 내장 목록을 그 규칙으로 잠근다.
 - ⚠️ **"WS 가 열렸다" 는 "셸이 프롬프트에 있다" 가 아니다.** 새 pane 의 WS 는 tmux attach
   순간 열리는데 셸은 아직 rc 를 돈다. 실제로 oh-my-zsh 의 `[Y/n]` 이 첫 글자 `c` 를 먹고
@@ -950,8 +928,7 @@ tmux 가 없으면 조용히 셸로 떨어뜨리면서 그 사실을 말해 주�
 ### 리모트 에이전트 · 기기 알림은 없앴다 (2026-09-01) — itl 은 되살아났다 (09-02)
 
 호스트에 심던 리모트 에이전트, 텔레그램·웹 푸시 알림, MCP 를 통째로 걷어냈다. `itl`
-CLI 는 하루 뒤 **다른 모양으로** 돌아왔다(아래 "itl" 절). 세션끼리의 통신은 herdr 가
-자기 안에서 하고, tmux 팬 사이는 itl 이 한다.
+CLI 는 하루 뒤 **다른 모양으로** 돌아왔다(위 "itl" 절). tmux 팬 사이의 통신은 itl 이 한다.
 
 같이 사라진 것 — **되돌리려면 이걸 다시 만들어야 한다**:
 

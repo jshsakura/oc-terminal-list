@@ -2,11 +2,11 @@
 
 This app used to know how to install exactly two things, both of them its own. That is
 backwards: the machines are the user's, the shell is the user's, and what belongs on them
-is the user's call. So the catalog is data, not code — three built-in entries (the
-multiplexers this app can hand a session to, tmux and herdr, plus the itl CLI) and
-however many the user writes. The multiplexers are there because the app offers to use
-them, not because they are "ours". itl is a single file and is *pushed*, not typed —
-see its catalog entry for why that is the one exception to rule 1.
+is the user's call. So the catalog is data, not code — two built-in entries (tmux, the
+multiplexer this app hands every session to, plus the itl CLI) and
+however many the user writes. tmux is there because the app hands every session to it,
+not because it is "ours". itl is a single file and is *pushed*, not typed — see its
+catalog entry for why that is the one exception to rule 1.
 
 Three rules hold this together:
 
@@ -17,8 +17,8 @@ Three rules hold this together:
    could type, into a shell they already have.
 2. **The status probe must not run the tool.** `command -v x` is the shape; `x --version`
    is not. An unrecognised flag makes many TUI programs start their interface instead of
-   exiting, and with no tty on the far side that probe hangs until our timeout. herdr is
-   exactly such a program (bare `herdr` starts the multiplexer).
+   exiting, and with no tty on the far side that probe hangs until our timeout. Bare
+   `tmux` is exactly such a program (it starts a server and a session).
 3. **"Unknown" is an answer.** A probe that could not run leaves `installed = None`, not
    False. Drawing "not installed" for a host we failed to reach sends the user to press an
    install button that will also fail.
@@ -40,8 +40,8 @@ MAX_COMMAND = 4000
 MAX_DESCRIPTION = 500
 MAX_DETAIL = 200
 
-# Installs land in ~/.local/bin (herdr's installer does, and so does almost everything
-# else that does not need root). A non-interactive SSH shell does not have it on PATH —
+# Installs land in ~/.local/bin (almost everything that does not need root does). A
+# non-interactive SSH shell does not have it on PATH —
 # this repo already lost an afternoon to that with its own CLI — so the probe puts it back
 # rather than asking the user to fix their rc files.
 PROBE_PATH_PREFIX = 'PATH="$HOME/.local/bin:$PATH"; export PATH'
@@ -51,10 +51,9 @@ _FP_RE = re.compile(r"fp=([0-9a-f]{64})")
 
 BUILTIN_TOOLS: tuple[dict, ...] = (
     {
-        # tmux is here not because it is "ours" — rather the opposite. The app can hand a
-        # remote session to tmux, yet it warned when tmux was missing while offering no way
-        # to install it. Once the multiplexer is a choice (backend/multiplexer.py), every
-        # choice has to be installable.
+        # tmux is here not because it is "ours" — rather the opposite. The app hands every
+        # remote session to tmux, yet it used to warn when tmux was missing while offering
+        # no way to install it.
         "id": "tmux",
         "name": "tmux",
         "description": (
@@ -75,19 +74,6 @@ BUILTIN_TOOLS: tuple[dict, ...] = (
             "|| sudo apk add tmux "
             "|| brew install tmux"
         ),
-    },
-    {
-        "id": "herdr",
-        "name": "herdr",
-        "description": (
-            "에이전트를 아는 터미널 멀티플렉서. 세션이 끊겨도 살아 있고, "
-            "세션끼리 서로 명령을 주고받습니다. 러스트 바이너리 하나라 의존성이 없습니다."
-        ),
-        "url": "https://herdr.dev",
-        # Never `herdr --version`: bare herdr starts the multiplexer, and an unknown flag
-        # can fall through to that. `command -v` only looks at PATH.
-        "check_command": "command -v herdr",
-        "install_command": "curl -fsSL https://herdr.dev/install.sh | sh",
     },
     {
         # itl is the one exception to rule 1, and a narrow one: it is a single stdlib-only

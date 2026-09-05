@@ -97,8 +97,8 @@ def effective_tmux_session(base: str, pane_index: int = 0) -> str:
 
 
 # 설치물은 대개 `~/.local/bin` 에 앉는데 **비대화형 SSH 셸의 PATH 에는 그게 없다**
-# (host_tools 의 프로브가 같은 이유로 같은 줄을 쓴다). 이걸 빼면 방금 깐 herdr 를
-# "설치되지 않음" 으로 읽고 조용히 평범한 셸로 떨어진다.
+# (host_tools 의 프로브가 같은 이유로 같은 줄을 쓴다). 사용자가 홈에 깐 tmux 나 itl 이
+# 여기 없으면 "설치되지 않음" 으로 읽혀 조용히 평범한 셸로 떨어진다.
 REMOTE_PATH_PREFIX = 'PATH="$HOME/.local/bin:$PATH"; export PATH; '
 
 #: 원격 tmux 에 pane 주소를 새기는 데 허용하는 시간. 상태바 라벨 하나가 탭 상태 저장을
@@ -141,38 +141,6 @@ def _plain_shell_command(start_path: str | None, *, create_session: bool,
     if shell:
         return f"exec {_shell_expr(shell)} -l"
     return None
-
-
-def _build_herdr_command(
-    session_name: str, start_path: str | None, *, create_session: bool
-) -> str:
-    """`herdr --session <name>` — 있으면 붙고 없으면 만든다(tmux 의 has-session 이 불필요).
-
-    tmux 갈래의 그 긴 옵션 뭉치가 여기 없는 것은 빠뜨려서가 아니다: 상태바·마우스
-    바인딩·history-limit 은 전부 **tmux 의 설정 이름**이라 herdr 에 뜻이 없다. herdr 는
-    자기 기본값으로 뜬다.
-
-    ⚠️ **herdr 의 프리픽스도 `C-b` 다.** 이 앱의 pane 은 언제나 바깥 멀티플렉서 안이므로,
-    퀵바에서 herdr 프리픽스를 보낼 때는 `\x02` 를 두 번 보내야 한다(utils/mobileKeys).
-    """
-    safe = shlex.quote(session_name or DEFAULT_REMOTE_TMUX_SESSION)
-    cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
-    if create_session:
-        guard = ""
-    else:
-        # herdr 는 `--session` 하나로 생성과 접속을 겸하므로, "만들지 말고 붙기만" 은
-        # 목록을 먼저 보는 수밖에 없다. 이름은 JSON 안에 따옴표째 들어 있다.
-        guard = (
-            f"herdr session list --json 2>/dev/null | grep -qF '"'{safe}'"' || "
-            f"{{ {_gone_notice('refresh could not find ' + session_name)}; }}; "
-        )
-    return (
-        f"{REMOTE_PATH_PREFIX}"
-        f"command -v herdr >/dev/null 2>&1 && {{ "
-        f"{guard}{cd_prefix}exec herdr --session {safe}; "
-        f"}} || "
-        f"{cd_prefix}exec ${{SHELL:-bash}} -l"
-    )      # herdr 전용 빌더 — 여기 오는 경우 셸 선택은 애초에 herdr 가 안 받는다
 
 
 def _tmux_session_options(safe: str, itl_pane_key: str | None = None,
@@ -260,18 +228,6 @@ def _tmux_session_options(safe: str, itl_pane_key: str | None = None,
     )
 
 
-def _herdr_has_session(safe: str) -> str:
-    """herdr 가 이 이름을 잡고 있나 — 셸 조건식.
-
-    herdr 는 `--session` 이 생성과 접속을 겸해서 "있나?" 를 따로 물어야 한다.
-    이름은 JSON 안에 따옴표째 들어 있다.
-    """
-    return (
-        f"command -v herdr >/dev/null 2>&1 && "
-        f"herdr session list --json 2>/dev/null | grep -qF '\"'{safe}'\"'"
-    )
-
-
 def _build_remote_command(
     multiplexer: str | bool,
     tmux_session: str,
@@ -284,18 +240,10 @@ def _build_remote_command(
 ) -> str | None:
     """원격에서 실행할 명령 — **묻지 말고 찾는다.**
 
-    처음 판은 설정 하나로 tmux 냐 herdr 냐를 갈랐다. 그건 양자택일이라, 설정을 herdr 로
-    바꾸는 순간 그 호스트에 멀쩡히 살아 있는 tmux 세션에 못 붙고 같은 이름의 빈 herdr
-    세션이 새로 떴다(실제로 ubuntu-lab 에는 **같은 이름이 양쪽에 다** 있다).
-
-    지금은 한 번의 SSH 안에서 순서대로 본다 — 왕복은 늘지 않는다:
+    한 번의 SSH 안에서 순서대로 본다 — 왕복은 늘지 않는다:
 
       1. tmux 가 그 이름을 잡고 있나 → tmux 로 붙는다
-      2. herdr 가 잡고 있나          → herdr 로 붙는다
-      3. 아무도 없으면              → **설정된 것**으로 새로 만든다(그게 설정의 역할이다)
-
-    ⚠️ **겹치면 tmux 가 이긴다.** 전환기에 두 번 만들어진 이름이 그 모양이고, 그때 사람이
-    실제로 쓰던 쪽은 tmux 였다(herdr 쪽은 앱이 만들어만 두고 아무도 안 붙은 껍데기).
+      2. 아무도 없으면              → 새로 만든다(`create_session`), 아니면 세션 소멸 통보
 
     ⚠️ `none` 은 탐색하지 않는다 — 붙잡지 말라고 **일부러 고른 값**이라, 남아 있던 세션에
     슬그머니 다시 붙으면 고른 뜻과 반대가 된다.
@@ -319,16 +267,9 @@ def _build_remote_command(
     shell_arg = f" {_shell_expr(shell)}" if shell else ""
     cd_prefix = f"cd {_shell_path(start_path)} 2>/dev/null; " if start_path else ""
 
-    # ── 3) 아무도 안 잡고 있을 때: 설정된 것으로 새로 ──
+    # ── 2) 아무도 안 잡고 있을 때: 새로 만든다 ──
     if not create_session:
         create_branch = _gone_notice(f"refresh could not find {tmux_session}")
-    elif choice == mux.HERDR:
-        # ⚠️ herdr 는 셸을 인자로 받지 않는다 — 자기 방식으로 연다. 화면의 셸 칸이
-        # herdr 일 때 비활성인 이유가 이것이다(TerminalLaunchOptions). 폴백 셸에는 건다.
-        create_branch = (
-            f"command -v herdr >/dev/null 2>&1 && {{ {cd_prefix}exec herdr --session {safe}; }} "
-            f"|| {{ {cd_prefix}exec {_shell_expr(shell)} -l; }}"
-        )
     else:
         # history-limit 은 new-session 보다 먼저 전역(-g)으로 걸어야 첫 pane 이 물려받는다.
         # set-option 과 new-session 을 한 번의 tmux 호출로 묶어야 콜드 스타트에서도 적용된다.
@@ -347,10 +288,7 @@ def _build_remote_command(
         f"if command -v tmux >/dev/null 2>&1 && tmux has-session -t {safe} 2>/dev/null; then "
         f"{_tmux_session_options(safe, itl_pane_key, itl_pane_addr)}"
         f"exec tmux attach-session -t {safe}; "
-        # ── 2) herdr 가 잡고 있나 ──
-        f"elif {_herdr_has_session(safe)}; then "
-        f"{cd_prefix}exec herdr --session {safe}; "
-        # ── 3) 아무도 ──
+        # ── 2) 아무도 ──
         f"else {create_branch}; fi"
     )
 
@@ -471,8 +409,8 @@ class HostBridge:
     ):
         self.websocket = websocket
         self.host = host
-        # 호스트 행에 값이 없으면 전역 설정을 따른다 — "설정에서 herdr 로 두면
-        # 앞으로 여는 건 전부 herdr". 옛 `use_remote_tmux=0` 은 명시적 선택이라 이긴다.
+        # 호스트 행에 값이 없으면 전역 설정을 따른다. 옛 `use_remote_tmux=0` 은
+        # 명시적 선택이라 이긴다.
         self.default_multiplexer = mux.normalize(default_multiplexer)
         self.private_key = private_key
         self.passphrase = passphrase
@@ -613,9 +551,9 @@ class HostBridge:
         if choice == mux.NONE:
             return
         try:
-            # ⚠️ `command -v` 로만 묻는다. `herdr --version` 처럼 그 도구를 **실행**하면
-            # 인자 없이 뜨는 TUI(herdr 가 정확히 그렇다)가 tty 없는 이 경로에서 매달린다
-            # — host_tools 의 프로브가 같은 이유로 같은 규칙을 쓴다.
+            # ⚠️ `command -v` 로만 묻는다. 그 도구를 **실행**하는 확인(`x --version`)은
+            # 인자 없이 TUI 를 띄우는 프로그램이 tty 없는 이 경로에서 매달린다 —
+            # host_tools 의 프로브가 같은 이유로 같은 규칙을 쓴다.
             chk = await self.conn.run(
                 f"{REMOTE_PATH_PREFIX}command -v {shlex.quote(choice)} 2>/dev/null",
                 check=False,
@@ -854,8 +792,7 @@ class HostBridge:
         """살아 있는 이 SSH 연결로 원격 tmux 세션에 앱 주소를 새긴다.
 
         새 채널 하나다 — 핸드셰이크도 인증도 없다(멀티플렉서 존재 확인이 이미 같은
-        길을 쓴다). ⚠️ 원격 herdr 세션이면 이 명령은 그냥 실패한다: herdr 에는 tmux
-        사용자 옵션이 없고 자기 리모트가 따로 있다 — **미지원이 결론이다.**
+        길을 쓴다). 맨 셸(`none`) 세션이면 새길 tmux 옵션이 없어 그냥 실패한다.
         """
         conn, session = self.conn, self.tmux_session
         if conn is None or not session or not addr:
@@ -918,8 +855,8 @@ class TailscaleHostBridge:
     ):
         self.websocket = websocket
         self.host = host
-        # 호스트 행에 값이 없으면 전역 설정을 따른다 — "설정에서 herdr 로 두면
-        # 앞으로 여는 건 전부 herdr". 옛 `use_remote_tmux=0` 은 명시적 선택이라 이긴다.
+        # 호스트 행에 값이 없으면 전역 설정을 따른다. 옛 `use_remote_tmux=0` 은
+        # 명시적 선택이라 이긴다.
         self.default_multiplexer = mux.normalize(default_multiplexer)
         self.cols = max(int(cols or 80), 1)
         self.rows = max(int(rows or 24), 1)

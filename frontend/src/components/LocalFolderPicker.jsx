@@ -98,7 +98,7 @@ const LocalFolderPicker = ({
     setError(null);
     /* ⚠️ **열 때마다 잊는다.** 이 컴포넌트는 닫혀도 언마운트되지 않아(`return null` 이라
        상태가 그대로 산다) 지난번에 고른 값이 다음 열기에 그대로 남아 있었다 — 한 번
-       herdr 를 고르면 그 뒤로 계속 herdr 로 열렸다. 한 번짜리 선택은 한 번만 산다. */
+       none 을 고르면 그 뒤로 계속 none 으로 열렸다. 한 번짜리 선택은 한 번만 산다. */
     setLaunch({ multiplexer: INHERIT, shell: INHERIT });
     load(initialPath || '');
   }, [isOpen, initialPath, load]);

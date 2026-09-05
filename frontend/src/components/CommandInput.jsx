@@ -172,7 +172,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
   }, [isOpen, isDictatingRef, docked]);
 
   /* 터미널을 탭하면 이 도크로 포커스를 옮긴다 — 폰에서 사람이 하는 일은 대개 키를 치는 게
-     아니라 한 줄 보내는 것이라, 탭 한 번에 쓸 자리로 가는 편이 맞다(herdr 에서 가져온 개념).
+     아니라 한 줄 보내는 것이라, 탭 한 번에 쓸 자리로 가는 편이 맞다.
      App↔Terminal 사이는 이 저장소의 관례대로 window 이벤트로 잇는다(`iterm:open-file` 과 같은 패턴).
      ⚠️ 포커스 이동은 **탭 제스처 안에서** 일어나야 iOS 키보드가 올라온다. */
   useEffect(() => {

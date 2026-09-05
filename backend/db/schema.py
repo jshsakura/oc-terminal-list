@@ -152,10 +152,9 @@ class SchemaMixin:
             cursor.execute("ALTER TABLE hosts ADD COLUMN cred_epoch INTEGER NOT NULL DEFAULT 1")
         except sqlite3.OperationalError:
             pass
-        # 마이그레이션: 이 호스트에서 무엇으로 세션을 잡아 둘지 — 'tmux'|'herdr'|'none'.
+        # 마이그레이션: 이 호스트에서 무엇으로 세션을 잡아 둘지 — 'tmux'|'none'.
         # NULL 이면 옛 `use_remote_tmux` 로 되짚는다(backend/multiplexer.from_host_row).
-        # 두 칸이 공존하는 것은 과도기라서가 아니라, 옛 행에는 herdr 라는 값이 존재조차
-        # 하지 않았으므로 되짚기가 "끄기" 만 표현할 수 있기 때문이다.
+        # 옛 행에 'herdr' 가 남아 있을 수 있다 — normalize 가 기본값(tmux)으로 접는다.
         try:
             cursor.execute("ALTER TABLE hosts ADD COLUMN multiplexer TEXT")
         except sqlite3.OperationalError:

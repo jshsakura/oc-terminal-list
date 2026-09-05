@@ -117,16 +117,16 @@ Splits collapse into sub-tabs, and a key toolbar supplies `Esc`, `Tab`, `Ctrl+C`
 ### Installing tools on your machines
 
 Every host card (and this server's own card) has a 📦 button: pick a machine, see what is
-installed, and install what you want. **herdr** ships as the one built-in entry; anything
-else you add yourself — the app does not decide what belongs on your machines.
+installed, and install what you want. **tmux** and **itl** ship as the built-in entries;
+anything else you add yourself — the app does not decide what belongs on your machines.
 
 Installing does not run behind your back. It opens a terminal on that machine, types the
 command, and leaves the Enter to you — so sudo prompts, progress output and Ctrl-C all
 behave the way they do in any other terminal, and the feature grants no privilege you did
 not already have.
 
-> The probe that reports "installed" must not *run* the tool — `command -v herdr`, never
-> `herdr --version`. A program that starts a TUI on an unknown flag would hang a probe
+> The probe that reports "installed" must not *run* the tool — `command -v tmux`, never
+> `tmux -V`-style invocations of tools that may open a TUI. A program that starts a TUI on an unknown flag would hang a probe
 > that has no tty.
 
 ---

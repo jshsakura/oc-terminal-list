@@ -55,7 +55,7 @@ const ToolForm = ({ initial, onSubmit, onCancel, t }) => {
           style={styles.input}
           value={form.check_command}
           onChange={set('check_command')}
-          placeholder="command -v herdr"
+          placeholder="command -v lazygit"
         />
         {/* ⚠️ 확인 명령은 그 도구를 **실행하지 않는 것**이 안전하다. `x --version` 은
             모르는 플래그를 만나면 TUI 를 띄우는 프로그램이 있고, tty 가 없는 확인

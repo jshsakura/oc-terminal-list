@@ -52,7 +52,7 @@ class TmuxClientBridge:
         # 로그 상관용으로만 쓴다(WS attach/detach 와 같은 값이라 줄을 이어 읽을 수 있다).
         self.client_id = client_id
         self.attach_argv = attach_argv
-        # tmux 가 아닌 것(herdr·맨 셸)이 도는데 tmux-256color 를 주면 terminfo 가 없는
+        # tmux 가 아닌 것(맨 셸)이 도는데 tmux-256color 를 주면 terminfo 가 없는
         # 기계에서 앱이 화면을 못 그린다. 무엇이 도는지는 호출부만 안다.
         self.term = term or "xterm-256color"
         self.cwd = cwd
@@ -74,7 +74,7 @@ class TmuxClientBridge:
         env = os.environ.copy()
         env.pop("TMUX", None)
         env.pop("TMUX_PANE", None)
-        # herdr / plain-shell panes have no tmux option to read the key from — they get
+        # Plain-shell panes have no tmux option to read the key from — they get
         # it from the environment of the process this bridge spawns. Harmless for tmux
         # (the attach client does not pass its env into the session).
         env[itl_keys.KEY_ENV] = self._itl_pane_key

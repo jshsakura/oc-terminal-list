@@ -47,20 +47,20 @@ describe('isPaneReady', () => {
 });
 
 describe('didLandOnInputLine', () => {
-  const CMD = 'curl -fsSL https://herdr.dev/install.sh | sh';
+  const CMD = 'curl -fsSL https://example.dev/install.sh | sh';
 
   it('프롬프트 뒤에 그대로 들어갔으면 통과', () => {
     expect(didLandOnInputLine(`ubuntu@0 ~ ${CMD}`, CMD)).toBe(true);
   });
 
   it('접힌 줄을 이어 붙인 공백 차이는 무시한다', () => {
-    expect(didLandOnInputLine(`~ curl  -fsSL\thttps://herdr.dev/install.sh | sh`, CMD)).toBe(true);
+    expect(didLandOnInputLine(`~ curl  -fsSL\thttps://example.dev/install.sh | sh`, CMD)).toBe(true);
   });
 
   /* 이 테스트가 이 파일의 존재 이유다 — oh-my-zsh 의 `[Y/n]` 이 첫 글자를 먹은 그 줄.
      명령 전체가 화면에는 에코돼 있으므로 `includes` 로 재면 통과해 버린다. */
   it('첫 글자가 프롬프트에 먹힌 줄은 통과시키지 않는다', () => {
-    const eaten = `[oh-my-zsh] Would you like to update? [Y/n] ${CMD} ubuntu@0 ~ url -fsSL https://herdr.dev/install.sh | sh`;
+    const eaten = `[oh-my-zsh] Would you like to update? [Y/n] ${CMD} ubuntu@0 ~ url -fsSL https://example.dev/install.sh | sh`;
     expect(eaten.includes(CMD)).toBe(true); // 화면 검색으로는 못 가린다
     expect(didLandOnInputLine(eaten, CMD)).toBe(false);
   });
@@ -104,7 +104,7 @@ describe('typeIntoPane', () => {
   });
 
   /* 회귀: 셸 rc 프롬프트가 첫 글자를 먹었다. 보낸 것으로 성공을 선언하면
-     사용자는 `url: command not found` 를 보고 herdr 설치 스크립트를 의심하게 된다. */
+     사용자는 `url: command not found` 를 보고 설치 스크립트를 의심하게 된다. */
   it('입력 줄에 안 들어갔으면 not-typed 로 실패한다', async () => {
     const send = vi.fn(() => true);
     // 커서가 앉은 줄은 프롬프트 줄이고, 거기에는 첫 글자가 먹힌 `url x | sh` 만 있다.

@@ -16,8 +16,7 @@ def _live(*names):
     """살아있는 로컬 세션 이름 집합.
 
     ⚠️ 예전에는 `tmux_manager.list_sessions` 를 목했다. 지금은 **무엇이 세션을 붙잡는지가
-    설정을 따르므로**(tmux / herdr / none) sanitize 도 `local_mux` 에게 묻는다 — tmux 에게만
-    물으면 herdr 로 열어 둔 탭이 전부 "죽었다" 로 읽혀 레이아웃이 통째로 날아간다.
+    local_mux 가 센다** — 빈 집합은 "판정 불가" 라 아무것도 지우지 않는다.
     """
     return set(names)
 

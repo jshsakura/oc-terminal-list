@@ -122,7 +122,7 @@ export const _resetAgentStatus = () => { state = {}; listeners.clear(); };
  * 비교하므로, 객체를 새로 만들어 돌려주면 매 렌더가 변경으로 읽혀 무한 루프가 된다.
  *
  * ⚠️ **로컬 tmux pane 만 채워진다.** 백엔드 폴링은 이 기계의 tmux 만 볼 수 있다 —
- * 원격 pane 의 tmux 는 그 호스트에 있고, herdr 에는 이 폴링 자체가 없다. 그쪽은 빈
+ * 원격 pane 의 tmux 는 그 호스트에 있다. 그쪽은 빈
  * 문자열이고, 호출부는 그걸 "모른다" 로 읽어 원래 하던 대로 한다.
  */
 export const getAgentCwd = (sessionId) => (sessionId ? (state[sessionId]?.cwd || '') : '');

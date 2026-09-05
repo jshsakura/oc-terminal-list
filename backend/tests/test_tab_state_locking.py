@@ -37,7 +37,7 @@ def storage_mock():
 def tmux_mock():
     """_sanitize_tab_state 가 묻는 "살아있는 로컬 세션" 목록 모킹.
 
-    무엇에게 묻는지는 설정을 따른다(tmux / herdr / none) — backend/local_mux.py.
+    살아 있는 세션은 backend/local_mux.py 가 센다.
     """
     with patch.object(user_state.local_mux, "live_session_names",
                       AsyncMock(return_value=set())) as m:

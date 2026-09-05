@@ -68,20 +68,6 @@ const PAYLOAD_META = {
   ' ': { key: 'Space', Icon: Keyboard, code: '␠' },
   '\t': { key: 'Tab', Icon: Keyboard, code: '\\t' },
   '\x1b[Z': { key: 'Shift+Tab', Icon: Keyboard, code: '\\e[Z' },
-  // herdr — `^B ^B` 는 바깥 tmux 의 send-prefix 를 태워 안쪽 herdr 로 리터럴 ^B 를 보내는 것.
-  '\x02\x02c': { key: 'herdr 새 탭', Icon: Keyboard, code: '^B ^B c' },
-  '\x02\x02v': { key: 'herdr 세로 분할', Icon: Keyboard, code: '^B ^B v' },
-  '\x02\x02-': { key: 'herdr 가로 분할', Icon: Keyboard, code: '^B ^B -' },
-  '\x02\x02h': { key: 'herdr pane ←', Icon: ArrowLeft, code: '^B ^B h' },
-  '\x02\x02j': { key: 'herdr pane ↓', Icon: ArrowDown, code: '^B ^B j' },
-  '\x02\x02k': { key: 'herdr pane ↑', Icon: ArrowUp, code: '^B ^B k' },
-  '\x02\x02l': { key: 'herdr pane →', Icon: ArrowRight, code: '^B ^B l' },
-  '\x02\x02p': { key: 'herdr 이전 탭', Icon: ChevronUp, code: '^B ^B p' },
-  '\x02\x02n': { key: 'herdr 다음 탭', Icon: ChevronDown, code: '^B ^B n' },
-  '\x02\x02z': { key: 'herdr 줌', Icon: Keyboard, code: '^B ^B z' },
-  '\x02\x02w': { key: 'herdr 워크스페이스', Icon: Keyboard, code: '^B ^B w' },
-  '\x02\x02?': { key: 'herdr 도움말', Icon: Keyboard, code: '^B ^B ?' },
-  '\x02\x02q': { key: 'herdr detach', Icon: XIcon, code: '^B ^B q' },
   '\r': { key: 'Enter', Icon: CornerDownLeft, code: '\\r' },
   '\n': { key: 'Shift+Enter', Icon: CornerDownLeft, code: '\\n' },
   '\x7f': { key: 'Backspace', Icon: XIcon, code: '\\x7f' },
@@ -169,8 +155,7 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, multiplexer = 'tmux', on
   const addEmpty = () => {
     onChange?.([...list, { id: newId(), kind: 'send', label: 'X', payload: '' }]);
   };
-  // 초기화는 **지금 고른 멀티플렉서** 기준으로 되돌린다 — 옛 기본으로 되돌리면
-  //  herdr 사용자가 초기화할 때마다 tmux 키를 받는다.
+  // 초기화는 **지금 고른 멀티플렉서** 기준으로 되돌린다.
   const reset = () => onChange?.(mobileKeysFor(multiplexer));
 
   return (

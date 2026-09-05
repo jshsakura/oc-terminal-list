@@ -16,8 +16,8 @@
      낡고, 반대로 2번만으로는 **갓 만든 pane** 이 빈 주소로 남는다(탭 상태 저장이 WS
      attach 보다 늦게 온다). 둘이 한 쌍이다.
 
-⚠️ **원격 herdr pane 은 대상이 아니다.** herdr 에는 tmux 사용자 옵션이 없고 자기 리모트가
-따로 있다 — 미지원이 결론이지 빠뜨린 것이 아니다. 그 세션에 건 stamp 는 그냥 실패한다.
+⚠️ **원격 맨 셸(`none`) pane 은 대상이 아니다.** 새길 tmux 옵션이 없다. 그 세션에 건
+stamp 는 그냥 실패한다.
 """
 from __future__ import annotations
 
@@ -96,7 +96,7 @@ async def stamp_remote_addresses(tabs: list) -> None:
     for (host_id, session), addr in desired.items():
         if _stamped_remote.get((host_id, session)) == addr:
             continue
-        # 실패는 캐시하지 않는다 — 안 붙어 있었거나 herdr 였다는 뜻이고, 다음 기회에
+        # 실패는 캐시하지 않는다 — 안 붙어 있었거나 tmux 가 아니었다는 뜻이고, 다음 기회에
         # 다시 시도해야 한다(성공만 캐시하는 규칙은 로컬 쪽과 같다).
         if await remote_panes.stamp(host_id, session, addr):
             _stamped_remote[(host_id, session)] = addr

@@ -35,8 +35,8 @@ const { request: requestLocalCwd } = createHostCwdBatcher({ fetchCwds: fetchLoca
  * 할 수 있어서다 — 상대 경로 계산을 여기 베끼면 두 곳이 반드시 어긋난다.
  * 그래서 `cd` 한 번당 배치된 요청 하나. 사람 속도로 일어나는 일이라 무시할 수 있다.
  *
- * ⚠️ 이 신호는 **로컬 tmux pane 에만** 온다. 원격 pane 의 tmux 는 그 호스트에 있고
- * herdr 에는 이 폴링이 없다 — 그쪽은 예전처럼 명시적 refresh 로만 갱신된다.
+ * ⚠️ 이 신호는 **로컬 tmux pane 에만** 온다. 원격 pane 의 tmux 는 그 호스트에 있다 —
+ * 그쪽은 예전처럼 명시적 refresh 로만 갱신된다.
  *
  * deferMs: delays the first lookup, for off-screen panes. A restored workspace
  * mounts every pane at once, so these lookups (a per-pane SSH round trip when

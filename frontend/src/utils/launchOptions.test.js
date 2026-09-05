@@ -11,7 +11,7 @@ describe('cleanLaunch', () => {
   });
 
   it('고른 것만 싣는다', () => {
-    expect(cleanLaunch({ multiplexer: 'herdr', shell: INHERIT })).toEqual({ multiplexer: 'herdr' });
+    expect(cleanLaunch({ multiplexer: 'tmux', shell: INHERIT })).toEqual({ multiplexer: 'tmux' });
     expect(cleanLaunch({ multiplexer: INHERIT, shell: 'zsh' })).toEqual({ shell: 'zsh' });
     expect(cleanLaunch({ multiplexer: 'none', shell: 'sh' })).toEqual({ multiplexer: 'none', shell: 'sh' });
   });

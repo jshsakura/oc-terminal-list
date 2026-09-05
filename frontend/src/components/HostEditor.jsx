@@ -97,9 +97,7 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
     setMuxChecking(false);
   }, [t]);
 
-  /* 세션 탭을 열 때 한 번만 물어본다. 폴링이 아니다 — SSH 왕복 하나다.
-     herdr 는 여기서 안 묻는다: 이 엔드포인트가 tmux 전용이고, 도구 설치 화면이 이미
-     그 호스트의 설치 여부를 보여 준다. 없으면 연결할 때 `mux-missing` 이 온다. */
+  /* 세션 탭을 열 때 한 번만 물어본다. 폴링이 아니다 — SSH 왕복 하나다. */
   useEffect(() => {
     if (!isOpen || heTab !== 'session') return;
     probeTmux(draft.multiplexer, host?.id);
@@ -115,9 +113,6 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
    * ⚠️ 없다고 해서 되돌리지 않는다 — 고른 값은 그대로 두고 경고만 붙인다. 이 앱은
    * 없으면 평범한 셸로 떨어지므로 터미널 자체는 열리고, 사용자는 도구 설치로 가서
    * 깔면 된다. 골랐는데 화면이 제멋대로 되돌아가는 쪽이 훨씬 나쁘다.
-   *
-   * herdr 는 여기서 안 물어본다: 확인 엔드포인트가 tmux 전용이고, 도구 설치 화면이
-   * 이미 그 호스트의 설치 여부를 보여 준다. 없으면 연결할 때 `mux-missing` 이 온다.
    */
   const openTailscalePicker = async () => {
     setTsPicker({ open: true, peers: [], loading: true, available: true });
@@ -349,8 +344,8 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
             <>
               <Section title={t('persistence') || 'Persistence'}>
                 {/* ⚠️ **여기서 고르지 않는다.** 설정 한 곳(설정 → 세션 멀티플렉서)이
-                    이 서버와 모든 호스트를 함께 정한다 — "herdr 로 두면 앞으로 여는 건
-                    전부 herdr". 호스트마다 또 고르게 두면 같은 결정이 두 자리에 생기고,
+                    이 서버와 모든 호스트를 함께 정한다. 호스트마다 또 고르게 두면 같은
+                    결정이 두 자리에 생기고,
                     전역 값을 바꿔도 옛 호스트들이 따라오지 않는다. */}
                 <Field
                   label={t('multiplexer') || 'Session multiplexer'}

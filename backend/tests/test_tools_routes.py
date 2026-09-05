@@ -21,14 +21,14 @@ from routes import tools as tools_route  # noqa: E402
 @pytest.mark.anyio
 async def test_builtin_cannot_be_deleted():
     with pytest.raises(HTTPException) as exc:
-        await tools_route.delete_tool("herdr", username="u")
+        await tools_route.delete_tool("tmux", username="u")
     assert exc.value.status_code == 409
 
 
 @pytest.mark.anyio
 async def test_builtin_cannot_be_updated():
     with pytest.raises(HTTPException) as exc:
-        await tools_route.update_tool("herdr", tools_route.ToolPatch(name="x"), username="u")
+        await tools_route.update_tool("tmux", tools_route.ToolPatch(name="x"), username="u")
     assert exc.value.status_code == 409
 
 
@@ -40,7 +40,7 @@ async def test_check_reports_unknown_when_the_host_cannot_be_reached():
         body = tools_route.CheckBody(host_id="h1")
         out = await tools_route.check_tools(body, username="u")
     assert out["error"]
-    assert out["results"]["herdr"]["installed"] is None
+    assert out["results"]["tmux"]["installed"] is None
 
 
 @pytest.mark.anyio
@@ -49,13 +49,13 @@ async def test_check_runs_locally_when_no_host_given():
          patch.object(tools_route.host_tools, "run_local_script",
                       AsyncMock(side_effect=lambda script, timeout=0: _fake_ok(script))):
         out = await tools_route.check_tools(tools_route.CheckBody(), username="u")
-    assert out["results"]["herdr"]["installed"] is True
+    assert out["results"]["tmux"]["installed"] is True
 
 
 def _fake_ok(script: str) -> str:
     """스크립트에 박힌 표식을 그대로 되돌려 준다 — 실제 셸이 하는 일과 같은 모양."""
     marker = re.search(r"@@TOOL[0-9a-f]+", script).group(0)
-    return f"{marker} herdr\n{marker} ok\n/usr/bin/herdr\n"
+    return f"{marker} tmux\n{marker} ok\n/usr/bin/tmux\n"
 
 
 def test_check_is_registered_before_the_param_route():
@@ -72,9 +72,9 @@ def test_check_is_registered_before_the_param_route():
 
 @pytest.mark.anyio
 async def test_install_refuses_tools_that_are_not_push_installed():
-    """herdr goes through a terminal the user watches — the backend must not run it."""
+    """tmux goes through a terminal the user watches — the backend must not run it."""
     with pytest.raises(HTTPException) as exc:
-        await tools_route.install_tool("herdr", tools_route.CheckBody(), username="u")
+        await tools_route.install_tool("tmux", tools_route.CheckBody(), username="u")
     assert exc.value.status_code == 404
 
 

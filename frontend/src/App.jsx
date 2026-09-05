@@ -955,7 +955,7 @@ function App() {
     const result = await typeIntoPane({ tabId }, command);
     if (result.ok) return;
     /* ⚠️ **조용히 성공한 척하지 않는다.** 실제로 oh-my-zsh 의 `[Y/n]` 프롬프트가 첫 글자를
-       먹어서 `url -fsSL … | sh` 만 남았고, 사용자는 `command not found` 를 보고 herdr
+       먹어서 `url -fsSL … | sh` 만 남았고, 사용자는 `command not found` 를 보고
        설치 스크립트를 의심했다. 이제 그걸 알아채므로, 알아챈 것을 말하고 붙여넣을 수
        있게 클립보드에 넣어 준다. */
     const copied = await copyToClipboard(command);

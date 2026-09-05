@@ -46,13 +46,13 @@ async def host_websocket(
     create: bool = Query(True, description="false면 없는 원격 tmux 세션을 새로 만들지 않고 연결만 시도"),
     multiplexer: str | None = Query(
         None,
-        description="이 원격 세션을 **새로 만들 때만** 쓰는 선택(tmux/herdr/none). 그 이름을 "
-                    "이미 붙잡고 있는 것이 있으면 원격 명령이 그것을 먼저 찾는다.",
+        description="이 원격 세션을 **새로 만들 때만** 쓰는 선택(tmux/none). 그 이름을 "
+                    "이미 tmux 가 붙잡고 있으면 원격 명령이 그것을 먼저 찾는다.",
     ),
     shell: str | None = Query(
         None,
-        description="이 원격 세션을 **새로 만들 때만** 쓰는 셸(bash/zsh/sh). herdr 는 셸을 "
-                    "인자로 받지 않아 무시된다. 그 호스트에 없으면 로그인 셸로 떨어진다.",
+        description="이 원격 세션을 **새로 만들 때만** 쓰는 셸(bash/zsh/sh). "
+                    "그 호스트에 없으면 로그인 셸로 떨어진다.",
     ),
     reason: str | None = Query(None, description="클라이언트가 이 연결을 연 사유(관측 전용, ws_observe 참고)"),
     prev_ms: int | None = Query(None, description="직전 소켓이 살아있던 시간(ms). 요동과 단발 끊김을 구별한다."),
@@ -87,13 +87,13 @@ async def host_websocket(
     except Exception:
         pass
 
-    # 무엇으로 열지는 **전역 설정**이 정한다 — "설정에서 herdr 로 두면 앞으로 여는 건
-    # 전부 herdr". 호스트 행에 값이 있으면(옛 `use_remote_tmux=0` 포함) 그것이 이긴다.
+    # 무엇으로 열지는 **전역 설정**이 정한다. 호스트 행에 값이 있으면(옛
+    # `use_remote_tmux=0` 포함) 그것이 이긴다.
     # 다만 폴더를 골라 여는 자리에서 이 pane 만 다르게 고를 수 있다(경로 픽커의 "터미널"
     # 칸). 그건 사용자가 **이번 한 번을 위해** 명시적으로 고른 값이라 호스트 행보다 위다 —
     # 전역 설정을 대신하는 것이지 두 번째 설정이 생기는 것이 아니다.
     # ⚠️ 이 값도 "만들 때" 만 쓰인다. `_build_remote_command` 는 그 이름을 tmux 가 잡고
-    # 있는지 herdr 가 잡고 있는지 **먼저 찾고**, 아무도 없을 때만 이 선택으로 만든다.
+    # 있는지 **먼저 찾고**, 아무도 없을 때만 이 선택으로 만든다.
     pane_multiplexer = (mux.normalize(multiplexer)
                         if isinstance(multiplexer, str) and multiplexer else None)
     # 🔐 이 값은 원격 셸 명령 문자열에 그대로 들어간다 — **화이트리스트 밖은 버린다.**
@@ -191,7 +191,7 @@ async def host_websocket(
             tmux_suffix=safe_suffix,
             tmux_session_name=safe_session_name,
             create_session=create,
-            # itl 표식 통로. 원격 팬의 주소록 열쇠는 그쪽 tmux/herdr 세션명이다
+            # itl 표식 통로. 원격 팬의 주소록 열쇠는 그쪽 tmux 세션명이다
             # (itl_router.native_addr 와 **같은 값**이어야 배달이 자기 자신을 찾는다).
             app_user=username,
             itl_key=target_tmux_session,
@@ -213,7 +213,7 @@ async def host_websocket(
             tmux_suffix=safe_suffix,
             tmux_session_name=safe_session_name,
             create_session=create,
-            # itl 표식 통로. 원격 팬의 주소록 열쇠는 그쪽 tmux/herdr 세션명이다
+            # itl 표식 통로. 원격 팬의 주소록 열쇠는 그쪽 tmux 세션명이다
             # (itl_router.native_addr 와 **같은 값**이어야 배달이 자기 자신을 찾는다).
             app_user=username,
             itl_key=target_tmux_session,
