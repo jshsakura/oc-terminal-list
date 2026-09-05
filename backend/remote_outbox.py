@@ -35,6 +35,9 @@ INTERVAL_ACTIVE_SEC = 5.0
 INTERVAL_IDLE_SEC = 30.0
 #: 한 호스트를 훑는 데 쓰는 상한. 이 저장소의 모든 기다림에는 상한이 있다.
 DRAIN_TIMEOUT_SEC = 15.0
+#: 한 주기에 동시에 훑는 호스트 수. 한 줄로 돌면 꺼진 호스트 하나가 상한(15s)만큼
+#: 나머지 전부의 회신을 미룬다 — 그런데 호스트 수만큼 한꺼번에 나가는 것도 부하다.
+DRAIN_CONCURRENCY = 4
 
 #: **붙어 있든 아니든 비우고 찍는다.** 한때 붙어 있는 세션을 건너뛰었는데(그쪽은 브리지의
 #: 표식 통로가 처리하므로) 그러면 그 통이 **영영 안 비워진다** — `itl` 은 언제나 두 통로로
@@ -127,14 +130,20 @@ async def drain_once(username: str) -> int:
     except Exception as e:                                   # noqa: BLE001
         logger.debug("원격 우편함: 주소록을 못 읽었다: %s", e)
         return 0
-    for host_id in host_ids:
-        try:
-            await _drain_host(host_id, username)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:                               # noqa: BLE001
-            # 꺼진 호스트가 하나 있다고 나머지를 못 걷으면 안 된다.
-            logger.debug("원격 우편함 훑기 실패 (%s): %s", host_id[:8], e)
+    gate = asyncio.Semaphore(DRAIN_CONCURRENCY)
+
+    async def _one(host_id: str) -> None:
+        async with gate:
+            try:
+                await _drain_host(host_id, username)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:                           # noqa: BLE001
+                # 꺼진 호스트가 하나 있다고 나머지를 못 걷으면 안 된다 — 그리고 그
+                # 호스트의 상한(15s)이 나머지의 회신을 미루지도 않는다(동시에 나간다).
+                logger.debug("원격 우편함 훑기 실패 (%s): %s", host_id[:8], e)
+
+    await asyncio.gather(*(_one(h) for h in sorted(host_ids)))
     return len(host_ids)
 
 

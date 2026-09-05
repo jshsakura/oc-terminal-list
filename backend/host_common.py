@@ -92,6 +92,40 @@ async def run_remote_cmd_full(host: dict, secrets: dict, cmd: str, timeout: floa
         await conn.wait_closed()
 
 
+async def run_remote_cmd_pooled(host: dict, secrets: dict, cmd: str, timeout: float = 10.0,
+                                stdin_data: str | None = None) -> tuple[int, str, str]:
+    """`run_remote_cmd_full` 과 같은 계약이되 **연결을 `ssh_pool` 로 재사용한다.**
+
+    매번 핸드셰이크를 새로 하면 짧은 명령 하나가 200~500ms 를 먼저 낸다 — itl 배달은
+    전달 + 회신 통지로 한 메시지에 둘이라 그 값이 두 배였다. 이 풀은 janitor 가 5분 idle 뒤
+    닫으므로 **짧은 명령**에만 쓴다(긴 작업은 위의 full 이 맞다).
+
+    tailscale 호스트는 재사용할 asyncssh 연결이 없어 그대로 서브프로세스다.
+    """
+    if host.get("auth_method") == "tailscale":
+        return await run_remote_cmd_full(host, secrets, cmd, timeout=timeout, stdin_data=stdin_data)
+    host_id = str(host.get("id") or "")
+    if not host_id:
+        return await run_remote_cmd_full(host, secrets, cmd, timeout=timeout, stdin_data=stdin_data)
+    from host_manager import open_connection
+    from ssh_pool import ssh_pool
+
+    async def _opener():
+        return await open_connection(
+            host,
+            private_key=secrets["private_key"],
+            passphrase=secrets["passphrase"],
+            password=secrets["password"],
+        )
+
+    kwargs = {"check": False}
+    if stdin_data is not None:
+        kwargs["input"] = stdin_data
+    result = await asyncio.wait_for(ssh_pool.run(host_id, _opener, cmd, **kwargs), timeout=timeout)
+    rc = result.exit_status if result.exit_status is not None else 0
+    return rc, _as_text(result.stdout), _as_text(result.stderr)
+
+
 MAX_COMMIT_MESSAGE_LEN = 4000
 MAX_REMOTE_PATH_LEN = 4096
 MAX_UPLOAD_FILE_BYTES = 200 * 1024 * 1024

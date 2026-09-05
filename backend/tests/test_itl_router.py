@@ -260,7 +260,7 @@ class TestDeliver:
         """⚠️ stdout alone reads a remote "no such pane" as success."""
         with (
             patch("host_common.resolve_host_with_secrets", AsyncMock(return_value=({"id": "h1"}, {}))),
-            patch("host_common.run_remote_cmd_full",
+            patch("host_common.run_remote_cmd_pooled",
                   AsyncMock(return_value=(2, "", "itl: 그런 팬이 없다: mobile-x"))),
         ):
             with pytest.raises(itl_router.DeliveryFailed) as e:
@@ -271,12 +271,23 @@ class TestDeliver:
         run = AsyncMock(return_value=(0, "", ""))
         with (
             patch("host_common.resolve_host_with_secrets", AsyncMock(return_value=({"id": "h1"}, {}))),
-            patch("host_common.run_remote_cmd_full", run),
+            patch("host_common.run_remote_cmd_pooled", run),
         ):
             await itl_router.deliver("u", "2.1", "안녕")
         kwargs = run.await_args.kwargs
         assert "def main(" in kwargs["stdin_data"]
         assert "python3 -" in run.await_args.args[2]
+
+    async def test_원격_실행은_연결_풀을_지난다(self):
+        """전달 + 회신 통지로 SSH 를 두 번 타는데, 매번 핸드셰이크면 그 둘이 곧 지연이다."""
+        with (
+            patch("host_common.resolve_host_with_secrets", AsyncMock(return_value=({"id": "h1"}, {}))),
+            patch("host_common.run_remote_cmd_pooled", AsyncMock(return_value=(0, "", ""))) as pooled,
+            patch("host_common.run_remote_cmd_full", AsyncMock()) as fresh,
+        ):
+            await itl_router.deliver("u", "2.1", "안녕")
+        pooled.assert_awaited_once()
+        fresh.assert_not_awaited()
 
     async def test_빈_팬에는_못_보낸다(self):
         with pytest.raises(itl_router.DeliveryFailed):

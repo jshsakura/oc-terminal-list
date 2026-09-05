@@ -84,6 +84,22 @@ class TestDrainOnce:
             await remote_outbox.drain_once("u")
         assert self.drain.await_count == 2
 
+    async def test_꺼진_호스트가_나머지의_회신을_미루지_않는다(self):
+        """한 줄로 돌면 상한(15s)에 걸린 호스트 하나가 뒤의 전부를 그만큼 늦춘다."""
+        import asyncio
+        order: list[str] = []
+
+        async def slow_then_fast(host_id, _user):
+            if host_id == "h1":
+                await asyncio.sleep(0.2)
+            order.append(host_id)
+
+        self.drain.side_effect = slow_then_fast
+        with patch.object(remote_outbox, "_hosts_with_remote_panes",
+                          AsyncMock(return_value={"h1", "h2"})):
+            await remote_outbox.drain_once("u")
+        assert order == ["h2", "h1"]          # h2 는 h1 의 대기를 기다리지 않았다
+
     async def test_주소록을_못_읽어도_던지지_않는다(self):
         with patch.object(remote_outbox, "_hosts_with_remote_panes",
                           AsyncMock(side_effect=RuntimeError("boom"))):

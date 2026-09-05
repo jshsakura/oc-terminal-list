@@ -102,8 +102,11 @@ async def _run_remote(host_id: str, username: str, args: list[str]) -> str:
 
     파일은 매번 stdin 으로 간다(llm_usage 수집기와 같은 규칙) — 설치 0, 포트 0,
     버전 드리프트 0. 원격이 낡은 itl 을 들고 있을 수가 없다.
+
+    연결은 `ssh_pool` 을 지난다. 배달 하나가 전달 + 회신 통지로 SSH 를 두 번 타는데,
+    매번 핸드셰이크를 새로 하면 그 둘이 곧 지연이었다.
     """
-    from host_common import resolve_host_with_secrets, run_remote_cmd_full
+    from host_common import resolve_host_with_secrets, run_remote_cmd_pooled
 
     try:
         host, secrets = await resolve_host_with_secrets(host_id, username)
@@ -113,9 +116,9 @@ async def _run_remote(host_id: str, username: str, args: list[str]) -> str:
     quoted = " ".join(shlex.quote(a) for a in args)
     cmd = f"{REMOTE_PATH_PREFIX}python3 - {quoted}"
     try:
-        rc, out, err = await run_remote_cmd_full(host, secrets, cmd,
-                                                 timeout=REMOTE_TIMEOUT_SEC,
-                                                 stdin_data=_itl_source())
+        rc, out, err = await run_remote_cmd_pooled(host, secrets, cmd,
+                                                   timeout=REMOTE_TIMEOUT_SEC,
+                                                   stdin_data=_itl_source())
     except asyncio.TimeoutError as e:
         raise DeliveryFailed(f"원격이 {REMOTE_TIMEOUT_SEC}s 안에 답하지 않았다") from e
     except Exception as e:
