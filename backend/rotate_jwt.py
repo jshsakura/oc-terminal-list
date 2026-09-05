@@ -21,7 +21,6 @@ import os
 import secrets
 import sqlite3
 import sys
-from datetime import datetime
 from pathlib import Path
 
 _THIS_DIR = Path(__file__).resolve().parent

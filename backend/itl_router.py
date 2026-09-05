@@ -182,14 +182,14 @@ async def deliver(username: str, addr: str, text: str, *, sender: str = "",
 
 #: 이미 배달한 (보낸팬, nonce). 표식 통로와 우편함 통로가 **둘 다 살아 있을 수 있어**
 #: (붙어 있는 팬은 양쪽으로 나간다) 같은 것을 두 번 꽂지 않기 위한 것.
-_delivered: OrderedDict[tuple[str, str], None] = OrderedDict()
+_delivered: OrderedDict[tuple[str, str, str], None] = OrderedDict()
 DELIVERED_MAX = 512
 
 
-def _already_delivered(sender_key: str, nonce: str | None) -> bool:
+def _already_delivered(sender_key: str, nonce: str | None, host_id: str | None = None) -> bool:
     if not nonce:
         return False                      # 난수가 없으면 판단하지 않는다(옛 클라이언트)
-    key = (sender_key, nonce)
+    key = (host_id or "", sender_key, nonce)
     if key in _delivered:
         return True
     _delivered[key] = None
@@ -227,13 +227,39 @@ async def notify(username: str, addr: str, text: str) -> bool:
         return False
 
 
-async def deliver_from_pane(username: str, sender_key: str, msg: dict) -> None:
+def sender_addr(targets: list[dict], sender_key: str, host_id: str | None) -> str:
+    """표식이 나온 세션 → 그 팬의 앱 주소. 못 찾으면 빈 문자열.
+
+    ⚠️ **세션 이름만으로는 모자란다.** 원격 세션의 기본 이름은 호스트마다 같은 `mobile` 이라,
+    호스트 둘에 각각 `mobile` 팬이 열려 있으면 이름만 보고는 어느 쪽이 보냈는지 알 수 없다 —
+    꼬리표(`[from 2.1]`)가 엉뚱한 팬을 가리키고, 전달 통지가 **다른 호스트의 팬 화면**에
+    찍힌다. 그래서 원격은 `hostId` 까지 맞춰 본다. 로컬 세션 id 는 UUID 라 이름만으로 된다.
+    `host_id` 를 모르는 옛 호출부는 이름이 **하나에만** 맞을 때만 인정한다.
+    """
+    if host_id:
+        hits = [t for t in targets
+                if t.get("kind") == "host" and t.get("hostId") == host_id
+                and t.get("tmuxSession") == sender_key]
+    else:
+        hits = [t for t in targets if t.get("kind") == "local" and t.get("sessionId") == sender_key]
+        if not hits:
+            hits = [t for t in targets if t.get("tmuxSession") == sender_key]
+            if len(hits) > 1:
+                logger.warning("itl: 보낸 세션 이름이 호스트 여럿에 있다 (%s) — 꼬리표를 뺀다",
+                               sender_key)
+                return ""
+    return hits[0]["addr"] if hits else ""
+
+
+async def deliver_from_pane(username: str, sender_key: str, msg: dict, *,
+                            host_id: str | None = None) -> None:
     """팬이 찍은 표식 하나를 배달한다 — 브리지가 부르는 진입점.
 
     ⚠️ **보낸 이는 여기서 되짚는다.** 페이로드의 자칭을 쓰면 팬 하나가 다른 팬을 사칭해
     "1.1 이 시켰다" 를 만들 수 있다. 우리는 그 표식이 어느 세션에서 나왔는지 알고 있다.
+    원격 팬이면 `host_id` 도 함께 — 세션 이름은 호스트 사이에서 유일하지 않다.
     """
-    if _already_delivered(sender_key, msg.get("n")):
+    if _already_delivered(sender_key, msg.get("n"), host_id):
         return                            # 다른 통로가 먼저 배달했다
     try:
         targets = await _targets_for(username)
@@ -241,7 +267,7 @@ async def deliver_from_pane(username: str, sender_key: str, msg: dict) -> None:
         logger.warning("itl 주소록을 못 읽었다: %s", e)
         return
 
-    sender = next((t["addr"] for t in targets if native_addr(t) == sender_key), "")
+    sender = sender_addr(targets, sender_key, host_id)
     try:
         await deliver(username, msg["to"], msg["text"], sender=sender)
         await _ack_ok(username, sender, msg.get("to", ""))

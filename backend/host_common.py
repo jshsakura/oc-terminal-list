@@ -62,7 +62,16 @@ async def run_remote_cmd_full(host: dict, secrets: dict, cmd: str, timeout: floa
             stderr=asyncio.subprocess.PIPE,
         )
         payload = stdin_data.encode() if stdin_data is not None else None
-        stdout, stderr = await asyncio.wait_for(proc.communicate(input=payload), timeout=timeout)
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(input=payload), timeout=timeout)
+        except asyncio.TimeoutError:
+            # ⚠️ wait_for 는 communicate 만 취소한다. 프로세스를 안 죽이면 `tailscale ssh` 가
+            # 매달린 채 남아 상한을 둔 뜻이 없어진다(asyncssh 갈래는 finally 가 conn 을 닫는다).
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            raise
         return proc.returncode or 0, _as_text(stdout), _as_text(stderr)
     from host_manager import open_connection
     conn = await open_connection(

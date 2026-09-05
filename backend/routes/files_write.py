@@ -86,17 +86,23 @@ async def upload_files(
     total = 0
     upload_chunk = 1024 * 1024  # 1 MB
     for f in files:
-        filename = os.path.basename(f.filename or "")
-        if not filename:
+        filename = os.path.basename((f.filename or "").replace("\\", "/"))
+        # ⚠️ `.` 과 `..` 는 basename 을 통과한다. `dest / "."` 는 pathlib 이 접어 dest 자신이
+        # 되고, 그때 `.part` 임시 파일이 **dest 의 형제**(워크스페이스 루트면 그 바깥)에
+        # 만들어졌다 — 업로드 상한(200MB)만큼 워크스페이스 밖에 썼다가 지우는 셈이다.
+        if not filename or filename in (".", ".."):
             continue
         target = dest_path / filename
-        if not str(target.resolve()).startswith(str(workspace.resolve())):
-            raise HTTPException(status_code=403, detail="Path outside workspace")
+        try:
+            target.resolve().relative_to(workspace.resolve())
+        except ValueError:
+            raise HTTPException(status_code=403, detail="Path outside workspace") from None
         target.parent.mkdir(parents=True, exist_ok=True)
         # 스트리밍 쓰기 — f.read() 로 전체 메모리 적재 시 200MB×N 업로드가 OOM 위험.
         # 청크 단위로 디스크에 직접 쓰고, 한도 초과 시 부분 파일 삭제.
         file_size = 0
-        tmp = target.with_suffix(target.suffix + ".part")
+        # 임시 파일은 **같은 폴더 안**에 둔다 — 이름을 바꿔 붙이면 위의 함정을 되살린다.
+        tmp = target.parent / f".{filename}.part"
         try:
             with open(tmp, "wb") as out:
                 while True:

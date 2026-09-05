@@ -308,9 +308,32 @@ class TestDeliverFromPane:
             patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
             patch.object(itl_router, "_run_local", AsyncMock(return_value="")) as local,
         ):
-            # 표식에는 보낸이 칸이 아예 없다. 열쇠(mobile-x)로 2.1 을 되짚어야 한다.
-            await itl_router.deliver_from_pane("u", "mobile-x", {"to": "1.1", "text": "보고"})
+            # 표식에는 보낸이 칸이 아예 없다. 열쇠(h1/mobile-x)로 2.1 을 되짚어야 한다.
+            await itl_router.deliver_from_pane("u", "mobile-x", {"to": "1.1", "text": "보고"},
+                                               host_id="h1")
         assert local.await_args.args[0][2] == "[from 2.1] 보고"
+
+    async def test_같은_세션_이름이_호스트_둘에_있어도_제_팬을_찾는다(self):
+        """원격 기본 세션명은 어느 호스트나 `mobile` 이다. 이름만 보면 먼저 나온 호스트가
+        보낸 것으로 읽혀 꼬리표가 틀리고, 전달 통지가 **다른 호스트의 팬**에 찍힌다."""
+        twins = [
+            {"addr": "1.1", "kind": "host", "hostId": "h1", "tmuxSession": "mobile", "sessionId": None},
+            {"addr": "2.1", "kind": "host", "hostId": "h2", "tmuxSession": "mobile", "sessionId": None},
+            {"addr": "3.1", "kind": "local", "hostId": None, "tmuxSession": None, "sessionId": "sess-a"},
+        ]
+        assert itl_router.sender_addr(twins, "mobile", "h2") == "2.1"
+        assert itl_router.sender_addr(twins, "mobile", "h1") == "1.1"
+        assert itl_router.sender_addr(twins, "sess-a", None) == "3.1"
+        # 호스트를 모르는 옛 호출부: 하나에만 맞을 때만 인정하고, 모호하면 꼬리표를 뺀다.
+        assert itl_router.sender_addr(twins, "mobile", None) == ""
+        assert itl_router.sender_addr(twins[1:], "mobile", None) == "2.1"
+
+    async def test_중복_접기는_호스트까지_본다(self):
+        """같은 난수가 호스트 둘에서 우연히 겹쳐도 한쪽 배달을 삼키면 안 된다."""
+        itl_router._delivered.clear()
+        assert not itl_router._already_delivered("mobile", "n1", "h1")
+        assert not itl_router._already_delivered("mobile", "n1", "h2")
+        assert itl_router._already_delivered("mobile", "n1", "h1")
 
     async def test_배달_실패는_보낸_팬에_알린다(self):
         """조용히 성공한 척하면 보낸 에이전트는 상대가 받았다고 믿는다."""

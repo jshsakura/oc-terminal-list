@@ -30,7 +30,7 @@ import os
 import uuid
 
 from sqlite_storage import storage
-from vault import decrypt_str, encrypt_str
+from vault import encrypt_str
 
 logger = logging.getLogger(__name__)
 

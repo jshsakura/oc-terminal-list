@@ -115,8 +115,9 @@ async def _drain_host(host_id: str, username: str) -> None:
         if not msg:
             logger.info("원격 우편함의 모양이 아니다 (%s/%s)", host_id[:8], session)
             continue
-        # 보낸 이는 **세션 이름**으로 되짚는다 — 주소록의 `tmuxSession` 과 같은 값이다.
-        await deliver_from_pane(username, session, msg)
+        # 보낸 이는 **호스트 + 세션 이름**으로 되짚는다 — 주소록의 `hostId`/`tmuxSession`
+        # 과 같은 값이다. 이름만으로는 호스트마다 같은 `mobile` 을 못 가른다.
+        await deliver_from_pane(username, session, msg, host_id=host_id)
 
 
 async def drain_once(username: str) -> int:

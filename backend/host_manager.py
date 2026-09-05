@@ -445,7 +445,8 @@ class HostBridge:
         """표식 하나를 라우터로. 던지면 출력 펌프가 죽으므로 전부 삼킨다."""
         try:
             from itl_router import deliver_from_pane
-            await deliver_from_pane(self.app_user, self.itl_key or "", msg)
+            await deliver_from_pane(self.app_user, self.itl_key or "", msg,
+                                    host_id=str(self.host.get("id") or "") or None)
         except Exception as e:  # noqa: BLE001
             logger.warning("itl dispatch failed (%s): %s", self.itl_key, e)
 
@@ -886,7 +887,8 @@ class TailscaleHostBridge:
         """표식 하나를 라우터로. 던지면 출력 펌프가 죽으므로 전부 삼킨다."""
         try:
             from itl_router import deliver_from_pane
-            await deliver_from_pane(self.app_user, self.itl_key or "", msg)
+            await deliver_from_pane(self.app_user, self.itl_key or "", msg,
+                                    host_id=str(self.host.get("id") or "") or None)
         except Exception as e:  # noqa: BLE001
             logger.warning("itl dispatch failed (%s): %s", self.itl_key, e)
 
