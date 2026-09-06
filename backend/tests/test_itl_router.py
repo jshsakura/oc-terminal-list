@@ -13,6 +13,14 @@ import itl_channel
 import itl_router
 from itl_channel import MARKER, SentinelScanner, parse_sentinel
 
+
+@pytest.fixture(autouse=True)
+def _fresh_router_state():
+    """발신 속도 제한과 중복 접기는 모듈 상태다 — 한 테스트의 배달이 다음 테스트를 막으면 안 된다."""
+    itl_router._sends.clear()
+    itl_router._delivered.clear()
+    yield
+
 KEY = "0123456789abcdef0123456789abcdef"
 _nonce = [0]
 
@@ -537,3 +545,36 @@ class TestOutboxChannel:
         loader.exec_module(mod)
         assert mod.TMUX_OUTBOX_OPTION == OUTBOX_OPTION
         assert f"#{{{OUTBOX_OPTION}}}" in agent_status_watcher.PANE_FORMAT
+
+
+class TestSenderRate:
+    """우편함 통로는 스캐너를 안 지난다 — 서로 답하는 두 에이전트를 여기서도 끊는다."""
+
+    def setup_method(self):
+        itl_router._sends.clear()
+
+    def test_창_안에서_상한을_넘기면_막는다(self):
+        ok = [itl_router._sender_rate_ok("s", "h1", now=100.0 + i) for i in range(6)]
+        assert ok == [True] * 5 + [False]
+
+    def test_창이_지나면_다시_연다(self):
+        for i in range(5):
+            itl_router._sender_rate_ok("s", None, now=100.0 + i)
+        assert not itl_router._sender_rate_ok("s", None, now=104.5)
+        assert itl_router._sender_rate_ok("s", None, now=100.0 + itl_router.RATE_WINDOW_SEC + 0.1)
+
+    def test_팬마다_따로_센다(self):
+        for i in range(5):
+            itl_router._sender_rate_ok("s", "h1", now=100.0 + i)
+        assert itl_router._sender_rate_ok("s", "h2", now=104.0)
+        assert itl_router._sender_rate_ok("t", "h1", now=104.0)
+
+    async def test_상한을_넘긴_배달은_버린다(self):
+        with (
+            patch.object(itl_router, "_targets_for", AsyncMock(return_value=TARGETS)),
+            patch.object(itl_router, "_run_local", AsyncMock(return_value="")) as local,
+        ):
+            for i in range(itl_router.RATE_MAX_SENDS + 2):
+                await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x", "n": f"n{i}"})
+        # 배달 + 전달 통지 = 호출 둘, 상한만큼만
+        assert local.await_count == itl_router.RATE_MAX_SENDS * 2

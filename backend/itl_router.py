@@ -22,6 +22,7 @@ import asyncio
 import logging
 import re
 import shlex
+import time
 from collections import OrderedDict
 from pathlib import Path
 
@@ -183,6 +184,29 @@ async def deliver(username: str, addr: str, text: str, *, sender: str = "",
     return {"ok": True, "addr": addr, "kind": target.get("kind"), "detail": out.strip()[:200]}
 
 
+#: 우편함 통로는 스캐너를 안 지나므로 그쪽의 속도 제한이 없다. 서로 답하는 두 에이전트는
+#: 폴링 주기마다 한 번씩 영영 주고받을 수 있다 — 여기서 **보낸 팬 단위**로 한 번 더 막는다.
+#: 값은 `itl_channel` 과 같다(한 팬이 두 통로로 나가도 합쳐서 이 안).
+RATE_WINDOW_SEC = 10.0
+RATE_MAX_SENDS = 5
+_sends: dict[tuple[str, str], list[float]] = {}
+
+
+def _sender_rate_ok(sender_key: str, host_id: str | None, now: float | None = None) -> bool:
+    now = time.monotonic() if now is None else now
+    key = (host_id or "", sender_key)
+    hits = [t for t in _sends.get(key, []) if now - t < RATE_WINDOW_SEC]
+    if len(hits) >= RATE_MAX_SENDS:
+        _sends[key] = hits
+        return False
+    hits.append(now)
+    _sends[key] = hits
+    if len(_sends) > 256:                 # 죽은 팬의 항목이 쌓이지 않게
+        for stale in [k for k, v in _sends.items() if not v or now - v[-1] >= RATE_WINDOW_SEC]:
+            _sends.pop(stale, None)
+    return True
+
+
 #: 이미 배달한 (보낸팬, nonce). 표식 통로와 우편함 통로가 **둘 다 살아 있을 수 있어**
 #: (붙어 있는 팬은 양쪽으로 나간다) 같은 것을 두 번 꽂지 않기 위한 것.
 _delivered: OrderedDict[tuple[str, str, str], None] = OrderedDict()
@@ -264,6 +288,11 @@ async def deliver_from_pane(username: str, sender_key: str, msg: dict, *,
     """
     if _already_delivered(sender_key, msg.get("n"), host_id):
         return                            # 다른 통로가 먼저 배달했다
+    if not _sender_rate_ok(sender_key, host_id):
+        # ⚠️ 조용하지 않게. 고리에 빠진 팬은 로그에서만 보인다.
+        logger.warning("itl 발신 속도 제한 (%s/%s): >%d/%ss",
+                       host_id or "local", sender_key, RATE_MAX_SENDS, RATE_WINDOW_SEC)
+        return
     try:
         targets = await _targets_for(username)
     except Exception as e:

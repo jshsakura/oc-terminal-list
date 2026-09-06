@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+import shlex
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,37 @@ DRAIN_CONCURRENCY = 4
 #: 큰따옴표 안의 `\t` 는 백슬래시와 t 두 글자로 그대로 나가고, 그러면 `read` 가 못 쪼개
 #: **아무것도 안 걷힌다**(조용히). 그래서 파이썬 쪽에서 실제 탭 문자를 박는다.
 _TAB = "\t"
+
+#: tmux 세션명·주소는 우리가 만든 값이라 셸 인용을 지나도 그대로다. 그래도 인용한다.
+_SESSION_SAFE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+_ADDR_SAFE = re.compile(r"^\d+\.\d+$")
+
+
+def stamp_prefix(addrs: dict[str, str]) -> str:
+    """이 호스트의 세션마다 `@pane_addr` 를 다시 새기는 명령 조각.
+
+    ⚠️ **왜 여기서 새기는가.** 붙어 있는 팬은 브리지가 살아 있는 SSH 로 다시 쓰지만, 붙어
+    있지 않은 팬과 Tailscale 팬(재사용할 asyncssh 연결이 없다)은 번호가 밀려도 다음 attach
+    까지 낡은 주소를 들고 있었다. 낡은 주소는 장식 문제가 아니다 — 그 호스트에서 `itl send
+    1.3` 을 치면 **로컬 탐색이 `@pane_addr` 로 먼저 푼다**(백엔드 없이). 낡은 값이 맞으면
+    엉뚱한 팬에 Enter 까지 눌린다. 이 훑기는 원격 팬이 있는 호스트를 어차피 5~30초마다
+    한 번 도니 같은 왕복에 얹는다. 없는 세션은 `2>/dev/null` 로 조용히 실패한다.
+    """
+    parts = []
+    for session, addr in sorted(addrs.items()):
+        if not (_SESSION_SAFE.match(session or "") and _ADDR_SAFE.match(addr or "")):
+            continue
+        parts.append(
+            f"tmux set-option -t {shlex.quote(session)} @pane_addr {shlex.quote(addr)} "
+            ">/dev/null 2>&1; "
+        )
+    return "".join(parts)
+
+
+def drain_command(addrs: dict[str, str] | None = None) -> str:
+    """주소 새기기 + 우편함 비우고 걷기 — **한 왕복**."""
+    return stamp_prefix(addrs or {}) + DRAIN_CMD
+
 
 DRAIN_CMD = (
     'tmux list-sessions '
@@ -90,28 +123,22 @@ async def _hosts_with_remote_panes(username: str) -> set[str]:
 
 
 async def _drain_host(host_id: str, username: str) -> None:
-    from host_common import resolve_host_with_secrets
-    from host_manager import open_connection
+    from host_common import resolve_host_with_secrets, run_remote_cmd_pooled
     from itl_channel import parse_sentinel
     from itl_router import deliver_from_pane
-    from ssh_pool import ssh_pool
+    from pane_addr import remote_addresses_for_host
 
     host, secrets = await resolve_host_with_secrets(host_id, username)
-
-    async def _opener():
-        return await open_connection(
-            host,
-            private_key=secrets["private_key"],
-            passphrase=secrets["passphrase"],
-            password=secrets["password"],
-        )
-
-    result = await asyncio.wait_for(
-        ssh_pool.run(host_id, _opener, DRAIN_CMD, check=False),
-        timeout=DRAIN_TIMEOUT_SEC,
-    )
-    raw = result.stdout if isinstance(result.stdout, str) else (result.stdout or b"").decode(
-        "utf-8", errors="replace"
+    try:
+        addrs = await remote_addresses_for_host(username, host_id)
+    except Exception as e:                                   # noqa: BLE001
+        logger.debug("원격 우편함: 주소를 못 읽었다 (%s): %s", host_id[:8], e)
+        addrs = {}
+    # ⚠️ `ssh_pool` 을 직접 열면 Tailscale 호스트가 통째로 빠진다 — `open_connection` 은
+    # tailscale 인증을 모르고 던지므로 그 호스트의 우편함은 **한 번도 안 걷혔다.**
+    # `run_remote_cmd_pooled` 가 갈래를 안다(asyncssh 는 풀, tailscale 은 서브프로세스).
+    _rc, raw, _err = await run_remote_cmd_pooled(
+        host, secrets, drain_command(addrs), timeout=DRAIN_TIMEOUT_SEC,
     )
     for session, payload in parse_drain(raw):
         msg = parse_sentinel(payload)

@@ -146,6 +146,22 @@ def note_attached(host_id: str, session: str, addr: str) -> None:
         _stamped_remote.pop(key, None)
 
 
+async def remote_addresses_for_host(username: str, host_id: str) -> dict[str, str]:
+    """이 사용자의 저장된 탭 상태에서 그 호스트의 `{원격 세션명: 주소}` 전부.
+
+    원격 우편함 훑기가 같은 왕복에 주소를 다시 새기는 데 쓴다 — 붙어 있지 않은 팬과
+    Tailscale 팬은 브리지 stamp 가 닿지 않아 번호가 밀리면 낡은 채 남았다.
+    """
+    from sqlite_storage import storage
+    state = await storage.get_tab_state(username) or {}
+    want = str(host_id or "")
+    return {
+        session: addr
+        for (hid, session), addr in remote_addresses(state.get("tabs") or []).items()
+        if hid == want
+    }
+
+
 async def remote_address_for(username: str, host_id: str, session: str) -> str:
     """이 사용자의 저장된 탭 상태에서 그 원격 세션의 주소를 찾는다. 모르면 빈 문자열."""
     from sqlite_storage import storage

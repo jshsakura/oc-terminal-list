@@ -118,3 +118,38 @@ class TestDrainerLoop:
 
     async def test_기다림에는_상한이_있다(self):
         assert 0 < remote_outbox.DRAIN_TIMEOUT_SEC <= 30
+
+
+class TestDrainHost:
+    """훑기 한 번이 곧 왕복 하나 — 그 안에 주소 새기기까지 얹는다."""
+
+    def test_주소를_같은_명령에_새긴다(self):
+        cmd = remote_outbox.drain_command({"mobile": "1.2", "mobile-x": "2.1"})
+        assert "set-option -t mobile @pane_addr 1.2" in cmd
+        assert "set-option -t mobile-x @pane_addr 2.1" in cmd
+        assert cmd.endswith(remote_outbox.DRAIN_CMD)
+        assert cmd.index("@pane_addr") < cmd.index("list-sessions")
+
+    def test_모양이_아닌_값은_명령에_안_싣는다(self):
+        """세션명·주소는 우리가 만든 값이지만 셸 명령에 들어가는 이상 걸러 둔다."""
+        cmd = remote_outbox.drain_command({"a b; rm -rf /": "1.1", "ok": "x.y"})
+        assert "rm -rf" not in cmd and "x.y" not in cmd
+        assert cmd == remote_outbox.DRAIN_CMD
+
+    async def test_tailscale_호스트도_걷는다(self):
+        """⚠️ `ssh_pool` 을 직접 열면 tailscale 인증을 모르는 `open_connection` 이 던져
+        그 호스트의 우편함은 **한 번도 안 걷혔다.**"""
+        run = AsyncMock(return_value=(0, 'mobile\t{"to":"1.1","text":"hi","n":"ab"}\n', ""))
+        with (
+            patch("host_common.resolve_host_with_secrets",
+                  AsyncMock(return_value=({"id": "h1", "auth_method": "tailscale"}, {}))),
+            patch("host_common.run_remote_cmd_pooled", run),
+            patch("pane_addr.remote_addresses_for_host", AsyncMock(return_value={"mobile": "3.1"})),
+            patch("itl_router.deliver_from_pane", AsyncMock()) as deliver,
+        ):
+            await remote_outbox._drain_host("h1", "u")
+        cmd = run.await_args.args[2]
+        assert "set-option -t mobile @pane_addr 3.1" in cmd and "list-sessions" in cmd
+        deliver.assert_awaited_once()
+        assert deliver.await_args.kwargs == {"host_id": "h1"}
+        assert deliver.await_args.args[1] == "mobile"
