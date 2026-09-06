@@ -1,5 +1,3 @@
-import pytest
-import os
 from vault import encrypt_str, decrypt_str, reencrypt_legacy
 
 def test_encrypt_decrypt_roundtrip():

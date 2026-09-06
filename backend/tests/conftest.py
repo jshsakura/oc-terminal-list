@@ -33,8 +33,13 @@ for _var in ("TMUX", "TMUX_PANE", "ITL_KEY"):
 
 @pytest.fixture(autouse=True)
 def _itl_secret_in_tmp(tmp_path, monkeypatch):
+    import itl_channel
     import itl_key
     monkeypatch.setenv("ITL_SECRET_PATH", str(tmp_path / ".itl-secret"))
+    # 재생 억제 집합도 파일이다 — 운영 `data/.itl-seen` 에 테스트 표식이 쌓이면 안 된다.
+    monkeypatch.setenv("ITL_SEEN_PATH", str(tmp_path / ".itl-seen"))
     itl_key.reset_cache()
+    itl_channel.reset_seen_for_tests()
     yield
     itl_key.reset_cache()
+    itl_channel.reset_seen_for_tests()

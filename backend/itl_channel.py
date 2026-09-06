@@ -36,9 +36,11 @@ import codecs
 import hashlib
 import json
 import logging
+import os
 import re
 import time
 from collections import OrderedDict
+from pathlib import Path
 
 import itl_key
 
@@ -61,8 +63,61 @@ RATE_MAX_SENDS = 5
 #: Recently seen lines remembered for replay suppression. Bounded; shared by every
 #: scanner in the process, because a reconnect makes a new scanner and tmux's attach
 #: redraw can re-emit a marker line that is still on screen.
+#:
+#: ⚠️ **Persisted across restarts.** tmux sessions outlive the backend, and so does the
+#: marker line sitting on a pane's screen. A process-local set forgets it on restart, and
+#: the first re-attach (or a scroll through copy-mode) redraws that line into a fresh
+#: scanner — which delivers it again. The digests are appended to a small file under
+#: `data/` (`ITL_SEEN_PATH` overrides; tests point it at tmp).
 SEEN_MAX = 1024
 _seen: OrderedDict[str, None] = OrderedDict()
+_seen_loaded = False
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+_DEFAULT_SEEN_PATH = _PROJECT_ROOT / "data" / ".itl-seen"
+
+
+def _seen_path() -> Path:
+    return Path(os.getenv("ITL_SEEN_PATH") or _DEFAULT_SEEN_PATH)
+
+
+def _load_seen() -> None:
+    """Read the persisted digests once per process. Missing or unreadable → empty."""
+    global _seen_loaded
+    if _seen_loaded:
+        return
+    _seen_loaded = True
+    try:
+        lines = _seen_path().read_text(encoding="utf-8").split()
+    except FileNotFoundError:
+        return
+    except Exception as e:                                   # noqa: BLE001
+        logger.warning("itl seen-set unreadable (%s): %s", _seen_path(), e)
+        return
+    for digest in lines[-SEEN_MAX:]:
+        _seen[digest] = None
+
+
+def _persist_seen(digest: str) -> None:
+    """Append one digest; rewrite the file when it has grown past twice the cap.
+
+    Best effort — a full disk must not stop delivery, and the in-memory set still
+    protects this process.
+    """
+    path = _seen_path()
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(digest + "\n")
+        if path.stat().st_size > (len(digest) + 1) * SEEN_MAX * 2:
+            path.write_text("".join(d + "\n" for d in _seen), encoding="utf-8")
+    except Exception as e:                                   # noqa: BLE001
+        logger.debug("itl seen-set not persisted: %s", e)
+
+
+def reset_seen_for_tests() -> None:
+    global _seen_loaded
+    _seen.clear()
+    _seen_loaded = False
 
 #: Address shape (`tab.pane`) — the only thing this channel can deliver to.
 ADDR_RE = re.compile(r"^\d+\.\d+$")
@@ -104,12 +159,14 @@ class SentinelScanner:
 
     @staticmethod
     def _seen_before(line: str) -> bool:
+        _load_seen()
         digest = hashlib.sha256(line.encode("utf-8", errors="replace")).hexdigest()
         if digest in _seen:
             return True
         _seen[digest] = None
         while len(_seen) > SEEN_MAX:
             _seen.popitem(last=False)
+        _persist_seen(digest)
         return False
 
     def _log_mismatch(self, now: float, to: str) -> None:

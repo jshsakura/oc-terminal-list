@@ -141,6 +141,26 @@ class TestSentinelScanner:
         assert plain(scanner().feed(raw)) == [{"to": "1.1", "text": "x"}]
         assert scanner().feed(raw) == []
 
+    def test_재생_억제는_백엔드_재시작을_넘어_산다(self, tmp_path, monkeypatch):
+        """화면에 남은 표식 줄은 재시작 뒤 첫 re-attach 의 재그리기로 다시 들어온다.
+        메모리만 믿으면 그때 한 번 더 배달된다 — 실제로 그 경로가 남아 있었다."""
+        monkeypatch.setenv("ITL_SEEN_PATH", str(tmp_path / "seen"))
+        itl_channel.reset_seen_for_tests()
+        raw = line("1.1", "한 번만")
+        assert plain(scanner().feed(raw)) == [{"to": "1.1", "text": "한 번만"}]
+        itl_channel.reset_seen_for_tests()          # = 프로세스 재시작
+        assert scanner().feed(raw) == []
+        assert (tmp_path / "seen").read_text().strip()
+
+    def test_재생_파일이_없거나_깨져도_배달은_된다(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("ITL_SEEN_PATH", str(tmp_path / "nope" / "seen"))
+        itl_channel.reset_seen_for_tests()
+        assert len(scanner().feed(line("1.1", "x"))) == 1
+        (tmp_path / "bad").write_bytes(b"\xff\xfe not utf8")
+        monkeypatch.setenv("ITL_SEEN_PATH", str(tmp_path / "bad"))
+        itl_channel.reset_seen_for_tests()
+        assert len(scanner().feed(line("1.1", "y"))) == 1
+
     def test_배달_메시지에_열쇠는_실리지_않는다(self):
         """난수(`n`)는 실린다 — 두 통로(표식·우편함)의 중복을 라우터가 그걸로 접는다."""
         got = scanner().feed(line("1.1", "x"))
