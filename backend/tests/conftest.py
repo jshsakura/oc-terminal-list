@@ -21,6 +21,15 @@ import pytest
 # conftest 는 테스트 모듈보다 먼저 import 되므로 여기서 지우면 in-memory 로 뜬다.
 os.environ.pop("REDIS_URL", None)
 
+# ⚠️ 테스트는 **자기가 도는 팬의 tmux 에 닿지 않는다.**
+# pytest 를 이 앱의 팬 안에서 돌리면 `TMUX`/`TMUX_PANE` 이 그 세션을 가리킨다. `cli/itl` 의
+# `put_outbox`·`my_key` 는 그 값으로 **진짜** 세션 옵션을 세우고 읽는다 — 실제로
+# `send_app_addr("1.2", "hi")` 를 부르는 테스트가 이 팬의 우편함을 세워, 백엔드가 그것을
+# 다른 호스트의 팬 1.2 에 "[from 5.1] hi" 로 배달했다(2026-09-06, 스위트를 돌릴 때마다).
+# 필요한 테스트는 monkeypatch 로 명시적으로 세운다.
+for _var in ("TMUX", "TMUX_PANE", "ITL_KEY"):
+    os.environ.pop(_var, None)
+
 
 @pytest.fixture(autouse=True)
 def _itl_secret_in_tmp(tmp_path, monkeypatch):

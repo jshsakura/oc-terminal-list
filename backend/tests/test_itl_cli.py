@@ -248,13 +248,21 @@ class TestKey:
     def test_열쇠_없이는_표식을_찍지_않는다(self, monkeypatch, capsys):
         """A marker without the key is dropped by the bridge — say so instead of printing it."""
         monkeypatch.setattr(itl, "my_key", lambda: "")
+        outbox: list[str] = []
+        monkeypatch.setattr(itl, "put_outbox", lambda line: outbox.append(line) or True)
         ok, why = itl.send_app_addr("1.2", "hi")
         assert not ok and "열쇠" in why
         assert itl.SEND_MARKER not in capsys.readouterr().out
+        assert outbox == []                 # 열쇠가 없으면 우편함도 안 세운다
 
     def test_표식에는_열쇠와_난수가_실린다(self, monkeypatch, capsys):
+        # ⚠️ `put_outbox` 를 반드시 막는다. 이 테스트가 이 팬의 tmux 안에서 돌면 **진짜**
+        # 우편함을 세워 백엔드가 다른 호스트의 팬 1.2 에 "hi" 를 배달한다(실제로 그랬다).
+        outbox: list[str] = []
+        monkeypatch.setattr(itl, "put_outbox", lambda line: outbox.append(line) or True)
         monkeypatch.setattr(itl, "my_key", lambda: "k" * 32)
         assert itl.send_app_addr("1.2", "hi") == (True, "")
+        assert len(outbox) == 1 and json.loads(outbox[0])["to"] == "1.2"   # 두 통로로 나간다
         out = capsys.readouterr().out
         assert out.startswith(itl.SEND_MARKER + " ")
         payload = json.loads(out[len(itl.SEND_MARKER):])
@@ -263,6 +271,20 @@ class TestKey:
         # two sends of the same text are distinct lines (replay suppression must not eat them)
         itl.send_app_addr("1.2", "hi")
         assert json.loads(capsys.readouterr().out[len(itl.SEND_MARKER):])["n"] != payload["n"]
+
+
+class TestNoLiveTmuxFromTests:
+    """스위트가 자기가 도는 팬의 tmux 에 닿지 않는다(conftest 가 환경을 지운다)."""
+
+    def test_환경에_tmux_가_없다(self):
+        import os
+        assert "TMUX" not in os.environ and "TMUX_PANE" not in os.environ
+
+    def test_put_outbox_는_tmux_환경이_없으면_아무것도_안_한다(self, monkeypatch):
+        calls = []
+        monkeypatch.setattr(itl, "run", lambda argv, **kw: calls.append(argv) or (0, "", ""))
+        assert itl.put_outbox("{}") is False
+        assert calls == []
 
 
 class TestIsAgent:
