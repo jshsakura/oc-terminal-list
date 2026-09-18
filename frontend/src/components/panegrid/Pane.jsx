@@ -15,7 +15,6 @@ import useActiveTerminalCwd from '../../hooks/useActiveTerminalCwd';
 import { killPaneSession } from '../../utils/restartSession';
 import EmptyPane from './EmptyPane';
 import { collectOtherPaneSessions } from '../../utils/paneSessions';
-import useAppConfig from '../../hooks/useAppConfig';
 import { copyToClipboard } from '../../utils/clipboard';
 import { buildItlHandle, itlHandleLabel } from '../../utils/itlHandle';
 import { EINK_THEME_ID } from '../../utils/einkMode';
@@ -375,10 +374,9 @@ const Pane = ({
     if (terminalReady && !paneCwdAbs) setCwdReadyTick((n) => n + 1);
   }, [terminalReady, paneCwdAbs]);
 
-  /* ⚠️ **`paneCwdAbs` 선언 뒤여야 한다** — const 라 위에서 부르면 TDZ 로 마운트가 죽는다.
-     복사 핸들 — `itl send 1.2 'TEXT'`. **`itl` 이 이 서버에 있을 때만** 내민다:
-     받아서 붙여넣는 쪽에 없으면 `command not found` 로 끝나기 때문이다. */
-  const { itl_available: itlAvailable } = useAppConfig();
+  /* Keep this below `paneCwdAbs`; moving it above the const triggers the TDZ during mount.
+     The copied handle is `itl send 1.2 'TEXT'`. A routable address is always copyable because
+     this app cannot know the destination shell, and tool availability can change without reload. */
   const handleCopyPaneTarget = useCallback(() => {
     const server = pane.hostId
       ? (hosts.find((h) => h.id === pane.hostId)?.name || pane.hostId)
@@ -714,7 +712,7 @@ const Pane = ({
           sessionStatus={terminalStatus}
           sessionTargets={sessionTargets}
           paneAddress={paneAddress}
-          onCopyAddress={itlAvailable && paneAddress ? handleCopyPaneTarget : null}
+          onCopyAddress={paneAddress ? handleCopyPaneTarget : null}
           onSplitPane={onSplitPane}
           onEqualizePane={onEqualizePane}
           activeFilePath={activeFilePath}

@@ -82,9 +82,8 @@ const TerminalHeader = ({
   sessionStatus = null,
   /* 세션 간 명령 픽커 대상 — Pane 이 collectOtherPaneSessions 로 계산한 다른 세션 목록. */
   sessionTargets = [],
-  /* Pane address (`tab.pane`, e.g. "2.3") shown inside the mobile rail.
-     Desktop keeps the floating PaneAddressLabel. onCopyAddress is provided
-     only when itl is available because the copied handle invokes `itl send`. */
+  /* Pane address (`tab.pane`, e.g. "2.3") shown inside the rail.
+     onCopyAddress is provided whenever the pane has a routable address. */
   paneAddress = null,
   onCopyAddress = null,
   isMobile = false,

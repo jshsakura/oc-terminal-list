@@ -13,9 +13,8 @@ const { color, font, fontWeight } = tokens;
  * ⚠️ **이름과 접기 핸들은 다시 붙이지 않는다.** 한때 셋 다 달려 있었고, 이름은 터미널
  * 출력을 덮었으며 접기 핸들은 주소를 읽으려다 누르게 만들었다.
  *
- * 복사 버튼은 **`onCopy` 를 받았을 때만** 나온다. 핸들이 `itl send 1.2 'TEXT'` 라,
- * 붙여넣는 쪽 셸에 `itl` 이 없으면 `command not found` 로 끝나기 때문이다 — 없는 도구를
- * 쓰라고 내미느니 안 내민다(호출부가 `itl_available` 로 가른다).
+ * The copy button appears only when `onCopy` exists. Callers provide it for every routable
+ * address because this view cannot know the destination shell and itl can be installed at runtime.
  *
  * 버튼이 없으면 `pointerEvents: none` 이라 아래 터미널이 그대로 클릭된다. 버튼이 붙어도
  * **이 작은 상자만** 클릭 대상이고 주변 터미널은 그대로다.
