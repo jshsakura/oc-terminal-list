@@ -59,6 +59,8 @@ export const DEFAULT_SETTINGS = {
   defaultMultiplexer: 'tmux',
   autoScroll: 'smart', // 'always' | 'smart' | 'never'
   smoothScroll: true,
+  showTerminalScrollbar: true,
+  showInputOnScroll: false,
   scrollSensitivity: 0.8, // AI 스트리밍 대응 (0~1, 높을수록 민감)
   localStartPath: '',  // 현재 머신 새 터미널 시작 경로 (워크스페이스 상대, 빈 값 = 루트)
   localTheme: '',       // 로컬 기본 테마 — 비우면 글로벌 theme. 호스트 와 동등 (호스트별 theme 필드와 짝).

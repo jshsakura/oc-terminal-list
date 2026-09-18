@@ -418,6 +418,8 @@ sudo systemctl restart iterminallist.service
 - Language: Korean / English.
 - Font size and family, separately for desktop and mobile.
 - Terminal auto-scroll behavior, smooth scroll, scroll sensitivity.
+- **General → Scroll → Show terminal scrollbar**: toggle the right-hand scrollbar. Drag to view earlier output; return to the bottom for live output. Supports local and remote tmux history.
+- **General → Scroll → Show input while scrolling**: directly below the scrollbar option, off by default. Pins the question belonging to the answer at the viewport top; hidden at the bottom. Finds Codex/Claude prompt markers (`›`, `❯`) in terminal history, independently of scrollbar visibility. Click the question card to jump to its original position. The expand/collapse button works independently. Retained tmux history works after page reload; sections without a recognized or retained question have no preview. Without tmux, matching Recent commands entries supply the original input text. The preview never records raw terminal keystrokes; only commands explicitly sent through the app can enter Recent commands. Command timestamps never substitute for missing answer positions. The Recent commands button remains available for reinserting earlier input.
 - Predictive echo (mosh-style local echo), auto-disabled in editors and password prompts.
 - TOTP 2FA, backup-code management, and passkey registration.
 
@@ -809,4 +811,3 @@ docker compose up -d
 MIT License.
 
 ---
-

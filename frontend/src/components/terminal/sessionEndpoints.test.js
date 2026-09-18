@@ -24,6 +24,12 @@ describe('buildWsUrl', () => {
     expect(q.get('rows')).toBe('30');
     expect(q.get('shell')).toBe('zsh');
     expect(q.get('client_id')).toBe('client-9');
+    expect(q.get('session_meta')).toBeNull();
+  });
+
+  it('지원하는 새 로컬 클라이언트만 session-meta 기능을 요청한다', () => {
+    expect(query(buildWsUrl({ ...base, sessionMeta: true })).get('session_meta')).toBe('1');
+    expect(query(buildWsUrl({ ...base, hostId: 'h1', sessionMeta: true })).get('session_meta')).toBeNull();
   });
 
   it('티켓이 없으면(발급 실패=wedge) ticket 파라미터를 생략한다 — 서버가 쿠키로 폴백 인증', () => {

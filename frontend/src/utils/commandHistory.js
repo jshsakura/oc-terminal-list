@@ -48,7 +48,7 @@ const looksLikeLocalCommand = (text) => {
 
 const localStorageKey = (terminalKey) => `${LOCAL_STORAGE_PREFIX}${encodeURIComponent(terminalKey)}`;
 
-const readLocalCommands = (terminalKey) => {
+export const readLocalCommands = (terminalKey) => {
   if (!terminalKey || typeof localStorage === 'undefined') return [];
   try {
     const parsed = JSON.parse(localStorage.getItem(localStorageKey(terminalKey)) || '[]');
@@ -165,7 +165,7 @@ export const pushLocalCommand = (terminalKey, raw) => {
   if (saveLocalCommand(terminalKey, raw)) dispatchUpdate(terminalKey);
 };
 
-export const fetchPage = async (terminalKey, { before = null, limit = PAGE_SIZE } = {}) => {
+export const fetchPage = async (terminalKey, { before = null, limit = PAGE_SIZE, signal } = {}) => {
   if (!terminalKey) return { items: [], hasMore: false };
   const localItems = before == null ? readLocalCommands(terminalKey) : [];
   const params = new URLSearchParams();
@@ -175,6 +175,7 @@ export const fetchPage = async (terminalKey, { before = null, limit = PAGE_SIZE 
   try {
     const res = await fetch(`/api/command-history?${params.toString()}`, {
       headers: { ...authHeaders() },
+      ...(signal ? { signal } : {}),
     });
     if (!res.ok) {
       return { items: localItems, hasMore: false };

@@ -16,14 +16,14 @@ import time
 
 from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 
+import local_mux
+import multiplexer as mux
 from _deps import is_safe_id
 from cache import invalidate_session
 from rate_limit import check_rate_limit
 from session_launch import _resolve_create_cwd, _resolve_shell
 from sqlite_storage import storage
 from tickets import _push_ws_tickets
-import local_mux
-import multiplexer as mux
 from tmux_manager import tmux_manager
 from ws_auth import authenticate_ws
 from ws_bridge import TmuxClientBridge
@@ -51,6 +51,7 @@ async def terminal_websocket(
                     "세션에는 붙잡고 있는 쪽이 이긴다. 비우면 사용자 설정을 따른다.",
     ),
     create: bool = Query(True, description="false면 없는 tmux 세션을 새로 만들지 않고 연결만 시도"),
+    session_meta: bool = Query(False, description="새 프론트가 session-meta 제어 프레임을 처리할 수 있음"),
     reason: str | None = Query(None, description="클라이언트가 이 연결을 연 사유(관측 전용, ws_observe 참고)"),
     prev_ms: int | None = Query(None, description="직전 소켓이 살아있던 시간(ms). 요동과 단발 끊김을 구별한다."),
 ):
@@ -93,6 +94,8 @@ async def terminal_websocket(
     # 전역 설정을 바꿔도 이 pane 은 자기를 붙잡고 있는 쪽으로 계속 붙는다.
     picked = mux.normalize(multiplexer) if isinstance(multiplexer, str) and multiplexer else None
     choice = holder or picked or await local_mux.choice_for(username)
+    if session_meta:
+        await websocket.send_text(json.dumps({"type": "session-meta", "multiplexer": choice}))
 
     # **고른 경로는 무엇이 붙잡든 지켜진다.** tmux 는 세션을 만들 때 `-c` 로 받지만(아래),
     # none 은 이 파일의 bridge 가 프로세스를 직접 띄운다. 여기서 안 넘기면 bridge 의
@@ -242,5 +245,3 @@ async def terminal_websocket(
         await invalidate_session(session_id)
         _unregister_ws_client("local", session_id, client_token)
         log_detach(kind="local", session=session_id, client_id=client_id, opened_at=opened_at)
-
-

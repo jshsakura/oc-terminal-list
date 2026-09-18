@@ -161,6 +161,18 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
     <Divider />
 
     <Section title={t('scrollBehavior') || 'Scroll'}>
+      <Toggle
+        label={t('showTerminalScrollbar')}
+        hint={t('showTerminalScrollbarHint')}
+        checked={s.showTerminalScrollbar !== false}
+        onChange={(v) => change('showTerminalScrollbar', v)}
+      />
+      <Toggle
+        label={t('showInputOnScroll')}
+        hint={t('showInputOnScrollHint')}
+        checked={s.showInputOnScroll === true}
+        onChange={(v) => change('showInputOnScroll', v)}
+      />
       <Field label={t('autoScroll')}>
         <Select value={s.autoScroll} onChange={(v) => change('autoScroll', v)}>
           <option value="always">{t('autoScrollAlways') || 'Always'}</option>

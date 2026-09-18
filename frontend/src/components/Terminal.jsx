@@ -10,9 +10,9 @@ import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
 import { isTerminalAutoResponse } from '../utils/terminalInput';
-import { pushLocalCommand as pushLocalCommandHistory } from '../utils/commandHistory';
 import { getNetworkSummary, getTerminalClientId } from '../utils/clientIdentity';
 import { acquireWsConnectSlot } from '../utils/wsConnectGate';
+import { TMUX, NONE, normalize as normalizeMultiplexer } from '../utils/multiplexer';
 import {
   _textDecoder, _textEncoder,
   RECOVERY_GRACE_MS, RECOVERY_POLL_MS, TAKEOVER_CONFIRM_MS, TAKEOVER_CONFIRM_POLL_MS,
@@ -28,7 +28,7 @@ import {
   OUTAGE_PROBE_MIN_DELAY_MS, SESSION_GONE_LOOP_GUARD_MS, RESTART_GRACE_MS,
 } from './terminal/terminalConstants';
 import {
-  sleep, looksLikeRecoverableBulkInput,
+  sleep,
   uploadFileAndGetPath, copyTextToClipboard, issueWsTicket,
 } from './terminal/terminalHelpers';
 import { TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
@@ -48,6 +48,7 @@ import { recordDisconnect, recordReconnect } from './terminal/reconnectDiag';
 import ensureXtermGlobalStyles from './terminal/xtermGlobalCss';
 import useTerminalApi from './terminal/useTerminalApi';
 import TerminalTexture from './TerminalTexture';
+import TerminalScrollbar from './terminal/TerminalScrollbar';
 
 // xterm 이 래퍼 크기를 그대로 따르게 고정. 분수 셀 잔여는 늘리지 않고
 // TerminalEdgeGutter 가 테마색 가장자리로 마감한다.
@@ -84,6 +85,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const terminalRef = useRef(null);
   const touchOverlayRef = useRef(null);
   const xtermRef = useRef(null);
+  const inputPreviewRef = useRef(null);
   const iosHangulRef = useRef(null);
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
@@ -549,6 +551,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   /* 고른 멀티플렉서가 이 호스트에 없다 — 값은 **없는 도구의 이름**이다(null = 문제없음).
      불리언이면 무엇을 깔아야 하는지 못 쓴다. */
   const [muxMissing, setMuxMissing] = useState(null);
+  const [activeMultiplexer, setActiveMultiplexer] = useState(null);
+  const selectedMultiplexer = normalizeMultiplexer(paneMultiplexer, settings.defaultMultiplexer);
   const [copyFlash, setCopyFlash] = useState(false);
   const [edgeGutter, setEdgeGutter] = useState({ right: 0, bottom: 0 });
   const edgeGutterRef = useRef(edgeGutter);
@@ -931,6 +935,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         tmuxSuffix,
         tmuxSessionName,
         createIfMissing,
+        sessionMeta: !hostId,
         clientId: terminalClientIdRef.current,
         reason: connectReasonRef.current,
         prevMs: prevSocketLivedMsRef.current,
@@ -1205,10 +1210,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setAuthPrompt(msg);
             return;
           }
+          if (msg && msg.type === 'session-meta') {
+            setActiveMultiplexer(normalizeMultiplexer(msg.multiplexer));
+            setMuxMissing(null);
+            return;
+          }
           /* `tmux-missing` 은 옛 이름이다. 브라우저에 낡은 번들이 남아 있을 수 있는
              것처럼 그 반대도 있다(백엔드만 먼저 롤백) — 둘 다 받는 값이 싸다. */
           if (msg && (msg.type === 'mux-missing' || msg.type === 'tmux-missing')) {
             setMuxMissing(String(msg.multiplexer || 'tmux'));
+            setActiveMultiplexer(NONE);
             return;
           }
           if (msg && msg.type === 'connect-failed') {
@@ -1587,13 +1598,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }
         return;
       }
-      // term.onData 는 IME 합성 중 매 음절마다 (backspace+새글자) length>=2 청크가 들어와
-      // 히스토리가 한 글자씩 쪼개져 저장되는 노이즈가 심하다. 이 경로에서는 더 이상 캡처하지 않고,
-      // 서버 히스토리는 sendData() 명시적 호출 경로 (Quick Input / 음성 / MobileToolbar 등) 만 캡처한다.
-      // 단 대용량 paste/장문 bulk 입력은 네트워크 절체 때 복구할 수 있게 로컬 최근 5개에만 남긴다.
-      if (looksLikeRecoverableBulkInput(data)) {
-        try { pushLocalCommandHistory(sessionId, data); } catch { /* noop */ }
-      }
       // 예측 입력 — 인쇄 가능 문자면 RTT 안 기다리고 유령으로 즉시 표시(엔진 내부에서 안전 필터).
       predictiveEchoRef.current?.onInput(data);
       // 서버가 한동안 조용했는데 사용자가 타이핑하면, 입력이 실제로 닿는지 빠르게 검증.
@@ -1810,7 +1814,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
      (빠른입력·모바일바·팔레트) 양쪽으로 노출. 전부 ref 위에서만 동작한다. */
   const { copyAll } = useTerminalApi({
     refs: {
-      xtermRef, wsRef, searchAddonRef, iosHangulRef,
+      xtermRef, wsRef, searchAddonRef, iosHangulRef, inputPreviewRef,
       enqueueInputRef, forceScrollToBottomRef, fitNowRef, webglRef,
       lastDimsRef, evictedRef, endedRef, hasContentRef,
     },
@@ -2193,6 +2197,22 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         right={edgeGutter.right}
         bottom={edgeGutter.bottom}
         themeUi={themeUi}
+      />
+
+      <TerminalScrollbar
+        xtermRef={xtermRef}
+        fitNowRef={fitNowRef}
+        sessionId={hostId ? (effectiveTmuxSession || tmuxSessionName) : sessionId}
+        hostId={hostId}
+        enabled={settings.showTerminalScrollbar !== false}
+        showInputOnScroll={settings.showInputOnScroll === true}
+        inputPreviewRef={inputPreviewRef}
+        historyKey={sessionId}
+        tmuxBacked={(activeMultiplexer || selectedMultiplexer) === TMUX}
+        active={isActive}
+        ready={isReady}
+        theme={currentTheme}
+        t={t}
       />
 
       {/* 모바일 터치 오버레이: canvas 위에 깔아 touch-action:none + passive:false 스크롤 보장.

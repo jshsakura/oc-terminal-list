@@ -33,6 +33,7 @@ export const buildWsUrl = ({
   tmuxSessionName = null,
   multiplexer = null,
   createIfMissing = true,
+  sessionMeta = false,
   clientId,
   reason = null,
   prevMs = null,
@@ -60,6 +61,7 @@ export const buildWsUrl = ({
      바꿔도 옛 pane 이 안 따라온다. 살아 있는 세션에는 붙잡고 있는 쪽이 이기므로
      재연결 때 이 값이 실려도 아무것도 바꾸지 않는다. */
   if (multiplexer) params.set('multiplexer', multiplexer);
+  if (!hostId && sessionMeta) params.set('session_meta', '1');
 
   if (cwd) params.set('cwd', cwd);
   if (!createIfMissing) params.set('create', '0');

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import useSettings, { DEFAULT_SETTINGS } from './useSettings';
 import { DEFAULT_FONT_SIZE_MOBILE } from '../utils/terminalFonts';
 
@@ -9,6 +9,37 @@ const TestSettings = () => {
 };
 
 describe('useSettings', () => {
+  it('remembers opting into input preview independently of the scrollbar', () => {
+    expect(DEFAULT_SETTINGS.showInputOnScroll).toBe(false);
+    const PreviewSetting = () => {
+      const { settings, updateSettings } = useSettings(false);
+      return <button onClick={() => updateSettings({ showInputOnScroll: true, showTerminalScrollbar: false })}>
+        {settings.showInputOnScroll ? 'enabled' : 'disabled'}
+      </button>;
+    };
+    const first = render(<PreviewSetting />);
+    fireEvent.click(screen.getByRole('button', { name: 'disabled' }));
+    expect(JSON.parse(localStorage.getItem('terminal_settings'))).toMatchObject({
+      showInputOnScroll: true, showTerminalScrollbar: false,
+    });
+    first.unmount();
+    render(<PreviewSetting />);
+    expect(screen.getByRole('button', { name: 'enabled' })).toBeInTheDocument();
+  });
+  it('persists an explicitly hidden scrollbar across remounts', () => {
+    const ScrollbarSetting = () => {
+      const { settings, updateSettings } = useSettings(false);
+      return <button onClick={() => updateSettings({ showTerminalScrollbar: false })}>
+        {settings.showTerminalScrollbar ? 'shown' : 'hidden'}
+      </button>;
+    };
+    const first = render(<ScrollbarSetting />);
+    fireEvent.click(screen.getByRole('button', { name: 'shown' }));
+    expect(JSON.parse(localStorage.getItem('terminal_settings')).showTerminalScrollbar).toBe(false);
+    first.unmount();
+    render(<ScrollbarSetting />);
+    expect(screen.getByRole('button', { name: 'hidden' })).toBeInTheDocument();
+  });
   it('defaults the mobile font size to a readable 11px', () => {
     expect(DEFAULT_FONT_SIZE_MOBILE).toBe(11);
     expect(DEFAULT_SETTINGS.fontSizeMobile).toBe(DEFAULT_FONT_SIZE_MOBILE);

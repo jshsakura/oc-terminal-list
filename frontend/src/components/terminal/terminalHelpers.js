@@ -26,16 +26,6 @@ export const looksLikeBulkCommand = (data) => {
   return hasPrintable;
 };
 
-export const looksLikeRecoverableBulkInput = (data) => {
-  if (typeof data !== 'string' || data.length < 16) return false;
-  const cleaned = data
-    .replace(/^\x1b\[200~/, '')
-    .replace(/\x1b\[201~$/, '')
-    .replace(/[\r\n]+$/g, '')
-    .trim();
-  return looksLikeBulkCommand(cleaned);
-};
-
 /**
  * Shrink a pasted image before it is uploaded — for tokens first, bytes second.
  *

@@ -16,6 +16,17 @@ const fullSettings = {
 };
 
 describe('Settings', () => {
+  it('places the Korean input preview option directly after the scrollbar and saves it', () => {
+    const onSave = vi.fn();
+    render(<Settings isOpen onClose={vi.fn()} settings={{ ...fullSettings, language: 'ko' }} onSave={onSave} />);
+    const scrollbar = screen.getByRole('switch', { name: /터미널 스크롤바 표시/ });
+    const preview = screen.getByRole('switch', { name: /스크롤시 입력내용보기/ });
+    const switches = screen.getAllByRole('switch');
+    expect(switches.indexOf(preview)).toBe(switches.indexOf(scrollbar) + 1);
+    fireEvent.click(preview);
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ showInputOnScroll: true }));
+  });
   it('renders without crashing with full settings', () => {
     render(
       <Settings

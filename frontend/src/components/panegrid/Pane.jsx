@@ -816,7 +816,7 @@ const Pane = ({
                 /* 이 pane 을 **만들 때** 무엇으로 열지 — 경로 픽커에서 골랐으면 그 값이
                    여기 실려 있다. 없으면 Terminal 이 설정을 쓴다. */
                 paneShell={pane.shell || null}
-                paneMultiplexer={pane.multiplexer || null}
+                paneMultiplexer={pane.hostId ? remoteMultiplexer : (pane.multiplexer || null)}
                 /* 방금 우리가 죽인 세션을 "셸이 끝났다" 로 오진해 pane 을 닫지 않게. */
                 restartAt={restartAt}
                 settings={paneSettings}

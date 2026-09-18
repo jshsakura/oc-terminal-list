@@ -47,6 +47,7 @@ vi.mock('./terminal/terminalHelpers', async (importOriginal) => ({
 import TerminalComponent from './Terminal';
 import { issueWsTicket } from './terminal/terminalHelpers';
 import { measureTerminalFit } from '../utils/terminalFit';
+import { readLocalCommands } from '../utils/commandHistory';
 import { harness, FakeWebSocket, testSettings } from '../test/xtermHarness';
 
 const renderTerminal = (props = {}) => render(
@@ -290,6 +291,60 @@ describe('Terminal', () => {
   });
 
   describe('입력', () => {
+    it('실제 멀티플렉서가 tmux일 때만 alternate buffer 기록을 조회한다', async () => {
+      global.fetch = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ available: true, history: 50, offset: 0, rows: 24 }),
+      }));
+      renderTerminal({ paneMultiplexer: 'none' });
+      const ws = await openSocket();
+      harness.term.buffer.active.type = 'alternate';
+
+      act(() => { harness.term.handlers.scroll(); });
+      expect(global.fetch.mock.calls.some(([url]) => String(url).startsWith('/api/terminal-scroll'))).toBe(false);
+
+      await act(async () => {
+        ws.serverSend(JSON.stringify({ type: 'session-meta', multiplexer: 'tmux' }));
+      });
+      await waitFor(() => expect(
+        global.fetch.mock.calls.some(([url]) => String(url).startsWith('/api/terminal-scroll')),
+      ).toBe(true));
+    });
+
+    it('긴 원시 터미널 입력도 최근 명령에 저장하지 않는다', async () => {
+      renderTerminal({ sessionId: 'private-input' });
+      await openSocket();
+      const secret = 'correct-horse-battery-staple';
+
+      await act(async () => { harness.term.handlers.data(secret); });
+
+      expect(readLocalCommands('private-input')).toEqual([]);
+    });
+
+    it('keeps the viewed question when newer keyboard and quick-input submissions arrive', async () => {
+      renderTerminal({ paneMultiplexer: 'none',
+        settings: { ...testSettings(), showInputOnScroll: true, showTerminalScrollbar: false } });
+      const ws = await openSocket();
+      const term = harness.term;
+      Object.assign(term.buffer.active, { baseY: 100, viewportY: 100, cursorY: 0, cursorX: 2, length: 101,
+        getLine: (row) => ({ translateToString: (_, start = 0) => ({ 10: '› 이전 질문', 11: '', 100: '› ' }[row] ?? 'answer').slice(start) }),
+      });
+      await act(async () => { term.handlers.data('질문'); term.handlers.data('\r'); });
+      act(() => { term.buffer.active.viewportY = 50; term.handlers.scroll(); });
+      expect(screen.getByRole('region')).toHaveTextContent('이전 질문');
+      await act(async () => {
+        window.terminalSessions['sess-1'].sendCommand('빠른 질문');
+        await new Promise((resolve) => setTimeout(resolve, 60));
+      });
+      expect(screen.getByRole('region')).toHaveTextContent('이전 질문');
+      expect(ws.sent).toContain('빠른 질문');
+      act(() => {
+        window.terminalSessions['sess-1'].sendData('모바일');
+        window.terminalSessions['sess-1'].sendData('\r');
+      });
+      expect(screen.getByRole('region')).toHaveTextContent('이전 질문');
+      expect(harness.terms).toHaveLength(1);
+    });
     // 지연에 민감한 단일 키는 큐를 거치지 않고 곧장 소켓으로 — 타이핑 체감 지연의 핵심.
     it('단일 키 입력은 큐를 우회해 즉시 보낸다', async () => {
       renderTerminal();

@@ -27,8 +27,10 @@ export const harness = {
 };
 
 const makeBuffer = () => ({
+  onBufferChange: vi.fn(() => ({ dispose: vi.fn() })),
   active: {
     type: 'normal',
+    baseY: 0,
     viewportY: 0,
     length: 0,
     getLine: () => null,
@@ -72,13 +74,26 @@ export class FakeTerminal {
     this.scrollPages = vi.fn();
     this.scrollToTop = vi.fn();
     this.scrollToBottom = vi.fn();
+    this.scrollToLine = vi.fn();
     this.resize = vi.fn();
     this.refresh = vi.fn();  // createWebglController 가 렌더러 교체 후 전체 재페인트 용도로 호출
     this.attachCustomWheelEventHandler = vi.fn((h) => { this.handlers.wheel = h; });
     this.attachCustomKeyEventHandler = vi.fn((h) => { this.handlers.key = h; });
     this.onBell = vi.fn((h) => { this.handlers.bell = h; });
-    this.onData = vi.fn((h) => { this.handlers.data = h; });
-    this.onScroll = vi.fn((h) => { this.handlers.scroll = h; });
+    const dataListeners = new Set();
+    this.handlers.data = (...args) => dataListeners.forEach((h) => h(...args));
+    this.onData = vi.fn((h) => {
+      dataListeners.add(h);
+      return { dispose: () => dataListeners.delete(h) };
+    });
+    const scrollListeners = new Set();
+    this.handlers.scroll = (...args) => scrollListeners.forEach((h) => h(...args));
+    this.onScroll = vi.fn((h) => {
+      scrollListeners.add(h);
+      return { dispose: () => scrollListeners.delete(h) };
+    });
+    this.onWriteParsed = vi.fn(() => ({ dispose: vi.fn() }));
+    this.onResize = vi.fn(() => ({ dispose: vi.fn() }));
     // tmux 가 set-titles on 으로 흘려주는 pane 타이틀(OSC 0) — 에이전트 상태의 입구.
     this.onTitleChange = vi.fn((h) => { this.handlers.title = h; });
     // 파일 경로 클릭 링크 프로바이더 — provideLinks 콜백을 잡아두면 테스트에서

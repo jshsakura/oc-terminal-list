@@ -14,7 +14,7 @@ import { pushCommand as pushCommandHistory } from '../../utils/commandHistory';
  */
 const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady }) => {
   const {
-    xtermRef, wsRef, searchAddonRef, iosHangulRef,
+    xtermRef, wsRef, searchAddonRef, iosHangulRef, inputPreviewRef,
     enqueueInputRef, forceScrollToBottomRef, fitNowRef, webglRef,
     lastDimsRef, evictedRef, endedRef, hasContentRef,
   } = refs;
@@ -25,6 +25,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
     data = iosHangulRef?.current?.prepareInput(data) ?? data;
     // Backspace may only edit a local composing character.
     if (data === '') return true;
+    inputPreviewRef?.current?.(data);
     const options = { delay: 0 };
     // Preserve upstream's Enter boundary when a toolbar key commits the last syllable.
     if (data !== original && data.endsWith('\r')) options.separateTrailingEnterMs = 40;
@@ -43,7 +44,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
       return true;
     }
     return false;
-  }, [sessionId, enqueueInputRef, wsRef, iosHangulRef]);
+  }, [sessionId, enqueueInputRef, wsRef, iosHangulRef, inputPreviewRef]);
 
   // Normalize Enter and drop queued wheel reports. iOS text keeps FIFO order;
   // other clients retain command priority ahead of ordinary queued input.
@@ -54,6 +55,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
     // Normalize only the final line break. Internal newlines are intentional multi-line input.
     const raw = `${command.replace(/(?:\r\n|\r|\n)$/, '')}\r`;
     const payload = iosHangulRef?.current?.prepareInput(raw) ?? raw;
+    inputPreviewRef?.current?.(payload, payload.slice(0, -1));
     if (enqueueInputRef.current?.(payload, {
       delay: 0,
       // Keep queued syllables ahead of commands while the iOS bridge owns input.
@@ -72,7 +74,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
       return true;
     }
     return false;
-  }, [sessionId, enqueueInputRef, forceScrollToBottomRef, wsRef, iosHangulRef]);
+  }, [sessionId, enqueueInputRef, forceScrollToBottomRef, wsRef, iosHangulRef, inputPreviewRef]);
 
   useImperativeHandle(forwardedRef, () => ({ sendData, sendCommand }), [sendData, sendCommand]);
 

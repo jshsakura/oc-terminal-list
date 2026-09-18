@@ -435,6 +435,7 @@ from routes.fleet import router as fleet_router  # noqa: E402
 from routes.llm_usage import router as llm_usage_router  # noqa: E402
 from routes.ws_tickets import router as ws_tickets_router  # noqa: E402
 from routes.tools import router as tools_router  # noqa: E402
+from routes.terminal_scroll import router as terminal_scroll_router  # noqa: E402
 
 for _router in (
     auth_router,          # 로그인 / OTP / 패스키
@@ -454,6 +455,7 @@ for _router in (
     local_git_router,     # 워크스페이스 git
     snippets_router,      # 명령 스니펫
     tools_router,         # 호스트에 깔 도구 목록 · 설치 여부
+    terminal_scroll_router,
     files_read_router,    # 워크스페이스 파일 읽기
     files_write_router,   # 워크스페이스 파일 쓰기
     fleet_router,         # 실행 중 보드 — 기계별 상태 + 모든 pane (호스트당 왕복 1회)
