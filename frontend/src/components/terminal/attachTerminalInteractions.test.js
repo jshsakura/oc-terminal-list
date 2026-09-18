@@ -401,6 +401,14 @@ describe('attachTerminalInteractions', () => {
       }
     });
 
+    it('윈도우 한글 조합 중 물리 영문 키는 xterm이 보내지 않는다', () => {
+      mount();
+      const event = keyEvent({ key: 'f', code: 'KeyF', keyCode: 70, isComposing: true });
+
+      expect(term.handlers.key(event)).toBe(false);
+      expect(event.preventDefault).not.toHaveBeenCalled();
+    });
+
     it('평범한 글자는 그대로 터미널로 간다 — 판정이 너무 넓으면 입력이 죽는다', () => {
       expect(isImeModeKey({ key: 'a' })).toBe(false);
       expect(isImeModeKey({ key: 'Enter' })).toBe(false);

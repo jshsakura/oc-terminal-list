@@ -1070,6 +1070,24 @@ CLI 는 하루 뒤 **다른 모양으로** 돌아왔다(위 "itl" 절). tmux 팬
 ⚠️ **폰트 `preload` 는 로드 완료를 붙잡는다.** 한때 TTF 두 벌(4.2MB)이 임계 경로였다.
 지금은 woff2 + Regular 하나만 preload(892KB). 여기에 다시 얹지 마라.
 
+## xterm IME — 숨은 textarea 를 입력 버퍼로 믿지 마라 (2026-09-17)
+
+xterm 6.0.0 은 `screenReaderMode: false` 여도 대문자·공백·IME 확정 문자열을 숨은 textarea 에
+남길 수 있다. Windows IME 가 조합 밖에서 `keyCode=229` 를 보내면 xterm 의 지연 diff 가 그
+잔여 문자열이나 빠르게 들어온 이웃 키를 새 입력으로 다시 내보낸다. 실제로 한글 입력 중 물리
+영문 키와 수십 글자의 이전 문자열이 PTY 에 주입됐다.
+
+- `isComposing=true` 인 키는 `attachTerminalInteractions` 에서 xterm 으로 보내지 않는다.
+- 데스크톱은 `attachImeTextareaGuard` 가 native handler 뒤 keyup/compositionend 에서 textarea 를
+  비운다. `229` snapshot 전에는 오래된 값만 먼저 제거한다.
+- **compositionend 와 xterm 의 0ms finalize 사이에서 동기 clear 하지 않는다.** 확정 한글 자체가
+  사라진다.
+- **screenReaderMode 에서는 비우지 않는다.** 누적 textarea 는 스크린리더가 읽는 접근성 상태다.
+- iOS 는 `attachIosHangulInput` 이 전담한다. 그 브리지가 active 면 desktop guard 를 붙이지 않는다.
+
+회귀 테스트는 `attachImeTextareaGuard.test.js` 와 `attachTerminalInteractions.test.js`, 실제 xterm
+검증은 Chromium 에서 영문 1회·한글 조합 1회·`229` 잔여 재생 차단을 함께 본다.
+
 ## 클립보드 · 팝업 닫기 — 모바일에서 조용히 죽던 두 규칙 (2026-08-11)
 
 **클립보드 구현은 `utils/clipboard.js` 하나다.** 아이폰에서 "복사 눌러도 안 붙는다" 의 원인:

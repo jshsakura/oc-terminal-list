@@ -32,7 +32,8 @@ import { getLinkAtClient } from '../../utils/terminalLinkAt';
 export const isImeModeKey = (e) => {
   const key = e?.key;
   const code = e?.code;
-  return key === 'HangulMode' || key === 'Hangul' || key === 'HanjaMode' || key === 'Hanja'
+  return e?.isComposing === true
+    || key === 'HangulMode' || key === 'Hangul' || key === 'HanjaMode' || key === 'Hanja'
     || key === 'KanaMode' || key === 'Convert' || key === 'NonConvert' || key === 'Process'
     || code === 'Lang1' || code === 'Lang2'
     // Legacy numeric codes some Windows keyboards still report (21=Hangul, 25=Hanja).

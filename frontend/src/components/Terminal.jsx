@@ -36,6 +36,7 @@ import { CopiedToast, FileDropOverlay, ImagePasteToast, ReconnectPill, TerminalS
 import { ConnectionTroubleCard, ShellClosingCard, ShellEndedCard, TakeoverCard } from './terminal/TerminalStatusCards';
 import attachTerminalFileDrop from './terminal/attachTerminalFileDrop';
 import attachIosHangulInput from './terminal/attachIosHangulInput';
+import attachImeTextareaGuard from './terminal/attachImeTextareaGuard';
 import { probeSpacingMs, claimProbeLease, releaseProbeLease } from './terminal/outageProbe';
 import attachTerminalInteractions from './terminal/attachTerminalInteractions';
 import createInputQueue, { isLatencySensitiveInput, WS_BUFFER_HIGH_WATER } from './terminal/createInputQueue';
@@ -722,6 +723,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     const iosHangul = attachIosHangulInput(term);
     iosHangulRef.current = iosHangul;
+    const imeTextareaGuard = iosHangul.active ? null : attachImeTextareaGuard(term);
 
 
     /* WebGL 렌더러 — DOM 렌더러보다 입력→화면 반영이 빠르고 CPU 도 덜 먹는다.
@@ -1648,6 +1650,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       interactions.detach();
       fileDrop.detach();
       iosHangul.dispose();
+      imeTextareaGuard?.dispose();
       iosHangulRef.current = null;
       try { wsRef.current?.close(); } catch {}
       connectRef.current = null;
