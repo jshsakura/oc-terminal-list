@@ -77,6 +77,29 @@ describe('ProcessList', () => {
     // 호출부는 length>0 일 때만 렌더하지만, 빈 배열 정도는 견뎌야 한다.
     expect(() => render(<ProcessList processes={[]} onRefresh={vi.fn()} />)).not.toThrow();
   });
+
+  it('좁은 패널에서도 이름과 명령이 액션 열에 눌리지 않는다', () => {
+    const command = 'codex --dangerously-bypass-approvals-and-sandbox';
+    render(<ProcessList
+      processes={[{
+        pid: 1527222,
+        user: 'ubuntu',
+        name: 'codex',
+        cmd: command,
+        rss_bytes: 980 * 1024 ** 2,
+        cpu_percent: 3.3,
+        llm_like: true,
+      }]}
+      onRefresh={vi.fn()}
+    />);
+
+    const main = screen.getByTitle(command).parentElement;
+    expect(main).toHaveStyle({ gridColumn: '1 / -1' });
+    expect(screen.getByText('3.3%').parentElement).toHaveStyle({ flexDirection: 'row' });
+    for (const action of screen.getAllByRole('button')) {
+      expect(action).toHaveStyle({ width: '24px', height: '24px' });
+    }
+  });
 });
 
 describe('InfoPanel 통합 렌더', () => {

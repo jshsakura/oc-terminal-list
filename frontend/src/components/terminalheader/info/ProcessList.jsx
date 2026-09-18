@@ -5,13 +5,38 @@
  * 여기서는 SIGTERM 을 먼저 보내고, 사용자가 다시 누르면 SIGKILL 로 올린다.
  */
 import { useState, useCallback } from 'react';
-import { XCircle, Zap, RefreshCw } from 'lucide-react';
+import { XCircle, Zap } from 'lucide-react';
 import { tokens } from '../../../styles/tokens';
 import { infoStyles } from './infoStyles';
 import { formatBytes } from './infoFormat';
 import { authHeaders } from '../../../utils/auth';
 
 const { color } = tokens;
+
+const ProcessActionButton = ({ label, disabled, onClick, tone, children }) => {
+  const [hovered, setHovered] = useState(false);
+  const interactive = !disabled;
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+      onMouseEnter={() => { if (interactive) setHovered(true); }}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        ...infoStyles.processKillBtn,
+        opacity: interactive ? 0.85 : 0.35,
+        cursor: interactive ? 'pointer' : 'not-allowed',
+        background: interactive && hovered ? `color-mix(in srgb, ${tone} 24%, transparent)` : 'transparent',
+        color: interactive && hovered ? tone : color.subtext,
+      }}
+    >
+      {children}
+    </button>
+  );
+};
 
 const ProcessList = ({ processes, onRefresh }) => {
   const [pending, setPending] = useState(null); // pid currently sending kill
@@ -57,7 +82,7 @@ const ProcessList = ({ processes, onRefresh }) => {
           <div key={proc.pid} style={infoStyles.processRow}>
             <div style={infoStyles.processMain}>
               <div style={infoStyles.processNameRow}>
-                <span style={{ ...infoStyles.processName, color: proc.llm_like ? 'var(--ui-accent)' : 'var(--ui-text)' }}>
+                <span style={{ ...infoStyles.processName, color: proc.llm_like ? color.accent : color.text }}>
                   {proc.name || `pid ${proc.pid}`}
                 </span>
                 <span style={infoStyles.processMeta}>
@@ -73,36 +98,22 @@ const ProcessList = ({ processes, onRefresh }) => {
               <span style={infoStyles.processMem}>{formatBytes(proc.rss_bytes)}</span>
             </div>
             <div style={infoStyles.processActions}>
-              <button
-                type="button"
+              <ProcessActionButton
+                label={canKill ? 'Terminate (SIGTERM)' : 'Not your process'}
                 onClick={() => sendKill(proc.pid, 'term')}
                 disabled={!canKill || isPending}
-                title={canKill ? 'Terminate (SIGTERM)' : 'Not your process'}
-                style={{
-                  ...infoStyles.processKillBtn,
-                  opacity: !canKill || isPending ? 0.35 : 0.85,
-                  cursor: !canKill || isPending ? 'not-allowed' : 'pointer',
-                }}
-                onMouseEnter={(e) => { if (canKill && !isPending) { e.currentTarget.style.background = 'color-mix(in srgb, var(--ui-warning, #f9e2af) 24%, transparent)'; e.currentTarget.style.color = 'var(--ui-warning, #f9e2af)'; } }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ui-subtext)'; }}
+                tone={color.warning}
               >
                 <XCircle size={12} strokeWidth={2} />
-              </button>
-              <button
-                type="button"
+              </ProcessActionButton>
+              <ProcessActionButton
+                label={canKill ? 'Force kill (SIGKILL)' : 'Not your process'}
                 onClick={() => sendKill(proc.pid, 'kill')}
                 disabled={!canKill || isPending}
-                title={canKill ? 'Force kill (SIGKILL)' : 'Not your process'}
-                style={{
-                  ...infoStyles.processKillBtn,
-                  opacity: !canKill || isPending ? 0.35 : 0.85,
-                  cursor: !canKill || isPending ? 'not-allowed' : 'pointer',
-                }}
-                onMouseEnter={(e) => { if (canKill && !isPending) { e.currentTarget.style.background = 'color-mix(in srgb, var(--ui-danger, #f38ba8) 24%, transparent)'; e.currentTarget.style.color = 'var(--ui-danger, #f38ba8)'; } }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--ui-subtext)'; }}
+                tone={color.danger}
               >
                 <Zap size={12} strokeWidth={2} />
-              </button>
+              </ProcessActionButton>
             </div>
           </div>
         );
