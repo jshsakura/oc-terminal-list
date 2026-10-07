@@ -14,7 +14,7 @@ describe('useSettings', () => {
     const KeySets = () => {
       const { settings, updateSettings } = useSettings(false);
       return <button onClick={() => updateSettings({ mobileKeySets: [...resolveMobileKeySets(settings),
-        { ...MOBILE_KEY_SET_PRESETS[2], id: 'my-control' }], activeMobileKeySetId: 'my-control' })}>
+        { ...MOBILE_KEY_SET_PRESETS.find(set => set.id === 'control'), id: 'my-control' }], activeMobileKeySetId: 'my-control' })}>
         {activeMobileKeySet(settings).id}
       </button>;
     };

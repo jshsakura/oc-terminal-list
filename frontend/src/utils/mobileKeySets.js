@@ -1,12 +1,5 @@
 import { DEFAULT_MOBILE_KEYS, KEY_PRESETS, TMUX_KEYS, sanitizeMobileKeys } from './mobileKeys';
 
-const withCodexShortcut = keys => {
-  if (keys.some(key => key.kind === 'send' && key.payload === '\x1b[1;2D')) return keys;
-  const shortcut = { id: 'shift-left', kind: 'send', label: 'Shift+←', payload: '\x1b[1;2D' };
-  const left = keys.findIndex(key => key.id === 'left');
-  return left < 0 ? [...keys, shortcut] : [...keys.slice(0, left + 1), shortcut, ...keys.slice(left + 1)];
-};
-
 const keysFromPresets = (presets, prefix) => [
   { id: `${prefix}-input`, kind: 'cmdInput', tone: 'accent' },
   { id: `${prefix}-divider`, kind: 'sep' },
@@ -14,7 +7,21 @@ const keysFromPresets = (presets, prefix) => [
 ];
 
 export const MOBILE_KEY_SET_PRESETS = [
-  { id: 'basic', nameKey: 'keySetBasic', label: '1', keys: withCodexShortcut(DEFAULT_MOBILE_KEYS) },
+  { id: 'basic', nameKey: 'keySetBasic', label: '1', keys: DEFAULT_MOBILE_KEYS },
+  { id: 'llm', nameKey: 'keySetLlm', label: '2', keys: keysFromPresets([
+    { label: 'Shift+←', payload: '\x1b[1;2D' },
+    { label: 'Shift+→', payload: '\x1b[1;2C' },
+    { label: 'Shift+Tab', payload: '\x1b[Z' },
+    { label: 'Ctrl+J', payload: '\n' },
+    { label: 'ESC', payload: '\x1b' },
+    { label: 'Ctrl+C', payload: '\x03', tone: 'danger' },
+    { label: 'Ctrl+T', payload: '\x14' },
+    { label: 'Ctrl+O', payload: '\x0f' },
+    { label: 'Ctrl+R', payload: '\x12' },
+    { label: 'Ctrl+G', payload: '\x07' },
+    { label: 'Alt+P', payload: '\x1bp' },
+    { label: 'Alt+T', payload: '\x1bt' },
+  ], 'llm') },
   { id: 'navigation', nameKey: 'keySetNavigation', label: '2', keys: keysFromPresets(
     KEY_PRESETS.filter(key => ['←', '↑', '↓', '→', 'Home', 'End', 'PgUp', 'PgDn', 'Ins', 'Del'].includes(key.label)), 'navigation') },
   { id: 'control', nameKey: 'keySetControl', label: '3', keys: keysFromPresets(
@@ -50,15 +57,21 @@ export const resolveMobileKeySets = (settings = {}) => {
     return true;
   }).map(set => ({ ...set, label: typeof set.label === 'string' ? set.label : '',
     icon: typeof set.icon === 'string' ? set.icon : '', keys: sanitizeMobileKeys(set.keys) })) : [];
-  const wasAutoSeeded = MOBILE_KEY_SET_PRESETS.every(preset => sets.some(set => set.id === preset.id));
+  const wasAutoSeeded = MOBILE_KEY_SET_PRESETS.filter(preset => preset.id !== 'llm')
+    .every(preset => sets.some(set => set.id === preset.id));
   const kept = wasAutoSeeded ? sets.filter(set => {
-    const preset = MOBILE_KEY_SET_PRESETS.find(preset => preset.id === set.id && preset.id !== 'basic');
+    const preset = MOBILE_KEY_SET_PRESETS.find(preset => preset.id === set.id && !['basic', 'llm'].includes(preset.id));
     return !preset || !isUneditedPreset(set, preset);
   }) : sets;
   const resolved = kept.length ? kept : [{ ...MOBILE_KEY_SET_PRESETS[0],
     keys: sanitizeMobileKeys(settings.mobileKeys ?? DEFAULT_MOBILE_KEYS) }];
-  return resolved.map(set => set.id === 'basic' && !set.codexShortcutSeeded
-    ? { ...set, keys: withCodexShortcut(set.keys), codexShortcutSeeded: true } : set);
+  const basic = resolved.find(set => set.id === 'basic');
+  if (!basic || basic.llmSetSeeded) return resolved;
+  const migrated = resolved.map(set => set.id === 'basic' ? { ...set, llmSetSeeded: true,
+    keys: set.codexShortcutSeeded ? set.keys.filter(key => !(key.id === 'shift-left'
+      && key.label === 'Shift+←' && key.payload === '\x1b[1;2D')) : set.keys } : set);
+  if (!migrated.some(set => set.id === 'llm')) migrated.splice(1, 0, MOBILE_KEY_SET_PRESETS.find(set => set.id === 'llm'));
+  return migrated;
 };
 
 export const activeMobileKeySet = (settings, sets = resolveMobileKeySets(settings)) => (

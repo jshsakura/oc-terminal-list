@@ -20,7 +20,7 @@ describe('Settings', () => {
     const onSave = vi.fn();
     render(<Settings isOpen initialTab="mobile" onClose={vi.fn()} onSave={onSave}
       settings={{ ...fullSettings, mobileKeys: [{ id: 'mine', kind: 'send', label: 'Mine', payload: 'kept' }] }} />);
-    expect(screen.getByRole('combobox', { name: 'Quick bar sets' }).options).toHaveLength(1);
+    expect(screen.getByRole('combobox', { name: 'Quick bar sets' }).options).toHaveLength(2);
     fireEvent.change(screen.getByRole('combobox', { name: 'Add preset set' }), { target: { value: 'control' } });
     fireEvent.change(screen.getByLabelText('Button number or text'), { target: { value: 'C' } });
     fireEvent.click(document.querySelector('button[aria-label="Pick an icon"]'));

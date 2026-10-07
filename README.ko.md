@@ -466,7 +466,11 @@ journalctl -u iterminallist.service -f
 ### 모바일 퀵바 세트와 조합키
 
 퀵바 맨 앞의 숫자·아이콘 버튼을 눌러 세트 선택 팝업을 엽니다. 마지막 선택은 자동 저장됩니다.
-기본은 한 세트이며 왼쪽 방향키 옆에 **Shift+←**도 제공합니다. 이동·편집, Ctrl 조합, Alt 조합, F1–F12,
+기본은 **1번 일반 키**, **2번 Claude · Codex** 두 세트입니다. 2번에는 Shift+←/→, Shift+Tab,
+Ctrl+J, Esc, Ctrl+C/T/O/R/G, Alt+P/T를 넣었습니다. 키의 역할은 사용하는 CLI와 키맵에
+따릅니다([Claude 공식 단축키](https://code.claude.com/docs/en/interactive-mode),
+[Codex 공식 조작](https://learn.chatgpt.com/docs/developer-commands?surface=cli),
+[Codex 편집기 단축키](https://learn.chatgpt.com/docs/cli-customization)). 이동·편집, Ctrl 조합, Alt 조합, F1–F12,
 tmux, 자주 쓰는 명령, 특수키는 필요할 때 프리셋에서 추가합니다. 기존에 꾸민 퀵바는 1번 세트로
 보존됩니다. 키 목록을 끝까지 스크롤하면 나오는 **설정**에서 세트를 추가·삭제하거나
 이름, 버튼 숫자·글자, 아이콘, 키 순서를 편집합니다.

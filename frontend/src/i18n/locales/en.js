@@ -388,6 +388,7 @@ export const en = {
     deleteKeySet: 'Delete set',
     addPresetSet: 'Add preset set',
     keySetBasic: 'Basic keys',
+    keySetLlm: 'Claude · Codex',
     keySetNavigation: 'Navigation and editing',
     keySetControl: 'Ctrl combinations',
     keySetAlt: 'Alt combinations',

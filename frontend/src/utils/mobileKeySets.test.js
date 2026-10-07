@@ -1,29 +1,57 @@
 import { expect, it } from 'vitest';
 import { MOBILE_KEY_SET_PRESETS, activeMobileKeySet, appendMobileShortcut, resolveMobileKeySets } from './mobileKeySets';
 
-it('starts with one set, preserves the existing custom bar and offers other sets as presets', () => {
+it('starts with basic and LLM sets and preserves the existing custom bar', () => {
   const custom = [{ id: 'my-key', kind: 'send', label: 'Mine', payload: 'custom' }];
   const sets = resolveMobileKeySets({ mobileKeys: custom });
-  expect(sets.map(set => set.id)).toEqual(['basic']);
+  expect(sets.map(set => set.id)).toEqual(['basic', 'llm']);
   expect(sets[0].keys).toContainEqual(custom[0]);
-  expect(sets[0].keys).toContainEqual(expect.objectContaining({ label: 'Shift+←', payload: '\x1b[1;2D' }));
+  expect(sets[0].keys.some(key => key.payload === '\x1b[1;2D')).toBe(false);
+  expect(sets[1].label).toBe('2');
+  expect(sets[1].keys).toContainEqual(expect.objectContaining({ label: 'Shift+←', payload: '\x1b[1;2D' }));
   expect(MOBILE_KEY_SET_PRESETS.find(set => set.id === 'control').keys).toContainEqual(expect.objectContaining({ label: 'Ctrl+C', payload: '\x03' }));
   expect(MOBILE_KEY_SET_PRESETS.find(set => set.id === 'function').keys.filter(key => key.kind === 'send')).toHaveLength(12);
 });
 
-it('does not restore the Codex shortcut after the user removes it from a saved set', () => {
-  const [basic] = resolveMobileKeySets();
-  const settings = { mobileKeySets: [{ ...basic, keys: basic.keys.filter(key => key.payload !== '\x1b[1;2D') }] };
-  expect(resolveMobileKeySets(settings)[0].keys.some(key => key.payload === '\x1b[1;2D')).toBe(false);
+it('does not restore a deleted or customized LLM set', () => {
+  const [basic, llm] = resolveMobileKeySets();
+  expect(resolveMobileKeySets({ mobileKeySets: [basic] })).toHaveLength(1);
+  const edited = { ...llm, keys: llm.keys.filter(key => key.payload !== '\x1b[1;2D') };
+  expect(resolveMobileKeySets({ mobileKeySets: [basic, edited] })[1].keys).toEqual(edited.keys);
+});
+
+it('moves only the automatically added Shift+Left from basic to LLM and retains other edits', () => {
+  const basic = { ...MOBILE_KEY_SET_PRESETS[0], codexShortcutSeeded: true,
+    keys: [...MOBILE_KEY_SET_PRESETS[0].keys,
+      { id: 'shift-left', kind: 'send', label: 'Shift+←', payload: '\x1b[1;2D' },
+      { id: 'mine', kind: 'send', label: 'Selection', payload: '\x1b[1;2D' }] };
+  const sets = resolveMobileKeySets({ mobileKeySets: [basic] });
+  expect(sets[0].keys.some(key => key.id === 'shift-left')).toBe(false);
+  expect(sets[0].keys).toContainEqual(expect.objectContaining({ id: 'mine', label: 'Selection' }));
+  expect(sets[1].keys).toContainEqual(expect.objectContaining({ label: 'Shift+←' }));
+});
+
+it.each([
+  ['Shift+←', '\x1b[1;2D'], ['Shift+→', '\x1b[1;2C'], ['Shift+Tab', '\x1b[Z'], ['Ctrl+J', '\n'],
+  ['Ctrl+T', '\x14'], ['Ctrl+O', '\x0f'], ['Ctrl+R', '\x12'],
+  ['Ctrl+G', '\x07'], ['Alt+P', '\x1bp'], ['Alt+T', '\x1bt'],
+])('encodes LLM shortcut %s as terminal bytes', (label, payload) => {
+  const llm = resolveMobileKeySets()[1];
+  expect(llm.keys.find(key => key.label === label)?.payload).toBe(payload);
 });
 
 it('retires untouched auto-seeded sets but preserves customized sets and manually added presets', () => {
-  const sets = MOBILE_KEY_SET_PRESETS.map(set => ({ ...set }));
+  const sets = MOBILE_KEY_SET_PRESETS.filter(set => set.id !== 'llm').map(set => ({ ...set }));
   sets[2] = { ...sets[2], label: 'C', icon: 'Keyboard' };
-  sets.push({ ...MOBILE_KEY_SET_PRESETS[5], id: 'my-tmux' });
+  sets.push({ ...MOBILE_KEY_SET_PRESETS.find(set => set.id === 'tmux'), id: 'my-tmux' });
   const settings = { mobileKeySets: sets, activeMobileKeySetId: 'navigation' };
-  expect(resolveMobileKeySets(settings).map(set => set.id)).toEqual(['basic', 'control', 'my-tmux']);
+  expect(resolveMobileKeySets(settings).map(set => set.id)).toEqual(['basic', 'llm', 'control', 'my-tmux']);
   expect(activeMobileKeySet(settings).id).toBe('basic');
+});
+
+it('retains the LLM set when retiring legacy presets after migration', () => {
+  const sets = MOBILE_KEY_SET_PRESETS.map(set => set.id === 'basic' ? { ...set, llmSetSeeded: true } : set);
+  expect(resolveMobileKeySets({ mobileKeySets: sets }).map(set => set.id)).toEqual(['basic', 'llm']);
 });
 
 it('does not resurrect deleted sets or replace edited keys and falls back after the active set is deleted', () => {
@@ -35,7 +63,7 @@ it('does not resurrect deleted sets or replace edited keys and falls back after 
 });
 
 it('adds a composed shortcut only to the selected set without mutating others or duplicating payloads', () => {
-  const settings = { mobileKeySets: [MOBILE_KEY_SET_PRESETS[0], { ...MOBILE_KEY_SET_PRESETS[3], id: 'my-alt' }], activeMobileKeySetId: 'my-alt' };
+  const settings = { mobileKeySets: [MOBILE_KEY_SET_PRESETS[0], { ...MOBILE_KEY_SET_PRESETS.find(set => set.id === 'alt'), id: 'my-alt' }], activeMobileKeySetId: 'my-alt' };
   const shortcut = { label: 'Ctrl + Alt + X', payload: '\x1b\x18' };
   const patch = appendMobileShortcut(settings, shortcut);
   expect(activeMobileKeySet(patch).keys.at(-1)).toMatchObject({ kind: 'send', ...shortcut });

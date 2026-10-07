@@ -391,6 +391,7 @@ export const ko = {
     deleteKeySet: '세트 삭제',
     addPresetSet: '프리셋 세트 추가',
     keySetBasic: '기본 키',
+    keySetLlm: 'Claude · Codex',
     keySetNavigation: '이동·편집',
     keySetControl: 'Ctrl 조합',
     keySetAlt: 'Alt 조합',
