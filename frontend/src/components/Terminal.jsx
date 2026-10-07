@@ -2327,15 +2327,28 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             let text;
             try {
               text = await navigator.clipboard.readText();
-            } catch { if (isMobile) text = window.prompt(t('pasteToInput')); }
-            if (text && isMobile) {
-              window.dispatchEvent(new CustomEvent('iterm:selection-to-command-input', {
-                detail: { text, sessionId, paneId, tabId },
-              }));
+            } catch { if (isMobile) text = window.prompt(t('paste')); }
+            setContextMenu(null);
+            if (text && isMobile && readOnlyRef.current) {
+              window.dispatchEvent(new CustomEvent('iterm:paste-to-terminal', { detail: { text, sessionId } }));
             } else if (text && !readOnlyRef.current && xtermRef.current) {
               xtermRef.current.paste(text);
             }
+          }}
+          onPasteToInput={async () => {
+            let text;
+            try { text = await navigator.clipboard.readText(); }
+            catch { text = window.prompt(t('pasteToInput')); }
             setContextMenu(null);
+            if (text) {
+              window.dispatchEvent(new CustomEvent('iterm:selection-to-command-input', {
+                detail: { text, sessionId, paneId, tabId },
+              }));
+            }
+          }}
+          onRegisterKeyCombination={() => {
+            setContextMenu(null);
+            window.dispatchEvent(new CustomEvent('iterm:register-key-combination'));
           }}
           onRefresh={onRefresh ? () => { setContextMenu(null); onRefresh(); } : null}
           onScrollToBottom={() => {

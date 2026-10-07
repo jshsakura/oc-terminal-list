@@ -53,6 +53,8 @@ const GlassModal = ({
     (initialAction || fallbackAction || panel)?.focus();
 
     const handleKeyDown = (event) => {
+      if (event.defaultPrevented || (document.querySelector('[data-key-combination-modal]')?.contains(document.activeElement)
+        && !panel?.closest('[data-key-combination-modal]'))) return;
       if (event.key === 'Escape') {
         event.preventDefault();
         onCloseRef.current?.();

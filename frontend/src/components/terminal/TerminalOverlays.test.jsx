@@ -140,6 +140,8 @@ describe('TerminalContextMenu', () => {
     onCopy: vi.fn(),
     onCopyAll: vi.fn(),
     onPaste: vi.fn(),
+    onPasteToInput: vi.fn(),
+    onRegisterKeyCombination: vi.fn(),
     onScrollToBottom: vi.fn(),
     onClose: vi.fn(),
   });
@@ -169,9 +171,12 @@ describe('TerminalContextMenu', () => {
   it('모바일 보기 모드에서도 입력창에 붙여넣기를 제공한다', () => {
     const props = baseProps();
     render(<TerminalContextMenu {...props} isMobile readOnly />);
-    expect(screen.queryByText('paste')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'pasteToInput' }));
+    fireEvent.click(screen.getByRole('button', { name: 'paste' }));
     expect(props.onPaste).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'pasteToInput' }));
+    expect(props.onPasteToInput).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole('button', { name: 'registerKeyCombination' }));
+    expect(props.onRegisterKeyCombination).toHaveBeenCalledOnce();
   });
 
   it('offers selection in quick input in view mode and invokes it explicitly', () => {

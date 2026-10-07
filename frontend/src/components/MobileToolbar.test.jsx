@@ -142,7 +142,7 @@ it('pastes into the composer and never sends clipboard content as terminal input
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: async () => 'dangerous command\n' } });
   try {
     render(<MobileToolbar onPasteToInput={onPasteToInput} onSendKey={onSendKey} />);
-    await act(async () => fireEvent.click(screen.getByTitle('Paste into input')));
+    await act(async () => fireEvent.click(screen.getByTitle('Paste into Quick Input')));
     expect(onPasteToInput).toHaveBeenCalledExactlyOnceWith('dangerous command\n');
     expect(onSendKey).not.toHaveBeenCalled();
   } finally {

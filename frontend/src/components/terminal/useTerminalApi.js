@@ -196,6 +196,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
     window.terminalSessions[sessionId] = {
       sendData,
       sendCommand,
+      paste: text => { if (!readOnlyRef?.current) xtermRef.current?.paste(text); },
       prepareInputMode: () => prepareInputModeRef?.current?.() ?? true,
       getSelection,
       getBufferText,

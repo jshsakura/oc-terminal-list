@@ -412,8 +412,10 @@ describe('Terminal', () => {
       window.addEventListener('iterm:selection-to-command-input', listener);
       try {
         fireEvent.mouseDown(harness.term.element, { button: 2, clientX: 30, clientY: 40 });
-        expect(await screen.findByText('맨 아래로 이동')).toBeInTheDocument();
-        fireEvent.click(screen.getByText('입력창에 붙여넣기'));
+        expect(await screen.findByText('맨 아래로 스크롤')).toBeInTheDocument();
+        expect(screen.getByText('붙여넣기')).toBeInTheDocument();
+        expect(screen.getByText('조합키 등록')).toBeInTheDocument();
+        fireEvent.click(screen.getByText('빠른 입력에 붙여넣기'));
         await waitFor(() => expect(listener).toHaveBeenCalledOnce());
         expect(listener.mock.calls[0][0].detail).toEqual({ text: 'clipboard\n', sessionId: 'sess-1', paneId: 'source-pane', tabId: 'source-tab' });
         expect(ws.sent.some(data => typeof data === 'string' && !data.startsWith('{'))).toBe(false);

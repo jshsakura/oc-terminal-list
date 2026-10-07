@@ -7,7 +7,7 @@
  * Terminal.jsx 에서 로직 변경 없이 추출.
  */
 import { useState, useEffect, useRef } from 'react';
-import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RefreshCw, KeyRound, Upload, Link as LinkIcon, FileText } from 'lucide-react';
+import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RefreshCw, KeyRound, Upload, Link as LinkIcon, FileText, Keyboard } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { glassDividerStyle, glassMenuStyle } from '../../styles/glass';
 import { styles } from './terminalStyles';
@@ -174,7 +174,7 @@ export const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) =>
   );
 };
 
-export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onUseSelection, onCopyLink, onCopyAll, onPaste, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose, readOnly = false, isMobile = false }) => {
+export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onUseSelection, onCopyLink, onCopyAll, onPaste, onPasteToInput, onRegisterKeyCombination, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose, readOnly = false, isMobile = false }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
   const [measured, setMeasured] = useState(false);
@@ -211,7 +211,13 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
     items.push({ icon: ClipboardPaste, label: t('selectionToInput') || 'Use in quick input', action: onUseSelection });
   }
   if (isMobile || !readOnly) {
-    items.push({ icon: ClipboardPaste, label: t(isMobile ? 'pasteToInput' : 'paste') || (isMobile ? 'Paste into input' : 'Paste'), action: onPaste });
+    items.push({ icon: ClipboardPaste, label: t('paste') || 'Paste', action: onPaste });
+  }
+  if (onPasteToInput) {
+    items.push({ icon: ClipboardPaste, label: t('pasteToInput') || 'Paste into Quick Input', action: onPasteToInput });
+  }
+  if (onRegisterKeyCombination) {
+    items.push({ icon: Keyboard, label: t('registerKeyCombination') || 'Register key combination', action: onRegisterKeyCombination });
   }
   if (!readOnly && onUploadFile) {
     items.push({ icon: Upload, label: t('sendFile') || 'Send file', action: onUploadFile });

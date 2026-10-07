@@ -5,9 +5,18 @@ import terminalKeyCombination from '../../utils/terminalKeyCombination';
 
 const { color, fontSize, radius, space } = tokens;
 
-export default function KeyCombinationInput({ t, onSend, onAddShortcut, footerTarget = null }) {
-  const [modifiers, setModifiers] = useState({ ctrl: false, alt: false, shift: false });
-  const [key, setKey] = useState('');
+const KEY_GROUPS = [
+  { title: 'keyCombinationSpecialKeys', keys: [['Escape', 'Esc'], ['Tab', 'Tab'], ['Enter', 'Enter'],
+    ['Space', 'Space'], ['Backspace', '⌫']] },
+  { title: 'keyCombinationNavigationKeys', keys: [['ArrowLeft', '←'], ['ArrowUp', '↑'], ['ArrowDown', '↓'], ['ArrowRight', '→'],
+    ['Home', 'Home'], ['End', 'End'], ['PageUp', 'PgUp'], ['PageDown', 'PgDn'], ['Insert', 'Ins'], ['Delete', 'Del']] },
+  { title: 'keyCombinationFunctionKeys', keys: Array.from({ length: 12 }, (_, index) => [`F${index + 1}`, `F${index + 1}`]) },
+];
+
+export default function KeyCombinationInput({ t, onSend, onAddShortcut,
+  initialKey = '', initialModifiers, showKeyButtons = false, autoFocus = true, footerTarget = null }) {
+  const [modifiers, setModifiers] = useState({ ctrl: false, alt: false, shift: false, ...initialModifiers });
+  const [key, setKey] = useState(initialKey);
   const [composing, setComposing] = useState(false);
   const [saved, setSaved] = useState(false);
   const inputRef = useRef(null);
@@ -15,7 +24,7 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut, footerTa
   const previewId = useId();
   const combination = terminalKeyCombination(key, modifiers);
   const canSend = combination.payload !== null && !composing;
-  useLayoutEffect(() => { inputRef.current?.focus(); }, []);
+  useLayoutEffect(() => { if (autoFocus) inputRef.current?.focus(); }, [autoFocus]);
   const send = () => {
     if (canSend) { onSend?.(combination.payload); }
   };
@@ -45,6 +54,20 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut, footerTa
         {{ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' }[modifier]}
       </button>)}
     </div>
+    {showKeyButtons && KEY_GROUPS.map(group => <div key={group.title} role="group" aria-label={t(group.title)}>
+      <div style={{ ...styles.label, marginBottom: space['1'] }}>{t(group.title)}</div>
+      <div style={styles.keyGrid}>
+        {group.keys.map(([value, label]) => <button key={value} type="button" aria-label={value}
+          aria-pressed={terminalKeyCombination(key).label === terminalKeyCombination(value).label}
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => { setKey(value); setSaved(false); }}
+          style={{ ...styles.button, padding: `0 ${space['1']}`, fontSize: fontSize['12'],
+            background: key === value ? color.accentSubtle : color.surface0,
+            color: key === value ? color.accent : color.text, borderColor: key === value ? color.accent : color.border }}>
+          {label}
+        </button>)}
+      </div>
+    </div>)}
     <label htmlFor={inputId} style={styles.label}>{t('keyCombinationKey')}</label>
     <input ref={inputRef} id={inputId} value={key} aria-describedby={previewId}
       placeholder={t('keyCombinationPlaceholder')} autoCapitalize="none" autoCorrect="off" spellCheck={false}
@@ -67,6 +90,7 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut, footerTa
 const styles = {
   panel: { display: 'flex', flexDirection: 'column', gap: space['2'], padding: space['3'], minWidth: 0 },
   modifiers: { display: 'flex', gap: space['2'] },
+  keyGrid: { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: space['1'] },
   button: { minHeight: 32, padding: `0 ${space['3']}`, border: '1px solid', borderRadius: radius.sm,
     fontFamily: 'inherit', fontSize: fontSize['13'], cursor: 'pointer' },
   label: { fontSize: fontSize['12'], color: color.subtext },

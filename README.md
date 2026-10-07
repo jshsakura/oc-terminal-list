@@ -459,8 +459,9 @@ journalctl -u iterminallist.service -f
 Mobile terminals start in **View mode**: tapping the screen does not open the keyboard.
 Explicitly opening Quick Input or pressing a quick bar key returns from history before enabling input.
 Tap links to open them; hold and drag (or drag horizontally) to select text. The long-press menu places
-**Copy selection** directly below **Copy all**. **Paste into input** appends clipboard text to the existing
-draft without sending it until you press Send. **Scroll to Bottom** and **View as text** are also in this menu.
+**Copy selection** directly below **Copy all**. **Paste** sends clipboard text to the terminal;
+**Paste into Quick Input** appends it to the draft without sending. **Register key combination**,
+**Scroll to Bottom** and **View as text** are also in this menu.
 
 ### Mobile quick bar sets and key combinations
 
@@ -482,8 +483,11 @@ On mobile, Quick Input leaves the bar outside the modal at the bottom of the vis
 Use the arrow immediately left of Close to toggle recent commands. The button remains available in both text and
 key combination modes; an open list stays above the input area after picking an entry or switching modes.
 Switch between text and key combination input
-using the compact header buttons. Choose Ctrl/Alt/Shift and a key, then **Send** from the footer or
-**Add to current quick bar set**. The settings editor also has a combination builder, so no escape
+using the compact header buttons. Choose Ctrl/Alt/Shift and a key, then **Send** from the footer.
+Open **Register key combination** from the terminal context menu or quick bar settings for a separate modal.
+Select common special keys, navigation keys or F1–F12, or type a character, then add it to the current set.
+Hold and drag quick bar keys to reorder them. Dropping saves the order in the current set.
+Context-menu **Paste** pastes directly into the terminal; **Paste into Quick Input** fills the draft without sending it. No escape
 codes need to be entered manually.
 
 ### Resetting the administrator password

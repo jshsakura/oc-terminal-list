@@ -76,6 +76,7 @@ const InitialSetup    = lazy(() => import('./components/InitialSetup'));
 const Login           = lazy(() => import('./components/Login'));
 const MobileToolbar   = lazy(() => import('./components/MobileToolbar'));
 const CommandInput    = lazy(() => import('./components/CommandInput'));
+const KeyCombinationModal = lazy(() => import('./components/commandinput/KeyCombinationModal'));
 
 const { color, font, fontSize, fontWeight, space } = tokens;
 
@@ -813,6 +814,7 @@ function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
+  const [keyCombinationOpen, setKeyCombinationOpen] = useState(false);
   const [inputModePending, setInputModePending] = useState(false);
   const inputModePendingRef = useRef(false);
   const enableMobileInput = useEvent(async (openComposer = false, returnToBottomKey = null) => {
@@ -850,6 +852,21 @@ function App() {
     else setNotification({ isOpen: true, message: t('shortcutExists'), type: 'info' });
     return true;
   });
+  const pasteToTerminal = useEvent(async event => {
+    const { text, sessionId } = event.detail || {};
+    if (typeof text !== 'string' || !text || !window.terminalSessions?.[sessionId]) return;
+    if (isMobile && mobileViewOnly && !await enableMobileInput()) return;
+    window.terminalSessions?.[sessionId]?.paste?.(text);
+  });
+  useEffect(() => {
+    const register = () => { setCommandInputOpen(false); setKeyCombinationOpen(true); };
+    window.addEventListener('iterm:register-key-combination', register);
+    window.addEventListener('iterm:paste-to-terminal', pasteToTerminal);
+    return () => {
+      window.removeEventListener('iterm:register-key-combination', register);
+      window.removeEventListener('iterm:paste-to-terminal', pasteToTerminal);
+    };
+  }, [pasteToTerminal]);
   /* 모바일 입력은 **팝업으로 되돌렸다** (2026-08-28).
 
      상시 노출 도크는 탭 한 번을 아끼려던 것인데, 폰에서 하단 입력부를 누르면 키보드가
@@ -1207,6 +1224,11 @@ function App() {
             keySets={resolveMobileKeySets(settings)}
             activeSetId={activeMobileKeySet(settings).id}
             onSelectSet={id => updateSettings({ mobileKeySets: resolveMobileKeySets(settings), activeMobileKeySetId: id })}
+            onReorderKeys={keys => {
+              const sets = resolveMobileKeySets(settings);
+              const active = activeMobileKeySet(settings, sets);
+              updateSettings({ mobileKeySets: sets.map(set => set.id === active.id ? { ...set, keys } : set) });
+            }}
             onPasteToInput={text => window.dispatchEvent(new CustomEvent('iterm:selection-to-command-input', {
               detail: { text, sessionId: focusedPane.sessionId || focusedPane.id, paneId: focusedPane.id, tabId: activeTabId },
             }))}
@@ -1658,11 +1680,13 @@ function App() {
           (터미널 탭 → 키보드 → 키바에서 버튼 찾기 → 모달)을 0 걸음으로 줄인다.
           도크 자리는 MobileToolbar 바로 위 — 둘 다 wrapper 의 flex 흐름 끝이라
           키보드가 올라오면 같이 밀려 올라간다. */}
+      {keyCombinationOpen && <LazyErrorBoundary><Suspense fallback={null}>
+        <KeyCombinationModal t={t} onClose={() => setKeyCombinationOpen(false)} onAddShortcut={addQuickBarShortcut} />
+      </Suspense></LazyErrorBoundary>}
       {(commandInputOpen || showCommandDock) && (
         <LazyErrorBoundary><Suspense fallback={null}>
           <CommandInput
             renderQuickBar={isMobile ? renderMobileToolbar : null}
-            onAddShortcut={addQuickBarShortcut}
             docked={showCommandDock}
             submitOnEnter={isMobile}
             isOpen={showCommandDock || commandInputOpen}

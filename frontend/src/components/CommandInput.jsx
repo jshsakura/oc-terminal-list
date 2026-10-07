@@ -56,7 +56,7 @@ const MIN_PANES_FOR_TARGETS = 2;
  * 그대로 돌면 터미널을 탭해도 포커스가 입력창으로 되튕겨 **터미널에 아무것도 못 친다.**
  * 그게 모달과 도크의 결정적 차이다.
  */
-const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut, renderQuickBar, command, setCommand, t, language, terminalKey = null, panes = [], docked = false, submitOnEnter = false }) => {
+const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBar, command, setCommand, t, language, terminalKey = null, panes = [], docked = false, submitOnEnter = false }) => {
   const [combinationFooter, setCombinationFooter] = useState(null);
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
@@ -554,7 +554,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
       {historyOpen && terminalKey && <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />}
 
       {combinationMode &&
-        <KeyCombinationInput t={t} onAddShortcut={onAddShortcut} footerTarget={combinationFooter}
+        <KeyCombinationInput t={t} footerTarget={combinationFooter}
           onSend={(data) => onSendKey(data, targets.resolveTargets())} />}
 
       {!combinationMode && <div style={historyOpen && terminalKey ? { ...styles.body, flex: '0 0 auto' } : styles.body}>

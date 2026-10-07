@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { cloneElement, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, Check, ArrowDownToLine } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
@@ -11,6 +11,7 @@ import { createKeyRepeater } from '../utils/keyRepeat';
 import useDismissOnOutside from '../hooks/useDismissOnOutside';
 import { glassMenuStyle } from '../styles/glass';
 import { applyTerminalModifiers } from '../utils/terminalKeyCombination';
+import useQuickBarReorder from '../hooks/useQuickBarReorder';
 
 /* kind 별 기본 아이콘 — 키에 명시적 icon 이 없으면 fallback. */
 const DEFAULT_ICON_FOR_KIND = {
@@ -58,7 +59,7 @@ const MobileToolbar = ({
   modePending = false,
   onOpenSettings = null,
   onPasteToInput = null,
-  keySets = [], activeSetId = null, onSelectSet = null,
+  keySets = [], activeSetId = null, onSelectSet = null, onReorderKeys = null,
 }) => {
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
@@ -126,10 +127,11 @@ const MobileToolbar = ({
   // 프리픽스 키가 실린다 — 바에 tmux 가 모르는 키가 남으면 눌러도 아무 일이 없고,
   // 그 실패는 조용하다.
   const list = sanitizeMobileKeys(keys ?? mobileKeysFor(multiplexer));
+  const reorder = useQuickBarReorder({ keys: list, setId: activeSetId, scrollRef, onReorder: onReorderKeys });
   // 빠른입력(⌘)은 스크롤 밖 좌측에 고정한다 — 키를 옆으로 밀다 보면 정작 제일 자주 쓰는
   // 버튼이 화면 밖으로 사라진다. 나머지 키만 가로 스크롤 영역에 남긴다.
   // 고정 영역 바로 뒤가 구분자면 그 구분자도 함께 고정(splitPinnedAndScroll 참조).
-  const { pinnedKey, pinnedDivider, scrollKeys } = splitPinnedAndScroll(list);
+  const { pinnedKey, pinnedDivider, scrollKeys } = splitPinnedAndScroll(reorder.keys);
 
   const sendWithModifiers = (key) => {
     const finalKey = applyTerminalModifiers(key, { ctrl: ctrlActive, alt: altActive, shift: shiftActive });
@@ -358,7 +360,7 @@ const MobileToolbar = ({
             모르는 자식이라 조건을 걸 수가 없다. 그래서 구분선은 도크가 자기 내용과 함께
             포탈로 보낸다. 여기 남는 것은 자리(폭 0)뿐이다. */}
         <div id={DOCK_SLOT_ID} style={styles.dockSlot} />
-        <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
+        <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll} {...reorder.handlers}>
           <div style={styles.row}>
             {!terminalReady && terminalSessionId ? (
               scrollKeys.map((k, i) => {
@@ -386,7 +388,11 @@ const MobileToolbar = ({
                 );
               })
             ) : (
-              scrollKeys.map(renderItem)
+              scrollKeys.map((key, index) => key.kind === 'sep' ? renderItem(key, index)
+                : cloneElement(renderItem(key, index), { 'data-mobile-key-id': key.id,
+                  style: { touchAction: onReorderKeys ? 'pan-x' : undefined,
+                    ...(reorder.dragId === key.id ? { borderColor: color.accent, background: color.accentSubtle,
+                      transform: 'translateY(-2px)', cursor: 'grabbing' } : {}) } }))
             )}
           </div>
         </div>

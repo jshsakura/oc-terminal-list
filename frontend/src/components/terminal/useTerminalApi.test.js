@@ -78,6 +78,15 @@ const setup = (over = {}) => {
 const api = (sessionId = 's1') => window.terminalSessions[sessionId];
 
 describe('useTerminalApi', () => {
+  it('uses xterm paste semantics and keeps paste blocked while read-only', () => {
+    const paste = vi.fn();
+    const { refs } = setup({ term: makeTerm([], { paste }) });
+    api().paste('one\ntwo');
+    expect(paste).toHaveBeenCalledExactlyOnceWith('one\ntwo');
+    refs.readOnlyRef.current = true;
+    api().paste('blocked');
+    expect(paste).toHaveBeenCalledTimes(1);
+  });
   it('returns to live tmux output without unlocking input or using the local-only scroll path', async () => {
     const { refs, scrollToBottom, enqueue } = setup({ readOnly: true,
       term: makeTerm([], { clearSelection: vi.fn() }) });

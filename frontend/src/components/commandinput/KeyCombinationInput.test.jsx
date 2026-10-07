@@ -10,6 +10,21 @@ const setup = () => {
     send: screen.getByRole('button', { name: '조합키 전송' }) };
 };
 
+it('provides every special, navigation and function key as buttons without sending on selection', () => {
+  const onAddShortcut = vi.fn(() => true);
+  render(<KeyCombinationInput t={key => ko[key]} showKeyButtons onAddShortcut={onAddShortcut} />);
+  for (const key of ['Escape', 'Tab', 'Enter', 'Space', 'Backspace', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'ArrowRight',
+    'Home', 'End', 'PageUp', 'PageDown', 'Insert', 'Delete', ...Array.from({ length: 12 }, (_, i) => `F${i + 1}`)]) {
+    expect(screen.getByRole('button', { name: key, exact: true })).toBeInTheDocument();
+  }
+  fireEvent.click(screen.getByRole('button', { name: 'Shift', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'ArrowLeft', exact: true }));
+  expect(screen.getByRole('status')).toHaveTextContent('Shift + ArrowLeft');
+  expect(onAddShortcut).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '현재 퀵바 세트에 추가' }));
+  expect(onAddShortcut).toHaveBeenCalledExactlyOnceWith({ label: 'Shift + ArrowLeft', payload: '\x1b[1;2D' });
+});
+
 it('previews modifiers and sends only when requested', () => {
   const { onSend, input, send } = setup();
   expect(input).toHaveFocus();
