@@ -264,6 +264,30 @@ describe('TerminalContextMenu', () => {
   });
 
   // 화면 오른쪽/아래 끝에서 열면 메뉴가 잘려 나간다 — 안쪽으로 끌어당긴다.
+  it('keeps a long context menu within the visible viewport as the keyboard changes its bounds', () => {
+    const original = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+    const viewport = Object.assign(new EventTarget(), { height: 160, width: 240, offsetTop: 80, offsetLeft: 0 });
+    Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 160, height: 500 });
+    try {
+      const { container } = render(<TerminalContextMenu {...baseProps()} isMobile x={230} y={700} />);
+      const menu = container.firstChild;
+      expect(menu.style.maxHeight).toBe('144px');
+      expect(menu.style.top).toBe('88px');
+      expect(menu.style.overflowY).toBe('auto');
+      expect(menu.style.opacity).toBe('1');
+      viewport.height = 120;
+      viewport.offsetTop = 90;
+      act(() => viewport.dispatchEvent(new Event('resize')));
+      expect(menu.style.maxHeight).toBe('104px');
+      expect(menu.style.top).toBe('98px');
+    } finally {
+      vi.restoreAllMocks();
+      if (original) Object.defineProperty(window, 'visualViewport', original);
+      else delete window.visualViewport;
+    }
+  });
+
   it('화면 밖으로 넘칠 위치면 안쪽으로 당겨서 띄운다', () => {
     Object.defineProperty(window, 'innerWidth', { value: 400, writable: true });
     Object.defineProperty(window, 'innerHeight', { value: 300, writable: true });

@@ -3,6 +3,7 @@
  * xterm.js 기반 터미널 에뮬레이터 (테마 및 스마트 스크롤 지원)
  */
 import { useEffect, useRef, useState, useCallback, useMemo, memo, forwardRef } from 'react';
+import { createPortal } from 'react-dom';
 import '@xterm/xterm/css/xterm.css';
 import themes from '../styles/themes';
 import { buildThemeUI } from '../styles/themeUI';
@@ -2293,7 +2294,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       )}
 
       {/* context menu — 우클릭 시 복사/붙여넣기/전체복사/하단스크롤 */}
-      {contextMenu && (
+      {contextMenu && createPortal(
         <TerminalContextMenu
           x={contextMenu.x}
           y={contextMenu.y}
@@ -2376,7 +2377,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setContextMenu(null);
           }}
           onClose={() => setContextMenu(null)}
-        />
+        />, document.body
       )}
       {/* 우클릭 "파일 보내기" 트리거용 숨김 input — 사진/파일 아무거나. */}
       <input

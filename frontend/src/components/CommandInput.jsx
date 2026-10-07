@@ -555,7 +555,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
 
       {combinationMode &&
         <KeyCombinationInput t={t} footerTarget={combinationFooter} showKeyButtons
-          onSend={(data) => onSendKey(data, targets.resolveTargets())} />}
+          onSend={data => { onSendKey(data, targets.resolveTargets()); onClose(); }} />}
 
       {!combinationMode && <div style={historyOpen && terminalKey ? { ...styles.body, flex: '0 0 auto' } : styles.body}>
         <textarea

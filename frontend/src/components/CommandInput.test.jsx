@@ -93,13 +93,20 @@ describe('빠른 입력 조합키', () => {
     expect(document.querySelector('.command-input-history-list')).toBeNull();
     expect(screen.getByTitle('최근 명령 보기').nextElementSibling).toBe(screen.getByRole('button', { name: '닫기' }));
   });
-  it('preserves the command draft and sends the previewed key to the active target without closing', () => {
+  it('closes quick input after sending the previewed key and preserves the draft when reopened', () => {
     const onSendKey = vi.fn();
     const onSend = vi.fn();
     const onClose = vi.fn();
     const setCommand = vi.fn();
-    render(<CommandInput isOpen command="기존 명령" setCommand={setCommand} onSend={onSend}
-      onSendKey={onSendKey} onClose={onClose} terminalKey="target" t={(key) => ko[key] || key} />);
+    function Harness() {
+      const [isOpen, setOpen] = useState(true);
+      return <>
+        <button onClick={() => setOpen(true)}>빠른 입력 다시 열기</button>
+        <CommandInput isOpen={isOpen} command="기존 명령" setCommand={setCommand} onSend={onSend}
+          onSendKey={onSendKey} onClose={() => { onClose(); setOpen(false); }} terminalKey="target" t={key => ko[key] || key} />
+      </>;
+    }
+    render(<Harness />);
     fireEvent.click(screen.getByRole('button', { name: '조합키' }));
     expect(screen.queryByRole('textbox', { name: '' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }));
@@ -112,9 +119,10 @@ describe('빠른 입력 조합키', () => {
     fireEvent.click(send);
     expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x03', ['target']);
     expect(onSend).not.toHaveBeenCalled();
-    expect(onClose).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
     expect(setCommand).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: '문자 입력' }));
+    fireEvent.click(screen.getByRole('button', { name: '빠른 입력 다시 열기' }));
     expect(screen.getByRole('textbox')).toHaveValue('기존 명령');
   });
   it('keeps key composition unavailable without a raw key sender and in the inactive dock layout', () => {

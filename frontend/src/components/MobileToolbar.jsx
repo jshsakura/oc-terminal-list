@@ -1,4 +1,4 @@
-import { cloneElement, useEffect, useRef, useState } from 'react';
+import { cloneElement, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, Check, ArrowDownToLine } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
@@ -66,7 +66,8 @@ const MobileToolbar = ({
   const [altActive, setAltActive] = useState(false);
   const [shiftActive, setShiftActive] = useState(false);
   const [setsOpen, setSetsOpen] = useState(false);
-  const [setsPosition, setSetsPosition] = useState({ left: 4, bottom: 0, maxHeight: 360 });
+  const [setsPosition, setSetsPosition] = useState({ left: 8, top: 8, width: MOBILE_CONTROL.setMenuWidth, maxHeight: 360 });
+  const [setsMeasured, setSetsMeasured] = useState(false);
   const setsRef = useRef(null);
   const setsMenuRef = useRef(null);
   const selectedSet = keySets.find(set => set.id === activeSetId) || keySets[0];
@@ -79,8 +80,48 @@ const MobileToolbar = ({
     if (scrollRef.current) scrollRef.current.scrollLeft = 0;
   }, [activeSetId]);
   useEffect(() => {
-    if (setsOpen) setsMenuRef.current?.querySelector('[aria-checked="true"]')?.focus({ preventScroll: true });
+    if (setsOpen && !document.activeElement?.matches('input, textarea, [contenteditable="true"]')) {
+      setsMenuRef.current?.querySelector('[aria-checked="true"]')?.focus({ preventScroll: true });
+    }
   }, [setsOpen]);
+  const placeSetsMenu = useCallback(() => {
+    const viewport = window.visualViewport;
+    const menu = setsMenuRef.current;
+    const anchor = setsRef.current?.querySelector('[aria-haspopup="menu"]');
+    if (!menu || !anchor) return;
+    const margin = Number.parseFloat(space['2']);
+    const rect = anchor.getBoundingClientRect();
+    const left = (viewport?.offsetLeft || 0) + margin;
+    const top = (viewport?.offsetTop || 0) + margin;
+    const availableWidth = Math.max(0, (viewport?.width ?? window.innerWidth) - margin * 2);
+    const width = Math.min(MOBILE_CONTROL.setMenuWidth, availableWidth);
+    const bottom = Math.min(rect.top - margin, top + (viewport?.height ?? window.innerHeight) - margin * 2);
+    const maxHeight = Math.max(0, Math.min(360, bottom - top));
+    const height = Math.min(Math.max(menu.getBoundingClientRect().height, menu.scrollHeight + 2), maxHeight);
+    const next = { left: Math.max(left, Math.min(rect.left, left + availableWidth - width)),
+      top: Math.max(top, bottom - height), width, maxHeight };
+    setSetsPosition(previous => Object.keys(next).every(key => next[key] === previous[key]) ? previous : next);
+    setSetsMeasured(true);
+  }, []);
+  useLayoutEffect(() => {
+    if (setsOpen) placeSetsMenu();
+    else setSetsMeasured(false);
+  });
+  useEffect(() => {
+    if (!setsOpen) return undefined;
+    const viewport = window.visualViewport;
+    const observer = new ResizeObserver(placeSetsMenu);
+    if (setsMenuRef.current) observer.observe(setsMenuRef.current);
+    window.addEventListener('resize', placeSetsMenu);
+    viewport?.addEventListener('resize', placeSetsMenu);
+    viewport?.addEventListener('scroll', placeSetsMenu);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', placeSetsMenu);
+      viewport?.removeEventListener('resize', placeSetsMenu);
+      viewport?.removeEventListener('scroll', placeSetsMenu);
+    };
+  }, [setsOpen, placeSetsMenu]);
   const scrollRef = useRef(null);
   const [terminalReady, setTerminalReady] = useState(false);
   // 길게 누르기 반복 — 반복 발사는 modifier 를 다시 소모하지 않게 onSendKey 로 직행한다
@@ -304,19 +345,13 @@ const MobileToolbar = ({
       <div data-testid="mobile-toolbar" style={styles.toolbar}>
         {(selectedSet || onOpenSettings) && <div ref={setsRef} style={{ ...styles.pinned, position: 'relative' }}>
           <Key aria-label={t('switchKeySet')} title={t('switchKeySet')} aria-haspopup="menu" aria-expanded={setsOpen}
-            onMouseDown={event => event.preventDefault()} onClick={event => {
-              const rect = event.currentTarget.getBoundingClientRect();
-              setSetsPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - MOBILE_CONTROL.setMenuWidth - 8)),
-                bottom: window.innerHeight - rect.top + 8,
-                maxHeight: Math.max(MOBILE_CONTROL.setMenuItemHeight, Math.min(360, rect.top - 16)) });
-              setSetsOpen(open => !open);
-            }}>
+            onMouseDown={event => event.preventDefault()} onClick={() => setSetsOpen(open => !open)}>
             <HostIcon value={selectedSet?.icon || 'Keyboard'} size={MOBILE_CONTROL.icon} />
           </Key>
           {setsOpen && createPortal(<div ref={setsMenuRef} data-mobile-key-set-menu role="menu" aria-label={t('keySets')}
             onClick={event => event.stopPropagation()}
             style={{ ...glassMenuStyle(), position: 'fixed', ...setsPosition, boxSizing: 'border-box',
-              width: `min(${MOBILE_CONTROL.setMenuWidth}px, calc(100vw - 16px))`, overflowY: 'auto', zIndex: 200003 }}
+              overflowY: 'auto', overscrollBehavior: 'contain', opacity: setsMeasured ? 1 : 0, zIndex: 200003 }}
             onKeyDown={event => {
               if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
               event.preventDefault();

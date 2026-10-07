@@ -6,9 +6,10 @@
  * - TerminalContextMenu: 우클릭/롱프레스 컨텍스트 메뉴
  * Terminal.jsx 에서 로직 변경 없이 추출.
  */
-import { useState, useEffect, useRef } from 'react';
+import { useState, useLayoutEffect, useRef } from 'react';
 import { Copy, ClipboardPaste, Scissors, ArrowDownToLine, RefreshCw, KeyRound, Upload, Link as LinkIcon, FileText } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
+import { MOBILE_CONTROL } from '../../styles/mobileControl';
 import { glassDividerStyle, glassMenuStyle } from '../../styles/glass';
 import { styles } from './terminalStyles';
 import { useDismissOnOutside } from '../../hooks/useDismissOnOutside';
@@ -186,19 +187,38 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
   // 이 리스너에 닿지 않아 메뉴가 안 닫혔다. 우클릭 press 는 이 메뉴를 여는 동작이라 제외.
   useDismissOnOutside(ref, onClose, { ignoreRightButton: true });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setMeasured(false);
-    if (ref.current) {
-      const rect = ref.current.getBoundingClientRect();
-      const margin = 8;
-      let nx = x, ny = y;
-      if (nx + rect.width > window.innerWidth - margin) nx = window.innerWidth - rect.width - margin;
-      if (nx < margin) nx = margin;
-      if (ny + rect.height > window.innerHeight - margin) ny = window.innerHeight - rect.height - margin;
-      if (ny < margin) ny = margin;
-      setPos({ x: nx, y: ny });
+    const viewport = window.visualViewport;
+    const place = () => {
+      const menu = ref.current;
+      if (!menu) return;
+      const margin = Number.parseFloat(tokens.space['2']);
+      const left = (viewport?.offsetLeft || 0) + margin;
+      const top = (viewport?.offsetTop || 0) + margin;
+      const maxWidth = Math.max(0, (viewport?.width ?? window.innerWidth) - margin * 2);
+      const maxHeight = Math.max(0, (viewport?.height ?? window.innerHeight) - margin * 2);
+      const rect = menu.getBoundingClientRect();
+      const width = Math.min(rect.width, maxWidth);
+      const height = Math.min(Math.max(rect.height, menu.scrollHeight + 2), maxHeight);
+      const nx = Math.max(left, Math.min(x, left + maxWidth - width));
+      const ny = Math.max(top, Math.min(y, top + maxHeight - height));
+      setPos(previous => previous.x === nx && previous.y === ny && previous.maxWidth === maxWidth && previous.maxHeight === maxHeight
+        ? previous : { x: nx, y: ny, maxWidth, maxHeight });
       setMeasured(true);
-    }
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    if (ref.current) observer.observe(ref.current);
+    window.addEventListener('resize', place);
+    viewport?.addEventListener('resize', place);
+    viewport?.addEventListener('scroll', place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', place);
+      viewport?.removeEventListener('resize', place);
+      viewport?.removeEventListener('scroll', place);
+    };
   }, [x, y]);
 
   const items = [];
@@ -233,13 +253,19 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
   return (
     <div
       ref={ref}
+      data-terminal-context-menu
       style={{
         position: 'fixed',
         top: pos.y,
         left: pos.x,
         zIndex: 200000,
         ...glassMenuStyle(themeUi, { padding: '4px 0', borderRadius: '8px' }),
-        minWidth: '160px',
+        width: MOBILE_CONTROL.setMenuWidth,
+        maxWidth: pos.maxWidth,
+        maxHeight: pos.maxHeight,
+        boxSizing: 'border-box',
+        overflowY: 'auto',
+        overscrollBehavior: 'contain',
         fontFamily: tokens.font.sans,
         opacity: measured ? 1 : 0,
         transition: 'opacity 120ms',
@@ -254,10 +280,13 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: '8px',
+            gap: tokens.space['2'],
             width: '100%',
-            padding: isMobile ? `${tokens.space['1']} ${tokens.space['3']}` : '6px 12px',
-            minHeight: isMobile ? tokens.space['8'] : undefined,
+            boxSizing: 'border-box',
+            padding: `${tokens.space['0.5']} ${tokens.space['2']}`,
+            minHeight: MOBILE_CONTROL.size,
+            lineHeight: tokens.space['4'],
+            margin: 0,
             border: 'none',
             background: 'transparent',
             color: item.disabled ? themeUi.subtext : themeUi.text,
@@ -269,12 +298,13 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
           className={item.disabled ? undefined : 'iterm-menu-item'}
         >
           <item.icon size={13} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.7 }} />
-          {item.label}
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.label}</span>
         </button>
       ))}
       <div style={glassDividerStyle(themeUi, { margin: '3px 0' })} />
       <div style={{
-        padding: '4px 12px',
+        padding: `${tokens.space['0.5']} ${tokens.space['2']}`,
+        lineHeight: tokens.fontSize['14'],
         fontSize: tokens.fontSize['11'],
         color: themeUi.subtext,
         opacity: 0.7,

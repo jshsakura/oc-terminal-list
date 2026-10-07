@@ -136,6 +136,42 @@ it('opens a set popup without sending keys, selects a set and closes on outside 
   expect(screen.queryByRole('menu')).toBeNull();
 });
 
+it('anchors the set picker above its button without stealing input focus and follows keyboard viewport changes', () => {
+  const original = Object.getOwnPropertyDescriptor(window, 'visualViewport');
+  const viewport = Object.assign(new EventTarget(), { height: 400, width: 390, offsetTop: 20, offsetLeft: 0 });
+  Object.defineProperty(window, 'visualViewport', { configurable: true, value: viewport });
+  try {
+    const view = render(<><textarea aria-label="Draft" /><MobileToolbar keySets={[{ id: 'one', name: 'First' }]} activeSetId="one" /></>);
+    const input = screen.getByRole('textbox', { name: 'Draft' });
+    input.focus();
+    const picker = screen.getByRole('button', { name: 'Choose quick bar set' });
+    vi.spyOn(picker, 'getBoundingClientRect').mockReturnValue({ left: 8, top: 360 });
+    fireEvent.click(picker);
+    const menu = screen.getByRole('menu');
+    expect(input).toHaveFocus();
+    expect(menu.style.bottom).toBe('');
+    expect(menu.style.maxHeight).toBe('324px');
+    expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(28);
+    expect(Number.parseFloat(menu.style.top)).toBeLessThan(360);
+    viewport.height = 220;
+    viewport.offsetTop = 40;
+    vi.mocked(picker.getBoundingClientRect).mockReturnValue({ left: 8, top: 210 });
+    act(() => viewport.dispatchEvent(new Event('resize')));
+    expect(menu.style.maxHeight).toBe('154px');
+    expect(Number.parseFloat(menu.style.top)).toBeGreaterThanOrEqual(48);
+    expect(Number.parseFloat(menu.style.top)).toBeLessThan(210);
+    expect(input).toHaveFocus();
+    vi.mocked(picker.getBoundingClientRect).mockReturnValue({ left: 8, top: 180 });
+    view.rerender(<><textarea aria-label="Draft" /><MobileToolbar keySets={[{ id: 'one', name: 'First' }]} activeSetId="one" /></>);
+    expect(menu.style.maxHeight).toBe('124px');
+    expect(Number.parseFloat(menu.style.top)).toBeLessThan(180);
+  } finally {
+    vi.restoreAllMocks();
+    if (original) Object.defineProperty(window, 'visualViewport', original);
+    else delete window.visualViewport;
+  }
+});
+
 it('pastes into the composer and never sends clipboard content as terminal input', async () => {
   const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
   const onPasteToInput = vi.fn();
