@@ -65,6 +65,18 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
   const add = () => {
     if (canSend && !saved && onAddShortcut && onAddShortcut({ label: combination.label, payload: combination.payload }) !== false) setSaved(true);
   };
+  const modifierKeys = <div data-key-combination-modifiers style={showKeyButtons
+    ? { ...styles.keyGrid, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' } : styles.modifiers}>
+    {['ctrl', 'alt', 'shift'].map(modifier => <button key={modifier} type="button"
+      aria-pressed={modifiers[modifier]}
+      onMouseDown={event => event.preventDefault()}
+      onClick={() => { setSaved(false); setDirectText(key); setModifiers(previous => ({ ...previous, [modifier]: !previous[modifier] })); }}
+      style={{ ...styles.button, fontSize: showKeyButtons ? fontSize['12'] : fontSize['13'],
+        background: modifiers[modifier] ? color.accentSubtle : color.surface0,
+        color: modifiers[modifier] ? color.accent : color.text, borderColor: color.border }}>
+      {{ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' }[modifier]}
+    </button>)}
+  </div>;
   const actions = <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: space['2'], width: '100%' }}>
     {onAddShortcut && <button type="button" disabled={!canSend || saved} onClick={add}
       onMouseDown={event => event.preventDefault()}
@@ -90,17 +102,7 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
         onClick={() => { setModifiers({ ctrl: false, alt: false, shift: false }); setKey(''); setDirectText(''); setSaved(false); }}
         style={styles.reset}><RotateCcw size={14} aria-hidden="true" /></button>}
     </div>
-    <div style={styles.modifiers}>
-      {['ctrl', 'alt', 'shift'].map((modifier) => <button key={modifier} type="button"
-        aria-pressed={modifiers[modifier]}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={() => { setSaved(false); setDirectText(key); setModifiers((previous) => ({ ...previous, [modifier]: !previous[modifier] })); }}
-        style={{ ...styles.button, background: modifiers[modifier] ? color.accentSubtle : color.surface0,
-          color: modifiers[modifier] ? color.accent : color.text,
-          borderColor: color.border }}>
-        {{ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' }[modifier]}
-      </button>)}
-    </div>
+    {!showKeyButtons && modifierKeys}
     {showKeyButtons && <>
       <div role="group" aria-label={t('keyCombinationKeyType')} style={styles.modifiers}>
         {['keyboard', 'special'].map(tab => <button key={tab} type="button" aria-pressed={keyTab === tab}
@@ -110,6 +112,7 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
           {t(tab === 'keyboard' ? 'keyCombinationKeyboard' : 'keyCombinationMoreKeys')}
         </button>)}
       </div>
+      <div data-key-combination-keyboard style={styles.keyboard}>
       {keyTab === 'keyboard' ? <div role="group" aria-label={t('keyCombinationKeyboard')} style={styles.keyboard}>
         {KEYBOARD_ROWS.map((row, index) => <div key={row} style={{ ...styles.keyGrid,
           gridTemplateColumns: `repeat(${row.length}, minmax(0, 1fr))`, marginInline: index < 2 ? 0 : index === 2 ? '4%' : '12%' }}>
@@ -123,6 +126,8 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
         <div style={{ ...styles.label, marginBottom: space['1'] }}>{t(group.title)}</div>
         <div style={styles.keyGrid}>{group.keys.map(([value, label]) => keyButton(value, label))}</div>
       </div>)}
+      {modifierKeys}
+      </div>
       <button type="button" aria-expanded={directInputOpen} aria-controls={inputId}
         onClick={() => setDirectInputOpen(open => !open)}
         style={{ ...styles.button, alignSelf: 'flex-start', background: 'transparent', color: color.subtext, borderColor: 'transparent' }}>
