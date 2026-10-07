@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, Keyboard, Check } from 'lucide-react';
+import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, Check } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { mobileKeysFor, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
@@ -303,18 +303,17 @@ const MobileToolbar = ({
           <Key aria-label={t('switchKeySet')} title={t('switchKeySet')} aria-haspopup="menu" aria-expanded={setsOpen}
             onMouseDown={event => event.preventDefault()} onClick={event => {
               const rect = event.currentTarget.getBoundingClientRect();
-              setSetsPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 288)),
-                bottom: window.innerHeight - rect.top + 8, maxHeight: Math.max(44, Math.min(360, rect.top - 16)) });
+              setSetsPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - MOBILE_CONTROL.setMenuWidth - 8)),
+                bottom: window.innerHeight - rect.top + 8,
+                maxHeight: Math.max(MOBILE_CONTROL.setMenuItemHeight, Math.min(360, rect.top - 16)) });
               setSetsOpen(open => !open);
             }}>
-            <Keyboard size={MOBILE_CONTROL.icon} />
-            {selectedSet && (selectedSet.icon ? <HostIcon value={selectedSet.icon} size={MOBILE_CONTROL.icon} />
-              : selectedSet.label || keySets.indexOf(selectedSet) + 1)}
+            <HostIcon value={selectedSet?.icon || 'Keyboard'} size={MOBILE_CONTROL.icon} />
           </Key>
           {setsOpen && createPortal(<div ref={setsMenuRef} data-mobile-key-set-menu role="menu" aria-label={t('keySets')}
             onClick={event => event.stopPropagation()}
             style={{ ...glassMenuStyle(), position: 'fixed', ...setsPosition, boxSizing: 'border-box',
-              width: 'min(280px, calc(100vw - 16px))', overflowY: 'auto', zIndex: 200003 }}
+              width: `min(${MOBILE_CONTROL.setMenuWidth}px, calc(100vw - 16px))`, overflowY: 'auto', zIndex: 200003 }}
             onKeyDown={event => {
               if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
               event.preventDefault();
@@ -328,17 +327,17 @@ const MobileToolbar = ({
               aria-checked={set.id === selectedSet?.id} className="iterm-menu-item" style={styles.setItem}
               onMouseDown={event => event.preventDefault()}
               onClick={() => { onSelectSet?.(set.id); setSetsOpen(false); }}>
-              <span style={{ minWidth: MOBILE_CONTROL.size, textAlign: 'center' }}>{set.icon
+              <span style={styles.setIcon}>{set.icon
                 ? <HostIcon value={set.icon} size={MOBILE_CONTROL.icon} /> : set.label || index + 1}</span>
               <span style={{ flex: 1, overflowWrap: 'anywhere' }}>{set.name || t(set.nameKey || 'keySetCustom')}</span>
-              {set.id === selectedSet?.id && <Check size={14} />}
+              {set.id === selectedSet?.id && <Check size={MOBILE_CONTROL.icon} style={{ flexShrink: 0 }} />}
             </button>)}
             {onOpenSettings && <button type="button" role="menuitem" className="iterm-menu-item"
               style={{ ...styles.setItem, borderTop: `1px solid ${color.border}` }}
               onMouseDown={event => event.preventDefault()}
               onClick={() => { setSetsOpen(false); onOpenSettings(); }}>
-              <span style={{ minWidth: MOBILE_CONTROL.size, textAlign: 'center' }}><Settings size={MOBILE_CONTROL.icon} /></span>
-              {t('settings')}
+              <span style={styles.setIcon}><Settings size={MOBILE_CONTROL.icon} /></span>
+              <span style={{ flex: 1 }}>{t('quickBarSettings')}</span>
             </button>}
           </div>, document.body)}
           <Divider />
@@ -507,9 +506,12 @@ const styles = {
     margin: 0,
     flexShrink: 0,
   },
-  setItem: { display: 'flex', alignItems: 'center', gap: space['2'], width: '100%', minHeight: 44,
-    textAlign: 'left', padding: space['2'], border: 'none', borderRadius: MOBILE_CONTROL.radius,
-    background: 'transparent', color: color.text, fontSize: fontSize['13'], fontFamily: 'inherit', cursor: 'pointer' },
+  setItem: { display: 'flex', alignItems: 'center', gap: space['1'], width: '100%', minHeight: MOBILE_CONTROL.setMenuItemHeight,
+    textAlign: 'left', padding: `${space['1']} ${space['2']}`, border: 'none', borderRadius: MOBILE_CONTROL.radius,
+    background: 'transparent', color: color.text, fontSize: fontSize['12'], lineHeight: `${MOBILE_CONTROL.icon + 4}px`,
+    fontFamily: 'inherit', cursor: 'pointer' },
+  setIcon: { width: MOBILE_CONTROL.icon + 4, height: MOBILE_CONTROL.icon + 4, flexShrink: 0,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center' },
 };
 
 export default MobileToolbar;

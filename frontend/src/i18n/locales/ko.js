@@ -384,6 +384,7 @@ export const ko = {
     presets: '프리셋',
     keySets: '퀵바 세트',
     switchKeySet: '퀵바 세트 선택',
+    quickBarSettings: '퀵바 설정',
     keySetsHint: '맨 앞 버튼을 눌러 세트를 바꿉니다. 마지막 선택은 자동으로 저장됩니다.',
     keySetName: '세트 이름',
     keySetLabel: '버튼 숫자·글자',

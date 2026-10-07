@@ -80,11 +80,12 @@ export const Field = ({ label, hint, children }) => (
   </div>
 );
 
-export const Select = ({ value, onChange, children }) => {
+export const Select = ({ value, onChange, children, ...rest }) => {
   const [hover, setHover] = useState(false);
   return (
     <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
       <select
+        {...rest}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onMouseEnter={() => setHover(true)}

@@ -563,6 +563,8 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
         </div>
       </header>
 
+      {terminalKey && <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />}
+
       {combinationMode &&
         <KeyCombinationInput t={t} onAddShortcut={onAddShortcut} footerTarget={combinationFooter}
           onSend={(data) => onSendKey(data, targets.resolveTargets())} />}
@@ -591,8 +593,6 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
           autoFocus
         />
       </div>}
-
-      {terminalKey && <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />}
 
       {combinationMode && <footer style={{ ...styles.footer, flexWrap: 'wrap' }}>
         {targetSelect}

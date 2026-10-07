@@ -9,7 +9,7 @@ const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 const SKELETON_ROWS = [0, 1, 2, 3, 4, 5];
 
 /**
- * Recent commands stay below the modal input; dock visibility belongs to the parent.
+ * Recent commands stay above the modal input; dock visibility belongs to the parent.
  * Picking inserts text without sending. The sentinel fetches the next page at the end.
  */
 const HistoryPanel = ({ terminalKey, onPick, t }) => {

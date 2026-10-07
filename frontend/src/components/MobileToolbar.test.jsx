@@ -15,10 +15,11 @@ describe('MobileToolbar quick input', () => {
     expect(container.querySelector('.mobile-toolbar-scroll .lucide-settings')).toBeNull();
     const picker = screen.getByRole('button', { name: 'Choose quick bar set' });
     expect(picker.querySelector('.lucide-keyboard')).toBeInTheDocument();
+    expect(picker.textContent).toBe('');
     fireEvent.click(picker);
     fireEvent.keyDown(screen.getByRole('menu'), { key: 'End' });
-    expect(screen.getByRole('menuitem', { name: 'Settings' })).toHaveFocus();
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }));
+    expect(screen.getByRole('menuitem', { name: 'Quick bar settings' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Quick bar settings' }));
     expect(onOpenSettings).toHaveBeenCalledOnce();
     expect(screen.queryByRole('menu')).toBeNull();
   });

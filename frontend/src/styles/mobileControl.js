@@ -13,6 +13,8 @@ import { tokens } from './tokens';
 export const MOBILE_CONTROL = {
   size: 28,
   icon: 14,
+  setMenuWidth: 200,
+  setMenuItemHeight: 32,
   /** 작은 아이콘은 얇으면 흐릿하다 — 살짝 굵게. */
   stroke: 2.2,
   /** 모서리 — 토큰이 정한 "버튼 기본". */

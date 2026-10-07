@@ -51,6 +51,7 @@ describe('빠른 입력 조합키', () => {
     const view = render(<CommandInput {...props} />);
     const list = document.querySelector('.command-input-history-list');
     expect(list).toBeInTheDocument();
+    expect(list.compareDocumentPosition(screen.getByRole('textbox')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'git status' }));
     expect(props.setCommand).toHaveBeenCalled();
     expect(document.querySelector('.command-input-history-list')).toBe(list);

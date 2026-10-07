@@ -381,6 +381,7 @@ export const en = {
     presets: 'Presets',
     keySets: 'Quick bar sets',
     switchKeySet: 'Choose quick bar set',
+    quickBarSettings: 'Quick bar settings',
     keySetsHint: 'Tap the first button to switch sets. Your last choice is saved automatically.',
     keySetName: 'Set name',
     keySetLabel: 'Button number or text',
