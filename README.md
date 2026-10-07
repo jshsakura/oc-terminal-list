@@ -464,17 +464,21 @@ draft without sending it until you press Send. **Scroll to Bottom** and **View a
 
 ### Mobile quick bar sets and key combinations
 
-Tap the first number or icon to open the set picker. The last selection is saved automatically.
+Tap the first keyboard icon and current set indicator to open the set picker. The last selection is saved automatically.
+Set 1 includes Ctrl, Alt and Shift toggles. Combine toggles, then press an arrow, Tab or another key;
+the bar sends the combination and clears the toggles.
 Start with **set 1: Basic keys** and **set 2: Claude · Codex**. Set 2 includes Shift+Left/Right, Shift+Tab,
 Ctrl+J, Esc, Ctrl+C/T/O/R/G, and Alt+P/T. Actions depend on the CLI and its keymap:
 [Claude shortcuts](https://code.claude.com/docs/en/interactive-mode),
 [Codex controls](https://learn.chatgpt.com/docs/developer-commands?surface=cli),
 [Codex editor shortcut](https://learn.chatgpt.com/docs/cli-customization). Navigation/editing, Ctrl, Alt, F1–F12,
 tmux, common commands, and special key sets can be added from presets when needed.
-Your existing custom bar becomes set 1. Scroll to the last **Settings** button to open the mobile
+Your existing custom bar becomes set 1. Choose **Settings** at the bottom of the set picker to open the mobile
 editor, where you can add/delete sets and edit names, button text, icons, and key order.
 
-Quick Input also shows the same bar below its footer. Switch between text and key combination input
+On mobile, Quick Input leaves the bar outside the modal at the bottom of the visible screen, above the keyboard.
+Recent commands stay below the input area, including after picking an entry or switching modes.
+Switch between text and key combination input
 using the compact header buttons. Choose Ctrl/Alt/Shift and a key, then **Send** from the footer or
 **Add to current quick bar set**. The settings editor also has a combination builder, so no escape
 codes need to be entered manually.

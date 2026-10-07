@@ -1,4 +1,4 @@
-import { DEFAULT_MOBILE_KEYS, KEY_PRESETS, TMUX_KEYS, sanitizeMobileKeys } from './mobileKeys';
+import { DEFAULT_MOBILE_KEYS, MOBILE_MODIFIER_KEYS, KEY_PRESETS, TMUX_KEYS, sanitizeMobileKeys } from './mobileKeys';
 
 const keysFromPresets = (presets, prefix) => [
   { id: `${prefix}-input`, kind: 'cmdInput', tone: 'accent' },
@@ -63,8 +63,16 @@ export const resolveMobileKeySets = (settings = {}) => {
     const preset = MOBILE_KEY_SET_PRESETS.find(preset => preset.id === set.id && !['basic', 'llm'].includes(preset.id));
     return !preset || !isUneditedPreset(set, preset);
   }) : sets;
-  const resolved = kept.length ? kept : [{ ...MOBILE_KEY_SET_PRESETS[0],
+  const initial = kept.length ? kept : [{ ...MOBILE_KEY_SET_PRESETS[0],
     keys: sanitizeMobileKeys(settings.mobileKeys ?? DEFAULT_MOBILE_KEYS) }];
+  const resolved = initial.map(set => {
+    if (set.id !== 'basic' || set.modifiersSeeded) return set;
+    const missing = MOBILE_MODIFIER_KEYS.filter(mod => !set.keys.some(key => key.kind === 'mod'
+      && (key.modifier || 'ctrl') === mod.modifier));
+    const lastModifier = set.keys.findLastIndex(key => key.kind === 'mod');
+    const at = lastModifier < 0 ? set.keys.length : lastModifier + 1;
+    return { ...set, modifiersSeeded: true, keys: [...set.keys.slice(0, at), ...missing, ...set.keys.slice(at)] };
+  });
   const basic = resolved.find(set => set.id === 'basic');
   if (!basic || basic.llmSetSeeded) return resolved;
   const migrated = resolved.map(set => set.id === 'basic' ? { ...set, llmSetSeeded: true,

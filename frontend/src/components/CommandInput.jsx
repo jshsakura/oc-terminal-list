@@ -60,6 +60,16 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
   const [combinationFooter, setCombinationFooter] = useState(null);
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
+  const quickBarRef = useRef(null);
+  const [quickBarHeight, setQuickBarHeight] = useState(MOBILE_CONTROL.size + 8);
+  useLayoutEffect(() => {
+    if (!isOpen || docked || !renderQuickBar || !quickBarRef.current) return;
+    const measure = () => setQuickBarHeight(quickBarRef.current?.getBoundingClientRect().height || MOBILE_CONTROL.size + 8);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(quickBarRef.current);
+    return () => observer.disconnect();
+  }, [isOpen, docked, renderQuickBar]);
   const enterHandledRef = useRef(false);
   const pendingComposingEnterRef = useRef(false);
   const allowLineBreakRef = useRef(false);
@@ -202,8 +212,6 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
     return () => window.removeEventListener(FOCUS_DOCK_EVENT, onFocusRequest);
   }, [docked]);
 
-  if (!isOpen) return null;
-
   const submitCommand = (text) => {
     if (!text.trim()) {
       /* 내용 없이 보내기 = 터미널에 **Enter**. 프롬프트 확인·"계속" 처럼 잦은 동작이
@@ -252,11 +260,9 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
     }
   };
 
-  // 이력 항목 클릭 → 커서 위치에 그 명령을 끼워넣고 패널을 접는다.
-  // 전송이 아니라 삽입만 — 사용자가 편집 후 직접 Send 하도록.
   const handlePickHistory = (text) => {
     insertAtCursor(text);
-    setHistoryOpen(false);
+    if (docked) setHistoryOpen(false);
   };
 
   /* 입력이 내용만큼 자란다. textarea 는 스스로 늘지 않으므로 scrollHeight 를 재서 준다.
@@ -408,10 +414,13 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
     return () => clearTimeout(timer);
   }, [docked, dockFocused, keyboardUp]);
 
+  if (!isOpen) return null;
+
+  const availableHeight = Math.max(0, viewport.height - (renderQuickBar && !docked ? quickBarHeight : 0));
   const overlayStyle = {
     ...styles.overlay,
     top: `${viewport.offsetTop}px`,
-    height: `${viewport.height}px`,
+    height: `${availableHeight}px`,
     alignItems: keyboardUp ? 'flex-end' : 'center',
     paddingTop: `${MOBILE_TOP_GAP}px`,
     paddingBottom: keyboardUp ? `${MOBILE_BOTTOM_GAP}px` : '0',
@@ -420,7 +429,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
   const modalStyle = {
     ...styles.modal,
     // 가시 영역 내 위/아래 여백을 빼고 남은 높이만 차지 — 키보드 떠있어도 푸터 버튼 안 잘림.
-    maxHeight: `calc(${viewport.height}px - ${MOBILE_TOP_GAP + MOBILE_BOTTOM_GAP}px)`,
+    maxHeight: `calc(${availableHeight}px - ${MOBILE_TOP_GAP + MOBILE_BOTTOM_GAP}px)`,
   };
 
   const micTitle = !voice.supported
@@ -531,11 +540,11 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
             aria-pressed={inputMode === mode} aria-label={t(mode === 'text' ? 'keyCombinationTextTab' : 'keyCombination')}
             title={t(mode === 'text' ? 'keyCombinationTextTab' : 'keyCombination')}
             onMouseDown={event => event.preventDefault()}
-            onClick={() => { setInputMode(mode); setHistoryOpen(false); }}
+            onClick={() => setInputMode(mode)}
             style={{ ...styles.closeBtn, ...(inputMode === mode ? styles.headerToggleActive : {}) }}>
             {mode === 'text' ? <Type size={14} /> : <Keyboard size={14} />}
           </button>)}
-          {terminalKey && !combinationMode && (
+          {docked && terminalKey && !combinationMode && (
             <button
               type="button"
               // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 iOS/Chrome 키보드가 내려간다.
@@ -554,26 +563,11 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
         </div>
       </header>
 
-      {combinationMode && <>
+      {combinationMode &&
         <KeyCombinationInput t={t} onAddShortcut={onAddShortcut} footerTarget={combinationFooter}
-          onSend={(data) => onSendKey(data, targets.resolveTargets())} />
-        <footer style={{ ...styles.footer, flexWrap: 'wrap' }}>
-          {targetSelect}
-          <div ref={setCombinationFooter} style={{ flex: '1 1 auto', minWidth: 0 }} />
-        </footer>
-      </>}
+          onSend={(data) => onSendKey(data, targets.resolveTargets())} />}
 
-      {!combinationMode && <>
-
-      {/* 지난 명령 패널 — 화살표 토글 시 입력창 *위쪽* 으로 펼쳐진다.
-          모달이 (키보드 떠있을 때) 하단 고정이라 높이가 늘면 자연히 위로 길어진다. */}
-      {historyOpen && terminalKey && (
-        <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />
-      )}
-
-      {/* 패널이 열리면 textarea 영역은 자연 높이만 차지(flex 0) → 남는 공간을 패널이 가져가
-          입력창이 가려지지 않게 한다. 닫혀 있으면 기존처럼 flex:1 로 채운다. */}
-      <div style={historyOpen ? { ...styles.body, flex: '0 0 auto' } : styles.body}>
+      {!combinationMode && <div style={terminalKey ? { ...styles.body, flex: '0 0 auto' } : styles.body}>
         <textarea
           ref={setTextareaRef}
           value={command}
@@ -596,7 +590,16 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
           style={styles.textarea}
           autoFocus
         />
-      </div>
+      </div>}
+
+      {terminalKey && <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />}
+
+      {combinationMode && <footer style={{ ...styles.footer, flexWrap: 'wrap' }}>
+        {targetSelect}
+        <div ref={setCombinationFooter} style={{ flex: '1 1 auto', minWidth: 0 }} />
+      </footer>}
+
+      {!combinationMode && <>
 
       <footer style={styles.footer}>
         {/* 좌측 — 붙여넣기 / 이미지 첨부 / 비우기 (보조 액션 그룹) */}
@@ -837,7 +840,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
   }
 
   return (
-    <div
+    <><div
       data-testid="command-input-overlay"
       style={overlayStyle}
       onClick={onClose}
@@ -859,11 +862,14 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
         onTouchMove={(e) => e.stopPropagation()}
       >
         {body}
-        {renderQuickBar && <div style={{ flexShrink: 0 }}>
-          {renderQuickBar(data => onSendKey?.(data, targets.resolveTargets()))}
-        </div>}
       </div>
     </div>
+    {renderQuickBar && <div ref={quickBarRef} data-command-input-quickbar
+      style={{ position: 'fixed', left: 0, right: 0, top: `${viewport.offsetTop + viewport.height}px`,
+        transform: 'translateY(-100%)', zIndex: 10002, background: MOBILE_CONTROL.barBackground,
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      {renderQuickBar(data => onSendKey?.(data, targets.resolveTargets()))}
+    </div>}</>
   );
 };
 

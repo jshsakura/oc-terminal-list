@@ -342,6 +342,7 @@ const Row = ({
             >
               <option value="ctrl">ctrl</option>
               <option value="alt">alt</option>
+              <option value="shift">shift</option>
             </select>
           )}
           {(['cmdInput', 'paste', 'copy', 'copyAll'].includes(k.kind)) && (

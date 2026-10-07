@@ -14,6 +14,29 @@ const TILDE_KEYS = { Insert: 2, Delete: 3, PageUp: 5, PageDown: 6,
 const SHIFTED_KEYS = Object.fromEntries(Array.from('`1234567890-=[]\\;\',./')
   .map((key, index) => [key, '~!@#$%^&*()_+{}|:"<>?'[index]]));
 
+export function applyTerminalModifiers(payload, { ctrl = false, alt = false, shift = false } = {}) {
+  if (!ctrl && !alt && !shift) return payload;
+  const sequence = /^\x1b(?:\[(\d*)(?:;(\d+))?([A-DFHPQRSZ~])|O([A-DFHPQRS]))$/.exec(payload);
+  let key = { '\r': 'Enter', '\t': 'Tab', '\x1b': 'Escape', '\x7f': 'Backspace' }[payload];
+  let previous = 0;
+  if (sequence) {
+    const [, number, modifier, csi, ss3] = sequence;
+    const suffix = csi || ss3;
+    previous = modifier ? Number(modifier) - 1 : suffix === 'Z' ? 1 : 0;
+    key = suffix === '~' ? Object.keys(TILDE_KEYS).find(name => TILDE_KEYS[name] === Number(number))
+      : suffix === 'Z' ? 'Tab'
+        : Object.keys(CURSOR_KEYS).find(name => CURSOR_KEYS[name] === suffix)
+          || (['P', 'Q', 'R', 'S'].includes(suffix) ? `F${'PQRS'.indexOf(suffix) + 1}` : null);
+  }
+  if (key || (payload.length === 1 && payload.charCodeAt(0) >= 32)) {
+    const result = terminalKeyCombination(key || payload, {
+      ctrl: ctrl || Boolean(previous & 4), alt: alt || Boolean(previous & 2), shift: shift || Boolean(previous & 1),
+    });
+    if (result.payload !== null) return result.payload;
+  }
+  return alt ? `\x1b${payload}` : payload;
+}
+
 export default function terminalKeyCombination(value, { ctrl = false, alt = false, shift = false } = {}) {
   const text = value === ' ' ? 'Space' : value.trim();
   if (!text) { return { label: '', payload: null, error: 'empty' }; }

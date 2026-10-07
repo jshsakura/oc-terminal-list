@@ -9,9 +9,8 @@ const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
 const SKELETON_ROWS = [0, 1, 2, 3, 4, 5];
 
 /**
- * 빠른입력 모달 안에서 입력창 위로 펼쳐지는 지난 명령 목록.
- * 항목 터치 → onPick(text) 로 textarea 에 채우고 패널은 부모가 접는다.
- * 끝까지 스크롤하면 sentinel 이 다음 페이지를 lazy fetch (무한 스크롤).
+ * Recent commands stay below the modal input; dock visibility belongs to the parent.
+ * Picking inserts text without sending. The sentinel fetches the next page at the end.
  */
 const HistoryPanel = ({ terminalKey, onPick, t }) => {
   const listRef = useRef(null);

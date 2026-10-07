@@ -6,6 +6,10 @@ import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import CommandInput from './CommandInput';
 import { ko } from '../i18n/locales/ko';
 
+vi.mock('../hooks/useCommandHistory', () => ({ default: () => ({
+  items: [{ text: 'git status', ts: 1 }], hasMore: false, loading: false, loadingMore: false, loadMore: vi.fn(),
+}) }));
+
 // 이미지 업로드 헬퍼는 mock — 컴포넌트의 삽입/상태 동작만 검증(네트워크 분리).
 vi.mock('./terminal/terminalHelpers', () => ({
   uploadImageAndGetPath: vi.fn(),
@@ -27,7 +31,7 @@ const t = (key) => ({
 }[key] || key);
 
 describe('빠른 입력 조합키', () => {
-  it('keeps the mobile quick bar below the footer and sends its keys to the selected target', () => {
+  it('keeps the mobile quick bar outside the modal and sends its keys to the selected target', () => {
     const onSendKey = vi.fn();
     render(<CommandInput isOpen command="draft" setCommand={vi.fn()} onSend={vi.fn()} onClose={vi.fn()}
       onSendKey={onSendKey} terminalKey="target" t={key => ko[key] || key}
@@ -35,9 +39,29 @@ describe('빠른 입력 조합키', () => {
     const send = screen.getByRole('button', { name: '전송' });
     const quickKey = screen.getByRole('button', { name: 'Quick bar Ctrl+C' });
     expect(send.compareDocumentPosition(quickKey) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(quickKey.closest('[role="dialog"]')).toBeNull();
+    expect(quickKey.closest('[data-command-input-quickbar]')).toBeInTheDocument();
     fireEvent.click(quickKey);
     expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x03', ['target']);
     expect(screen.getByRole('textbox')).toHaveValue('draft');
+  });
+  it('keeps recent commands visible across mode changes and reopening', async () => {
+    const props = { isOpen: true, command: 'draft', setCommand: vi.fn(), onSend: vi.fn(),
+      onSendKey: vi.fn(), onClose: vi.fn(), terminalKey: 'target', t: key => ko[key] || key };
+    const view = render(<CommandInput {...props} />);
+    const list = document.querySelector('.command-input-history-list');
+    expect(list).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'git status' }));
+    expect(props.setCommand).toHaveBeenCalled();
+    expect(document.querySelector('.command-input-history-list')).toBe(list);
+    expect(props.onSend).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '조합키' }));
+    expect(document.querySelector('.command-input-history-list')).toBe(list);
+    fireEvent.click(screen.getByRole('button', { name: '문자 입력' }));
+    expect(document.querySelector('.command-input-history-list')).toBe(list);
+    view.rerender(<CommandInput {...props} isOpen={false} />);
+    view.rerender(<CommandInput {...props} />);
+    expect(document.querySelector('.command-input-history-list')).toBeInTheDocument();
   });
   it('preserves the command draft and sends the previewed key to the active target without closing', () => {
     const onSendKey = vi.fn();

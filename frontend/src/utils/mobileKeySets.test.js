@@ -1,6 +1,19 @@
 import { expect, it } from 'vitest';
 import { MOBILE_KEY_SET_PRESETS, activeMobileKeySet, appendMobileShortcut, resolveMobileKeySets } from './mobileKeySets';
 
+it('adds missing default modifiers once and preserves customized keys and subsequent deletions', () => {
+  const saved = { id: 'basic', llmSetSeeded: true, keys: [
+    { id: 'mine', kind: 'send', label: 'Mine', payload: 'kept' },
+    { id: 'ctrl', kind: 'mod', label: 'CTRL' },
+    { id: 'my-alt', kind: 'mod', label: 'Option', modifier: 'alt' },
+  ] };
+  const [migrated] = resolveMobileKeySets({ mobileKeySets: [saved] });
+  expect(migrated.keys.filter(key => key.kind === 'mod').map(key => key.modifier || 'ctrl')).toEqual(['ctrl', 'alt', 'shift']);
+  expect(migrated.keys).toContainEqual(saved.keys[0]);
+  const edited = { ...migrated, keys: migrated.keys.filter(key => key.modifier !== 'shift') };
+  expect(resolveMobileKeySets({ mobileKeySets: [edited] })[0].keys).toEqual(edited.keys);
+});
+
 it('starts with basic and LLM sets and preserves the existing custom bar', () => {
   const custom = [{ id: 'my-key', kind: 'send', label: 'Mine', payload: 'custom' }];
   const sets = resolveMobileKeySets({ mobileKeys: custom });

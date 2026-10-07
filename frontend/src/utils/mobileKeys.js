@@ -7,19 +7,16 @@
  *  - icon: HOST_ICON_OPTIONS key (lucide) 또는 emoji. 비어있으면 kind 별 기본 아이콘 사용.
  *  - label: 화면 표시 텍스트. icon 과 같이 쓸 수 있음 (둘 다 가능, 택일 X).
  *  - payload: kind=send 일 때 PTY 로 보낼 raw bytes/string
- *  - modifier: kind=mod 일 때 'ctrl' | 'alt' (모디파이어 토글, 다음 send 키에 적용)
+ *  - modifier: 'ctrl' | 'alt' | 'shift' for kind=mod, applied to the next send key.
  *  - tone: 'danger' | 'muted' | 'accent' (시각 강조)
  *
  * 사용자가 Settings 에서 자유롭게 추가/삭제/순서 변경. 항상 최소 1개 이상 유지.
  */
-export const DEFAULT_MOBILE_KEYS = [
-   /* 폰의 바는 **짧다.** 스크롤 뒤로 밀린 키는 없는 키다 — 그래서 기본에는 "이게 없으면
-      아예 못 하는 것" 만 둔다. 한때 줄편집(^A ^E ^W)·세션(^R ^L ^D ^Z)·PgUp/PgDn·ALT 까지
-      전부 실었다가 "쓸데없는 키가 많다" 로 되돌린 자리다. 전부 설정 프리셋에 있으므로
-      쓰는 사람이 골라 넣는다 — 고른 사람의 바에만 있는 것이 맞다.
+export const MOBILE_MODIFIER_KEYS = ['ctrl', 'alt', 'shift'].map(modifier => ({
+  id: modifier, kind: 'mod', label: modifier.toUpperCase(), modifier,
+}));
 
-      ⚠️ 여기에 키를 더하기 전에 "이게 없으면 폰에서 무엇을 못 하나" 를 먼저 답할 것.
-      CTRL 토글이 있으므로 나머지 컨트롤 조합은 소프트 키보드 글자와 조합해 낼 수 있다. */
+export const DEFAULT_MOBILE_KEYS = [
 
    /* 빠른입력(cmdInput)이 **맨 앞이다.** 한때 뺐었다 — 입력창이 하단 상시 도크로 깔리니
       그걸 여는 버튼은 할 일이 없다고 봤다. 그 도크를 되돌리면서 이 버튼이 **모바일에서
@@ -42,13 +39,8 @@ export const DEFAULT_MOBILE_KEYS = [
    { id: 'enter', kind: 'send', label: '⏎', payload: '\r' },
    { id: 'bs',    kind: 'send', label: '⌫', payload: '\x7f' },
    { id: 'sep3',  kind: 'sep' },
-   /* 조합키는 **둘만** 남긴다. 나머지(^A ^E ^U ^W ^R ^L ^D ^Z, ALT)는 프리셋으로 내렸다.
-      - `^C` 는 소프트 키보드를 안 열고 작업을 중단하는 **유일한** 길이다. 바에 알파벳
-        키가 없으므로 CTRL 토글로는 못 만든다.
-      - `CTRL` 토글은 그 나머지 조합을 만드는 **유일한** 길이다(+ 소프트 키보드 글자).
-      둘 중 하나라도 빼면 폰에서 못 하게 되는 일이 생긴다 — 그래서 여기까지다. */
    { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', tone: 'danger' },
-   { id: 'ctrl',  kind: 'mod', label: 'CTRL' },
+   ...MOBILE_MODIFIER_KEYS,
    { id: 'sep4',  kind: 'sep' },
    { id: 'copy',  kind: 'copy' },
    { id: 'paste', kind: 'paste' },
@@ -110,7 +102,7 @@ const RETIRED_IDS = new Set([
   'ctrla', 'ctrle', 'ctrlu', 'ctrlw',   // 줄 편집 — 조합키는 ^C·CTRL 만 남긴다
   'ctrlr', 'ctrll', 'ctrld', 'ctrlz',   // 세션·히스토리
   'pgup', 'pgdn',                       // 터치로 스크롤된다
-  'alt',                                // CTRL 만으로 충분하다
+  'alt',                                // Legacy migration; the set migration restores the default toggle once.
   'sep_line', 'sep_ses', 'sep_pg', 'sep5',  // 위 묶음들의 구분자
 ]);
 
@@ -169,6 +161,7 @@ export const syncMuxKeys = (keys, _multiplexer, revision = null) => (
 // "추가" 프리셋 — Settings 의 "Add key" 메뉴에서 빠르게 선택. 사용자는 Custom (label+payload) 도 가능.
 // kind 가 'sep' 면 구분자 (payload 없음), 명시 안 하면 'send' 로 추가.
 export const KEY_PRESETS = [
+  ...MOBILE_MODIFIER_KEYS,
   // 시스템/복사
   { label: 'Copy', kind: 'copy', tone: 'accent' },
   { label: 'Copy All', kind: 'copyAll', tone: 'accent' },

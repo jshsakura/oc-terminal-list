@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import terminalKeyCombination from './terminalKeyCombination';
+import terminalKeyCombination, { applyTerminalModifiers } from './terminalKeyCombination';
+
+it.each([
+  ['\x1b[D', { shift: true }, '\x1b[1;2D'],
+  ['\x1b[1;2D', { ctrl: true }, '\x1b[1;6D'],
+  ['\x1b[6~', { alt: true }, '\x1b[6;3~'],
+  ['\x1bOP', { ctrl: true }, '\x1b[1;5P'],
+  ['\t', { shift: true }, '\x1b[Z'],
+  ['C', { ctrl: true }, '\x03'],
+  ['\x03', { alt: true }, '\x1b\x03'],
+  ['a', { shift: true }, 'A'],
+  ['literal command', {}, 'literal command'],
+])('applies toolbar modifiers to payload %j', (payload, modifiers, expected) => {
+  expect(applyTerminalModifiers(payload, modifiers)).toBe(expected);
+});
 
 describe('terminal key combinations', () => {
   it.each([

@@ -58,7 +58,7 @@ describe('DEFAULT_MOBILE_KEYS — 짧게 유지한다', () => {
   /* ⚠️ 폰의 바는 짧다. 스크롤 뒤로 밀린 키는 없는 키다 — 한때 줄편집·세션·PgUp/PgDn·ALT
      까지 전부 실었다가 "쓸데없는 키가 많다" 로 되돌렸다. 전부 프리셋에 있다. */
   it('은퇴한 키는 기본에 없다 — 프리셋에서 골라 넣는 것이다', () => {
-    for (const label of ['^A', '^E', '^U', '^W', '^R', '^L', '^D', '^Z', 'PgUp', 'PgDn', 'ALT']) {
+    for (const label of ['^A', '^E', '^U', '^W', '^R', '^L', '^D', '^Z', 'PgUp', 'PgDn']) {
       expect(byLabel(label), `${label} 이 기본에 남아 있다`).toBeUndefined();
     }
   });
@@ -77,10 +77,10 @@ describe('DEFAULT_MOBILE_KEYS — 짧게 유지한다', () => {
     }
   });
 
-  it('조합키는 ^C 와 CTRL 뿐이다 — 둘 다 없으면 폰에서 못 하는 일이 생긴다', () => {
+  it('provides Ctrl, Alt and Shift toggles alongside interrupt', () => {
     const combos = DEFAULT_MOBILE_KEYS.filter(
       (k) => k.kind === 'mod' || (k.label || '').startsWith('^'));
-    expect(combos.map((k) => k.id)).toEqual(['ctrlc', 'ctrl']);
+    expect(combos.map((k) => k.id)).toEqual(['ctrlc', 'ctrl', 'alt', 'shift']);
   });
 
   it('^C는 danger tone이고 중복되지 않는다', () => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, ChevronDown, Check } from 'lucide-react';
+import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, Keyboard, Check } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { mobileKeysFor, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
@@ -10,6 +10,7 @@ import HostIcon from '../utils/hostIcons';
 import { createKeyRepeater } from '../utils/keyRepeat';
 import useDismissOnOutside from '../hooks/useDismissOnOutside';
 import { glassMenuStyle } from '../styles/glass';
+import { applyTerminalModifiers } from '../utils/terminalKeyCombination';
 
 /* kind 별 기본 아이콘 — 키에 명시적 icon 이 없으면 fallback. */
 const DEFAULT_ICON_FOR_KIND = {
@@ -61,6 +62,7 @@ const MobileToolbar = ({
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
+  const [shiftActive, setShiftActive] = useState(false);
   const [setsOpen, setSetsOpen] = useState(false);
   const [setsPosition, setSetsPosition] = useState({ left: 4, bottom: 0, maxHeight: 360 });
   const setsRef = useRef(null);
@@ -71,6 +73,7 @@ const MobileToolbar = ({
     repeaterRef.current?.stop();
     setCtrlActive(false);
     setAltActive(false);
+    setShiftActive(false);
     if (scrollRef.current) scrollRef.current.scrollLeft = 0;
   }, [activeSetId]);
   useEffect(() => {
@@ -95,6 +98,7 @@ const MobileToolbar = ({
     repeaterRef.current?.stop();
     setCtrlActive(false);
     setAltActive(false);
+    setShiftActive(false);
   }, [viewOnly]);
 
   useEffect(() => {
@@ -127,21 +131,12 @@ const MobileToolbar = ({
   const { pinnedKey, pinnedDivider, scrollKeys } = splitPinnedAndScroll(list);
 
   const sendWithModifiers = (key) => {
-    let finalKey = key;
-    if (ctrlActive) {
-      // Ctrl+letter — control char 매핑
-      if (key.length === 1 && key >= 'a' && key <= 'z') {
-        finalKey = String.fromCharCode(key.charCodeAt(0) - 96);
-      } else if (key === '[' || key === ']' || key === '\\') {
-        finalKey = String.fromCharCode(key.charCodeAt(0) - 64);
-      }
-      setCtrlActive(false);
-    }
-    if (altActive) {
-      finalKey = '\x1b' + finalKey;
-      setAltActive(false);
-    }
+    const finalKey = applyTerminalModifiers(key, { ctrl: ctrlActive, alt: altActive, shift: shiftActive });
+    setCtrlActive(false);
+    setAltActive(false);
+    setShiftActive(false);
     onSendKey?.(finalKey);
+    return finalKey;
   };
 
   const handlePaste = async () => {
@@ -224,13 +219,17 @@ const MobileToolbar = ({
     }
 
     if (k.kind === 'mod') {
-      const isActive = (k.modifier === 'ctrl' && ctrlActive) || (k.modifier === 'alt' && altActive);
+      const modifier = k.modifier || 'ctrl';
+      const isActive = (modifier === 'ctrl' && ctrlActive) || (modifier === 'alt' && altActive)
+        || (modifier === 'shift' && shiftActive);
       const toggle = () => {
-        if (k.modifier === 'ctrl') setCtrlActive((v) => !v);
-        else if (k.modifier === 'alt') setAltActive((v) => !v);
+        if (modifier === 'ctrl') setCtrlActive((v) => !v);
+        else if (modifier === 'alt') setAltActive((v) => !v);
+        else if (modifier === 'shift') setShiftActive((v) => !v);
       };
       return (
-        <Key key={k.id} tone={k.tone} active={isActive} onClick={toggle}>
+        <Key key={k.id} tone={k.tone} active={isActive} aria-pressed={isActive}
+          onMouseDown={event => event.preventDefault()} onClick={toggle}>
           {renderKeyContent(k)}
         </Key>
       );
@@ -250,8 +249,7 @@ const MobileToolbar = ({
         onClick={event => { if (event.detail === 0) sendWithModifiers(payload); }}
         onTouchStart={() => {
           touchFiredAtRef.current = Date.now();
-          sendWithModifiers(payload);
-          repeaterRef.current?.start(payload);
+          repeaterRef.current?.start(sendWithModifiers(payload));
         }}
         // 손가락이 움직이면 툴바를 가로 스크롤하려는 것 — 반복을 끊는다.
         onTouchMove={() => repeaterRef.current?.stop()}
@@ -261,8 +259,7 @@ const MobileToolbar = ({
           e.preventDefault();
           // 방금 터치로 이미 쏜 키의 합성 이벤트면 무시.
           if (Date.now() - touchFiredAtRef.current < SYNTHETIC_MOUSE_GRACE_MS) return;
-          sendWithModifiers(payload);
-          repeaterRef.current?.start(payload);
+          repeaterRef.current?.start(sendWithModifiers(payload));
         }}
         onMouseUp={() => repeaterRef.current?.stop()}
         onMouseLeave={() => repeaterRef.current?.stop()}
@@ -302,7 +299,7 @@ const MobileToolbar = ({
       `}</style>
 
       <div data-testid="mobile-toolbar" style={styles.toolbar}>
-        {selectedSet && <div ref={setsRef} style={{ ...styles.pinned, position: 'relative' }}>
+        {(selectedSet || onOpenSettings) && <div ref={setsRef} style={{ ...styles.pinned, position: 'relative' }}>
           <Key aria-label={t('switchKeySet')} title={t('switchKeySet')} aria-haspopup="menu" aria-expanded={setsOpen}
             onMouseDown={event => event.preventDefault()} onClick={event => {
               const rect = event.currentTarget.getBoundingClientRect();
@@ -310,8 +307,9 @@ const MobileToolbar = ({
                 bottom: window.innerHeight - rect.top + 8, maxHeight: Math.max(44, Math.min(360, rect.top - 16)) });
               setSetsOpen(open => !open);
             }}>
-            {selectedSet.icon ? <HostIcon value={selectedSet.icon} size={MOBILE_CONTROL.icon} /> : selectedSet.label || keySets.indexOf(selectedSet) + 1}
-            <ChevronDown size={12} />
+            <Keyboard size={MOBILE_CONTROL.icon} />
+            {selectedSet && (selectedSet.icon ? <HostIcon value={selectedSet.icon} size={MOBILE_CONTROL.icon} />
+              : selectedSet.label || keySets.indexOf(selectedSet) + 1)}
           </Key>
           {setsOpen && createPortal(<div ref={setsMenuRef} data-mobile-key-set-menu role="menu" aria-label={t('keySets')}
             onClick={event => event.stopPropagation()}
@@ -320,21 +318,28 @@ const MobileToolbar = ({
             onKeyDown={event => {
               if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
               event.preventDefault();
-              const items = [...event.currentTarget.querySelectorAll('[role="menuitemradio"]')];
+              const items = [...event.currentTarget.querySelectorAll('[role^="menuitem"]')];
               const index = items.indexOf(document.activeElement);
               const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
                 : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
               items[next]?.focus();
             }}>
             {keySets.map((set, index) => <button key={set.id} type="button" role="menuitemradio"
-              aria-checked={set.id === selectedSet.id} className="iterm-menu-item" style={styles.setItem}
+              aria-checked={set.id === selectedSet?.id} className="iterm-menu-item" style={styles.setItem}
               onMouseDown={event => event.preventDefault()}
               onClick={() => { onSelectSet?.(set.id); setSetsOpen(false); }}>
               <span style={{ minWidth: MOBILE_CONTROL.size, textAlign: 'center' }}>{set.icon
                 ? <HostIcon value={set.icon} size={MOBILE_CONTROL.icon} /> : set.label || index + 1}</span>
               <span style={{ flex: 1, overflowWrap: 'anywhere' }}>{set.name || t(set.nameKey || 'keySetCustom')}</span>
-              {set.id === selectedSet.id && <Check size={14} />}
+              {set.id === selectedSet?.id && <Check size={14} />}
             </button>)}
+            {onOpenSettings && <button type="button" role="menuitem" className="iterm-menu-item"
+              style={{ ...styles.setItem, borderTop: `1px solid ${color.border}` }}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => { setSetsOpen(false); onOpenSettings(); }}>
+              <span style={{ minWidth: MOBILE_CONTROL.size, textAlign: 'center' }}><Settings size={MOBILE_CONTROL.icon} /></span>
+              {t('settings')}
+            </button>}
           </div>, document.body)}
           <Divider />
         </div>}
@@ -383,10 +388,6 @@ const MobileToolbar = ({
             ) : (
               scrollKeys.map(renderItem)
             )}
-            {onOpenSettings && <Key title={t('settings')} aria-label={t('settings')}
-              onMouseDown={event => event.preventDefault()} onClick={onOpenSettings}>
-              <Settings size={MOBILE_CONTROL.icon} />
-            </Key>}
           </div>
         </div>
       </div>

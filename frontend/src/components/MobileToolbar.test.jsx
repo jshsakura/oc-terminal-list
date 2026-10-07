@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import MobileToolbar from './MobileToolbar';
 
 describe('MobileToolbar quick input', () => {
-  it('keeps quick input available in view mode and puts settings last in the scrolling keys', () => {
+  it('keeps quick input in view mode and puts settings in the keyboard popup', () => {
     const onOpenSettings = vi.fn();
     const onAction = vi.fn();
     const { container } = render(<MobileToolbar language="en" viewOnly onOpenSettings={onOpenSettings} onAction={onAction} />);
@@ -12,11 +12,15 @@ describe('MobileToolbar quick input', () => {
     expect(screen.queryByRole('button', { name: 'Switch to input mode' })).toBeNull();
     fireEvent.click(screen.getByTitle('Copy'));
     expect(onAction).toHaveBeenCalledWith('copy');
-    const buttons = [...container.querySelectorAll('button')];
-    expect(buttons.at(-1)).toBe(screen.getByRole('button', { name: 'Settings' }));
-    expect(buttons.at(-1).closest('.mobile-toolbar-scroll')).toBeInTheDocument();
-    fireEvent.click(buttons.at(-1));
+    expect(container.querySelector('.mobile-toolbar-scroll .lucide-settings')).toBeNull();
+    const picker = screen.getByRole('button', { name: 'Choose quick bar set' });
+    expect(picker.querySelector('.lucide-keyboard')).toBeInTheDocument();
+    fireEvent.click(picker);
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'End' });
+    expect(screen.getByRole('menuitem', { name: 'Settings' })).toHaveFocus();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Settings' }));
     expect(onOpenSettings).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('menu')).toBeNull();
   });
   afterEach(() => {
     cleanup();
@@ -71,6 +75,33 @@ describe('MobileToolbar quick input', () => {
   });
 });
 
+it('combines default modifiers with arrows and clears all toggles after sending', () => {
+  const onSendKey = vi.fn();
+  render(<MobileToolbar onSendKey={onSendKey} />);
+  for (const label of ['CTRL', 'ALT', 'SHIFT']) fireEvent.click(screen.getByRole('button', { name: label }));
+  fireEvent.click(screen.getByTitle('←'));
+  expect(onSendKey).toHaveBeenLastCalledWith('\x1b[1;8D');
+  for (const label of ['CTRL', 'ALT', 'SHIFT']) expect(screen.getByRole('button', { name: label })).toHaveAttribute('aria-pressed', 'false');
+  fireEvent.click(screen.getByTitle('←'));
+  expect(onSendKey).toHaveBeenLastCalledWith('\x1b[D');
+});
+
+it('supports saved Ctrl toggles without an explicit modifier and Shift+Tab', () => {
+  const onSendKey = vi.fn();
+  render(<MobileToolbar onSendKey={onSendKey} keys={[
+    { id: 'old-ctrl', kind: 'mod', label: 'CTRL' },
+    { id: 'shift', kind: 'mod', modifier: 'shift', label: 'SHIFT' },
+    { id: 'letter', kind: 'send', label: 'C', payload: 'C' },
+    { id: 'tab', kind: 'send', label: 'TAB', payload: '\t' },
+  ]} />);
+  fireEvent.click(screen.getByText('CTRL'));
+  fireEvent.click(screen.getByTitle('C'));
+  expect(onSendKey).toHaveBeenLastCalledWith('\x03');
+  fireEvent.click(screen.getByText('SHIFT'));
+  fireEvent.click(screen.getByTitle('TAB'));
+  expect(onSendKey).toHaveBeenLastCalledWith('\x1b[Z');
+});
+
 it('opens a set popup without sending keys, selects a set and closes on outside presses', async () => {
   const onSelectSet = vi.fn();
   const onSendKey = vi.fn();
@@ -105,6 +136,23 @@ it('pastes into the composer and never sends clipboard content as terminal input
 });
 
 describe('MobileToolbar 길게 누르기 반복', () => {
+  it('never repeats plain arrows after a shifted press and keeps normal arrow repeat', () => {
+    vi.useFakeTimers();
+    try {
+      const onSendKey = vi.fn();
+      render(<MobileToolbar onSendKey={onSendKey} />);
+      fireEvent.click(screen.getByText('SHIFT'));
+      fireEvent.touchStart(screen.getByTitle('←'));
+      act(() => vi.advanceTimersByTime(740));
+      expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x1b[1;2D');
+      fireEvent.touchEnd(screen.getByTitle('←'));
+      fireEvent.touchStart(screen.getByTitle('←'));
+      act(() => vi.advanceTimersByTime(740));
+      expect(onSendKey.mock.calls.length).toBeGreaterThan(3);
+      expect(onSendKey).toHaveBeenLastCalledWith('\x1b[D');
+      fireEvent.touchEnd(screen.getByTitle('←'));
+    } finally { vi.useRealTimers(); }
+  });
   it('stops key repeat while returning from terminal history', () => {
     vi.useFakeTimers();
     try {
