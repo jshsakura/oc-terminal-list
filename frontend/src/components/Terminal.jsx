@@ -2299,6 +2299,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           linkUrl={contextMenu.linkUrl}
           themeUi={themeUi}
           t={t}
+          isMobile={isMobile}
           onCopy={() => {
             const sel = xtermRef.current?.getSelection();
             if (sel) copyTextToClipboard(sel);
@@ -2322,13 +2323,18 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setContextMenu(null);
           }}
           onPaste={async () => {
-            if (readOnlyRef.current) return;
+            if (!isMobile && readOnlyRef.current) return;
+            let text;
             try {
-              const text = await navigator.clipboard.readText();
-              if (text && !readOnlyRef.current && xtermRef.current) {
-                xtermRef.current.paste(text);
-              }
-            } catch {}
+              text = await navigator.clipboard.readText();
+            } catch { if (isMobile) text = window.prompt(t('pasteToInput')); }
+            if (text && isMobile) {
+              window.dispatchEvent(new CustomEvent('iterm:selection-to-command-input', {
+                detail: { text, sessionId, paneId, tabId },
+              }));
+            } else if (text && !readOnlyRef.current && xtermRef.current) {
+              xtermRef.current.paste(text);
+            }
             setContextMenu(null);
           }}
           onRefresh={onRefresh ? () => { setContextMenu(null); onRefresh(); } : null}

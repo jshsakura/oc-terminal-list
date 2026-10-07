@@ -1,0 +1,34 @@
+import { expect, it } from 'vitest';
+import { activeMobileKeySet, appendMobileShortcut, resolveMobileKeySets } from './mobileKeySets';
+
+it('preserves the existing custom bar and supplies every standard set', () => {
+  const custom = [{ id: 'my-key', kind: 'send', label: 'Mine', payload: 'custom' }];
+  const sets = resolveMobileKeySets({ mobileKeys: custom });
+  expect(sets.map(set => set.id)).toEqual(['basic', 'navigation', 'control', 'alt', 'function', 'tmux', 'text', 'special']);
+  expect(sets[0].keys).toContainEqual(custom[0]);
+  expect(sets.find(set => set.id === 'control').keys).toContainEqual(expect.objectContaining({ label: 'Ctrl+C', payload: '\x03' }));
+  expect(sets.find(set => set.id === 'function').keys.filter(key => key.kind === 'send')).toHaveLength(12);
+});
+
+it('does not resurrect deleted sets or replace edited keys and falls back after the active set is deleted', () => {
+  const settings = { mobileKeySets: [{ id: 'mine', label: 'X', icon: 'Keyboard', keys: [{ id: 'k', kind: 'send', payload: 'kept' }] }],
+    activeMobileKeySetId: 'deleted' };
+  expect(resolveMobileKeySets(settings)).toHaveLength(1);
+  expect(activeMobileKeySet(settings).id).toBe('mine');
+  expect(activeMobileKeySet(settings).icon).toBe('Keyboard');
+});
+
+it('adds a composed shortcut only to the selected set without mutating others or duplicating payloads', () => {
+  const settings = { activeMobileKeySetId: 'alt' };
+  const shortcut = { label: 'Ctrl + Alt + X', payload: '\x1b\x18' };
+  const patch = appendMobileShortcut(settings, shortcut);
+  expect(activeMobileKeySet(patch).keys.at(-1)).toMatchObject({ kind: 'send', ...shortcut });
+  expect(resolveMobileKeySets(patch)[0].keys.some(key => key.payload === shortcut.payload)).toBe(false);
+  expect(appendMobileShortcut(patch, shortcut)).toBeNull();
+});
+
+it('rejects malformed and duplicate sets while keeping a usable input button', () => {
+  const sets = resolveMobileKeySets({ mobileKeySets: [null, { id: 'ok', keys: [] }, { id: 'ok', keys: [] }, { id: 'bad' }] });
+  expect(sets).toHaveLength(1);
+  expect(sets[0].keys.some(key => key.kind === 'cmdInput')).toBe(true);
+});

@@ -211,6 +211,8 @@ export const KEY_PRESETS = [
   { label: '^D', payload: '\x04', tone: 'muted' },
   { label: '^L', payload: '\x0c', tone: 'muted' },  // clear
   { label: '^R', payload: '\x12', tone: 'muted' },  // history search
+  { label: '^Q', payload: '\x11', tone: 'muted' },
+  { label: '^S', payload: '\x13', tone: 'muted' },
   { label: '^U', payload: '\x15', tone: 'muted' },  // 줄 전체 삭제
   { label: '^W', payload: '\x17', tone: 'muted' },  // 단어 삭제
   { label: '^Z', payload: '\x1a', tone: 'muted' },  // SIGTSTP

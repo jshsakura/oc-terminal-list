@@ -3,24 +3,19 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import MobileToolbar from './MobileToolbar';
 
 describe('MobileToolbar quick input', () => {
-  it('view mode offers copy and text viewing, and requires explicit switching for input', () => {
-    const onToggle = vi.fn();
+  it('keeps quick input and presets available in view mode, with settings fixed at the right', () => {
+    const onOpenSettings = vi.fn();
     const onAction = vi.fn();
-    render(<MobileToolbar language="en" viewOnly onToggleViewOnly={onToggle} onAction={onAction} />);
-    expect(screen.queryByTitle('Quick Input')).toBeNull();
-    expect(screen.queryByText('ESC')).toBeNull();
-    expect(screen.queryByTitle('Paste')).toBeNull();
-    fireEvent.click(screen.getByTitle('View as text'));
-    expect(onAction).toHaveBeenCalledWith('viewAsText');
-    fireEvent.click(screen.getByTitle('Copy selection'));
+    const { container } = render(<MobileToolbar language="en" viewOnly onOpenSettings={onOpenSettings} onAction={onAction} />);
+    expect(screen.getByTitle('Quick Input')).toBeInTheDocument();
+    expect(screen.getByText('ESC')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Switch to input mode' })).toBeNull();
+    fireEvent.click(screen.getByTitle('Copy'));
     expect(onAction).toHaveBeenCalledWith('copy');
-    fireEvent.click(screen.getByTitle('Scroll to Bottom'));
-    expect(onAction).toHaveBeenCalledWith('scrollToBottom');
-    fireEvent.click(screen.getByRole('button', { name: 'Return to the bottom with Esc and switch to input mode' }));
-    expect(onAction).toHaveBeenCalledWith('escapeToInput');
-    expect(screen.getByRole('button', { name: 'Switch to input mode' }).querySelector('svg')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'Switch to input mode' }));
-    expect(onToggle).toHaveBeenCalledOnce();
+    const buttons = [...container.querySelectorAll('button')];
+    expect(buttons.at(-1)).toBe(screen.getByRole('button', { name: 'Settings' }));
+    fireEvent.click(buttons.at(-1));
+    expect(onOpenSettings).toHaveBeenCalledOnce();
   });
   afterEach(() => {
     cleanup();
@@ -61,7 +56,7 @@ describe('MobileToolbar quick input', () => {
     expect(onOpen).toHaveBeenCalled();
   });
 
-  it('작은 화면에서도 24px 키와 우측 overflow 힌트를 제공한다', () => {
+  it('작은 화면에서도 32px 키와 우측 overflow 힌트를 제공한다', () => {
     const { container } = render(
       <MobileToolbar
         language="en"
@@ -70,12 +65,57 @@ describe('MobileToolbar quick input', () => {
     );
 
     const key = screen.getByText('ESC').closest('button');
-    expect(key.style.height).toBe('24px');
+    expect(key.style.height).toBe('32px');
     expect(container.querySelector('style').textContent).toContain('mask-image: linear-gradient');
   });
 });
 
+it('opens a set popup without sending keys, selects a set and closes on outside presses', async () => {
+  const onSelectSet = vi.fn();
+  const onSendKey = vi.fn();
+  render(<MobileToolbar keySets={[{ id: 'one', label: '1', name: 'First' }, { id: 'two', icon: 'Keyboard', name: 'Second' }]}
+    activeSetId="one" onSelectSet={onSelectSet} onSendKey={onSendKey} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Choose quick bar set' }));
+  expect(screen.getByRole('menuitemradio', { name: /First$/ })).toHaveAttribute('aria-checked', 'true');
+  fireEvent.click(screen.getByRole('menuitemradio', { name: /Second$/ }));
+  expect(onSelectSet).toHaveBeenCalledExactlyOnceWith('two');
+  expect(onSendKey).not.toHaveBeenCalled();
+  expect(screen.queryByRole('menu')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Choose quick bar set' }));
+  await act(() => new Promise(resolve => setTimeout(resolve, 0)));
+  fireEvent.mouseDown(document.body);
+  expect(screen.queryByRole('menu')).toBeNull();
+});
+
+it('pastes into the composer and never sends clipboard content as terminal input', async () => {
+  const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const onPasteToInput = vi.fn();
+  const onSendKey = vi.fn();
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: async () => 'dangerous command\n' } });
+  try {
+    render(<MobileToolbar onPasteToInput={onPasteToInput} onSendKey={onSendKey} />);
+    await act(async () => fireEvent.click(screen.getByTitle('Paste into input')));
+    expect(onPasteToInput).toHaveBeenCalledExactlyOnceWith('dangerous command\n');
+    expect(onSendKey).not.toHaveBeenCalled();
+  } finally {
+    if (original) Object.defineProperty(navigator, 'clipboard', original);
+    else delete navigator.clipboard;
+  }
+});
+
 describe('MobileToolbar 길게 누르기 반복', () => {
+  it('stops key repeat while returning from terminal history', () => {
+    vi.useFakeTimers();
+    try {
+      const onSendKey = vi.fn();
+      const props = { onSendKey, keys: [{ id: 'bs', kind: 'send', label: 'BS', payload: '\x7f' }] };
+      const view = render(<MobileToolbar {...props} />);
+      fireEvent.touchStart(screen.getByText('BS'));
+      view.rerender(<MobileToolbar {...props} modePending />);
+      act(() => vi.advanceTimersByTime(1000));
+      expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x7f');
+    } finally { vi.useRealTimers(); }
+  });
   it('백스페이스를 누르고 있으면 반복 전송된다 — iOS 는 떼야 mousedown 이 와서 터치로만 가능', () => {
     vi.useFakeTimers();
     try {

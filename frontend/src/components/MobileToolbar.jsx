@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, ClipboardPaste, Copy, FileText, ArrowDownToLine } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, ChevronDown, Check } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { mobileKeysFor, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
@@ -7,6 +8,8 @@ import { DOCK_SLOT_ID } from './commandinput/focusDock';
 import { MOBILE_CONTROL } from '../styles/mobileControl';
 import HostIcon from '../utils/hostIcons';
 import { createKeyRepeater } from '../utils/keyRepeat';
+import useDismissOnOutside from '../hooks/useDismissOnOutside';
+import { glassMenuStyle } from '../styles/glass';
 
 /* kind 별 기본 아이콘 — 키에 명시적 icon 이 없으면 fallback. */
 const DEFAULT_ICON_FOR_KIND = {
@@ -28,7 +31,6 @@ const { color, font, fontSize, fontWeight, space, motion } = tokens;
  * wrapper 가 줄고 toolbar 도 자연스럽게 따라 올라감.
  */
 const SYNTHETIC_MOUSE_GRACE_MS = 700;
-const VIEW_CONTROL_STYLE = { height: '36px', minWidth: '44px', padding: '0 8px' };
 
 // 스켈레톤은 **실제 키와 같은 크기**로 그린다. minWidth 로만 그리면 로딩이 끝나는 순간
 // 'ESC'·'Shift+Tab' 처럼 긴 키가 늘어나며 줄 전체가 출렁인다.
@@ -52,11 +54,28 @@ const MobileToolbar = ({
   leading = null,
   viewOnly = false,
   modePending = false,
-  onToggleViewOnly = null,
+  onOpenSettings = null,
+  onPasteToInput = null,
+  keySets = [], activeSetId = null, onSelectSet = null,
 }) => {
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
   const [altActive, setAltActive] = useState(false);
+  const [setsOpen, setSetsOpen] = useState(false);
+  const [setsPosition, setSetsPosition] = useState({ left: 4, bottom: 0, maxHeight: 360 });
+  const setsRef = useRef(null);
+  const setsMenuRef = useRef(null);
+  const selectedSet = keySets.find(set => set.id === activeSetId) || keySets[0];
+  useDismissOnOutside(setsRef, () => setSetsOpen(false), { enabled: setsOpen, ignoreSelector: '[data-mobile-key-set-menu]' });
+  useEffect(() => {
+    repeaterRef.current?.stop();
+    setCtrlActive(false);
+    setAltActive(false);
+    if (scrollRef.current) scrollRef.current.scrollLeft = 0;
+  }, [activeSetId]);
+  useEffect(() => {
+    if (setsOpen) setsMenuRef.current?.querySelector('[aria-checked="true"]')?.focus({ preventScroll: true });
+  }, [setsOpen]);
   const scrollRef = useRef(null);
   const [terminalReady, setTerminalReady] = useState(false);
   // 길게 누르기 반복 — 반복 발사는 modifier 를 다시 소모하지 않게 onSendKey 로 직행한다
@@ -70,6 +89,7 @@ const MobileToolbar = ({
   // 터치로 이미 쏜 뒤 따라오는 합성 mousedown 을 흘려보내는 시각.
   const touchFiredAtRef = useRef(0);
   useEffect(() => () => repeaterRef.current?.stop(), []);
+  useEffect(() => { if (modePending) repeaterRef.current?.stop(); }, [modePending]);
   useEffect(() => {
     if (!viewOnly) return;
     repeaterRef.current?.stop();
@@ -127,10 +147,10 @@ const MobileToolbar = ({
   const handlePaste = async () => {
     try {
       const text = await navigator.clipboard.readText();
-      if (text) onSendKey?.(text);
+      if (text) onPasteToInput?.(text);
     } catch {
-      const text = prompt(t('paste') || 'Paste:');
-      if (text) onSendKey?.(text);
+      const text = prompt(t('pasteToInput'));
+      if (text) onPasteToInput?.(text);
     }
   };
 
@@ -194,7 +214,7 @@ const MobileToolbar = ({
         <Key
           key={k.id}
           tone={k.tone}
-          title={t('paste')}
+          title={t('pasteToInput')}
           onMouseDown={(e) => e.preventDefault()}
           onClick={handlePaste}
         >
@@ -225,6 +245,9 @@ const MobileToolbar = ({
       <Key
         key={k.id}
         tone={k.tone}
+        disabled={modePending}
+        title={k.label}
+        onClick={event => { if (event.detail === 0) sendWithModifiers(payload); }}
         onTouchStart={() => {
           touchFiredAtRef.current = Date.now();
           sendWithModifiers(payload);
@@ -278,35 +301,43 @@ const MobileToolbar = ({
         }
       `}</style>
 
-      <div style={{ ...styles.toolbar, ...(onToggleViewOnly && {
-        height: 'calc(44px + env(safe-area-inset-bottom, 0px))',
-      }) }}>
-        {onToggleViewOnly && (
-          <div style={styles.pinned}>
-            <Key active={viewOnly} aria-pressed={viewOnly} style={VIEW_CONTROL_STYLE}
-              disabled={modePending} aria-busy={modePending}
-              title={t(viewOnly ? 'mobileEnableInput' : 'mobileEnableView')}
-              aria-label={t(viewOnly ? 'mobileEnableInput' : 'mobileEnableView')}
-              onMouseDown={(e) => e.preventDefault()} onClick={onToggleViewOnly}>
-              {modePending ? '…' : t(viewOnly ? 'mobileViewMode' : 'mobileInputMode')}
-            </Key>
-            <Divider />
-          </div>
-        )}
-        {viewOnly ? (<>
-          <div style={{ display: 'flex', flex: 1, minWidth: 0, gap: '4px', padding: '0 4px', overflowX: 'auto' }}>
-            <Key style={VIEW_CONTROL_STYLE} title={t('mobileCopySelection')} onClick={() => onAction?.('copy')}>{t('mobileCopySelection')}</Key>
-            <Key style={VIEW_CONTROL_STYLE} title={t('copyAll')} aria-label={t('copyAll')} onClick={() => onAction?.('copyAll')}><Copy size={14} /></Key>
-            <Key style={VIEW_CONTROL_STYLE} title={t('viewAsText')} aria-label={t('viewAsText')} onClick={() => onAction?.('viewAsText')}><FileText size={14} /></Key>
-            <Key style={VIEW_CONTROL_STYLE} disabled={modePending} aria-busy={modePending}
-              title={t('mobileEscapeToInputHint')} aria-label={t('mobileEscapeToInputHint')}
-              onMouseDown={(e) => e.preventDefault()} onClick={() => onAction?.('escapeToInput')}>{t('mobileEscapeToInput')}</Key>
-          </div>
-          <div style={{ flexShrink: 0, paddingRight: '4px' }}>
-            <Key style={VIEW_CONTROL_STYLE} disabled={modePending} title={t('scrollToBottom')} aria-label={t('scrollToBottom')}
-              onClick={() => onAction?.('scrollToBottom')}><ArrowDownToLine size={14} />{t('mobileBottom')}</Key>
-          </div>
-        </>) : <>
+      <div data-testid="mobile-toolbar" style={styles.toolbar}>
+        {selectedSet && <div ref={setsRef} style={{ ...styles.pinned, position: 'relative' }}>
+          <Key aria-label={t('switchKeySet')} title={t('switchKeySet')} aria-haspopup="menu" aria-expanded={setsOpen}
+            onMouseDown={event => event.preventDefault()} onClick={event => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              setSetsPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - 288)),
+                bottom: window.innerHeight - rect.top + 8, maxHeight: Math.max(44, Math.min(360, rect.top - 16)) });
+              setSetsOpen(open => !open);
+            }}>
+            {selectedSet.icon ? <HostIcon value={selectedSet.icon} size={MOBILE_CONTROL.icon} /> : selectedSet.label || keySets.indexOf(selectedSet) + 1}
+            <ChevronDown size={12} />
+          </Key>
+          {setsOpen && createPortal(<div ref={setsMenuRef} data-mobile-key-set-menu role="menu" aria-label={t('keySets')}
+            onClick={event => event.stopPropagation()}
+            style={{ ...glassMenuStyle(), position: 'fixed', ...setsPosition, boxSizing: 'border-box',
+              width: 'min(280px, calc(100vw - 16px))', overflowY: 'auto', zIndex: 200003 }}
+            onKeyDown={event => {
+              if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+              event.preventDefault();
+              const items = [...event.currentTarget.querySelectorAll('[role="menuitemradio"]')];
+              const index = items.indexOf(document.activeElement);
+              const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                : (index + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+              items[next]?.focus();
+            }}>
+            {keySets.map((set, index) => <button key={set.id} type="button" role="menuitemradio"
+              aria-checked={set.id === selectedSet.id} className="iterm-menu-item" style={styles.setItem}
+              onMouseDown={event => event.preventDefault()}
+              onClick={() => { onSelectSet?.(set.id); setSetsOpen(false); }}>
+              <span style={{ minWidth: MOBILE_CONTROL.size, textAlign: 'center' }}>{set.icon
+                ? <HostIcon value={set.icon} size={MOBILE_CONTROL.icon} /> : set.label || index + 1}</span>
+              <span style={{ flex: 1, overflowWrap: 'anywhere' }}>{set.name || t(set.nameKey || 'keySetCustom')}</span>
+              {set.id === selectedSet.id && <Check size={14} />}
+            </button>)}
+          </div>, document.body)}
+          <Divider />
+        </div>}
         {/* 고정 슬롯 — 대상 선택·히스토리처럼 **키가 아닌 것**이 여기 온다.
             빠른입력 버튼이 빠지면서 이 자리가 비었고, 입력 도크에 두면 도크가 두 줄이 된다.
             여기 올리면 도크는 한 줄로 끝나고 전체는 키바+입력 두 줄이 된다. */}
@@ -354,7 +385,10 @@ const MobileToolbar = ({
             )}
           </div>
         </div>
-        </>}
+        {onOpenSettings && <div style={{ ...styles.pinned, paddingRight: space['1'] }}>
+          <Key title={t('settings')} aria-label={t('settings')} onMouseDown={event => event.preventDefault()}
+            onClick={onOpenSettings}><Settings size={MOBILE_CONTROL.icon} /></Key>
+        </div>}
       </div>
     </>
   );
@@ -429,6 +463,7 @@ const styles = {
   },
   scroll: {
     flex: 1,
+    minWidth: 0,
     height: '100%',
     overflowX: 'auto',
     overflowY: 'hidden',
@@ -448,13 +483,13 @@ const styles = {
     flexShrink: 0,
     height: `${MOBILE_CONTROL.size}px`,
     minWidth: `${MOBILE_CONTROL.size}px`,
-    padding: '0 5px',
+    padding: '0 8px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
     border: '1px solid',
     borderRadius: MOBILE_CONTROL.radius,
-    fontSize: fontSize['11'],
+    fontSize: fontSize['12'],
     fontWeight: fontWeight.medium,
     fontFamily: 'inherit',
     cursor: 'pointer',
@@ -471,6 +506,9 @@ const styles = {
     margin: 0,
     flexShrink: 0,
   },
+  setItem: { display: 'flex', alignItems: 'center', gap: space['2'], width: '100%', minHeight: 44,
+    textAlign: 'left', padding: space['2'], border: 'none', borderRadius: MOBILE_CONTROL.radius,
+    background: 'transparent', color: color.text, fontSize: fontSize['13'], fontFamily: 'inherit', cursor: 'pointer' },
 };
 
 export default MobileToolbar;

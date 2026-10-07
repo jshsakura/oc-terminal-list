@@ -456,12 +456,23 @@ journalctl -u iterminallist.service -f
 
 ### Mobile view mode
 
-Mobile terminals start in **View mode**. Tap **View** in the bottom toolbar to switch
-to **Input mode**. View mode prevents keyboard activation, terminal input, paste, and
-shortcut keys. Tap links to open them; hold and drag (or drag horizontally) to select
-text, then tap **Copy selection**. Swipe vertically to browse history and tap **Bottom**
-to return to live output without leaving View mode. Copy all and **View as text** remain available.
-The choice is remembered in this browser and does not affect desktop terminals.
+Mobile terminals start in **View mode**: tapping the screen does not open the keyboard.
+Explicitly opening Quick Input or pressing a quick bar key returns from history before enabling input.
+Tap links to open them; hold and drag (or drag horizontally) to select text. The long-press menu places
+**Copy selection** directly below **Copy all**. **Paste into input** appends clipboard text to the existing
+draft without sending it until you press Send. **Scroll to Bottom** and **View as text** are also in this menu.
+
+### Mobile quick bar sets and key combinations
+
+Tap the first number or icon to open the set picker. The last selection is saved automatically.
+Basic keys, navigation/editing, Ctrl, Alt, F1–F12, tmux, common commands, and special key sets are included.
+Your existing custom bar becomes set 1. The fixed **Settings** button at the far right opens the mobile
+editor, where you can add/delete sets and edit names, button text, icons, and key order.
+
+Quick Input also shows the same bar below its footer. Switch between text and key combination input
+using the compact header buttons. Choose Ctrl/Alt/Shift and a key, then **Send** from the footer or
+**Add to current quick bar set**. The settings editor also has a combination builder, so no escape
+codes need to be entered manually.
 
 ### Resetting the administrator password
 

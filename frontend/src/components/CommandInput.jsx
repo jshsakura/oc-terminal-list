@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2 } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Keyboard, Type } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import { MOBILE_CONTROL } from '../styles/mobileControl';
@@ -56,7 +56,8 @@ const MIN_PANES_FOR_TARGETS = 2;
  * 그대로 돌면 터미널을 탭해도 포커스가 입력창으로 되튕겨 **터미널에 아무것도 못 친다.**
  * 그게 모달과 도크의 결정적 차이다.
  */
-const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setCommand, t, language, terminalKey = null, panes = [], docked = false, submitOnEnter = false }) => {
+const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut, renderQuickBar, command, setCommand, t, language, terminalKey = null, panes = [], docked = false, submitOnEnter = false }) => {
+  const [combinationFooter, setCombinationFooter] = useState(null);
   const textareaRef = useRef(null);
   const modalRef = useRef(null);
   const enterHandledRef = useRef(false);
@@ -174,12 +175,13 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
       raf = requestAnimationFrame(() => {
         raf = 0;
         if (isDictatingRef.current) return;
-        if (!modalRef.current || modalRef.current.contains(document.activeElement)) return;
+        if (!modalRef.current || modalRef.current.contains(document.activeElement)
+          || document.activeElement?.closest('[data-mobile-key-set-menu]')) return;
         focusToEnd(textareaRef.current);
       });
     };
     const handleFocusIn = (e) => {
-      if (modalRef.current?.contains(e.target)) return;
+      if (modalRef.current?.contains(e.target) || e.target?.closest('[data-mobile-key-set-menu]')) return;
       refocus();
     };
     document.addEventListener('focusin', handleFocusIn, true);
@@ -525,6 +527,14 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
           {t?.('commandInput') || 'Send command'}
         </div>
         <div style={styles.headerActions}>
+          {onSendKey && !docked && ['text', 'combination'].map(mode => <button key={mode} type="button"
+            aria-pressed={inputMode === mode} aria-label={t(mode === 'text' ? 'keyCombinationTextTab' : 'keyCombination')}
+            title={t(mode === 'text' ? 'keyCombinationTextTab' : 'keyCombination')}
+            onMouseDown={event => event.preventDefault()}
+            onClick={() => { setInputMode(mode); setHistoryOpen(false); }}
+            style={{ ...styles.closeBtn, ...(inputMode === mode ? styles.headerToggleActive : {}) }}>
+            {mode === 'text' ? <Type size={14} /> : <Keyboard size={14} />}
+          </button>)}
           {terminalKey && !combinationMode && (
             <button
               type="button"
@@ -544,22 +554,13 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
         </div>
       </header>
 
-      {onSendKey && !docked && <div style={{ display: 'flex', gap: space['2'], padding: `0 ${space['3']}` }}>
-        {['text', 'combination'].map((mode) => <button key={mode} type="button"
-          aria-pressed={inputMode === mode}
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => { setInputMode(mode); setHistoryOpen(false); }}
-          style={{ padding: `${space['2']} ${space['3']}`, border: 'none', fontFamily: 'inherit',
-            background: inputMode === mode ? color.surface0 : 'transparent',
-            color: inputMode === mode ? color.text : color.subtext, borderRadius: radius.sm,
-            fontSize: fontSize['13'], cursor: 'pointer' }}>
-          {t?.(mode === 'text' ? 'keyCombinationTextTab' : 'keyCombination')}
-        </button>)}
-      </div>}
-
       {combinationMode && <>
-        <KeyCombinationInput t={t} onSend={(data) => onSendKey(data, targets.resolveTargets())} />
-        {targetSelect && <div style={styles.footer}>{targetSelect}</div>}
+        <KeyCombinationInput t={t} onAddShortcut={onAddShortcut} footerTarget={combinationFooter}
+          onSend={(data) => onSendKey(data, targets.resolveTargets())} />
+        <footer style={{ ...styles.footer, flexWrap: 'wrap' }}>
+          {targetSelect}
+          <div ref={setCombinationFooter} style={{ flex: '1 1 auto', minWidth: 0 }} />
+        </footer>
       </>}
 
       {!combinationMode && <>
@@ -858,6 +859,9 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
         onTouchMove={(e) => e.stopPropagation()}
       >
         {body}
+        {renderQuickBar && <div style={{ flexShrink: 0 }}>
+          {renderQuickBar(data => onSendKey?.(data, targets.resolveTargets()))}
+        </div>}
       </div>
     </div>
   );
@@ -1083,7 +1087,9 @@ const styles = {
     justifyContent: 'center',
     background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 54%, transparent)`,
     color: `var(--ui-subtext, ${color.subtext})`,
-    border: `1px solid var(--ui-border, ${color.border})`,
+    borderWidth: '1px',
+    borderStyle: 'solid',
+    borderColor: `var(--ui-border, ${color.border})`,
     borderRadius: '7px',
     cursor: 'pointer',
     transition: `background ${motion.fast}, color ${motion.fast}`,
@@ -1094,6 +1100,7 @@ const styles = {
   },
   body: {
     flex: 1,
+    minHeight: 0,
     padding: `${space['2']} ${space['3']}`,
     display: 'flex',
     flexDirection: 'column',

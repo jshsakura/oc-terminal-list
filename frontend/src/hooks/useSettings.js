@@ -74,6 +74,8 @@ export const DEFAULT_SETTINGS = {
   bellNotifications: false, // BEL(\x07) 수신 시 브라우저 알림 (탭 백그라운드일 때만)
   // 기본값은 저장소 기본 멀티플렉서(tmux) 기준이다(mobileKeysFor).
   mobileKeys: mobileKeysFor(),  // 모바일 하단 단축키 — 사용자가 Settings 에서 편집
+  mobileKeySets: null,
+  activeMobileKeySetId: 'basic',
   // 퀵바에 어느 멀티플렉서의 키를 심어 뒀는지. **null 이면 아직 안 심었다**(옛 사용자).
   // 이 값 없이 매번 심으면 사용자가 지운 키가 계속 되살아나 지울 방법이 없어진다.
   mobileKeysMuxSeeded: null,

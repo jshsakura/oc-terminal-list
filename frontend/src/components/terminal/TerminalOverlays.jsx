@@ -174,7 +174,7 @@ export const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) =>
   );
 };
 
-export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onUseSelection, onCopyLink, onCopyAll, onPaste, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose, readOnly = false }) => {
+export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onUseSelection, onCopyLink, onCopyAll, onPaste, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose, readOnly = false, isMobile = false }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
   const [measured, setMeasured] = useState(false);
@@ -202,17 +202,17 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
   }, [x, y]);
 
   const items = [];
-  if (hasSelection) {
-    items.push({ icon: Copy, label: t('copy') || 'Copy', action: onCopy });
-    if (readOnly && onUseSelection) {
-      items.push({ icon: ClipboardPaste, label: t('selectionToInput') || 'Use in quick input', action: onUseSelection });
-    }
-  }
   if (linkUrl && onCopyLink) {
     items.push({ icon: LinkIcon, label: t('copyLink') || 'Copy link', action: onCopyLink });
   }
   items.push({ icon: Scissors, label: t('copyAll') || 'Copy all', action: onCopyAll });
-  if (!readOnly) items.push({ icon: ClipboardPaste, label: t('paste') || 'Paste', action: onPaste });
+  items.push({ icon: Copy, label: t('mobileCopySelection') || 'Copy selection', action: onCopy, disabled: !hasSelection });
+  if (hasSelection && readOnly && onUseSelection) {
+    items.push({ icon: ClipboardPaste, label: t('selectionToInput') || 'Use in quick input', action: onUseSelection });
+  }
+  if (isMobile || !readOnly) {
+    items.push({ icon: ClipboardPaste, label: t(isMobile ? 'pasteToInput' : 'paste') || (isMobile ? 'Paste into input' : 'Paste'), action: onPaste });
+  }
   if (!readOnly && onUploadFile) {
     items.push({ icon: Upload, label: t('sendFile') || 'Send file', action: onUploadFile });
   }
@@ -247,21 +247,23 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
         <button
           key={i}
           onClick={item.action}
+          disabled={item.disabled}
           style={{
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
             width: '100%',
             padding: '6px 12px',
+            minHeight: isMobile ? `calc(${tokens.space['10']} + ${tokens.space['1']})` : undefined,
             border: 'none',
             background: 'transparent',
-            color: themeUi.text,
+            color: item.disabled ? themeUi.subtext : themeUi.text,
             fontSize: tokens.fontSize['12'],
             fontFamily: tokens.font.sans,
-            cursor: 'pointer',
+            cursor: item.disabled ? 'default' : 'pointer',
             textAlign: 'left',
           }}
-          className="iterm-menu-item"
+          className={item.disabled ? undefined : 'iterm-menu-item'}
         >
           <item.icon size={13} strokeWidth={1.8} style={{ flexShrink: 0, opacity: 0.7 }} />
           {item.label}

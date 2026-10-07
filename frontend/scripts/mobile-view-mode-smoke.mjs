@@ -15,6 +15,9 @@ const bundle = await build({
     import attachTerminalInteractions from './src/components/terminal/attachTerminalInteractions';
     import setTerminalReadOnly from './src/components/terminal/setTerminalReadOnly';
     import MobileToolbar from './src/components/MobileToolbar';
+    import {TerminalContextMenu} from './src/components/terminal/TerminalOverlays';
+    import {ko} from './src/i18n/locales/ko';
+    import {resolveMobileKeySets} from './src/utils/mobileKeySets';
     import useMobileViewMode from './src/hooks/useMobileViewMode';
     import {copyToClipboard} from './src/utils/clipboard';
     function App() {
@@ -22,6 +25,11 @@ const bundle = await build({
       const [viewOnly, setViewOnly] = useMobileViewMode();
       const locked = useRef(viewOnly); locked.current = viewOnly;
       const [text, setText] = useState('');
+      const [menu, setMenu] = useState(null);
+      const [activeSet, setActiveSet] = useState('basic');
+      const keySets = resolveMobileKeySets();
+      window.openMenu = () => setMenu({x:16,y:100,hasSelection:termRef.current.hasSelection()});
+      window.setViewOnly = setViewOnly;
       useEffect(() => {
         ensureStyles();
         const {term, fitAddon} = createXtermInstance({container:container.current,
@@ -34,7 +42,7 @@ const bundle = await build({
         const interactions = attachTerminalInteractions({term,container:container.current,overlay:overlay.current,
           input:{push:data=>window.pointerInput.push(data)},getSocket:()=>({readyState:1}),
           isMobile:()=>true,isReadOnly:()=>locked.current,sessionId:'smoke',
-          logger:console,setContextMenu:menu=>{window.selectionMenu=menu;},setCopyFlash:()=>{},setImagePasteState:()=>{}});
+          logger:console,setContextMenu:menu=>{window.selectionMenu=menu;setMenu(menu);},setCopyFlash:()=>{},setImagePasteState:()=>{}});
         term.write(Array.from({length:150},(_,i)=>'출력 내용 '+i+' — 보기 모드에서 안전하게 읽기\\r\\n').join(''));
         return () => { interactions.detach(); term.dispose(); };
       }, []);
@@ -45,13 +53,20 @@ const bundle = await build({
           <div ref={container} style={{height:'100%',width:'100%'}} />
           <div ref={overlay} id="touch-surface" style={{position:'absolute',inset:0,zIndex:4,touchAction:'none'}} />
         </div>
-        <MobileToolbar language="ko" viewOnly={viewOnly} onToggleViewOnly={()=>setViewOnly(!viewOnly)}
+        <MobileToolbar language="ko" viewOnly={viewOnly} onOpenCommandInput={()=>setViewOnly(false)}
+          keySets={keySets} activeSetId={activeSet} onSelectSet={setActiveSet}
+          keys={keySets.find(set=>set.id===activeSet).keys} onOpenSettings={()=>{}}
           onSendKey={data=>{if(!locked.current)termRef.current.input(data,true);}}
           onAction={action=>{
             if(action==='viewAsText')setText('출력 내용: 읽기와 복사 가능');
             if(action==='scrollToBottom')termRef.current.scrollToBottom();
             if(action==='copy')copyToClipboard(termRef.current.getSelection()).then(ok=>{window.copySucceeded=ok;});
           }} />
+        {menu && <TerminalContextMenu {...menu} themeUi={{text:'#eee',subtext:'#aaa'}} t={key=>ko[key]}
+          readOnly={viewOnly} isMobile onClose={()=>setMenu(null)} onCopyAll={()=>{}}
+          onCopy={()=>{copyToClipboard(termRef.current.getSelection()).then(ok=>{window.copySucceeded=ok;});setMenu(null);}}
+          onPaste={()=>{}} onScrollToBottom={()=>{termRef.current.scrollToBottom();setMenu(null);}}
+          onScreenDump={()=>{setText('출력 내용: 읽기와 복사 가능');setMenu(null);}} />}
         {text && <div role="dialog">{text}</div>}
       </main>;
     }
@@ -75,7 +90,7 @@ for (const engine of [chromium, webkit]) {
       await page.waitForFunction(() => window.term?.buffer.active.baseY > 90);
     };
     await boot();
-    await page.getByRole('button', {name:'입력 모드로 전환',exact:true}).waitFor();
+    await page.getByRole('button', {name:'퀵바 세트 선택',exact:true}).waitFor();
     assert.equal(await page.locator('textarea').evaluate(el => el.readOnly && el.inputMode === 'none'), true);
     await page.locator('#touch-surface').tap();
     assert.equal(await page.evaluate(() => document.activeElement === window.term.textarea), false);
@@ -93,10 +108,11 @@ for (const engine of [chromium, webkit]) {
     });
     await page.waitForFunction(before => window.term.buffer.active.viewportY < before, before);
     assert.deepEqual(await page.evaluate(() => window.pointerInput), []);
+    await page.evaluate(()=>window.openMenu());
     await page.getByRole('button',{name:'맨 아래로 이동',exact:true}).tap();
     await page.waitForFunction(() => window.term.buffer.active.viewportY === window.term.buffer.active.baseY);
     assert.equal(await page.evaluate(() => window.term.options.disableStdin), true);
-    assert.equal(await page.getByRole('button',{name:'입력 모드로 전환',exact:true}).locator('svg').count(), 0);
+    assert.equal(await page.getByRole('button',{name:'입력 모드로 전환',exact:true}).count(), 0);
 
     const url = 'https://example.test/'+'a'.repeat(60)+'/wrapped-link';
     await page.evaluate(url => new Promise(resolve => window.term.write('\r\nselect alpha beta\r\n한글 '+url+'\r\n',resolve)), url);
@@ -154,27 +170,28 @@ for (const engine of [chromium, webkit]) {
     await popup.close();
     assert.deepEqual(await page.evaluate(() => window.pointerInput), []);
     assert.deepEqual(await page.evaluate(() => window.input), []);
+    await page.evaluate(()=>window.openMenu());
     await page.getByRole('button',{name:'텍스트로 보기'}).tap();
     assert.match(await page.getByRole('dialog').innerText(), /읽기와 복사/);
-    await page.getByRole('button',{name:'입력 모드로 전환',exact:true}).tap();
+    await page.getByTitle('빠른 입력').tap();
     await page.waitForFunction(() => !window.term.options.disableStdin);
     await page.locator('#touch-surface').tap();
     assert.equal(await page.evaluate(() => document.activeElement === window.term.textarea), true);
     await page.keyboard.type('hello');
     assert.equal(await page.evaluate(() => window.input.join('')), 'hello');
     await boot();
-    await page.getByRole('button',{name:'보기 모드로 전환'}).waitFor();
-    await page.getByRole('button',{name:'보기 모드로 전환'}).tap();
+    assert.equal(await page.locator('textarea').evaluate(el=>!el.readOnly), true);
+    await page.evaluate(()=>window.setViewOnly(true));
     await page.waitForFunction(() => window.term.options.disableStdin);
     assert.equal(await page.evaluate(() => document.activeElement === window.term.textarea), false);
     await boot();
-    await page.getByRole('button',{name:'입력 모드로 전환',exact:true}).waitFor();
+    await page.getByRole('button',{name:'퀵바 세트 선택',exact:true}).waitFor();
     for (const width of [320,375,430]) {
       await page.setViewportSize({width,height:667});
       await page.evaluate(() => window.fitTerminal());
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No horizontal overflow');
-      const bottom = await page.getByRole('button',{name:'맨 아래로 이동',exact:true}).boundingBox();
-      assert.ok(bottom.x >= 0 && bottom.x + bottom.width <= width, 'Bottom button stays visible');
+      const settings = await page.getByRole('button',{name:/설정$/}).boundingBox();
+      assert.ok(settings.x >= 0 && settings.x + settings.width <= width, 'Settings button stays visible');
     }
     await page.screenshot({path:'/tmp/terminal-mobile-view-'+engine.name()+'.png'});
     assert.deepEqual(errors, []);

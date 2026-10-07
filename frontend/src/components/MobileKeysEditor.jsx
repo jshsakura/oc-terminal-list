@@ -9,6 +9,7 @@ import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, KEY_PRESETS, decodeUserPayload, mobileKeysFor } from '../utils/mobileKeys';
 import IconPickerPopup from './IconPickerPopup';
 import HostIcon from '../utils/hostIcons';
+import KeyCombinationInput from './commandinput/KeyCombinationInput';
 
 const { color, font, fontSize, fontWeight, radius, space } = tokens;
 
@@ -115,6 +116,7 @@ const ALT_KEY_LABELS = {
 
 const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, multiplexer = 'tmux', onChange, t }) => {
   const [presetsOpen, setPresetsOpen] = useState(false);
+  const [combinationOpen, setCombinationOpen] = useState(false);
   const [dragIndex, setDragIndex] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const tt = (key, fb) => (t?.(key) || fb);
@@ -208,6 +210,9 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, multiplexer = 'tmux', on
       </div>
 
       <div style={S.actions}>
+        <button type="button" onClick={() => setCombinationOpen(value => !value)} style={S.secondaryBtn}>
+          <Keyboard size={12} /><span>{tt('keyCombination', 'Key combination')}</span>
+        </button>
         <button type="button" onClick={addEmpty} style={S.addBtn} title={tt('addEmptyKey', 'Add empty')}>
           <Plus size={12} strokeWidth={2.4} />
           <span>{tt('addEmptyKey', 'Add empty')}</span>
@@ -229,6 +234,7 @@ const MobileKeysEditor = ({ keys = DEFAULT_MOBILE_KEYS, multiplexer = 'tmux', on
         </button>
       </div>
 
+      {combinationOpen && <KeyCombinationInput t={t} onAddShortcut={(shortcut) => { addPreset(shortcut); return true; }} />}
       {presetsOpen && (
         <div style={S.presetGrid}>
           {KEY_PRESETS.map((p, idx) => (

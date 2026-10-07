@@ -4,6 +4,7 @@ import { DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE_MOBILE } from './utils/terminalFon
 import useSettings from './hooks/useSettings';
 import useMobileViewMode from './hooks/useMobileViewMode';
 import useSelectionToCommandInput from './hooks/useSelectionToCommandInput';
+import { resolveMobileKeySets, activeMobileKeySet, appendMobileShortcut } from './utils/mobileKeySets';
 import { flushSync } from 'react-dom';
 import useAppConfig from './hooks/useAppConfig';
 import useTranslation from './hooks/useTranslation';
@@ -667,6 +668,8 @@ function App() {
   const [sessionRefreshNonce, setSessionRefreshNonce] = useState(0);
   const bumpSessionRefresh = useCallback(() => setSessionRefreshNonce((n) => n + 1), []);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState('general');
+  useEffect(() => { if (!isSettingsOpen) setSettingsInitialTab('general'); }, [isSettingsOpen]);
   const [hostEditorState, setHostEditorState] = useState({ isOpen: false, host: null });
   const [keyManagerOpen, setKeyManagerOpen] = useState(false);
   const [editingKey, setEditingKey] = useState(null);
@@ -821,7 +824,7 @@ function App() {
         .map(([key, session]) => key === returnToBottomKey
           ? session.scrollToBottom?.() ?? false : session.prepareInputMode?.() ?? true));
       if (results.some(result => !result)) throw new Error('Cannot leave terminal history');
-      setMobileViewOnly(false);
+      flushSync(() => setMobileViewOnly(false));
       if (openComposer) setCommandInputOpen(true);
       return true;
     } catch {
@@ -836,14 +839,16 @@ function App() {
     if (isMobile && mobileViewOnly) { enableMobileInput(true); return; }
     setCommandInputOpen(true);
   });
-  const toggleMobileViewOnly = useEvent(() => {
-    if (mobileViewOnly) { enableMobileInput(); return; }
-    // Lock terminal input before blur can commit an unfinished iOS composition.
-    flushSync(() => {
-      setMobileViewOnly(true);
-      setCommandInputOpen(false);
-    });
-    document.activeElement?.blur?.();
+  const sendMobileKey = useEvent(async key => {
+    if (inputModePendingRef.current) return;
+    if (mobileViewOnly && !await enableMobileInput()) return;
+    window.terminalSessions?.[terminalKey]?.sendData?.(key);
+  });
+  const addQuickBarShortcut = useEvent(shortcut => {
+    const patch = appendMobileShortcut(settings, shortcut);
+    if (patch) updateSettings(patch);
+    else setNotification({ isOpen: true, message: t('shortcutExists'), type: 'info' });
+    return true;
   });
   /* 모바일 입력은 **팝업으로 되돌렸다** (2026-08-28).
 
@@ -1187,6 +1192,63 @@ function App() {
   if (isLoading || isRestoringWorkspace) return authLoadingFallback;
   if (needsSetup) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense></LazyErrorBoundary>;
   if (!isAuthenticated) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><Login onLogin={handleLogin} language={settings.language} theme={currentTheme} einkMode={settings.einkMode === true} onToggleEink={() => updateSettings({ einkMode: !settings.einkMode })} /></Suspense></LazyErrorBoundary>;
+
+  const renderMobileToolbar = (sendKey = sendMobileKey) => (
+    isMobile && activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
+        && (focusedPane.sessionId || focusedPane.hostId) && !authPromptOpen && (
+        <LazyErrorBoundary><Suspense fallback={null}>
+          {/* ⚠️ 퀵바는 입력 도크보다 **먼저** 그려져야 한다 — 도크가 이 안의 고정
+              슬롯(DOCK_SLOT_ID)으로 포탈하기 때문. 순서를 바꾸면 첫 렌더에 슬롯이 없어
+              대상·히스토리 버튼이 한 틱 늦게 나타난다(도크가 재시도하긴 한다). */}
+          <MobileToolbar
+            viewOnly={mobileViewOnly}
+            modePending={inputModePending}
+            onOpenSettings={() => { setCommandInputOpen(false); setSettingsInitialTab('mobile'); setIsSettingsOpen(true); }}
+            keySets={resolveMobileKeySets(settings)}
+            activeSetId={activeMobileKeySet(settings).id}
+            onSelectSet={id => updateSettings({ mobileKeySets: resolveMobileKeySets(settings), activeMobileKeySetId: id })}
+            onPasteToInput={text => window.dispatchEvent(new CustomEvent('iterm:selection-to-command-input', {
+              detail: { text, sessionId: focusedPane.sessionId || focusedPane.id, paneId: focusedPane.id, tabId: activeTabId },
+            }))}
+            multiplexer={settings.defaultMultiplexer}
+            onSendKey={sendKey}
+            onOpenCommandInput={openCommandInput}
+            onAction={(type) => {
+              const session = window.terminalSessions?.[terminalKey];
+              if (!session) return;
+              // 결과를 반드시 말한다. 예전엔 navigator.clipboard 를 그냥 불러서, 없는
+              // 컨텍스트(비보안 오리진·인앱 웹뷰)에서는 예외만 나고 화면은 조용했다.
+              const copyAndTell = (text) => copyToClipboard(text).then((ok) => {
+                setNotification({
+                  isOpen: true,
+                  message: ok ? t('copied') : (t('clipboardError') || 'Copy failed'),
+                  type: ok ? 'success' : 'error',
+                });
+              });
+              if (type === 'copy') {
+                const sel = session.getSelection?.();
+                if (sel) copyAndTell(sel);
+                else setNotification({ isOpen: true, message: isMobile && mobileViewOnly ? t('mobileSelectionHint') : (t('noSelection') || 'No text selected'), type: 'info' });
+              } else if (type === 'copyAll') {
+                const text = session.getBufferText?.() || '';
+                if (text) copyAndTell(text);
+              } else if (type === 'viewAsText') {
+                setScreenDumpText(session.getBufferText?.() || '— empty —');
+              } else if (type === 'scrollToBottom') {
+                Promise.resolve(session.scrollToBottom?.()).then((ok) => {
+                  if (ok === false) setNotification({ isOpen: true, message: t('mobileBottomError'), type: 'error' });
+                }).catch(() => setNotification({ isOpen: true, message: t('mobileBottomError'), type: 'error' }));
+              } else if (type === 'escapeToInput') {
+                enableMobileInput(false, terminalKey);
+              }
+            }}
+            language={settings.language}
+            keys={activeMobileKeySet(settings).keys}
+            terminalSessionId={terminalKey}
+          />
+        </Suspense></LazyErrorBoundary>
+      )
+  );
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
@@ -1577,54 +1639,7 @@ function App() {
           빈 pane (picker 상태) 이면 키 보낼 곳이 없어서 어차피 동작 안 함 → 숨김.
           VNC pane 도 마찬가지 — 터미널 세션이 없어 키를 받을 곳이 없다(누르면 영영 로딩).
           SSH 2FA 인증 prompt 열려 있을 때도 키보드와 같이 따라 올라와 모달 가리므로 숨김. */}
-      {isMobile && activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
-        && (focusedPane.sessionId || focusedPane.hostId) && !authPromptOpen && (
-        <LazyErrorBoundary><Suspense fallback={null}>
-          {/* ⚠️ 퀵바는 입력 도크보다 **먼저** 그려져야 한다 — 도크가 이 안의 고정
-              슬롯(DOCK_SLOT_ID)으로 포탈하기 때문. 순서를 바꾸면 첫 렌더에 슬롯이 없어
-              대상·히스토리 버튼이 한 틱 늦게 나타난다(도크가 재시도하긴 한다). */}
-          <MobileToolbar
-            viewOnly={mobileViewOnly}
-            modePending={inputModePending}
-            onToggleViewOnly={toggleMobileViewOnly}
-            multiplexer={settings.defaultMultiplexer}
-            onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}
-            onOpenCommandInput={openCommandInput}
-            onAction={(type) => {
-              const session = window.terminalSessions?.[terminalKey];
-              if (!session) return;
-              // 결과를 반드시 말한다. 예전엔 navigator.clipboard 를 그냥 불러서, 없는
-              // 컨텍스트(비보안 오리진·인앱 웹뷰)에서는 예외만 나고 화면은 조용했다.
-              const copyAndTell = (text) => copyToClipboard(text).then((ok) => {
-                setNotification({
-                  isOpen: true,
-                  message: ok ? t('copied') : (t('clipboardError') || 'Copy failed'),
-                  type: ok ? 'success' : 'error',
-                });
-              });
-              if (type === 'copy') {
-                const sel = session.getSelection?.();
-                if (sel) copyAndTell(sel);
-                else setNotification({ isOpen: true, message: isMobile && mobileViewOnly ? t('mobileSelectionHint') : (t('noSelection') || 'No text selected'), type: 'info' });
-              } else if (type === 'copyAll') {
-                const text = session.getBufferText?.() || '';
-                if (text) copyAndTell(text);
-              } else if (type === 'viewAsText') {
-                setScreenDumpText(session.getBufferText?.() || '— empty —');
-              } else if (type === 'scrollToBottom') {
-                Promise.resolve(session.scrollToBottom?.()).then((ok) => {
-                  if (ok === false) setNotification({ isOpen: true, message: t('mobileBottomError'), type: 'error' });
-                }).catch(() => setNotification({ isOpen: true, message: t('mobileBottomError'), type: 'error' }));
-              } else if (type === 'escapeToInput') {
-                enableMobileInput(false, terminalKey);
-              }
-            }}
-            language={settings.language}
-            keys={settings.mobileKeys}
-            terminalSessionId={terminalKey}
-          />
-        </Suspense></LazyErrorBoundary>
-      )}
+      {!commandInputOpen && renderMobileToolbar()}
 
       {/* ── screen dump modal — 모바일에서 터미널 텍스트 자유 선택/복사 ── */}
       {screenDumpText && (
@@ -1646,6 +1661,8 @@ function App() {
       {(commandInputOpen || showCommandDock) && (
         <LazyErrorBoundary><Suspense fallback={null}>
           <CommandInput
+            renderQuickBar={isMobile ? renderMobileToolbar : null}
+            onAddShortcut={addQuickBarShortcut}
             docked={showCommandDock}
             submitOnEnter={isMobile}
             isOpen={showCommandDock || commandInputOpen}
@@ -1772,7 +1789,7 @@ function App() {
 
       {/* ── modals ── (Settings/SSH키/호스트편집/확인/알림/커맨드팔레트/파일피커) → AppModals */}
       <AppModals
-        isSettingsOpen={isSettingsOpen} setIsSettingsOpen={setIsSettingsOpen}
+        isSettingsOpen={isSettingsOpen} setIsSettingsOpen={setIsSettingsOpen} settingsInitialTab={settingsInitialTab}
         settings={settings} updateSettings={updateSettings} username={username}
         hosts={hosts} sshKeys={sshKeys} refreshHosts={refreshHosts}
         setHostEditorState={setHostEditorState} setLocalEditorOpen={setLocalEditorOpen}

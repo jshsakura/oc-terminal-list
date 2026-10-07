@@ -5,9 +5,8 @@ import HostIcon from '../../utils/hostIcons';
 import OtpSection from '../OtpSection';
 import PasskeySection from '../PasskeySection';
 import PasswordSection from '../PasswordSection';
-import MobileKeysEditor from '../MobileKeysEditor';
+import MobileKeySetsEditor from '../MobileKeySetsEditor';
 import useHostReorder from '../../hooks/useHostReorder';
-import { DEFAULT_MOBILE_KEYS } from '../../utils/mobileKeys';
 import { DEFAULT_FONT_SIZE_MOBILE } from '../../utils/terminalFonts';
 import { styles, shortcutStyles } from './settingsStyles';
 import { OPTIONS as MUX_OPTIONS, HINTS as MUX_HINTS, normalize as normalizeMultiplexer } from '../../utils/multiplexer';
@@ -210,7 +209,7 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
   </>
 );
 
-export const MobilePanel = ({ s, change, t }) => (
+export const MobilePanel = ({ s, change, changeMany, t }) => (
   <>
     <Section title={t('appearance') || 'Appearance'}>
       <Field
@@ -227,10 +226,9 @@ export const MobilePanel = ({ s, change, t }) => (
     <Divider />
 
     <Section title={t('mobileKeys') || 'Mobile shortcut bar'}>
-      <MobileKeysEditor
-        keys={s.mobileKeys ?? DEFAULT_MOBILE_KEYS}
-        multiplexer={s.defaultMultiplexer}
-        onChange={(next) => change('mobileKeys', next)}
+      <MobileKeySetsEditor
+        settings={s}
+        onChange={changeMany}
         t={t}
       />
     </Section>

@@ -24,6 +24,19 @@ it('previews modifiers and sends only when requested', () => {
   expect(input.value).toBe('x');
 });
 
+it('saves the composed bytes as a shortcut without sending them', () => {
+  const onSend = vi.fn();
+  const onAddShortcut = vi.fn(() => true);
+  render(<KeyCombinationInput t={key => ko[key]} onSend={onSend} onAddShortcut={onAddShortcut} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Alt' }));
+  fireEvent.change(screen.getByLabelText('나머지 키'), { target: { value: 'x' } });
+  fireEvent.click(screen.getByRole('button', { name: '현재 퀵바 세트에 추가' }));
+  expect(onAddShortcut).toHaveBeenCalledExactlyOnceWith({ label: 'Ctrl + Alt + X', payload: '\x1b\x18' });
+  expect(onSend).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: '추가됨' })).toBeDisabled();
+});
+
 it('supports Shift+Tab and toggling a modifier back off', () => {
   const { input, onSend } = setup();
   const shift = screen.getByRole('button', { name: 'Shift' });

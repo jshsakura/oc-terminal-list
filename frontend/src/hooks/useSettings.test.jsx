@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import useSettings, { DEFAULT_SETTINGS } from './useSettings';
 import { DEFAULT_FONT_SIZE_MOBILE } from '../utils/terminalFonts';
+import { resolveMobileKeySets, activeMobileKeySet } from '../utils/mobileKeySets';
 
 const TestSettings = () => {
   const { settings } = useSettings(true);
@@ -9,6 +10,19 @@ const TestSettings = () => {
 };
 
 describe('useSettings', () => {
+  it('remembers the selected quick bar set across remounts', () => {
+    const KeySets = () => {
+      const { settings, updateSettings } = useSettings(false);
+      return <button onClick={() => updateSettings({ mobileKeySets: resolveMobileKeySets(settings), activeMobileKeySetId: 'control' })}>
+        {activeMobileKeySet(settings).id}
+      </button>;
+    };
+    const first = render(<KeySets />);
+    fireEvent.click(screen.getByRole('button', { name: 'basic' }));
+    first.unmount();
+    render(<KeySets />);
+    expect(screen.getByRole('button', { name: 'control' })).toBeInTheDocument();
+  });
   it('keeps the terminal scrollbar opt-in by default', () => {
     expect(DEFAULT_SETTINGS.showTerminalScrollbar).toBe(false);
   });

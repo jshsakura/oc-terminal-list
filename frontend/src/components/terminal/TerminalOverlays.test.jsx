@@ -149,15 +149,29 @@ describe('TerminalContextMenu', () => {
     vi.useRealTimers();
   });
 
-  it('선택이 없으면 "복사" 항목을 감춘다', () => {
-    render(<TerminalContextMenu {...baseProps()} hasSelection={false} />);
-    expect(screen.queryByText('copy')).toBeNull();
-    expect(screen.getByText('copyAll')).toBeTruthy();
+  it('선택이 없으면 선택 복사를 비활성화하고 실행하지 않는다', () => {
+    const props = baseProps();
+    render(<TerminalContextMenu {...props} />);
+    const copy = screen.getByRole('button', { name: 'mobileCopySelection' });
+    expect(copy).toBeDisabled();
+    fireEvent.click(copy);
+    expect(props.onCopy).not.toHaveBeenCalled();
   });
 
-  it('선택이 있으면 "복사" 항목을 보여준다', () => {
+  it('선택 복사를 전체 복사 바로 아래에 둔다', () => {
     render(<TerminalContextMenu {...baseProps()} hasSelection={true} />);
-    expect(screen.getByText('copy')).toBeTruthy();
+    const copyAll = screen.getByRole('button', { name: 'copyAll' });
+    const copy = screen.getByRole('button', { name: 'mobileCopySelection' });
+    expect(copy).toBeEnabled();
+    expect(copyAll.nextElementSibling).toBe(copy);
+  });
+
+  it('모바일 보기 모드에서도 입력창에 붙여넣기를 제공한다', () => {
+    const props = baseProps();
+    render(<TerminalContextMenu {...props} isMobile readOnly />);
+    expect(screen.queryByText('paste')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'pasteToInput' }));
+    expect(props.onPaste).toHaveBeenCalledOnce();
   });
 
   it('offers selection in quick input in view mode and invokes it explicitly', () => {
@@ -192,7 +206,7 @@ describe('TerminalContextMenu', () => {
     const props = baseProps();
     render(<TerminalContextMenu {...props} hasSelection={true} />);
 
-    fireEvent.click(screen.getByText('copy'));
+    fireEvent.click(screen.getByText('mobileCopySelection'));
     expect(props.onCopy).toHaveBeenCalled();
 
     fireEvent.click(screen.getByText('scrollToBottom'));

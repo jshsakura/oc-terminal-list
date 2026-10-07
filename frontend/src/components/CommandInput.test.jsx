@@ -27,6 +27,18 @@ const t = (key) => ({
 }[key] || key);
 
 describe('빠른 입력 조합키', () => {
+  it('keeps the mobile quick bar below the footer and sends its keys to the selected target', () => {
+    const onSendKey = vi.fn();
+    render(<CommandInput isOpen command="draft" setCommand={vi.fn()} onSend={vi.fn()} onClose={vi.fn()}
+      onSendKey={onSendKey} terminalKey="target" t={key => ko[key] || key}
+      renderQuickBar={send => <button onClick={() => send('\x03')}>Quick bar Ctrl+C</button>} />);
+    const send = screen.getByRole('button', { name: '전송' });
+    const quickKey = screen.getByRole('button', { name: 'Quick bar Ctrl+C' });
+    expect(send.compareDocumentPosition(quickKey) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(quickKey);
+    expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x03', ['target']);
+    expect(screen.getByRole('textbox')).toHaveValue('draft');
+  });
   it('preserves the command draft and sends the previewed key to the active target without closing', () => {
     const onSendKey = vi.fn();
     const onSend = vi.fn();
@@ -39,7 +51,10 @@ describe('빠른 입력 조합키', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }));
     fireEvent.change(screen.getByLabelText('나머지 키'), { target: { value: 'c' } });
     expect(screen.getByRole('status')).toHaveTextContent('Ctrl + C');
-    fireEvent.click(screen.getByRole('button', { name: '조합키 전송' }));
+    const send = screen.getByRole('button', { name: '전송' });
+    expect(send.closest('footer')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '조합키' }).closest('header')).toBeInTheDocument();
+    fireEvent.click(send);
     expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x03', ['target']);
     expect(onSend).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();

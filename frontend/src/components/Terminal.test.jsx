@@ -398,6 +398,33 @@ describe('Terminal', () => {
       }
     });
 
+    it.each([false, true])('pastes mobile clipboard text into quick input with denied permission=%s and offers bottom scrolling', async (denied) => {
+      renderTerminal({ paneId: 'source-pane', tabId: 'source-tab', isMobile: true,
+        settings: { ...testSettings(), language: 'ko', mobileViewOnly: true } });
+      const ws = await openSocket();
+      const listener = vi.fn();
+      const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      const prompt = denied ? vi.spyOn(window, 'prompt').mockReturnValue('clipboard\n') : null;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText: async () => {
+        if (denied) throw new Error('Permission denied');
+        return 'clipboard\n';
+      } } });
+      window.addEventListener('iterm:selection-to-command-input', listener);
+      try {
+        fireEvent.mouseDown(harness.term.element, { button: 2, clientX: 30, clientY: 40 });
+        expect(await screen.findByText('맨 아래로 이동')).toBeInTheDocument();
+        fireEvent.click(screen.getByText('입력창에 붙여넣기'));
+        await waitFor(() => expect(listener).toHaveBeenCalledOnce());
+        expect(listener.mock.calls[0][0].detail).toEqual({ text: 'clipboard\n', sessionId: 'sess-1', paneId: 'source-pane', tabId: 'source-tab' });
+        expect(ws.sent.some(data => typeof data === 'string' && !data.startsWith('{'))).toBe(false);
+      } finally {
+        window.removeEventListener('iterm:selection-to-command-input', listener);
+        if (original) Object.defineProperty(navigator, 'clipboard', original);
+        else delete navigator.clipboard;
+        prompt?.mockRestore();
+      }
+    });
+
     it('긴 원시 터미널 입력도 최근 명령에 저장하지 않는다', async () => {
       renderTerminal({ sessionId: 'private-input' });
       await openSocket();

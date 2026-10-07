@@ -40,7 +40,7 @@ const ModalLoading = () => (
  */
 export default function AppModals({
   // settings
-  isSettingsOpen, setIsSettingsOpen, settings, updateSettings, username,
+  isSettingsOpen, setIsSettingsOpen, settingsInitialTab, settings, updateSettings, username,
   hosts, sshKeys, refreshHosts,
   setHostEditorState, setLocalEditorOpen, setEditingKey, setKeyManagerOpen, logout,
   // ssh key manager
@@ -85,6 +85,7 @@ export default function AppModals({
       {isSettingsOpen && (
         <Settings
           isOpen={isSettingsOpen}
+          initialTab={settingsInitialTab}
           onClose={() => setIsSettingsOpen(false)}
           settings={settings}
           onSave={updateSettings}

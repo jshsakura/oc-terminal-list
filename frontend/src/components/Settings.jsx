@@ -24,7 +24,7 @@ const TABS = [
 const SETTINGS_TABS = new Set(['general', 'mobile']);
 
 const Settings = ({
-  isOpen, onClose, settings, onSave, username,
+  isOpen, onClose, settings, onSave, username, initialTab = 'general',
   hosts = [], sshKeys = [], refreshHosts = null,
   onAddHost, onEditHost,
   onEditLocal,
@@ -33,10 +33,10 @@ const Settings = ({
 }) => {
   const { t } = useTranslation(settings.language);
   const [s, setS] = useState(settings);
-  const [tab, setTab] = useState('general');
+  const [tab, setTab] = useState(() => TABS.some(item => item.id === initialTab) ? initialTab : 'general');
 
   useEffect(() => { setS(settings); }, [settings]);
-  useEffect(() => { if (isOpen) setTab('general'); }, [isOpen]);
+  useEffect(() => { if (isOpen) setTab(TABS.some(item => item.id === initialTab) ? initialTab : 'general'); }, [isOpen, initialTab]);
 
   if (!isOpen) return null;
 
@@ -113,7 +113,7 @@ const Settings = ({
         <GeneralPanel s={s} change={change} username={username} onLogout={onLogout} t={t} />
       )}
       {tab === 'mobile' && (
-        <MobilePanel s={s} change={change} t={t} />
+        <MobilePanel s={s} change={change} changeMany={patch => setS(previous => ({ ...previous, ...patch }))} t={t} />
       )}
       {tab === 'hosts' && (
         <HostsPanel
