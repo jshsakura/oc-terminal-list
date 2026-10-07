@@ -302,13 +302,6 @@ const MobileToolbar = ({
       `}</style>
 
       <div data-testid="mobile-toolbar" style={styles.toolbar}>
-        {(pinnedKey || leading) && (
-          <div style={styles.pinned}>
-            {leading}
-            {pinnedKey && renderItem(pinnedKey, 'pinned')}
-            <Divider />
-          </div>
-        )}
         {(selectedSet || onOpenSettings) && <div ref={setsRef} style={{ ...styles.pinned, position: 'relative' }}>
           <Key aria-label={t('switchKeySet')} title={t('switchKeySet')} aria-haspopup="menu" aria-expanded={setsOpen}
             onMouseDown={event => event.preventDefault()} onClick={event => {
@@ -352,6 +345,13 @@ const MobileToolbar = ({
           </div>, document.body)}
           <Divider />
         </div>}
+        {(pinnedKey || leading) && (
+          <div style={styles.pinned}>
+            {leading}
+            {pinnedKey && renderItem(pinnedKey, 'pinned')}
+            <Divider />
+          </div>
+        )}
         {/* 고정 슬롯 — 대상 선택·히스토리처럼 **키가 아닌 것**이 여기 온다.
             빠른입력 버튼이 빠지면서 이 자리가 비었고, 입력 도크에 두면 도크가 두 줄이 된다.
             여기 올리면 도크는 한 줄로 끝나고 전체는 키바+입력 두 줄이 된다. */}

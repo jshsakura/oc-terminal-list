@@ -1875,7 +1875,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   useEffect(() => {
     if (!readOnly && isActive && isFocused && xtermRef.current && isReady) {
       const timer = setTimeout(() => {
-        if (!readOnlyRef.current) xtermRef.current?.focus();
+        if (!readOnlyRef.current && !document.querySelector('[role="dialog"][aria-modal="true"]')) {
+          xtermRef.current?.focus();
+        }
       }, 50);
       return () => clearTimeout(timer);
     }
@@ -2345,10 +2347,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
                 detail: { text, sessionId, paneId, tabId },
               }));
             }
-          }}
-          onRegisterKeyCombination={() => {
-            setContextMenu(null);
-            window.dispatchEvent(new CustomEvent('iterm:register-key-combination'));
           }}
           onRefresh={onRefresh ? () => { setContextMenu(null); onRefresh(); } : null}
           onScrollToBottom={() => {

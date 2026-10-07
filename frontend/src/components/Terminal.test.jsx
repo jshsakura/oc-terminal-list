@@ -91,6 +91,25 @@ describe('Terminal', () => {
     delete window.terminalSessions;
   });
 
+  it('does not steal focus from an open modal when an active pane becomes ready', async () => {
+    const Pane = ({ active, modal }) => <>
+      <TerminalComponent sessionId="sess-1" settings={testSettings()} isActive={active} isFocused />
+      {modal && <div role="dialog" aria-modal="true"><input aria-label="Modal key" /></div>}
+    </>;
+    const view = render(<Pane active={false} modal />);
+    await openSocket();
+    harness.term.focus.mockClear();
+    const input = screen.getByLabelText('Modal key');
+    input.focus();
+    view.rerender(<Pane active modal />);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 80)); });
+    expect(harness.term.focus).not.toHaveBeenCalled();
+    expect(input).toHaveFocus();
+    view.rerender(<Pane active={false} modal={false} />);
+    view.rerender(<Pane active modal={false} />);
+    await waitFor(() => expect(harness.term.focus).toHaveBeenCalled());
+  });
+
   describe('연결', () => {
     it('scrolls and pinches the mobile view overlay while keeping the connection and input lock', async () => {
       const props = { sessionId: 'sess-1', isMobile: true, paneMultiplexer: 'none',
@@ -414,7 +433,7 @@ describe('Terminal', () => {
         fireEvent.mouseDown(harness.term.element, { button: 2, clientX: 30, clientY: 40 });
         expect(await screen.findByText('맨 아래로 스크롤')).toBeInTheDocument();
         expect(screen.getByText('붙여넣기')).toBeInTheDocument();
-        expect(screen.getByText('조합키 등록')).toBeInTheDocument();
+        expect(screen.queryByText('조합키 등록')).toBeNull();
         fireEvent.click(screen.getByText('빠른 입력에 붙여넣기'));
         await waitFor(() => expect(listener).toHaveBeenCalledOnce());
         expect(listener.mock.calls[0][0].detail).toEqual({ text: 'clipboard\n', sessionId: 'sess-1', paneId: 'source-pane', tabId: 'source-tab' });

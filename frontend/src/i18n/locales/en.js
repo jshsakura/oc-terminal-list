@@ -382,7 +382,7 @@ export const en = {
     keySets: 'Quick bar sets',
     switchKeySet: 'Choose quick bar set',
     quickBarSettings: 'Quick bar settings',
-    keySetsHint: 'Tap the icon to the right of Quick Input to switch sets. Your last choice is saved automatically.',
+    keySetsHint: 'Tap the icon to the left of Quick Input to switch sets. Your last choice is saved automatically.',
     keySetName: 'Set name',
     keySetLabel: 'Button number or text',
     addKeySet: 'New set',

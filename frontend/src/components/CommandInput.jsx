@@ -554,7 +554,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
       {historyOpen && terminalKey && <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />}
 
       {combinationMode &&
-        <KeyCombinationInput t={t} footerTarget={combinationFooter}
+        <KeyCombinationInput t={t} footerTarget={combinationFooter} showKeyButtons
           onSend={(data) => onSendKey(data, targets.resolveTargets())} />}
 
       {!combinationMode && <div style={historyOpen && terminalKey ? { ...styles.body, flex: '0 0 auto' } : styles.body}>

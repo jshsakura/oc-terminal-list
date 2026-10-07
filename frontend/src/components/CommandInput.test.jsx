@@ -31,6 +31,26 @@ const t = (key) => ({
 }[key] || key);
 
 describe('빠른 입력 조합키', () => {
+  it('selects special keys in quick input without sending until the footer is pressed', () => {
+    const onSendKey = vi.fn();
+    render(<CommandInput isOpen command="draft" setCommand={vi.fn()} onSend={vi.fn()} onClose={vi.fn()}
+      onSendKey={onSendKey} terminalKey="target" t={key => ko[key] || key} />);
+    fireEvent.click(screen.getByRole('button', { name: '조합키', exact: true }));
+    expect(document.querySelectorAll('[role="group"] button')).toHaveLength(27);
+    const input = screen.getByLabelText('나머지 키');
+    const left = screen.getByRole('button', { name: 'ArrowLeft', exact: true });
+    expect(input.compareDocumentPosition(left) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Shift', exact: true }));
+    fireEvent.click(left);
+    expect(input).toHaveValue('ArrowLeft');
+    expect(screen.getByRole('status')).toHaveTextContent('Shift + ArrowLeft');
+    expect(onSendKey).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '전송', exact: true }));
+    expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x1b[1;2D', ['target']);
+    expect(screen.queryByRole('button', { name: '현재 퀵바 세트에 추가' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '문자 입력', exact: true }));
+    expect(screen.getByRole('textbox')).toHaveValue('draft');
+  });
   it('keeps the mobile quick bar outside the modal and sends its keys to the selected target', () => {
     const onSendKey = vi.fn();
     render(<CommandInput isOpen command="draft" setCommand={vi.fn()} onSend={vi.fn()} onClose={vi.fn()}

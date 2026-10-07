@@ -54,20 +54,6 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
         {{ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' }[modifier]}
       </button>)}
     </div>
-    {showKeyButtons && KEY_GROUPS.map(group => <div key={group.title} role="group" aria-label={t(group.title)}>
-      <div style={{ ...styles.label, marginBottom: space['1'] }}>{t(group.title)}</div>
-      <div style={styles.keyGrid}>
-        {group.keys.map(([value, label]) => <button key={value} type="button" aria-label={value}
-          aria-pressed={terminalKeyCombination(key).label === terminalKeyCombination(value).label}
-          onMouseDown={event => event.preventDefault()}
-          onClick={() => { setKey(value); setSaved(false); }}
-          style={{ ...styles.button, padding: `0 ${space['1']}`, fontSize: fontSize['12'],
-            background: key === value ? color.accentSubtle : color.surface0,
-            color: key === value ? color.accent : color.text, borderColor: key === value ? color.accent : color.border }}>
-          {label}
-        </button>)}
-      </div>
-    </div>)}
     <label htmlFor={inputId} style={styles.label}>{t('keyCombinationKey')}</label>
     <input ref={inputRef} id={inputId} value={key} aria-describedby={previewId}
       placeholder={t('keyCombinationPlaceholder')} autoCapitalize="none" autoCorrect="off" spellCheck={false}
@@ -83,6 +69,20 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
       {combination.error === 'empty' ? t('keyCombinationHint') : combination.error
         ? t('keyCombinationUnsupported') : combination.label}
     </output>
+    {showKeyButtons && KEY_GROUPS.map(group => <div key={group.title} role="group" aria-label={t(group.title)}>
+      <div style={{ ...styles.label, marginBottom: space['1'] }}>{t(group.title)}</div>
+      <div style={styles.keyGrid}>
+        {group.keys.map(([value, label]) => <button key={value} type="button" aria-label={value}
+          aria-pressed={terminalKeyCombination(key).label === terminalKeyCombination(value).label}
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => { setKey(value); setSaved(false); }}
+          style={{ ...styles.button, padding: `0 ${space['1']}`, fontSize: fontSize['12'],
+            background: key === value ? color.accentSubtle : color.surface0,
+            color: key === value ? color.accent : color.text, borderColor: key === value ? color.accent : color.border }}>
+          {label}
+        </button>)}
+      </div>
+    </div>)}
     {footerTarget ? createPortal(actions, footerTarget) : actions}
   </section>;
 }

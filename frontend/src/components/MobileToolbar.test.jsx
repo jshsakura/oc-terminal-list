@@ -15,7 +15,8 @@ describe('MobileToolbar quick input', () => {
     expect(container.querySelector('.mobile-toolbar-scroll .lucide-settings')).toBeNull();
     const picker = screen.getByRole('button', { name: 'Choose quick bar set' });
     const buttons = [...container.querySelectorAll('button')];
-    expect(buttons[buttons.indexOf(screen.getByTitle('Quick Input')) + 1]).toBe(picker);
+    expect(buttons[0]).toBe(picker);
+    expect(buttons[1]).toBe(screen.getByTitle('Quick Input'));
     expect(picker.querySelector('.lucide-keyboard')).toBeInTheDocument();
     expect(picker.textContent).toBe('');
     fireEvent.click(picker);
