@@ -33,6 +33,23 @@ describe('createInputQueue command submission boundary', () => {
     expect(socket.send.mock.calls.map(([data]) => data)).toEqual(['ask codex', '\r']);
   });
 
+  it('clearing for view mode cancels queued input and delayed Enter without disabling later input', () => {
+    input.enqueue('pending\r', { separateTrailingEnterMs: 40 });
+    vi.advanceTimersByTime(0);
+    expect(socket.send).toHaveBeenCalledWith('pending');
+    input.clear();
+    vi.advanceTimersByTime(100);
+    expect(socket.send).not.toHaveBeenCalledWith('\r');
+    socket.readyState = WebSocket.CLOSED;
+    input.enqueue('offline input');
+    input.clear();
+    socket.readyState = WebSocket.OPEN;
+    input.enqueue('new input');
+    vi.advanceTimersByTime(100);
+    expect(socket.send).not.toHaveBeenCalledWith('offline input');
+    expect(socket.send).toHaveBeenCalledWith('new input');
+  });
+
   it('keeps the delayed Enter next to a priority command', () => {
     input.enqueue('old input');
     input.enqueue('ask codex\r', { priority: true, separateTrailingEnterMs: 40 });

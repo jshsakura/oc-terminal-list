@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getLinkAtClient } from './terminalLinkAt';
+import { getLinkAtClient, getFileLinkAtClient } from './terminalLinkAt';
 
 // xterm buffer.getLine 의 미니 목 — translateToString(true) 반환.
 function makeTerm({ text, cols = 80, rows = 24, rect = { left: 0, top: 0, width: 800, height: 480 } }) {
@@ -24,6 +24,27 @@ function makeTerm({ text, cols = 80, rows = 24, rect = { left: 0, top: 0, width:
 }
 
 describe('getLinkAtClient', () => {
+  it('joins wrapped URLs and respects Korean display-cell widths', () => {
+    const term = makeTerm({ text: '', cols: 20 });
+    term.element.querySelector = () => ({ getBoundingClientRect: () => ({ left: 5, top: 8, width: 200, height: 480 }) });
+    term._core = { _renderService: { dimensions: { css: { cell: { width: 10, height: 20 } } } } };
+    const parts = ['한글 https://examp', 'le.com/long-path'];
+    term.buffer.active.getLine = row => {
+      if (row > 1) return null;
+      const chars = row === 0 ? ['한', '', '글', '', ...parts[0].slice(2)] : [...parts[1]];
+      return { isWrapped: row === 1,
+        getCell: col => ({ getWidth: () => chars[col] === '' ? 0 : 1 }),
+        translateToString: (_, start = 0, end = chars.length) => chars.slice(start, end).join('') };
+    };
+    expect(getLinkAtClient(term, 65, 18)).toBe('https://example.com/long-path');
+    expect(getLinkAtClient(term, 15, 38)).toBe('https://example.com/long-path');
+    expect(getLinkAtClient(term, 25, 18)).toBeNull();
+  });
+  it('resolves local file links and ignores unsupported URL protocols', () => {
+    const term = makeTerm({ text: 'src/main.js:12:4' });
+    expect(getFileLinkAtClient(term, 50, 10)).toMatchObject({ path: 'src/main.js', line: 12, column: 4 });
+    expect(getLinkAtClient(makeTerm({ text: 'javascript:alert(1)' }), 50, 10)).toBeNull();
+  });
   it('URL 범위 안 좌표면 URL 을 반환한다', () => {
     // "Check https://example.com/path?q=1 now" — 80컬럼, 800px 폭 → cellWidth=10px
     // URL 시작: col 6 (x=60), 끝: col 32 (x=320)

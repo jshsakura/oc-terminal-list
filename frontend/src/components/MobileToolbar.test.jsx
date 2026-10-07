@@ -3,6 +3,25 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import MobileToolbar from './MobileToolbar';
 
 describe('MobileToolbar quick input', () => {
+  it('view mode offers copy and text viewing, and requires explicit switching for input', () => {
+    const onToggle = vi.fn();
+    const onAction = vi.fn();
+    render(<MobileToolbar language="en" viewOnly onToggleViewOnly={onToggle} onAction={onAction} />);
+    expect(screen.queryByTitle('Quick Input')).toBeNull();
+    expect(screen.queryByText('ESC')).toBeNull();
+    expect(screen.queryByTitle('Paste')).toBeNull();
+    fireEvent.click(screen.getByTitle('View as text'));
+    expect(onAction).toHaveBeenCalledWith('viewAsText');
+    fireEvent.click(screen.getByTitle('Copy selection'));
+    expect(onAction).toHaveBeenCalledWith('copy');
+    fireEvent.click(screen.getByTitle('Scroll to Bottom'));
+    expect(onAction).toHaveBeenCalledWith('scrollToBottom');
+    fireEvent.click(screen.getByRole('button', { name: 'Return to the bottom with Esc and switch to input mode' }));
+    expect(onAction).toHaveBeenCalledWith('escapeToInput');
+    expect(screen.getByRole('button', { name: 'Switch to input mode' }).querySelector('svg')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Switch to input mode' }));
+    expect(onToggle).toHaveBeenCalledOnce();
+  });
   afterEach(() => {
     cleanup();
     delete window.terminalSessions;

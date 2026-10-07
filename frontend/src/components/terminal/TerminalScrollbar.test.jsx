@@ -16,12 +16,120 @@ const setup = (type = 'normal', enabled = true, showInputOnScroll = false, histo
     scrollToLine: vi.fn((line) => { term.buffer.active.viewportY = line; }),
     onData: sub('data'), onScroll: sub('scroll'), onWriteParsed: sub('write'), onResize: sub('resize') };
   const props = { xtermRef: { current: term }, fitNowRef: { current: vi.fn() },
+    scrollLinesRef: { current: null },
+    finishViewingRef: { current: null },
     sessionId: 'session', hostId: null, enabled, showInputOnScroll, historyKey, tmuxBacked,
-    inputPreviewRef: { current: null }, active: true, ready: true,
+    inputPreviewRef: { current: null }, active: true, ready: true, readOnly: true,
     theme: { background: '#111111', foreground: '#eeeeee', blue: '#123456' }, t: (key) => key };
   const view = render(<TerminalScrollbar {...props} />);
   return { ...view, term, props, listeners };
 };
+
+it('view gestures seek tmux history through the API and release their handler on unmount', async () => {
+  let offset = 0;
+  fetch.mockImplementation(async (_url, options = {}) => ({ ok: true,
+    json: async () => ({ available: true, history: 100, rows: 20,
+      offset: options.body ? (offset -= JSON.parse(options.body).lines) : offset }) }));
+  const { props, unmount } = setup('alternate', true, false, undefined, true);
+  await waitFor(() => expect(screen.getByRole('scrollbar')).toBeTruthy());
+  act(() => props.scrollLinesRef.current(-12));
+  await waitFor(() => expect(fetch.mock.calls.some(([, options]) =>
+    options.method === 'POST' && JSON.parse(options.body).lines === -12)).toBe(true));
+  act(() => props.scrollLinesRef.current(4));
+  await waitFor(() => expect(fetch.mock.calls.some(([, options]) =>
+    options.method === 'POST' && JSON.parse(options.body).lines === 4)).toBe(true));
+  await waitFor(() => expect(screen.getByRole('scrollbar')).toHaveAttribute('aria-valuenow', '92'));
+  unmount();
+  expect(props.scrollLinesRef.current).toBeNull();
+});
+
+it('finishes an in-flight seek before returning to live output for input mode', async () => {
+  let resolveSeek;
+  fetch.mockImplementation(async (_url, options = {}) => {
+    const operation = options.body ? JSON.parse(options.body) : {};
+    const offset = operation.lines ? -operation.lines : operation.offset || 0;
+    if (offset > 0) await new Promise(resolve => { resolveSeek = resolve; });
+    return { ok: true, json: async () => ({ available: true, history: 100, rows: 20, offset }) };
+  });
+  const { props } = setup('alternate', true, false, undefined, true);
+  await waitFor(() => expect(screen.getByRole('scrollbar')).toBeTruthy());
+  act(() => props.scrollLinesRef.current(-12));
+  await waitFor(() => expect(resolveSeek).toBeTypeOf('function'));
+  let finished;
+  act(() => { finished = props.finishViewingRef.current(); });
+  expect(props.finishViewingRef.current()).toBe(finished);
+  expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(1);
+  await act(async () => { resolveSeek(); expect(await finished).toBe(true); });
+  expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')
+    .map(([, options]) => { const body = JSON.parse(options.body); return body.lines ?? body.offset; })).toEqual([-12, 0]);
+});
+
+it('moves application-owned history without clamping to tmux history or inventing a scrollbar', async () => {
+  fetch.mockResolvedValue({ ok: true, json: async () => ({
+    available: true, target: 'application', history: 2, offset: 0, rows: 20,
+  }) });
+  const { props, rerender } = setup('alternate', true, true, undefined, true);
+  await act(async () => {});
+  expect(screen.queryByRole('scrollbar')).toBeNull();
+  act(() => props.scrollLinesRef.current(-12, { col: 7, row: 8 }));
+  await waitFor(() => expect(fetch).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({
+    session_id: 'session', host_id: null, lines: -12, col: 7, row: 8, include_input: false,
+  });
+  expect(screen.queryByRole('scrollbar')).toBeNull();
+  rerender(<TerminalScrollbar {...props} readOnly={false} />);
+  expect(screen.getByRole('scrollbar')).toHaveAttribute('aria-valuemax', '2');
+});
+
+it('bounds queued relative gestures and serializes them before returning to input mode', async () => {
+  const next = { available: true, target: 'application', history: 0, offset: 0, rows: 20 };
+  fetch.mockResolvedValue({ ok: true, json: async () => next });
+  const { props } = setup('alternate', true, false, undefined, true);
+  await act(async () => {});
+  let release;
+  fetch.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  act(() => props.scrollLinesRef.current(-12));
+  await waitFor(() => expect(release).toBeTypeOf('function'));
+  for (let i = 0; i < 20; i++) {
+    act(() => props.scrollLinesRef.current(-12, { col: 9, row: 10 }));
+  }
+  expect(fetch).toHaveBeenCalledTimes(2);
+  expect(fetch.mock.calls[1][1].signal.aborted).toBe(false);
+  await act(async () => release({ ok: true, json: async () => next }));
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(JSON.parse(fetch.mock.calls[2][1].body)).toMatchObject({ lines: -48, col: 9, row: 10 });
+  await act(async () => expect(await props.finishViewingRef.current()).toBe(true));
+  expect(JSON.parse(fetch.mock.calls[3][1].body).offset).toBe(0);
+});
+
+it('reports a failed return to live output so the caller can keep input locked', async () => {
+  fetch.mockResolvedValueOnce({ ok: true, json: async () => ({ available: true, history: 100, rows: 20, offset: 12 }) });
+  const { props } = setup('alternate', true, false, undefined, true);
+  await waitFor(() => expect(screen.getByRole('scrollbar')).toBeTruthy());
+  fetch.mockResolvedValue({ ok: false });
+  await act(async () => { expect(await props.finishViewingRef.current()).toBe(false); });
+});
+
+it('serializes and deduplicates an explicit bottom operation behind application scrolling', async () => {
+  const next = { available: true, target: 'application', history: 0, offset: 0, rows: 20 };
+  fetch.mockResolvedValue({ ok: true, json: async () => next });
+  const { props } = setup('alternate', true, false, undefined, true);
+  await act(async () => {});
+  let release;
+  fetch.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  act(() => props.scrollLinesRef.current(-12));
+  await waitFor(() => expect(release).toBeTypeOf('function'));
+  let finished;
+  act(() => { finished = props.finishViewingRef.current({ toBottom: true }); });
+  expect(props.finishViewingRef.current({ toBottom: true })).toBe(finished);
+  expect(fetch.mock.calls.filter(([, options]) => options.method === 'POST')).toHaveLength(1);
+  await act(async () => { release({ ok: true, json: async () => next }); expect(await finished).toBe(true); });
+  const bodies = fetch.mock.calls.filter(([, options]) => options.method === 'POST')
+    .map(([, options]) => JSON.parse(options.body));
+  expect(bodies[0].lines).toBe(-12);
+  expect(bodies[1]).toEqual({ session_id: 'session', host_id: null, include_input: false, action: 'bottom' });
+  expect(bodies).toHaveLength(2);
+});
 
 const luminance = (hex) => {
   const channels = hex.match(/[0-9a-f]{2}/gi).map((value) => parseInt(value, 16) / 255)

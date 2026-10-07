@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { MessageSquare, ClipboardPaste, Copy, FileText } from 'lucide-react';
+import { MessageSquare, ClipboardPaste, Copy, FileText, ArrowDownToLine } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { mobileKeysFor, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
@@ -28,6 +28,7 @@ const { color, font, fontSize, fontWeight, space, motion } = tokens;
  * wrapper 가 줄고 toolbar 도 자연스럽게 따라 올라감.
  */
 const SYNTHETIC_MOUSE_GRACE_MS = 700;
+const VIEW_CONTROL_STYLE = { height: '36px', minWidth: '44px', padding: '0 8px' };
 
 // 스켈레톤은 **실제 키와 같은 크기**로 그린다. minWidth 로만 그리면 로딩이 끝나는 순간
 // 'ESC'·'Shift+Tab' 처럼 긴 키가 늘어나며 줄 전체가 출렁인다.
@@ -49,6 +50,9 @@ const MobileToolbar = ({
   /* 키가 아닌 고정 항목(대상 선택·히스토리 토글). 입력 도크가 넘겨준다 —
      도크에 두면 도크가 두 줄이 되고, 여기 두면 전체가 키바+입력 두 줄로 끝난다. */
   leading = null,
+  viewOnly = false,
+  modePending = false,
+  onToggleViewOnly = null,
 }) => {
   const { t } = useTranslation(language);
   const [ctrlActive, setCtrlActive] = useState(false);
@@ -66,6 +70,12 @@ const MobileToolbar = ({
   // 터치로 이미 쏜 뒤 따라오는 합성 mousedown 을 흘려보내는 시각.
   const touchFiredAtRef = useRef(0);
   useEffect(() => () => repeaterRef.current?.stop(), []);
+  useEffect(() => {
+    if (!viewOnly) return;
+    repeaterRef.current?.stop();
+    setCtrlActive(false);
+    setAltActive(false);
+  }, [viewOnly]);
 
   useEffect(() => {
     if (!terminalSessionId) { setTerminalReady(false); return undefined; }
@@ -268,7 +278,35 @@ const MobileToolbar = ({
         }
       `}</style>
 
-      <div style={styles.toolbar}>
+      <div style={{ ...styles.toolbar, ...(onToggleViewOnly && {
+        height: 'calc(44px + env(safe-area-inset-bottom, 0px))',
+      }) }}>
+        {onToggleViewOnly && (
+          <div style={styles.pinned}>
+            <Key active={viewOnly} aria-pressed={viewOnly} style={VIEW_CONTROL_STYLE}
+              disabled={modePending} aria-busy={modePending}
+              title={t(viewOnly ? 'mobileEnableInput' : 'mobileEnableView')}
+              aria-label={t(viewOnly ? 'mobileEnableInput' : 'mobileEnableView')}
+              onMouseDown={(e) => e.preventDefault()} onClick={onToggleViewOnly}>
+              {modePending ? '…' : t(viewOnly ? 'mobileViewMode' : 'mobileInputMode')}
+            </Key>
+            <Divider />
+          </div>
+        )}
+        {viewOnly ? (<>
+          <div style={{ display: 'flex', flex: 1, minWidth: 0, gap: '4px', padding: '0 4px', overflowX: 'auto' }}>
+            <Key style={VIEW_CONTROL_STYLE} title={t('mobileCopySelection')} onClick={() => onAction?.('copy')}>{t('mobileCopySelection')}</Key>
+            <Key style={VIEW_CONTROL_STYLE} title={t('copyAll')} aria-label={t('copyAll')} onClick={() => onAction?.('copyAll')}><Copy size={14} /></Key>
+            <Key style={VIEW_CONTROL_STYLE} title={t('viewAsText')} aria-label={t('viewAsText')} onClick={() => onAction?.('viewAsText')}><FileText size={14} /></Key>
+            <Key style={VIEW_CONTROL_STYLE} disabled={modePending} aria-busy={modePending}
+              title={t('mobileEscapeToInputHint')} aria-label={t('mobileEscapeToInputHint')}
+              onMouseDown={(e) => e.preventDefault()} onClick={() => onAction?.('escapeToInput')}>{t('mobileEscapeToInput')}</Key>
+          </div>
+          <div style={{ flexShrink: 0, paddingRight: '4px' }}>
+            <Key style={VIEW_CONTROL_STYLE} disabled={modePending} title={t('scrollToBottom')} aria-label={t('scrollToBottom')}
+              onClick={() => onAction?.('scrollToBottom')}><ArrowDownToLine size={14} />{t('mobileBottom')}</Key>
+          </div>
+        </>) : <>
         {/* 고정 슬롯 — 대상 선택·히스토리처럼 **키가 아닌 것**이 여기 온다.
             빠른입력 버튼이 빠지면서 이 자리가 비었고, 입력 도크에 두면 도크가 두 줄이 된다.
             여기 올리면 도크는 한 줄로 끝나고 전체는 키바+입력 두 줄이 된다. */}
@@ -316,6 +354,7 @@ const MobileToolbar = ({
             )}
           </div>
         </div>
+        </>}
       </div>
     </>
   );
@@ -323,7 +362,7 @@ const MobileToolbar = ({
 
 // 나머지 핸들러(onTouch*/onMouseUp/onMouseLeave)는 rest 로 그대로 넘긴다 — 길게 누르기
 // 반복이 여기 붙는다. 명시 나열로 두면 새 핸들러를 추가할 때마다 조용히 누락된다.
-const Key = ({ children, onClick, onMouseDown, active, tone, title, ...rest }) => {
+const Key = ({ children, onClick, onMouseDown, active, tone, title, style, ...rest }) => {
   const palette =
     tone === 'danger'
       ? { background: 'transparent', col: color.danger, border: `${color.danger}33` }
@@ -345,6 +384,7 @@ const Key = ({ children, onClick, onMouseDown, active, tone, title, ...rest }) =
         color: palette.col,
         borderColor: palette.border,
         opacity: tone === 'muted' ? 0.65 : 1,
+        ...style,
       }}
     >
       {children}

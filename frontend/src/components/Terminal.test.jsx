@@ -92,6 +92,60 @@ describe('Terminal', () => {
   });
 
   describe('연결', () => {
+    it('scrolls and pinches the mobile view overlay while keeping the connection and input lock', async () => {
+      const props = { sessionId: 'sess-1', isMobile: true, paneMultiplexer: 'none',
+        settings: { ...testSettings(), mobileViewOnly: true } };
+      const view = renderTerminal(props);
+      const ws = await openSocket();
+      const term = harness.term;
+      const overlay = view.getByTestId('terminal-touch-overlay');
+      act(() => {
+        term.buffer.active.baseY = 100;
+        term.buffer.active.viewportY = 100;
+        term.handlers.scroll();
+      });
+      fireEvent.wheel(overlay, { deltaY: -120 });
+      expect(term.scrollToLine).toHaveBeenCalled();
+      const base = term.options.fontSize;
+      fireEvent.touchStart(overlay, { touches: [{ clientX: 100, clientY: 100 }, { clientX: 200, clientY: 100 }] });
+      fireEvent.touchMove(overlay, { touches: [{ clientX: 50, clientY: 100 }, { clientX: 250, clientY: 100 }] });
+      await waitFor(() => expect(term.options.fontSize).toBe(Math.min(28, base * 2)));
+      fireEvent.touchEnd(overlay, { touches: [] });
+      expect(term.options.disableStdin).toBe(true);
+      expect(term.focus).not.toHaveBeenCalled();
+      expect(harness.sockets).toHaveLength(1);
+      expect(ws.sent.every((data) => typeof data !== 'string' || data.startsWith('{'))).toBe(true);
+      view.rerender(<TerminalComponent {...props} settings={{ ...props.settings, fontSize: 18 }} />);
+      expect(term.options.fontSize).toBe(18);
+    });
+    it('mobile view mode blocks focus and all input while preserving the connection and output', async () => {
+      const props = { sessionId: 'sess-1', isMobile: true, paneMultiplexer: 'none',
+        settings: { ...testSettings(), mobileViewOnly: true } };
+      const view = renderTerminal(props);
+      const ws = await openSocket();
+      const term = harness.term;
+      expect(term.options.disableStdin).toBe(true);
+      expect(term.focus).not.toHaveBeenCalled();
+      fireEvent.click(view.getByTestId('terminal-touch-overlay'));
+      act(() => term.handlers.data('unwanted'));
+      expect(window.terminalSessions['sess-1'].sendCommand('unwanted')).toBe(false);
+      act(() => window.terminalSessions['sess-1'].sendData('\x03\x1b[Z'));
+      fireEvent.paste(view.getByTestId('terminal-touch-overlay'), { clipboardData: {
+        items: [], getData: () => 'unwanted paste',
+      } });
+      expect(ws.sent).not.toContain('unwanted');
+      expect(term.focus).not.toHaveBeenCalled();
+      act(() => ws.serverSendBytes('visible output'));
+      await waitFor(() => expect(term.written.length).toBeGreaterThan(0));
+      const sockets = harness.sockets.length;
+      view.rerender(<TerminalComponent {...props} settings={{ ...props.settings, mobileViewOnly: false }} />);
+      expect(term.options.disableStdin).toBe(false);
+      fireEvent.click(view.getByTestId('terminal-touch-overlay'));
+      expect(term.focus).toHaveBeenCalled();
+      act(() => term.handlers.data('allowed'));
+      await waitFor(() => expect(ws.sent).toContain('allowed'));
+      expect(harness.sockets).toHaveLength(sockets);
+    });
     it('로컬 세션은 티켓·셸·크기를 실은 /ws/<id> 로 연결한다', async () => {
       renderTerminal({ sessionId: 'abc' });
       const ws = await waitForSocket();
@@ -318,6 +372,30 @@ describe('Terminal', () => {
       await waitFor(() => expect(
         global.fetch.mock.calls.some(([url]) => String(url).startsWith('/api/terminal-scroll')),
       ).toBe(true));
+    });
+
+    it('passes the exact view-mode selection and source to quick input without sending terminal input', async () => {
+      renderTerminal({ paneId: 'source-pane', tabId: 'source-tab', isMobile: true,
+        settings: { ...testSettings(), language: 'ko', mobileViewOnly: true } });
+      const ws = await openSocket();
+      const text = '  selected output\nsecond line  ';
+      harness.term.hasSelection.mockReturnValue(true);
+      harness.term.getSelection.mockReturnValue(text);
+      const listener = vi.fn();
+      window.addEventListener('iterm:selection-to-command-input', listener);
+      try {
+        fireEvent.mouseDown(harness.term.element, {
+          button: 2, clientX: 30, clientY: 40,
+        });
+        fireEvent.click(await screen.findByText('입력창에 넣기'));
+        expect(listener).toHaveBeenCalledOnce();
+        expect(listener.mock.calls[0][0].detail).toEqual({ text, sessionId: 'sess-1',
+          paneId: 'source-pane', tabId: 'source-tab' });
+        expect(ws.sent.some(data => typeof data === 'string' && !data.startsWith('{'))).toBe(false);
+        expect(screen.queryByText('입력창에 넣기')).toBeNull();
+      } finally {
+        window.removeEventListener('iterm:selection-to-command-input', listener);
+      }
     });
 
     it('긴 원시 터미널 입력도 최근 명령에 저장하지 않는다', async () => {

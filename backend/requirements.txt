@@ -1,17 +1,21 @@
-fastapi==0.120.4
-starlette==0.49.1
+fastapi==0.141.1
+starlette==1.6.0
 uvicorn[standard]==0.24.0
 websockets==12.0
 ptyprocess==0.7.0
-python-multipart==0.0.29
-python-jose[cryptography]==3.5.0
+python-multipart==0.0.32
+PyJWT[crypto]==2.14.0
 bcrypt==4.1.2
 passlib==1.7.4
 pyotp==2.9.0
 python-dotenv==1.2.2
-asyncssh==2.18.0
-cryptography>=41.0.0
+asyncssh==2.24.0
+cryptography>=48.0.1
 # 패스키 (WebAuthn / FIDO2) 로그인. RP ID / origin 은 요청 Host 에서 자동 추출.
 webauthn>=2.0
 # 옵셔널 — REDIS_URL 환경변수 설정 시 사용. 미설정이면 in-memory 폴백 자동.
 redis>=5.0.0
+
+# Runtime imports used by exchange-rate lookups and push notifications.
+aiohttp==3.14.3
+pywebpush==2.3.0

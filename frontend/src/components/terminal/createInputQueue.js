@@ -167,16 +167,19 @@ const createInputQueue = ({
     schedule(0);
   };
 
+  const clear = () => {
+    if (flushTimer) clearTimeout(flushTimer);
+    flushTimer = null;
+    queue = [];
+  };
+
   return {
     enqueue,
     push,
     schedule,
     hasPending: () => queue.length > 0,
-    dispose: () => {
-      if (flushTimer) clearTimeout(flushTimer);
-      flushTimer = null;
-      queue = [];
-    },
+    clear,
+    dispose: clear,
   };
 };
 

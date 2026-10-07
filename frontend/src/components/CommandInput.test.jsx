@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { useState } from 'react';
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 import CommandInput from './CommandInput';
+import { ko } from '../i18n/locales/ko';
 
 // 이미지 업로드 헬퍼는 mock — 컴포넌트의 삽입/상태 동작만 검증(네트워크 분리).
 vi.mock('./terminal/terminalHelpers', () => ({
@@ -24,6 +25,37 @@ const t = (key) => ({
   imageUploading: 'Uploading image',
   imageUploadFailed: 'Upload failed',
 }[key] || key);
+
+describe('빠른 입력 조합키', () => {
+  it('preserves the command draft and sends the previewed key to the active target without closing', () => {
+    const onSendKey = vi.fn();
+    const onSend = vi.fn();
+    const onClose = vi.fn();
+    const setCommand = vi.fn();
+    render(<CommandInput isOpen command="기존 명령" setCommand={setCommand} onSend={onSend}
+      onSendKey={onSendKey} onClose={onClose} terminalKey="target" t={(key) => ko[key] || key} />);
+    fireEvent.click(screen.getByRole('button', { name: '조합키' }));
+    expect(screen.queryByRole('textbox', { name: '' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }));
+    fireEvent.change(screen.getByLabelText('나머지 키'), { target: { value: 'c' } });
+    expect(screen.getByRole('status')).toHaveTextContent('Ctrl + C');
+    fireEvent.click(screen.getByRole('button', { name: '조합키 전송' }));
+    expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x03', ['target']);
+    expect(onSend).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(setCommand).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '문자 입력' }));
+    expect(screen.getByRole('textbox')).toHaveValue('기존 명령');
+  });
+  it('keeps key composition unavailable without a raw key sender and in the inactive dock layout', () => {
+    const props = { isOpen: true, command: '', setCommand: vi.fn(), onSend: vi.fn(), onClose: vi.fn(),
+      t: (key) => ko[key] || key };
+    const view = render(<CommandInput {...props} />);
+    expect(screen.queryByRole('button', { name: '조합키' })).toBeNull();
+    view.rerender(<CommandInput {...props} docked onSendKey={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: '조합키' })).toBeNull();
+  });
+});
 
 describe('CommandInput positioning', () => {
   let innerHeight;

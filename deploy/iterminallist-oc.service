@@ -1,0 +1,47 @@
+[Unit]
+Description=iTerminaLlist Backend (FastAPI/uvicorn)
+Documentation=https://github.com/jshsakura/oc-terminal-list
+After=network.target
+
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+
+User=ubuntu
+Group=ubuntu
+
+Environment=LANG=ko_KR.UTF-8
+Environment=LC_ALL=ko_KR.UTF-8
+
+# .env 운영 설정 (HOST/APP_PORT/...) 로드
+EnvironmentFile=/home/ubuntu/app/oc-terminal-list/.env
+
+# 운영 환경 — 자동 리로드 끔
+Environment=RELOAD=false
+
+WorkingDirectory=/home/ubuntu/app/oc-terminal-list/backend
+
+# 시작 직전 포트 점유 정리 — 옛 uvicorn 고아 프로세스가 APP_PORT를 잡고 있으면 정리
+ExecStartPre=-/usr/bin/fuser -k -TERM ${APP_PORT}/tcp
+ExecStartPre=-/bin/sh -c 'sleep 1; /usr/bin/fuser -k -KILL ${APP_PORT}/tcp; exit 0'
+ExecStart=/home/ubuntu/app/oc-terminal-list/.venv/bin/python main.py
+
+# 비정상 종료 시 5초 뒤 재시작
+Restart=always
+RestartSec=5
+
+# uvicorn 은 SIGTERM graceful
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# tmux 서버 보존 — 서비스 재시작 시 사용자 tmux 세션이 유지되도록 MainPID만 종료
+KillMode=process
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=iterminallist
+
+[Install]
+WantedBy=multi-user.target

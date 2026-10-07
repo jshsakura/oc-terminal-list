@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } fro
 import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare, LayoutGrid } from 'lucide-react';
 import { DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE_MOBILE } from './utils/terminalFonts';
 import useSettings from './hooks/useSettings';
+import useMobileViewMode from './hooks/useMobileViewMode';
+import useSelectionToCommandInput from './hooks/useSelectionToCommandInput';
+import { flushSync } from 'react-dom';
 import useAppConfig from './hooks/useAppConfig';
 import useTranslation from './hooks/useTranslation';
 import useAuth from './hooks/useAuth';
@@ -279,6 +282,7 @@ function App() {
   // 모바일에서는 실제 화면 분할 대신 새 빈 pane 을 sub-tab 으로 연다.
   // 반응형 뷰포트 — isMobile/viewportHeight state + 최신값 ref.
   const { isMobile, viewportHeight, isMobileRef: isMobileViewportRef } = useViewport();
+  const [mobileViewOnly, setMobileViewOnly] = useMobileViewMode();
   const splitActivePane = useCallback((dir = 'h', targetTabId, targetPaneId) => {
     setTabs((prev) => splitPaneOp(prev, {
       dir, targetTabId, targetPaneId, activeTabId: activeTabIdRef.current,
@@ -806,6 +810,41 @@ function App() {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [selectedFolderPath, setSelectedFolderPath] = useState('');
   const [commandInputOpen, setCommandInputOpen] = useState(false);
+  const [inputModePending, setInputModePending] = useState(false);
+  const inputModePendingRef = useRef(false);
+  const enableMobileInput = useEvent(async (openComposer = false, returnToBottomKey = null) => {
+    if (inputModePendingRef.current) { return false; }
+    inputModePendingRef.current = true;
+    setInputModePending(true);
+    try {
+      const results = await Promise.all(Object.entries(window.terminalSessions || {})
+        .map(([key, session]) => key === returnToBottomKey
+          ? session.scrollToBottom?.() ?? false : session.prepareInputMode?.() ?? true));
+      if (results.some(result => !result)) throw new Error('Cannot leave terminal history');
+      setMobileViewOnly(false);
+      if (openComposer) setCommandInputOpen(true);
+      return true;
+    } catch {
+      setNotification({ isOpen: true, message: t('mobileInputModeError'), type: 'error' });
+      return false;
+    } finally {
+      inputModePendingRef.current = false;
+      setInputModePending(false);
+    }
+  });
+  const openCommandInput = useEvent(() => {
+    if (isMobile && mobileViewOnly) { enableMobileInput(true); return; }
+    setCommandInputOpen(true);
+  });
+  const toggleMobileViewOnly = useEvent(() => {
+    if (mobileViewOnly) { enableMobileInput(); return; }
+    // Lock terminal input before blur can commit an unfinished iOS composition.
+    flushSync(() => {
+      setMobileViewOnly(true);
+      setCommandInputOpen(false);
+    });
+    document.activeElement?.blur?.();
+  });
   /* 모바일 입력은 **팝업으로 되돌렸다** (2026-08-28).
 
      상시 노출 도크는 탭 한 번을 아끼려던 것인데, 폰에서 하단 입력부를 누르면 키보드가
@@ -825,6 +864,12 @@ function App() {
   // LazyErrorBoundary 가 페이지를 리로드해도 입력이 날아가지 않게. (utils/quickInputDraft.js)
   const [commandText, setCommandText] = useState(loadDraft);
   useEffect(() => { saveDraft(commandText); }, [commandText]);
+  const selectionSourceAvailable = useEvent(({ tabId, paneId, sessionId }) => tabs.some(tab =>
+    tab.id === tabId && tab.panes?.some(pane => pane.id === paneId && (pane.sessionId || pane.id) === sessionId)));
+  useSelectionToCommandInput({ isMobile, mobileViewOnly, enableMobileInput,
+    isSourceAvailable: selectionSourceAvailable,
+    onActivateSource: ({ tabId, paneId }) => { setActiveTabId(tabId); focusPane(tabId, paneId); },
+    setCommandText, setCommandInputOpen });
   const [screenDumpText, setScreenDumpText] = useState(null);
   // 터미널 컨텍스트 메뉴 "텍스트로 보기" → ScreenDumpModal. prop 드릴링(App→PaneGrid→Pane→Terminal)
   // 대신 CustomEvent 로 터미널이 직접 화면 텍스트를 보내고 여기서 수신한다.
@@ -844,8 +889,8 @@ function App() {
       : (settings.fontSize ?? DEFAULT_FONT_SIZE);
     // 이북 모드의 덮어쓰기는 **여기 한 곳**에서 걸린다. PaneGrid·Terminal 은 이미
     // effectiveSettings 를 받으므로 각자 einkMode 를 볼 필요가 없다.
-    return applyEinkSettings({ ...settings, fontSize: size });
-  }, [settings, isMobile]);
+    return applyEinkSettings({ ...settings, fontSize: size, mobileViewOnly: isMobile && mobileViewOnly });
+  }, [settings, isMobile, mobileViewOnly]);
 
   // ── actions ───────────────────────────────────────────────────────────────
   const handleLogoutRequest = () => setConfirmModal({
@@ -905,7 +950,7 @@ function App() {
       // 버튼과 같은 조건으로 잠근다: 터미널이 붙기 전엔 보낼 곳이 없다.
       if (ctrl && e.shiftKey && e.key === 'Enter') {
         e.preventDefault();
-        if (activeTabId !== null && readyByTabId[activeTabId]) setCommandInputOpen(true);
+        if (activeTabId !== null && readyByTabId[activeTabId]) openCommandInput();
         return;
       }
       if (ctrl && e.shiftKey && (e.key === 'P' || e.key === 'p')) { e.preventDefault(); setIsCommandPaletteOpen(true); return; }
@@ -1280,7 +1325,7 @@ function App() {
         onOpenCommandInput={
           activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
             && (focusedPane.sessionId || focusedPane.hostId)
-            ? () => setCommandInputOpen(true)
+            ? openCommandInput
             : null
         }
         // 터미널이 붙기 전엔 눌러봐야 보낼 곳이 없다 — 로딩 중엔 액션 버튼을 흐리게 잠근다.
@@ -1539,9 +1584,12 @@ function App() {
               슬롯(DOCK_SLOT_ID)으로 포탈하기 때문. 순서를 바꾸면 첫 렌더에 슬롯이 없어
               대상·히스토리 버튼이 한 틱 늦게 나타난다(도크가 재시도하긴 한다). */}
           <MobileToolbar
+            viewOnly={mobileViewOnly}
+            modePending={inputModePending}
+            onToggleViewOnly={toggleMobileViewOnly}
             multiplexer={settings.defaultMultiplexer}
             onSendKey={(key) => window.terminalSessions?.[terminalKey]?.sendData?.(key)}
-            onOpenCommandInput={() => setCommandInputOpen(true)}
+            onOpenCommandInput={openCommandInput}
             onAction={(type) => {
               const session = window.terminalSessions?.[terminalKey];
               if (!session) return;
@@ -1557,10 +1605,18 @@ function App() {
               if (type === 'copy') {
                 const sel = session.getSelection?.();
                 if (sel) copyAndTell(sel);
-                else setNotification({ isOpen: true, message: t('noSelection') || 'No text selected', type: 'info' });
+                else setNotification({ isOpen: true, message: isMobile && mobileViewOnly ? t('mobileSelectionHint') : (t('noSelection') || 'No text selected'), type: 'info' });
               } else if (type === 'copyAll') {
                 const text = session.getBufferText?.() || '';
                 if (text) copyAndTell(text);
+              } else if (type === 'viewAsText') {
+                setScreenDumpText(session.getBufferText?.() || '— empty —');
+              } else if (type === 'scrollToBottom') {
+                Promise.resolve(session.scrollToBottom?.()).then((ok) => {
+                  if (ok === false) setNotification({ isOpen: true, message: t('mobileBottomError'), type: 'error' });
+                }).catch(() => setNotification({ isOpen: true, message: t('mobileBottomError'), type: 'error' }));
+              } else if (type === 'escapeToInput') {
+                enableMobileInput(false, terminalKey);
               }
             }}
             language={settings.language}

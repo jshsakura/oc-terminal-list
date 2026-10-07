@@ -40,12 +40,14 @@ jobs:
       - name: Backend tests (aggregate 4 GiB limit)
         run: |
           sudo systemd-run --wait --pipe --collect -p MemoryMax=4G -p MemorySwapMax=0 -p OOMPolicy=kill \
+            -p User="$(id -un)" -p Group="$(id -gn)" \
             -p WorkingDirectory="$GITHUB_WORKSPACE/backend" \
             /bin/bash "$GITHUB_WORKSPACE/.github/scripts/within-memory-limit.sh" \
             "$GITHUB_WORKSPACE/.venv/bin/python" -m pytest -q
       - name: Frontend tests (aggregate 4 GiB limit)
         run: |
           sudo systemd-run --wait --pipe --collect -p MemoryMax=4G -p MemorySwapMax=0 -p OOMPolicy=kill \
+            -p User="$(id -un)" -p Group="$(id -gn)" \
             -p WorkingDirectory="$GITHUB_WORKSPACE/frontend" \
             /bin/bash "$GITHUB_WORKSPACE/.github/scripts/within-memory-limit.sh" \
             "$(command -v node)" node_modules/vitest/vitest.mjs run --maxWorkers=1

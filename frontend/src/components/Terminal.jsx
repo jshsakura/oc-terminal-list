@@ -48,6 +48,7 @@ import { buildWsUrl, fetchSessionClients, wsPathFor } from './terminal/sessionEn
 import { recordDisconnect, recordReconnect } from './terminal/reconnectDiag';
 import ensureXtermGlobalStyles from './terminal/xtermGlobalCss';
 import useTerminalApi from './terminal/useTerminalApi';
+import setTerminalReadOnly from './terminal/setTerminalReadOnly';
 import TerminalTexture from './TerminalTexture';
 import TerminalScrollbar from './terminal/TerminalScrollbar';
 
@@ -86,6 +87,26 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const terminalRef = useRef(null);
   const touchOverlayRef = useRef(null);
   const xtermRef = useRef(null);
+  const [viewFontSize, setViewFontSize] = useState(null);
+  const baseFontSizeRef = useRef(settings.fontSize);
+  baseFontSizeRef.current = settings.fontSize;
+  const effectiveFontSize = isMobile && viewFontSize?.base === settings.fontSize ? viewFontSize.size : settings.fontSize;
+  const readOnly = isMobile && settings.mobileViewOnly === true;
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+  const readOnlyScrollRef = useRef(null);
+  const finishViewingRef = useRef(null);
+  const viewHistoryTouchedRef = useRef(false);
+  const markViewHistory = useCallback(() => {
+    if (readOnlyRef.current) viewHistoryTouchedRef.current = true;
+  }, []);
+  const prepareInputModeRef = useRef(null);
+  prepareInputModeRef.current = async () => {
+    if (!viewHistoryTouchedRef.current) return true;
+    const restored = await (finishViewingRef.current?.() ?? false);
+    if (restored) viewHistoryTouchedRef.current = false;
+    return restored;
+  };
   const inputPreviewRef = useRef(null);
   const iosHangulRef = useRef(null);
   const fitAddonRef = useRef(null);
@@ -669,7 +690,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // xterm + 애드온 한 벌 생성 후 컨테이너에 부착. 배선은 아래에서.
     const { term, fitAddon, searchAddon, predictiveEcho } = createXtermInstance({
       container: terminalRef.current,
-      settings,
+      settings: { ...settings, fontSize: effectiveFontSize },
       theme: currentTheme,
       paneId,
       sessionId,
@@ -714,7 +735,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
     /* 입력 큐 — 청크 분할·백프레셔. 소켓이 닫혀 있어도 버리지 않고 쌓아뒀다 재연결 후 보낸다. */
     const input = createInputQueue({
-      getSocket: () => wsRef.current,
+      getSocket: () => readOnlyRef.current ? null : wsRef.current,
       getLastRecvAt: () => lastRecvRef.current,
       onProbeLiveness: () => probeLivenessRef.current?.(),
       onBroadcast: (data) => onBroadcastRef.current?.(data),
@@ -748,6 +769,16 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       input,
       getSocket: () => wsRef.current,
       isMobile: () => isMobileRef.current,
+      isReadOnly: () => readOnlyRef.current,
+      scrollReadOnly: (lines, cell) => {
+        viewHistoryTouchedRef.current = true;
+        readOnlyScrollRef.current?.(lines, cell);
+      },
+      onViewFontSize: (size) => setViewFontSize((previous) => previous?.base === baseFontSizeRef.current && previous.size === size
+        ? previous : { base: baseFontSizeRef.current, size }),
+      onFileLinkClick: hostId ? null : (link) => {
+        window.dispatchEvent(new CustomEvent('iterm:open-file', { detail: { ...link, cwd } }));
+      },
       sessionId,
       hostId,
       logger,
@@ -778,7 +809,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     } catch (e) {
       // 컨테이너가 아직 0x0 인 극단 케이스 방어
     }
-    term.focus();
+    setTerminalReadOnly(term, readOnlyRef.current);
+    if (!readOnlyRef.current) term.focus();
 
     /* preflight 로 WS 오픈을 gating. 다른 기기가 이미 attach 중이면 건드리지 않고 evicted
        오버레이만 띄운다 — 사용자가 "내가 가져오기" 를 누를 때까지 기다린다. */
@@ -1595,6 +1627,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     probeLivenessRef.current = probeLiveness;
 
     term.onData((data) => {
+      if (readOnlyRef.current) return;
       // 입력 = 활동 → idle 로 반납됐던 WebGL 재부착 + idle 카운트다운 리셋(타이핑 즉시 또렷하게).
       webglRef.current?.noteActivity();
       if (isTerminalAutoResponse(data)) {
@@ -1747,7 +1780,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   useEffect(() => {
     if (xtermRef.current) {
       xtermRef.current.options.theme = currentTheme;
-      xtermRef.current.options.fontSize = settings.fontSize;
+      xtermRef.current.options.fontSize = effectiveFontSize;
       xtermRef.current.options.fontFamily = normalizeTerminalFontFamily(settings.fontFamily);
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
       xtermRef.current.options.minimumContrastRatio = resolveContrast(settings.terminalContrast);
@@ -1777,7 +1810,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }
       }, 50); // 200ms 는 너무 길어 반응이 느려 보이므로 50ms 로 단축
     }
-  }, [currentTheme, settings.fontSize, settings.fontFamily, settings.smoothScroll, settings.einkMode]);
+  }, [currentTheme, effectiveFontSize, settings.fontFamily, settings.smoothScroll, settings.einkMode]);
 
   // 예측 입력 on/off 설정 동기화.
   useEffect(() => {
@@ -1823,7 +1856,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     refs: {
       xtermRef, wsRef, searchAddonRef, iosHangulRef, inputPreviewRef,
       enqueueInputRef, forceScrollToBottomRef, fitNowRef, webglRef,
-      lastDimsRef, evictedRef, endedRef, hasContentRef,
+      lastDimsRef, evictedRef, endedRef, hasContentRef, readOnlyRef, prepareInputModeRef, finishViewingRef,
     },
     forwardedRef: ref,
     sessionId,
@@ -1832,16 +1865,21 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     isReady,
   });
 
+  useEffect(() => {
+    setTerminalReadOnly(xtermRef.current, readOnly);
+    if (readOnly) inputRef.current?.clear();
+  }, [readOnly, isReady]);
+
   // 키보드 포커스는 visible 한 pane 들 중 "focused" 한 1개에만 줘야 한다.
   // 분할(grid) 레이아웃에서 4 pane 모두 isActive=true 이지만 isFocused 는 1개뿐.
   useEffect(() => {
-    if (isActive && isFocused && xtermRef.current && isReady) {
+    if (!readOnly && isActive && isFocused && xtermRef.current && isReady) {
       const timer = setTimeout(() => {
-        xtermRef.current?.focus();
+        if (!readOnlyRef.current) xtermRef.current?.focus();
       }, 50);
       return () => clearTimeout(timer);
     }
-  }, [isActive, isFocused, isReady]);
+  }, [isActive, isFocused, isReady, readOnly]);
 
   // 활성 복귀 시 비활성 동안 쌓인 출력을 즉시 flush. tmux 도 별도로 화면 redraw 를 보내옴.
   useEffect(() => {
@@ -2172,7 +2210,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       <div
         ref={terminalRef}
         onClick={() => {
-          if (xtermRef.current) {
+          if (!readOnlyRef.current && xtermRef.current) {
             xtermRef.current.focus();
           }
         }}
@@ -2211,7 +2249,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         fitNowRef={fitNowRef}
         sessionId={hostId ? (effectiveTmuxSession || tmuxSessionName) : sessionId}
         hostId={hostId}
-        enabled={settings.showTerminalScrollbar === true}
+        enabled={readOnly || settings.showTerminalScrollbar === true}
+        readOnly={readOnly}
+        scrollLinesRef={readOnlyScrollRef}
+        finishViewingRef={finishViewingRef}
+        onHistorySeek={markViewHistory}
         showInputOnScroll={settings.showInputOnScroll === true}
         inputPreviewRef={inputPreviewRef}
         historyKey={sessionId}
@@ -2229,7 +2271,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         <div
           ref={touchOverlayRef}
           aria-hidden="true"
-          onClick={() => xtermRef.current?.focus()}
+          onClick={() => { if (!readOnlyRef.current) xtermRef.current?.focus(); }}
+          data-testid="terminal-touch-overlay"
           style={{
             position: 'absolute',
             inset: 0,
@@ -2238,7 +2281,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             userSelect: 'none',
             WebkitUserSelect: 'none',
             WebkitTouchCallout: 'none',
-            cursor: 'default',
+            cursor: readOnly ? 'text' : 'default',
           }}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -2261,6 +2304,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             if (sel) copyTextToClipboard(sel);
             setContextMenu(null);
           }}
+          onUseSelection={() => {
+            const text = xtermRef.current?.getSelection();
+            setContextMenu(null);
+            if (text) {
+              window.dispatchEvent(new CustomEvent('iterm:selection-to-command-input', {
+                detail: { text, sessionId, paneId, tabId },
+              }));
+            }
+          }}
           onCopyLink={() => {
             if (contextMenu.linkUrl) copyTextToClipboard(contextMenu.linkUrl);
             setContextMenu(null);
@@ -2270,9 +2322,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setContextMenu(null);
           }}
           onPaste={async () => {
+            if (readOnlyRef.current) return;
             try {
               const text = await navigator.clipboard.readText();
-              if (text && xtermRef.current) {
+              if (text && !readOnlyRef.current && xtermRef.current) {
                 xtermRef.current.paste(text);
               }
             } catch {}
@@ -2280,10 +2333,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
           }}
           onRefresh={onRefresh ? () => { setContextMenu(null); onRefresh(); } : null}
           onScrollToBottom={() => {
-            xtermRef.current?.scrollToBottom();
+            window.terminalSessions?.[sessionId]?.scrollToBottom?.();
             setContextMenu(null);
           }}
-          onUploadFile={() => { fileUploadRef.current?.click(); setContextMenu(null); }}
+          readOnly={readOnly}
+          onUploadFile={readOnly ? null : () => { fileUploadRef.current?.click(); setContextMenu(null); }}
           onScreenDump={() => {
             const term = xtermRef.current;
             if (term) {
@@ -2379,7 +2433,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
               wsRef.current?.send(JSON.stringify({ type: 'auth-response', values }));
             } catch { /* noop */ }
             setAuthPrompt(null);
-            setTimeout(() => xtermRef.current?.focus(), 100);
+            setTimeout(() => { if (!readOnlyRef.current) xtermRef.current?.focus(); }, 100);
           }}
           onCancel={() => {
             try {

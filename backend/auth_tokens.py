@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 
 import anyio
 from fastapi import HTTPException
-from jose import JWTError, jwt
+import jwt
+from jwt import PyJWTError as JWTError
 
 if TYPE_CHECKING:
     from sqlite_storage import SQLiteStorage

@@ -160,6 +160,23 @@ describe('TerminalContextMenu', () => {
     expect(screen.getByText('copy')).toBeTruthy();
   });
 
+  it('offers selection in quick input in view mode and invokes it explicitly', () => {
+    const onUseSelection = vi.fn();
+    render(<TerminalContextMenu {...baseProps()} readOnly hasSelection onUseSelection={onUseSelection} />);
+    expect(screen.queryByText('paste')).toBeNull();
+    expect(onUseSelection).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('selectionToInput'));
+    expect(onUseSelection).toHaveBeenCalledOnce();
+  });
+
+  it('hides selection in quick input without selection or outside view mode', () => {
+    const props = { ...baseProps(), onUseSelection: vi.fn() };
+    const { rerender } = render(<TerminalContextMenu {...props} readOnly />);
+    expect(screen.queryByText('selectionToInput')).toBeNull();
+    rerender(<TerminalContextMenu {...props} hasSelection />);
+    expect(screen.queryByText('selectionToInput')).toBeNull();
+  });
+
   it('선택 항목은 콜백이 있을 때만 나온다 (파일 보내기 / 새로고침)', () => {
     const props = baseProps();
     const { rerender } = render(<TerminalContextMenu {...props} />);

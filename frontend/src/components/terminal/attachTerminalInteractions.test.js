@@ -114,7 +114,61 @@ describe('attachTerminalInteractions', () => {
   });
 
   describe('휠 스크롤 라우팅', () => {
+    it('view mode taps never focus and scrolling uses history without sending mouse input', () => {
+      const scrollReadOnly = vi.fn();
+      term.buffer.active.type = 'alternate';
+      mount({ isMobile: () => true, isReadOnly: () => true, scrollReadOnly });
+      overlay.dispatchEvent(touchEvent('touchstart', 20, 200));
+      overlay.dispatchEvent(touchEvent('touchend', 20, 200));
+      expect(term.focus).not.toHaveBeenCalled();
+      overlay.dispatchEvent(touchEvent('touchstart', 20, 200));
+      overlay.dispatchEvent(touchEvent('touchmove', 20, 100));
+      overlay.dispatchEvent(touchEvent('touchend', 20, 100));
+      expect(scrollReadOnly).toHaveBeenCalled();
+      expect(input.push).not.toHaveBeenCalled();
+      const paste = new Event('paste', { bubbles: true, cancelable: true });
+      paste.clipboardData = { items: [], getData: () => 'unwanted command' };
+      container.dispatchEvent(paste);
+      expect(paste.defaultPrevented).toBe(true);
+      expect(term.paste).not.toHaveBeenCalled();
+    });
+
+    it('cancelled and multi-touch gestures do not open the keyboard or a long-press menu', () => {
+      vi.useFakeTimers();
+      try {
+        mount({ isMobile: () => true });
+        overlay.dispatchEvent(touchEvent('touchstart', 20, 200));
+        overlay.dispatchEvent(touchEvent('touchcancel', 20, 200));
+        vi.advanceTimersByTime(600);
+        overlay.dispatchEvent(touchEvent('touchend', 20, 200));
+        expect(setContextMenu).not.toHaveBeenCalled();
+        expect(term.focus).not.toHaveBeenCalled();
+        overlay.dispatchEvent(touchEvent('touchstart', 20, 200, 2));
+        overlay.dispatchEvent(touchEvent('touchend', 20, 200));
+        expect(term.focus).not.toHaveBeenCalled();
+        overlay.dispatchEvent(touchEvent('touchstart', 20, 200));
+        overlay.dispatchEvent(touchEvent('touchend', 20, 200));
+        expect(term.focus).toHaveBeenCalledOnce();
+      } finally { vi.useRealTimers(); }
+    });
     const wheel = (deltaY, deltaMode = 0) => term.handlers.wheel({ deltaY, deltaMode, clientX: 55, clientY: 45 });
+
+    it('일반 버퍼의 보기 모드 휠도 읽기 전용 탐색을 거치며 입력을 보내지 않는다', () => {
+      const scrollReadOnly = vi.fn();
+      mount({ isReadOnly: () => true, scrollReadOnly });
+
+      expect(wheel(-2000)).toBe(false);
+      expect(scrollReadOnly).toHaveBeenCalledWith(-12, { col: 6, row: 3 });
+      expect(term.scrollLines).not.toHaveBeenCalled();
+      expect(input.push).not.toHaveBeenCalled();
+
+      handle.detach();
+      scrollReadOnly.mockClear();
+      mount({ isReadOnly: () => true });
+      expect(wheel(-60)).toBe(false);
+      expect(term.scrollLines).toHaveBeenCalledWith(-3);
+      expect(input.push).not.toHaveBeenCalled();
+    });
 
     it('일반 버퍼에서는 픽셀 휠 이벤트를 xterm 기본 처리에 그대로 넘긴다', () => {
       mount();
@@ -196,6 +250,30 @@ describe('attachTerminalInteractions', () => {
   });
 
   describe('모바일 터치', () => {
+    it('routes wheel events on the overlay through read-only history without terminal input', () => {
+      const scrollReadOnly = vi.fn();
+      term.buffer.active.type = 'alternate';
+      mount({ isMobile: () => true, isReadOnly: () => true, scrollReadOnly });
+      const event = new WheelEvent('wheel', { deltaY: -120, clientX: 100, clientY: 200, cancelable: true });
+      overlay.dispatchEvent(event);
+      expect(scrollReadOnly).toHaveBeenCalledWith(-6, { col: 11, row: 11 });
+      expect(event.defaultPrevented).toBe(true);
+      expect(input.push).not.toHaveBeenCalled();
+      handle.detach();
+      scrollReadOnly.mockClear();
+      overlay.dispatchEvent(new WheelEvent('wheel', { deltaY: -120 }));
+      expect(scrollReadOnly).not.toHaveBeenCalled();
+    });
+    it('uses Ctrl+wheel for view zoom without seeking history', () => {
+      const onViewFontSize = vi.fn();
+      const scrollReadOnly = vi.fn();
+      term.options = { fontSize: 13 };
+      mount({ isReadOnly: () => true, scrollReadOnly, onViewFontSize });
+      overlay.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, ctrlKey: true }));
+      expect(onViewFontSize).toHaveBeenCalledWith(14);
+      expect(scrollReadOnly).not.toHaveBeenCalled();
+      expect(input.push).not.toHaveBeenCalled();
+    });
     it('세로 드래그는 스크롤한다 (감쇠 ×0.5)', () => {
       mount();
       overlay.dispatchEvent(touchEvent('touchstart', 100, 200));

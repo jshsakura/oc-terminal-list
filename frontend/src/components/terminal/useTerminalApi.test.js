@@ -47,6 +47,7 @@ const setup = (over = {}) => {
   const fitNow = vi.fn();
 
   const refs = {
+    readOnlyRef: { current: over.readOnly ?? false },
     xtermRef: { current: term },
     iosHangulRef: { current: over.ime },
     wsRef: { current: socket },
@@ -77,6 +78,49 @@ const setup = (over = {}) => {
 const api = (sessionId = 's1') => window.terminalSessions[sessionId];
 
 describe('useTerminalApi', () => {
+  it('returns to live tmux output without unlocking input or using the local-only scroll path', async () => {
+    const { refs, scrollToBottom, enqueue } = setup({ readOnly: true,
+      term: makeTerm([], { clearSelection: vi.fn() }) });
+    const restore = vi.fn(async () => true);
+    refs.finishViewingRef = { current: restore };
+    // The hook reads the optional ref on render.
+    const hook = renderHook(() => useTerminalApi({ refs, sessionId: 'view', isReady: true }));
+    expect(await api('view').scrollToBottom()).toBe(true);
+    expect(restore).toHaveBeenCalledOnce();
+    expect(restore).toHaveBeenCalledWith({ toBottom: true });
+    expect(scrollToBottom).not.toHaveBeenCalled();
+    expect(refs.readOnlyRef.current).toBe(true);
+    expect(api('view').sendData('x')).toBe(false);
+    expect(enqueue).not.toHaveBeenCalled();
+    restore.mockResolvedValue(false);
+    expect(await api('view').scrollToBottom()).toBe(false);
+    hook.unmount();
+  });
+  it('blocks input, command history and focus in view mode while keeping output copy available', async () => {
+    const { enqueue, socket, term } = setup({ readOnly: true, term: makeTerm(['visible output']) });
+    expect(api().sendData('oops')).toBe(false);
+    expect(api().sendCommand('rm file')).toBe(false);
+    api().focus();
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(socket.send).not.toHaveBeenCalled();
+    expect(term.focus).not.toHaveBeenCalled();
+    expect(pushCommand).not.toHaveBeenCalled();
+    expect(api().getBufferText()).toBe('visible output');
+    await api().copyAll();
+    expect(copyTextToClipboard).toHaveBeenCalledWith('visible output');
+  });
+
+  it('does not send a delayed Enter after switching to view mode', () => {
+    vi.useFakeTimers();
+    try {
+      const { refs, socket } = setup({ enqueue: vi.fn(() => false) });
+      api().sendCommand('echo hello');
+      expect(socket.send).toHaveBeenCalledWith('echo hello');
+      refs.readOnlyRef.current = true;
+      act(() => vi.advanceTimersByTime(100));
+      expect(socket.send).not.toHaveBeenCalledWith('\r');
+    } finally { vi.useRealTimers(); }
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(looksLikeBulkCommand).mockReturnValue(false);

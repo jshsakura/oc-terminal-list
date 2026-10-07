@@ -174,7 +174,7 @@ export const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) =>
   );
 };
 
-export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onCopyLink, onCopyAll, onPaste, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose }) => {
+export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onUseSelection, onCopyLink, onCopyAll, onPaste, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose, readOnly = false }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
   const [measured, setMeasured] = useState(false);
@@ -204,13 +204,16 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
   const items = [];
   if (hasSelection) {
     items.push({ icon: Copy, label: t('copy') || 'Copy', action: onCopy });
+    if (readOnly && onUseSelection) {
+      items.push({ icon: ClipboardPaste, label: t('selectionToInput') || 'Use in quick input', action: onUseSelection });
+    }
   }
   if (linkUrl && onCopyLink) {
     items.push({ icon: LinkIcon, label: t('copyLink') || 'Copy link', action: onCopyLink });
   }
   items.push({ icon: Scissors, label: t('copyAll') || 'Copy all', action: onCopyAll });
-  items.push({ icon: ClipboardPaste, label: t('paste') || 'Paste', action: onPaste });
-  if (onUploadFile) {
+  if (!readOnly) items.push({ icon: ClipboardPaste, label: t('paste') || 'Paste', action: onPaste });
+  if (!readOnly && onUploadFile) {
     items.push({ icon: Upload, label: t('sendFile') || 'Send file', action: onUploadFile });
   }
   if (onRefresh) {
@@ -222,7 +225,7 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
   }
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
-  const selectHint = isMac ? 'Option+drag to select' : 'Shift+drag to select';
+  const selectHint = readOnly ? t('mobileSelectGesture') : (isMac ? 'Option+drag to select' : 'Shift+drag to select');
 
   return (
     <div

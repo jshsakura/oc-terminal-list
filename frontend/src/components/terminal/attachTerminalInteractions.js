@@ -9,6 +9,7 @@ import {
 import { copyTextToClipboard, uploadImageAndGetPath, pasteWhenConnected, reportClientError } from './terminalHelpers';
 import { uploadWithRetry } from './uploadRetry';
 import { getLinkAtClient } from '../../utils/terminalLinkAt';
+import attachMobileViewSelection, { clampViewFontSize } from './attachMobileViewSelection';
 
 /**
  * 터미널의 포인터/키보드 배선 — 휠·터치 스크롤 라우팅, 자연스러운 마우스 선택,
@@ -65,6 +66,10 @@ const attachTerminalInteractions = ({
   input,
   getSocket,
   isMobile,
+  isReadOnly = () => false,
+  scrollReadOnly = null,
+  onViewFontSize = null,
+  onFileLinkClick = null,
   sessionId,
   // 원격 pane 이면 붙여넣은 이미지가 **그 호스트에** 올라가야 한다.
   hostId = null,
@@ -118,6 +123,16 @@ const attachTerminalInteractions = ({
     else wheelLineRemainder -= lines;
     if (lines === 0) return true;
 
+    if (isReadOnly()) {
+      if (scrollReadOnly) {
+        scrollReadOnly(Math.sign(lines) * Math.min(MAX_WHEEL_REPORTS[source] ?? 12, Math.abs(lines)),
+          cellFromClientPoint(clientX, clientY));
+      } else if (term.buffer?.active?.type === 'normal') {
+        term.scrollLines(lines);
+      }
+      return true;
+    }
+
     if (shouldClearSelectionOnScroll({ hasSelection: term.hasSelection(), lines })) {
       try { term.clearSelection(); } catch { /* noop */ }
     }
@@ -139,10 +154,20 @@ const attachTerminalInteractions = ({
       bufferType: term.buffer?.active?.type || 'normal',
       mouseTrackingMode: term.modes?.mouseTrackingMode || 'none',
     });
-    if (!routeToPty) return true;
+    if (!isReadOnly() && !routeToPty) { return true; }
     handleScrollDelta(e.deltaY, e.deltaMode, e.clientX, e.clientY, 'wheel');
     return false;
   });
+
+  const handleOverlayWheel = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isReadOnly() && event.ctrlKey && onViewFontSize) {
+      onViewFontSize(clampViewFontSize(term.options.fontSize + (event.deltaY < 0 ? 1 : event.deltaY > 0 ? -1 : 0)));
+      return;
+    }
+    handleScrollDelta(event.deltaY, event.deltaMode, event.clientX, event.clientY, 'wheel');
+  };
 
   /* ── 붙여넣기 ───────────────────────────────────────────────────────────
      ClipboardEvent.clipboardData 를 쓰므로 clipboard-read 권한이 필요 없다.
@@ -167,7 +192,7 @@ const attachTerminalInteractions = ({
         later(() => setImagePasteState(null), IMAGE_TOAST_ERROR_MS);
       },
     });
-    if (!data) return;
+    if (!data || isReadOnly()) return;
     // ⚠️ 200 을 받은 것과 경로가 셸에 도착한 것은 다른 사건이다. 재연결 중이면 입력 큐가
     // 4초 뒤 그 항목을 버리므로(STALE_INPUT_MS), 넣을 수 있을 때까지 잠깐 기다린다.
     const inserted = await pasteWhenConnected(term, `${data.path} `, getSocket); // 뒤 공백 — 이어서 타이핑할 수 있게
@@ -183,6 +208,7 @@ const attachTerminalInteractions = ({
   };
 
   const handlePaste = (e) => {
+    if (isReadOnly()) { e.preventDefault(); e.stopPropagation(); return; }
     const cd = e.clipboardData;
     if (!cd) return;
     const imageItem = Array.from(cd.items || []).find(
@@ -231,7 +257,7 @@ const attachTerminalInteractions = ({
         return false;
       }
     }
-    return true;
+    return !isReadOnly();
   });
 
   /* ── 우클릭 메뉴 ────────────────────────────────────────────────────────
@@ -368,9 +394,13 @@ const attachTerminalInteractions = ({
   let isTouchScrolling = false;
   let longPressFired = false;
   let longPressTimer = null;
+  let touchCancelled = false;
 
   const handleTouchStart = (e) => {
-    if (e.touches.length !== 1) return;
+    if (isReadOnly()) return;
+    clearTimeout(longPressTimer);
+    touchCancelled = e.touches.length !== 1;
+    if (touchCancelled) return;
     e.preventDefault();
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
@@ -384,6 +414,7 @@ const attachTerminalInteractions = ({
   };
 
   const handleTouchMove = (e) => {
+    if (isReadOnly()) return;
     if (e.touches.length !== 1) return;
     clearTimeout(longPressTimer);
     const dy = touchStartY - e.touches[0].clientY; // 양수 = 손가락 위로
@@ -415,9 +446,14 @@ const attachTerminalInteractions = ({
 
        ⚠️ 매번 넘기면 터미널에 포커스를 줄 방법이 사라져 TUI 프롬프트에 엔터 한 번을
        못 친다(실제로 그렇게 막혔다). 도크로 돌아가려면 도크를 누르면 된다 — 늘 보인다. */
-    if (isTouchScrolling || longPressFired) return;
+    if (isReadOnly() || touchCancelled || isTouchScrolling || longPressFired) return;
     if (!handedToDock && focusCommandDock()) { handedToDock = true; return; }
     term.focus();
+  };
+
+  const handleTouchCancel = () => {
+    clearTimeout(longPressTimer);
+    touchCancelled = true;
   };
 
   const blockContextMenu = (e) => {
@@ -433,6 +469,7 @@ const attachTerminalInteractions = ({
   container.addEventListener('mousedown', handleNaturalMouseDown, true);
   container.addEventListener('touchstart', handleTouchStart, { passive: false });
   container.addEventListener('touchend', handleTouchEnd, { passive: true });
+  container.addEventListener('touchcancel', handleTouchCancel);
   document.addEventListener('mousemove', handleNaturalMouseMove, true);
   document.addEventListener('mouseup', handleNaturalMouseUp, true);
   // Bubble phase, after xterm has finished updating its selection.
@@ -440,14 +477,20 @@ const attachTerminalInteractions = ({
   document.addEventListener('keyup', handleSelectionGestureEnd);
 
   if (overlay) {
+    overlay.addEventListener('wheel', handleOverlayWheel, { passive: false });
     overlay.addEventListener('contextmenu', blockContextMenu);
     overlay.addEventListener('touchstart', handleTouchStart, { passive: false });
     overlay.addEventListener('touchmove', handleTouchMove, { passive: false });
     overlay.addEventListener('touchend', handleTouchEnd, { passive: true });
+    overlay.addEventListener('touchcancel', handleTouchCancel);
   }
+
+  const viewSelection = attachMobileViewSelection({ term, overlay, isReadOnly, setContextMenu, onFileLinkClick, onViewFontSize,
+    scroll: (deltaY, x, y) => handleScrollDelta(deltaY, 0, x, y, 'touch') });
 
   return {
     detach: () => {
+      viewSelection.detach();
       container.removeEventListener('mousedown', handleRightMouseDown, true);
       container.removeEventListener('contextmenu', handleContextMenu, true);
       container.removeEventListener('keydown', handleKeyDown);
@@ -455,16 +498,19 @@ const attachTerminalInteractions = ({
       container.removeEventListener('mousedown', handleNaturalMouseDown, true);
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchcancel', handleTouchCancel);
       document.removeEventListener('mousemove', handleNaturalMouseMove, true);
       document.removeEventListener('mouseup', handleNaturalMouseUp, true);
       document.removeEventListener('mouseup', handleSelectionGestureEnd);
       document.removeEventListener('keyup', handleSelectionGestureEnd);
 
       if (overlay) {
+        overlay.removeEventListener('wheel', handleOverlayWheel);
         overlay.removeEventListener('contextmenu', blockContextMenu);
         overlay.removeEventListener('touchstart', handleTouchStart);
         overlay.removeEventListener('touchmove', handleTouchMove);
         overlay.removeEventListener('touchend', handleTouchEnd);
+        overlay.removeEventListener('touchcancel', handleTouchCancel);
       }
 
       if (selectionTimer) clearTimeout(selectionTimer);

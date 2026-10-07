@@ -7,6 +7,7 @@ import { MOBILE_CONTROL } from '../styles/mobileControl';
 import useVisualViewport from '../hooks/useVisualViewport';
 import HistoryPanel from './commandinput/HistoryPanel';
 import TargetSelect from './commandinput/TargetSelect';
+import KeyCombinationInput from './commandinput/KeyCombinationInput';
 import focusToEnd from './commandinput/focusToEnd';
 
 import useImageAttach from './commandinput/useImageAttach';
@@ -75,6 +76,8 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
   }, []);
   // 지난 명령 이력 패널 토글 — 헤더의 화살표 버튼으로 열고, 항목 클릭 시 textarea 에 채운다.
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [inputMode, setInputMode] = useState('text');
+  const combinationMode = !docked && !!onSendKey && inputMode === 'combination';
   /* 도크는 상시 노출이라 "지금 어디에 쳐지나" 가 보이지 않으면 사용자가 매번 시험 삼아
      한 글자를 쳐 봐야 한다. 그래서 활성/비활성을 **크게** 벌린다. */
   const [dockFocused, setDockFocused] = useState(false);
@@ -135,7 +138,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
 
   // 모달이 닫히면 이력 패널도 접어, 다음에 열 때 항상 입력창부터 보이게 한다.
   useEffect(() => {
-    if (!isOpen) setHistoryOpen(false);
+    if (!isOpen) { setHistoryOpen(false); setInputMode('text'); }
   }, [isOpen]);
 
   // 모달이 mount 되는 즉시 caret 을 텍스트 끝으로 두고 focus.
@@ -143,8 +146,8 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
   // setTimeout 100ms 같은 지연을 두면 iOS Safari 가 user gesture 컨텍스트를 잃어
   // 키보드가 자동으로 안 올라오는 사고가 난다.
   useLayoutEffect(() => {
-    if (isOpen && !docked) focusToEnd(textareaRef.current);
-  }, [isOpen]);
+    if (isOpen && !docked && !combinationMode) { focusToEnd(textareaRef.current); }
+  }, [isOpen, combinationMode]);
 
   // 일부 모바일 브라우저는 useLayoutEffect 후에도 keyboard 가 즉시 안 올라오는
   // 케이스가 있어 다음 frame 에 한 번 더 보강. 데스크톱은 이미 끝나서 영향 없음.
@@ -153,10 +156,10 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
        여기만 빠져 있어서, **도크는 화면에 뜨는 것만으로 키보드를 올렸다.** 도크는
        상시 노출이라 "열렸다" 는 순간이 곧 앱을 켠 순간이다 — 묻지도 않고 키보드가
        올라오면 터미널이 그만큼 가려진다. 도크의 포커스는 사용자가 탭할 때만 간다. */
-    if (!isOpen || docked) return undefined;
+    if (!isOpen || docked || combinationMode) return undefined;
     const raf = requestAnimationFrame(() => focusToEnd(textareaRef.current));
     return () => cancelAnimationFrame(raf);
-  }, [isOpen, docked]);
+  }, [isOpen, docked, combinationMode]);
 
   // 모달이 떠있는 동안 포커스가 뒤쪽 xterm/input 으로 빠지면 즉시 되돌린다.
   // xterm 이 상태 변경/클릭 잔상으로 focus() 를 다시 호출하는 타이밍이 있어
@@ -522,7 +525,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
           {t?.('commandInput') || 'Send command'}
         </div>
         <div style={styles.headerActions}>
-          {terminalKey && (
+          {terminalKey && !combinationMode && (
             <button
               type="button"
               // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 iOS/Chrome 키보드가 내려간다.
@@ -540,6 +543,26 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
           </button>
         </div>
       </header>
+
+      {onSendKey && !docked && <div style={{ display: 'flex', gap: space['2'], padding: `0 ${space['3']}` }}>
+        {['text', 'combination'].map((mode) => <button key={mode} type="button"
+          aria-pressed={inputMode === mode}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => { setInputMode(mode); setHistoryOpen(false); }}
+          style={{ padding: `${space['2']} ${space['3']}`, border: 'none', fontFamily: 'inherit',
+            background: inputMode === mode ? color.surface0 : 'transparent',
+            color: inputMode === mode ? color.text : color.subtext, borderRadius: radius.sm,
+            fontSize: fontSize['13'], cursor: 'pointer' }}>
+          {t?.(mode === 'text' ? 'keyCombinationTextTab' : 'keyCombination')}
+        </button>)}
+      </div>}
+
+      {combinationMode && <>
+        <KeyCombinationInput t={t} onSend={(data) => onSendKey(data, targets.resolveTargets())} />
+        {targetSelect && <div style={styles.footer}>{targetSelect}</div>}
+      </>}
+
+      {!combinationMode && <>
 
       {/* 지난 명령 패널 — 화살표 토글 시 입력창 *위쪽* 으로 펼쳐진다.
           모달이 (키보드 떠있을 때) 하단 고정이라 높이가 늘면 자연히 위로 길어진다. */}
@@ -691,6 +714,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, command, setC
           )}
         </div>
       )}
+      </>}
     </>
   );
 

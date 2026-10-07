@@ -16,11 +16,12 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
   const {
     xtermRef, wsRef, searchAddonRef, iosHangulRef, inputPreviewRef,
     enqueueInputRef, forceScrollToBottomRef, fitNowRef, webglRef,
-    lastDimsRef, evictedRef, endedRef, hasContentRef,
+    lastDimsRef, evictedRef, endedRef, hasContentRef, readOnlyRef, prepareInputModeRef, finishViewingRef,
   } = refs;
 
   // 입력 큐를 우선 태우고(순서 보존·백프레셔), 큐가 없으면 소켓으로 직접.
   const sendData = useCallback((data) => {
+    if (readOnlyRef?.current) return false;
     const original = data;
     data = iosHangulRef?.current?.prepareInput(data) ?? data;
     // Backspace may only edit a local composing character.
@@ -38,17 +39,18 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
       if (options.separateTrailingEnterMs) {
         socket.send(data.slice(0, -1));
         setTimeout(() => {
-          if (wsRef.current === socket && socket.readyState === WebSocket.OPEN) socket.send('\r');
+          if (!readOnlyRef?.current && wsRef.current === socket && socket.readyState === WebSocket.OPEN) socket.send('\r');
         }, options.separateTrailingEnterMs);
       } else socket.send(data);
       return true;
     }
     return false;
-  }, [sessionId, enqueueInputRef, wsRef, iosHangulRef, inputPreviewRef]);
+  }, [sessionId, enqueueInputRef, wsRef, iosHangulRef, inputPreviewRef, readOnlyRef]);
 
   // Normalize Enter and drop queued wheel reports. iOS text keeps FIFO order;
   // other clients retain command priority ahead of ordinary queued input.
   const sendCommand = useCallback((command) => {
+    if (readOnlyRef?.current) return false;
     if (typeof command !== 'string' || !command.trim()) return false;
     try { pushCommandHistory(sessionId, command); } catch { /* noop */ }
     try { forceScrollToBottomRef.current?.(); } catch { /* noop */ }
@@ -69,20 +71,25 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
       const socket = wsRef.current;
       socket.send(payload.slice(0, -1));
       setTimeout(() => {
-        if (wsRef.current === socket && socket.readyState === WebSocket.OPEN) socket.send('\r');
+        if (!readOnlyRef?.current && wsRef.current === socket && socket.readyState === WebSocket.OPEN) socket.send('\r');
       }, 40);
       return true;
     }
     return false;
-  }, [sessionId, enqueueInputRef, forceScrollToBottomRef, wsRef, iosHangulRef, inputPreviewRef]);
+  }, [sessionId, enqueueInputRef, forceScrollToBottomRef, wsRef, iosHangulRef, inputPreviewRef, readOnlyRef]);
 
   useImperativeHandle(forwardedRef, () => ({ sendData, sendCommand }), [sendData, sendCommand]);
 
   const getSelection = useCallback(() => xtermRef.current?.getSelection() || '', [xtermRef]);
 
   const scrollToBottom = useCallback(() => {
+    if (readOnlyRef?.current) {
+      xtermRef.current?.clearSelection();
+      return finishViewingRef?.current?.({ toBottom: true }) ?? false;
+    }
     forceScrollToBottomRef.current?.();
-  }, [forceScrollToBottomRef]);
+    return true;
+  }, [forceScrollToBottomRef, readOnlyRef, finishViewingRef, xtermRef]);
 
   /* 페이지/라인 단위 스크롤 — xterm 의 클라이언트 스크롤백만 만진다.
      PgUp/PgDn escape 를 PTY 로 보내면 셸/에디터가 해석 못 해 `^[[5~` 가 파일에 박힌다.
@@ -159,10 +166,11 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
   }, [getBufferText]);
 
   const focus = useCallback(() => {
+    if (readOnlyRef?.current) return;
     xtermRef.current?.focus();
     // 포커스 복귀 = 활동 → 타이핑 전에 미리 WebGL 을 재부착해 repaint 가 눈에 안 띄게.
     webglRef.current?.noteActivity();
-  }, [xtermRef, webglRef]);
+  }, [xtermRef, webglRef, readOnlyRef]);
 
   const clear = useCallback(() => {
     xtermRef.current?.clear();
@@ -188,6 +196,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
     window.terminalSessions[sessionId] = {
       sendData,
       sendCommand,
+      prepareInputMode: () => prepareInputModeRef?.current?.() ?? true,
       getSelection,
       getBufferText,
       getInputLine,
@@ -243,7 +252,7 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
     sendData, sendCommand, getSelection, getBufferText, getInputLine, copyAll,
     scrollToBottom, scrollToTop, scrollPages, scrollLines,
     focus, clear, searchNext, searchPrevious, closeSearch,
-    xtermRef, wsRef, fitNowRef, lastDimsRef, evictedRef, endedRef, hasContentRef,
+    xtermRef, wsRef, fitNowRef, lastDimsRef, evictedRef, endedRef, hasContentRef, prepareInputModeRef,
   ]);
 
   return { sendData, sendCommand, copyAll, focus };
