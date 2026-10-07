@@ -3,7 +3,7 @@
  * 모바일 하단 툴바 키 정의 + 디폴트.
  *
  * 데이터 모델: { id, kind, icon?, label?, payload?, modifier?, tone? }
- *  - kind: 'send' | 'mod' | 'cmdInput' | 'paste' | 'copy' | 'copyAll' | 'sep'
+ *  - kind: 'send' | 'mod' | 'cmdInput' | 'paste' | 'copy' | 'copyAll' | 'scrollToBottom' | 'sep'
  *  - icon: HOST_ICON_OPTIONS key (lucide) 또는 emoji. 비어있으면 kind 별 기본 아이콘 사용.
  *  - label: 화면 표시 텍스트. icon 과 같이 쓸 수 있음 (둘 다 가능, 택일 X).
  *  - payload: kind=send 일 때 PTY 로 보낼 raw bytes/string
@@ -44,6 +44,7 @@ export const DEFAULT_MOBILE_KEYS = [
    { id: 'sep4',  kind: 'sep' },
    { id: 'copy',  kind: 'copy' },
    { id: 'paste', kind: 'paste' },
+   { id: 'scroll-bottom', kind: 'scrollToBottom' },
 ];
 
 /** 프리픽스는 **하나**다 — 그 팬에서 도는 멀티플렉서에게 바로 간다. */
@@ -259,7 +260,7 @@ export const decodeUserPayload = (s) => {
 export const isValidKey = (k) =>
   k && typeof k === 'object'
   && typeof k.id === 'string'
-  && ['send', 'mod', 'cmdInput', 'paste', 'copy', 'copyAll', 'sep'].includes(k.kind);
+  && ['send', 'mod', 'cmdInput', 'paste', 'copy', 'copyAll', 'scrollToBottom', 'sep'].includes(k.kind);
 
 export const sanitizeMobileKeys = (keys) => {
   if (!Array.isArray(keys)) return DEFAULT_MOBILE_KEYS;

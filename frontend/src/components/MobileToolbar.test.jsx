@@ -14,6 +14,8 @@ describe('MobileToolbar quick input', () => {
     expect(onAction).toHaveBeenCalledWith('copy');
     expect(container.querySelector('.mobile-toolbar-scroll .lucide-settings')).toBeNull();
     const picker = screen.getByRole('button', { name: 'Choose quick bar set' });
+    const buttons = [...container.querySelectorAll('button')];
+    expect(buttons[buttons.indexOf(screen.getByTitle('Quick Input')) + 1]).toBe(picker);
     expect(picker.querySelector('.lucide-keyboard')).toBeInTheDocument();
     expect(picker.textContent).toBe('');
     fireEvent.click(picker);
@@ -26,6 +28,19 @@ describe('MobileToolbar quick input', () => {
   afterEach(() => {
     cleanup();
     delete window.terminalSessions;
+  });
+
+  it('puts an icon-only scroll-to-bottom action last without sending terminal input', () => {
+    const onAction = vi.fn();
+    const onSendKey = vi.fn();
+    const { container } = render(<MobileToolbar language="en" onAction={onAction} onSendKey={onSendKey} />);
+    const bottom = screen.getByTitle('Scroll to Bottom');
+    expect(container.querySelector('.mobile-toolbar-scroll button:last-child')).toBe(bottom);
+    expect(bottom.textContent).toBe('');
+    expect(bottom.querySelector('.lucide-arrow-down-to-line')).toBeInTheDocument();
+    fireEvent.click(bottom);
+    expect(onAction).toHaveBeenCalledExactlyOnceWith('scrollToBottom');
+    expect(onSendKey).not.toHaveBeenCalled();
   });
 
   /* ⚠️ 도크가 상시 노출이던 시절엔 이 버튼을 **안 그렸다.** 도크를 되돌린 지금 그건

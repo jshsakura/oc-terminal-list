@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, Check } from 'lucide-react';
+import { MessageSquare, ClipboardPaste, Copy, FileText, Settings, Check, ArrowDownToLine } from 'lucide-react';
 import useTranslation from '../hooks/useTranslation';
 import { tokens } from '../styles/tokens';
 import { mobileKeysFor, sanitizeMobileKeys, splitPinnedAndScroll } from '../utils/mobileKeys';
@@ -18,6 +18,7 @@ const DEFAULT_ICON_FOR_KIND = {
   paste: ClipboardPaste,
   copy: Copy,
   copyAll: FileText,
+  scrollToBottom: ArrowDownToLine,
 };
 
 const { color, font, fontSize, fontWeight, space, motion } = tokens;
@@ -177,7 +178,7 @@ const MobileToolbar = ({
   const renderItem = (k, idx) => {
     if (k.kind === 'sep') return <Divider key={k.id || `sep-${idx}`} />;
 
-    if (k.kind === 'copy' || k.kind === 'copyAll') {
+    if (k.kind === 'copy' || k.kind === 'copyAll' || k.kind === 'scrollToBottom') {
       return (
         <Key key={k.id} tone={k.tone} title={t(k.kind)} onClick={() => onAction?.(k.kind)}>
           {renderKeyContent(k)}
@@ -299,6 +300,13 @@ const MobileToolbar = ({
       `}</style>
 
       <div data-testid="mobile-toolbar" style={styles.toolbar}>
+        {(pinnedKey || leading) && (
+          <div style={styles.pinned}>
+            {leading}
+            {pinnedKey && renderItem(pinnedKey, 'pinned')}
+            <Divider />
+          </div>
+        )}
         {(selectedSet || onOpenSettings) && <div ref={setsRef} style={{ ...styles.pinned, position: 'relative' }}>
           <Key aria-label={t('switchKeySet')} title={t('switchKeySet')} aria-haspopup="menu" aria-expanded={setsOpen}
             onMouseDown={event => event.preventDefault()} onClick={event => {
@@ -350,13 +358,6 @@ const MobileToolbar = ({
             모르는 자식이라 조건을 걸 수가 없다. 그래서 구분선은 도크가 자기 내용과 함께
             포탈로 보낸다. 여기 남는 것은 자리(폭 0)뿐이다. */}
         <div id={DOCK_SLOT_ID} style={styles.dockSlot} />
-        {(pinnedKey || leading) && (
-          <div style={styles.pinned}>
-            {leading}
-            {pinnedKey && renderItem(pinnedKey, 'pinned')}
-            <Divider />
-          </div>
-        )}
         <div ref={scrollRef} className="mobile-toolbar-scroll" style={styles.scroll}>
           <div style={styles.row}>
             {!terminalReady && terminalSessionId ? (

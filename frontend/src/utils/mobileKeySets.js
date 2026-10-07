@@ -72,6 +72,10 @@ export const resolveMobileKeySets = (settings = {}) => {
     const lastModifier = set.keys.findLastIndex(key => key.kind === 'mod');
     const at = lastModifier < 0 ? set.keys.length : lastModifier + 1;
     return { ...set, modifiersSeeded: true, keys: [...set.keys.slice(0, at), ...missing, ...set.keys.slice(at)] };
+  }).map(set => {
+    if (set.id !== 'basic' || set.scrollBottomSeeded) return set;
+    return { ...set, scrollBottomSeeded: true, keys: set.keys.some(key => key.kind === 'scrollToBottom') ? set.keys
+      : [...set.keys, { id: newMobileKeySetId(), kind: 'scrollToBottom' }] };
   });
   const basic = resolved.find(set => set.id === 'basic');
   if (!basic || basic.llmSetSeeded) return resolved;

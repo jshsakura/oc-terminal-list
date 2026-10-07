@@ -1,6 +1,21 @@
 import { expect, it } from 'vitest';
 import { MOBILE_KEY_SET_PRESETS, activeMobileKeySet, appendMobileShortcut, resolveMobileKeySets } from './mobileKeySets';
 
+it('appends the bottom action to basic once, preserves edits and respects later deletion', () => {
+  const mine = { id: 'mine', kind: 'send', label: 'Mine', payload: 'kept' };
+  const [basic, custom] = resolveMobileKeySets({ mobileKeySets: [
+    { id: 'basic', keys: [mine], modifiersSeeded: true, llmSetSeeded: true },
+    { id: 'custom', keys: [mine] },
+  ] });
+  expect(basic.keys.at(-1)).toMatchObject({ kind: 'scrollToBottom' });
+  expect(basic.keys).toContainEqual(mine);
+  expect(custom.keys.some(key => key.kind === 'scrollToBottom')).toBe(false);
+  expect(resolveMobileKeySets({ mobileKeySets: [basic] })[0].keys.filter(key => key.kind === 'scrollToBottom')).toHaveLength(1);
+  const deleted = { ...basic, keys: basic.keys.filter(key => key.kind !== 'scrollToBottom') };
+  expect(resolveMobileKeySets({ mobileKeySets: [deleted] })[0].keys).toEqual(deleted.keys);
+  expect(MOBILE_KEY_SET_PRESETS[0].keys.at(-1)).toMatchObject({ kind: 'scrollToBottom' });
+});
+
 it('adds missing default modifiers once and preserves customized keys and subsequent deletions', () => {
   const saved = { id: 'basic', llmSetSeeded: true, keys: [
     { id: 'mine', kind: 'send', label: 'Mine', payload: 'kept' },

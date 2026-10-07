@@ -3,7 +3,7 @@ import {
   Plus, Trash2, ArrowUp, ArrowDown, RotateCcw, Sparkles, ChevronUp,
   ChevronDown, MessageSquare, ClipboardPaste, Image as ImageIcon, X as XIcon,
   Copy, FileText, ArrowLeft, ArrowRight, CornerDownLeft, Home, Keyboard, Terminal,
-  GripVertical,
+  GripVertical, ArrowDownToLine,
 } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import { DEFAULT_MOBILE_KEYS, KEY_PRESETS, decodeUserPayload, mobileKeysFor } from '../utils/mobileKeys';
@@ -20,6 +20,7 @@ const KIND_OPTIONS = [
   { value: 'paste',    labelKey: 'kindPaste',    fallback: 'Paste' },
   { value: 'copy',     labelKey: 'kindCopy',     fallback: 'Copy' },
   { value: 'copyAll',  labelKey: 'kindCopyAll',  fallback: 'Copy all' },
+  { value: 'scrollToBottom', labelKey: 'scrollToBottom', fallback: 'Scroll to bottom' },
   { value: 'sep',      labelKey: 'kindDivider',  fallback: 'Divider' },
 ];
 
@@ -42,6 +43,7 @@ const morphForKind = (kind, prev = {}) => {
   if (kind === 'paste')    return { ...base };
   if (kind === 'copy')     return { ...base };
   if (kind === 'copyAll')  return { ...base };
+  if (kind === 'scrollToBottom') return { ...base };
   if (kind === 'sep')      return { id: prev.id, kind: 'sep' };
   return prev;
 };
@@ -52,6 +54,7 @@ const DEFAULT_ICON_FOR_KIND = {
   paste: ClipboardPaste,
   copy: Copy,
   copyAll: FileText,
+  scrollToBottom: ArrowDownToLine,
 };
 
 const PAYLOAD_META = {

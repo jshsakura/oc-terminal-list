@@ -544,32 +544,20 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, onAddShortcut
             style={{ ...styles.closeBtn, ...(inputMode === mode ? styles.headerToggleActive : {}) }}>
             {mode === 'text' ? <Type size={14} /> : <Keyboard size={14} />}
           </button>)}
-          {docked && terminalKey && !combinationMode && (
-            <button
-              type="button"
-              // mousedown 에서 focus 안 뺏게 — 안 그러면 textarea 가 blur 되며 iOS/Chrome 키보드가 내려간다.
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => setHistoryOpen((v) => !v)}
-              style={{ ...styles.closeBtn, ...(historyOpen ? styles.headerToggleActive : null) }}
-              title={historyOpen ? (t?.('hideHistory') || 'Hide history') : (t?.('showHistory') || 'Show recent commands')}
-              aria-pressed={historyOpen}
-            >
-              {historyOpen ? <ChevronDown size={14} strokeWidth={2} /> : <ChevronUp size={14} strokeWidth={2} />}
-            </button>
-          )}
-          <button onClick={onClose} style={styles.closeBtn}>
+          {historyToggle}
+          <button aria-label={t?.('close') || 'Close'} onClick={onClose} style={styles.closeBtn}>
             <X size={14} strokeWidth={2} />
           </button>
         </div>
       </header>
 
-      {terminalKey && <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />}
+      {historyOpen && terminalKey && <HistoryPanel terminalKey={terminalKey} onPick={handlePickHistory} t={t} />}
 
       {combinationMode &&
         <KeyCombinationInput t={t} onAddShortcut={onAddShortcut} footerTarget={combinationFooter}
           onSend={(data) => onSendKey(data, targets.resolveTargets())} />}
 
-      {!combinationMode && <div style={terminalKey ? { ...styles.body, flex: '0 0 auto' } : styles.body}>
+      {!combinationMode && <div style={historyOpen && terminalKey ? { ...styles.body, flex: '0 0 auto' } : styles.body}>
         <textarea
           ref={setTextareaRef}
           value={command}

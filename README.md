@@ -464,8 +464,9 @@ draft without sending it until you press Send. **Scroll to Bottom** and **View a
 
 ### Mobile quick bar sets and key combinations
 
-Tap the first icon to open the set picker. It defaults to a keyboard; choose a set's icon in Quick bar settings.
-The first button shows only an icon, and the last selection is saved automatically.
+Tap the icon immediately right of Quick Input to open the set picker. It defaults to a keyboard; choose a set's icon in Quick bar settings.
+The picker button shows only an icon, and the last selection is saved automatically.
+The downward arrow icon at the end of the basic key set scrolls the terminal to the bottom.
 Set 1 includes Ctrl, Alt and Shift toggles. Combine toggles, then press an arrow, Tab or another key;
 the bar sends the combination and clears the toggles.
 Start with **set 1: Basic keys** and **set 2: Claude · Codex**. Set 2 includes Shift+Left/Right, Shift+Tab,
@@ -478,7 +479,8 @@ Your existing custom bar becomes set 1. Choose **Quick bar settings** at the bot
 editor, where you can add/delete sets and edit names, button text, icons, and key order.
 
 On mobile, Quick Input leaves the bar outside the modal at the bottom of the visible screen, above the keyboard.
-Recent commands stay in their original position above the input area, including after picking an entry or switching modes.
+Use the arrow immediately left of Close to toggle recent commands. The button remains available in both text and
+key combination modes; an open list stays above the input area after picking an entry or switching modes.
 Switch between text and key combination input
 using the compact header buttons. Choose Ctrl/Alt/Shift and a key, then **Send** from the footer or
 **Add to current quick bar set**. The settings editor also has a combination builder, so no escape

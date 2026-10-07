@@ -45,10 +45,14 @@ describe('빠른 입력 조합키', () => {
     expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x03', ['target']);
     expect(screen.getByRole('textbox')).toHaveValue('draft');
   });
-  it('keeps recent commands visible across mode changes and reopening', async () => {
+  it('keeps the history arrow next to close in both modes and only toggles history explicitly', async () => {
     const props = { isOpen: true, command: 'draft', setCommand: vi.fn(), onSend: vi.fn(),
       onSendKey: vi.fn(), onClose: vi.fn(), terminalKey: 'target', t: key => ko[key] || key };
     const view = render(<CommandInput {...props} />);
+    const toggle = screen.getByTitle('최근 명령 보기');
+    expect(toggle.nextElementSibling).toBe(screen.getByRole('button', { name: '닫기' }));
+    expect(document.querySelector('.command-input-history-list')).toBeNull();
+    fireEvent.click(toggle);
     const list = document.querySelector('.command-input-history-list');
     expect(list).toBeInTheDocument();
     expect(list.compareDocumentPosition(screen.getByRole('textbox')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -57,12 +61,20 @@ describe('빠른 입력 조합키', () => {
     expect(document.querySelector('.command-input-history-list')).toBe(list);
     expect(props.onSend).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '조합키' }));
+    expect(toggle).toBeInTheDocument();
+    expect(toggle.nextElementSibling).toBe(screen.getByRole('button', { name: '닫기' }));
     expect(document.querySelector('.command-input-history-list')).toBe(list);
+    fireEvent.click(toggle);
+    expect(document.querySelector('.command-input-history-list')).toBeNull();
+    fireEvent.click(toggle);
+    const reopenedList = document.querySelector('.command-input-history-list');
+    expect(reopenedList).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '문자 입력' }));
-    expect(document.querySelector('.command-input-history-list')).toBe(list);
+    expect(document.querySelector('.command-input-history-list')).toBe(reopenedList);
     view.rerender(<CommandInput {...props} isOpen={false} />);
     view.rerender(<CommandInput {...props} />);
-    expect(document.querySelector('.command-input-history-list')).toBeInTheDocument();
+    expect(document.querySelector('.command-input-history-list')).toBeNull();
+    expect(screen.getByTitle('최근 명령 보기').nextElementSibling).toBe(screen.getByRole('button', { name: '닫기' }));
   });
   it('preserves the command draft and sends the previewed key to the active target without closing', () => {
     const onSendKey = vi.fn();
@@ -223,7 +235,7 @@ describe('CommandInput positioning', () => {
       />
     );
 
-    const closeBtn = screen.getByRole('button', { name: '' });
+    const closeBtn = screen.getByRole('button', { name: 'close' });
     expect(closeBtn).toHaveStyle({ width: '28px', height: '28px' });
     fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalled();
