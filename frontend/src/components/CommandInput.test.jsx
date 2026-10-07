@@ -36,14 +36,11 @@ describe('빠른 입력 조합키', () => {
     render(<CommandInput isOpen command="draft" setCommand={vi.fn()} onSend={vi.fn()} onClose={vi.fn()}
       onSendKey={onSendKey} terminalKey="target" t={key => ko[key] || key} />);
     fireEvent.click(screen.getByRole('button', { name: '조합키', exact: true }));
-    expect(document.querySelectorAll('[role="group"] button')).toHaveLength(27);
-    const input = screen.getByLabelText('나머지 키');
+    expect(screen.queryByRole('textbox')).toBeNull();
     const left = screen.getByRole('button', { name: 'ArrowLeft', exact: true });
-    expect(input.compareDocumentPosition(left) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Shift', exact: true }));
     fireEvent.click(left);
-    expect(input).toHaveValue('ArrowLeft');
-    expect(screen.getByRole('status')).toHaveTextContent('Shift + ArrowLeft');
+    expect(screen.getByRole('status')).toHaveTextContent('Shift + ←');
     expect(onSendKey).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '전송', exact: true }));
     expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x1b[1;2D', ['target']);
@@ -106,9 +103,10 @@ describe('빠른 입력 조합키', () => {
     fireEvent.click(screen.getByRole('button', { name: '조합키' }));
     expect(screen.queryByRole('textbox', { name: '' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }));
-    fireEvent.change(screen.getByLabelText('나머지 키'), { target: { value: 'c' } });
+    fireEvent.click(screen.getByRole('button', { name: 'c', exact: true }));
     expect(screen.getByRole('status')).toHaveTextContent('Ctrl + C');
     const send = screen.getByRole('button', { name: '전송' });
+    expect(send.querySelector('.lucide-send')).toBeInTheDocument();
     expect(send.closest('footer')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '조합키' }).closest('header')).toBeInTheDocument();
     fireEvent.click(send);

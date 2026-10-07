@@ -20,6 +20,7 @@ it('registers in a separate modal with a fixed footer and closes only the child 
   const modal = screen.getByRole('dialog', { name: '조합키 등록' });
   expect(modal.closest('[data-key-combination-modal]').parentElement).toBe(document.body);
   fireEvent.click(within(modal).getByRole('button', { name: 'Ctrl', exact: true }));
+  fireEvent.click(within(modal).getByRole('button', { name: '특수키', exact: true }));
   fireEvent.click(within(modal).getByRole('button', { name: 'F12', exact: true }));
   const register = within(modal).getByRole('button', { name: '현재 퀵바 세트에 추가' });
   expect(register.closest('footer')).toBeInTheDocument();

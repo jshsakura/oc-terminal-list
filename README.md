@@ -483,8 +483,10 @@ On mobile, Quick Input leaves the bar outside the modal at the bottom of the vis
 Use the arrow immediately left of Close to toggle recent commands. The button remains available in both text and
 key combination modes; an open list stays above the input area after picking an entry or switching modes.
 Switch between text and key combination input
-using the compact header buttons. Choose Ctrl/Alt/Shift and a special, navigation or F1–F12 key directly
-from the buttons below the input and preview, or type a character, then **Send** from the footer.
+using the compact header buttons. Choose Ctrl/Alt/Shift, then tap a letter, number or arrow on the screen keyboard.
+The preview shows familiar labels such as **Shift + ←**. Selection never sends; use the paper-plane **Send** button in the footer.
+Choose navigation and F1–F12 keys under **Special keys**, or open **Type a key** when you need direct input.
+Direct input accepts a whole combination such as **Ctrl+C** or **Ctrl+Shift+←**, or records the actual shortcut you press.
 Open **Register key combination** from quick bar settings for a separate modal.
 Select common special keys, navigation keys or F1–F12, or type a character, then add it to the current set.
 Hold and drag quick bar keys to reorder them. Dropping saves the order in the current set.
