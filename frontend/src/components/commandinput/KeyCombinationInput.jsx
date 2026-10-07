@@ -50,7 +50,10 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
   useLayoutEffect(() => {
     if (directInputOpen && (autoFocus || showKeyButtons)) inputRef.current?.focus();
   }, [autoFocus, directInputOpen, showKeyButtons]);
-  const selectKey = value => { setKey(value); setDirectText(value); setSaved(false); };
+  const selectKey = value => {
+    inputRef.current?.blur();
+    setComposing(false); setKey(value); setDirectText(value); setSaved(false);
+  };
   const keyButton = (value, label) => {
     const selected = terminalKeyCombination(key).label.toLowerCase() === terminalKeyCombination(value).label.toLowerCase();
     return <button key={value} type="button" aria-label={value} aria-pressed={selected}
@@ -99,7 +102,10 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
           ? t('keyCombinationUnsupported') : displayLabel}
       </output>
       {showKeyButtons && <button type="button" title={t('keyCombinationReset')} aria-label={t('keyCombinationReset')}
-        onClick={() => { setModifiers({ ctrl: false, alt: false, shift: false }); setKey(''); setDirectText(''); setSaved(false); }}
+        onClick={() => {
+          inputRef.current?.blur();
+          setComposing(false); setModifiers({ ctrl: false, alt: false, shift: false }); setKey(''); setDirectText(''); setSaved(false);
+        }}
         style={styles.reset}><RotateCcw size={14} aria-hidden="true" /></button>}
     </div>
     {!showKeyButtons && modifierKeys}
@@ -129,7 +135,7 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
       {modifierKeys}
       </div>
       <button type="button" aria-expanded={directInputOpen} aria-controls={inputId}
-        onClick={() => setDirectInputOpen(open => !open)}
+        onClick={() => { if (directInputOpen) setComposing(false); setDirectInputOpen(open => !open); }}
         style={{ ...styles.button, alignSelf: 'flex-start', background: 'transparent', color: color.subtext, borderColor: 'transparent' }}>
         {t('keyCombinationDirectInput')}{directInputOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
       </button>

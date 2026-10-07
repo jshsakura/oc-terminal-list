@@ -141,6 +141,25 @@ it('supports Shift+Tab and toggling a modifier back off', () => {
   expect(onSend).toHaveBeenLastCalledWith('\t');
 });
 
+it.each([true, false])('allows sending a selected screen key after unfinished direct input (hidden: %s)', hideInput => {
+  const onSend = vi.fn();
+  render(<KeyCombinationInput t={key => ko[key]} showKeyButtons onSend={onSend} />);
+  fireEvent.click(screen.getByRole('button', { name: '직접 입력' }));
+  const input = screen.getByLabelText('키 또는 조합키');
+  fireEvent.compositionStart(input);
+  fireEvent.change(input, { target: { value: 'ㅎ' } });
+  expect(screen.getByRole('button', { name: '조합키 전송' })).toBeDisabled();
+  if (hideInput) fireEvent.click(screen.getByRole('button', { name: '직접 입력' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Ctrl', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'c', exact: true }));
+  expect(screen.getByRole('status')).toHaveTextContent('Ctrl + C');
+  const send = screen.getByRole('button', { name: '조합키 전송' });
+  expect(send).toBeEnabled();
+  fireEvent.click(send);
+  expect(onSend).toHaveBeenCalledExactlyOnceWith('\x03');
+  if (!hideInput) expect(input).not.toHaveFocus();
+});
+
 it('blocks empty, unsupported and composing input', () => {
   const { input, send, onSend } = setup();
   fireEvent.keyDown(input, { key: 'Enter' });
