@@ -20,16 +20,17 @@ describe('Settings', () => {
     const onSave = vi.fn();
     render(<Settings isOpen initialTab="mobile" onClose={vi.fn()} onSave={onSave}
       settings={{ ...fullSettings, mobileKeys: [{ id: 'mine', kind: 'send', label: 'Mine', payload: 'kept' }] }} />);
-    expect(screen.getByRole('combobox', { name: 'Quick bar sets' }).options).toHaveLength(8);
-    fireEvent.change(screen.getByRole('combobox', { name: 'Quick bar sets' }), { target: { value: 'control' } });
+    expect(screen.getByRole('combobox', { name: 'Quick bar sets' }).options).toHaveLength(1);
+    fireEvent.change(screen.getByRole('combobox', { name: 'Add preset set' }), { target: { value: 'control' } });
     fireEvent.change(screen.getByLabelText('Button number or text'), { target: { value: 'C' } });
     fireEvent.click(document.querySelector('button[aria-label="Pick an icon"]'));
     fireEvent.click(screen.getByTitle('Keyboard'));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     const saved = onSave.mock.calls[0][0];
-    expect(saved.activeMobileKeySetId).toBe('control');
-    expect(saved.mobileKeySets.find(set => set.id === 'control').label).toBe('C');
-    expect(saved.mobileKeySets.find(set => set.id === 'control').icon).toBe('Keyboard');
+    const control = saved.mobileKeySets.find(set => set.nameKey === 'keySetControl');
+    expect(saved.activeMobileKeySetId).toBe(control.id);
+    expect(control.label).toBe('C');
+    expect(control.icon).toBe('Keyboard');
     expect(saved.mobileKeySets[0].keys).toContainEqual({ id: 'mine', kind: 'send', label: 'Mine', payload: 'kept' });
   });
   it('shows the terminal scrollbar toggle off when no preference was saved', () => {

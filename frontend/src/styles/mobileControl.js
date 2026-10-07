@@ -11,14 +11,14 @@
 import { tokens } from './tokens';
 
 export const MOBILE_CONTROL = {
-  size: 32,
-  icon: 16,
+  size: 28,
+  icon: 14,
   /** 작은 아이콘은 얇으면 흐릿하다 — 살짝 굵게. */
   stroke: 2.2,
   /** 모서리 — 토큰이 정한 "버튼 기본". */
   radius: tokens.radius.sm,
   /** 그룹 구분선 높이. 버튼보다 낮아야 선으로 읽힌다. */
-  dividerHeight: 20,
+  dividerHeight: 18,
 
   /**
    * 바닥 두 줄의 **위아래 여백**. 버튼 크기가 같아도 이 값이 다르면 띠 높이가 달라져
@@ -26,7 +26,7 @@ export const MOBILE_CONTROL = {
    * 맞붙은 두 줄이라 그 2px 이 그대로 눈에 띄었다.
    * 띠 높이 = size + barPaddingY * 2.
    */
-  barPaddingY: 5,
+  barPaddingY: 4,
 
   /**
    * 바닥 영역(퀵바 + 입력 도크)의 면.

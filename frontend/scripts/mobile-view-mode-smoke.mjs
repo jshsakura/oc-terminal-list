@@ -190,8 +190,9 @@ for (const engine of [chromium, webkit]) {
       await page.setViewportSize({width,height:667});
       await page.evaluate(() => window.fitTerminal());
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'No horizontal overflow');
+      await page.locator('.mobile-toolbar-scroll').evaluate(el => { el.scrollLeft = el.scrollWidth; });
       const settings = await page.getByRole('button',{name:/설정$/}).boundingBox();
-      assert.ok(settings.x >= 0 && settings.x + settings.width <= width, 'Settings button stays visible');
+      assert.ok(settings.x >= 0 && settings.x + settings.width <= width, 'Settings button is reachable at the end');
     }
     await page.screenshot({path:'/tmp/terminal-mobile-view-'+engine.name()+'.png'});
     assert.deepEqual(errors, []);

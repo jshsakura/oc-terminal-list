@@ -465,8 +465,9 @@ draft without sending it until you press Send. **Scroll to Bottom** and **View a
 ### Mobile quick bar sets and key combinations
 
 Tap the first number or icon to open the set picker. The last selection is saved automatically.
-Basic keys, navigation/editing, Ctrl, Alt, F1–F12, tmux, common commands, and special key sets are included.
-Your existing custom bar becomes set 1. The fixed **Settings** button at the far right opens the mobile
+Start with one basic set, including **Shift+Left** beside Left. Navigation/editing, Ctrl, Alt, F1–F12,
+tmux, common commands, and special key sets can be added from presets when needed.
+Your existing custom bar becomes set 1. Scroll to the last **Settings** button to open the mobile
 editor, where you can add/delete sets and edit names, button text, icons, and key order.
 
 Quick Input also shows the same bar below its footer. Switch between text and key combination input

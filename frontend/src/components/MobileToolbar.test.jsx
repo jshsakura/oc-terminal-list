@@ -3,7 +3,7 @@ import { render, screen, fireEvent, cleanup, act } from '@testing-library/react'
 import MobileToolbar from './MobileToolbar';
 
 describe('MobileToolbar quick input', () => {
-  it('keeps quick input and presets available in view mode, with settings fixed at the right', () => {
+  it('keeps quick input available in view mode and puts settings last in the scrolling keys', () => {
     const onOpenSettings = vi.fn();
     const onAction = vi.fn();
     const { container } = render(<MobileToolbar language="en" viewOnly onOpenSettings={onOpenSettings} onAction={onAction} />);
@@ -14,6 +14,7 @@ describe('MobileToolbar quick input', () => {
     expect(onAction).toHaveBeenCalledWith('copy');
     const buttons = [...container.querySelectorAll('button')];
     expect(buttons.at(-1)).toBe(screen.getByRole('button', { name: 'Settings' }));
+    expect(buttons.at(-1).closest('.mobile-toolbar-scroll')).toBeInTheDocument();
     fireEvent.click(buttons.at(-1));
     expect(onOpenSettings).toHaveBeenCalledOnce();
   });
@@ -56,7 +57,7 @@ describe('MobileToolbar quick input', () => {
     expect(onOpen).toHaveBeenCalled();
   });
 
-  it('작은 화면에서도 32px 키와 우측 overflow 힌트를 제공한다', () => {
+  it('작은 화면에서도 28px 키와 우측 overflow 힌트를 제공한다', () => {
     const { container } = render(
       <MobileToolbar
         language="en"
@@ -65,7 +66,7 @@ describe('MobileToolbar quick input', () => {
     );
 
     const key = screen.getByText('ESC').closest('button');
-    expect(key.style.height).toBe('32px');
+    expect(key.style.height).toBe('28px');
     expect(container.querySelector('style').textContent).toContain('mask-image: linear-gradient');
   });
 });

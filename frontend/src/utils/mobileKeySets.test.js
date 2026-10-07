@@ -1,13 +1,29 @@
 import { expect, it } from 'vitest';
-import { activeMobileKeySet, appendMobileShortcut, resolveMobileKeySets } from './mobileKeySets';
+import { MOBILE_KEY_SET_PRESETS, activeMobileKeySet, appendMobileShortcut, resolveMobileKeySets } from './mobileKeySets';
 
-it('preserves the existing custom bar and supplies every standard set', () => {
+it('starts with one set, preserves the existing custom bar and offers other sets as presets', () => {
   const custom = [{ id: 'my-key', kind: 'send', label: 'Mine', payload: 'custom' }];
   const sets = resolveMobileKeySets({ mobileKeys: custom });
-  expect(sets.map(set => set.id)).toEqual(['basic', 'navigation', 'control', 'alt', 'function', 'tmux', 'text', 'special']);
+  expect(sets.map(set => set.id)).toEqual(['basic']);
   expect(sets[0].keys).toContainEqual(custom[0]);
-  expect(sets.find(set => set.id === 'control').keys).toContainEqual(expect.objectContaining({ label: 'Ctrl+C', payload: '\x03' }));
-  expect(sets.find(set => set.id === 'function').keys.filter(key => key.kind === 'send')).toHaveLength(12);
+  expect(sets[0].keys).toContainEqual(expect.objectContaining({ label: 'Shift+←', payload: '\x1b[1;2D' }));
+  expect(MOBILE_KEY_SET_PRESETS.find(set => set.id === 'control').keys).toContainEqual(expect.objectContaining({ label: 'Ctrl+C', payload: '\x03' }));
+  expect(MOBILE_KEY_SET_PRESETS.find(set => set.id === 'function').keys.filter(key => key.kind === 'send')).toHaveLength(12);
+});
+
+it('does not restore the Codex shortcut after the user removes it from a saved set', () => {
+  const [basic] = resolveMobileKeySets();
+  const settings = { mobileKeySets: [{ ...basic, keys: basic.keys.filter(key => key.payload !== '\x1b[1;2D') }] };
+  expect(resolveMobileKeySets(settings)[0].keys.some(key => key.payload === '\x1b[1;2D')).toBe(false);
+});
+
+it('retires untouched auto-seeded sets but preserves customized sets and manually added presets', () => {
+  const sets = MOBILE_KEY_SET_PRESETS.map(set => ({ ...set }));
+  sets[2] = { ...sets[2], label: 'C', icon: 'Keyboard' };
+  sets.push({ ...MOBILE_KEY_SET_PRESETS[5], id: 'my-tmux' });
+  const settings = { mobileKeySets: sets, activeMobileKeySetId: 'navigation' };
+  expect(resolveMobileKeySets(settings).map(set => set.id)).toEqual(['basic', 'control', 'my-tmux']);
+  expect(activeMobileKeySet(settings).id).toBe('basic');
 });
 
 it('does not resurrect deleted sets or replace edited keys and falls back after the active set is deleted', () => {
@@ -19,7 +35,7 @@ it('does not resurrect deleted sets or replace edited keys and falls back after 
 });
 
 it('adds a composed shortcut only to the selected set without mutating others or duplicating payloads', () => {
-  const settings = { activeMobileKeySetId: 'alt' };
+  const settings = { mobileKeySets: [MOBILE_KEY_SET_PRESETS[0], { ...MOBILE_KEY_SET_PRESETS[3], id: 'my-alt' }], activeMobileKeySetId: 'my-alt' };
   const shortcut = { label: 'Ctrl + Alt + X', payload: '\x1b\x18' };
   const patch = appendMobileShortcut(settings, shortcut);
   expect(activeMobileKeySet(patch).keys.at(-1)).toMatchObject({ kind: 'send', ...shortcut });

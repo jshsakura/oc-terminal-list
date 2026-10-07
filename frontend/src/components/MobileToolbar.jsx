@@ -383,12 +383,12 @@ const MobileToolbar = ({
             ) : (
               scrollKeys.map(renderItem)
             )}
+            {onOpenSettings && <Key title={t('settings')} aria-label={t('settings')}
+              onMouseDown={event => event.preventDefault()} onClick={onOpenSettings}>
+              <Settings size={MOBILE_CONTROL.icon} />
+            </Key>}
           </div>
         </div>
-        {onOpenSettings && <div style={{ ...styles.pinned, paddingRight: space['1'] }}>
-          <Key title={t('settings')} aria-label={t('settings')} onMouseDown={event => event.preventDefault()}
-            onClick={onOpenSettings}><Settings size={MOBILE_CONTROL.icon} /></Key>
-        </div>}
       </div>
     </>
   );
@@ -483,7 +483,7 @@ const styles = {
     flexShrink: 0,
     height: `${MOBILE_CONTROL.size}px`,
     minWidth: `${MOBILE_CONTROL.size}px`,
-    padding: '0 8px',
+    padding: '0 6px',
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
