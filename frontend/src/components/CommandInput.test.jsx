@@ -111,13 +111,15 @@ describe('빠른 입력 조합키', () => {
     expect(screen.queryByRole('textbox', { name: '' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Ctrl' }));
     fireEvent.click(screen.getByRole('button', { name: 'c', exact: true }));
-    expect(screen.getByRole('status')).toHaveTextContent('Ctrl + C');
+    fireEvent.click(screen.getByRole('button', { name: 'c', exact: true }));
+    expect(screen.getByRole('status')).toHaveTextContent('선택한 키: 2');
+    expect(screen.getByRole('list', { name: '선택한 키' })).toHaveTextContent('1. Ctrl + C2. Ctrl + C');
     const send = screen.getByRole('button', { name: '전송' });
     expect(send.querySelector('.lucide-send')).toBeInTheDocument();
     expect(send.closest('footer')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '조합키' }).closest('header')).toBeInTheDocument();
     fireEvent.click(send);
-    expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x03', ['target']);
+    expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\x03\x03', ['target']);
     expect(onSend).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole('dialog')).toBeNull();

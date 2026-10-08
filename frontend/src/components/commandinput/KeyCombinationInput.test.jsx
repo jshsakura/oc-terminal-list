@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import { ko } from '../../i18n/locales/ko';
 import KeyCombinationInput from './KeyCombinationInput';
@@ -9,6 +9,63 @@ const setup = () => {
   return { ...view, onSend, input: screen.getByLabelText('나머지 키'),
     send: screen.getByRole('button', { name: '조합키 전송' }) };
 };
+
+it('sends repeated selected keys in order instead of replacing the previous selection', () => {
+  const onSend = vi.fn();
+  render(<KeyCombinationInput t={key => ko[key]} showKeyButtons onSend={onSend} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Shift', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'ArrowLeft', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'ArrowLeft', exact: true }));
+  expect(onSend).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '조합키 전송' }));
+  expect(onSend).toHaveBeenCalledExactlyOnceWith('\x1b[1;2D\x1b[1;2D');
+});
+
+it('removes one queued combination and preserves the modifiers of other entries when saving', () => {
+  const onAddShortcut = vi.fn(() => true);
+  render(<KeyCombinationInput t={key => ko[key]} showKeyButtons onAddShortcut={onAddShortcut} />);
+  fireEvent.click(screen.getByRole('button', { name: 'Ctrl', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Alt', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'c', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Ctrl', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Alt', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Shift', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'ArrowLeft', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'ArrowRight', exact: true }));
+  const list = screen.getByRole('list', { name: '선택한 키' });
+  const entries = within(list).getAllByRole('listitem');
+  expect(entries).toHaveLength(3);
+  expect(entries[0]).toHaveTextContent('Ctrl + Alt + C');
+  fireEvent.click(within(entries[1]).getByRole('button'));
+  expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+  expect(list).not.toHaveTextContent('←');
+  fireEvent.click(screen.getByRole('button', { name: '현재 퀵바 세트에 추가' }));
+  expect(onAddShortcut).toHaveBeenCalledExactlyOnceWith({
+    label: 'Ctrl + Alt + C → Shift + ArrowRight', payload: '\x1b\x03\x1b[1;2C',
+  });
+  fireEvent.click(within(list).getAllByRole('button')[0]);
+  expect(screen.getByRole('button', { name: '현재 퀵바 세트에 추가' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: '조합 초기화' }));
+  expect(screen.queryByRole('list', { name: '선택한 키' })).toBeNull();
+  expect(screen.getByRole('button', { name: '현재 퀵바 세트에 추가' })).toBeDisabled();
+});
+
+it('queues directly entered combinations alongside screen keys without sending early', () => {
+  const onSend = vi.fn();
+  render(<KeyCombinationInput t={key => ko[key]} showKeyButtons onSend={onSend} />);
+  fireEvent.click(screen.getByRole('button', { name: '직접 입력' }));
+  const input = screen.getByLabelText('키 또는 조합키');
+  fireEvent.change(input, { target: { value: 'Ctrl+Shift+←' } });
+  fireEvent.click(screen.getByRole('button', { name: '선택 목록에 추가' }));
+  expect(input).toHaveValue('');
+  fireEvent.click(screen.getByRole('button', { name: 'Shift', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Ctrl', exact: true }));
+  fireEvent.click(screen.getByRole('button', { name: 'Enter', exact: true }));
+  expect(screen.getByRole('list', { name: '선택한 키' })).toHaveTextContent('Ctrl + Shift + ←');
+  expect(onSend).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole('button', { name: '조합키 전송' }));
+  expect(onSend).toHaveBeenCalledExactlyOnceWith('\x1b[1;6D\r');
+});
 
 it('provides every special, navigation and function key as buttons without sending on selection', () => {
   const onAddShortcut = vi.fn(() => true);

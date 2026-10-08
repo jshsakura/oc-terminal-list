@@ -1,6 +1,6 @@
 import { useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, ChevronUp, RotateCcw, Send } from 'lucide-react';
+import { ChevronDown, ChevronUp, RotateCcw, Send, X } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import terminalKeyCombination from '../../utils/terminalKeyCombination';
 
@@ -9,6 +9,7 @@ const KEYBOARD_ROWS = ['1234567890', 'qwertyuiop', 'asdfghjkl', 'zxcvbnm'];
 const COMMON_KEYS = [['Escape', 'Esc'], ['Tab', 'Tab'], ['Space', 'Space'], ['Enter', 'Enter'], ['Backspace', '⌫']];
 const ARROW_KEYS = [['ArrowLeft', '←'], ['ArrowUp', '↑'], ['ArrowDown', '↓'], ['ArrowRight', '→']];
 const DISPLAY_KEYS = Object.fromEntries([...COMMON_KEYS, ...ARROW_KEYS, ['PageUp', 'PgUp'], ['PageDown', 'PgDn']]);
+const displayCombination = label => label.split(' + ').map(part => DISPLAY_KEYS[part] || part).join(' + ');
 const readKeyInput = value => {
   let key = value;
   const modifiers = { ctrl: false, alt: false, shift: false };
@@ -34,6 +35,8 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
   initialKey = '', initialModifiers, showKeyButtons = false, autoFocus = true, footerTarget = null }) {
   const [modifiers, setModifiers] = useState({ ctrl: false, alt: false, shift: false, ...initialModifiers });
   const [key, setKey] = useState(initialKey);
+  const [steps, setSteps] = useState([]);
+  const stepId = useRef(0);
   const [directText, setDirectText] = useState(initialKey);
   const [composing, setComposing] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -43,19 +46,37 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
   const inputId = useId();
   const previewId = useId();
   const combination = terminalKeyCombination(key, modifiers);
-  const displayLabel = combination.label.split(' + ').map(part => DISPLAY_KEYS[part] || part).join(' + ');
+  const combinations = [...steps, ...(combination.payload !== null ? [combination] : [])];
+  const payload = combinations.map(item => item.payload).join('');
+  const label = combinations.map(item => item.label).join(' → ');
+  const displayLabel = combination.payload !== null ? displayCombination(combination.label)
+    : steps.length === 1 ? displayCombination(steps[0].label) : `${t('keyCombinationSelectedKeys')}: ${steps.length}`;
   const pendingModifiers = ['ctrl', 'alt', 'shift'].filter(modifier => modifiers[modifier])
     .map(modifier => ({ ctrl: 'Ctrl', alt: 'Alt', shift: 'Shift' })[modifier]).join(' + ');
-  const canSend = combination.payload !== null && !composing;
+  const hasDraft = key !== '' || directText.trim() !== '';
+  const canSend = combinations.length > 0 && (!hasDraft || combination.payload !== null) && !composing;
   useLayoutEffect(() => {
     if (directInputOpen && (autoFocus || showKeyButtons)) inputRef.current?.focus();
   }, [autoFocus, directInputOpen, showKeyButtons]);
   const selectKey = value => {
     inputRef.current?.blur();
-    setComposing(false); setKey(value); setDirectText(value); setSaved(false);
+    const next = terminalKeyCombination(value, modifiers);
+    if (showKeyButtons && next.payload !== null) {
+      const entries = [...(combination.payload !== null && !composing ? [combination] : []), next]
+        .map(item => ({ ...item, id: stepId.current++ }));
+      setSteps(previous => [...previous, ...entries]);
+      setKey(''); setDirectText('');
+    } else { setKey(value); setDirectText(value); }
+    setComposing(false); setSaved(false);
+  };
+  const queueDraft = () => {
+    if (combination.payload === null || composing) return;
+    const entry = { ...combination, id: stepId.current++ };
+    setSteps(previous => [...previous, entry]);
+    setKey(''); setDirectText(''); setSaved(false);
   };
   const keyButton = (value, label) => {
-    const selected = terminalKeyCombination(key).label.toLowerCase() === terminalKeyCombination(value).label.toLowerCase();
+    const selected = combinations.some(item => item.payload === terminalKeyCombination(value, modifiers).payload);
     return <button key={value} type="button" aria-label={value} aria-pressed={selected}
       onMouseDown={event => event.preventDefault()} onClick={() => selectKey(value)}
       style={{ ...styles.button, minWidth: 0, padding: `0 ${space['1']}`, fontSize: fontSize['12'],
@@ -63,10 +84,10 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
         color: selected ? color.accent : color.text, borderColor: color.border }}>{label}</button>;
   };
   const send = () => {
-    if (canSend) { onSend?.(combination.payload); }
+    if (canSend) { onSend?.(payload); }
   };
   const add = () => {
-    if (canSend && !saved && onAddShortcut && onAddShortcut({ label: combination.label, payload: combination.payload }) !== false) setSaved(true);
+    if (canSend && !saved && onAddShortcut && onAddShortcut({ label, payload }) !== false) setSaved(true);
   };
   const modifierKeys = <div data-key-combination-modifiers style={showKeyButtons
     ? { ...styles.keyGrid, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' } : styles.modifiers}>
@@ -97,17 +118,29 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
   return <section data-key-combination-panel style={{ ...styles.panel, ...(footerTarget ? { minHeight: 0, overflowY: 'auto', flex: '1 1 auto' } : {}) }} aria-label={t('keyCombination')}>
     <div style={styles.summary}>
       <output id={previewId} aria-live="polite" style={styles.preview}>
-        {combination.error === 'empty' ? (pendingModifiers ? `${pendingModifiers} + …`
+        {hasDraft && combination.error ? t('keyCombinationUnsupported') : combinations.length ? displayLabel
+          : combination.error === 'empty' ? (pendingModifiers ? `${pendingModifiers} + …`
           : t(showKeyButtons ? 'keyCombinationPickHint' : 'keyCombinationHint')) : combination.error
           ? t('keyCombinationUnsupported') : displayLabel}
       </output>
       {showKeyButtons && <button type="button" title={t('keyCombinationReset')} aria-label={t('keyCombinationReset')}
         onClick={() => {
           inputRef.current?.blur();
-          setComposing(false); setModifiers({ ctrl: false, alt: false, shift: false }); setKey(''); setDirectText(''); setSaved(false);
+          setComposing(false); setModifiers({ ctrl: false, alt: false, shift: false }); setSteps([]); setKey(''); setDirectText(''); setSaved(false);
         }}
         style={styles.reset}><RotateCcw size={14} aria-hidden="true" /></button>}
     </div>
+    {showKeyButtons && steps.length > 0 && <ol aria-label={t('keyCombinationSelectedKeys')} style={styles.steps}>
+      {steps.map((step, index) => <li key={step.id} style={styles.step}>
+        <span>{index + 1}. {displayCombination(step.label)}</span>
+        <button type="button" aria-label={`${t('keyCombinationRemoveKey')}: ${index + 1}. ${displayCombination(step.label)}`}
+          onMouseDown={event => event.preventDefault()}
+          onClick={() => { setSteps(previous => previous.filter(item => item.id !== step.id)); setSaved(false); }}
+          style={{ ...styles.reset, width: 24, height: 24, border: 'none', background: 'transparent' }}>
+          <X size={12} aria-hidden="true" />
+        </button>
+      </li>)}
+    </ol>}
     {!showKeyButtons && modifierKeys}
     {showKeyButtons && <>
       <div role="group" aria-label={t('keyCombinationKeyType')} style={styles.modifiers}>
@@ -168,7 +201,13 @@ export default function KeyCombinationInput({ t, onSend, onAddShortcut,
           if (!composing && !event.nativeEvent.isComposing) { event.preventDefault(); if (onSend) send(); else add(); }
         }
       }} style={styles.input} />
-    {showKeyButtons && <span style={{ ...styles.label, wordBreak: 'keep-all' }}>{t('keyCombinationCaptureHint')}</span>}
+    {showKeyButtons && <>
+      <button type="button" onMouseDown={event => event.preventDefault()} onClick={queueDraft}
+        disabled={combination.payload === null || composing}
+        style={{ ...styles.button, alignSelf: 'flex-start', background: color.surface0, color: color.text, borderColor: color.border,
+          opacity: combination.payload === null || composing ? 0.45 : 1 }}>{t('keyCombinationQueueKey')}</button>
+      <span style={{ ...styles.label, wordBreak: 'keep-all' }}>{t('keyCombinationCaptureHint')}</span>
+    </>}
     </>}
     {footerTarget ? createPortal(actions, footerTarget) : actions}
   </section>;
@@ -179,6 +218,9 @@ const styles = {
   modifiers: { display: 'flex', gap: space['2'] },
   keyboard: { display: 'flex', flexDirection: 'column', gap: space['1'] },
   summary: { display: 'flex', alignItems: 'center', gap: space['2'] },
+  steps: { display: 'flex', flexWrap: 'wrap', gap: space['1'], listStyle: 'none', padding: 0, margin: 0 },
+  step: { display: 'inline-flex', alignItems: 'center', gap: space['1'], minHeight: 28, minWidth: 0, overflowWrap: 'anywhere',
+    paddingLeft: space['2'], borderRadius: radius.sm, background: color.surface0, color: color.text, fontSize: fontSize['12'] },
   reset: { width: 28, height: 28, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     flexShrink: 0, border: `1px solid ${color.border}`, borderRadius: radius.sm,
     background: color.surface0, color: color.subtext, cursor: 'pointer' },

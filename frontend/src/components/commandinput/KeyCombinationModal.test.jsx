@@ -22,6 +22,7 @@ it('registers in a separate modal with a fixed footer and closes only the child 
   fireEvent.click(within(modal).getByRole('button', { name: 'Ctrl', exact: true }));
   fireEvent.click(within(modal).getByRole('button', { name: '특수키', exact: true }));
   fireEvent.click(within(modal).getByRole('button', { name: 'F12', exact: true }));
+  fireEvent.click(within(modal).getByRole('button', { name: 'F12', exact: true }));
   const register = within(modal).getByRole('button', { name: '현재 퀵바 세트에 추가' });
   expect(register.closest('footer')).toBeInTheDocument();
   const close = within(modal).getByRole('button', { name: '닫기' });
@@ -31,7 +32,7 @@ it('registers in a separate modal with a fixed footer and closes only the child 
   fireEvent.keyDown(register, { key: 'Tab' });
   expect(close).toHaveFocus();
   fireEvent.click(register);
-  expect(add).toHaveBeenCalledExactlyOnceWith({ label: 'Ctrl + F12', payload: '\x1b[24;5~' });
+  expect(add).toHaveBeenCalledExactlyOnceWith({ label: 'Ctrl + F12 → Ctrl + F12', payload: '\x1b[24;5~\x1b[24;5~' });
   fireEvent.keyDown(within(modal).getByRole('button', { name: '닫기' }), { key: 'Escape' });
   expect(screen.queryByRole('dialog', { name: '조합키 등록' })).toBeNull();
   expect(screen.getByRole('dialog', { name: 'Parent' })).toBeInTheDocument();
