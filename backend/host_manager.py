@@ -24,6 +24,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 import itl_key as itl_keys
 import multiplexer as mux
 import remote_panes
+import tailnet
 from itl_channel import SentinelScanner
 from vault import decrypt_str
 from ws_observe import log_client_error
@@ -378,7 +379,13 @@ async def open_connection(
     except (asyncssh.PermissionDenied, asyncssh.misc.ChannelOpenError) as e:
         raise HostConnectError(f"인증 실패: {_describe_error(e, options)}") from e
     except (TimeoutError, OSError) as e:
-        raise HostConnectError(f"연결 실패: {_describe_error(e, options)}") from e
+        # tailnet 주소면 "왜 응답이 없나" 의 나머지 절반을 로컬 tailscaled 가 안다
+        # (원격 왕복 0). 안 물으면 사용자에게 남는 말은 "응답 없음" 뿐이다.
+        reason = _describe_error(e, options)
+        hint = await tailnet.describe_peer(options.get("host"))
+        if hint:
+            reason = f"{reason}. {hint}"
+        raise HostConnectError(f"연결 실패: {reason}") from e
 
 
 class HostBridge:
