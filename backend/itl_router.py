@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 import shlex
 import time
@@ -29,6 +30,7 @@ from pathlib import Path
 
 from pane_targets import build_targets
 from sqlite_storage import storage
+from tmux_manager import tmux_manager
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +85,10 @@ def resolve(targets: list[dict], addr: str) -> dict:
 
 async def _run_local(args: list[str]) -> str:
     cli_args = ["--json", *args] if args and args[0] == "send" else args
+    # The backend targets its managed server, never the shell that started it.
+    socket = Path(os.environ.get("TMUX_TMPDIR") or "/tmp") / f"tmux-{os.getuid()}" / tmux_manager.socket_name
     proc = await asyncio.create_subprocess_exec(
-        str(ITL_PATH), *cli_args,
+        str(ITL_PATH), "--socket", str(socket), *cli_args,
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -95,7 +99,7 @@ async def _run_local(args: list[str]) -> str:
         proc.kill()
         raise DeliveryFailed(f"로컬 배달이 {LOCAL_TIMEOUT_SEC}s 안에 안 끝났다") from e
     if proc.returncode != 0:
-        detail = (err or b"").decode("utf-8", errors="replace").strip()
+        detail = (err or out or b"").decode("utf-8", errors="replace").strip()
         raise DeliveryFailed(detail or f"itl → {proc.returncode}")
     return (out or b"").decode("utf-8", errors="replace")
 

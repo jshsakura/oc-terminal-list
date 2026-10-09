@@ -39,6 +39,7 @@ def _load_itl():
     """
     loader = importlib.machinery.SourceFileLoader("itl_cli", str(ITL_PATH))
     spec = importlib.util.spec_from_loader(loader.name, loader)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
     return module
@@ -191,6 +192,105 @@ class TestWhoami:
 
 
 class TestTmuxAccessFailure:
+    def test_current_socket_does_not_require_directory_access(self, monkeypatch):
+        monkeypatch.setenv("TMUX", "/private/app.sock,123,0")
+        monkeypatch.setattr(itl.os, "listdir", lambda path: pytest.fail("known socket must not enumerate directories"))
+        assert itl.tmux_sockets() == ["/private/app.sock"]
+
+    def test_stale_whoami_reports_context_error(self, monkeypatch, capsys):
+        monkeypatch.setenv("TMUX", "/private/app.sock,123,0")
+        monkeypatch.setenv("TMUX_PANE", "%0")
+        monkeypatch.setattr(itl, "discover", lambda: [itl.pane_record(itl.TMUX, "/private/app.sock", "s", "%1")])
+        assert itl.main(["--json", "whoami"]) == 3
+        result = json.loads(capsys.readouterr().out)
+        assert result["errorCode"] == "tmux_context_stale"
+        assert result["retryable"] is False
+        assert "sandbox-config" not in result["error"]
+
+    def test_stale_key_lookup_never_reads_another_session_key(self, monkeypatch):
+        monkeypatch.setenv("TMUX", "/private/app.sock,123,0")
+        monkeypatch.setenv("TMUX_PANE", "%0")
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            return (0, "%1\n", "") if "list-panes" in argv else (0, "another-session-key", "")
+
+        monkeypatch.setattr(itl, "tmux_bin", lambda: "/usr/bin/tmux")
+        monkeypatch.setattr(itl, "run", run)
+        with pytest.raises(itl.TmuxContextError):
+            itl.my_key()
+        assert len(calls) == 1 and "list-panes" in calls[0]
+
+    def test_denied_receipt_does_not_wait(self, monkeypatch, capsys):
+        monkeypatch.setenv("TMUX", "/private/app.sock,123,0")
+        monkeypatch.setenv("TMUX_PANE", "%0")
+        calls = []
+        monkeypatch.setattr(itl, "tmux_bin", lambda: "/usr/bin/tmux")
+        monkeypatch.setattr(itl, "run", lambda argv, **kw: calls.append(argv) or (1, "", "Operation not permitted"))
+        assert itl.main(["--json", "receipt", "abcd1234", "--wait", "90"]) == 3
+        result = json.loads(capsys.readouterr().out)
+        assert result["errorCode"] == "tmux_socket_denied"
+        assert result["delivery"] == "unknown"
+        assert not any("wait-for" in argv for argv in calls)
+
+    def test_denied_receipt_query_after_valid_context_does_not_wait(self, monkeypatch):
+        monkeypatch.setenv("TMUX", "/private/app.sock,123,0")
+        monkeypatch.setenv("TMUX_PANE", "%0")
+        monkeypatch.setattr(itl, "tmux_bin", lambda: "/usr/bin/tmux")
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            return (0, "%0\n", "") if "list-panes" in argv else (1, "", "Permission denied")
+
+        monkeypatch.setattr(itl, "run", run)
+        with pytest.raises(itl.TmuxAccessError):
+            itl.receipt("abcd1234", timeout=90)
+        assert not any("wait-for" in argv for argv in calls)
+
+    def test_socket_selection_never_falls_back_to_another_server(self, monkeypatch, capsys):
+        monkeypatch.setattr(itl, "discover_tmux", lambda *a, **kw: [])
+        monkeypatch.setattr(itl, "send_app_addr", lambda *a, **kw: pytest.fail("explicit namespace must be preserved"))
+        assert itl.main(["--json", "--socket", "/private/app.sock", "send", "2.1", "hi"]) == 2
+        assert json.loads(capsys.readouterr().out)["ok"] is False
+
+    def test_handoff_followed_by_permission_failure_preserves_unknown_delivery(self, monkeypatch, capsys):
+        monkeypatch.setattr(itl, "discover", lambda: [])
+        monkeypatch.setattr(itl, "send_app_addr", lambda *a, **kw: (True, ""))
+
+        def denied(*args, **kwargs):
+            raise itl.TmuxAccessError("Permission denied")
+
+        monkeypatch.setattr(itl, "receipt", denied)
+        assert itl.main(["--json", "send", "2.1", "hi"]) == 4
+        result = json.loads(capsys.readouterr().out)
+        assert result["handedOff"] is True and result["delivery"] == "unknown"
+        assert result["retryable"] is False
+
+    def test_socketless_duplicate_pane_ids_do_not_guess_identity(self, monkeypatch):
+        monkeypatch.setenv("TMUX_PANE", "%0")
+        panes = [itl.pane_record(itl.TMUX, socket, "s", "%0") for socket in ["/a", "/b"]]
+        assert itl.whoami(panes) is None
+
+    def test_socket_option_limits_target_discovery(self, monkeypatch, capsys):
+        monkeypatch.setattr(itl, "tmux_bin", lambda: "/usr/bin/tmux")
+        monkeypatch.setattr(itl, "tmux_sockets", lambda: pytest.fail("explicit socket must not scan other servers"))
+        calls = []
+        monkeypatch.setattr(itl, "run", lambda argv, **kw: calls.append(argv) or (0, "", ""))
+        assert itl.main(["--json", "--socket", "/private/app.sock", "list"]) == 0
+        assert json.loads(capsys.readouterr().out)["panes"] == []
+        assert calls[0][1:3] == ["-S", "/private/app.sock"]
+
+    def test_ambiguous_app_address_never_falls_back_to_backend(self, monkeypatch, capsys):
+        panes = [itl.pane_record(itl.TMUX, "/s", session, pane) for session, pane in [("a", "%1"), ("b", "%2")]]
+        for pane in panes:
+            pane["app_addr"] = "2.1"
+        monkeypatch.setattr(itl, "discover", lambda: panes)
+        monkeypatch.setattr(itl, "send_app_addr", lambda *a, **kw: pytest.fail("ambiguous target must never queue"))
+        assert itl.main(["--json", "send", "2.1", "do work"]) == 2
+        assert "여럿" in json.loads(capsys.readouterr().out)["error"]
+
     def test_discovery_reports_denied_socket(self, monkeypatch):
         monkeypatch.setattr(itl, "tmux_bin", lambda: "/usr/bin/tmux")
         monkeypatch.setattr(itl, "tmux_sockets", lambda: ["/tmp/tmux-1000/app"])
@@ -287,6 +387,8 @@ class TestKey:
 
         def fake_run(argv, **_kw):
             seen["argv"] = argv
+            if "list-panes" in argv:
+                return 0, "%3\n", ""
             return 0, "abc123\n", ""
 
         monkeypatch.setattr(itl, "tmux_bin", lambda: "/usr/bin/tmux")

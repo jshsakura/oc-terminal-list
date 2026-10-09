@@ -143,6 +143,29 @@ Why host-native is the primary mode: this project is a terminal tool. Container 
 
 ---
 
+## Sending commands between terminal tabs
+
+Run `itl doctor` to check your current pane and socket access, then use addresses from `itl list`.
+
+```bash
+itl whoami
+itl list
+itl send 2.1 'Please handle this task'
+itl send 2.1 'Type only' --no-enter
+itl read 2.1 --lines 20
+```
+
+Discovery defaults to the current tmux server; outside tmux it scans this user's sockets.
+Use `itl list --all` for all servers or `itl --socket /absolute/socket/path list` for one explicit server.
+A deleted or stale sender fails immediately with `tmux_context_stale`: reopen the terminal in the app
+and run from a fresh shell. Actual permission denial is reported separately as `tmux_socket_denied`.
+`itl sandbox-config` prints socket permission settings without changing permissions automatically.
+
+Cross-host app delivery uses the backend and waits up to 70 seconds by default. `delivery=enter-sent`
+confirms input and Enter; `typed` confirms input only. With `--wait 0`, `queued` means pending delivery.
+Exit code 4 and `unknown` require `itl receipt <request ID>` in the original sender pane.
+Do not resend automatically when delivery is unknown.
+
 ## Quick Start: Docker / GHCR
 
 Docker is the fastest way to try the app.

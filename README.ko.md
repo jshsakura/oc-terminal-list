@@ -129,6 +129,29 @@ Terminal List는 사용자가 소유한 머신을 위한 브라우저 기반 터
 > 되고 `tmux` 처럼 그 도구를 띄우는 명령은 안 됩니다. 모르는 플래그에 TUI 를 띄우는 프로그램은 tty 가
 > 없는 확인 경로에서 그대로 매달립니다.
 
+### 터미널 탭 사이에 명령 보내기
+
+`itl doctor`로 현재 팬과 접근 상태를 확인하고, `itl list`의 주소로 전송합니다.
+
+```bash
+itl whoami
+itl list
+itl send 2.1 '이 작업을 진행해 줘'
+itl send 2.1 '입력만' --no-enter
+itl read 2.1 --lines 20
+```
+
+기본으로 현재 tmux 서버를 사용하며, tmux 밖에서는 이 사용자의 소켓을 탐색합니다.
+`itl list --all`은 다른 서버까지, `itl --socket /절대/소켓/경로 list`는 지정한 서버만 봅니다.
+현재 팬이 사라졌다면 `tmux_context_stale`로 즉시 종료합니다. 앱에서 터미널을 다시 열고
+새 셸에서 실행하세요. 실제 권한 거부는 `tmux_socket_denied`로 별도로 표시됩니다.
+`itl sandbox-config`는 소켓 권한 설정을 출력하며 자동으로 권한을 변경하지 않습니다.
+
+다른 기계의 앱 탭은 백엔드가 전달하고 기본 70초까지 결과를 기다립니다.
+`delivery=enter-sent`는 입력·Enter 확인, `typed`는 입력만 확인입니다. `--wait 0`의 `queued`는
+아직 전달 확인이 아닙니다. 종료 코드 4의 `unknown`은 원래 보낸 팬에서
+`itl receipt <요청 ID>`로 확인하세요. 결과 미확인 상태에서 자동 재전송하지 마세요.
+
 ---
 
 ## 설치 모드

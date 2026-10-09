@@ -16,11 +16,14 @@ from tests.test_itl_cli import itl
 
 
 @pytest.fixture
-def receiving_pane(tmp_path: Path):
+def receiving_pane(tmp_path: Path, monkeypatch):
     binary = shutil.which("tmux")
     if binary is None:
         pytest.skip("tmux is unavailable")
-    socket = str(tmp_path / "socket")
+    socket_dir = tmp_path / f"tmux-{os.getuid()}"
+    socket_dir.mkdir(mode=0o700)
+    socket = str(socket_dir / "socket")
+    monkeypatch.setenv("TMUX_TMPDIR", str(tmp_path))
     base = [binary, "-S", socket]
     env = os.environ.copy()
     env.pop("TMUX", None)
@@ -178,6 +181,83 @@ def test_pending_request_cannot_be_overwritten(receiving_pane, monkeypatch):
     assert result.stdout.strip() == first
 
 
+@pytest.mark.parametrize("command", [["whoami"], ["doctor"], ["send", "99.1", "must-not-send"],
+                                   ["receipt", "abcd1234", "--wait", "90"]])
+def test_cli_stale_sender_fails_without_touching_other_panes(receiving_pane, command):
+    pane, base, _result = receiving_pane
+    env = {**os.environ, "TMUX": pane["socket"] + ",1,0", "TMUX_PANE": "%999"}
+    subprocess.run([*base, "set-option", "-t", "%0", "@itl_key", "must-not-leak"], check=True, timeout=5)
+    client = subprocess.run([sys.executable, str(Path(__file__).parents[1] / "cli/itl"), "--json", *command],
+                            capture_output=True, text=True, env=env, timeout=3)
+    assert client.returncode == 3 and not client.stderr
+    output = json.loads(client.stdout)
+    assert output["errorCode"] == "tmux_context_stale" and output["retryable"] is False
+    assert "must-not-leak" not in client.stdout
+    outbox = subprocess.run([*base, "show-options", "-qv", "-t", "%0", "@itl_outbox"],
+                            check=True, capture_output=True, text=True, timeout=5)
+    assert not outbox.stdout.strip()
+
+
+def test_cli_current_server_doctor_and_tab_send(receiving_pane):
+    pane, base, received = receiving_pane
+    subprocess.run([*base, "new-session", "-d", "-s", "sender", "cat"], check=True, timeout=5)
+    subprocess.run([*base, "set-option", "-t", "receiver", "@pane_addr", "99.1"], check=True, timeout=5)
+    subprocess.run([*base, "set-option", "-t", "sender", "@pane_addr", "99.2"], check=True, timeout=5)
+    subprocess.run([*base, "set-option", "-t", "sender", "@itl_key", "must-not-leak"], check=True, timeout=5)
+    env = {**os.environ, "TMUX": pane["socket"] + ",1,0", "TMUX_PANE": "%1"}
+    cli = [sys.executable, str(Path(__file__).parents[1] / "cli/itl"), "--json"]
+    diagnostic = subprocess.run([*cli, "doctor"], check=True, capture_output=True, text=True, env=env, timeout=3)
+    report = json.loads(diagnostic.stdout)
+    assert report["sender"] == "99.2" and report["senderKeyAvailable"] is True
+    assert set(report["targets"]) == {"99.1", "99.2"}
+    assert "must-not-leak" not in diagnostic.stdout
+    sent = subprocess.run([*cli, "send", "99.1", "탭 간 전달 확인"],
+                          check=True, capture_output=True, text=True, env=env, timeout=3)
+    assert json.loads(sent.stdout)["delivery"] == "enter-sent"
+    subprocess.run([*base, "wait-for", "done"], check=True, timeout=7)
+    assert received.read_bytes() == b"\x1b[200~" + "탭 간 전달 확인".encode() + b"\x1b[201~\r"
+
+
+async def test_backend_delivery_ignores_inherited_unrelated_socket(receiving_pane, monkeypatch):
+    pane, base, received = receiving_pane
+    from tmux_manager import tmux_manager
+
+    monkeypatch.setattr(tmux_manager, "socket_name", "socket")
+    monkeypatch.setenv("TMUX", str(Path(pane["socket"]).parent / "missing-socket") + ",123,0")
+    monkeypatch.setenv("TMUX_PANE", "%999")
+    output = await itl_router._run_local(["send", "receiver", "backend socket selection"])
+    assert json.loads(output)["delivery"] == "enter-sent"
+    subprocess.run([*base, "wait-for", "done"], check=True, timeout=7)
+    assert received.read_bytes() == b"\x1b[200~backend socket selection\x1b[201~\r"
+
+
+def test_cli_current_socket_works_when_another_socket_is_denied(receiving_pane):
+    pane, base, _received = receiving_pane
+    denied_socket = str(Path(pane["socket"]).parent / "denied")
+    denied_base = [base[0], "-S", denied_socket]
+    subprocess.run([*denied_base, "-f", "/dev/null", "new-session", "-d", "-s", "denied", "cat"],
+                   check=True, capture_output=True, timeout=5)
+    try:
+        os.chmod(denied_socket, 0)
+        env = {**os.environ, "TMUX": pane["socket"] + ",1,0", "TMUX_PANE": "%0"}
+        cli = [sys.executable, str(Path(__file__).parents[1] / "cli/itl"), "--json"]
+        current = subprocess.run([*cli, "list"], check=True, capture_output=True, text=True, env=env, timeout=3)
+        assert [p["native_id"] for p in json.loads(current.stdout)["panes"]] == ["%0"]
+        all_servers = subprocess.run([*cli, "list", "--all"],
+                                     capture_output=True, text=True, env=env, timeout=3)
+        assert all_servers.returncode == 3
+        assert json.loads(all_servers.stdout)["errorCode"] == "tmux_socket_denied"
+        env["TMUX"] = denied_socket + ",1,0"
+        receipt = subprocess.run([*cli, "receipt", "abcd1234", "--wait", "90"],
+                                 capture_output=True, text=True, env=env, timeout=3)
+        report = json.loads(receipt.stdout)
+        assert receipt.returncode == 3
+        assert report["errorCode"] == "tmux_socket_denied" and report["delivery"] == "unknown"
+    finally:
+        os.chmod(denied_socket, 0o600)
+        subprocess.run([*denied_base, "kill-server"], capture_output=True, timeout=5)
+
+
 def test_receipt_is_readable_after_event_signal(receiving_pane, monkeypatch):
     pane, base, _result = receiving_pane
     monkeypatch.setenv("TMUX", pane["socket"] + ",1,0")
@@ -212,6 +292,9 @@ def test_receipt_timeout_leaves_pending_request_intact(receiving_pane, monkeypat
 @pytest.mark.parametrize("target_exists", [True, False])
 async def test_cli_gets_backend_receipt_without_browser(receiving_pane, monkeypatch, target_exists):
     pane, base, result_file = receiving_pane
+    from tmux_manager import tmux_manager
+
+    monkeypatch.setattr(tmux_manager, "socket_name", "socket")
     subprocess.run([*base, "new-session", "-d", "-s", "sender", "cat"], check=True, timeout=5)
     env = {**os.environ, "TMUX": pane["socket"] + ",1,0", "TMUX_PANE": "%1", "ITL_KEY": "a" * 32}
     monkeypatch.setenv("TMUX", env["TMUX"])

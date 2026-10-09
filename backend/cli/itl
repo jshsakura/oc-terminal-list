@@ -7,8 +7,8 @@
 
 규칙 셋:
 
-1. **설정이 아니라 탐색이다.** DB 도 설정 파일도 안 읽는다. 이 사용자의 tmux 소켓을
-   전부 직접 물어 지금 실제로 있는 것만 답한다. 그래서 앱 없이 단독으로 돌고, 이 저장소가
+1. **설정이 아니라 탐색이다.** DB 도 설정 파일도 안 읽는다. 현재 tmux 서버를 직접
+   물어 지금 실제로 있는 것만 답한다(tmux 밖에서는 이 사용자 소켓 전체). 앱 없이 돌고,
    이미 세 번 밟은 "설정과 현실이 어긋난다" 에 안 걸린다.
 2. **한 기계 안이다.** 크리덴셜을 만들지도 읽지도 않고 네트워크를 열지도 않는다.
    기계를 넘는 전달은 이미 인증된 SSH 를 쥔 쪽(앱 백엔드)이 이 파일을 stdin 으로 밀어
@@ -16,7 +16,8 @@
 3. **stdlib only, 단일 파일.** 위의 stdin 밀어넣기가 성립하려면 import 할 것이 없어야
    한다. 설치 0, 포트 0, 버전 드리프트 0.
 
-  itl list                     이 기계의 tmux 팬 전부
+  itl list                     현재 서버의 팬 (`list --all`은 기계 전체)
+  itl doctor                   현재 팬·소켓·전송 열쇠 진단
   itl whoami                   지금 이 팬의 주소
   itl send <주소> <내용>        그 팬에 꽂는다 (`2.1` 이면 다른 기계여도 된다)
   itl read <주소>              그 팬의 최근 출력
@@ -47,8 +48,64 @@ MAX_TEXT_BYTES = 8192
 TMUX = "tmux"
 
 
-class TmuxAccessError(OSError):
+class ItlEnvironmentError(OSError):
+    """A definitive environment failure that retrying cannot resolve."""
+
+    error_code = "tmux_unavailable"
+
+
+class TmuxAccessError(ItlEnvironmentError):
     """The current process cannot query a tmux socket."""
+
+    error_code = "tmux_socket_denied"
+
+
+class TmuxContextError(ItlEnvironmentError):
+    """Inherited tmux identity does not identify a live sender pane."""
+
+    error_code = "tmux_context_stale"
+
+
+def report_environment_error(error: ItlEnvironmentError, *, as_json: bool,
+                             request_id: str | None = None, handed_off: bool | None = None) -> int:
+    """Report the cause once, preserving uncertain delivery after handoff."""
+    result = {"ok": False, "errorCode": error.error_code, "retryable": False,
+              "nextCommand": "itl sandbox-config" if isinstance(error, TmuxAccessError) else None,
+              "error": str(error)}
+    if request_id:
+        result.update(requestId=request_id, delivery="failed" if handed_off is False else "unknown")
+        if handed_off is not None:
+            result["handedOff"] = handed_off
+    hint = "; 권한 설정 확인: itl sandbox-config" if isinstance(error, TmuxAccessError) else ""
+    print(json.dumps(result, ensure_ascii=False) if as_json else f"itl: {error}. 진단: itl doctor{hint}",
+          file=sys.stdout if as_json else sys.stderr)
+    return 4 if handed_off is True else 3
+
+
+def stale_context_error() -> TmuxContextError:
+    """Never guess a replacement for an inherited pane that no longer exists."""
+    return TmuxContextError("현재 TMUX/TMUX_PANE이 살아 있는 팬을 가리키지 않는다. "
+                            "앱에서 터미널을 다시 열고 새 셸에서 실행하라; 다른 팬 번호를 추측하지 마라")
+
+
+def current_tmux_context() -> tuple[str, str, str] | None:
+    """Validate exact pane membership before reading keys or changing sender options."""
+    socket = (os.environ.get("TMUX") or "").split(",", 1)[0]
+    pane = os.environ.get("TMUX_PANE") or ""
+    if not socket and not pane:
+        return None
+    if not os.path.isabs(socket) or not re.fullmatch(r"%\d+", pane):
+        raise stale_context_error()
+    binary = tmux_bin()
+    if not binary:
+        raise ItlEnvironmentError("tmux 실행 파일이 없다 — 도구 메뉴에서 tmux를 설치하라")
+    code, out, err = run([binary, "-S", socket, "list-panes", "-a", "-F", "#{pane_id}"])
+    if code != 0:
+        raise_if_tmux_denied(err, socket)
+        raise ItlEnvironmentError(f"현재 tmux 서버에 연결할 수 없다: {err.strip() or code}. 터미널을 다시 열어라")
+    if pane not in out.splitlines():
+        raise stale_context_error()
+    return binary, socket, pane
 
 
 def raise_if_tmux_denied(err: str, socket: str) -> None:
@@ -217,13 +274,16 @@ def pane_record(mux, socket, session, native_id, *, label="", agent="",
 
 # ─── tmux 탐색 ───────────────────────────────────────────────────────────────
 
-def tmux_sockets() -> list[str]:
-    """이 사용자의 tmux 소켓 전부. 기본 소켓과 `-L` 소켓이 같은 디렉터리에 있다.
+def tmux_sockets(*, all_servers: bool = False) -> list[str]:
+    """Current server by default; enumerate user sockets only outside tmux or explicitly.
 
     앱이 자기 소켓(`-L iterminallist-app`)을 쓰므로 기본 소켓만 보면 앱의 팬을 통째로
     놓친다 — 이 도구가 존재하는 이유의 절반이 그것이다.
     """
-    base = f"/tmp/tmux-{os.getuid()}"
+    current = (os.environ.get("TMUX") or "").split(",", 1)[0]
+    if os.path.isabs(current) and not all_servers:
+        return [current]
+    base = os.path.join(os.environ.get("TMUX_TMPDIR") or "/tmp", f"tmux-{os.getuid()}")
     try:
         names = sorted(os.listdir(base))
     except PermissionError as exc:
@@ -231,7 +291,6 @@ def tmux_sockets() -> list[str]:
     except OSError:
         names = []
     sockets = [os.path.join(base, n) for n in names]
-    current = (os.environ.get("TMUX") or "").split(",", 1)[0]
     if os.path.isabs(current) and current not in sockets:
         sockets.append(current)
     return sockets
@@ -278,15 +337,20 @@ def tmux_app_addr(binary: str, socket: str, session: str) -> str:
     return out.strip() if code == 0 else ""
 
 
-def discover_tmux() -> list[dict]:
+def discover_tmux(socket: str | None = None, *, all_servers: bool = False) -> list[dict]:
     binary = tmux_bin()
     if not binary:
         return []
     panes: list[dict] = []
-    for sock in tmux_sockets():
+    sockets = [socket] if socket else tmux_sockets(all_servers=True) if all_servers else tmux_sockets()
+    for sock in sockets:
         code, out, err = run([binary, "-S", sock, "list-panes", "-a", "-F", TMUX_FORMAT])
         if code != 0:
             raise_if_tmux_denied(err, sock)
+            current = (os.environ.get("TMUX") or "").split(",", 1)[0]
+            if socket or (sock == current and not all_servers):
+                raise ItlEnvironmentError(
+                    f"선택한 tmux 서버에 연결할 수 없다: {err.strip() or code}. 터미널을 다시 열어라")
             continue          # 죽은 소켓 파일이 남아 있는 것은 흔하다
         found = parse_tmux_panes(out, sock)
         # 세션당 한 번만 묻는다 — 주소는 세션에 새겨져 있다.
@@ -301,7 +365,7 @@ def discover_tmux() -> list[dict]:
 
 
 def discover() -> list[dict]:
-    """이 기계의 팬 전부."""
+    """Panes in the current server, or all user servers outside tmux."""
     return discover_tmux()
 
 
@@ -391,11 +455,10 @@ def put_outbox(line: str) -> bool:
     🔐 표식보다 오히려 **더** 믿을 만한 통로다: 화면에 찍는 것은 그 팬을 지나가는 어떤
     출력이든 할 수 있지만, tmux 옵션을 세우려면 그 소켓에 닿아야 한다(같은 OS 사용자).
     """
-    tmux_env, pane = os.environ.get("TMUX") or "", os.environ.get("TMUX_PANE") or ""
-    binary = tmux_bin()
-    if not (tmux_env and pane and binary):
+    context = current_tmux_context()
+    if context is None:
         return False
-    socket = tmux_env.split(",", 1)[0]
+    binary, socket, pane = context
     payload = json.loads(line)
     request_id = payload["n"]
     if not REQUEST_ID_RE.fullmatch(request_id):
@@ -405,8 +468,11 @@ def put_outbox(line: str) -> bool:
     command = (pending + f"set-option -t {target} {TMUX_OUTBOX_OPTION} {shlex.quote(line)} ; "
                f"display-message -p queued ; wait-for -S {shlex.quote('itl-outbox-' + pane)}")
     condition = f"#{{&&:#{{==:#{{{TMUX_PENDING_OPTION}}},}},#{{==:#{{{TMUX_OUTBOX_OPTION}}},}}}}"
-    code, out, _err = run([binary, "-S", socket, "if-shell", "-F", "-t", pane,
+    code, out, err = run([binary, "-S", socket, "if-shell", "-F", "-t", pane,
                             condition, command, "display-message -p busy"])
+    if code != 0:
+        raise_if_tmux_denied(err, socket)
+        raise ItlEnvironmentError(f"전송 우편함 접근 실패: {err.strip() or code}")
     return code == 0 and out.strip() == "queued"
 
 
@@ -444,7 +510,7 @@ def send_app_addr(addr: str, text: str, *, submit: bool = True,
     # 안에. 같은 `n` 이라 백엔드가 접으므로 두 번 꽂히지 않는다.
     queued = put_outbox(line)
     if (require_receipt or os.environ.get("TMUX")) and not queued:
-        return False, "전송 우편함을 확보하지 못했다; 처리 중인 요청 또는 tmux 접근 권한을 확인하라"
+        return False, "전송 우편함에 처리 중인 요청이 있다; 기존 요청 ID를 itl receipt로 확인하고 재전송하지 마라"
     if not require_receipt:
         print(SEND_MARKER + " " + line, flush=True)
     return True, ""
@@ -453,18 +519,23 @@ def send_app_addr(addr: str, text: str, *, submit: bool = True,
 def receipt(request_id: str, *, timeout: float = 0) -> tuple[str, str]:
     if not REQUEST_ID_RE.fullmatch(request_id):
         return "", "요청 ID가 올바르지 않다"
-    socket = (os.environ.get("TMUX") or "").split(",", 1)[0]
-    pane = os.environ.get("TMUX_PANE") or ""
-    binary = tmux_bin()
-    if not (socket and pane and binary):
+    context = current_tmux_context()
+    if context is None:
         return "", "결과 확인은 요청을 보낸 tmux 팬에서 실행하라"
+    binary, socket, pane = context
     base = [binary, "-S", socket]
     code, out, err = run([*base, "show-options", "-qv", "-t", pane, RECEIPT_PREFIX + request_id])
+    if code != 0:
+        raise_if_tmux_denied(err, socket)
+        raise ItlEnvironmentError(f"전달 결과 조회 실패: {err.strip() or code}")
     if code == 0 and out.strip():
         return out.strip(), ""
     if timeout > 0:
         run([*base, "wait-for", "itl-receipt-" + request_id], timeout=timeout)
         code, out, err = run([*base, "show-options", "-qv", "-t", pane, RECEIPT_PREFIX + request_id])
+        if code != 0:
+            raise_if_tmux_denied(err, socket)
+            raise ItlEnvironmentError(f"전달 결과 조회 실패: {err.strip() or code}")
         if code == 0 and out.strip():
             return out.strip(), ""
     return "", err.strip() or f"요청 {request_id} 결과 미확인; itl receipt {request_id}로 확인하라. 재전송하지 마라"
@@ -554,15 +625,15 @@ def my_key() -> str:
     env_key = (os.environ.get(KEY_ENV) or "").strip()
     if env_key:
         return env_key
-    tmux_env, pane = os.environ.get("TMUX") or "", os.environ.get("TMUX_PANE") or ""
-    binary = tmux_bin()
-    if not (tmux_env and pane and binary):
+    context = current_tmux_context()
+    if context is None:
         return ""
-    socket = tmux_env.split(",", 1)[0]
+    binary, socket, pane = context
     code, out, err = run([binary, "-S", socket, "show-options", "-qv", "-t", pane,
                            TMUX_KEY_OPTION])
     if code != 0:
         raise_if_tmux_denied(err, socket)
+        raise ItlEnvironmentError(f"현재 팬의 전송 열쇠 조회 실패: {err.strip() or code}")
     return out.strip() if code == 0 else ""
 
 
@@ -622,12 +693,10 @@ def whoami(panes: list[dict]) -> dict | None:
         # Pane ids (`%0`) restart per tmux *server*; with the app's socket and the
         # default socket both alive, `%0` exists on each. `$TMUX` names the socket.
         t_socket = (os.environ.get("TMUX") or "").split(",", 1)[0]
-        for p in panes:
-            if p["mux"] != TMUX or p["native_id"] != t_pane:
-                continue
-            if t_socket and p["socket"] != t_socket:
-                continue
-            return p
+        matches = [p for p in panes if p["mux"] == TMUX and p["native_id"] == t_pane
+                   and (not t_socket or p["socket"] == t_socket)]
+        if len(matches) == 1:
+            return matches[0]
     return None
 
 
@@ -658,10 +727,13 @@ def main(argv: list[str] | None = None) -> int:
         description="이 기계의 tmux 팬 사이로 말을 옮긴다.",
     )
     ap.add_argument("--json", action="store_true", help="사람이 아니라 프로그램이 읽는 출력")
+    ap.add_argument("--socket", help="대상 tmux 소켓을 명시적으로 선택 (명령 앞에 지정)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("list", help="이 기계의 팬 전부")
+    listing = sub.add_parser("list", help="현재 tmux 서버의 팬 (tmux 밖에서는 이 기계 전체)")
+    listing.add_argument("--all", action="store_true", help="다른 tmux 서버도 모두 탐색")
     sub.add_parser("whoami", help="지금 이 팬의 주소")
+    sub.add_parser("doctor", help="현재 팬·tmux 접근 진단 (명령을 전송하지 않음)")
     sub.add_parser("sandbox-config", help="현재 팬의 Codex 샌드박스 소켓 허용 설정 출력")
 
     s = sub.add_parser("send", help="그 팬에 꽂는다")
@@ -691,8 +763,15 @@ def main(argv: list[str] | None = None) -> int:
     record.add_argument("text")
 
     args = ap.parse_args(argv)
+    if args.socket and not os.path.isabs(args.socket):
+        ap.error("--socket에는 절대 경로를 지정하라")
     if args.cmd == "receipt":
-        out, error = receipt(args.request_id, timeout=max(0, min(args.wait, 90)))
+        if args.socket:
+            ap.error("receipt는 원래 보낸 팬의 결과를 확인한다; --socket을 지정하지 마라")
+        try:
+            out, error = receipt(args.request_id, timeout=max(0, min(args.wait, 90)))
+        except ItlEnvironmentError as exc:
+            return report_environment_error(exc, as_json=args.json, request_id=args.request_id)
         if out:
             print(out)
             return 0 if json.loads(out).get("ok") is True else 3
@@ -700,7 +779,7 @@ def main(argv: list[str] | None = None) -> int:
               if args.json else error, file=sys.stdout if args.json else sys.stderr)
         return 4
     if args.cmd == "sandbox-config":
-        socket = (os.environ.get("TMUX") or "").split(",", 1)[0]
+        socket = args.socket or (os.environ.get("TMUX") or "").split(",", 1)[0]
         if not os.path.isabs(socket):
             why = "TMUX 소켓 경로가 없다 — 앱의 tmux 팬 안에서 실행하라"
             if args.json:
@@ -721,14 +800,32 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{instructions}\n\n{config}")
         return 0
     try:
-        panes = discover()
-    except TmuxAccessError as exc:
-        if args.json:
-            print(json.dumps({"ok": False, "errorCode": "tmux_socket_denied", "retryable": False,
-                              "nextCommand": "itl sandbox-config", "error": str(exc)}, ensure_ascii=False))
+        if args.socket or (args.cmd == "list" and args.all):
+            panes = discover_tmux(args.socket, all_servers=args.cmd == "list" and args.all)
         else:
-            print(f"itl: {exc}. Codex 샌드박스 설정: itl sandbox-config", file=sys.stderr)
-        return 3
+            panes = discover()
+    except ItlEnvironmentError as exc:
+        return report_environment_error(exc, as_json=args.json)
+
+    if args.cmd == "doctor":
+        if not tmux_bin():
+            return report_environment_error(ItlEnvironmentError("tmux 실행 파일이 없다 — 도구 메뉴에서 설치하라"),
+                                            as_json=args.json)
+        me = whoami(panes)
+        if (os.environ.get("TMUX") or os.environ.get("TMUX_PANE")) and me is None:
+            return report_environment_error(stale_context_error(), as_json=args.json)
+        try:
+            has_key = bool(my_key())
+        except ItlEnvironmentError as exc:
+            return report_environment_error(exc, as_json=args.json)
+        result = {"ok": True, "socket": args.socket or (os.environ.get("TMUX") or "").split(",", 1)[0] or None,
+                  "sender": (me.get("app_addr") or me["addr"]) if me else None,
+                  "senderKeyAvailable": has_key,
+                  "targets": [p.get("app_addr") or p["addr"] for p in panes]}
+        print(json.dumps(result, ensure_ascii=False) if args.json else
+              f"itl: 진단 정상 · 현재 팬 {result['sender'] or 'tmux 밖'} · 전송 열쇠 {'있음' if has_key else '없음'}\n"
+              + format_table(panes, me))
+        return 0
 
     if args.cmd == "list":
         if args.json:
@@ -739,6 +836,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "whoami":
         me = whoami(panes)
+        if me is None and (os.environ.get("TMUX") or os.environ.get("TMUX_PANE")):
+            return report_environment_error(stale_context_error(), as_json=args.json)
         if args.json:
             print(json.dumps({"pane": me}, ensure_ascii=False))
         elif me:
@@ -751,18 +850,20 @@ def main(argv: list[str] | None = None) -> int:
     # 앱 주소(`1.2`)는 이 기계 밖일 수 있다. **먼저 이 기계에서 풀어 본다** — 풀리면
     # 백엔드도 브라우저도 필요 없다. 못 풀면 그때만 표식으로 백엔드에 넘긴다.
     _local_hit, _ = resolve(panes, args.addr) if APP_ADDR_RE.match(args.addr.strip()) else (None, "")
-    if args.cmd == "send" and APP_ADDR_RE.match(args.addr.strip()) and _local_hit is None:
-        socket_denied = False
+    if (args.cmd == "send" and APP_ADDR_RE.match(args.addr.strip()) and _local_hit is None
+            and not any(p.get("app_addr") == args.addr.strip() for p in panes) and not args.socket):
         request_id = secrets.token_hex(8)
         waiting = args.wait > 0
         try:
             ok, why = send_app_addr(args.addr.strip(), args.text, submit=not args.no_enter,
                                     request_id=request_id, require_receipt=waiting)
-        except TmuxAccessError as exc:
-            ok, why = False, str(exc)
-            socket_denied = True
+        except ItlEnvironmentError as exc:
+            return report_environment_error(exc, as_json=args.json, request_id=request_id, handed_off=False)
         if ok and waiting:
-            out, why = receipt(request_id, timeout=min(args.wait, 90))
+            try:
+                out, why = receipt(request_id, timeout=min(args.wait, 90))
+            except ItlEnvironmentError as exc:
+                return report_environment_error(exc, as_json=args.json, request_id=request_id, handed_off=True)
             if out:
                 result = json.loads(out)
                 if args.json:
@@ -783,13 +884,9 @@ def main(argv: list[str] | None = None) -> int:
             result = {"ok": ok, "handedOff": ok, "requestId": request_id,
                       "delivery": "queued" if ok else "failed",
                       "enterSent": None, "error": why or None}
-            if socket_denied:
-                result.update(errorCode="tmux_socket_denied", retryable=False,
-                              nextCommand="itl sandbox-config")
             print(json.dumps(result, ensure_ascii=False))
         elif not ok:
-            hint = ". Codex 샌드박스 설정: itl sandbox-config" if socket_denied else ""
-            print(f"itl: {why}{hint}", file=sys.stderr)
+            print(f"itl: {why}", file=sys.stderr)
         return 0 if ok else 3
 
     pane, why = resolve(panes, args.addr)

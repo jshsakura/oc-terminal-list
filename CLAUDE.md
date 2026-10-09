@@ -784,8 +784,23 @@ tmux `wait-for` 신호로 CLI를 깨운다. 주소가 바뀌어도 결과가 다
 `itl send 1.2 '…'` 로 다른 탭(다른 기계여도)의 팬에 말을 넣는다. 세 층이고 **크리덴셜을
 호스트로 내보내지 않는다**는 것이 설계의 전부다.
 
-**에이전트 사용 순서:** `itl send` 가 `tmux 소켓 접근 거부`를 반환하면 그 요청은 전달되지
-않았다. `itl --json sandbox-config` 는 tmux 에 접속하지 않고 현재 `$TMUX` 소켓에 맞는 Codex
+**에이전트 사용 순서:** `itl doctor` → `itl list` → `itl send <주소> '내용'`.
+기본 탐색은 `$TMUX`의 서버만 사용한다. 샌드박스가 디렉터리 열람이나 다른 서버 접속을
+막아도 현재 서버만 허용되어 있으면 동작한다. tmux 밖에서는 사용자 소켓 전체를 탐색한다.
+`itl list --all`은 전체 서버, `itl --socket /절대/경로 list`는 지정한 서버만 조회한다.
+명시한 소켓에서 못 찾은 주소는 다른 서버나 백엔드로 넘기지 않는다.
+중복된 앱 주소도 백엔드로 우회하지 않고 거부한다.
+백엔드의 로컬 배달은 `TmuxManager`의 소켓명과 `TMUX_TMPDIR`로 앱 소켓을 명시한다.
+백엔드를 시작한 셸의 `TMUX`를 대상 선택에 사용하지 않는다.
+
+`tmux_context_stale`은 낡은 `TMUX/TMUX_PANE`이다. 앱에서 터미널을 다시 열고 새 셸에서
+실행해야 한다. 팬 번호를 추측하여 바꿔서는 안 된다. 열쇠·우편함·결과 조회 전에 정확한 팬의
+존재를 확인하며, `display-message`의 성공 코드만 믿지 않는다(없는 팬에도 빈 출력으로 0).
+결과 조회의 확정적인 권한·연결 오류는 70~90초 기다리지 않고 즉시 종료한다.
+
+`tmux 소켓 접근 거부`가 전달 전 발생하면 그 요청은 전달되지 않았다.
+전달 후 오류는 `handedOff=true`, 종료 코드 4로 결과 미확인을 유지한다.
+`itl --json sandbox-config` 는 tmux 에 접속하지 않고 현재 `$TMUX` 소켓에 맞는 Codex
 권한 설정을 출력한다. 호스트의 `~/.codex/config.toml`에 병합하고 새 Codex 세션을 시작한 뒤
 `itl whoami`로 접근을 확인한다. 같은 샌드박스 안에서 `itl send`/`list`/`whoami`를 반복해도
 권한은 바뀌지 않는다. `sandbox_mode` 또는 실행 옵션 `--sandbox`/`--yolo`가 설정되어 있으면
@@ -794,7 +809,7 @@ tmux `wait-for` 신호로 CLI를 깨운다. 주소가 바뀌어도 결과가 다
 
 | 층 | 파일 | 하는 일 |
 |---|---|---|
-| 한 기계 안 | `backend/cli/itl` | 이 사용자의 tmux 소켓을 전부 탐색해 `list`/`whoami`/`send`/`read`. stdlib only 단일 파일 |
+| 한 기계 안 | `backend/cli/itl` | 현재 tmux 서버 탐색, 명시적 소켓 선택·전체 탐색 지원. `doctor`/`list`/`whoami`/`send`/`read`, stdlib only 단일 파일 |
 | 기계 넘기 | `backend/itl_router.py` | 이미 인증된 SSH 로 itl 을 **stdin 으로 밀어** 원격에서 1회 실행 — 설치 0 |
 | 팬 → 백엔드 ① | `backend/itl_channel.py` | PTY 에 찍힌 `__ITL_SEND__ {…}` 를 브리지가 줍는다 |
 | 팬 → 백엔드 ② | tmux 옵션 `@itl_outbox` | **붙어 있지 않아도** 되는 통로. 기존 1.5초 폴링이 걷어 간다 |

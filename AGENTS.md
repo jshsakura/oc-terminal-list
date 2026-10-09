@@ -43,6 +43,31 @@ cd backend  && ruff check .                       # 린트 (line-length 120)
 - 재연결·성능 관련 코드는 지뢰밭이다. 손대기 전에 CLAUDE.md 의 해당 절을 읽을 것 —
   거기 적힌 함정은 전부 실제로 밟은 것들이다.
 
+## 탭 사이 명령 전달
+
+tmux 명령이나 소켓 경로를 직접 추측하지 말고 `itl`을 사용한다.
+
+```bash
+itl doctor                    # 현재 팬, 소켓 접근, 전송 열쇠 진단
+itl list                      # 현재 tmux 서버의 실제 탭 주소
+itl whoami                    # 현재 팬 주소
+itl send 2.1 '작업 내용'       # 입력과 Enter 전달
+itl send 2.1 '입력 내용' --no-enter
+itl read 2.1 --lines 20        # 필요할 때 출력 한 번 확인
+```
+
+- 기본 탐색은 `$TMUX`의 서버만 사용한다. 다른 서버는 `itl --socket /절대/소켓/경로 list`,
+  기계 전체는 `itl list --all`로 명시한다. tmux 밖에서는 사용자 소켓 전체를 탐색한다.
+- `tmux_context_stale`은 낡은 `TMUX/TMUX_PANE`이다. 앱에서 터미널을 다시 열고 새 셸에서
+  실행한다. 다른 팬 번호를 임의로 현재 팬에 대입하지 않는다.
+- `tmux_socket_denied`는 실제 접근 거부다. 같은 명령을 반복해도 해결되지 않는다.
+  `itl sandbox-config`는 필요한 권한 설정을 **출력만** 한다. 샌드박스를 우회하지 않는다.
+- 종료 코드 0의 `delivery=enter-sent`/`typed`는 전달 확인, `queued`는 대기 중이다.
+  종료 코드 4의 `delivery=unknown`은 결과 미확인이다. 원래 발신 팬에서
+  `itl receipt <요청 ID>`로 확인하고 자동 재전송하지 않는다.
+- `itl read`를 짧은 간격으로 반복하지 않는다. 요청은 한 번 전달하고 작업 완료 이벤트나
+  예상 완료 시점에만 다시 확인한다.
+
 ## Context Menu Pattern Rules
 
 ### 1. Position-measurement opacity trick — always use explicit `measured` state
