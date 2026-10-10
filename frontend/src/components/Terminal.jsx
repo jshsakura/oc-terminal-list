@@ -2213,12 +2213,21 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     else window.location.reload();
   };
 
+  /* 지금 터미널을 덮는 상태 카드가 하나라도 있나 — 스켈레톤을 멈출 기준.
+     아래 카드들의 렌더 조건과 **같은 식**이어야 한다(어긋나면 둘 다 뜨거나 둘 다 안 뜬다). */
+  const statusCardShown = !!hostFailure || ended || evicted || closing
+    || (loadStuck && !hasContent);
+
   return (
     <>
       <style>{TERMINAL_CSS}</style>
 
-      {/* 스켈레톤: 첫 콘텐츠가 그려지기 전까지 표시 */}
-      {isActive && !hasContent && <TerminalSkeleton themeUi={themeUi} />}
+      {/* 스켈레톤: 첫 콘텐츠가 그려지기 전까지 표시.
+          ⚠️ **상태 카드가 떠 있으면 스켈레톤은 거짓말이다.** "연결할 수 없습니다" 를 띄운
+             채로 뒤에서 로딩 애니메이션을 돌리면(카드 배경이 반투명이라 그대로 비친다)
+             화면이 두 말을 한다 — 그리고 사람은 움직이는 쪽을 믿는다. 실패를 아는 순간
+             로딩 시늉을 멈춘다. */}
+      {isActive && !hasContent && !statusCardShown && <TerminalSkeleton themeUi={themeUi} />}
 
       {/* 로딩이 오래 멈춰 있을 때 — 어느 쪽(이 기기 vs 서버) 문제인지 명시하고,
           그 상황에서 실제로 되는 선택지만 준다. */}

@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -256,3 +256,75 @@ async def test_인증_실패에는_tailnet_진단을_안_붙인다():
         with pytest.raises(host_manager.HostConnectError):
             await host_manager.open_connection(host, password="pw")
         describe.assert_not_called()
+
+
+# ── 6) 붙어 볼 가치가 없으면 먼저 끊는다 ──────────────────────────────
+
+@pytest.mark.parametrize("peer_over,expected", [
+    ({"Online": False, "Expired": True}, True),    # 키 만료 — 핸드셰이크 불가
+    ({"Online": False}, False),                    # 단순 오프라인 — 끊지 않는다(아래 설명)
+    ({"Online": True}, False),                     # 멀쩡함
+])
+def test_확정적인_경우만_미리_끊는다(peer_over, expected):
+    """⚠️ `offline` 로 끊으면 **닿는 호스트를 못 쓰게 만든다.**
+
+    Tailscale 의 Online 은 컨트롤 플레인 기준이라, 직접 경로가 살아 있는데도 offline
+    으로 보일 수 있다. 확정적인 것(키 만료 · tailnet 에 없음)만 미리 끊고, 나머지는
+    평소대로 붙어 본 뒤 실패하면 사유를 붙인다.
+    """
+    kind, _ = tailnet.classify_from_status(_status(_peer(**peer_over)), "100.90.58.69")
+    assert (kind in tailnet.DEFINITIVE_KINDS) is expected
+
+
+def test_tailnet_에_없는_기기도_확정이다():
+    kind, _ = tailnet.classify_from_status(_status(_peer()), "100.90.58.70")
+    assert kind in tailnet.DEFINITIVE_KINDS
+
+
+def test_이_서버가_멈춘_것으로는_안_끊는다():
+    """내 tailscaled 가 멈춰 보여도 그건 상대 기기에 대한 단언이 아니다."""
+    kind, _ = tailnet.classify_from_status(
+        _status(_peer(Online=False), backend_state="Stopped"), "100.90.58.69")
+    assert kind not in tailnet.DEFINITIVE_KINDS
+
+
+@pytest.mark.asyncio
+async def test_precheck_가_걸리면_SSH_를_아예_시도하지_않는다():
+    """15초를 태운 뒤 실패하는 것과, 즉시 같은 사유로 실패하는 것의 차이다."""
+    import host_manager
+
+    host = {"hostname": "100.90.58.69", "port": 22, "ssh_user": "pi", "auth_method": "password"}
+    with patch.object(host_manager.asyncssh, "connect") as connect, \
+         patch.object(host_manager.tailnet, "precheck",
+                      return_value="rpi-genie5 의 Tailscale 노드 키가 만료됐습니다."):
+        with pytest.raises(host_manager.HostConnectError) as err:
+            await host_manager.open_connection(host, password="pw")
+        connect.assert_not_called()
+    assert "노드 키가 만료" in str(err.value)
+    assert "100.90.58.69:22" in str(err.value)
+
+
+@pytest.mark.asyncio
+async def test_precheck_가_조용하면_평소대로_붙어_본다():
+    import host_manager
+
+    host = {"hostname": "100.90.58.69", "port": 22, "ssh_user": "pi", "auth_method": "password"}
+    sentinel = object()
+    # ⚠️ asyncssh.connect 는 코루틴 함수가 아니라 awaitable 을 돌려주는 호출이라
+    #    자동 AsyncMock 이 안 붙는다 — 명시한다.
+    with patch.object(host_manager.asyncssh, "connect", new=AsyncMock(return_value=sentinel)), \
+         patch.object(host_manager.tailnet, "precheck", return_value=None):
+        assert await host_manager.open_connection(host, password="pw") is sentinel
+
+
+@pytest.mark.asyncio
+async def test_precheck_는_offline_로는_안_끊는다():
+    """위 단위 테스트의 통합판 — 실제 상태 payload 를 통째로 지나게 한다."""
+    import json as _json
+    tailnet.reset_cache()
+    payload = _json.dumps(_status(_peer(Online=False))).encode()
+    with patch("asyncio.create_subprocess_exec", return_value=_OkProc(payload)):
+        assert await tailnet.precheck("100.90.58.69") is None
+        # 같은 상태라도 "왜 안 되나" 설명은 나와야 한다.
+        assert "오프라인" in (await tailnet.describe_peer("100.90.58.69"))
+    tailnet.reset_cache()

@@ -2,12 +2,15 @@
  * 단일 pane — (Terminal / 빈 화면 EmptyPane) + 자체 TerminalHeader 오버레이 + 폴더 픽커.
  * 분할 그리드의 잎 노드. PaneGrid.jsx 에서 로직 변경 없이 추출.
  */
-import { Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo, memo } from 'react';
+import {
+  Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo, memo, useSyncExternalStore,
+} from 'react';
 import { Plus, ArrowRightLeft, LayoutPanelLeft } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
 import { buildThemeUI } from '../../styles/themeUI';
 import TerminalHeader from '../TerminalHeader';
+import { subscribePaneFailure, getPaneFailureSnapshot } from '../../utils/paneFailure';
 import LocalFolderPicker from '../LocalFolderPicker';
 import RemoteFolderPicker from '../RemoteFolderPicker';
 import BroadcastBadge from './BroadcastBadge';
@@ -119,6 +122,11 @@ const Pane = ({
     }
   }, [reloadSignal, isEmpty]);
   const [terminalStatus, setTerminalStatus] = useState(null);
+  /* 이 pane 이 호스트에 못 붙었나 — 헤더 레일의 로딩 스켈레톤을 멈출 기준.
+     `!terminalReady` 만 보면 영영 안 붙는 pane 에서 **영원히 펄스**가 돈다. 실패를 아는데
+     로딩 시늉을 계속하면 화면이 두 말을 하고, 사람은 움직이는 쪽을 믿는다. */
+  const paneFailureMap = useSyncExternalStore(subscribePaneFailure, getPaneFailureSnapshot);
+  const paneFailed = !!paneFailureMap[pane.sessionId];
   const [tabDropZone, setTabDropZone] = useState(null); // null | 'top' | 'bottom' | 'left' | 'right' | 'center'
   const tabDropZoneRef = useRef(null); // mirrors tabDropZone — readable in drop handler without stale closure
   const [paneDragZone, setPaneDragZone] = useState(null); // zone for pane-to-pane drag preview
@@ -703,7 +711,7 @@ const Pane = ({
           t={t}
           viewportHeight={viewportHeight}
           disabled={isEmpty}
-          loading={!isEmpty && !terminalReady}
+          loading={!isEmpty && !terminalReady && !paneFailed}
           terminalKey={pane.sessionId || pane.id}
           paneCwd={livePaneCwd}
           onScreenDump={onScreenDump}

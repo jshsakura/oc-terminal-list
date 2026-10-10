@@ -133,47 +133,60 @@ async def _load_status() -> dict | None:
         return status
 
 
-def reason_from_status(status: dict | None, hostname: str) -> str | None:
-    """Pure core: turn a `tailscale status --json` payload into a user-facing reason.
+# Kinds where a connection attempt is **physically impossible**, so waiting out the TCP
+# timeout buys nothing. `offline` is deliberately NOT one of them: Tailscale's Online flag
+# tracks the control plane, and a peer can read offline while a direct path still works —
+# short-circuiting on it would make a reachable host unusable.
+DEFINITIVE_KINDS = frozenset({"expired", "missing"})
 
-    Returns None whenever we cannot tell, including when the peer looks healthy — the
-    SSH failure is then a real SSH failure and must not be papered over.
+
+def classify_from_status(status: dict | None, hostname: str) -> tuple[str | None, str | None]:
+    """Pure core: `tailscale status --json` → `(kind, 사람이 읽을 사유)`.
+
+    `kind` is one of `backend` / `missing` / `expired` / `offline`, or None when we cannot
+    tell — including when the peer looks healthy. An SSH failure against a healthy peer is
+    a real SSH failure and must not be papered over.
     """
     if not isinstance(status, dict):
-        return None
+        return None, None
 
     backend_state = status.get("BackendState")
     if backend_state and backend_state != "Running":
-        return (
+        return "backend", (
             f"이 서버의 Tailscale 이 멈춰 있습니다 (상태 {backend_state}). "
             "`sudo tailscale up` 으로 올려야 tailnet 주소에 닿습니다."
         )
 
     peers = status.get("Peer")
     if not isinstance(peers, dict):
-        return None
+        return None, None
 
     peer = next((p for p in peers.values() if isinstance(p, dict) and _matches(p, hostname)), None)
     if peer is None:
-        return (
+        return "missing", (
             "Tailscale tailnet 에 이 주소의 기기가 없습니다. "
             "tailnet 에서 제거됐는지 어드민 콘솔에서 확인합니다."
         )
 
     name = peer.get("HostName") or hostname
     if peer.get("Expired"):
-        return (
+        return "expired", (
             f"{name} 의 Tailscale 노드 키가 만료돼 tailnet 에서 빠져 있습니다. "
             "어드민 콘솔에서 키 만료를 끄거나 그 기기에서 `tailscale up` 을 실행합니다."
         )
     if peer.get("Online") is False:
         seen = _format_last_seen(peer.get("LastSeen"))
         when = f" (마지막 접속 {seen})" if seen else ""
-        return (
+        return "offline", (
             f"{name} 이 Tailscale tailnet 에서 오프라인입니다{when}. "
             "그 기기의 전원과 네트워크를 확인합니다."
         )
-    return None
+    return None, None
+
+
+def reason_from_status(status: dict | None, hostname: str) -> str | None:
+    """`classify_from_status` 의 사유 절반. 모르면 None."""
+    return classify_from_status(status, hostname)[1]
 
 
 async def describe_peer(hostname: str | None) -> str | None:
@@ -184,6 +197,28 @@ async def describe_peer(hostname: str | None) -> str | None:
         return reason_from_status(await _load_status(), hostname or "")
     except Exception:  # never let the diagnosis replace the error it explains
         logger.debug("tailnet 진단 실패: %s", hostname, exc_info=True)
+        return None
+
+
+async def precheck(hostname: str | None) -> str | None:
+    """붙어 볼 가치가 없는 경우의 사유, 아니면 None.
+
+    노드 키가 만료됐거나 tailnet 에 아예 없는 기기는 **WireGuard 핸드셰이크 자체가
+    불가능**하다. 그걸 알면서 TCP 타임아웃 15초를 기다리는 것은, 사용자에게 "곧 될 것처럼"
+    로딩을 15초 보여준 뒤 실패를 말하는 것과 같다.
+
+    ⚠️ **`offline` 로는 끊지 않는다.** 그 플래그는 컨트롤 플레인 기준이라 직접 경로가
+       살아 있는데도 offline 으로 보일 수 있다 — 그걸로 끊으면 닿는 호스트를 못 쓰게 만든다.
+       (그 경우는 평소대로 붙어 보고, 실패하면 `describe_peer` 가 사유를 붙인다.)
+    ⚠️ 진단은 **절대 던지지 않는다.** 여기서 예외가 나면 멀쩡한 연결이 막힌다.
+    """
+    try:
+        if not is_tailnet_address(hostname):
+            return None
+        kind, reason = classify_from_status(await _load_status(), hostname or "")
+        return reason if kind in DEFINITIVE_KINDS else None
+    except Exception:
+        logger.debug("tailnet precheck 실패: %s", hostname, exc_info=True)
         return None
 
 

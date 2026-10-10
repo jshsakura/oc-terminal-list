@@ -12,6 +12,7 @@ const SKELETON_LINE_WIDTHS = [62, 38, 84, 50, 72, 30, 66, 44, 78, 40];
 export const TerminalSkeleton = ({ themeUi }) => (
   <div
     aria-hidden="true"
+    data-testid="terminal-skeleton"
     style={{
       ...styles.statusOverlay,
       backgroundColor: themeUi.base,

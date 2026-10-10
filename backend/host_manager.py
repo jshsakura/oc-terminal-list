@@ -373,6 +373,14 @@ async def open_connection(
     else:
         raise HostConnectError(f"알 수 없는 인증 방식: {auth_method}")
 
+    # 붙어 볼 가치가 없는 경우는 **먼저 끊는다.** 노드 키가 만료됐거나 tailnet 에 없는
+    # 기기는 핸드셰이크 자체가 불가능한데, 그걸 알면서 TCP 타임아웃 15초를 기다리는 것은
+    # 사용자에게 "곧 될 것처럼" 로딩을 15초 보여준 뒤 실패를 말하는 것과 같다.
+    # (단순 오프라인으로는 안 끊는다 — tailnet.precheck 주석 참고.)
+    blocked = await tailnet.precheck(options.get("host"))
+    if blocked:
+        raise HostConnectError(f"연결 실패: {options['host']}:{options['port']} {blocked}")
+
     try:
         conn = await asyncssh.connect(**options)
         return conn

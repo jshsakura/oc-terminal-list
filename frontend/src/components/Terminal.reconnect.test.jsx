@@ -565,6 +565,19 @@ describe('Terminal 재연결 타이머', () => {
       expect(screen.queryByText(/Reconnecting/)).toBeNull();
     });
 
+    /* 실패를 아는데도 로딩 스켈레톤을 계속 돌리면 화면이 두 말을 한다 — 그리고 사람은
+       움직이는 쪽을 믿는다("애초에 연결 안 되는데 붙잡고 스켈레톤 보여준다"). */
+    it('실패를 알면 로딩 스켈레톤을 멈춘다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const ws = await openSocket();
+      // 아직 아무 사유도 모르는 동안에는 로딩이 참말이다.
+      expect(screen.getByTestId('terminal-skeleton')).toBeTruthy();
+
+      await failOnce(ws);
+      expect(screen.queryByTestId('terminal-skeleton')).toBeNull();
+      expect(screen.getByText(/Cannot connect to the host/)).toBeTruthy();
+    });
+
     it('붙으면 카드가 내려간다 — 핸드셰이크가 아니라 바이트가 기준이다', async () => {
       renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
       const first = await openSocket();
