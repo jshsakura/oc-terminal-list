@@ -62,6 +62,8 @@ export const ko = {
     hostUnreachableTitle: '호스트에 연결할 수 없습니다',
     hostRetryInSeconds: '약 {s}초 뒤 자동으로 다시 시도합니다.',
     hostRetryAuto: '자동으로 다시 시도합니다.',
+    tabHostUnreachable: '호스트에 연결할 수 없습니다',
+    tabPanesUnreachable: '{n}개 pane 이 호스트에 연결되지 않았습니다',
     retryNow: '지금 다시 시도',
     sameDeviceNetworkReconnect: '같은 기기의 네트워크 변경으로 판단했습니다. 재연결 중...',
     reconnectingPill: '다시 연결 중…',

@@ -62,6 +62,8 @@ export const en = {
     hostUnreachableTitle: 'Cannot connect to the host',
     hostRetryInSeconds: 'Retrying automatically in about {s}s.',
     hostRetryAuto: 'Retrying automatically.',
+    tabHostUnreachable: 'Cannot connect to the host',
+    tabPanesUnreachable: '{n} panes cannot reach their host',
     retryNow: 'Retry now',
     sameDeviceNetworkReconnect: 'Same device detected after a network change. Reconnecting...',
     reconnectingPill: 'Reconnecting…',

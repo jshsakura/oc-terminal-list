@@ -37,6 +37,7 @@ import { CopiedToast, FileDropOverlay, ImagePasteToast, ReconnectPill, TerminalS
 import {
   ConnectionTroubleCard, HostUnreachableCard, ShellClosingCard, ShellEndedCard, TakeoverCard,
 } from './terminal/TerminalStatusCards';
+import { reportPaneFailure, clearPaneFailure } from '../utils/paneFailure';
 import attachTerminalFileDrop from './terminal/attachTerminalFileDrop';
 import attachIosHangulInput from './terminal/attachIosHangulInput';
 import attachImeTextareaGuard from './terminal/attachImeTextareaGuard';
@@ -257,6 +258,14 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
      사유(`connect-failed` 의 detail)를 카드로 띄우는 데 쓴다. 성공(=서버 바이트 도착)에서만
      내린다 — 시계로 내리면 아직 못 붙은 pane 이 멀쩡해 보인다. */
   const [hostFailure, setHostFailure] = useState(null);
+
+  /* 카드는 이 pane 을 **보고 있을 때만** 보인다. 다른 탭에서 일하는 동안 호스트가 죽으면
+     그 탭을 열기 전까지 아무 표시가 없어서, 언제나 보이는 탭 바에도 같은 사실을 올린다.
+     ⚠️ 언마운트에서 반드시 지운다 — 안 지우면 닫힌 세션의 경고가 영원히 남는다. */
+  useEffect(() => {
+    reportPaneFailure(sessionId, hostFailure?.detail || '');
+  }, [sessionId, hostFailure]);
+  useEffect(() => () => clearPaneFailure(sessionId), [sessionId]);
   /* 모바일에서 아직 한 번도 보지 않은 pane — 일부러 소켓을 안 열어둔 상태.
      "연결이 안 된다" 가 아니라 "아직 안 붙었다" 라, 실패 UI 를 띄우면 안 된다. */
   const [dormant, setDormant] = useState(false);

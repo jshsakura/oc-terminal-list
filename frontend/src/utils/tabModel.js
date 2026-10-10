@@ -324,14 +324,19 @@ export const tabCloseKeepsSession = (tab, hosts = []) => !(tab?.panes || []).som
  * 이름/아이콘/색은 항상 **활성 pane 의 정체성**을 따라간다(탭에 캡처된 생성 시점
  * 스냅샷으로 굳지 않게). 사용자가 직접 지은 이름(manualName)이 최우선.
  * agentStatus 는 별도 소스(tabAgentStatus)라 여기서 계산하지 않고 인자로 받는다.
+ * hostFailure(연결 실패)도 같은 이유로 인자다 — 소스는 utils/paneFailure.js.
  */
-export const deriveTabMeta = (tab, { hosts = [], settings = {}, agentStatus = null } = {}) => {
+export const deriveTabMeta = (tab, {
+  hosts = [], settings = {}, agentStatus = null, hostFailure = null,
+} = {}) => {
   const host = tab.type === 'host' ? hosts.find((h) => h.id === tab.hostId) : null;
   const isPersistent = tab.type === 'local' || !!host?.use_remote_tmux;
   const closeKeepsSession = tabCloseKeepsSession(tab, hosts);
   const secondaryIdentities = deriveTabSecondaryIdentities(tab, hosts, settings);
   const primary = deriveTabPrimaryIdentity(tab, hosts, settings);
-  const common = { ...tab, isPersistent, closeKeepsSession, secondaryIdentities, agentStatus };
+  const common = {
+    ...tab, isPersistent, closeKeepsSession, secondaryIdentities, agentStatus, hostFailure,
+  };
 
   if (host) {
     return {

@@ -55,6 +55,11 @@ export const Tab = memo(({
   const paletteColor = (idx) =>
     color.dotPalette?.[(idx ?? 0) % (color.dotPalette?.length || 8)] || color.accent;
   const dotColor = tab.color_index != null ? paletteColor(tab.color_index) : color.accent;
+  /* 못 붙은 호스트는 **색을 잃는다.** 빨간 '!' 만으로는 permission(에이전트가 기다림)과
+     구별되지 않는데 둘은 할 일이 완전히 다르다. 9px 마크 안에서 글리프를 나눠봐야 안 읽히니
+     타일 전체로 말한다 — 색이 빠진 타일은 멀리서도 "평소가 아니다" 로 읽힌다.
+     ⚠️ CSS `filter`/`opacity` 로 하면 **안 된다.** 마크가 이 타일의 자식이라 경고 '!' 까지
+        같이 회색이 되어 사라진다(실제로 그렇게 만들었다가 화면에서 보고 되돌렸다). */
   // 우상단 마크 하나가 **개수 + 에이전트 상태 + 출력 활동**을 겸한다(별도 점 없음).
   //  - 내용: pane 2개+면 개수 숫자, 1개면 점 (1세션엔 숫자 대신 점만).
   //  - 색: permission(손 기다림)만 빨강, 그 외엔 탭 색.
@@ -64,13 +69,25 @@ export const Tab = memo(({
   const showPaneCount = paneCount > 1;
   const isPermission = tab.agentStatus === 'permission';
   const isWorking = tab.agentStatus === 'working';
-  const showStatusMark = showPaneCount || isPermission || isWorking || isBusy;
-  const markTint = isPermission ? color.danger : dotColor;
-  const markPulse = (isWorking || isBusy) && !isPermission;
+  /* 연결 실패는 **에이전트 상태보다 위**다. 에이전트가 기다리는 것은 그 pane 이 살아 있을
+     때의 이야기고, 못 붙은 pane 은 그 전제부터 깨져 있다. */
+  const failure = tab.hostFailure || null;
+  const isFailed = !!failure;
+  const tileTint = isFailed ? color.muted : dotColor;
+  const showStatusMark = showPaneCount || isFailed || isPermission || isWorking || isBusy;
+  const markTint = (isFailed || isPermission) ? color.danger : dotColor;
+  // 실패는 **안 깜빡인다** — 깜빡임은 "돌고 있다" 는 뜻이라 정반대로 읽힌다.
+  const markPulse = (isWorking || isBusy) && !isPermission && !isFailed;
   // 마크에 글자가 들어가나(permission '!' 또는 개수 숫자) — 그러면 알약형, 아니면 점.
   // permission 은 '!' 를 우선한다: 개수보다 "너 결정 기다림" 이 급하다.
-  const hasMarkContent = isPermission || showPaneCount;
-  const markLabel = isPermission
+  const hasMarkContent = isFailed || isPermission || showPaneCount;
+  const markLabel = isFailed
+    ? [failure.count > 1
+      ? (t?.('tabPanesUnreachable') || '{n}개 pane 이 호스트에 연결되지 않았습니다')
+        .replace('{n}', String(failure.count))
+      : (t?.('tabHostUnreachable') || '호스트에 연결할 수 없습니다'),
+    failure.detail].filter(Boolean).join('\n')
+    : isPermission
     ? (t?.('agentNeedsYou') || 'Waiting for you')
     : isWorking
       ? (t?.('agentWorking') || 'Agent working')
@@ -271,14 +288,14 @@ export const Tab = memo(({
               justifyContent: 'center',
               width: `${tileSize}px`,
               height: `${tileSize}px`,
-              background: tileBackground(dotColor),
-              border: tileBorder(dotColor),
+              background: tileBackground(tileTint),
+              border: tileBorder(tileTint),
               borderRadius: '4px',
               // VNC(원격 데스크탑) 탭은 활성일 때 ScreenShare 글리프가 탭 색(dotColor)을 직접 띤다 —
               // 터미널(Server, 중립 text 색)과의 색+형태 이중 차이. 비활성일 때는 기존 글리프
               // 규칙(muted tint)을 그대로 따른다 — 원색 글리프가 비활성 탭에서 튀는 건 이 저장소가
               // 되돌린 실패다.
-              color: (isVnc && isActive) ? dotColor : glyphColor(dotColor),
+              color: (isVnc && isActive && !isFailed) ? dotColor : glyphColor(tileTint),
               /* 스택일 때 뒤 타일과 분리되는 ring. 단일 타일이면 없음(기존 모양 유지). */
               boxShadow: secondaries.length ? `0 0 0 1.5px ${tileBase}` : 'none',
               zIndex: stackedCount + 1,
@@ -323,8 +340,11 @@ export const Tab = memo(({
                   zIndex: stackedCount + 2,
                 }}
               >
-                {isPermission ? (
-                  /* '!' 는 개수 숫자보다 크고 굵게 — 경고가 확 읽히게. */
+                {(isFailed || isPermission) ? (
+                  /* '!' 는 개수 숫자보다 크고 굵게 — 경고가 확 읽히게.
+                     실패와 permission 이 같은 글리프인 것은 의도다: 둘 다 "이 탭을 봐라" 이고,
+                     어느 쪽인지는 **타일 자체**가 말한다(실패면 회색으로 죽는다). 9px 짜리
+                     마크 안에서 글리프를 둘로 나눠봐야 읽히지 않는다. */
                   <span style={{ display: 'block', lineHeight: 1, fontSize: '8px', fontWeight: 800, transform: 'translateY(0.5px)' }}>!</span>
                 ) : showPaneCount ? (
                   <span style={{ display: 'block', lineHeight: 1, transform: 'translateY(0.5px)' }}>{paneCount}</span>

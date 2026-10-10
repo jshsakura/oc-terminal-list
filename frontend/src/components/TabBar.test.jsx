@@ -361,4 +361,39 @@ describe('TabBar', () => {
       expect(onBroadcastToggle).toHaveBeenCalledTimes(1);
     });
   });
+
+  /* 실패 카드는 그 pane 을 **보고 있을 때만** 보인다. 다른 탭에서 일하는 동안 호스트가
+     죽으면 그 탭을 열기 전까지 아무 표시가 없었다 — 탭 바는 언제나 보이는 유일한 자리다. */
+  describe('연결 실패 탭 표시', () => {
+    const failedTab = (hostFailure) => ({
+      id: 't1', type: 'host', name: 'rpi', hostId: 'h1', color_index: 1,
+      panes: [{ id: 'p1', sessionId: 's1' }],
+      hostFailure,
+    });
+    const renderTabs = (tab) => render(
+      <TabBar
+        tabs={[tab]} activeTabId="other"
+        onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()} onOpenSettings={vi.fn()}
+      />
+    );
+
+    it('실패한 탭에 사유가 붙은 경고 마크를 그린다', () => {
+      renderTabs(failedTab({ detail: '연결 실패: 노드 키 만료', count: 1 }));
+      // ⚠️ 이 테스트는 `t` 를 안 넘긴다 → 컴포넌트의 한국어 폴백이 쓰인다.
+      const mark = screen.getByTitle(/호스트에 연결할 수 없습니다/);
+      expect(mark).toBeInTheDocument();
+      // 사유도 함께 — 탭에 마우스만 올려도 왜인지 알 수 있어야 한다.
+      expect(mark.getAttribute('title')).toContain('노드 키 만료');
+    });
+
+    it('여러 pane 이 못 붙었으면 개수를 말한다', () => {
+      renderTabs(failedTab({ detail: '연결 실패: 응답 없음', count: 3 }));
+      expect(screen.getByTitle(/3개 pane 이 호스트에 연결되지 않았습니다/)).toBeInTheDocument();
+    });
+
+    it('실패가 없으면 경고 마크도 없다 — 평소엔 조용하다', () => {
+      renderTabs(failedTab(null));
+      expect(screen.queryByTitle(/호스트에 연결할 수 없습니다/)).not.toBeInTheDocument();
+    });
+  });
 });

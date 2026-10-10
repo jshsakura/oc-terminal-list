@@ -1,4 +1,6 @@
-import { useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback } from 'react';
+import {
+  useState, useEffect, useRef, lazy, Suspense, useMemo, useCallback, useSyncExternalStore,
+} from 'react';
 import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare, LayoutGrid } from 'lucide-react';
 import { DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE_MOBILE } from './utils/terminalFonts';
 import useSettings from './hooks/useSettings';
@@ -21,6 +23,7 @@ import useWorkspaceTabs from './hooks/useWorkspaceTabs';
 import useDeepLinkOpen from './hooks/useDeepLinkOpen';
 import useAgentStatus from './hooks/useAgentStatus';
 import { deriveTabAgentStatus } from './utils/tabAgentStatus';
+import { deriveTabFailure, subscribePaneFailure, getPaneFailureSnapshot } from './utils/paneFailure';
 import { deriveBusy, sameSet } from './utils/busyActivity';
 import useBlockStrayFileDrop from './hooks/useBlockStrayFileDrop';
 import useLocalVncAvailable from './hooks/useLocalVncAvailable';
@@ -130,6 +133,9 @@ function App() {
   useDeepLinkOpen({ tabs, setActiveTabId, setTabs, ready: isAuthenticated && !isRestoringWorkspace });
   // 세션ID → 에이전트 상태. xterm 타이틀(즉시·원격 포함) + 백엔드 tmux 폴링(무인 세션) 합류점.
   const agentStatusMap = useAgentStatus();
+  /* 세션ID → 연결 실패 사유. 실패 카드는 그 pane 을 봐야 보이므로, 언제나 보이는
+     탭 바에도 같은 사실을 올린다(utils/paneFailure.js). */
+  const paneFailureMap = useSyncExternalStore(subscribePaneFailure, getPaneFailureSnapshot);
 
   // 키보드 핸들러 클로저에서 stale 안 되게 ref 로 보관
   const activeTabIdRef = useRef(null);
@@ -212,9 +218,13 @@ function App() {
   // TabBar 가 시각 표시할 수 있게 derived field 로 붙여서 넘김.
   const tabsWithMeta = useMemo(
     () => tabs.map((tt) => deriveTabMeta(tt, {
-      hosts, settings, agentStatus: deriveTabAgentStatus(tt, agentStatusMap),
+      hosts,
+      settings,
+      agentStatus: deriveTabAgentStatus(tt, agentStatusMap),
+      hostFailure: deriveTabFailure(tt, paneFailureMap),
     })),
-    [tabs, hosts, agentStatusMap, settings.localName, settings.localIcon, settings.localColorIndex],
+    [tabs, hosts, agentStatusMap, paneFailureMap,
+      settings.localName, settings.localIcon, settings.localColorIndex],
   );
 
   // ── open / close tabs ─────────────────────────────────────────────────────
