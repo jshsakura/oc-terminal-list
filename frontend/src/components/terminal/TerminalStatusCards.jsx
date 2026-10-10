@@ -1,4 +1,4 @@
-import { Loader2, MonitorSmartphone, PowerOff, RotateCcw, ServerCrash, WifiOff, X } from 'lucide-react';
+import { Loader2, MonitorSmartphone, PowerOff, RotateCcw, ServerCrash, Unplug, WifiOff, X } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import { styles } from './terminalStyles';
 import { GlassOverlayCard } from './TerminalOverlays';
@@ -91,6 +91,84 @@ export const ConnectionTroubleCard = ({ themeUi, t, isOffline, reconnecting, onC
           {reconnecting ? (t('reconnecting') || '연결 중...') : (t('retry') || '다시 시도')}
         </GlassActionButton>
       )}
+    </div>
+  </GlassOverlayCard>
+);
+
+/**
+ * 원격 호스트에 못 붙었다 — **확정된 실패**다(WS 는 열렸고 그 뒤 SSH 가 실패했다).
+ *
+ * 이 카드가 따로 있는 이유: 전에는 이 상황이 하단의 "다시 연결 중…" 스피너 하나로만
+ * 보였고, 그건 사용자에게 **무한 로딩**으로 읽혔다. 서버는 이미 사유를 보내 주는데
+ * (`connect-failed` 의 detail: 노드 키 만료·호스트 오프라인·인증 거부 등) 그 문장이
+ * 스크롤백의 빨간 줄 한 줄로만 남아 묻혀 있었다. 실패는 실패로 보여야 한다.
+ *
+ * ⚠️ 사유는 **서버 문장을 그대로** 쓴다. 프론트가 고쳐 쓰면 두 곳이 어긋나고, 새 사유를
+ *    백엔드에 추가할 때마다 여기도 고쳐야 한다.
+ * ⚠️ "자동으로 다시 시도합니다" 를 **반드시** 같이 적는다. 재시도는 실제로 계속 돌고 있고
+ *    (4→8→16→30s), 그 말이 없으면 사용자는 끝난 줄 알고 탭을 닫는다.
+ */
+export const HostUnreachableCard = ({
+  themeUi, t, detail, retrySeconds, reconnecting, onClosePane, onRetry,
+}) => (
+  <GlassOverlayCard themeUi={themeUi} zIndex={10040}>
+    <div style={styles.glassIconTile(themeUi, themeUi.danger || themeUi.warning)}>
+      <Unplug size={18} strokeWidth={1.8} />
+    </div>
+    <div style={{ textAlign: 'center' }}>
+      {/* 원인 측 배지 — 이 기기도 서버도 아니라 **상대 호스트**임을 먼저 말한다. */}
+      <div style={{
+        display: 'inline-flex', alignItems: 'center', gap: '5px', marginBottom: '6px',
+        fontSize: '10px', fontWeight: fontWeight.semibold, letterSpacing: '0.05em', textTransform: 'uppercase',
+        color: themeUi.danger || themeUi.warning,
+      }}>
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'currentColor' }} />
+        {t('sideRemoteHost') || '원격 호스트'}
+      </div>
+      <div style={{
+        fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: themeUi.text, marginBottom: '4px',
+      }}>
+        {t('hostUnreachableTitle') || '호스트에 연결할 수 없습니다'}
+      </div>
+      {detail && (
+        <div style={{
+          fontSize: fontSize['11'], color: themeUi.subtext, lineHeight: 1.5,
+          wordBreak: 'break-word', textAlign: 'left',
+        }}>
+          {detail}
+        </div>
+      )}
+      <div style={{
+        marginTop: '6px', fontSize: fontSize['11'], color: themeUi.warning || themeUi.subtext, lineHeight: 1.45,
+      }}>
+        {retrySeconds
+          ? ((t('hostRetryInSeconds') || '약 {s}초 뒤 자동으로 다시 시도합니다.').replace('{s}', String(retrySeconds)))
+          : (t('hostRetryAuto') || '자동으로 다시 시도합니다.')}
+      </div>
+    </div>
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%' }}>
+      {onClosePane && (
+        <GlassActionButton
+          themeUi={themeUi}
+          color={themeUi.subtext}
+          onClick={onClosePane}
+          title={t('dismissTabHint') || '화면에서만 닫습니다. 세션이 살아있으면 홈에서 다시 열 수 있습니다.'}
+          style={{ flex: '1 1 92px', minWidth: 0 }}
+        >
+          <X size={12} strokeWidth={2} style={INLINE_ICON} />
+          {t('dismissTab') || '이 탭 접기'}
+        </GlassActionButton>
+      )}
+      <GlassActionButton
+        themeUi={themeUi}
+        color={themeUi.accent}
+        onClick={onRetry}
+        disabled={reconnecting}
+        style={{ flex: '1 1 112px', minWidth: 0 }}
+      >
+        <ActionIcon busy={reconnecting} Icon={RotateCcw} style={INLINE_ICON} />
+        {reconnecting ? (t('reconnecting') || '연결 중...') : (t('retryNow') || '지금 다시 시도')}
+      </GlassActionButton>
     </div>
   </GlassOverlayCard>
 );

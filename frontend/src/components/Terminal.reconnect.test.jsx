@@ -530,6 +530,57 @@ describe('Terminal 재연결 타이머', () => {
       expect(harness.term.text).toContain('응답 없음');
       expect(harness.term.text).toContain('인증 거부');
     });
+
+    /* 여기까지가 "사유를 **스크롤백에** 남긴다" 였고, 그것만으로는 사용자에게 안 보였다.
+       화면에 남는 것은 하단의 "다시 연결 중…" 스피너뿐이라 확정된 실패가 **무한 로딩**으로
+       읽혔다("경고가 제대로 안 나온다" 신고의 정체). 아래 넷이 그 선을 잠근다. */
+    it('실패 사유를 카드로 띄운다 — 스크롤백 한 줄로 끝내지 않는다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const ws = await openSocket();
+      await failOnce(ws, '연결 실패: 100.90.58.69:22 응답 없음 (15초 시간 초과). '
+        + 'rpi-genie5 의 Tailscale 노드 키가 만료돼 tailnet 에서 빠져 있습니다.');
+
+      // ⚠️ 하네스 로케일은 'en' 이다(testSettings) — UI 문구는 영문으로 본다.
+      expect(screen.getByText(/Cannot connect to the host/)).toBeTruthy();
+      // 사유는 **서버 문장을 그대로** 보여준다(로케일 무관) — 프론트가 고쳐 쓰면 두 곳이 어긋난다.
+      expect(screen.getByText(/노드 키가 만료돼 tailnet 에서 빠져 있습니다/)).toBeTruthy();
+    });
+
+    it('자동 재시도가 돌고 있다고 적는다 — 안 적으면 끝난 줄 알고 탭을 닫는다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const ws = await openSocket();
+      await failOnce(ws);
+
+      // 1라운드 = 4s. 카드가 그 간격을 말해야 한다.
+      expect(screen.getByText(/Retrying automatically in about 4s/)).toBeTruthy();
+    });
+
+    it('실패 카드가 떠 있으면 "다시 연결 중" 스피너는 숨는다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const ws = await openSocket();
+      await failOnce(ws);
+      await tick(1200);   // pill 디바운스(NOTICE_SHOW_DELAY_MS)를 지나 보낸다
+
+      expect(screen.getByText(/Cannot connect to the host/)).toBeTruthy();
+      expect(screen.queryByText(/Reconnecting/)).toBeNull();
+    });
+
+    it('붙으면 카드가 내려간다 — 핸드셰이크가 아니라 바이트가 기준이다', async () => {
+      renderTerminal({ hostId: 'h1', tmuxSessionName: 'work' });
+      const first = await openSocket();
+      await failOnce(first);
+      expect(screen.getByText(/Cannot connect to the host/)).toBeTruthy();
+
+      await tick(5000);
+      const second = harness.socket;
+      // "열렸다" 만으로는 아직 성공이 아니다(WS 는 열리고 그 뒤 SSH 가 실패하는 게 원형이다).
+      await act(async () => { second.serverOpen(); });
+      expect(screen.getByText(/Cannot connect to the host/)).toBeTruthy();
+
+      await act(async () => { second.serverSend('pi@rpi-genie5:~$ '); });
+      await tick(100);
+      expect(screen.queryByText(/Cannot connect to the host/)).toBeNull();
+    });
   });
   /* "세션 재시작" 은 tmux 를 **일부러** 죽이고 재접속이 새로 만들기를 기다리는 흐름이다.
      그런데 그 죽음은 화면상 "셸이 exit 했다" 와 구별되지 않아서, 자동 닫기 경로가 그대로

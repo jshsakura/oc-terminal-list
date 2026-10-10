@@ -34,7 +34,9 @@ import {
 } from './terminal/terminalHelpers';
 import { TerminalEdgeGutter, AuthPromptOverlay, TerminalContextMenu } from './terminal/TerminalOverlays';
 import { CopiedToast, FileDropOverlay, ImagePasteToast, ReconnectPill, TerminalSkeleton, MuxFallbackBanner } from './terminal/TerminalChrome';
-import { ConnectionTroubleCard, ShellClosingCard, ShellEndedCard, TakeoverCard } from './terminal/TerminalStatusCards';
+import {
+  ConnectionTroubleCard, HostUnreachableCard, ShellClosingCard, ShellEndedCard, TakeoverCard,
+} from './terminal/TerminalStatusCards';
 import attachTerminalFileDrop from './terminal/attachTerminalFileDrop';
 import attachIosHangulInput from './terminal/attachIosHangulInput';
 import attachImeTextareaGuard from './terminal/attachImeTextareaGuard';
@@ -250,6 +252,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const autoCloseTimerRef = useRef(null);
   // 로딩이 오래 걸려 멈춘 것으로 보일 때 true — 스켈레톤 위에 수동 닫기 버튼 노출.
   const [loadStuck, setLoadStuck] = useState(false);
+  /* 원격 호스트에 못 붙었다 — `{detail, retrySeconds}` 또는 null.
+     전에는 이 상황이 하단 스피너 하나로만 보여 **무한 로딩**으로 읽혔다. 서버가 보내 준
+     사유(`connect-failed` 의 detail)를 카드로 띄우는 데 쓴다. 성공(=서버 바이트 도착)에서만
+     내린다 — 시계로 내리면 아직 못 붙은 pane 이 멀쩡해 보인다. */
+  const [hostFailure, setHostFailure] = useState(null);
   /* 모바일에서 아직 한 번도 보지 않은 pane — 일부러 소켓을 안 열어둔 상태.
      "연결이 안 된다" 가 아니라 "아직 안 붙었다" 라, 실패 UI 를 띄우면 안 된다. */
   const [dormant, setDormant] = useState(false);
@@ -483,6 +490,10 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       reconnectTimeoutRef.current = null;
       connectRef.current?.({ create: false, autoRecover: true });
     }, delay);
+    /* 실패 카드가 "약 N초 뒤" 를 적을 수 있게 **예약된 간격**을 넘긴다. 1초 카운트다운은
+       일부러 안 한다 — pane 마다 초당 리렌더가 되고, 이북 모드에서는 그게 초당 화면 갱신
+       하나다. 사용자가 알아야 하는 것은 남은 초가 아니라 "자동으로 다시 시도한다" 다. */
+    setHostFailure((prev) => (prev ? { ...prev, retrySeconds: Math.round(delay / 1000) } : prev));
     // 긴 백오프 대기 중 서버 복귀 즉시 감지 — 활성·가시 pane 하나만 /api/health 를 저부하로
     // 두드리고, 성공하면 예약된 백오프를 기다리지 않고 바로 재연결한다. 데스크탑 포커스 탭은
     // resume 이벤트(online/focus/visible)가 영영 안 와서 서버가 돌아와도 최대 30s 를 더
@@ -727,6 +738,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       onContent: () => {
         setHasContent(true);
         hasContentRef.current = true;
+        /* 바이트가 왔으면 붙은 것이다 — 실패 카드를 여기서 내린다. 핸드셰이크("열렸다")로
+           내리면 안 된다: WS 는 열리고 그 뒤 SSH 가 15초 뒤 실패하는 게 이 버그의 원형이다. */
+        setHostFailure(null);
         if (contentReadyRef.current) return;
         contentReadyRef.current = true;
         onReadyChangeRef.current?.(true);
@@ -1266,6 +1280,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
                "재연결 중" pill 이 이미 진행 상황을 말하고 있다. */
             const detail = String(msg.detail || '');
             connectFailedSocketRef.current = socket;
+            /* 카드는 **매번** 갱신한다. 스크롤백 한 줄은 중복을 접지만(위 주석) 카드는
+               지금 상태를 그리는 것이라, 접으면 사유가 바뀌어도 옛 문장이 남는다. */
+            setHostFailure((prev) => (prev && prev.detail === detail ? prev : { detail, retrySeconds: 0 }));
             if (detail !== lastConnectFailDetailRef.current) {
               lastConnectFailDetailRef.current = detail;
               try {
@@ -2196,7 +2213,23 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
       {/* 로딩이 오래 멈춰 있을 때 — 어느 쪽(이 기기 vs 서버) 문제인지 명시하고,
           그 상황에서 실제로 되는 선택지만 준다. */}
-      {loadStuck && !hasContent && !ended && !evicted && !closing && (
+      {/* 원격 호스트 실패 — 서버가 준 사유를 그대로 보여주고, 자동 재시도가 돌고 있다고
+          말한다. `hasContent` 를 안 본다: 한 번 붙어 쓰다가 호스트가 죽은 pane 이야말로
+          이 카드가 가장 필요한 쪽인데, 그 pane 은 콘텐츠가 있어서 아래 카드에 영영 안 걸렸다
+          (그게 "무한 로딩" 으로 보였던 정체다). */}
+      {hostFailure && !ended && !evicted && !closing && (
+        <HostUnreachableCard
+          themeUi={themeUi}
+          t={t}
+          detail={hostFailure.detail}
+          retrySeconds={hostFailure.retrySeconds}
+          reconnecting={reconnecting}
+          onClosePane={onClosePane}
+          onRetry={handleRetryConnect}
+        />
+      )}
+
+      {loadStuck && !hasContent && !hostFailure && !ended && !evicted && !closing && (
         <ConnectionTroubleCard
           themeUi={themeUi}
           t={t}
@@ -2410,9 +2443,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         />
       )}
 
-      {/* 재연결 pill — 짧은 끊김은 아예 안 뜨고(디바운스), 길어지면 스피너. 복구되면 스르륵 사라진다. */}
+      {/* 재연결 pill — 짧은 끊김은 아예 안 뜨고(디바운스), 길어지면 스피너. 복구되면 스르륵 사라진다.
+          ⚠️ 실패 카드가 떠 있으면 숨긴다. 같은 말을 두 번 하는데 그중 하나가 스피너라,
+             확정된 실패가 다시 "로딩 중" 으로 읽힌다 — 그게 "무한 로딩" 신고의 절반이었다. */}
       {bannerMounted && (
-        <ReconnectPill themeUi={themeUi} t={t} isOffline={isOffline} visible={bannerShown} />
+        <ReconnectPill themeUi={themeUi} t={t} isOffline={isOffline} visible={bannerShown && !hostFailure} />
       )}
 
       {evicted && (
