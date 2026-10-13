@@ -285,25 +285,33 @@ export const sanitizeMobileKeys = (keys) => {
   return cleaned;
 };
 
-// 툴바를 고정 영역(pinned)과 스크롤 영역(scroll)으로 나눈다.
-// 빠른입력(cmdInput)은 항상 고정. 그 바로 뒤 항목이 구분자(sep)면 그 구분자도 함께
-// 고정해서 스크롤 경계를 구분자가 지키게 한다 — 키를 옆으로 밀어도 고정 버튼 옆에
+/** 키를 바 양 끝에 고정하는 자리. 이 밖의 값은 고정하지 않는다(스크롤 영역). */
+export const PIN_SIDES = ['left', 'right'];
+
+const pinSideOf = (k) => (k.kind !== 'sep' && PIN_SIDES.includes(k.pin) ? k.pin : null);
+
+/* 고정으로 키가 빠지면 그 자리의 구분자가 이웃 구분자와 겹치거나 맨 앞/뒤에 홀로 남는다.
+   아무것도 나누지 않는 선이므로 접는다. */
+const collapseDividers = (list) => list
+  .filter((k, i) => k.kind !== 'sep' || (i > 0 && list[i - 1].kind !== 'sep'))
+  .filter((k, i, arr) => k.kind !== 'sep' || i < arr.length - 1);
+
+// 툴바를 왼쪽 고정 · 스크롤 · 오른쪽 고정 세 영역으로 나눈다.
+// 빠른입력(cmdInput)은 항상 왼쪽 맨 앞에 고정. 그 바로 뒤 항목이 구분자(sep)면 그 구분자도
+// 함께 고정해서 스크롤 경계를 구분자가 지키게 한다 — 키를 옆으로 밀어도 고정 버튼 옆에
 // 엉뚱한 키가 붙지 않는다. pinnedKey 뒤가 sep가 아닌 구성에서는 pinnedDivider=null.
+// 그 밖의 키는 `pin: 'left' | 'right'` 로 사용자가 고른 쪽에 고정된다(바 안의 순서는 유지).
 export const splitPinnedAndScroll = (list) => {
   const pinnedKey = list.find((k) => k.kind === 'cmdInput') || null;
-  let pinnedDivider = null;
-  let scrollKeys;
-  if (pinnedKey) {
-    const pinnedIdx = list.indexOf(pinnedKey);
-    const next = list[pinnedIdx + 1];
-    if (next && next.kind === 'sep') {
-      pinnedDivider = next;
-      scrollKeys = list.filter((k) => k !== pinnedKey && k !== pinnedDivider);
-    } else {
-      scrollKeys = list.filter((k) => k !== pinnedKey);
-    }
-  } else {
-    scrollKeys = list;
-  }
-  return { pinnedKey, pinnedDivider, scrollKeys };
+  const pinnedIdx = pinnedKey ? list.indexOf(pinnedKey) : -1;
+  const next = pinnedKey ? list[pinnedIdx + 1] : null;
+  const pinnedDivider = next && next.kind === 'sep' ? next : null;
+  const rest = list.filter((k) => k !== pinnedKey && k !== pinnedDivider);
+  const leftKeys = rest.filter((k) => pinSideOf(k) === 'left');
+  const rightKeys = rest.filter((k) => pinSideOf(k) === 'right');
+  const hasPins = leftKeys.length > 0 || rightKeys.length > 0;
+  // 아무것도 빠지지 않았으면 같은 참조를 돌려준다 — 렌더마다 새 배열을 만들지 않게.
+  const scrollKeys = !pinnedKey && !hasPins ? list
+    : hasPins ? collapseDividers(rest.filter((k) => !pinSideOf(k))) : rest;
+  return { pinnedKey, pinnedDivider, leftKeys, scrollKeys, rightKeys };
 };

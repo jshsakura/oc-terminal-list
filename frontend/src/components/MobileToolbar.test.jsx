@@ -2,6 +2,33 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, cleanup, act } from '@testing-library/react';
 import MobileToolbar from './MobileToolbar';
 
+describe('MobileToolbar 양 끝 고정', () => {
+  const keys = [
+    { id: 'cmd', kind: 'cmdInput', tone: 'accent' },
+    { id: 'tab', kind: 'send', label: 'TAB', payload: '\t' },
+    { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', pin: 'left' },
+    { id: 'enter', kind: 'send', label: 'ENTER', payload: '\r', pin: 'right' },
+  ];
+
+  it('고정한 키는 스크롤 영역 밖 그 쪽 끝에 그리고, 눌러도 그대로 보낸다', () => {
+    const onSendKey = vi.fn();
+    render(<MobileToolbar language="en" keys={keys} onSendKey={onSendKey} />);
+    const left = screen.getByTestId('mobile-toolbar-pinned-left');
+    const right = screen.getByTestId('mobile-toolbar-pinned-right');
+    expect(left).toContainElement(screen.getByText('^C').closest('button'));
+    expect(right).toContainElement(screen.getByText('ENTER').closest('button'));
+    expect(right).not.toContainElement(screen.getByText('TAB').closest('button'));
+    fireEvent.touchStart(screen.getByText('ENTER').closest('button'));
+    fireEvent.touchEnd(screen.getByText('ENTER').closest('button'));
+    expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\r');
+  });
+
+  it('오른쪽에 고정한 키가 없으면 오른쪽 영역을 그리지 않는다', () => {
+    render(<MobileToolbar language="en" keys={keys.filter((k) => k.pin !== 'right')} />);
+    expect(screen.queryByTestId('mobile-toolbar-pinned-right')).toBeNull();
+  });
+});
+
 describe('MobileToolbar quick input', () => {
   it('keeps quick input in view mode and puts settings in the keyboard popup', () => {
     const onOpenSettings = vi.fn();

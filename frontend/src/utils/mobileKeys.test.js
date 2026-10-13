@@ -45,6 +45,48 @@ describe('splitPinnedAndScroll', () => {
     expect(scrollKeys).toBe(list);
   });
 
+  it('pin 이 left 인 키는 빠른입력 뒤 왼쪽 고정 영역에, right 인 키는 오른쪽 고정 영역에 둔다', () => {
+    const list = [
+      { id: 'cmd', kind: 'cmdInput', tone: 'accent' },
+      { id: 'sep1', kind: 'sep' },
+      { id: 'esc', kind: 'send', label: 'ESC', payload: '\x1b', pin: 'right' },
+      { id: 'tab', kind: 'send', label: 'TAB', payload: '\t' },
+      { id: 'ctrlc', kind: 'send', label: '^C', payload: '\x03', pin: 'left' },
+      { id: 'enter', kind: 'send', label: '⏎', payload: '\r', pin: 'right' },
+    ];
+    const { pinnedKey, leftKeys, scrollKeys, rightKeys } = splitPinnedAndScroll(list);
+    expect(pinnedKey).toBe(list[0]);
+    expect(leftKeys).toEqual([list[4]]);
+    expect(scrollKeys).toEqual([list[3]]);
+    expect(rightKeys).toEqual([list[2], list[5]]);
+  });
+
+  it('구분자와 모르는 pin 값은 고정하지 않는다', () => {
+    const list = [
+      { id: 'esc', kind: 'send', label: 'ESC', payload: '\x1b', pin: 'top' },
+      { id: 'sep1', kind: 'sep', pin: 'left' },
+      { id: 'tab', kind: 'send', label: 'TAB', payload: '\t' },
+    ];
+    const { leftKeys, scrollKeys, rightKeys } = splitPinnedAndScroll(list);
+    expect(leftKeys).toEqual([]);
+    expect(rightKeys).toEqual([]);
+    expect(scrollKeys).toBe(list);
+  });
+
+  it('고정으로 빠진 키 사이에 남은 구분자가 겹치거나 끝에 남지 않는다', () => {
+    const list = [
+      { id: 'a', kind: 'send', label: 'A', payload: 'a' },
+      { id: 's1', kind: 'sep' },
+      { id: 'b', kind: 'send', label: 'B', payload: 'b', pin: 'right' },
+      { id: 's2', kind: 'sep' },
+      { id: 'c', kind: 'send', label: 'C', payload: 'c' },
+      { id: 's3', kind: 'sep' },
+      { id: 'd', kind: 'send', label: 'D', payload: 'd', pin: 'left' },
+    ];
+    const { scrollKeys } = splitPinnedAndScroll(list);
+    expect(scrollKeys.map((k) => k.id)).toEqual(['a', 's1', 'c']);
+  });
+
   it('기본 키셋의 빠른입력 버튼은 고정 영역이다 — 스크롤에 밀려 사라지면 안 된다', () => {
     const { pinnedKey } = splitPinnedAndScroll(DEFAULT_MOBILE_KEYS);
     expect(pinnedKey?.kind).toBe('cmdInput');

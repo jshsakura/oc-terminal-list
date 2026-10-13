@@ -513,6 +513,8 @@ Direct input accepts a whole combination such as **Ctrl+C** or **Ctrl+Shift+←*
 Open **Register key combination** from quick bar settings for a separate modal.
 Select common special keys, navigation keys or F1–F12, or type a character, then add it to the current set.
 Hold and drag quick bar keys to reorder them. Dropping saves the order in the current set.
+To keep a key in view, set its **Position** to **Pin left** or **Pin right** in quick bar settings. Pinned keys stay at that end of
+the bar while the rest scroll. Quick Input is always pinned first on the left.
 Context-menu **Paste** pastes directly into the terminal; **Paste into Quick Input** fills the draft without sending it. No escape
 codes need to be entered manually.
 

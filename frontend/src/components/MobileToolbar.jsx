@@ -172,7 +172,7 @@ const MobileToolbar = ({
   // 빠른입력(⌘)은 스크롤 밖 좌측에 고정한다 — 키를 옆으로 밀다 보면 정작 제일 자주 쓰는
   // 버튼이 화면 밖으로 사라진다. 나머지 키만 가로 스크롤 영역에 남긴다.
   // 고정 영역 바로 뒤가 구분자면 그 구분자도 함께 고정(splitPinnedAndScroll 참조).
-  const { pinnedKey, pinnedDivider, scrollKeys } = splitPinnedAndScroll(reorder.keys);
+  const { pinnedKey, leftKeys, scrollKeys, rightKeys } = splitPinnedAndScroll(reorder.keys);
 
   const sendWithModifiers = (key) => {
     const finalKey = applyTerminalModifiers(key, { ctrl: ctrlActive, alt: altActive, shift: shiftActive });
@@ -382,10 +382,11 @@ const MobileToolbar = ({
           </div>, document.body)}
           <Divider />
         </div>}
-        {(pinnedKey || leading) && (
-          <div style={styles.pinned}>
+        {(pinnedKey || leading || leftKeys.length > 0) && (
+          <div data-testid="mobile-toolbar-pinned-left" style={styles.pinned}>
             {leading}
             {pinnedKey && renderItem(pinnedKey, 'pinned')}
+            {leftKeys.map((key, index) => renderItem(key, `left-${index}`))}
             <Divider />
           </div>
         )}
@@ -433,6 +434,13 @@ const MobileToolbar = ({
             )}
           </div>
         </div>
+        {/* 사용자가 오른쪽에 고정한 키. 스크롤 영역 밖이라 키를 옆으로 밀어도 늘 보인다. */}
+        {rightKeys.length > 0 && (
+          <div data-testid="mobile-toolbar-pinned-right" style={styles.pinnedRight}>
+            <Divider />
+            {rightKeys.map((key, index) => renderItem(key, `right-${index}`))}
+          </div>
+        )}
       </div>
     </>
   );
@@ -504,6 +512,13 @@ const styles = {
     alignItems: 'center',
     paddingLeft: space['1'],
     paddingRight: space['0.5'],
+  },
+  pinnedRight: {
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    paddingLeft: space['0.5'],
+    paddingRight: space['1'],
   },
   scroll: {
     flex: 1,

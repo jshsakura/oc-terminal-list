@@ -31,12 +31,20 @@ const TONE_OPTIONS = [
   { value: 'muted',  labelKey: 'toneMuted',   fallback: 'Muted' },
 ];
 
+// 바 양 끝 고정. 빠른입력은 늘 왼쪽 맨 앞이라 고를 것이 없다.
+const PIN_OPTIONS = [
+  { value: '',      labelKey: 'pinNone',  fallback: 'Scroll' },
+  { value: 'left',  labelKey: 'pinLeft',  fallback: 'Pin left' },
+  { value: 'right', labelKey: 'pinRight', fallback: 'Pin right' },
+];
+
 const newId = () => Math.random().toString(36).slice(2, 9);
 
 // kind 변경 시 종류별 필수 필드를 채워주고 무관 필드는 비움.
 // 모든 비-sep 종류는 icon + label 을 동시에 가질 수 있음 (택일 X).
 const morphForKind = (kind, prev = {}) => {
-  const base = { id: prev.id, kind, tone: prev.tone, icon: prev.icon || '', label: prev.label || '' };
+  const base = { id: prev.id, kind, tone: prev.tone, icon: prev.icon || '', label: prev.label || '',
+    ...(prev.pin && kind !== 'cmdInput' ? { pin: prev.pin } : {}) };
   if (kind === 'send')     return { ...base, payload: prev.payload || '' };
   if (kind === 'mod')      return { ...base, modifier: prev.modifier || 'ctrl' };
   if (kind === 'cmdInput') return { ...base };
@@ -363,6 +371,21 @@ const Row = ({
               <option key={o.value} value={o.value}>{tt(o.labelKey, o.fallback)}</option>
             ))}
           </select>
+
+          {/* pin */}
+          {k.kind !== 'cmdInput' && (
+            <select
+              value={k.pin || ''}
+              onChange={(e) => onPatch({ pin: e.target.value || undefined })}
+              title={tt('fieldPin', 'Position')}
+              aria-label={tt('fieldPin', 'Position')}
+              style={{ ...S.select, width: 80 }}
+            >
+              {PIN_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{tt(o.labelKey, o.fallback)}</option>
+              ))}
+            </select>
+          )}
         </>
       )}
 
