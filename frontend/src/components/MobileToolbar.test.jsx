@@ -206,6 +206,19 @@ describe('MobileToolbar 길게 누르기 반복', () => {
       fireEvent.touchEnd(screen.getByTitle('←'));
     } finally { vi.useRealTimers(); }
   });
+  it('천천히 누른 탭 뒤에 오는 합성 mousedown 은 한 번 더 보내지 않는다', () => {
+    vi.useFakeTimers();
+    try {
+      const onSendKey = vi.fn();
+      render(<MobileToolbar onSendKey={onSendKey} keys={[{ id: 'tab', kind: 'send', label: 'TAB', payload: '\t' }]} />);
+      const key = screen.getByText('TAB').closest('button');
+      fireEvent.touchStart(key);
+      act(() => vi.advanceTimersByTime(900)); // 유예(700ms)보다 오래 누른다
+      fireEvent.touchEnd(key);
+      fireEvent.mouseDown(key);               // iOS 는 뗀 뒤에야 합성 mousedown 을 보낸다
+      expect(onSendKey).toHaveBeenCalledExactlyOnceWith('\t');
+    } finally { vi.useRealTimers(); }
+  });
   it('stops key repeat while returning from terminal history', () => {
     vi.useFakeTimers();
     try {

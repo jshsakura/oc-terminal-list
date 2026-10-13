@@ -297,8 +297,10 @@ const MobileToolbar = ({
         }}
         // 손가락이 움직이면 툴바를 가로 스크롤하려는 것 — 반복을 끊는다.
         onTouchMove={() => repeaterRef.current?.stop()}
-        onTouchEnd={() => repeaterRef.current?.stop()}
-        onTouchCancel={() => repeaterRef.current?.stop()}
+        // 합성 mousedown 은 손가락을 **뗀 뒤** 온다 — 유예는 뗀 시각부터 센다(touchstart 기준이면
+        // 700ms 넘게 누른 탭이 한 번 더 들어간다).
+        onTouchEnd={() => { touchFiredAtRef.current = Date.now(); repeaterRef.current?.stop(); }}
+        onTouchCancel={() => { touchFiredAtRef.current = Date.now(); repeaterRef.current?.stop(); }}
         onMouseDown={(e) => {
           e.preventDefault();
           // 방금 터치로 이미 쏜 키의 합성 이벤트면 무시.

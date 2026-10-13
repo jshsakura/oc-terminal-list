@@ -45,7 +45,8 @@ describe('mobile view selection', () => {
     touch('touchstart', 95, 10);
     touch('touchmove', 15, 10);
     touch('touchend', 15, 10);
-    expect(term.select).toHaveBeenLastCalledWith(1, 0, 9);
+    // 경계 사이를 고른다: x=95 → 경계 10, x=15 → 경계 2. 손가락이 걸친 칸은 반을 넘어야 든다.
+    expect(term.select).toHaveBeenLastCalledWith(2, 0, 8);
     expect(scroll).not.toHaveBeenCalled();
   });
   it('vertical swipes keep scrolling without opening links or selecting', () => {
@@ -109,7 +110,7 @@ describe('mobile view selection', () => {
     overlay.dispatchEvent(new MouseEvent('mousedown', { button: 0, clientX: 15, clientY: 10, bubbles: true }));
     document.dispatchEvent(new MouseEvent('mousemove', { buttons: 1, clientX: 65, clientY: 10 }));
     document.dispatchEvent(new MouseEvent('mouseup', { button: 0, clientX: 65, clientY: 10 }));
-    expect(term.select).toHaveBeenLastCalledWith(1, 0, 6);
+    expect(term.select).toHaveBeenLastCalledWith(2, 0, 5);
     expect(menu).toHaveBeenCalledWith(expect.objectContaining({ hasSelection: true }));
   });
 });

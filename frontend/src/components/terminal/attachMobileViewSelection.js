@@ -1,5 +1,5 @@
 import createTerminalGeometry from '../../utils/terminalGeometry';
-import { selectionArgsFromCells } from '../../utils/terminalMouseSelection';
+import { selectionArgsFromCells, selectionArgsFromEdges } from '../../utils/terminalMouseSelection';
 import { getLinkAtClient, getFileLinkAtClient } from '../../utils/terminalLinkAt';
 
 const HOLD_MS = 500;
@@ -12,7 +12,7 @@ export const clampViewFontSize = (size) => Math.max(8, Math.min(28, Math.round(s
 export default function attachMobileViewSelection({ term, overlay, isReadOnly,
   scroll, setContextMenu, onFileLinkClick, onViewFontSize }) {
   if (!overlay) return { detach() {} };
-  const { bufferCellFromClientPoint } = createTerminalGeometry(term);
+  const { bufferCellFromClientPoint, bufferEdgeFromClientPoint } = createTerminalGeometry(term);
   let gesture = null;
   let holdTimer = null;
   let lastTouchAt = 0;
@@ -32,6 +32,17 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
   const select = (end) => {
     const args = selectionArgsFromCells(gesture.anchor, end, term.cols);
     if (args) term.select(args.column, args.row, args.length);
+  };
+  // 단어 없이 끄는 드래그는 칸이 아니라 경계 사이를 고른다 — 손가락이 막 걸친 칸이
+  // 끝에 하나 더 따라 들어가지 않게.
+  const selectBetween = (p) => {
+    const args = selectionArgsFromEdges(
+      bufferEdgeFromClientPoint(gesture.origin.x, gesture.origin.y),
+      bufferEdgeFromClientPoint(p.x, p.y),
+      term.cols,
+    );
+    if (args) term.select(args.column, args.row, args.length);
+    else term.clearSelection();
   };
   const selectWord = () => {
     if (!gesture || !isReadOnly()) return;
@@ -72,12 +83,11 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
       } else gesture.selecting = true;
     }
     if (gesture.scrolling) scroll((gesture.last.y - p.y) * 0.5, p.x, p.y);
+    else if (!gesture.word) selectBetween(p);
     else {
       const end = cellAt(p);
-      if (gesture.word) {
-        const before = end.row < gesture.word.start.row || (end.row === gesture.word.start.row && end.col < gesture.word.start.col);
-        gesture.anchor = before ? gesture.word.end : gesture.word.start;
-      }
+      const before = end.row < gesture.word.start.row || (end.row === gesture.word.start.row && end.col < gesture.word.start.col);
+      gesture.anchor = before ? gesture.word.end : gesture.word.start;
       select(end);
     }
     gesture.last = p;

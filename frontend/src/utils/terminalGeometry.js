@@ -55,7 +55,23 @@ const createTerminalGeometry = (term) => {
     };
   };
 
-  return { getCellHeight, deltaToLines, cellFromClientPoint, bufferCellFromClientPoint };
+  // 화면 좌표 → 0-based 버퍼 **경계** 좌표. 칸이 아니라 칸 사이의 선이다 — 칸의 오른쪽 절반을
+  // 넘어야 그 칸 뒤 경계가 된다(xterm 기본 드래그와 같은 규칙). 드래그 선택은 이걸 써야
+  // 커서가 막 걸친 칸이 따라 들어가지 않는다.
+  const bufferEdgeFromClientPoint = (clientX, clientY) => {
+    const screen = term.element?.querySelector('.xterm-screen') || term.element;
+    const rect = screen?.getBoundingClientRect?.();
+    const dims = cellDims();
+    const cellW = dims?.width || Math.max(1, (rect?.width || 0) / Math.max(1, term.cols)) || FALLBACK_CELL_WIDTH;
+    const x = Number.isFinite(clientX) ? clientX : ((rect?.left || 0) + (rect?.width || 0) / 2);
+    const cell = cellFromClientPoint(clientX, clientY);
+    return {
+      col: clamp(Math.round((x - (rect?.left || 0)) / cellW), 0, Math.max(1, term.cols)),
+      row: (term.buffer?.active?.viewportY || 0) + cell.row - 1,
+    };
+  };
+
+  return { getCellHeight, deltaToLines, cellFromClientPoint, bufferCellFromClientPoint, bufferEdgeFromClientPoint };
 };
 
 export default createTerminalGeometry;

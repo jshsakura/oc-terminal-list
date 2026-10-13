@@ -607,13 +607,13 @@ describe('attachTerminalInteractions', () => {
 
     it('임계값을 넘겨 끌면 xterm 선택으로 전환한다', () => {
       mount();
-      down(50, 50);   // 셀 (5, 2) 0-based
-      move(150, 90);  // 셀 (15, 4)
+      down(50, 50);   // 경계 (5, 2) 0-based
+      move(150, 90);  // 경계 (15, 4)
 
       expect(term.select).toHaveBeenCalled();
       const [column, row, length] = term.select.mock.calls[0];
       expect({ column, row }).toEqual({ column: 5, row: 2 });
-      expect(length).toBe(2 * 80 + (15 - 5) + 1); // 두 줄 + 10칸 + 1
+      expect(length).toBe(2 * 80 + (15 - 5)); // 두 줄 + 10칸, 끝 경계 뒤 칸은 넣지 않는다
     });
 
     it('마우스 트래킹이 꺼져 있으면 xterm 기본 선택에 맡긴다', () => {

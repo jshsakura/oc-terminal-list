@@ -2,7 +2,7 @@ import createTerminalGeometry from '../../utils/terminalGeometry';
 import { focusCommandDock } from '../commandinput/focusDock';
 import {
   shouldUseNaturalMouseSelection,
-  selectionArgsFromCells,
+  selectionArgsFromEdges,
   shouldRouteWheelToPty,
   shouldClearSelectionOnScroll,
 } from '../../utils/terminalMouseSelection';
@@ -78,7 +78,7 @@ const attachTerminalInteractions = ({
   setCopyFlash,
   setImagePasteState,
 }) => {
-  const { deltaToLines, cellFromClientPoint, bufferCellFromClientPoint } = createTerminalGeometry(term);
+  const { deltaToLines, cellFromClientPoint, bufferEdgeFromClientPoint } = createTerminalGeometry(term);
 
   const timers = new Set();
   const later = (fn, ms) => {
@@ -350,7 +350,7 @@ const attachTerminalInteractions = ({
     naturalSelection = {
       startX: e.clientX,
       startY: e.clientY,
-      start: bufferCellFromClientPoint(e.clientX, e.clientY),
+      start: bufferEdgeFromClientPoint(e.clientX, e.clientY),
       selecting: false,
     };
   };
@@ -362,9 +362,9 @@ const attachTerminalInteractions = ({
     naturalSelection.selecting = true;
     e.preventDefault();
     e.stopPropagation();
-    const args = selectionArgsFromCells(
+    const args = selectionArgsFromEdges(
       naturalSelection.start,
-      bufferCellFromClientPoint(e.clientX, e.clientY),
+      bufferEdgeFromClientPoint(e.clientX, e.clientY),
       term.cols,
     );
     if (args) term.select(args.column, args.row, args.length);
