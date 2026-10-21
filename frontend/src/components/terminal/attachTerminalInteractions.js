@@ -67,6 +67,8 @@ const attachTerminalInteractions = ({
   getSocket,
   isMobile,
   isReadOnly = () => false,
+  // When true, a plain right-click belongs to the app inside the pane (herdr etc.); Shift+right-click still opens our menu.
+  shouldPassRightClick = () => false,
   scrollReadOnly = null,
   onViewFontSize = null,
   onFileLinkClick = null,
@@ -271,12 +273,15 @@ const attachTerminalInteractions = ({
     lastRightClickMenuAt = Date.now();
     setContextMenu({ x: e.clientX, y: e.clientY, hasSelection: !!term.hasSelection(), linkUrl: getLinkAtClient(term, e.clientX, e.clientY) });
   };
+  const isPassedToApp = (e) => shouldPassRightClick() && !e.shiftKey && !isMobile();
   const handleRightMouseDown = (e) => {
     if (e.button !== 2) return;
+    if (isPassedToApp(e)) return;   // xterm encodes it for the PTY
     openContextMenuFromEvent(e);
   };
   const handleContextMenu = (e) => {
-    e.preventDefault();
+    e.preventDefault();             // the browser's own menu never belongs here
+    if (isPassedToApp(e)) return;
     e.stopPropagation();
     e.stopImmediatePropagation?.();
     // mousedown 에서 이미 열었으면 뒤따르는 contextmenu 는 무시.

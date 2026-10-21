@@ -225,6 +225,10 @@ def _tmux_session_options(safe: str, itl_pane_key: str | None = None,
         f"tmux bind-key -T root WheelDownPane "
         f"if-shell -F '#{{||:#{{pane_in_mode}},#{{mouse_any_flag}}}}' 'send-keys -M' '' >/dev/null 2>&1; "
         # copy-mode 안의 휠은 덮지 않는다 — tmux 기본이 이미 같다.
+        # 우클릭은 안쪽 앱이 마우스를 원할 때만 넘긴다(로컬 tmux_manager 와 한 벌).
+        f"tmux bind-key -T root MouseDown3Pane \"if-shell -F '#{{mouse_any_flag}}' {{ send-keys -M }}\" >/dev/null 2>&1; "
+        f"tmux bind-key -T root MouseUp3Pane \"if-shell -F '#{{mouse_any_flag}}' {{ send-keys -M }}\" >/dev/null 2>&1; "
+        f"tmux bind-key -T root MouseDrag3Pane \"if-shell -F '#{{mouse_any_flag}}' {{ send-keys -M }}\" >/dev/null 2>&1; "
         
     )
 

@@ -190,6 +190,12 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
         checked={s.predictiveEcho !== false}
         onChange={(v) => change('predictiveEcho', v)}
       />
+      <Toggle
+        label={t('rightClickToApp')}
+        hint={t('rightClickToAppHint')}
+        checked={s.rightClickToApp === true}
+        onChange={(v) => change('rightClickToApp', v)}
+      />
       <Field
         label={`${t('scrollSensitivity')} · ${(s.scrollSensitivity ?? 0.8).toFixed(1)}`}
         hint={t('scrollSensitivityHint')}

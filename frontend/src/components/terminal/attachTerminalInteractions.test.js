@@ -382,6 +382,39 @@ describe('attachTerminalInteractions', () => {
 
       expect(setContextMenu).not.toHaveBeenCalled();
     });
+
+    describe('우클릭을 터미널 앱으로 전달하는 설정이 켜져 있을 때', () => {
+      const contextMenu = (init = {}) => {
+        const event = new MouseEvent('contextmenu', { clientX: 30, clientY: 40, bubbles: true, cancelable: true, ...init });
+        container.dispatchEvent(event);
+        return event;
+      };
+
+      it('그냥 우클릭은 우리 메뉴를 열지 않고 mousedown 을 xterm 에 남긴다', () => {
+        mount({ shouldPassRightClick: () => true });
+        const down = new MouseEvent('mousedown', { button: 2, bubbles: true, cancelable: true });
+        container.dispatchEvent(down);
+        const menu = contextMenu();
+
+        expect(setContextMenu).not.toHaveBeenCalled();
+        expect(down.defaultPrevented).toBe(false);
+        expect(menu.defaultPrevented).toBe(true); // 브라우저 기본 메뉴는 막는다
+      });
+
+      it('Shift+우클릭은 여전히 우리 메뉴를 연다', () => {
+        mount({ shouldPassRightClick: () => true });
+        container.dispatchEvent(new MouseEvent('mousedown', { button: 2, shiftKey: true, clientX: 30, clientY: 40, bubbles: true, cancelable: true }));
+
+        expect(setContextMenu).toHaveBeenCalledTimes(1);
+      });
+
+      it('모바일에서는 설정과 무관하게 우리 메뉴를 쓴다', () => {
+        mount({ shouldPassRightClick: () => true, isMobile: () => true });
+        rightDown();
+
+        expect(setContextMenu).toHaveBeenCalledTimes(1);
+      });
+    });
   });
 
   describe('키 가로채기', () => {

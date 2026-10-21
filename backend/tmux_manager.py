@@ -331,10 +331,18 @@ class TmuxManager:
         # 서버가 그대로 살아 있으면(tmux 는 백엔드보다 오래 산다) 저절로 돌아오지 않는다.
         await self._run("bind-key", "-T", "root", "MouseDown1Status", "select-window -t =", check=False)
 
+        # 우클릭은 **안쪽 앱이 마우스를 원할 때만** 넘기고, 아니면 버린다(tmux 기본 메뉴는 우리
+        # 컨텍스트 메뉴와 겹쳐 계속 쓰지 않는다). 프론트가 `rightClickToApp` 일 때만 이 이벤트를
+        # 보내므로 꺼져 있으면 여기까지 오지 않는다. 원격(host_manager)과 한 벌이다.
+        for _key in ("MouseDown3Pane", "MouseUp3Pane", "MouseDrag3Pane"):
+            await self._run(
+                "bind-key", "-T", "root", _key,
+                "if-shell -F '#{mouse_any_flag}' { send-keys -M }", check=False,
+            )
         for _ev in (
-            # 우클릭 메뉴는 계속 우리 것을 쓴다(창/세션 메뉴가 우리 컨텍스트 메뉴와 겹친다).
+            # 가운데 클릭 붙여넣기는 X11 선택 버퍼가 브라우저에 없어 계속 푼다.
             "MouseDown2Pane", "MouseUp2Pane",
-            "MouseDown3Pane", "MouseDown3Status", "MouseDown3StatusLeft", "MouseDown3StatusRight",
+            "MouseDown3Status", "MouseDown3StatusLeft", "MouseDown3StatusRight",
         ):
             await self._run("unbind-key", "-T", "root", _ev, check=False)
 

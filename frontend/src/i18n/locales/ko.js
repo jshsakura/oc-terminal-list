@@ -296,6 +296,8 @@ export const ko = {
   terminalInputDismiss: '닫기',
     showTerminalScrollbarHint: '터미널 오른쪽 스크롤바를 드래그해 이전 출력을 봅니다.',
     terminalScrollUnavailable: '스크롤 기록을 불러올 수 없습니다',
+    rightClickToApp: '우클릭을 터미널 앱으로 전달',
+    rightClickToAppHint: '켜면 우클릭이 herdr 같은 마우스 앱으로 갑니다. Shift+우클릭은 항상 이 앱의 메뉴를 엽니다.',
     predictiveEcho: '예측 입력',
     predictiveEchoHint: '키 입력을 서버 응답을 기다리지 않고 즉시 화면에 표시(mosh 방식). 에디터(vim/less)·비밀번호 입력에선 자동으로 꺼집니다.',
     save: '저장',
