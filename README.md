@@ -401,6 +401,7 @@ sudo systemctl restart iterminallist.service
 - Reconnect after browser refresh; the backend reattaches to persistent `tmux` sessions.
 - Rename a tab from its `⋯` menu; close a tab to end the sessions inside it.
 - Use the mobile toolbar keys for `Esc`, `Tab`, `Ctrl+C`, arrows, and paste on touch devices.
+- **Right-click** opens this app's menu (copy, paste, send file). **Shift+right-click** goes to the program inside the pane instead, so mouse-aware TUIs such as herdr show their own menu. Inside tmux it is forwarded only when that program has mouse reporting on. On touch devices a long press opens this app's menu. Firefox always shows its own menu on Shift+right-click, and a page cannot block it.
 - **Reload terminal** (pane `…` menu) remounts the view and re-attaches to the *same* shell — its PATH, shell hash, and running processes are untouched.
 - **Restart session** (pane `…` menu) kills the tmux session and opens a fresh shell **at the same directory**. Use it when a just-installed binary isn't on `PATH` yet. Everything running inside dies, so it asks for confirmation first.
 
