@@ -206,6 +206,10 @@ AGENT_NAMES = (
     "claude", "openclaude", "codex", "copilot", "cursor", "gemini",
     "antigravity", "opencode", "aider", "grok", "devin", "droid", "hermes", "agy",
 )
+#: Multiplexers people run *inside* a tmux pane. The foreground process is then the
+#: multiplexer, not the agent in its focused pane, so judging by agent name alone left
+#: every send into herdr/cmux typed but never submitted.
+INNER_MULTIPLEXERS = frozenset({"herdr", "cmux", "zellij", "tmux", "screen"})
 # 토큰 단위 매치. substring 이면 "android" ⊃ "droid", "~/codex/ready" ⊃ "codex" 가 전부 오탐.
 _B, _BE = r"(?<![\w./\\-])", r"(?![\w./\\-])"
 _AGENT_NAME_RE = re.compile(
@@ -693,6 +697,16 @@ def foreground_command(tty: str) -> list[str]:
     return []
 
 
+def sender_tag(sender: str) -> str:
+    """Same string as `itl_router.sender_tag`; the test suite keeps the two identical."""
+    return f"[from {sender} · 답장: itl send {sender} '…'] "
+
+
+def accepts_enter(pane: dict) -> bool:
+    """An agent, or a multiplexer whose focused pane is where the text lands."""
+    return is_agent(pane) or (pane.get("agent") or "") in INNER_MULTIPLEXERS
+
+
 def is_agent(pane: dict) -> bool:
     """Is an agent (not a bare shell) sitting in this pane?
 
@@ -961,15 +975,15 @@ def main(argv: list[str] | None = None) -> int:
     # Submitting it into an agent is a prompt; submitting it into a shell would run it.
     enter = not args.no_enter
     text = args.text
-    if not args.enter_if_agent and is_agent(pane):
+    if not args.enter_if_agent and accepts_enter(pane):
         # A same-machine send never passes the backend, which is where the sender tag used
         # to be added. Without it the receiving agent cannot tell who wrote or where to reply.
         me = whoami(panes)
         sender = (me.get("app_addr") or me.get("addr")) if me else ""
         if sender and me is not pane and sender != (pane.get("app_addr") or pane.get("addr")):
-            text = f"[from {sender}] {text}"
+            text = sender_tag(sender) + text
     if args.enter_if_agent:
-        enter = enter and is_agent(pane)
+        enter = enter and accepts_enter(pane)
         # Last hop of a backend-mediated send: a line feed typed into a pane *is* Enter,
         # so the "no Enter into a shell" rule has to hold for the bytes too.
         text = _CONTROL_RE.sub(" ", text)

@@ -148,6 +148,15 @@ async def list_targets(username: str) -> list[dict]:
     return await _targets_for(username)
 
 
+def sender_tag(sender: str) -> str:
+    """Who wrote this and how to answer. The receiving agent may never have heard of itl.
+
+    ⚠️ `cli/itl` builds the same string for same-machine sends (`sender_tag` there too);
+    `test_sender_tag_is_the_same_on_both_paths` keeps them identical.
+    """
+    return f"[from {sender} · 답장: itl send {sender} '…'] "
+
+
 async def deliver(username: str, addr: str, text: str, *, sender: str = "",
                   submit: bool = True) -> dict:
     """`addr` 이 가리키는 팬에 `text` 를 꽂는다.
@@ -174,7 +183,7 @@ async def deliver(username: str, addr: str, text: str, *, sender: str = "",
         raise DeliveryFailed(f"{addr} 에는 붙을 세션이 없다 (빈 팬)")
 
     # 꼬리표는 주소 모양일 때만. 받는 쪽 에이전트가 누구에게 답할지 알아야 한다.
-    tag = f"[from {sender}] " if ADDR_RE.match((sender or "").strip()) else ""
+    tag = sender_tag(sender.strip()) if ADDR_RE.match((sender or "").strip()) else ""
     payload = f"{tag}{text}"
 
     # `--enter-if-agent`: text arriving through this channel may have originated on

@@ -248,7 +248,7 @@ class TestDeliver:
         """🔐 임의 문자열이 새면 받는 에이전트에게 보내는 쪽을 사칭할 수 있다."""
         with patch.object(itl_router, "_run_local", AsyncMock(return_value="")) as local:
             await itl_router.deliver("u", "1.1", "x", sender="1.2")
-            assert local.await_args.args[0][2] == "[from 1.2] x"
+            assert local.await_args.args[0][2] == itl_router.sender_tag("1.2") + "x"
             await itl_router.deliver("u", "1.1", "x", sender="rm -rf /; echo")
             assert local.await_args.args[0][2] == "x"
 
@@ -350,7 +350,7 @@ class TestDeliverFromPane:
             # 표식에는 보낸이 칸이 아예 없다. 열쇠(h1/mobile-x)로 2.1 을 되짚어야 한다.
             await itl_router.deliver_from_pane("u", "mobile-x", {"to": "1.1", "text": "보고"},
                                                host_id="h1")
-        assert local.await_args.args[0][2] == "[from 2.1] 보고"
+        assert local.await_args.args[0][2] == itl_router.sender_tag("2.1") + "보고"
 
     async def test_같은_세션_이름이_호스트_둘에_있어도_제_팬을_찾는다(self):
         """원격 기본 세션명은 어느 호스트나 `mobile` 이다. 이름만 보면 먼저 나온 호스트가
@@ -531,7 +531,7 @@ class TestOutboxChannel:
         ):
             await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "a", "n": "n1"})
             await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "b", "n": "n2"})
-        assert len([a for a in sent if a[2] in ("[from 1.1] a", "[from 1.1] b")]) == 2
+        assert len([a for a in sent if a[2] in (itl_router.sender_tag("1.1") + "a", itl_router.sender_tag("1.1") + "b")]) == 2
 
     async def test_난수가_없으면_접지_않는다(self):
         """옛 클라이언트가 보낸 것 — 판단할 근거가 없으면 배달하는 쪽이 안전하다."""

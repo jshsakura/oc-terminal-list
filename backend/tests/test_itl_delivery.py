@@ -124,7 +124,26 @@ def test_same_machine_send_tags_the_sender_for_agents_only(monkeypatch, capsys, 
     monkeypatch.setattr(itl, "send", lambda pane, text, *, enter: (sent.update(text=text), (True, ""))[1])
 
     assert itl.main(["send", "receiver", "작업"]) == 0
-    assert sent["text"] == ("[from 2.5] 작업" if tagged else "작업")
+    assert sent["text"] == (itl.sender_tag("2.5") + "작업" if tagged else "작업")
+
+
+def test_sender_tag_is_the_same_on_both_paths():
+    """Same-machine sends tag in the CLI, cross-machine sends tag in the router. A receiving
+    agent must see one format, with the reply command spelled out."""
+    assert itl.sender_tag("2.5") == itl_router.sender_tag("2.5")
+    assert "itl send 2.5" in itl.sender_tag("2.5")
+
+
+@pytest.mark.parametrize("command", ["herdr", "cmux", "zellij", "tmux", "screen"])
+def test_backend_send_presses_enter_into_inner_multiplexers(monkeypatch, capsys, command):
+    """herdr/cmux run inside the tmux pane, so the foreground process is the multiplexer
+    and the agent-name check skipped Enter: the text sat in the prompt unsubmitted."""
+    pane = itl.pane_record(itl.TMUX, "/private/socket", "receiver", "%0", agent=command)
+    monkeypatch.setattr(itl, "discover", lambda: [pane])
+    monkeypatch.setattr(itl, "send", lambda pane, text, *, enter: (True, ""))
+
+    assert itl.main(["--json", "send", "receiver", "작업", "--enter-if-agent"]) == 0
+    assert json.loads(capsys.readouterr().out)["enterSent"] is True
 
 
 @pytest.mark.parametrize("agent, enter_sent", [("codex", True), ("zsh", False)])
@@ -270,7 +289,7 @@ def test_cli_current_server_doctor_and_tab_send(receiving_pane):
     assert json.loads(sent.stdout)["delivery"] == "enter-sent"
     subprocess.run([*base, "wait-for", "done"], check=True, timeout=7)
     # Same-machine send into an agent now carries the sender tag (the backend used to add it).
-    assert received.read_bytes() == b"\x1b[200~" + "[from 99.2] 탭 간 전달 확인".encode() + b"\x1b[201~\r"
+    assert received.read_bytes() == b"\x1b[200~" + (itl.sender_tag("99.2") + "탭 간 전달 확인").encode() + b"\x1b[201~\r"
 
 
 async def test_backend_delivery_ignores_inherited_unrelated_socket(receiving_pane, monkeypatch):
@@ -384,7 +403,7 @@ async def test_cli_gets_backend_receipt_without_browser(receiving_pane, monkeypa
         assert client.returncode == (0 if target_exists else 3)
         if target_exists:
             subprocess.run([*base, "wait-for", "done"], check=True, timeout=5)
-            assert result_file.read_bytes() == b"\x1b[200~[from 1.1] receipt-test\x1b[201~\r"
+            assert result_file.read_bytes() == b"\x1b[200~" + (itl_router.sender_tag("1.1") + "receipt-test").encode() + b"\x1b[201~\r"
     finally:
         if client.poll() is None:
             client.kill()
