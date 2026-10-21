@@ -360,7 +360,8 @@ def test_stdlib_만_쓴다():
     import ast
     tree = ast.parse(ITL_PATH.read_text(encoding="utf-8"))
     allowed = {
-        "argparse", "json", "os", "re", "secrets", "shlex", "shutil", "subprocess", "sys", "__future__",
+        "argparse", "fcntl", "json", "os", "re", "secrets", "shlex", "shutil", "subprocess", "sys",
+        "tempfile", "time", "__future__",
     }
     imported = set()
     for node in ast.walk(tree):

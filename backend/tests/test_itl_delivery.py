@@ -73,6 +73,60 @@ def test_send_frames_paste_before_enter(receiving_pane, copy_mode, text):
     assert result.read_bytes() == b"\x1b[200~" + text.encode() + b"\x1b[201~\r"
 
 
+def test_enter_waits_for_the_paste_and_is_pressed_twice(monkeypatch, tmp_path):
+    """Claude Code left the text unsubmitted: an Enter riding the paste's own tmux command
+    landed before the TUI finished the paste and was folded into it."""
+    pane = itl.pane_record(itl.TMUX, str(tmp_path / "sock"), "receiver", "%0", agent="codex")
+    events = []
+
+    def fake_run(argv, **_kwargs):
+        events.append(("run", tuple(argv[3:])))
+        return 0, "0\n", ""
+
+    monkeypatch.setattr(itl, "tmux_bin", lambda: "tmux")
+    monkeypatch.setattr(itl, "run", fake_run)
+    monkeypatch.setattr(itl.time, "sleep", lambda sec: events.append(("sleep", sec)))
+
+    ok, error = itl.send(pane, "작업", enter=True)
+
+    assert ok, error
+    paste = next(i for i, e in enumerate(events) if e[0] == "run" and "paste-buffer" in e[1])
+    assert "Enter" not in events[paste][1]
+    assert events[paste + 1:] == [
+        ("sleep", itl.PASTE_SETTLE_SEC), ("run", ("send-keys", "-t", "%0", "Enter")),
+        ("sleep", itl.ENTER_RETRY_SEC), ("run", ("send-keys", "-t", "%0", "Enter")),
+    ]
+
+
+def test_no_enter_pastes_only(monkeypatch, tmp_path):
+    pane = itl.pane_record(itl.TMUX, str(tmp_path / "sock"), "receiver", "%0", agent="codex")
+    calls = []
+    monkeypatch.setattr(itl, "tmux_bin", lambda: "tmux")
+    monkeypatch.setattr(itl, "run", lambda argv, **_k: (calls.append(argv[3:]), (0, "0\n", ""))[1])
+    monkeypatch.setattr(itl.time, "sleep", lambda sec: pytest.fail("no Enter means no wait"))
+
+    assert itl.send(pane, "작업", enter=False) == (True, "")
+    assert not any("Enter" in c for c in calls)
+
+
+@pytest.mark.parametrize("agent, tagged", [("codex", True), ("zsh", False)])
+def test_same_machine_send_tags_the_sender_for_agents_only(monkeypatch, capsys, agent, tagged):
+    """A same-machine send skips the backend, which is where `[from …]` was added, so the
+    receiving agent could not tell who wrote or where to reply. Shells stay untagged:
+    `itl send 1.2 'ls'` must still run `ls`."""
+    me = itl.pane_record(itl.TMUX, "/s", "sender", "%1", agent="codex")
+    me["app_addr"] = "2.5"
+    target = itl.pane_record(itl.TMUX, "/s", "receiver", "%0", agent=agent)
+    target["app_addr"] = "5.1"
+    sent = {}
+    monkeypatch.setattr(itl, "discover", lambda: [me, target])
+    monkeypatch.setattr(itl, "whoami", lambda panes: me)
+    monkeypatch.setattr(itl, "send", lambda pane, text, *, enter: (sent.update(text=text), (True, ""))[1])
+
+    assert itl.main(["send", "receiver", "작업"]) == 0
+    assert sent["text"] == ("[from 2.5] 작업" if tagged else "작업")
+
+
 @pytest.mark.parametrize("agent, enter_sent", [("codex", True), ("zsh", False)])
 def test_send_receipt_distinguishes_enter_from_typing(monkeypatch, capsys, agent, enter_sent):
     pane = itl.pane_record(itl.TMUX, "/private/socket", "receiver", "%0", agent=agent)
@@ -215,7 +269,8 @@ def test_cli_current_server_doctor_and_tab_send(receiving_pane):
                           check=True, capture_output=True, text=True, env=env, timeout=3)
     assert json.loads(sent.stdout)["delivery"] == "enter-sent"
     subprocess.run([*base, "wait-for", "done"], check=True, timeout=7)
-    assert received.read_bytes() == b"\x1b[200~" + "탭 간 전달 확인".encode() + b"\x1b[201~\r"
+    # Same-machine send into an agent now carries the sender tag (the backend used to add it).
+    assert received.read_bytes() == b"\x1b[200~" + "[from 99.2] 탭 간 전달 확인".encode() + b"\x1b[201~\r"
 
 
 async def test_backend_delivery_ignores_inherited_unrelated_socket(receiving_pane, monkeypatch):

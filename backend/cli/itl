@@ -38,12 +38,20 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
+import time
 
 #: 어떤 조회도 여기서 더 기다리지 않는다 — 끝나지 않는 대기는 버그다.
 TIMEOUT_SEC = 5.0
 
 #: 한 번에 꽂을 수 있는 길이. 터미널 한 줄에 붙여넣는 것 이상은 이 도구의 일이 아니다.
 MAX_TEXT_BYTES = 8192
+#: A TUI (Claude Code, Codex) digests a bracketed paste asynchronously. An Enter that lands
+#: before it is done is folded into the paste and the prompt is left unsubmitted.
+PASTE_SETTLE_SEC = 0.4
+#: A second Enter catches a first one that was still swallowed. Enter on an empty prompt
+#: does nothing in agents or shells, so the extra press is harmless.
+ENTER_RETRY_SEC = 0.6
 
 TMUX = "tmux"
 
@@ -437,16 +445,46 @@ def send_tmux(pane: dict, text: str, *, enter: bool) -> tuple[bool, str]:
     code, _out, err = run([*base, "load-buffer", "-b", buffer, "-"], input_text=text)
     if code != 0:
         return False, err.strip() or f"load-buffer → {code}"
-    # Framing keeps a TUI's paste-burst heuristic from consuming Enter as a newline.
-    # One tmux command queue keeps another sender out of the paste/Enter boundary.
-    args = [*base, "paste-buffer", "-p", "-r", "-d", "-b", buffer, "-t", target]
-    if enter:
-        args += [";", "send-keys", "-t", target, "Enter"]
-    code, _out, err = run(args)
-    if code != 0:
-        run([*base, "delete-buffer", "-b", buffer])
-        return False, err.strip() or f"paste/Enter → {code}"
+    # The pane lock keeps another sender out of the paste/Enter window now that the Enter
+    # no longer rides the same tmux command as the paste.
+    with pane_lock(pane):
+        # Framing keeps a TUI's paste-burst heuristic from consuming Enter as a newline.
+        code, _out, err = run([*base, "paste-buffer", "-p", "-r", "-d", "-b", buffer, "-t", target])
+        if code != 0:
+            run([*base, "delete-buffer", "-b", buffer])
+            return False, err.strip() or f"paste → {code}"
+        if not enter:
+            return True, ""
+        for delay in (PASTE_SETTLE_SEC, ENTER_RETRY_SEC):
+            time.sleep(delay)
+            code, _out, err = run([*base, "send-keys", "-t", target, "Enter"])
+            if code != 0:
+                return False, err.strip() or f"Enter → {code}"
     return True, ""
+
+
+class pane_lock:
+    """Per-pane advisory lock so two senders cannot interleave paste and Enter."""
+
+    def __init__(self, pane: dict):
+        key = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{pane['socket']}-{pane['native_id']}")
+        self.path = os.path.join(tempfile.gettempdir(), f"itl-{os.getuid()}-{key}.lock")
+        self.fd = None
+
+    def __enter__(self):
+        try:
+            import fcntl
+            self.fd = os.open(self.path, os.O_CREAT | os.O_RDWR, 0o600)
+            fcntl.flock(self.fd, fcntl.LOCK_EX)
+        except (ImportError, OSError):
+            # A lock we cannot take must not block delivery; it only narrows a race.
+            self.fd = None
+        return self
+
+    def __exit__(self, *_exc):
+        if self.fd is not None:
+            os.close(self.fd)   # closing releases the flock
+        return False
 
 
 def put_outbox(line: str) -> bool:
@@ -923,6 +961,13 @@ def main(argv: list[str] | None = None) -> int:
     # Submitting it into an agent is a prompt; submitting it into a shell would run it.
     enter = not args.no_enter
     text = args.text
+    if not args.enter_if_agent and is_agent(pane):
+        # A same-machine send never passes the backend, which is where the sender tag used
+        # to be added. Without it the receiving agent cannot tell who wrote or where to reply.
+        me = whoami(panes)
+        sender = (me.get("app_addr") or me.get("addr")) if me else ""
+        if sender and me is not pane and sender != (pane.get("app_addr") or pane.get("addr")):
+            text = f"[from {sender}] {text}"
     if args.enter_if_agent:
         enter = enter and is_agent(pane)
         # Last hop of a backend-mediated send: a line feed typed into a pane *is* Enter,
