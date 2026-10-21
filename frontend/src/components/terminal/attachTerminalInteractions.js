@@ -67,8 +67,6 @@ const attachTerminalInteractions = ({
   getSocket,
   isMobile,
   isReadOnly = () => false,
-  // When true, a plain right-click belongs to the app inside the pane (herdr etc.); Shift+right-click still opens our menu.
-  shouldPassRightClick = () => false,
   scrollReadOnly = null,
   onViewFontSize = null,
   onFileLinkClick = null,
@@ -273,15 +271,37 @@ const attachTerminalInteractions = ({
     lastRightClickMenuAt = Date.now();
     setContextMenu({ x: e.clientX, y: e.clientY, hasSelection: !!term.hasSelection(), linkUrl: getLinkAtClient(term, e.clientX, e.clientY) });
   };
-  const isPassedToApp = (e) => shouldPassRightClick() && !e.shiftKey && !isMobile();
+  // Shift+right-click belongs to the app inside the pane (herdr etc.). xterm turns Shift+click
+  // into a text selection instead of a mouse report, so the SGR report is sent by hand.
+  const SGR_RIGHT_BUTTON = 2;
+  let appRightPressed = false;
+  const isPassedToApp = (e) => e.shiftKey && !isMobile() && !isReadOnly();
+  const sendRightReport = (e, suffix) => {
+    const ws = getSocket();
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const { col, row } = cellFromClientPoint(e.clientX, e.clientY);
+    input.push(`\x1b[<${SGR_RIGHT_BUTTON};${col};${row}${suffix}`);
+  };
   const handleRightMouseDown = (e) => {
     if (e.button !== 2) return;
-    if (isPassedToApp(e)) return;   // xterm encodes it for the PTY
+    if (isPassedToApp(e)) {
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation?.();
+      appRightPressed = true;
+      sendRightReport(e, 'M');
+      return;
+    }
     openContextMenuFromEvent(e);
+  };
+  const handleRightMouseUp = (e) => {
+    if (e.button !== 2 || !appRightPressed) return;
+    appRightPressed = false;
+    sendRightReport(e, 'm');
   };
   const handleContextMenu = (e) => {
     e.preventDefault();             // the browser's own menu never belongs here
-    if (isPassedToApp(e)) return;
+    if (isPassedToApp(e)) { e.stopPropagation(); return; }
     e.stopPropagation();
     e.stopImmediatePropagation?.();
     // mousedown 에서 이미 열었으면 뒤따르는 contextmenu 는 무시.
@@ -472,6 +492,7 @@ const attachTerminalInteractions = ({
   // ── 배선 ──
   container.addEventListener('mousedown', handleRightMouseDown, true);
   container.addEventListener('contextmenu', handleContextMenu, true);
+  document.addEventListener('mouseup', handleRightMouseUp, true);
   container.addEventListener('keydown', handleKeyDown);
   container.addEventListener('paste', handlePaste, true);
   container.addEventListener('mousedown', handleNaturalMouseDown, true);
@@ -501,6 +522,7 @@ const attachTerminalInteractions = ({
       viewSelection.detach();
       container.removeEventListener('mousedown', handleRightMouseDown, true);
       container.removeEventListener('contextmenu', handleContextMenu, true);
+      document.removeEventListener('mouseup', handleRightMouseUp, true);
       container.removeEventListener('keydown', handleKeyDown);
       container.removeEventListener('paste', handlePaste, true);
       container.removeEventListener('mousedown', handleNaturalMouseDown, true);

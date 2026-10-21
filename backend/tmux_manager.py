@@ -332,8 +332,8 @@ class TmuxManager:
         await self._run("bind-key", "-T", "root", "MouseDown1Status", "select-window -t =", check=False)
 
         # 우클릭은 **안쪽 앱이 마우스를 원할 때만** 넘기고, 아니면 버린다(tmux 기본 메뉴는 우리
-        # 컨텍스트 메뉴와 겹쳐 계속 쓰지 않는다). 프론트가 `rightClickToApp` 일 때만 이 이벤트를
-        # 보내므로 꺼져 있으면 여기까지 오지 않는다. 원격(host_manager)과 한 벌이다.
+        # 컨텍스트 메뉴와 겹쳐 계속 쓰지 않는다). 프론트가 Shift+우클릭일 때만 이 이벤트를
+        # 직접 보내므로 평소 우클릭은 여기까지 오지 않는다. 원격(host_manager)과 한 벌이다.
         for _key in ("MouseDown3Pane", "MouseUp3Pane", "MouseDrag3Pane"):
             await self._run(
                 "bind-key", "-T", "root", _key,

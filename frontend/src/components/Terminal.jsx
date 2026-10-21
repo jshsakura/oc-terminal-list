@@ -584,8 +584,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const isFocusedRef = useRef(isFocused);
   useEffect(() => { isFocusedRef.current = isFocused; }, [isFocused]);
   // 이북(전자잉크) 모드 — 출력 싱크의 코얼레싱 창을 정한다(createOutputSink 참고).
-  const rightClickToAppRef = useRef(settings?.rightClickToApp === true);
-  rightClickToAppRef.current = settings?.rightClickToApp === true;
   const isEinkRef = useRef(settings?.einkMode === true);
   useEffect(() => { isEinkRef.current = settings?.einkMode === true; }, [settings?.einkMode]);
   // outage 프로브 리스 키 — ref 라 markEnded/cleanup 의 deps 를 건드리지 않는다.
@@ -809,7 +807,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       getSocket: () => wsRef.current,
       isMobile: () => isMobileRef.current,
       isReadOnly: () => readOnlyRef.current,
-      shouldPassRightClick: () => rightClickToAppRef.current,
       scrollReadOnly: (lines, cell) => {
         viewHistoryTouchedRef.current = true;
         readOnlyScrollRef.current?.(lines, cell);

@@ -293,8 +293,6 @@ export const en = {
   terminalInputDismiss: 'Dismiss',
     showTerminalScrollbarHint: 'Drag the scrollbar on the right to view earlier output.',
     terminalScrollUnavailable: 'Scroll history is unavailable',
-    rightClickToApp: 'Send right-click to terminal app',
-    rightClickToAppHint: 'When on, right-click goes to mouse apps like herdr. Shift+right-click always opens this app\'s menu.',
     predictiveEcho: 'Predictive echo',
     predictiveEchoHint: 'Show typed characters instantly without waiting for the server (mosh-style). Auto-disabled in editors (vim/less) and password prompts.',
     save: 'Save',
