@@ -30,6 +30,29 @@ os.environ.pop("REDIS_URL", None)
 for _var in ("TMUX", "TMUX_PANE", "ITL_KEY"):
     os.environ.pop(_var, None)
 
+# ⚠️ 테스트는 **운영 tmux 소켓에 세션을 만들지 않는다.**
+# `tmux_manager` 는 import 시점에 `TMUX_SOCKET_NAME` 을 읽고, 기본값이 곧 운영 소켓
+# (`iterminallist-app`)이다. `create_session` 을 목하지 않은 테스트 두 개가 스위트를 돌릴
+# 때마다 운영 서버에 `sess-1` 을 만들었고, 그 세션은 아무 탭도 들고 있지 않아 영영
+# 남았다(2026-10-21 발견, 9/30 부터 쌓여 있었다). 테스트마다 막는 대신 소켓을 통째로
+# 테스트 전용으로 돌린다 — 새 테스트가 목을 빠뜨려도 운영에는 닿지 않는다.
+TEST_TMUX_SOCKET = f"iterminallist-test-{os.getpid()}"
+os.environ["TMUX_SOCKET_NAME"] = TEST_TMUX_SOCKET
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """테스트 소켓에 생긴 tmux 서버는 끝나면 걷는다(없으면 조용히 지나간다)."""
+    import subprocess
+    subprocess.run(["tmux", "-L", TEST_TMUX_SOCKET, "kill-server"],
+                   capture_output=True, check=False)
+    # A server that died on its own leaves the socket file behind; remove it too.
+    tmpdir = os.environ.get("TMUX_TMPDIR") or "/tmp"
+    sock = os.path.join(tmpdir, f"tmux-{os.getuid()}", TEST_TMUX_SOCKET)
+    try:
+        os.unlink(sock)
+    except FileNotFoundError:
+        pass
+
 
 @pytest.fixture(autouse=True)
 def _itl_secret_in_tmp(tmp_path, monkeypatch):

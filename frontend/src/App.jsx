@@ -14,7 +14,7 @@ import useAuth from './hooks/useAuth';
 import useHosts from './hooks/useHosts';
 import useSshKeys from './hooks/useSshKeys';
 import useViewport from './hooks/useViewport';
-import killRemoteSession from './utils/killRemoteSession';
+import killRemoteSession, { killLocalSession } from './utils/killRemoteSession';
 import useTerminalSearch from './hooks/useTerminalSearch';
 import useFilePicker from './hooks/useFilePicker';
 import useEditorResize from './hooks/useEditorResize';
@@ -212,6 +212,21 @@ function App() {
     });
   }, [t]);
 
+  // Local twin of killRemoteTmuxSession: retried, and a final failure is reported, not swallowed.
+  const killLocalTmuxSession = useCallback((sessionId) => {
+    if (!sessionId) return;
+    killLocalSession(sessionId).then((ok) => {
+      if (ok) return;
+      setNotification({
+        isOpen: true,
+        type: 'error',
+        message: (t('localSessionKillFailed')
+          || '세션을 종료하지 못했습니다: {name}. 홈의 “이어할 수 있는 세션”에서 정리할 수 있습니다')
+          .replace('{name}', sessionId.slice(0, 8)),
+      });
+    });
+  }, [t]);
+
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || null, [tabs, activeTabId]);
 
   // 탭별 영속성 (tmux 로 작업이 살아남는지) — 로컬은 항상 true, 호스트는 use_remote_tmux 따라감.
@@ -348,9 +363,7 @@ function App() {
       }
       // 로컬 세션 정리
       if (currentPane.sessionId && !currentPane.hostId) {
-        fetch(`/api/sessions/${currentPane.sessionId}`, {
-          method: 'DELETE', headers: authHeaders(),
-        }).catch(() => {});
+        killLocalTmuxSession(currentPane.sessionId);
       }
       // 호스트 pane → 자신의 원격 tmux 세션도 종료 (의도적 close = 영속 끝).
       // pane 0 도 포함 — 단일 pane 케이스는 이미 closeTab 으로 위임됐으니 여긴 항상 멀티 pane 의
@@ -393,7 +406,7 @@ function App() {
       message,
       onConfirm: doClose,
     });
-  }, [tabs, t, getPaneCloseIdentity, computePaneTmuxSession, killRemoteTmuxSession, commitWorkspaceTabs]);
+  }, [tabs, t, getPaneCloseIdentity, computePaneTmuxSession, killRemoteTmuxSession, killLocalTmuxSession, commitWorkspaceTabs]);
 
   const focusPane = useCallback((tabId, paneId) => {
     setTabs((prev) => prev.map((t) => t.id === tabId ? { ...t, activePaneId: paneId } : t));
@@ -429,12 +442,7 @@ function App() {
     const expectedTabIdentity = expectedIdentity || getTabCloseIdentity(tab);
 
     const terminateSessions = (targets) => {
-      targets.localSessionIds.forEach((sessionId) => {
-        fetch(`/api/sessions/${sessionId}`, {
-          method: 'DELETE',
-          headers: authHeaders(),
-        }).catch(() => {});
-      });
+      targets.localSessionIds.forEach((sessionId) => killLocalTmuxSession(sessionId));
       targets.remoteSessions.forEach(({ hostId, session }) => killRemoteTmuxSession(hostId, session));
     };
 
@@ -485,7 +493,7 @@ function App() {
       confirmText: t('closeTab') || 'Close tab',
       onConfirm: closeAndTerminate,
     });
-  }, [tabs, t, getCloseTargetOptions, getTabCloseIdentity, killRemoteTmuxSession, commitWorkspaceTabs]);
+  }, [tabs, t, getCloseTargetOptions, getTabCloseIdentity, killRemoteTmuxSession, killLocalTmuxSession, commitWorkspaceTabs]);
 
   useEffect(() => { closeTabRef.current = closeTab; }, [closeTab]);
 

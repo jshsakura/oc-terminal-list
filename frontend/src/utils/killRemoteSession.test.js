@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { killRemoteSession } from './killRemoteSession';
+import { killRemoteSession, killLocalSession } from './killRemoteSession';
 
 /* ⚠️ 실측 사고. 탭 닫기의 kill 이 `.catch(() => {})` 였다 — 백엔드가 재시작 중이거나
    연결이 막혀 있으면 **닫은 탭의 세션이 조용히 살아남았고**, 그건 다음에 홈의 "이어할 수
@@ -54,5 +54,38 @@ describe('killRemoteSession', () => {
     vi.stubGlobal('fetch', f);
     expect(await run(killRemoteSession('h1', 's1'))).toBe(false);
     expect(f.mock.calls.length).toBeGreaterThan(1);
+  });
+});
+
+describe('killLocalSession', () => {
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+
+  const run = (promise) => {
+    const flush = async () => { for (let i = 0; i < 8; i += 1) { await vi.advanceTimersByTimeAsync(20000); } };
+    return Promise.all([promise, flush()]).then(([r]) => r);
+  };
+
+  it('로컬 세션은 DELETE /api/sessions/{id} 로 죽인다', async () => {
+    const f = vi.fn(() => Promise.resolve({ ok: true, status: 200 }));
+    vi.stubGlobal('fetch', f);
+    expect(await run(killLocalSession('abc-1'))).toBe(true);
+    expect(f.mock.calls[0][0]).toBe('/api/sessions/abc-1');
+    expect(f.mock.calls[0][1].method).toBe('DELETE');
+  });
+
+  it('백엔드가 재시작 중이라 못 닿으면 다시 시도한다(배포 직후 탭 닫기)', async () => {
+    let n = 0;
+    vi.stubGlobal('fetch', vi.fn(() => {
+      n += 1;
+      return n < 3 ? Promise.reject(new Error('network')) : Promise.resolve({ ok: true, status: 200 });
+    }));
+    expect(await run(killLocalSession('abc-1'))).toBe(true);
+    expect(n).toBe(3);
+  });
+
+  it('끝내 못 닿으면 false 를 돌려 호출부가 말하게 한다', async () => {
+    vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('network'))));
+    expect(await run(killLocalSession('abc-1'))).toBe(false);
   });
 });

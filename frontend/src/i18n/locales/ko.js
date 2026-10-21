@@ -941,6 +941,7 @@ export const ko = {
     itlInstalling: '설치 중…',
     itlLoadError: '상태 조회 실패',
     itlHint: '앱이 만드는 원격 터미널에 자격이 자동 주입됩니다. 설치되는 것은 비밀 없는 CLI 스크립트 하나뿐.',
+    localSessionKillFailed: '세션을 종료하지 못했습니다: {name}. 홈의 “이어할 수 있는 세션”에서 정리할 수 있습니다',
     sessionKillFailed: '원격 세션을 종료하지 못했습니다: {name} — 홈의 “이어할 수 있는 세션”에서 정리할 수 있습니다',
     hostsUnreachable: '{names} 은(는) 확인하지 못했습니다 — 눌러서 다시 시도',
     remoteAgent: '리모트',

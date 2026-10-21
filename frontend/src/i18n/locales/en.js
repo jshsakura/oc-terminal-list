@@ -936,6 +936,7 @@ export const en = {
     itlInstalling: 'Installing…',
     itlLoadError: 'Failed to check status',
     itlHint: 'Credentials are injected automatically into terminals this app creates. Installation is a single secret-free CLI script.',
+    localSessionKillFailed: 'Could not terminate the session: {name}. You can clear it from “Resumable sessions” on the home screen',
     sessionKillFailed: 'Could not terminate the remote session: {name} — you can clear it from “Resumable sessions” on the home screen',
     hostsUnreachable: 'Could not check {names} — tap to retry',
     remoteAgent: 'Remote',

@@ -23,15 +23,11 @@ const RETRY_DELAYS_MS = [0, 2000, 5000, 12000];
 
 const sleep = (ms) => new Promise((done) => { setTimeout(done, ms); });
 
-export const killRemoteSession = async (hostId, sessionName) => {
-  if (!hostId || !sessionName) return true;      // 죽일 것이 없다
-  const url = `/api/hosts/${encodeURIComponent(hostId)}/kill-tmux`
-    + `?session=${encodeURIComponent(sessionName)}&allow_attached=true`;
-
+const killWithRetry = async (url, method) => {
   for (const delay of RETRY_DELAYS_MS) {
     if (delay) await sleep(delay);
     try {
-      const res = await apiFetch(url, { method: 'POST', headers: authHeaders() });
+      const res = await apiFetch(url, { method, headers: authHeaders() });
       if (res.ok || res.status === 404) return true;
       if (res.status >= 400 && res.status < 500) return false;   // 서버가 답했다
     } catch {
@@ -39,6 +35,21 @@ export const killRemoteSession = async (hostId, sessionName) => {
     }
   }
   return false;
+};
+
+export const killRemoteSession = async (hostId, sessionName) => {
+  if (!hostId || !sessionName) return true;      // 죽일 것이 없다
+  return killWithRetry(
+    `/api/hosts/${encodeURIComponent(hostId)}/kill-tmux`
+      + `?session=${encodeURIComponent(sessionName)}&allow_attached=true`,
+    'POST',
+  );
+};
+
+/** Same rule for this server's sessions: the local close path used to swallow failures too. */
+export const killLocalSession = async (sessionId) => {
+  if (!sessionId) return true;
+  return killWithRetry(`/api/sessions/${encodeURIComponent(sessionId)}`, 'DELETE');
 };
 
 export default killRemoteSession;
