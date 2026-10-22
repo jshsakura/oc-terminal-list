@@ -3,6 +3,7 @@ import { uploadImageAndGetPath } from '../terminal/terminalHelpers';
 
 // 업로드 실패 문구를 띄워두는 시간 — 지나면 상태를 비워 원래 아이콘으로 돌아간다.
 const ERROR_HOLD_MS = 2500;
+const BLOCKED_HOLD_MS = 10000;
 
 /**
  * 이미지 첨부 — 📎 버튼(파일 피커)과 textarea 붙여넣기 두 경로 모두를 담당한다.
@@ -49,9 +50,10 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
      (terminal 붙여넣기 경로는 uploadWithRetry 로 blob 을 붙잡고 재시도까지 한다.) */
   const failUpload = (err) => {
     console.error('image upload failed', err);
-    setUploadState(err?.kind === 'blocked' ? 'blocked' : 'error');
+    const isBlocked = err?.kind === 'blocked';
+    setUploadState(isBlocked ? 'blocked' : 'error');
     window.clearTimeout(errorTimerRef.current);
-    errorTimerRef.current = window.setTimeout(() => setUploadState(null), ERROR_HOLD_MS);
+    errorTimerRef.current = window.setTimeout(() => setUploadState(null), isBlocked ? BLOCKED_HOLD_MS : ERROR_HOLD_MS);
   };
 
   /** 한 장 업로드 → 첨부 기록 + 커서 위치에 경로 삽입. 가드/상태는 호출자가 맡는다. */

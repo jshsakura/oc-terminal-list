@@ -163,7 +163,7 @@ export const ImagePasteToast = ({ state, themeUi, t }) => {
       {kind === 'blocked' && (
         <>
           <AlertTriangle size={11} strokeWidth={2} style={{ color: themeUi.danger || themeUi.text }} />
-          {t('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
+          {t('imagePasteBlocked') || '연결이 차단되었습니다. 새로고침하세요'}
         </>
       )}
       {kind === 'folder' && (

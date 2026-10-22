@@ -58,6 +58,8 @@ const COPY_FLASH_MS = 1800;
 const RIGHT_CLICK_MENU_DEDUP_MS = 700;
 const IMAGE_TOAST_DONE_MS = 1200;
 const IMAGE_TOAST_ERROR_MS = 2500;
+// Long enough to read and act on: the only fix for a blocked path is a reload.
+const IMAGE_TOAST_BLOCKED_MS = 10000;
 
 const attachTerminalInteractions = ({
   term,
@@ -182,14 +184,21 @@ const attachTerminalInteractions = ({
       attempt: () => uploadImageAndGetPath(blob, hostId),
       onState: (state, err) => {
         if (state === 'done') return;                 // 경로 삽입까지 끝난 뒤에 표시한다
+        // Say "blocked" the moment we know, not after the whole retry ladder: a spinner
+        // for ~44s reads as "still uploading" and the final toast was easy to miss.
+        if (state === 'retrying' && err?.kind === 'blocked') {
+          setImagePasteState('blocked');
+          return;
+        }
         if (state === 'uploading' || state === 'retrying') {
           setImagePasteState('uploading');
           return;
         }
         logger.error(`image paste upload ${state}`, err);
         reportClientError(getSocket, { scope: 'paste-image', kind: err?.kind || state, detail: err?.detail });
-        setImagePasteState(state === 'blocked' ? 'blocked' : 'error');
-        later(() => setImagePasteState(null), IMAGE_TOAST_ERROR_MS);
+        const isBlocked = state === 'blocked';
+        setImagePasteState(isBlocked ? 'blocked' : 'error');
+        later(() => setImagePasteState(null), isBlocked ? IMAGE_TOAST_BLOCKED_MS : IMAGE_TOAST_ERROR_MS);
       },
     });
     if (!data || isReadOnly()) return;

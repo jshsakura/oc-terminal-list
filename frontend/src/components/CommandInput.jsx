@@ -701,7 +701,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
           {/* 요청이 서버에 닿지도 못한 경우 — 파일이나 호스트 문제가 아니라 연결이다. */}
           {image.uploadState === 'blocked' && (
             <span style={{ color: `var(--ui-danger, ${color.danger})` }}>
-              {t?.('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
+              {t?.('imagePasteBlocked') || '연결이 차단되었습니다. 새로고침하세요'}
             </span>
           )}
         </div>
@@ -813,7 +813,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
             )}
             {image.uploadState === 'blocked' && (
               <span style={{ color: `var(--ui-danger, ${color.danger})` }}>
-                {t?.('imagePasteBlocked') || '연결이 막혀 업로드하지 못했습니다 — 새로고침 후 다시 시도하세요'}
+                {t?.('imagePasteBlocked') || '연결이 차단되었습니다. 새로고침하세요'}
               </span>
             )}
             {!image.uploadState && image.attachedTokens > 0 && (
