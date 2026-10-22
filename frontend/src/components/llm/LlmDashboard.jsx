@@ -60,7 +60,12 @@ function useUsage(days) {
     const cached = _cache.get(days);
     if (!force && cached && Date.now() - cached.ts < CACHE_TTL_MS) { setData(cached.data); return; }
     if (!force && _inFlight.has(days)) {
-      _inFlight.get(days).then((d) => { if (alive.current) setData(d); }).catch(() => {});
+      // Joining is still loading: without busy this renders nothing until the request lands.
+      setBusy(true);
+      _inFlight.get(days)
+        .then((d) => { if (alive.current) setData(d); })
+        .catch((e) => { if (alive.current) setErr(e.message || 'fetch failed'); })
+        .finally(() => { if (alive.current) setBusy(false); });
       return;
     }
     setBusy(true);
