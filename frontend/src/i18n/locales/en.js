@@ -794,6 +794,7 @@ export const en = {
     searchContents: 'Search in files',
     searchFilenames: 'Search filenames',
     contentSearchHint: 'Type at least 2 chars to search file contents',
+    nameSearchHint: 'Type at least 2 chars to search file names',
     noResults: 'No results',
     resultsTruncated: 'Showing first 200 results',
     upload: 'Upload',

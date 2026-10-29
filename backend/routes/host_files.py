@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import mimetypes
 import os
@@ -14,12 +15,13 @@ import asyncssh
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response, StreamingResponse
 
+import host_search
 import host_sftp
 import multiplexer as mux
 from _deps import verify_auth_token
 from file_models import FilePathsRequest
 from file_revision import content_revision
-from host_common import resolve_host_with_secrets
+from host_common import resolve_host_with_secrets, run_remote_cmd_pooled
 from host_manager import HostConnectError
 
 logger = logging.getLogger(__name__)
@@ -108,6 +110,34 @@ async def list_host_files(
         "fs": result.get("fs"),
         "host_id": host_id,
     }
+
+
+SEARCH_TIMEOUT_SEC = 15.0
+
+
+@router.get("/files/search")
+async def search_host_files(
+    host_id: str,
+    q: str = Query(..., min_length=1, max_length=host_search.MAX_QUERY_LEN),
+    mode: str = Query(host_search.MODE_NAME, pattern="^(name|content)$"),
+    path: str = Query("", description="검색을 시작할 원격 디렉토리. 비우면 홈."),
+    username: str = Depends(verify_auth_token),
+):
+    """원격 호스트에서 find / rg(없으면 grep) 를 돌려 이름·내용으로 찾는다. 설치 0."""
+    query = q.strip()
+    if not query:
+        return {"items": [], "truncated": False, "host_id": host_id}
+    host, secrets = await resolve_host_with_secrets(host_id, username)
+    cmd = host_search.build_command(path, query, mode)
+    try:
+        rc, stdout, _stderr = await run_remote_cmd_pooled(host, secrets, cmd, timeout=SEARCH_TIMEOUT_SEC)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="검색 시간이 초과되었습니다.")
+    except Exception as e:
+        raise _fail("search", host_id, path, e, "원격 검색 실패")
+    if rc == host_search.EXIT_BAD_ROOT:
+        raise HTTPException(status_code=404, detail="검색할 경로를 찾을 수 없습니다.")
+    return {**host_search.parse_output(stdout, mode), "host_id": host_id}
 
 
 @router.get("/files/read")

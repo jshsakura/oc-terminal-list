@@ -664,7 +664,13 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const canGoUp = parentOfRoot !== null;
   const rootDisplay = isHostMode ? (normalizedResolvedRoot || (normalizedRootPath || '~')) : (rootPath || '/');
   const searchVisible = searchOpen || !!searchQuery;
-  const isContentMode = searchMode === 'content' && searchVisible && !isHostMode;
+  // 원격은 로드된 노드만 거르는 트리 필터로는 깊은 파일을 못 찾으므로, 이름 검색도 호스트에서 find 를 돌린다.
+  const isContentMode = searchVisible && (isHostMode || searchMode === 'content');
+  const hostSearchUrl = useMemo(() => {
+    if (!isHostMode) return undefined;
+    const root = normalizedResolvedRoot || normalizedRootPath || '';
+    return (q) => `${apiBase}/search?q=${encodeURIComponent(q)}&mode=${searchMode}&path=${encodeURIComponent(root)}`;
+  }, [isHostMode, apiBase, searchMode, normalizedResolvedRoot, normalizedRootPath]);
   const canGoDown = rootPathForwardStack.length > 0;
   const renderTransferBar = (state, key) => {
     if (!state) return null;
@@ -802,7 +808,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       <div style={{ ...styles.searchBar, ...(searchVisible ? styles.searchBarOpen : {}) }} aria-hidden={!searchVisible}>
         <Search size={12} style={{ color: color.muted }} />
         <input ref={searchInputRef} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder={searchMode === 'content' ? (t('searchContents') || 'Search in files') : t('searchFiles')} style={styles.searchInput} tabIndex={searchVisible ? 0 : -1} />
-        {!isHostMode && searchVisible && (
+        {searchVisible && (
           <button
             onClick={() => setSearchMode((m) => (m === 'content' ? 'name' : 'content'))}
             style={styles.searchClearBtn}
@@ -843,7 +849,16 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
       {/* 내용 검색 모드 — 트리 리스트 대신 grep 결과. 트리 div 는 언마운트 없이 숨김(상태/스크롤 보존). */}
       {isContentMode && (
         <div style={{ ...styles.list, display: 'flex', flexDirection: 'column' }}>
-          <ContentSearch query={searchQuery} onOpen={(p) => onFileSelect?.(p, hostId)} t={t} />
+          <ContentSearch
+            query={searchQuery}
+            t={t}
+            buildUrl={hostSearchUrl}
+            hint={isHostMode && searchMode === 'name' ? (t('nameSearchHint') || 'Type at least 2 chars to search file names') : null}
+            onOpen={(p, _line, item) => {
+              if (item?.type === 'directory') { goToPath(p); setSearchQuery(''); setSearchOpen(false); return; }
+              onFileSelect?.(p, hostId);
+            }}
+          />
         </div>
       )}
       <div ref={listRef} style={{ ...styles.list, outline: 'none', ...(isContentMode ? { display: 'none' } : {}) }} tabIndex={-1} onKeyDown={handleTreeKeyDown} onScroll={handleListScroll} onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setContextMenu({ x: e.clientX, y: e.clientY, target: { path: '', type: 'directory' } }); }}>
