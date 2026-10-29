@@ -73,3 +73,10 @@ def test_parse_output_flags_truncation():
 def test_parse_skips_malformed_lines():
     assert hs.parse_name_output("garbage\n\t\n") == []
     assert hs.parse_content_output("no-nul-here\npath\0notanumber:x\n") == []
+
+
+def test_dirs_only_returns_only_folders(tree):
+    _, out = _run(hs.build_command(str(tree), "report", hs.MODE_NAME, dirs_only=True))
+    items = hs.parse_output(out, hs.MODE_NAME, dirs_only=True)["items"]
+    assert [i["name"] for i in items] == ["reports"]
+    assert items[0]["type"] == "directory"

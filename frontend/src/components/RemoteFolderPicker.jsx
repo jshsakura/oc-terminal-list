@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home, Eye, EyeOff } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { X, Folder, ArrowUp, ArrowLeft, ChevronRight, Home, Eye, EyeOff, Search } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import TerminalLaunchOptions from './common/TerminalLaunchOptions';
 import NewFolderRow from './common/NewFolderRow';
@@ -34,6 +34,11 @@ const HoverBtn = ({ baseStyle, hoverStyle, disabled = false, children, ...rest }
   );
 };
 
+const MIN_DEEP_QUERY = 2;
+const SEARCH_DEBOUNCE_MS = 250;
+// 숨김 폴더 안의 결과는 점 폴더를 감춘 상태와 어긋나므로, 검색 시작 경로 기준 상대 경로로 판정한다.
+const isInsideDotFolder = (hitPath, root) => /(^|\/)\./.test(hitPath.slice(root.length));
+
 const parentOf = (abs) => {
   if (!abs || abs === '/') return '/';
   const trimmed = abs.replace(/\/+$/, '');
@@ -63,6 +68,9 @@ const RemoteFolderPicker = ({
   /* 점 폴더는 기본으로 감춘다 — 홈 디렉토리는 특히 심하다(.ssh/.cache/.local/.npm…).
      LocalFolderPicker 와 같은 저장소를 쓰므로 토글 하나가 둘 다에 적용된다. */
   const [showHidden, setShowHidden] = useState(readShowHidden);
+  const [query, setQuery] = useState('');
+  const [hits, setHits] = useState({ items: [], loading: false, error: null, truncated: false });
+  const searchReqRef = useRef(0);
   const toggleHidden = useCallback(() => {
     setShowHidden((prev) => { writeShowHidden(!prev); return !prev; });
   }, []);
@@ -98,6 +106,7 @@ const RemoteFolderPicker = ({
     setPath('');
     setItems([]);
     setError(null);
+    setQuery('');
     load(initialPath || '');
   }, [isOpen, host?.id, initialPath, load]);
 
@@ -108,12 +117,41 @@ const RemoteFolderPicker = ({
     return () => document.removeEventListener('keydown', handle);
   }, [isOpen, onClose]);
 
+  const trimmedQuery = query.trim();
+  const isDeepSearch = trimmedQuery.length >= MIN_DEEP_QUERY;
+  useEffect(() => {
+    if (!isOpen || !host || !isDeepSearch || !path) return undefined;
+    const id = searchReqRef.current + 1;
+    searchReqRef.current = id;
+    setHits((h) => ({ ...h, loading: true, error: null }));
+    const timer = setTimeout(async () => {
+      try {
+        const qs = `q=${encodeURIComponent(trimmedQuery)}&mode=name&dirs_only=true&path=${encodeURIComponent(path)}`;
+        const res = await fetch(`/api/hosts/${host.id}/files/search?${qs}`, { headers: authHeaders() });
+        if (id !== searchReqRef.current) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.detail || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        setHits({ items: data.items || [], loading: false, error: null, truncated: !!data.truncated });
+      } catch (e) {
+        if (id !== searchReqRef.current) return;
+        setHits({ items: [], loading: false, error: e.message || 'search failed', truncated: false });
+      }
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [isOpen, host, isDeepSearch, trimmedQuery, path]);
+
   if (!isOpen || !host) return null;
 
-  const { shown, hiddenCount } = splitHiddenEntries(items, showHidden);
+  const { shown: visible, hiddenCount } = splitHiddenEntries(items, showHidden);
+  const needle = trimmedQuery.toLowerCase();
+  const shown = needle && !isDeepSearch ? visible.filter((i) => i.name.toLowerCase().includes(needle)) : visible;
+  const shownHits = showHidden ? hits.items : hits.items.filter((h) => !isInsideDotFolder(h.path, path));
   const goUp = () => load(parentOf(path));
   const goHome = () => load('');
-  const enter = (folder) => load(folder.path);
+  const enter = (folder) => { setQuery(''); load(folder.path); };
   /* 원격도 로컬과 같은 모양이다 — 경로가 절대 경로라는 것만 다르다. 루트에서 만들 때
      `//` 가 되지 않게 끝의 슬래시를 정리한다. */
   const createFolder = async (name) => {
@@ -184,8 +222,51 @@ const RemoteFolderPicker = ({
           </div>
         </div>
 
+        <div style={styles.searchRow}>
+          <Search size={12} strokeWidth={1.8} style={{ color: color.muted, flexShrink: 0 }} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }}
+            placeholder={t?.('searchFolders') || 'Search folders'}
+            style={styles.searchInput}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            aria-label={t?.('searchFolders') || 'Search folders'}
+          />
+          {query && (
+            <HoverBtn type="button" onClick={() => setQuery('')} baseStyle={styles.closeBtn} hoverStyle={styles.iconBtnHover} title={t?.('clearSearch') || 'Clear search'}>
+              <X size={12} strokeWidth={2} />
+            </HoverBtn>
+          )}
+        </div>
+
         <div style={styles.body}>
-          {loading && (
+          {isDeepSearch && (
+            <>
+              {hits.loading && shownHits.length === 0 && <div style={styles.notice}>{t?.('loading') || 'Loading…'}</div>}
+              {hits.error && <div style={{ ...styles.notice, color: color.danger }}>{hits.error}</div>}
+              {!hits.loading && !hits.error && shownHits.length === 0 && <div style={styles.notice}>{t?.('noResults') || 'No results'}</div>}
+              {!hits.error && shownHits.map((h) => (
+                <button
+                  key={h.path}
+                  type="button"
+                  onClick={() => enter(h)}
+                  style={styles.row}
+                  title={h.path}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = color.surface0; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
+                >
+                  <Folder size={14} strokeWidth={1.8} style={{ color: color.accent, flexShrink: 0 }} />
+                  <span style={{ ...styles.rowName, flex: '0 1 auto' }}>{h.name}</span>
+                  <span style={styles.rowDir}>{parentOf(h.path).slice(path.length) || '/'}</span>
+                </button>
+              ))}
+              {hits.truncated && <div style={styles.notice}>{t?.('resultsTruncated') || 'Showing first 200 results…'}</div>}
+            </>
+          )}
+          {!isDeepSearch && loading && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', padding: `${space['2']} ${space['3']}` }}>
               {[0, 1, 2, 3, 4, 5].map((i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px' }}>
@@ -196,15 +277,15 @@ const RemoteFolderPicker = ({
               ))}
             </div>
           )}
-          {error && !loading && <div style={{ ...styles.notice, color: color.danger }}>{error}</div>}
-          {!loading && !error && shown.length === 0 && (
+          {!isDeepSearch && error && !loading && <div style={{ ...styles.notice, color: color.danger }}>{error}</div>}
+          {!isDeepSearch && !loading && !error && shown.length === 0 && (
             <div style={styles.notice}>
               {hiddenCount > 0
                 ? (t?.('onlyHiddenHere') || 'Only hidden folders here.')
                 : (t?.('emptyFolder') || 'No subfolders here.')}
             </div>
           )}
-          {!loading && !error && shown.map((it) => (
+          {!isDeepSearch && !loading && !error && shown.map((it) => (
             <button
               key={it.path}
               type="button"
@@ -391,6 +472,35 @@ const styles = {
     flex: 1,
     minWidth: 0,
     fontSize: fontSize['12'],
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  searchRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    padding: `6px ${space['4']}`,
+    borderBottom: `1px solid ${color.border}`,
+    flexShrink: 0,
+  },
+  searchInput: {
+    flex: 1,
+    minWidth: 0,
+    background: 'transparent',
+    border: 'none',
+    outline: 'none',
+    color: color.text,
+    fontSize: fontSize['12'],
+    fontFamily: font.sans,
+  },
+  rowDir: {
+    flex: 1,
+    minWidth: 0,
+    textAlign: 'right',
+    fontFamily: font.mono,
+    fontSize: '10px',
+    color: color.muted,
     overflow: 'hidden',
     textOverflow: 'ellipsis',
     whiteSpace: 'nowrap',

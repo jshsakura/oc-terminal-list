@@ -21,7 +21,7 @@ async def _call(run, **kw):
     a, b = _patched(run)
     with a, b:
         return await host_files.search_host_files(
-            host_id="h1", q=kw.get("q", "x"), mode=kw.get("mode", "name"), path=kw.get("path", ""), username="u")
+            host_id="h1", q=kw.get("q", "x"), mode=kw.get("mode", "name"), path=kw.get("path", ""), dirs_only=kw.get("dirs_only", False), username="u")
 
 
 def test_returns_parsed_items():

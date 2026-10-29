@@ -121,6 +121,7 @@ async def search_host_files(
     q: str = Query(..., min_length=1, max_length=host_search.MAX_QUERY_LEN),
     mode: str = Query(host_search.MODE_NAME, pattern="^(name|content)$"),
     path: str = Query("", description="검색을 시작할 원격 디렉토리. 비우면 홈."),
+    dirs_only: bool = Query(False, description="이름 검색에서 폴더만(폴더 선택 모달용)."),
     username: str = Depends(verify_auth_token),
 ):
     """원격 호스트에서 find / rg(없으면 grep) 를 돌려 이름·내용으로 찾는다. 설치 0."""
@@ -128,7 +129,7 @@ async def search_host_files(
     if not query:
         return {"items": [], "truncated": False, "host_id": host_id}
     host, secrets = await resolve_host_with_secrets(host_id, username)
-    cmd = host_search.build_command(path, query, mode)
+    cmd = host_search.build_command(path, query, mode, dirs_only)
     try:
         rc, stdout, _stderr = await run_remote_cmd_pooled(host, secrets, cmd, timeout=SEARCH_TIMEOUT_SEC)
     except asyncio.TimeoutError:
@@ -137,7 +138,7 @@ async def search_host_files(
         raise _fail("search", host_id, path, e, "원격 검색 실패")
     if rc == host_search.EXIT_BAD_ROOT:
         raise HTTPException(status_code=404, detail="검색할 경로를 찾을 수 없습니다.")
-    return {**host_search.parse_output(stdout, mode), "host_id": host_id}
+    return {**host_search.parse_output(stdout, mode, dirs_only), "host_id": host_id}
 
 
 @router.get("/files/read")

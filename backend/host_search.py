@@ -40,10 +40,11 @@ def _root_prefix(root: str) -> str:
     return f'{cd} 2>/dev/null || exit {EXIT_BAD_ROOT}; R=$(pwd -P); '
 
 
-def _find_command(query: str) -> str:
+def _find_command(query: str, dirs_only: bool = False) -> str:
     prune = " -o ".join(f"-name {shlex.quote(d)}" for d in IGNORED_DIRS)
     pattern = shlex.quote(f"*{escape_glob(query)}*")
-    expr = f'find "$R" \\( {prune} \\) -prune -o -iname {pattern}'
+    type_filter = " -type d" if dirs_only else ""
+    expr = f'find "$R" \\( {prune} \\) -prune -o -iname {pattern}{type_filter}'
     # GNU find tags each hit with its type; other finds fall back to untyped paths ('?').
     return (
         f"if find \"$R\" -maxdepth 0 -printf '' >/dev/null 2>&1; "
@@ -64,8 +65,8 @@ def _content_command(query: str) -> str:
     )
 
 
-def build_command(root: str, query: str, mode: str) -> str:
-    body = _find_command(query) if mode == MODE_NAME else _content_command(query)
+def build_command(root: str, query: str, mode: str, dirs_only: bool = False) -> str:
+    body = _find_command(query, dirs_only) if mode == MODE_NAME else _content_command(query)
     return f"{_root_prefix(root)}{{ {body}; }} 2>/dev/null | head -n {MAX_RESULTS + 1}"
 
 
@@ -73,7 +74,7 @@ def _basename(path: str) -> str:
     return path.rstrip("/").rsplit("/", 1)[-1]
 
 
-def parse_name_output(stdout: str) -> list[dict]:
+def parse_name_output(stdout: str, dirs_only: bool = False) -> list[dict]:
     items = []
     for line in stdout.splitlines():
         kind, sep, path = line.partition("\t")
@@ -82,7 +83,7 @@ def parse_name_output(stdout: str) -> list[dict]:
         items.append({
             "path": path,
             "name": _basename(path),
-            "type": "directory" if kind == "d" else "file",
+            "type": "directory" if dirs_only or kind == "d" else "file",
         })
     return items
 
@@ -106,8 +107,7 @@ def parse_content_output(stdout: str) -> list[dict]:
     return items
 
 
-def parse_output(stdout: str, mode: str) -> dict:
+def parse_output(stdout: str, mode: str, dirs_only: bool = False) -> dict:
     """Parse and cap. We ask for one extra line so `truncated` is exact."""
-    parse = parse_name_output if mode == MODE_NAME else parse_content_output
-    items = parse(stdout)
+    items = parse_name_output(stdout, dirs_only) if mode == MODE_NAME else parse_content_output(stdout)
     return {"items": items[:MAX_RESULTS], "truncated": len(items) > MAX_RESULTS}

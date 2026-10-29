@@ -130,3 +130,57 @@ describe('RemoteFolderPicker 숨김 폴더', () => {
     await waitFor(() => expect(screen.getByText('.ssh')).toBeInTheDocument());
   });
 });
+
+describe('RemoteFolderPicker search', () => {
+  let originalFetch;
+  beforeEach(() => { originalFetch = global.fetch; });
+  afterEach(() => { global.fetch = originalFetch; });
+
+  const listing = {
+    path: '/home/u',
+    items: [
+      { name: 'app', path: '/home/u/app', type: 'directory' },
+      { name: 'media', path: '/home/u/media', type: 'directory' },
+    ],
+  };
+  const ok = (body) => Promise.resolve({ ok: true, json: () => Promise.resolve(body) });
+
+  const setup = (extra = {}) => {
+    global.fetch = vi.fn((url) => (String(url).includes('/files/search')
+      ? ok({ items: [{ name: 'deep', path: '/home/u/app/x/deep', type: 'directory' }], truncated: false, ...extra })
+      : ok(listing)));
+    render(<RemoteFolderPicker isOpen host={mockHost} onPick={vi.fn()} onClose={vi.fn()} t={mockT} />);
+  };
+
+  it('filters the current folder instantly for a one-char query', async () => {
+    setup();
+    await screen.findByText('app');
+    fireEvent.change(screen.getByPlaceholderText('searchFolders'), { target: { value: 'm' } });
+    expect(screen.queryByText('app')).toBeNull();
+    expect(screen.getByText('media')).toBeTruthy();
+    expect(global.fetch.mock.calls.some((c) => String(c[0]).includes('/files/search'))).toBe(false);
+  });
+
+  it('searches subfolders on the host and enters the clicked hit', async () => {
+    setup();
+    await screen.findByText('app');
+    fireEvent.change(screen.getByPlaceholderText('searchFolders'), { target: { value: 'deep' } });
+    fireEvent.click(await screen.findByText('deep'));
+    const searchUrl = global.fetch.mock.calls.map((c) => String(c[0])).find((u) => u.includes('/files/search'));
+    expect(searchUrl).toContain('dirs_only=true');
+    expect(searchUrl).toContain('path=%2Fhome%2Fu');
+    await waitFor(() => {
+      expect(global.fetch.mock.calls.some((c) => String(c[0]).includes('/files?path=%2Fhome%2Fu%2Fapp%2Fx%2Fdeep'))).toBe(true);
+    });
+  });
+
+  it('hides hits inside dot folders until hidden folders are shown', async () => {
+    global.fetch = vi.fn((url) => (String(url).includes('/files/search')
+      ? ok({ items: [{ name: 'cache', path: '/home/u/.cache/cache', type: 'directory' }] })
+      : ok(listing)));
+    render(<RemoteFolderPicker isOpen host={mockHost} onPick={vi.fn()} onClose={vi.fn()} t={mockT} />);
+    await screen.findByText('app');
+    fireEvent.change(screen.getByPlaceholderText('searchFolders'), { target: { value: 'cache' } });
+    await screen.findByText('noResults');
+  });
+});

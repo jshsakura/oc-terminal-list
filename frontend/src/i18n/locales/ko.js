@@ -798,6 +798,7 @@ export const ko = {
     searchFilenames: '파일 이름 검색',
     contentSearchHint: '파일 내용을 검색하려면 2글자 이상 입력',
     nameSearchHint: '파일 이름을 검색하려면 2글자 이상 입력',
+    searchFolders: '폴더 검색',
     noResults: '결과 없음',
     resultsTruncated: '처음 200개 결과만 표시',
     upload: '업로드',
