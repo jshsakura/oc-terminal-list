@@ -237,8 +237,9 @@ function App() {
       settings,
       agentStatus: deriveTabAgentStatus(tt, agentStatusMap),
       hostFailure: deriveTabFailure(tt, paneFailureMap),
+      t,
     })),
-    [tabs, hosts, agentStatusMap, paneFailureMap,
+    [tabs, hosts, agentStatusMap, paneFailureMap, t,
       settings.localName, settings.localIcon, settings.localColorIndex],
   );
 

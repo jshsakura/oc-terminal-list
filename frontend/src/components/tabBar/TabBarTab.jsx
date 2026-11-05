@@ -4,6 +4,7 @@ import { tokens } from '../../styles/tokens';
 import HostIcon from '../../utils/hostIcons';
 import { styles } from './tabBarStyles';
 import { numberTileStyle } from '../../styles/numberTile';
+import { TabTooltip, useHoverTip } from './TabTooltip';
 
 const { color, font, fontWeight } = tokens;
 
@@ -99,9 +100,6 @@ export const Tab = memo(({
   // 모바일은 탭 폭이 좁으니 최대 N개까지만 겹쳐 보여주고, 그 이상은 "+N" 칩으로 스택 끝에 합류.
   const visibleSecondaries = isMobile ? secondaries.slice(0, HOST_TILE_MAX_VISIBLE_MOBILE) : secondaries;
   const hiddenCount = secondaries.length - visibleSecondaries.length;
-  const hiddenNames = hiddenCount > 0
-    ? secondaries.slice(visibleSecondaries.length).map((s) => s.name).filter(Boolean).join(', ')
-    : '';
   const tileSize = isMobile ? HOST_TILE_PX_MOBILE : HOST_TILE_PX;
   const overlapStep = isMobile ? HOST_TILE_OVERLAP_STEP_MOBILE_PX : HOST_TILE_OVERLAP_STEP_PX;
   const iconSize = isMobile ? 9 : 11;
@@ -158,6 +156,17 @@ export const Tab = memo(({
     zIndex: stackedCount - i, // 앞 타일이 위, 뒤로 갈수록 아래로 깔림
   });
 
+  const { placement: tipPlacement, show: showTip, hide: hideTip } = useHoverTip(
+    !isMobile && !isPendingClose && !isDragging,
+  );
+  // Every name in this tab, its own first: only the active pane's name fits on the chip.
+  const tipNames = tipPlacement
+    ? [...new Set([tab.name, ...(tab.paneLabels || []), ...secondaries.map((s) => s.name)])].filter(Boolean)
+    : [];
+  const tipHint = shortcutPosition <= 9
+    ? `${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${shortcutPosition})`
+    : null;
+
   return (
     <div
       role="tab"
@@ -168,7 +177,13 @@ export const Tab = memo(({
       draggable={!isMobile}
       data-tab-id={tab.id}
       {...(touchProps || {})}
-      onDragStart={(e) => onDragStart?.(tab.id, e)}
+      onMouseEnter={showTip}
+      onMouseLeave={hideTip}
+      onWheel={hideTip}
+      onDragStart={(e) => {
+        hideTip();
+        onDragStart?.(tab.id, e);
+      }}
       onDragEnd={onDragEnd}
       onDragOver={(e) => onDragOver?.(tab.id, e)}
       onDragLeave={() => onDragLeave?.(tab.id)}
@@ -194,6 +209,7 @@ export const Tab = memo(({
       }}
       /* 휠 클릭(가운데 버튼)으로 탭 닫기 확인 트리거 */
       onMouseDown={(e) => {
+        hideTip();
         if (e.button === 1) {
           e.preventDefault();
           e.stopPropagation();
@@ -249,9 +265,6 @@ export const Tab = memo(({
         {addressNumber != null && (
           <span
             aria-hidden
-            title={shortcutPosition <= 9
-              ? `${t?.('switchToTab') || 'Switch to tab'} (Ctrl+${shortcutPosition})`
-              : `#${addressNumber}`}
             style={{
               // 크기는 호스트 아이콘 타일과 **같은 변수**(tileSize)를 쓴다 — 숫자로 맞춰두면
               // 나중에 아이콘 타일만 조정할 때 소리 없이 어긋난다.
@@ -353,7 +366,7 @@ export const Tab = memo(({
             )}
           </span>
           {visibleSecondaries.map((s, i) => (
-            <span key={`${s.kind}:${s.name}:${i}`} title={s.name} style={stackTileStyle(i, paletteColor(s.colorIndex))}>
+            <span key={`${s.kind}:${s.name}:${i}`} style={stackTileStyle(i, paletteColor(s.colorIndex))}>
               <HostIcon
                 value={s.icon || ''}
                 fallback={s.kind === 'local' ? Monitor : Server}
@@ -364,7 +377,6 @@ export const Tab = memo(({
           ))}
           {hiddenCount > 0 && (
             <span
-              title={hiddenNames}
               style={{ ...stackTileStyle(visibleSecondaries.length, color.muted), fontSize: '8px', fontWeight: fontWeight.semibold, lineHeight: 1 }}
             >
               +{hiddenCount}
@@ -401,7 +413,7 @@ export const Tab = memo(({
             </button>
           </>
         ) : (
-          <span style={styles.tabName} title={tab.name}>{tab.name}</span>
+          <span style={styles.tabName}>{tab.name}</span>
         )}
 
         {/* The More button is **visible** only on the active tab, but every tab reserves its
@@ -424,7 +436,7 @@ export const Tab = memo(({
               opacity: 1,
               color: color.subtext,
             }}
-            onMouseEnter={(e) => { if (isMobile) return; e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; }}
+            onMouseEnter={(e) => { hideTip(); if (isMobile) return; e.currentTarget.style.background = color.surface2; e.currentTarget.style.color = color.text; }}
             onMouseLeave={(e) => { if (isMobile) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = color.subtext; }}
             title={t?.('more') || 'More'}
           >
@@ -433,6 +445,7 @@ export const Tab = memo(({
         )}
 
       </div>
+      {tipPlacement && <TabTooltip placement={tipPlacement} names={tipNames} hint={tipHint} />}
     </div>
   );
 });

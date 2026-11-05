@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import TabBar from './TabBar';
+import { TAB_TIP_DELAY_MS } from './tabBar/TabTooltip';
 import { tokens } from '../styles/tokens';
 
 describe('TabBar', () => {
@@ -162,7 +163,7 @@ describe('TabBar', () => {
 
   it('renders every mixed host as an equal-size stacked tile with its name tooltip', () => {
     // pane 들이 서로 다른 호스트로 섞인 탭 — 나머지 호스트 전부가 주 타일과 같은 크기의
-    // 라인 아이콘 타일로 겹쳐 뜨고, 각 타일 title 로 어느 호스트인지 바로 확인 가능.
+    // 라인 아이콘 타일로 겹쳐 뜨고, 탭에 올린 툴팁에서 호스트 이름을 전부 확인할 수 있다.
     const tabs = [
       {
         id: 'host:1', type: 'host', hostId: 'h1', name: 'Proxmox VE', color_index: 44, icon: 'Atom',
@@ -176,9 +177,14 @@ describe('TabBar', () => {
     render(
       <TabBar tabs={tabs} activeTabId="host:1" onSelect={vi.fn()} onClose={vi.fn()} onAdd={vi.fn()} onHome={vi.fn()} />
     );
-    expect(screen.getByTitle('ArgonEON')).toBeInTheDocument();
-    expect(screen.getByTitle('TrueNAS Scale')).toBeInTheDocument();
-    expect(screen.getByTitle('dev-box')).toBeInTheDocument();
+    vi.useFakeTimers();
+    fireEvent.mouseEnter(screen.getByRole('tab'));
+    act(() => { vi.advanceTimersByTime(TAB_TIP_DELAY_MS); });
+    vi.useRealTimers();
+    const tooltip = screen.getByRole('tooltip');
+    expect(tooltip).toHaveTextContent('ArgonEON');
+    expect(tooltip).toHaveTextContent('TrueNAS Scale');
+    expect(tooltip).toHaveTextContent('dev-box');
   });
 
   it('still overlap-stacks mixed-host tiles on mobile, but caps count with a +N chip', () => {
@@ -201,12 +207,8 @@ describe('TabBar', () => {
         onSelect={vi.fn()} onClose={vi.fn()} onAdd={vi.fn()} onHome={vi.fn()}
       />
     );
-    expect(screen.getByTitle('ArgonEON')).toBeInTheDocument();
-    expect(screen.getByTitle('TrueNAS Scale')).toBeInTheDocument();
-    expect(screen.getByTitle('dev-box')).toBeInTheDocument();
-    // 4번째(Pi Cluster)는 개별 타일 대신 "+1" 칩으로 스택 끝에 겹쳐 합류, 칩 title 로 이름 확인.
+    // The fourth host (Pi Cluster) joins the end of the stack as a "+1" chip, not its own tile.
     expect(screen.getByText('+1')).toBeInTheDocument();
-    expect(screen.getByTitle('Pi Cluster')).toBeInTheDocument();
   });
 
   it('renders host tab with emoji icon', () => {

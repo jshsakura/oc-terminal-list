@@ -6,6 +6,7 @@
  */
 import { generateUUID } from './helpers';
 import { makeLeaf, treeFromLegacyLayout } from './splitTree';
+import { derivePaneLabel, isEmptyPane } from './paneLabel';
 import { resolveRandomTheme } from '../components/common/ThemePicker';
 
 export const isPhoneViewport = () => {
@@ -327,15 +328,18 @@ export const tabCloseKeepsSession = (tab, hosts = []) => !(tab?.panes || []).som
  * hostFailure(연결 실패)도 같은 이유로 인자다 — 소스는 utils/paneFailure.js.
  */
 export const deriveTabMeta = (tab, {
-  hosts = [], settings = {}, agentStatus = null, hostFailure = null,
+  hosts = [], settings = {}, agentStatus = null, hostFailure = null, t = null,
 } = {}) => {
   const host = tab.type === 'host' ? hosts.find((h) => h.id === tab.hostId) : null;
   const isPersistent = tab.type === 'local' || !!host?.use_remote_tmux;
   const closeKeepsSession = tabCloseKeepsSession(tab, hosts);
   const secondaryIdentities = deriveTabSecondaryIdentities(tab, hosts, settings);
   const primary = deriveTabPrimaryIdentity(tab, hosts, settings);
+  const paneLabels = (tab.panes || [])
+    .filter((pane) => !isEmptyPane(pane))
+    .map((pane) => derivePaneLabel(pane, { hosts, settings, t }));
   const common = {
-    ...tab, isPersistent, closeKeepsSession, secondaryIdentities, agentStatus, hostFailure,
+    ...tab, isPersistent, closeKeepsSession, secondaryIdentities, paneLabels, agentStatus, hostFailure,
   };
 
   if (host) {

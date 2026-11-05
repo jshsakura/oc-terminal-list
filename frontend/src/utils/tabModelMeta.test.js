@@ -13,6 +13,24 @@ const hostTab = (extra = {}) => ({
 });
 const HOSTS = [{ id: 'H', name: 'RealBox', icon: 'srv', color_index: 5, use_remote_tmux: 1 }];
 
+describe('deriveTabMeta — paneLabels', () => {
+  it('names every attached pane in pane order and skips empty ones', () => {
+    const tab = localTab({
+      panes: [
+        { id: 'p1', hostId: 'H' },
+        { id: 'p2', sessionId: 's2', name: 'logs' },
+        { id: 'p3' },
+      ],
+    });
+    expect(deriveTabMeta(tab, { hosts: HOSTS }).paneLabels).toEqual(['RealBox', 'logs']);
+  });
+
+  it('uses the translated local name, matching the pane label rule', () => {
+    const t = (key) => (key === 'thisMachine' ? '이 서버' : key);
+    expect(deriveTabMeta(localTab(), { t }).paneLabels).toEqual(['이 서버']);
+  });
+});
+
 describe('deriveTabMeta — 공통 필드', () => {
   it('로컬 탭은 항상 영속(tmux 위)', () => {
     expect(deriveTabMeta(localTab(), {}).isPersistent).toBe(true);
