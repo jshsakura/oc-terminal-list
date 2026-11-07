@@ -25,7 +25,7 @@ const t = (key) => ({
   paste: 'Paste',
   clearInput: 'Clear',
   confirmClearInput: 'Clear?',
-  attachImage: 'Attach image',
+  attachFile: 'Attach file',
   imageUploading: 'Uploading image',
   imageUploadFailed: 'Upload failed',
 }[key] || key);

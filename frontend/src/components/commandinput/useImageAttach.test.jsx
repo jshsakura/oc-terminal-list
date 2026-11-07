@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-vi.mock('../terminal/terminalHelpers', () => ({ uploadImageAndGetPath: vi.fn() }));
-import { uploadImageAndGetPath } from '../terminal/terminalHelpers';
+vi.mock('../terminal/terminalHelpers', () => ({ uploadImageAndGetPath: vi.fn(), uploadFileAndGetPath: vi.fn() }));
+import { uploadFileAndGetPath, uploadImageAndGetPath } from '../terminal/terminalHelpers';
 import useImageAttach from './useImageAttach';
 
 // 여러 pane 에 동시 전송하면 **각 pane 의 호스트마다** 이미지를 올려야 한다.
@@ -25,6 +25,9 @@ const makePasteEvent = (blob) => ({
 });
 
 beforeEach(() => {
+  uploadFileAndGetPath.mockReset();
+  uploadFileAndGetPath.mockImplementation((file, hostId) =>
+    Promise.resolve({ path: `/tmp/iterminallist-paste/${file.name}-${hostId || 'local'}` }));
   uploadImageAndGetPath.mockReset();
   uploadImageAndGetPath.mockImplementation((_blob, hostId) =>
     Promise.resolve({ path: `/tmp/iterminallist-paste/img-${hostId || 'local'}.webp` }));
@@ -141,13 +144,29 @@ describe('여러 장 한 번에', () => {
     expect(inserted[2]).toContain('c.webp');
   });
 
-  it('이미지가 아닌 파일은 걸러낸다', async () => {
-    const { result } = renderHook(() => useImageAttach(vi.fn(), null));
-    const pdf = new Blob(['p'], { type: 'application/pdf' });
+  it('이미지가 아닌 파일도 받는다 — 압축 없이 원본 그대로 올린다', async () => {
+    const inserted = [];
+    const { result } = renderHook(() => useImageAttach((s) => inserted.push(s), null));
+    // Phones often report an empty MIME type for unknown extensions such as .gba.
+    const rom = Object.assign(new Blob(['r'], { type: '' }), { name: 'game.gba' });
     await act(async () => {
-      await result.current.handleFileChange(makeChangeEvent([img('a'), pdf]));
+      await result.current.handleFileChange(makeChangeEvent([img('a'), rom]));
     });
     expect(uploadImageAndGetPath).toHaveBeenCalledTimes(1);
+    expect(uploadFileAndGetPath).toHaveBeenCalledWith(rom, null);
+    expect(inserted[1]).toContain('game.gba-local');
+  });
+
+  it('다른 호스트로 보낼 때도 이미지가 아닌 파일은 원본 경로로 올린다', async () => {
+    const { result } = renderHook(() => useImageAttach(vi.fn(), null));
+    const rom = Object.assign(new Blob(['r'], { type: '' }), { name: 'game.gba' });
+    await act(async () => { await result.current.handleFileChange(makeChangeEvent([rom])); });
+
+    const out = await result.current.resolveTextForTargets(
+      '/tmp/iterminallist-paste/game.gba-local', ['p-a'], PANES);
+    expect(uploadFileAndGetPath).toHaveBeenLastCalledWith(rom, 'A');
+    expect(uploadImageAndGetPath).not.toHaveBeenCalled();
+    expect(out['p-a']).toBe('/tmp/iterminallist-paste/game.gba-A');
   });
 
   it('중간 한 장이 실패해도 나머지는 올라간다', async () => {

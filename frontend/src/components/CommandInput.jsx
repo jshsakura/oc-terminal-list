@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, ImagePlus, Loader2, Keyboard, Type } from 'lucide-react';
+import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, Paperclip, Loader2, Keyboard, Type } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
 import { MOBILE_CONTROL } from '../styles/mobileControl';
@@ -467,7 +467,6 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
     <input
       ref={image.fileInputRef}
       type="file"
-      accept="image/*"
       multiple
       onChange={image.handleFileChange}
       style={{ display: 'none' }}
@@ -593,12 +592,11 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
         {/* 좌측 — 붙여넣기 / 이미지 첨부 / 비우기 (보조 액션 그룹) */}
         <Button
           variant="ghost" size="icon" onClick={handlePaste} icon={ClipboardPaste} title={t?.('paste')} style={styles.footerIconBtn} />
-        {/* 이미지 첨부/촬영 — 숨김 file input(accept=image/*). 모바일은 OS 피커가 카메라 촬영도 제공.
+        {/* 파일 첨부 — 숨김 file input, 종류 제한 없음. 모바일 OS 피커가 갤러리·카메라·파일을 함께 준다.
             업로드 중엔 아이콘만 로딩(Loader2)으로 — 버튼 통째 회전 없음. */}
         <input
           ref={image.fileInputRef}
           type="file"
-          accept="image/*"
           multiple
           onChange={image.handleFileChange}
           style={{ display: 'none' }}
@@ -610,8 +608,8 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
           size="icon"
           onClick={image.openPicker}
           disabled={image.isUploading}
-          icon={image.isUploading ? Loader2 : ImagePlus}
-          title={t?.('attachImage') || '이미지 첨부'}
+          icon={image.isUploading ? Loader2 : Paperclip}
+          title={t?.('attachFile') || '파일 첨부'}
           style={styles.footerIconBtn}
         />
         {/* 여러 장을 올리는 중에만 n/N — 한 장은 아이콘 회전만으로 충분하다. */}
@@ -692,7 +690,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
           {image.uploadState === 'uploading' && (
             <>
               <Loader2 size={12} style={{ color: `var(--ui-accent, ${color.accent})`, animation: 'command-input-spin 0.8s linear infinite' }} />
-              <span>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
+              <span>{t?.('imageUploading') || '업로드 중…'}</span>
             </>
           )}
           {image.uploadState === 'error' && (
@@ -784,8 +782,8 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => { image.openPicker(); returnFocusToInput(); }}
             disabled={image.isUploading}
-            icon={image.isUploading ? Loader2 : ImagePlus}
-            title={t?.('attachImage') || '이미지 첨부'}
+            icon={image.isUploading ? Loader2 : Paperclip}
+            title={t?.('attachFile') || '파일 첨부'}
             /* 오른쪽 버튼 무리는 입력칸에서 한 뼘 떨어뜨린다 — 버튼끼리는 붙어 있어야
                한 무리로 읽히지만, 입력칸까지 같은 간격이면 버튼이 입력의 일부처럼 보인다. */
             style={{ ...styles.dockBtn, ...styles.dockBtnGroupStart }}
@@ -806,7 +804,7 @@ const CommandInput = ({ isOpen, onClose, onSend, onSendKey = null, renderQuickBa
         {(image.uploadState || image.attachedTokens > 0) && (
           <div style={{ ...styles.statusBar, paddingTop: 0 }}>
             {image.uploadState === 'uploading' && (
-              <span>{t?.('imageUploading') || '이미지 업로드 중…'}</span>
+              <span>{t?.('imageUploading') || '업로드 중…'}</span>
             )}
             {image.uploadState === 'error' && (
               <span style={{ color: `var(--ui-danger, ${color.danger})` }}>{t?.('imageUploadFailed') || '업로드 실패'}</span>

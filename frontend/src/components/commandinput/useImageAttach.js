@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { uploadImageAndGetPath } from '../terminal/terminalHelpers';
+import { uploadFileAndGetPath, uploadImageAndGetPath } from '../terminal/terminalHelpers';
 
 // 업로드 실패 문구를 띄워두는 시간 — 지나면 상태를 비워 원래 아이콘으로 돌아간다.
 const ERROR_HOLD_MS = 2500;
 const BLOCKED_HOLD_MS = 10000;
+
+// Images are shrunk and priced before upload; anything else (a .gba ROM, a PDF) goes up as-is.
+const isImage = (blob) => Boolean(blob?.type?.startsWith('image/'));
+const uploadAttachment = (blob, hostId) => (
+  isImage(blob) ? uploadImageAndGetPath(blob, hostId) : uploadFileAndGetPath(blob, hostId)
+);
 
 /**
  * 이미지 첨부 — 📎 버튼(파일 피커)과 textarea 붙여넣기 두 경로 모두를 담당한다.
@@ -58,7 +64,7 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
 
   /** 한 장 업로드 → 첨부 기록 + 커서 위치에 경로 삽입. 가드/상태는 호출자가 맡는다. */
   const uploadOne = async (blob) => {
-    const data = await uploadImageAndGetPath(blob, hostId);
+    const data = await uploadAttachment(blob, hostId);
     attachmentsRef.current = [
       ...attachmentsRef.current,
       { blob, tokens: data.tokens || 0, pathByHost: { [hostId || '']: data.path } },
@@ -99,7 +105,7 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
     const key = targetHostId || '';
     const cached = attachment.pathByHost[key];
     if (cached) return cached;
-    const data = await uploadImageAndGetPath(attachment.blob, targetHostId);
+    const data = await uploadAttachment(attachment.blob, targetHostId);
     attachment.pathByHost[key] = data.path;   // eslint-disable-line no-param-reassign
     return data.path;
   };
@@ -153,8 +159,9 @@ const useImageAttach = (insertAtCursor, hostId = null) => {
 
   // 같은 파일을 다시 골라도 change 가 뜨도록 값부터 리셋.
   // 모바일 갤러리는 여러 장 선택이 기본 동작이라 input 에 multiple 이 걸려 있다.
+  // 종류는 거르지 않는다 — 폰에서 이미지 아닌 파일을 터미널로 보낼 길이 여기뿐이다.
   const handleFileChange = (e) => {
-    const files = Array.from(e.target.files || []).filter((f) => f.type.startsWith('image/'));
+    const files = Array.from(e.target.files || []);
     e.target.value = '';
     if (files.length) uploadMany(files);
   };
