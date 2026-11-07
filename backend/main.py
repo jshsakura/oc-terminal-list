@@ -54,6 +54,7 @@ from sqlite_storage import storage
 from ssh_pool import ssh_pool
 import itl_key
 import pane_addr
+from static_paths import resolve_static_file
 from tmux_manager import tmux_manager
 
 logging.basicConfig(
@@ -517,8 +518,8 @@ if STATIC_DIR.exists():
     async def catch_all(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("ws/"):
             raise HTTPException(status_code=404, detail="Not found")
-        file_path = STATIC_DIR / full_path
-        if file_path.is_file():
+        file_path = resolve_static_file(STATIC_DIR, full_path)
+        if file_path is not None:
             headers = NO_CACHE_HEADERS if full_path in NO_CACHE_FILES else FILE_CACHE_HEADERS
             return FileResponse(str(file_path), headers=headers)
         if _is_asset_like(full_path):
@@ -530,8 +531,7 @@ if STATIC_DIR.exists():
     async def head_catch_all(full_path: str):
         if full_path.startswith("api/") or full_path.startswith("ws/"):
             raise HTTPException(status_code=404, detail="Not found")
-        file_path = STATIC_DIR / full_path
-        if file_path.is_file():
+        if resolve_static_file(STATIC_DIR, full_path) is not None:
             headers = NO_CACHE_HEADERS if full_path in NO_CACHE_FILES else None
             return Response(status_code=200, headers=headers)
         if _is_asset_like(full_path):
