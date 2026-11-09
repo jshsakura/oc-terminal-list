@@ -139,16 +139,31 @@ class AdminMixin:
                 self._release_connection(conn)
         return await anyio.to_thread.run_sync(_refresh)
 
-    async def revoke_auth_session(self, session_id: str) -> None:
-        """Persist logout so every token in this refresh family stays invalid after restart."""
-        def _revoke() -> None:
+    async def revoke_auth_session(self, session_id: str) -> bool:
+        """Persist logout so every token in this refresh family stays invalid after restart.
+
+        Returns whether the session was still live."""
+        def _revoke() -> bool:
             conn = self._get_connection()
             try:
-                conn.execute("DELETE FROM auth_sessions WHERE session_id = ?", (session_id,))
+                cur = conn.execute("DELETE FROM auth_sessions WHERE session_id = ?", (session_id,))
+                conn.commit()
+                return cur.rowcount > 0
+            finally:
+                self._release_connection(conn)
+        return await anyio.to_thread.run_sync(_revoke)
+
+    async def revoke_all_auth_sessions(self, username: str) -> None:
+        """Log out every device: bumping auth_version also voids tokens issued before now."""
+        def _revoke_all() -> None:
+            conn = self._get_connection()
+            try:
+                conn.execute("UPDATE admin SET auth_version = auth_version + 1 WHERE username = ?", (username,))
+                conn.execute("DELETE FROM auth_sessions WHERE username = ?", (username,))
                 conn.commit()
             finally:
                 self._release_connection(conn)
-        await anyio.to_thread.run_sync(_revoke)
+        await anyio.to_thread.run_sync(_revoke_all)
 
     async def set_admin_otp(self, username: str, secret_enc: str | None, enabled: bool) -> None:
         def _set():

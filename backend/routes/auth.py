@@ -37,6 +37,7 @@ from passkey import (
     verify_registration as _verify_reg,
 )
 from rate_limit import check_rate_limit, client_ip_from_request
+from login_alert_service import alert_login
 from sqlite_storage import storage
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,7 @@ async def login(request: LoginRequest, http_request: Request, response: Response
         }
     access_token = await get_auth_manager().create_access_token(request.username)
     _set_auth_cookie(response, http_request, access_token)
+    alert_login(access_token, method="비밀번호", ip=ip, user_agent=http_request.headers.get("user-agent", ""))
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -134,6 +136,7 @@ async def login_otp(request: OtpLoginRequest, http_request: Request, response: R
         raise HTTPException(status_code=401, detail="OTP 코드가 올바르지 않습니다")
     access_token = await get_auth_manager().create_access_token(username)
     _set_auth_cookie(response, http_request, access_token)
+    alert_login(access_token, method="비밀번호 + OTP", ip=ip, user_agent=http_request.headers.get("user-agent", ""))
     return {
         "access_token": access_token,
         "token_type": "bearer",
@@ -400,6 +403,7 @@ async def passkey_login_complete(request: PasskeyLoginCompleteRequest, http_requ
     )
     access_token = await get_auth_manager().create_access_token(cred["username"])
     _set_auth_cookie(response, http_request, access_token)
+    alert_login(access_token, method="패스키", ip=ip, user_agent=http_request.headers.get("user-agent", ""))
     return {
         "access_token": access_token,
         "token_type": "bearer",

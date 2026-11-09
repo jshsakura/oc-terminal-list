@@ -30,6 +30,10 @@ os.environ.pop("REDIS_URL", None)
 for _var in ("TMUX", "TMUX_PANE", "ITL_KEY"):
     os.environ.pop(_var, None)
 
+# main.py loads .env with override=True, which carries the real Telegram bot token.
+# .env has no LOGIN_ALERT, so this survives and no test login messages the user's phone.
+os.environ["LOGIN_ALERT"] = "0"
+
 # ⚠️ 테스트는 **운영 tmux 소켓에 세션을 만들지 않는다.**
 # `tmux_manager` 는 import 시점에 `TMUX_SOCKET_NAME` 을 읽고, 기본값이 곧 운영 소켓
 # (`iterminallist-app`)이다. `create_session` 을 목하지 않은 테스트 두 개가 스위트를 돌릴

@@ -174,3 +174,29 @@ async def test_bearer_repairs_expired_cookie_without_promoting_invalid_bearer(ma
             assert "set-cookie" not in response.headers
 
     await anyio.to_thread.run_sync(use_api)
+
+
+def _sid(token):
+    import jwt
+    return jwt.decode(token, options={"verify_signature": False})["sid"]
+
+
+@pytest.mark.anyio
+async def test_login_alert_button_revokes_only_that_login(manager):
+    target = await manager.create_access_token("admin")
+    other = await manager.create_access_token("admin")
+    assert await manager.storage.revoke_auth_session(_sid(target)) is True
+    assert await manager.storage.revoke_auth_session(_sid(target)) is False   # already gone
+    assert await manager.verify_token(target) is None
+    assert await manager.verify_token(other) == "admin"
+
+
+@pytest.mark.anyio
+async def test_login_alert_logout_all_voids_every_token(manager):
+    first = await manager.create_access_token("admin")
+    second = await manager.create_access_token("admin")
+    await manager.storage.revoke_all_auth_sessions("admin")
+    assert await manager.verify_token(first) is None
+    assert await manager.verify_token(second) is None
+    # Logging in again still works afterwards.
+    assert await manager.verify_token(await manager.create_access_token("admin")) == "admin"
