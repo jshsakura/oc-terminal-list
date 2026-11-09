@@ -2,8 +2,8 @@ import { Terminal } from '@xterm/xterm';
 import registerOsc52 from './osc52Clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { WebLinksAddon } from '@xterm/addon-web-links';
 import { findFileLinks, offsetToCell, readLogicalLine } from '../../utils/terminalFileLinks';
+import { findUrlLinks, readRow } from '../../utils/terminalUrlLinks';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { ImageAddon } from '@xterm/addon-image';
 import { normalizeTerminalFontFamily } from '../../utils/terminalFonts';
@@ -19,6 +19,14 @@ export const resolveContrast = (mode) => CONTRAST_RATIOS[mode] ?? 7;
 
 const SCROLLBACK_LINES = 3000;
 const SMOOTH_SCROLL_MS = 100;
+
+// Same behaviour as WebLinksAddon's default handler: new tab, no opener.
+const openUrl = (url) => {
+  const win = window.open();
+  if (!win) return;
+  try { win.opener = null; } catch { /* cross-origin opener assignment can throw */ }
+  win.location.href = url;
+};
 
 /**
  * xterm 인스턴스 + 애드온 한 벌을 만들어 컨테이너에 붙인다.
@@ -80,7 +88,24 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
     onEdgeGutter?.(measureTerminalFit(this._terminal, null));
   };
 
-  term.loadAddon(new WebLinksAddon());
+  /* Replaces WebLinksAddon, which only joins rows xterm flagged as wrapped. Under tmux and
+     agent TUIs a long URL arrives as separate rows, so clicking opened half an address. */
+  term.registerLinkProvider?.({
+    provideLinks(bufferLineNumber, callback) {
+      const buffer = term.buffer.active;
+      const target = bufferLineNumber - 1;
+      const links = findUrlLinks((i) => readRow(buffer, i, term.cols), target, term.cols);
+      if (!links.length) { callback(undefined); return; }
+      // One link per row segment: hovering underlines that piece, any piece opens the whole URL.
+      callback(links.flatMap((link) => link.segments
+        .filter((seg) => seg.row === target)
+        .map((seg) => ({
+          range: { start: { x: seg.startX + 1, y: seg.row + 1 }, end: { x: seg.endX + 1, y: seg.row + 1 } },
+          text: link.url,
+          activate() { openUrl(link.url); },
+        }))));
+    },
+  });
 
   // 터미널 출력의 파일 경로를 클릭 → 에디터로. http 링크는 위 WebLinksAddon 이 맡고,
   // 이건 `src/x.ts:12:7` 같은 파일 경로만 잡는다(utils/terminalFileLinks.js).
