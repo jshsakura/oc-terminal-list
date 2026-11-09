@@ -13,12 +13,10 @@ import posixpath
 from fastapi import (
     APIRouter,
     Depends,
-    Form,
     HTTPException,
     Query,
-    UploadFile,
 )
-from fastapi import File as FastAPIFile
+from starlette.datastructures import FormData, UploadFile
 
 import host_sftp
 from _deps import verify_auth_token
@@ -40,6 +38,7 @@ from upload_common import (
     safe_relpath,
     unique_name,
 )
+from upload_form import form_text, form_texts, form_uploads, upload_form
 
 logger = logging.getLogger(__name__)
 
@@ -83,10 +82,7 @@ async def create_host_file(
 @router.post("/files/upload")
 async def upload_host_files(
     host_id: str,
-    files: list[UploadFile] = FastAPIFile(...),
-    dest: str = Form(""),
-    relpaths: list[str] = Form(default=[]),
-    on_conflict: str = Form("overwrite"),
+    form: FormData = Depends(upload_form),
     username: str = Depends(verify_auth_token),
 ):
     """원격 업로드.
@@ -94,6 +90,13 @@ async def upload_host_files(
     `relpaths[i]` 는 `files[i]` 의 **목적지 기준 상대 경로**다 — 폴더를 통째로 올릴 때
     `src/utils/a.js` 처럼 들어와 구조가 그대로 재현된다. 없으면 파일명만 쓴다.
     """
+    # Form/File parameters would be parsed before auth runs; see upload_form.py.
+    files = form_uploads(form, "files")
+    dest = form_text(form, "dest")
+    relpaths = form_texts(form, "relpaths")
+    on_conflict = form_text(form, "on_conflict", "overwrite")
+    if not files:
+        raise HTTPException(status_code=400, detail="업로드할 파일이 없습니다")
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(status_code=413, detail=f"파일이 너무 많습니다 (최대 {MAX_UPLOAD_FILES}개)")
     if len(dest) > MAX_REMOTE_PATH_LEN:

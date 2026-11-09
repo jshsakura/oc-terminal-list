@@ -5,6 +5,7 @@ main.py 에서 분리. 전역 auth_manager 를 역참조하는 대신 _deps.get_
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 from uuid import UUID
 
@@ -102,18 +103,29 @@ async def login(request: LoginRequest, http_request: Request, response: Response
     }
 
 
+OTP_TOKEN_MAX_ATTEMPTS = 5
+# Login itself is capped at 20 per user per 5 minutes, so without this a password
+# holder could mint fresh pending tokens and get 100 guesses per window.
+OTP_USER_MAX_ATTEMPTS = 10
+
+
 @router.post("/api/auth/login/otp")
 async def login_otp(request: OtpLoginRequest, http_request: Request, response: Response):
     if get_auth_manager() is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
-    # OTP 무차별 대입 방지 — 6자리 코드(100만 조합)는 짧은 시간 안 5회 시도면
-    # 통계적으로 위험. IP + pending_token 양쪽 limit.
-    ip = client_ip_from_request(http_request)
-    check_rate_limit(f"otp:ip:{ip}", max_attempts=5, window_seconds=60)
-    check_rate_limit(f"otp:tok:{request.pending_token[:32]}", max_attempts=5, window_seconds=300)
+    # OTP brute-force guard. Only requests carrying a valid pending token count: a
+    # pending token proves the password, so a stranger cannot fill the buckets and
+    # lock the real user out. The token bucket used to be keyed by token[:32], which
+    # is the JWT header shared by every token, so five bogus requests locked out
+    # everyone. Guesses stay bounded per token, per user and per client IP.
     username = await get_auth_manager().verify_otp_pending_token(request.pending_token)
     if not username:
         raise HTTPException(status_code=401, detail="OTP 인증 시간이 만료되었습니다. 다시 로그인해주세요.")
+    ip = client_ip_from_request(http_request)
+    token_key = hashlib.sha256(request.pending_token.encode()).hexdigest()
+    check_rate_limit(f"otp:tok:{token_key}", max_attempts=OTP_TOKEN_MAX_ATTEMPTS, window_seconds=300)
+    check_rate_limit(f"otp:user:{username}", max_attempts=OTP_USER_MAX_ATTEMPTS, window_seconds=300)
+    check_rate_limit(f"otp:ip:{ip}", max_attempts=OTP_TOKEN_MAX_ATTEMPTS, window_seconds=60)
     if request.is_backup_code:
         ok = await get_auth_manager().consume_backup_code(username, request.code)
     else:

@@ -23,12 +23,17 @@ _DEFAULT_WORKSPACE = os.path.join(_PROJECT_ROOT, "workspace")
 WORKSPACE_ROOT = os.path.abspath(os.getenv("WORKSPACE_ROOT") or _DEFAULT_WORKSPACE)
 
 
-def validate_path(path, *, allow_root: bool = True) -> Path:
+def validate_path(path, *, allow_root: bool = True, follow_symlinks: bool = True) -> Path:
     """워크스페이스 외부 접근을 차단하며 안전한 절대 경로 반환.
 
     예전 구현은 path traversal/symlink escape 를 workspace root 로 조용히 보정했다.
     변경/삭제 API 에서 그 동작은 의도치 않은 root 대상 작업으로 이어질 수 있으므로
     이제는 명시적으로 거절한다.
+
+    follow_symlinks=False resolves only the parent and keeps the last component as
+    named, so a symlink comes back as the link itself, not its target. Operations on
+    the entry (delete) need that: resolving a link to a directory made delete rmtree
+    the target, and a link to "." made it the whole workspace.
     """
     workspace = Path(WORKSPACE_ROOT).resolve()
     raw = "" if path is None else str(path).strip()
@@ -41,11 +46,20 @@ def validate_path(path, *, allow_root: bool = True) -> Path:
         if not allow_root:
             raise HTTPException(status_code=400, detail="워크스페이스 루트는 이 작업의 대상이 될 수 없습니다")
         return workspace
-    requested = (workspace / clean).resolve()
+    if follow_symlinks:
+        requested = (workspace / clean).resolve()
+    else:
+        leaf = workspace / clean
+        # A bare ".." survives normpath and would not be collapsed by the join below.
+        if leaf.name in ("", ".", ".."):
+            raise HTTPException(status_code=403, detail="워크스페이스 외부 경로는 허용되지 않습니다")
+        requested = leaf.parent.resolve() / leaf.name
     try:
         requested.relative_to(workspace)
     except ValueError:
         raise HTTPException(status_code=403, detail="워크스페이스 외부 경로는 허용되지 않습니다") from None
+    if not allow_root and requested == workspace:
+        raise HTTPException(status_code=400, detail="워크스페이스 루트는 이 작업의 대상이 될 수 없습니다")
     return requested
 
 

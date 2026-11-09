@@ -224,7 +224,24 @@ async def get_raw_file(
     # 워크스페이스 안에 만들어진 심볼릭 링크로 외부 경로(/etc/passwd 등) 노출 차단.
     if safe.is_symlink():
         raise HTTPException(status_code=403, detail="Symlinks not allowed")
-    return FileResponse(str(safe))
+    return FileResponse(str(safe), headers=raw_preview_headers(safe.name))
+
+
+# The editor previews HTML by pointing an <iframe> at this route, i.e. on the app's own
+# origin. A sandbox CSP gives the document an opaque origin: scripts still run (so the
+# preview keeps working) but cannot read the app's cookies, storage or same-origin API.
+# allow-same-origin must never be added; with allow-scripts it undoes the sandbox.
+RAW_PREVIEW_SANDBOX = "sandbox allow-scripts"
+
+
+def raw_preview_headers(filename: str) -> dict[str, str]:
+    headers = {"X-Content-Type-Options": "nosniff"}
+    # Chromium refuses to render a PDF inside a sandboxed document, and a PDF is not a
+    # script host the way HTML/SVG/XML are. Everything else gets the sandbox; for
+    # images and media embedded via <img>/<video> the header is simply ignored.
+    if not filename.lower().endswith(".pdf"):
+        headers["Content-Security-Policy"] = RAW_PREVIEW_SANDBOX
+    return headers
 
 
 MAX_LOCAL_ZIP_BYTES = host_sftp.MAX_DOWNLOAD_BYTES

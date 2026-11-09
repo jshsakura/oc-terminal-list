@@ -12,8 +12,8 @@ import shutil
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile
-from fastapi import File as FastAPIFile
+from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.datastructures import FormData, UploadFile
 
 import host_sftp
 from _deps import WORKSPACE_ROOT, validate_path, verify_auth_token
@@ -35,6 +35,7 @@ from paste_targets import (
     stamped_name,
 )
 from upload_common import TransferBudget, read_chunks
+from upload_form import form_text, form_upload, form_uploads, paste_form, upload_form
 
 logger = logging.getLogger(__name__)
 
@@ -86,10 +87,17 @@ async def create_file(request: FileCreateRequest, username: str = Depends(verify
 
 @router.post("/api/files/upload")
 async def upload_files(
-    files: list[UploadFile] = FastAPIFile(...),
-    dest: str = Form(""),
+    form: FormData = Depends(upload_form),
     username: str = Depends(verify_auth_token),
 ):
+    # Form/File parameters would be parsed before auth runs; see upload_form.py.
+    files = form_uploads(form, "files")
+    if not files:
+        raise HTTPException(status_code=400, detail="업로드할 파일이 없습니다")
+    return await store_uploads(files, form_text(form, "dest"))
+
+
+async def store_uploads(files: list[UploadFile], dest: str) -> dict:
     if len(files) > MAX_UPLOAD_FILES:
         raise HTTPException(status_code=413, detail=f"파일이 너무 많습니다 (최대 {MAX_UPLOAD_FILES}개)")
     workspace = Path(WORKSPACE_ROOT)
@@ -278,11 +286,12 @@ async def _save_remote_paste(host_id: str, username: str, file: UploadFile, file
 
 @router.post("/api/terminal/paste-image")
 async def paste_image(
-    file: UploadFile = FastAPIFile(...),
-    host_id: str = Form(""),
+    form: FormData = Depends(paste_form),
     username: str = Depends(verify_auth_token),
 ):
     """클립보드 이미지 → 붙여넣을 pane 이 사는 머신의 temp 폴더."""
+    file = form_upload(form, "file")
+    host_id = form_text(form, "host_id")
     content_type = (file.content_type or "").lower()
     if content_type not in _PASTE_IMAGE_EXT:
         raise HTTPException(status_code=400, detail="이미지 파일만 붙여넣을 수 있습니다")
@@ -296,11 +305,12 @@ async def paste_image(
 
 @router.post("/api/terminal/paste-file")
 async def paste_file(
-    file: UploadFile = FastAPIFile(...),
-    host_id: str = Form(""),
+    form: FormData = Depends(paste_form),
     username: str = Depends(verify_auth_token),
 ):
     """우클릭 "파일 보내기" / 드래그&드롭 — 이미지 전용 paste-image 의 일반판."""
+    file = form_upload(form, "file")
+    host_id = form_text(form, "host_id")
     filename = stamped_name(safe_basename(file.filename))
     if host_id:
         return await _save_remote_paste(host_id, username, file, filename)
@@ -311,10 +321,12 @@ async def paste_file(
 
 @router.delete("/api/files")
 async def delete_file(path: str = Query(...), username: str = Depends(verify_auth_token)):
-    safe = validate_path(path, allow_root=False)
-    if not safe.exists():
+    # Never follow a symlink here: the link is the thing being deleted, and following
+    # one to a directory used to rmtree the target (or the whole workspace).
+    safe = validate_path(path, allow_root=False, follow_symlinks=False)
+    if not safe.exists() and not safe.is_symlink():
         raise HTTPException(status_code=404, detail="Not found")
-    if safe.is_dir():
+    if safe.is_dir() and not safe.is_symlink():
         shutil.rmtree(safe)
     else:
         safe.unlink()

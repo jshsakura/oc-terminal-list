@@ -36,7 +36,7 @@ def workspace(tmp_path, monkeypatch):
 
 
 async def test_점_이름은_건너뛰고_형제_경로에_아무것도_안_쓴다(workspace):
-    out = await files_write.upload_files(files=[_Upload("."), _Upload("..")], dest="", username="u")
+    out = await files_write.store_uploads(files=[_Upload("."), _Upload("..")], dest="")
     assert out["files"] == []
     assert not (workspace.parent / "ws.part").exists()
     assert sorted(os.listdir(workspace.parent)) == ["ws"]
@@ -51,7 +51,7 @@ async def test_임시_파일은_목적지_폴더_안에_만들어진다(workspac
         return real_open(path, *a, **kw)
 
     monkeypatch.setattr("builtins.open", spy_open)
-    out = await files_write.upload_files(files=[_Upload("README")], dest="", username="u")
+    out = await files_write.store_uploads(files=[_Upload("README")], dest="")
     assert out["files"][0]["path"] == "README"
     assert (workspace / "README").read_bytes() == b"hello"
     part = [p for p in seen if p.endswith(".part")]
@@ -60,6 +60,6 @@ async def test_임시_파일은_목적지_폴더_안에_만들어진다(workspac
 
 
 async def test_경로_구분자가_섞인_이름은_마지막_조각만_쓴다(workspace):
-    out = await files_write.upload_files(files=[_Upload("a/../../etc/passwd")], dest="", username="u")
+    out = await files_write.store_uploads(files=[_Upload("a/../../etc/passwd")], dest="")
     assert out["files"][0]["path"] == "passwd"
     assert (workspace / "passwd").exists()

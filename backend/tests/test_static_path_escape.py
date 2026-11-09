@@ -69,6 +69,9 @@ def _catch_all_registered() -> bool:
     "/..%2fsecret.txt",
     "/sub%2f..%2f..%2fsecret.txt",
     "/%2f{secret}",
+    "/%2e%2e%2fsecret.txt",
+    "/sub%2f%2e%2e%2f%2e%2e%2fsecret.txt",
+    "/%2e%2e/secret.txt",
 ])
 def test_라우트가_정적_폴더_밖의_파일을_돌려주지_않는다(layout, monkeypatch, method, url):
     static, secret = layout
