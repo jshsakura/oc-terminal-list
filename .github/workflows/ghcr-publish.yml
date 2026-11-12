@@ -33,7 +33,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y tmux openssh-client ripgrep
           python -m venv .venv
-          .venv/bin/python -m pip install -r backend/requirements.txt pytest pytest-asyncio httpx ruff
+          .venv/bin/python -m pip install -r backend/requirements.txt pytest pytest-asyncio ruff
           npm ci --prefix frontend
       - name: Critical Python lint
         run: .venv/bin/ruff check backend --select E9,F63,F7,F82

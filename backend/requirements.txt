@@ -19,3 +19,4 @@ redis>=5.0.0
 # Runtime imports used by exchange-rate lookups and push notifications.
 aiohttp==3.14.3
 pywebpush==2.3.0
+httpx==0.28.1
