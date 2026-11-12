@@ -68,7 +68,7 @@ ENV HOST=0.0.0.0 \
 
 EXPOSE 38822
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-    CMD curl -fsS http://127.0.0.1:38822/api/health || exit 1
+    CMD python /app/backend/healthcheck.py
 
 # tini 가 PID 1 → uvicorn 종료 시그널 정상 전파, tmux 좀비 청소.
 ENTRYPOINT ["/usr/bin/tini", "--"]

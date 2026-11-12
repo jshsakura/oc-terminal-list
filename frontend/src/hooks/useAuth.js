@@ -5,12 +5,14 @@ import {
   clearLegacyAuthStorage,
   clearVolatileAuthToken,
   getLegacyAuthToken,
+  redirectToAccessLogout,
   setVolatileAuthToken,
 } from '../utils/auth';
 import { clearDraft } from '../utils/quickInputDraft';
 import { clearAllLocalCommands } from '../utils/commandHistory';
 
 const useAuth = () => {
+  const cloudflareAccessRef = useRef(false);
   const [authState, setAuthState] = useState({
     isLoading: true,
     needsSetup: false,
@@ -53,6 +55,12 @@ const useAuth = () => {
       // 1. 초기 설정 완료 여부 확인
       const statusResponse = await fetch('/api/auth/status');
       const statusData = await statusResponse.json();
+      cloudflareAccessRef.current = statusData.auth_mode === 'cloudflare_access';
+      if (cloudflareAccessRef.current && !statusResponse.ok) {
+        clearAuthFallbacks();
+        redirectToAccessLogout();
+        return;
+      }
 
       if (!statusData.setup_complete) {
         clearAuthFallbacks();
@@ -68,6 +76,11 @@ const useAuth = () => {
       // 2. 쿠키 세션 확인(재시도 포함). 예전 localStorage Bearer 토큰이 있으면 이 요청에서
       // 서버가 HttpOnly 쿠키로 승격하고, 성공 후 로컬 토큰은 제거한다.
       const result = await verifyWithRetry();
+      if (result.expired && cloudflareAccessRef.current) {
+        clearAuthFallbacks();
+        redirectToAccessLogout();
+        return;
+      }
 
       if (result.ok) {
         clearAuthFallbacks();
@@ -108,6 +121,11 @@ const useAuth = () => {
   // 어디서든 auth:session-expired 이벤트가 발생하면 즉시 로그인 화면으로 전환
   const logoutRef = useRef(null);
   logoutRef.current = async () => {
+    if (cloudflareAccessRef.current) {
+      clearAuthFallbacks();
+      redirectToAccessLogout();
+      return;
+    }
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* noop */ }
     clearAuthFallbacks();
     setAuthState({ isLoading: false, needsSetup: false, isAuthenticated: false, username: null });
@@ -182,6 +200,10 @@ const useAuth = () => {
     // localStorage 에서 그대로 읽는다. (세션 만료 경로는 재로그인 복원을 위해 남겨둔다.)
     clearDraft();
     clearAllLocalCommands();
+    if (cloudflareAccessRef.current) {
+      redirectToAccessLogout();
+      return;
+    }
     setAuthState({
       isLoading: false,
       needsSetup: false,

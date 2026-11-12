@@ -13,6 +13,8 @@ from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, 
 
 from _deps import AUTH_COOKIE_NAME, get_auth_manager, verify_auth_token
 from auth_cookie import _clear_auth_cookie, _set_auth_cookie
+from cf_access import current_access
+from login_alert_service import alert_login
 from models import (
     LoginRequest,
     OtpDisableRequest,
@@ -37,7 +39,6 @@ from passkey import (
     verify_registration as _verify_reg,
 )
 from rate_limit import check_rate_limit, client_ip_from_request
-from login_alert_service import alert_login
 from sqlite_storage import storage
 
 logger = logging.getLogger(__name__)
@@ -47,6 +48,8 @@ router = APIRouter(tags=["auth"])
 
 @router.get("/api/auth/status")
 async def auth_status():
+    if current_access.get() is not None:
+        return {"setup_complete": True, "passkey_available": False, "auth_mode": "cloudflare_access"}
     if get_auth_manager() is None:
         return {"setup_complete": False, "passkey_available": False}
     setup_complete = await get_auth_manager().is_setup_complete()
@@ -153,6 +156,8 @@ async def verify_token(
     authorization: str | None = Header(None),
     auth_cookie: str | None = Cookie(None, alias=AUTH_COOKIE_NAME),
 ):
+    if current_access.get() is not None:
+        return {"valid": True, "username": username, "auth_mode": "cloudflare_access"}
     # Smooth migration: an old localStorage Bearer token that still verifies is
     # promoted to the new HttpOnly cookie, then the frontend can delete it.
     if authorization and authorization.startswith("Bearer "):
@@ -178,6 +183,9 @@ async def refresh_token(
     """현재 유효한 토큰으로 만료 시각을 새로 24h 미룬 토큰을 재발급.
     활동 중인 사용자가 24h 정각에 튕기지 않게 프론트가 주기적으로 호출한다.
     (만료된 토큰은 Depends 에서 401 → 프론트가 로그인 유도)"""
+    identity = current_access.get()
+    if identity is not None:
+        return {"username": username, "auth_mode": "cloudflare_access", "expires_at": identity.expires_at}
     if get_auth_manager() is None:
         raise HTTPException(status_code=500, detail="인증 시스템이 초기화되지 않았습니다")
     access_token = await get_auth_manager().refresh_access_token(username)
@@ -191,6 +199,8 @@ async def logout(
     authorization: str | None = Header(None),
     auth_cookie: str | None = Cookie(None, alias=AUTH_COOKIE_NAME),
 ):
+    if current_access.get() is not None:
+        return {"success": True, "auth_mode": "cloudflare_access", "logout_url": "/cdn-cgi/access/logout"}
     if (authorization or auth_cookie) and get_auth_manager() is not None:
         try:
             await verify_auth_token(authorization, auth_cookie)

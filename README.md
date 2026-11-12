@@ -358,6 +358,9 @@ Core environment variables:
 | `LOG_LEVEL` | `INFO` | Python logging level |
 | `RELOAD` | `false` for production | Uvicorn reload flag |
 | `TRUST_PROXY_HEADERS` | `0` | Trust `X-Forwarded-*` headers only when behind a trusted reverse proxy |
+| `CF_ACCESS_TEAM_DOMAIN` | _(empty)_ | Cloudflare Access team host, e.g. `example.cloudflareaccess.com`; set together with `CF_ACCESS_AUD` |
+| `CF_ACCESS_AUD` | _(empty)_ | Access application's audience tag; enables externally verified authentication with the team host |
+| `CF_ACCESS_ALLOWED_EMAILS` | _(empty)_ | Optional comma-separated signed email allowlist |
 | `ENABLE_CSP` | `1` | Send the default Content-Security-Policy header |
 
 Security keys:
@@ -902,3 +905,11 @@ docker compose up -d
 MIT License.
 
 ---
+
+### Cloudflare Access authentication (optional)
+
+Set `CF_ACCESS_TEAM_DOMAIN` and `CF_ACCESS_AUD` to use Access as the only login layer. Every HTTP request (including static assets and `/api/health`) and WebSocket handshake requires a valid Access JWT. The app verifies RS256 signatures against the configured team's `/cdn-cgi/access/certs`, exact issuer/audience and expiry. Signing keys are cached for five minutes; an unknown key ID triggers a refresh, with a short cooldown against repeated unknown-key traffic. A present invalid assertion header never falls back to a cookie or local app token. `CF_ACCESS_ALLOWED_EMAILS` restricts verified email claims when set.
+
+All allowed identities act as this instance's existing administrator. A fresh data volume uses the logical owner `admin` without creating a local password account. Local setup, password, OTP and passkey authentication/management endpoints are disabled; logout goes through `/cdn-cgi/access/logout`. Existing local authentication is unchanged when both settings are empty. Partial configuration fails closed. This mode does not provide multi-user isolation.
+
+The shipped container healthcheck uses a local TCP liveness probe in Access mode so no unauthenticated HTTP exception is needed. Without Access it checks `/api/health` as before. Do not expose the container's port beyond the intended ingress. Existing `TRUST_PROXY_HEADERS` and origin restrictions still apply independently.

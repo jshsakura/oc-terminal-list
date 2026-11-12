@@ -75,7 +75,8 @@ def _consume_ws_ticket(ticket: str | None, path: str) -> str | None:
     session = meta.get("session")
     if session is not None and not session.active:
         return None
-    current_session.set(session)
+    from cf_access import restore_access_session
+    current_session.set(restore_access_session() or session)
     return meta.get("username")
 
 
@@ -132,7 +133,8 @@ def _consume_file_ticket(ticket: str | None) -> str | None:
     session = meta.get("session")
     if session is not None and not session.active:
         return None
-    current_session.set(session)
+    from cf_access import restore_access_session
+    current_session.set(restore_access_session() or session)
     return meta.get("path")
 
 
@@ -163,5 +165,6 @@ def _consume_sse_ticket(ticket: str | None) -> str | None:
     session = meta.get("session")
     if session is not None and not session.active:
         return None
-    current_session.set(session)
+    from cf_access import restore_access_session
+    current_session.set(restore_access_session() or session)
     return meta["username"]

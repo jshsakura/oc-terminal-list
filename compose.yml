@@ -20,6 +20,9 @@ services:
     environment:
       HOST: 0.0.0.0
       APP_PORT: ${APP_PORT:-38822}
+      CF_ACCESS_TEAM_DOMAIN: ${CF_ACCESS_TEAM_DOMAIN:-}
+      CF_ACCESS_AUD: ${CF_ACCESS_AUD:-}
+      CF_ACCESS_ALLOWED_EMAILS: ${CF_ACCESS_ALLOWED_EMAILS:-}
       DB_PATH: /app/data/iterminallist.db
       WORKSPACE_ROOT: /workspace
       # 컨테이너 내 Redis — compose 네트워크의 서비스명을 host 로 사용
@@ -49,7 +52,7 @@ services:
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:${APP_PORT:-38822}/api/health"]
+      test: ["CMD", "python", "/app/backend/healthcheck.py"]
       interval: 30s
       timeout: 3s
       retries: 3

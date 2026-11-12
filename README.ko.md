@@ -900,3 +900,13 @@ docker compose up -d
 MIT License.
 
 ---
+
+### Cloudflare Access만으로 로그인하기 (선택)
+
+`CF_ACCESS_TEAM_DOMAIN=example.cloudflareaccess.com`과 `CF_ACCESS_AUD=<애플리케이션 AUD 태그>`를 함께 지정하면 앱 자체 로그인 대신 Cloudflare Access 인증을 사용합니다. 필요하면 `CF_ACCESS_ALLOWED_EMAILS=me@example.com,you@example.com`으로 서명된 이메일을 추가 제한합니다. Compose에서도 같은 환경변수를 전달합니다.
+
+정적 파일·`/api/health`를 포함한 모든 HTTP 요청과 WebSocket 연결에서 JWT의 RS256 서명·issuer·audience·만료를 검증합니다. 헤더가 없을 때만 `CF_Authorization` 쿠키를 사용하며, 앱 쿠키나 티켓으로 검증을 우회할 수 없습니다. 공개키는 5분 캐시하고 새 kid는 재조회합니다. 임의 kid 반복 요청에는 짧은 재조회 제한이 있습니다.
+
+허용된 Access 사용자는 모두 해당 인스턴스의 기존 관리자 권한으로 동작합니다. 새 data 볼륨은 비밀번호 계정을 만들지 않고 논리 소유자 `admin`을 사용합니다. 초기 설정·비밀번호·OTP·패스키 인증/관리 경로는 비활성화하고 로그아웃은 Cloudflare의 `/cdn-cgi/access/logout`으로 이동합니다. 두 설정이 모두 없으면 기존 로그인 그대로이며, 하나만 설정하면 시작을 거부합니다. 다중 사용자 격리 기능은 아닙니다.
+
+컨테이너 내부 healthcheck는 이 모드에서 TCP 접속만 점검하여 인증 없는 HTTP 예외 경로를 만들지 않습니다. 일반 모드에서는 기존 `/api/health`를 확인합니다. 프록시 헤더 신뢰와 허용 Origin 설정은 기존 정책을 유지합니다.

@@ -40,3 +40,4 @@ export const clearAuthFallbacks = () => {
   clearLegacyAuthStorage();
   clearVolatileAuthToken();
 };
+export const redirectToAccessLogout = () => window.location.assign('/cdn-cgi/access/logout');

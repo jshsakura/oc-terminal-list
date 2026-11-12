@@ -78,6 +78,13 @@ async def verify_auth_token(
     authorization: str | None = Header(None),
     auth_cookie: str | None = Cookie(None, alias=AUTH_COOKIE_NAME),
 ) -> str:
+    from cf_access import access_configured, current_access, restore_access_session
+    identity = current_access.get()
+    if identity is not None:
+        restore_access_session()
+        return identity.username
+    if access_configured():
+        raise HTTPException(status_code=401, detail="Cloudflare Access 인증이 필요합니다")
     candidates: list[str] = []
     if authorization and authorization.startswith("Bearer "):
         bearer = authorization[len("Bearer "):].strip()

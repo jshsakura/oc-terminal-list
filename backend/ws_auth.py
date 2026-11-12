@@ -24,6 +24,7 @@ import os
 from urllib.parse import urlsplit
 
 from fastapi import WebSocket
+from starlette.requests import HTTPConnection
 
 from _deps import AUTH_COOKIE_NAME, get_auth_manager
 from auth_sessions import current_session
@@ -46,7 +47,7 @@ def _allowed_origins() -> list[str]:
     return out
 
 
-def _origin_ok(websocket: WebSocket) -> bool:
+def _origin_ok(websocket: HTTPConnection) -> bool:
     """쿠키 폴백을 허용할 Origin 인가. 티켓 인증엔 적용되지 않는다."""
     origin = (websocket.headers.get("origin") or "").rstrip("/")
     if not origin:
@@ -69,6 +70,17 @@ async def authenticate_ws(websocket: WebSocket, ws_path: str, ticket: str | None
     1) 티켓이 유효하면 소비하고 그 username.
     2) 아니면 Origin 검사를 통과한 경우에 한해 same-origin 쿠키(iterm_auth)로 인증.
     """
+    from cf_access import access_configured, current_access, restore_access_session
+    identity = current_access.get()
+    if identity is not None:
+        if websocket.headers.get("origin") and not _origin_ok(websocket):
+            return None
+        session = restore_access_session()
+        if session is not None:
+            session.sockets.add(websocket)
+        return identity.username
+    if access_configured():
+        return None
     current_session.set(None)
     username = _consume_ws_ticket(ticket, ws_path) if ticket else None
     if username:

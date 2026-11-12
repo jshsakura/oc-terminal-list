@@ -257,7 +257,9 @@ async def tab_state_events(
     쿠키를 자동으로 실으므로, 재연결이 wedge 되는 /api/sse-ticket POST(공유 HTTP/2 풀
     재사용)에 의존하지 않는다. CSRF 는 쿠키의 SameSite=Strict 가 막는다(앱 전역 규칙).
     """
-    username = _consume_sse_ticket(ticket) if ticket else None
+    from cf_access import current_access
+    username = (await verify_auth_token(None, auth_cookie) if current_access.get() is not None
+                else (_consume_sse_ticket(ticket) if ticket else None))
     if not username:
         # 쿠키 폴백 — 무효면 verify_auth_token 이 401 을 던진다.
         username = await verify_auth_token(None, auth_cookie)

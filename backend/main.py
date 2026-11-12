@@ -122,6 +122,8 @@ auth_manager: AuthManager | None = None
 async def lifespan(_app: FastAPI):
     global auth_manager
     logger.info("=== Terminal List 시작 ===")
+    from cf_access import AccessSettings
+    AccessSettings.from_env()
     await storage.connect()
     auth_manager = AuthManager(storage)
     set_auth_manager(auth_manager)
@@ -320,6 +322,9 @@ async def add_security_headers(request: Request, call_next):
         response.headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
     return response
 
+
+from cf_access import CloudflareAccessMiddleware  # noqa: E402
+app.add_middleware(CloudflareAccessMiddleware)
 
 # ---------------------- 워크스페이스 ----------------------
 
