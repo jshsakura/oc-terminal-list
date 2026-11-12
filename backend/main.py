@@ -44,6 +44,7 @@ from starlette.datastructures import Headers
 from starlette.types import Receive, Scope, Send
 
 import access_log_filter
+import safe_logging  # noqa: E402 - environment must be loaded before application imports
 from _deps import (
     WORKSPACE_ROOT,
     set_auth_manager,
@@ -61,6 +62,7 @@ logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO"),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
+safe_logging.install()
 logger = logging.getLogger(__name__)
 # asyncssh 는 접속/채널/인증 과정을 INFO 로 대량 출력 — WARNING 이상만 표시
 logging.getLogger("asyncssh").setLevel(logging.WARNING)

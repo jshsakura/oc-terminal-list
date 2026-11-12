@@ -177,7 +177,8 @@ class LoginAlert:
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001
-                logger.warning("login alert polling failed, retrying in %ss: %s", ERROR_BACKOFF_SEC, exc)
+                logger.warning("login alert polling failed, retrying in %ss: %s: %s",
+                               ERROR_BACKOFF_SEC, type(exc).__name__, exc)
                 await asyncio.sleep(ERROR_BACKOFF_SEC)
 
     def start(self) -> None:

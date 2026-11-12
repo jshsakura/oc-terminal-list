@@ -127,3 +127,18 @@ def test_LOGIN_ALERT_0_이면_꺼진다(monkeypatch):
     monkeypatch.setenv("TELEGRAM_CHAT_ID", CHAT)
     monkeypatch.setenv("LOGIN_ALERT", "0")
     assert not login_alert.from_env(logout_session=None, logout_all=None).enabled
+
+
+async def test_empty_poll_timeout_reports_exception_type(monkeypatch, caplog):
+    def timeout(_request):
+        raise httpx.ReadTimeout('')
+
+    async def stop_after_backoff(_delay):
+        raise asyncio.CancelledError
+
+    alert = LoginAlert('test-token', CHAT, logout_session=None, logout_all=None,
+                       transport=httpx.MockTransport(timeout))
+    monkeypatch.setattr(login_alert.asyncio, 'sleep', stop_after_backoff)
+    with caplog.at_level('WARNING', logger='login_alert'), pytest.raises(asyncio.CancelledError):
+        await alert._loop()
+    assert any(record.args[1] == 'ReadTimeout' for record in caplog.records if record.name == 'login_alert')
