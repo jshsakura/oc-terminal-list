@@ -26,9 +26,13 @@ document.addEventListener('contextmenu', (event) => {
 // 값을 작은 수치로 덮어써 jank 를 줄인다. 데스크탑은 그대로 풀 블러.
 const glassBlurStyle = document.createElement('style');
 glassBlurStyle.textContent = `
-  :root { --glass-blur-menu: 20px; --glass-blur-panel: 18px; --glass-blur-overlay: 5px; --glass-blur-card: 12px; }
+  /* Menus, panels and modals are solid surfaces (2026-11-19). Glass behind a popup read
+     as "broken" (terminal text bleeding through a confirm dialog), so the same switch the
+     e-ink mode uses is now the default: no blur, every neutral fill opaque. Only the
+     home dashboard card stays glass — it has its own vars (--card-*, dashboardCard.js). */
+  :root { --glass-blur-menu: 0px; --glass-blur-panel: 0px; --glass-blur-overlay: 0px; --glass-fill: 100%; --glass-line: 100%; --glass-blur-card: 12px; }
   @media (max-width: 768px), (hover: none) and (pointer: coarse) {
-    :root { --glass-blur-menu: 6px; --glass-blur-panel: 6px; --glass-blur-overlay: 2px; --glass-blur-card: 5px; }
+    :root { --glass-blur-card: 5px; }
   }
 
   /* Menu row hover - the whole app uses this one rule; a row just needs the class.

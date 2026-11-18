@@ -338,8 +338,6 @@ const VncDisplayPicker = ({ host, t, onPick, onClose, onConfirm, paneSize }) => 
         alignItems: 'center',
         justifyContent: 'center',
         background: color.scrim,
-        backdropFilter: 'blur(2px)',
-        WebkitBackdropFilter: 'blur(2px)',
       }}
     >
       <div

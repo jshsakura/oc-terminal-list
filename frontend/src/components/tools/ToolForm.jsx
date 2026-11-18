@@ -75,10 +75,10 @@ const ToolForm = ({ initial, onSubmit, onCancel, t }) => {
       </div>
       {error && <div style={styles.error}>{error}</div>}
       <div style={styles.actions}>
-        <Button variant="primary" size="small" type="submit" disabled={busy}>
+        <Button variant="primary" type="submit" disabled={busy}>
           {t?.('save') || '저장'}
         </Button>
-        <Button variant="ghost" size="small" type="button" onClick={onCancel}>
+        <Button variant="ghost" type="button" onClick={onCancel}>
           {t?.('cancel') || '취소'}
         </Button>
       </div>

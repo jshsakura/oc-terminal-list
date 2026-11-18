@@ -51,8 +51,6 @@ export const CornerToast = ({ themeUi, tone = 'default', opacity = 0.95, childre
       bottom: '10px',
       right: '10px',
       background: `color-mix(in srgb, ${themeUi.surface1 || themeUi.surface0 || '#313244'} var(--glass-fill, 92%)%, transparent)`,
-      backdropFilter: 'blur(8px)',
-      WebkitBackdropFilter: 'blur(8px)',
       color: tone === 'error' ? (themeUi.danger || themeUi.text) : themeUi.text,
       border: `1px solid ${themeUi.border}`,
       borderRadius: '6px',

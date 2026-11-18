@@ -19,7 +19,7 @@ const ModalLoading = () => (
     style={{
       position: 'fixed', inset: 0, zIndex: 1000,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      background: color.scrim, backdropFilter: 'blur(2px)',
+      background: color.scrim,
       fontFamily: font.sans, fontSize: fontSize['12'], color: color.subtext,
     }}
     aria-busy="true"

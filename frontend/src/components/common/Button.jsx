@@ -32,11 +32,16 @@ const variantStyle = {
 // Variants that paint a surface — hover dims them instead of touching the border.
 const FILLED_VARIANTS = new Set(['primary', 'danger']);
 
+/* **One height for every button in the app.** small/medium/large used to be 24/30/36,
+   and popups mixed them freely, so two dialogs side by side looked like different apps.
+   Only the deliberately dense chrome (tab bar, mobile quick bar) is smaller, and those
+   draw their own controls. The icon button is the same height so it lines up in a row
+   of text buttons. */
+export const BUTTON_HEIGHT_PX = 30;
+const textSize = { height: `${BUTTON_HEIGHT_PX}px`, fontSize: fontSize['13'], padding: `0 ${space['4']}` };
 const sizeStyle = {
-  small:  { height: '24px', fontSize: fontSize['11'], padding: `0 10px` },
-  medium: { height: '30px', fontSize: fontSize['13'], padding: `0 ${space['4']}` },
-  large:  { height: '36px', fontSize: fontSize['13'], padding: `0 ${space['5']}` },
-  icon:   { width: '28px', height: '28px', padding: 0 },
+  medium: textSize,
+  icon:   { width: `${BUTTON_HEIGHT_PX}px`, height: `${BUTTON_HEIGHT_PX}px`, padding: 0 },
 };
 
 const Button = ({
@@ -53,6 +58,7 @@ const Button = ({
   fullWidth = false,
   initialFocus = false,
   type = 'button',
+  ...rest // aria-*, data-* — e.g. GlassModal's data-modal-dismiss
 }) => {
   const v = variantStyle[variant] || variantStyle.secondary;
   const s = sizeStyle[size] || sizeStyle.medium;
@@ -76,10 +82,11 @@ const Button = ({
     ...style,
   };
 
-  const iconSize = size === 'small' ? 13 : 14;
+  const iconSize = 14;
 
   return (
     <button
+      {...rest}
       type={type}
       onClick={onClick}
       onMouseDown={onMouseDown}

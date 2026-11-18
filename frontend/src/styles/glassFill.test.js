@@ -41,6 +41,13 @@ describe('translucent neutral surfaces route through --glass-fill', () => {
         if (!NEUTRAL.test(m[2])) return;      // accent / semantic tint — not ours
         offenders.push(`${relative(SRC, file)}:${i + 1}  ${line.trim().slice(0, 96)}`);
       });
+      // The `var(--ui-surface0, ${color.surface0}) NN%` form: the comma inside var() hides it
+      // from the pattern above, and 27 surfaces slipped through that way (2026-11-19).
+      src.split('\n').forEach((line, i) => {
+        if (/color-mix\(in srgb, var\(--ui-(surface[012]|base|mantle|crust), [^)]*\) \d+%, transparent\)/.test(line)) {
+          offenders.push(`${relative(SRC, file)}:${i + 1}  ${line.trim().slice(0, 96)}`);
+        }
+      });
     }
     expect(offenders, `이북 모드에서 뒤가 비칠 면들 — \`var(--glass-fill, NN%)\` 로 바꿀 것:\n${offenders.join('\n')}`)
       .toEqual([]);

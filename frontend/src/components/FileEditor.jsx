@@ -486,7 +486,6 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
         padding: '4px 12px', 
         background: editorSection.background,
         borderBottom: `1px solid ${editorSection.borderColor}`,
-        backdropFilter: 'blur(10px)',
       }}>
         <div style={{ fontSize: '11px', color: theme.ui.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
           {activeFileHostId ? `[remote] ${activeFilePath}` : (activeFilePath || activeFile)}
@@ -495,7 +494,6 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           {diffStates[activeFile]?.exists && diffStates[activeFile]?.original !== currentFileState.lastSavedContent && (
             <Button
               variant="ghost"
-              size="small"
               onClick={toggleDiffView}
               theme={theme}
               style={{ height: '24px', fontSize: '11px', padding: '0 8px' }}
@@ -507,7 +505,6 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           {(isMarkdown || isHtml || isDelimited) && (
             <Button
               variant="ghost"
-              size="small"
               onClick={() => setIsPreviewMode(!isPreviewMode)}
               theme={theme}
               style={{ height: '24px', fontSize: '11px', padding: '0 8px' }}
@@ -525,7 +522,6 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           {!isPreviewMode && !isDiffView && canFormatLanguage(getLanguage(activeFile)) && (
             <Button
               variant="ghost"
-              size="small"
               onClick={formatDocument}
               disabled={loading}
               theme={theme}
@@ -536,7 +532,6 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           )}
           <Button
             variant="ghost"
-            size="small"
             onClick={saveFile}
             disabled={!hasChanges || saving || loading}
             theme={theme}
@@ -547,7 +542,6 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           </Button>
           <Button
             variant="ghost"
-            size="small"
             onClick={() => loadFile(activeFile)}
             disabled={loading}
             theme={theme}

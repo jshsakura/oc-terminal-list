@@ -586,10 +586,10 @@ const HostEditor = ({ isOpen, host, sshKeys, onSave, onClose, onDelete, onKillTm
                 <span style={{ fontSize: fontSize['12'], color: color.danger }}>
                   {t('confirmDeleteHostInline') || 'Delete this host?'}
                 </span>
-                <Button variant="ghost" onClick={() => setConfirmingDelete(false)} type="button" style={{ height: '26px' }}>
+                <Button variant="ghost" onClick={() => setConfirmingDelete(false)} type="button">
                   {t('cancel') || 'Cancel'}
                 </Button>
-                <Button variant="primary" onClick={onDelete} type="button" style={{ height: '26px', background: color.danger, borderColor: color.danger }}>
+                <Button variant="danger" onClick={onDelete} type="button">
                   {t('delete') || 'Delete'}
                 </Button>
               </div>

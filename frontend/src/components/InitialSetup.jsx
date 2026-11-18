@@ -163,7 +163,7 @@ const InitialSetup = ({ onComplete, language = 'en' }) => {
 
           {error && <div style={styles.error}>{error}</div>}
 
-          <Button variant="primary" size="large" fullWidth type="submit" disabled={isLoading} icon={ChevronRight}>
+          <Button variant="primary" fullWidth type="submit" disabled={isLoading} icon={ChevronRight}>
             {isLoading ? (t('creating') || 'Creating...') : (t('createAccount') || 'Create account')}
           </Button>
 
@@ -225,8 +225,6 @@ const styles = {
     border: `1px solid ${color.border}18`,
     borderRadius: radius.xl,
     boxShadow: '0 28px 90px rgba(0, 0, 0, 0.28)',
-    backdropFilter: 'blur(18px)',
-    WebkitBackdropFilter: 'blur(18px)',
     overflow: 'hidden',
     margin: `${space['5']} 0`,
     flexShrink: 0,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Send, X, Eraser, ClipboardPaste, Mic, ChevronUp, ChevronDown, Paperclip, Loader2, Keyboard, Type } from 'lucide-react';
-import Button from './common/Button';
+import Button, { BUTTON_HEIGHT_PX } from './common/Button';
 import { tokens } from '../styles/tokens';
 import { MOBILE_CONTROL } from '../styles/mobileControl';
 import useVisualViewport from '../hooks/useVisualViewport';
@@ -1045,7 +1045,7 @@ const styles = {
     width: '90%',
     maxWidth: '420px',
     maxHeight: '80%',
-    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 58%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) var(--glass-fill, 58%), transparent)`,
     border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 62%, transparent)`,
     borderRadius: '12px',
     boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.05)',
@@ -1062,7 +1062,7 @@ const styles = {
     justifyContent: 'space-between',
     padding: `${space['2']} ${space['3']}`,
     borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) var(--glass-fill, 44%), transparent)`,
   },
   title: { fontSize: fontSize['12'], fontWeight: fontWeight.semibold, color: `var(--ui-text, ${color.text})`, display: 'flex', alignItems: 'center', gap: '6px' },
   headerActions: { display: 'flex', alignItems: 'center', gap: '6px' },
@@ -1071,22 +1071,22 @@ const styles = {
     borderColor: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 55%, transparent)`,
     background: `color-mix(in srgb, var(--ui-accent, ${color.accent}) 16%, transparent)`,
   },
+  // Same box as <Button variant="ghost" size="icon"> — header toggles need the active
+  // override below, so they keep a raw <button> with this style.
   closeBtn: {
-    width: '28px',
-    height: '28px',
+    width: `${BUTTON_HEIGHT_PX}px`,
+    height: `${BUTTON_HEIGHT_PX}px`,
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 54%, transparent)`,
+    background: 'transparent',
     color: `var(--ui-subtext, ${color.subtext})`,
     borderWidth: '1px',
     borderStyle: 'solid',
     borderColor: `var(--ui-border, ${color.border})`,
-    borderRadius: '7px',
+    borderRadius: radius.sm,
     cursor: 'pointer',
     transition: `background ${motion.fast}, color ${motion.fast}`,
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
     outline: 'none', // 포커스 시 브라우저 기본 흰 테두리 제거 (다른 버튼들과 동일)
     WebkitTapHighlightColor: 'transparent',
   },
@@ -1123,7 +1123,7 @@ const styles = {
     gap: space['1'],
     padding: `${space['1.5']} ${space['3']}`,
     borderTop: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) var(--glass-fill, 44%), transparent)`,
   },
   // 푸터 보조 아이콘 버튼(Paste/Attach/Clear) 공통 사이즈 — 우측 주 액션(Send, medium=30px) 과
   // 높이를 맞춰 한 줄이 들쭉날쭉하지 않게 한다. Button 의 size="icon"(28x28) 위로 덮어씀.

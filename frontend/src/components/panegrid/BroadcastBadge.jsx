@@ -85,8 +85,6 @@ const BASE_WRAP = {
   fontSize: '10px',
   fontWeight: fontWeight.semibold,
   lineHeight: 1,
-  backdropFilter: 'blur(10px)',
-  WebkitBackdropFilter: 'blur(10px)',
   animation: 'iterm-broadcast-in 140ms ease both',
   pointerEvents: 'auto',
   userSelect: 'none',
@@ -98,7 +96,7 @@ const styles = {
     ...BASE_WRAP,
     // pane 테두리(앰버)와 같은 계열로 — 브로드캐스트 대상임을 한눈에.
     color: '#f59e0b',
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 80%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) var(--glass-fill, 80%), transparent)`,
     border: '1px solid color-mix(in srgb, #f59e0b 50%, transparent)',
     boxShadow: '0 3px 12px rgba(0,0,0,0.35)',
   },

@@ -895,7 +895,7 @@ const Pane = ({
           <div
             onClick={(e) => e.stopPropagation()}
             style={{
-              background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 80%, transparent)`,
+              background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) var(--glass-fill, 80%), transparent)`,
               backdropFilter: 'blur(var(--glass-blur-panel, 20px))',
               WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 20px))',
               border: `1px solid var(--ui-borderStrong, ${color.borderStrong})`,
@@ -932,15 +932,14 @@ const Pane = ({
                 style={{
                   flex: 1, height: '32px', borderRadius: '7px',
                   border: `1px solid var(--ui-border, ${color.border})`,
-                  background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 70%, transparent)`,
+                  background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 70%), transparent)`,
                   color: `var(--ui-subtext, ${color.subtext})`,
                   fontSize: fontSize['12'], fontWeight: fontWeight.medium,
                   cursor: 'pointer', fontFamily: 'inherit',
-                  backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
                   transition: 'all 120ms',
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = `var(--ui-surface1, ${color.surface1})`; e.currentTarget.style.color = `var(--ui-text, ${color.text})`; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 70%, transparent)`; e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 70%), transparent)`; e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`; }}
               >
                 {t?.('cancel') || 'Cancel'}
               </button>
@@ -958,7 +957,6 @@ const Pane = ({
                   color: `var(--ui-danger, ${color.danger})`,
                   fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
                   cursor: 'pointer', fontFamily: 'inherit',
-                  backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
                   transition: 'all 120ms',
                 }}
                 onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, var(--ui-danger, ${color.danger}) 35%, transparent)`; }}

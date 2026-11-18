@@ -676,8 +676,6 @@ const VncPane = ({
           fontSize: fontSize['11'],
           fontWeight: fontWeight.medium,
           color: color.subtext,
-          backdropFilter: 'blur(8px)',
-          WebkitBackdropFilter: 'blur(8px)',
           pointerEvents: 'none',
         }}>
           <span style={{

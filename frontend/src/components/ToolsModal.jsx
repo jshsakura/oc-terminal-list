@@ -86,7 +86,7 @@ const ToolsModal = ({ isOpen, onClose, hosts = [], initialHostId = '', onInstall
             {hosts.map((h) => <option key={h.id} value={h.id}>{h.name}</option>)}
           </select>
           <Button
-            variant="ghost" size="small" type="button"
+            variant="ghost" type="button"
             icon={checking ? Loader2 : RefreshCw}
             disabled={checking}
             onClick={() => check(hostId)}
@@ -151,7 +151,7 @@ const ToolsModal = ({ isOpen, onClose, hosts = [], initialHostId = '', onInstall
             />
           </div>
         ) : (
-          <Button variant="ghost" size="small" type="button" icon={Plus} onClick={() => setAdding(true)}>
+          <Button variant="ghost" type="button" icon={Plus} onClick={() => setAdding(true)}>
             {t?.('toolAdd') || '직접 추가'}
           </Button>
         )}

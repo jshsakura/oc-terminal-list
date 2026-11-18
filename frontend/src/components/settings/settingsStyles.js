@@ -97,7 +97,7 @@ export const styles = {
     gap: '4px',
     padding: `8px ${space['3']}`,
     borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 44%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) var(--glass-fill, 44%), transparent)`,
     overflowX: 'auto',
     flexShrink: 0,
   },

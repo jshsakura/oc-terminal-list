@@ -250,7 +250,7 @@ describe('CommandInput positioning', () => {
     expect(dialog.style.border).toContain('color-mix');
   });
 
-  it('close button has rounded square styling', () => {
+  it('close button matches the shared 30px icon button', () => {
     const onClose = vi.fn();
     render(
       <CommandInput
@@ -264,7 +264,7 @@ describe('CommandInput positioning', () => {
     );
 
     const closeBtn = screen.getByRole('button', { name: 'close' });
-    expect(closeBtn).toHaveStyle({ width: '28px', height: '28px' });
+    expect(closeBtn).toHaveStyle({ width: '30px', height: '30px' });
     fireEvent.click(closeBtn);
     expect(onClose).toHaveBeenCalled();
   });

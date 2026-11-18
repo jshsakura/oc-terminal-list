@@ -23,7 +23,7 @@ export const toolsStyles = {
   desc: { fontSize: fontSize['12'], color: color.subtext, lineHeight: 1.5 },
   cmd: {
     padding: '4px 6px',
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 60%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 60%), transparent)`,
     borderRadius: '4px', color: color.subtext,
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
     fontSize: fontSize['11'], wordBreak: 'break-all', userSelect: 'all',

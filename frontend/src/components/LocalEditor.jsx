@@ -223,7 +223,6 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10000,
-    backdropFilter: 'blur(2px)',
     fontFamily: font.sans,
   },
   modal: {

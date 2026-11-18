@@ -314,7 +314,7 @@ const S = {
     color: color.text, textAlign: 'left', cursor: 'pointer', font: 'inherit',
     transition: 'background 120ms, border-color 120ms',
   },
-  rowHover: `color-mix(in srgb, ${color.surface1} var(--glass-fill, 62%), transparent)`,
+  rowHover: `color-mix(in srgb, ${color.surface1} var(--card-fill, 62%), transparent)`,
   stateTile: {
     width: '24px', height: '24px', flexShrink: 0,
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center',

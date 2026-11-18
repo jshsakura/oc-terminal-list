@@ -57,7 +57,7 @@ const Settings = ({
             onClick={() => setTab(tabDef.id)}
             style={{
               ...styles.tabBtn,
-              background: active ? `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 82%, transparent)` : 'transparent',
+              background: active ? `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 82%), transparent)` : 'transparent',
               color: active ? `var(--ui-text, ${color.text})` : `var(--ui-subtext, ${color.subtext})`,
               borderColor: active ? `color-mix(in srgb, var(--ui-border-strong, ${color.borderStrong}) 76%, transparent)` : 'transparent',
             }}

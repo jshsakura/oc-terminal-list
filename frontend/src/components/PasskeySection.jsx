@@ -213,7 +213,7 @@ const styles = {
     fontSize: fontSize['12'],
     color: `var(--ui-subtext, ${color.subtext})`,
     padding: `${space['2']} ${space['3']}`,
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 50%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 50%), transparent)`,
     borderRadius: radius.sm,
   },
   placeholder: {
@@ -229,7 +229,7 @@ const styles = {
     alignItems: 'center',
     gap: space['2'],
     padding: `${space['2']} ${space['3']}`,
-    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) 70%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) var(--glass-fill, 70%), transparent)`,
     border: `1px solid var(--ui-border, ${color.border})`,
     borderRadius: radius.sm,
   },

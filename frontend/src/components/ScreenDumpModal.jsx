@@ -93,7 +93,7 @@ const styles = {
     flex: 1,
     minHeight: 0,
     padding: `${space['3']}`,
-    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) 58%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-crust, ${color.crust}) var(--glass-fill, 58%), transparent)`,
     color: `var(--ui-text, ${color.text})`,
     border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
     borderRadius: radius.sm,

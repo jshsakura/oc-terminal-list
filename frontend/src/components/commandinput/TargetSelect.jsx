@@ -195,7 +195,7 @@ const styles = {
     padding: `${space['2']} ${space['3']}`,
     fontSize: fontSize['11'], fontWeight: fontWeight.semibold,
     color: `var(--ui-subtext, ${color.subtext})`,
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 30%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) var(--glass-fill, 30%), transparent)`,
     borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
   },
   popupHint: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
@@ -221,7 +221,7 @@ const styles = {
   groupCount: {
     flexShrink: 0, fontFamily: font.mono, fontSize: '10px', lineHeight: 1,
     padding: '2px 5px', borderRadius: '999px',
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 60%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 60%), transparent)`,
   },
   row: {
     display: 'flex', alignItems: 'center', gap: space['2'], width: '100%',

@@ -2,8 +2,9 @@ import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import useVisualViewport from '../../hooks/useVisualViewport';
+import Button from './Button';
 
-const { color, font, fontSize, fontWeight, radius, space, motion } = tokens;
+const { color, font, fontSize, fontWeight, space } = tokens;
 
 const VIEWPORT_GAP = 12;
 // 모바일 ghost-click 방어 — 상단의 메뉴 항목을 탭해서 모달을 열면, 그 탭의 touchend 뒤에
@@ -121,9 +122,7 @@ const GlassModal = ({
             {TitleIcon && <TitleIcon size={14} strokeWidth={1.8} style={{ flexShrink: 0 }} />}
             {title}
           </div>
-          <button data-modal-dismiss onClick={onClose} title={closeTitle} aria-label={closeTitle} style={styles.closeBtn}>
-            <X size={14} strokeWidth={2} />
-          </button>
+          <Button variant="ghost" size="icon" icon={X} data-modal-dismiss onClick={onClose} title={closeTitle} aria-label={closeTitle} />
         </header>
         {afterHeader}
         <div style={{ ...styles.body, ...bodyStyle }}>{children}</div>
@@ -180,21 +179,6 @@ const styles = {
     alignItems: 'center',
     gap: '6px',
     minWidth: 0,
-  },
-  closeBtn: {
-    width: '28px',
-    height: '28px',
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 54%), transparent)`,
-    color: `var(--ui-subtext, ${color.subtext})`,
-    border: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) var(--glass-line, 70%), transparent)`,
-    borderRadius: '7px',
-    cursor: 'pointer',
-    transition: `background ${motion.fast}, color ${motion.fast}`,
-    backdropFilter: 'blur(8px)',
-    WebkitBackdropFilter: 'blur(8px)',
   },
   body: {
     flex: 1,

@@ -55,7 +55,7 @@ const PushActions = ({ state, busy, onPush, onUnpush, t }) => (
   <>
     {/* 낡았으면 **덮어쓰는 것이 할 일**이라 같은 버튼을 이름만 바꿔 내민다. */}
     {(state?.installed !== true || state?.outdated === true) && (
-      <Button variant="primary" size="small" type="button" icon={busy ? Loader2 : Download}
+      <Button variant="primary" type="button" icon={busy ? Loader2 : Download}
         disabled={busy} onClick={onPush}>
         {busy
           ? (t?.('toolPushing') || '설치 중…')
@@ -65,7 +65,7 @@ const PushActions = ({ state, busy, onPush, onUnpush, t }) => (
       </Button>
     )}
     {state?.installed !== false && (
-      <Button variant="ghost" size="small" type="button" icon={busy ? Loader2 : Trash2}
+      <Button variant="ghost" type="button" icon={busy ? Loader2 : Trash2}
         disabled={busy} onClick={onUnpush}>
         {busy ? (t?.('toolUnpushing') || '제거 중…') : (t?.('toolUnpush') || '제거')}
       </Button>
@@ -75,10 +75,10 @@ const PushActions = ({ state, busy, onPush, onUnpush, t }) => (
 
 const TypedActions = ({ copied, onInstall, onCopy, t }) => (
   <>
-    <Button variant="primary" size="small" type="button" icon={Download} onClick={onInstall}>
+    <Button variant="primary" type="button" icon={Download} onClick={onInstall}>
       {t?.('toolInstall') || '터미널에서 설치'}
     </Button>
-    <Button variant="ghost" size="small" type="button" icon={copied ? Check : Copy} onClick={onCopy}>
+    <Button variant="ghost" type="button" icon={copied ? Check : Copy} onClick={onCopy}>
       {copied ? (t?.('copied') || '복사됨') : (t?.('copyCommand') || '명령 복사')}
     </Button>
   </>
@@ -119,10 +119,10 @@ const ToolRow = ({
       <span style={styles.spacer} />
       {!tool.builtin && (
         <>
-          <Button variant="ghost" size="small" type="button" icon={Pencil} onClick={onEdit}>
+          <Button variant="ghost" type="button" icon={Pencil} onClick={onEdit}>
             {t?.('edit') || '편집'}
           </Button>
-          <Button variant="ghost" size="small" type="button" icon={Trash2} onClick={onDelete}>
+          <Button variant="ghost" type="button" icon={Trash2} onClick={onDelete}>
             {t?.('delete') || '삭제'}
           </Button>
         </>

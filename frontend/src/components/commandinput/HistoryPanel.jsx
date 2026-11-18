@@ -95,7 +95,7 @@ const CSS = `
     background: var(--ui-surface1, ${color.surface1}); border-radius: 3px;
   }
   .command-input-history-row:hover {
-    background: color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 70%, transparent);
+    background: color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 70%), transparent);
   }
   .command-input-history-row:active {
     background: color-mix(in srgb, var(--ui-accent, ${color.accent}) 22%, transparent);
@@ -113,7 +113,7 @@ const styles = {
     overflow: 'hidden',
     borderBottom: `1px solid color-mix(in srgb, var(--ui-border, ${color.border}) 70%, transparent)`,
     // 또렷한 배경 — 모달보다 살짝 어둡게 깔아 카드형 항목이 떠 보이게 한다.
-    background: `color-mix(in srgb, var(--ui-base, ${color.base}) 88%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-base, ${color.base}) var(--glass-fill, 88%), transparent)`,
     animation: 'command-input-history-in 160ms ease both',
   },
   header: {
@@ -157,7 +157,7 @@ const styles = {
     alignItems: 'center',
     width: '100%',
     height: '30px',
-    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent)`,
+    background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 32%), transparent)`,
     borderRadius: radius.sm,
     overflow: 'hidden',
     transition: `background ${motion.fast}`,
@@ -200,9 +200,9 @@ const styles = {
     height: '30px',
     borderRadius: radius.sm,
     background: `linear-gradient(90deg,
-      color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent) 0%,
+      color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 32%), transparent) 0%,
       color-mix(in srgb, var(--ui-accent, ${color.accent}) 16%, transparent) 50%,
-      color-mix(in srgb, var(--ui-surface1, ${color.surface1}) 32%, transparent) 100%)`,
+      color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 32%), transparent) 100%)`,
     backgroundSize: '300% 100%',
     animation: 'command-input-skel-shimmer 1.6s ease-in-out infinite',
   },

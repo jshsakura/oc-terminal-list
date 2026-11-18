@@ -128,7 +128,6 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 10002,
     fontFamily: font.sans,
-    backdropFilter: 'blur(2px)',
   },
   modal: {
     width: '92%',

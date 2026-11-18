@@ -130,7 +130,7 @@ describe('FleetBoard', () => {
     render(<FleetBoard targets={[target({ title: 'building' })]} t={t} />);
     const row = screen.getByText('building').closest('button');
     const style = row.getAttribute('style');
-    expect(style).toContain('var(--glass-fill,');   // 이북 모드의 불투명 스위치가 닿는다
+    expect(style).toContain('var(--card-fill,');   // 이북 모드의 불투명 스위치가 닿는다
     expect(style).toContain('backdrop-filter');     // 서리 유리 — 뒤가 뭉개져야 읽힌다
     expect(style).not.toContain('%%');              // 이중 % 는 color-mix 전체를 무효화한다
   });

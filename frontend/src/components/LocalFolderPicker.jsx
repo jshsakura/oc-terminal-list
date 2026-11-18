@@ -264,7 +264,6 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 10001,
     fontFamily: font.sans,
-    backdropFilter: 'blur(2px)',
   },
   /* inline 모드 — Pane 안에서 컨테이너 전체를 덮는다. scrim 없음 (배경 보일 필요 X). */
   inlineOverlay: {

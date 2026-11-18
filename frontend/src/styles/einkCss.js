@@ -26,6 +26,7 @@ html[data-eink="1"] {
      opaque, and at 100% they would become colour blocks over the text. */
   --glass-fill: 100%;
   --glass-line: 100%;
+  --card-fill: 100%;
 
   /* buildThemeUI derives light-theme borders as 10% black. That is invisible on e-ink,
      and once shadows are gone the border is the ONLY thing separating two panels.

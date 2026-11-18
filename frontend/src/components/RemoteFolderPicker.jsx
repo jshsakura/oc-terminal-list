@@ -337,7 +337,6 @@ const styles = {
     display: 'flex', alignItems: 'center', justifyContent: 'center',
     zIndex: 10001,
     fontFamily: font.sans,
-    backdropFilter: 'blur(2px)',
   },
   inlineOverlay: {
     position: 'absolute', inset: 0,

@@ -1660,6 +1660,20 @@ LLM API 는 여전히 아무 데서도 부르지 않는다(아키텍처 규칙 �
 예외를 안 던지므로 **화면을 보기 전엔 알 수 없다.** `expand()` 가 막고
 `styles/themeUI.test.js` 가 "검정·흰색에서 뽑은 톤은 무채색" 을 잠근다.
 
+## 팝업·메뉴·패널은 불투명이다 — 유리는 대시보드 카드뿐 (2026-11-19)
+
+확인 창 뒤로 터미널 글자가 비치는 것이 "고장난 느낌" 으로 읽혔다. 그래서 이북 모드가 쓰던
+스위치를 기본값으로 올렸다: `main.jsx` 의 `:root` 가 `--glass-fill: 100%` · `--glass-line: 100%`
+· `--glass-blur-{menu,panel,overlay}: 0` 이다. **대시보드 카드만** 자기 변수(`--card-fill`,
+`--glass-blur-card`)로 유리를 유지한다(아래 절).
+
+- ⚠️ **새 면에 `blur(8px)` 같은 리터럴이나 `NN%, transparent` 를 박지 마라.** 이번에 그런
+  자리가 45곳 있었다. 중립 면은 `var(--glass-fill, NN%)` 를 지난다 — `glassFill.test.js` 가
+  `var(--ui-surface0, …) NN%` 꼴까지 잡는다(콤마가 들어 있어 예전 패턴이 놓쳤다).
+- **버튼 높이는 하나다**(`Button` 의 `BUTTON_HEIGHT_PX` = 30, 아이콘 버튼도 30). small/large 는
+  없앴다. 일부러 촘촘한 크롬(상단 탭 바·하단 퀵바·에디터 액션바)만 자기 컨트롤을 그린다.
+  닫기 버튼도 `Button variant="ghost" size="icon"` 이다.
+
 ## 대시보드 표면 — 주사선과 유리는 한 세트 (2026-08-06)
 
 홈 캔버스에 주사선(`styles/textures.js` `canvasTexture`)을 깔고 그 위에 유리 카드
