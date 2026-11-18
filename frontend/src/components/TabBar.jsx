@@ -10,6 +10,7 @@ import { styles } from './tabBar/tabBarStyles';
 import { Tab } from './tabBar/TabBarTab';
 import { TabContextMenu, SettingsSubMenu } from './tabBar/TabBarMenus';
 import { tabCloseIdentity } from '../utils/confirmedClose';
+import { tabDensity } from '../utils/tabDensity';
 
 const { color } = tokens;
 
@@ -85,6 +86,19 @@ const TabBar = ({
   const activeDragOverId = dragOverTabId || touchReorder.dragOverId;
 
   const isHome = activeTabId === null;
+
+  // One observer for the whole strip (not per tab). Mobile tabs are fixed-width and
+  // scroll, so density only applies on desktop.
+  const [listWidth, setListWidth] = useState(0);
+  useEffect(() => {
+    const el = tabListRef.current;
+    if (isMobile || !el || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => setListWidth(el.clientWidth));
+    ro.observe(el);
+    setListWidth(el.clientWidth);
+    return () => ro.disconnect();
+  }, [isMobile]);
+  const density = tabDensity(listWidth, tabs.length, tabs.some((tab) => tab.id === activeTabId));
 
   // 활성 탭이 스크롤 컨테이너 밖에 있으면 자동으로 보이게 — 새로고침 후 뒤쪽 탭이 활성인데
   // 화면엔 앞쪽만 보이는 모바일 케이스를 처리. nearest 옵션이라 이미 보이는 경우 스크롤 안 함.
@@ -244,6 +258,7 @@ const TabBar = ({
             isDragOver={activeDragOverId === tab.id && activeDraggingId && activeDraggingId !== tab.id}
             touchProps={isMobile && onReorder ? touchReorder.getItemProps(tab.id) : null}
             isMobile={isMobile}
+            density={density}
             isPendingClose={pendingClose?.tabId === tab.id}
             /* 모두 useEvent 로 안정화된 dispatcher — Tab 의 memo() 가 유효해짐 */
             onSelect={handleSelectTab}

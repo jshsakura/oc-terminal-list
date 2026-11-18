@@ -116,3 +116,30 @@ describe('TabBarTab hover tooltip', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 });
+
+describe('TabBarTab density', () => {
+  const named = { id: 'tab-2', name: 'oc-terminal-list', type: 'local', panes: [] };
+
+  it('merges the number into the host tile and keeps the name in compact density', () => {
+    render(<Tab tab={named} addressNumber={11} isActive={false} density="compact" t={(key) => key} />);
+    expect(screen.getAllByText('11')).toHaveLength(1);
+    expect(screen.getByText('oc-terminal-list')).toBeInTheDocument();
+  });
+
+  it('drops the name in icon density but keeps the number', () => {
+    render(<Tab tab={named} addressNumber={11} isActive={false} density="icon" t={(key) => key} />);
+    expect(screen.getByText('11')).toBeInTheDocument();
+    expect(screen.queryByText('oc-terminal-list')).not.toBeInTheDocument();
+  });
+
+  it('keeps the full layout on the active tab at any density', () => {
+    render(<Tab tab={named} addressNumber={11} isActive density="icon" t={(key) => key} />);
+    expect(screen.getByText('oc-terminal-list')).toBeInTheDocument();
+    expect(screen.getByRole('tab').style.minWidth).toBe('156px');
+  });
+
+  it('ignores density on mobile', () => {
+    render(<Tab tab={named} addressNumber={11} isActive={false} isMobile density="icon" t={(key) => key} />);
+    expect(screen.getByText('oc-terminal-list')).toBeInTheDocument();
+  });
+});

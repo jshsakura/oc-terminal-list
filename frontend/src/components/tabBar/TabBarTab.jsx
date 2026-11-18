@@ -5,6 +5,7 @@ import HostIcon from '../../utils/hostIcons';
 import { styles } from './tabBarStyles';
 import { numberTileStyle } from '../../styles/numberTile';
 import { TabTooltip, useHoverTip } from './TabTooltip';
+import { TAB_DENSITY, tabHitSizing } from '../../utils/tabDensity';
 
 const { color, font, fontWeight } = tokens;
 
@@ -35,6 +36,7 @@ const HOST_TILE_MAX_VISIBLE_MOBILE = 3;
 export const Tab = memo(({
   tab, addressNumber, shortcutPosition, isFirst = false, isActive, isBusy = false, isDragging = false, isDragOver = false,
   isMobile = false,
+  density = TAB_DENSITY.FULL, // bar-wide, from utils/tabDensity (desktop only)
   touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
   isPendingClose = false,
   onSelect, onClose, onRequestClose, onConfirmClose, onCancelClose, onContextMenu, onMore,
@@ -97,9 +99,18 @@ export const Tab = memo(({
   // 타일로, 절반씩 겹치는 아바타 스택으로 전부 표시 (App.tabsWithMeta 파생).
   // 앞(왼쪽)이 활성 pane 호스트, 뒤로 갈수록 나머지. 각 타일 색 = 그 호스트의 dot 색.
   const secondaries = tab.secondaryIdentities || [];
+  // Narrow bar: inactive chips merge the number into the host tile (compact) and, narrower
+  // still, drop the name (icon). The active chip always keeps the full layout.
+  const layout = isMobile ? TAB_DENSITY.FULL : density;
+  const isCondensed = !isActive && layout !== TAB_DENSITY.FULL;
+  const showLabel = !(isCondensed && layout === TAB_DENSITY.ICON);
+  const mergeNumber = isCondensed && addressNumber != null;
+  const hitSizing = isMobile ? null : tabHitSizing(layout, isActive);
   // 모바일은 탭 폭이 좁으니 최대 N개까지만 겹쳐 보여주고, 그 이상은 "+N" 칩으로 스택 끝에 합류.
-  const visibleSecondaries = isMobile ? secondaries.slice(0, HOST_TILE_MAX_VISIBLE_MOBILE) : secondaries;
-  const hiddenCount = secondaries.length - visibleSecondaries.length;
+  // Condensed chips show the primary host only; the tooltip lists every name.
+  const visibleSecondaries = isCondensed ? []
+    : (isMobile ? secondaries.slice(0, HOST_TILE_MAX_VISIBLE_MOBILE) : secondaries);
+  const hiddenCount = isCondensed ? 0 : secondaries.length - visibleSecondaries.length;
   const tileSize = isMobile ? HOST_TILE_PX_MOBILE : HOST_TILE_PX;
   const overlapStep = isMobile ? HOST_TILE_OVERLAP_STEP_MOBILE_PX : HOST_TILE_OVERLAP_STEP_PX;
   const iconSize = isMobile ? 9 : 11;
@@ -196,6 +207,7 @@ export const Tab = memo(({
         ...(isMobile ? styles.tabHitMobile : null),
         flex: isMobile ? styles.tabHitMobile.flex : styles.tabHit.flex,
         maxWidth: isMobile ? styles.tabHitMobile.maxWidth : styles.tabHit.maxWidth,
+        ...hitSizing,
         opacity: isDragging ? 0.4 : 1,
         cursor: isMobile ? 'pointer' : 'grab',
         zIndex: isDragOver ? 2 : (isActive ? 1 : 0),
@@ -237,6 +249,7 @@ export const Tab = memo(({
              16%/8% → 10%/7% → 지금 6%/4%. 선이 보이기 시작하면 탭마다 테두리를 두른 꼴이
              되어 촌스러워진다 — 여기서 더 올리지 말 것. */
           boxShadow: isDragOver ? DRAG_OVER_RING(color.accent) : (isActive ? ACTIVE_SHADOW : IDLE_RING),
+          ...(isCondensed ? (showLabel ? styles.tabCondensed : styles.tabIconOnly) : null),
         }}
         onMouseEnter={(e) => {
           if (isMobile) return;
@@ -262,7 +275,7 @@ export const Tab = memo(({
         {/* Ctrl+N 번호 — 아이콘 타일과 같은 네모에 담는다. 맨 숫자로 두면 sans 라벨 옆에서
             떠도는 모노 글자로 보이지만, 타일에 담기면 "식별자"로 읽힌다.
             (모바일 서브탭 번호도 같은 타일을 쓴다 — styles/numberTile) */}
-        {addressNumber != null && (
+        {addressNumber != null && !mergeNumber && (
           <span
             aria-hidden
             style={{
@@ -289,7 +302,7 @@ export const Tab = memo(({
             position: 'relative',
             display: 'inline-flex',
             flexShrink: 0,
-            width: `${tileSize + overlapStep * stackedCount}px`,
+            ...(mergeNumber ? { minWidth: `${tileSize}px` } : { width: `${tileSize + overlapStep * stackedCount}px` }),
             height: `${tileSize}px`,
           }}
         >
@@ -299,7 +312,9 @@ export const Tab = memo(({
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              width: `${tileSize}px`,
+              ...(mergeNumber
+                ? { minWidth: `${tileSize}px`, padding: '0 2px', boxSizing: 'border-box' }
+                : { width: `${tileSize}px` }),
               height: `${tileSize}px`,
               background: tileBackground(tileTint),
               border: tileBorder(tileTint),
@@ -314,7 +329,11 @@ export const Tab = memo(({
               zIndex: stackedCount + 1,
             }}
           >
-            {isVnc
+            {mergeNumber ? (
+              /* Number on the host-tinted tile: the colour still says which host, and the
+                 glyphs were near-identical anyway, so the separate number tile is dropped. */
+              <span style={styles.mergedNumber}>{addressNumber}</span>
+            ) : isVnc
               ? <ScreenShare size={iconSize} strokeWidth={1.9} />
               : <HostIcon value={tab.icon || ''} fallback={Icon} size={iconSize} strokeWidth={1.9} />}
             {showStatusMark && (
@@ -331,7 +350,8 @@ export const Tab = memo(({
                   position: 'absolute',
                   // 타일이 16px 로 줄어든 만큼 마크도 당긴다(18px 타일 시절의 -4 는 멀다).
                   top: '-3px',
-                  right: '-3px',
+                  // A merged tile carries digits, not a glyph — push the mark off them.
+                  right: mergeNumber ? '-7px' : '-3px',
                   minWidth: '9px',
                   height: '9px',
                   padding: hasMarkContent ? '0 1px' : 0,
@@ -413,7 +433,7 @@ export const Tab = memo(({
             </button>
           </>
         ) : (
-          <span style={styles.tabName}>{tab.name}</span>
+          showLabel && <span style={isCondensed ? styles.tabNameCondensed : styles.tabName}>{tab.name}</span>
         )}
 
         {/* The More button is **visible** only on the active tab, but every tab reserves its
@@ -421,7 +441,7 @@ export const Tab = memo(({
             that space, so selecting a tab shrinks its name by 17px and clips it. That small
             jolt was the "tab widths wobble when switching" report. Reserving the slot keeps
             the label width identical either way. */}
-        {!isActive && !isPendingClose && (
+        {!isActive && !isPendingClose && !isCondensed && (
           <span aria-hidden="true" style={{ ...styles.miniBtn, visibility: 'hidden' }} />
         )}
         {isActive && !isPendingClose && (

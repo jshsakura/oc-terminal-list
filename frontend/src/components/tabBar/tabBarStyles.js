@@ -160,6 +160,22 @@ export const styles = {
     margin: '0 6px',
     background: 'var(--ui-border-strong)',
   },
+  // Compact density: tighter gap so the name keeps one more glyph.
+  tabCondensed: {
+    gap: '5px',
+  },
+  // Icon density: the chip is just the merged tile, centred.
+  tabIconOnly: {
+    justifyContent: 'center',
+    padding: '0 4px',
+    gap: 0,
+  },
+  mergedNumber: {
+    fontFamily: font.mono,
+    fontSize: '10px',
+    fontWeight: fontWeight.semibold,
+    lineHeight: 1,
+  },
   tabName: {
     flex: 1,
     overflow: 'hidden',
@@ -167,6 +183,17 @@ export const styles = {
     whiteSpace: 'nowrap',
     minWidth: 0,
     letterSpacing: '0.005em',
+  },
+  /* Condensed chips fade the name out instead of "…": at 4-5 glyphs the ellipsis would
+     eat a whole glyph of the little room there is. */
+  tabNameCondensed: {
+    flex: 1,
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+    minWidth: 0,
+    letterSpacing: '0.005em',
+    maskImage: 'linear-gradient(to right, #000 70%, transparent)',
+    WebkitMaskImage: 'linear-gradient(to right, #000 70%, transparent)',
   },
   miniBtn: {
     width: '17px',
