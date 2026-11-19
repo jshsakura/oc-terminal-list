@@ -43,6 +43,7 @@ const TabBar = ({
   t,
 }) => {
   const [contextMenu, setContextMenu] = useState(null);  // {tabId, x, y}
+  const [tabsScrolled, setTabsScrolled] = useState(false);   // phones: left edge fades once scrolled
   const [draggingTabId, setDraggingTabId] = useState(null);
   const [dragOverTabId, setDragOverTabId] = useState(null);
   const [settingsMenu, setSettingsMenu] = useState(null); // {x, y}
@@ -225,7 +226,16 @@ const TabBar = ({
       <div
         ref={tabListRef}
         className="tabbar-list"
-        style={{ ...styles.tabList, ...(isMobile ? styles.tabListMobile : null) }}
+        data-tabs-scrolled={isMobile && tabsScrolled ? '' : undefined}
+        style={{
+          ...styles.tabList,
+          ...(isMobile ? styles.tabListMobile : null),
+          ...(isMobile && tabsScrolled ? styles.tabListMobileScrolled : null),
+        }}
+        onScroll={isMobile ? (e) => {
+          const scrolled = e.currentTarget.scrollLeft > 1;
+          setTabsScrolled((prev) => (prev === scrolled ? prev : scrolled));
+        } : undefined}
         onDragOver={handleContainerDragOver}
         onDragLeave={handleContainerDragLeave}
         onWheel={(e) => {

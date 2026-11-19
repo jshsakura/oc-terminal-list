@@ -379,4 +379,17 @@ describe('TabBar', () => {
       expect(screen.queryByTitle(/호스트에 연결할 수 없습니다/)).not.toBeInTheDocument();
     });
   });
+
+  it('on phones, fades the left edge only once tabs are scrolled away there', () => {
+    const tabs = [1, 2, 3].map((n) => ({ id: `t${n}`, name: `tab${n}`, panes: [] }));
+    const { container } = render(<TabBar tabs={tabs} activeTabId="t1" isMobile onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()} t={(key) => key} />);
+    const list = container.querySelector('.tabbar-list');
+    expect(list.hasAttribute('data-tabs-scrolled')).toBe(false);
+    list.scrollLeft = 40;
+    fireEvent.scroll(list);
+    expect(list.hasAttribute('data-tabs-scrolled')).toBe(true);
+    list.scrollLeft = 0;
+    fireEvent.scroll(list);
+    expect(list.hasAttribute('data-tabs-scrolled')).toBe(false);
+  });
 });

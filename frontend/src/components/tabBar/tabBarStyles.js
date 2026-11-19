@@ -2,6 +2,8 @@ import { tokens } from '../../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, motion } = tokens;
 const TAB_FADE_PX = 14;
+const FADE_RIGHT = `linear-gradient(to right, #000 calc(100% - ${TAB_FADE_PX}px), transparent)`;
+const FADE_BOTH = `linear-gradient(to right, transparent, #000 ${TAB_FADE_PX}px, #000 calc(100% - ${TAB_FADE_PX}px), transparent)`;
 
 export const styles = {
   bar: {
@@ -121,14 +123,17 @@ export const styles = {
     scrollbarWidth: 'none',           // Firefox
     msOverflowStyle: 'none',           // IE/Edge legacy
   },
+  // Once tabs are scrolled away on the left, that edge fades too. Not before: at the start
+  // the first tab is fully there, and a faded first tab reads as broken.
+  tabListMobileScrolled: { maskImage: FADE_BOTH, WebkitMaskImage: FADE_BOTH },
   tabListMobile: {
     gap: '6px',
     // The strip's end fades out, so a chip scrolled under the edge reads as "more this way",
     // not as cut off. The padding is as wide as the fade: when nothing overflows, only empty
     // space is faded and the last chip stays solid.
     paddingRight: `${TAB_FADE_PX}px`,
-    maskImage: `linear-gradient(to right, #000 calc(100% - ${TAB_FADE_PX}px), transparent)`,
-    WebkitMaskImage: `linear-gradient(to right, #000 calc(100% - ${TAB_FADE_PX}px), transparent)`,
+    maskImage: FADE_RIGHT,
+    WebkitMaskImage: FADE_RIGHT,
     flex: '1 1 auto',
     paddingTop: '0',
     paddingBottom: '0',
