@@ -9,7 +9,7 @@ describe('ScreenDumpModal', () => {
     expect(screen.getByTestId('glass-modal-overlay')).toBeTruthy();
     const dialog = screen.getByRole('dialog');
     expect(dialog).toHaveStyle({ maxWidth: '780px', height: '88vh' });
-    expect(dialog.style.backdropFilter).toMatch(/blur\(.*20px\)/);
+    expect(dialog.style.backdropFilter).toMatch(/blur\(var\(--modal-blur, 28px\)\)/);
   });
 
   it('does not render without text', () => {

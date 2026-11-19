@@ -92,7 +92,7 @@ describe('Settings', () => {
     );
 
     expect(screen.getByTestId('glass-modal-overlay')).toHaveStyle({ zIndex: '200001' });
-    expect(screen.getByRole('dialog').style.backdropFilter).toMatch(/blur\(.*20px\)/);
+    expect(screen.getByRole('dialog').style.backdropFilter).toMatch(/blur\(var\(--modal-blur, 28px\)\)/);
   });
 
   it('marks the three-action footer for the narrow-screen stacked layout', () => {
