@@ -119,26 +119,37 @@ CLI 에 익숙하지 않은 사람도 "시킬 일" 만 말하면 되게 하는 �
 
 안전선은 플래그가 아니라 **컨테이너 격리 · branch-guard 훅 · 워커 이그레스 방화벽**이다.
 
-## 4-1. 라우터 모델: GLM-5.3-flash (Z.ai 코딩 플랜)
+## 4-1. 팀장 모델: Claude Code + GLM-5.3 (Z.ai 코딩 플랜)
 
-팀장(라우터)은 claude·codex 를 띄우지 않는다. **기계적인 전달만 하므로 작고 빠른 모델 하나로
-충분하고, 맥락이 쌓이지 않아야 한다.**
+팀장은 요청을 JSON 으로 감싸 던지는 단발 호출이 아니라 **대화를 기억하며 작업을 지시하는 세션**이다.
+Claude Code 를 그대로 쓰고 모델만 Z.ai 의 Anthropic 호환 엔드포인트로 돌린다. 도구 사용·훅·
+managed settings(branch-guard 등)가 팀원 세션과 똑같이 걸린다.
 
-- 모델: `glm-5.3-flash`, 엔드포인트 `https://api.z.ai/api/coding/paas/v4/chat/completions`
-  (OpenAI 호환). `thinking: {type: disabled}`. 실측(2026-11-19): 라우팅 한 번 **0.9~1.5초**,
-  프롬프트 69 tok, 답 30 tok, "로그인 화면 버튼 색 바꿔줘" → `ui-fixer` 를 맞게 골랐다.
-- **요청마다 새로 묻는다.** 대화 기록을 싣지 않는다. 시스템 프롬프트(역할 표 + 출력 형식) +
-  이번 요청 한 줄뿐이다. 그래서 세션이 길어져도 판단이 흐려지지 않고 비용도 일정하다.
-- 출력은 JSON 하나다: `{"skill", "branch", "cwd", "prompt"}` 또는 `{"guide": "<id>"}`.
-  ⚠️ 모델이 ```` ```json ```` 울타리를 씌워 답하므로 파서가 벗긴다. 목록 밖의 skill·guide id 는 거절한다.
-- **도는 곳은 터미널이다.** 팀장 탭에서 도는 작은 CLI(`itl route`, stdlib 단일 파일)가 GLM 을
-  부르고, 결과로 `itl open` / `itl guide` 를 실행한다. 백엔드는 여전히 LLM 을 부르지 않는다.
-  패널을 닫으면 그 CLI 가 받은 요청, 보낸 JSON, 실행한 명령이 팀장 탭에 그대로 보인다.
+- 실행: 워커의 `~/.local/bin/lead`(영속 홈). 키를 실행 때 파일에서 읽고, 아래 env 로 `claude` 를 띄운다.
+
+  | env | 값 | 뜻 |
+  |---|---|---|
+  | `ANTHROPIC_BASE_URL` | `https://api.z.ai/api/anthropic` | |
+  | `ANTHROPIC_MODEL` (+ OPUS/SONNET 기본값) | `glm-5.3` | 본 모델 |
+  | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `glm-5.3-flash` | 배경 작업용 |
+  | `CLAUDE_CODE_MAX_CONTEXT_TOKENS` | `400000` | 창 크기를 400k 로 본다 |
+  | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `400000` | 그 창을 넘지 않게 강제한다 |
+  | `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | `50` | **절반(200k)에서 자동 컴팩트** |
+  | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | `1` | |
+
+- **왜 400k / 절반인가.** GLM-5.3 은 1M 까지 받지만 컨텍스트가 길수록 판단이 흐려진다. 팀장은 많이
+  읽는 자리가 아니라 정확히 넘기는 자리라, 성능이 좋은 구간에 묶어 둔다.
+- 실측(2026-11-19, Claude Code 2.1.328): `modelUsage` 에 `glm-5.3`, `contextWindow: 400000` 으로
+  잡힌다. stderr 에 `[claude-code:unrecognized_model]` 한 줄이 찍히는데 모델 이름을 몰라서 나는
+  경고일 뿐이다. 보고되는 `costUSD` 는 정가 추정치이고 코딩 플랜 청구와 무관하다.
+- 백엔드는 여전히 LLM 을 부르지 않는다. 팀장도 터미널 속 에이전트다.
 - 열쇠: 워커 컨테이너마다 `~/.config/zai/api_key`(mode 600, appuser). 영속 홈이라 컨테이너를
   내렸다 올려도 남는다. 저장소·이미지·compose 에는 넣지 않는다.
-  - ⚠️ 그 컨테이너의 셸을 쓰는 사람은 이 파일을 읽을 수 있다. 막을 방법이 없는 구조다(에이전트가
-    같은 사용자로 돈다). 새면 Z.ai 에서 키를 바꾸고 두 파일만 다시 쓴다.
-- 팀원(실제 작업)은 그대로 claude · codex 다. GLM 은 고르고 넘기는 일만 한다.
+  - ⚠️ 그 컨테이너의 셸을 쓰는 사람은 이 파일을 읽을 수 있다(에이전트가 같은 사용자로 돈다).
+    새면 Z.ai 에서 키를 바꾸고 두 파일만 다시 쓴다.
+- 빠른 단발 판단(예: "어디 있어요?" 의 버튼 id 고르기)이 따로 필요하면 `glm-5.3-flash` 를
+  쓴다. 실측 0.9~1.5초.
+- 팀원(실제 작업)은 그대로 각자 로그인한 claude · codex 다. `lead` 의 env 는 그 세션에만 걸린다.
 
 ## 5. 팀장 세션
 
