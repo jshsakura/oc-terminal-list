@@ -244,11 +244,8 @@ const TerminatorPanel = ({ open, onClose, isMobile = false, t }) => {
     >
       <style>{KEYFRAMES}</style>
       <div style={styles.header}>
-        <Avatar size={30} thinking={isThinking} />
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-          <span style={styles.title}>{t?.('terminator') || '터미네이터'}</span>
-          {status?.model && <span style={styles.modelChip}>{status.model.toUpperCase()}</span>}
-        </div>
+        <span style={styles.title}>{t?.('terminator') || '터미네이터'}</span>
+        {status?.model && <span style={styles.modelChip}>{status.model.toUpperCase()}</span>}
         <span style={{ flex: 1 }} />
         {messages.length > 0 && (
           <button type="button" onClick={reset} style={styles.iconBtn} title={t?.('terminatorReset') || '새 대화'} aria-label={t?.('terminatorReset') || '새 대화'}>
@@ -303,7 +300,7 @@ const styles = {
     color: color.text, overflow: 'hidden', transition: 'opacity 120ms', fontFamily: font.sans,
   },
   header: {
-    display: 'flex', alignItems: 'center', gap: space[2], padding: `${space[3]} ${space[2]} ${space[2]} ${space[3]}`,
+    display: 'flex', alignItems: 'center', gap: space[2], padding: `${space[2]} ${space[2]} ${space[2]} ${space[3]}`,
     borderBottom: `1px solid ${color.borderSubtle}`,
   },
   avatar: {
@@ -312,7 +309,7 @@ const styles = {
   },
   title: { fontSize: fontSize['14'], fontWeight: fontWeight.semibold, lineHeight: 1.2 },
   modelChip: {
-    alignSelf: 'flex-start', marginTop: '2px', padding: '0 6px', borderRadius: radius.full,
+    padding: '0 6px', borderRadius: radius.full, lineHeight: '18px',
     fontSize: fontSize['10'], fontFamily: font.mono, letterSpacing: '0.04em', color: color.accent,
     background: `color-mix(in srgb, ${color.accent} 14%, transparent)`,
   },
