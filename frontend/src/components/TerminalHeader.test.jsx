@@ -170,6 +170,15 @@ describe('TerminalHeader', () => {
     expect(container.querySelector('[tabindex="-1"]').style.backdropFilter).toMatch(/blur\(.*18px\)/);
   });
 
+  it('opens … menu panels from the right edge, with the resize handle on their left', () => {
+    const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
+    openPanelFromMenu(container, 'paneInfoTitle');
+    const panel = container.querySelector('[tabindex="-1"]');
+    expect(panel.style.right).toBe('0px');
+    expect(panel.style.left).toBe('');
+    expect(container.querySelector('[title="resizePanel"]').style.left).toBe('-4px');
+  });
+
   it('preserves an open side panel while its pane is hidden without rendering it', async () => {
     const props = baseProps({ activeTabType: 'local', isPaneVisible: true });
     const result = render(<TerminalHeader {...props} />);

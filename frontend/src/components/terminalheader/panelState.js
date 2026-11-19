@@ -17,8 +17,9 @@ const TABS = [
   // Git is the second tab inside the Files panel, not its own rail icon.
   { id: 'git',   icon: GitBranch, label: 'Git', rail: false },
   // Info and Theme are rarely used, so they live in the … menu instead of the rail.
-  { id: 'info',  icon: Info,     label: 'Info', rail: false },
-  { id: 'theme', icon: Palette,   label: 'Theme', rail: false },
+  // They open from the right, next to the menu that opens them.
+  { id: 'info',  icon: Info,     label: 'Info', rail: false, side: 'right' },
+  { id: 'theme', icon: Palette,   label: 'Theme', rail: false, side: 'right' },
 ];
 const RAIL_TABS = TABS.filter((tab) => tab.rail !== false);
 const PANEL_IDS = new Set(TABS.map((tab) => tab.id));

@@ -250,7 +250,9 @@ const TerminalHeader = ({
     const onMove = (ev) => {
       if (!resizingRef.current) return;
       const cx = ev.clientX ?? ev.touches?.[0]?.clientX ?? 0;
-      const delta = cx - startXRef.current;
+      const raw = cx - startXRef.current;
+      // A right-side panel grows when its left edge is dragged leftward.
+      const delta = panelOnRightRef.current ? -raw : raw;
       const next = Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidthRef.current + delta));
       setPanelWidth(next);
     };
@@ -295,6 +297,10 @@ const TerminalHeader = ({
   const { items: gitItems, refresh: refreshGitChanges } = gitChanges;
   const gitCount = (gitContextPath != null || !!activeHostId) ? (gitItems || []).length : 0;
   const activePanelMeta = activePanel ? TABS.find((tab) => tab.id === activePanel) : null;
+  // Panels opened from the right-hand … menu slide in from the right edge.
+  const panelOnRight = activePanelMeta?.side === 'right';
+  const panelOnRightRef = useRef(panelOnRight);
+  panelOnRightRef.current = panelOnRight;
   const ActivePanelIcon = activePanelMeta?.icon || Info;
   const filePanelInitialPath = filePanelRevealPath ?? (
     activeHostId
@@ -749,10 +755,12 @@ const TerminalHeader = ({
             color: panelUi.text,
             // Mobile: full-width overlay. Desktop: resizable fixed width.
             ...(isMobile ? { left: 0, right: 0 } : { width: `${panelWidth}px` }),
+            ...(panelOnRight
+              ? { right: 0, borderRight: 'none', borderLeft: '1px solid var(--ui-border)' }
+              : { left: 0 }),
             position: 'absolute',
             top: `${TOP_RAIL_HEIGHT}px`,
             bottom: 0,
-            left: 0,
             zIndex: 10,
             outline: 'none',
             pointerEvents: 'auto',
@@ -767,7 +775,8 @@ const TerminalHeader = ({
             title={t?.('resizePanel') || 'Resize panel'}
             style={{
               position: 'absolute',
-              top: 0, right: '-4px', bottom: 0,
+              top: 0, bottom: 0,
+              ...(panelOnRight ? { left: '-4px' } : { right: '-4px' }),
               width: '9px',
               cursor: panelResizing ? 'col-resize' : 'ew-resize',
               zIndex: 2,
