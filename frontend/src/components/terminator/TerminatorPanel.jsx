@@ -243,7 +243,6 @@ const TerminatorPanel = ({ open, onClose, isMobile = false, t }) => {
       }}
     >
       <style>{KEYFRAMES}</style>
-      <div style={styles.topGlow} aria-hidden="true" />
       <div style={styles.header}>
         <Avatar size={30} thinking={isThinking} />
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -302,9 +301,6 @@ const styles = {
   panel: {
     position: 'fixed', zIndex: 900, display: 'flex', flexDirection: 'column',
     color: color.text, overflow: 'hidden', transition: 'opacity 120ms', fontFamily: font.sans,
-  },
-  topGlow: {
-    position: 'absolute', top: 0, left: 0, right: 0, height: '2px', background: ACCENT_GRADIENT, opacity: 0.85,
   },
   header: {
     display: 'flex', alignItems: 'center', gap: space[2], padding: `${space[3]} ${space[2]} ${space[2]} ${space[3]}`,
