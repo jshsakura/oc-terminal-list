@@ -26,6 +26,9 @@ export const findGuideElement = (id, root = document) => {
   if (!GUIDE_TARGETS[id]) return null;
   const nodes = root.querySelectorAll(`[data-guide="${id}"]`);
   for (const node of nodes) {
+    // Every tab's panes stay mounted; inactive ones are `visibility: hidden`, which keeps
+    // their size. Without this check the ring landed on a hidden tab's button.
+    if (window.getComputedStyle(node).visibility === 'hidden') continue;
     const rect = node.getBoundingClientRect();
     if (rect.width > 0 && rect.height > 0) return node;
   }

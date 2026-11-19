@@ -386,6 +386,8 @@ def discover() -> list[dict]:
 #: Named roles a pane can carry (session option). `itl send terminator '…'` finds the
 #: Terminator companion's pane without knowing its number, which shifts as tabs close.
 ROLE_OPTION = "@itl_role"
+# Same list as itl_open.UI_ACTIONS (the backend refuses anything else).
+UI_ACTIONS = ("split-down", "split-right")
 ROLES = frozenset({"terminator"})
 
 
@@ -886,6 +888,8 @@ def main(argv: list[str] | None = None) -> int:
     o.add_argument("--wait", type=float, default=60, help="결과를 기다릴 초 (최대 90)")
     spot = sub.add_parser("spotlight", help="앱 화면에서 그 버튼을 비춘다")
     spot.add_argument("id")
+    act = sub.add_parser("action", help="앱 화면에서 동작 하나를 한다 (지금 보는 칸 나누기)")
+    act.add_argument("name", choices=sorted(UI_ACTIONS))
     role = sub.add_parser("role", help="이 팬의 세션에 이름표를 단다 (예: terminator)")
     role.add_argument("name", choices=sorted(ROLES))
     q = sub.add_parser("receipt", help="요청 ID의 전달 결과 확인")
@@ -933,6 +937,17 @@ def main(argv: list[str] | None = None) -> int:
             why = "" if ok else "전송 우편함이 바쁘다; 잠시 뒤 다시 하라"
         if args.json:
             print(json.dumps({"ok": ok, "id": args.id, "error": why or None}, ensure_ascii=False))
+        elif not ok:
+            print(f"itl: {why}", file=sys.stderr)
+        return 0 if ok else 3
+    if args.cmd == "action":
+        try:
+            ok = put_outbox(json.dumps({"op": "action", "action": args.name, "n": secrets.token_hex(8)}))
+        except ItlEnvironmentError as exc:
+            return report_environment_error(exc, as_json=args.json)
+        why = "" if ok else "전송 우편함이 바쁘다; 잠시 뒤 다시 하라"
+        if args.json:
+            print(json.dumps({"ok": ok, "action": args.name, "error": why or None}, ensure_ascii=False))
         elif not ok:
             print(f"itl: {why}", file=sys.stderr)
         return 0 if ok else 3

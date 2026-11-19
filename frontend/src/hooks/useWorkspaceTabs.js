@@ -452,6 +452,11 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
                 window.dispatchEvent(new CustomEvent('iterm:spotlight', { detail: { id: payload.id } }));
                 return;
               }
+              if (payload.type === 'uiAction') {
+                // Terminator doing something on screen; App maps the name to a handler.
+                window.dispatchEvent(new CustomEvent('iterm:ui-action', { detail: { action: payload.action } }));
+                return;
+              }
               if (payload.type === 'remoteCwd') {
                 applyRemoteCwdChanges(payload.hostId, payload.cwds);
                 return;

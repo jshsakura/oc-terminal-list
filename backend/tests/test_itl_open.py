@@ -117,6 +117,26 @@ def test_outbox_recognises_app_ops_and_leaves_sends_alone():
     assert itl_open.is_open_request("not json") is None
 
 
+def test_ui_action_broadcasts_only_whitelisted_actions(monkeypatch):
+    sent = []
+    import sse_broadcast
+    monkeypatch.setattr(sse_broadcast, "_broadcast_sse", lambda payload, user: sent.append((payload, user)))
+    assert itl_open.is_open_request(json.dumps({"op": "action", "action": "split-right"}))["op"] == "action"
+    assert itl_open.ui_action("u", {"action": "split-down"})
+    assert not itl_open.ui_action("u", {"action": "rm -rf"})
+    assert sent == [({"type": "uiAction", "action": "split-down"}, "u")]
+
+
+def test_cli_and_backend_agree_on_the_ui_actions():
+    import importlib.machinery, importlib.util
+    from pathlib import Path
+    path = str(Path(__file__).resolve().parents[1] / "cli" / "itl")
+    spec = importlib.util.spec_from_loader("itl_cli_actions", importlib.machinery.SourceFileLoader("itl_cli_actions", path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert set(mod.UI_ACTIONS) == set(itl_open.UI_ACTIONS)
+
+
 def test_spotlight_broadcasts_only_an_id_shaped_value(monkeypatch):
     import sse_broadcast
     sent = []
@@ -166,7 +186,7 @@ def test_mcp_lists_every_tool_and_marks_the_read_only_ones():
     mcp = _load_mcp()
     resp = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     tools = {t["name"]: t for t in resp["result"]["tools"]}
-    assert set(tools) == {"terminals", "read_terminal", "guide", "roles", "open_worker", "send", "spotlight"}
+    assert set(tools) == {"terminals", "read_terminal", "guide", "roles", "open_worker", "send", "spotlight", "act"}
     assert {n for n, t in tools.items() if t.get("annotations", {}).get("readOnlyHint")} == {
         "terminals", "read_terminal", "guide", "roles"}
 

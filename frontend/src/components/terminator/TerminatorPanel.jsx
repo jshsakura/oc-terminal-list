@@ -11,12 +11,15 @@ import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'reac
 import { Sparkles, X, Send, CornerDownRight, Wrench, Check, AlertTriangle } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import useTerminator from '../../hooks/useTerminator';
+import useVisualViewport from '../../hooks/useVisualViewport';
 import { getAgentStatusSnapshot, subscribeAgentStatus } from '../../utils/agentStatusStore';
 
 const Terminal = lazy(() => import('../Terminal'));
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 const PANEL_WIDTH_PX = 380;
+const SHEET_RATIO = 0.74;
+const SHEET_TOP_GAP_PX = 8;
 // A terminal needs room for the agent's TUI; the chat does not.
 const PANEL_TERMINAL_WIDTH_PX = 600;
 const LOGIN_TOOLS = [['claude', 'Claude'], ['codex', 'Codex'], ['github', 'GitHub']];
@@ -97,6 +100,9 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, s
   const { status, phase, error, messages, isThinking, say, retry, contextUsed } = useTerminator(open);
   const workers = useWorkerStatuses(tabs);
   const [view, setView] = useState('chat');      // chat | terminal
+  // Phones: the keyboard covers the bottom of the layout viewport, so the sheet sits on the
+  // bottom of the *visible* area instead, or the input ends up under the keyboard.
+  const viewport = useVisualViewport(open && isMobile);
   const [draft, setDraft] = useState('');
   const [hiddenForSpotlight, setHiddenForSpotlight] = useState(false);
   const listRef = useRef(null);
@@ -161,8 +167,12 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, s
 
   const canShowTerminal = !!(status?.running && status.sessionId);
   const showTerminal = view === 'terminal' && canShowTerminal;
+  const sheetHeight = Math.min(window.innerHeight * SHEET_RATIO, viewport.height - SHEET_TOP_GAP_PX);
   const placement = isMobile
-    ? { left: 0, right: 0, bottom: 0, height: '74dvh', borderRadius: `${radius.xl} ${radius.xl} 0 0` }
+    ? {
+      left: 0, right: 0, top: `${viewport.offsetTop + viewport.height - sheetHeight}px`, height: `${sheetHeight}px`,
+      borderRadius: `${radius.xl} ${radius.xl} 0 0`,
+    }
     : {
       top: '44px', right: '8px', bottom: '8px', borderRadius: radius.xl,
       width: `min(${showTerminal ? PANEL_TERMINAL_WIDTH_PX : PANEL_WIDTH_PX}px, calc(100vw - 16px))`,

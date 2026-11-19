@@ -250,20 +250,26 @@ async def open_from_pane(username: str, sender_session: str, data: dict) -> None
 
 
 SPOTLIGHT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+# Things Terminator may do on the person's screen. Same list in cli/itl and the frontend's
+# useWorkspaceTabs; anything else is refused here and ignored there.
+UI_ACTIONS = frozenset({"split-right", "split-down"})
 
 
 def is_open_request(payload: str) -> dict | None:
-    """The outbox carries a send (`to`/`text`) or an app op (`op: open` / `op: spotlight`)."""
+    """The outbox carries a send (`to`/`text`) or an app op (`op: open|spotlight|action`)."""
     try:
         data = json.loads(payload)
     except (ValueError, TypeError):
         return None
-    return data if isinstance(data, dict) and data.get("op") in ("open", "spotlight") else None
+    return data if isinstance(data, dict) and data.get("op") in ("open", "spotlight", "action") else None
 
 
 async def handle_op(username: str, sender_session: str, data: dict) -> None:
     if data.get("op") == "spotlight":
         spotlight(username, data)
+        return
+    if data.get("op") == "action":
+        ui_action(username, data)
         return
     await open_from_pane(username, sender_session, data)
 
@@ -278,4 +284,17 @@ def spotlight(username: str, data: dict) -> bool:
         logger.info("itl spotlight 거절: %r", target)
         return False
     _broadcast_sse({"type": "spotlight", "id": target}, username)
+    return True
+
+
+def ui_action(username: str, data: dict) -> bool:
+    """Do one whitelisted thing on this user's screen, like splitting the pane they look at.
+    Only the action's name travels; the client maps it to its own handler."""
+    from sse_broadcast import _broadcast_sse
+
+    action = data.get("action")
+    if action not in UI_ACTIONS:
+        logger.info("itl action 거절: %r", action)
+        return False
+    _broadcast_sse({"type": "uiAction", "action": action}, username)
     return True

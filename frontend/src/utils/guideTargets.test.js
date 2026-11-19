@@ -26,4 +26,13 @@ describe('guideTargets', () => {
     expect(findGuideElement('settings').id).toBe('shown');
     expect(findGuideElement('"] , *, ["')).toBeNull();
   });
+
+  it('skips a button that sits in a hidden tab, even though it keeps its size', () => {
+    document.body.innerHTML = `
+      <div style="visibility:hidden"><button data-guide="pane-split" id="hidden-tab"></button></div>
+      <button data-guide="pane-split" id="visible-tab"></button>`;
+    const sized = () => ({ width: 20, height: 20, top: 0, left: 0, right: 20, bottom: 20 });
+    document.querySelectorAll('button').forEach((b) => { b.getBoundingClientRect = sized; });
+    expect(findGuideElement('pane-split').id).toBe('visible-tab');
+  });
 });

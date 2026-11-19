@@ -11,6 +11,7 @@ Terminator is the Terminal List companion. It does not edit code or run shell co
   open_worker    open a new tab, start an agent, hand it the task
   send           put a message into another terminal
   spotlight      point at a button on screen
+  act            do it on screen: split the pane the person is looking at
 
 Every action goes through `itl`, the same path a person would type, so the terminal
 history shows exactly what was done. The name is deliberately not `itl_mcp.py`: the
@@ -127,6 +128,14 @@ def t_send(args: dict):
     return code != 0, data
 
 
+def t_act(args: dict):
+    action = str(args.get("action") or "")
+    if action not in ("split-right", "split-down"):
+        return True, {"error": "할 수 있는 동작이 아니다", "actions": ["split-right", "split-down"]}
+    code, data = itl("action", action)
+    return code != 0, data
+
+
 def t_spotlight(args: dict):
     target = str(args.get("id") or "")
     if target not in guide_targets() or not GUIDE_TARGET_RE.match(target):
@@ -174,6 +183,13 @@ TOOLS = [
                      "Use an id from the guide topic 화면 안내 대상."),
      "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]}},
 ]
+TOOLS.append(
+    {"name": "act", "fn": t_act,
+     "description": ("Do it on the person's screen instead of explaining how: split the pane they are "
+                     "looking at, to the right or downward. Use this whenever they ask you to split or to "
+                     "open another terminal beside the current one."),
+     "inputSchema": {"type": "object", "properties": {
+         "action": {"type": "string", "enum": ["split-right", "split-down"]}}, "required": ["action"]}})
 BY_NAME = {t["name"]: t for t in TOOLS}
 
 

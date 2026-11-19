@@ -1068,6 +1068,18 @@ function App() {
     expectedIdentity,
   }));
   const handleSplitPane = useEvent((tabId, paneId, dir) => splitActivePane(dir, tabId, paneId));
+  // Terminator doing something on screen (see itl_open.UI_ACTIONS). Only known names act.
+  useEffect(() => {
+    const onAction = (e) => {
+      const dir = { 'split-right': 'right', 'split-down': 'down' }[e.detail?.action];
+      if (!dir || activeTabIdRef.current === null) return;
+      splitActivePane(dir);
+      // On a phone the sheet covers the panes; get out of the way so the split is seen.
+      if (isMobile) setTerminatorOpen(false);
+    };
+    window.addEventListener('iterm:ui-action', onAction);
+    return () => window.removeEventListener('iterm:ui-action', onAction);
+  }, [splitActivePane, isMobile]);
   const handleDropTabToPane = useEvent((sourceTabId, targetTabId, targetPaneId, dir) => dropTabToSplitPane(sourceTabId, targetTabId, targetPaneId, dir));
   const handleDuplicateTab = useEvent((tabId) => {
     const source = tabs.find((tab) => tab.id === tabId);
