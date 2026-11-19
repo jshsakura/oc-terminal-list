@@ -1,4 +1,4 @@
-"""`itl open` / `itl spotlight` and the Terminator MCP server."""
+"""`itl open` / `itl spotlight` / `itl action`."""
 from __future__ import annotations
 
 import asyncio
@@ -6,7 +6,6 @@ import importlib.machinery
 import importlib.util
 import json
 import shlex
-import sys
 from pathlib import Path
 
 import pytest
@@ -15,7 +14,6 @@ import itl_open
 from itl_open import OpenFailed, launch_line, new_tab, parse_open
 
 REPO = Path(__file__).resolve().parents[2]
-TERMINATOR = REPO / "backend" / "cli" / "terminator"
 
 
 def _load_cli():
@@ -23,13 +21,6 @@ def _load_cli():
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)
-    return module
-
-
-def _load_mcp():
-    spec = importlib.util.spec_from_file_location("terminator_mcp", TERMINATOR / "terminator_mcp.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
     return module
 
 
@@ -182,50 +173,8 @@ def test_two_terminators_are_an_error_not_a_guess(monkeypatch):
 
 # ─── MCP server ──────────────────────────────────────────────────────────────
 
-def test_mcp_lists_every_tool_and_marks_the_read_only_ones():
-    mcp = _load_mcp()
-    resp = mcp.handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-    tools = {t["name"]: t for t in resp["result"]["tools"]}
-    assert set(tools) == {"terminals", "read_terminal", "guide", "roles", "open_worker", "send", "spotlight", "act"}
-    assert {n for n, t in tools.items() if t.get("annotations", {}).get("readOnlyHint")} == {
-        "terminals", "read_terminal", "guide", "roles"}
-
-
 def test_every_spotlight_id_in_the_guide_is_a_valid_id():
-    mcp = _load_mcp()
-    ids = mcp.guide_targets()
+    from routes.terminator import _guide, guide_ids
+    ids = guide_ids(_guide())
     assert "settings" in ids and "pane-more" in ids
     assert all(itl_open.SPOTLIGHT_ID_RE.match(i) for i in ids)
-
-
-def test_every_role_runs_on_a_tool_the_backend_can_launch():
-    roles = json.loads((TERMINATOR / "roles.json").read_text(encoding="utf-8"))["roles"]
-    assert roles and all(r["tool"] in itl_open.LAUNCH for r in roles)
-
-
-def test_mcp_guide_answers_only_from_the_guide():
-    mcp = _load_mcp()
-    resp = mcp.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-                       "params": {"name": "guide", "arguments": {"topic": "없는 항목"}}})
-    assert resp["result"]["isError"] is True
-
-
-def test_open_worker_pipes_the_task_on_stdin_not_argv(monkeypatch):
-    mcp = _load_mcp()
-    seen = {}
-
-    def fake(*args, stdin=None):
-        seen["args"], seen["stdin"] = args, stdin
-        return 0, {"ok": True, "addr": "3.1"}
-
-    monkeypatch.setattr(mcp, "itl", fake)
-    is_error, value = mcp.t_open_worker({"tool": "codex", "task": "secret long task", "branch": "fix/a"})
-    assert not is_error and value["addr"] == "3.1"
-    assert "secret long task" not in seen["args"] and seen["stdin"] == "secret long task"
-    assert seen["args"][:2] == ("open", "--tool") and "--branch" in seen["args"]
-
-
-def test_the_mcp_file_is_not_named_like_the_removed_one():
-    # agent_mcp_cleanup deletes config entries whose args end with itl_mcp.py.
-    assert not (TERMINATOR / "terminator_mcp.py").name.endswith("itl_mcp.py")
-    assert sys.version_info >= (3, 9)

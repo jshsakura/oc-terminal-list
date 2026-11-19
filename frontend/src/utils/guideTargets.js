@@ -1,7 +1,7 @@
 /**
  * Buttons Terminator may point at ("where is X?"). The id is what `itl spotlight <id>`
  * sends; the element carries it as `data-guide`. The same ids are listed in
- * backend/cli/terminator/guide.md (topic 화면 안내 대상), which is what Terminator reads;
+ * backend/terminator_guide.md (topic 화면 안내 대상), which is what Terminator reads;
  * guideTargets.test.js keeps the two lists equal.
  */
 export const GUIDE_TARGETS = {

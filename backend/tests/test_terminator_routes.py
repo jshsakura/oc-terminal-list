@@ -1,108 +1,120 @@
-"""Terminator panel API: conversation parsing, session naming, login detection."""
+"""Terminator help companion: reply parsing, the request it sends, memory and limits."""
 from __future__ import annotations
 
-import json
+import asyncio
 
-from _deps import is_safe_id
+import pytest
+from fastapi import HTTPException
+
 from routes import terminator as t
 
-
-def _line(**entry):
-    return json.dumps(entry, ensure_ascii=False)
+POINTS = ["settings", "pane-split"]
 
 
-def test_conversation_keeps_what_was_said_and_done_and_drops_the_rest():
-    lines = [
-        _line(type="user", uuid="u1", message={"content": "로그인 버튼 색 바꿔줘"}),
-        _line(type="assistant", uuid="a1", message={"content": [
-            {"type": "thinking", "thinking": "hidden"},
-            {"type": "text", "text": "개발 담당에게 맡기겠습니다."},
-            {"type": "tool_use", "name": "mcp__terminator__open_worker", "input": {"tool": "codex", "name": "개발"}},
-        ]}),
-        _line(type="user", uuid="r1", message={"content": [{"type": "tool_result", "content": "{}"}]}),
-        _line(type="user", uuid="m1", isMeta=True, message={"content": "meta"}),
-        _line(type="user", uuid="c1", message={"content": "<command-name>/clear</command-name>"}),
-        _line(type="user", uuid="w1",
-              message={"content": "[from 2.1 · 답장: itl send 2.1 '…'] [개발] 색을 바꿨습니다"}),
-        "not json",
-        _line(type="attachment", uuid="x"),
-    ]
-    items = t.parse_transcript(lines)
-    assert [(i["role"], i["text"]) for i in items] == [
-        ("user", "로그인 버튼 색 바꿔줘"),
-        ("assistant", "개발 담당에게 맡기겠습니다."),
-        ("tool", "탭 열기 · 개발"),
-        ("report", "[개발] 색을 바꿨습니다"),
-    ]
-    assert items[3]["from"] == "2.1"
+def test_reply_reads_tags_keeps_only_known_ids_and_strips_them():
+    data = {"content": [
+        {"type": "thinking", "thinking": "…"},
+        {"type": "text", "text": "오른쪽으로 나눴습니다.\n\n@do:split-right @offer:split-right, settings,rm-rf,hosts,home\n@point:<img>"},
+    ]}
+    assert t.read_reply(data, POINTS) == {"text": "오른쪽으로 나눴습니다.", "did": "split-right",
+                                          "offer": ["settings", "hosts", "home"], "point": None}
 
 
-def test_conversation_is_capped_to_the_latest_messages():
-    lines = [_line(type="user", uuid=str(n), message={"content": f"m{n}"}) for n in range(t.MAX_MESSAGES + 10)]
-    items = t.parse_transcript(lines)
-    assert len(items) == t.MAX_MESSAGES and items[-1]["text"] == f"m{t.MAX_MESSAGES + 9}"
+def test_reply_without_tags_is_just_text():
+    data = {"content": [{"type": "text", "text": "설정은 톱니바퀴입니다."}, "junk",
+                        {"type": "tool_use", "name": "ui", "input": {"do": "new-tab"}}]}
+    assert t.read_reply(data, POINTS) == {"text": "설정은 톱니바퀴입니다.", "did": None, "offer": [], "point": None}
 
 
-def test_one_terminator_per_user_with_a_safe_session_id():
-    a, b = t.session_name("alice"), t.session_name("bob")
-    assert a != b and a == t.session_name("alice")
-    assert is_safe_id(a) and a.startswith("terminator-")
+def test_a_point_tag_must_name_a_guide_id():
+    data = {"content": [{"type": "text", "text": "여기입니다.\n@point:settings"}]}
+    assert t.read_reply(data, POINTS)["point"] == "settings"
 
 
-def test_login_state_only_checks_that_files_exist(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    assert t.login_state() == {"claude": False, "codex": False, "opencode": False, "github": False}
-    (tmp_path / ".codex").mkdir()
-    (tmp_path / ".codex" / "auth.json").write_text("{}")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "x")
-    assert t.login_state() == {"claude": True, "codex": True, "opencode": False, "github": False}
+def test_point_ids_come_from_the_guide():
+    ids = t.guide_ids(t._guide())
+    assert "settings" in ids and "pane-split" in ids
 
 
-def test_transcript_lookup_refuses_anything_but_a_uuid(tmp_path, monkeypatch):
-    monkeypatch.setenv("HOME", str(tmp_path))
-    tid = "0b2a4f6e-1c3d-4e5f-8a9b-0c1d2e3f4a5b"
-    d = tmp_path / ".claude" / "projects" / "-workspace"
-    d.mkdir(parents=True)
-    (d / f"{tid}.jsonl").write_text("")
-    assert t.transcript_path(tid) == d / f"{tid}.jsonl"
-    assert t.transcript_path("../../etc/passwd") is None
-    assert t.transcript_path("*") is None
+class _FakeResponse:
+    def __init__(self, data):
+        self._data = data
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._data
 
 
-def test_launcher_execs_claude_so_the_pane_does_not_look_idle():
-    # The backend reads "running" from the pane's foreground command. If the launcher stays
-    # as `sh` with claude as a child, every panel open types the launch line into the chat.
-    from pathlib import Path
-    launcher = (Path(__file__).resolve().parents[1] / "cli" / "terminator" / "terminator").read_text()
-    assert "exec claude " in launcher
-    assert "mktemp" not in launcher and "trap " not in launcher
+@pytest.fixture
+def fake_glm(monkeypatch):
+    sent = []
+
+    class Client:
+        def __init__(self, timeout):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, url, json, headers):
+            sent.append(json)
+            return _FakeResponse({"content": [
+                {"type": "text", "text": "새 터미널을 열었습니다.\n@do:new-tab"}],
+                "usage": {"input_tokens": 1500, "output_tokens": 20}})
+
+    monkeypatch.setattr(t.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(t, "_key", lambda: "k")
+    for store in (t._history, t._shown, t._calls):
+        store.clear()
+    return sent
 
 
-def test_tool_items_say_whether_routing_worked_and_where_it_went():
-    from routes.terminator import parse_transcript
-    lines = [
-        _line(type="assistant", uuid="a1", message={"content": [
-            {"type": "tool_use", "id": "t1", "name": "mcp__terminator__open_worker", "input": {"tool": "claude"}},
-            {"type": "tool_use", "id": "t2", "name": "mcp__terminator__send", "input": {"to": "9.9"}},
-        ]}),
-        _line(type="user", uuid="u1", message={"content": [
-            {"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": '{"ok": true, "addr": "3.1", "delivery": "opened"}'}]},
-            {"type": "tool_result", "tool_use_id": "t2", "is_error": True, "content": '{"ok": false, "error": "그런 팬이 없다"}'},
-        ]}),
-    ]
-    tools = [m for m in parse_transcript(lines) if m["role"] == "tool"]
-    assert [(t["ok"], t["detail"]) for t in tools] == [(True, "3.1"), (False, "그런 팬이 없다")]
-    # The tool result itself never shows up as a user bubble.
-    assert all(m["role"] == "tool" for m in parse_transcript(lines))
+def _say(text, user="u"):
+    return asyncio.run(t.terminator_say(t.SayRequest(text=text), username=user))
 
 
-def test_context_used_is_the_latest_request_total():
-    from routes.terminator import context_used
-    lines = [
-        _line(type="assistant", message={"content": [], "usage": {"input_tokens": 5, "cache_read_input_tokens": 100}}),
-        _line(type="assistant", message={"content": [], "usage": {"input_tokens": 7, "cache_read_input_tokens": 1600,
-                                                                   "cache_creation_input_tokens": 30}}),
-    ]
-    assert context_used(lines) == 1637
-    assert context_used([]) is None
+def test_one_request_per_message_with_thinking_off_and_no_tools(fake_glm):
+    out = _say("터미널 하나 열어줘")
+    assert out["reply"]["did"] == "new-tab"
+    body = fake_glm[0]
+    assert body["model"] == "glm-5.3-flash" and body["thinking"] == {"type": "disabled"}
+    assert "tools" not in body                      # a tool definition tripled the latency
+    assert "GUIDE:" in body["system"] and "new-tab" in body["system"]
+    assert len(fake_glm) == 1
+
+
+def test_the_model_sees_only_the_last_few_messages(fake_glm):
+    for n in range(6):
+        _say(f"질문 {n}")
+    last = fake_glm[-1]["messages"]
+    assert len(last) == t.HISTORY_MESSAGES + 1
+    assert last[-1] == {"role": "user", "content": "질문 5"}
+    assert all(isinstance(m["content"], str) for m in last)   # no tool_result rounds
+    assert all("@do" not in m["content"] for m in last)       # tags never replayed
+
+
+def test_conversations_are_per_user_and_reset_clears_them(fake_glm):
+    _say("a", user="u1")
+    _say("b", user="u2")
+    assert len(asyncio.run(t.terminator_messages(username="u1"))["messages"]) == 2
+    asyncio.run(t.terminator_reset(username="u1"))
+    assert asyncio.run(t.terminator_messages(username="u1"))["messages"] == []
+    assert len(asyncio.run(t.terminator_messages(username="u2"))["messages"]) == 2
+
+
+def test_refuses_without_a_key_and_when_flooded(fake_glm, monkeypatch):
+    monkeypatch.setattr(t, "_key", lambda: None)
+    with pytest.raises(HTTPException) as exc:
+        _say("hi")
+    assert exc.value.status_code == 409
+    monkeypatch.setattr(t, "_key", lambda: "k")
+    for _ in range(t.RATE_MAX):
+        _say("hi", user="flood")
+    with pytest.raises(HTTPException) as exc:
+        _say("hi", user="flood")
+    assert exc.value.status_code == 429

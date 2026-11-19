@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { GUIDE_TARGETS, guideCaption, findGuideElement } from './guideTargets';
 
 // Tests run from frontend/.
-const GUIDE_MD = resolve(process.cwd(), '../backend/cli/terminator/guide.md');
+const GUIDE_MD = resolve(process.cwd(), '../backend/terminator_guide.md');
 
 describe('guideTargets', () => {
   it('lists exactly the ids Terminator reads in guide.md', () => {

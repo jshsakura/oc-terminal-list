@@ -1039,22 +1039,27 @@ tmux `wait-for` 신호로 CLI를 깨운다. 주소가 바뀌어도 결과가 다
 앱 자체의 배달에는 설치가 필요 없다. 설치가 필요한 건 사람/에이전트가 셸에서 직접 `itl` 을
 칠 때뿐이다. 원격 tmux 팬이면 `whoami` 가 앱 주소까지 낸다(위 두 시점 stamp).
 
-### 터미네이터와 `itl open` (2026-11-19)
+### 터미네이터 — 화면 도움말, 백엔드가 GLM 을 직접 부른다 (2026-11-20)
 
-터미네이터는 Terminal List 의 동반자다(설계: [docs/notes/team-orchestration.md](docs/notes/team-orchestration.md)).
-GLM-5.3 으로 도는 Claude Code 세션이고 **내장 도구가 하나도 없다**(`--tools ""`). 할 수 있는 일은
-`backend/cli/terminator/terminator_mcp.py` 의 MCP 도구뿐이고, 그 도구는 전부 `itl` 을 부른다.
+터미네이터는 이 화면을 쓰는 법을 답하고 **버튼으로 할 수 있는 일만** 대신 하는 도우미다
+(`routes/terminator.py`, 패널 `components/terminator/TerminatorPanel.jsx`). 개발 일(작업 탭 열기,
+역할, 보고)은 2026-11-20 에 걷어냈다. 처음엔 tmux 안의 Claude Code 세션 + MCP 였는데, 무겁고(사용자마다
+상주 세션, 첫 답까지 수 초) 그 세션이 꺼진 것으로 오판되는 사고가 났다.
 
-- `itl open --tool claude|codex|opencode --prompt-file - [--branch] [--cwd] [--name]` 은 우편함에
-  `{"op":"open"}` 을 싣는다. 백엔드(`itl_open.py`)가 tmux 세션 → 세션 행 → 탭(낙관적 잠금) → 실행
-  줄 타이핑 → 에이전트 시작 확인 순으로 열고, **영수증으로 새 탭 주소를 돌려준다.**
-- ⚠️ **실행하는 것은 화이트리스트다**(`LAUNCH`). 페이로드의 명령은 실행하지 않는다. 지시문은 파일로
-  쓰고 `claude "$(cat 파일)"` 로 넘긴다 — 뜨는 중인 TUI 에 타이핑하면 앞글자가 먹히고, 폴더 신뢰
-  창이 엔터를 삼킨다.
-- ⚠️ open 은 몇 초 걸린다. 상태 폴러 **안에서** 기다리면 모든 pane 의 상태가 그동안 멈춘다 → 별도 task.
-- `itl send terminator '…'` 는 번호가 아니라 세션 옵션 `@itl_role` 로 찾는다(`itl role terminator`).
-  둘이면 고르지 않고 에러다.
-- MCP 파일 이름을 `itl_mcp.py` 로 바꾸지 마라. `agent_mcp_cleanup` 이 그 이름을 지운다.
+- **이 앱에서 백엔드가 LLM 을 부르는 유일한 곳이다**(아래 Architecture rules 의 예외). 범위가 좁은 것이
+  조건이다: 도움말 본문(`backend/terminator_guide.md`)만 근거로 답하고, 파일·셸·다른 터미널에 닿는
+  도구는 없다. 범위를 넓히려면 이 예외부터 다시 따진다.
+- **도구 정의를 보내지 않는다.** 도구 하나만 선언해도 답이 2.6s → 6s 가 됐다. 모델은 답 끝 줄에
+  `@do:new-tab` · `@offer:settings,hosts` · `@point:settings` 를 쓰고, `read_reply` 가 허용 id 로
+  거른 뒤 본문에서 지운다. 생각(thinking)도 끈다(5.6s → 1.7s).
+- 동작 목록은 두 벌이다: 백엔드 `UI_ACTIONS` 와 프론트 `utils/uiActions.js`. `uiActions.test.js` 가
+  같음을 잠근다. 실행은 **그 기기에서만** 한다(응답의 `did` 를 받은 클라이언트가 `iterm:ui-action`
+  이벤트를 쏘고 App 이 핸들러로 옮긴다). 화면 안내 id 는 도움말의 `## 화면 안내 대상` 이 원본이다.
+- ⚠️ **기억은 최근 6개 메시지, 서버 메모리에만.** 지난 답은 **본문만** 돌려보낸다. 태그나 "(did …)"
+  메모를 함께 돌려보냈더니 모델이 그것을 흉내 내 본문에 "(offered new-tab)" 를 적었다.
+- 키는 `~/.config/zai/api_key`(600). 저장소·이미지·compose 에 두지 않는다.
+- `itl action split-right|split-down` · `itl spotlight` · `itl open` 은 itl 의 일반 기능으로 남아 있다
+  (에이전트가 쓸 수 있다). 터미네이터는 이제 itl 을 거치지 않는다.
 
 ⚠️ **격리 인스턴스는 저장소 안에서 띄우면 격리가 안 된다.** `main.py` 가 `<프로젝트>/.env` 를
 `override=True` 로 읽어서, env 로 준 `DB_PATH`·`WORKSPACE_ROOT`·`TMUX_SOCKET_NAME` 을 **운영 값으로
@@ -1741,6 +1746,7 @@ Pure derivations that used to live inline in `App.jsx` are extracted to `utils/`
 ## Architecture rules (do not break)
 
 - **No LLM API calls from the backend.** The backend routes terminal stdin/stdout only. Vendor-neutral.
+  The one exception is Terminator's help chat (`routes/terminator.py`), kept narrow on purpose; see its section.
 - **Agent features are opt-in.** Default UX is a generic terminal; agent layer sits on top.
 - Backend talks to xterm.js frontend via WebSocket (`ws_bridge.py`).
 - tmux sessions survive backend restarts (`KillMode=process` in the service unit).

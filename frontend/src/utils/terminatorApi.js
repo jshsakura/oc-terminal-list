@@ -14,15 +14,15 @@ const json = async (res) => {
   return body;
 };
 
-// Starting waits for a shell and an agent to come up (backend waits up to 20s).
-const START_TIMEOUT_MS = 30000;
+// One GLM request per message; the backend gives it up to 40s.
+const SAY_TIMEOUT_MS = 45000;
 
 export const fetchTerminatorStatus = () => apiFetch('/api/terminator/status').then(json);
-export const startTerminator = () => apiFetch('/api/terminator/start', { method: 'POST', timeoutMs: START_TIMEOUT_MS }).then(json);
 export const fetchTerminatorMessages = () => apiFetch('/api/terminator/messages').then(json);
-export const showTerminatorTerminal = () => apiFetch('/api/terminator/show', { method: 'POST' }).then(json);
+export const resetTerminator = () => apiFetch('/api/terminator/reset', { method: 'POST' }).then(json);
 export const sayToTerminator = (text) => apiFetch('/api/terminator/say', {
   method: 'POST',
+  timeoutMs: SAY_TIMEOUT_MS,
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ text }),
 }).then(json);

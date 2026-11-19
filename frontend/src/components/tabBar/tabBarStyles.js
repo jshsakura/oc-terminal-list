@@ -4,11 +4,6 @@ const { color, font, fontSize, fontWeight, radius, motion } = tokens;
 const TAB_FADE_PX = 14;
 
 export const styles = {
-  // Work handed off by Terminator is still running.
-  terminatorDot: {
-    position: 'absolute', top: '5px', right: '5px', width: '6px', height: '6px',
-    borderRadius: '50%', background: color.accent, pointerEvents: 'none',
-  },
   bar: {
     display: 'flex',
     alignItems: 'stretch',

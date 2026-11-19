@@ -1068,18 +1068,33 @@ function App() {
     expectedIdentity,
   }));
   const handleSplitPane = useEvent((tabId, paneId, dir) => splitActivePane(dir, tabId, paneId));
-  // Terminator doing something on screen (see itl_open.UI_ACTIONS). Only known names act.
+  /* Terminator (and its buttons) doing what a UI button does. The names are utils/uiActions;
+     anything else is ignored. Actions that open another window close the panel so the two
+     do not stack; on a phone every action does, since the sheet covers the panes. */
+  const runTerminatorAction = useEvent((action) => {
+    const hasTab = activeTabIdRef.current !== null;
+    const opensWindow = {
+      'quick-input': () => openCommandInput(),
+      'command-palette': () => setIsCommandPaletteOpen(true),
+      settings: () => setIsSettingsOpen(true),
+      'settings-mobile': () => { setSettingsInitialTab('mobile'); setIsSettingsOpen(true); },
+      hosts: () => setHostManagerOpen(true),
+    }[action];
+    const inPlace = {
+      'new-tab': () => handleAddTab(),
+      'split-right': () => { if (hasTab) splitActivePane('right'); },
+      'split-down': () => { if (hasTab) splitActivePane('down'); },
+      home: () => setActiveTabId(null),
+    }[action];
+    if (!opensWindow && !inPlace) return;
+    (opensWindow || inPlace)();
+    if (opensWindow || isMobile) setTerminatorOpen(false);
+  });
   useEffect(() => {
-    const onAction = (e) => {
-      const dir = { 'split-right': 'right', 'split-down': 'down' }[e.detail?.action];
-      if (!dir || activeTabIdRef.current === null) return;
-      splitActivePane(dir);
-      // On a phone the sheet covers the panes; get out of the way so the split is seen.
-      if (isMobile) setTerminatorOpen(false);
-    };
+    const onAction = (e) => runTerminatorAction(e.detail?.action);
     window.addEventListener('iterm:ui-action', onAction);
     return () => window.removeEventListener('iterm:ui-action', onAction);
-  }, [splitActivePane, isMobile]);
+  }, [runTerminatorAction]);
   const handleDropTabToPane = useEvent((sourceTabId, targetTabId, targetPaneId, dir) => dropTabToSplitPane(sourceTabId, targetTabId, targetPaneId, dir));
   const handleDuplicateTab = useEvent((tabId) => {
     const source = tabs.find((tab) => tab.id === tabId);
@@ -1853,7 +1868,7 @@ function App() {
 
       {terminatorOpen && (
         <LazyErrorBoundary><Suspense fallback={null}>
-          <TerminatorPanel open onClose={closeTerminator} tabs={tabs} onSelectTab={setActiveTabId} isMobile={isMobile} settings={settings} t={t} />
+          <TerminatorPanel open onClose={closeTerminator} isMobile={isMobile} t={t} />
         </Suspense></LazyErrorBoundary>
       )}
       <Spotlight language={settings.language} t={t} />

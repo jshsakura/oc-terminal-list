@@ -1,111 +1,65 @@
 /**
- * State behind the Terminator panel.
+ * State behind the Terminator panel. Nothing polls: the panel reads the conversation once
+ * when it opens, and each answer comes back on the request that asked it.
  *
- * Nothing here polls. The conversation is refetched when Terminator's own session changes
- * agent status (working ↔ idle), which the existing tab-state SSE already pushes, plus once
- * when the panel opens and once after each message is sent.
+ * The answer's screen actions run here, on this device only: `did` right away, `point` as
+ * a spotlight. Offered buttons are left for the person to press.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getAgentStatusSnapshot, subscribeAgentStatus } from '../utils/agentStatusStore';
 import {
-  fetchTerminatorMessages, fetchTerminatorStatus, sayToTerminator, startTerminator,
+  fetchTerminatorMessages, fetchTerminatorStatus, resetTerminator, sayToTerminator,
 } from '../utils/terminatorApi';
-
-const REFETCH_SETTLE_MS = 400;
+import { runUiAction } from '../utils/uiActions';
 
 const useTerminator = (open) => {
-  const [status, setStatus] = useState(null);       // { configured, logins, sessionId, running }
+  const [status, setStatus] = useState(null);       // { configured, model }
   const [messages, setMessages] = useState([]);
-  const [contextUsed, setContextUsed] = useState(null);
-  const [pending, setPending] = useState([]);       // sent, not yet in the transcript
-  const [phase, setPhase] = useState('idle');       // idle | checking | starting | ready | error
+  const [pending, setPending] = useState(null);     // the question waiting for its answer
   const [error, setError] = useState(null);
-  const [agentStatus, setAgentStatus] = useState(null);
-  const timerRef = useRef(null);
   const aliveRef = useRef(true);
 
-  useEffect(() => () => { aliveRef.current = false; clearTimeout(timerRef.current); }, []);
+  useEffect(() => () => { aliveRef.current = false; }, []);
 
-  const refetch = useCallback(() => {
-    clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(() => {
-      fetchTerminatorMessages()
-        .then((data) => {
-          if (!aliveRef.current) return;
-          const next = data.messages || [];
-          setMessages(next);
-          setContextUsed(Number.isFinite(data.contextUsed) ? data.contextUsed : null);
-          // A pending bubble is done once the transcript shows the same text.
-          setPending((prev) => prev.filter((p) => !next.some((m) => m.role === 'user' && m.text === p.text)));
-        })
-        .catch(() => { /* keep what is shown; the next status change refetches */ });
-    }, REFETCH_SETTLE_MS);
-  }, []);
-
-  const boot = useCallback(async () => {
-    setError(null);
-    setPhase('checking');
-    try {
-      const st = await fetchTerminatorStatus();
-      if (!aliveRef.current) return;
-      setStatus(st);
-      if (!st.configured) { setPhase('idle'); return; }
-      if (!st.running) {
-        setPhase('starting');
-        await startTerminator();
-        if (!aliveRef.current) return;
-        // Ask again: only a running Terminator can say which model and effort it runs with.
-        let fresh = null;
-        try { fresh = await fetchTerminatorStatus(); } catch { /* keep what we know */ }
-        if (!aliveRef.current) return;
-        setStatus(fresh || { ...st, running: true });
-      }
-      setPhase('ready');
-      refetch();
-    } catch (exc) {
-      if (!aliveRef.current) return;
-      setError(exc.message || 'error');
-      setPhase('error');
-    }
-  }, [refetch]);
-
-  useEffect(() => { if (open) boot(); }, [open, boot]);
-
-  // Refetch when Terminator's own pane changes state. The SSE already carries it.
-  const sessionId = status?.sessionId;
   useEffect(() => {
-    if (!open || !sessionId) return undefined;
-    let last = getAgentStatusSnapshot()[sessionId]?.status ?? null;
-    setAgentStatus(last);
-    return subscribeAgentStatus(() => {
-      const now = getAgentStatusSnapshot()[sessionId]?.status ?? null;
-      if (now === last) return;
-      last = now;
-      setAgentStatus(now);
-      refetch();
-    });
-  }, [open, sessionId, refetch]);
+    if (!open) return;
+    setError(null);
+    fetchTerminatorStatus().then((st) => { if (aliveRef.current) setStatus(st); })
+      .catch((exc) => { if (aliveRef.current) setError(exc.message || 'error'); });
+    fetchTerminatorMessages().then((data) => { if (aliveRef.current) setMessages(data.messages || []); })
+      .catch(() => { /* an empty conversation is a fine start */ });
+  }, [open]);
 
   const say = useCallback(async (text) => {
     const clean = (text || '').trim();
-    if (!clean) return false;
-    const item = { id: `pending:${Date.now()}`, role: 'user', text: clean, pending: true };
-    setPending((prev) => [...prev, item]);
+    if (!clean || pending) return false;
+    setError(null);
+    setPending({ id: `pending:${Date.now()}`, role: 'user', text: clean, pending: true });
     try {
-      await sayToTerminator(clean);
-      refetch();
+      const data = await sayToTerminator(clean);
+      if (!aliveRef.current) return true;
+      setMessages(data.messages || []);
+      const reply = data.reply || {};
+      if (reply.did) runUiAction(reply.did);
+      if (reply.point) window.dispatchEvent(new CustomEvent('iterm:spotlight', { detail: { id: reply.point } }));
       return true;
     } catch (exc) {
-      setPending((prev) => prev.filter((p) => p.id !== item.id));
-      setError(exc.message || 'error');
+      if (aliveRef.current) setError(exc.message || 'error');
       return false;
+    } finally {
+      if (aliveRef.current) setPending(null);
     }
-  }, [refetch]);
+  }, [pending]);
+
+  const reset = useCallback(async () => {
+    setMessages([]);
+    setError(null);
+    try { await resetTerminator(); } catch { /* the next question starts fresh anyway */ }
+  }, []);
 
   return {
-    status, phase, error, agentStatus, say, retry: boot, contextUsed,
-    messages: pending.length ? [...messages, ...pending] : messages,
-    isThinking: agentStatus === 'working' || pending.length > 0,
+    status, error, say, reset,
+    messages: pending ? [...messages, pending] : messages,
+    isThinking: !!pending,
   };
 };
 

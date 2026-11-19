@@ -10,25 +10,8 @@ import { styles } from './tabBar/tabBarStyles';
 import { Tab } from './tabBar/TabBarTab';
 import { TabContextMenu, SettingsSubMenu } from './tabBar/TabBarMenus';
 import { tabDensity } from '../utils/tabDensity';
-import { getAgentStatusSnapshot, subscribeAgentStatus } from '../utils/agentStatusStore';
 
 const { color } = tokens;
-
-/* A dot on the Terminator button while handed-off work runs. Subscribes on its own so a
-   status change re-renders this dot, not the tab bar (or App above it). */
-const TerminatorBusyDot = ({ tabs }) => {
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    const check = () => {
-      const snap = getAgentStatusSnapshot();
-      setBusy((tabs || []).some((tab) => tab?.openedBy === 'terminator'
-        && (tab.panes || []).some((p) => p?.sessionId && snap[p.sessionId]?.status === 'working')));
-    };
-    check();
-    return subscribeAgentStatus(check);
-  }, [tabs]);
-  return busy ? <span aria-hidden="true" style={styles.terminatorDot} /> : null;
-};
 
 const TabBar = ({
   tabs = [],
@@ -318,7 +301,7 @@ const TabBar = ({
         )}
         {/* Terminator, the companion. Shown on phones too: that is where it helps most. */}
         {onOpenTerminator && (
-          <div style={{ ...actionSlot, position: 'relative' }}>
+          <div style={actionSlot}>
             <RailIconBtn
               icon={Sparkles}
               guide="terminator"
@@ -327,7 +310,6 @@ const TabBar = ({
               title={t?.('terminator') || '터미네이터'}
               compact
             />
-            <TerminatorBusyDot tabs={tabs} />
           </div>
         )}
         <div ref={settingsBtnRef} style={actionSlot}>
