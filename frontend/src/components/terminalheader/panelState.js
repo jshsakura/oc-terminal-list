@@ -14,7 +14,8 @@ const PANEL_STATE_PREFIX = 'iterm:terminal-header-panel:v1:';
 
 const TABS = [
   { id: 'files', icon: Folder, label: 'Files' },
-  { id: 'git',   icon: GitBranch, label: 'Git' },
+  // Git is the second tab inside the Files panel, not its own rail icon.
+  { id: 'git',   icon: GitBranch, label: 'Git', rail: false },
   // Info and Theme are rarely used, so they live in the … menu instead of the rail.
   { id: 'info',  icon: Info,     label: 'Info', rail: false },
   { id: 'theme', icon: Palette,   label: 'Theme', rail: false },

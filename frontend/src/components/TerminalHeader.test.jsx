@@ -44,23 +44,23 @@ describe('TerminalHeader', () => {
     expect(rule.previousElementSibling.querySelectorAll('button').length).toBeGreaterThan(0);
   });
 
-  // One rail skeleton per real RailIconBtn: 2 panel tabs (files, git) + (split) + (… menu).
+  // One rail skeleton per real RailIconBtn: 1 panel tab (files) + (split) + (… menu).
   const railSkeletons = (container) => container.querySelectorAll('[style*="iterm-rail-skel"]');
 
   it('shows one skeleton per rail button when loading=true', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: true })} />);
-    // 2 panel tabs + the … menu (no split button without onSplitPane)
-    expect(railSkeletons(container).length).toBe(3);
+    // 1 panel tab + the … menu (no split button without onSplitPane)
+    expect(railSkeletons(container).length).toBe(2);
   });
 
   it('adds a skeleton for the split button when onSplitPane is provided', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: true, onSplitPane: vi.fn() })} />);
-    expect(railSkeletons(container).length).toBe(4);
+    expect(railSkeletons(container).length).toBe(3);
   });
 
   it('omits the … menu skeleton for a disabled (empty) pane', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: true, disabled: true })} />);
-    expect(railSkeletons(container).length).toBe(2);
+    expect(railSkeletons(container).length).toBe(1);
   });
 
   it('shows no skeleton when loading=false', () => {
@@ -102,8 +102,8 @@ describe('TerminalHeader', () => {
         onExtractPane: vi.fn(),
       })} />
     );
-    // 2 tab skeletons + 1 more-button skeleton (secondary actions consolidated behind menu)
-    expect(railSkeletons(container).length).toBe(3);
+    // 1 tab skeleton + 1 more-button skeleton (secondary actions consolidated behind menu)
+    expect(railSkeletons(container).length).toBe(2);
   });
 
   it('reserves the drag-handle slot while loading on desktop so the rail does not shift', () => {
@@ -395,10 +395,11 @@ describe('TerminalHeader', () => {
         />
       );
       expect(container.firstChild).toBeTruthy();
-      // The git icon button should exist and be clickable
-      const gitBtn = container.querySelector('[title="Git"]') ||
-                     container.querySelector('[title="Git (0)"]');
-      expect(gitBtn).toBeTruthy();
+      // Git lives behind the Files icon, which must exist and be clickable
+      const filesBtn = container.querySelector('[title="Files"]');
+      expect(filesBtn).toBeTruthy();
+      fireEvent.click(filesBtn);
+      expect(container.querySelector('[data-panel-tab="git"]')).toBeTruthy();
     });
 
     it('shows git badge count 0 for empty path (not disabled)', () => {
@@ -410,15 +411,15 @@ describe('TerminalHeader', () => {
           })}
         />
       );
-      // Badge should not show when count is 0, but git button must exist
-      const gitBtn = container.querySelector('[title="Git"]');
-      expect(gitBtn).toBeTruthy();
+      // No count on the Files icon when there are no changes
+      expect(container.querySelector('[title="Files"]')).toBeTruthy();
+      expect(container.querySelector('[title^="Files ("]')).toBeNull();
     });
   });
 });
 
 describe('TerminalHeader — Info and Theme live in the … menu', () => {
-  it('keeps only Files and Git on the rail', () => {
+  it('keeps only Files on the rail', () => {
     const { container } = render(<TerminalHeader settings={{ theme: 'catppuccin' }} t={mockT} language="en" />);
     expect(container.querySelector('[title="Info"]')).toBeNull();
     expect(container.querySelector('[title="Theme"]')).toBeNull();
@@ -432,5 +433,29 @@ describe('TerminalHeader — Info and Theme live in the … menu', () => {
     expect(screen.getByText('paneInfoHint')).toBeInTheDocument();
     expect(screen.getByText('paneThemeTitle')).toBeInTheDocument();
     expect(screen.getByText('paneThemeHint')).toBeInTheDocument();
+  });
+});
+
+describe('TerminalHeader — Git is a tab inside the Files panel', () => {
+  it('has no separate Git rail icon', () => {
+    const { container } = render(<TerminalHeader settings={{ theme: 'catppuccin' }} t={mockT} language="en" />);
+    expect(container.querySelector('[title="Git"]')).toBeNull();
+  });
+
+  it('switches between files and changes inside the panel and closes from the Files icon', () => {
+    localStorage.setItem('iterm:terminal-header-panel:v1:inner-tabs', JSON.stringify({ activePanel: 'files', panelWidth: 260 }));
+    const { container } = render(<TerminalHeader
+      settings={{ theme: 'catppuccin' }} t={mockT} language="en" activeTabType="local"
+      paneInfo={{ paneId: 'inner-tabs', tabType: 'local' }}
+    />);
+    const filesTab = container.querySelector('[data-panel-tab="files"]');
+    const gitTab = container.querySelector('[data-panel-tab="git"]');
+    expect(filesTab.getAttribute('aria-selected')).toBe('true');
+
+    fireEvent.click(gitTab);
+    expect(container.querySelector('[data-panel-tab="git"]').getAttribute('aria-selected')).toBe('true');
+    // The Files rail icon stays lit for the Git tab and closes the whole panel.
+    fireEvent.click(container.querySelector('[title="Files"]'));
+    expect(container.querySelector('[data-panel-tab]')).toBeNull();
   });
 });

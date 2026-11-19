@@ -423,18 +423,22 @@ const TerminalHeader = ({
           ) : (
             RAIL_TABS.map(({ id, icon: Icon, label }) => {
               const isFilesTab = id === 'files';
+              // Git lives inside the Files panel as its second tab, so the Files icon stands for both.
+              const isFilesOrGit = activePanel === 'files' || activePanel === 'git';
               const isActive = isFilesTab && onFilePanelToggle
                 ? filePanelOpen
-                : activePanel === id;
+                : (isFilesTab ? isFilesOrGit : activePanel === id);
               const handleTabClick = () => {
                 if (disabled) return;
                 if (isFilesTab && onFilePanelToggle) {
                   onFilePanelToggle();
+                } else if (isFilesTab) {
+                  setActivePanel(isFilesOrGit ? null : 'files');
                 } else {
                   togglePanel(id);
                 }
               };
-              const badge = id === 'git' && gitCount > 0 ? gitCount : null;
+              const badge = isFilesTab && gitCount > 0 ? gitCount : null;
               return (
                 <RailIconBtn
                   key={id}
@@ -790,10 +794,43 @@ const TerminalHeader = ({
             />
           </div>
           <div style={{ ...styles.panelHeader, ...glassSectionStyle(panelUi), borderBottomColor: glassSectionStyle(panelUi).borderColor }}>
-            <span style={{ ...styles.panelTitle, color: panelUi.text }}>
-              <ActivePanelIcon size={13} strokeWidth={2} aria-hidden="true" style={{ color: panelUi.accent }} />
-              <span>{activePanelMeta?.label}</span>
-            </span>
+            {(activePanel === 'files' || activePanel === 'git') ? (
+              <span role="tablist" style={{ display: 'inline-flex', alignItems: 'center', gap: '2px', minWidth: 0 }}>
+                {[
+                  { id: 'files', icon: Folder, label: t?.('files') || 'Files', count: null },
+                  { id: 'git', icon: GitBranch, label: t?.('changes') || 'Changes', count: gitCount || null },
+                ].map(({ id, icon: TabIcon, label, count }) => {
+                  const selected = activePanel === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      role="tab"
+                      aria-selected={selected}
+                      data-panel-tab={id}
+                      onClick={() => setActivePanel(id)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '5px',
+                        height: '22px', padding: '0 8px', borderRadius: radius.md,
+                        border: 'none', cursor: 'pointer', fontSize: fontSize['12'],
+                        fontWeight: selected ? fontWeight.semibold : fontWeight.medium,
+                        color: selected ? panelUi.text : panelUi.muted,
+                        background: selected ? panelUi.surface0 : 'transparent',
+                      }}
+                    >
+                      <TabIcon size={12} strokeWidth={2} aria-hidden="true" style={{ color: selected ? panelUi.accent : 'currentColor' }} />
+                      <span>{label}</span>
+                      {count ? <span style={{ fontFamily: font.mono, fontSize: fontSize['10'], color: panelUi.accent }}>{count}</span> : null}
+                    </button>
+                  );
+                })}
+              </span>
+            ) : (
+              <span style={{ ...styles.panelTitle, color: panelUi.text }}>
+                <ActivePanelIcon size={13} strokeWidth={2} aria-hidden="true" style={{ color: panelUi.accent }} />
+                <span>{activePanelMeta?.label}</span>
+              </span>
+            )}
             <button
               style={styles.closeBtn}
               onClick={closePanel}

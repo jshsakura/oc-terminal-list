@@ -664,8 +664,9 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const canGoUp = parentOfRoot !== null;
   const rootDisplay = isHostMode ? (normalizedResolvedRoot || (normalizedRootPath || '~')) : (rootPath || '/');
   const searchVisible = searchOpen || !!searchQuery;
-  // 원격은 로드된 노드만 거르는 트리 필터로는 깊은 파일을 못 찾으므로, 이름 검색도 호스트에서 find 를 돌린다.
-  const isContentMode = searchVisible && (isHostMode || searchMode === 'content');
+  // Name search is an instant filter over what this folder has already loaded, local and remote alike.
+  // A recursive remote find made every keystroke wait on SSH. Content search (grep) stays opt-in.
+  const isContentMode = searchVisible && searchMode === 'content';
   const hostSearchUrl = useMemo(() => {
     if (!isHostMode) return undefined;
     const root = normalizedResolvedRoot || normalizedRootPath || '';
@@ -853,7 +854,6 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             query={searchQuery}
             t={t}
             buildUrl={hostSearchUrl}
-            hint={isHostMode && searchMode === 'name' ? (t('nameSearchHint') || 'Type at least 2 chars to search file names') : null}
             onOpen={(p, _line, item) => {
               if (item?.type === 'directory') { goToPath(p); setSearchQuery(''); setSearchOpen(false); return; }
               onFileSelect?.(p, hostId);

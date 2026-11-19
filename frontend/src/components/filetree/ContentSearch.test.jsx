@@ -41,20 +41,20 @@ describe('FileTree remote search', () => {
   beforeEach(() => { originalFetch = global.fetch; });
   afterEach(() => { global.fetch = originalFetch; });
 
-  it('searches names on the host, and opens a hit as a remote file', async () => {
-    global.fetch = vi.fn((url) => {
-      if (String(url).includes('/files/search')) {
-        return json({ items: [{ path: '/home/u/app/main.py', name: 'main.py', type: 'file' }] });
-      }
-      return json({ path: '/home/u', resolved: '/home/u', items: [] });
-    });
+  it('filters names in the current host folder instantly, without a remote search', async () => {
+    global.fetch = vi.fn(() => json({ path: '/home/u', resolved: '/home/u', items: [
+      { path: '/home/u/main.py', name: 'main.py', type: 'file' },
+      { path: '/home/u/readme.md', name: 'readme.md', type: 'file' },
+    ] }));
     const onFileSelect = vi.fn();
     render(<FileTree hostId="h1" onFileSelect={onFileSelect} />);
-    fireEvent.click(await screen.findByTitle('searchFiles'));
+    await screen.findByText('readme.md');
+    fireEvent.click(screen.getByTitle('searchFiles'));
     fireEvent.change(screen.getByPlaceholderText('searchFiles'), { target: { value: 'main' } });
-    fireEvent.click(await screen.findByText('main.py'));
-    expect(onFileSelect).toHaveBeenCalledWith('/home/u/app/main.py', 'h1');
-    const searchCall = global.fetch.mock.calls.map((c) => String(c[0])).find((u) => u.includes('/files/search'));
-    expect(searchCall).toContain('/api/hosts/h1/files/search?q=main&mode=name&path=%2Fhome%2Fu');
+    expect(screen.queryByText('readme.md')).toBeNull();
+    // Tree rows select on click and open on double-click.
+    fireEvent.doubleClick(screen.getByText('main.py'));
+    expect(onFileSelect).toHaveBeenCalledWith('/home/u/main.py', 'h1');
+    expect(global.fetch.mock.calls.some((c) => String(c[0]).includes('/files/search'))).toBe(false);
   });
 });
