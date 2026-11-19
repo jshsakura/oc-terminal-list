@@ -73,12 +73,15 @@ import { copyToClipboard } from './utils/clipboard';
 import useEvent from './hooks/useEvent';
 import { typeIntoPane } from './utils/paneTyping';
 
+import Spotlight from './components/terminator/Spotlight';
 const Terminal        = lazy(() => import('./components/Terminal'));
 const FileEditor      = lazy(() => import('./components/FileEditor'));
 const InitialSetup    = lazy(() => import('./components/InitialSetup'));
 const Login           = lazy(() => import('./components/Login'));
 const MobileToolbar   = lazy(() => import('./components/MobileToolbar'));
 const CommandInput    = lazy(() => import('./components/CommandInput'));
+// Loaded on first open: the companion must cost nothing until someone asks for it.
+const TerminatorPanel = lazy(() => import('./components/terminator/TerminatorPanel'));
 
 const { color, font, fontSize, fontWeight, space } = tokens;
 
@@ -131,6 +134,9 @@ function App() {
   // 딥링크(`?open=<sessionId>`, 텔레그램 "열기" 버튼 등) → 그 세션 탭·pane 활성화.
   // 복원이 끝나야 탭이 채워지므로 ready 로 "포기 시점"을 알려준다.
   useDeepLinkOpen({ tabs, setActiveTabId, setTabs, ready: isAuthenticated && !isRestoringWorkspace });
+  const [terminatorOpen, setTerminatorOpen] = useState(false);
+  const toggleTerminator = useEvent(() => setTerminatorOpen((v) => !v));
+  const closeTerminator = useEvent(() => setTerminatorOpen(false));
   // 세션ID → 에이전트 상태. xterm 타이틀(즉시·원격 포함) + 백엔드 tmux 폴링(무인 세션) 합류점.
   const agentStatusMap = useAgentStatus();
   /* 세션ID → 연결 실패 사유. 실패 카드는 그 pane 을 봐야 보이므로, 언제나 보이는
@@ -1429,6 +1435,8 @@ function App() {
         onOpenHosts={() => setHostManagerOpen(true)}
         onOpenKeys={() => { setEditingKey(null); setKeyManagerOpen(true); }}
         onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenTerminator={toggleTerminator}
+        terminatorOpen={terminatorOpen}
         // 보낼 터미널이 실제로 있을 때만 노출 — 홈 화면/빈 탭에선 의미 없음.
         onOpenCommandInput={
           activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
@@ -1830,6 +1838,13 @@ function App() {
         onPick={handleLocalPickerPick}
         t={t}
       />
+
+      {terminatorOpen && (
+        <LazyErrorBoundary><Suspense fallback={null}>
+          <TerminatorPanel open onClose={closeTerminator} tabs={tabs} onSelectTab={setActiveTabId} isMobile={isMobile} t={t} />
+        </Suspense></LazyErrorBoundary>
+      )}
+      <Spotlight language={settings.language} t={t} />
 
       {/* ── modals ── (Settings/SSH키/호스트편집/확인/알림/커맨드팔레트/파일피커) → AppModals */}
       <AppModals

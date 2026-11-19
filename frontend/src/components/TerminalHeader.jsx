@@ -443,6 +443,7 @@ const TerminalHeader = ({
                 <RailIconBtn
                   key={id}
                   icon={Icon}
+                  guide={id === 'files' ? 'pane-files' : undefined}
                   onClick={handleTabClick}
                   title={badge ? `${label} (${badge})` : label}
                   active={isActive}
@@ -554,6 +555,7 @@ const TerminalHeader = ({
               <div ref={splitBtnRef}>
                 <RailIconBtn
                   icon={Columns2}
+                  guide="pane-split"
                   onClick={handleSplitClick}
                   title={t?.('splitPane') || 'Split pane'}
                   active={!!splitMenu}
@@ -583,6 +585,7 @@ const TerminalHeader = ({
               ) : (
                 <RailIconBtn
                   icon={MoreHorizontal}
+                  guide="pane-more"
                   onClick={handleMoreClick}
                   title={t?.('more') || 'More'}
                   active={!!railMenu}
@@ -808,6 +811,7 @@ const TerminalHeader = ({
                       role="tab"
                       aria-selected={selected}
                       data-panel-tab={id}
+                      data-guide={id === 'git' ? 'files-changes-tab' : undefined}
                       onClick={() => setActivePanel(id)}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: '5px',

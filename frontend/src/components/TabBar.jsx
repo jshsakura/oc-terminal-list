@@ -1,6 +1,6 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Terminal as TerminalIcon, Settings as SettingsIcon, Keyboard, Radio } from 'lucide-react';
+import { Terminal as TerminalIcon, Settings as SettingsIcon, Keyboard, Radio, Sparkles } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RailIconBtn from './common/RailIconBtn';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
@@ -10,8 +10,25 @@ import { styles } from './tabBar/tabBarStyles';
 import { Tab } from './tabBar/TabBarTab';
 import { TabContextMenu, SettingsSubMenu } from './tabBar/TabBarMenus';
 import { tabDensity } from '../utils/tabDensity';
+import { getAgentStatusSnapshot, subscribeAgentStatus } from '../utils/agentStatusStore';
 
 const { color } = tokens;
+
+/* A dot on the Terminator button while handed-off work runs. Subscribes on its own so a
+   status change re-renders this dot, not the tab bar (or App above it). */
+const TerminatorBusyDot = ({ tabs }) => {
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    const check = () => {
+      const snap = getAgentStatusSnapshot();
+      setBusy((tabs || []).some((tab) => tab?.openedBy === 'terminator'
+        && (tab.panes || []).some((p) => p?.sessionId && snap[p.sessionId]?.status === 'working')));
+    };
+    check();
+    return subscribeAgentStatus(check);
+  }, [tabs]);
+  return busy ? <span aria-hidden="true" style={styles.terminatorDot} /> : null;
+};
 
 const TabBar = ({
   tabs = [],
@@ -23,6 +40,8 @@ const TabBar = ({
   onOpenHosts,
   onOpenKeys,
   onOpenSettings,
+  onOpenTerminator = null,
+  terminatorOpen = false,
   /* () → 빠른 입력창 열기. 모바일은 MobileToolbar 에 이미 있어 데스크탑에서만 노출. */
   onOpenCommandInput = null,
   /* Broadcast(동시 입력) 토글 — 활성 탭 pane 2개 이상일 때만 전달된다. */
@@ -270,6 +289,7 @@ const TabBar = ({
           <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <RailIconBtn
               icon={Keyboard}
+              guide="quick-input"
               onClick={onOpenCommandInput}
               disabled={actionsDisabled}
               title={t?.('commandInput') || 'Quick Input'}
@@ -293,8 +313,22 @@ const TabBar = ({
             />
           </div>
         )}
+        {/* Terminator, the companion. Shown on phones too: that is where it helps most. */}
+        {onOpenTerminator && (
+          <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+            <RailIconBtn
+              icon={Sparkles}
+              guide="terminator"
+              onClick={onOpenTerminator}
+              active={terminatorOpen}
+              title={t?.('terminator') || '터미네이터'}
+              compact
+            />
+            <TerminatorBusyDot tabs={tabs} />
+          </div>
+        )}
         <div ref={settingsBtnRef} style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <RailIconBtn icon={SettingsIcon} onClick={handleSettingsClick} active={!!settingsMenu} title={t?.('settings') || 'Settings'} compact />
+          <RailIconBtn icon={SettingsIcon} guide="settings" onClick={handleSettingsClick} active={!!settingsMenu} title={t?.('settings') || 'Settings'} compact />
         </div>
       </div>
       {settingsMenu && createPortal(

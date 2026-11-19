@@ -28,6 +28,7 @@ const RailIconBtn = ({
   ariaLabel,
   ui = null,
   compact = false,  // 좁은 rail 용 (TerminalHeader 활동바 등) — outer 24×24 / inner 18×18.
+  guide,            // spotlight target id (data-guide), see utils/guideTargets.js
 }) => {
   const isDanger = tone === 'danger';
   const isAccent = tone === 'accent';
@@ -55,6 +56,7 @@ const RailIconBtn = ({
       onClick={onClick}
       title={title}
       aria-label={ariaLabel || title}
+      data-guide={guide}
       disabled={disabled}
       style={{
         ...S.outer,

@@ -181,8 +181,9 @@ export const ContextMenu = ({ x, y, target, t, onClose, onNewFile, onNewFolder, 
   );
 };
 
-export const HeadAction = ({ icon: Icon, title, onClick, active, disabled = false }) => (
+export const HeadAction = ({ icon: Icon, title, onClick, active, disabled = false, guide }) => (
   <button
+    data-guide={guide}
     onClick={(e) => { e.stopPropagation(); if (!disabled) onClick?.(); }}
     onContextMenu={(e) => e.stopPropagation()}
     title={title}

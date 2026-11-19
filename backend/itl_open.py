@@ -122,7 +122,8 @@ def rate_ok(username: str, now: float | None = None) -> bool:
     return True
 
 
-def new_tab(tabs: list, *, session_id: str, rel_cwd: str, name: str, next_number: int) -> dict:
+def new_tab(tabs: list, *, session_id: str, rel_cwd: str, name: str, next_number: int,
+            opened_by: str = "terminator") -> dict:
     """The same shape the frontend builds for a local single-pane tab (extractPaneToTabOp)."""
     pane_id = str(uuid.uuid4())
     used = {t.get("addressNumber") for t in tabs if isinstance(t, dict)}
@@ -142,12 +143,13 @@ def new_tab(tabs: list, *, session_id: str, rel_cwd: str, name: str, next_number
         "activePaneId": pane_id,
         "addressNumber": number,
         "sessionId": session_id,
-        "openedBy": "terminator",
+        "openedBy": opened_by,
     }
 
 
-async def _append_tab(username: str, session_id: str, rel_cwd: str, name: str) -> str:
-    """Add the tab under the optimistic lock and tell every open client. Returns its address."""
+async def append_tab(username: str, session_id: str, rel_cwd: str, name: str,
+                     opened_by: str = "terminator") -> tuple[str, str]:
+    """Add the tab under the optimistic lock and tell every open client. Returns (address, tab id)."""
     from pane_addr import stamp_addresses
     from routes.user_state import _next_tab_address_number
     from sse_broadcast import _notify_tab_state_change
@@ -155,7 +157,7 @@ async def _append_tab(username: str, session_id: str, rel_cwd: str, name: str) -
     for _ in range(SAVE_RETRIES):
         state = await storage.get_tab_state(username) or {}
         tabs = [t for t in (state.get("tabs") or []) if isinstance(t, dict)]
-        tab = new_tab(tabs, session_id=session_id, rel_cwd=rel_cwd, name=name,
+        tab = new_tab(tabs, session_id=session_id, rel_cwd=rel_cwd, name=name, opened_by=opened_by,
                       next_number=_next_tab_address_number(tabs, state.get("nextTabAddressNumber")))
         next_tabs = [*tabs, tab]
         result = await storage.save_tab_state_checked(
@@ -168,7 +170,7 @@ async def _append_tab(username: str, session_id: str, rel_cwd: str, name: str) -
         _notify_tab_state_change(username, result.state["updatedAt"])
         await stamp_addresses(next_tabs)
         hit = next((t for t in build_targets(next_tabs) if t.get("sessionId") == session_id), None)
-        return hit["addr"] if hit else ""
+        return (hit["addr"] if hit else ""), tab["id"]
     raise OpenFailed("탭 상태를 저장하지 못했다 (다른 기기와 저장이 계속 겹쳤다)")
 
 
@@ -213,7 +215,7 @@ async def open_worker(username: str, spec: dict) -> dict:
 
     await tmux_manager.create_session(session_id, cwd=str(absolute))
     await storage.create_session(session_id, username, cwd=rel_cwd)
-    addr = await _append_tab(username, session_id, rel_cwd, spec["name"])
+    addr, tab_id = await append_tab(username, session_id, rel_cwd, spec["name"])
 
     await _wait_shell_ready(session_id)
     line = launch_line(spec, prompt_file)
@@ -224,7 +226,7 @@ async def open_worker(username: str, spec: dict) -> dict:
                 addr, spec["tool"], rel_cwd or "/", spec["branch"] or "-", username, started)
     if not started:
         raise OpenFailed(f"{addr} 탭은 열었지만 {spec['tool']} 이(가) 시작되지 않았다. 그 탭 화면을 확인하라")
-    return {"addr": addr, "sessionId": session_id, "tool": spec["tool"],
+    return {"addr": addr, "tabId": tab_id, "sessionId": session_id, "tool": spec["tool"],
             "branch": spec["branch"] or None, "cwd": rel_cwd}
 
 

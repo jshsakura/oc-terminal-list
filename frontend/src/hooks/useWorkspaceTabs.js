@@ -447,6 +447,11 @@ export default function useWorkspaceTabs({ isAuthenticated }) {
                 applyAgentStatusChanges(payload.changes);
                 return;
               }
+              if (payload.type === 'spotlight') {
+                // Terminator pointing at a button. Only the id travels; Spotlight looks it up.
+                window.dispatchEvent(new CustomEvent('iterm:spotlight', { detail: { id: payload.id } }));
+                return;
+              }
               if (payload.type === 'remoteCwd') {
                 applyRemoteCwdChanges(payload.hostId, payload.cwds);
                 return;

@@ -759,7 +759,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
             {isHostMode && normalizedRootPath !== normalizedInitialPath && (
               <HeadAction icon={Home} title={t('home') || 'Home'} onClick={goHomeRoot} />
             )}
-            <HeadAction icon={Search} title={t('searchFiles')} onClick={() => setSearchOpen((open) => !open)} active={searchVisible} />
+            <HeadAction icon={Search} guide="files-search" title={t('searchFiles')} onClick={() => setSearchOpen((open) => !open)} active={searchVisible} />
             <HeadAction icon={Filter} title={t('filterChangedOnly')} onClick={() => setFilterChangedOnly(!filterChangedOnly)} active={filterChangedOnly} />
             <HeadAction
               icon={ArrowDownUp}
