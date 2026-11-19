@@ -383,6 +383,73 @@ def discover() -> list[dict]:
 
 # ─── 주소 풀기 ───────────────────────────────────────────────────────────────
 
+#: Named roles a pane can carry (session option). `itl send terminator '…'` finds the
+#: Terminator companion's pane without knowing its number, which shifts as tabs close.
+ROLE_OPTION = "@itl_role"
+ROLES = frozenset({"terminator"})
+
+
+def role_pane_ids(binary: str, socket: str, role: str) -> set[str]:
+    code, out, err = run([binary, "-S", socket, "list-panes", "-a", "-F",
+                          "#{pane_id}\t#{" + ROLE_OPTION + "}"])
+    if code != 0:
+        raise_if_tmux_denied(err, socket)
+        return set()
+    return {line.split("\t", 1)[0] for line in out.splitlines() if line.endswith("\t" + role)}
+
+
+def resolve_role(panes: list[dict], role: str) -> tuple[dict | None, str]:
+    binary = tmux_bin()
+    if not binary:
+        return None, "tmux 가 없다"
+    hits: list[dict] = []
+    for socket in sorted({p["socket"] for p in panes}):
+        ids = role_pane_ids(binary, socket, role)
+        hits += [p for p in panes if p["socket"] == socket and p["native_id"] in ids]
+    if len(hits) == 1:
+        return hits[0], ""
+    if hits:
+        return None, f"{role} 팬이 여럿이다 — 하나만 남기라: " + ", ".join(p["addr"] for p in hits)
+    return None, f"{role} 세션이 없다 — 터미네이터를 먼저 띄우라"
+
+
+def set_role(role: str) -> tuple[bool, str]:
+    """Mark this pane's session with `role`, clearing it from any other session first."""
+    context = current_tmux_context()
+    if context is None:
+        return False, "tmux 팬 안에서 실행하라"
+    binary, socket, pane = context
+    code, out, err = run([binary, "-S", socket, "list-sessions", "-F",
+                          "#{session_name}\t#{" + ROLE_OPTION + "}"])
+    if code != 0:
+        raise_if_tmux_denied(err, socket)
+        return False, err.strip() or "세션 목록을 못 읽었다"
+    for line in out.splitlines():
+        name, _, current = line.partition("\t")
+        if current == role:
+            run([binary, "-S", socket, "set-option", "-u", "-t", name, ROLE_OPTION])
+    code, _out, err = run([binary, "-S", socket, "set-option", "-t", pane, ROLE_OPTION, role])
+    return code == 0, err.strip()
+
+
+def open_worker(tool: str, cwd: str, branch: str, prompt: str, name: str,
+                *, timeout: float) -> tuple[dict | None, str]:
+    """Ask the app to open a new tab running `tool`, via this pane's outbox.
+
+    The backend does the work (tmux session, tab, branch, agent start) and writes the
+    result back as a receipt, so this returns the new tab's address or why it failed.
+    """
+    request_id = secrets.token_hex(8)
+    payload = {"op": "open", "tool": tool, "cwd": cwd, "branch": branch, "prompt": prompt,
+               "name": name, "n": request_id, "receipt": True}
+    if not put_outbox(json.dumps(payload, ensure_ascii=False)):
+        return None, "전송 우편함에 처리 중인 요청이 있다; 잠시 뒤 다시 하라"
+    out, why = receipt(request_id, timeout=timeout)
+    if not out:
+        return None, why
+    return json.loads(out), ""
+
+
 def resolve(panes: list[dict], addr: str) -> tuple[dict | None, str]:
     """주소 → 팬 하나. 받는 모양은 셋이고 **모호하면 고르지 않는다.**
 
@@ -396,6 +463,8 @@ def resolve(panes: list[dict], addr: str) -> tuple[dict | None, str]:
     want = (addr or "").strip()
     if not want:
         return None, "빈 주소"
+    if want in ROLES:
+        return resolve_role(panes, want)
 
     # 앱 주소(`1.2`)를 이 기계에서 바로 풀 수 있으면 그렇게 한다. tmux 가 `@pane_addr` 로
     # 들고 있기 때문이다 — **백엔드도 브라우저도 없이** 옆 탭에 말을 걸 수 있다는 뜻이고,
@@ -806,6 +875,19 @@ def main(argv: list[str] | None = None) -> int:
     r = sub.add_parser("read", help="그 팬의 최근 출력")
     r.add_argument("addr")
     r.add_argument("--lines", type=int, default=40)
+    o = sub.add_parser("open", help="새 탭을 열고 에이전트에게 첫 지시문을 넘긴다 (앱이 연다)")
+    o.add_argument("--tool", required=True, choices=["claude", "codex", "opencode"])
+    o.add_argument("--cwd", default="", help="작업 폴더 (기본: 지금 이 팬의 폴더)")
+    o.add_argument("--branch", default="", help="이 이름의 브랜치로 바꾼다 (없으면 만든다)")
+    o.add_argument("--name", default="", help="탭 이름")
+    src = o.add_mutually_exclusive_group(required=True)
+    src.add_argument("--prompt", help="첫 지시문")
+    src.add_argument("--prompt-file", help="첫 지시문 파일 (- 는 stdin)")
+    o.add_argument("--wait", type=float, default=60, help="결과를 기다릴 초 (최대 90)")
+    spot = sub.add_parser("spotlight", help="앱 화면에서 그 버튼을 비춘다")
+    spot.add_argument("id")
+    role = sub.add_parser("role", help="이 팬의 세션에 이름표를 단다 (예: terminator)")
+    role.add_argument("name", choices=sorted(ROLES))
     q = sub.add_parser("receipt", help="요청 ID의 전달 결과 확인")
     q.add_argument("request_id")
     q.add_argument("--wait", type=float, default=0)
@@ -830,6 +912,51 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps({"ok": False, "requestId": args.request_id, "delivery": "unknown", "error": error})
               if args.json else error, file=sys.stdout if args.json else sys.stderr)
         return 4
+    if args.cmd == "role":
+        try:
+            ok, why = set_role(args.name)
+        except ItlEnvironmentError as exc:
+            return report_environment_error(exc, as_json=args.json)
+        if args.json:
+            print(json.dumps({"ok": ok, "role": args.name, "error": why or None}, ensure_ascii=False))
+        elif not ok:
+            print(f"itl: {why}", file=sys.stderr)
+        return 0 if ok else 3
+    if args.cmd == "spotlight":
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,39}", args.id):
+            ok, why = False, "id 모양이 아니다"
+        else:
+            try:
+                ok = put_outbox(json.dumps({"op": "spotlight", "id": args.id, "n": secrets.token_hex(8)}))
+            except ItlEnvironmentError as exc:
+                return report_environment_error(exc, as_json=args.json)
+            why = "" if ok else "전송 우편함이 바쁘다; 잠시 뒤 다시 하라"
+        if args.json:
+            print(json.dumps({"ok": ok, "id": args.id, "error": why or None}, ensure_ascii=False))
+        elif not ok:
+            print(f"itl: {why}", file=sys.stderr)
+        return 0 if ok else 3
+    if args.cmd == "open":
+        if args.prompt_file:
+            with (sys.stdin if args.prompt_file == "-" else open(args.prompt_file, encoding="utf-8")) as fh:
+                prompt = fh.read()
+        else:
+            prompt = args.prompt
+        try:
+            result, why = open_worker(args.tool, args.cwd or os.getcwd(), args.branch, prompt,
+                                      args.name, timeout=max(1, min(args.wait, 90)))
+        except ItlEnvironmentError as exc:
+            return report_environment_error(exc, as_json=args.json)
+        if result is None:
+            result = {"ok": False, "delivery": "unknown", "error": why}
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False))
+        elif result.get("ok"):
+            branch = f" · 브랜치 {result['branch']}" if result.get("branch") else ""
+            print(f"itl: {result['addr']} 탭에서 {result['tool']} 시작됨{branch}")
+        else:
+            print(f"itl: 탭을 열지 못했다: {result.get('error')}", file=sys.stderr)
+        return 0 if result.get("ok") else 3
     if args.cmd == "sandbox-config":
         socket = args.socket or (os.environ.get("TMUX") or "").split(",", 1)[0]
         if not os.path.isabs(socket):

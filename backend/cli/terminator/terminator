@@ -1,0 +1,39 @@
+#!/bin/sh
+# Terminator: the Terminal List companion. Claude Code driven by GLM-5.3 over the Z.ai
+# coding plan, with no built-in tools at all (`--tools ""`): everything it can do is the
+# terminator MCP server next to this file. Context is capped at 400k and auto-compacts at
+# half (200k); GLM-5.3 accepts 1M, but its judgement holds better well below that.
+set -e
+HERE="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+KEY_FILE="${ZAI_KEY_FILE:-$HOME/.config/zai/api_key}"
+if [ ! -r "$KEY_FILE" ]; then
+  echo "터미네이터를 켜려면 Z.ai 키가 필요합니다: $KEY_FILE" >&2
+  exit 1
+fi
+if [ -n "$TMUX" ]; then
+  python3 "$HERE/../itl" role terminator >/dev/null 2>&1 || true
+fi
+MCP_CONFIG="$(mktemp "${TMPDIR:-/tmp}/terminator-mcp.XXXXXX.json")"
+trap 'rm -f "$MCP_CONFIG"' EXIT
+printf '{"mcpServers":{"terminator":{"type":"stdio","command":"python3","args":["%s"]}}}\n' \
+  "$HERE/terminator_mcp.py" > "$MCP_CONFIG"
+
+ANTHROPIC_AUTH_TOKEN="$(cat "$KEY_FILE")"
+export ANTHROPIC_AUTH_TOKEN
+export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
+export ANTHROPIC_MODEL="glm-5.3"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.3"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="glm-5.3"
+export ANTHROPIC_DEFAULT_HAIKU_MODEL="glm-5.3-flash"
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS=400000
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000
+export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50
+export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
+unset ANTHROPIC_API_KEY
+
+# Not exec: the trap must remove the temp MCP config when the session ends.
+claude --tools "" \
+  --strict-mcp-config --mcp-config "$MCP_CONFIG" \
+  --allowedTools "mcp__terminator" \
+  --append-system-prompt "$(cat "$HERE/persona.md")" \
+  "$@"

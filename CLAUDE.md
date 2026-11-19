@@ -1039,6 +1039,28 @@ tmux `wait-for` 신호로 CLI를 깨운다. 주소가 바뀌어도 결과가 다
 앱 자체의 배달에는 설치가 필요 없다. 설치가 필요한 건 사람/에이전트가 셸에서 직접 `itl` 을
 칠 때뿐이다. 원격 tmux 팬이면 `whoami` 가 앱 주소까지 낸다(위 두 시점 stamp).
 
+### 터미네이터와 `itl open` (2026-11-19)
+
+터미네이터는 Terminal List 의 동반자다(설계: [docs/notes/team-orchestration.md](docs/notes/team-orchestration.md)).
+GLM-5.3 으로 도는 Claude Code 세션이고 **내장 도구가 하나도 없다**(`--tools ""`). 할 수 있는 일은
+`backend/cli/terminator/terminator_mcp.py` 의 MCP 도구뿐이고, 그 도구는 전부 `itl` 을 부른다.
+
+- `itl open --tool claude|codex|opencode --prompt-file - [--branch] [--cwd] [--name]` 은 우편함에
+  `{"op":"open"}` 을 싣는다. 백엔드(`itl_open.py`)가 tmux 세션 → 세션 행 → 탭(낙관적 잠금) → 실행
+  줄 타이핑 → 에이전트 시작 확인 순으로 열고, **영수증으로 새 탭 주소를 돌려준다.**
+- ⚠️ **실행하는 것은 화이트리스트다**(`LAUNCH`). 페이로드의 명령은 실행하지 않는다. 지시문은 파일로
+  쓰고 `claude "$(cat 파일)"` 로 넘긴다 — 뜨는 중인 TUI 에 타이핑하면 앞글자가 먹히고, 폴더 신뢰
+  창이 엔터를 삼킨다.
+- ⚠️ open 은 몇 초 걸린다. 상태 폴러 **안에서** 기다리면 모든 pane 의 상태가 그동안 멈춘다 → 별도 task.
+- `itl send terminator '…'` 는 번호가 아니라 세션 옵션 `@itl_role` 로 찾는다(`itl role terminator`).
+  둘이면 고르지 않고 에러다.
+- MCP 파일 이름을 `itl_mcp.py` 로 바꾸지 마라. `agent_mcp_cleanup` 이 그 이름을 지운다.
+
+⚠️ **격리 인스턴스는 저장소 안에서 띄우면 격리가 안 된다.** `main.py` 가 `<프로젝트>/.env` 를
+`override=True` 로 읽어서, env 로 준 `DB_PATH`·`WORKSPACE_ROOT`·`TMUX_SOCKET_NAME` 을 **운영 값으로
+덮는다.** 실제로 그렇게 띄웠다가 운영 DB 에 시작 정리(사용 시간 행 닫기)가 한 번 돌았다. `backend/` 를
+`.env` 없는 곳에 **복사해서** 띄우고, 로그의 `WORKSPACE_ROOT =` 줄로 격리됐는지 먼저 확인한다.
+
 ## 호스트에 도구 깔기 — 목록은 데이터고, 설치는 터미널에서 한다 (2026-09-01)
 
 이 앱은 오래 **자기 것 두 개**(itl CLI · 리모트 에이전트)만 설치할 줄 알았다. 그건

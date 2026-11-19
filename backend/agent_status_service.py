@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 import agent_status_events
@@ -39,6 +40,10 @@ async def _on_agent_status_change(changes: list[dict]) -> None:
 MAX_OUTBOX_CHARS = 12000
 
 
+#: In-flight `itl open` tasks, held so they are not garbage-collected mid-run.
+_open_tasks: set = set()
+
+
 async def _on_agent_outbox(pending: list[tuple[str, str]]) -> None:
     """붙어 있지 않은 팬이 남긴 전달 요청을 처리한다.
 
@@ -54,6 +59,7 @@ async def _on_agent_outbox(pending: list[tuple[str, str]]) -> None:
 
     ⚠️ **먼저 비우고 배달한다.** 배달이 느리면 다음 틱이 같은 통을 또 집는다.
     """
+    from itl_open import handle_op, is_open_request
     from itl_router import deliver_from_pane
     from sqlite_storage import storage
 
@@ -67,8 +73,9 @@ async def _on_agent_outbox(pending: list[tuple[str, str]]) -> None:
         if len(payload) > MAX_OUTBOX_CHARS:
             logger.warning("itl 우편함이 너무 길다 (%s): %d자", session_id, len(payload))
             continue
-        msg = parse_sentinel(payload)
-        if not msg:
+        open_request = is_open_request(payload)
+        msg = None if open_request else parse_sentinel(payload)
+        if not msg and not open_request:
             logger.info("itl 우편함의 모양이 아니다 (%s)", session_id)
             continue
         # 보낸 이는 **세션에서 되짚는다** — 페이로드의 자칭을 믿으면 사칭이 공짜다.
@@ -79,6 +86,13 @@ async def _on_agent_outbox(pending: list[tuple[str, str]]) -> None:
             pass
         if not owner:
             logger.info("itl 우편함: 세션 주인을 모른다 (%s)", session_id)
+            continue
+        if open_request:
+            # Opening waits for a shell and an agent to start (seconds). Run it beside the
+            # poller, never inside it, or every pane's status freezes meanwhile.
+            task = asyncio.create_task(handle_op(owner, session_id, open_request))
+            _open_tasks.add(task)
+            task.add_done_callback(_open_tasks.discard)
             continue
         await deliver_from_pane(owner, session_id, msg)
 
