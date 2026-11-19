@@ -15,9 +15,11 @@ const PANEL_STATE_PREFIX = 'iterm:terminal-header-panel:v1:';
 const TABS = [
   { id: 'files', icon: Folder, label: 'Files' },
   { id: 'git',   icon: GitBranch, label: 'Git' },
-  { id: 'info',  icon: Info,     label: 'Info' },
-  { id: 'theme', icon: Palette,   label: 'Theme' },
+  // Info and Theme are rarely used, so they live in the … menu instead of the rail.
+  { id: 'info',  icon: Info,     label: 'Info', rail: false },
+  { id: 'theme', icon: Palette,   label: 'Theme', rail: false },
 ];
+const RAIL_TABS = TABS.filter((tab) => tab.rail !== false);
 const PANEL_IDS = new Set(TABS.map((tab) => tab.id));
 
 const readPanelState = (key) => {
@@ -38,5 +40,5 @@ const readPanelState = (key) => {
 
 export {
   DEFAULT_PANEL_WIDTH, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH, TOP_RAIL_HEIGHT,
-  PANEL_STATE_PREFIX, TABS, PANEL_IDS, readPanelState,
+  PANEL_STATE_PREFIX, TABS, RAIL_TABS, PANEL_IDS, readPanelState,
 };

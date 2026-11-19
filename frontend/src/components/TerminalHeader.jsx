@@ -26,7 +26,7 @@ import CwdBreadcrumb from './terminalheader/CwdBreadcrumb';
 import styles from './terminalheader/terminalHeaderStyles';
 import {
   DEFAULT_PANEL_WIDTH, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH, TOP_RAIL_HEIGHT,
-  PANEL_STATE_PREFIX, TABS, readPanelState,
+  PANEL_STATE_PREFIX, TABS, RAIL_TABS, readPanelState,
 } from './terminalheader/panelState';
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
@@ -419,9 +419,9 @@ const TerminalHeader = ({
           pointerEvents: (disabled || showLoading) ? 'none' : 'auto',
         }}>
           {showLoading ? (
-            <RailSkeleton count={TABS.length} compact ui={panelUi} gap="2px" />
+            <RailSkeleton count={RAIL_TABS.length} compact ui={panelUi} gap="2px" />
           ) : (
-            TABS.map(({ id, icon: Icon, label }) => {
+            RAIL_TABS.map(({ id, icon: Icon, label }) => {
               const isFilesTab = id === 'files';
               const isActive = isFilesTab && onFilePanelToggle
                 ? filePanelOpen
@@ -614,6 +614,26 @@ const TerminalHeader = ({
             <>
               <MenuBtn icon={FileText} onClick={() => { closeRailMenu(); handleDump(); }} ui={panelUi}>
                 {t?.('viewAsText') || 'View as text'}
+              </MenuBtn>
+            </>
+          )}
+          {!disabled && (
+            <>
+              <MenuBtn
+                icon={Info}
+                onClick={() => { closeRailMenu(); setActivePanel('info'); }}
+                hint={t?.('paneInfoHint') || "Shows this pane's host, path and session"}
+                ui={panelUi}
+              >
+                {t?.('paneInfoTitle') || 'Info'}
+              </MenuBtn>
+              <MenuBtn
+                icon={Palette}
+                onClick={() => { closeRailMenu(); setActivePanel('theme'); }}
+                hint={t?.('paneThemeHint') || 'Gives only this pane a different theme'}
+                ui={panelUi}
+              >
+                {t?.('paneThemeTitle') || 'Theme'}
               </MenuBtn>
             </>
           )}

@@ -4,6 +4,12 @@ import TerminalHeader from './TerminalHeader';
 
 const mockT = (key) => key;
 
+// Info and Theme live in the … menu, not on the rail.
+const openPanelFromMenu = (container, label) => {
+  fireEvent.click(container.querySelector('[title="more"]'));
+  fireEvent.click(screen.getByText(label).closest('button'));
+};
+
 const baseProps = (overrides = {}) => ({
   settings: { theme: 'catppuccin' },
   t: mockT,
@@ -38,23 +44,23 @@ describe('TerminalHeader', () => {
     expect(rule.previousElementSibling.querySelectorAll('button').length).toBeGreaterThan(0);
   });
 
-  // 레일 스켈레톤은 실제 RailIconBtn 자리마다 하나씩 — 4개 패널 탭 + (분할) + (… 메뉴).
+  // One rail skeleton per real RailIconBtn: 2 panel tabs (files, git) + (split) + (… menu).
   const railSkeletons = (container) => container.querySelectorAll('[style*="iterm-rail-skel"]');
 
   it('shows one skeleton per rail button when loading=true', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: true })} />);
-    // 4 panel tabs + the … menu (no split button without onSplitPane)
-    expect(railSkeletons(container).length).toBe(5);
+    // 2 panel tabs + the … menu (no split button without onSplitPane)
+    expect(railSkeletons(container).length).toBe(3);
   });
 
   it('adds a skeleton for the split button when onSplitPane is provided', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: true, onSplitPane: vi.fn() })} />);
-    expect(railSkeletons(container).length).toBe(6);
+    expect(railSkeletons(container).length).toBe(4);
   });
 
   it('omits the … menu skeleton for a disabled (empty) pane', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: true, disabled: true })} />);
-    expect(railSkeletons(container).length).toBe(4);
+    expect(railSkeletons(container).length).toBe(2);
   });
 
   it('shows no skeleton when loading=false', () => {
@@ -96,8 +102,8 @@ describe('TerminalHeader', () => {
         onExtractPane: vi.fn(),
       })} />
     );
-    // 4 tab skeletons + 1 more-button skeleton (secondary actions consolidated behind menu)
-    expect(railSkeletons(container).length).toBe(5);
+    // 2 tab skeletons + 1 more-button skeleton (secondary actions consolidated behind menu)
+    expect(railSkeletons(container).length).toBe(3);
   });
 
   it('reserves the drag-handle slot while loading on desktop so the rail does not shift', () => {
@@ -160,14 +166,14 @@ describe('TerminalHeader', () => {
 
   it('uses the shared glass treatment for opened side panels', () => {
     const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
-    fireEvent.click(container.querySelector('[title="Info"]'));
+    openPanelFromMenu(container, 'paneInfoTitle');
     expect(container.querySelector('[tabindex="-1"]').style.backdropFilter).toMatch(/blur\(.*18px\)/);
   });
 
   it('preserves an open side panel while its pane is hidden without rendering it', async () => {
     const props = baseProps({ activeTabType: 'local', isPaneVisible: true });
     const result = render(<TerminalHeader {...props} />);
-    fireEvent.click(result.container.querySelector('[title="Info"]'));
+    openPanelFromMenu(result.container, 'paneInfoTitle');
     const panel = result.container.querySelector('[tabindex="-1"]');
     expect(panel).toBeTruthy();
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -207,14 +213,16 @@ describe('TerminalHeader', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('switches side panels with one click while another panel is open', async () => {
+  it('switches side panels from the … menu while another panel is open', async () => {
     const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
 
-    fireEvent.click(container.querySelector('[title="Info"]'));
+    openPanelFromMenu(container, 'paneInfoTitle');
     expect(await screen.findByText('Info')).toBeTruthy();
 
-    fireEvent.mouseDown(container.querySelector('[title="Theme"]'));
-    fireEvent.click(container.querySelector('[title="Theme"]'));
+    // The … button ignores a reopen within 300ms of closing (outside-click guard).
+    const now = Date.now();
+    vi.spyOn(Date, 'now').mockReturnValue(now + 1000);
+    openPanelFromMenu(container, 'paneThemeTitle');
 
     await waitFor(() => expect(screen.getByText('Theme')).toBeTruthy());
   });
@@ -222,7 +230,7 @@ describe('TerminalHeader', () => {
   it('highlights the side panel resize handle on hover', async () => {
     const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
 
-    fireEvent.click(container.querySelector('[title="Info"]'));
+    openPanelFromMenu(container, 'paneInfoTitle');
     await screen.findByText('Info');
 
     const handle = container.querySelector('[title="resizePanel"]');
@@ -302,9 +310,8 @@ describe('TerminalHeader', () => {
         ...propOverrides,
       });
       const result = render(<TerminalHeader {...props} />);
-      // Click the Info tab to open the info panel
-      const infoBtn = result.container.querySelector('[title="Info"]');
-      if (infoBtn) fireEvent.click(infoBtn);
+      // Open the info panel from the … menu
+      openPanelFromMenu(result.container, 'paneInfoTitle');
       return result;
     };
 
@@ -407,5 +414,23 @@ describe('TerminalHeader', () => {
       const gitBtn = container.querySelector('[title="Git"]');
       expect(gitBtn).toBeTruthy();
     });
+  });
+});
+
+describe('TerminalHeader — Info and Theme live in the … menu', () => {
+  it('keeps only Files and Git on the rail', () => {
+    const { container } = render(<TerminalHeader settings={{ theme: 'catppuccin' }} t={mockT} language="en" />);
+    expect(container.querySelector('[title="Info"]')).toBeNull();
+    expect(container.querySelector('[title="Theme"]')).toBeNull();
+    expect(container.querySelector('[title="Files"]')).toBeTruthy();
+  });
+
+  it('lists both in the … menu with a one-line hint', () => {
+    const { container } = render(<TerminalHeader settings={{ theme: 'catppuccin' }} t={mockT} language="en" />);
+    fireEvent.click(container.querySelector('[title="more"]'));
+    expect(screen.getByText('paneInfoTitle')).toBeInTheDocument();
+    expect(screen.getByText('paneInfoHint')).toBeInTheDocument();
+    expect(screen.getByText('paneThemeTitle')).toBeInTheDocument();
+    expect(screen.getByText('paneThemeHint')).toBeInTheDocument();
   });
 });
