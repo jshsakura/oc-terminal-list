@@ -95,8 +95,8 @@ export const styles = {
   brandBtnMobile: {
     width: '24px',
     height: '24px',
-    // Mobile drops the rule, so the button carries the gap itself — same 6px as the tab gap.
-    margin: '5px 6px 0 0',
+    // The rule after it carries the gap (6px each side), as on desktop.
+    margin: '5px 0 0 0',
     borderRadius: '3px',
   },
   /* The tab bar is **chrome** — a window frame, not a control. Carving the strip into a

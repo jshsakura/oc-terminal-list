@@ -218,10 +218,10 @@ const TabBar = ({
 
       {/* Rules at both ends of the tab strip — they have to be symmetric; one alone draws more
           attention than two. A short centred rule, not a full-height line.
-          Phones keep only the right rule: the strip scrolls under it, so its end fades out
-          (tabListMobile's mask) before the rule. Without the fade a half-visible chip touching
-          the rule read as one broken edge; without the rule it read as cut off. */}
-      {!isMobile && <div style={styles.railDivider} />}
+          On phones the strip scrolls under both rules, so each end fades out first (the masks in
+          tabListMobile / tabListMobileScrolled). Without the fade a half-visible chip touching a
+          rule read as one broken edge; without the rule the strip read as cut off. */}
+      <div style={styles.railDivider} />
 
       <div
         ref={tabListRef}
