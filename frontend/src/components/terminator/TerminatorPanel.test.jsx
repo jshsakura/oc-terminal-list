@@ -9,6 +9,10 @@ vi.mock('../../utils/terminatorApi', () => ({
   showTerminatorTerminal: vi.fn(async () => ({ tabId: 'tab-term' })),
 }));
 
+vi.mock('../Terminal', () => ({
+  default: ({ sessionId }) => <div data-testid="embedded-terminal" data-session={sessionId} />,
+}));
+
 import TerminatorPanel from './TerminatorPanel';
 import * as api from '../../utils/terminatorApi';
 
@@ -55,13 +59,30 @@ describe('TerminatorPanel', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('opens the real terminal behind it once its tab arrives', async () => {
+  it('switches to the real terminal inside the panel, without opening a tab', async () => {
     api.fetchTerminatorStatus.mockResolvedValueOnce(ready);
     const onSelectTab = vi.fn();
-    const { rerender } = render(<TerminatorPanel open tabs={[]} onSelectTab={onSelectTab} onClose={() => {}} t={() => undefined} />);
-    fireEvent.click(await screen.findByTitle('터미널로 보기'));
-    await act(async () => {});
-    rerender(<TerminatorPanel open tabs={[{ id: 'tab-term', openedBy: 'terminator-self', panes: [] }]} onSelectTab={onSelectTab} onClose={() => {}} t={() => undefined} />);
-    expect(onSelectTab).toHaveBeenCalledWith('tab-term');
+    render(<TerminatorPanel open tabs={[]} onSelectTab={onSelectTab} onClose={() => {}} t={() => undefined} />);
+    fireEvent.click(await screen.findByRole('tab', { name: '터미널' }));
+    expect(await screen.findByTestId('embedded-terminal')).toHaveAttribute('data-session', 'terminator-x');
+    expect(onSelectTab).not.toHaveBeenCalled();
+    expect(api.showTerminatorTerminal).not.toHaveBeenCalled();
+  });
+
+  it('shows the model, effort and context in use, and each routing step with its outcome', async () => {
+    api.fetchTerminatorStatus.mockResolvedValueOnce({
+      ...ready, engine: { model: 'glm-5.3', effort: 'medium', contextLimit: 400000 },
+    });
+    api.fetchTerminatorMessages.mockResolvedValueOnce({
+      contextUsed: 1637,
+      messages: [
+        { id: 'a', role: 'tool', text: '탭 열기 · claude', ok: true, detail: '3.1' },
+        { id: 'b', role: 'tool', text: '전달 · 9.9', ok: false, detail: '그런 팬이 없다' },
+      ],
+    });
+    render(<TerminatorPanel open tabs={[]} t={() => undefined} />);
+    expect(await screen.findByText('GLM-5.3 · effort medium · 1.6k / 400k')).toBeInTheDocument();
+    expect(await screen.findByText('→ 3.1')).toBeInTheDocument();
+    expect(screen.getByText('그런 팬이 없다')).toBeInTheDocument();
   });
 });

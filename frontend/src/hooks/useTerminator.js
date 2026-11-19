@@ -16,6 +16,7 @@ const REFETCH_SETTLE_MS = 400;
 const useTerminator = (open) => {
   const [status, setStatus] = useState(null);       // { configured, logins, sessionId, running }
   const [messages, setMessages] = useState([]);
+  const [contextUsed, setContextUsed] = useState(null);
   const [pending, setPending] = useState([]);       // sent, not yet in the transcript
   const [phase, setPhase] = useState('idle');       // idle | checking | starting | ready | error
   const [error, setError] = useState(null);
@@ -33,6 +34,7 @@ const useTerminator = (open) => {
           if (!aliveRef.current) return;
           const next = data.messages || [];
           setMessages(next);
+          setContextUsed(Number.isFinite(data.contextUsed) ? data.contextUsed : null);
           // A pending bubble is done once the transcript shows the same text.
           setPending((prev) => prev.filter((p) => !next.some((m) => m.role === 'user' && m.text === p.text)));
         })
@@ -52,7 +54,11 @@ const useTerminator = (open) => {
         setPhase('starting');
         await startTerminator();
         if (!aliveRef.current) return;
-        setStatus({ ...st, running: true });
+        // Ask again: only a running Terminator can say which model and effort it runs with.
+        let fresh = null;
+        try { fresh = await fetchTerminatorStatus(); } catch { /* keep what we know */ }
+        if (!aliveRef.current) return;
+        setStatus(fresh || { ...st, running: true });
       }
       setPhase('ready');
       refetch();
@@ -97,7 +103,7 @@ const useTerminator = (open) => {
   }, [refetch]);
 
   return {
-    status, phase, error, agentStatus, say, retry: boot,
+    status, phase, error, agentStatus, say, retry: boot, contextUsed,
     messages: pending.length ? [...messages, ...pending] : messages,
     isThinking: agentStatus === 'working' || pending.length > 0,
   };

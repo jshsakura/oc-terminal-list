@@ -199,6 +199,8 @@ const TabBar = ({
     edgeAutoScroll.stop();
   });
 
+  const actionSlot = isMobile ? styles.actionSlotMobile : styles.actionSlot;
+
   return (
     <div style={{ ...styles.bar, ...(isMobile ? styles.barMobile : null) }}>
       <style>{`
@@ -232,8 +234,9 @@ const TabBar = ({
 
       {/* Rules at both ends of the tab strip — they have to be symmetric; one alone draws more
           attention than two. A short centred rule, not a full-height line.
-          Dropped on narrow screens: with tabs scrolled, a half-visible chip ends up touching
-          the rule and the two read as one broken edge. The gap alone separates them there. */}
+          Phones keep only the right rule: the strip scrolls under it, so its end fades out
+          (tabListMobile's mask) before the rule. Without the fade a half-visible chip touching
+          the rule read as one broken edge; without the rule it read as cut off. */}
       {!isMobile && <div style={styles.railDivider} />}
 
       <div
@@ -278,7 +281,7 @@ const TabBar = ({
         ))}
       </div>
 
-      {!isMobile && <div style={styles.railDivider} />}
+      <div style={{ ...styles.railDivider, ...(isMobile ? styles.railDividerMobile : null) }} />
 
       {/* Right action group — quick input, broadcast, settings menu.
           **One action lives in one place.** Equalize panes is in the settings menu, so the rail
@@ -286,7 +289,7 @@ const TabBar = ({
           used action permanently eats rail width. */}
       <div style={{ display: 'flex', alignItems: 'stretch', flexShrink: 0 }}>
         {!isMobile && onOpenCommandInput && (
-          <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={actionSlot}>
             <RailIconBtn
               icon={Keyboard}
               guide="quick-input"
@@ -301,7 +304,7 @@ const TabBar = ({
             이 버튼이 유일한 전역 off 스위치라(pane 배지의 ✕ 는 그 pane 제외일 뿐),
             데스크탑에서 켠 채 폰으로 열면 끌 방법이 사라진다. */}
         {onBroadcastToggle && (!isMobile || isBroadcasting) && (
-          <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={actionSlot}>
             <RailIconBtn
               icon={Radio}
               onClick={onBroadcastToggle}
@@ -315,7 +318,7 @@ const TabBar = ({
         )}
         {/* Terminator, the companion. Shown on phones too: that is where it helps most. */}
         {onOpenTerminator && (
-          <div style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <div style={{ ...actionSlot, position: 'relative' }}>
             <RailIconBtn
               icon={Sparkles}
               guide="terminator"
@@ -327,7 +330,7 @@ const TabBar = ({
             <TerminatorBusyDot tabs={tabs} />
           </div>
         )}
-        <div ref={settingsBtnRef} style={{ width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div ref={settingsBtnRef} style={actionSlot}>
           <RailIconBtn icon={SettingsIcon} guide="settings" onClick={handleSettingsClick} active={!!settingsMenu} title={t?.('settings') || 'Settings'} compact />
         </div>
       </div>

@@ -10,8 +10,16 @@ if [ ! -r "$KEY_FILE" ]; then
   echo "터미네이터를 켜려면 Z.ai 키가 필요합니다: $KEY_FILE" >&2
   exit 1
 fi
+MODEL="glm-5.3"
+CONTEXT_LIMIT=400000
+# Routing is mostly picking a tool and a target; medium thinks enough to choose well
+# without making every reply wait. Override with TERMINATOR_EFFORT.
+EFFORT="${TERMINATOR_EFFORT:-medium}"
 if [ -n "$TMUX" ]; then
   python3 "$HERE/../itl" role terminator >/dev/null 2>&1 || true
+  # The panel reads these to show what is actually running.
+  tmux set-option @terminator_model "$MODEL" \; set-option @terminator_effort "$EFFORT" \; \
+    set-option @terminator_context "$CONTEXT_LIMIT" 2>/dev/null || true
 fi
 # Passed as a JSON string, not a temp file, so nothing needs cleaning up and the launcher
 # can exec (see the bottom).
@@ -21,12 +29,12 @@ MCP_CONFIG="$(printf '{"mcpServers":{"terminator":{"type":"stdio","command":"pyt
 ANTHROPIC_AUTH_TOKEN="$(cat "$KEY_FILE")"
 export ANTHROPIC_AUTH_TOKEN
 export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
-export ANTHROPIC_MODEL="glm-5.3"
-export ANTHROPIC_DEFAULT_OPUS_MODEL="glm-5.3"
-export ANTHROPIC_DEFAULT_SONNET_MODEL="glm-5.3"
+export ANTHROPIC_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_OPUS_MODEL="$MODEL"
+export ANTHROPIC_DEFAULT_SONNET_MODEL="$MODEL"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="glm-5.3-flash"
-export CLAUDE_CODE_MAX_CONTEXT_TOKENS=400000
-export CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$CONTEXT_LIMIT"
+export CLAUDE_CODE_AUTO_COMPACT_WINDOW="$CONTEXT_LIMIT"
 export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=50
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 # Keep it light: no CLAUDE.md rules (Terminator writes no code) and, below, the persona
@@ -38,7 +46,7 @@ unset ANTHROPIC_API_KEY
 # exec, so the pane's foreground command is `claude`. The backend tells "running" from
 # "only a shell" by that name; left as a child of sh, the pane looked idle, and every
 # panel open typed the launch line into the running chat as a message.
-exec claude --tools "" \
+exec claude --tools "" --effort "$EFFORT" \
   --strict-mcp-config --mcp-config "$MCP_CONFIG" \
   --allowedTools "mcp__terminator" \
   --system-prompt "$(cat "$HERE/persona.md")" \

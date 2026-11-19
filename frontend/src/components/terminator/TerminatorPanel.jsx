@@ -4,17 +4,21 @@
  * It overlays the right side (a bottom sheet on phones) instead of pushing the terminals
  * aside: pushing would resize every pane, and tmux would reflow every agent screen each
  * time the panel opens or closes. The conversation comes from Terminator's transcript;
- * "터미널로 보기" opens the real terminal behind it, so nothing is hidden.
+ * the 터미널 view attaches the real terminal behind it right here, so nothing is hidden
+ * and nothing has to open a tab.
  */
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Sparkles, X, SquareTerminal, Send, CornerDownRight, Wrench } from 'lucide-react';
+import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Sparkles, X, Send, CornerDownRight, Wrench, Check, AlertTriangle } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import useTerminator from '../../hooks/useTerminator';
 import { getAgentStatusSnapshot, subscribeAgentStatus } from '../../utils/agentStatusStore';
-import { showTerminatorTerminal } from '../../utils/terminatorApi';
+
+const Terminal = lazy(() => import('../Terminal'));
 
 const { color, font, fontSize, fontWeight, space, radius } = tokens;
 const PANEL_WIDTH_PX = 380;
+// A terminal needs room for the agent's TUI; the chat does not.
+const PANEL_TERMINAL_WIDTH_PX = 600;
 const LOGIN_TOOLS = [['claude', 'Claude'], ['codex', 'Codex'], ['github', 'GitHub']];
 
 const glass = {
@@ -42,15 +46,31 @@ const statusLabel = (status, t) => ({
   idle: t?.('terminatorIdle') || '대기',
 }[status] || '');
 
+const formatTokens = (n) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 100000 ? 0 : 1)}k` : String(n));
+
+// Model · effort · context, the same facts Claude Code's status line shows.
+const engineLine = (engine, contextUsed) => {
+  if (!engine) return '';
+  const parts = [engine.model?.toUpperCase(), engine.effort && `effort ${engine.effort}`];
+  if (engine.contextLimit) parts.push(`${formatTokens(contextUsed || 0)} / ${formatTokens(engine.contextLimit)}`);
+  return parts.filter(Boolean).join(' · ');
+};
+
+// A tool item is one routing step: what was done, then whether it worked and where it went.
+const ToolChip = ({ item }) => {
+  const failed = item.ok === false;
+  const Icon = item.ok === true ? Check : failed ? AlertTriangle : Wrench;
+  return (
+    <div style={{ ...styles.toolChip, color: failed ? color.danger : color.muted }}>
+      <Icon size={11} aria-hidden="true" style={item.ok === true ? { color: color.success } : undefined} />
+      <span>{item.text}</span>
+      {item.detail && <span style={styles.toolDetail}>{failed ? item.detail : `→ ${item.detail}`}</span>}
+    </div>
+  );
+};
+
 const Bubble = ({ item, t }) => {
-  if (item.role === 'tool') {
-    return (
-      <div style={styles.toolChip}>
-        <Wrench size={11} aria-hidden="true" />
-        <span>{item.text}</span>
-      </div>
-    );
-  }
+  if (item.role === 'tool') return <ToolChip item={item} />;
   const mine = item.role === 'user';
   const report = item.role === 'report';
   return (
@@ -73,16 +93,16 @@ const Bubble = ({ item, t }) => {
   );
 };
 
-const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, t }) => {
-  const { status, phase, error, messages, isThinking, say, retry } = useTerminator(open);
+const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, settings, t }) => {
+  const { status, phase, error, messages, isThinking, say, retry, contextUsed } = useTerminator(open);
   const workers = useWorkerStatuses(tabs);
+  const [view, setView] = useState('chat');      // chat | terminal
   const [draft, setDraft] = useState('');
   const [hiddenForSpotlight, setHiddenForSpotlight] = useState(false);
   const listRef = useRef(null);
   const panelRef = useRef(null);
   const inputRef = useRef(null);
   const knownWorkerIds = useRef(null);
-  const pendingSelect = useRef(null);
 
   // Remember which worker tabs existed when the panel opened; a new one means Terminator
   // just handed work off, so go there (the design's "작업 준비 완료" moment).
@@ -96,26 +116,19 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, t
   }, [open, workers, onSelectTab, onClose]);
 
   useEffect(() => {
-    const target = pendingSelect.current;
-    if (target && (tabs || []).some((tab) => tab.id === target)) {
-      pendingSelect.current = null;
-      onSelectTab?.(target);
-      onClose?.();
-    }
-  }, [tabs, onSelectTab, onClose]);
-
-  useEffect(() => {
     if (!open) return undefined;
     const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
     document.addEventListener('keydown', onKey);
-    const id = requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
+    const id = view === 'chat'
+      ? requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }))
+      : 0;
     return () => { document.removeEventListener('keydown', onKey); cancelAnimationFrame(id); };
-  }, [open, onClose]);
+  }, [open, onClose, view]);
 
   useEffect(() => {
     const el = listRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, isThinking]);
+  }, [messages, isThinking, view]);
 
   // Step aside while a spotlight points at something this panel covers.
   useEffect(() => {
@@ -146,17 +159,15 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, t
     if (!ok) setDraft(text);
   };
 
-  const viewTerminal = async () => {
-    try {
-      const { tabId } = await showTerminatorTerminal();
-      if ((tabs || []).some((tab) => tab.id === tabId)) { onSelectTab?.(tabId); onClose?.(); }
-      else pendingSelect.current = tabId;        // arrives with the next tab-state push
-    } catch { /* the error line below already explains a stopped Terminator */ }
-  };
-
+  const canShowTerminal = !!(status?.running && status.sessionId);
+  const showTerminal = view === 'terminal' && canShowTerminal;
   const placement = isMobile
     ? { left: 0, right: 0, bottom: 0, height: '74dvh', borderRadius: `${radius.xl} ${radius.xl} 0 0` }
-    : { top: '44px', right: '8px', bottom: '8px', width: `${PANEL_WIDTH_PX}px`, borderRadius: radius.xl };
+    : {
+      top: '44px', right: '8px', bottom: '8px', borderRadius: radius.xl,
+      width: `min(${showTerminal ? PANEL_TERMINAL_WIDTH_PX : PANEL_WIDTH_PX}px, calc(100vw - 16px))`,
+    };
+  const meta = engineLine(status?.engine, contextUsed);
 
   return (
     <div
@@ -171,30 +182,60 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, t
       }}
     >
       <div style={styles.header}>
-        <Sparkles size={15} aria-hidden="true" style={{ color: color.accent }} />
-        <span style={styles.title}>{t?.('terminator') || '터미네이터'}</span>
-        <span style={{ flex: 1 }} />
-        {status?.running && (
-          <button type="button" onClick={viewTerminal} style={styles.headBtn} title={t?.('terminatorViewTerminal') || '터미널로 보기'}>
-            <SquareTerminal size={14} aria-hidden="true" />
-            <span>{t?.('terminatorViewTerminal') || '터미널로 보기'}</span>
+        <div style={styles.headRow}>
+          <Sparkles size={15} aria-hidden="true" style={{ color: color.accent, flexShrink: 0 }} />
+          <span style={styles.title}>{t?.('terminator') || '터미네이터'}</span>
+          <span style={{ flex: 1 }} />
+          {canShowTerminal && (
+            <div role="tablist" style={styles.segment}>
+              {[['chat', t?.('terminatorChat') || '대화'], ['terminal', t?.('terminatorTerminal') || '터미널']].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={view === id}
+                  onClick={() => setView(id)}
+                  style={{ ...styles.segmentBtn, ...(view === id ? styles.segmentOn : null) }}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          <button type="button" onClick={onClose} style={styles.iconBtn} aria-label={t?.('close') || '닫기'}>
+            <X size={15} />
           </button>
+        </div>
+        {status && (
+          <div style={styles.metaRow}>
+            <span style={styles.engine} title={t?.('terminatorEngineHint') || '모델 · 생각 깊이 · 쓰고 있는 컨텍스트'}>{meta}</span>
+            <span style={styles.logins}>
+            {LOGIN_TOOLS.map(([key, label]) => (
+              <span key={key} style={styles.login} title={status.logins?.[key] ? (t?.('terminatorLoggedIn') || '로그인되어 있습니다') : (t?.('terminatorLoggedOut') || '로그인이 필요합니다')}>
+                <span style={{ ...styles.dot, width: '6px', height: '6px', background: status.logins?.[key] ? color.success : color.faint }} />
+                {label}
+              </span>
+            ))}
+            </span>
+          </div>
         )}
-        <button type="button" onClick={onClose} style={styles.iconBtn} aria-label={t?.('close') || '닫기'}>
-          <X size={15} />
-        </button>
       </div>
 
-      {status && (
-        <div style={styles.logins}>
-          {LOGIN_TOOLS.map(([key, label]) => (
-            <span key={key} style={{ color: status.logins?.[key] ? color.success : color.muted }}>
-              {label} {status.logins?.[key] ? '✓' : '·'}
-            </span>
-          ))}
+      {showTerminal ? (
+        <div style={styles.terminalBox}>
+          <Suspense fallback={null}>
+            <Terminal
+              sessionId={status.sessionId}
+              paneId={`terminator:${status.sessionId}`}
+              isMobile={isMobile}
+              settings={settings}
+              isActive
+              isFocused
+              onClosePane={() => setView('chat')}
+            />
+          </Suspense>
         </div>
-      )}
-
+      ) : (<>
       {workers.length > 0 && (
         <div style={styles.tasks}>
           <div style={styles.sectionLabel}>{t?.('terminatorTasks') || '맡긴 일'}</div>
@@ -244,6 +285,7 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, t
           <Send size={15} />
         </button>
       </form>
+      </>)}
     </div>
   );
 };
@@ -266,9 +308,30 @@ const styles = {
     color: color.text, overflow: 'hidden', transition: 'opacity 120ms',
   },
   header: {
-    display: 'flex', alignItems: 'center', gap: space[2], padding: `${space[3]} ${space[3]} ${space[2]}`,
+    display: 'flex', flexDirection: 'column', gap: '6px', padding: `${space[2]} ${space[2]} ${space[2]} ${space[3]}`,
+    borderBottom: `1px solid ${color.borderSubtle}`,
   },
+  headRow: { display: 'flex', alignItems: 'center', gap: space[2], height: '28px' },
   title: { fontSize: fontSize['14'], fontWeight: fontWeight.semibold },
+  // The engine line never truncates (the context figure is at its end); when the row is
+  // too narrow, the login marks wrap below it instead.
+  metaRow: {
+    display: 'flex', flexWrap: 'wrap', alignItems: 'center', columnGap: space[3], rowGap: '4px',
+    paddingRight: space[1], fontSize: fontSize['11'], fontFamily: font.mono, color: color.muted,
+  },
+  engine: { whiteSpace: 'nowrap', marginRight: 'auto' },
+  logins: { display: 'inline-flex', gap: space[3], whiteSpace: 'nowrap' },
+  login: { display: 'inline-flex', alignItems: 'center', gap: '4px', flexShrink: 0 },
+  segment: {
+    display: 'inline-flex', padding: '2px', gap: '2px', borderRadius: radius.md,
+    background: 'var(--ui-surface0, rgba(255,255,255,0.05))',
+  },
+  segmentBtn: {
+    height: '24px', padding: `0 ${space[2]}`, borderRadius: radius.sm, border: 'none', background: 'transparent',
+    color: color.subtext, fontSize: fontSize['12'], cursor: 'pointer',
+  },
+  segmentOn: { background: 'var(--ui-surface1, rgba(255,255,255,0.1))', color: color.text, fontWeight: fontWeight.semibold },
+  terminalBox: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', position: 'relative' },
   headBtn: {
     display: 'inline-flex', alignItems: 'center', gap: space[1], height: '26px', padding: `0 ${space[2]}`,
     borderRadius: radius.md, border: `1px solid ${color.borderSubtle}`, background: 'transparent',
@@ -277,9 +340,6 @@ const styles = {
   iconBtn: {
     display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '28px', height: '28px',
     borderRadius: radius.md, border: 'none', background: 'transparent', color: color.subtext, cursor: 'pointer',
-  },
-  logins: {
-    display: 'flex', gap: space[3], padding: `0 ${space[3]} ${space[2]}`, fontSize: fontSize['11'], fontFamily: font.mono,
   },
   tasks: { padding: `0 ${space[2]} ${space[2]}`, display: 'flex', flexDirection: 'column', gap: '2px' },
   sectionLabel: { padding: `0 ${space[1]} ${space[1]}`, fontSize: fontSize['11'], color: color.muted },
@@ -306,8 +366,9 @@ const styles = {
   reportHead: { display: 'flex', alignItems: 'center', gap: '4px', fontSize: fontSize['11'], color: color.muted, marginBottom: '2px' },
   toolChip: {
     alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: '5px',
-    fontSize: fontSize['11'], color: color.muted, fontFamily: font.mono, padding: `0 ${space[1]}`,
+    fontSize: fontSize['12'], color: color.muted, padding: `0 ${space[1]}`,
   },
+  toolDetail: { color: color.subtext, fontFamily: font.mono, fontSize: fontSize['11'] },
   thinking: { color: color.muted, fontSize: fontSize['14'], letterSpacing: '3px', paddingLeft: space[1] },
   // One box holds both, like a messenger composer: the button sits inside it, so the two
   // can never disagree on height. The box grows with the text up to INPUT_MAX_PX.

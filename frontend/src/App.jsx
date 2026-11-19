@@ -1841,7 +1841,7 @@ function App() {
 
       {terminatorOpen && (
         <LazyErrorBoundary><Suspense fallback={null}>
-          <TerminatorPanel open onClose={closeTerminator} tabs={tabs} onSelectTab={setActiveTabId} isMobile={isMobile} t={t} />
+          <TerminatorPanel open onClose={closeTerminator} tabs={tabs} onSelectTab={setActiveTabId} isMobile={isMobile} settings={settings} t={t} />
         </Suspense></LazyErrorBoundary>
       )}
       <Spotlight language={settings.language} t={t} />

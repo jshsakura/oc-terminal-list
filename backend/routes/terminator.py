@@ -41,6 +41,10 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 TRANSCRIPT_OPTION = "@terminator_transcript"
+# The launcher stamps what it runs with, so the panel shows the real values, not a copy.
+MODEL_OPTION = "@terminator_model"
+EFFORT_OPTION = "@terminator_effort"
+CONTEXT_OPTION = "@terminator_context"
 KEY_FILE = "~/.config/zai/api_key"
 LOGIN_FILES = {
     "claude": ["~/.claude/.credentials.json"],
@@ -93,11 +97,22 @@ class SayRequest(BaseModel):
 @router.get("/api/terminator/status")
 async def terminator_status(username: str = Depends(verify_auth_token)):
     session = session_name(username)
+    running = await _running(session)
     return {
         "configured": _exists(KEY_FILE),
         "logins": login_state(),
         "sessionId": session,
-        "running": await _running(session),
+        "running": running,
+        "engine": await _engine(session) if running else None,
+    }
+
+
+async def _engine(session: str) -> dict:
+    limit = await _option(session, CONTEXT_OPTION)
+    return {
+        "model": await _option(session, MODEL_OPTION) or None,
+        "effort": await _option(session, EFFORT_OPTION) or None,
+        "contextLimit": int(limit) if limit.isdigit() else None,
     }
 
 
@@ -177,17 +192,61 @@ def _tool_label(block: dict) -> str:
             "roles": "역할 확인"}.get(short, short)
 
 
-def parse_transcript(lines) -> list[dict]:
-    """Transcript JSONL -> chat items: user / assistant / report / tool. Tool results and
-    meta lines are dropped; the person sees what was said and what was done."""
-    items: list[dict] = []
+def _tool_outcome(block: dict) -> dict:
+    """A tool_result block -> {ok, detail}. Only what the person needs to trust the routing:
+    did it work, and where did it go (the new tab's address) or why not."""
+    content = block.get("content")
+    if isinstance(content, list):
+        content = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+    data = None
+    if isinstance(content, str):
+        try:
+            data = json.loads(content)
+        except ValueError:
+            data = None
+    ok = not block.get("is_error")
+    detail = ""
+    if isinstance(data, dict):
+        ok = ok and data.get("ok", True) is not False and not data.get("error")
+        detail = str(data.get("addr") or "") if ok else str(data.get("error") or "")
+    return {"ok": ok, "detail": _CONTROL_RE.sub(" ", detail)[:160]}
+
+
+def _entries(lines):
     for raw in lines:
         try:
             entry = json.loads(raw)
         except (ValueError, TypeError):
             continue
-        if not isinstance(entry, dict) or entry.get("isMeta") or entry.get("isSidechain"):
-            continue
+        if isinstance(entry, dict) and not entry.get("isMeta") and not entry.get("isSidechain"):
+            yield entry
+
+
+def context_used(lines) -> int | None:
+    """Tokens the latest request carried: what the panel shows against the context limit."""
+    used = None
+    for entry in _entries(lines):
+        usage = (entry.get("message") or {}).get("usage") if entry.get("type") == "assistant" else None
+        if isinstance(usage, dict):
+            used = sum(int(usage.get(k) or 0) for k in
+                       ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    return used
+
+
+def parse_transcript(lines) -> list[dict]:
+    """Transcript JSONL -> chat items: user / assistant / report / tool. A tool item carries
+    its outcome (ok + the new address or the error); raw tool output and meta lines are
+    dropped. The person sees what was said, what was done, and whether it worked."""
+    lines = list(lines)
+    outcomes: dict[str, dict] = {}
+    for entry in _entries(lines):
+        content = (entry.get("message") or {}).get("content")
+        if entry.get("type") == "user" and isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    outcomes[str(block.get("tool_use_id"))] = _tool_outcome(block)
+    items: list[dict] = []
+    for entry in _entries(lines):
         kind = entry.get("type")
         content = (entry.get("message") or {}).get("content")
         uid = entry.get("uuid") or ""
@@ -195,7 +254,7 @@ def parse_transcript(lines) -> list[dict]:
             text = content if isinstance(content, str) else "".join(
                 b.get("text", "") for b in content or [] if isinstance(b, dict) and b.get("type") == "text")
             text = text.strip()
-            if not text or text.startswith("<"):          # command wrappers, caveats
+            if not text or text.startswith("<"):          # command wrappers, caveats, tool results
                 continue
             report = _REPORT_RE.match(text)
             if report:
@@ -211,7 +270,10 @@ def parse_transcript(lines) -> list[dict]:
                     items.append({"id": f"{uid}:{n}", "role": "assistant",
                                   "text": block["text"].strip()[:MAX_TEXT_CHARS]})
                 elif block.get("type") == "tool_use":
-                    items.append({"id": f"{uid}:{n}", "role": "tool", "text": _tool_label(block)})
+                    outcome = outcomes.get(str(block.get("id")))
+                    items.append({"id": f"{uid}:{n}", "role": "tool", "text": _tool_label(block),
+                                  "ok": outcome["ok"] if outcome else None,
+                                  "detail": outcome["detail"] if outcome else ""})
     return items[-MAX_MESSAGES:]
 
 
@@ -224,7 +286,8 @@ async def terminator_messages(username: str = Depends(verify_auth_token)):
     if path is None:
         return {"messages": [], "running": await _running(session)}
     lines = await asyncio.to_thread(lambda: path.read_text(encoding="utf-8", errors="replace").splitlines())
-    return {"messages": parse_transcript(lines), "running": await _running(session)}
+    return {"messages": parse_transcript(lines), "contextUsed": context_used(lines),
+            "running": await _running(session)}
 
 
 @router.post("/api/terminator/show")

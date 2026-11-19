@@ -77,3 +77,32 @@ def test_launcher_execs_claude_so_the_pane_does_not_look_idle():
     launcher = (Path(__file__).resolve().parents[1] / "cli" / "terminator" / "terminator").read_text()
     assert "exec claude " in launcher
     assert "mktemp" not in launcher and "trap " not in launcher
+
+
+def test_tool_items_say_whether_routing_worked_and_where_it_went():
+    from routes.terminator import parse_transcript
+    lines = [
+        _line(type="assistant", uuid="a1", message={"content": [
+            {"type": "tool_use", "id": "t1", "name": "mcp__terminator__open_worker", "input": {"tool": "claude"}},
+            {"type": "tool_use", "id": "t2", "name": "mcp__terminator__send", "input": {"to": "9.9"}},
+        ]}),
+        _line(type="user", uuid="u1", message={"content": [
+            {"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": '{"ok": true, "addr": "3.1", "delivery": "opened"}'}]},
+            {"type": "tool_result", "tool_use_id": "t2", "is_error": True, "content": '{"ok": false, "error": "그런 팬이 없다"}'},
+        ]}),
+    ]
+    tools = [m for m in parse_transcript(lines) if m["role"] == "tool"]
+    assert [(t["ok"], t["detail"]) for t in tools] == [(True, "3.1"), (False, "그런 팬이 없다")]
+    # The tool result itself never shows up as a user bubble.
+    assert all(m["role"] == "tool" for m in parse_transcript(lines))
+
+
+def test_context_used_is_the_latest_request_total():
+    from routes.terminator import context_used
+    lines = [
+        _line(type="assistant", message={"content": [], "usage": {"input_tokens": 5, "cache_read_input_tokens": 100}}),
+        _line(type="assistant", message={"content": [], "usage": {"input_tokens": 7, "cache_read_input_tokens": 1600,
+                                                                   "cache_creation_input_tokens": 30}}),
+    ]
+    assert context_used(lines) == 1637
+    assert context_used([]) is None

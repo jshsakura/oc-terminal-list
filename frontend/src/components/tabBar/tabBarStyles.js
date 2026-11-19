@@ -1,6 +1,7 @@
 import { tokens } from '../../styles/tokens';
 
 const { color, font, fontSize, fontWeight, radius, motion } = tokens;
+const TAB_FADE_PX = 14;
 
 export const styles = {
   // Work handed off by Terminator is still running.
@@ -127,8 +128,12 @@ export const styles = {
   },
   tabListMobile: {
     gap: '6px',
-    // Breathing room so a scrolled chip never sits flush against the action group.
-    paddingRight: '4px',
+    // The strip's end fades out, so a chip scrolled under the edge reads as "more this way",
+    // not as cut off. The padding is as wide as the fade: when nothing overflows, only empty
+    // space is faded and the last chip stays solid.
+    paddingRight: `${TAB_FADE_PX}px`,
+    maskImage: `linear-gradient(to right, #000 calc(100% - ${TAB_FADE_PX}px), transparent)`,
+    WebkitMaskImage: `linear-gradient(to right, #000 calc(100% - ${TAB_FADE_PX}px), transparent)`,
     flex: '1 1 auto',
     paddingTop: '0',
     paddingBottom: '0',
@@ -155,6 +160,11 @@ export const styles = {
     boxSizing: 'border-box',
   },
   // 탭 스트립 양 끝의 짧은 세로 rule — 홈 버튼 쪽과 액션 그룹 쪽에 대칭으로 들어간다.
+  // Right-side buttons sit in fixed slots. Phones use narrower slots: at 30px each the
+  // buttons spread out and took width the tabs need.
+  actionSlot: { width: '30px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  actionSlotMobile: { width: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+  railDividerMobile: { margin: '0 4px 0 0' },
   railDivider: {
     width: '1px',
     height: '16px',
