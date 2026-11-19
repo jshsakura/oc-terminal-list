@@ -29,10 +29,12 @@ glassBlurStyle.textContent = `
   /* Menus, panels and modals are solid surfaces (2026-11-19). Glass behind a popup read
      as "broken" (terminal text bleeding through a confirm dialog), so the same switch the
      e-ink mode uses is now the default: no blur, every neutral fill opaque. Only the
-     home dashboard card stays glass — it has its own vars (--card-*, dashboardCard.js). */
-  :root { --glass-blur-menu: 0px; --glass-blur-panel: 0px; --glass-blur-overlay: 0px; --glass-fill: 100%; --glass-line: 100%; --glass-blur-card: 12px; }
+     home dashboard card stays glass — it has its own vars (--card-*, dashboardCard.js).
+     Modals (GlassModal) are frosted glass again: heavy blur, not a see-through fill. */
+  :root { --glass-blur-menu: 0px; --glass-blur-panel: 0px; --glass-blur-overlay: 0px; --glass-fill: 100%; --glass-line: 100%; --glass-blur-card: 12px;
+          --modal-fill: 72%; --modal-line: 60%; --modal-section-fill: 30%; --modal-blur: 28px; --modal-scrim-blur: 6px; }
   @media (max-width: 768px), (hover: none) and (pointer: coarse) {
-    :root { --glass-blur-card: 5px; }
+    :root { --glass-blur-card: 5px; --modal-blur: 16px; --modal-scrim-blur: 3px; }
   }
 
   /* Menu row hover - the whole app uses this one rule; a row just needs the class.

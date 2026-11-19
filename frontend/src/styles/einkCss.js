@@ -26,6 +26,11 @@ html[data-eink="1"] {
      opaque, and at 100% they would become colour blocks over the text. */
   --glass-fill: 100%;
   --glass-line: 100%;
+  --modal-fill: 100%;
+  --modal-line: 100%;
+  --modal-section-fill: 100%;
+  --modal-blur: 0px;
+  --modal-scrim-blur: 0px;
   --card-fill: 100%;
 
   /* buildThemeUI derives light-theme borders as 10% black. That is invisible on e-ink,
