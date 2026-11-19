@@ -158,7 +158,6 @@ const DemoApp = () => {
         isMobile={isMobile}
         onSelect={setActiveTabId}
         onClose={handleClose}
-        onCloseImmediate={handleClose}
         onHome={() => {}}
         onOpenSettings={() => setSettingsOpen(true)}
         onReorder={handleReorder}

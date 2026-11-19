@@ -5,7 +5,7 @@
 import {
   Suspense, lazy, useState, useEffect, useRef, useCallback, useMemo, memo, useSyncExternalStore,
 } from 'react';
-import { Plus, ArrowRightLeft, LayoutPanelLeft } from 'lucide-react';
+import { Plus, ArrowRightLeft } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import themes from '../../styles/themes';
 import { buildThemeUI } from '../../styles/themeUI';
@@ -22,7 +22,6 @@ import { copyToClipboard } from '../../utils/clipboard';
 import { buildItlHandle, itlHandleLabel } from '../../utils/itlHandle';
 import { EINK_THEME_ID } from '../../utils/einkMode';
 import useEvent from '../../hooks/useEvent';
-import { paneCloseIdentity } from '../../utils/confirmedClose';
 import {
   TMUX, fromHost as multiplexerFromHost, normalize as normalizeMultiplexer,
 } from '../../utils/multiplexer';
@@ -49,7 +48,6 @@ const Pane = ({
   onPaneDragToSplit = null,
   onDropTabToPane = null,
   onCloseImmediate = null,
-  getCloseIdentity = paneCloseIdentity,
   onEqualizePane = null,
   reloadSignal = 0,
   isBroadcasting = false,
@@ -132,7 +130,6 @@ const Pane = ({
   const [paneDragZone, setPaneDragZone] = useState(null); // zone for pane-to-pane drag preview
   const paneDragZoneRef = useRef(null);
   const [isDragTargeted, setIsDragTargeted] = useState(false); // show overlay above xterm canvas during any pane/tab drag
-  const [pendingCloseIdentity, setPendingCloseIdentity] = useState(null);
   const paneCount = tab?.panes?.length || 1;
 
   /** Parse pane drag payload from custom MIME or text/plain fallback.
@@ -700,9 +697,9 @@ const Pane = ({
           onRestartSession={isEmpty || !onRestartPane ? null : () => onRestartPane(pane.id)}
           onRestartSessionAtPath={isEmpty || !onRestartPaneAtPath ? null : () => onRestartPaneAtPath(pane.id)}
           onRefreshCwd={refreshPaneCwd}
-          onCloseTerminal={(isEmpty || paneCount <= 1) ? onClose : () => {
-            setPendingCloseIdentity(getCloseIdentity(tab, pane, paneIndex));
-          }}
+          /* App's closePane decides: empty → close now, last pane → tab close, otherwise
+             the shared confirm dialog. No pane-local overlay of its own. */
+          onCloseTerminal={onClose}
           settings={settings}
           updateSettings={updateSettings}
           paneThemeId={effectiveThemeId}
@@ -879,95 +876,6 @@ const Pane = ({
             )}
       </div>
 
-      {/* 패널 닫기 확인 — 글래스모피즘 오버레이 카드 */}
-      {pendingCloseIdentity && (
-        <div
-          onClick={() => setPendingCloseIdentity(null)}
-          style={{
-            position: 'absolute', inset: 0,
-            zIndex: 30,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(0,0,0,0.35)',
-            backdropFilter: 'blur(var(--glass-blur-overlay, 4px))',
-            WebkitBackdropFilter: 'blur(var(--glass-blur-overlay, 4px))',
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              background: `color-mix(in srgb, var(--ui-surface0, ${color.surface0}) var(--glass-fill, 80%), transparent)`,
-              backdropFilter: 'blur(var(--glass-blur-panel, 20px))',
-              WebkitBackdropFilter: 'blur(var(--glass-blur-panel, 20px))',
-              border: `1px solid var(--ui-borderStrong, ${color.borderStrong})`,
-              borderRadius: '12px',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)',
-              padding: `${space['5']} ${space['6']}`,
-              display: 'flex', flexDirection: 'column', alignItems: 'center', gap: space['4'],
-              minWidth: '220px', maxWidth: '300px',
-              fontFamily: font.sans,
-            }}
-          >
-            <div style={{
-              width: '40px', height: '40px', borderRadius: '10px',
-              background: `color-mix(in srgb, var(--ui-danger, ${color.danger}) 18%, transparent)`,
-              border: `1px solid color-mix(in srgb, var(--ui-danger, ${color.danger}) 40%, transparent)`,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: `var(--ui-danger, ${color.danger})`,
-            }}>
-              <LayoutPanelLeft size={18} strokeWidth={1.8} />
-            </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: fontSize['13'], fontWeight: fontWeight.semibold, color: `var(--ui-text, ${color.text})`, marginBottom: '4px' }}>
-                {t?.('confirmClosePane') || 'Close this pane?'}
-              </div>
-              <div style={{ fontSize: fontSize['11'], color: `var(--ui-subtext, ${color.subtext})`, lineHeight: 1.5 }}>
-                {/* 이 오버레이는 멀티 pane 에서만 뜬다(단일 pane 은 탭 닫기로 위임) → 항상 kill. */}
-                {t?.('confirmClosePaneDesc') || "This pane's session ends — it can't be reopened from Home."}
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: space['2'], width: '100%' }}>
-              <button
-                type="button"
-                onClick={() => setPendingCloseIdentity(null)}
-                style={{
-                  flex: 1, height: '32px', borderRadius: '7px',
-                  border: `1px solid var(--ui-border, ${color.border})`,
-                  background: `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 70%), transparent)`,
-                  color: `var(--ui-subtext, ${color.subtext})`,
-                  fontSize: fontSize['12'], fontWeight: fontWeight.medium,
-                  cursor: 'pointer', fontFamily: 'inherit',
-                  transition: 'all 120ms',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = `var(--ui-surface1, ${color.surface1})`; e.currentTarget.style.color = `var(--ui-text, ${color.text})`; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, var(--ui-surface1, ${color.surface1}) var(--glass-fill, 70%), transparent)`; e.currentTarget.style.color = `var(--ui-subtext, ${color.subtext})`; }}
-              >
-                {t?.('cancel') || 'Cancel'}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const identity = pendingCloseIdentity;
-                  setPendingCloseIdentity(null);
-                  onCloseImmediate?.(identity);
-                }}
-                style={{
-                  flex: 1, height: '32px', borderRadius: '7px',
-                  border: `1px solid color-mix(in srgb, var(--ui-danger, ${color.danger}) 60%, transparent)`,
-                  background: `color-mix(in srgb, var(--ui-danger, ${color.danger}) 22%, transparent)`,
-                  color: `var(--ui-danger, ${color.danger})`,
-                  fontSize: fontSize['12'], fontWeight: fontWeight.semibold,
-                  cursor: 'pointer', fontFamily: 'inherit',
-                  transition: 'all 120ms',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = `color-mix(in srgb, var(--ui-danger, ${color.danger}) 35%, transparent)`; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = `color-mix(in srgb, var(--ui-danger, ${color.danger}) 22%, transparent)`; }}
-              >
-                {t?.('closePane') || 'Close'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

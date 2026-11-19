@@ -9,7 +9,6 @@ import useEvent from '../hooks/useEvent';
 import { styles } from './tabBar/tabBarStyles';
 import { Tab } from './tabBar/TabBarTab';
 import { TabContextMenu, SettingsSubMenu } from './tabBar/TabBarMenus';
-import { tabCloseIdentity } from '../utils/confirmedClose';
 import { tabDensity } from '../utils/tabDensity';
 
 const { color } = tokens;
@@ -37,14 +36,11 @@ const TabBar = ({
   onDuplicate,
   onRenameTab = null,
   onReorder,
-  onCloseImmediate = null,
-  getCloseIdentity = tabCloseIdentity,
   canSplit = false,
   isMobile = false,
   t,
 }) => {
   const [contextMenu, setContextMenu] = useState(null);  // {tabId, x, y}
-  const [pendingClose, setPendingClose] = useState(null);
   const [draggingTabId, setDraggingTabId] = useState(null);
   const [dragOverTabId, setDragOverTabId] = useState(null);
   const [settingsMenu, setSettingsMenu] = useState(null); // {x, y}
@@ -124,21 +120,10 @@ const TabBar = ({
 
   // 모든 Tab 핸들러를 useEvent 로 안정화 — Tab 의 memo() 가 부모 state 변화마다 깨지던 문제 해결.
   // 핸들러 안에서는 항상 최신 state/props 가 보이므로 deps 신경 안 써도 됨.
-  const handleSelectTab = useEvent((tabId) => {
-    if (pendingClose?.tabId === tabId) return;
-    onSelect?.(tabId);
-  });
+  const handleSelectTab = useEvent((tabId) => { onSelect?.(tabId); });
+  // Every close (middle click, context menu, shortcut) goes through App's one confirm
+  // dialog — an inline ✓/✕ inside the 28px chip read as a broken tab.
   const handleCloseTab = useEvent((tabId) => { onClose?.(tabId); });
-  const handleRequestClose = useEvent((tabId) => {
-    const tab = tabs.find((candidate) => candidate.id === tabId);
-    if (tab) setPendingClose({ tabId, identity: getCloseIdentity(tab) });
-  });
-  const handleConfirmClose = useEvent((tabId) => {
-    const identity = pendingClose?.tabId === tabId ? pendingClose.identity : null;
-    setPendingClose(null);
-    if (identity) onCloseImmediate?.(tabId, identity);
-  });
-  const handleCancelClose = useEvent(() => { setPendingClose(null); });
   const handleContextMenuTab = useEvent((tabId, e) => {
     e.preventDefault();
     setContextMenu({ tabId, x: e.clientX, y: e.clientY });
@@ -259,13 +244,9 @@ const TabBar = ({
             touchProps={isMobile && onReorder ? touchReorder.getItemProps(tab.id) : null}
             isMobile={isMobile}
             density={density}
-            isPendingClose={pendingClose?.tabId === tab.id}
             /* 모두 useEvent 로 안정화된 dispatcher — Tab 의 memo() 가 유효해짐 */
             onSelect={handleSelectTab}
             onClose={handleCloseTab}
-            onRequestClose={handleRequestClose}
-            onConfirmClose={handleConfirmClose}
-            onCancelClose={handleCancelClose}
             onContextMenu={handleContextMenuTab}
             onMore={handleMore}
             onDragStart={handleDragStart}

@@ -105,13 +105,9 @@ describe('TabBarTab hover tooltip', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
-  it('stays out of the way on touch screens and during the inline close confirm', () => {
+  it('stays out of the way on touch screens', () => {
     vi.useFakeTimers();
-    const { rerender } = render(<Tab tab={tab} isMobile index={0} isActive={false} t={(key) => key} />);
-    hoverTab();
-    expect(screen.queryByRole('tooltip')).toBeNull();
-
-    rerender(<Tab tab={tab} isPendingClose index={0} isActive={false} t={(key) => key} />);
+    render(<Tab tab={tab} isMobile index={0} isActive={false} t={(key) => key} />);
     hoverTab();
     expect(screen.queryByRole('tooltip')).toBeNull();
   });

@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { Terminal as TerminalIcon, Server, Monitor, ScreenShare, Check, X, MoreHorizontal } from 'lucide-react';
+import { Terminal as TerminalIcon, Server, Monitor, ScreenShare, MoreHorizontal } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import HostIcon from '../../utils/hostIcons';
 import { styles } from './tabBarStyles';
@@ -38,8 +38,7 @@ export const Tab = memo(({
   isMobile = false,
   density = TAB_DENSITY.FULL, // bar-wide, from utils/tabDensity (desktop only)
   touchProps = null, // useTouchDragReorder.getItemProps(tab.id) — 모바일 드래그/터치 핸들러 일괄.
-  isPendingClose = false,
-  onSelect, onClose, onRequestClose, onConfirmClose, onCancelClose, onContextMenu, onMore,
+  onSelect, onClose, onContextMenu, onMore,
   onDragStart, onDragEnd, onDragOver, onDragLeave, onDrop,
   t,
 }) => {
@@ -168,7 +167,7 @@ export const Tab = memo(({
   });
 
   const { placement: tipPlacement, show: showTip, hide: hideTip } = useHoverTip(
-    !isMobile && !isPendingClose && !isDragging,
+    !isMobile && !isDragging,
   );
   // Every name in this tab, its own first: only the active pane's name fits on the chip.
   const tipNames = tipPlacement
@@ -219,13 +218,13 @@ export const Tab = memo(({
           onSelect?.(tab.id);
         }
       }}
-      /* 휠 클릭(가운데 버튼)으로 탭 닫기 확인 트리거 */
+      /* Middle click asks to close through the same confirm dialog as every other close. */
       onMouseDown={(e) => {
         hideTip();
         if (e.button === 1) {
           e.preventDefault();
           e.stopPropagation();
-          onRequestClose?.(tab.id);
+          onClose?.(tab.id);
         }
       }}
       onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation(); } }}
@@ -403,48 +402,17 @@ export const Tab = memo(({
             </span>
           )}
         </span>
-        {isPendingClose ? (
-          /* 인라인 close 확인 — 탭 이름 자리를 차지. 탭 닫기 = 내부 세션 전부 종료라는 결과를
-             라벨/툴팁에 명시해 "닫으면 죽나?" 혼란을 없앤다. 동작은 closeTab(skipConfirm) 그대로. */
-          <>
-            <span
-              style={{ flex: 1, fontSize: '10px', color: color.subtext, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1 }}
-              title={t?.('closeTabEndHint') || 'Session ends — running work will be lost'}
-            >
-              {t?.('closeTabEnd') || 'Close (end)'}
-            </span>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onConfirmClose?.(tab.id); }}
-              onTouchStart={(e) => e.stopPropagation()}
-              style={{ ...styles.miniBtn, background: color.accent, color: color.crust, border: 'none', flexShrink: 0 }}
-              title={t?.('closeTabEndHint') || 'Session ends — running work will be lost'}
-            >
-              <Check size={10} strokeWidth={2.5} />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); onCancelClose?.(); }}
-              onTouchStart={(e) => e.stopPropagation()}
-              style={{ ...styles.miniBtn, background: 'transparent', color: color.subtext, flexShrink: 0 }}
-              title={t?.('cancel') || 'Cancel'}
-            >
-              <X size={10} strokeWidth={2.5} />
-            </button>
-          </>
-        ) : (
-          showLabel && <span style={isCondensed ? styles.tabNameCondensed : styles.tabName}>{tab.name}</span>
-        )}
+        {showLabel && <span style={isCondensed ? styles.tabNameCondensed : styles.tabName}>{tab.name}</span>}
 
         {/* The More button is **visible** only on the active tab, but every tab reserves its
             slot: the outer tab width is fixed, yet without the button the label grows into
             that space, so selecting a tab shrinks its name by 17px and clips it. That small
             jolt was the "tab widths wobble when switching" report. Reserving the slot keeps
             the label width identical either way. */}
-        {!isActive && !isPendingClose && !isCondensed && (
+        {!isActive && !isCondensed && (
           <span aria-hidden="true" style={{ ...styles.miniBtn, visibility: 'hidden' }} />
         )}
-        {isActive && !isPendingClose && (
+        {isActive && (
           <button
             data-more="true"
             onClick={(e) => { e.stopPropagation(); onMore?.(tab.id, e); }}

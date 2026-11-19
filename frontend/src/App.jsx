@@ -435,12 +435,13 @@ function App() {
     setTabs((prev) => dropPaneToSplitOp(prev, { tabId, srcPaneId, destPaneId, dir }));
   }, []);
 
-  const closeTab = useCallback((tabId, opts = {}) => {
+  const closeTab = useCallback((tabId) => {
     if (!canTerminateSessionsRef.current) { workspaceConflictModalRef.current(); return; }
-    const { skipConfirm = false, expectedIdentity = null } = opts;
     const tab = tabs.find((t) => t.id === tabId);
     if (!tab) return;
-    const expectedTabIdentity = expectedIdentity || getTabCloseIdentity(tab);
+    // Captured when the dialog opens and re-checked before killing: if the tab changed
+    // underneath the dialog, the confirm does nothing.
+    const expectedTabIdentity = getTabCloseIdentity(tab);
 
     const terminateSessions = (targets) => {
       targets.localSessionIds.forEach((sessionId) => killLocalTmuxSession(sessionId));
@@ -472,9 +473,6 @@ function App() {
     const hasLiveSession = !!tab.sessionId || !!tab.hostId
       || (tab.panes || []).some((p) => p.sessionId || p.hostId);
     if (!hasLiveSession) { closeAndTerminate(); return; }
-
-    // 휠 클릭 인라인 confirm 등 이미 확인을 거친 빠른 닫기.
-    if (skipConfirm) { closeAndTerminate(); return; }
 
     const paneCount = tab.panes?.length || 1;
     const tabIdx = tabs.findIndex((tb) => tb.id === tabId);
@@ -1427,8 +1425,6 @@ function App() {
         }}
         onSelect={setActiveTabId}
         onClose={closeTab}
-        onCloseImmediate={(tabId, expectedIdentity) => closeTab(tabId, { skipConfirm: true, expectedIdentity })}
-        getCloseIdentity={getTabCloseIdentity}
         onHome={() => setActiveTabId(null)}
         onOpenHosts={() => setHostManagerOpen(true)}
         onOpenKeys={() => { setEditingKey(null); setKeyManagerOpen(true); }}
@@ -1600,7 +1596,6 @@ function App() {
                     onFocusPane={focusPane}
                     onClosePane={closePane}
                     onClosePaneImmediate={handleClosePaneImmediate}
-                    getPaneCloseIdentity={getPaneCloseIdentity}
                     onActivatePane={activatePane}
                     onExtractPaneToTab={extractPaneToTab}
                     onReorderPane={reorderPane}

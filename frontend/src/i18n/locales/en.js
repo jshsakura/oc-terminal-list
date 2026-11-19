@@ -909,9 +909,7 @@ export const en = {
     terminateSession: 'Terminate session',
     // 탭 인라인 닫기 칩 — 닫으면 세션이 살아남는지(keep) 종료되는지(end) 명시.
     closeTabKeep: 'Close (keep)',
-    closeTabEnd: 'Close (end)',
     closeTabKeepHint: 'Session keeps running — reopen from Home',
-    closeTabEndHint: 'Session ends — running work will be lost',
     confirmCloseTerminalNoTmux: 'Close this terminal? Work will be lost (tmux disabled).',
     panesInTab: 'panes',
     agentWorking: 'Agent working',
@@ -919,8 +917,6 @@ export const en = {
     confirmRemoveEmptyPane: 'Remove this empty pane?',
     removePane: 'Remove pane',
     closePane: 'Close pane',
-    confirmClosePane: 'Close this pane?',
-    confirmClosePaneDesc: "This pane's session ends — it can't be reopened from Home.",
     confirmClosePaneNoTmux: 'Close this pane? Work will be lost (tmux off).',
     workspaceConflictTitle: 'Workspace changed elsewhere',
     workspaceConflictMessage: 'Another device changed the tab layout. Choose which layout to keep before ending any sessions.',

@@ -912,9 +912,7 @@ export const ko = {
     terminateSession: '세션 종료',
     // 탭 인라인 닫기 칩 — 닫으면 세션이 살아남는지(유지) 종료되는지(종료) 명시.
     closeTabKeep: '닫기(유지)',
-    closeTabEnd: '닫기(종료)',
     closeTabKeepHint: '세션은 계속 실행 — 홈에서 다시 열기',
-    closeTabEndHint: '세션 종료 — 실행 중 작업 소실',
     confirmCloseTerminalNoTmux: '이 터미널을 닫을까요? tmux 가 꺼져있어 작업이 사라집니다.',
     panesInTab: '개 패널',
     agentWorking: '에이전트 작업 중',
@@ -922,8 +920,6 @@ export const ko = {
     confirmRemoveEmptyPane: '비어있는 이 패널을 제거할까요?',
     removePane: '패널 제거',
     closePane: '패널 닫기',
-    confirmClosePane: '이 패널을 닫을까요?',
-    confirmClosePaneDesc: '이 패널의 세션이 종료됩니다 — 홈에서 다시 열 수 없어요.',
     confirmClosePaneNoTmux: '이 패널을 닫을까요? tmux 꺼져있어 작업 소실.',
     workspaceConflictTitle: '다른 기기에서 탭 구성이 변경됨',
     workspaceConflictMessage: '세션을 종료하기 전에 이 기기의 탭 구성과 서버의 탭 구성 중 유지할 구성을 선택하세요.',

@@ -61,7 +61,7 @@ describe('TabBar', () => {
     render(
       <TabBar
         tabs={tabs} activeTabId="local:1"
-        onSelect={vi.fn()} onClose={onClose} onCloseImmediate={vi.fn()} onHome={vi.fn()}
+        onSelect={vi.fn()} onClose={onClose} onHome={vi.fn()}
         onOpenKeys={vi.fn()} onOpenSettings={vi.fn()} onLogout={vi.fn()}
       />
     );
@@ -79,7 +79,7 @@ describe('TabBar', () => {
     render(
       <TabBar
         tabs={tabs} activeTabId="local:1"
-        onSelect={vi.fn()} onClose={vi.fn()} onCloseImmediate={vi.fn()} onHome={vi.fn()}
+        onSelect={vi.fn()} onClose={vi.fn()} onHome={vi.fn()}
         onOpenSettings={vi.fn()} isMobile
       />
     );
@@ -121,35 +121,16 @@ describe('TabBar', () => {
     }
   });
 
-  it('middle-click confirmation keeps the session identity from when close was requested', () => {
-    const original = {
-      id: 'local:1', type: 'local', sessionId: 'session-old', name: 'zsh',
-      panes: [{ id: 'pane-1', sessionId: 'session-old', mode: 'terminal' }],
-    };
-    const replacement = {
-      ...original,
-      sessionId: 'session-new',
-      panes: [{ id: 'pane-1', sessionId: 'session-new', mode: 'terminal' }],
-    };
-    const onCloseImmediate = vi.fn();
-    const props = {
-      activeTabId: original.id,
-      onSelect: vi.fn(),
-      onClose: vi.fn(),
-      onCloseImmediate,
-      onHome: vi.fn(),
-      t: (key) => key,
-    };
-    const { rerender } = render(<TabBar {...props} tabs={[original]} />);
+  it('middle-click asks to close through the shared confirm path', () => {
+    const onClose = vi.fn();
+    const tab = { id: 'local:1', type: 'local', sessionId: 's1', name: 'zsh', panes: [] };
+    render(<TabBar tabs={[tab]} activeTabId={tab.id} onSelect={vi.fn()} onClose={onClose} onHome={vi.fn()} t={(key) => key} />);
 
     fireEvent.mouseDown(screen.getByRole('tab'), { button: 1 });
-    rerender(<TabBar {...props} tabs={[replacement]} />);
-    fireEvent.click(within(screen.getByRole('tab')).getAllByRole('button')[0]);
 
-    expect(onCloseImmediate).toHaveBeenCalledWith(
-      original.id,
-      JSON.stringify(['session-old', '', JSON.stringify(['pane-1', 'session-old', '', '', 'terminal', ''])]),
-    );
+    expect(onClose).toHaveBeenCalledWith('local:1');
+    // No inline ✓/✕ inside the chip any more.
+    expect(within(screen.getByRole('tab')).queryByText('closeTabEnd')).toBeNull();
   });
 
   it('navigates home when Home button is clicked', () => {
