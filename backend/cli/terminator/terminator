@@ -13,10 +13,10 @@ fi
 if [ -n "$TMUX" ]; then
   python3 "$HERE/../itl" role terminator >/dev/null 2>&1 || true
 fi
-MCP_CONFIG="$(mktemp "${TMPDIR:-/tmp}/terminator-mcp.XXXXXX.json")"
-trap 'rm -f "$MCP_CONFIG"' EXIT
-printf '{"mcpServers":{"terminator":{"type":"stdio","command":"python3","args":["%s"]}}}\n' \
-  "$HERE/terminator_mcp.py" > "$MCP_CONFIG"
+# Passed as a JSON string, not a temp file, so nothing needs cleaning up and the launcher
+# can exec (see the bottom).
+MCP_CONFIG="$(printf '{"mcpServers":{"terminator":{"type":"stdio","command":"python3","args":["%s"]}}}' \
+  "$HERE/terminator_mcp.py")"
 
 ANTHROPIC_AUTH_TOKEN="$(cat "$KEY_FILE")"
 export ANTHROPIC_AUTH_TOKEN
@@ -35,8 +35,10 @@ export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
 export CLAUDE_CODE_DISABLE_CLAUDE_MDS=1
 unset ANTHROPIC_API_KEY
 
-# Not exec: the trap must remove the temp MCP config when the session ends.
-claude --tools "" \
+# exec, so the pane's foreground command is `claude`. The backend tells "running" from
+# "only a shell" by that name; left as a child of sh, the pane looked idle, and every
+# panel open typed the launch line into the running chat as a message.
+exec claude --tools "" \
   --strict-mcp-config --mcp-config "$MCP_CONFIG" \
   --allowedTools "mcp__terminator" \
   --system-prompt "$(cat "$HERE/persona.md")" \

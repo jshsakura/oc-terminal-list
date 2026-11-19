@@ -68,3 +68,12 @@ def test_transcript_lookup_refuses_anything_but_a_uuid(tmp_path, monkeypatch):
     assert t.transcript_path(tid) == d / f"{tid}.jsonl"
     assert t.transcript_path("../../etc/passwd") is None
     assert t.transcript_path("*") is None
+
+
+def test_launcher_execs_claude_so_the_pane_does_not_look_idle():
+    # The backend reads "running" from the pane's foreground command. If the launcher stays
+    # as `sh` with claude as a child, every panel open types the launch line into the chat.
+    from pathlib import Path
+    launcher = (Path(__file__).resolve().parents[1] / "cli" / "terminator" / "terminator").read_text()
+    assert "exec claude " in launcher
+    assert "mktemp" not in launcher and "trap " not in launcher

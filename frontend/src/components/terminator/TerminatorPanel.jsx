@@ -141,6 +141,7 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, t
     const text = draft;
     if (!text.trim() || phase !== 'ready') return;
     setDraft('');
+    if (inputRef.current) inputRef.current.style.height = `${SEND_SIZE_PX}px`;
     const ok = await say(text);
     if (!ok) setDraft(text);
   };
@@ -230,9 +231,9 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, t
         <textarea
           ref={inputRef}
           value={draft}
-          rows={2}
+          rows={1}
           disabled={phase !== 'ready'}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => { setDraft(e.target.value); fitInput(e.target); }}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); send(); }
           }}
@@ -245,6 +246,18 @@ const TerminatorPanel = ({ open, onClose, tabs, onSelectTab, isMobile = false, t
       </form>
     </div>
   );
+};
+
+const SEND_SIZE_PX = 32;
+const INPUT_LINE_PX = 20;
+const COMPOSER_PAD_PX = 4;
+const INPUT_MAX_PX = 140;
+
+// Grow the textarea with its content; reset first so it can also shrink.
+const fitInput = (el) => {
+  if (!el) return;
+  el.style.height = `${SEND_SIZE_PX}px`;
+  el.style.height = `${Math.min(INPUT_MAX_PX, Math.max(SEND_SIZE_PX, el.scrollHeight))}px`;
 };
 
 const styles = {
@@ -296,16 +309,23 @@ const styles = {
     fontSize: fontSize['11'], color: color.muted, fontFamily: font.mono, padding: `0 ${space[1]}`,
   },
   thinking: { color: color.muted, fontSize: fontSize['14'], letterSpacing: '3px', paddingLeft: space[1] },
-  inputRow: { display: 'flex', alignItems: 'flex-end', gap: space[2], padding: space[3] },
+  // One box holds both, like a messenger composer: the button sits inside it, so the two
+  // can never disagree on height. The box grows with the text up to INPUT_MAX_PX.
+  inputRow: {
+    display: 'flex', alignItems: 'flex-end', gap: space[1], margin: space[3],
+    padding: `${COMPOSER_PAD_PX}px`, borderRadius: radius.lg, border: `1px solid ${color.borderSubtle}`,
+    background: 'var(--ui-surface0, rgba(255,255,255,0.05))',
+  },
   input: {
-    flex: 1, resize: 'none', minHeight: '44px', maxHeight: '140px', padding: `${space[2]} ${space[3]}`,
-    borderRadius: radius.lg, border: `1px solid ${color.borderSubtle}`, outline: 'none',
-    background: 'var(--ui-surface0, rgba(255,255,255,0.05))', color: color.text,
-    fontSize: fontSize['14'], fontFamily: 'inherit', lineHeight: 1.45,
+    flex: 1, resize: 'none', height: `${SEND_SIZE_PX}px`, maxHeight: `${INPUT_MAX_PX}px`,
+    padding: `${(SEND_SIZE_PX - INPUT_LINE_PX) / 2}px ${space[2]}`, border: 'none', outline: 'none',
+    background: 'transparent', color: color.text, boxSizing: 'border-box',
+    fontSize: fontSize['14'], fontFamily: 'inherit', lineHeight: `${INPUT_LINE_PX}px`,
   },
   sendBtn: {
-    display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '40px', height: '40px',
-    borderRadius: radius.lg, border: 'none', background: color.accent, color: color.base, cursor: 'pointer', flexShrink: 0,
+    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+    width: `${SEND_SIZE_PX}px`, height: `${SEND_SIZE_PX}px`, borderRadius: radius.md, border: 'none',
+    background: color.accent, color: color.base, cursor: 'pointer', flexShrink: 0,
   },
 };
 
