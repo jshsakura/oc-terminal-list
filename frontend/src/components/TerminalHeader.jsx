@@ -452,6 +452,13 @@ const TerminalHeader = ({
           )}
         </div>
 
+        {/* Thin rule between the panel icons and the path, so the path reads as its own field. */}
+        <span
+          aria-hidden="true"
+          data-rail-divider=""
+          style={{ ...styles.divider, alignSelf: 'center', height: '14px', margin: '0 4px', flexShrink: 0, background: panelUi.border || panelUi.surface1 }}
+        />
+
         <CwdBreadcrumb paneInfo={paneInfo} loading={showLoading} disabled={disabled} ui={panelUi} onRefreshCwd={onRefreshCwd} t={t} />
 
         <div style={{

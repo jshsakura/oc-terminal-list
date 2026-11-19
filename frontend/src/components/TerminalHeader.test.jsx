@@ -29,6 +29,15 @@ describe('TerminalHeader', () => {
     expect(container.firstChild).toBeTruthy();
   });
 
+  it('separates the panel icons from the path with a thin rule', () => {
+    const { container } = render(<TerminalHeader {...baseProps()} />);
+    const rule = container.querySelector('[data-rail-divider]');
+    expect(rule).toBeTruthy();
+    expect(rule.getAttribute('aria-hidden')).toBe('true');
+    // Sits between the icon strip and the cwd breadcrumb.
+    expect(rule.previousElementSibling.querySelectorAll('button').length).toBeGreaterThan(0);
+  });
+
   // 레일 스켈레톤은 실제 RailIconBtn 자리마다 하나씩 — 4개 패널 탭 + (분할) + (… 메뉴).
   const railSkeletons = (container) => container.querySelectorAll('[style*="iterm-rail-skel"]');
 
