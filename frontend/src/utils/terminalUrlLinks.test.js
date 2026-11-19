@@ -37,6 +37,12 @@ describe('findUrlLinks', () => {
     ]);
   });
 
+  it('joins a URL across padded terminal rows without copying padding', () => {
+    const rows = screen(row(`see ${URL.slice(0, 25)} `), row(`    ${URL.slice(25)} end`.padEnd(COLS)));
+    expect(urls(rows, 0)).toEqual([URL]);
+    expect(urls(rows, 1)).toEqual([URL]);
+  });
+
   it('follows a URL over three rows', () => {
     const long = `https://example.com/${'x'.repeat(60)}`;
     const rows = screen(row(long.slice(0, 30)), row(long.slice(30, 60)), row(`${long.slice(60)} done`));
@@ -51,6 +57,25 @@ describe('findUrlLinks', () => {
 
   it('leaves a short line alone even when the next row starts with a word', () => {
     expect(rowsJoin(row('https://a.com'), row('next'), COLS)).toBe(false);
+  });
+
+  it('joins an OAuth-length URL that wraps over a dozen rows, tapped on any row', () => {
+    // Login URLs (claude, codex, gh) run ~400 chars; on a phone that is 10+ rows.
+    const long = `https://claude.ai/oauth/authorize?code=true&client_id=${'x'.repeat(300)}&state=end`;
+    const chunks = long.match(new RegExp(`.{1,${COLS}}`, 'g'));
+    expect(chunks.length).toBeGreaterThan(10);
+    const rows = screen(row('Use the url below to sign in:'), ...chunks.map((c) => row(c)), row('Paste code here'));
+    for (const target of [1, Math.floor(chunks.length / 2), chunks.length]) {
+      expect(urls(rows, target)).toEqual([long]);
+    }
+  });
+
+  it('joins a URL an agent drew inside a box with a right border', () => {
+    const box = (text) => row(`│ ${text.padEnd(COLS - 4)} │`);
+    const inner = COLS - 4;
+    const rows = screen(box(`see ${URL.slice(0, inner - 4)}`), box(URL.slice(inner - 4)));
+    expect(urls(rows, 0)).toEqual([URL]);
+    expect(urls(rows, 1)).toEqual([URL]);
   });
 
   it('maps cells past a wide character', () => {

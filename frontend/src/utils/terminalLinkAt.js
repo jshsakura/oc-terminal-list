@@ -1,10 +1,9 @@
 import { findFileLinks, MAX_WRAPPED_ROWS } from './terminalFileLinks';
-
-const URL_RE = /https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/g;
+import { findUrlLinks, readRow } from './terminalUrlLinks';
 
 // Match logical text, but locate the tap in terminal cells. UTF-16 offsets and
 // display columns differ for Korean, emoji and combining characters.
-function textAtClient(term, clientX, clientY) {
+function cellAtClient(term, clientX, clientY) {
   const screen = term?.element?.querySelector?.('.xterm-screen') || term?.element;
   const rect = screen?.getBoundingClientRect();
   if (!rect?.width || !rect?.height) return null;
@@ -17,7 +16,13 @@ function textAtClient(term, clientX, clientY) {
   const targetLine = buffer.getLine?.(targetRow);
   if (!targetLine) return null;
   if (targetLine.getCell?.(col)?.getWidth() === 0 && col > 0) col--;
+  return { buffer, targetRow, col };
+}
 
+function textAtClient(term, clientX, clientY) {
+  const hit = cellAtClient(term, clientX, clientY);
+  if (!hit) return null;
+  const { buffer, targetRow, col } = hit;
   let startRow = targetRow;
   while (startRow > 0 && targetRow - startRow < MAX_WRAPPED_ROWS - 1 && buffer.getLine(startRow)?.isWrapped) startRow--;
   let text = '';
@@ -36,12 +41,12 @@ function textAtClient(term, clientX, clientY) {
 }
 
 export function getLinkAtClient(term, clientX, clientY) {
-  const hit = textAtClient(term, clientX, clientY);
+  const hit = cellAtClient(term, clientX, clientY);
   if (!hit) return null;
-  for (const match of hit.text.matchAll(URL_RE)) {
-    if (hit.index >= match.index && hit.index < match.index + match[0].length) return match[0];
-  }
-  return null;
+  const { buffer, targetRow, col } = hit;
+  const links = findUrlLinks(index => readRow(buffer, index, term.cols), targetRow, term.cols);
+  return links.find(link => link.segments.some(segment =>
+    segment.row === targetRow && col >= segment.startX && col <= segment.endX))?.url ?? null;
 }
 
 export function getFileLinkAtClient(term, clientX, clientY) {

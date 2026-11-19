@@ -24,6 +24,21 @@ function makeTerm({ text, cols = 80, rows = 24, rect = { left: 0, top: 0, width:
 }
 
 describe('getLinkAtClient', () => {
+  it('returns the full URL from either hard-wrapped row for touch and copy', () => {
+    const url = 'https://example.com/aaaa/bbbb/cccc/dddd/eeee';
+    const term = makeTerm({ text: '', cols: 30 });
+    term._core = { _renderService: { dimensions: { css: { cell: { width: 10, height: 20 } } } } };
+    const parts = [`see ${url.slice(0, 25)}`, `    ${url.slice(25)} end`];
+    term.buffer.active.getLine = row => row < parts.length ? {
+      isWrapped: false,
+      translateToString: (_, start = 0, end = 30) => parts[row].padEnd(30).slice(start, end),
+      getCell: col => ({ getWidth: () => 1, getChars: () => parts[row][col] || '' }),
+    } : null;
+
+    expect(getLinkAtClient(term, 105, 10)).toBe(url);
+    expect(getLinkAtClient(term, 65, 30)).toBe(url);
+    expect(getLinkAtClient(term, 15, 30)).toBeNull();
+  });
   it('joins wrapped URLs and respects Korean display-cell widths', () => {
     const term = makeTerm({ text: '', cols: 20 });
     term.element.querySelector = () => ({ getBoundingClientRect: () => ({ left: 5, top: 8, width: 200, height: 480 }) });
@@ -33,7 +48,7 @@ describe('getLinkAtClient', () => {
       if (row > 1) return null;
       const chars = row === 0 ? ['한', '', '글', '', ...parts[0].slice(2)] : [...parts[1]];
       return { isWrapped: row === 1,
-        getCell: col => ({ getWidth: () => chars[col] === '' ? 0 : 1 }),
+        getCell: col => ({ getWidth: () => chars[col] === '' ? 0 : 1, getChars: () => chars[col] || '' }),
         translateToString: (_, start = 0, end = chars.length) => chars.slice(start, end).join('') };
     };
     expect(getLinkAtClient(term, 65, 18)).toBe('https://example.com/long-path');

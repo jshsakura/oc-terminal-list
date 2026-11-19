@@ -18,12 +18,16 @@ const URL_CHAR_RE = /[^\s"'!*(){}|\\^<>`]/;
 const URL_TAIL_HINT_RE = /[/?#&=%._~\-0-9]/;
 // Box and tree glyphs agent TUIs draw in front of wrapped text.
 const INDENT_RE = /^[\s│┃|⎿▏▕]*/;
+// Padding and the right border of a box an agent TUI draws around wrapped text.
+const TRAILING_RE = /[\s│┃|▏▕]+$/;
 
 // Rows that end this close to the right edge still count as reaching it (TUI right padding).
 export const EDGE_SLACK_COLS = 4;
-export const MAX_JOINED_ROWS = 8;
+// Login URLs (claude, codex, gh) run ~400 chars, which is 10+ rows on a phone. Starting the
+// walk short of the first row loses `https://` and with it the whole link.
+export const MAX_JOINED_ROWS = 64;
 
-const trimmedEnd = (row) => row.text.replace(/\s+$/, '').length;
+const trimmedEnd = (row) => row.text.replace(TRAILING_RE, '').length;
 
 const continuationStart = (row) => {
   if (row.isWrapped) return 0;
@@ -54,7 +58,13 @@ export const rowsJoin = (prev, next, cols) => {
  * @returns [{ url, segments: [{ row, startX, endX }] }], cells 0-based and inclusive,
  *          keeping only links with a segment on `target`.
  */
-export const findUrlLinks = (getRow, target, cols) => {
+export const findUrlLinks = (getRowUncached, target, cols) => {
+  // Every row is read up to three times (as prev, row, next); reading one costs `cols` cells.
+  const cache = new Map();
+  const getRow = (index) => {
+    if (!cache.has(index)) cache.set(index, getRowUncached(index));
+    return cache.get(index);
+  };
   let first = target;
   while (first > 0 && target - first < MAX_JOINED_ROWS && rowsJoin(getRow(first - 1), getRow(first), cols)) {
     first -= 1;
@@ -67,11 +77,14 @@ export const findUrlLinks = (getRow, target, cols) => {
     if (!row) break;
     if (index > first && !rowsJoin(getRow(index - 1), row, cols)) break;
     const from = index === first ? 0 : continuationStart(row);
-    for (let i = from; i < row.text.length; i += 1) {
+    // Terminal cells include right padding; it is not part of a continued URL.
+    const continues = rowsJoin(row, getRow(index + 1), cols);
+    const end = continues ? trimmedEnd(row) : row.text.length;
+    for (let i = from; i < end; i += 1) {
       joined += row.text[i];
       map.push({ row: index, x: row.xs[i] ?? i });
     }
-    if (index >= target && !rowsJoin(row, getRow(index + 1), cols)) break;
+    if (index >= target && !continues) break;
   }
 
   const links = [];
