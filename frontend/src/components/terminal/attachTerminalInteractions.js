@@ -484,6 +484,15 @@ const attachTerminalInteractions = ({
        ⚠️ 매번 넘기면 터미널에 포커스를 줄 방법이 사라져 TUI 프롬프트에 엔터 한 번을
        못 친다(실제로 그렇게 막혔다). 도크로 돌아가려면 도크를 누르면 된다 — 늘 보인다. */
     if (isReadOnly() || touchCancelled || isTouchScrolling || longPressFired) return;
+    /* A tap on a link opens it. touchstart was preventDefault'ed, so xterm never sees a
+       click and its link handler never fires on a phone; before this a link only opened
+       from the long-press menu. It has to happen here, inside touchend, or mobile Safari
+       treats window.open as a popup and blocks it. */
+    const tappedUrl = getLinkAtClient(term, touchStartX, touchStartY);
+    if (tappedUrl) {
+      window.open(tappedUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (!handedToDock && focusCommandDock()) { handedToDock = true; return; }
     term.focus();
   };

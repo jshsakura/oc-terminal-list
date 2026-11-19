@@ -8,7 +8,13 @@ vi.mock('./terminalHelpers', async (importOriginal) => ({
   // 것이 이 파일이 지켜야 할 계약이고, 목으로 덮으면 그 계약이 사라진다.
 }));
 
+vi.mock('../../utils/terminalLinkAt', async (importOriginal) => ({
+  ...(await importOriginal()),
+  getLinkAtClient: vi.fn(() => null),
+}));
+
 import attachTerminalInteractions, { isImeModeKey } from './attachTerminalInteractions';
+import { getLinkAtClient } from '../../utils/terminalLinkAt';
 import { copyTextToClipboard, uploadImageAndGetPath } from './terminalHelpers';
 
 /* 휠/터치 라우팅은 실기기 회귀가 가장 잦은 곳이다(마우스로는 재현이 안 된다).
@@ -326,6 +332,37 @@ describe('attachTerminalInteractions', () => {
         expect(term.focus).toHaveBeenCalled();          // 두 번째부터는 터미널
       } finally {
         slot.remove();
+      }
+    });
+
+    /* xterm never gets a click on a phone (touchstart is preventDefault'ed), so the tap
+       itself has to open the link, inside touchend, or Safari blocks it as a popup. */
+    it('링크를 짧게 탭하면 그 링크를 새 창으로 연다', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      vi.mocked(getLinkAtClient).mockReturnValueOnce('https://claude.ai/oauth/authorize?code=1');
+      try {
+        mount();
+        overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
+        overlay.dispatchEvent(touchEvent('touchend', 100, 200));
+
+        expect(open).toHaveBeenCalledWith('https://claude.ai/oauth/authorize?code=1', '_blank', 'noopener,noreferrer');
+        expect(term.focus).not.toHaveBeenCalled();
+      } finally {
+        open.mockRestore();
+      }
+    });
+
+    it('링크가 아닌 곳을 탭하면 창을 열지 않고 포커스한다', () => {
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      try {
+        mount();
+        overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
+        overlay.dispatchEvent(touchEvent('touchend', 100, 200));
+
+        expect(open).not.toHaveBeenCalled();
+        expect(term.focus).toHaveBeenCalled();
+      } finally {
+        open.mockRestore();
       }
     });
 
