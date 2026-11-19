@@ -31,3 +31,34 @@ describe('LlmDashboard loading', () => {
     expect(second.container.querySelector('[aria-busy="true"]')).toBeNull();
   });
 });
+
+describe('LlmDashboard empty and failed states', () => {
+  it('keeps the section when sources exist but the window has no usage', async () => {
+    // Arrange: collection stalled, so the last 30 days are all zero
+    const quiet = {
+      ...SUMMARY, days: 30,
+      totals: { cost: 0, tokens: 0, sessions: 0, days: 0 },
+      by_host: [{ source_id: 'local', name: 'local', ok: true, cost: 0, tokens: 0, sessions: 0 }],
+    };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => quiet })));
+
+    // Act
+    const view = render(<LlmDashboard days={30} />);
+    await act(async () => {});
+
+    // Assert: something is drawn instead of an empty space
+    expect(view.container.firstChild).not.toBeNull();
+  });
+
+  it('says why when the summary request fails', async () => {
+    // Arrange
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502 })));
+
+    // Act
+    const view = render(<LlmDashboard days={90} />);
+    await act(async () => {});
+
+    // Assert
+    expect(view.container.textContent).toContain('HTTP 502');
+  });
+});

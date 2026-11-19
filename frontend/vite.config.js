@@ -121,8 +121,8 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     allowedHosts: [
-      'term.jshsakura.com',
-      '.jshsakura.com',
+      'term.opencourse.kr',
+      '.opencourse.kr',
     ],
     proxy: {
       '/api': {

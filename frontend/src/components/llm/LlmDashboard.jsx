@@ -175,12 +175,15 @@ const LlmDashboard = ({ hosts = [], tabs = [], settings = {}, days = 7, onJumpPa
   );
 
   const totals = data?.totals || {};
-  /* 켜져 있고 **실제로 쓴 게 있을 때만** 카드를 낸다. 켰는데 아직 아무것도 없으면
-     빈 카드가 다섯 장 서는 것보다 없는 편이 낫다 — 왜 비었는지는 설정 화면이 답한다.
-     (로딩 중에는 직전 데이터를 계속 보여준다. 깜빡임이 곧 체감 지연이다.) */
+  /* Cards appear once any source has been collected. While loading, the previous data
+     stays on screen: flicker reads as latency. */
   if (!data && busy) return <LoadingCards t={t} />;
+  // A failed fetch must say so; returning null here made errors look like "no usage".
+  if (!data && err) return <div style={{ ...stateStyle, color: color.danger }}>{err}</div>;
   if (!data || !data.enabled) return null;
-  if (!(Number(totals.cost) > 0 || Number(totals.tokens) > 0)) return null;
+  // Hide only when nothing was ever collected. A quiet window shows honest zeros:
+  // hiding it made "collection stopped" indistinguishable from "feature off".
+  if (!(data.by_host || []).length) return null;
 
   return (
     <div style={rootStyle}>

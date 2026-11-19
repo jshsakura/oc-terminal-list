@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from _deps import verify_auth_token
 from pydantic import BaseModel
 from server_identity import get_server_identity
+from llm_usage.service import maybe_collect_in_background
 from sqlite_storage import storage
 from system_monitor import system_monitor
 
@@ -134,5 +135,9 @@ async def get_usage_summary(
     username: str = Depends(verify_auth_token),
 ):
     """최근 N일 사용 통계. 빈 패널 대시보드 카드용."""
+    # The home screen fetches this on every open, so it is the daily LLM collection
+    # trigger. POST /api/sessions used to be, but terminals now open over the WS
+    # route and that endpoint is never called; collection silently stopped.
+    await maybe_collect_in_background(username)
     return await storage.get_usage_summary(username, days)
 
