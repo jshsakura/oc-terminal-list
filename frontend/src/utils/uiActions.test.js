@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { UI_ACTIONS, UI_ACTION_EVENT, runUiAction, uiActionLabel } from './uiActions';
+import { UI_ACTIONS, UI_ACTION_EVENT, closesPanelOnMobile, runUiAction, uiActionLabel } from './uiActions';
 
 // Tests run from frontend/.
 const BACKEND = resolve(process.cwd(), '../backend/routes/terminator.py');
@@ -26,5 +26,12 @@ describe('uiActions', () => {
   it('labels fall back when there is no translation', () => {
     expect(uiActionLabel('new-tab', () => undefined)).toBe('새 터미널');
     expect(uiActionLabel('nope', () => 'x')).toBe('');
+  });
+
+  it('on a phone only actions that happen under the sheet close the panel', () => {
+    const closing = UI_ACTIONS.map((a) => a.id).filter(closesPanelOnMobile).sort();
+    expect(closing).toEqual(['home', 'new-tab', 'quick-input', 'split-down', 'split-right']);
+    expect(closesPanelOnMobile('settings')).toBe(false);
+    expect(closesPanelOnMobile('nope')).toBe(false);
   });
 });

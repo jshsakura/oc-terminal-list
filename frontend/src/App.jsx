@@ -34,6 +34,7 @@ import { applyEinkAttribute, applyEinkSettings, resolveEinkThemeId } from './uti
 import { tokens } from './styles/tokens';
 import { generateUUID } from './utils/helpers';
 import { cleanLaunch } from './utils/launchOptions';
+import { closesPanelOnMobile } from './utils/uiActions';
 import { TMUX, fromHost as multiplexerFromHost, normalize as normalizeMultiplexer } from './utils/multiplexer';
 import { authHeaders } from './utils/auth';
 import { apiFetch } from './utils/apiFetch';
@@ -1068,28 +1069,24 @@ function App() {
     expectedIdentity,
   }));
   const handleSplitPane = useEvent((tabId, paneId, dir) => splitActivePane(dir, tabId, paneId));
-  /* Terminator (and its buttons) doing what a UI button does. The names are utils/uiActions;
-     anything else is ignored. A window the action opens stacks above the panel, so the panel
-     stays open and the person can keep asking. On a phone an in-place action closes it, or its
-     result would be hidden under the sheet; so does quick input, which docks to the pane. */
+  /* Terminator (and its buttons) doing what a UI button does. The names, and which of them
+     close the panel on a phone, are utils/uiActions; anything else is ignored. */
   const runTerminatorAction = useEvent((action) => {
     const hasTab = activeTabIdRef.current !== null;
-    const opensWindow = {
+    const run = {
+      'new-tab': () => handleAddTab(),
+      'split-right': () => { if (hasTab) splitActivePane('right'); },
+      'split-down': () => { if (hasTab) splitActivePane('down'); },
       'quick-input': () => openCommandInput(),
       'command-palette': () => setIsCommandPaletteOpen(true),
       settings: () => setIsSettingsOpen(true),
       'settings-mobile': () => { setSettingsInitialTab('mobile'); setIsSettingsOpen(true); },
       hosts: () => setHostManagerOpen(true),
-    }[action];
-    const inPlace = {
-      'new-tab': () => handleAddTab(),
-      'split-right': () => { if (hasTab) splitActivePane('right'); },
-      'split-down': () => { if (hasTab) splitActivePane('down'); },
       home: () => setActiveTabId(null),
     }[action];
-    if (!opensWindow && !inPlace) return;
-    (opensWindow || inPlace)();
-    if (isMobile && (inPlace || action === 'quick-input')) setTerminatorOpen(false);
+    if (!run) return;
+    run();
+    if (isMobile && closesPanelOnMobile(action)) setTerminatorOpen(false);
   });
   useEffect(() => {
     const onAction = (e) => runTerminatorAction(e.detail?.action);
