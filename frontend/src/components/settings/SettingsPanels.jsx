@@ -12,6 +12,7 @@ import { styles, shortcutStyles } from './settingsStyles';
 import { OPTIONS as MUX_OPTIONS, HINTS as MUX_HINTS, normalize as normalizeMultiplexer } from '../../utils/multiplexer';
 import { Section, Divider, Field, Select, Toggle, FontSizeRow, ShortcutRow } from './SettingsFields';
 import LlmWatcherSection from './LlmWatcherSection';
+import TerminatorSection from './TerminatorSection';
 import HelpPanel from './HelpPanel';
 
 const { color, space } = tokens;
@@ -141,6 +142,12 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
           <option value="original">{t('textContrastOriginal') || 'Original palette'}</option>
         </Select>
       </Field>
+    </Section>
+
+    <Divider />
+
+    <Section title={t('terminator') || '터미네이터'}>
+      <TerminatorSection t={t} />
     </Section>
 
     <Divider />

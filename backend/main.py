@@ -473,7 +473,7 @@ for _router in (
     fleet_router,         # 실행 중 보드 — 기계별 상태 + 모든 pane (호스트당 왕복 1회)
     llm_usage_router,     # LLM 토큰·비용 (호스트별 llm-watcher 집계)
     ws_tickets_router,    # WS 티켓 배치 발급 (부팅 시 pane 수만큼 나가던 POST 를 1회로)
-    terminator_router,    # 터미네이터 패널: 시작 · 말하기 · 대화 (LLM 호출 없음)
+    terminator_router,    # 터미네이터 패널: 화면 도움말 (GLM 직접 호출, 유일한 예외)
 ):
     app.include_router(_router)
 

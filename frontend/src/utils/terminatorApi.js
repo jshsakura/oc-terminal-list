@@ -26,3 +26,12 @@ export const sayToTerminator = (text) => apiFetch('/api/terminator/say', {
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ text }),
 }).then(json);
+
+// Settings: the key is write-only, only its last four characters come back.
+export const fetchTerminatorConfig = () => apiFetch('/api/terminator/config').then(json);
+export const saveTerminatorConfig = (body) => apiFetch('/api/terminator/config', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body),
+}).then(json);
+export const checkTerminator = () => apiFetch('/api/terminator/check', { method: 'POST', timeoutMs: 25000 }).then(json);

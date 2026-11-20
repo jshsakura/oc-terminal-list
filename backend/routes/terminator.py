@@ -1,10 +1,11 @@
-"""Terminator: the in-app help companion. It answers "how do I…?" from the guide and does
+"""Terminator: the in-app help companion. It answers "how do I…?" from the guide and
 shows where things are. It never acts on its own: it explains, points at the button and
 offers that button for the person to press.
 
-This is the one place the backend calls an LLM, and on purpose a narrow one: GLM-5.3-flash
-over the Z.ai coding plan, help text only, no tools that touch files, shells or other
-terminals. Everything else in the app still keeps the "backend calls no LLM" rule.
+This is the one place the backend calls an LLM, and on purpose a narrow one: a GLM model
+(glm-5.3-flash unless the settings screen says otherwise) over the Z.ai coding plan, help
+text only, no tools that touch files, shells or other terminals. Everything else in the app still keeps the
+"backend calls no LLM" rule.
 
 Kept light on purpose:
   - one request per message, and no tool definitions: declaring even one tool took a reply
@@ -20,11 +21,13 @@ Kept light on purpose:
   GET  /api/terminator/messages  the conversation so far
   POST /api/terminator/say       ask; returns the reply, the buttons to offer and what to point at
   POST /api/terminator/reset     start over
+  GET  /api/terminator/config    key set? its last 4 chars, the model (terminator_config.py)
+  PUT  /api/terminator/config    set or clear the key, set the model
+  POST /api/terminator/check     one tiny request: does this key and model answer?
 """
 from __future__ import annotations
 
 import logging
-import os
 import re
 import time
 import uuid
@@ -35,16 +38,16 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+import terminator_config
 from _deps import verify_auth_token
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-KEY_FILE = "~/.config/zai/api_key"
 API_URL = "https://api.z.ai/api/anthropic/v1/messages"
-MODEL = "glm-5.3-flash"
 MAX_TOKENS = 700
 REQUEST_TIMEOUT_SEC = 40.0
+CHECK_TIMEOUT_SEC = 20.0
 HISTORY_MESSAGES = 6          # what the model sees again; older turns are only on screen
 SHOWN_MESSAGES = 40           # what the panel keeps showing
 MAX_SAY_CHARS = 1000
@@ -90,10 +93,7 @@ _calls: dict[str, deque] = {}
 
 
 def _key() -> str | None:
-    try:
-        return Path(os.path.expanduser(KEY_FILE)).read_text(encoding="utf-8").strip() or None
-    except OSError:
-        return None
+    return terminator_config.read_key()
 
 
 def _guide() -> str:
@@ -136,9 +136,72 @@ class SayRequest(BaseModel):
     text: str
 
 
+class ConfigRequest(BaseModel):
+    api_key: str | None = None      # set or replace; never read back
+    clear_key: bool = False
+    model: str | None = None        # "" goes back to the default
+
+
+async def _call_glm(key: str, body: dict, timeout: float) -> dict:
+    """One request to GLM. Failures become a 502 with a sentence the panel can show."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(API_URL, json=body, headers={
+                "x-api-key": key, "anthropic-version": "2023-06-01"})
+        resp.raise_for_status()
+        return resp.json()
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        logger.warning("terminator: GLM %s: %s", status, exc.response.text[:300])
+        if status in (401, 403):
+            detail = "키가 거절됐습니다. 설정에서 키를 다시 넣습니다"
+        elif status in (400, 404):
+            detail = "모델을 찾지 못했습니다. 설정에서 모델 이름을 확인합니다"
+        else:
+            detail = "터미네이터가 지금 답하지 못합니다. 잠시 뒤 다시 물어봅니다"
+        raise HTTPException(status_code=502, detail=detail) from exc
+    except (httpx.HTTPError, ValueError) as exc:
+        logger.warning("terminator: GLM request failed: %s", exc)
+        raise HTTPException(status_code=502, detail="터미네이터에 닿지 못했습니다. 잠시 뒤 다시 물어봅니다") from exc
+
+
+@router.get("/api/terminator/config")
+async def terminator_config_get(username: str = Depends(verify_auth_token)):
+    return terminator_config.describe()
+
+
+@router.put("/api/terminator/config")
+async def terminator_config_put(request: ConfigRequest, username: str = Depends(verify_auth_token)):
+    try:
+        terminator_config.save(key=request.api_key, model=request.model, clear_key=request.clear_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except OSError as exc:
+        logger.warning("terminator: saving config failed: %s", exc)
+        raise HTTPException(status_code=500, detail="설정 파일을 쓰지 못했습니다") from exc
+    logger.info("terminator: config changed by %s (key %s, model %s)", username,
+                "cleared" if request.clear_key else ("set" if request.api_key else "kept"),
+                terminator_config.read_model())
+    return terminator_config.describe()
+
+
+@router.post("/api/terminator/check")
+async def terminator_check(username: str = Depends(verify_auth_token)):
+    key = _key()
+    if key is None:
+        raise HTTPException(status_code=409, detail="터미네이터 연결 키가 없습니다")
+    if not _rate_ok(username):
+        raise HTTPException(status_code=429, detail="잠시 뒤에 다시 확인합니다")
+    model = terminator_config.read_model()
+    started = time.monotonic()
+    await _call_glm(key, {"model": model, "max_tokens": 8, "thinking": {"type": "disabled"},
+                          "messages": [{"role": "user", "content": "ping"}]}, CHECK_TIMEOUT_SEC)
+    return {"ok": True, "model": model, "ms": round((time.monotonic() - started) * 1000)}
+
+
 @router.get("/api/terminator/status")
 async def terminator_status(username: str = Depends(verify_auth_token)):
-    return {"configured": _key() is not None, "model": MODEL}
+    return {"configured": _key() is not None, "model": terminator_config.read_model()}
 
 
 @router.get("/api/terminator/messages")
@@ -171,22 +234,11 @@ async def terminator_say(request: SayRequest, username: str = Depends(verify_aut
     history = _history.setdefault(username, deque(maxlen=HISTORY_MESSAGES))
     messages = [*history, {"role": "user", "content": text}]
     body = {
-        "model": MODEL, "max_tokens": MAX_TOKENS, "thinking": {"type": "disabled"},
+        "model": terminator_config.read_model(), "max_tokens": MAX_TOKENS, "thinking": {"type": "disabled"},
         "system": f"{PERSONA.format(actions=', '.join(UI_ACTIONS))}\n\nGUIDE:\n{guide}",
         "messages": messages,
     }
-    try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SEC) as client:
-            resp = await client.post(API_URL, json=body, headers={
-                "x-api-key": key, "anthropic-version": "2023-06-01"})
-        resp.raise_for_status()
-        data = resp.json()
-    except httpx.HTTPStatusError as exc:
-        logger.warning("terminator: GLM %s: %s", exc.response.status_code, exc.response.text[:300])
-        raise HTTPException(status_code=502, detail="터미네이터가 지금 답하지 못합니다. 잠시 뒤 다시 물어봅니다") from exc
-    except (httpx.HTTPError, ValueError) as exc:
-        logger.warning("terminator: GLM request failed: %s", exc)
-        raise HTTPException(status_code=502, detail="터미네이터에 닿지 못했습니다. 잠시 뒤 다시 물어봅니다") from exc
+    data = await _call_glm(key, body, REQUEST_TIMEOUT_SEC)
 
     reply = read_reply(data, point_ids)
     history.append({"role": "user", "content": text})

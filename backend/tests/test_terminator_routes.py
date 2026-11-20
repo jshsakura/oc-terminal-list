@@ -49,8 +49,10 @@ class _FakeResponse:
 
 
 @pytest.fixture
-def fake_glm(monkeypatch):
+def fake_glm(monkeypatch, tmp_path):
     sent = []
+    # The model comes from the settings file; keep this machine's choice out of the test.
+    monkeypatch.setattr(t.terminator_config, "CONFIG_DIR", str(tmp_path / "zai"))
 
     class Client:
         def __init__(self, timeout):
