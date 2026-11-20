@@ -207,6 +207,7 @@ const TabBar = ({
           color: isHome ? color.accent : color.subtext,
         }}
         onClick={onHome}
+        data-guide="home"
         title={t?.('home') || 'Home'}
         onMouseEnter={(e) => { if (!isHome) e.currentTarget.style.background = 'var(--ui-surface0)'; }}
         onMouseLeave={(e) => { if (!isHome) e.currentTarget.style.background = 'transparent'; }}

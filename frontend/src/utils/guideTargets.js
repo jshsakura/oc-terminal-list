@@ -5,6 +5,7 @@
  * guideTargets.test.js keeps the two lists equal.
  */
 export const GUIDE_TARGETS = {
+  home: { ko: '홈에서 새 터미널을 엽니다', en: 'Open a new terminal from home' },
   terminator: { ko: '터미네이터는 여기 있습니다', en: 'Terminator is here' },
   settings: { ko: '설정은 여기 있습니다', en: 'Settings are here' },
   'quick-input': { ko: '빠른입력은 여기 있습니다', en: 'Quick input is here' },
