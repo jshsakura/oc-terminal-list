@@ -1069,8 +1069,9 @@ function App() {
   }));
   const handleSplitPane = useEvent((tabId, paneId, dir) => splitActivePane(dir, tabId, paneId));
   /* Terminator (and its buttons) doing what a UI button does. The names are utils/uiActions;
-     anything else is ignored. Actions that open another window close the panel so the two
-     do not stack; on a phone every action does, since the sheet covers the panes. */
+     anything else is ignored. On desktop the panel stays open beside whatever the action opens,
+     so the person can keep asking; on a phone every action closes it, since the sheet covers
+     the screen. */
   const runTerminatorAction = useEvent((action) => {
     const hasTab = activeTabIdRef.current !== null;
     const opensWindow = {
@@ -1088,7 +1089,7 @@ function App() {
     }[action];
     if (!opensWindow && !inPlace) return;
     (opensWindow || inPlace)();
-    if (opensWindow || isMobile) setTerminatorOpen(false);
+    if (isMobile) setTerminatorOpen(false);
   });
   useEffect(() => {
     const onAction = (e) => runTerminatorAction(e.detail?.action);
