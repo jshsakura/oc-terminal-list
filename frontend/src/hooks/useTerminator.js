@@ -2,14 +2,13 @@
  * State behind the Terminator panel. Nothing polls: the panel reads the conversation once
  * when it opens, and each answer comes back on the request that asked it.
  *
- * The answer's screen actions run here, on this device only: `did` right away, `point` as
- * a spotlight. Offered buttons are left for the person to press.
+ * Terminator never acts by itself. `point` lights up the button it described, on this
+ * device only; offered buttons are left for the person to press.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchTerminatorMessages, fetchTerminatorStatus, resetTerminator, sayToTerminator,
 } from '../utils/terminatorApi';
-import { runUiAction } from '../utils/uiActions';
 
 const useTerminator = (open) => {
   const [status, setStatus] = useState(null);       // { configured, model }
@@ -39,7 +38,6 @@ const useTerminator = (open) => {
       if (!aliveRef.current) return true;
       setMessages(data.messages || []);
       const reply = data.reply || {};
-      if (reply.did) runUiAction(reply.did);
       if (reply.point) window.dispatchEvent(new CustomEvent('iterm:spotlight', { detail: { id: reply.point } }));
       return true;
     } catch (exc) {

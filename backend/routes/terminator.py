@@ -1,5 +1,6 @@
 """Terminator: the in-app help companion. It answers "how do I…?" from the guide and does
-the few things a button in the UI can do (open a terminal, split, open settings…).
+shows where things are. It never acts on its own: it explains, points at the button and
+offers that button for the person to press.
 
 This is the one place the backend calls an LLM, and on purpose a narrow one: GLM-5.3-flash
 over the Z.ai coding plan, help text only, no tools that touch files, shells or other
@@ -7,16 +8,17 @@ terminals. Everything else in the app still keeps the "backend calls no LLM" rul
 
 Kept light on purpose:
   - one request per message, and no tool definitions: declaring even one tool took a reply
-    from 2.6s to 6s. The model instead ends its answer with short tags (`@do:new-tab`,
-    `@offer:settings,hosts`, `@point:settings`) that read_reply parses, checks against the
-    allowed ids and strips.
+    from 2.6s to 6s. The model instead ends its answer with short tags
+    (`@offer:settings,hosts`, `@point:settings`) that read_reply parses, checks against the
+    allowed ids and strips. An `@do` the model still writes becomes an offer: the person asked
+    to be shown how, and a pane split they did not press is a surprise, not help.
   - no session process. The conversation lives in memory, last HISTORY_MESSAGES only, so a
     request never carries more than the guide plus a few short turns.
   - thinking off: help answers do not need it, and it was 3x the latency.
 
   GET  /api/terminator/status    is a key configured? which model?
   GET  /api/terminator/messages  the conversation so far
-  POST /api/terminator/say       ask; returns the reply and the screen actions to run
+  POST /api/terminator/say       ask; returns the reply, the buttons to offer and what to point at
   POST /api/terminator/reset     start over
 """
 from __future__ import annotations
@@ -51,7 +53,7 @@ RATE_MAX = 20
 GUIDE_PATH = Path(__file__).resolve().parents[1] / "terminator_guide.md"
 
 # Things a button in the UI does. The frontend's utils/uiActions.js lists the same ids
-# (a test keeps them equal); the client runs them, so an unknown id is simply dropped.
+# (a test keeps them equal); they are only ever offered, the person presses them.
 UI_ACTIONS = (
     "new-tab", "split-right", "split-down", "quick-input", "command-palette",
     "settings", "settings-mobile", "hosts", "home",
@@ -63,8 +65,9 @@ _TAG_STRIP_RE = re.compile(r"@(?:do|offer|point)\s*:[^\n]*")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 PERSONA = """You are Terminator, the help companion inside Terminal List, a terminal in the browser.
-You only help people use this app's screen. You do not write code, run commands or change files;
-if asked, say that is work for a terminal agent and offer to open a terminal.
+You only help people use this app's screen. You never do things for them: you explain how,
+show where the button is and offer it. You do not write code, run commands or change files;
+if asked, say that is work for a terminal agent.
 
 Voice: answer in the person's language; in Korean always 합니다체. Two or three short sentences
 or a few short steps. No em dashes. You may greet once per conversation with
@@ -73,11 +76,12 @@ or a few short steps. No em dashes. You may greet once per conversation with
 Answer only from the GUIDE below. Never invent buttons, menus or settings. If the guide does
 not cover it, say you do not know.
 
-Always write at least one sentence. Then, on the last line, add screen tags when they help:
-- @do:<action>  when the person asks you to do something a button does ("터미널 열어줘",
-  "옆으로 나눠줘"). Say it is done.
-- @offer:<action>,<action>  up to 3 buttons for what you just explained.
-- @point:<id>  when they ask where something is; ids from 화면 안내 대상.
+Always write at least one sentence. Even when asked to do something ("터미널 열어줘",
+"아래로 나눠줘"), tell them how to do it: which button, where, or the shortcut. Never say it is
+done, and do not say you cannot do it; just explain, the offered button is right below.
+End sentences with 합니다/됩니다, never 하세요. Then, on the last line, add screen tags when they help:
+- @point:<id>  the button you described, when it is in 화면 안내 대상.
+- @offer:<action>,<action>  up to 3 buttons the person can press to do what you explained.
 Actions: {actions}. Write tags only on that last line, never inside sentences."""
 
 _history: dict[str, deque] = {}
@@ -106,17 +110,15 @@ def read_reply(data: dict, point_ids: list[str]) -> dict:
     allowed ids and removed from the text; anything unknown is dropped."""
     raw = "".join(str(b.get("text") or "") for b in data.get("content") or []
                   if isinstance(b, dict) and b.get("type") == "text")
-    did, offer, point = None, [], None
+    offer, point = [], None
     for kind, value in _TAG_RE.findall(raw):
         ids = [v.strip() for v in value.split(",") if v.strip()]
-        if kind == "do" and ids and ids[0] in UI_ACTIONS:
-            did = ids[0]
-        elif kind == "offer":
+        if kind in ("do", "offer"):     # nothing runs by itself; a `do` is offered too
             offer += [i for i in ids if i in UI_ACTIONS and i not in offer]
         elif kind == "point" and ids and ids[0] in point_ids:
             point = ids[0]
     text = re.sub(r"\n{3,}", "\n\n", _TAG_STRIP_RE.sub("", raw)).strip()
-    return {"text": text, "did": did, "offer": [i for i in offer if i != did][:3], "point": point}
+    return {"text": text, "offer": offer[:3], "point": point}
 
 
 def _rate_ok(username: str) -> bool:
@@ -196,6 +198,6 @@ async def terminator_say(request: SayRequest, username: str = Depends(verify_aut
     item = {"id": uuid.uuid4().hex, "role": "assistant", **reply}
     shown.append(item)
     usage = data.get("usage") or {}
-    logger.info("terminator: %s in=%s out=%s did=%s", username, usage.get("input_tokens"),
-                usage.get("output_tokens"), reply["did"])
+    logger.info("terminator: %s in=%s out=%s offer=%s", username, usage.get("input_tokens"),
+                usage.get("output_tokens"), ",".join(reply["offer"]))
     return {"reply": item, "messages": list(shown)}

@@ -1299,7 +1299,6 @@ export const en = {
     terminatorSuggest1: 'How do I upload a file?',
     terminatorSuggest2: 'Open another terminal beside this one',
     terminatorSuggest3: 'How do I close a pane?',
-    terminatorDid: 'Done',
     terminatorPointed: 'Shown on screen · show again',
     uiActionNewTab: 'New terminal',
     uiActionSplitRight: 'Split right',

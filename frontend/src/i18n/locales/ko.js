@@ -1304,7 +1304,6 @@ export const ko = {
     terminatorSuggest1: '파일은 어떻게 올려요?',
     terminatorSuggest2: '터미널 하나 더 옆에 열어 줘',
     terminatorSuggest3: '칸을 닫으려면 어떻게 해요?',
-    terminatorDid: '했습니다',
     terminatorPointed: '화면에서 비췄습니다 · 다시 보기',
     uiActionNewTab: '새 터미널',
     uiActionSplitRight: '오른쪽으로 나누기',

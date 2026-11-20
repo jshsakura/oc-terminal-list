@@ -14,16 +14,17 @@ POINTS = ["settings", "pane-split"]
 def test_reply_reads_tags_keeps_only_known_ids_and_strips_them():
     data = {"content": [
         {"type": "thinking", "thinking": "…"},
-        {"type": "text", "text": "오른쪽으로 나눴습니다.\n\n@do:split-right @offer:split-right, settings,rm-rf,hosts,home\n@point:<img>"},
+        {"type": "text", "text": "칸 위쪽 줄의 분할 아이콘을 누릅니다.\n\n@do:split-right @offer:split-right, settings,rm-rf,hosts,home\n@point:<img>"},
     ]}
-    assert t.read_reply(data, POINTS) == {"text": "오른쪽으로 나눴습니다.", "did": "split-right",
-                                          "offer": ["settings", "hosts", "home"], "point": None}
+    # A `do` is never run: it joins the offered buttons, which the person presses.
+    assert t.read_reply(data, POINTS) == {"text": "칸 위쪽 줄의 분할 아이콘을 누릅니다.",
+                                          "offer": ["split-right", "settings", "hosts"], "point": None}
 
 
 def test_reply_without_tags_is_just_text():
     data = {"content": [{"type": "text", "text": "설정은 톱니바퀴입니다."}, "junk",
                         {"type": "tool_use", "name": "ui", "input": {"do": "new-tab"}}]}
-    assert t.read_reply(data, POINTS) == {"text": "설정은 톱니바퀴입니다.", "did": None, "offer": [], "point": None}
+    assert t.read_reply(data, POINTS) == {"text": "설정은 톱니바퀴입니다.", "offer": [], "point": None}
 
 
 def test_a_point_tag_must_name_a_guide_id():
@@ -64,7 +65,7 @@ def fake_glm(monkeypatch):
         async def post(self, url, json, headers):
             sent.append(json)
             return _FakeResponse({"content": [
-                {"type": "text", "text": "새 터미널을 열었습니다.\n@do:new-tab"}],
+                {"type": "text", "text": "탭 줄의 + 를 누릅니다.\n@offer:new-tab"}],
                 "usage": {"input_tokens": 1500, "output_tokens": 20}})
 
     monkeypatch.setattr(t.httpx, "AsyncClient", Client)
@@ -80,7 +81,7 @@ def _say(text, user="u"):
 
 def test_one_request_per_message_with_thinking_off_and_no_tools(fake_glm):
     out = _say("터미널 하나 열어줘")
-    assert out["reply"]["did"] == "new-tab"
+    assert out["reply"]["offer"] == ["new-tab"] and "did" not in out["reply"]
     body = fake_glm[0]
     assert body["model"] == "glm-5.3-flash" and body["thinking"] == {"type": "disabled"}
     assert "tools" not in body                      # a tool definition tripled the latency

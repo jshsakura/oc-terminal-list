@@ -8,7 +8,7 @@
  * short list the model is allowed to use.
  */
 import { memo, useEffect, useRef, useState } from 'react';
-import { Sparkles, X, Send, RotateCcw, Check, LocateFixed } from 'lucide-react';
+import { Sparkles, X, Send, RotateCcw, LocateFixed } from 'lucide-react';
 import { tokens } from '../../styles/tokens';
 import useTerminator from '../../hooks/useTerminator';
 import useVisualViewport from '../../hooks/useVisualViewport';
@@ -98,17 +98,11 @@ const Message = ({ item, t }) => {
       <Avatar size={24} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: space[2], minWidth: 0, flex: 1 }}>
         {item.text && <div style={styles.bubble}>{item.text}</div>}
-        {item.did && (
-          <div style={styles.didChip}>
-            <Check size={12} aria-hidden="true" />
-            <span>{uiActionLabel(item.did, t)} · {t?.('terminatorDid') || '했습니다'}</span>
-          </div>
-        )}
         {item.point && (
           <button
             type="button"
             className="tm-action"
-            style={{ ...styles.didChip, ...styles.pointChip }}
+            style={styles.pointChip}
             onClick={() => window.dispatchEvent(new CustomEvent('iterm:spotlight', { detail: { id: item.point } }))}
           >
             <LocateFixed size={12} aria-hidden="true" />
@@ -360,12 +354,9 @@ const styles = {
     maxWidth: '84%', background: ACCENT_GRADIENT, color: color.base,
     borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.sm,
   },
-  didChip: {
-    alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: `2px ${space[2]}`,
-    borderRadius: radius.full, fontSize: fontSize['12'], color: color.success,
-    background: `color-mix(in srgb, ${color.success} 14%, transparent)`,
-  },
   pointChip: {
+    alignSelf: 'flex-start', display: 'inline-flex', alignItems: 'center', gap: '5px', padding: `2px ${space[2]}`,
+    borderRadius: radius.full, fontSize: fontSize['12'],
     border: 'none', cursor: 'pointer', color: color.accent,
     background: `color-mix(in srgb, ${color.accent} 12%, transparent)`,
   },

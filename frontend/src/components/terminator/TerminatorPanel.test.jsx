@@ -46,27 +46,26 @@ describe('TerminatorPanel', () => {
     await waitFor(() => expect(api.sayToTerminator).toHaveBeenCalledWith('파일은 어떻게 올려요?'));
   });
 
-  it('runs what the answer did, shows it, and offers buttons for the rest', async () => {
-    const reply = { id: 'a', role: 'assistant', text: '새 터미널을 열었습니다.', did: 'new-tab', offer: ['settings'], point: null };
+  it('never acts by itself: it explains and offers the button to press', async () => {
+    const reply = { id: 'a', role: 'assistant', text: '칸 위쪽 줄의 분할 아이콘을 누릅니다.', offer: ['split-down'], point: 'pane-split' };
     api.sayToTerminator.mockResolvedValueOnce({
-      reply, messages: [{ id: 'u', role: 'user', text: '터미널 열어줘' }, reply],
+      reply, messages: [{ id: 'u', role: 'user', text: '아래로 나눠줘' }, reply],
     });
     render(<TerminatorPanel open t={t} />);
     const input = await screen.findByPlaceholderText('이 화면에 대해 물어봅니다');
-    fireEvent.change(input, { target: { value: '터미널 열어줘' } });
+    fireEvent.change(input, { target: { value: '아래로 나눠줘' } });
     fireEvent.keyDown(input, { key: 'Enter' });
-    expect(await screen.findByText('새 터미널을 열었습니다.')).toBeInTheDocument();
-    expect(actions).toEqual(['new-tab']);
-    expect(screen.getByText(/새 터미널 · 했습니다/)).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: '설정' })[0]);
-    expect(actions).toEqual(['new-tab', 'settings']);
+    expect(await screen.findByText('칸 위쪽 줄의 분할 아이콘을 누릅니다.')).toBeInTheDocument();
+    expect(actions).toEqual([]);
+    fireEvent.click(screen.getAllByRole('button', { name: '아래로 나누기' }).at(-1));
+    expect(actions).toEqual(['split-down']);
   });
 
   it('points at a button when the answer says where something is', async () => {
     const spots = [];
     const onSpot = (e) => spots.push(e.detail.id);
     window.addEventListener('iterm:spotlight', onSpot);
-    const reply = { id: 'a', role: 'assistant', text: '여기 있습니다.', did: null, offer: [], point: 'settings' };
+    const reply = { id: 'a', role: 'assistant', text: '여기 있습니다.', offer: [], point: 'settings' };
     api.sayToTerminator.mockResolvedValueOnce({ reply, messages: [reply] });
     render(<TerminatorPanel open t={t} />);
     const input = await screen.findByPlaceholderText('이 화면에 대해 물어봅니다');
