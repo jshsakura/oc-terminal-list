@@ -174,7 +174,13 @@ const TerminatorPanel = ({ open, onClose, isMobile = false, t }) => {
 
   useEffect(() => {
     if (!open) return undefined;
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.(); };
+    // Escape is the panel's only while focus is in it (or nowhere): a palette or settings
+    // window opened on top owns its own Escape, and both closing at once loses the chat.
+    const onKey = (e) => {
+      if (e.key !== 'Escape') return;
+      const focused = document.activeElement;
+      if (!focused || focused === document.body || panelRef.current?.contains(focused)) onClose?.();
+    };
     document.addEventListener('keydown', onKey);
     const id = requestAnimationFrame(() => inputRef.current?.focus({ preventScroll: true }));
     return () => { document.removeEventListener('keydown', onKey); cancelAnimationFrame(id); };

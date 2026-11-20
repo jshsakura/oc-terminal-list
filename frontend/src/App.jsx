@@ -1069,9 +1069,9 @@ function App() {
   }));
   const handleSplitPane = useEvent((tabId, paneId, dir) => splitActivePane(dir, tabId, paneId));
   /* Terminator (and its buttons) doing what a UI button does. The names are utils/uiActions;
-     anything else is ignored. On desktop the panel stays open beside whatever the action opens,
-     so the person can keep asking; on a phone every action closes it, since the sheet covers
-     the screen. */
+     anything else is ignored. A window the action opens stacks above the panel, so the panel
+     stays open and the person can keep asking. On a phone an in-place action closes it, or its
+     result would be hidden under the sheet; so does quick input, which docks to the pane. */
   const runTerminatorAction = useEvent((action) => {
     const hasTab = activeTabIdRef.current !== null;
     const opensWindow = {
@@ -1089,7 +1089,7 @@ function App() {
     }[action];
     if (!opensWindow && !inPlace) return;
     (opensWindow || inPlace)();
-    if (isMobile) setTerminatorOpen(false);
+    if (isMobile && (inPlace || action === 'quick-input')) setTerminatorOpen(false);
   });
   useEffect(() => {
     const onAction = (e) => runTerminatorAction(e.detail?.action);
