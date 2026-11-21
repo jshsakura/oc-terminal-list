@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, KeyRound, Plus, Trash2, Pencil } from 'lucide-react';
 import Button from './common/Button';
 import { tokens } from '../styles/tokens';
@@ -14,13 +14,23 @@ const { color, font, fontSize, fontWeight, radius, space, shadow, motion } = tok
  * private_key 는 입력 시점에서 한 번 백엔드 vault 로 암호화 후 저장.
  * UI 에는 평문으로 다시 보여주지 않는다 (write-once).
  */
-const SshKeyManager = ({ isOpen, keys, onAdd, onUpdate, onDelete, onClose, t }) => {
+const SshKeyManager = ({ isOpen, keys, onAdd, onUpdate, onDelete, onClose, initialEditKey = null, t }) => {
   const [mode, setMode] = useState('list'); // 'list' | 'add' | 'edit'
   const [editingId, setEditingId] = useState(null);
   const [draft, setDraft] = useState({ name: '', privateKey: '', passphrase: '', publicKey: '' });
   const [clearPassphrase, setClearPassphrase] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+
+  // Opened from a key in Settings: land on that key's form, not the list.
+  useEffect(() => {
+    if (!isOpen || !initialEditKey) return;
+    setDraft({ name: initialEditKey.name || '', privateKey: '', passphrase: '', publicKey: initialEditKey.public_key || '' });
+    setClearPassphrase(false);
+    setEditingId(initialEditKey.id);
+    setError('');
+    setMode('edit');
+  }, [isOpen, initialEditKey]);
 
   if (!isOpen) return null;
 

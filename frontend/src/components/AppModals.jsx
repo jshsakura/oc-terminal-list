@@ -109,7 +109,7 @@ export default function AppModals({
           isOpen={keyManagerOpen}
           onClose={() => { setKeyManagerOpen(false); setEditingKey(null); }}
           keys={sshKeys}
-          onCreate={createKey}
+          onAdd={createKey}
           onUpdate={updateKey}
           onDelete={deleteKey}
           initialEditKey={editingKey}
