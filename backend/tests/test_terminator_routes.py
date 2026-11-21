@@ -14,7 +14,8 @@ POINTS = ["settings", "pane-split"]
 def test_reply_reads_tags_keeps_only_known_ids_and_strips_them():
     data = {"content": [
         {"type": "thinking", "thinking": "…"},
-        {"type": "text", "text": "칸 위쪽 줄의 분할 아이콘을 누릅니다.\n\n@do:split-right @offer:split-right, settings,rm-rf,hosts,home\n@point:<img>"},
+        {"type": "text", "text": "칸 위쪽 줄의 분할 아이콘을 누릅니다.\n\n"
+                                 "@do:split-right @offer:split-right, settings,rm-rf,hosts,home\n@point:<img>"},
     ]}
     # A `do` is never run: it joins the offered buttons, which the person presses.
     assert t.read_reply(data, POINTS) == {"text": "칸 위쪽 줄의 분할 아이콘을 누릅니다.",
@@ -25,6 +26,11 @@ def test_reply_without_tags_is_just_text():
     data = {"content": [{"type": "text", "text": "설정은 톱니바퀴입니다."}, "junk",
                         {"type": "tool_use", "name": "ui", "input": {"do": "new-tab"}}]}
     assert t.read_reply(data, POINTS) == {"text": "설정은 톱니바퀴입니다.", "offer": [], "point": None}
+
+
+def test_a_bare_known_id_is_stripped_but_other_at_words_stay():
+    data = {"content": [{"type": "text", "text": "설정에서 바꿉니다. @settings\n메일은 me@example 입니다."}]}
+    assert t.read_reply(data, POINTS)["text"] == "설정에서 바꿉니다.\n메일은 me@example 입니다."
 
 
 def test_a_point_tag_must_name_a_guide_id():

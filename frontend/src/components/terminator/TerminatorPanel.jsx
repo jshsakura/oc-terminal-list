@@ -23,7 +23,7 @@ const INPUT_LINE_PX = 20;
 const INPUT_MAX_PX = 140;
 const SUGGESTIONS = [
   ['terminatorSuggest1', '파일은 어떻게 올려요?'],
-  ['terminatorSuggest2', '터미널 하나 더 옆에 열어 줘'],
+  ['terminatorSuggest2', '옆으로 나누려면 어떻게 해요?'],
   ['terminatorSuggest3', '칸을 닫으려면 어떻게 해요?'],
 ];
 const ACCENT_GRADIENT = `linear-gradient(135deg, ${color.accent}, color-mix(in srgb, ${color.accent} 45%, ${color.info}))`;
@@ -135,7 +135,7 @@ const Welcome = ({ t, onAsk }) => (
     <div style={styles.hero}>
       <Avatar size={44} />
       <div style={styles.heroTitle}>{t?.('terminatorHello') || '무엇을 도와드릴까요?'}</div>
-      <div style={styles.heroSub}>{t?.('terminatorHelloSub') || '화면 쓰는 법을 묻거나, 버튼으로 할 수 있는 일을 시킵니다.'}</div>
+      <div style={styles.heroSub}>{t?.('terminatorHelloSub') || '화면 쓰는 법이나 기능이 어디 있는지 물으면 답하고, 그 버튼을 화면에서 비춥니다.'}</div>
     </div>
     <div style={styles.sectionLabel}>{t?.('terminatorQuick') || '바로 하기'}</div>
     <div style={styles.cardGrid}>
@@ -259,7 +259,7 @@ const TerminatorPanel = ({ open, onClose, isMobile = false, t }) => {
 
       <div ref={listRef} style={styles.messages}>
         {!configured && (
-          <div style={styles.note}>{t?.('terminatorNoKey') || '터미네이터 연결이 아직 설정되지 않았습니다. 관리자에게 연결을 요청합니다.'}</div>
+          <div style={styles.note}>{t?.('terminatorNoKey') || '터미네이터 연결이 아직 설정되지 않았습니다. 설정 → 일반 → 터미네이터에서 Z.ai 키를 넣으면 켜집니다.'}</div>
         )}
         {configured && messages.length === 0 && !isThinking && <Welcome t={t} onAsk={(text) => send(text)} />}
         {messages.map((item) => <Message key={item.id} item={item} t={t} />)}

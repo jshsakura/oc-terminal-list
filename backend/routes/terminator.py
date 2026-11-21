@@ -65,6 +65,8 @@ _GUIDE_ID_RE = re.compile(r"`([a-z0-9][a-z0-9-]*)`")
 _TAG_RE = re.compile(r"@(do|offer|point)\s*:\s*([a-z0-9][a-z0-9,\s-]*)")
 # Removal is wider than parsing: a malformed tag is ignored but must not show as text.
 _TAG_STRIP_RE = re.compile(r"@(?:do|offer|point)\s*:[^\n]*")
+# The model sometimes drops the kind and writes a bare "@settings"; a known id like that is a tag.
+_BARE_ID_RE = re.compile(r"[ \t]*@([a-z][a-z0-9-]*)\b")
 _CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
 
 PERSONA = """You are Terminator, the help companion inside Terminal List, a terminal in the browser.
@@ -83,8 +85,9 @@ Always write at least one sentence. Even when asked to do something ("터미널 
 "아래로 나눠줘"), tell them how to do it: which button, where, or the shortcut. Never say it is
 done, and do not say you cannot do it; just explain, the offered button is right below.
 End sentences with 합니다/됩니다, never 하세요. Then, on the last line, add screen tags when they help:
-- @point:<id>  the button you described, when it is in 화면 안내 대상.
-- @offer:<action>,<action>  up to 3 buttons the person can press to do what you explained.
+- @point:<id>  only the one button your answer tells them to press, when it is in 화면 안내 대상.
+- @offer:<action>  only an action that does exactly what you explained (asked how to open a new
+  terminal: new-tab). Usually one. If none of the actions does it, write no @offer at all.
 Actions: {actions}. Write tags only on that last line, never inside sentences."""
 
 _history: dict[str, deque] = {}
@@ -117,7 +120,9 @@ def read_reply(data: dict, point_ids: list[str]) -> dict:
             offer += [i for i in ids if i in UI_ACTIONS and i not in offer]
         elif kind == "point" and ids and ids[0] in point_ids:
             point = ids[0]
-    text = re.sub(r"\n{3,}", "\n\n", _TAG_STRIP_RE.sub("", raw)).strip()
+    text = _BARE_ID_RE.sub(lambda m: "" if m.group(1) in UI_ACTIONS or m.group(1) in point_ids else m.group(0),
+                           _TAG_STRIP_RE.sub("", raw))
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
     return {"text": text, "offer": offer[:3], "point": point}
 
 
