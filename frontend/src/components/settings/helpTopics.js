@@ -8,7 +8,7 @@
  * Copy rules:
  *  - One entry = a name + **one or two sentences**. Longer and nobody reads it.
  *  - Say what you can DO with it, not what it is called ("handle" ✗ / "drag to move it,
- *    click to copy the address" ○).
+ *    the chip next to it copies the address" ○).
  *  - Plain declarative voice (합니다체 in Korean) — the register the rest of the app uses.
  *
  * Order is an argument. The first section is what this app does that others cannot:
@@ -89,6 +89,9 @@ export const HELP_TOPICS = [
       { termKey: 'helpPaletteTerm', descKey: 'helpPaletteDesc' },
       { termKey: 'helpQuickOpenTerm', descKey: 'helpQuickOpenDesc' },
       { termKey: 'helpSnippetTerm', descKey: 'helpSnippetDesc' },
+      { termKey: 'helpQuickInputTerm', descKey: 'helpQuickInputDesc' },
+      { termKey: 'helpBroadcastTerm', descKey: 'helpBroadcastDesc' },
+      { termKey: 'helpTerminatorTerm', descKey: 'helpTerminatorDesc' },
       { termKey: 'helpPredictiveTerm', descKey: 'helpPredictiveDesc' },
     ],
   },
@@ -97,7 +100,6 @@ export const HELP_TOPICS = [
     titleKey: 'helpSecMobile',
     entries: [
       { termKey: 'helpMobileKeysTerm', descKey: 'helpMobileKeysDesc' },
-      { termKey: 'helpQuickInputTerm', descKey: 'helpQuickInputDesc' },
       { termKey: 'helpVncTouchTerm', descKey: 'helpVncTouchDesc' },
     ],
   },

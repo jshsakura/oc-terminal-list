@@ -226,21 +226,21 @@ describe('TerminalHeader', () => {
     const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
 
     openPanelFromMenu(container, 'paneInfoTitle');
-    expect(await screen.findByText('Info')).toBeTruthy();
+    expect(await screen.findByText('paneInfoTitle')).toBeTruthy();
 
     // The … button ignores a reopen within 300ms of closing (outside-click guard).
     const now = Date.now();
     vi.spyOn(Date, 'now').mockReturnValue(now + 1000);
     openPanelFromMenu(container, 'paneThemeTitle');
 
-    await waitFor(() => expect(screen.getByText('Theme')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('paneThemeTitle')).toBeTruthy());
   });
 
   it('highlights the side panel resize handle on hover', async () => {
     const { container } = render(<TerminalHeader {...baseProps({ activeTabType: 'local' })} />);
 
     openPanelFromMenu(container, 'paneInfoTitle');
-    await screen.findByText('Info');
+    await screen.findByText('paneInfoTitle');
 
     const handle = container.querySelector('[title="resizePanel"]');
     expect(handle).toBeTruthy();
@@ -405,7 +405,7 @@ describe('TerminalHeader', () => {
       );
       expect(container.firstChild).toBeTruthy();
       // Git lives behind the Files icon, which must exist and be clickable
-      const filesBtn = container.querySelector('[title="Files"]');
+      const filesBtn = container.querySelector('[title="files"]');
       expect(filesBtn).toBeTruthy();
       fireEvent.click(filesBtn);
       expect(container.querySelector('[data-panel-tab="git"]')).toBeTruthy();
@@ -421,7 +421,7 @@ describe('TerminalHeader', () => {
         />
       );
       // No count on the Files icon when there are no changes
-      expect(container.querySelector('[title="Files"]')).toBeTruthy();
+      expect(container.querySelector('[title="files"]')).toBeTruthy();
       expect(container.querySelector('[title^="Files ("]')).toBeNull();
     });
   });
@@ -432,7 +432,7 @@ describe('TerminalHeader — Info and Theme live in the … menu', () => {
     const { container } = render(<TerminalHeader settings={{ theme: 'catppuccin' }} t={mockT} language="en" />);
     expect(container.querySelector('[title="Info"]')).toBeNull();
     expect(container.querySelector('[title="Theme"]')).toBeNull();
-    expect(container.querySelector('[title="Files"]')).toBeTruthy();
+    expect(container.querySelector('[title="files"]')).toBeTruthy();
   });
 
   it('lists both in the … menu with a one-line hint', () => {
@@ -464,7 +464,7 @@ describe('TerminalHeader — Git is a tab inside the Files panel', () => {
     fireEvent.click(gitTab);
     expect(container.querySelector('[data-panel-tab="git"]').getAttribute('aria-selected')).toBe('true');
     // The Files rail icon stays lit for the Git tab and closes the whole panel.
-    fireEvent.click(container.querySelector('[title="Files"]'));
+    fireEvent.click(container.querySelector('[title="files"]'));
     expect(container.querySelector('[data-panel-tab]')).toBeNull();
   });
 });

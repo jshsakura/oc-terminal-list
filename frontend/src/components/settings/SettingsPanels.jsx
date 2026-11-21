@@ -414,6 +414,8 @@ export const InfoPanel = ({ t }) => (
         <ShortcutRow keys={['Ctrl', 'Shift', 'S']} desc={t('shortcutSnippets') || 'Snippet palette'} />
         <ShortcutRow keys={['Ctrl', 'T']} desc={t('shortcutNewTab') || 'New tab'} />
         <ShortcutRow keys={['Ctrl', 'W']} desc={t('shortcutCloseTab') || 'Close tab'} />
+        <ShortcutRow keys={['Ctrl', '1–9']} desc={t('shortcutSwitchTab') || 'Switch tab'} />
+        <ShortcutRow keys={['Ctrl', ',']} desc={t('shortcutOpenSettings') || 'Open settings'} />
         <ShortcutRow keys={['Ctrl', '\\']} desc={t('shortcutSplitRight') || 'Split right'} />
         <ShortcutRow keys={['Ctrl', 'Shift', '\\']} desc={t('shortcutSplitDown') || 'Split down'} />
         <ShortcutRow keys={['Ctrl', 'P']} desc={t('shortcutQuickOpen') || 'Quick open files'} />

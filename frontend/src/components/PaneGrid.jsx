@@ -666,6 +666,7 @@ const PaneGrid = ({
               {i < children.length - 1 && (
                 <SplitHandle
                   direction={direction}
+                  title={t?.('splitHandleHint') || 'Drag to resize · Double-click to equalize'}
                   onMouseDown={(e) => {
                     e.preventDefault();
                     resizeDragRef.current = {
@@ -803,7 +804,7 @@ const PaneGrid = ({
 // React.Fragment wrapper that accepts a key prop (avoids array-of-fragment lint issues)
 const SplitFragment = ({ children }) => <>{children}</>;
 
-const SplitHandle = ({ direction, onMouseDown, onDoubleClick }) => {
+const SplitHandle = ({ direction, onMouseDown, onDoubleClick, title }) => {
   const isRow = direction === 'row';
   const [hovered, setHovered] = useState(false);
   return (
@@ -812,7 +813,7 @@ const SplitHandle = ({ direction, onMouseDown, onDoubleClick }) => {
       onDoubleClick={onDoubleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
-      title="Drag to resize · Double-click to equalize"
+      title={title}
       style={{
         flexShrink: 0,
         /* 6px wide/tall hit area; overlaps pane content by 2.5px each side */

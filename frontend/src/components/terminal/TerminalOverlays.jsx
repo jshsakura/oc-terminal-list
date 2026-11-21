@@ -261,7 +261,7 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
   }
 
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent);
-  const selectHint = readOnly ? t('mobileSelectGesture') : (isMac ? 'Option+drag to select' : 'Shift+drag to select');
+  const selectHint = readOnly ? t('mobileSelectGesture') : (isMac ? (t('selectHintMac') || 'Option+drag to select') : (t('selectHint') || 'Shift+drag to select'));
 
   return (
     <div

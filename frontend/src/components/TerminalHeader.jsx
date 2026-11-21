@@ -427,7 +427,8 @@ const TerminalHeader = ({
           {showLoading ? (
             <RailSkeleton count={RAIL_TABS.length} compact ui={panelUi} gap="2px" />
           ) : (
-            RAIL_TABS.map(({ id, icon: Icon, label }) => {
+            RAIL_TABS.map(({ id, icon: Icon, label: fallbackLabel, labelKey }) => {
+              const label = t?.(labelKey) || fallbackLabel;
               const isFilesTab = id === 'files';
               // Git lives inside the Files panel as its second tab, so the Files icon stands for both.
               const isFilesOrGit = activePanel === 'files' || activePanel === 'git';
@@ -841,7 +842,7 @@ const TerminalHeader = ({
             ) : (
               <span style={{ ...styles.panelTitle, color: panelUi.text }}>
                 <ActivePanelIcon size={13} strokeWidth={2} aria-hidden="true" style={{ color: panelUi.accent }} />
-                <span>{activePanelMeta?.label}</span>
+                <span>{(activePanelMeta && t?.(activePanelMeta.labelKey)) || activePanelMeta?.label}</span>
               </span>
             )}
             <button

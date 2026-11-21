@@ -515,7 +515,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           )}
           {status === 'saved' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px', color: theme.green, fontSize: '11px' }}>
-              <CheckCircle2 size={12} /> {t('settingsSaved')}
+              <CheckCircle2 size={12} /> {t('fileSaved') || 'Saved'}
             </div>
           )}
           {saveError && <span role="alert" style={{ color: theme.red }}>{saveError}</span>}
@@ -846,7 +846,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           <GripHorizontal size={14} style={{ opacity: 0.5 }} />
-          <span>{t('language')}: <span style={{ color: theme.ui.text }}>{getLanguage(activeFile).toUpperCase()}</span></span>
+          <span>{t('editorLanguage') || 'Language'}: <span style={{ color: theme.ui.text }}>{getLanguage(activeFile).toUpperCase()}</span></span>
         </div>
         <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
           <span>UTF-8</span>

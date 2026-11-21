@@ -13,13 +13,13 @@ const TOP_RAIL_HEIGHT = 30;
 const PANEL_STATE_PREFIX = 'iterm:terminal-header-panel:v1:';
 
 const TABS = [
-  { id: 'files', icon: Folder, label: 'Files' },
+  { id: 'files', icon: Folder, label: 'Files', labelKey: 'files' },
   // Git is the second tab inside the Files panel, not its own rail icon.
-  { id: 'git',   icon: GitBranch, label: 'Git', rail: false },
+  { id: 'git',   icon: GitBranch, label: 'Git', labelKey: 'changes', rail: false },
   // Info and Theme are rarely used, so they live in the … menu instead of the rail.
   // They open from the right, next to the menu that opens them.
-  { id: 'info',  icon: Info,     label: 'Info', rail: false, side: 'right' },
-  { id: 'theme', icon: Palette,   label: 'Theme', rail: false, side: 'right' },
+  { id: 'info',  icon: Info,     label: 'Info', labelKey: 'paneInfoTitle', rail: false, side: 'right' },
+  { id: 'theme', icon: Palette,   label: 'Theme', labelKey: 'paneThemeTitle', rail: false, side: 'right' },
 ];
 const RAIL_TABS = TABS.filter((tab) => tab.rail !== false);
 const PANEL_IDS = new Set(TABS.map((tab) => tab.id));

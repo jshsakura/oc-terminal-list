@@ -325,7 +325,7 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, isVisible = true, t 
               />
             )}
             {Array.isArray(stats.top_processes) && stats.top_processes.length > 0 && (
-              <ProcessList processes={stats.top_processes} onRefresh={refreshStats} />
+              <ProcessList processes={stats.top_processes} onRefresh={refreshStats} t={t} />
             )}
           </>
         )}

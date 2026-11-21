@@ -38,7 +38,7 @@ const ProcessActionButton = ({ label, disabled, onClick, tone, children }) => {
   );
 };
 
-const ProcessList = ({ processes, onRefresh }) => {
+const ProcessList = ({ processes, onRefresh, t }) => {
   const [pending, setPending] = useState(null); // pid currently sending kill
   const [error, setError] = useState(null);
 
@@ -69,7 +69,7 @@ const ProcessList = ({ processes, onRefresh }) => {
   return (
     <div style={infoStyles.processBox}>
       <div style={infoStyles.processHeader}>
-        <span>Top processes</span>
+        <span>{t?.('topProcesses') || 'Top processes'}</span>
         <span style={{ textAlign: 'right' }}>CPU · RSS</span>
       </div>
       {error && (
