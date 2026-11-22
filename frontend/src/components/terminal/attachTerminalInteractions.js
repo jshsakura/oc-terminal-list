@@ -9,6 +9,7 @@ import {
 import { copyTextToClipboard, uploadImageAndGetPath, pasteWhenConnected, reportClientError } from './terminalHelpers';
 import { uploadWithRetry } from './uploadRetry';
 import { getLinkAtClient } from '../../utils/terminalLinkAt';
+import { tapFocusWithProbe } from './tapFocus';
 import attachMobileViewSelection, { clampViewFontSize } from './attachMobileViewSelection';
 
 /**
@@ -471,6 +472,7 @@ const attachTerminalInteractions = ({
   /* 이 pane 에서 도크로 포커스를 한 번 넘겼나. attach 단위라 pane 을 새로 열면 다시
      한 번 넘어간다 — "처음 열었을 때만 편의를 주고 그 뒤엔 방해하지 않는다". */
   let handedToDock = false;
+  let cancelTapProbe = () => {};
 
   const handleTouchEnd = () => {
     clearTimeout(longPressTimer);
@@ -494,7 +496,8 @@ const attachTerminalInteractions = ({
       return;
     }
     if (!handedToDock && focusCommandDock()) { handedToDock = true; return; }
-    term.focus();
+    cancelTapProbe();
+    cancelTapProbe = tapFocusWithProbe(term);
   };
 
   const handleTouchCancel = () => {
@@ -564,6 +567,7 @@ const attachTerminalInteractions = ({
       if (selectionTimer) clearTimeout(selectionTimer);
       if (copyFlashTimer) clearTimeout(copyFlashTimer);
       if (longPressTimer) clearTimeout(longPressTimer);
+      cancelTapProbe();
       timers.forEach(clearTimeout);
       timers.clear();
     },

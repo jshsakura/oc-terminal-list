@@ -129,8 +129,9 @@ def log_detach(
 # `viewport` 는 실패가 아니라 **관측**이다. 폰에서만 나는 레이아웃 병(하단 검은 띠)은
 # 기기 없이는 재현이 안 되고, 코드만 읽어서는 추측이 된다 — 실제로 한 번 그렇게 고쳤다가
 # 안 먹었다. 살아있는 WS 로 실측값을 받아 로그에서 읽는다.
+# `tap-focus` 도 관측이다: 폰에서 터미널을 눌렀는데 키보드가 안 뜬 경우(tapFocus.js).
 CLIENT_ERROR_SCOPES = frozenset({
-    "paste-image", "paste-file", "file-drop", "attach-image", "viewport",
+    "paste-image", "paste-file", "file-drop", "attach-image", "viewport", "tap-focus",
 })
 CLIENT_ERROR_KINDS = frozenset({"blocked", "offline", "server", "error", "measure"})
 _MAX_DETAIL_LEN = 120
