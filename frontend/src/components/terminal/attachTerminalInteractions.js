@@ -9,7 +9,7 @@ import {
 import { copyTextToClipboard, uploadImageAndGetPath, pasteWhenConnected, reportClientError } from './terminalHelpers';
 import { uploadWithRetry } from './uploadRetry';
 import { getLinkAtClient } from '../../utils/terminalLinkAt';
-import { tapFocusWithProbe, releaseFocusWhenKeyboardCloses } from './tapFocus';
+import { tapFocusWithProbe, releaseFocusWhenKeyboardCloses, focusOnlyFromGesture } from './tapFocus';
 import attachMobileViewSelection, { clampViewFontSize } from './attachMobileViewSelection';
 
 /**
@@ -474,6 +474,7 @@ const attachTerminalInteractions = ({
   let handedToDock = false;
   let cancelTapProbe = () => {};
   const detachKeyboardRelease = isMobile() ? releaseFocusWhenKeyboardCloses(term) : () => {};
+  const detachFocusGate = isMobile() ? focusOnlyFromGesture(term) : () => {};
 
   const handleTouchEnd = () => {
     clearTimeout(longPressTimer);
@@ -570,6 +571,7 @@ const attachTerminalInteractions = ({
       if (longPressTimer) clearTimeout(longPressTimer);
       cancelTapProbe();
       detachKeyboardRelease();
+      detachFocusGate();
       timers.forEach(clearTimeout);
       timers.clear();
     },

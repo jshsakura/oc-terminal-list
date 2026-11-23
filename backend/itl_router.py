@@ -321,6 +321,29 @@ def sender_addr(targets: list[dict], sender_key: str, host_id: str | None) -> st
     return hits[0]["addr"] if hits else ""
 
 
+_OUTBOX_REQUEST_ID_RE = re.compile(r'"n"\s*:\s*"([0-9a-f]{8,32})"')
+
+
+async def reject_outbox(username: str, sender_key: str, payload: str, reason: str, *,
+                        host_id: str | None = None) -> None:
+    """An outbox we could not read still owes the sender an answer.
+
+    ⚠️ The sender's `@itl_pending` is cleared only by a recorded result. Dropping the
+    payload silently left that lock set forever, and every later cross-machine send from
+    that pane was refused ("처리 중인 요청이 있다"), with `itl receipt` unanswerable too.
+    The request id is recovered from the raw text; without one there is no lock to free.
+    """
+    logger.warning("itl 우편함을 읽지 못했다 (%s%s): %s",
+                   f"{host_id[:8]}/" if host_id else "", sender_key, reason)
+    match = _OUTBOX_REQUEST_ID_RE.search(payload or "")
+    if not match:
+        return
+    await _record_delivery(username, sender_key, host_id, {
+        "ok": False, "requestId": match.group(1), "delivery": "failed",
+        "error": f"백엔드가 메시지를 읽지 못했다({reason}); 다시 보내도 된다",
+    })
+
+
 async def deliver_from_pane(username: str, sender_key: str, msg: dict, *,
                             host_id: str | None = None) -> None:
     """팬이 찍은 표식 하나를 배달한다 — 브리지가 부르는 진입점.

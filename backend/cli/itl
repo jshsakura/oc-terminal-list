@@ -573,6 +573,10 @@ def put_outbox(line: str) -> bool:
         return False
     binary, socket, pane = context
     payload = json.loads(line)
+    # tmux expands `$NAME` in the command that stores the option: `a$b` arrived as `a`
+    # and `${x}` as `\${x}` (invalid JSON, the backend dropped the message). `\u0024`
+    # is the same character to a JSON reader and plain text to tmux.
+    line = line.replace("$", "\\u0024")
     request_id = payload["n"]
     if not REQUEST_ID_RE.fullmatch(request_id):
         return False

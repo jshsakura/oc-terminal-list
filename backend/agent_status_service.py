@@ -20,7 +20,7 @@ import logging
 
 import agent_status_events
 from agent_status_watcher import AgentStatusWatcher, PANE_FORMAT
-from itl_channel import OUTBOX_OPTION, parse_sentinel
+from itl_channel import OUTBOX_OPTION, parse_outbox
 from sse_broadcast import _broadcast_sse, _tab_state_sse_queues
 from tmux_manager import tmux_manager
 
@@ -60,7 +60,7 @@ async def _on_agent_outbox(pending: list[tuple[str, str]]) -> None:
     ⚠️ **먼저 비우고 배달한다.** 배달이 느리면 다음 틱이 같은 통을 또 집는다.
     """
     from itl_open import handle_op, is_open_request
-    from itl_router import deliver_from_pane
+    from itl_router import deliver_from_pane, reject_outbox
     from sqlite_storage import storage
 
     for session_id, payload in pending:
@@ -70,14 +70,9 @@ async def _on_agent_outbox(pending: list[tuple[str, str]]) -> None:
         except Exception as e:                       # noqa: BLE001
             logger.warning("itl 우편함을 비우지 못했다 (%s): %s — 배달을 건너뛴다", session_id, e)
             continue                                 # 못 비웠으면 무한 재배달이 된다
-        if len(payload) > MAX_OUTBOX_CHARS:
-            logger.warning("itl 우편함이 너무 길다 (%s): %d자", session_id, len(payload))
-            continue
-        open_request = is_open_request(payload)
-        msg = None if open_request else parse_sentinel(payload)
-        if not msg and not open_request:
-            logger.info("itl 우편함의 모양이 아니다 (%s)", session_id)
-            continue
+        too_long = len(payload) > MAX_OUTBOX_CHARS
+        open_request = None if too_long else is_open_request(payload)
+        msg = None if too_long or open_request else parse_outbox(payload)
         # 보낸 이는 **세션에서 되짚는다** — 페이로드의 자칭을 믿으면 사칭이 공짜다.
         owner = None
         try:
@@ -86,6 +81,10 @@ async def _on_agent_outbox(pending: list[tuple[str, str]]) -> None:
             pass
         if not owner:
             logger.info("itl 우편함: 세션 주인을 모른다 (%s)", session_id)
+            continue
+        if not msg and not open_request:
+            reason = f"너무 길다 {len(payload)}자" if too_long else "모양이 아니다"
+            await reject_outbox(owner, session_id, payload, reason)
             continue
         if open_request:
             # Opening waits for a shell and an agent to start (seconds). Run it beside the

@@ -20,8 +20,13 @@ const KEYBOARD_OPEN_RATIO = 0.75;
 const REPORT_GAP_MS = 30000;
 
 let lastReportAt = -Infinity;
+let tapCount = 0;
+let missCount = 0;
+let skippedFocusCount = 0;
 
-export const resetTapFocusReports = () => { lastReportAt = -Infinity; };
+export const resetTapFocusReports = () => {
+  lastReportAt = -Infinity; tapCount = 0; missCount = 0; skippedFocusCount = 0;
+};
 
 const platform = (nav) => {
   const ua = nav?.userAgent || '';
@@ -100,6 +105,27 @@ export const focusForKeyboard = (term, { win = window } = {}) => {
 };
 
 /**
+ * A focus() made outside a tap (tab switch, pane connect, a modal closing) gives the
+ * terminal focus on a phone but no keyboard. The textarea then sits focused with the
+ * keyboard down, and the logs show the next tap cannot raise it (refocus=1). Such a focus
+ * does nothing useful on a phone, so skip it: only focus while the user is touching.
+ * Browsers without `navigator.userActivation` keep the old behavior. Returns a detach.
+ */
+export const focusOnlyFromGesture = (term, { win = window } = {}) => {
+  const activation = win.navigator?.userActivation;
+  if (!term || typeof term.focus !== 'function' || !activation || !('isActive' in activation)) {
+    return () => {};
+  }
+  const original = term.focus;
+  const guarded = function guardedFocus(...args) {
+    if (!activation.isActive) { skippedFocusCount += 1; return undefined; }
+    return original.apply(this, args);
+  };
+  term.focus = guarded;
+  return () => { if (term.focus === guarded) term.focus = original; };
+};
+
+/**
  * The keyboard closed while the terminal kept focus ("완료", Android back, page scroll).
  * Logs showed that a tap after that never brings the keyboard back on iOS, not even when
  * focus steps through the helper input (via=proxy), while a tap with nothing focused
@@ -136,9 +162,11 @@ export const tapFocusWithProbe = (term, { win = window, now = Date.now } = {}) =
   const keyboardAlreadyUp = before !== null && inner > 0 && before < inner * KEYBOARD_OPEN_RATIO;
   const { refocus, via } = focusForKeyboard(term, { win });
   if (!vv || keyboardAlreadyUp) return () => {};
+  tapCount += 1;
   const timer = win.setTimeout(() => {
     const after = vv.height;
     if (after <= before * (1 - KEYBOARD_MIN_SHRINK)) return;
+    missCount += 1;
     reportTapFocus('measure', [
       'no-keyboard',
       `refocus=${refocus ? 1 : 0}`,
@@ -147,6 +175,8 @@ export const tapFocusWithProbe = (term, { win = window, now = Date.now } = {}) =
       `vv=${Math.round(before)}->${Math.round(after)}`,
       `inner=${inner}`,
       `os=${platform(win.navigator)}`,
+      `misses=${missCount}/${tapCount}`,
+      `skipped-focus=${skippedFocusCount}`,
     ].join(' '), { win, now });
   }, KEYBOARD_WAIT_MS);
   return () => win.clearTimeout(timer);

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  focusForKeyboard, tapFocusWithProbe, resetTapFocusReports, releaseFocusWhenKeyboardCloses,
+  focusForKeyboard, tapFocusWithProbe, resetTapFocusReports, releaseFocusWhenKeyboardCloses, focusOnlyFromGesture,
   CLIENT_REPORT_EVENT, KEYBOARD_WAIT_MS,
 } from './tapFocus';
 
@@ -69,7 +69,7 @@ describe('tapFocus', () => {
     vi.advanceTimersByTime(KEYBOARD_WAIT_MS);
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatchObject({ scope: 'tap-focus', kind: 'measure' });
-    expect(reports[0].detail).toMatch(/no-keyboard refocus=1 via=proxy active=terminal vv=800->800 inner=844 os=ios/);
+    expect(reports[0].detail).toMatch(/no-keyboard refocus=1 via=proxy active=terminal vv=800->800 inner=844 os=ios misses=1\/1 skipped-focus=0/);
     tapFocusWithProbe(term, { win });
     vi.advanceTimersByTime(KEYBOARD_WAIT_MS);
     expect(reports).toHaveLength(1);              // one per 30s, not one per tap
@@ -137,6 +137,31 @@ describe('tapFocus', () => {
       expect(document.activeElement).toBe(other);
       detach();
       expect(listeners.size).toBe(0);
+    });
+  });
+  describe('focusOnlyFromGesture', () => {
+    const winWith = (activation) => ({ navigator: { userActivation: activation }, document });
+
+    it('skips a focus made outside a tap and allows one inside', () => {
+      const term = makeTerm();
+      const activation = { isActive: false };
+      focusOnlyFromGesture(term, { win: winWith(activation) });
+      term.focus();
+      expect(document.activeElement).not.toBe(term.textarea);
+      activation.isActive = true;
+      term.focus();
+      expect(document.activeElement).toBe(term.textarea);
+    });
+
+    it('leaves focus alone where the browser cannot tell, and detaches', () => {
+      const term = makeTerm();
+      const original = term.focus;
+      expect(focusOnlyFromGesture(term, { win: { navigator: {}, document } })).toBeInstanceOf(Function);
+      expect(term.focus).toBe(original);
+      const detach = focusOnlyFromGesture(term, { win: winWith({ isActive: false }) });
+      expect(term.focus).not.toBe(original);
+      detach();
+      expect(term.focus).toBe(original);
     });
   });
 });

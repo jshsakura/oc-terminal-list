@@ -598,3 +598,28 @@ class TestSenderRate:
                 await itl_router.deliver_from_pane("u", "sess-a", {"to": "1.1", "text": "x", "n": f"n{i}"})
         # 배달 + 전달 통지 = 호출 둘, 상한만큼만
         assert local.await_count == itl_router.RATE_MAX_SENDS * 2
+
+
+class TestOutboxThatCannotBeRead:
+    """A dropped outbox used to leave the sender's lock set forever (2026-11-23)."""
+
+    def test_옛_itl_이_남긴_역슬래시_달러도_읽는다(self):
+        payload = '{"to":"1.2","text":"요청 시간(\\$request_time)","n":"abcdef0123456789"}'
+        assert parse_sentinel(payload) is None
+        assert itl_channel.parse_outbox(payload)["text"] == "요청 시간($request_time)"
+
+    @pytest.mark.asyncio
+    async def test_못_읽은_우편함도_실패로_기록해_잠금을_푼다(self):
+        with patch.object(itl_router, "_record_delivery", new=AsyncMock()) as record:
+            await itl_router.reject_outbox("u", "sess", '{"to":"1.2","text":"x \\${y}","n":"c7643da53f254101"',
+                                           "모양이 아니다")
+        record.assert_awaited_once()
+        _user, sender, host, receipt = record.await_args.args
+        assert sender == "sess" and host is None
+        assert receipt["requestId"] == "c7643da53f254101" and receipt["delivery"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_요청_ID가_없으면_기록하지_않는다(self):
+        with patch.object(itl_router, "_record_delivery", new=AsyncMock()) as record:
+            await itl_router.reject_outbox("u", "sess", "garbage", "모양이 아니다", host_id="h" * 36)
+        record.assert_not_awaited()

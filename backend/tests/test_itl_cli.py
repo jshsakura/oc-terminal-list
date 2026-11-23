@@ -459,6 +459,21 @@ class TestNoLiveTmuxFromTests:
         assert calls == []
 
 
+class TestOutboxDollar:
+    def test_달러는_tmux_가_못_건드리게_u0024_로_싣는다(self, monkeypatch):
+        """tmux expanded `$NAME` in the stored command; `$request_time` broke the JSON."""
+        calls = []
+        monkeypatch.setattr(itl, "current_tmux_context", lambda: ("tmux", "/s", "%1"))
+        monkeypatch.setattr(itl, "run", lambda argv, **kw: calls.append(argv) or (0, "queued", ""))
+        line = json.dumps({"to": "1.2", "text": "시간($request_time) ${x}", "n": "abcdef0123456789"},
+                          ensure_ascii=False)
+        assert itl.put_outbox(line) is True
+        command = calls[0][-2]
+        assert "$" not in command and "\\u0024request_time" in command
+        stored = command.split("@itl_outbox ", 1)[1].split(" ; display-message")[0]
+        assert json.loads(__import__("shlex").split(stored)[0])["text"] == "시간($request_time) ${x}"
+
+
 class TestIsAgent:
     def _pane(self, **kw):
         base = dict(mux=itl.TMUX, socket="", session="s", native_id="%1", label="", agent="",

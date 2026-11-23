@@ -165,8 +165,8 @@ async def _hosts_with_remote_panes(username: str) -> set[str]:
 
 async def _drain_host(host_id: str, username: str) -> None:
     from host_common import resolve_host_with_secrets, run_remote_cmd_pooled
-    from itl_channel import parse_sentinel
-    from itl_router import deliver_from_pane
+    from itl_channel import parse_outbox
+    from itl_router import deliver_from_pane, reject_outbox
     from pane_addr import remote_addresses_for_host
 
     host, secrets = await resolve_host_with_secrets(host_id, username)
@@ -183,9 +183,9 @@ async def _drain_host(host_id: str, username: str) -> None:
     )
     _publish_remote_cwds(username, host_id, parse_remote_cwds(raw))
     for session, payload in parse_drain(raw):
-        msg = parse_sentinel(payload)
+        msg = parse_outbox(payload)
         if not msg:
-            logger.info("원격 우편함의 모양이 아니다 (%s/%s)", host_id[:8], session)
+            await reject_outbox(username, session, payload, "모양이 아니다", host_id=host_id)
             continue
         # 보낸 이는 **호스트 + 세션 이름**으로 되짚는다 — 주소록의 `hostId`/`tmuxSession`
         # 과 같은 값이다. 이름만으로는 호스트마다 같은 `mobile` 을 못 가른다.

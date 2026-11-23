@@ -242,6 +242,18 @@ class SentinelScanner:
         return out
 
 
+def parse_outbox(payload: str) -> dict | None:
+    """`parse_sentinel` for a payload read back from the tmux outbox option.
+
+    ⚠️ tmux runs `$NAME` expansion on the command that stores the outbox, so an older
+    `itl` that wrote `$` raw left `\\$` behind, which is not valid JSON, and the message
+    was dropped (a `$request_time` in the text was enough). The current CLI writes `$` as
+    `\\u0024`; this retry keeps copies already installed on hosts working.
+    """
+    return parse_sentinel(payload) or (
+        parse_sentinel(payload.replace("\\$", "$")) if "\\$" in payload else None)
+
+
 def parse_sentinel(payload: str) -> dict | None:
     """JSON after the marker → `{"to", "text", "key"}`. Wrong shape → **silently None**.
 
