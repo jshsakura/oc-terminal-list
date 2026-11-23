@@ -38,20 +38,27 @@ describe('tapFocus', () => {
     document.body.innerHTML = '';
   });
 
-  it('blurs first when the terminal already has focus, so the tap moves focus again', () => {
+  it('steps through a helper input when the terminal already has focus, then lands on the terminal', () => {
     const term = makeTerm();
     term.textarea.focus();
-    const blur = vi.spyOn(term.textarea, 'blur');
-    expect(focusForKeyboard(term)).toBe(true);
-    expect(blur).toHaveBeenCalledTimes(1);
-    expect(term.focus).toHaveBeenCalledTimes(1);
+    const seen = [];
+    document.addEventListener('focusin', (e) => seen.push(e.target.id || e.target.tagName), true);
+    expect(focusForKeyboard(term)).toEqual({ refocus: true, via: 'proxy' });
+    expect(seen).toEqual(['iterm-tap-focus-proxy', 'TEXTAREA']);
     expect(document.activeElement).toBe(term.textarea);
+    focusForKeyboard(term);
+    expect(document.querySelectorAll('#iterm-tap-focus-proxy')).toHaveLength(1);   // reused, not piled up
   });
 
   it('just focuses when focus was elsewhere', () => {
     const term = makeTerm();
-    expect(focusForKeyboard(term)).toBe(false);
+    expect(focusForKeyboard(term)).toEqual({ refocus: false, via: 'direct' });
     expect(term.focus).toHaveBeenCalledTimes(1);
+    const other = document.createElement('textarea');
+    document.body.appendChild(other);
+    other.focus();
+    expect(focusForKeyboard(term)).toEqual({ refocus: false, via: 'proxy' });   // another field held focus
+    expect(document.activeElement).toBe(term.textarea);
   });
 
   it('reports once when the keyboard did not come up, with what it saw', () => {
@@ -62,7 +69,7 @@ describe('tapFocus', () => {
     vi.advanceTimersByTime(KEYBOARD_WAIT_MS);
     expect(reports).toHaveLength(1);
     expect(reports[0]).toMatchObject({ scope: 'tap-focus', kind: 'measure' });
-    expect(reports[0].detail).toMatch(/no-keyboard refocus=1 active=terminal vv=800->800 inner=844 os=ios/);
+    expect(reports[0].detail).toMatch(/no-keyboard refocus=1 via=proxy active=terminal vv=800->800 inner=844 os=ios/);
     tapFocusWithProbe(term, { win });
     vi.advanceTimersByTime(KEYBOARD_WAIT_MS);
     expect(reports).toHaveLength(1);              // one per 30s, not one per tap

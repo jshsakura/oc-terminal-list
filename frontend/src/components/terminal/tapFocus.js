@@ -4,8 +4,8 @@
  * A phone shows its keyboard only when focus *moves* inside a user gesture. focus() on the
  * element that already has focus is a no-op, so after the keyboard was put away (iOS "완료",
  * Android back, scrolling the page) the textarea kept focus and the next tap did nothing.
- * The way out was quick input, a different element. Blurring first makes the focus a real
- * change again.
+ * The way out was quick input, a different element. So when a text field already holds
+ * focus, the tap first moves focus to a tiny helper input and then to the terminal.
  *
  * Whether the keyboard then came up only the browser knows, so a tap that ends with no
  * keyboard is reported over the live WS (`iterm:client-report`, scope `tap-focus`) with
@@ -49,13 +49,54 @@ export const reportTapFocus = (kind, detail, { win = window, now = Date.now } = 
   return true;
 };
 
-/** Focus the terminal from inside a tap so the keyboard shows; returns whether it re-focused. */
+/* iOS rule seen in the logs (refocus=1, active=terminal, no keyboard): focusing the same
+   field again, even after blur(), does not bring the keyboard back. Moving focus to a
+   *different* field inside the tap does, which is why quick input always worked. So when
+   the terminal already holds focus, step through a tiny helper input first; focus moving
+   input → terminal keeps the keyboard that the first move raised. */
+const PROXY_ID = 'iterm-tap-focus-proxy';
+
+const proxyInput = (doc) => {
+  let el = doc.getElementById(PROXY_ID);
+  if (el) return el;
+  el = doc.createElement('input');
+  el.id = PROXY_ID;
+  el.type = 'text';
+  el.setAttribute('aria-hidden', 'true');
+  el.tabIndex = -1;
+  el.autocomplete = 'off';
+  // In the viewport (iOS may scroll to an off-screen field), invisible, 16px so iOS does not zoom.
+  Object.assign(el.style, {
+    position: 'fixed', top: '0', left: '0', width: '1px', height: '1px',
+    opacity: '0', fontSize: '16px', border: '0', padding: '0', pointerEvents: 'none',
+  });
+  doc.body.appendChild(el);
+  return el;
+};
+
+const isTextField = (el) => !!el && (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT');
+
+/**
+ * Focus the terminal from inside a tap so the keyboard shows.
+ * Returns { refocus, via }: whether the terminal already had focus, and the path taken
+ * ('direct', or 'proxy' when another step was needed). Both go into the report.
+ */
 export const focusForKeyboard = (term, { win = window } = {}) => {
+  const doc = win.document;
   const textarea = term?.textarea;
-  const refocus = !!textarea && win.document.activeElement === textarea;
-  if (refocus) textarea.blur();
+  const holder = doc.activeElement;
+  const refocus = !!textarea && holder === textarea;
+  let via = 'direct';
+  // A text field (ours or another) holds focus with the keyboard possibly put away: step
+  // through the helper so the move to the terminal is a move between two different fields.
+  if (isTextField(holder) && holder.id !== PROXY_ID) {
+    try {
+      proxyInput(doc).focus({ preventScroll: true });
+      via = 'proxy';
+    } catch { textarea?.blur(); }
+  }
   term.focus();
-  return refocus;
+  return { refocus, via };
 };
 
 /**
@@ -67,7 +108,7 @@ export const tapFocusWithProbe = (term, { win = window, now = Date.now } = {}) =
   const before = vv ? vv.height : null;
   const inner = win.innerHeight || 0;
   const keyboardAlreadyUp = before !== null && inner > 0 && before < inner * KEYBOARD_OPEN_RATIO;
-  const refocus = focusForKeyboard(term, { win });
+  const { refocus, via } = focusForKeyboard(term, { win });
   if (!vv || keyboardAlreadyUp) return () => {};
   const timer = win.setTimeout(() => {
     const after = vv.height;
@@ -75,6 +116,7 @@ export const tapFocusWithProbe = (term, { win = window, now = Date.now } = {}) =
     reportTapFocus('measure', [
       'no-keyboard',
       `refocus=${refocus ? 1 : 0}`,
+      `via=${via}`,
       `active=${describeActive(win.document, term.textarea)}`,
       `vv=${Math.round(before)}->${Math.round(after)}`,
       `inner=${inner}`,
