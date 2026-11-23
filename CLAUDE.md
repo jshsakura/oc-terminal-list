@@ -526,7 +526,7 @@ after sending 'websocket.close'` 를 매일 7건씩 쌓고 있었다(닫히는 �
 | `reason=close-1006 prev=수백초` | 전송단에서 끊겼다 — cloudflared 로그와 시각 대조 |
 | `reason=initial` 이 한꺼번에 | 부팅/복원 버스트지 끊김이 아니다 |
 | `lived=` 가 60초 근처 반복 | `INACTIVE_PANE_GRACE_MS` 로 우리가 닫은 것(정상) |
-| `client error scope=tap-focus … no-keyboard` | 폰에서 터미널을 눌렀는데 키보드가 안 떴다. `refocus=1` 이면 이미 포커스였던 칸, `active=` 는 그 뒤 포커스 자리 |
+| `client error scope=tap-focus … no-keyboard` | 폰에서 터미널을 눌렀는데 키보드가 안 떴다. `refocus=1` 이면 이미 포커스였던 칸, `active=` 는 그 뒤 포커스 자리. `via=proxy` 로도 안 떴던 것이 키보드가 닫힐 때 포커스를 놓게 된 이유다(`releaseFocusWhenKeyboardCloses`). 고친 뒤에도 `refocus=1` 이 보이면 그 해제가 안 걸린 것이다 |
 
 ### 그 줄이 보이려면 소음을 솎아야 한다
 

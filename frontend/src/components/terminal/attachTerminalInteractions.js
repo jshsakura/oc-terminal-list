@@ -9,7 +9,7 @@ import {
 import { copyTextToClipboard, uploadImageAndGetPath, pasteWhenConnected, reportClientError } from './terminalHelpers';
 import { uploadWithRetry } from './uploadRetry';
 import { getLinkAtClient } from '../../utils/terminalLinkAt';
-import { tapFocusWithProbe } from './tapFocus';
+import { tapFocusWithProbe, releaseFocusWhenKeyboardCloses } from './tapFocus';
 import attachMobileViewSelection, { clampViewFontSize } from './attachMobileViewSelection';
 
 /**
@@ -473,6 +473,7 @@ const attachTerminalInteractions = ({
      한 번 넘어간다 — "처음 열었을 때만 편의를 주고 그 뒤엔 방해하지 않는다". */
   let handedToDock = false;
   let cancelTapProbe = () => {};
+  const detachKeyboardRelease = isMobile() ? releaseFocusWhenKeyboardCloses(term) : () => {};
 
   const handleTouchEnd = () => {
     clearTimeout(longPressTimer);
@@ -568,6 +569,7 @@ const attachTerminalInteractions = ({
       if (copyFlashTimer) clearTimeout(copyFlashTimer);
       if (longPressTimer) clearTimeout(longPressTimer);
       cancelTapProbe();
+      detachKeyboardRelease();
       timers.forEach(clearTimeout);
       timers.clear();
     },

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  focusForKeyboard, tapFocusWithProbe, resetTapFocusReports,
+  focusForKeyboard, tapFocusWithProbe, resetTapFocusReports, releaseFocusWhenKeyboardCloses,
   CLIENT_REPORT_EVENT, KEYBOARD_WAIT_MS,
 } from './tapFocus';
 
@@ -93,5 +93,50 @@ describe('tapFocus', () => {
     tapFocusWithProbe(term, { win })();
     vi.advanceTimersByTime(KEYBOARD_WAIT_MS);
     expect(reports).toEqual([]);
+  });
+  describe('releaseFocusWhenKeyboardCloses', () => {
+    const resizableWin = ({ vvHeight, inner }) => {
+      const listeners = new Set();
+      const vv = {
+        height: vvHeight,
+        addEventListener: (_t, fn) => listeners.add(fn),
+        removeEventListener: (_t, fn) => listeners.delete(fn),
+      };
+      const resize = (h) => { vv.height = h; listeners.forEach(fn => fn()); };
+      return { win: { visualViewport: vv, innerHeight: inner, document }, resize, listeners };
+    };
+
+    it('lets go of terminal focus when the keyboard closes', () => {
+      const term = makeTerm();
+      const { win, resize } = resizableWin({ vvHeight: 450, inner: 844 });
+      term.textarea.focus();
+      releaseFocusWhenKeyboardCloses(term, { win });
+      resize(844);
+      expect(document.activeElement).not.toBe(term.textarea);
+    });
+
+    it('keeps focus while the keyboard stays open or was never open', () => {
+      const term = makeTerm();
+      const { win, resize } = resizableWin({ vvHeight: 800, inner: 844 });
+      term.textarea.focus();
+      releaseFocusWhenKeyboardCloses(term, { win });
+      resize(780);                                  // browser chrome, not a keyboard
+      resize(450);                                  // keyboard opens
+      resize(430);                                  // still open
+      expect(document.activeElement).toBe(term.textarea);
+    });
+
+    it('leaves another focused field alone and detaches cleanly', () => {
+      const term = makeTerm();
+      const other = document.createElement('input');
+      document.body.appendChild(other);
+      const { win, resize, listeners } = resizableWin({ vvHeight: 450, inner: 844 });
+      other.focus();
+      const detach = releaseFocusWhenKeyboardCloses(term, { win });
+      resize(844);
+      expect(document.activeElement).toBe(other);
+      detach();
+      expect(listeners.size).toBe(0);
+    });
   });
 });

@@ -100,6 +100,32 @@ export const focusForKeyboard = (term, { win = window } = {}) => {
 };
 
 /**
+ * The keyboard closed while the terminal kept focus ("완료", Android back, page scroll).
+ * Logs showed that a tap after that never brings the keyboard back on iOS, not even when
+ * focus steps through the helper input (via=proxy), while a tap with nothing focused
+ * always works. So the moment the keyboard goes away, let go of focus: the next tap is
+ * then a fresh focus, the case that works. Returns a detach function.
+ */
+export const releaseFocusWhenKeyboardCloses = (term, { win = window } = {}) => {
+  const vv = win.visualViewport;
+  if (!vv?.addEventListener) return () => {};
+  const isOpen = () => {
+    const inner = win.innerHeight || 0;
+    return inner > 0 && vv.height < inner * KEYBOARD_OPEN_RATIO;
+  };
+  let wasOpen = isOpen();
+  const onResize = () => {
+    const open = isOpen();
+    const closed = wasOpen && !open;
+    wasOpen = open;
+    const textarea = term?.textarea;
+    if (closed && textarea && win.document.activeElement === textarea) textarea.blur();
+  };
+  vv.addEventListener('resize', onResize);
+  return () => vv.removeEventListener('resize', onResize);
+};
+
+/**
  * Tap → focus → check, a moment later, that the visible area shrank (the keyboard came up).
  * If it did not, report it once per REPORT_GAP_MS. Returns a cancel function.
  */
