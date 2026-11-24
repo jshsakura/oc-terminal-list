@@ -1,8 +1,10 @@
+import TerminalNamedLinksAddon from './TerminalNamedLinksAddon';
+import { normalizeWebUri, wrappedWebLinks } from '../../utils/terminalLinkAt';
 import { Terminal } from '@xterm/xterm';
 import registerOsc52 from './osc52Clipboard';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
-import { findFileLinks, offsetToCell, readLogicalLine } from '../../utils/terminalFileLinks';
+import { findFileLinks, fileLinkFromUri, offsetToCell, readLogicalLine } from '../../utils/terminalFileLinks';
 import { findUrlLinks, readRow } from '../../utils/terminalUrlLinks';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { ImageAddon } from '@xterm/addon-image';
@@ -37,6 +39,17 @@ const openUrl = (url) => {
 const createXtermInstance = ({ container, settings, theme, paneId, sessionId, onEdgeGutter, onFileLinkClick = null }) => {
   const term = new Terminal({
     theme,
+    linkHandler: {
+      allowNonHttpProtocols: Boolean(onFileLinkClick),
+      activate: (_event, uri) => {
+        const file = fileLinkFromUri(uri);
+        if (file && onFileLinkClick) {
+          onFileLinkClick(file);
+        } else if (normalizeWebUri(uri)) {
+          window.open(normalizeWebUri(uri), '_blank', 'noopener,noreferrer');
+        }
+      },
+    },
     fontFamily: normalizeTerminalFontFamily(settings.fontFamily),
     fontSize: settings.fontSize,
     lineHeight: 1.2,
@@ -88,6 +101,15 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
     onEdgeGutter?.(measureTerminalFit(this._terminal, null));
   };
 
+  term.loadAddon(new TerminalNamedLinksAddon({ onFileLinkClick }));
+  term.registerLinkProvider({
+    provideLinks(bufferLineNumber, callback) {
+      callback(wrappedWebLinks(term.buffer.active, bufferLineNumber - 1).map(link => ({
+        ...link,
+        activate() { window.open(link.text, '_blank', 'noopener,noreferrer'); },
+      })));
+    },
+  });
   /* Replaces WebLinksAddon, which only joins rows xterm flagged as wrapped. Under tmux and
      agent TUIs a long URL arrives as separate rows, so clicking opened half an address. */
   term.registerLinkProvider?.({

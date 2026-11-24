@@ -482,7 +482,6 @@ export const en = {
     screenDump: 'Terminal text',
     screenDumpHint: 'Free select & copy any portion. ESC to close.',
     viewAsText: 'View as text',
-    selectionToInput: 'Use in quick input',
     pasteToInput: 'Paste into Quick Input',
     pasteSelectionToPrompt: 'Paste into prompt',
     mobileViewMode: 'View',

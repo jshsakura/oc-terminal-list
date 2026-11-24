@@ -1,3 +1,4 @@
+import { showTerminalLinkTarget, toggleTerminalNamedLink } from './TerminalNamedLinksAddon';
 import createTerminalGeometry from '../../utils/terminalGeometry';
 import { selectionArgsFromCells, selectionArgsFromEdges } from '../../utils/terminalMouseSelection';
 import { getLinkAtClient, getFileLinkAtClient } from '../../utils/terminalLinkAt';
@@ -33,36 +34,29 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     const args = selectionArgsFromCells(gesture.anchor, end, term.cols);
     if (args) term.select(args.column, args.row, args.length);
   };
-  // A drag that starts while a selection is up grows that selection instead of replacing
-  // it, so a missed character can be added after lifting the finger (from PR #7). The
-  // direction test in move() still runs first: a vertical swipe scrolls, a tap clears.
-  const existingSelection = () => {
-    const pos = term.getSelectionPosition?.();
-    if (!pos || !term.hasSelection?.()) return null;
-    return { start: pos.start.y * term.cols + pos.start.x, end: pos.end.y * term.cols + pos.end.x };
-  };
-  const extendExisting = (edge) => {
-    const index = edge.row * term.cols + edge.col;
-    const first = Math.min(gesture.existing.start, index);
-    const last = Math.max(gesture.existing.end, index);
-    term.select(first % term.cols, Math.floor(first / term.cols), last - first);
-  };
   // 단어 없이 끄는 드래그는 칸이 아니라 경계 사이를 고른다 — 손가락이 막 걸친 칸이
   // 끝에 하나 더 따라 들어가지 않게.
   const selectBetween = (p) => {
     const edge = bufferEdgeFromClientPoint(p.x, p.y);
-    if (gesture.existing) { extendExisting(edge); return; }
+    if (gesture.existing) {
+      const index = edge.row * term.cols + edge.col;
+      const first = Math.min(gesture.fixedEdge ?? gesture.existing.start, index);
+      const last = Math.max(gesture.fixedEdge ?? gesture.existing.end, index);
+      term.select(first % term.cols, Math.floor(first / term.cols), last - first);
+      return;
+    }
     const args = selectionArgsFromEdges(
-      bufferEdgeFromClientPoint(gesture.origin.x, gesture.origin.y),
+      gesture.startEdge,
       edge,
       term.cols,
     );
     if (args) term.select(args.column, args.row, args.length);
     else term.clearSelection();
   };
-  const selectWord = () => {
-    if (!gesture || !isReadOnly()) return;
+  const holdSelection = () => {
+    if (!gesture || !isReadOnly()) { return; }
     gesture.selecting = true;
+    if (gesture.existing) { return; }
     const cell = gesture.anchor;
     const line = term.buffer.active.getLine?.(cell.row);
     const wordCell = (col) => {
@@ -81,10 +75,20 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
   };
   const start = (p, kind) => {
     cancel();
-    const existing = existingSelection();
-    gesture = { kind, origin: p, last: p, anchor: cellAt(p), existing, selecting: false, scrolling: false };
-    // A hold would replace the selection with a word; with one up, dragging extends instead.
-    if (kind === 'touch' && !existing) holdTimer = setTimeout(selectWord, HOLD_MS);
+    const position = term.getSelectionPosition?.();
+    const existing = position ? {
+      start: position.start.y * term.cols + position.start.x,
+      end: position.end.y * term.cols + position.end.x,
+    } : null;
+    const startEdge = bufferEdgeFromClientPoint(p.x, p.y);
+    const index = startEdge.row * term.cols + startEdge.col;
+    const inside = existing && index >= existing.start && index <= existing.end;
+    gesture = { kind, origin: p, last: p, anchor: cellAt(p), existing, startEdge, selecting: false, scrolling: false };
+    if (inside) {
+      gesture.fixedEdge = Math.abs(index - existing.start) < Math.abs(index - existing.end)
+        ? existing.end : existing.start;
+    }
+    if (kind === 'touch' && (!existing || inside)) { holdTimer = setTimeout(holdSelection, HOLD_MS); }
   };
   const move = (p, event) => {
     if (!gesture || !isReadOnly()) { cancel(); return; }
@@ -95,7 +99,7 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     stop(event);
     if (!gesture.selecting && !gesture.scrolling) {
       // A vertical swipe still browses history. A hold or horizontal drag selects.
-      if (gesture.kind === 'touch' && Math.abs(dy) > Math.abs(dx)) {
+      if (gesture.kind === 'touch' && gesture.fixedEdge === undefined && Math.abs(dy) > Math.abs(dx)) {
         gesture.scrolling = true;
         term.clearSelection();
       } else gesture.selecting = true;
@@ -121,12 +125,19 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     }
     term.clearSelection();
     const { x, y } = completed.origin;
+    if (toggleTerminalNamedLink(term, { x, y })) { return; }
     const url = getLinkAtClient(term, x, y);
     // This must stay in touchend/mouseup to retain the browser's user activation.
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) {
+      showTerminalLinkTarget(term, url, { x, y });
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
     else if (onFileLinkClick) {
       const file = getFileLinkAtClient(term, x, y);
-      if (file) onFileLinkClick(file);
+      if (file) {
+        showTerminalLinkTarget(term, file.path, { x, y });
+        onFileLinkClick(file);
+      }
     }
   };
   const touchStart = (event) => {
@@ -179,7 +190,13 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
   document.addEventListener('mousemove', mouseMove, true);
   document.addEventListener('mouseup', mouseUp, true);
   window.addEventListener('blur', cancel);
-  return { detach() {
+  return { beginSelection(p) {
+    if (!isReadOnly()) { return; }
+    lastTouchAt = Date.now();
+    start(p, 'touch');
+    clearTimeout(holdTimer);
+    if (!gesture.existing || gesture.fixedEdge !== undefined) { holdSelection(); }
+  }, detach() {
     cancel();
     overlay.removeEventListener('touchstart', touchStart);
     overlay.removeEventListener('touchmove', touchMove);

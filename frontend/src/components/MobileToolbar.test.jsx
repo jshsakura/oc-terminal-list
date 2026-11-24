@@ -30,6 +30,44 @@ describe('MobileToolbar 양 끝 고정', () => {
 });
 
 describe('MobileToolbar quick input', () => {
+  it('keeps the highlighted Esc action immediately after view mode alongside the new quick bar', () => {
+    const onAction = vi.fn();
+    const onToggleViewOnly = vi.fn();
+    const onSendKey = vi.fn();
+    const { container, rerender } = render(<MobileToolbar language="en" viewOnly
+      onToggleViewOnly={onToggleViewOnly} onOpenSettings={vi.fn()} onAction={onAction} onSendKey={onSendKey} />);
+    const view = screen.getByRole('button', { name: 'Switch to input mode' });
+    const escape = screen.getByRole('button', { name: 'Return to the bottom with Esc and switch to input mode' });
+    expect([...container.querySelectorAll('button')].slice(0, 2)).toEqual([view, escape]);
+    expect(escape.style.background).not.toBe(screen.getByTitle('Exit copy selection').style.background);
+    expect(screen.getByTitle('Quick Input')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Choose quick bar set' })).toBeInTheDocument();
+    fireEvent.click(escape);
+    expect(onAction).toHaveBeenCalledExactlyOnceWith('escapeToInput');
+    expect(onSendKey).not.toHaveBeenCalled();
+    expect(onToggleViewOnly).not.toHaveBeenCalled();
+    fireEvent.click(view);
+    expect(onToggleViewOnly).toHaveBeenCalledOnce();
+    rerender(<MobileToolbar language="en" onToggleViewOnly={onToggleViewOnly} />);
+    expect(screen.queryByRole('button', { name: 'Return to the bottom with Esc and switch to input mode' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Switch to view mode' })).toBeInTheDocument();
+  });
+
+  it('blocks both view controls while returning from terminal history', () => {
+    const onAction = vi.fn();
+    const onToggleViewOnly = vi.fn();
+    render(<MobileToolbar language="en" viewOnly modePending
+      onToggleViewOnly={onToggleViewOnly} onAction={onAction} />);
+    const view = screen.getByRole('button', { name: 'Switch to input mode' });
+    const escape = screen.getByRole('button', { name: 'Return to the bottom with Esc and switch to input mode' });
+    expect(view).toBeDisabled();
+    expect(escape).toBeDisabled();
+    fireEvent.click(view);
+    fireEvent.click(escape);
+    expect(onAction).not.toHaveBeenCalled();
+    expect(onToggleViewOnly).not.toHaveBeenCalled();
+  });
+
   it('keeps quick input in view mode and puts settings in the keyboard popup', () => {
     const onOpenSettings = vi.fn();
     const onAction = vi.fn();

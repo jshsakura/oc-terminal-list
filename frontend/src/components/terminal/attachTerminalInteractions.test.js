@@ -8,10 +8,10 @@ vi.mock('./terminalHelpers', async (importOriginal) => ({
   // 것이 이 파일이 지켜야 할 계약이고, 목으로 덮으면 그 계약이 사라진다.
 }));
 
-vi.mock('../../utils/terminalLinkAt', async (importOriginal) => ({
-  ...(await importOriginal()),
-  getLinkAtClient: vi.fn(() => null),
-}));
+vi.mock('../../utils/terminalLinkAt', async (importOriginal) => {
+  const links = await importOriginal();
+  return { ...links, getLinkAtClient: vi.fn(links.getLinkAtClient) };
+});
 
 import attachTerminalInteractions, { isImeModeKey } from './attachTerminalInteractions';
 import { getLinkAtClient } from '../../utils/terminalLinkAt';
@@ -375,6 +375,31 @@ describe('attachTerminalInteractions', () => {
       expect(term.focus).not.toHaveBeenCalled();
     });
 
+    it('starts mobile selection on hold and continues the same drag before opening the menu', async () => {
+      let readOnly = false;
+      const enter = vi.fn(() => { readOnly = true; });
+      window.addEventListener('iterm:mobile-select-mode', enter);
+      try {
+        mount({ isMobile: () => true, isReadOnly: () => readOnly });
+        overlay.dispatchEvent(touchEvent('touchstart', 120, 220));
+        overlay.dispatchEvent(touchEvent('touchmove', 122, 222));
+        await new Promise(resolve => setTimeout(resolve, 560));
+        expect(enter).toHaveBeenCalledOnce();
+        expect(term.select).toHaveBeenCalled();
+        expect(setContextMenu).not.toHaveBeenCalled();
+        overlay.dispatchEvent(touchEvent('touchmove', 160, 260));
+        expect(term.select).toHaveBeenLastCalledWith(12, 11, 165);
+        const ended = touchEvent('touchend', 160, 260);
+        ended.touches = [];
+        overlay.dispatchEvent(ended);
+        expect(setContextMenu).toHaveBeenCalledOnce();
+        expect(term.focus).not.toHaveBeenCalled();
+        expect(input.push).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener('iterm:mobile-select-mode', enter);
+      }
+    });
+
     it('길게 누르면 컨텍스트 메뉴를 연다', async () => {
       mount();
       overlay.dispatchEvent(touchEvent('touchstart', 120, 220));
@@ -677,6 +702,54 @@ describe('attachTerminalInteractions', () => {
       expect(length).toBe(2 * 80 + (15 - 5)); // 두 줄 + 10칸, 끝 경계 뒤 칸은 넣지 않는다
     });
 
+    it.each([-20, 420])('창 밖 y=%s에서 스크롤하며 선택을 이어가고 복사 후 멈춘다', (y) => {
+      vi.useFakeTimers();
+      try {
+        term.buffer.active.viewportY = 50;
+        term.scrollLines.mockImplementation((lines) => { term.buffer.active.viewportY += lines; });
+        mount();
+        down(50, 50);
+        move(150, y);
+        const initial = term.select.mock.calls.at(-1);
+        vi.advanceTimersByTime(200);
+        expect(term.scrollLines).toHaveBeenCalled();
+        expect(Math.sign(term.scrollLines.mock.calls[0][0])).toBe(y < 0 ? -1 : 1);
+        expect(term.select.mock.calls.at(-1)[2]).toBeGreaterThan(initial[2]);
+        document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+        const count = term.scrollLines.mock.calls.length;
+        vi.advanceTimersByTime(200);
+        expect(term.scrollLines).toHaveBeenCalledTimes(count);
+      } finally {
+        handle?.detach();
+        handle = null;
+        vi.useRealTimers();
+      }
+    });
+
+    it.each(['inside', 'blur', 'released', 'detach'])('자동 스크롤 중단: %s', (reason) => {
+      vi.useFakeTimers();
+      try {
+        mount();
+        down(50, 50);
+        move(150, 420);
+        vi.advanceTimersByTime(100);
+        expect(term.scrollLines).toHaveBeenCalled();
+        if (reason === 'inside') { move(150, 200); }
+        if (reason === 'blur') { window.dispatchEvent(new Event('blur')); }
+        if (reason === 'released') {
+          document.dispatchEvent(new MouseEvent('mousemove', { buttons: 0, bubbles: true }));
+        }
+        if (reason === 'detach') { handle.detach(); handle = null; }
+        const count = term.scrollLines.mock.calls.length;
+        vi.advanceTimersByTime(200);
+        expect(term.scrollLines).toHaveBeenCalledTimes(count);
+      } finally {
+        handle?.detach();
+        handle = null;
+        vi.useRealTimers();
+      }
+    });
+
     it('마우스 트래킹이 꺼져 있으면 xterm 기본 선택에 맡긴다', () => {
       term.modes.mouseTrackingMode = 'none';
       mount();
@@ -767,4 +840,42 @@ describe('attachTerminalInteractions', () => {
       expect(setContextMenu).not.toHaveBeenCalled();
     });
   });
+  describe('input mode link taps', () => {
+    afterEach(() => vi.restoreAllMocks());
+    const setLine = text => {
+      term.buffer.active.getLine = row => row === 0 ? {
+        translateToString: (_, start = 0, end = 80) => text.slice(start, end),
+        getCell: col => ({ getWidth: () => 1, getChars: () => text[col] || ' ' }),
+      } : null;
+    };
+    it('opens a URL once even when the overlay is inside the container', () => {
+      setLine('https://example.com/');
+      container.append(overlay);
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      mount({ isMobile: () => true });
+      overlay.dispatchEvent(touchEvent('touchstart', 25, 10));
+      overlay.dispatchEvent(touchEvent('touchend', 25, 10));
+      expect(open).toHaveBeenCalledExactlyOnceWith('https://example.com/', '_blank', 'noopener,noreferrer');
+      expect(term.focus).not.toHaveBeenCalled();
+    });
+    it('opens a file without focusing the keyboard', () => {
+      setLine('src/image.png');
+      const file = vi.fn();
+      mount({ isMobile: () => true, onFileLinkClick: file });
+      overlay.dispatchEvent(touchEvent('touchstart', 25, 10));
+      overlay.dispatchEvent(touchEvent('touchend', 25, 10));
+      expect(file).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ path: 'src/image.png' }));
+      expect(term.focus).not.toHaveBeenCalled();
+    });
+    it.each([[100, 10], [25, 100]])('does not open a link after a drag to %s,%s', (x, y) => {
+      setLine('https://example.com/');
+      const open = vi.spyOn(window, 'open').mockReturnValue(null);
+      mount({ isMobile: () => true });
+      overlay.dispatchEvent(touchEvent('touchstart', 25, 10));
+      overlay.dispatchEvent(touchEvent('touchmove', x, y));
+      overlay.dispatchEvent(touchEvent('touchend', x, y));
+      expect(open).not.toHaveBeenCalled();
+    });
+  });
+
 });

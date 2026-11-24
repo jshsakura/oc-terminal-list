@@ -2383,26 +2383,6 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
             setContextMenu(null);
             window.dispatchEvent(new CustomEvent('iterm:mobile-select-mode'));
           } : undefined}
-          onUseSelection={() => {
-            const text = xtermRef.current?.getSelection();
-            setContextMenu(null);
-            if (text) {
-              window.dispatchEvent(new CustomEvent('iterm:selection-to-command-input', {
-                detail: { text, sessionId, paneId, tabId },
-              }));
-            }
-          }}
-          onPasteSelectionToPrompt={isMobile ? () => {
-            // From PR #7: put the selected text at the prompt without pressing Enter.
-            const text = xtermRef.current?.getSelection();
-            setContextMenu(null);
-            if (!text) return;
-            if (readOnlyRef.current) {
-              window.dispatchEvent(new CustomEvent('iterm:paste-to-terminal', { detail: { text, sessionId } }));
-            } else {
-              xtermRef.current?.paste(text);
-            }
-          } : undefined}
           onCopyLink={() => {
             if (contextMenu.linkUrl) copyTextToClipboard(contextMenu.linkUrl);
             setContextMenu(null);
@@ -2424,10 +2404,26 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
               xtermRef.current.paste(text);
             }
           }}
+          onPasteSelectionToPrompt={() => {
+            const text = xtermRef.current?.getSelection();
+            setContextMenu(null);
+            if (!text || (!isMobile && readOnlyRef.current)) { return; }
+            if (isMobile && readOnlyRef.current) {
+              window.dispatchEvent(new CustomEvent('iterm:paste-to-terminal', {
+                detail: { text, sessionId },
+              }));
+            } else {
+              xtermRef.current?.paste(text);
+            }
+          }}
           onPasteToInput={async () => {
             let text;
-            try { text = await navigator.clipboard.readText(); }
-            catch { text = window.prompt(t('pasteToInput')); }
+            if (isMobile) {
+              text = xtermRef.current?.getSelection();
+            } else {
+              try { text = await navigator.clipboard.readText(); }
+              catch { text = window.prompt(t('pasteToInput')); }
+            }
             setContextMenu(null);
             if (text) {
               window.dispatchEvent(new CustomEvent('iterm:selection-to-command-input', {

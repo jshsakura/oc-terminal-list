@@ -412,7 +412,7 @@ describe('Terminal', () => {
       expect(JSON.parse(call[1].body)).toMatchObject({ session_id: 'mobile-abc', host_id: 'h1', action: 'bottom' });
     });
 
-    it('passes the exact view-mode selection and source to quick input without sending terminal input', async () => {
+    it('uses the mobile selection directly without reading the clipboard', async () => {
       renderTerminal({ paneId: 'source-pane', tabId: 'source-tab', isMobile: true,
         settings: { ...testSettings(), language: 'ko', mobileViewOnly: true } });
       const ws = await openSocket();
@@ -420,25 +420,79 @@ describe('Terminal', () => {
       harness.term.hasSelection.mockReturnValue(true);
       harness.term.getSelection.mockReturnValue(text);
       const listener = vi.fn();
+      const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      const readText = vi.fn();
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { readText } });
+      const prompt = vi.spyOn(window, 'prompt');
       window.addEventListener('iterm:selection-to-command-input', listener);
       try {
         fireEvent.mouseDown(harness.term.element, {
           button: 2, clientX: 30, clientY: 40,
         });
-        fireEvent.click(await screen.findByText('입력창에 넣기'));
+        fireEvent.click(await screen.findByText('빠른입력창에 붙여넣기'));
         expect(listener).toHaveBeenCalledOnce();
-        expect(listener.mock.calls[0][0].detail).toEqual({ text, sessionId: 'sess-1',
-          paneId: 'source-pane', tabId: 'source-tab' });
+        expect(listener.mock.calls[0][0].detail).toEqual({ text, sessionId: 'sess-1', paneId: 'source-pane', tabId: 'source-tab' });
+        expect(readText).not.toHaveBeenCalled();
+        expect(prompt).not.toHaveBeenCalled();
         expect(ws.sent.some(data => typeof data === 'string' && !data.startsWith('{'))).toBe(false);
         expect(screen.queryByText('입력창에 넣기')).toBeNull();
       } finally {
         window.removeEventListener('iterm:selection-to-command-input', listener);
+        if (original) { Object.defineProperty(navigator, 'clipboard', original); }
+        else { delete navigator.clipboard; }
+        prompt.mockRestore();
       }
     });
 
-    it.each([false, true])('pastes mobile clipboard text into quick input with denied permission=%s and offers bottom scrolling', async (denied) => {
-      renderTerminal({ paneId: 'source-pane', tabId: 'source-tab', isMobile: true,
+    it('hides prompt paste on desktop while keeping regular paste and quick input', async () => {
+      renderTerminal({ settings: { ...testSettings(), language: 'ko' } });
+      await openSocket();
+      const text = 'selected output';
+      harness.term.hasSelection.mockReturnValue(true);
+      harness.term.getSelection.mockReturnValue(text);
+      const paste = vi.spyOn(harness.term, 'paste');
+      fireEvent.mouseDown(harness.term.element, { button: 2, clientX: 30, clientY: 40 });
+      expect(await screen.findByText('빠른입력창에 붙여넣기')).toBeInTheDocument();
+      expect(screen.getByText('붙여넣기')).toBeInTheDocument();
+      expect(screen.queryByText('프롬프트로 붙여넣기')).toBeNull();
+      expect(paste).not.toHaveBeenCalled();
+    });
+
+    it('clears the completed selection when leaving mobile copy mode', async () => {
+      renderTerminal({ isMobile: true,
         settings: { ...testSettings(), language: 'ko', mobileViewOnly: true } });
+      await openSocket();
+      harness.term.hasSelection.mockReturnValue(true);
+      harness.term.getSelection.mockReturnValue('selected output');
+      const clear = vi.spyOn(harness.term, 'clearSelection');
+      fireEvent.mouseDown(harness.term.element, { button: 2, clientX: 30, clientY: 40 });
+      fireEvent.click(await screen.findByText('선택 복사 종료'));
+      expect(clear).toHaveBeenCalled();
+    });
+
+    it('pastes the selected text into the mobile prompt through the input-mode guard', async () => {
+      renderTerminal({ isMobile: true,
+        settings: { ...testSettings(), language: 'ko', mobileViewOnly: true } });
+      const ws = await openSocket();
+      const text = 'selected output';
+      harness.term.hasSelection.mockReturnValue(true);
+      harness.term.getSelection.mockReturnValue(text);
+      const listener = vi.fn();
+      window.addEventListener('iterm:paste-to-terminal', listener);
+      try {
+        fireEvent.mouseDown(harness.term.element, { button: 2, clientX: 30, clientY: 40 });
+        fireEvent.click(await screen.findByText('프롬프트로 붙여넣기'));
+        expect(listener).toHaveBeenCalledOnce();
+        expect(listener.mock.calls[0][0].detail).toEqual({ text, sessionId: 'sess-1' });
+        expect(ws.sent.some(data => typeof data === 'string' && !data.startsWith('{'))).toBe(false);
+      } finally {
+        window.removeEventListener('iterm:paste-to-terminal', listener);
+      }
+    });
+
+    it.each([false, true])('pastes desktop clipboard text into quick input with denied permission=%s and offers bottom scrolling', async (denied) => {
+      renderTerminal({ paneId: 'source-pane', tabId: 'source-tab', isMobile: false,
+        settings: { ...testSettings(), language: 'ko', mobileViewOnly: false } });
       const ws = await openSocket();
       const listener = vi.fn();
       const original = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
@@ -453,7 +507,7 @@ describe('Terminal', () => {
         expect(await screen.findByText('맨 아래로 스크롤')).toBeInTheDocument();
         expect(screen.getByText('붙여넣기')).toBeInTheDocument();
         expect(screen.queryByText('조합키 등록')).toBeNull();
-        fireEvent.click(screen.getByText('빠른 입력에 붙여넣기'));
+        fireEvent.click(screen.getByText('빠른입력창에 붙여넣기'));
         await waitFor(() => expect(listener).toHaveBeenCalledOnce());
         expect(listener.mock.calls[0][0].detail).toEqual({ text: 'clipboard\n', sessionId: 'sess-1', paneId: 'source-pane', tabId: 'source-tab' });
         expect(ws.sent.some(data => typeof data === 'string' && !data.startsWith('{'))).toBe(false);

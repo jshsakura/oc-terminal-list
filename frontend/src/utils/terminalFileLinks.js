@@ -158,3 +158,56 @@ const normalizeRelative = (path) => {
   }
   return out.join('/');
 };
+
+
+export const fileLinkFromUri = (uri) => {
+  if (typeof uri !== 'string') {
+    return null;
+  }
+  let path;
+  if (uri.startsWith('/') && !uri.startsWith('//')) {
+    path = uri;
+  } else {
+    try {
+      const url = new URL(uri);
+      if (url.protocol !== 'file:' || (url.hostname && url.hostname !== 'localhost')) {
+        return null;
+      }
+      path = decodeURIComponent(url.pathname);
+    } catch {
+      return null;
+    }
+  }
+  if (!path.startsWith('/') || /[\x00-\x1f\x7f]/.test(path)) {
+    return null;
+  }
+  return { path, newTab: true };
+};
+
+
+export const wrappedFileLinkAtCell = (buffer, targetRow, col) => {
+  const startRow = Math.max(0, targetRow - MAX_WRAPPED_ROWS + 1);
+  let text = '';
+  let index = -1;
+  for (let row = startRow; row < targetRow + MAX_WRAPPED_ROWS; row++) {
+    const line = buffer.getLine(row);
+    if (!line) { break; }
+    const part = line.translateToString(false).trimEnd();
+    if (row === targetRow) {
+      const prefix = line.getCell ? line.translateToString(false, 0, col) : part.slice(0, col);
+      if (prefix.length >= part.length || !part.slice(prefix.length).trim()) { return null; }
+      index = text.length + prefix.length;
+    }
+    text += part + '\n';
+  }
+  const pattern = /\(((?:~?\/|\.{1,2}\/|[\w.-]+\/)[\w./-]*(?:\n[ \t]*[\w./-]+){1,7})(?::(\d+)(?::(\d+))?)?\)/g;
+  for (const match of text.matchAll(pattern)) {
+    if (index <= match.index || index >= match.index + match[0].length - 1) { continue; }
+    const path = match[1].replace(/\n[ \t]*/g, '');
+    const link = findFileLinks(path)[0];
+    if (link?.path === path) {
+      return { ...link, line: match[2] ? Number(match[2]) : null, column: match[3] ? Number(match[3]) : null };
+    }
+  }
+  return null;
+};
