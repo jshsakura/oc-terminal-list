@@ -5,15 +5,92 @@
 """
 from __future__ import annotations
 
+import asyncio
+import json
+import logging
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from _deps import is_safe_id, verify_auth_token
+from host_common import resolve_host_with_secrets, run_remote_cmd_full
+from host_snapshot import _sq
+from llm_usage import pane_probe
 from llm_usage.config import get_config, public_view, save_config
 from llm_usage.service import DEFAULT_DAYS, get_usage, purge_source
+from rate_limit import check_rate_limit
 from sqlite_storage import storage
+from tmux_manager import tmux_manager
 
 router = APIRouter(prefix="/api/llm-usage", tags=["llm-usage"])
+logger = logging.getLogger(__name__)
+
+
+@router.get("/pane")
+async def llm_usage_pane(
+    session_id: str | None = Query(None, max_length=128),
+    host_id: str | None = Query(None, max_length=128),
+    tmux_session: str | None = Query(None, max_length=128),
+    thread_id: str | None = Query(None, max_length=36),
+    process_id: int | None = Query(None, gt=0),
+    current_only: bool = Query(False),
+    username: str = Depends(verify_auth_token),
+):
+    if thread_id and (not pane_probe.THREAD_ID.fullmatch(thread_id) or process_id is None):
+        raise HTTPException(status_code=400, detail="유효하지 않은 LLM 세션입니다")
+    if not (await get_config())["enabled"]:
+        return {"status": "disabled"}
+    host = secrets = None
+    if host_id:
+        host, secrets = await resolve_host_with_secrets(host_id, username)
+        if not tmux_session:
+            return {"status": "no_terminal"}
+    else:
+        if not session_id or not is_safe_id(session_id):
+            raise HTTPException(status_code=400, detail="유효하지 않은 터미널 세션입니다")
+        if await storage.get_session_owner(session_id) != username:
+            raise HTTPException(status_code=403, detail="세션 접근 권한 없음")
+    check_rate_limit(f"llm-pane:{username}", max_attempts=60, window_seconds=60)
+    try:
+        if host:
+            args = f"--session {_sq(tmux_session)}"
+            if thread_id:
+                args += f" --thread {_sq(thread_id)} --process {process_id}"
+            if current_only:
+                args += " --current-only"
+            command = f"python3 - {args}"
+            rc, raw, _ = await run_remote_cmd_full(host, secrets, command, timeout=10,
+                                                 stdin_data=Path(pane_probe.__file__).read_text(encoding="utf-8"))
+            if rc:
+                return {"status": "unavailable"}
+            marker = raw.rfind(pane_probe.OUTPUT_MARKER)
+            if marker < 0:
+                return {"status": "unavailable"}
+            result = json.loads(raw[marker + len(pane_probe.OUTPUT_MARKER):])
+            if not isinstance(result, dict) or "status" not in result:
+                return {"status": "unavailable"}
+            return result
+        rc, pane, _ = await tmux_manager._run(
+            "display-message", "-p", "-t", f"={session_id}:", "#{pane_pid}\t#{pane_title}", check=False,
+        )
+        pid, _, title = pane.rstrip("\n").partition("\t")
+        if rc or not pid.isdigit():
+            return {"status": "no_terminal"}
+        result = await asyncio.wait_for(
+            asyncio.to_thread(pane_probe.inspect_pane, int(pid), thread_id, process_id, title, current_only),
+            timeout=10,
+        )
+        if result.get("status") == "ready" and result.get("match") in {"process", "title"}:
+            rc, screen, _ = await tmux_manager._run(
+                "capture-pane", "-p", "-J", "-t", f"={session_id}:", check=False,
+            )
+            if rc == 0:
+                result = pane_probe.apply_status_limit(result, screen)
+        return result
+    except Exception as exc:
+        logger.info("LLM pane snapshot unavailable: %s", type(exc).__name__)
+        return {"status": "unavailable"}
 
 
 @router.get("/summary")

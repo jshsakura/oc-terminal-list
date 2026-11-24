@@ -53,6 +53,15 @@ describe('TerminalHeader', () => {
     expect(railSkeletons(container).length).toBe(2);
   });
 
+  it('opens session usage from the header with Files visible and Info in the menu', async () => {
+    const paneInfo = { sessionId: 'local:usage-test', tabType: 'local' };
+    const { container } = render(<TerminalHeader {...baseProps({ paneInfo })} />);
+    expect(container.querySelector('[data-guide="pane-files"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'paneInfoTitle' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'paneUsage' }));
+    expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+
   it('adds a skeleton for the split button when onSplitPane is provided', () => {
     const { container } = render(<TerminalHeader {...baseProps({ loading: true, onSplitPane: vi.fn() })} />);
     expect(railSkeletons(container).length).toBe(3);

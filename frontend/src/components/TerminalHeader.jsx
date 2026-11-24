@@ -20,6 +20,9 @@ import useGitChanges from '../hooks/useGitChanges';
 import RailIconBtn from './common/RailIconBtn';
 import HostIcon from '../utils/hostIcons';
 import InfoPanel from './terminalheader/InfoPanel';
+import UsageModal from './terminalheader/UsageModal';
+import UsageButton from './terminalheader/UsageButton';
+import { weeklyLimitUsed } from './terminalheader/info/llmInfoFormat';
 import { RailSubMenu, MenuBtn, CommandHistoryPopover } from './terminalheader/RailMenus';
 import ThemeSettings, { Field } from './terminalheader/ThemeSettings';
 import CwdBreadcrumb from './terminalheader/CwdBreadcrumb';
@@ -37,6 +40,7 @@ const TerminalHeader = ({
      tab's PaneGrid stays mounted, so without this the invisible tabs each keep
      hammering /api/git/status — 80% of all HTTP on this deployment. */
   isPaneVisible = true,
+  watchUsage,
   showFocusEye = false, // legacy hint; focus eye now keeps a stable slot for every live terminal.
   activeTabType,    // 'local' | 'host' | null
   activeHostId = null,
@@ -108,6 +112,14 @@ const TerminalHeader = ({
   }, [terminalKey, onScreenDump]);
   const panelStorageKey = `${PANEL_STATE_PREFIX}${paneInfo?.paneId || terminalKey || 'default'}`;
   const [activePanel, setActivePanel] = useState(() => readPanelState(panelStorageKey).activePanel);
+  const [usageOpen, setUsageOpen] = useState(false);
+  const usageTarget = JSON.stringify([paneInfo?.tabType, paneInfo?.host?.id, paneInfo?.sessionId, paneInfo?.effectiveTmuxSession]);
+  const [weekly, setWeekly] = useState(null);
+  const recordUsage = useCallback(snapshot => {
+    const used = weeklyLimitUsed(snapshot?.usage);
+    setWeekly(previous => previous?.target === usageTarget && previous.used === used ? previous : { target: usageTarget, used });
+  }, [usageTarget]);
+  const closeUsage = useCallback(() => setUsageOpen(false), []);
   const [panelWidth, setPanelWidth] = useState(() => readPanelState(panelStorageKey).panelWidth);
   const [filePanelRevealPath, setFilePanelRevealPath] = useState(null);
   const resizingRef = useRef(false);
@@ -195,6 +207,10 @@ const TerminalHeader = ({
   }, [isPaneVisible]);
 
   useEffect(() => {
+    setUsageOpen(false);
+  }, [isPaneVisible, paneInfo?.sessionId, paneInfo?.host?.id, paneInfo?.effectiveTmuxSession]);
+
+  useEffect(() => {
     if (isPaneVisible && activePanel && panelRef.current) panelRef.current.focus();
   }, [activePanel, isPaneVisible]);
 
@@ -211,7 +227,7 @@ const TerminalHeader = ({
   }, [panelStorageKey, activePanel, panelWidth]);
 
   useEffect(() => {
-    if (!activePanel || !isPaneVisible) return;
+    if (!activePanel || !isPaneVisible || usageOpen) return;
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -234,7 +250,7 @@ const TerminalHeader = ({
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('mousedown', handleMouseDown);
     };
-  }, [activePanel, closePanel, isPaneVisible]);
+  }, [activePanel, closePanel, isPaneVisible, usageOpen]);
 
   const togglePanel = useCallback((id) => {
     setActivePanel((prev) => (prev === id ? null : id));
@@ -552,6 +568,18 @@ const TerminalHeader = ({
                 </div>
               );
             })()}
+            {paneInfo?.sessionId && (showLoading ? (
+              <RailSkeleton count={1} compact ui={panelUi} />
+            ) : (
+              <UsageButton
+                key={usageTarget}
+                info={paneInfo} isPaneVisible={isPaneVisible} watchUsage={watchUsage} t={t}
+                onClick={(event) => { event.currentTarget.focus({ preventScroll: true }); setUsageOpen(true); }}
+                active={usageOpen} disabled={disabled} ui={panelUi}
+                weekly={weekly?.target === usageTarget ? weekly : null} onSnapshot={recordUsage}
+              />
+            ))}
+
             {/* Broadcast 토글은 TabBar(설정 버튼 옆)로 이동. 켜짐 상태는 pane 영역 우측 상단 배너로 표시. */}
 
             {/* Single split button — opens dropdown with left/right/up/down choices */}
@@ -899,13 +927,18 @@ const TerminalHeader = ({
                   info={paneInfo}
                   paneThemeId={paneThemeId}
                   globalThemeId={settings.theme}
-                  isVisible={isPaneVisible}
+                  isVisible={isPaneVisible && !usageOpen}
                   t={t}
                 />
               </div>
             )}
           </div>
         </div>
+      )}
+      {usageOpen && isPaneVisible && createPortal(
+        <UsageModal key={usageTarget} onSnapshot={recordUsage}
+          info={paneInfo} isOpen onClose={closeUsage} ui={panelUi} t={t} />,
+        document.body
       )}
     </div>
   );
