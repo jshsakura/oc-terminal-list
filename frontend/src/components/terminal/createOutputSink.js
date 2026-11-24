@@ -23,6 +23,7 @@ const INACTIVE_BUFFER_MAX_BYTES = 8 * 1024 * 1024;
 // 큰 누적분을 한 번에 write 하면 파서가 메인스레드를 길게 잡아 재활성 순간 UI 가 멈춘다.
 // 청크로 쪼개 xterm 이 프레임 사이에 렌더를 끼워넣게 한다.
 const WRITE_CHUNK_BYTES = 256 * 1024;
+const RETAINED_BLOCK_BYTES = 16 * 1024;
 
 /* 지속 출력 중의 렌더 상한 — 이 앱에서 가장 뜨거운 경로다.
    분할 그리드에서는 형제 pane 이 전부 isActive=true 라 이 값이 pane 수만큼 곱해진다 —
@@ -58,6 +59,10 @@ const createOutputSink = ({
   onContent,
 }) => {
   let buffer = [];
+  let bufferStart = 0;
+  let bufferBytes = 0;
+  let retainedBlock = null;
+  let retainedBlockBytes = 0;
   let flushTimer = null;
   let pendingWriteBytes = 0;
   let prioritizeNextPush = false;
@@ -74,23 +79,44 @@ const createOutputSink = ({
   };
 
   const dropOldestIfOverCap = () => {
-    let total = 0;
-    for (const chunk of buffer) total += chunk.byteLength;
-    while (total > INACTIVE_BUFFER_MAX_BYTES && buffer.length > 1) {
-      total -= buffer.shift().byteLength;
+    while (bufferBytes > INACTIVE_BUFFER_MAX_BYTES && buffer.length - bufferStart > 1) {
+      const chunk = buffer[bufferStart];
+      bufferBytes -= chunk.byteLength;
+      // Release dropped buffers immediately, without shifting the retained queue on every frame.
+      buffer[bufferStart] = null;
+      bufferStart += 1;
+    }
+    if (bufferStart > 0 && bufferStart * 2 >= buffer.length) {
+      buffer = buffer.slice(bufferStart);
+      bufferStart = 0;
     }
   };
 
+  const sealRetainedBlock = () => {
+    if (!retainedBlock) return;
+    if (retainedBlockBytes < retainedBlock.byteLength) {
+      buffer[buffer.length - 1] = retainedBlock.subarray(0, retainedBlockBytes);
+    }
+    retainedBlock = null;
+    retainedBlockBytes = 0;
+  };
+
   const merge = () => {
-    let totalLength = 0;
-    for (const chunk of buffer) totalLength += chunk.byteLength;
-    const merged = new Uint8Array(totalLength);
+    sealRetainedBlock();
+    // The common single-frame write can share its owned WebSocket buffer.
+    const merged = buffer.length - bufferStart === 1
+      ? buffer[bufferStart] : new Uint8Array(bufferBytes);
     let offset = 0;
-    for (const chunk of buffer) {
-      merged.set(new Uint8Array(chunk), offset);
-      offset += chunk.byteLength;
+    if (buffer.length - bufferStart > 1) {
+      for (let i = bufferStart; i < buffer.length; i += 1) {
+        const chunk = buffer[i];
+        merged.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
     }
     buffer = [];
+    bufferStart = 0;
+    bufferBytes = 0;
     return merged;
   };
 
@@ -107,10 +133,17 @@ const createOutputSink = ({
       return;
     }
 
-    const merged = merge();
-
     // 백프레셔 — 미처리 백로그가 상한을 넘으면 이번 출력은 버린다.
-    if (pendingWriteBytes > MAX_PENDING_WRITE_BYTES) return;
+    if (pendingWriteBytes > MAX_PENDING_WRITE_BYTES) {
+      buffer = [];
+      bufferStart = 0;
+      bufferBytes = 0;
+      retainedBlock = null;
+      retainedBlockBytes = 0;
+      return;
+    }
+
+    const merged = merge();
 
     const onWriteDone = () => {
       // 서버 출력이 반영됐으니 에코로 확정된 만큼 예측 유령을 줄인다(틀린 예측은 여기서 정정).
@@ -142,7 +175,30 @@ const createOutputSink = ({
   return {
     /** 서버에서 온 raw ArrayBuffer 한 덩어리. 창이 비었으면 즉시, 아니면 다음 틱에 쓰인다. */
     push: (chunk) => {
-      buffer.push(chunk);
+      const background = !isActive() || !isVisible();
+      const data = new Uint8Array(chunk);
+      bufferBytes += data.byteLength;
+      if (background && data.byteLength < RETAINED_BLOCK_BYTES) {
+        // Pack small frames without decoding them or sacrificing retained history.
+        let offset = 0;
+        while (offset < data.byteLength) {
+          if (!retainedBlock || retainedBlockBytes === retainedBlock.byteLength) {
+            sealRetainedBlock();
+            retainedBlock = new Uint8Array(RETAINED_BLOCK_BYTES);
+            buffer.push(retainedBlock);
+          }
+          const count = Math.min(data.byteLength - offset, retainedBlock.byteLength - retainedBlockBytes);
+          retainedBlock.set(data.subarray(offset, offset + count), retainedBlockBytes);
+          retainedBlockBytes += count;
+          offset += count;
+        }
+      } else {
+        sealRetainedBlock();
+        buffer.push(data);
+      }
+      // Hidden panes only retain bounded output. They need no flush timer until
+      // reactivation, whose explicit flush preserves the leading edge.
+      if (background) { dropOldestIfOverCap(); return; }
       if (prioritizeNextPush) {
         prioritizeNextPush = false;
         if (flushTimer) clearTimeout(flushTimer);
@@ -162,12 +218,20 @@ const createOutputSink = ({
     /** eviction — 이 뒤로는 아무것도 터미널에 닿으면 안 된다. */
     clear: () => {
       buffer = [];
+      bufferStart = 0;
+      bufferBytes = 0;
+      retainedBlock = null;
+      retainedBlockBytes = 0;
       if (flushTimer) clearTimeout(flushTimer);
       flushTimer = null;
       prioritizeNextPush = false;
     },
     dispose: () => {
       buffer = [];
+      bufferStart = 0;
+      bufferBytes = 0;
+      retainedBlock = null;
+      retainedBlockBytes = 0;
       if (flushTimer) clearTimeout(flushTimer);
       flushTimer = null;
       pendingWriteBytes = 0;

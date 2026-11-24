@@ -13,6 +13,7 @@ import { OPTIONS as MUX_OPTIONS, HINTS as MUX_HINTS, normalize as normalizeMulti
 import { Section, Divider, Field, Select, Toggle, FontSizeRow, ShortcutRow } from './SettingsFields';
 import LlmWatcherSection from './LlmWatcherSection';
 import TerminatorSection from './TerminatorSection';
+import { IDLE_SCREEN_MINUTES } from '../../hooks/useIdleScreen';
 import HelpPanel from './HelpPanel';
 
 const { color, space } = tokens;
@@ -109,6 +110,13 @@ export const GeneralPanel = ({ s, change, username, onLogout, t }) => (
         checked={s.einkMode === true}
         onChange={(v) => change('einkMode', v)}
       />
+      <Field label={t('idleScreenSetting')} hint={<span style={{ color: tokens.color.text }}>{t('idleScreenHint')}</span>}>
+        <Select aria-label={t('idleScreenSetting')} value={s.idleScreenMinutes ?? 5} onChange={(v) => change('idleScreenMinutes', Number(v))}>
+          {IDLE_SCREEN_MINUTES.map(minutes => <option key={minutes} value={minutes}>
+            {minutes === 0 ? t('idleScreenOff') : t('idleScreenAfter').replace('{minutes}', minutes)}
+          </option>)}
+        </Select>
+      </Field>
       {/* Themes fold away — a grid of 40+ swatches permanently open pushes language and
           font size off screen. The collapsed head carries the **current theme name** so
           you can tell without opening it. */}

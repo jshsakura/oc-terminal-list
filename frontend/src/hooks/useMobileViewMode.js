@@ -5,7 +5,7 @@ const STORAGE_KEY = 'iterm:mobileViewOnly';
 // Keep this preference on this device, independently of synced app settings.
 export default function useMobileViewMode() {
   const [viewOnly, setViewOnly] = useState(() => {
-    try { return localStorage.getItem(STORAGE_KEY) !== 'false'; } catch { return true; }
+    try { return localStorage.getItem(STORAGE_KEY) === 'true'; } catch { return false; }
   });
   const changeViewOnly = useCallback((value) => {
     setViewOnly(value);

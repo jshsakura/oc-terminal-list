@@ -95,6 +95,21 @@ describe('mobile view selection', () => {
     expect(open).toHaveBeenCalledOnce();
     expect(menu).toHaveBeenCalledWith(expect.objectContaining({ linkUrl: 'https://example.com' }));
   });
+  it('opens and offers the whole hard-wrapped URL from its continuation', () => {
+    const url = `https://example.com/${'part/'.repeat(16)}end`;
+    const parts = [url.slice(0, 78), `    ${url.slice(78)}`];
+    term.buffer.active.getLine = row => row < parts.length ? {
+      isWrapped: false,
+      translateToString: (_, start = 0, end = 80) => parts[row].padEnd(80).slice(start, end),
+      getCell: col => ({ getWidth: () => 1, getChars: () => parts[row][col] || '' }),
+    } : null;
+
+    touch('touchstart', 65, 30); touch('touchend', 65, 30);
+    expect(open).toHaveBeenCalledWith(url, '_blank', 'noopener,noreferrer');
+    touch('touchstart', 65, 30); vi.advanceTimersByTime(510); touch('touchend', 65, 30);
+    expect(menu).toHaveBeenCalledWith(expect.objectContaining({ linkUrl: url }));
+    expect(open).toHaveBeenCalledOnce();
+  });
   describe('with a selection already up', () => {
     // "cdef" on row 0: cols 2..5, end edge exclusive.
     beforeEach(() => {

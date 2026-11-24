@@ -67,6 +67,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchMode, setSearchMode] = useState('name'); // 'name'(트리 필터) | 'content'(내용 grep)
   const [rootPath, setRootPath] = useState(isHostMode ? stripHostPathPrefix(initialPath || '') : (initialPath || ''));
+  const listRequests = useMemo(() => new Map(), [apiBase, rootPath]);
   const [rootPathForwardStack, setRootPathForwardStack] = useState([]);
   const [resolvedRoot, setResolvedRoot] = useState(null);
   const [dragOver, setDragOver] = useState(false);
@@ -82,7 +83,8 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const uploadDestRef = useRef('');
   const listRef = useRef(null);
   const scrollRafRef = useRef(null);
-  const didInitialCwdRefreshRef = useRef(false);
+  const listRequestsRef = useRef(listRequests);
+  listRequestsRef.current = listRequests;
   const creatingCommitRef = useRef(false);
   const renameCommitRef = useRef(false);
   const contextMenuOpenRef = useRef(false);
@@ -111,13 +113,21 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
   const changedSet = useMemo(() => new Set((gitItems || []).map((g) => g.path)), [gitItems]);
 
   const fetchChildren = useCallback(async (cacheKey) => {
+    if (listRequestsRef.current !== listRequests) return;
     const backendPath = cacheKey === '' ? rootPath : cacheKey;
+    const request = Symbol();
+    listRequestsRef.current.set(cacheKey, request);
+    if (cacheKey === '' && retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
     setNodes((prev) => ({ ...prev, [cacheKey]: { ...(prev[cacheKey] || {}), loading: true } }));
     try {
       const ts = Date.now();
       const res = await fetch(`${apiBase}?path=${encodeURIComponent(backendPath)}&_t=${ts}`, { headers: authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      if (listRequestsRef.current.get(cacheKey) !== request) return;
       setNodes((prev) => ({ ...prev, [cacheKey]: { items: data.items || [], loading: false, error: null } }));
       if (cacheKey === '' && isHostMode && (data.resolved || data.path)) {
         setResolvedRoot(stripHostPathPrefix(data.resolved || data.path));
@@ -132,6 +142,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
         setRetryNotice(null);
       }
     } catch (e) {
+      if (listRequestsRef.current.get(cacheKey) !== request) return;
       setNodes((prev) => ({ ...prev, [cacheKey]: { items: [], loading: false, error: e.message } }));
       // 루트 실패 → 백오프(2/4/8/16/30s) 자동 재시도. 사용자가 다른 일 하는 동안 호스트 회복 시
       // 자동으로 트리가 채워지도록 한다. children 단위는 사용자가 펼칠 때 재시도되므로 제외.
@@ -148,7 +159,7 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
         }, delayMs);
       }
     }
-  }, [apiBase, rootPath, isHostMode]);
+  }, [apiBase, rootPath, isHostMode, listRequests]);
 
   useEffect(() => {
     setNodes({});
@@ -175,13 +186,14 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
     }
   }, [rootPath, initialPath, isHostMode, fetchChildren]);
 
-  // unmount 시 백오프 타이머 정리 — 사라진 컴포넌트가 fetch 를 다시 트리거하면 안 됨.
+  // Invalidate old listings and retries before a new root or host can use their cache keys.
   useEffect(() => () => {
+    listRequests.clear();
     if (retryTimerRef.current) {
       clearTimeout(retryTimerRef.current);
       retryTimerRef.current = null;
     }
-  }, []);
+  }, [listRequests]);
 
   closeContextMenuRef.current = () => setContextMenu(null);
   contextMenuOpenRef.current = !!contextMenu;
@@ -222,24 +234,10 @@ const FileTree = ({ onFileSelect, onFolderSelect, onOpenTerminalAtFolder, onRefr
 
   const refreshPath = useCallback(async (path) => await fetchChildren(path), [fetchChildren]);
   const refreshAll = useCallback(async () => {
-    const cwdData = onRefreshCwd ? await onRefreshCwd() : null;
-    const nextRootPath = isHostMode
-      ? (cwdData?.cwd ? stripHostPathPrefix(cwdData.cwd) : null)
-      : (cwdData?.in_workspace ? (cwdData.workspace_relative || '') : null);
-    if (nextRootPath !== null && nextRootPath !== rootPath) {
-      setRootPath(nextRootPath);
-      setRootPathForwardStack([]);
-      return;
-    }
+    if (onRefreshCwd) await onRefreshCwd();
     const paths = Array.from(expanded);
     await Promise.all(paths.map(p => fetchChildren(p)));
-  }, [expanded, fetchChildren, isHostMode, onRefreshCwd, rootPath]);
-
-  useEffect(() => {
-    if (!onRefreshCwd || didInitialCwdRefreshRef.current) return;
-    didInitialCwdRefreshRef.current = true;
-    refreshAll();
-  }, [onRefreshCwd, refreshAll]);
+  }, [expanded, fetchChildren, onRefreshCwd]);
 
   useEffect(() => {
     const el = listRef.current;

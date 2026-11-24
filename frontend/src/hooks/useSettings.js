@@ -86,6 +86,7 @@ export const DEFAULT_SETTINGS = {
   // 이북(전자잉크) 모드 — 켜면 애니메이션·유리·부드러운 스크롤·예측입력·WebGL 을 끄고 흑백
   // 테마로 강제한다. 무엇을 덮는지는 utils/einkMode.js 한 곳이 정한다(여기 값은 안 건드린다).
   einkMode: false,
+  idleScreenMinutes: 5,
 };
 
 // main.jsx 가 React 마운트 전에 이북 플래그를 읽어야 해서 내보낸다(utils/einkMode.js 참고).

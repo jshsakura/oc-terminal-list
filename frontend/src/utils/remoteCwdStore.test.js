@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { setRenderPaused } from './renderPause';
 import {
   _resetRemoteCwd,
   applyRemoteCwdChanges,
@@ -7,6 +8,24 @@ import {
 } from './remoteCwdStore';
 
 beforeEach(() => _resetRemoteCwd());
+afterEach(() => { _resetRemoteCwd(); setRenderPaused(false); });
+
+it('coalesces path changes during rest including a return to the published path', () => {
+  applyRemoteCwdChanges('h1', { mobile: '/original', gone: '/old' });
+  const listener = vi.fn();
+  subscribeRemoteCwd(listener);
+  setRenderPaused(true);
+
+  applyRemoteCwdChanges('h1', { mobile: '/temporary' });
+  applyRemoteCwdChanges('h1', { mobile: '/original', gone: null });
+
+  expect(listener).not.toHaveBeenCalled();
+  expect(getRemoteCwd('h1', 'gone')).toBe('/old');
+  setRenderPaused(false);
+  expect(listener).toHaveBeenCalledTimes(1);
+  expect(getRemoteCwd('h1', 'mobile')).toBe('/original');
+  expect(getRemoteCwd('h1', 'gone')).toBe('');
+});
 
 describe('remote cwd store', () => {
   it('separates identical tmux session names by host', () => {

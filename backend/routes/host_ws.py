@@ -24,6 +24,7 @@ from tickets import _push_ws_tickets
 from ws_auth import authenticate_ws
 from ws_clients import _register_ws_client, _unregister_ws_client
 from ws_observe import log_attach, log_detach
+from output_batching import batch_terminal_output
 
 import session_tombstones  # noqa: E402  (지역 모듈 — 위 블록과 분리)
 
@@ -237,7 +238,9 @@ async def host_websocket(
     await invalidate_host(host_id)
     ticket_pusher = asyncio.create_task(_push_ws_tickets(bridge, username, ws_path))
     try:
-        await bridge.run()
+        async with batch_terminal_output(websocket) as output_socket:
+            bridge.websocket = output_socket
+            await bridge.run()
     except WebSocketDisconnect:
         pass
     except Exception as e:

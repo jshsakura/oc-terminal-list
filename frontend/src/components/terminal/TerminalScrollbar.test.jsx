@@ -1,4 +1,5 @@
 import { render, fireEvent, screen, waitFor, act } from '@testing-library/react';
+import { Profiler } from 'react';
 import { vi, it, expect, beforeEach } from 'vitest';
 import TerminalScrollbar from './TerminalScrollbar';
 import TerminalInputPreview from './TerminalInputPreview';
@@ -426,17 +427,32 @@ it('changes tmux questions as seeks complete and hides the old question while mo
   expect(props.inputPreviewRef.current).toBeNull();
 });
 
-it('rechecks tmux when the last scroll update arrived during an in-flight read', async () => {
+it('throttles output arriving during a tmux read and still refreshes the last scroll context', async () => {
+  // Given a slow read and terminal output arriving before it completes.
+  vi.useFakeTimers();
   let release;
   fetch.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
   fetch.mockResolvedValue({ ok: true, json: async () => ({ available: true, history: 200, offset: 60, rows: 20,
     input_context: { text: '질문 B' } }) });
-  const { listeners } = setup('alternate', false, true, undefined, true);
-  act(() => listeners.write());
-  await act(async () => release({ ok: true, json: async () => ({ available: true, history: 200, offset: 30, rows: 20,
-    input_context: { text: '질문 C' } }) }));
-  await waitFor(() => expect(screen.getByRole('region')).toHaveTextContent('질문 B'));
-  expect(fetch).toHaveBeenCalledTimes(2);
+  try {
+    const { listeners, unmount } = setup('alternate', false, true, undefined, true);
+    act(() => { listeners.write(); listeners.write(); });
+
+    // When the pending read completes, output must not bypass the polling deadline.
+    await act(async () => release({ ok: true, json: async () => ({ available: true, history: 200, offset: 30, rows: 20,
+      input_context: { text: '질문 C' } }) }));
+
+    // Then the newer context arrives on the scheduled refresh, without a request loop.
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(1999));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByRole('region')).toHaveTextContent('질문 B');
+    expect(fetch).toHaveBeenCalledTimes(2);
+    unmount();
+  } finally {
+    vi.useRealTimers();
+  }
 });
 
 it('never persists raw terminal submissions while the preview is enabled', () => {
@@ -446,6 +462,22 @@ it('never persists raw terminal submissions while the preview is enabled', () =>
 
   expect(fetch).not.toHaveBeenCalled();
   expect(localStorage.getItem('iterm:commandHistory:local:v1:browser-session-private')).toBeNull();
+});
+
+it('keeps an unchanged local scrollbar quiet while output arrives and updates when history grows', () => {
+  // Given an already rendered scrollbar at the live end of local history.
+  const { listeners, props, rerender, term } = setup();
+  const onRender = vi.fn();
+  rerender(<Profiler id="scrollbar" onRender={onRender}><TerminalScrollbar {...props} /></Profiler>);
+  onRender.mockClear();
+
+  // When parsed output leaves all scrollbar and preview values unchanged.
+  act(() => { listeners.write(); listeners.write(); listeners.write(); });
+
+  // Then it avoids another render while still reflecting real history changes.
+  expect(onRender).not.toHaveBeenCalled();
+  act(() => { term.buffer.active.baseY = 120; listeners.write(); });
+  expect(screen.getByRole('scrollbar')).toHaveAttribute('aria-valuemax', '120');
 });
 
 it('loads Recent commands once while browsing local history', async () => {

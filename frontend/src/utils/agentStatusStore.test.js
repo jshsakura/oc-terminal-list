@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { setRenderPaused } from './renderPause';
 import {
   reportTerminalTitle,
   applyAgentStatusChanges,
@@ -10,6 +11,36 @@ import {
 } from './agentStatusStore';
 
 beforeEach(() => _resetAgentStatus());
+afterEach(() => { _resetAgentStatus(); setRenderPaused(false); });
+
+it('retains latest SSE state during rest and publishes one snapshot on wake', () => {
+  reportTerminalTitle('gone', 'shell');
+  const before = getAgentStatusSnapshot();
+  const listener = vi.fn();
+  subscribeAgentStatus(listener);
+  setRenderPaused(true);
+
+  applyAgentStatusChanges([{ sessionId: 's1', status: 'working', rawTitle: 'first', cwd: '/first' }]);
+  applyAgentStatusChanges([{ sessionId: 's1', status: 'idle', rawTitle: 'latest', cwd: '/latest' },
+    { sessionId: 'gone', gone: true }]);
+
+  expect(getAgentStatusSnapshot()).toBe(before);
+  expect(listener).not.toHaveBeenCalled();
+  setRenderPaused(false);
+  expect(listener).toHaveBeenCalledTimes(1);
+  expect(getAgentStatusSnapshot().s1).toMatchObject({ status: 'idle', cwd: '/latest' });
+  expect(getAgentStatusSnapshot().gone).toBeUndefined();
+});
+
+it('keeps the published title immutable during rest even for spinner-only updates', () => {
+  reportTerminalTitle('s1', '⠂ 작업중');
+  const before = getAgentStatusSnapshot();
+  setRenderPaused(true);
+
+  reportTerminalTitle('s1', '⠴ 작업중');
+
+  expect(before.s1.rawTitle).toBe('⠂ 작업중');
+});
 
 describe('xterm 타이틀 관측', () => {
   it('상태와 표시용 타이틀을 세운다', () => {

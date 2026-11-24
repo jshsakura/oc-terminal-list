@@ -134,7 +134,6 @@ const styles = {
     paddingTop: '12vh',
     zIndex: 120000,
     fontFamily: font.sans,
-    backdropFilter: 'blur(2px)',
   },
   palette: {
     width: 'min(640px, calc(100vw - 28px))',

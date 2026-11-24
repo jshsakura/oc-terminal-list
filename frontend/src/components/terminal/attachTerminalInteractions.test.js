@@ -280,12 +280,32 @@ describe('attachTerminalInteractions', () => {
       expect(scrollReadOnly).not.toHaveBeenCalled();
       expect(input.push).not.toHaveBeenCalled();
     });
-    it('세로 드래그는 스크롤한다 (감쇠 ×0.5)', () => {
+    it('세로 드래그는 손가락 이동 거리만큼 스크롤한다', () => {
       mount();
       overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
-      overlay.dispatchEvent(touchEvent('touchmove', 100, 80)); // 위로 120px → 감쇠 후 60px
+      overlay.dispatchEvent(touchEvent('touchmove', 100, 80));
 
-      expect(term.scrollLines).toHaveBeenCalledWith(3);
+      expect(term.scrollLines).toHaveBeenCalledWith(6);
+    });
+
+    it('작은 터치 이동도 누적해 한 줄마다 스크롤한다', () => {
+      mount();
+      overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
+      for (const y of [194, 188, 182]) overlay.dispatchEvent(touchEvent('touchmove', 100, y));
+      expect(term.scrollLines).not.toHaveBeenCalled();
+      overlay.dispatchEvent(touchEvent('touchmove', 100, 176));
+      expect(term.scrollLines).toHaveBeenCalledExactlyOnceWith(1);
+    });
+
+    it('tmux 터치 스크롤도 이동 거리를 보존하며 리포트 상한을 지킨다', () => {
+      term.buffer.active.type = 'alternate';
+      mount();
+      overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
+      overlay.dispatchEvent(touchEvent('touchmove', 100, 80));
+      expect(input.push.mock.calls[0][0].match(/\x1b\[<65;/g)).toHaveLength(6);
+      overlay.dispatchEvent(touchEvent('touchmove', 100, -320));
+      expect(input.push.mock.calls[1][0].match(/\x1b\[<65;/g)).toHaveLength(8);
+      expect(term.scrollLines).not.toHaveBeenCalled();
     });
 
     it('가로 우세 제스처는 스크롤로 치지 않는다', () => {

@@ -109,7 +109,7 @@ const TerminalHeader = ({
   const panelStorageKey = `${PANEL_STATE_PREFIX}${paneInfo?.paneId || terminalKey || 'default'}`;
   const [activePanel, setActivePanel] = useState(() => readPanelState(panelStorageKey).activePanel);
   const [panelWidth, setPanelWidth] = useState(() => readPanelState(panelStorageKey).panelWidth);
-  const [filePanelRevealPath, setFilePanelRevealPath] = useState(null);
+  const [filePanelReveal, setFilePanelReveal] = useState(null);
   const resizingRef = useRef(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
@@ -302,18 +302,20 @@ const TerminalHeader = ({
   const panelOnRightRef = useRef(panelOnRight);
   panelOnRightRef.current = panelOnRight;
   const ActivePanelIcon = activePanelMeta?.icon || Info;
-  const filePanelInitialPath = filePanelRevealPath ?? (
+  const filePanelContext = JSON.stringify([panelStorageKey, activeHostId, paneCwd]);
+  useEffect(() => { setFilePanelReveal(null); }, [filePanelContext]);
+  const filePanelInitialPath = (filePanelReveal?.context === filePanelContext ? filePanelReveal.path : null) ?? (
     activeHostId
       ? (paneCwd || null)
       : (paneCwd ?? gitContextPath ?? selectedFolderPath ?? '')
   );
 
   const revealInFilePanel = useCallback((folderPath) => {
-    setFilePanelRevealPath(folderPath || '');
+    setFilePanelReveal({ path: folderPath || '', context: filePanelContext });
     setActivePanel('files');
     if (onFilePanelToggle && !filePanelOpen) onFilePanelToggle();
     onFolderSelect?.(folderPath || '');
-  }, [filePanelOpen, onFilePanelToggle, onFolderSelect]);
+  }, [filePanelContext, filePanelOpen, onFilePanelToggle, onFolderSelect]);
 
   useEffect(() => {
     if (!isPaneVisible) return;
@@ -854,7 +856,8 @@ const TerminalHeader = ({
               <X size={12} strokeWidth={2.5} />
             </button>
           </div>
-          <div className="iterm-terminal-header-panelbody" style={{ ...styles.panelBody, background: 'transparent', color: panelUi.text }}>
+          {/* Portal menus bubble through this subtree and belong to the open panel. */}
+          <div className="iterm-terminal-header-panelbody" onMouseDown={(event) => event.stopPropagation()} style={{ ...styles.panelBody, background: 'transparent', color: panelUi.text }}>
             {activePanel === 'files' && (
               <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
                 <FileTree

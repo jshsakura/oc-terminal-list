@@ -10,6 +10,7 @@ import { buildThemeUI } from '../styles/themeUI';
 import useSmartScroll from '../hooks/useSmartScroll';
 import useTranslation from '../hooks/useTranslation';
 import { normalizeTerminalFontFamily } from '../utils/terminalFonts';
+import { isRenderPaused, subscribeRenderPause } from '../utils/renderPause';
 import { isTerminalAutoResponse } from '../utils/terminalInput';
 import { getNetworkSummary, getTerminalClientId } from '../utils/clientIdentity';
 import { acquireWsConnectSlot } from '../utils/wsConnectGate';
@@ -116,6 +117,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   const iosHangulRef = useRef(null);
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
+  const outputHintRef = useRef({ socket: null, paused: false });
   // 예측 입력(predictive local echo) 엔진 — 키를 RTT 안 기다리고 유령 글자로 먼저 그림.
   const predictiveEchoRef = useRef(null);
   // WebglAddon — 비활성 탭에서는 GPU 페인팅 멈춰서 CPU/배터리 절약 (특히 모바일).
@@ -137,6 +139,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 비활성 grace-close 타이머 + close 가 inactivity 때문이었는지 표시.
   const graceCloseTimerRef = useRef(null);
   const wasClosedForInactivityRef = useRef(false);
+  const deferredHiddenReconnectRef = useRef(false);
   const wsRef = useRef(null);
   const wsGenerationRef = useRef(0);
   // 현재 소켓이 CONNECTING 을 시작한 시각(ms). resume 신호/워치독이 "죽은 경로에 매달린
@@ -237,6 +240,8 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
   const paneCwdInfoRef = useRef(null);
   paneCwdInfoRef.current = paneCwdInfo || { isLocal: !hostId, cwdAbs: '', cwdRel: '' };
+  const cwdRef = useRef(cwd);
+  cwdRef.current = cwd;
   const endedRef = useRef(false);
   const hasContentRef = useRef(false);
   /* useEffect 내부의 connect()/runPreflight() 를 takeover 버튼/자동 재attach 폴링/탭 활성 변경에서
@@ -436,7 +441,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     if (!hasNotice || ended || evicted || closing) return undefined;
     const stuckSince = Date.now();
     const id = setInterval(() => {
-      if (endedRef.current || evictedRef.current) return;
+      if (document.hidden || endedRef.current || evictedRef.current) return;
       const ws = wsRef.current;
       const rs = ws?.readyState;
 
@@ -695,15 +700,15 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
   // 실제 연결 정체성은 sessionId(로컬) / effectiveTmuxSession·tmuxSessionName(호스트)로
   // 충분히 표현된다. 로컬 WS 는 pane_index 를 안 받고, 호스트 WS 도 tmux_session_name 이
   // 있으면 pane_index 를 무시하므로 paneIndex 변화는 연결에 영향이 없다.
+  // cwd is live metadata: cd must not dispose the terminal or reopen its socket.
   const connectionKey = useMemo(() => JSON.stringify({
     sessionId,
     hostId: hostId || null,
     tmuxSuffix: tmuxSuffix || null,
     tmuxSessionName: tmuxSessionName || null,
     effectiveTmuxSession: effectiveTmuxSession || null,
-    cwd: cwd ?? null,
     shell: settings.defaultShell || 'bash',
-  }), [sessionId, hostId, tmuxSuffix, tmuxSessionName, effectiveTmuxSession, cwd, settings.defaultShell]);
+  }), [sessionId, hostId, tmuxSuffix, tmuxSessionName, effectiveTmuxSession, settings.defaultShell]);
 
   // 터미널 생성 및 WebSocket 연결
   useEffect(() => {
@@ -734,7 +739,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       // 대신 그 패턴을 쓴다(iterm:activity / iterm:auth-prompt 와 동일).
       onFileLinkClick: hostId ? null : (link) => {
         window.dispatchEvent(new CustomEvent('iterm:open-file', {
-          detail: { ...link, cwd },
+          detail: { ...link, cwd: cwdRef.current },
         }));
       },
     });
@@ -751,7 +756,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       term,
       isActive: () => isActiveRef.current,
       isFocused: () => isFocusedRef.current,
-      isVisible: () => !document.hidden,
+      isVisible: () => !document.hidden && !isRenderPaused(),
       isMobile: () => isMobileRef.current,
       // ref 로 읽는다 — 이북 모드를 켜고 끄는 데 소켓을 다시 열 이유는 없다.
       isEink: () => isEinkRef.current,
@@ -793,7 +798,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     webglRef.current = createWebglController({
       term,
       enabled: !isMobileRef.current && explicitWebgl !== false,
-      isActive: () => isActiveRef.current,
+      isActive: () => isActiveRef.current && !isRenderPaused(),
       debug: localStorage.getItem('debug_terminal') === '1',
     });
 
@@ -814,7 +819,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       onViewFontSize: (size) => setViewFontSize((previous) => previous?.base === baseFontSizeRef.current && previous.size === size
         ? previous : { base: baseFontSizeRef.current, size }),
       onFileLinkClick: hostId ? null : (link) => {
-        window.dispatchEvent(new CustomEvent('iterm:open-file', { detail: { ...link, cwd } }));
+        window.dispatchEvent(new CustomEvent('iterm:open-file', { detail: { ...link, cwd: cwdRef.current } }));
       },
       sessionId,
       hostId,
@@ -927,6 +932,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (existing && (existing.readyState === WebSocket.OPEN || existing.readyState === WebSocket.CONNECTING)) {
         return;
       }
+      // Keep live background sockets, but do not recreate dead ones while nobody can see the page.
+      if (document.hidden && options.create === false) {
+        deferredHiddenReconnectRef.current = true;
+        return;
+      }
       /* **소켓을 만드는 중인 것도 "이미 연결 중" 이다.** connect() 는 소켓을 만들기 전에
          await 를 두 번 지난다(티켓 발급, 핸드셰이크 게이트). 그 창 동안 wsRef 는 아직
          비어 있어서, 위 가드만으로는 두 번째 호출이 그대로 통과해 **같은 pane 에 소켓이
@@ -1003,7 +1013,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
            호스트 로그인 셸을 그 값으로 덮으면 안 된다. 로컬은 예전 그대로. */
         shell: hostId ? (paneShell || null) : (paneShell || settings.defaultShell || 'bash'),
         multiplexer: paneMultiplexer || null,
-        cwd,
+        cwd: cwdRef.current,
         paneIndex,
         tmuxSuffix,
         tmuxSessionName,
@@ -1029,6 +1039,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       const releaseSlot = await acquireWsConnectSlot({ priority: isActiveRef.current });
       connectInFlightRef.current = false;
       if (cancelled) { releaseSlot(); return; }
+      if (document.hidden && options.create === false) {
+        releaseSlot();
+        deferredHiddenReconnectRef.current = true;
+        return;
+      }
       /* 대기하는 사이 다른 경로가 이미 붙여놨다면 여기서 멈춘다 — 위 in-flight 가드를
          타지 않는 호출자가 생겨도 소켓이 둘이 되지 않게 하는 두 번째 그물. */
       const establishedWhileWaiting = wsRef.current;
@@ -1225,7 +1240,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     // busy on/off 가 깜빡 보였음). App.jsx 가 별도 윈도우로 fade-out 처리.
     let lastActivityDispatch = 0;
     const dispatchActivity = () => {
-      if (document.hidden) return;
+      if (document.hidden || isRenderPaused()) return;
       const now = Date.now();
       if (now - lastActivityDispatch < 100) return;
       lastActivityDispatch = now;
@@ -1401,6 +1416,12 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       if (evictedRef.current) {
         /* takeover 당함 — 자동 재접속 금지. 사용자가 "내가 가져오기" 버튼으로만 재attach. */
         setEvicted(true);
+        return;
+      }
+      if (document.hidden) {
+        deferredHiddenReconnectRef.current = true;
+        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
         return;
       }
       // [원격 도달 불가] 이 소켓이 connect-failed 를 알려왔다 — WS 는 열렸지만 그 뒤 SSH 가
@@ -1745,6 +1766,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       graceCloseTimerRef.current = null;
       wasClosedForInactivityRef.current = false;
       try { term.dispose(); } catch {}
+      deferredHiddenReconnectRef.current = false;
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (outageProbeTimerRef.current) {
         clearInterval(outageProbeTimerRef.current);
@@ -1824,7 +1846,7 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
       xtermRef.current.options.fontFamily = normalizeTerminalFontFamily(settings.fontFamily);
       xtermRef.current.options.smoothScrollDuration = settings.smoothScroll ? 100 : 0;
       xtermRef.current.options.minimumContrastRatio = resolveContrast(settings.terminalContrast);
-      xtermRef.current.options.cursorBlink = settings.einkMode !== true;
+      xtermRef.current.options.cursorBlink = !isRenderPaused() && settings.einkMode !== true;
       // 예측 유령 색/셀 크기 갱신 — 테마·폰트 바뀌면 다시 측정.
       predictiveEchoRef.current?.setGhostColor(`color-mix(in srgb, ${currentTheme.foreground || '#cdd6f4'} 55%, transparent)`);
       predictiveEchoRef.current?.refreshMetrics();
@@ -1923,7 +1945,48 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
     }
   }, [isActive, isFocused, isReady, readOnly]);
 
+  useEffect(() => {
+    const syncOutputHint = () => {
+      const socket = wsRef.current;
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      if (outputHintRef.current.socket !== socket) outputHintRef.current = { socket, paused: false };
+      const paused = isRenderPaused() || document.hidden || !isActiveRef.current;
+      if (outputHintRef.current.paused === paused) return;
+      try {
+        // Older servers already consume ping and safely ignore the optional hint.
+        socket.send(JSON.stringify({ type: 'ping', render_paused: paused }));
+        outputHintRef.current.paused = paused;
+      } catch { /* The existing socket recovery owns transport errors. */ }
+    };
+    syncOutputHint();
+    const unsubscribe = subscribeRenderPause(syncOutputHint);
+    document.addEventListener('visibilitychange', syncOutputHint);
+    return () => {
+      unsubscribe();
+      document.removeEventListener('visibilitychange', syncOutputHint);
+    };
+  }, [isReady, isActive]);
+
   // 활성 복귀 시 비활성 동안 쌓인 출력을 즉시 flush. tmux 도 별도로 화면 redraw 를 보내옴.
+  useEffect(() => {
+    const update = () => {
+      const term = xtermRef.current;
+      if (!term) return;
+      term.options.cursorBlink = !isRenderPaused() && !isEinkRef.current;
+      if (isRenderPaused()) {
+        webglRef.current?.cancelIdle();
+        webglRef.current?.detach();
+        return;
+      }
+      if (!isActiveRef.current || document.hidden) return;
+      webglRef.current?.noteActivity();
+      outputRef.current?.flush();
+      term.refresh(0, Math.max(0, term.rows - 1));
+    };
+    update();
+    return subscribeRenderPause(update);
+  }, [isReady]);
+
   useEffect(() => {
     if (!isActive) return;
     outputRef.current?.flush();
@@ -2003,8 +2066,9 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
         }
         // 백그라운드 동안 타이머 throttle 로 ping 을 못 보냈을 수 있으니, 복귀 시 워치독 기준 리셋.
         lastRecvRef.current = Date.now();
-        if (wasClosedForInactivityRef.current && connectRef.current) {
+        if ((wasClosedForInactivityRef.current || deferredHiddenReconnectRef.current) && connectRef.current) {
           wasClosedForInactivityRef.current = false;
+          deferredHiddenReconnectRef.current = false;
           // 다음 unexpected close 는 다시 auto-reconnect 흐름 타게 reset.
           intentionalCloseRef.current = false;
           connectRef.current({ create: false });

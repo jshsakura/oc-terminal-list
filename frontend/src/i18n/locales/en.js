@@ -312,6 +312,13 @@ export const en = {
 
     // E-ink mode
     einkMode: 'E-ink mode',
+    idleScreenSetting: 'Idle screen',
+    idleScreenHint: 'Pause screen updates when there is no input. Connections and tasks stay active. Click, tap or press a key to return.',
+    idleScreenOff: 'Off',
+    idleScreenAfter: 'After {minutes} min',
+    idleScreenTitle: 'Display resting',
+    idleScreenResume: 'Click, tap or press any key to continue',
+    idleScreenConnection: 'Terminal connections and tasks stay active',
     einkModeHint: 'For e-ink / e-reader screens. Turns off animation, glass, smooth scrolling, predictive echo and GPU rendering, forces a black-and-white theme, and redraws the terminal about 3 times a second instead of 30. Your theme and other settings are kept and come back when you turn it off.',
 
     // Themes

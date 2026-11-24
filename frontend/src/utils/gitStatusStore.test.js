@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createGitStatusStore, gitStatusKey, gitStatusUrl } from './gitStatusStore';
+import { setRenderPaused } from './renderPause';
 
 describe('gitStatusStore', () => {
   let hidden;
@@ -19,7 +20,44 @@ describe('gitStatusStore', () => {
 
   afterEach(() => {
     store.dispose();
+    setRenderPaused(false);
     vi.useRealTimers();
+  });
+
+  it('stops polling and activity timers during rest and refreshes once on wake', async () => {
+    store.subscribe({ path: 'repo', intervalMs: 1000, onData: vi.fn() });
+    await vi.advanceTimersByTimeAsync(0);
+    fetcher.mockClear();
+
+    setRenderPaused(true);
+    for (let i = 0; i < 100; i += 1) store.touch({ path: 'repo' });
+    await vi.advanceTimersByTimeAsync(30000);
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    setRenderPaused(false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('caches an in-flight response during rest without publishing it until wake', async () => {
+    let finish;
+    store.dispose();
+    store = makeStore(() => new Promise((resolve) => { finish = resolve; }));
+    const onData = vi.fn();
+    store.subscribe({ path: 'repo', intervalMs: 1000, onData });
+    setRenderPaused(true);
+
+    finish({ items: [{ path: 'changed.py' }] });
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(store.peek({ path: 'repo' }).data.items).toEqual([{ path: 'changed.py' }]);
+    expect(onData).not.toHaveBeenCalled();
+    setRenderPaused(false);
+    expect(onData).toHaveBeenCalledTimes(1);
+    expect(onData.mock.calls[0][0].data.items).toEqual([{ path: 'changed.py' }]);
   });
 
   it('키를 host/path 로 만들고 URL 을 그에 맞게 고른다', () => {

@@ -4,6 +4,9 @@ import {
 import { Terminal as TerminalIcon, Menu, XCircle, LogOut, Columns3, MessageSquare, LayoutGrid } from 'lucide-react';
 import { DEFAULT_FONT_SIZE, DEFAULT_FONT_SIZE_MOBILE } from './utils/terminalFonts';
 import useSettings from './hooks/useSettings';
+import useIdleScreen from './hooks/useIdleScreen';
+import IdleScreen from './components/IdleScreen';
+import { isRenderPaused, subscribeRenderPause } from './utils/renderPause';
 import useMobileViewMode from './hooks/useMobileViewMode';
 import useSelectionToCommandInput from './hooks/useSelectionToCommandInput';
 import { resolveMobileKeySets, activeMobileKeySet } from './utils/mobileKeySets';
@@ -637,7 +640,7 @@ function App() {
     const run = () => {
       // 탭이 숨겨졌으면(밤새 백그라운드 등) 아무도 안 봄 — Set 생성·setState 다 건너뛰어
       // idle 백그라운드에서 불필요한 GC·렌더를 0 으로. 복귀하면 다음 tick 이 바로 갱신.
-      if (document.hidden) return;
+      if (document.hidden || isRenderPaused()) { stop(); return; }
       const next = deriveBusy({ activity, tabs: tabsRef.current, now: Date.now() });
       activity = next.activity;
       setBusyPaneIds((prev) => (sameSet(prev, next.panes) ? prev : next.panes));
@@ -650,11 +653,12 @@ function App() {
 
     /* 150ms — busy 등장/소멸 인지를 1프레임 안으로. 활동이 있는 동안에만 돈다. */
     const start = () => {
-      if (tick || document.hidden) return;
+      if (tick || document.hidden || isRenderPaused()) return;
       tick = setInterval(run, 150);
     };
 
     const onActivity = (e) => {
+      if (isRenderPaused()) return;
       const paneId = e?.detail?.paneId;
       if (!paneId) return;
       activity.set(paneId, Date.now());
@@ -665,10 +669,12 @@ function App() {
 
     window.addEventListener('iterm:activity', onActivity);
     document.addEventListener('visibilitychange', onVisible);
+    const unsubscribePause = subscribeRenderPause(() => { if (isRenderPaused()) stop(); else onVisible(); });
 
     return () => {
       window.removeEventListener('iterm:activity', onActivity);
       document.removeEventListener('visibilitychange', onVisible);
+      unsubscribePause();
       stop();
     };
   }, []);
@@ -1258,6 +1264,7 @@ function App() {
 
   // ── guards ────────────────────────────────────────────────────────────────
   const authLoadingFallback = <LoadingScreen currentTheme={currentTheme} t={t} />;
+  const idleScreen = useIdleScreen({ enabled: isAuthenticated && !isRestoringWorkspace, minutes: settings.idleScreenMinutes });
   if (isLoading || isRestoringWorkspace) return authLoadingFallback;
   if (needsSetup) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><InitialSetup onComplete={completeSetup} language={settings.language} /></Suspense></LazyErrorBoundary>;
   if (!isAuthenticated) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><Login onLogin={handleLogin} language={settings.language} theme={currentTheme} einkMode={settings.einkMode === true} onToggleEink={() => updateSettings({ einkMode: !settings.einkMode })} /></Suspense></LazyErrorBoundary>;
@@ -1331,7 +1338,7 @@ function App() {
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{
+    <div data-app-surface style={{
       display: 'flex', flexDirection: 'column',
       /* ⚠️ **평소에는 상자를 꽉 채운다.** `#root` 는 fixed 라 보이는 영역에 붙어 있고
          크기도 그것이다 — 여기서 `visualViewport.height` 로 줄이면, 그 값이 한 프레임이라도
@@ -1345,6 +1352,7 @@ function App() {
       overflow: 'hidden',
       fontFamily: font.sans,
     }}>
+      {idleScreen && <IdleScreen t={t} />}
       <style>{`
         html, body {
           width: 100%;

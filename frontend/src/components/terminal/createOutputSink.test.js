@@ -168,6 +168,90 @@ describe('createOutputSink', () => {
   });
 
   describe('inactive panes', () => {
+    it('preserves split UTF-8 and escape bytes while packing small background frames', () => {
+      let active = false;
+      const out = sink({ isActive: () => active });
+      const text = '한글\u001b[31m' + 'x'.repeat(33000) + '\u001b[0m끝';
+      const data = new TextEncoder().encode(text);
+
+      for (const byte of data) out.push(Uint8Array.of(byte).buffer);
+
+      active = true;
+      out.flush();
+      expect(term.text).toBe(text);
+    });
+
+    it('seals a partial block before a large frame and never reuses flushed storage', () => {
+      let active = false;
+      const out = sink({ isActive: () => active });
+      out.push(bytes('first'));
+      out.push(bytes('x'.repeat(32768)));
+      out.push(bytes('last'));
+
+      active = true;
+      out.flush();
+      active = false;
+      out.push(bytes('new'));
+
+      expect(term.text).toBe('first' + 'x'.repeat(32768) + 'last');
+      active = true;
+      out.flush();
+      expect(term.text).toBe('first' + 'x'.repeat(32768) + 'lastnew');
+    });
+
+    it('buffers hidden output without scheduling background flush timers', () => {
+      // Given a hidden page receiving several frames inside a rendering window.
+      let visible = false;
+      const out = sink({ isVisible: () => visible });
+
+      // When more output arrives while nobody can see the terminal.
+      out.push(bytes('first'));
+      out.push(bytes('second'));
+
+      // Then no timer wakes the page, and all output is available on return.
+      expect(vi.getTimerCount()).toBe(0);
+      visible = true;
+      out.flush();
+      expect(term.text).toBe('firstsecond');
+    });
+
+    it('does bounded work as retained background output grows', () => {
+      // Given many small output frames retained by an inactive terminal.
+      const chunks = Array.from({ length: 200 }, () => bytes('x'));
+      const lengths = vi.spyOn(ArrayBuffer.prototype, 'byteLength', 'get');
+      let active = false;
+      const out = sink({ isActive: () => active });
+      try {
+        // When the stream keeps arriving, accounting must not scan its entire history.
+        for (const chunk of chunks) { out.push(chunk); vi.advanceTimersByTime(5); }
+
+        // Then work grows with incoming frames and the retained content stays intact.
+        expect(lengths.mock.calls.length).toBeLessThan(800);
+        active = true;
+        out.flush();
+        expect(term.text).toBe('x'.repeat(200));
+      } finally {
+        lengths.mockRestore();
+      }
+    });
+
+    it('keeps the newest bounded background history when returning to the pane', () => {
+      // Given output exceeding the retained-history budget before timers can run.
+      let active = false;
+      const out = sink({ isActive: () => active });
+
+      // When ten megabytes arrive in a background pane.
+      for (let i = 0; i < 10; i += 1) out.push(bytes(String(i).repeat(1024 * 1024)));
+
+      // Then returning shows the latest eight megabytes in order.
+      active = true;
+      out.flush();
+      const output = term.text;
+      expect(output.length).toBe(8 * 1024 * 1024);
+      expect(Array.from({ length: 8 }, (_, i) => output.slice(i * 1024 * 1024, i * 1024 * 1024 + 4)))
+        .toEqual(['2222', '3333', '4444', '5555', '6666', '7777', '8888', '9999']);
+    });
+
     it('buffers instead of writing, then flushes on reactivation', () => {
       let active = false;
       const out = sink({ isActive: () => active });

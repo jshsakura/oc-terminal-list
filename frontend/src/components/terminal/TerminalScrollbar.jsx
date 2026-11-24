@@ -59,7 +59,6 @@ export default function TerminalScrollbar({ xtermRef, fitNowRef, sessionId, host
     let lastRead = 0;
     let controller = null;
     let mutationInFlight = false;
-    let refreshPending = false;
     let gestureUntil = 0;
     let finishRequest = null;
     const finish = (success) => {
@@ -74,6 +73,12 @@ export default function TerminalScrollbar({ xtermRef, fitNowRef, sessionId, host
     if (showInputOnScroll) params.set('include_input', 'true');
     const publish = (next) => {
       if (disposed) return;
+      const prev = stateRef.current;
+      if (prev.available === next.available && prev.history === next.history
+          && prev.offset === next.offset && prev.rows === next.rows && prev.target === next.target
+          && prev.input_context?.text === next.input_context?.text
+          && prev.input_context?.offset === next.input_context?.offset
+          && prev.input_context?.background === next.input_context?.background) return;
       stateRef.current = next;
       setState(next);
     };
@@ -129,7 +134,6 @@ export default function TerminalScrollbar({ xtermRef, fitNowRef, sessionId, host
         // Keep at most one seek in flight. Dragging replaces the queued target
         // rather than accumulating commands behind a slow SSH connection.
         if (!disposed && pending !== null) request();
-        else if (!disposed && refreshPending) { refreshPending = false; request(); }
         // A quiet tmux pane can change without emitting an xterm event (for example,
         // while viewing copy-mode history). Keep one slow background read armed.
         else if (!disposed) refresh();
@@ -138,9 +142,9 @@ export default function TerminalScrollbar({ xtermRef, fitNowRef, sessionId, host
     const refresh = () => {
       if (!usesTmux()) { localState(); return; }
       if (document.hidden || timer) return;
-      // The last wheel update may arrive during the read. Schedule a follow-up
-      // instead of leaving context stuck at the previous viewport indefinitely.
-      if (busy) { refreshPending = true; return; }
+      // Completion always schedules a refresh. Output during a slow read must not
+      // turn that refresh into back-to-back HTTP requests; only queued seeks bypass it.
+      if (busy) return;
       const gestureActive = Date.now() < gestureUntil;
       const baseInterval = gestureActive && showInputOnScroll ? 250 : 2000;
       const interval = gestureActive ? baseInterval : einkPollMs(baseInterval);

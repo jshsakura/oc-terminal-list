@@ -29,6 +29,7 @@ from ws_auth import authenticate_ws
 from ws_bridge import TmuxClientBridge
 from ws_clients import _register_ws_client, _unregister_ws_client
 from ws_observe import log_attach, log_detach
+from output_batching import batch_terminal_output
 
 logger = logging.getLogger(__name__)
 
@@ -230,7 +231,9 @@ async def terminal_websocket(
     await invalidate_session(session_id)
     ticket_pusher = asyncio.create_task(_push_ws_tickets(bridge, username, ws_path))
     try:
-        await bridge.run()
+        async with batch_terminal_output(websocket) as output_socket:
+            bridge.websocket = output_socket
+            await bridge.run()
     except WebSocketDisconnect:
         pass
     except Exception as e:

@@ -91,6 +91,13 @@ for (const engine of [chromium, webkit]) {
     };
     await boot();
     await page.getByRole('button', {name:'퀵바 세트 선택',exact:true}).waitFor();
+    assert.equal(await page.locator('textarea').evaluate(el => !el.readOnly && el.inputMode === 'text'), true);
+    await page.locator('#touch-surface').tap();
+    assert.equal(await page.evaluate(() => document.activeElement === window.term.textarea), true);
+    await page.keyboard.type('direct');
+    assert.equal(await page.evaluate(() => window.input.join('')), 'direct');
+    await page.evaluate(() => { window.input = []; window.setViewOnly(true); });
+    await page.waitForFunction(() => window.term.textarea.readOnly);
     assert.equal(await page.locator('textarea').evaluate(el => el.readOnly && el.inputMode === 'none'), true);
     await page.locator('#touch-surface').tap();
     assert.equal(await page.evaluate(() => document.activeElement === window.term.textarea), false);

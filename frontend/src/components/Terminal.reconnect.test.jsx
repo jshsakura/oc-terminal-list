@@ -64,6 +64,73 @@ describe('Terminal 재연결 타이머', () => {
     delete window.terminalSessions;
   });
 
+  it.each([{}, { hostId: 'host-1', tmuxSessionName: 'work' }])('cd 이후에도 같은 터미널과 소켓을 유지한다 (%j)', async (target) => {
+    const props = { sessionId: 's1', settings, isActive: true, isFocused: true, ...target };
+    const view = renderTerminal({ ...target, cwd: 'before' });
+    const ws = await openSocket();
+    const term = harness.term;
+    term.write('existing output');
+
+    view.rerender(<TerminalComponent {...props} cwd="after" />);
+
+    expect(term.disposed).toBe(false);
+    expect(harness.term).toBe(term);
+    expect(harness.socket).toBe(ws);
+    expect(ws.readyState).toBe(WebSocket.OPEN);
+    expect(term.text).toContain('existing output');
+  });
+
+  it('cd 이후 실제 연결이 끊기면 최신 경로로 재연결한다', async () => {
+    const view = renderTerminal({ cwd: 'before' });
+    const ws = await openSocket();
+    view.rerender(<TerminalComponent sessionId="s1" settings={settings} isActive isFocused cwd="after" />);
+
+    await act(async () => { ws.serverClose(); });
+    await tick(1500);
+
+    expect(harness.socket).not.toBe(ws);
+    expect(new URL(harness.socket.url).searchParams.get('cwd')).toBe('after');
+  });
+
+  it('defers a hidden-page disconnect until the active pane becomes visible', async () => {
+    const visibility = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    try {
+      renderTerminal();
+      const first = await openSocket();
+      visibility.mockReturnValue(true);
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); first.serverClose(); });
+      await tick(5 * 60_000);
+      expect(harness.sockets).toHaveLength(1);
+      visibility.mockReturnValue(false);
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      await tick(400);
+      expect(harness.sockets).toHaveLength(2);
+      expect(harness.socket.url).toContain('create=0');
+    } finally { visibility.mockRestore(); }
+  });
+
+  it('keeps a healthy desktop connection hidden and resumes a dead inactive pane on selection', async () => {
+    const visibility = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    try {
+      const view = renderTerminal({ isActive: false });
+      const first = await openSocket();
+      visibility.mockReturnValue(true);
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      await tick(5 * 60_000);
+      expect(first.readyState).toBe(WebSocket.OPEN);
+      expect(harness.sockets).toHaveLength(1);
+      await act(async () => { first.serverClose(); });
+      await tick(60_000);
+      visibility.mockReturnValue(false);
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      await tick(400);
+      expect(harness.sockets).toHaveLength(1);
+      view.rerender(<TerminalComponent sessionId="s1" settings={settings} isActive isFocused />);
+      await tick(400);
+      expect(harness.sockets).toHaveLength(2);
+    } finally { visibility.mockRestore(); }
+  });
+
   describe('배너 디바운스', () => {
     /* 짧은 블립마다 "재연결 중" 이 깜빡이면 프롬프트를 가려 오히려 방해가 된다.
        NOTICE_SHOW_DELAY_MS(2s) 안에 복구되면 배너는 아예 안 뜬다. */

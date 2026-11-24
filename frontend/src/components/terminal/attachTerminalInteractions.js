@@ -49,10 +49,6 @@ const MAX_WHEEL_REPORTS = { wheel: 12, touch: 8 };
 
 const LONG_PRESS_MS = 500;         // 롱프레스 → 컨텍스트 메뉴
 const TOUCH_SCROLL_THRESHOLD_PX = 5;
-// Touch flicks arrive as raw pixel deltas at ~60Hz; mapping them 1:1 to lines
-// makes one swipe fly through history. Damp the ratio and let the existing
-// fractional-line remainder keep sub-line motion smooth.
-const TOUCH_SCROLL_DAMPING = 0.5;
 const DRAG_SELECT_THRESHOLD_PX = 5; // 이만큼 끌어야 선택으로 전환(클릭은 앱으로)
 const SELECTION_SETTLE_MS = 80;    // 드래그가 멎고 나서 한 번만 클립보드에 쓴다
 const COPY_FLASH_MS = 1800;
@@ -470,7 +466,7 @@ const attachTerminalInteractions = ({
 
     e.preventDefault();
     touchStartY = e.touches[0].clientY;
-    handleScrollDelta(dy * TOUCH_SCROLL_DAMPING, 0, e.touches[0].clientX, e.touches[0].clientY, 'touch');
+    handleScrollDelta(dy, 0, e.touches[0].clientX, e.touches[0].clientY, 'touch');
   };
 
   /* 이 pane 에서 도크로 포커스를 한 번 넘겼나. attach 단위라 pane 을 새로 열면 다시

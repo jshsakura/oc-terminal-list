@@ -17,6 +17,7 @@ import pytest
 import multiplexer as mux
 import routes.terminal_ws as terminal_ws
 from _deps import WORKSPACE_ROOT
+from starlette.websockets import WebSocketState
 
 
 @pytest.fixture
@@ -41,9 +42,13 @@ class _FakeWS:
         self.closed_with: tuple[int, str] | None = None
         self.sent_text: list[str] = []
         self.client_state = MagicMock(name="CONNECTED")
+        self.scope = {"type": "websocket"}
+        self.application_state = WebSocketState.CONNECTING
 
     async def accept(self):
         self.accepted = True
+        self.client_state = WebSocketState.CONNECTED
+        self.application_state = WebSocketState.CONNECTED
 
     async def close(self, code=1000, reason=""):
         self.closed_with = (code, reason)

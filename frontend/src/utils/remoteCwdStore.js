@@ -4,8 +4,21 @@
  * The store is separate from React context so one changed pane only wakes cwd
  * subscribers. Keys include the host because tmux session names repeat across hosts.
  */
+import { isRenderPaused, subscribeRenderPause } from './renderPause';
+
 let state = {};
+let snapshot = state;
+let publicationPending = false;
 const listeners = new Set();
+
+const publish = () => {
+  if (isRenderPaused()) { publicationPending = true; return; }
+  snapshot = state;
+  publicationPending = false;
+  listeners.forEach((listener) => listener());
+};
+
+subscribeRenderPause(() => { if (!isRenderPaused() && publicationPending) publish(); });
 
 const keyOf = (hostId, session) => `${hostId || ''}\u0000${session || ''}`;
 
@@ -15,7 +28,7 @@ export const subscribeRemoteCwd = (listener) => {
 };
 
 export const getRemoteCwd = (hostId, session) => (
-  hostId && session ? (state[keyOf(hostId, session)] || '') : ''
+  hostId && session ? (snapshot[keyOf(hostId, session)] || '') : ''
 );
 
 export const applyRemoteCwdChanges = (hostId, cwds) => {
@@ -30,16 +43,18 @@ export const applyRemoteCwdChanges = (hostId, cwds) => {
       delete next[key];
       continue;
     }
-    if (typeof cwd !== 'string' || !cwd || getRemoteCwd(hostId, session) === cwd) continue;
+    if (typeof cwd !== 'string' || !cwd || state[key] === cwd) continue;
     if (next === state) next = { ...state };
     next[key] = cwd;
   }
   if (next === state) return;
   state = next;
-  listeners.forEach((listener) => listener());
+  publish();
 };
 
 export const _resetRemoteCwd = () => {
   state = {};
+  snapshot = state;
+  publicationPending = false;
   listeners.clear();
 };

@@ -1,0 +1,98 @@
+.iterm-idle-screen {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  justify-items: center;
+  padding: max(var(--idle-padding), env(safe-area-inset-top))
+    max(var(--idle-padding), env(safe-area-inset-right))
+    max(var(--idle-padding), env(safe-area-inset-bottom))
+    max(var(--idle-padding), env(safe-area-inset-left));
+  margin: 0;
+  text-align: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: none;
+  -webkit-tap-highlight-color: transparent;
+}
+/* A viewport cover must not inherit the app's global button press scaling. */
+.iterm-idle-screen:active {
+  transform: none !important;
+  filter: none !important;
+}
+.iterm-idle-content {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+}
+.iterm-idle-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+}
+.iterm-idle-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.iterm-idle-wordmark {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  text-align: start;
+}
+.iterm-idle-screen-resume {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  box-sizing: border-box;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+}
+.iterm-idle-screen-resume svg,
+.iterm-idle-connection svg {
+  flex-shrink: 0;
+}
+.iterm-idle-connection {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  word-break: keep-all;
+  text-wrap: balance;
+}
+@media (hover: hover) {
+  .iterm-idle-screen:hover .iterm-idle-screen-resume {
+    background: var(--ui-surface0);
+  }
+}
+.iterm-idle-screen:focus-visible {
+  outline: none;
+}
+.iterm-idle-screen:focus-visible .iterm-idle-screen-resume {
+  background: var(--ui-surface0);
+  outline: 2px solid var(--ui-text);
+  outline-offset: 2px;
+}
+html[data-render-paused] body > :not(.iterm-idle-screen) {
+  content-visibility: hidden;
+  visibility: hidden;
+  pointer-events: none;
+}
+html[data-render-paused] body > :not(.iterm-idle-screen) *,
+html[data-render-paused] body > :not(.iterm-idle-screen) *::before,
+html[data-render-paused] body > :not(.iterm-idle-screen) *::after {
+  animation-play-state: paused !important;
+}

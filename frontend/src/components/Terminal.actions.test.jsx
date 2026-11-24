@@ -24,7 +24,8 @@ vi.mock('./terminal/terminalHelpers', async (importOriginal) => ({
 
 import TerminalComponent from './Terminal';
 import { copyTextToClipboard, uploadFileAndGetPath } from './terminal/terminalHelpers';
-import { harness, FakeWebSocket, testSettings } from '../test/xtermHarness';
+import { harness, FakeWebSocket, FakeSearchAddon, testSettings } from '../test/xtermHarness';
+import { setRenderPaused } from '../utils/renderPause';
 
 /**
  * 사용자가 *클릭해서* 도달하는 경로들 — 상태 카드의 버튼과 컨텍스트 메뉴.
@@ -66,9 +67,41 @@ describe('Terminal 사용자 액션', () => {
   });
 
   afterEach(() => {
+    setRenderPaused(false);
     global.WebSocket = realWebSocket;
     delete window.terminalSessions;
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true });
+  });
+
+  it('loads search only on the first query and retains synchronous search results', async () => {
+    renderTerminal();
+    await openSocket();
+    const loadedSearches = () => harness.term.loadAddon.mock.calls
+      .map(([addon]) => addon).filter((addon) => addon instanceof FakeSearchAddon);
+    expect(loadedSearches()).toHaveLength(0);
+    window.terminalSessions.s1.closeSearch();
+    expect(loadedSearches()).toHaveLength(0);
+
+    expect(window.terminalSessions.s1.searchNext('needle')).toBe(true);
+
+    expect(loadedSearches()).toHaveLength(1);
+    expect(loadedSearches()[0].findNext).toHaveBeenCalledWith('needle', { incremental: true });
+    expect(window.terminalSessions.s1.searchPrevious('needle')).toBe(true);
+    expect(loadedSearches()).toHaveLength(1);
+  });
+
+  it('sends pause hints as compatible pings while keeping the same socket', async () => {
+    renderTerminal();
+    const ws = await openSocket();
+
+    act(() => { setRenderPaused(true); });
+    act(() => { setRenderPaused(true); });
+    act(() => { setRenderPaused(false); });
+
+    expect(ws.jsonSent().filter((message) => typeof message.render_paused === 'boolean'))
+      .toEqual([{ type: 'ping', render_paused: true }, { type: 'ping', render_paused: false }]);
+    expect(ws.closed).not.toBe(true);
+    expect(harness.sockets).toHaveLength(1);
   });
 
   describe('인증 프롬프트', () => {

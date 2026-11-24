@@ -49,6 +49,7 @@ import { issueWsTicket } from './terminal/terminalHelpers';
 import { measureTerminalFit } from '../utils/terminalFit';
 import { readLocalCommands } from '../utils/commandHistory';
 import { harness, FakeWebSocket, testSettings } from '../test/xtermHarness';
+import { setRenderPaused } from '../utils/renderPause';
 
 const renderTerminal = (props = {}) => render(
   <TerminalComponent
@@ -86,6 +87,7 @@ describe('Terminal', () => {
   });
 
   afterEach(() => {
+    setRenderPaused(false);
     global.WebSocket = realWebSocket;
     global.fetch = realFetch;
     delete window.terminalSessions;
@@ -111,6 +113,26 @@ describe('Terminal', () => {
   });
 
   describe('연결', () => {
+    it('focuses on the first mobile tap and sends input without quick input or reconnection', async () => {
+      // Given a connected mobile terminal in ordinary input mode.
+      const view = renderTerminal({ isMobile: true });
+      const ws = await openSocket();
+      const term = harness.term;
+      const overlay = view.getByTestId('terminal-touch-overlay');
+      term.focus.mockClear();
+
+      // When a bare tap completes, focus must stay inside the user gesture.
+      fireEvent.touchStart(overlay, { touches: [{ clientX: 100, clientY: 100 }] });
+      fireEvent.touchEnd(overlay, { touches: [] });
+
+      // Then typing is enabled immediately and uses the existing connection.
+      expect(term.focus).toHaveBeenCalledOnce();
+      expect(term.options.disableStdin).toBe(false);
+      act(() => term.handlers.data('direct input'));
+      await waitFor(() => expect(ws.sent).toContain('direct input'));
+      expect(harness.sockets).toHaveLength(1);
+    });
+
     it('scrolls and pinches the mobile view overlay while keeping the connection and input lock', async () => {
       const props = { sessionId: 'sess-1', isMobile: true, paneMultiplexer: 'none',
         settings: { ...testSettings(), mobileViewOnly: true } };
@@ -215,6 +237,24 @@ describe('Terminal', () => {
   });
 
   describe('출력', () => {
+    it('buffers while resting and resumes on the same mobile socket', async () => {
+      renderTerminal({ isMobile: true });
+      const ws = await openSocket();
+      const term = harness.term;
+      const before = harness.sockets.length;
+      act(() => { setRenderPaused(true); });
+      await act(async () => {
+        ws.serverSendBytes('output while resting\r\n');
+        await new Promise(resolve => setTimeout(resolve, 120));
+      });
+      expect(term.text).not.toContain('output while resting');
+      expect(term.options.cursorBlink).toBe(false);
+      expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+      act(() => { setRenderPaused(false); });
+      await waitFor(() => expect(term.text).toContain('output while resting'));
+      expect(harness.sockets).toHaveLength(before);
+      expect(ws.readyState).toBe(FakeWebSocket.OPEN);
+    });
     it('첫 콘텐츠 전에는 스켈레톤을 띄우고, 출력이 오면 걷는다', async () => {
       const { container } = renderTerminal();
       const ws = await openSocket();

@@ -15,6 +15,7 @@
 import { authHeaders } from './auth';
 import { apiFetch } from './apiFetch';
 import { einkPollMs } from './einkMode';
+import { isRenderPaused, subscribeRenderPause } from './renderPause';
 
 // A subscriber joining this soon after the last fetch reuses the result instead
 // of firing its own (tab switches, remounts, split siblings on one repo).
@@ -69,12 +70,15 @@ export const createGitStatusStore = ({
   const aliasByKey = new Map();        // 흡수된 키 → 대표 엔트리 키
 
   const notify = (entry) => {
+    if (isRenderPaused()) { entry.publicationPending = true; return; }
+    entry.publicationPending = false;
     entry.subs.forEach((sub) => {
       try { sub.onData(entry.state); } catch { /* one bad subscriber must not stop the rest */ }
     });
   };
 
   const runFetch = (entry) => {
+    if (isRenderPaused()) return Promise.resolve();
     if (entry.inflight) return entry.inflight;
     const p = (async () => {
       try {
@@ -102,7 +106,7 @@ export const createGitStatusStore = ({
 
   /** Period = the shortest interval any live subscriber asked for. */
   const retime = (entry) => {
-    if (!entry.subs.size) { stopTimer(entry); return; }
+    if (!entry.subs.size || isRenderPaused()) { stopTimer(entry); return; }
     let period = Infinity;
     entry.subs.forEach((sub) => { if (sub.intervalMs > 0 && sub.intervalMs < period) period = sub.intervalMs; });
     if (!Number.isFinite(period)) { stopTimer(entry); return; }
@@ -152,13 +156,20 @@ export const createGitStatusStore = ({
   };
 
   let visibilityBound = false;
+  let unsubscribePause = null;
   const onVisibility = () => {
-    if (isHidden()) return;
-    entries.forEach((entry) => { if (entry.subs.size) runFetch(entry); });
+    entries.forEach(retime);
+    if (isHidden() || isRenderPaused()) return;
+    entries.forEach((entry) => {
+      if (!entry.subs.size) return;
+      if (entry.publicationPending) notify(entry);
+      runFetch(entry);
+    });
   };
   const bindVisibility = () => {
     if (visibilityBound || typeof document === 'undefined') return;
     document.addEventListener('visibilitychange', onVisibility);
+    unsubscribePause = subscribeRenderPause(onVisibility);
     visibilityBound = true;
   };
 
@@ -180,6 +191,7 @@ export const createGitStatusStore = ({
    * watching → nothing to do; the next subscriber fetches anyway.
    */
   const touch = ({ hostId = null, path = '' } = {}) => {
+    if (isRenderPaused()) return;
     const entry = entries.get(gitStatusKey(hostId, path));
     if (!entry || !entry.subs.size) return;
     if (entry.settleTimer) clearTimeout(entry.settleTimer);
@@ -205,7 +217,10 @@ export const createGitStatusStore = ({
     bindVisibility();
 
     // Hand over what we already have so a remount does not flash an empty list.
-    if (entry.state.ts) onData(entry.state);
+    if (entry.state.ts) {
+      if (isRenderPaused()) entry.publicationPending = true;
+      else onData(entry.state);
+    }
     retime(entry);
     if (!entry.state.ts || now() - entry.state.ts > GIT_STATUS_FRESH_MS) {
       if (!isHidden()) runFetch(entry);
@@ -228,6 +243,8 @@ export const createGitStatusStore = ({
   const peek = ({ hostId = null, path = '' } = {}) => entries.get(gitStatusKey(hostId, path))?.state || EMPTY_STATE;
 
   const dispose = () => {
+    unsubscribePause?.();
+    unsubscribePause = null;
     entries.forEach(stopTimer);
     entries.clear();
     if (visibilityBound && typeof document !== 'undefined') {

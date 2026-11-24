@@ -315,6 +315,13 @@ export const ko = {
 
     // 이북(전자잉크) 모드
     einkMode: '이북 모드',
+    idleScreenSetting: '자동 절전 화면',
+    idleScreenHint: '입력이 없으면 화면 갱신만 쉽니다. 연결과 작업은 유지되며 클릭·터치·키 입력으로 바로 돌아옵니다.',
+    idleScreenOff: '사용 안 함',
+    idleScreenAfter: '{minutes}분 후',
+    idleScreenTitle: '화면 절전 중',
+    idleScreenResume: '클릭·터치하거나 아무 키나 눌러 계속하기',
+    idleScreenConnection: '터미널 연결과 작업은 계속 유지됩니다',
     einkModeHint: '전자잉크(이북) 화면용입니다. 애니메이션·유리 효과·부드러운 스크롤·예측 입력·GPU 렌더링을 끄고 흑백 테마로 바꾸며, 터미널을 초당 30회 대신 3회만 다시 그립니다. 원래 테마와 설정은 그대로 남아 끄면 돌아옵니다.',
 
     // 테마

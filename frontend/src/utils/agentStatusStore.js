@@ -11,23 +11,30 @@
  * useSyncExternalStore 로 구독한 컴포넌트만 다시 그린다.
  */
 import { detectAgentStatus, agentDisplayTitle, isSpinnerOnlyChange } from './agentTitle';
+import { isRenderPaused, subscribeRenderPause } from './renderPause';
 
 // sessionId → { status, title, rawTitle, command, cwd, updatedAt }
 let state = {};
+let snapshot = {};
+let publicationPending = false;
 const listeners = new Set();
 
 const emit = () => {
   // 새 참조로 교체 — useSyncExternalStore 가 얕은 비교로 변경을 감지한다.
-  state = { ...state };
+  if (isRenderPaused()) { publicationPending = true; return; }
+  snapshot = { ...state };
+  publicationPending = false;
   listeners.forEach((fn) => fn());
 };
+
+subscribeRenderPause(() => { if (!isRenderPaused() && publicationPending) emit(); });
 
 export const subscribeAgentStatus = (fn) => {
   listeners.add(fn);
   return () => listeners.delete(fn);
 };
 
-export const getAgentStatusSnapshot = () => state;
+export const getAgentStatusSnapshot = () => snapshot;
 
 /**
  * xterm 이 관측한 원시 타이틀 한 건.
@@ -39,7 +46,8 @@ export const reportTerminalTitle = (sessionId, rawTitle) => {
   const status = detectAgentStatus(rawTitle);
   if (prev && prev.status === status && isSpinnerOnlyChange(prev.rawTitle, rawTitle)) {
     // 다음 비교 기준이 프레임 하나만큼 흐르지 않게 raw 만 갱신 (리렌더 없음).
-    prev.rawTitle = rawTitle;
+    if (isRenderPaused()) state[sessionId] = { ...prev, rawTitle };
+    else prev.rawTitle = rawTitle;
     return;
   }
   state[sessionId] = {
@@ -112,7 +120,12 @@ export const forgetAgentStatus = (sessionId) => {
 };
 
 /** 테스트 전용 — 스토어 초기화. */
-export const _resetAgentStatus = () => { state = {}; listeners.clear(); };
+export const _resetAgentStatus = () => {
+  state = {};
+  snapshot = {};
+  publicationPending = false;
+  listeners.clear();
+};
 
 
 /**
@@ -125,4 +138,4 @@ export const _resetAgentStatus = () => { state = {}; listeners.clear(); };
  * 원격 pane 의 tmux 는 그 호스트에 있다. 그쪽은 빈
  * 문자열이고, 호출부는 그걸 "모른다" 로 읽어 원래 하던 대로 한다.
  */
-export const getAgentCwd = (sessionId) => (sessionId ? (state[sessionId]?.cwd || '') : '');
+export const getAgentCwd = (sessionId) => (sessionId ? (snapshot[sessionId]?.cwd || '') : '');

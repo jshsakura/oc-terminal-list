@@ -136,8 +136,19 @@ const createXtermInstance = ({ container, settings, theme, paneId, sessionId, on
   term.loadAddon(new Unicode11Addon());
   term.unicode.activeVersion = '11';
 
-  const searchAddon = new SearchAddon();
-  term.loadAddon(searchAddon);
+  let loadedSearch = null;
+  const getSearch = () => {
+    if (!loadedSearch) {
+      loadedSearch = new SearchAddon();
+      term.loadAddon(loadedSearch);
+    }
+    return loadedSearch;
+  };
+  const searchAddon = {
+    findNext: (...args) => getSearch().findNext(...args),
+    findPrevious: (...args) => getSearch().findPrevious(...args),
+    clearDecorations: () => loadedSearch?.clearDecorations(),
+  };
 
   // ImageAddon 은 SIXEL 디코딩에 WebAssembly 를 쓴다 — WASM 이 CSP 로 막혀 있으면
   // 로드하지 않는다(막힌 채 로드하면 CompileError 가 폭주한다).

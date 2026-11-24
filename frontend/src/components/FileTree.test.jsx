@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import FileTree from './FileTree';
 
 vi.mock('../hooks/useGitChanges', () => ({
@@ -98,6 +98,55 @@ describe('FileTree skeleton loading', () => {
     await waitFor(() => {
       expect(container.querySelector('[title="/workspace/app"]')).toBeTruthy();
     });
+  });
+
+  it.each([true, false])('이전 경로의 늦은 응답이 현재 폴더를 덮어쓰지 않는다 (ok=%s)', async (ok) => {
+    let completeOld;
+    global.fetch = vi.fn((url) => {
+      const path = new URL(url, 'http://localhost').searchParams.get('path');
+      if (path === '/workspace/app') return new Promise(resolve => { completeOld = resolve; });
+      return Promise.resolve({ ok: true, json: async () => ({ resolved: '/workspace',
+        items: [{ name: 'current.txt', path: '/workspace/current.txt', type: 'file' }] }) });
+    });
+    const { container } = render(<FileTree hostId="host-1" initialPath="/workspace/app" />);
+    fireEvent.click(screen.getByTitle('goUp'));
+    await screen.findByText('current.txt');
+
+    await act(async () => completeOld({ ok, status: 500, json: async () => ({ resolved: '/workspace/app',
+      items: [{ name: 'old.txt', path: '/workspace/app/old.txt', type: 'file' }] }) }));
+
+    expect(screen.getByText('current.txt')).toBeTruthy();
+    expect(screen.queryByText('old.txt')).toBeNull();
+    expect(container.querySelector('[title="/workspace"]')).toBeTruthy();
+  });
+
+  it('같은 폴더도 새로고침 전의 늦은 응답으로 되돌아가지 않는다', async () => {
+    let completeOld;
+    global.fetch = vi.fn().mockImplementationOnce(() => new Promise(resolve => { completeOld = resolve; }))
+      .mockResolvedValue({ ok: true, json: async () => ({ items: [{ name: 'current.txt', path: 'current.txt', type: 'file' }] }) });
+    render(<FileTree />);
+    fireEvent.click(screen.getByTitle('refresh'));
+    await screen.findByText('current.txt');
+
+    await act(async () => completeOld({ ok: true, json: async () => ({ items: [] }) }));
+
+    expect(screen.getByText('current.txt')).toBeTruthy();
+  });
+
+  it('명시적으로 연 폴더를 마운트나 새로고침 때 터미널 cwd로 바꾸지 않는다', async () => {
+    const onRefreshCwd = vi.fn().mockResolvedValue({ cwd: '/terminal' });
+    global.fetch = vi.fn((url) => {
+      const path = new URL(url, 'http://localhost').searchParams.get('path');
+      return Promise.resolve({ ok: true, json: async () => ({ resolved: path,
+        items: [{ name: `${path.split('/').pop()}.txt`, path: `${path}/file.txt`, type: 'file' }] }) });
+    });
+    render(<FileTree hostId="host-1" initialPath="/chosen" onRefreshCwd={onRefreshCwd} />);
+    await screen.findByText('chosen.txt');
+
+    await act(async () => { fireEvent.click(screen.getByTitle('refresh')); });
+
+    expect(screen.getByText('chosen.txt')).toBeTruthy();
+    expect(screen.queryByText('terminal.txt')).toBeNull();
   });
 
   it('opens a file on double-click, not single-click', async () => {

@@ -186,6 +186,7 @@ const motion = {
 
 // ─── z-index ─────────────────────────────────────────────────────────────
 const z = {
+  idleScreen: 2147483000,
   base: 0,
   terminalInputPreview: 30,
   terminalScrollbar: 31,
