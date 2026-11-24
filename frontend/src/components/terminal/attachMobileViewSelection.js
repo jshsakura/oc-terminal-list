@@ -40,8 +40,8 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     const edge = bufferEdgeFromClientPoint(p.x, p.y);
     if (gesture.existing) {
       const index = edge.row * term.cols + edge.col;
-      const first = Math.min(gesture.fixedEdge, index);
-      const last = Math.max(gesture.fixedEdge, index);
+      const first = Math.min(gesture.fixedEdge ?? gesture.existing.start, index);
+      const last = Math.max(gesture.fixedEdge ?? gesture.existing.end, index);
       term.select(first % term.cols, Math.floor(first / term.cols), last - first);
       return;
     }
@@ -53,9 +53,10 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     if (args) term.select(args.column, args.row, args.length);
     else term.clearSelection();
   };
-  const selectWord = () => {
-    if (!gesture || !isReadOnly()) return;
+  const holdSelection = () => {
+    if (!gesture || !isReadOnly()) { return; }
     gesture.selecting = true;
+    if (gesture.existing) { return; }
     const cell = gesture.anchor;
     const line = term.buffer.active.getLine?.(cell.row);
     const wordCell = (col) => {
@@ -79,14 +80,15 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
       start: position.start.y * term.cols + position.start.x,
       end: position.end.y * term.cols + position.end.x,
     } : null;
-    gesture = { kind, origin: p, last: p, anchor: cellAt(p), existing,
-      startEdge: bufferEdgeFromClientPoint(p.x, p.y), selecting: !!existing, scrolling: false };
-    if (existing) {
-      const index = gesture.startEdge.row * term.cols + gesture.startEdge.col;
+    const startEdge = bufferEdgeFromClientPoint(p.x, p.y);
+    const index = startEdge.row * term.cols + startEdge.col;
+    const inside = existing && index >= existing.start && index <= existing.end;
+    gesture = { kind, origin: p, last: p, anchor: cellAt(p), existing, startEdge, selecting: false, scrolling: false };
+    if (inside) {
       gesture.fixedEdge = Math.abs(index - existing.start) < Math.abs(index - existing.end)
         ? existing.end : existing.start;
     }
-    if (kind === 'touch' && !existing) { holdTimer = setTimeout(selectWord, HOLD_MS); }
+    if (kind === 'touch' && (!existing || inside)) { holdTimer = setTimeout(holdSelection, HOLD_MS); }
   };
   const move = (p, event) => {
     if (!gesture || !isReadOnly()) { cancel(); return; }
@@ -97,7 +99,7 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     stop(event);
     if (!gesture.selecting && !gesture.scrolling) {
       // A vertical swipe still browses history. A hold or horizontal drag selects.
-      if (gesture.kind === 'touch' && Math.abs(dy) > Math.abs(dx)) {
+      if (gesture.kind === 'touch' && gesture.fixedEdge === undefined && Math.abs(dy) > Math.abs(dx)) {
         gesture.scrolling = true;
         term.clearSelection();
       } else gesture.selecting = true;
@@ -193,7 +195,7 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     lastTouchAt = Date.now();
     start(p, 'touch');
     clearTimeout(holdTimer);
-    if (!gesture.existing) { selectWord(); }
+    if (!gesture.existing || gesture.fixedEdge !== undefined) { holdSelection(); }
   }, detach() {
     cancel();
     overlay.removeEventListener('touchstart', touchStart);

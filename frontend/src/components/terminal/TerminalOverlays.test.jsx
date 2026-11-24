@@ -150,6 +150,26 @@ describe('TerminalContextMenu', () => {
     vi.useRealTimers();
   });
 
+  it('프롬프트로 붙여넣기는 모바일에만 있고 선택이 있어야 실행된다', () => {
+    const props = { ...baseProps(), onPasteSelectionToPrompt: vi.fn() };
+    const { unmount } = render(<TerminalContextMenu {...props} hasSelection />);
+    expect(screen.queryByRole('button', { name: 'pasteSelectionToPrompt' })).toBeNull();
+    unmount();
+
+    render(<TerminalContextMenu {...props} isMobile readOnly />);
+    const item = screen.getByRole('button', { name: 'pasteSelectionToPrompt' });
+    expect(item).toBeDisabled();
+    fireEvent.click(item);
+    expect(props.onPasteSelectionToPrompt).not.toHaveBeenCalled();
+  });
+
+  it('선택이 있으면 프롬프트로 붙여넣기를 실행한다', () => {
+    const props = { ...baseProps(), onPasteSelectionToPrompt: vi.fn() };
+    render(<TerminalContextMenu {...props} isMobile readOnly hasSelection />);
+    fireEvent.click(screen.getByRole('button', { name: 'pasteSelectionToPrompt' }));
+    expect(props.onPasteSelectionToPrompt).toHaveBeenCalledOnce();
+  });
+
   // Desktop drag already auto-copies, so the item could never do anything there.
   it('데스크탑에서는 선택 복사를 보이지 않는다', () => {
     render(<TerminalContextMenu {...baseProps()} hasSelection={true} />);
