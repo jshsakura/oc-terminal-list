@@ -2397,12 +2397,11 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
 
       {/* 모바일 터치 오버레이: canvas 위에 깔아 touch-action:none + passive:false 스크롤 보장.
           iOS는 이 div가 터치 타깃이 되므로 scroll 제스처를 선점하지 않음.
-          onClick으로 터미널 포커스(iOS 키보드)도 처리. */}
+          Focus for the keyboard happens in attachTerminalInteractions touchend, not on click. */}
       {isMobile && (
         <div
           ref={touchOverlayRef}
           aria-hidden="true"
-          onClick={() => { if (!readOnlyRef.current) xtermRef.current?.focus(); }}
           data-testid="terminal-touch-overlay"
           style={{
             position: 'absolute',

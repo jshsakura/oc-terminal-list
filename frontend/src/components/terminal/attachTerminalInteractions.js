@@ -9,7 +9,7 @@ import {
 import { copyTextToClipboard, uploadImageAndGetPath, pasteWhenConnected, reportClientError } from './terminalHelpers';
 import { uploadWithRetry } from './uploadRetry';
 import { getLinkAtClient } from '../../utils/terminalLinkAt';
-import { tapFocusWithProbe, releaseFocusWhenKeyboardCloses, focusOnlyFromGesture } from './tapFocus';
+import { tapFocusWithProbe, releaseFocusWhenKeyboardCloses, focusOnlyFromGesture, isIosNavigator } from './tapFocus';
 import attachMobileViewSelection, { clampViewFontSize } from './attachMobileViewSelection';
 
 /**
@@ -439,7 +439,11 @@ const attachTerminalInteractions = ({
     clearTimeout(longPressTimer);
     touchCancelled = e.touches.length !== 1;
     if (touchCancelled) return;
-    e.preventDefault();
+    /* iOS: a touch whose touchstart was preventDefault'ed does not count as the user
+       interacting, so after the keyboard was put away focus() from touchend got no keyboard
+       until some other real tap (a menu button) came first. The overlay's touch-action:none
+       already stops page scroll and zoom, so on iOS leave the default alone. */
+    if (!isIosNavigator()) e.preventDefault();
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
     isTouchScrolling = false;

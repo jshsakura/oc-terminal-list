@@ -167,7 +167,11 @@ describe('Terminal', () => {
       const term = harness.term;
       expect(term.options.disableStdin).toBe(true);
       expect(term.focus).not.toHaveBeenCalled();
-      fireEvent.click(view.getByTestId('terminal-touch-overlay'));
+      {
+        const overlayEl = view.getByTestId('terminal-touch-overlay');
+        fireEvent.touchStart(overlayEl, { touches: [{ clientX: 100, clientY: 100 }] });
+        fireEvent.touchEnd(overlayEl, { touches: [] });
+      }
       act(() => term.handlers.data('unwanted'));
       expect(window.terminalSessions['sess-1'].sendCommand('unwanted')).toBe(false);
       act(() => window.terminalSessions['sess-1'].sendData('\x03\x1b[Z'));
@@ -181,7 +185,12 @@ describe('Terminal', () => {
       const sockets = harness.sockets.length;
       view.rerender(<TerminalComponent {...props} settings={{ ...props.settings, mobileViewOnly: false }} />);
       expect(term.options.disableStdin).toBe(false);
-      fireEvent.click(view.getByTestId('terminal-touch-overlay'));
+      {
+        // A tap focuses from touchend; the overlay no longer focuses on click.
+        const overlayEl = view.getByTestId('terminal-touch-overlay');
+        fireEvent.touchStart(overlayEl, { touches: [{ clientX: 100, clientY: 100 }] });
+        fireEvent.touchEnd(overlayEl, { touches: [] });
+      }
       expect(term.focus).toHaveBeenCalled();
       act(() => term.handlers.data('allowed'));
       await waitFor(() => expect(ws.sent).toContain('allowed'));

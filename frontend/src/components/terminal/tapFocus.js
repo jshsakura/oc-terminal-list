@@ -28,6 +28,8 @@ export const resetTapFocusReports = () => {
   lastReportAt = -Infinity; tapCount = 0; missCount = 0; skippedFocusCount = 0;
 };
 
+export const isIosNavigator = (nav = typeof navigator === 'undefined' ? null : navigator) => platform(nav) === 'ios';
+
 const platform = (nav) => {
   const ua = nav?.userAgent || '';
   if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && nav?.maxTouchPoints > 1)) return 'ios';

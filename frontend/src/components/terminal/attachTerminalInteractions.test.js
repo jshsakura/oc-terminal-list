@@ -280,6 +280,32 @@ describe('attachTerminalInteractions', () => {
       expect(scrollReadOnly).not.toHaveBeenCalled();
       expect(input.push).not.toHaveBeenCalled();
     });
+    describe('iOS 에서는 탭을 사용자 조작으로 남긴다', () => {
+      const setUa = (ua) => Object.defineProperty(navigator, 'userAgent', { value: ua, configurable: true });
+      const original = navigator.userAgent;
+      afterEach(() => setUa(original));
+
+      it('iOS: touchstart 의 기본 동작을 막지 않고, 스크롤 이동은 계속 막는다', () => {
+        setUa('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15');
+        mount({ isMobile: () => true });
+        const start = touchEvent('touchstart', 100, 200);
+        overlay.dispatchEvent(start);
+        expect(start.defaultPrevented).toBe(false);
+        const move = touchEvent('touchmove', 100, 80);
+        overlay.dispatchEvent(move);
+        expect(move.defaultPrevented).toBe(true);
+        expect(term.scrollLines).toHaveBeenCalledWith(6);
+      });
+
+      it('iOS 가 아니면 touchstart 를 예전처럼 막는다', () => {
+        setUa('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile');
+        mount({ isMobile: () => true });
+        const start = touchEvent('touchstart', 100, 200);
+        overlay.dispatchEvent(start);
+        expect(start.defaultPrevented).toBe(true);
+      });
+    });
+
     it('세로 드래그는 손가락 이동 거리만큼 스크롤한다', () => {
       mount();
       overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
