@@ -52,6 +52,8 @@ const TOUCH_SCROLL_THRESHOLD_PX = 5;
 const DRAG_SELECT_THRESHOLD_PX = 5; // 이만큼 끌어야 선택으로 전환(클릭은 앱으로)
 const SELECTION_SETTLE_MS = 80;    // 드래그가 멎고 나서 한 번만 클립보드에 쓴다
 const COPY_FLASH_MS = 1800;
+// A compat mousedown follows its touchend within a few hundred ms on iOS.
+const COMPAT_MOUSE_WINDOW_MS = 700;
 const RIGHT_CLICK_MENU_DEDUP_MS = 700;
 const IMAGE_TOAST_DONE_MS = 1200;
 const IMAGE_TOAST_ERROR_MS = 2500;
@@ -511,6 +513,16 @@ const attachTerminalInteractions = ({
     touchCancelled = true;
   };
 
+  /* iOS: touchstart is left alone (see handleTouchStart), so Safari follows the tap with a
+     compatibility mousedown on the overlay div. A mousedown on a non-focusable element moves
+     focus to body, undoing the focus touchend just gave the terminal (logs: active=none).
+     Cancelling that one mousedown's default keeps focus where touchend put it. */
+  let lastTouchEndAt = -Infinity;
+  const markTouchEnd = () => { lastTouchEndAt = Date.now(); };
+  const blockCompatMouseFocus = (e) => {
+    if (Date.now() - lastTouchEndAt < COMPAT_MOUSE_WINDOW_MS) e.preventDefault();
+  };
+
   const blockContextMenu = (e) => {
     e.preventDefault();
     e.stopPropagation();
@@ -525,6 +537,8 @@ const attachTerminalInteractions = ({
   container.addEventListener('mousedown', handleNaturalMouseDown, true);
   container.addEventListener('touchstart', handleTouchStart, { passive: false });
   container.addEventListener('touchend', handleTouchEnd, { passive: true });
+  container.addEventListener('touchend', markTouchEnd, { passive: true });
+  container.addEventListener('mousedown', blockCompatMouseFocus, true);
   container.addEventListener('touchcancel', handleTouchCancel);
   window.addEventListener('blur', cancelNaturalSelection);
   document.addEventListener('mousemove', handleNaturalMouseMove, true);
@@ -539,6 +553,8 @@ const attachTerminalInteractions = ({
     overlay.addEventListener('touchstart', handleTouchStart, { passive: false });
     overlay.addEventListener('touchmove', handleTouchMove, { passive: false });
     overlay.addEventListener('touchend', handleTouchEnd, { passive: true });
+    overlay.addEventListener('touchend', markTouchEnd, { passive: true });
+    overlay.addEventListener('mousedown', blockCompatMouseFocus, true);
     overlay.addEventListener('touchcancel', handleTouchCancel);
   }
 
@@ -556,6 +572,8 @@ const attachTerminalInteractions = ({
       container.removeEventListener('mousedown', handleNaturalMouseDown, true);
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchend', handleTouchEnd);
+      container.removeEventListener('touchend', markTouchEnd);
+      container.removeEventListener('mousedown', blockCompatMouseFocus, true);
       container.removeEventListener('touchcancel', handleTouchCancel);
       window.removeEventListener('blur', cancelNaturalSelection);
       document.removeEventListener('mousemove', handleNaturalMouseMove, true);
@@ -569,6 +587,8 @@ const attachTerminalInteractions = ({
         overlay.removeEventListener('touchstart', handleTouchStart);
         overlay.removeEventListener('touchmove', handleTouchMove);
         overlay.removeEventListener('touchend', handleTouchEnd);
+        overlay.removeEventListener('touchend', markTouchEnd);
+        overlay.removeEventListener('mousedown', blockCompatMouseFocus, true);
         overlay.removeEventListener('touchcancel', handleTouchCancel);
       }
 

@@ -297,6 +297,23 @@ describe('attachTerminalInteractions', () => {
         expect(term.scrollLines).toHaveBeenCalledWith(6);
       });
 
+      it('iOS: 탭 뒤에 따라오는 호환 mousedown 이 터미널 포커스를 빼앗지 못한다', () => {
+        setUa('Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15');
+        mount({ isMobile: () => true });
+        overlay.dispatchEvent(touchEvent('touchstart', 100, 200));
+        overlay.dispatchEvent(touchEvent('touchend', 100, 200));
+        const compat = new MouseEvent('mousedown', { button: 0, clientX: 100, clientY: 200, bubbles: true, cancelable: true });
+        overlay.dispatchEvent(compat);
+        expect(compat.defaultPrevented).toBe(true);
+      });
+
+      it('터치가 없던 진짜 마우스 클릭은 막지 않는다', () => {
+        mount({ isMobile: () => true });
+        const click = new MouseEvent('mousedown', { button: 0, clientX: 100, clientY: 200, bubbles: true, cancelable: true });
+        overlay.dispatchEvent(click);
+        expect(click.defaultPrevented).toBe(false);
+      });
+
       it('iOS 가 아니면 touchstart 를 예전처럼 막는다', () => {
         setUa('Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/130 Mobile');
         mount({ isMobile: () => true });
