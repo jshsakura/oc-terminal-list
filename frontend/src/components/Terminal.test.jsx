@@ -706,6 +706,14 @@ describe('Terminal', () => {
   });
 
   describe('WebGL 수명', () => {
+    let getContext;
+    beforeEach(() => {
+      getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+        getExtension: () => null, getParameter: () => 'Test GPU',
+      });
+    });
+    afterEach(() => { getContext.mockRestore(); });
+
     it('공유 설정이 켜져 있어도 모바일에서는 WebGL 을 부착하지 않는다', async () => {
       render(<TerminalComponent
         sessionId="gl-mobile"
@@ -717,6 +725,7 @@ describe('Terminal', () => {
       await openSocket();
 
       expect(harness.webgls).toHaveLength(0);
+      expect(getContext).not.toHaveBeenCalled();
     });
 
     // 컨텍스트는 브라우저당 ~16개 한도 — 비활성 pane 이 물고 있으면 고갈되어 탭이 통째로 죽는다.

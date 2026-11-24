@@ -1,6 +1,29 @@
 import { WebglAddon } from '@xterm/addon-webgl';
 import { WEBGL_IDLE_RELEASE_MS } from './terminalConstants';
 
+const hardwareWebglByDocument = new WeakMap();
+const softwareRenderer = /swiftshader|llvmpipe|softpipe|lavapipe|swrast|software (?:rasterizer|renderer)|microsoft basic render driver|gdi generic|\bwarp\b/i;
+
+function hasHardwareWebgl(doc) {
+  if (hardwareWebglByDocument.has(doc)) {
+    return hardwareWebglByDocument.get(doc);
+  }
+  hardwareWebglByDocument.set(doc, false);
+  const gl = doc.createElement('canvas').getContext('webgl2', {
+    antialias: false, depth: false, failIfMajorPerformanceCaveat: true,
+  });
+  if (!gl) { return false; }
+  try {
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = gl.getParameter(info?.UNMASKED_RENDERER_WEBGL ?? gl.RENDERER);
+    const supported = !softwareRenderer.test(renderer);
+    hardwareWebglByDocument.set(doc, supported);
+    return supported;
+  } finally {
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+  }
+}
+
 /**
  * WebGL 렌더러의 수명 관리.
  *
@@ -61,6 +84,10 @@ const createWebglController = ({ term, enabled, isActive, debug = false }) => {
   const attach = () => {
     if (!wanted || addon || !term) return;
     try {
+      if (!hasHardwareWebgl(term.element?.ownerDocument ?? document)) {
+        wanted = false;
+        return;
+      }
       const next = new WebglAddon();
       next.onContextLoss(() => {
         // GPU 컨텍스트가 죽으면 더는 못 그린다 → 정리하면 DOM 렌더러가 인계.
