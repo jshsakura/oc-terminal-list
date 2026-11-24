@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import useEditorTabs from './useEditorTabs';
 
@@ -68,3 +68,61 @@ describe('useEditorTabs bulk close', () => {
   });
 });
 
+
+
+describe('mobile documents open directly in a new tab', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => vi.restoreAllMocks());
+
+  it.each([['docs/guide.md', null], ['/images/photo.png', 'host1']])('opens %s without adding an embedded editor', (path, hostId) => {
+    const popup = { opener: window, focus: vi.fn() };
+    const open = vi.spyOn(window, 'open').mockReturnValue(popup);
+    const { result } = renderHook(() => useEditorTabs({ t: noopT, setNotification: noopNotify, activeTabId: 'A', openInWindow: true }));
+    act(() => result.current.handleFileOpen(path, hostId));
+    const key = hostId ? `remote:${hostId}:${path}` : path;
+    expect(open.mock.calls[0][0]).toBe(`/?document=${encodeURIComponent(key)}`);
+    expect(result.current.openFiles).toEqual([]);
+    expect(result.current.activeFile).toBeNull();
+    expect(popup.opener).toBeNull();
+  });
+
+  it('falls back to the embedded editor and explains a blocked popup', () => {
+    vi.spyOn(window, 'open').mockReturnValue(null);
+    const notify = vi.fn();
+    const { result } = renderHook(() => useEditorTabs({ t: noopT, setNotification: notify, activeTabId: 'A', openInWindow: true }));
+    act(() => result.current.handleFileOpen('guide.md'));
+    expect(result.current.activeFile).toBe('guide.md');
+    expect(notify).toHaveBeenCalledWith({ isOpen: true, message: 'documentPopupBlocked', type: 'info' });
+  });
+
+  it('keeps desktop files embedded', () => {
+    const open = vi.spyOn(window, 'open');
+    const { result } = renderHook(() => useEditorTabs({ t: noopT, setNotification: noopNotify, activeTabId: 'A' }));
+    act(() => result.current.handleFileOpen('guide.md'));
+    expect(result.current.activeFile).toBe('guide.md');
+    expect(open).not.toHaveBeenCalled();
+  });
+});
+
+
+it('opens named file links in a new tab on desktop too', () => {
+  localStorage.clear();
+  const popup = { opener: window, focus: vi.fn() };
+  const open = vi.spyOn(window, 'open').mockReturnValue(popup);
+  const { result } = renderHook(() => useEditorTabs({ t: noopT, setNotification: noopNotify, activeTabId: 'A' }));
+  act(() => result.current.handleFileOpen('images/photo.png', null, { newTab: true }));
+  expect(open).toHaveBeenCalledExactlyOnceWith('/?document=images%2Fphoto.png', '_blank');
+  expect(result.current.activeFile).toBeNull();
+  open.mockRestore();
+});
+
+it('routes named file links into app tabs before considering browser popups', () => {
+  const onOpenDocument = vi.fn();
+  const open = vi.spyOn(window, 'open').mockReturnValue(null);
+  const { result } = renderHook(() => useEditorTabs({ t: noopT, setNotification: noopNotify, activeTabId: 'A', onOpenDocument, openInWindow: true }));
+  act(() => result.current.handleFileOpen('guide.md', null, { newTab: true }));
+  expect(onOpenDocument).toHaveBeenCalledWith('guide.md');
+  expect(open).not.toHaveBeenCalled();
+  expect(result.current.openFiles).toEqual([]);
+  open.mockRestore();
+});

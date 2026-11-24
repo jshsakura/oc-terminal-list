@@ -256,6 +256,39 @@ describe('FileEditor', () => {
     expect(reads).toBe(after);
   });
 
+  it.each(['missing.txt', 'remote:h1:/missing.txt'])('stops polling a missing file and resumes after manual recovery: %s', async (fileKey) => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let reads = 0;
+    let available = false;
+    global.fetch = vi.fn(async url => {
+      if (String(url).includes('/files/read')) {
+        reads += 1;
+        return available
+          ? { ok: true, json: async () => ({ content: 'recovered' }) }
+          : { ok: false, status: 404, json: async () => ({ detail: 'File not found' }) };
+      }
+      return { ok: true, json: async () => ({ exists: false }) };
+    });
+    try {
+      render(<FileEditor activeFile={fileKey} openFiles={[fileKey]} onFileSelect={vi.fn()} onClose={vi.fn()} theme={themes.catppuccin} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(reads).toBe(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(65000); });
+      expect(reads).toBe(1);
+      expect(screen.getByText('File not found')).toBeTruthy();
+      available = true;
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'reset' })); });
+      expect(screen.getByLabelText('editor-input')).toHaveValue('recovered');
+      expect(reads).toBe(2);
+      await act(async () => { await vi.advanceTimersByTimeAsync(31000); });
+      expect(reads).toBeGreaterThan(2);
+    } finally {
+      vi.useRealTimers();
+      log.mockRestore();
+    }
+  });
+
   it('원격 폴링은 로컬보다 느리다 — 폴 하나가 SSH 왕복이다', async () => {
     vi.useFakeTimers();
     try {

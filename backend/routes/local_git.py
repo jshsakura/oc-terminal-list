@@ -411,7 +411,7 @@ async def git_file_content(
     safe = validate_path(path)
     repo_root = await _find_repo_root(str(safe))
     if not repo_root:
-        raise HTTPException(status_code=404, detail="해당 파일이 속한 git 저장소를 찾을 수 없습니다")
+        return {"path": path, "ref": ref, "content": "", "exists": False}
 
     rel_to_repo = os.path.relpath(str(safe.absolute()), repo_root).replace("\\", "/")
     try:

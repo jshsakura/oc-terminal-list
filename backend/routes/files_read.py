@@ -10,17 +10,19 @@ import io
 import json
 import logging
 import os
+import secrets
 import time
 import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
 import host_sftp
 from _deps import AUTH_COOKIE_NAME, WORKSPACE_ROOT, validate_path, verify_auth_token
+from auth_sessions import current_session
 from file_index import (
     _FILE_INDEX_IGNORED,
     _FILE_INDEX_TTL,
@@ -197,6 +199,70 @@ async def grep_files(
             "text": text[:300],
         })
     return {"items": items, "truncated": len(items) >= limit}
+
+
+_PREVIEW_TTL_SECONDS = 300
+_PREVIEW_LIMIT = 128
+_preview_grants: dict[str, dict] = {}
+_PREVIEW_TYPES = {
+    ".html": "text/html", ".htm": "text/html", ".css": "text/css",
+    ".js": "text/javascript", ".mjs": "text/javascript",
+    ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+    ".ico": "image/x-icon", ".woff": "font/woff", ".woff2": "font/woff2",
+    ".ttf": "font/ttf", ".otf": "font/otf",
+}
+
+
+@router.get("/api/files/preview")
+async def open_html_preview(path: str = Query(...), username: str = Depends(verify_auth_token)):
+    safe = validate_path(path)
+    if not safe.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    if safe.suffix.lower() not in {".html", ".htm"}:
+        raise HTTPException(status_code=415, detail="HTML preview requires an HTML file")
+    now = time.time()
+    expired = [key for key, grant in _preview_grants.items()
+               if grant["expires_at"] <= now or (grant["session"] is not None and not grant["session"].active)]
+    for key in expired:
+        _preview_grants.pop(key, None)
+    if len(_preview_grants) >= _PREVIEW_LIMIT:
+        raise HTTPException(status_code=429, detail="Too many HTML previews; try again shortly")
+    token = secrets.token_urlsafe(32)
+    _preview_grants[token] = {"root": safe.parent, "expires_at": now + _PREVIEW_TTL_SECONDS,
+                              "session": current_session.get()}
+    return RedirectResponse(f"/api/files/preview/{token}/{quote(safe.name, safe='')}",
+                            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"})
+
+
+@router.get("/api/files/preview/{token}/{asset:path}")
+async def get_html_preview_asset(token: str, asset: str):
+    grant = _preview_grants.get(token)
+    if (not grant or grant["expires_at"] <= time.time()
+            or (grant["session"] is not None and not grant["session"].active)):
+        _preview_grants.pop(token, None)
+        raise HTTPException(status_code=401, detail="HTML preview expired; reopen the preview")
+    root = grant["root"]
+    safe = (root / asset).resolve()
+    if not safe.is_relative_to(root):
+        raise HTTPException(status_code=403, detail="Outside HTML preview directory")
+    safe = validate_path(safe.relative_to(Path(WORKSPACE_ROOT).resolve()).as_posix())
+    if not safe.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    media_type = _PREVIEW_TYPES.get(safe.suffix.lower())
+    if media_type is None:
+        raise HTTPException(status_code=415, detail="Unsupported HTML preview resource")
+    policy = (
+        "sandbox allow-scripts; default-src 'none'; base-uri 'none'; object-src 'none'; "
+        "frame-ancestors 'self'; form-action 'none'; "
+        "script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'"
+    )
+    return FileResponse(str(safe), media_type=media_type, headers={
+        "Content-Security-Policy": policy, "X-Frame-Options": "SAMEORIGIN",
+        "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer",
+        "Cache-Control": "no-store", "Access-Control-Allow-Origin": "*",
+    })
 
 
 @router.get("/api/files/raw")
