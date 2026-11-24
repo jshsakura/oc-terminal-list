@@ -92,6 +92,15 @@ describe('HomeDashboard', () => {
     expect(onAddHost).toHaveBeenCalled();
   });
 
+  it('shows Machine info beside Dashboard with monitoring off', () => {
+    render(<HomeDashboard hosts={[]} t={mockT} />);
+    const button = screen.getByRole('button', { name: 'Machine info' });
+    expect(screen.getByRole('button', { name: 'Dashboard' }).compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(button);
+    expect(screen.getByRole('switch', { name: 'Live monitoring' })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('Specifications')).toBeInTheDocument();
+  });
+
   it('opens a Fleet pane by its stable tab address', () => {
     const onJumpPane = vi.fn();
     fleetState.targets = [{
