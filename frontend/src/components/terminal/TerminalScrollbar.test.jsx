@@ -427,16 +427,26 @@ it('changes tmux questions as seeks complete and hides the old question while mo
 });
 
 it('rechecks tmux when the last scroll update arrived during an in-flight read', async () => {
+  vi.useFakeTimers();
   let release;
   fetch.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
   fetch.mockResolvedValue({ ok: true, json: async () => ({ available: true, history: 200, offset: 60, rows: 20,
     input_context: { text: '질문 B' } }) });
-  const { listeners } = setup('alternate', false, true, undefined, true);
-  act(() => listeners.write());
-  await act(async () => release({ ok: true, json: async () => ({ available: true, history: 200, offset: 30, rows: 20,
-    input_context: { text: '질문 C' } }) }));
-  await waitFor(() => expect(screen.getByRole('region')).toHaveTextContent('질문 B'));
-  expect(fetch).toHaveBeenCalledTimes(2);
+  const { listeners, unmount } = setup('alternate', false, true, undefined, true);
+  try {
+    act(() => listeners.write());
+    await act(async () => release({ ok: true, json: async () => ({ available: true, history: 200, offset: 30, rows: 20,
+      input_context: { text: '질문 C' } }) }));
+    await act(async () => vi.advanceTimersByTimeAsync(1999));
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('region')).toHaveTextContent('질문 C');
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(screen.getByRole('region')).toHaveTextContent('질문 B');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  } finally {
+    unmount();
+    vi.useRealTimers();
+  }
 });
 
 it('never persists raw terminal submissions while the preview is enabled', () => {
@@ -461,6 +471,27 @@ it('loads Recent commands once while browsing local history', async () => {
   expect(reads).toHaveLength(1);
   expect(reads[0][0]).toContain('terminal=browser-session');
   expect(props.inputPreviewRef.current).toBeTypeOf('function');
+});
+
+it.each([false, true])('preserves the tmux polling interval during continuous output with preview=%s', async (showInputOnScroll) => {
+  vi.useFakeTimers();
+  let view;
+  let outputTimer;
+  try {
+    fetch.mockImplementation(async () => {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      return { ok: true, json: async () => ({ available: true, history: 100, rows: 20, offset: 0 }) };
+    });
+    view = setup('normal', true, showInputOnScroll, undefined, true);
+    outputTimer = setInterval(() => view.listeners.write(), 20);
+    await act(async () => { await vi.advanceTimersByTimeAsync(5000); });
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(fetch.mock.calls.every(([, options]) => options.method === 'GET')).toBe(true);
+  } finally {
+    clearInterval(outputTimer);
+    view?.unmount();
+    vi.useRealTimers();
+  }
 });
 
 it('keeps a slow recurring tmux refresh active in e-ink mode', async () => {

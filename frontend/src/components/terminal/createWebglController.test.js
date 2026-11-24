@@ -25,17 +25,25 @@ const MockedWebglAddon = vi.mocked(WebglAddon);
 
 // ── Helper ──────────────────────────────────────────────────────────────────
 
-const makeTerm = (rows = 24) => ({
+const makeTerm = (rows = 24, doc = document.implementation.createHTMLDocument()) => ({
   rows,
   refresh: vi.fn(),
   loadAddon: vi.fn(),
-  element: document.createElement('div'),
+  element: doc.createElement('div'),
 });
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('createWebglController', () => {
+  let getContext;
+  let loseContext;
+
   beforeEach(() => {
+    loseContext = vi.fn();
+    getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      getExtension: name => name === 'WEBGL_lose_context' ? { loseContext } : null,
+      getParameter: () => 'Test GPU',
+    });
     MockedWebglAddon.mockClear();
     mockDispose.mockClear();
     mockOnContextLoss.mockClear();
@@ -43,7 +51,47 @@ describe('createWebglController', () => {
   });
 
   afterEach(() => {
+    getContext.mockRestore();
     vi.useRealTimers();
+  });
+
+  it('keeps the DOM renderer across activity and panes when accelerated WebGL is unavailable', () => {
+    getContext.mockReturnValue(null);
+    const term = makeTerm();
+    const ctrl = createWebglController({ term, enabled: true, isActive: () => true });
+    ctrl.noteActivity();
+    ctrl.attach();
+    createWebglController({ term: makeTerm(24, term.element.ownerDocument), enabled: true, isActive: () => true });
+
+    expect(MockedWebglAddon).not.toHaveBeenCalled();
+    expect(getContext).toHaveBeenCalledExactlyOnceWith('webgl2', expect.objectContaining({ failIfMajorPerformanceCaveat: true }));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each(['ANGLE (Google, SwiftShader Device)', 'llvmpipe (LLVM 18)', 'Microsoft Basic Render Driver'])(
+    'releases the probe and keeps DOM when the driver reports %s', renderer => {
+      getContext.mockReturnValue({
+        RENDERER: 0x1f01,
+        getExtension: name => name === 'WEBGL_debug_renderer_info' ? { UNMASKED_RENDERER_WEBGL: 0x9246 } : { loseContext },
+        getParameter: key => key === 0x9246 ? renderer : 'WebKit WebGL',
+      });
+      const ctrl = createWebglController({ term: makeTerm(), enabled: true, isActive: () => true });
+      ctrl.noteActivity();
+
+      expect(MockedWebglAddon).not.toHaveBeenCalled();
+      expect(loseContext).toHaveBeenCalledOnce();
+    },
+  );
+
+  it('reuses the accelerated capability result after releasing the probe', () => {
+    const first = makeTerm();
+    const second = makeTerm(24, first.element.ownerDocument);
+    for (const term of [first, second]) {
+      createWebglController({ term, enabled: true, isActive: () => true });
+      expect(term.loadAddon).toHaveBeenCalledOnce();
+    }
+    expect(getContext).toHaveBeenCalledOnce();
+    expect(loseContext).toHaveBeenCalledOnce();
   });
 
   it('attach() calls term.refresh(0, rows-1) after loading WebGL addon', () => {
@@ -72,6 +120,7 @@ describe('createWebglController', () => {
     expect(term.loadAddon).not.toHaveBeenCalled();
     ctrl.attach();
     expect(term.loadAddon).not.toHaveBeenCalled();
+    expect(getContext).not.toHaveBeenCalled();
   });
 
   it('noteActivity does not attach when inactive', () => {
