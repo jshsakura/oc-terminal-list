@@ -862,7 +862,7 @@ function App() {
   /* Drag-select lives only in view mode, and any key flips the phone to input mode
      (persisted) — "Copy selection" with nothing selected is the way back. */
   const enterMobileSelectMode = useEvent(() => {
-    setMobileViewOnly(true);
+    flushSync(() => setMobileViewOnly(true));
     setNotification({ isOpen: true, message: t('mobileSelectionHint'), type: 'info' });
   });
   const exitMobileSelectMode = useEvent(() => { enableMobileInput(false); });
@@ -877,6 +877,15 @@ function App() {
   const openCommandInput = useEvent(() => {
     if (isMobile && mobileViewOnly) { enableMobileInput(true); return; }
     setCommandInputOpen(true);
+  });
+  const toggleMobileViewOnly = useEvent(() => {
+    if (inputModePendingRef.current) { return; }
+    if (mobileViewOnly) { enableMobileInput(); return; }
+    flushSync(() => {
+      setMobileViewOnly(true);
+      setCommandInputOpen(false);
+    });
+    document.activeElement?.blur?.();
   });
   const sendMobileKey = useEvent(async key => {
     if (inputModePendingRef.current) return;
@@ -1272,6 +1281,7 @@ function App() {
           <MobileToolbar
             viewOnly={mobileViewOnly}
             modePending={inputModePending}
+            onToggleViewOnly={toggleMobileViewOnly}
             onOpenSettings={() => { setCommandInputOpen(false); setSettingsInitialTab('mobile'); setIsSettingsOpen(true); }}
             keySets={resolveMobileKeySets(settings)}
             activeSetId={activeMobileKeySet(settings).id}

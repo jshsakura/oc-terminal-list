@@ -205,7 +205,7 @@ describe('TerminalContextMenu', () => {
 
   it('모바일 보기 모드에서도 입력창에 붙여넣기를 제공한다', () => {
     const props = baseProps();
-    render(<TerminalContextMenu {...props} isMobile readOnly />);
+    render(<TerminalContextMenu {...props} isMobile readOnly hasSelection />);
     fireEvent.click(screen.getByRole('button', { name: 'paste' }));
     expect(props.onPaste).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole('button', { name: 'pasteToInput' }));
@@ -213,21 +213,31 @@ describe('TerminalContextMenu', () => {
     expect(screen.queryByRole('button', { name: 'registerKeyCombination' })).toBeNull();
   });
 
-  it('offers selection in quick input in view mode and invokes it explicitly', () => {
-    const onUseSelection = vi.fn();
-    render(<TerminalContextMenu {...baseProps()} readOnly hasSelection onUseSelection={onUseSelection} />);
-    expect(screen.queryByText('paste')).toBeNull();
-    expect(onUseSelection).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByText('selectionToInput'));
-    expect(onUseSelection).toHaveBeenCalledOnce();
+  it('shows prompt paste only on mobile and requires a selection', () => {
+    const onPasteSelectionToPrompt = vi.fn();
+    const props = { ...baseProps(), onPasteSelectionToPrompt };
+    const { rerender } = render(<TerminalContextMenu {...props} hasSelection={false} isMobile />);
+    expect(screen.getByRole('button', { name: 'pasteSelectionToPrompt' })).toBeDisabled();
+    rerender(<TerminalContextMenu {...props} hasSelection readOnly />);
+    expect(screen.queryByRole('button', { name: 'pasteSelectionToPrompt' })).toBeNull();
+    rerender(<TerminalContextMenu {...props} hasSelection />);
+    expect(screen.queryByRole('button', { name: 'pasteSelectionToPrompt' })).toBeNull();
+    rerender(<TerminalContextMenu {...props} hasSelection readOnly isMobile />);
+    fireEvent.click(screen.getByRole('button', { name: 'pasteSelectionToPrompt' }));
+    expect(onPasteSelectionToPrompt).toHaveBeenCalledOnce();
   });
 
-  it('hides selection in quick input without selection or outside view mode', () => {
-    const props = { ...baseProps(), onUseSelection: vi.fn() };
-    const { rerender } = render(<TerminalContextMenu {...props} readOnly />);
+  it('disables mobile quick input when nothing is selected', () => {
+    render(<TerminalContextMenu {...baseProps()} isMobile hasSelection={false} />);
+    expect(screen.getByText('pasteToInput').closest('button')).toBeDisabled();
+  });
+
+  it.each([false, true])('omits selection-to-input while retaining quick input on mobile=%s', (isMobile) => {
+    const props = baseProps();
+    render(<TerminalContextMenu {...props} readOnly hasSelection isMobile={isMobile} />);
     expect(screen.queryByText('selectionToInput')).toBeNull();
-    rerender(<TerminalContextMenu {...props} hasSelection />);
-    expect(screen.queryByText('selectionToInput')).toBeNull();
+    fireEvent.click(screen.getByText('pasteToInput'));
+    expect(props.onPasteToInput).toHaveBeenCalledOnce();
   });
 
   it('선택 항목은 콜백이 있을 때만 나온다 (파일 보내기 / 새로고침)', () => {

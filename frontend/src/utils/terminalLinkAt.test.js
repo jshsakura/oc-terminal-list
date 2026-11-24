@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { getLinkAtClient, getFileLinkAtClient } from './terminalLinkAt';
+import { getLinkAtClient, getFileLinkAtClient, normalizeWebUri, wrappedWebLinks } from './terminalLinkAt';
 
 // xterm buffer.getLine 의 미니 목 — translateToString(true) 반환.
 function makeTerm({ text, cols = 80, rows = 24, rect = { left: 0, top: 0, width: 800, height: 480 } }) {
@@ -111,5 +111,92 @@ describe('getLinkAtClient', () => {
     const term = makeTerm({ text: 'a https://a.com b https://b.com c' });
     expect(getLinkAtClient(term, 100, 10)).toBe('https://a.com');
     expect(getLinkAtClient(term, 250, 10)).toBe('https://b.com');
+  });
+});
+
+describe('OSC 8 named hyperlinks', () => {
+  it.each(['https://terminal.example.test/?document=docs%2Fa.md', 'http://example.com/a', 'javascript:alert(1)', 'data:text/html,test', 'file:///etc/passwd', 'invalid'])('checks the target behind a label: %s', uri => {
+    const term = makeTerm({ text: '이미지 보기 테스트' });
+    const line = term.buffer.active.getLine(0);
+    line.getCell = () => ({ getWidth: () => 2, extended: { urlId: 7 } });
+    term.buffer.active.getLine = row => row === 0 ? line : null;
+    term._core = { _oscLinkService: { getLinkData: id => id === 7 ? { uri } : undefined } };
+    expect(getLinkAtClient(term, 25, 10)).toBe(uri.startsWith('http') ? uri : null);
+  });
+});
+
+
+it('opens a named file hyperlink without displaying its path', () => {
+  const term = makeTerm({ text: 'photo.png' });
+  const line = term.buffer.active.getLine(0);
+  line.getCell = () => ({ getWidth: () => 1, extended: { urlId: 9 } });
+  term.buffer.active.getLine = row => row === 0 ? line : null;
+  term._core = { _oscLinkService: { getLinkData: () => ({ uri: 'file:///work/projects/images/photo.png' }) } };
+  expect(getLinkAtClient(term, 25, 10)).toBeNull();
+  expect(getFileLinkAtClient(term, 25, 10)).toEqual({ path: '/work/projects/images/photo.png', newTab: true });
+});
+
+
+describe('file paths wrapped by the output application', () => {
+  const lines = [
+    '  Report (/work/projects/2026-10/2026-10-19/terminal-',
+    '  list-internal-document-tabs/README.md)',
+  ];
+  const makeLines = (rows) => {
+    const term = makeTerm({ text: '', cols: 80 });
+    term.buffer.active.getLine = row => row >= 0 && row < rows.length
+      ? { isWrapped: false, translateToString: (_, start = 0, end = rows[row].length) => rows[row].slice(start, end) }
+      : null;
+    return term;
+  };
+  it.each([[150, 10], [150, 30]])('reads the complete parenthesized target at %s,%s', (x, y) => {
+    expect(getFileLinkAtClient(makeLines(lines), x, y)?.path).toBe('/work/projects/2026-10/2026-10-19/terminal-list-internal-document-tabs/README.md');
+  });
+  it('does not join separate unparenthesized paths', () => {
+    expect(getFileLinkAtClient(makeLines(['/work/a.md', '/work/b.md']), 50, 10)?.path).toBe('/work/a.md');
+  });
+  it('does not turn intervening prose into a file path', () => {
+    expect(getFileLinkAtClient(makeLines(['Report (/work/a-', 'some unrelated text', 'b.md)']), 150, 10)?.path).not.toBe('/work/a-someunrelatedtextb.md');
+  });
+});
+
+
+describe('hard-wrapped web links', () => {
+  const url = 'https://developers.google.com/identity/gsi/web/guides/get-google-api-clientid';
+  const rows = ['  Guide (https://', '  developers.google.com/identity/gsi/web/guides/get-google-', '  api-clientid)'];
+  const makeRows = (lines) => {
+    const term = makeTerm({ text: '' });
+    term.buffer.active.getLine = row => lines[row] === undefined ? null : {
+      isWrapped: false,
+      translateToString: (_, start = 0, end = lines[row].length) => lines[row].slice(start, end),
+    };
+    return term;
+  };
+  it.each([[120, 10], [100, 30], [70, 50]])('joins a bounded URL at %s,%s', (x, y) => {
+    expect(getLinkAtClient(makeRows(rows), x, y)).toBe(url);
+  });
+  it('does not include adjacent prose or join separate bare URLs', () => {
+    expect(getLinkAtClient(makeRows(rows), 30, 10)).toBeNull();
+    expect(getLinkAtClient(makeRows(['https://example.com/a', 'https://other.example/b']), 50, 10)).toBe('https://example.com/a');
+    expect(getLinkAtClient(makeRows(['(https://example.com/a', 'some unrelated prose)']), 50, 10)).toBe('https://example.com/a');
+  });
+});
+
+
+describe('web URI normalization', () => {
+  it('removes literal line breaks and indentation while preserving URL escapes', () => {
+    expect(normalizeWebUri('https://example.com/a-\n  b?q=a%20b')).toBe('https://example.com/a-b?q=a%20b');
+    expect(normalizeWebUri('https://example.com/a%0A%20b')).toBe('https://example.com/a%0A%20b');
+    expect(normalizeWebUri('javascript:alert(1)')).toBeNull();
+  });
+  it('returns cell ranges for desktop link activation', () => {
+    const rows = ['(https://example.com/a-', '  b)'];
+    const buffer = { getLine: row => rows[row] === undefined ? null : {
+      translateToString: () => rows[row], isWrapped: false,
+    } };
+    expect(wrappedWebLinks(buffer, 1)).toEqual([{
+      text: 'https://example.com/a-b',
+      range: { start: { x: 2, y: 1 }, end: { x: 3, y: 2 } },
+    }]);
   });
 });

@@ -57,6 +57,7 @@ const MobileToolbar = ({
   leading = null,
   viewOnly = false,
   modePending = false,
+  onToggleViewOnly = null,
   onOpenSettings = null,
   onPasteToInput = null,
   keySets = [], activeSetId = null, onSelectSet = null, onReorderKeys = null,
@@ -356,6 +357,23 @@ const MobileToolbar = ({
       `}</style>
 
       <div data-testid="mobile-toolbar" style={styles.toolbar}>
+        {onToggleViewOnly && (
+          <div style={styles.pinned}>
+            <Key active={viewOnly} aria-pressed={viewOnly}
+              disabled={modePending} aria-busy={modePending}
+              title={t(viewOnly ? 'mobileEnableInput' : 'mobileEnableView')}
+              aria-label={t(viewOnly ? 'mobileEnableInput' : 'mobileEnableView')}
+              onMouseDown={(e) => e.preventDefault()} onClick={onToggleViewOnly}>
+              {modePending ? '…' : t(viewOnly ? 'mobileViewMode' : 'mobileInputMode')}
+            </Key>
+            {viewOnly && (
+              <Key tone="accent" disabled={modePending} aria-busy={modePending}
+                title={t('mobileEscapeToInputHint')} aria-label={t('mobileEscapeToInputHint')}
+                onMouseDown={(e) => e.preventDefault()} onClick={() => onAction?.('escapeToInput')}>{t('mobileEscapeToInput')}</Key>
+            )}
+            <Divider />
+          </div>
+        )}
         {(selectedSet || onOpenSettings) && <div ref={setsRef} style={{ ...styles.pinned, position: 'relative' }}>
           <Key aria-label={t('switchKeySet')} title={t('switchKeySet')} aria-haspopup="menu" aria-expanded={setsOpen}
             onMouseDown={event => event.preventDefault()} onClick={() => setSetsOpen(open => !open)}>

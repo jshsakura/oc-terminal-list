@@ -175,7 +175,7 @@ export const AuthPromptOverlay = ({ prompt, themeUi, t, onSubmit, onCancel }) =>
   );
 };
 
-export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onUseSelection, onCopyLink, onCopyAll, onPaste, onPasteToInput, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose, onEnterSelectMode, onExitSelectMode, readOnly = false, isMobile = false }) => {
+export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, onCopy, onCopyLink, onCopyAll, onPaste, onPasteToInput, onPasteSelectionToPrompt, onRefresh, onScrollToBottom, onUploadFile, onScreenDump, onClose, onEnterSelectMode, onExitSelectMode, readOnly = false, isMobile = false }) => {
   const ref = useRef(null);
   const [pos, setPos] = useState({ x, y });
   const [measured, setMeasured] = useState(false);
@@ -240,14 +240,16 @@ export const TerminalContextMenu = ({ x, y, hasSelection, linkUrl, themeUi, t, o
       disabled: !hasSelection && !canEnterSelectMode,
     });
   }
-  if (hasSelection && readOnly && onUseSelection) {
-    items.push({ icon: ClipboardPaste, label: t('selectionToInput') || 'Use in quick input', action: onUseSelection });
-  }
   if (isMobile || !readOnly) {
     items.push({ icon: ClipboardPaste, label: t('paste') || 'Paste', action: onPaste });
   }
+  if (isMobile && onPasteSelectionToPrompt) {
+    items.push({ icon: ClipboardPaste, label: t('pasteSelectionToPrompt') || 'Paste into prompt',
+      action: onPasteSelectionToPrompt, disabled: !hasSelection });
+  }
   if (onPasteToInput) {
-    items.push({ icon: ClipboardPaste, label: t('pasteToInput') || 'Paste into Quick Input', action: onPasteToInput });
+    items.push({ icon: ClipboardPaste, label: t('pasteToInput') || 'Paste into Quick Input',
+      action: onPasteToInput, disabled: isMobile && !hasSelection });
   }
   if (!readOnly && onUploadFile) {
     items.push({ icon: Upload, label: t('sendFile') || 'Send file', action: onUploadFile });

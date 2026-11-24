@@ -54,7 +54,8 @@ export class FakeTerminal {
     this.handlers = {};
     this._core = {};
 
-    this.loadAddon = vi.fn((addon) => { addon._terminal = this; addon.activate?.(this); });
+    this.addons = [];
+    this.loadAddon = vi.fn((addon) => { this.addons.push(addon); addon._terminal = this; addon.activate?.(this); });
     this.open = vi.fn((el) => {
       this.element = el;
       // .xterm-screen 조회를 하는 코드가 있어 하나 심어둔다.
@@ -63,7 +64,7 @@ export class FakeTerminal {
       el?.appendChild?.(screen);
     });
     this.focus = vi.fn(() => { this.focused = true; });
-    this.dispose = vi.fn(() => { this.disposed = true; });
+    this.dispose = vi.fn(() => { this.disposed = true; this.addons.forEach(addon => addon.dispose?.()); });
     this.paste = vi.fn((t) => this.pasted.push(t));
     this.clear = vi.fn();
     this.getSelection = vi.fn(() => '');
@@ -92,14 +93,20 @@ export class FakeTerminal {
       scrollListeners.add(h);
       return { dispose: () => scrollListeners.delete(h) };
     });
+    this.onRender = vi.fn(() => ({ dispose: vi.fn() }));
     this.onWriteParsed = vi.fn(() => ({ dispose: vi.fn() }));
     this.onResize = vi.fn(() => ({ dispose: vi.fn() }));
     // tmux 가 set-titles on 으로 흘려주는 pane 타이틀(OSC 0) — 에이전트 상태의 입구.
     this.onTitleChange = vi.fn((h) => { this.handlers.title = h; });
     // 파일 경로 클릭 링크 프로바이더 — provideLinks 콜백을 잡아두면 테스트에서
     // 임의 줄을 먹여 실제 링크 파싱/activate 경로를 검증할 수 있다.
-    this.registerLinkProvider = vi.fn((provider) => { this.handlers.linkProvider = provider; });
-    this.onSelectionChange = vi.fn((h) => { this.handlers.selection = h; });
+    this.registerLinkProvider = vi.fn((provider) => { this.handlers.linkProvider = provider; return { dispose: vi.fn() }; });
+    const selectionListeners = new Set();
+    this.handlers.selection = (...args) => selectionListeners.forEach(h => h(...args));
+    this.onSelectionChange = vi.fn(h => {
+      selectionListeners.add(h);
+      return { dispose: () => selectionListeners.delete(h) };
+    });
 
     // write(data, cb) — 실제 xterm 처럼 파싱 후 비동기로 콜백. 컴포넌트는 이 콜백에서
     // hasContent 를 세우고 백프레셔 카운터를 차감한다.

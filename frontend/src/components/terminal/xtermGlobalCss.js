@@ -55,6 +55,58 @@ const SCROLLBAR_FIX_CSS = `
   }
 `;
 
+const NAMED_LINKS_CSS = `
+  .terminal-named-links {
+    position: absolute;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 5;
+  }
+  .terminal-named-link-mask, .terminal-named-link-label {
+    position: absolute;
+    box-sizing: border-box;
+  }
+  .terminal-named-link-mask { background: var(--terminal-link-bg); }
+  .terminal-named-link-label {
+    border-bottom: 1px solid var(--terminal-link-fg);
+    background: var(--terminal-link-bg);
+    color: var(--terminal-link-fg);
+    white-space: pre;
+  }
+  .terminal-named-link-icon {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    background: var(--terminal-link-bg);
+    color: var(--terminal-link-fg);
+  }
+  .terminal-named-link-icon svg { max-width: 100%; max-height: 100%; }
+  .terminal-named-link-open {
+    position: absolute;
+    pointer-events: auto;
+    min-width: 24px;
+    padding: 0;
+    border: 0;
+    background: var(--terminal-link-bg);
+    color: var(--terminal-link-fg);
+    font: inherit;
+    cursor: pointer;
+  }
+  .terminal-named-link-open:focus-visible { outline: 2px solid var(--ui-accent); outline-offset: -2px; }
+  .terminal-link-target {
+    position: absolute;
+    box-sizing: border-box;
+    z-index: 6;
+    overflow: auto;
+    font: inherit;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+  .terminal-link-target[hidden] { display: none; }
+
+`;
+
 const injectOnce = (id, css) => {
   if (document.getElementById(id)) return;
   const style = document.createElement('style');
@@ -65,6 +117,7 @@ const injectOnce = (id, css) => {
 
 const ensureXtermGlobalStyles = () => {
   injectOnce(MOBILE_FIX_ID, MOBILE_FIX_CSS);
+  injectOnce('terminal-named-links-style', NAMED_LINKS_CSS);
   // v2 로 올리면서 옛 id 는 걷어낸다(캐시된 옛 스타일이 남아 겹치지 않게).
   if (!document.getElementById(SCROLLBAR_FIX_ID)) {
     document.getElementById('xterm-scrollbar-fix')?.remove();

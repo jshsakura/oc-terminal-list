@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findFileLinks, resolveWorkspacePath, readLogicalLine, offsetToCell, MAX_WRAPPED_ROWS } from './terminalFileLinks';
+import { fileLinkFromUri, findFileLinks, resolveWorkspacePath, readLogicalLine, offsetToCell, MAX_WRAPPED_ROWS } from './terminalFileLinks';
 
 describe('findFileLinks — 경로 감지', () => {
   it('상대경로 + line:col', () => {
@@ -159,5 +159,22 @@ describe('접힌 줄 되살리기', () => {
     expect(offsetToCell(9, 0, COLS)).toEqual({ x: 10, y: 1 });
     expect(offsetToCell(10, 0, COLS)).toEqual({ x: 1, y: 2 });
     expect(offsetToCell(14, 3, COLS)).toEqual({ x: 5, y: 5 });
+  });
+});
+
+describe('named file hyperlink targets', () => {
+  it.each([
+    ['file:///work/projects/images/a%20b.png', '/work/projects/images/a b.png'],
+    ['file://localhost/work/projects/a.md', '/work/projects/a.md'],
+    ['/work/projects/a.md', '/work/projects/a.md'],
+  ])('resolves %s', (uri, path) => {
+    expect(fileLinkFromUri(uri)).toEqual({ path, newTab: true });
+  });
+  it.each(['file://other/path.png', '//other/path.png', 'javascript:alert(1)', 'https://example.com/a', 'file:///a%00.png', 'file:///a%ZZ.png'])('rejects %s', uri => {
+    expect(fileLinkFromUri(uri)).toBeNull();
+  });
+  it('keeps workspace restrictions on decoded file links', () => {
+    const link = fileLinkFromUri('file:///etc/passwd');
+    expect(resolveWorkspacePath(link.path, { workspaceRoot: '/work/projects' })).toBeNull();
   });
 });

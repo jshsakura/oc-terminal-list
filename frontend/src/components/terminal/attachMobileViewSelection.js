@@ -1,3 +1,4 @@
+import { showTerminalLinkTarget, toggleTerminalNamedLink } from './TerminalNamedLinksAddon';
 import createTerminalGeometry from '../../utils/terminalGeometry';
 import { selectionArgsFromCells, selectionArgsFromEdges } from '../../utils/terminalMouseSelection';
 import { getLinkAtClient, getFileLinkAtClient } from '../../utils/terminalLinkAt';
@@ -36,9 +37,17 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
   // 단어 없이 끄는 드래그는 칸이 아니라 경계 사이를 고른다 — 손가락이 막 걸친 칸이
   // 끝에 하나 더 따라 들어가지 않게.
   const selectBetween = (p) => {
+    const edge = bufferEdgeFromClientPoint(p.x, p.y);
+    if (gesture.existing) {
+      const index = edge.row * term.cols + edge.col;
+      const first = Math.min(gesture.fixedEdge, index);
+      const last = Math.max(gesture.fixedEdge, index);
+      term.select(first % term.cols, Math.floor(first / term.cols), last - first);
+      return;
+    }
     const args = selectionArgsFromEdges(
-      bufferEdgeFromClientPoint(gesture.origin.x, gesture.origin.y),
-      bufferEdgeFromClientPoint(p.x, p.y),
+      gesture.startEdge,
+      edge,
       term.cols,
     );
     if (args) term.select(args.column, args.row, args.length);
@@ -65,8 +74,19 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
   };
   const start = (p, kind) => {
     cancel();
-    gesture = { kind, origin: p, last: p, anchor: cellAt(p), selecting: false, scrolling: false };
-    if (kind === 'touch') holdTimer = setTimeout(selectWord, HOLD_MS);
+    const position = term.getSelectionPosition?.();
+    const existing = position ? {
+      start: position.start.y * term.cols + position.start.x,
+      end: position.end.y * term.cols + position.end.x,
+    } : null;
+    gesture = { kind, origin: p, last: p, anchor: cellAt(p), existing,
+      startEdge: bufferEdgeFromClientPoint(p.x, p.y), selecting: !!existing, scrolling: false };
+    if (existing) {
+      const index = gesture.startEdge.row * term.cols + gesture.startEdge.col;
+      gesture.fixedEdge = Math.abs(index - existing.start) < Math.abs(index - existing.end)
+        ? existing.end : existing.start;
+    }
+    if (kind === 'touch' && !existing) { holdTimer = setTimeout(selectWord, HOLD_MS); }
   };
   const move = (p, event) => {
     if (!gesture || !isReadOnly()) { cancel(); return; }
@@ -103,12 +123,19 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     }
     term.clearSelection();
     const { x, y } = completed.origin;
+    if (toggleTerminalNamedLink(term, { x, y })) { return; }
     const url = getLinkAtClient(term, x, y);
     // This must stay in touchend/mouseup to retain the browser's user activation.
-    if (url) window.open(url, '_blank', 'noopener,noreferrer');
+    if (url) {
+      showTerminalLinkTarget(term, url, { x, y });
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
     else if (onFileLinkClick) {
       const file = getFileLinkAtClient(term, x, y);
-      if (file) onFileLinkClick(file);
+      if (file) {
+        showTerminalLinkTarget(term, file.path, { x, y });
+        onFileLinkClick(file);
+      }
     }
   };
   const touchStart = (event) => {
@@ -161,7 +188,13 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
   document.addEventListener('mousemove', mouseMove, true);
   document.addEventListener('mouseup', mouseUp, true);
   window.addEventListener('blur', cancel);
-  return { detach() {
+  return { beginSelection(p) {
+    if (!isReadOnly()) { return; }
+    lastTouchAt = Date.now();
+    start(p, 'touch');
+    clearTimeout(holdTimer);
+    if (!gesture.existing) { selectWord(); }
+  }, detach() {
     cancel();
     overlay.removeEventListener('touchstart', touchStart);
     overlay.removeEventListener('touchmove', touchMove);
