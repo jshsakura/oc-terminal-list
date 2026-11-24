@@ -368,6 +368,7 @@ const attachTerminalInteractions = ({
      tmux/vim 이 마우스 트래킹을 켜도 PC 기본 UX 는 지킨다: 클릭은 앱으로 보내고,
      plain left-drag 가 임계값을 넘는 순간부터만 xterm 선택으로 전환한다. */
   let naturalSelection = null;
+  const cancelNaturalSelection = () => { naturalSelection = null; };
   const handleNaturalMouseDown = (e) => {
     const screen = term.element?.querySelector('.xterm-screen');
     if (!screen?.contains(e.target)) {
@@ -390,7 +391,10 @@ const attachTerminalInteractions = ({
     };
   };
   const handleNaturalMouseMove = (e) => {
-    if (!naturalSelection || (e.buttons & 1) !== 1) return;
+    if (!naturalSelection) return;
+    // The button came up outside the window, so our mouseup never arrived. Drop the
+    // gesture, or the next unrelated mouseup is swallowed and copies (from PR #7).
+    if ((e.buttons & 1) !== 1) { naturalSelection = null; return; }
     const dx = Math.abs(e.clientX - naturalSelection.startX);
     const dy = Math.abs(e.clientY - naturalSelection.startY);
     if (!naturalSelection.selecting && Math.max(dx, dy) < DRAG_SELECT_THRESHOLD_PX) return;
@@ -522,6 +526,7 @@ const attachTerminalInteractions = ({
   container.addEventListener('touchstart', handleTouchStart, { passive: false });
   container.addEventListener('touchend', handleTouchEnd, { passive: true });
   container.addEventListener('touchcancel', handleTouchCancel);
+  window.addEventListener('blur', cancelNaturalSelection);
   document.addEventListener('mousemove', handleNaturalMouseMove, true);
   document.addEventListener('mouseup', handleNaturalMouseUp, true);
   // Bubble phase, after xterm has finished updating its selection.
@@ -552,6 +557,7 @@ const attachTerminalInteractions = ({
       container.removeEventListener('touchstart', handleTouchStart);
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchCancel);
+      window.removeEventListener('blur', cancelNaturalSelection);
       document.removeEventListener('mousemove', handleNaturalMouseMove, true);
       document.removeEventListener('mouseup', handleNaturalMouseUp, true);
       document.removeEventListener('mouseup', handleSelectionGestureEnd);

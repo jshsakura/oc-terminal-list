@@ -2392,6 +2392,17 @@ const TerminalComponent = forwardRef(({ sessionId, hostId, isMobile = false, tmu
               }));
             }
           }}
+          onPasteSelectionToPrompt={isMobile ? () => {
+            // From PR #7: put the selected text at the prompt without pressing Enter.
+            const text = xtermRef.current?.getSelection();
+            setContextMenu(null);
+            if (!text) return;
+            if (readOnlyRef.current) {
+              window.dispatchEvent(new CustomEvent('iterm:paste-to-terminal', { detail: { text, sessionId } }));
+            } else {
+              xtermRef.current?.paste(text);
+            }
+          } : undefined}
           onCopyLink={() => {
             if (contextMenu.linkUrl) copyTextToClipboard(contextMenu.linkUrl);
             setContextMenu(null);

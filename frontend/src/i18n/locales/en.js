@@ -484,6 +484,7 @@ export const en = {
     viewAsText: 'View as text',
     selectionToInput: 'Use in quick input',
     pasteToInput: 'Paste into Quick Input',
+    pasteSelectionToPrompt: 'Paste into prompt',
     mobileViewMode: 'View',
     mobileInputMode: 'Input',
     mobileEnableInput: 'Switch to input mode',

@@ -33,12 +33,28 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
     const args = selectionArgsFromCells(gesture.anchor, end, term.cols);
     if (args) term.select(args.column, args.row, args.length);
   };
+  // A drag that starts while a selection is up grows that selection instead of replacing
+  // it, so a missed character can be added after lifting the finger (from PR #7). The
+  // direction test in move() still runs first: a vertical swipe scrolls, a tap clears.
+  const existingSelection = () => {
+    const pos = term.getSelectionPosition?.();
+    if (!pos || !term.hasSelection?.()) return null;
+    return { start: pos.start.y * term.cols + pos.start.x, end: pos.end.y * term.cols + pos.end.x };
+  };
+  const extendExisting = (edge) => {
+    const index = edge.row * term.cols + edge.col;
+    const first = Math.min(gesture.existing.start, index);
+    const last = Math.max(gesture.existing.end, index);
+    term.select(first % term.cols, Math.floor(first / term.cols), last - first);
+  };
   // 단어 없이 끄는 드래그는 칸이 아니라 경계 사이를 고른다 — 손가락이 막 걸친 칸이
   // 끝에 하나 더 따라 들어가지 않게.
   const selectBetween = (p) => {
+    const edge = bufferEdgeFromClientPoint(p.x, p.y);
+    if (gesture.existing) { extendExisting(edge); return; }
     const args = selectionArgsFromEdges(
       bufferEdgeFromClientPoint(gesture.origin.x, gesture.origin.y),
-      bufferEdgeFromClientPoint(p.x, p.y),
+      edge,
       term.cols,
     );
     if (args) term.select(args.column, args.row, args.length);
@@ -65,8 +81,10 @@ export default function attachMobileViewSelection({ term, overlay, isReadOnly,
   };
   const start = (p, kind) => {
     cancel();
-    gesture = { kind, origin: p, last: p, anchor: cellAt(p), selecting: false, scrolling: false };
-    if (kind === 'touch') holdTimer = setTimeout(selectWord, HOLD_MS);
+    const existing = existingSelection();
+    gesture = { kind, origin: p, last: p, anchor: cellAt(p), existing, selecting: false, scrolling: false };
+    // A hold would replace the selection with a word; with one up, dragging extends instead.
+    if (kind === 'touch' && !existing) holdTimer = setTimeout(selectWord, HOLD_MS);
   };
   const move = (p, event) => {
     if (!gesture || !isReadOnly()) { cancel(); return; }

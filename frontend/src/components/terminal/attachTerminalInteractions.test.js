@@ -705,6 +705,29 @@ describe('attachTerminalInteractions', () => {
       expect(term.select).not.toHaveBeenCalled();
     });
 
+    const staleMouseUpIsLeftAlone = () => {
+      const up = new MouseEvent('mouseup', { bubbles: true, cancelable: true });
+      document.dispatchEvent(up);
+      expect(up.defaultPrevented).toBe(false);
+    };
+
+    it('창 밖에서 버튼을 떼면 다음 mouseup 을 삼키지 않는다', () => {
+      mount();
+      down(50, 50);
+      move(150, 90);
+      // The release happened outside the window: the next move arrives with no button.
+      document.dispatchEvent(new MouseEvent('mousemove', { buttons: 0, clientX: 160, clientY: 90, bubbles: true }));
+      staleMouseUpIsLeftAlone();
+    });
+
+    it('창이 포커스를 잃으면 끌던 선택을 버린다', () => {
+      mount();
+      down(50, 50);
+      move(150, 90);
+      window.dispatchEvent(new Event('blur'));
+      staleMouseUpIsLeftAlone();
+    });
+
     /* The capture-phase mouseup stops propagation so tmux never sees the drag end —
        which also starved the document mouseup that copies inside the gesture. In a
        tmux pane only the late settle timer was left, and that is the one browsers refuse. */

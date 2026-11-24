@@ -487,6 +487,7 @@ export const ko = {
     viewAsText: '텍스트로 보기',
     selectionToInput: '입력창에 넣기',
     pasteToInput: '빠른 입력에 붙여넣기',
+    pasteSelectionToPrompt: '프롬프트로 붙여넣기',
     mobileViewMode: '보기',
     mobileInputMode: '입력',
     mobileEnableInput: '입력 모드로 전환',

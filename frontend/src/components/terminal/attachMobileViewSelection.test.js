@@ -95,6 +95,34 @@ describe('mobile view selection', () => {
     expect(open).toHaveBeenCalledOnce();
     expect(menu).toHaveBeenCalledWith(expect.objectContaining({ linkUrl: 'https://example.com' }));
   });
+  describe('with a selection already up', () => {
+    // "cdef" on row 0: cols 2..5, end edge exclusive.
+    beforeEach(() => {
+      term.hasSelection = () => true;
+      term.getSelectionPosition = () => ({ start: { x: 2, y: 0 }, end: { x: 6, y: 0 } });
+    });
+    it('a horizontal drag grows the selection forward and backward', () => {
+      touch('touchstart', 60, 10); touch('touchmove', 80, 10); touch('touchend', 80, 10);
+      expect(term.select).toHaveBeenLastCalledWith(2, 0, 6);
+      touch('touchstart', 30, 10); touch('touchmove', 2, 10); touch('touchend', 2, 10);
+      expect(term.select).toHaveBeenLastCalledWith(0, 0, 6);
+    });
+    it('a drag can reach into the next line', () => {
+      // Mostly sideways (dx 35 > dy 20), so it extends rather than scrolls: edge 10 on row 1.
+      touch('touchstart', 60, 10); touch('touchmove', 95, 30); touch('touchend', 95, 30);
+      expect(term.select).toHaveBeenLastCalledWith(2, 0, 88);
+    });
+    it('a vertical swipe still scrolls instead of extending', () => {
+      touch('touchstart', 150, 10); touch('touchmove', 150, 110); touch('touchend', 150, 110);
+      expect(scroll).toHaveBeenCalled();
+      expect(term.select).not.toHaveBeenCalled();
+    });
+    it('a tap clears the selection and a hold does not replace it with a word', () => {
+      touch('touchstart', 150, 10); vi.advanceTimersByTime(600); touch('touchend', 150, 10);
+      expect(term.select).not.toHaveBeenCalled();
+      expect(term.clearSelection).toHaveBeenCalled();
+    });
+  });
   it('cancels interrupted, multi-touch and unlocked gestures', () => {
     touch('touchstart', 150, 10); touch('touchcancel', 150, 10);
     vi.advanceTimersByTime(600); touch('touchend', 150, 10);
