@@ -77,6 +77,12 @@ export const infoStyles = {
     fontSize: '11.5px',
     letterSpacing: 0,
   },
+  rowValueWrap: {
+    whiteSpace: 'normal',
+    overflow: 'visible',
+    overflowWrap: 'anywhere',
+    textOverflow: 'clip',
+  },
   copyBtn: {
     flexShrink: 0,
     width: '18px',

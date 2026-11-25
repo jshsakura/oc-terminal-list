@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle } from 'react';
 import { copyTextToClipboard, looksLikeBulkCommand } from './terminalHelpers';
+import { watchCodexStatusUsage } from './codexStatusUsage';
 import { pushCommand as pushCommandHistory } from '../../utils/commandHistory';
 
 /**
@@ -78,7 +79,8 @@ const useTerminalApi = ({ refs, forwardedRef, sessionId, paneId, tabId, isReady 
     return false;
   }, [sessionId, enqueueInputRef, forceScrollToBottomRef, wsRef, iosHangulRef, inputPreviewRef, readOnlyRef]);
 
-  useImperativeHandle(forwardedRef, () => ({ sendData, sendCommand }), [sendData, sendCommand]);
+  const watchUsage = useCallback(listener => watchCodexStatusUsage(xtermRef.current, listener), [xtermRef]);
+  useImperativeHandle(forwardedRef, () => ({ sendData, sendCommand, watchUsage }), [sendData, sendCommand, watchUsage]);
 
   const getSelection = useCallback(() => xtermRef.current?.getSelection() || '', [xtermRef]);
 

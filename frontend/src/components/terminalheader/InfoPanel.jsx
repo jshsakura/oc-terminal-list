@@ -16,6 +16,7 @@ import useSystemStats from './info/useSystemStats';
 import { formatBytes, formatRate, formatUptime } from './info/infoFormat';
 import { InfoSection, InfoRow, MemoryStackBar, StatBar } from './info/InfoParts';
 import ProcessList from './info/ProcessList';
+import LlmInfoSection from './info/LlmInfoSection';
 import { infoStyles } from './info/infoStyles';
 import { copyToClipboard } from '../../utils/clipboard';
 
@@ -98,6 +99,10 @@ const InfoPanel = memo(({ info, paneThemeId, globalThemeId, isVisible = true, t 
         }
         @keyframes iterm-spin { to { transform: rotate(360deg); } }
       `}</style>
+      <LlmInfoSection
+        key={`${info?.host?.id || 'local'}:${info?.sessionId}:${info?.effectiveTmuxSession || ''}`}
+        info={info} isVisible={isVisible} t={t}
+      />
       {/* 세션 */}
       <InfoSection title={t?.('infoSession') || 'Session'} icon={TerminalIcon}>
         <InfoRow label={t?.('infoTabName') || 'Tab'} value={info?.paneName || info?.tabName || '—'} mono={false} accent />

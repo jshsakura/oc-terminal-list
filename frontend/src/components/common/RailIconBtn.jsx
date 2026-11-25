@@ -1,6 +1,6 @@
 import { tokens } from '../../styles/tokens';
 
-const { color, motion, radius } = tokens;
+const { color, motion, radius, fontSize, space } = tokens;
 
 /**
  * 앱 전역 chrome rail 버튼 — TabBar 상단 액션, TerminalHeader 우측 액티비티 바 등에서 공통 사용.
@@ -19,6 +19,7 @@ const { color, motion, radius } = tokens;
 const RailIconBtn = ({
   icon: Icon,
   children,
+  label = null,
   onClick,
   title,
   active = false,
@@ -26,6 +27,14 @@ const RailIconBtn = ({
   disabled = false,
   badge = null,     // 우상단 작은 카운트 배지
   ariaLabel,
+  ariaDescribedBy,
+  ariaDescription,
+  round = false,
+  onMouseEnter,
+  onMouseLeave,
+  onFocus,
+  onBlur,
+  onKeyDown,
   ui = null,
   compact = false,  // 좁은 rail 용 (TerminalHeader 활동바 등) — outer 24×24 / inner 18×18.
   guide,            // spotlight target id (data-guide), see utils/guideTargets.js
@@ -56,11 +65,17 @@ const RailIconBtn = ({
       onClick={onClick}
       title={title}
       aria-label={ariaLabel || title}
+      aria-describedby={ariaDescribedBy}
+      aria-description={ariaDescription}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onKeyDown={onKeyDown}
       data-guide={guide}
       disabled={disabled}
       style={{
         ...S.outer,
         ...(compact ? S.outerCompact : null),
+        ...(label ? { width: 'auto', padding: `0 ${space['0.5']}` } : null),
         color: baseColor,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.4 : 1,
@@ -70,23 +85,28 @@ const RailIconBtn = ({
         const inner = e.currentTarget.firstElementChild;
         if (inner && !active) inner.style.background = hoverInnerBg;
         e.currentTarget.style.color = hoverColor;
+        onMouseEnter?.(e);
       }}
       onMouseLeave={(e) => {
         if (disabled) return;
         const inner = e.currentTarget.firstElementChild;
         if (inner && !active) inner.style.background = idleInnerBg;
         e.currentTarget.style.color = baseColor;
+        onMouseLeave?.(e);
       }}
     >
       <span
         style={{
           ...S.inner,
           ...(compact ? S.innerCompact : null),
+          ...(label ? { width: 'auto', padding: `0 ${space['1.5']}`, gap: space['1'], fontSize: fontSize['11'], whiteSpace: 'nowrap' } : null),
           background: idleInnerBg,
-          border: idleBorder,
+          border: round ? 'none' : idleBorder,
+          ...(round ? { borderRadius: '50%' } : null),
         }}
       >
         {Icon ? <Icon size={compact ? 13 : 15} strokeWidth={1.8} /> : children}
+        {label && <span>{label}</span>}
         {badge != null && badge > 0 && (
           <span style={{ ...S.badge, background: palette.accent, color: '#fff', boxShadow: `0 0 0 1.5px ${palette.base || palette.mantle}` }}>
             {badge > 99 ? '99+' : badge}

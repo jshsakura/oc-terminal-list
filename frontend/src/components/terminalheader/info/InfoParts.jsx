@@ -20,7 +20,7 @@ const InfoSection = ({ title, icon: Icon, subtitle = null, action = null, childr
   </div>
 );
 
-const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, onCopy, copied = false, icon: Icon = null, t = null }) => (
+const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, onCopy, copied = false, icon: Icon = null, t = null, wrap = false }) => (
   <div style={infoStyles.row}>
     <span style={{ ...infoStyles.rowLabel, color: 'var(--ui-subtext)' }}>{label}</span>
     <span style={{
@@ -29,7 +29,7 @@ const InfoRow = ({ label, value, mono = true, accent = false, copyable = false, 
       color: accent ? 'var(--ui-accent)' : 'var(--ui-text)',
     }}>
       {Icon && <Icon size={10} strokeWidth={2} style={{ marginRight: '4px', opacity: 0.7 }} />}
-      <span style={infoStyles.rowValueText} title={typeof value === 'string' ? value : undefined}>{value}</span>
+      <span style={{ ...infoStyles.rowValueText, ...(wrap ? infoStyles.rowValueWrap : null) }} title={typeof value === 'string' ? value : undefined}>{value}</span>
       {copyable && (
         <button
           type="button"

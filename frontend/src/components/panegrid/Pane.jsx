@@ -84,6 +84,7 @@ const Pane = ({
   const [hover, setHover] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [terminalReady, setTerminalReady] = useState(false);
+  const [watchUsage, setWatchUsage] = useState(null);
   // Declare isEmpty early — used in useEffect dependency arrays below (TDZ guard)
   const isEmpty = !pane.sessionId && !pane.hostId;
   // VNC pane — mode:'vnc' 로 활성화된 원격 데스크톱. TerminalHeader 없이 전체 영역 사용.
@@ -455,7 +456,10 @@ const Pane = ({
   const handleHeaderOpenTerminalAtFolder = useEvent(
     (path) => onOpenTerminalAtFolder?.(path, pane.hostId || null, { tabId: tab?.id, paneId: pane.id }),
   );
-  const handleTerminalRef = useEvent((handle) => registerTerminal?.(pane.id, handle));
+  const handleTerminalRef = useEvent(handle => {
+    setWatchUsage(() => handle?.watchUsage || null);
+    registerTerminal?.(pane.id, handle);
+  });
   const handleTerminalBroadcast = useEvent((data) => onBroadcastData?.(pane.id, data));
   const bumpRefreshNonce = useEvent(() => setRefreshNonce((n) => n + 1));
   const paneCwdInfo = useMemo(
@@ -690,6 +694,7 @@ const Pane = ({
           activeHostId={pane.hostId || null}
           gitContextPath={paneGitContext}
           paneInfo={paneInfo}
+          watchUsage={terminalReady ? watchUsage : null}
           onFileSelect={handleHeaderFileSelect}
           onFolderSelect={onFolderSelect}
           onOpenTerminalAtFolder={handleHeaderOpenTerminalAtFolder}
