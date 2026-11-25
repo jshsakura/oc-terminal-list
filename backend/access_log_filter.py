@@ -51,6 +51,15 @@ SUMMARY_INTERVAL_SEC = 60.0
 _summary_logger = logging.getLogger("access_log_filter")
 
 
+class PreviewAccessFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) > _PATH_IDX and isinstance(args[_PATH_IDX], str):
+            path = re.sub(r"(/api/files/preview/)[^/?\s]+", r"\1[redacted]", args[_PATH_IDX])
+            record.args = (*args[:_PATH_IDX], path, *args[_PATH_IDX + 1:])
+        return True
+
+
 class QuietPollingAccessFilter(logging.Filter):
     """⚠️ **솎되, 침묵하지는 않는다.**
 
@@ -104,6 +113,7 @@ class QuietPollingAccessFilter(logging.Filter):
 
 def install() -> None:
     """`main.py` 의 로깅 설정 직후에 부른다."""
+    logging.getLogger("uvicorn.access").addFilter(PreviewAccessFilter())
     if os.getenv("ACCESS_LOG_QUIET", "1").strip() in ("0", "false", "no"):
         return
     logging.getLogger("uvicorn.access").addFilter(QuietPollingAccessFilter())

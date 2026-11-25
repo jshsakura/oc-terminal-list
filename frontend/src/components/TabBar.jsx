@@ -1,6 +1,6 @@
 import { memo, useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { Terminal as TerminalIcon, Settings as SettingsIcon, Keyboard, Radio, Sparkles } from 'lucide-react';
+import { Terminal as TerminalIcon, Settings as SettingsIcon, Keyboard, Radio, FileText, X, Sparkles } from 'lucide-react';
 import { tokens } from '../styles/tokens';
 import RailIconBtn from './common/RailIconBtn';
 import useTouchDragReorder from '../hooks/useTouchDragReorder';
@@ -15,6 +15,10 @@ const { color } = tokens;
 
 const TabBar = ({
   tabs = [],
+  documentFiles = [],
+  activeDocument = null,
+  onSelectDocument = null,
+  onCloseDocument = null,
   activeTabId,
   busyTabIds,
   onSelect,
@@ -84,7 +88,7 @@ const TabBar = ({
   const activeDraggingId = draggingTabId || touchReorder.draggingId;
   const activeDragOverId = dragOverTabId || touchReorder.dragOverId;
 
-  const isHome = activeTabId === null;
+  const isHome = activeTabId === null && !activeDocument;
 
   // One observer for the whole strip (not per tab). Mobile tabs are fixed-width and
   // scroll, so density only applies on desktop.
@@ -119,7 +123,7 @@ const TabBar = ({
       }
     });
     return () => cancelAnimationFrame(raf);
-  }, [activeTabId, tabs.length]);
+  }, [activeTabId, tabs.length, documentFiles.length]);
 
   // 모든 Tab 핸들러를 useEvent 로 안정화 — Tab 의 memo() 가 부모 state 변화마다 깨지던 문제 해결.
   // 핸들러 안에서는 항상 최신 state/props 가 보이므로 deps 신경 안 써도 됨.
@@ -272,6 +276,18 @@ const TabBar = ({
             onDrop={handleDrop}
             t={t}
           />
+        ))}
+        {documentFiles.map(file => (
+          <div key={file} data-tab-id={`document:${file}`} style={{ display: 'flex', alignItems: 'center', flexShrink: 0, maxWidth: isMobile ? 180 : 240, margin: '4px 2px', borderRadius: 4, background: activeDocument === file ? color.surface1 : color.surface0 }}>
+            <button type="button" role="tab" aria-selected={activeDocument === file} title={file}
+              onClick={() => onSelectDocument?.(file)}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, padding: '3px 8px', border: 0, background: 'transparent', color: color.text, cursor: 'pointer' }}>
+              <FileText size={14} style={{ flexShrink: 0 }} />
+              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.split('/').pop()}</span>
+            </button>
+            <button type="button" aria-label={`${t('close')} ${file.split('/').pop()}`} onClick={() => onCloseDocument?.(file)}
+              style={{ display: 'flex', padding: 5, border: 0, background: 'transparent', color: color.text, cursor: 'pointer' }}><X size={12} /></button>
+          </div>
         ))}
       </div>
 

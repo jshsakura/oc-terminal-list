@@ -22,6 +22,7 @@ import useTerminalSearch from './hooks/useTerminalSearch';
 import useFilePicker from './hooks/useFilePicker';
 import useEditorResize from './hooks/useEditorResize';
 import useEditorTabs from './hooks/useEditorTabs';
+import useDocumentTabs from './hooks/useDocumentTabs';
 import useWorkspaceTabs from './hooks/useWorkspaceTabs';
 import useDeepLinkOpen from './hooks/useDeepLinkOpen';
 import useAgentStatus from './hooks/useAgentStatus';
@@ -122,10 +123,18 @@ function App() {
   // 탭 상태 + 영속(localStorage·서버 저장/복원/SSE)은 useWorkspaceTabs 가 단일 소유.
   // 탭 "조작"(추가/닫기/분할/열기 등)은 아래 App 본체에 남아 setTabs/setActiveTabId 를 쓴다.
   const {
-    tabs, setTabs, activeTabId, setActiveTabId, isRestoringWorkspace, setIsRestoringWorkspace,
+    tabs, setTabs, activeTabId, setActiveTabId: setWorkspaceActiveTabId, isRestoringWorkspace, setIsRestoringWorkspace,
     workspaceConflict, canTerminateSessions, acceptServerWorkspace, keepLocalWorkspace,
     commitWorkspaceTabs,
   } = useWorkspaceTabs({ isAuthenticated });
+  const { documentFiles, activeDocument, openDocument, closeDocument, leaveDocument } = useDocumentTabs();
+  const documentEditors = useRef(new Map());
+  const setActiveTabId = useEvent(id => { leaveDocument(); setWorkspaceActiveTabId(id); });
+  const requestDocumentClose = useEvent(file => {
+    openDocument(file);
+    const editor = documentEditors.current.get(file);
+    if (editor) { editor.requestClose(); } else { closeDocument(file); }
+  });
   const tabsRef = useRef(tabs);
   tabsRef.current = tabs;
   const canTerminateSessionsRef = useRef(canTerminateSessions);
@@ -770,6 +779,7 @@ function App() {
     t, setNotification, activeTabId,
     liveTabIds: tabs.map((tb) => tb.id),
     pruneEnabled: !isRestoringWorkspace,
+    onOpenDocument: file => { openDocument(file); setCommandInputOpen(false); document.activeElement?.blur?.(); },
   });
   // 터미널의 파일 경로 클릭 → 에디터로 연다. 워크스페이스 루트는 한 번만 가져와 캐시.
   const workspaceRootRef = useRef('');
@@ -790,12 +800,16 @@ function App() {
       });
       // 워크스페이스 밖이거나 홈 경로면 못 연다 — 조용히 무시(엉뚱한 파일 열지 않음).
       if (rel == null) return;
+      if (isMobile || link.newTab) {
+        handleFileOpen(rel, null, { newTab: link.newTab === true });
+        return;
+      }
       /* 있는지 먼저 확인하고 연다. 낙관적으로 열면 **없는 경로로 빈 편집기 탭**이 남는데,
          그건 사용자가 직접 닫아야 하고 이름도 경로 조각이라 뭘 잘못 눌렀는지도 모른다
          (실제 증상). 클릭은 드문 사용자 동작이라 왕복 하나는 싸다. */
-      apiFetch(`/api/files/read?path=${encodeURIComponent(rel)}`, { headers: authHeaders() })
+      apiFetch(`/api/files/download?path=${encodeURIComponent(rel)}`, { method: 'HEAD', headers: authHeaders() })
         .then((r) => {
-          if (r.ok) { handleFileOpen(rel); return; }
+          if (r.ok && r.headers.get('content-type') !== 'application/zip') { handleFileOpen(rel); return; }
           setNotification({ isOpen: true, message: `${t('fileNotFound') || 'File not found'}: ${link.path}` });
         })
         .catch(() => { /* 네트워크 실패 — 잘못된 경로라고 단정하지 않는다(조용히 무시) */ });
@@ -803,7 +817,7 @@ function App() {
     };
     window.addEventListener('iterm:open-file', onOpenFile);
     return () => window.removeEventListener('iterm:open-file', onOpenFile);
-  }, [handleFileOpen, t]);
+  }, [handleFileOpen, isMobile, t]);
 
   /* pane 의 "멀티플렉서가 없습니다" 배너에서 곧장 도구 설치로. 안내만 하고 길을 안 주면
      사용자는 그 배너를 닫고 잊는다 — 그리고 탭을 닫는 순간 작업이 사라진다.
@@ -1006,7 +1020,7 @@ function App() {
       // 버튼과 같은 조건으로 잠근다: 터미널이 붙기 전엔 보낼 곳이 없다.
       if (ctrl && e.shiftKey && e.key === 'Enter') {
         e.preventDefault();
-        if (activeTabId !== null && readyByTabId[activeTabId]) openCommandInput();
+        if (!activeDocument && activeTabId !== null && readyByTabId[activeTabId]) { openCommandInput(); }
         return;
       }
       if (ctrl && e.shiftKey && (e.key === 'P' || e.key === 'p')) { e.preventDefault(); setIsCommandPaletteOpen(true); return; }
@@ -1015,13 +1029,13 @@ function App() {
       if (ctrl && e.key === 't') { e.preventDefault(); handleAddTab(); return; }
       if (ctrl && (e.key === '\\' || e.code === 'Backslash')) {
         e.preventDefault();
-        splitActivePane(e.shiftKey ? 'down' : 'right');
+        if (!activeDocument) { splitActivePane(e.shiftKey ? 'down' : 'right'); }
         return;
       }
       if (e.ctrlKey && !e.metaKey && e.key.toLowerCase() === 'w' && isTerminalInput(e.target)) return;
       if (ctrl && e.key.toLowerCase() === 'w') {
         e.preventDefault();
-        if (activeTabId) closeTab(activeTabId);
+        if (activeDocument) { requestDocumentClose(activeDocument); } else if (activeTabId) { closeTab(activeTabId); }
         return;
       }
       // Ctrl/Cmd + 1..9 → 해당 인덱스 탭으로 전환 (탭 좌측의 번호와 짝)
@@ -1045,7 +1059,7 @@ function App() {
     window.addEventListener('keydown', onKey);
     window.addEventListener('terminal:open-search', onSearch);
     return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('terminal:open-search', onSearch); };
-  }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, commandInputOpen, readyByTabId, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane, tabs]);  // splitActivePane 은 deps 비어 있어 stable
+  }, [isCommandPaletteOpen, isTerminalSearchOpen, isFilePickerOpen, commandInputOpen, readyByTabId, openFilePicker, openTerminalSearch, handleAddTab, activeTabId, activeTab, closeTab, splitActivePane, tabs, activeDocument, requestDocumentClose]);  // splitActivePane 은 deps 비어 있어 stable
 
   // ── terminal key for session registry ─────────────────────────────────────
   // Terminal.jsx 는 `sessionId={pane.sessionId || pane.id}` 로 등록한다.
@@ -1270,7 +1284,7 @@ function App() {
   if (!isAuthenticated) return <LazyErrorBoundary><Suspense fallback={authLoadingFallback}><Login onLogin={handleLogin} language={settings.language} theme={currentTheme} einkMode={settings.einkMode === true} onToggleEink={() => updateSettings({ einkMode: !settings.einkMode })} /></Suspense></LazyErrorBoundary>;
 
   const renderMobileToolbar = (sendKey = sendMobileKey) => (
-    isMobile && activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
+    !activeDocument && isMobile && activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
         && (focusedPane.sessionId || focusedPane.hostId) && !authPromptOpen && (
         <LazyErrorBoundary><Suspense fallback={null}>
           {/* ⚠️ 퀵바는 입력 도크보다 **먼저** 그려져야 한다 — 도크가 이 안의 고정
@@ -1446,7 +1460,11 @@ function App() {
       {/* ── 단일 상단 바: 홈 + 탭 + 액션 (호스트 / SSH 키 / 설정 / 로그아웃) ── */}
       <TabBar
         tabs={tabsWithMeta}
-        activeTabId={activeTabId}
+        activeTabId={activeDocument ? `document:${activeDocument}` : activeTabId}
+        documentFiles={documentFiles}
+        activeDocument={activeDocument}
+        onSelectDocument={openDocument}
+        onCloseDocument={requestDocumentClose}
         isMobile={isMobile}
         busyTabIds={busyTabIds}
         onReorder={(fromId, toId) => {
@@ -1472,26 +1490,26 @@ function App() {
         terminatorOpen={terminatorOpen}
         // 보낼 터미널이 실제로 있을 때만 노출 — 홈 화면/빈 탭에선 의미 없음.
         onOpenCommandInput={
-          activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
+          !activeDocument && activeTabId !== null && !!focusedPane && focusedPane.mode !== 'vnc'
             && (focusedPane.sessionId || focusedPane.hostId)
             ? openCommandInput
             : null
         }
         // 터미널이 붙기 전엔 눌러봐야 보낼 곳이 없다 — 로딩 중엔 액션 버튼을 흐리게 잠근다.
-        actionsDisabled={activeTabId !== null && !readyByTabId[activeTabId]}
+        actionsDisabled={!!activeDocument || (activeTabId !== null && !readyByTabId[activeTabId])}
         // 새로고침할 터미널이 있을 때만 — 홈에서는 되돌릴 화면 자체가 없다.
         onReloadTerminals={
-          activeTabId !== null ? () => setTerminalReloadSignal((s) => s + 1) : null
+          !activeDocument && activeTabId !== null ? () => setTerminalReloadSignal((s) => s + 1) : null
         }
         // 분할이 2개 이상일 때만 의미 있음 — 단일 pane 에선 숨긴다.
         onEqualizePanes={
-          !isMobile && (activeTab?.panes?.length || 0) > 1
+          !activeDocument && !isMobile && (activeTab?.panes?.length || 0) > 1
             ? handleEqualizeRequest
             : null
         }
         isBroadcasting={broadcastActive}
         onBroadcastToggle={
-          (activeTab?.panes?.length || 0) > 1
+          !activeDocument && (activeTab?.panes?.length || 0) > 1
             ? () => broadcastTabRef.current?.()
             : null
         }
@@ -1499,7 +1517,7 @@ function App() {
         onSplit={splitActivePane}
         onDuplicate={handleDuplicateTab}
         onRenameTab={handleRenameTab}
-        canSplit={!!activeTab && !isMobile}
+        canSplit={!activeDocument && !!activeTab && !isMobile}
         t={t}
       />
 
@@ -1518,13 +1536,13 @@ function App() {
             position: 'absolute', inset: 0,
             display: 'flex',
             flexDirection: 'column', overflow: 'hidden',
-            visibility: activeTabId === null ? 'visible' : 'hidden',
-            opacity: activeTabId === null ? 1 : 0,
-            pointerEvents: activeTabId === null ? 'auto' : 'none',
-            zIndex: activeTabId === null ? 1 : 0,
+            visibility: !activeDocument && activeTabId === null ? 'visible' : 'hidden',
+            opacity: !activeDocument && activeTabId === null ? 1 : 0,
+            pointerEvents: !activeDocument && activeTabId === null ? 'auto' : 'none',
+            zIndex: !activeDocument && activeTabId === null ? 1 : 0,
           }}>
             <HomeDashboard
-              isVisible={activeTabId === null}
+              isVisible={!activeDocument && activeTabId === null}
               hosts={hosts}
               hostsLoading={hostsLoading}
               settings={settings}
@@ -1573,9 +1591,20 @@ function App() {
             />
           </div>
 
+          {documentFiles.map(file => (
+            <div key={file} role="tabpanel" aria-label={file} {...(activeDocument !== file ? { inert: '' } : {})}
+              style={{ position: 'absolute', inset: 0, visibility: activeDocument === file ? 'visible' : 'hidden', zIndex: activeDocument === file ? 2 : 0, pointerEvents: activeDocument === file ? 'auto' : 'none' }}>
+              <LazyErrorBoundary><Suspense fallback={null}>
+                <FileEditor ref={editor => { if (editor) { documentEditors.current.set(file, editor); } else { documentEditors.current.delete(file); } }}
+                  activeFile={file} openFiles={[file]} onFileSelect={openDocument} onOpenDocument={openDocument} isVisible={activeDocument === file}
+                  onClose={closeDocument} theme={currentTheme} language={settings.language} standalone showTabs={false} />
+              </Suspense></LazyErrorBoundary>
+            </div>
+          ))}
+
           {/* 각 탭의 PaneGrid — 항상 마운트, 활성만 visible. WS 는 Terminal 안에서 lazy. */}
           {tabs.map((tab) => {
-            const isThisActive = tab.id === activeTabId;
+            const isThisActive = !activeDocument && tab.id === activeTabId;
             const tabCwd = tab?.type === 'local'
               ? (tab?.cwd ?? (settings.localStartPath || null))
               : (tab?.cwd ?? null);
@@ -1744,7 +1773,7 @@ function App() {
           (터미널 탭 → 키보드 → 키바에서 버튼 찾기 → 모달)을 0 걸음으로 줄인다.
           도크 자리는 MobileToolbar 바로 위 — 둘 다 wrapper 의 flex 흐름 끝이라
           키보드가 올라오면 같이 밀려 올라간다. */}
-      {(commandInputOpen || showCommandDock) && (
+      {!activeDocument && (commandInputOpen || showCommandDock) && (
         <LazyErrorBoundary><Suspense fallback={null}>
           <CommandInput
             renderQuickBar={isMobile ? renderMobileToolbar : null}

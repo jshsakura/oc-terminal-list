@@ -1,6 +1,8 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import App from './App.jsx'
+const DocumentWindow = React.lazy(() => import('./components/DocumentWindow.jsx'))
+const isDocumentWindow = new URLSearchParams(window.location.search).has('document')
 import { isPhoneViewport } from './utils/tabModel'
 import { EINK_CSS } from './styles/einkCss'
 import { applyEinkAttribute, readStoredEinkMode } from './utils/einkMode'
@@ -142,7 +144,7 @@ document.addEventListener('touchstart', () => {}, { passive: true });
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <App />
+    {isDocumentWindow ? <React.Suspense fallback={null}><DocumentWindow /></React.Suspense> : <App />}
   </React.StrictMode>,
 )
 

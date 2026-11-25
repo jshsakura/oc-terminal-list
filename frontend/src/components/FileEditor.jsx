@@ -2,10 +2,10 @@
  * FileEditor 컴포넌트
  * Monaco Editor를 사용한 VSCode 수준의 멀티 탭 편집 환경 제공
  */
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, forwardRef, useImperativeHandle } from 'react';
 import Editor, { DiffEditor } from '@monaco-editor/react';
 import { setupMonaco } from '../setupMonaco';
-import { Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut, AlignLeft } from 'lucide-react';
+import { Save, RefreshCw, CheckCircle2, AlertCircle, Loader2, Eye, Edit3, GripHorizontal, GitCompare, ZoomIn, ZoomOut, AlignLeft, ExternalLink } from 'lucide-react';
 
 // 워커 환경 + loader 를 번들 monaco 로 고정. 이 모듈(=FileEditor 청크)이 로드되는 시점에 1회 실행되며,
 // 아래 <Editor> 가 mount 되어 loader.init() 하기 전에 끝나야 CDN 폴백 없이 셀프호스트 monaco 를 쓴다.
@@ -28,6 +28,8 @@ import { canFormatLanguage } from '../utils/formatSupport';
 import { monacoLanguageForFile } from '../utils/fileTypes';
 import { FileEditorTabs } from './fileEditor/FileEditorTabs';
 import { einkPollMs } from '../utils/einkMode';
+import { documentLinkUrl, openDocumentWindow } from '../utils/documentLinks';
+import useFileDownload from '../hooks/useFileDownload';
 
 
 // confirmClose.fileKey 자리에 들어가는 "전체" 표식 — 어떤 fileKey 와도 겹치지 않는 값.
@@ -38,17 +40,19 @@ const CLOSE_ALL = Symbol('close-all');
 const LOCAL_POLL_MS = 5000;
 const REMOTE_POLL_MS = 30000;
 
-const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll = null, theme, language = 'en', onResizeStart }) => {
+const FileEditor = forwardRef(({ activeFile, openFiles, onFileSelect, onClose, onCloseAll = null, theme, language = 'en', onResizeStart, standalone = false, showTabs = true, onOpenDocument = null, isVisible = true }, ref) => {
   const { t } = useTranslation(language);
   const [fileStates, setFileStates] = useState({}); // { path: { content, hasChanges, lastSavedContent } }
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [popoutError, setPopoutError] = useState(false);
+  const [workspaceRoot, setWorkspaceRoot] = useState('');
   const [status, setStatus] = useState('idle'); // 'idle' | 'saved' | 'error'
   const [confirmClose, setConfirmClose] = useState({ isOpen: false, fileKey: null });
   const [externalChange, setExternalChange] = useState({ isOpen: false, fileKey: null, newContent: '' });
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  const [isPreviewMode, setIsPreviewMode] = useState(() => standalone && /\.md$/i.test(activeFile || ''));
   const [rawPreviewUrl, setRawPreviewUrl] = useState(null);
   // 원격 미리보기는 호스트가 꺼져 있을 수 있다 — 깨진 이미지 아이콘 대신 이유를 적는다.
   const [rawPreviewError, setRawPreviewError] = useState(false);
@@ -61,7 +65,10 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
 
   const editorRef = useRef(null);
   const pollingRef = useRef(null);
+  const wasVisibleRef = useRef(isVisible);
   const binaryPathsRef = useRef(new Set());
+  const missingPathsRef = useRef(new Set());
+  const imageDownloadPendingRef = useRef(false);
   const [editorFontSize, setEditorFontSize] = useState(() =>
     parseInt(localStorage.getItem('editor-font-size') || '12', 10)
   );
@@ -81,10 +88,13 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
 
   const loadFile = useCallback(async (fileKey, isSilent = false) => {
     if (!fileKey) return;
+    if (isSilent && missingPathsRef.current.has(fileKey)) { return; }
     const { path, hostId } = parseFileKey(fileKey);
     if (!path) return;
-    if (!isSilent) setLoading(true);
-    setError(null);
+    if (!isSilent) {
+      setLoading(true);
+      setError(null);
+    }
 
     try {
       /* ⚠️ 상태 키는 **fileKey** 다. `path` 가 아니다.
@@ -101,11 +111,14 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
       });
 
       if (!res.ok) {
+        if (res.status === 404) { missingPathsRef.current.add(fileKey); }
         const errorData = await res.json();
         throw new Error(errorData.detail || 'Failed to load file');
       }
 
       const data = await res.json();
+      missingPathsRef.current.delete(fileKey);
+      setError(null);
       binaryPathsRef.current.delete(fileKey);
 
       setFileStates(prev => {
@@ -195,10 +208,26 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
   // 텍스트로 열어준다 — 원격 svg 는 Monaco 에서 xml 로 보이는 편이 낫다.
   const canInlineHere = !activeFileHostId || isRemoteInlinePreviewFile(previewName);
   const isInlineMedia = (isImage || isPdf || isVideo || isAudio) && canInlineHere;
+  const canDownloadImage = isImage && canInlineHere;
+  const { downloadState, downloadNode } = useFileDownload({
+    apiBase: activeFileHostId ? `/api/hosts/${encodeURIComponent(activeFileHostId)}/files` : '/api/files',
+    t,
+  });
+  const downloadImage = async () => {
+    if (imageDownloadPendingRef.current) {
+      return;
+    }
+    imageDownloadPendingRef.current = true;
+    try {
+      await downloadNode(activeFilePath, 'file');
+    } finally {
+      imageDownloadPendingRef.current = false;
+    }
+  };
   // 텍스트 에디터로 읽지 않는 것들 — 미디어(raw 로 직접 렌더) + 스프레드시트(표로 파싱).
   const isBinaryPreview = isInlineMedia || isSheet;
-  const isMarkdown = (activeFilePath || activeFile)?.endsWith('.md');
-  const isHtml = (activeFilePath || activeFile)?.endsWith('.html');
+  const isMarkdown = /\.md$/i.test(activeFilePath || activeFile || '');
+  const isHtml = /\.html?$/i.test(activeFilePath || activeFile || '');
   // HTML 은 로컬만. 원격 파일을 same-origin 문서로 띄우면 그대로 XSS 이므로 백엔드의
   // raw 라우트도 미디어 타입만 통과시킨다 (routes/host_files.inline_media_type).
   const rawPreviewPath = (isInlineMedia || (isPreviewMode && isHtml && !activeFileHostId))
@@ -217,20 +246,24 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
    * (밤새 켜둔 탭이 조용히 왕복을 태우던 이 저장소의 단골 병).
    */
   useEffect(() => {
-    if (!activeFile || isBinaryPreview || binaryPathsRef.current.has(activeFile)) return undefined;
+    const becameVisible = isVisible && !wasVisibleRef.current;
+    wasVisibleRef.current = isVisible;
+    if (!isVisible || !activeFile || isBinaryPreview || binaryPathsRef.current.has(activeFile)) { return undefined; }
     const intervalMs = einkPollMs(activeFileHostId ? REMOTE_POLL_MS : LOCAL_POLL_MS);
-    const arm = () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      if (typeof document !== 'undefined' && document.hidden) return;
+    const arm = (refresh = false) => {
+      if (pollingRef.current) { clearInterval(pollingRef.current); }
+      if (typeof document !== 'undefined' && document.hidden) { return; }
+      if (refresh) { loadFile(activeFile, true); }
       pollingRef.current = setInterval(() => { loadFile(activeFile, true); }, intervalMs);
     };
-    arm();
-    document.addEventListener('visibilitychange', arm);
+    const onVisibilityChange = () => { arm(true); };
+    arm(becameVisible);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
-      document.removeEventListener('visibilitychange', arm);
+      if (pollingRef.current) { clearInterval(pollingRef.current); }
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [activeFile, loadFile, isBinaryPreview, activeFileHostId]);
+  }, [activeFile, loadFile, isBinaryPreview, activeFileHostId, isVisible]);
 
   useEffect(() => {
     if (activeFile && !fileStates[activeFile] && !binaryPathsRef.current.has(activeFile)) {
@@ -242,8 +275,37 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
   }, [activeFile, loadFile, isBinaryPreview]);
 
   useEffect(() => {
-    setIsPreviewMode(false);
-  }, [activeFile]);
+    setIsPreviewMode(standalone && isMarkdown);
+    setPopoutError(false);
+  }, [activeFile, standalone, isMarkdown]);
+
+  useEffect(() => {
+    if (activeFileHostId || !isMarkdown) {
+      return;
+    }
+    let cancelled = false;
+    fetch('/api/files/workspace', { headers: authHeaders() })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => {
+        if (!cancelled && typeof data?.root === 'string') {
+          setWorkspaceRoot(data.root);
+        }
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [activeFileHostId, isMarkdown]);
+
+  useEffect(() => {
+    if (!standalone || !Object.values(fileStates).some((state) => state.hasChanges)) {
+      return;
+    }
+    const warnBeforeClose = (event) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeClose);
+    return () => window.removeEventListener('beforeunload', warnBeforeClose);
+  }, [standalone, fileStates]);
 
   // 스프레드시트는 파서를 lazy import 하므로 로딩 상태가 실재한다(청크 + 파싱).
   // 실패 사유는 **코드**로 담는다 — t() 를 여기서 부르면 매 렌더 새 함수라 이펙트가 재실행된다.
@@ -294,9 +356,9 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
     // 밖을 차단). _t 로 캐시를 우회해 편집 후에도 최신 원본을 보여준다.
     const base = rawPreviewHostId
       ? `/api/hosts/${encodeURIComponent(rawPreviewHostId)}/files/raw`
-      : '/api/files/raw';
+      : isHtml ? '/api/files/preview' : '/api/files/raw';
     setRawPreviewUrl(`${base}?path=${encodeURIComponent(rawPreviewPath)}&_t=${Date.now()}`);
-  }, [rawPreviewPath, rawPreviewHostId]);
+  }, [rawPreviewPath, rawPreviewHostId, isHtml]);
 
   // 활성 파일이 바뀌면 HEAD 원본을 lazy load. 변경분이 있으면 diff 모드로 자동 진입.
   useEffect(() => {
@@ -401,6 +463,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
       onClose(fileKey);
     }
   };
+  useImperativeHandle(ref, () => ({ requestClose: () => handleCloseClick(activeFile) }));
 
   const confirmCloseFile = () => {
     const fileKey = confirmClose.fileKey;
@@ -466,7 +529,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
       onMouseEnter={() => editorRef.current?.focus()}
     >
       {/* 탭 바 — 메인 TabBar 의 폴더탭 스타일과 동일 */}
-      <FileEditorTabs
+      {showTabs && <FileEditorTabs
         openFiles={openFiles}
         activeFile={activeFile}
         fileStates={fileStates}
@@ -476,7 +539,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
         onCloseClick={handleCloseClick}
         onCloseAllClick={onCloseAll ? handleCloseAllClick : null}
         t={t}
-      />
+      />}
 
       {/* 액션바 (저장, 새로고침 등) */}
       <div style={{ 
@@ -491,6 +554,16 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           {activeFileHostId ? `[remote] ${activeFilePath}` : (activeFilePath || activeFile)}
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <Button
+            variant="ghost"
+            size="small"
+            icon={ExternalLink}
+            disabled={hasChanges || saving || loading}
+            title={hasChanges ? t('saveBeforeDocumentWindow') : t('openDocumentWindow')}
+            onClick={() => setPopoutError(!openDocumentWindow(activeFile))}
+          >
+            {t('openDocumentWindow')}
+          </Button>
           {diffStates[activeFile]?.exists && diffStates[activeFile]?.original !== currentFileState.lastSavedContent && (
             <Button
               variant="ghost"
@@ -532,12 +605,13 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           )}
           <Button
             variant="ghost"
-            onClick={saveFile}
-            disabled={!hasChanges || saving || loading}
+            onClick={canDownloadImage ? downloadImage : saveFile}
+            disabled={canDownloadImage ? !!downloadState?.pending : (!hasChanges || saving || loading)}
+            title={canDownloadImage ? t('download') : t('save')}
             theme={theme}
             style={{ height: '24px', fontSize: '11px', padding: '0 8px' }}
           >
-            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+            {(canDownloadImage ? downloadState?.pending : saving) ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
             <span>{t('save')}</span>
           </Button>
           <Button
@@ -573,6 +647,8 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
       </div>
 
       {/* 에디터 영역 */}
+      {popoutError && <div role="alert" style={{ padding: '8px 12px', color: theme.red }}>{t('documentPopupBlocked')}</div>}
+      {canDownloadImage && downloadState && <div role={downloadState.error ? 'alert' : 'status'} style={{ padding: '8px 12px', color: downloadState.error ? theme.red : theme.ui.textSecondary }}>{downloadState.message}</div>}
       <div style={styles.content}>
         {loading && !content && !isBinaryPreview ? (
           <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -701,9 +777,10 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
               background: `color-mix(in srgb, ${theme.ui.bg} 82%, transparent)`,
               lineHeight: '1.6'
             }}>
-              <div className="markdown-preview" style={{ maxWidth: '800px', margin: '0 auto' }}>
+              <div className="markdown-preview" style={{ maxWidth: standalone ? 'none' : '800px', margin: '0 auto' }}>
                 <ReactMarkdown 
                   remarkPlugins={[remarkGfm]}
+                  urlTransform={(url, key) => documentLinkUrl(url, key, activeFile, workspaceRoot)}
                   components={{
                     h1: ({node, ...props}) => <h1 style={{ borderBottom: `1px solid ${theme.ui.borderLight}`, paddingBottom: '0.3em', marginBottom: '16px', fontWeight: 'bold', fontSize: '2em' }} {...props} />,
                     h2: ({node, ...props}) => <h2 style={{ borderBottom: `1px solid ${theme.ui.borderLight}`, paddingBottom: '0.3em', marginBottom: '16px', fontWeight: 'bold', fontSize: '1.5em' }} {...props} />,
@@ -722,7 +799,12 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
                     ul: ({node, ...props}) => <ul style={{ paddingLeft: '2em', marginBottom: '16px', listStyleType: 'disc' }} {...props} />,
                     ol: ({node, ...props}) => <ol style={{ paddingLeft: '2em', marginBottom: '16px', listStyleType: 'decimal' }} {...props} />,
                     li: ({node, ...props}) => <li style={{ marginBottom: '4px' }} {...props} />,
-                    a: ({node, ...props}) => <a style={{ color: theme.ui.accent, textDecoration: 'none' }} target="_blank" rel="noopener noreferrer" {...props} />,
+                    a: ({node, ...props}) => <a style={{ color: theme.ui.accent, textDecoration: 'none' }} target="_blank" rel="noopener noreferrer" {...props} onClick={event => {
+                      if (onOpenDocument && props.href?.startsWith('/?document=')) {
+                        event.preventDefault();
+                        onOpenDocument(new URLSearchParams(props.href.slice(2)).get('document'));
+                      }
+                    }} />,
                     img: ({node, ...props}) => <img style={{ maxWidth: '100%', borderRadius: '4px' }} {...props} />,
                   }}
                 >
@@ -837,7 +919,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
           padding: '0 12px',
           fontSize: '11px',
           color: theme.ui.textSecondary,
-          cursor: 'row-resize',
+          cursor: onResizeStart ? 'row-resize' : 'default',
           userSelect: 'none',
           position: 'relative',
           zIndex: 100,
@@ -879,7 +961,7 @@ const FileEditor = ({ activeFile, openFiles, onFileSelect, onClose, onCloseAll =
       />
     </div>
   );
-};
+});
 
 
 export default FileEditor;

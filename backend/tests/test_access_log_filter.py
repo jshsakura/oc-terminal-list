@@ -9,12 +9,35 @@
 from __future__ import annotations
 
 import logging
+import secrets
 
 import pytest
 
-from access_log_filter import QuietPollingAccessFilter
+from access_log_filter import PreviewAccessFilter, QuietPollingAccessFilter
 
 FILTER = QuietPollingAccessFilter()
+
+
+@pytest.mark.parametrize("status", [200, 401, 404, 500])
+def test_preview_capability_is_redacted_without_suppressing_errors(status):
+    token = secrets.token_urlsafe(32)
+    record = _access(f"/api/files/preview/{token}/prototype.js", status)
+    assert PreviewAccessFilter().filter(record)
+    assert token not in record.getMessage()
+    assert "/api/files/preview/[redacted]/prototype.js" in record.getMessage()
+    assert FILTER.filter(record)
+
+
+def test_preview_redaction_stays_enabled_when_quiet_logging_is_off(monkeypatch):
+    import access_log_filter
+    logger = logging.getLogger("uvicorn.access")
+    previous = list(logger.filters)
+    monkeypatch.setenv("ACCESS_LOG_QUIET", "0")
+    try:
+        access_log_filter.install()
+        assert any(isinstance(item, PreviewAccessFilter) for item in logger.filters[len(previous):])
+    finally:
+        logger.filters[:] = previous
 
 
 def _access(path: str, status: int, method: str = "GET") -> logging.LogRecord:
