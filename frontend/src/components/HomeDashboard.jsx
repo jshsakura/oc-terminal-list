@@ -8,6 +8,7 @@ import CardActionsMenu from './home/CardActionsMenu';
 import HostIcon from '../utils/hostIcons';
 import HomeSessions from './HomeSessions';
 import FleetBoard from './home/FleetBoard';
+import MachineInfo from './home/MachineInfo';
 import FirstRunGuide from './home/FirstRunGuide';
 import useFleet from '../hooks/useFleet';
 import useHostReorder from '../hooks/useHostReorder';
@@ -98,6 +99,7 @@ const HomeDashboard = ({
     ['connections', t?.('terminals') || 'Terminals', Link2],
     ['fleet', t?.('processesTab') || 'Running', Activity],
     ...(showUsageStats ? [['dashboard', t?.('dashboard') || 'Dashboard', BarChart3]] : []),
+    ['machine', t?.('machineInfo') || 'Machine info', Server],
   ];
   const fleet = useFleet(isVisible && view === 'fleet');
   /* The board addresses panes the way the rest of the app does (tab.pane, 1-based); jumping needs
@@ -188,6 +190,7 @@ const HomeDashboard = ({
                   key={key}
                   type="button"
                   onClick={() => setView(key)}
+                  aria-pressed={isOn}
                   style={segmentedItemStyle({ active: isOn })}
                   onMouseEnter={(e) => {
                     if (!isOn) applySegmentedHover(e.currentTarget, true);
@@ -204,7 +207,9 @@ const HomeDashboard = ({
           </div>
         )}
 
-        {view === 'fleet' ? (
+        {view === 'machine' ? (
+          <MachineInfo isVisible={isVisible} t={t} />
+        ) : view === 'fleet' ? (
           /* No section heading here — the tab above already carries the name, and saying
              it twice was the first thing anyone noticed about this screen. */
           <FleetBoard
@@ -724,7 +729,7 @@ const styles = {
   },
   /* 둘 다 세그먼트 스위치 — 모양은 styles/segmented.js 한 곳에서 나온다. */
   rangeRow: segmentedTrackStyle(),
-  viewSwitch: segmentedTrackStyle(),
+  viewSwitch: { ...segmentedTrackStyle(), flexWrap: 'wrap' },
 };
 
 export default HomeDashboard;
